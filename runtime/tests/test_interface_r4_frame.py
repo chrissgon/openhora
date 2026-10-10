@@ -536,7 +536,7 @@ from interface_css import css_paths   # noqa: E402
 
 # The stylesheets of the packages that have not moved their phone query yet (R4-A4: base, floor; R4-A5: lobby; R4-A6 moved control.css and left the set). Each package
 # moves its own files (P-7); the test below lets such a file keep the old width until then, and nothing else. Once A4 and A5 have merged the set is empty: delete it.
-LAGGING = {"base.css", "floor.css", "lobby.css"}
+LAGGING = {"lobby.css"}
 PHONE_WIDTH = 899
 
 
