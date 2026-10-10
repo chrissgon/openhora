@@ -1,5 +1,5 @@
 """Tests of round 4's frame and token prompt (R4-A1; rulings R-1 to R-15 of the plan folder's design/04-round-4-rulings.md): the top row of floating
-controls, the two KPI cards, Back and the crumbs docked with the tracking bar, "Waiting for you" as a card on every screen, the phone's two-row bottom
+controls, the two KPI cards, Back and the crumbs in the top row after the mark (M-4), "Waiting for you" as a card on every screen, the phone's two-row bottom
 bar, the soft error notice, the colour-mode button and the token prompt as a technical sheet with its owl. No browser and no model: the modules run
 under Node with a fake document, as the other interface tests do; the served page was looked at in the browser pane by the package's report
 (`reports/r4/R4-A1.md` of the plan folder).
@@ -15,7 +15,7 @@ import standin_tree as st
 from test_interface_adj_b1 import run_scene_dom
 from test_interface_floor import INTERFACE, needs_node
 from test_interface_plates_meters import run_node
-from interface_css import interface_css
+from interface_css import css_file, interface_css
 
 JS = INTERFACE / "js"
 CSS = interface_css()
@@ -54,11 +54,11 @@ const f = desk.frame;
 out.children = kids(f.el).map((c) => cls(c)[0] || c.tagName);
 out.noOldParts = [byClass(f.el, "wb-actions").length, byClass(f.el, "wb-header").length, byClass(f.el, "wb-wait-menu").length];
 const top = first(f.el, "wb-topbar");
-out.top = { tag: top.tagName, kids: kids(top).map((c) => cls(c)[0]), end: kids(first(top, "wb-topbar-end")).map((c) => cls(c).find((x) => ["wb-switcher", "wb-mode-btn", "wb-door"].includes(x))) };
+out.top = { tag: top.tagName, kids: kids(top).map((c) => cls(c)[0]), nav: kids(first(top, "wb-nav")).map((c) => cls(c).find((x) => ["wb-back", "wb-crumb-nav"].includes(x))), end: kids(first(top, "wb-topbar-end")).map((c) => cls(c).find((x) => ["wb-switcher", "wb-mode-btn", "wb-door"].includes(x))) };
 const brand = first(top, "wb-brand");
 out.brand = { mark: [first(brand, "wb-mark").attrs.width, first(brand, "wb-mark").attrs.alt], word: first(brand, "wb-wordmark").textContent, hidden: first(brand, "wb-wordmark").attrs["aria-hidden"] };
 const dock = first(f.el, "wb-dock");
-out.dock = kids(dock).map((c) => cls(c).includes("wb-navdock") ? "navdock:" + kids(first(c, "wb-nav")).map((x) => cls(x).find((y) => ["wb-back", "wb-crumb-nav"].includes(y))).join(",") : cls(c).includes("wb-track") ? "track" : cls(c)[0]);
+out.dock = kids(dock).map((c) => cls(c).includes("wb-track") ? "track" : cls(c)[0]);
 out.kpis = { cards: byClass(first(f.el, "wb-kpis"), "wb-kpi").length, inScene: kids(first(f.el, "wb-scene-area")).some((c) => cls(c).includes("wb-kpis")) };
 const bar = first(f.el, "wb-bottom-bar");
 out.bar = kids(bar).map((row) => kids(row).map((c) => cls(c)[0]));
@@ -97,6 +97,9 @@ out.noticeInfo = { cls: cls(first(f.el, "wb-notice")), role: first(f.el, "wb-not
 out.panel = { classes: cls(desk.panel.el), role: desk.panel.el.attrs.role, label: desk.panel.el.attrs["aria-label"], inFrame: desk.panel.el.parent === f.el };
 f.setScreen(router.parse(`#/p/${a}`), { projectName: "northwind-shop", projectId: a });
 f.switcher.update({ projects: [{ id: a, name: "northwind-shop", accepted: true, badge: 0, sub: "" }], selectedId: a, heading: "Projects" });
+// M-4: the keyboard order is the visual order: what can take the focus in the top row, from the left
+const focusable = (n) => n.tagName === "BUTTON" || (n.tagName === "A" && n.attrs.href);
+out.tabOrder = walkAll(top).filter(focusable).map((n) => n.attrs["aria-label"] || n.textContent || cls(n)[0]);
 click(first(f.switcher.el, "wb-add-row"));
 click(first(f.switcher.el, "wb-leave-row"));
 f.setProjects([{ id: a, name: "northwind-shop", folder: "/p" }]);
@@ -116,7 +119,33 @@ out.phone = {
   top: kids(first(p.el, "wb-topbar-end")).length,
   rows: kids(first(p.el, "wb-bottom-bar")).map((row) => kids(row).map((c) => cls(c).find((x) => ["wb-switcher", "wb-wait-menu-wrap", "wb-mode-btn", "wb-nav", "wb-door"].includes(x)))),
   dock: kids(first(p.el, "wb-dock")).map((c) => cls(c)[0] + ":" + kids(c).length),
+  topNav: first(first(p.el, "wb-topbar"), "wb-nav") !== null,
+  barNav: first(first(p.el, "wb-bottom-bar"), "wb-nav") !== null,
 };
+// M-4: a window that grows past the phone brings Back and the crumbs back to the top row
+const changes = [];
+const mql = { matches: true, addEventListener: (t, fn) => changes.push(fn), removeEventListener() {} };
+window.matchMedia = () => mql;
+const { createFrame: createGrowing } = await import("@JS@/frame/frame.js?growing");
+const g = createGrowing(new FakeNode("div"), { onSelectProject() {}, onForgetToken() {}, onRetry() {} });
+const where = () => [first(first(g.el, "wb-topbar"), "wb-nav") !== null, first(first(g.el, "wb-bottom-bar"), "wb-nav") !== null];
+out.growBefore = where();
+mql.matches = false;
+changes.forEach((fn) => fn());
+out.growAfter = where();
+// F2-7: the frame marks the crumb that names the project
+g.setScreen(router.parse(`#/p/${a}`), { projectName: "northwind-shop", projectId: a });
+const marked = (frameParts) => walkAll(frameParts.el).filter((n) => cls(n).includes("wb-crumb-item")).map((n) => cls(n).includes("is-project"));
+out.projectMark = [marked(g)];
+g.setScreen(router.parse(`#/p/${a}/lobby`), { projectName: "northwind-shop", projectId: a });
+out.projectMark.push(marked(g));
+// the focus stays with the part that held it when the window crosses 899 px (a browser drops it when a part is moved)
+const originalReplace = FakeNode.prototype.replaceChildren;
+FakeNode.prototype.focus = function () { document.activeElement = this; };   // this fake's focus() only notes the node: a browser's sets document.activeElement
+FakeNode.prototype.replaceChildren = function (...moved) { for (const it of moved) if (it instanceof FakeNode && it.contains(document.activeElement)) document.activeElement = null; return originalReplace.apply(this, moved); };
+const focusAcross = (part, toPhone) => { part.focus(); mql.matches = toPhone; changes.forEach((fn) => fn()); return document.activeElement === part; };
+out.focus = [focusAcross(first(g.el, "wb-back"), true), focusAcross(first(g.el, "wb-door"), false), focusAcross(first(g.el, "wb-back"), false), focusAcross(first(g.switcher.el, "wb-switch-main"), true), focusAcross(first(g.el, "wb-mode-btn"), false)];
+FakeNode.prototype.replaceChildren = originalReplace;
 console.log(JSON.stringify(out));
 """
 
@@ -124,10 +153,14 @@ console.log(JSON.stringify(out));
 @needs_node
 def test_the_frame_has_the_top_row_the_dock_the_two_cards_the_bottom_bar_and_the_waiting_card_of_round_4(tmp_path):
     got = run_scene_dom(tmp_path, FRAME)
-    assert got["top"] == {"tag": "HEADER", "kids": ["wb-brand", "wb-topbar-end"], "end": ["wb-switcher", "wb-mode-btn", "wb-door"]}, "R-1: the brand at the left; the switcher, the colour-mode button, the door at the right, in this order"
+    assert got["top"] == {"tag": "HEADER", "kids": ["wb-brand", "wb-nav", "wb-topbar-end"], "nav": ["wb-back", "wb-crumb-nav"], "end": ["wb-switcher", "wb-mode-btn", "wb-door"]}, \
+        "R-1, M-4: the brand at the left and right after it Back and the crumbs; the switcher, the colour-mode button, the door at the right, in this order"
+    order = got["tabOrder"]
+    assert order[:2] == ["Back", "City"] and order.index("Choose a project") < order.index("Colour mode: System") < order.index("Control room"), \
+        f"M-4: the keyboard order is the visual order: Back, the crumbs, then the switcher, the colour mode, the door: {order}"
     assert got["noOldParts"] == [0, 0, 0], "the old header, the actions and the header button's menu are gone"
     assert got["brand"] == {"mark": ["28", "openhora"], "word": "openhora", "hidden": "true"}
-    assert got["dock"] == ["navdock:wb-back,wb-crumb-nav", "track"], "R-2, R-8: Back and the crumbs above the tracking bar, in one dock"
+    assert got["dock"] == ["track"], "R-8, M-4: the bottom left holds the tracking bar alone: Back and the crumbs are in the top row"
     assert got["kpis"] == {"cards": 2, "inScene": True}, "R-5: two cards in the scene area"
     assert got["bar"] == [["wb-wait-menu-wrap"], []], "off a phone the bottom bar holds only the inbox button (hidden by the stylesheet) and an empty second row"
     assert got["mode"] == {"label": "Colour mode: System", "choice": "system", "icons": 3}, "R-4: one button, System first, three icons of which the stylesheet shows the chosen one"
@@ -151,7 +184,10 @@ def test_the_frame_has_the_top_row_the_dock_the_two_cards_the_bottom_bar_and_the
     assert got["noPanel"][0] == 0
     phone = got["phone"]
     assert phone["float"] == ["pui-card wb-track", "wb-kpis"], "R-10: the tracking bar and the two KPI tiles float at the top of the scene"
-    assert phone["top"] == 0 and phone["dock"] == ["wb-navdock:0"], "a phone's top row and dock are empty (the stylesheet does not draw them): the controls moved to the bottom bar"
+    assert phone["top"] == 0 and phone["dock"] == [] and phone["topNav"] is False and phone["barNav"] is True, "a phone's top row and dock are empty (the stylesheet does not draw them): the controls moved to the bottom bar, Back and the crumbs with them"
+    assert got["projectMark"] == [[False, True], [False, True, False]], "F2-7: the frame marks the crumb that names the project, last on the Building, middle on the Lobby"
+    assert got["focus"] == [True] * 5, "F2-7: the focus stays with Back, the door, the switcher or the colour button when the window crosses 899 px and the part is moved"
+    assert got["growBefore"] == [False, True] and got["growAfter"] == [True, False], "M-4: past the phone's width Back and the crumbs go back to the top row, and leave the bottom bar"
     assert phone["rows"] == [["wb-switcher", "wb-wait-menu-wrap", "wb-mode-btn"], ["wb-nav", "wb-door"]], "R-10: the switcher, the inbox button, the colour mode; then Back with the crumbs, and the door"
 
 
@@ -361,7 +397,7 @@ def test_the_token_prompt_is_drawn_by_the_stylesheet_with_tokens_the_owls_cycle_
         assert "8s" in top[name]["animation"] and "infinite" in top[name]["animation"], f"R-15: {name} runs on an 8 s cycle"
     reduced = re.search(r"@media \(prefers-reduced-motion: reduce\) \{ \.owl-pupil, \.owl-lid, \.owl-lidline \{ animation: none; \} \}", CSS)
     assert reduced, "R-15: under reduced motion the owl is still"
-    phone = "".join(re.findall(r"@media \(max-width: 639px\) \{\n  \.tk \{.*?\n\}\n", CSS, re.S))
+    phone = "".join(re.findall(r"@media \(max-width: 899px\) \{\n  \.tk \{.*?\n\}\n", CSS, re.S))
     assert ".tk-side .wb-owl { width: 64px; height: 64px; }" in phone and ".tk-side { order: -1;" in phone and "place-content: start center" in phone, "R-13: on a phone the owl is 64 px, centred above the title"
     assert "@keyframes owl-look" in CSS and "@keyframes owl-lid" in CSS and "@keyframes owl-line" in CSS
 
@@ -467,11 +503,11 @@ def test_no_phone_rule_of_the_stylesheet_is_beaten_by_a_later_rule_of_the_same_s
     rules = _rules(CSS)
     beaten = []
     for n, (media, sel, decls) in enumerate(rules):
-        if not any("max-width: 639px" in m for m in media):
+        if not any("max-width: 899px" in m for m in media):   # M-3: the phone is up to 899 px
             continue
         for prop, value in decls.items():
             for media2, sel2, decls2 in rules[n + 1:]:
-                if sel2 == sel and prop in decls2 and decls2[prop] != value and _on_phone(media2) and not any("max-width: 639px" in m for m in media2):
+                if sel2 == sel and prop in decls2 and decls2[prop] != value and _on_phone(media2) and not any("max-width: 899px" in m for m in media2):
                     beaten.append((sel, prop, value, decls2[prop]))
     assert beaten == [], f"a phone rule that a later top-level rule beats never applies: move it after that rule: {beaten}"
 
@@ -492,3 +528,105 @@ def test_no_module_of_the_page_names_a_colour_but_the_owls_palette_modules():
         if hits:
             found[str(path.relative_to(INTERFACE))] = hits
     assert found == {}, f"a colour is a token, read from the stylesheet: {found}"
+
+
+# --- R4-F2: the phone up to 899 px (M-3) and Back and the crumbs in the top row (M-4) ---------------------------------------------------------
+
+from interface_css import css_paths   # noqa: E402
+
+# The stylesheets of the packages that have not moved their phone query yet (R4-A4: base, floor; R4-A5: lobby; R4-A6 moved control.css and left the set). Each package
+# moves its own files (P-7); the test below lets such a file keep the old width until then, and nothing else. Once A4 and A5 have merged the set is empty: delete it.
+LAGGING = {"base.css", "floor.css", "lobby.css"}
+PHONE_WIDTH = 899
+
+
+def _widths(css: str, kind: str) -> list[int]:
+    return [int(v) for v in re.findall(rf"\({kind}-width:\s*(\d+)px\)", re.sub(r"/\*.*?\*/", "", css, flags=re.S))]
+
+
+def test_the_phone_query_is_one_width_in_the_module_and_in_every_stylesheet():
+    drawer = (JS / "frame" / "drawer.js").read_text(encoding="utf-8")
+    assert f'export const PHONE_QUERY = "(max-width: {PHONE_WIDTH}px)";' in drawer, "M-3: the phone is up to 899 px; the query is exported once"
+    for name in ("frame/frame.js", "views/building.js"):
+        text = (JS / name).read_text(encoding="utf-8")
+        assert "PHONE_QUERY" in text and "max-width:" not in text, f"M-3: {name} reads the width from PHONE_QUERY, not from a literal"
+    found = {}
+    for path in css_paths():
+        css = path.read_text(encoding="utf-8")
+        phone = sorted({w for w in _widths(css, "max") if w < 1000})   # 1023 and 1099 are the bands above the phone
+        if phone:
+            found[path.name] = phone
+        if path.name not in LAGGING:
+            assert phone in ([], [PHONE_WIDTH]), f"M-3: {path.name} has a phone query other than max-width: {PHONE_WIDTH}px: {phone}"
+            assert 640 not in _widths(css, "min"), f"M-3: {path.name} still has a block that starts at 640 px (the docked band is gone)"
+        else:
+            assert set(phone) <= {639, PHONE_WIDTH}, f"{path.name} (not moved yet) has a phone width that is neither the old one nor the new one: {phone}"
+    assert {"frame.css", "token.css", "city.css", "building.css"} <= set(found), "the phone rules of the four stylesheets of R4-F2 are all there"
+    for name in ("frame.css", "token.css", "city.css", "building.css"):
+        assert found[name] == [PHONE_WIDTH], f"{name}: one phone width, {PHONE_WIDTH} px"
+
+
+def test_the_docked_band_is_gone_and_the_in_between_band_starts_at_900_px():
+    frame = re.sub(r"/\*.*?\*/", "", css_file("frame"), flags=re.S)
+    assert "--wb-dock-h" not in frame and 'grid-template-areas: "scene" "content" "track"' not in frame, "M-3: the docked layout (the panel under the scene) is removed, not left dead"
+    assert "@media (min-width: 900px) and (max-width: 1099px)" in frame, "the in-between band: 900 to 1099 px stays desktop"
+    assert "min-width: 640px" not in frame and "max-width: 639px" not in frame
+    between = frame[frame.index("@media (min-width: 900px) and (max-width: 1099px)"):]
+    assert ".wb-topbar .wb-switch-main { max-width: 15rem; }" in between.split("\n}\n")[0], "M-4: where the top row is shortest the switcher's name leaves the crumbs some room"
+    assert "wb-navdock" not in frame and "wb-navdock" not in (JS / "frame" / "frame.js").read_text(encoding="utf-8"), "the dock that held Back and the crumbs is gone"
+
+
+def test_the_top_row_draws_back_and_the_crumbs_as_raised_controls_of_the_same_height_and_the_project_crumb_gives_way():
+    top = rules_of(top_level(CSS))
+    for selector in (".wb-back", ".wb-crumb-nav"):
+        assert top[selector]["background-color"] == "var(--wb-raised)" and top[selector]["box-shadow"] == "var(--wb-elev)", f"M-4: {selector} is raised like the rest of the top row"
+        assert top[selector]["min-height"] == "var(--wb-control-h)", f"M-4: {selector} is as high as the switcher, the colour button and the door"
+    assert top[".wb-crumb-nav"]["border-radius"] == "var(--pui-radius)" and "border" in top[".wb-crumb-nav"]
+    assert top[".wb-topbar > .wb-nav"]["flex"] == "0 1 auto", "M-4: the crumbs give way when the row is short"
+    assert top[".wb-topbar-end"]["flex"] == "none", "the switcher, the colour button and the door keep their room: the crumbs yield first (P-8)"
+    project = ".wb-crumb-item.is-project"
+    assert top[project]["flex"] == "0 1 auto" and top[project]["min-width"] == "0", "P-8, F2-7: the crumb that names the project (middle, or last on the Building) shrinks"
+    assert top[project + " > .wb-crumb"]["text-overflow"] == "ellipsis" and top[project + " > .wb-crumb"]["overflow"] == "hidden", "P-8: and is cut with an ellipsis"
+    assert top[".wb-crumb-item"]["flex"] == "none", "P-8: the City and a last crumb that names a floor, the Lobby or the Control room are never cut"
+    assert top[".wb-crumbs"]["white-space"] == "nowrap"
+    dock = top[".wb-dock"]
+    assert dock["position"] == "absolute" and dock["bottom"] == "var(--wb-edge)" and dock["left"] == "var(--wb-edge)", "R-8: the tracking bar stays at the bottom left"
+    assert not {"background-color", "border", "padding", "box-shadow", "min-height"} & set(dock), "M-4: the dock paints nothing, so with the bar hidden (the Control room) nothing stays at the bottom left"
+    assert ".wb-dock > .wb-track" in top and ".wb-navdock" not in top
+
+
+def test_the_phone_keeps_back_and_the_crumbs_in_the_second_row_of_the_bottom_bar_with_the_same_cut():
+    rules = _rules(CSS)
+    phone = [(sel, d) for media, sel, d in rules if any("max-width: 899px" in m for m in media)]
+    names = [sel for sel, _ in phone]
+    assert ".wb-bottom-bar .wb-nav" in names and ".wb-bottom-bar .wb-crumb-nav" in names, "R-10: the bottom bar's second row holds Back and the crumbs"
+    assert ".wb-topbar" in names and ".wb-dock" in names and phone_value(".wb-topbar", "display") == "none" == phone_value(".wb-dock", "display"), "a phone hides the top row and the dock"
+    assert phone_value(".wb-crumb-item", "overflow") is None and phone_value(".wb-crumbs", "overflow") is None, "the cut is the one rule of the crumbs (the middle crumb), not a second one for the phone"
+
+
+HEADER = r"""
+import { FakeNode } from "@FAKE@";
+import { createNav } from "@JS@/frame/header.js";
+const out = {};
+const nav = createNav();
+const items = (labels, project = 1) => labels.map((label, i) => ({ label, href: i < labels.length - 1 ? "#/x" + i : undefined, ...(i === project ? { project: true } : {}) }));
+const state = () => [...nav.el.walk()].filter((n) => n.cls().includes("wb-crumb")).map((n) => [n.textContent, n.attrs.title || null, n.tagName]);
+const lis = () => [...nav.el.walk()].filter((n) => n.cls().includes("wb-crumb-item")).map((n) => n.cls().includes("is-project"));
+nav.set(items(["City", "northwind-shop-with-a-long-name", "Lobby"]), "#/p/1");
+out.three = [state(), lis()];
+nav.set(items(["City", "northwind-shop-with-a-long-name"]), "#/city");
+out.two = [state(), lis()];
+nav.set(items(["City"], -1), null);
+out.one = [state(), [...nav.el.walk()].find((n) => n.cls().includes("wb-back")).disabled, lis()];
+console.log(JSON.stringify(out));
+"""
+
+
+@needs_node
+def test_the_crumb_that_names_the_project_keeps_its_whole_name_as_a_tooltip_and_is_the_one_that_is_cut(tmp_path):
+    got = run_node(tmp_path, HEADER)
+    name = "northwind-shop-with-a-long-name"
+    assert got["three"] == [[["City", None, "A"], [name, name, "A"], ["Lobby", None, "SPAN"]], [False, True, False]], \
+        "P-8: the project crumb carries its whole name as tooltip (its text is its accessible name) and is the one marked to be cut; the City and the Lobby are never"
+    assert got["two"] == [[["City", None, "A"], [name, name, "SPAN"]], [False, True]], "F2-7: on the Building the project is the last crumb: it is cut too, with its whole name as tooltip"
+    assert got["one"] == [[["City", None, "SPAN"]], True, [False]]
