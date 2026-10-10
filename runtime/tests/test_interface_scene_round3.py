@@ -20,7 +20,7 @@ import pytest
 
 import standin_tree as st
 from test_interface_floor import FAKE_DOM
-from interface_css import interface_css
+from interface_css import css_file, interface_css
 
 INTERFACE = st.REPO / "interface"
 JS = INTERFACE / "js"
@@ -480,18 +480,17 @@ console.log(JSON.stringify(out));
         "every part over the scene is measured, none is assumed (R-1, R-2: the top row and the dock are the parts now; the header button of the actions is gone)"
 
 
-def test_the_in_between_layout_has_the_tablet_rules_of_the_handoff_and_the_panel_docks_below_900_px():
+def test_the_in_between_layout_has_the_tablet_rules_of_the_handoff_and_there_is_no_docked_band_below_900_px():
     css = interface_css()
     block = css[css.index("the in-between layout (WP-9.11"):]
-    assert "@media (min-width: 640px) and (max-width: 1099px)" in block and "@media (min-width: 640px) and (max-width: 899px)" in block
-    mid = block[:block.index("@media (min-width: 640px) and (max-width: 899px)")]
+    assert "@media (min-width: 900px) and (max-width: 1099px)" in block, "M-3: the in-between band is 900 to 1099 px"
+    mid = block[:block.index("\n.wb-add-project")]
     for rule in (".wb-door-label { display: none; }", "--wb-panel-narrow: 340px", "--wb-wait-w: 340px", "--wb-plate-w: 230px", ".wb-track-left .wb-steps { overflow-x: auto; }"):
         assert rule in mid, f"the tablet rule: {rule}"
     assert "wb-plate-chips" not in css, "R-25: a plate has no count chips, so the in-between band has no rule that hides them"
     assert ".wb-kpis { display: flex;" not in mid and ".wb-kpi-short { display: inline; }" not in mid, "R-5: the KPI cards stay a column of two in this band (R4D-6), the labels are the long ones"
-    docked = block[block.index("@media (min-width: 640px) and (max-width: 899px)"):]
-    for rule in ("grid-template-areas: \"scene\" \"content\" \"track\"", ".wb-main { position: static;", ".wb-dock { position: static;", ".wb-panel-floor, .wb-panel-building { height: auto; }"):
-        assert rule in docked, f"the docked panel: {rule}"
+    for gone in ('grid-template-areas: "scene" "content" "track"', ".wb-dock { position: static;", ".wb-panel-floor, .wb-panel-building { height: auto; }", "--wb-dock-h"):
+        assert gone not in css_file("frame"), f"M-3: the docked panel is gone from the frame's stylesheet, not left dead: {gone}"
     assert ".wb-plate.is-tiny" in css and "is-tiny" in (SCENE / "labels.js").read_text(encoding="utf-8"), "a plate shortens to its name row when the stack still would not fit"
     kpis = (JS / "frame" / "kpis.js").read_text(encoding="utf-8")
     assert all(word in kpis for word in ('"Runs"', '"Spend"', "wb-kpi-short", "wb-kpi-long")) and '"Decisions"' not in kpis, "the two cards carry their short labels (the phone shows them)"

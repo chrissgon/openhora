@@ -67,7 +67,7 @@
 
 @media (prefers-reduced-motion: reduce) { .owl-pupil, .owl-lid, .owl-lidline { animation: none; } }
 
-@media (max-width: 639px) {
+@media (max-width: 899px) {
   .tk { padding: 0; }
   .tk-frame { border-inline: 0; }
   .tk-bar { padding: 0 16px; }

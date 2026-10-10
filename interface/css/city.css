@@ -72,7 +72,7 @@
 .wb-building-sub { grid-area: sub; color: var(--pui-text-muted); font-size: 12px; }
 .wb-building-link > .wb-icon { grid-area: chev; color: var(--pui-text-muted); }
 
-@media (max-width: 639px) {
+@media (max-width: 899px) {
   /* the City's sheet holds "Waiting for you" alone (R-22), collapsed on its one line: the handle, "Waiting for you" and its count, no tile and no rule under it */
   .wb-city-drawer { display: flex; flex-direction: column; }
   .wb-drawer-scroll { display: block; flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
