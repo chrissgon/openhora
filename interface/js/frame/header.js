@@ -1,4 +1,4 @@
-// F-1 the top row's brand (R-1) and the Back button and breadcrumbs (R-2, M-4).
+// F-1 the top row's brand (R-1) and the dock's Back button and breadcrumbs (R-2, M-10).
 
 import { h } from "../dom.js";
 import { markImage } from "../brand.js";
@@ -9,7 +9,7 @@ export function createBrand() {
   return h("div", { class: "wb-brand" }, markImage(28), h("span", { class: "wb-wordmark", "aria-hidden": "true", text: "openhora" }));
 }
 
-/** The back button and the breadcrumb trail: in the top row right after the brand (M-4), and the bottom bar's second row on a phone (R-10). */
+/** The back button and the breadcrumb trail: docked at the bottom left above the tracking bar (R-2, M-10), and the bottom bar's second row on a phone (R-10). */
 export function createNav() {
   const back = h("button", { class: "pui-btn pui-surface pui-outline wb-back", type: "button", "aria-label": "Back" }, icon("chevron-left", 16));
   const list = h("ol", { class: "wb-crumbs" });
