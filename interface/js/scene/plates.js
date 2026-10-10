@@ -120,11 +120,14 @@ export function tagNode(spec) {
   return h("span", { class: "wb-label wb-tag pui-badge pui-theme pui-solid", title: number ? `Request ${number} is on this floor` : null, text: spec.text });
 }
 
-/** The board label above the room's wall board: the state dot, the title, and a mono line. */
+/**
+ * The wall board's label (R-32, floor.html): over the room's board of notes, the state dot and the title (`#52 Implement the change · current task`), then the mono lines: the skill, the
+ * state and `for 12 min`, then the run. It is HTML over the scene, not drawn in it, and not a click target.
+ */
 export function boardNode(spec) {
-  return h("div", { class: "wb-label wb-label-board" },
-    h("div", { class: "wb-label-row" }, h("span", { class: `wb-dot is-${spec.dot}` }), h("strong", { class: "wb-label-name", text: spec.title })),
-    ...spec.lines.map((line) => h("div", { class: "wb-label-sub mono", text: line })));
+  return h("div", { class: "wb-label wb-label-board wb-wallboard" },
+    h("div", { class: "wb-fp-row wb-label-row" }, h("span", { class: `wb-dot is-${spec.dot}` }), h("strong", { class: "wb-fp-name wb-label-name", text: spec.title })),
+    ...spec.lines.map((line) => h("span", { class: "mono wb-wb-line wb-label-sub", text: line })));
 }
 
 /** The door's label in the Lobby. */

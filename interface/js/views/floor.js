@@ -1,7 +1,7 @@
-// The Floor screen (handoff floor.md and cards.md): one agent in its room (the figure at its desk, the wall board, the inbox
-// tray, a table of sheets, a cabinet) and a side panel with four tabs: Agent (state, mode, meters, the current task and its
-// runs, other tasks, "Hand a file over"), Inbox (one card per open decision of the agent, then the resolved ones), Desk (the
-// agent's documents and the viewer) and Tasks (every task of the agent by state, floor/tasks-tab.js). It owns the scene engine for as long as the screen is shown. The page decides nothing:
+// The Floor screen (handoff floor.md and cards.md, round 4): one agent in its room (the owl at its desk, the board of notes with its label, the bookcase: the three ways in, R-31) and a
+// side panel with four tabs, in this order (R-33): Agent (state, mode, meters, the current task and its runs, other tasks, "Hand a file over"), Inbox (one card per open decision of the
+// agent, then the resolved ones as a timeline), Tasks (every task of the agent by state, floor/tasks-tab.js) and Desk (the agent's documents and the viewer). It owns the scene engine
+// for as long as the screen is shown. The page decides nothing:
 // every panel shows what an operation returned, and each control sends one request (the cards, the Agent tab). This module
 // reads (the status and agents the page already holds, a task's body, the documents) and arranges.
 
@@ -15,21 +15,20 @@ import { createInbox } from "../floor/inbox.js";
 import { createTasksTab } from "../floor/tasks-tab.js";
 import { createViewer } from "../floor/viewer.js";
 import { busyLine, createTabs, focusOpenLink } from "../floor/widgets.js";
-import { bindDrawer, createGrip } from "../frame/drawer.js";
+import { PHONE_QUERY, bindDrawer, createGrip } from "../frame/drawer.js";
 import { icon } from "../frame/icons.js";
 import * as origin from "../frame/origin.js";
 import { acceptance } from "../model.js";
 import * as router from "../router.js";
 import { NoWebGL } from "../scene/engine.js";
 import { worldModel } from "../world-model.js";
-import { pips } from "../scene/plates.js";
 
 const TASK_FRESH_MS = 5000;
 const TASK_STALE_MS = 15000;
 const DOCS_OPEN_MS = 5000;
 const DOCS_IDLE_MS = 30000;
 const MAX_TASK_READS = 12;
-const TABS = [{ id: "agent", label: "Agent" }, { id: "inbox", label: "Inbox" }, { id: "desk", label: "Desk" }, { id: "tasks", label: "Tasks" }];
+const TABS = [{ id: "agent", label: "Agent" }, { id: "inbox", label: "Inbox" }, { id: "tasks", label: "Tasks" }, { id: "desk", label: "Desk" }];     // R-33, C-6
 
 /** Create the Floor in `frame`. env: {refresh()}. Returns {update({snapshot, route, now, reload}), dispose(), stats()}. */
 export function createFloorView(frame, env) {
@@ -52,16 +51,17 @@ export function createFloorView(frame, env) {
   let changes = 0;             // how many times it moved: a read that began before the last move is not fresh when it ends
 
   // --- the panel ---------------------------------------------------------------------------------------------------------------
-  const tile = h("span", { class: "wb-tile pui-soft pui-warn" });
+  const tile = h("span", { class: "wb-kpi-tile pui-soft pui-warn" });
   const title = h("strong", { class: "wb-panel-title", id: "wb-floor-title", text: "" });
   const sub = h("span", { class: "wb-panel-sub", text: "" });
   const modeChip = h("span", { class: "pui-chip pui-muted pui-outline pui-rounded-full wb-mode-plate wb-header-mode", hidden: true });
-  const head = h("div", { class: "wb-panel-head wb-floor-head" }, tile, h("div", { class: "wb-panel-titles" }, title, sub, modeChip));
+  const head = h("div", { class: "wb-panel-head wb-floor-head" }, tile, h("div", { class: "wb-panel-titles" }, title, sub), modeChip);     // R-33: no line under it
   const tabs = createTabs("Floor", TABS, (id) => { window.location.hash = router.floorHash(project, agent, id); });
+  const tabbar = h("div", { class: "wb-tabbar" }, tabs.el);
   const tabpanel = h("div", { class: "wb-panel-body wb-tabpanel", id: "wb-tabpanel", role: "tabpanel" });
-  const normal = h("div", { class: "wb-floor-normal" }, head, tabs.el, tabpanel);
+  const normal = h("div", { class: "wb-floor-normal" }, head, tabbar, tabpanel);
   const backLink = h("a", { class: "pui-link pui-theme", href: router.cityHash(), text: "Back to the building" });   // the project is not known until the first update, which sets the Building's hash
-  const unknown = h("div", { class: "wb-floor-unknown", hidden: true }, h("p", { text: "This agent is not in the project's configuration." }), backLink);
+  const unknown = h("div", { class: "wb-floor-unknown wb-panel-body", hidden: true }, h("p", { text: "This agent is not in the project's configuration." }), backLink);
   const waitingEl = h("p", { class: "wb-empty-line", text: "Waiting for the configuration to be accepted." });
   const viewer = createViewer({
     onClose: () => closeViewer(),
@@ -81,7 +81,7 @@ export function createFloorView(frame, env) {
     if (viewerPath !== null && last && last.route.path) closeViewer();
   });
   frame.el.append(phoneDialog);
-  const phone = window.matchMedia("(max-width: 639px)");
+  const phone = window.matchMedia(PHONE_QUERY);     // M-3: the phone layout (the frame owns the width)
 
   // the tab components need the project and the agent, known at the first update: they are made then
   let inbox = null;
@@ -206,12 +206,15 @@ export function createFloorView(frame, env) {
     const header = model.header;
     title.textContent = header.title;
     sub.textContent = header.sub;
-    fill(tile, icon(header.icon, 18));
+    fill(tile, icon(header.icon, 16));
     const warn = model.row && model.row.state === "waiting";
-    tile.className = `wb-tile pui-soft pui-${warn ? "warn" : "theme"}`;
-    const showMode = tab !== "agent" && model.row && model.row.mode && !model.notAccepted;
+    tile.className = `wb-kpi-tile pui-soft pui-${warn ? "warn" : "theme"}`;
+    const showMode = (tab !== "agent" || phone.matches) && model.row && model.row.mode && !model.notAccepted;     // the Agent tab has its own plate except in the phone's sheet, whose head always names the mode (floor.html); C-5: the word, no pips
     modeChip.hidden = !showMode;
-    if (showMode) fill(modeChip, h("span", { text: model.row.mode }), pips(model.row.pips));
+    if (showMode) {
+      modeChip.textContent = model.row.mode;
+      modeChip.setAttribute("title", fm.MODE_LINES[model.row.mode] || "");
+    }
   }
 
   function redraw() {
@@ -233,11 +236,17 @@ export function createFloorView(frame, env) {
     }
     if (missing) {
       backLink.setAttribute("href", router.buildingHash(project));
-      title.textContent = format_title(agent);
+      title.textContent = agent ? `${agent.charAt(0).toUpperCase()}${agent.slice(1)}` : "";     // floor.html: the name alone
+      sub.textContent = "";
+      fill(tile);
+      tile.hidden = true;
+      modeChip.hidden = true;
       showScene(null, "Floor, agent not in the configuration", false);
       return;
     }
+    tile.hidden = false;
     if (loading || !model) {
+      fill(tile, icon("building-2", 16));
       title.textContent = format_title(agent);
       sub.textContent = "Loading the floor...";
       modeChip.hidden = true;
@@ -288,12 +297,13 @@ export function createFloorView(frame, env) {
     if (tab !== "agent") agentTabLive.update(model);   // keep the mode result notice and the state current while another tab is open
 
     const documentsFor = model.notAccepted ? [] : documentsRows;
-    const scene = fm.roomScene(model, documentsFor, true);
+    const scene = fm.roomScene(model, documentsFor, true, last.now);
     showScene({ tips: scene.tips, board: scene.board, door: false }, model.canvasLabel, true);
   }
 
+  /** The title while the floor loads (floor.html: `Engineering agent`, as the loaded head says it). */
   function format_title(name) {
-    return name ? `${name.charAt(0).toUpperCase()}${name.slice(1)} · ${name.charAt(0).toUpperCase()}${name.slice(1)} agent` : "";
+    return name ? `${name.charAt(0).toUpperCase()}${name.slice(1)} agent` : "";
   }
 
   // The scene is the world with this agent's floor as the target: the building stays open, the other floors are gone, the camera is on the room.

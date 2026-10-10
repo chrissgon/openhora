@@ -434,16 +434,35 @@ export function meters(agent) {
   };
 }
 
-/** The agent tab's state row: {tone, chip, line, off}. `running` is the running task's body (for "Running since"), or null. */
-export function stateRow(state, decisions, runningBody) {
+/** The agent tab's state row: {tone, chip, line, off}. `running` is the running task's body (for "Running for 12 min", R-8: how long, not since when), or null; `now` is a Date. */
+export function stateRow(state, decisions, runningBody, now = new Date()) {
   if (state === "working") {
     const runs = runningBody && Array.isArray(runningBody.runs) ? runningBody.runs : [];
-    const since = runs.length ? format.clock(runs[runs.length - 1].started_at) : "";
-    return { tone: "pui-theme pui-soft", chip: "Working", line: since ? `Running since ${since}` : "Running", off: false };
+    const lasted = runs.length ? format.runningFor(runs[runs.length - 1].started_at, now) : "";
+    return { tone: "pui-theme pui-soft", chip: "Working", line: lasted ? `Running ${lasted}` : "Running", off: false };
   }
   if (state === "waiting") return { tone: "pui-warn pui-soft", chip: "Waiting for you", line: `${format.decisions(decisions)} in the Inbox`, off: false };
   if (state === "off") return { tone: "pui-muted pui-outline", chip: "Off", line: "Off, mode is stopped", off: true };
   return { tone: "pui-muted pui-soft", chip: "Idle", line: "Waiting for the next task", off: false };
+}
+
+/**
+ * What the current task's card says under its title (floor.html): the skill, then how long it has run ("for 12 min"), when a decision was asked ("asked 2 d ago"), when it was
+ * queued ("queued 4 min ago"), or, for any other state, when it last changed ("3 h ago"); "" for the time when the page has no stamp. {skill, when}.
+ */
+export function currentSub(task, body, decisions, now) {
+  const runs = body && Array.isArray(body.runs) ? body.runs : [];
+  const run = runs.length ? runs[runs.length - 1] : null;
+  const row = body && body.task ? body.task : {};
+  const stamp = (typeof row.updated_at === "string" && row.updated_at) || (typeof row.created_at === "string" && row.created_at) || "";
+  let when = "";
+  if (task.state === "running") when = run ? format.runningFor(run.started_at, now) : "";
+  else if (task.state === "waiting") {
+    const asked = (Array.isArray(decisions) ? decisions : []).find((d) => d.task_id === task.id);
+    when = asked && asked.created_at ? `asked ${format.agoPhrase(format.age(asked.created_at, now))}` : "";
+  } else if (task.state === "ready") when = stamp ? `queued ${format.agoPhrase(format.age(stamp, now))}` : "";
+  else when = stamp ? format.agoPhrase(format.age(stamp, now)) : "";
+  return { skill: task.skill ? `skill ${task.skill}` : "", when };
 }
 
 /**
@@ -480,7 +499,7 @@ export function floor(snapshot, projectId, name, bodies = {}, options = {}) {
     const row = floorRow(stub(name), null, { accepted: false, project: projectId, number: null });
     return {
       found: true, notAccepted: true, view, row, tasks: [], others: [], decisions: [], runs: [], current: null, currentBody: null, target: null, runningBody: null,
-      header: { title: `${label} · ${label} agent`, sub: `${view.name} · Waiting for the configuration to be accepted`, icon: name === "marketing" ? "send" : "building-2" },
+      header: { title: `${label} agent`, sub: `${view.name} · Waiting for the configuration to be accepted`, icon: "building-2" },
       canvasLabel: `${label} floor of ${view.name}, not accepted`,
     };
   }
@@ -495,37 +514,38 @@ export function floor(snapshot, projectId, name, bodies = {}, options = {}) {
   const currentBody = current ? bodies[current.id] || null : null;
   const runs = currentBody && Array.isArray(currentBody.runs) ? [...currentBody.runs].reverse() : [];
   const runningTask = tasks.find((t) => t.state === "running") || null;
-  const subParts = [view.name, row.number === null ? null : `floor ${row.number}`, row.unaccepted ? "not accepted" : row.stateWord];
+  const subParts = [row.number === null ? null : `floor ${row.number}`, row.unaccepted ? "not accepted" : row.stateWord];     // C-6, floor.html: the project is in the crumbs and the switcher
   const holding = current && status ? heldOf(status, name).find((h) => h.task_id === current.id) : null;
   return {
     found: true, view, row, agent, tasks, current, others: tasks.filter((t) => !current || t.id !== current.id), decisions, runs, currentBody,
     unaccepted: Boolean(row.unaccepted),
     heldCurrent: holding ? { task_id: holding.task_id, reason: holding.reason, sentence: heldSentence(holding.reason), next: typeof holding.next === "string" && holding.next ? holding.next : null, ...(heldCommands(holding).length ? { commands: heldCommands(holding) } : {}) } : null,
     target: handOverTarget(tasks, current), runningBody: runningTask ? bodies[runningTask.id] || null : null,
-    header: {
-      title: `${row.label} · ${row.label} agent`, sub: subParts.filter((p) => p !== null).join(" · "),
-      icon: name === "marketing" ? "send" : "building-2",
-    },
+    header: { title: `${row.label} agent`, sub: subParts.filter((p) => p !== null).join(" · "), icon: "building-2" },     // C-6; floor.html draws the building icon for every agent
     canvasLabel: `${row.label} floor of ${view.name}, ${row.label} agent ${row.accepted && !row.unaccepted ? { working: "working", waiting: "waiting", idle: "idle", off: "off" }[row.state] : "not accepted"}, ${format.decisions(decisions.length)}`,
   };
 }
 
-/** The wall board's content (the title and up to three mono lines) and the state dot colour. */
-export function boardOf(view) {
+/**
+ * The wall board's content (R-32, floor.html): the title `#52 Implement the change · current task`, then the skill, the state and how long it has run (`for 12 min`, R-8), then the run:
+ * its number and status, its ending (or failure) when it is over and says more than the status, its attempt, its tokens, and the cost, which reads `unknown` when it is not recorded
+ * (C-18). `now` is a Date. Also the state dot colour.
+ */
+export function boardOf(view, now = new Date()) {
   const { row, current, currentBody } = view;
   if (!row.accepted) return { title: "Waiting for the configuration to be accepted.", lines: [], dot: "border" };
   if (row.state === "off" && !current) return { title: "Off, mode is stopped", lines: [], dot: "border" };
   if (!current) return { title: "No task yet", lines: ["This agent has no task yet."], dot: row.dot };
   const runs = currentBody && Array.isArray(currentBody.runs) ? currentBody.runs : [];
   const run = runs.length ? runs[runs.length - 1] : null;
-  const since = current.state === "running" && run ? format.clock(run.started_at) : "";
-  const lines = [`skill ${current.skill} · ${taskWord(current.state)}${since ? ` · Running since ${since}` : ""}`];
+  const lasted = current.state === "running" && run ? format.runningFor(run.started_at, now) : "";
+  const lines = [`skill ${current.skill} · ${taskWord(current.state)}${lasted ? ` · ${lasted}` : ""}`];
   if (run) {
     const failed = run.status === "failed" || Boolean(run.failure);
-    lines.push(`run #${run.id} ${word(RUN_STATUS, run.status)} · ${failed ? (run.failure ? word(FAILURE, run.failure) : "Failed") : (run.ending ? word(ENDING, run.ending) : "-")}`);
-    const duration = formatDuration(run.duration_ms);
-    lines.push([`attempt ${format.count(run.attempts)}`, duration, typeof run.tokens === "number" ? `${run.tokens.toLocaleString("en-US")} tokens` : "",
-      typeof run.cost_usd === "number" ? `$${run.cost_usd.toFixed(4)}` : "unknown", run.model || ""].filter(Boolean).join(" · "));
+    const status = word(RUN_STATUS, run.status);
+    const ending = failed ? (run.failure ? word(FAILURE, run.failure) : "Failed") : (run.ending ? word(ENDING, run.ending) : "");
+    lines.push([`run #${run.id} ${status}`, run.status !== "running" && ending && ending.toLowerCase() !== status.toLowerCase() ? ending : "", `attempt ${format.count(run.attempts)}`,
+      typeof run.tokens === "number" ? `${run.tokens.toLocaleString("en-US")} tokens` : "", typeof run.cost_usd === "number" ? `$${run.cost_usd.toFixed(4)}` : "unknown"].filter(Boolean).join(" · "));
   }
   // the board names the task with its number and says it is the current one (C-18)
   const name = current.title || current.key || "";
@@ -533,8 +553,8 @@ export function boardOf(view) {
 }
 
 /** The words of the Floor's room (the world's `room`: tips and board). `documents` are the agent's rows of `artifacts`, newest first. */
-export function roomScene(view, documents, ready = true) {
-  const board = boardOf(view);
+export function roomScene(view, documents, ready = true, now = new Date()) {
+  const board = boardOf(view, now);
   const row = view.row;
   const sheets = documents.slice(0, 6).map((d) => ({ path: d.path, tip: d.path }));
   const tasks = view.current ? `Current task · ${view.current.title || view.current.key}` : "Current task · none yet";
@@ -593,7 +613,7 @@ function saidOf(item, resolution) {
   return null;
 }
 
-/** The resolved lines of an agent's tasks: from the `pending` of each `task` body that is not open, newest first; `said` is saidOf. */
+/** The resolved lines of an agent's tasks: from the `pending` of each `task` body that is not open, newest first; `said` is saidOf; `icon` is the outcome's (a check, or a cross for a rejection or a cancellation, R-38). */
 export function resolvedLines(bodies, taskIds, now, limit = 8) {
   const out = [];
   for (const id of taskIds) {
@@ -604,7 +624,7 @@ export function resolvedLines(bodies, taskIds, now, limit = 8) {
       const rejected = resolution === "rejected" || resolution === "cancelled";
       out.push({
         id: item.id, kind: item.kind, resolution, text: `${format.kindWord(item.kind)} ${word(RESOLUTION, resolution) || "resolved"}`,
-        tone: rejected ? "pui-muted pui-soft" : "pui-success pui-soft", title: item.title || "", stamp: item.resolved_at || item.created_at || "",
+        tone: rejected ? "pui-muted pui-soft" : "pui-success pui-soft", icon: rejected ? "x" : "check", title: item.title || "", stamp: item.resolved_at || item.created_at || "",
         age: format.age(item.resolved_at || item.created_at, now), when: formatWhen(item.resolved_at || item.created_at),
         said: saidOf(item, resolution),
       });

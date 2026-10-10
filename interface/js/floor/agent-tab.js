@@ -9,13 +9,13 @@
 // parts are drawn again only when their data changed, so a poll never takes the keyboard focus or the typed choice away.
 
 import { fill, h } from "../dom.js";
-import * as format from "../format.js";
 import * as router from "../router.js";
-import { MODES, MODE_LINES, PIPS, meters, stateRow, stateTone, taskWord } from "../floor-model.js";
-import { commandBlock, isCommand } from "../frame/command.js";
-import { pips, trackNode } from "../scene/plates.js";
+import { MODES, MODE_LINES, currentSub, meters, stateRow, stateTone, taskWord } from "../floor-model.js";
+import { commandBlock, copyCommand, isCommand } from "../frame/command.js";
+import { icon } from "../frame/icons.js";
+import { trackNode } from "../scene/plates.js";
 import { runBlock } from "./run-block.js";
-import { fileRefusal, handOverStep, toBase64 } from "./hand-file.js";
+import { fileRefusal, handChooser, handOverStep, toBase64 } from "./hand-file.js";
 import { createTaskActions } from "./task-actions.js";
 import { busyLine, chip, errorText, notice, ring } from "./widgets.js";
 import { waitLines } from "../waits.js";
@@ -24,6 +24,7 @@ export { MAX_FILE_BYTES, fileRefusal, toBase64 } from "./hand-file.js";
 export const STANDING = "Stop agent and Supervise take effect at once and need no acceptance.";
 export const WIDER = "A wider mode is set in the terminal, not on this page.";
 export const WIDER_BELOW = "A wider mode is set in the terminal, not on this page:";
+export const WIDER_BELOW_NOTE = "A wider mode is set in the terminal, not on this page: copy the command and run it.";
 
 /** Keep the keyboard focus on the control with the same `data-key` after a part is drawn again. */
 function redraw(container, render) {
@@ -44,7 +45,7 @@ export function createAgentTab(env) {
   const stateBox = h("div", { class: "wb-state-box", role: "status" });
   const plateBox = h("div", { class: "wb-mode-row" });
   const formBox = h("div", { class: "wb-mode-form" });
-  const standing = h("div", { class: "wb-notice-card", text: STANDING });
+  const standing = h("p", { class: "wb-notice-card", text: STANDING });
   const resultBox = h("div", { class: "wb-result-box" });
   const runsTotalLine = h("p", { class: "wb-runs-total wb-muted", hidden: true, text: "" });
   const waitingLine = h("p", { class: "wb-empty-line", text: "Waiting for the configuration to be accepted." });
@@ -53,7 +54,8 @@ export function createAgentTab(env) {
   const othersBox = h("div", { class: "wb-section" });
   const handBox = h("div", { class: "wb-hand" });
   const body = h("div", { class: "wb-agent-body" }, waitingLine, metersBox, runsTotalLine, currentBox, othersBox, handBox);
-  fill(el, stateBox, plateBox, formBox, standing, resultBox, body);
+  const widerBox = h("div", { class: "wb-wider-modes" });
+  fill(el, stateBox, plateBox, formBox, standing, resultBox, widerBox, body);
 
   const shown = {};
   const swap = (name, value, draw) => {
@@ -72,9 +74,7 @@ export function createAgentTab(env) {
   let sawUnaccepted = false;
   let locked = false;          // the configuration is not accepted: the buttons do nothing
   let currentMode = null;
-  const widerLine = h("p", { class: "wb-muted wb-wider", text: WIDER });
-  const widerBox = h("div", { class: "wb-wider-modes" });
-  fill(formBox, h("div", { class: "wb-mode-controls" }, stopButton, superviseButton), widerLine, widerBox, formError);
+  fill(formBox, h("div", { class: "wb-mode-controls" }, stopButton, superviseButton), formError);
   const LABELS = new Map([[stopButton, "Stop agent"], [superviseButton, "Supervise"]]);
 
   /** A button is off when the agent is already in that mode or a narrower one (the runtime accepts only a narrowing), while one is being sent, and while the configuration is not accepted. */
@@ -127,9 +127,9 @@ export function createAgentTab(env) {
       fill(plateBox);
       return;
     }
-    const plate = h("span", { class: "pui-chip pui-muted pui-outline pui-rounded-full wb-mode-plate" }, h("span", { text: agent.mode }), pips(PIPS[agent.mode] || 0));
+    const plate = h("span", { class: "pui-chip pui-muted pui-outline pui-rounded-full wb-mode-plate", text: agent.mode });
     const acting = agent.acting_mode && agent.acting_mode !== agent.mode
-      ? h("span", { class: "pui-chip pui-muted pui-outline pui-rounded-full wb-mode-plate wb-acting-plate" }, h("span", { text: `acting as ${agent.acting_mode}` }), pips(PIPS[agent.acting_mode] || 0)) : null;
+      ? h("span", { class: "pui-chip pui-muted pui-outline pui-rounded-full wb-mode-plate wb-acting-plate", text: `acting as ${agent.acting_mode}` }) : null;
     fill(plateBox, plate, acting, h("span", { class: "wb-muted wb-mode-line", text: `${MODE_LINES[agent.mode] || ""}.` }));
   }
 
@@ -171,11 +171,45 @@ export function createAgentTab(env) {
       single);
   }
 
+  /** The warn notice that says a wider mode is the terminal's (R-35): the soft style in the warn colour, with an icon. */
+  const widerNote = (text) => h("p", { class: "notice pui-soft pui-warn wb-wider-note", role: "note" }, icon("triangle-alert", 16), h("span", { text }));
+
+  /**
+   * R-35: `Mode` over a select of the wider modes, `Copy` beside it, the chosen mode's command under them, and under the command the soft warn notice. The select
+   * chooses, the command follows it, Copy copies what the select holds (the service's own command, verbatim). The person's choice survives a draw that changes nothing.
+   */
+  let widerEmpty = false;
   function drawWider(wider) {
     const list = Array.isArray(wider) ? wider : null;
-    widerLine.hidden = Boolean(list) && list.length === 0;     // nothing is wider than the widest mode
-    widerLine.textContent = list && list.length ? WIDER_BELOW : WIDER;
-    fill(widerBox, list ? list.map((w) => commandBlock({ command: w.command, sentence: w.mode })) : null);
+    widerEmpty = Boolean(list) && list.length === 0;     // nothing is wider than the widest mode
+    if (widerEmpty) {
+      fill(widerBox);
+      return;
+    }
+    if (!list) {      // an older service gave no list: only the sentence
+      fill(widerBox, widerNote(WIDER));
+      return;
+    }
+    const id = `wb-wider-${env.agent}`;
+    const select = h("select", { class: "pui-input wb-select", id, "data-key": "wider" }, list.map((w) => h("option", { value: w.command, title: MODE_LINES[w.mode] || null, text: w.mode })));
+    select.value = list[0].command;
+    const code = h("code", { class: "wb-command-code wb-wider-code", text: list[0].command });
+    const word = h("span", { class: "wb-copy-label", text: "Copy" });
+    const copy = h("button", { class: "pui-btn pui-surface pui-outline wb-copy", type: "button", "aria-label": "Copy the command of the chosen mode", "data-key": "wider-copy" }, word);
+    const status = h("span", { class: "wb-copy-status wb-muted", role: "status", text: "" });
+    select.addEventListener("change", () => {
+      code.textContent = select.value;
+      status.textContent = "";
+    });
+    copy.addEventListener("click", async () => {
+      const result = await copyCommand(select.value, { clipboard: typeof navigator !== "undefined" && navigator.clipboard ? navigator.clipboard : null, select: () => false });
+      word.textContent = result === "copied" ? "Copied" : "Selected";
+      status.textContent = result === "copied" ? "Copied to the clipboard." : "Select the command and copy it with the keyboard.";
+      setTimeout(() => { word.textContent = "Copy"; status.textContent = ""; }, 2000);
+    });
+    fill(widerBox, h("div", { class: "wb-wider-box" },
+      h("div", { class: "wb-wider-row" }, h("label", { class: "wb-wider-label", for: id, text: "Mode" }), select, copy),
+      widerNote(WIDER_BELOW_NOTE), code, status));
   }
 
   function drawCurrent(view) {
@@ -184,12 +218,11 @@ export function createAgentTab(env) {
       fill(currentBox, view.tasks.length ? null : h("p", { class: "wb-empty-line", text: "This agent has no task yet." }));
       return;
     }
-    const newest = view.runs[0] || null;
-    const since = newest ? format.clock(newest.started_at) : "";
-    fill(currentBox, h("div", { class: "wb-section-label", text: "Current task" }),
+    const sub = currentSub(task, view.currentBody, view.decisions, env.now());
+    fill(currentBox, h("span", { class: "wb-sec-head", text: "Current task" }),
       h("div", { class: "pui-card wb-current" },
-        h("div", { class: "wb-current-head" }, h("strong", { text: `#${task.id} ${task.title || task.key || ""}`.trim() }), chip(taskWord(task.state), stateTone(task.state))),
-        h("div", { class: "wb-muted wb-current-sub" }, "skill ", h("code", { text: task.skill || "" }), since ? ` · since ${since}` : ""),
+        h("div", { class: "wb-cur-head wb-current-head" }, h("strong", { text: `#${task.id} ${task.title || task.key || ""}`.trim() }), chip(taskWord(task.state), stateTone(task.state))),
+        h("span", { class: "wb-muted wb-cur-sub wb-current-sub" }, h("span", { class: "mono", text: sub.skill }), sub.when ? ` · ${sub.when}` : ""),
         waitLines(task).map((line) => h("p", { class: "wb-task-waits wb-muted", text: line })),
         taskActions(task, view),
         view.heldCurrent ? heldBlock(view.heldCurrent) : null,
@@ -214,11 +247,12 @@ export function createAgentTab(env) {
       fill(othersBox);
       return;
     }
-    redraw(othersBox, () => fill(othersBox, h("div", { class: "wb-section-label", text: "Other tasks of this agent" }),
+    redraw(othersBox, () => fill(othersBox, h("span", { class: "wb-sec-head", text: "Other tasks of this agent" }),
       view.others.map((t) => {
         const nodes = taskActionsUse.nodes(t, { pending: view.decisions, links, locked });
         return h("div", { class: "wb-other" },
-          h("div", { class: "pui-list-item wb-other-row" }, h("span", { class: "wb-other-title", text: `#${t.id} ${t.title || t.key || ""}`.trim() }), chip(taskWord(t.state), stateTone(t.state)), nodes),
+          h("div", { class: "wb-cur-head wb-other-row" }, h("strong", { class: "wb-other-title", text: `#${t.id} ${t.title || t.key || ""}`.trim() }), chip(taskWord(t.state), stateTone(t.state))),
+          nodes.length ? h("div", { class: "wb-task-actions" }, nodes) : null,
           waitLines(t).map((line) => h("p", { class: "wb-task-waits wb-muted", text: line })),
           taskActionsUse.failure(t.id));
       })));
@@ -226,12 +260,12 @@ export function createAgentTab(env) {
 
   // --- hand a file over ------------------------------------------------------------------------------------------------------------
   const fileInput = h("input", { class: "pui-input wb-file", type: "file", "data-key": "file" });
-  const hint = h("small", { class: "wb-hint", text: "At most 25 MiB." });
+  const hint = h("span", { class: "wb-hint wb-muted wb-cur-sub", text: "At most 25 MiB." });
   const handResult = h("div", { class: "wb-hand-result" });
   const dropLine = h("p", { class: "wb-drop-line", role: "note", hidden: true, text: "" });     // the line of a web task, above the chooser: seen before a file is chosen
-  const handLabel = h("label", { class: "pui-field-group wb-field" }, h("span", { class: "wb-field-label", text: "Hand a file over" }), dropLine, fileInput, hint);
+  const chooser = handChooser({ input: fileInput, line: dropLine, hint });
   const handStep = h("div", { class: "wb-hand-steps" });     // the second step: the chosen file's name and the button (C-17)
-  fill(handBox, handLabel, handStep, handResult);
+  fill(handBox, chooser.nodes.slice(0, 4), handStep, hint, handResult);
   const drops = new Map();       // task id -> the `drop` of its body ({web, takes, line}), or null: read once, as the review card does
   let target = null;
   let picked = null;       // the file chosen, held until the button sends it (C-17); choosing sends nothing
@@ -311,6 +345,7 @@ export function createAgentTab(env) {
     dropLine.textContent = line;
     dropLine.hidden = !line;
     fileInput.disabled = !target || locked || Boolean(drop && drop.takes === false);      // a task that takes no file: nothing to choose
+    chooser.button.disabled = fileInput.disabled;
   }
 
   function drawHand(view) {
@@ -339,6 +374,7 @@ export function createAgentTab(env) {
       const unaccepted = !view || view.notAccepted;
       waitingLine.hidden = !(view && view.notAccepted);
       for (const node of [metersBox, currentBox, othersBox, handBox]) node.hidden = unaccepted;
+      if (unaccepted) widerBox.hidden = true;
       if (unaccepted) runsTotalLine.hidden = true;
       stateBox.hidden = false;
       plateBox.hidden = unaccepted;
@@ -351,7 +387,7 @@ export function createAgentTab(env) {
         swap("state", "unaccepted", () => fill(stateBox));
         return;
       }
-      const row = stateRow(view.row.state, view.decisions.length, view.runningBody);
+      const row = stateRow(view.row.state, view.decisions.length, view.runningBody, env.now());
       swap("state", row, () => drawState(row, view));
       swap("plate", [view.agent.mode, view.agent.acting_mode], () => drawPlate(view.agent));
       locked = Boolean(view.unaccepted);
@@ -360,8 +396,10 @@ export function createAgentTab(env) {
       swap("meters", meters(view.agent), () => drawMeters(meters(view.agent)));
       runsTotalLine.hidden = !meters(view.agent).runsTotal;     // every update: a draw skipped as identical must not leave it hidden after a not-accepted spell
       swap("wider", view.agent.wider || null, () => drawWider(view.agent.wider));
+      widerBox.hidden = widerEmpty;
       const pendingIds = view.decisions.map((d) => [d.id, d.task_id]);
-      swap("current", [view.current, view.runs, view.tasks.length, view.heldCurrent, pendingIds, taskActionsUse.signature(), locked], () => drawCurrent(view));
+      const sub = view.current ? currentSub(view.current, view.currentBody, view.decisions, env.now()) : null;     // "for 12 min" moves with the clock: it is part of what is drawn
+      swap("current", [view.current, view.runs, view.tasks.length, view.heldCurrent, pendingIds, sub, taskActionsUse.signature(), locked], () => drawCurrent(view));
       swap("others", [view.others.map((t) => [t.id, t.title, t.state, t.note, t.waiting_for]), pendingIds, taskActionsUse.signature(), locked], () => drawOthers(view));
       swap("hand", [view.target ? view.target.id : null, locked, Boolean(view.currentBody)], () => drawHand(view));
     },

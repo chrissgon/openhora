@@ -646,7 +646,7 @@ const docs = [{ path: "docs/a.md", owner: "s", size: 5, modified_at: "2026-10-09
 out.rows = fm.deskRows(docs, "").map((r) => [r.path, r.kind]);
 const desk = createDeskTab({ project: "p", agent: "x", open() {} });
 desk.update({ documents: docs, truncated: false, loading: false, error: null });
-out.cells = all(desk.el, "td.wb-nowrap").map(text);
+out.cells = all(desk.el, ".wb-desk-meta").map((m) => all(m, ".wb-nowrap").map(text)[0]);     // R-40: the size and the kind on the second line
 console.log(JSON.stringify(out));
 """
 

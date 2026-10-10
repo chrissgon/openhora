@@ -6,6 +6,7 @@
 import * as api from "../api.js";
 import { fill, h } from "../dom.js";
 import * as format from "../format.js";
+import { icon } from "../frame/icons.js";
 import { createCard } from "./cards.js";
 import { chip } from "./widgets.js";
 
@@ -80,13 +81,24 @@ export function createInbox(env) {
     return h("div", { class: "wb-res-said" }, h("span", { class: "wb-card-label", text: said.label }), h("p", { text: said.text }));
   }
 
+  const openLines = new Map();     // resolved decision id -> whether the person opened (true) or closed (false) its line; a line the person did not touch is open only when it is the newest
+
+  /**
+   * R-38: the resolved decisions as a vertical timeline, newest first. Each item has the outcome's icon (a check, or a cross for a rejection or a cancellation), a line that joins the
+   * icons, and is an accordion: its title with the kind and the age under it; opened, the date and what the person said (`saidBlock`).
+   */
   function resolvedList(lines) {
     if (!lines.length) return null;
-    return h("div", { class: "wb-resolved-list" }, h("div", { class: "wb-section-label", text: "Resolved" }),
-      lines.map((line) => h("details", { class: "pui-accordion-item wb-resolved-item" },
-        h("summary", { class: "wb-resolved" }, chip(line.text, line.tone), h("span", { class: "wb-resolved-title", text: line.title }), h("span", { class: "wb-muted", text: line.age ? ` · ${format.agoPhrase(line.age)}` : "" })),
-        h("div", { class: "wb-card-hint wb-resolved-body", text: line.when ? `Resolved ${line.when}` : "Resolved" }),
-        saidBlock(line.said))));
+    return h("div", { class: "wb-resolved-tl wb-resolved-list" }, h("span", { class: "wb-sec-head", text: "Resolved" }),
+      h("ol", { class: "pui-timeline wb-tl", "aria-label": "Resolved decisions, newest first" }, lines.map((line, index) => {
+        const ago = line.age ? ` · ${format.agoPhrase(line.age)}` : "";
+        const details = h("details", { class: "wb-tl-acc wb-resolved-item", open: openLines.has(line.id) ? openLines.get(line.id) : index === 0 },
+          h("summary", {}, h("span", { class: "wb-tl-text" }, h("strong", { class: "wb-tl-title wb-resolved-title", text: line.title }), h("span", { class: "wb-tl-sub wb-muted", text: `${line.text}${ago}` })),
+            h("span", { class: "wb-task-mark", "aria-hidden": "true" }, icon("chevron-down", 16))),
+          h("div", { class: "wb-tl-body" }, h("p", { class: "wb-muted wb-resolved-body", text: line.when ? `Resolved ${line.when}` : "Resolved" }), saidBlock(line.said)));
+        details.addEventListener("toggle", () => openLines.set(line.id, details.open));
+        return h("li", { class: "pui-checkpoint wb-tl-item" }, h("span", { class: `pui-checkpoint-icon ${line.tone} wb-tl-icon` }, icon(line.icon || "check", 14)), details);
+      })));
   }
 
   function draw() {
@@ -96,7 +108,7 @@ export function createInbox(env) {
     for (const id of open) {
       const card = cardFor(id);
       if (card) nodes.push(card.el);
-      else if (failed.has(id)) nodes.push(h("div", { class: "notice error", role: "alert", text: failed.get(id) }));
+      else if (failed.has(id)) nodes.push(h("div", { class: "notice pui-soft pui-error", role: "alert", text: failed.get(id) }));
       else nodes.push(h("div", { class: "wb-busy-card wb-muted", "aria-busy": "true", text: "Loading the decision..." }));
     }
     // a decision the person just resolved stays until the tab is left

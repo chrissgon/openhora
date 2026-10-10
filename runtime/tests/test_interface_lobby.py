@@ -907,8 +907,8 @@ def test_the_lobbys_desk_is_the_floors_table_over_every_document_with_the_agent_
     assert got["deskBefore"] == "Loading the floor..."
     assert got["desk"]["rows"] == ["docs/brand/voice.md", "docs/marketing/x.md", "docs/notes/kickoff.md", "docs/workbench/briefs/a.md"], "C-2: the brand's and the marketing agent's documents are on this desk too (same time: by path)"
     assert got["desk"]["rowsOf"] == ["docs/notes/kickoff.md", "docs/workbench/briefs/a.md", "docs/brand/voice.md", "docs/marketing/x.md"] and got["desk"]["read"] == 1
-    assert got["desk"]["owners"] == ["brand-voice", "mkt-x", "", "core-clarify"]
-    assert got["desk"]["agents"] == ["brand", "marketing", "—", "planning"], "the Agent column: the agent of each row, a dash when null"
+    assert got["desk"]["owners"] == ["brand-voice", "mkt-x", "core-clarify"], "R-40: a row with no owner skill names none on its second line"
+    assert got["desk"]["agents"] == ["Brand", "Marketing", "Lobby", "Lobby"], "R-47: the agent of each row is a badge: the agent's word, the Lobby's for a document with none"
     assert got["opened"] == ["docs/brand/voice.md"], "a row asks to open its path; the viewer reads the file"
     assert got["askedOnce"] == 1, "a second update inside the period reads nothing"
     assert got["deskError"] == "The documents could not be readthe documents could not be listed"

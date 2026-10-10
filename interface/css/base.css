@@ -182,6 +182,7 @@ code, .mono {
 .wb-i18 { width: 18px; height: 18px; }
 .wb-icon-activity { -webkit-mask-image: url("../icons/activity.svg"); mask-image: url("../icons/activity.svg"); }
 .wb-icon-arrow-left-right { -webkit-mask-image: url("../icons/arrow-left-right.svg"); mask-image: url("../icons/arrow-left-right.svg"); }
+.wb-icon-ban { -webkit-mask-image: url("../icons/ban.svg"); mask-image: url("../icons/ban.svg"); }
 .wb-icon-building-2 { -webkit-mask-image: url("../icons/building-2.svg"); mask-image: url("../icons/building-2.svg"); }
 .wb-icon-check { -webkit-mask-image: url("../icons/check.svg"); mask-image: url("../icons/check.svg"); }
 .wb-icon-chevron-down { -webkit-mask-image: url("../icons/chevron-down.svg"); mask-image: url("../icons/chevron-down.svg"); }
@@ -198,6 +199,7 @@ code, .mono {
 .wb-icon-inbox { -webkit-mask-image: url("../icons/inbox.svg"); mask-image: url("../icons/inbox.svg"); }
 .wb-icon-info { -webkit-mask-image: url("../icons/info.svg"); mask-image: url("../icons/info.svg"); }
 .wb-icon-key-round { -webkit-mask-image: url("../icons/key-round.svg"); mask-image: url("../icons/key-round.svg"); }
+.wb-icon-list { -webkit-mask-image: url("../icons/list.svg"); mask-image: url("../icons/list.svg"); }
 .wb-icon-maximize { -webkit-mask-image: url("../icons/maximize.svg"); mask-image: url("../icons/maximize.svg"); }
 .wb-icon-message-square { -webkit-mask-image: url("../icons/message-square.svg"); mask-image: url("../icons/message-square.svg"); }
 .wb-icon-minus { -webkit-mask-image: url("../icons/minus.svg"); mask-image: url("../icons/minus.svg"); }
@@ -207,6 +209,7 @@ code, .mono {
 .wb-icon-send { -webkit-mask-image: url("../icons/send.svg"); mask-image: url("../icons/send.svg"); }
 .wb-icon-server { -webkit-mask-image: url("../icons/server.svg"); mask-image: url("../icons/server.svg"); }
 .wb-icon-sun { -webkit-mask-image: url("../icons/sun.svg"); mask-image: url("../icons/sun.svg"); }
+.wb-icon-triangle-alert { -webkit-mask-image: url("../icons/triangle-alert.svg"); mask-image: url("../icons/triangle-alert.svg"); }
 .wb-icon-x { -webkit-mask-image: url("../icons/x.svg"); mask-image: url("../icons/x.svg"); }
 
 .wb-dot { flex: none; width: 7px; height: 7px; border-radius: 9999px; background-color: var(--pui-muted); }
@@ -255,6 +258,8 @@ code, .mono {
 .wb-tab.pui-btn.is-selected { border-bottom-color: var(--pui-theme); color: var(--pui-text); font-weight: 600; }
 
 .wb-field { --pui-edge: var(--pui-muted); }
+/* R-37: a text area is about three lines high by default */
+textarea.wb-field-input { min-height: 76px; resize: vertical; }
 
 .wb-nowrap { white-space: nowrap; }
 
@@ -314,24 +319,27 @@ code, .mono {
 .wb-refusal.is-info { border-color: var(--pui-border); }
 .wb-refusal.is-info .wb-refusal-title { color: inherit; }
 
-/* the viewer */
+/* the viewer: the head (the path with the size and the time under it, the tools at the right) and the body; on the Floor it takes the panel's place (the panel is its card) */
 .wb-viewer { display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100%; min-height: 0; box-shadow: var(--wb-elev); }
-.wb-viewer-head { display: flex; align-items: center; gap: 10px; padding: 16px; border-bottom: var(--pui-border-width) solid var(--pui-border); }
+.wb-panel-floor > .wb-viewer-host > .wb-viewer { border: 0; border-radius: inherit; background-color: transparent; box-shadow: none; }
+.wb-viewer-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px 10px 16px; border-bottom: var(--pui-border-width) solid var(--pui-border); }
 .wb-tile-small { width: 32px; height: 32px; }
 .wb-viewer-titles { display: grid; flex: 1; min-width: 0; }
+.wb-viewer-tools { display: flex; flex: none; align-items: center; gap: 8px; }
+.wb-viewer-tools .wb-md-tools { margin: 0; }
 .wb-viewer-path { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
 .wb-viewer-path:focus-visible { outline: 2px solid var(--pui-theme); outline-offset: 2px; }
 .wb-viewer-line { font-size: 12px; }
-.wb-viewer-body { padding: 16px; overflow-y: auto; }
+.wb-viewer-body { display: grid; gap: 8px; align-content: start; padding: 16px; overflow-y: auto; font-size: 14px; line-height: 1.55; }
 .wb-viewer-text { margin: 0; padding: 12px; border-radius: var(--pui-radius); background-color: var(--wb-sunken); font-family: var(--wb-font-mono); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
 .wb-viewer-dialog { width: min(40rem, calc(100vw - 16px)); max-height: calc(100dvh - 16px); padding: 0; border: 0; background-color: transparent; }
 .wb-viewer-dialog .wb-viewer { max-height: calc(100dvh - 16px); }
 
-@media (max-width: 639px) {
+@media (max-width: 899px) {
   .wb-set-mode, .wb-small-button { min-height: 44px; }
 }
 
-@media (max-width: 639px) {
+@media (max-width: 899px) {
   .wb-viewer-dialog { width: calc(100vw - 16px); }
 }
 
@@ -363,6 +371,7 @@ code, .mono {
 .wb-md th.wb-md-left, .wb-md td.wb-md-left { text-align: left; }
 .wb-md th.wb-md-center, .wb-md td.wb-md-center { text-align: center; }
 .wb-md th.wb-md-right, .wb-md td.wb-md-right { text-align: right; }
+.wb-md.is-plain { font-family: var(--wb-font-mono); font-size: 12px; white-space: pre-wrap; }     /* R-34: a card's text as it came */
 .wb-md-note { color: var(--pui-text-muted); font-size: 12px; }
 .wb-md-rest { padding: 12px; border-radius: var(--pui-radius); background-color: var(--wb-sunken); font-family: var(--wb-font-mono); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
 .wb-md-tools { display: flex; justify-content: flex-end; margin-bottom: 8px; }
@@ -386,6 +395,9 @@ code, .mono {
 .wb-tab .pui-badge { padding: 0; border: 0; background-color: transparent; color: var(--pui-text-muted); font-weight: 400; }
 .wb-tab.is-selected .pui-badge { color: var(--wb-ink-theme); }
 .wb-tab .pui-badge.pui-warn { color: var(--wb-ink-warn); }
+/* the tab bar (R-33): the track in a row of its own under a panel's head, with a line under it; the track is as wide as its tabs, unless the screen makes it fill (the Lobby's five tabs) */
+.wb-tabbar { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: var(--pui-border-width) solid var(--pui-border); }
+.wb-tabbar > .wb-tabs, .wb-tabbar > .wb-tablist { flex: 0 1 auto; margin: 0; }
 
 /* an accordion row (R-33 on, R-39): the summary is the row, a chevron at its start or end turns when it opens; the library's marker is not drawn */
 .wb-acc > summary { list-style: none; cursor: pointer; }

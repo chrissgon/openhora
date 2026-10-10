@@ -15,15 +15,28 @@ export function toBase64(bytes) {
 }
 
 /**
+ * The chooser of "Hand a file over" (floor.html: a dashed box): the heading, the line of a web task when there is one, the button `Choose a file` that opens the file input, the input itself
+ * (drawn out of sight: the button is what the person sees, the input is what a screen reader and a test reach, named like the heading) and the hint. Returns {nodes, button}: `nodes` go in the
+ * box in this order, `button` is the one to disable with the input.
+ */
+export function handChooser({ input, line, hint }) {
+  const button = h("button", { class: "pui-btn pui-surface pui-outline wb-small-button wb-hand-choose", type: "button", text: "Choose a file" });
+  button.addEventListener("click", () => { if (!input.disabled) input.click(); });
+  input.setAttribute("aria-label", "Hand a file over");
+  input.setAttribute("tabindex", "-1");
+  return { nodes: [h("span", { class: "wb-sec-head wb-field-label", text: "Hand a file over" }), line, h("div", { class: "wb-hand-row" }, button), input, hint], button };
+}
+
+/**
  * The second step of a hand-over: the chosen file's name and the button "Hand over to task #n" that sends it, or null while no file is chosen.
  * `onSend` is called by the button; `disabled` is true while a send runs or the control is locked.
  */
 export function handOverStep(file, taskId, onSend, { disabled = false } = {}) {
   if (!file) return null;
   const label = `Hand over to task #${taskId}`;
-  const button = h("button", { class: "pui-btn pui-surface pui-outline wb-hand-button", type: "button", "aria-label": label, disabled, text: label });
+  const button = h("button", { class: "pui-btn pui-surface pui-outline wb-hand-send wb-hand-button", type: "button", "aria-label": label, disabled, text: label });
   button.addEventListener("click", onSend);
-  return h("div", { class: "wb-hand-step" }, h("span", { class: "wb-hand-chosen", text: file.name }), button);
+  return h("div", { class: "wb-hand-step" }, h("span", { class: "mono wb-hand-name wb-hand-chosen", text: file.name }), button);
 }
 
 /** The refusal before sending, or "" when the file may be sent: over 25 MiB, or a name the service would refuse. */
