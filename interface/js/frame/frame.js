@@ -361,9 +361,10 @@ export function createFrame(root, handlers) {
      * The free rectangle for the scene, in pixels from the scene area's edges, measured from what is on the page now: every part of the page that
      * lies over the scene (the KPI cards, the header, the notice, the panel or the waiting card at the right, the tracking bar) takes the
      * side it is fixed to, so the scene's objects are fitted into what none of them covers. A part that does not touch the scene (the panel
-     * docked below it on a narrow screen) takes nothing.
+     * docked below it on a narrow screen) takes nothing. `notice: false`: the band does not count (a dimmed Building is fitted as it was, the band floats over it; a phone's
+     * band always counts).
      */
-    insets(rightEl) {
+    insets(rightEl, { notice = true } = {}) {
       const scene = sceneArea.getBoundingClientRect();
       if (phone.matches) {
         // The scene fills the whole upper part of the page; what lies over it is, at the top, the notice, the tracking bar and the two KPI tiles (R-10) and,
@@ -377,7 +378,7 @@ export function createFrame(root, handlers) {
         return out;
       }
       const out = { left: 16, right: 16, top: 16, bottom: 16, pad: 1.04 };
-      const parts = [kpis.el, header, noticeBox.hidden ? null : noticeBox, dock, rightEl && !rightEl.hidden ? rightEl : null];       // the panel at the right stands over the card under it: the card adds no inset
+      const parts = [kpis.el, header, notice && !noticeBox.hidden ? noticeBox : null, dock, rightEl && !rightEl.hidden ? rightEl : null];       // the panel at the right stands over the card under it: the card adds no inset
       for (const part of parts) {
         if (!part) continue;
         const take = obstacleInset(part.getBoundingClientRect(), scene);

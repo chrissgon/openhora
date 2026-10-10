@@ -270,7 +270,7 @@ console.log(JSON.stringify(out));
     assert got["colour"] == [36, 36, 3, True, True], "one colour for every vertex, drawn with the kit's one vertex-colour material, casting a shadow"
     assert got["empty"] is None
     assert got["toneOfFirstFace"] == [True, True, True], "the top, the left face and the right face each take their own tone"
-    assert got["ground"][0] == 3 and got["ground"][1] == 2 and got["ground"][2] is True, "the ground is three batches and two instanced meshes (crowns, trunks), however many blocks"
+    assert got["ground"][0] == 3 and got["ground"][1] == 3 and got["ground"][2] is True, "the ground is three batches and three instanced meshes (crowns, trunks, shadows: A-44 made it three, M-5), however many blocks"
     assert got["same"] is True, "the same city every time"
     assert got["lots"][0] == {"x": 0, "z": 0} and got["lots"][1] == 0 and got["lots"][2] == float(got["lots"][3]), "the lots stand one block apart, in a row centred on the origin"
     assert got["kinds"] == ["lot", "lot", "plaza", "park", "plaza", "park", "park"], "a lot's block holds a project; the others alternate between a paved square and a park"
@@ -501,3 +501,96 @@ console.log(JSON.stringify(out));
     assert got["dark"] == 0 and got["lit"] == 1 and got["working"] == 0, "R-21: a mark stands only beside a floor that is lit and waits"
     assert got["city"] == [["planning", "grey"], ["design", "grey"], ["brand", "grey"], ["marketing", "lit"]], "the City's model: a disabled or stopped agent with a decision stays dark; one that is active and waits is lit"
     assert got["building"] == [["planning", "idle", "grey"], ["design", "off", "grey"], ["brand", "off", "grey"], ["marketing", "waiting", "lit"]], "the Building's model says the same"
+
+
+# --- the trees (A-44, M-5, R4-B4) ---------------------------------------------------------------------------------------------------------------
+
+TREES_JS = WORLD_JS + r"""
+import { buildGround, treeGeometries, treeLight, TREE } from "@JS@/scene/city.js";
+import { createCamera, AZIMUTH, ELEVATION } from "@JS@/scene/rig.js";
+const camera = createCamera(THREE);
+const P = 23.8;   // the City's pixels to a camera unit at 1280 x 800
+const tones = cityTones(palette);
+const hexOf = (c) => c.getHexString();
+// the screen size of a geometry, in pixels
+const size = (geo) => { const pos = geo.getAttribute("position"); const v = new THREE.Vector3(); let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9; for (let i = 0; i < pos.count; i++) { v.fromBufferAttribute(pos, i).applyMatrix4(camera.matrixWorldInverse); x0 = Math.min(x0, v.x); x1 = Math.max(x1, v.x); y0 = Math.min(y0, v.y); y1 = Math.max(y1, v.y); } return { w: (x1 - x0) * P, h: (y1 - y0) * P, cx: (x0 + x1) / 2 * P, y0: y0 * P }; };
+"""
+
+
+@needs_node
+def test_a_crown_is_an_icosahedron_lit_in_the_world_from_the_upper_left_and_a_tree_is_never_turned(tmp_path):
+    # A-44: every instance used to be turned by a random angle after its facets were lit in the crown's own space, so some crowns read as one flat diamond and some were lit from the wrong side
+    got = run_node(tmp_path, TREES_JS + r"""
+const out = {};
+const g = treeGeometries(THREE, tones);
+const pos = g.crown.getAttribute("position");
+const col = g.crown.getAttribute("color");
+const tris = (geo) => (geo.index ? geo.index.count : geo.getAttribute("position").count) / 3;
+out.counts = [tris(g.crown), tris(g.trunk), tris(g.shadow)];
+// the sun is the upper left of the picture whatever the turn: against the camera's own axes
+const light = treeLight(THREE);
+const right = new THREE.Vector3(Math.cos(AZIMUTH), 0, -Math.sin(AZIMUTH));
+const front = new THREE.Vector3(Math.sin(AZIMUTH) * Math.cos(ELEVATION), Math.sin(ELEVATION), Math.cos(AZIMUTH) * Math.cos(ELEVATION));
+const up = new THREE.Vector3().crossVectors(front, right);
+out.light = [light.dot(right) < 0, light.dot(up) > 0, light.dot(front) > 0, +light.length().toFixed(6)];
+// the facets the camera sees, by how much light they face, and the tone each has (an index into the four tones, lightest first)
+const names = tones.crown.map(hexOf);
+const facets = [];
+for (let f = 0; f < pos.count / 3; f++) {
+  const a = new THREE.Vector3().fromBufferAttribute(pos, f * 3), b = new THREE.Vector3().fromBufferAttribute(pos, f * 3 + 1), c = new THREE.Vector3().fromBufferAttribute(pos, f * 3 + 2);
+  const n = new THREE.Vector3().crossVectors(b.clone().sub(a), c.clone().sub(a)).normalize();
+  const tone = names.indexOf(new THREE.Color(col.getX(f * 3), col.getY(f * 3), col.getZ(f * 3)).getHexString());
+  facets.push({ dot: n.dot(light), seen: n.dot(front) > 0.01, tone, outward: n.dot(a.clone().add(b).add(c).divideScalar(3).sub(new THREE.Vector3(0, TREE.trunkHeight + TREE.crownRadius * TREE.crownStretch - 0.01, 0))) > 0 });
+}
+const seen = facets.filter((f) => f.seen).sort((p, q) => q.dot - p.dot);
+out.seen = seen.length;
+out.tones = seen.map((f) => f.tone);
+out.everyTone = facets.every((f) => f.tone >= 0);
+out.outward = facets.every((f) => f.outward);
+out.hidden = facets.filter((f) => !f.seen).every((f) => f.tone === 3);
+// the sizes against the page's: a crown 20.1 by 22.6 px, a trunk 5.9 px wide, the shadow 20.4 wide and its centre left of the trunk
+const crown = size(g.crown), trunk = size(g.trunk), shadow = size(g.shadow);
+out.sizes = [crown.w, crown.h, trunk.w, shadow.w].map((v) => +v.toFixed(1));
+// the planted trees: none turned, a size each, three instanced meshes, none casting a real shadow
+const ground = buildGround(createKit(palette), 2);
+const meshes = []; ground.group.traverse((n) => { if (n.isInstancedMesh) meshes.push(n); });
+const turns = new Set(), scales = new Set();
+const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3();
+for (const mesh of meshes) for (let i = 0; i < mesh.count; i++) { mesh.getMatrixAt(i, m); m.decompose(p, q, s); turns.add([q.x, q.y, q.z, q.w].map((v) => +v.toFixed(6)).join(",")); scales.add(+s.x.toFixed(2)); }
+out.turns = [...turns];
+const at = (mesh, i) => { mesh.getMatrixAt(i, m); return new THREE.Vector3().setFromMatrixPosition(m).applyMatrix4(camera.matrixWorldInverse); };
+out.shadowLeft = +((at(meshes[2], 0).x - at(meshes[1], 0).x) * P).toFixed(1);
+out.sizesSet = scales.size > 3;
+out.instanced = [meshes.length, meshes.map((x) => x.castShadow), new Set(meshes.map((x) => x.count)).size];
+console.log(JSON.stringify(out));
+""")
+    assert got["counts"] == [20, 6, 16], "an icosahedron of twenty facets, a trunk of the three faces the camera sees (six triangles), a flat shadow of sixteen"
+    assert got["light"][:3] == [True, True, True] and got["light"][3] == 1, "the sun is the upper left of the picture, in front: in the camera's own axes, not in a crown's"
+    assert got["outward"] is True and got["everyTone"] is True and got["hidden"] is True, "every facet faces out, is in one of the four tones, and the ones the camera does not see take the darkest"
+    seen = got["tones"]
+    assert seen == sorted(seen) and set(seen) == {0, 1, 2, 3}, "the facets the camera sees are lighter the more light they face: the tone never goes back"
+    assert seen.count(0) >= 1 and seen.count(3) >= seen.count(0) and seen.count(3) >= seen.count(1), "shared among the tones as the page shares its eight (1, 2, 2, 3): the fewest in the lightest, the most in the darkest"
+    crown_w, crown_h, trunk_w, shadow_w = got["sizes"]
+    assert abs(crown_w - 20.1) < 1.5 and abs(crown_h - 22.6) < 1.5 and abs(trunk_w - 5.9) < 0.7 and abs(shadow_w - 20.4) < 1.5, "the page's tree at size 1: 20.1 by 22.6 px crown, 5.9 px trunk, 20.4 px shadow (city.html)"
+    assert -11 < got["shadowLeft"] < -8, "the shadow's centre lies about 9.5 px to the left of the trunk, as the page draws it"
+    assert got["turns"] == ["0,0,0,1"], "no tree is turned: its facets were lit once, for the one camera (a turn would light a crown from another side)"
+    assert got["sizesSet"] is True, "the variation between trees is their size, as before"
+    assert got["instanced"][0] == 3 and got["instanced"][1] == [False, False, False] and got["instanced"][2] == 1, "three instanced meshes (crown, trunk, shadow) of one count, none casting a real-time shadow (M-5)"
+
+
+@needs_node
+def test_the_ground_shadow_of_a_tree_is_the_shadow_token_at_nine_percent_in_light_and_forty_two_in_dark(tmp_path):
+    got = run_node(tmp_path, TREES_JS + r"""
+const out = {};
+for (const dark of [false, true]) {
+  const p = { ...palette, dark };
+  const ground = buildGround(createKit(p), 1);
+  const meshes = []; ground.group.traverse((n) => { if (n.isInstancedMesh) meshes.push(n); });
+  const shadow = meshes[2];
+  out[dark ? "dark" : "light"] = [shadow.material.transparent, shadow.material.opacity, shadow.material.depthWrite, hexOf(shadow.material.color) === hexOf(cityTones(p).shadow), shadow.material !== meshes[0].material];
+}
+console.log(JSON.stringify(out));
+""")
+    assert got["light"] == [True, 0.09, False, True, True] and got["dark"] == [True, 0.42, False, True, True], "scene.css's `.m-shadow`: the shadow ink at 9 percent in light and 42 in dark, transparent, writing no depth, and its own material"
+    city = (SCENE / "city.js").read_text(encoding="utf-8")
+    assert not re.search(r"#[0-9A-Fa-f]{3,8}\b|rgb\(|hsl\(|0x[0-9a-fA-F]{6}", city), "city.js writes no colour literal"

@@ -183,7 +183,7 @@ def test_the_server_room_has_three_racks_a_wall_screen_and_a_console_each_with_i
     assert got["open"] == ["console"], "the model without a tab opens on Skills: the console"
     assert all(a == [0, 0, 0] for a in got["anchors"]), "a tooltip stands over the middle of the top of its object"
     assert got["subject"] == [-3.582, 3.584, -2.942, 2.943, 0.2, 2.915], "the camera frames the room with its slab, from the block it stands on up to the walls' top"
-    assert got["meshes"] <= 20 and got["visible"] <= 12 and got["instanced"] == 2, "R-51: batched statics: the ground's five, the shell, a rack each, the wall screen, the console, the open tab's brackets"
+    assert got["meshes"] <= 20 and got["visible"] <= 12 and got["instanced"] == 3, "R-51: batched statics: the ground's six (its trees are three instanced meshes since M-5, R4-B4), the shell, a rack each, the wall screen, the console, the open tab's brackets"
     assert got["perHit"] == [1, 1, 1, 1, 1], "one mesh for each object"
     assert got["words"][0] == ["rack-1", "rack-2", "rack-3", "wall", "console"] and got["words"][1] == 0 and got["words"][2] == ["wall"], "the words and the tab's object are apart from the room"
     assert got["structure"] == [True, True], "a change of tab or of words alone builds nothing again"
