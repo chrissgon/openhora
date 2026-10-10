@@ -495,6 +495,7 @@ a.wb-now-title:hover { text-decoration: underline; }
   :root { --wb-panel-narrow: 340px; --wb-wait-w: 340px; --wb-side-card: 220px; --wb-plate-w: 230px; --wb-card-w: 250px; --wb-panel-lobby: 340px; }
   .wb-door-label { display: none; }
   .wb-door { padding: 8px 10px; gap: 6px; }
+  .wb-crumb-nav { max-width: 22rem; }
   .wb-track-left .wb-steps { overflow-x: auto; }
   .wb-track-left .wb-step { flex: 0 0 9rem; }
 }

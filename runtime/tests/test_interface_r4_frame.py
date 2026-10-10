@@ -565,7 +565,7 @@ def test_the_docked_band_is_gone_and_the_in_between_band_starts_at_900_px():
     assert "@media (min-width: 900px) and (max-width: 1099px)" in frame, "the in-between band: 900 to 1099 px stays desktop"
     assert "min-width: 640px" not in frame and "max-width: 639px" not in frame
     between = frame[frame.index("@media (min-width: 900px) and (max-width: 1099px)"):].split("\n}\n")[0]
-    assert "wb-switch-main" not in between and ".wb-crumb" not in between, "M-10: the in-between band has no rule for the switcher's name or the crumbs (they were M-4's)"
+    assert "wb-switch-main" not in between and ".wb-crumb-nav { max-width: 22rem; }" in between, "M-10: the in-between band caps the crumbs at 22 rem as R4-A1 built it, and has no rule for the switcher's name (M-4's)"
     assert ".wb-navdock { max-width: 100%; }" in frame and "wb-navdock" in (JS / "frame" / "frame.js").read_text(encoding="utf-8"), "M-10: Back and the crumbs have their dock again"
 
 
