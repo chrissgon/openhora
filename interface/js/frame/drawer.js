@@ -14,7 +14,8 @@
 import { h } from "../dom.js";
 
 export const POSITIONS = ["collapsed", "half", "full"];
-export const PHONE_QUERY = "(max-width: 639px)";
+/** M-3: the phone is every width up to 899 px; the stylesheets carry the same number (a test keeps them one). Every module that tests the width imports this. */
+export const PHONE_QUERY = "(max-width: 899px)";
 export const EVENT = "wb-drawer";
 /** A drag shorter than this many pixels is a tap; one of at least this many always moves the sheet one step. */
 export const DRAG_MIN = 24;

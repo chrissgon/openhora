@@ -12,7 +12,7 @@ import * as fm from "../floor-model.js";
 import { createViewer } from "../floor/viewer.js";
 import { chip } from "../floor/widgets.js";
 import { arrowNav, keepFocus } from "../frame/arrows.js";
-import { bindDrawer, createGrip } from "../frame/drawer.js";
+import { bindDrawer, createGrip, PHONE_QUERY } from "../frame/drawer.js";
 import { icon } from "../frame/icons.js";
 import { acceptance } from "../model.js";
 import * as router from "../router.js";
@@ -199,7 +199,7 @@ export function createBuildingView(frame, env) {
   observer.observe(frame.kpis.el);
   observer.observe(panel);
   observer.observe(frame.noticeBox);
-  const phone = window.matchMedia("(max-width: 639px)");
+  const phone = window.matchMedia(PHONE_QUERY);
   const onPhone = () => { shown = ""; redraw(); };
   phone.addEventListener("change", onPhone);
 

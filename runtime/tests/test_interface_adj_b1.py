@@ -1033,7 +1033,8 @@ def test_the_readme_says_what_the_page_does_now():
     assert "is that same card (`floorCardNode`)" not in text and "a row (`rowNode`, `views/building.js`), not a plate" in text, "R-27: the floors list rows are drawn by rowNode (building.js), no longer by plateNode"
     assert "shows the placeholder" not in text, "the unread project's placeholder is unreachable: the sentence is gone"
     assert "desktop from 1024" not in text
-    assert "1100" in text and "639" in text and "899" in text and "1099" in text, "the four bands (R-1, R-10: the mark's breakpoint of 712 px is gone with the top bar's strip)"
+    assert "1100" in text and "900" in text and "899" in text and "1099" in text and "639" not in text.split("## The phone layout")[1].split("## What the Floor sends")[0], \
+        "M-3: the three bands (the phone up to 899 px, in-between 900 to 1099, the desktop from 1100; the docked band and its 639 and 640 are gone from the phone section)"
     assert "`#/city`" in text and "js/mode.js" in text, "the City route and the colour mode are described"
     assert "vendor/fonts" in text and "provisional" not in text.split("`js/mode.js`")[1].split("|")[0], "the typefaces; R-4 gives the colour-mode button its place, so it is no longer provisional"
     rule = re.search(r"- \*\*The token lives in memory and in `sessionStorage`[^\n]*\n(?:  [^\n]*\n)*", text)

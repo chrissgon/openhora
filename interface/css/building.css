@@ -165,7 +165,7 @@
 .wb-floor-step.is-above .wb-icon { rotate: 180deg; }
 .wb-floor-counter { color: var(--pui-text-muted); font-size: 11px; }
 
-@media (max-width: 639px) {
+@media (max-width: 899px) {
   .wb-floor-steps { bottom: 0; display: grid; translate: 0 calc(0px - var(--wb-y, 10px)); }   /* level with the camera buttons, above the cards and the sheet */
   .wb-floor-steps[hidden] { display: none; }
   :root { --wb-card-w: 280px; }   /* building.html at 375 px: the floor card is 280 px, so the runs and the spend stay on one line */

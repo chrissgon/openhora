@@ -372,7 +372,7 @@ def test_the_sheet_uses_no_inline_style_and_the_position_is_a_class_of_the_style
 
 # --- the stylesheet: no fixed scene height on the phone; the handle is the phone's; the desktop and the tablet are as they were ------------
 
-PHONE = media_blocks(CSS, "max-width: 639px")
+PHONE = media_blocks(CSS, "max-width: 899px")   # M-3: the phone is up to 899 px
 
 
 def test_no_phone_rule_gives_the_scene_a_fixed_height():
@@ -407,12 +407,12 @@ def test_the_handle_is_the_phones_and_the_desktop_rules_are_as_they_were():
     # the desktop panel is placed as before: absolute at the right of the scene, at its fixed width
     panel = next(d for sel, d in rules(top) if sel == ".wb-panel")
     assert panel["position"] == "absolute" and panel["right"] == "var(--wb-edge)" and panel["width"] == "var(--wb-panel-narrow)"
-    assert next(d for sel, d in rules(top) if sel == ".wb-dock")["position"] == "absolute", "R-8: the tracking bar stands at the bottom left in the dock, under Back and the crumbs"
+    assert next(d for sel, d in rules(top) if sel == ".wb-dock")["position"] == "absolute", "R-8, M-4: the tracking bar stands at the bottom left in the dock (Back and the crumbs are in the top row)"
     assert "position" not in next(d for sel, d in rules(top) if sel == ".wb-track")
     assert next(d for sel, d in rules(top) if sel == ".wb-kpis")["position"] == "absolute"
     # the sheet's rules sit in the phone block alone
     for selector in (".wb-drawer.is-half", ".wb-drawer.is-full", ".wb-drawer.is-collapsed", ".wb-drawer.is-dragging"):
-        assert selector in phone and selector not in "".join(b for b in media_blocks(CSS, "min-width: 640px") + media_blocks(CSS, "min-width: 1024px"))
+        assert selector in phone and selector not in "".join(b for b in media_blocks(CSS, "min-width: 900px") + media_blocks(CSS, "min-width: 1024px"))   # M-3: the band above the phone starts at 900 px (it was 640)
 
 
 def test_the_phone_puts_the_cards_over_the_scene_from_the_top_and_the_two_kpi_tiles_in_one_line_each():
@@ -437,7 +437,7 @@ def test_the_phone_puts_the_cards_over_the_scene_from_the_top_and_the_two_kpi_ti
     assert ".wb-buildings > :not(.wb-buildings-head)" not in phone and ".wb-wait-body > :not(.wb-wait-head)" in phone, \
         "collapsed hides all but a header line, and not while a drag raises it: the content is there as the sheet comes up"
     # no panel on the phone is a free-flowing section of the page any more: the Floor and the Control room scroll inside the sheet
-    assert ".wb-floor-normal { display: block; height: auto; }" not in "\n".join(media_blocks(CSS, "max-width: 639px"))
+    assert ".wb-floor-normal { display: block; height: auto; }" not in "\n".join(media_blocks(CSS, "max-width: 899px"))   # M-3: the phone is up to 899 px
 
 
 # --- the frame: the float stack, the event of the sheet, the pause --------------------------------------------------------------------
