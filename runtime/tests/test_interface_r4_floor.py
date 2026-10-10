@@ -502,3 +502,151 @@ def test_the_floors_stylesheet_draws_the_rows_the_three_line_fields_the_segmente
     assert "max-width: 899px" in floor
     assert '.wb-frame[data-screen="floor"] .wb-bottom-bar .wb-crumb-item:first-child' in floor, "README Floor (b) 6: on a phone the crumbs drop City"
     assert ".wb-floor-head > .wb-kpi-tile { display: inline-grid; }" in floor, "the head's tile stays on a phone, where the frame hides the KPI tiles' icons"
+
+
+# --- the review of the PR: the soft notices on every path, Copy's fallback, one choice of Plain text for every card, the toggle of the newest line ---------------------------
+
+REVIEW_FIXES = r"""
+import { FakeNode, settle, find, all } from "@FAKE@";
+import { setToken } from "@JS@/token.js";
+import * as fm from "@JS@/floor-model.js";
+import { notice } from "@JS@/floor/widgets.js";
+import { createAgentTab } from "@JS@/floor/agent-tab.js";
+import { createInbox } from "@JS@/floor/inbox.js";
+import { createCard } from "@JS@/floor/cards.js";
+
+setToken("t".repeat(40));
+const NOW = new Date("2026-10-10T12:00:00Z");
+const ago = (m) => new Date(NOW.getTime() - m * 60000).toISOString();
+const P = "0123456789ab";
+const text = (n) => (n ? n.textContent : null);
+const cls = (n) => (n.attrs.class || "").split(/\s+/).filter(Boolean);
+const out = {};
+
+// every notice path: the library's soft style in the state's colour, and the old classes kept
+out.notice = ["error", "warn", "info"].map((k) => { const n = notice("text", k); return [cls(n), n.attrs.role || null]; });
+
+const agentRow = { name: "engineering", pack: "x", enabled: true, mode: "milestones", acting_mode: "milestones", max_runs_per_day: 6, max_usd_per_day: 2, runs_today: 0, usd_today: 0, runs_without_cost: 0, queued: 0, held: 0,
+  wider: [{ mode: "autonomous", command: "python3 /ck/cli.py set-mode --mode autonomous" }, { mode: "autonomous-with-policy", command: "python3 /ck/cli.py set-mode --mode autonomous-with-policy" }] };
+const task = { id: 4, key: "k", title: "T", skill: "s", state: "ready", note: null, agent: "engineering", requestId: 1, waiting_for: [] };
+const view = () => fm.floor({ projects: [{ id: P, name: "n", config: { accepted: true } }], details: { [P]: { status: { requests: [{ id: 1, title: "R", state: "ready", tasks: [task] }], pending: [], held: [] }, agents: [agentRow] } }, tasks: {}, loaded: true }, P, "engineering", {});
+let reply = async () => ({ mode: "supervised", accepted: true });
+const tab = createAgentTab({ project: P, agent: "engineering", api: { setMode: (...a) => reply(...a), retry: async () => ({}), goAhead: async () => ({}), handOver: async () => ({}) }, refresh() {}, now: () => NOW });
+tab.update(view());
+await settle();
+const press = async () => { find(tab.el, "button[data-key=stop-agent]").click(); await settle(); };
+reply = async () => { throw Object.assign(new Error("refused"), { name: "ApiError", status: 500 }); };
+await press();
+out.failed = cls(find(tab.el, ".wb-form-error .wb-notice-card"));
+reply = async () => ({ mode: "stopped", accepted: true });
+await press();
+out.accepted = cls(find(tab.el, ".wb-result-box .wb-notice-card"));
+reply = async () => ({ mode: "stopped", accepted: false, next: "python3 /ck/cli.py accept-config --sha256 " + "a".repeat(64) });
+await press();
+out.unaccepted = cls(find(tab.el, ".wb-result-box .wb-notice-card"));
+// a card whose request failed
+const item = { id: 11, kind: "question", title: "Q", body: "body", payload: {}, status: "open", actions: ["answered"], agent: "engineering", task_id: 4, created_at: ago(5) };
+const card = createCard(item, { project: P, now: () => NOW, api: { answer: async () => { throw Object.assign(new Error("nope"), { name: "ApiError", status: 500 }); } }, requestIds: new Set(), links: { floor: () => "#", lobby: () => "#", open: () => "#" }, changed() {}, gone() {} });
+find(card.el, "textarea").value = "an answer";
+find(card.el, "textarea").listeners.input.forEach((fn) => fn());
+find(card.el, "button[data-word=answered]").click();
+await settle();
+out.cardError = cls(find(card.el, ".wb-notice-card"));
+
+// R-35: Copy writes the chosen option's command whole; a refused clipboard selects the command
+const written = [];
+Object.defineProperty(globalThis, "navigator", { value: { clipboard: { writeText: async (v) => { written.push(v); } } }, configurable: true });
+const select = find(tab.el, ".wb-wider-box select");
+select.value = select.children[1].attrs.value;
+select.listeners.change.forEach((fn) => fn());
+find(tab.el, "button.wb-copy[data-key=wider-copy]").click();
+await settle();
+out.copy = { written, label: text(find(tab.el, "button.wb-copy[data-key=wider-copy]")), status: text(find(tab.el, ".wb-wider-box .wb-copy-status")), order: find(tab.el, ".wb-wider-box").children.map((c) => ["wb-wider-row", "wb-command-code", "wb-wider-note", "wb-copy-status"].find((k) => cls(c).includes(k))) };
+let selected = null;
+Object.defineProperty(globalThis, "navigator", { value: { clipboard: { writeText: async () => { throw new Error("refused"); } } }, configurable: true });
+document.createRange = () => ({ selectNodeContents: (n) => { selected = n; } });
+globalThis.window.getSelection = () => ({ removeAllRanges() {}, addRange() {} });
+document.execCommand = () => false;
+find(tab.el, "button.wb-copy[data-key=wider-copy]").click();
+await settle();
+out.fallback = { selected: selected === find(tab.el, ".wb-wider-code"), selectedText: selected ? selected.textContent : null, status: text(find(tab.el, ".wb-wider-box .wb-copy-status")) };
+
+// the file input is described by the hint (and by the web line)
+const input = find(tab.el, ".wb-hand input.wb-file");
+const ids = (input.attrs["aria-describedby"] || "").split(" ").filter(Boolean);
+out.describedby = { ids: ids.length, found: ids.map((id) => all(tab.el, `#${id}`).length) };
+
+// R-34: two Markdown cards, one choice
+const items = new Map([[21, { ...item, id: 21, title: "First", body: "A **bold** one" }], [22, { ...item, id: 22, title: "Second", body: "Another **bold** one" }]]);
+globalThis.fetch = async (url) => ({ ok: true, status: 200, json: async () => items.get(Number(String(url).match(/pending\/(\d+)/)[1])) });
+const inbox = createInbox({ project: P, now: () => NOW, api: {}, refresh() {}, links: { open: () => "#", floor: () => "#", lobby: () => "#", parent: () => "#" } });
+const rows = (resolved) => ({ decisions: [21, 22].map((id) => ({ id, task_id: 4, kind: "question", agent: "engineering" })), requests: [], resolved, selected: null, loading: false });
+const line = (id, hours) => ({ id, kind: "question", resolution: "answered", text: "Question answered", tone: "pui-success pui-soft", icon: "check", title: `Line ${id}`, stamp: ago(hours * 60), age: `${hours} h`, when: "2026-10-09 10:00", said: null });
+inbox.update(rows([line(1, 5), line(2, 6)]));
+await settle();
+const cardsOf = () => all(inbox.el, "article.wb-card");
+const state = () => cardsOf().map((c) => [find(c, ".wb-card-plain").attrs["aria-pressed"], all(c, ".wb-md.is-plain").length]);
+out.two = { before: state() };
+find(cardsOf()[0], ".wb-card-plain").click();
+out.two.after = state();
+find(cardsOf()[1], ".wb-card-plain").click();
+out.two.back = state();
+
+// A4-4: the toggle the browser fires for the newest line must not keep it open when a newer one arrives
+const detailsOf = () => all(inbox.el, "details.wb-resolved-item");
+for (const d of detailsOf()) { d.open = "open" in d.attrs; (d.listeners.toggle || []).forEach((fn) => fn()); }
+inbox.update(rows([line(3, 1), line(1, 5), line(2, 6)]));
+out.lines = detailsOf().map((d) => "open" in d.attrs);
+detailsOf()[2].open = true; detailsOf()[2].listeners.toggle.forEach((fn) => fn());   // the person opens an older line: it stays open
+inbox.update(rows([line(4, 0), line(3, 1), line(1, 5), line(2, 6)]));
+out.kept = detailsOf().map((d) => "open" in d.attrs);
+console.log(JSON.stringify(out));
+process.exit(0);
+"""
+
+
+@needs_node
+def test_every_notice_path_of_the_floor_is_the_soft_style_with_the_old_classes_kept(tmp_path):
+    got = run_node(tmp_path, REVIEW_FIXES)
+    error, warn, info = got["notice"]
+    assert error == [["notice", "pui-soft", "pui-error", "wb-notice-card", "is-error"], "alert"] and warn == [["notice", "pui-soft", "pui-warn", "wb-notice-card", "is-warn"], "status"], "R-11"
+    assert info[0] == ["notice", "pui-soft", "pui-muted", "wb-notice-card"] and info[1] is None
+    for key in ("failed", "cardError"):
+        assert {"notice", "pui-soft", "pui-error"} <= set(got[key]), f"{key}: an error on the Agent tab or on a card is the soft error style"
+    assert {"notice", "pui-soft", "pui-success"} <= set(got["accepted"]) and {"notice", "pui-soft", "pui-warn", "is-warn"} <= set(got["unaccepted"]), "the mode result"
+    js = INTERFACE / "js"
+    for path in (js / "floor").glob("*.js"):
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if "wb-notice-card" in line and "class:" in line:
+                assert "notice pui-soft" in line or 'h("p", { class: "wb-notice-card"' in line, f"{path.name}:{lineno} builds a notice that is not the soft style"
+
+
+@needs_node
+def test_copy_writes_the_chosen_modes_command_whole_and_a_refused_clipboard_selects_it(tmp_path):
+    got = run_node(tmp_path, REVIEW_FIXES)
+    assert got["copy"]["written"] == ["python3 /ck/cli.py set-mode --mode autonomous-with-policy"] and got["copy"]["label"] == "Copied" and got["copy"]["status"] == "Copied to the clipboard."
+    assert got["copy"]["order"] == ["wb-wider-row", "wb-command-code", "wb-wider-note", "wb-copy-status"], "the block's DOM order is its visual order"
+    assert got["fallback"]["selected"] is True and got["fallback"]["selectedText"].endswith("--mode autonomous-with-policy"), "a refused clipboard selects the command"
+    assert "Select the command" in got["fallback"]["status"]
+    assert got["describedby"] == {"ids": 1, "found": [1]} or got["describedby"]["ids"] >= 1 and all(n == 1 for n in got["describedby"]["found"]), "the file input is described by the hint (and the web line)"
+
+
+@needs_node
+def test_plain_text_is_one_choice_for_every_markdown_card_and_the_newest_resolved_line_does_not_keep_an_older_one_open(tmp_path):
+    got = run_node(tmp_path, REVIEW_FIXES)
+    two = got["two"]
+    assert two["before"] == [["false", 0], ["false", 0]]
+    assert two["after"] == [["true", 1], ["true", 1]], "R-34: flipping it on one card draws every card"
+    assert two["back"] == [["false", 0], ["false", 0]]
+    assert got["lines"] == [True, False, False], "a toggle event fired for the line that was newest does not keep it open beside the newer one"
+    assert got["kept"] == [True, False, False, True], "a line the person opened stays open (here the oldest), the newest is open by default"
+
+
+def test_the_board_label_is_not_drawn_on_a_phone_and_a_card_head_wraps_instead_of_cutting():
+    floor = (INTERFACE / "css" / "floor.css").read_text(encoding="utf-8")
+    phone = floor[floor.rindex("@media (max-width: 899px) {\n  .wb-card-plain"):]
+    assert ".wb-wallboard { display: none; }" in phone, "floor.html draws no board label at 375 px: the label would lie under the tracking bar and the tiles"
+    assert ".wb-card-plain { flex: 1 1 100%;" in phone, "Plain text has a row of its own on a phone"
+    meta = next(d for s, d in css_rules() if s.strip() == ".wb-card-meta")
+    assert "white-space" not in meta and "text-overflow" not in meta, "the card's meta is never cut: the head wraps"
+    assert ":has(.wb-card-plain)" not in floor

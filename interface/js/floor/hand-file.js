@@ -19,10 +19,20 @@ export function toBase64(bytes) {
  * (drawn out of sight: the button is what the person sees, the input is what a screen reader and a test reach, named like the heading) and the hint. Returns {nodes, button}: `nodes` go in the
  * box in this order, `button` is the one to disable with the input.
  */
+let chooserCount = 0;
+
 export function handChooser({ input, line, hint }) {
   const button = h("button", { class: "pui-btn pui-surface pui-outline wb-small-button wb-hand-choose", type: "button", text: "Choose a file" });
   button.addEventListener("click", () => { if (!input.disabled) input.click(); });
   input.setAttribute("aria-label", "Hand a file over");
+  chooserCount += 1;      // the hint and the line of a web task describe the file input
+  const ids = [];
+  for (const [node, name] of [[line, "line"], [hint, "hint"]]) {
+    if (!node) continue;
+    node.setAttribute("id", `wb-hand-${name}-${chooserCount}`);
+    ids.push(node.getAttribute("id"));
+  }
+  if (ids.length) input.setAttribute("aria-describedby", ids.join(" "));
   input.setAttribute("tabindex", "-1");
   return { nodes: [h("span", { class: "wb-sec-head wb-field-label", text: "Hand a file over" }), line, h("div", { class: "wb-hand-row" }, button), input, hint], button };
 }

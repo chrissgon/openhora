@@ -19,7 +19,7 @@ import * as format from "../format.js";
 import * as router from "../router.js";
 import { ENDING, openable } from "../floor-model.js";
 import { renderMarkdown } from "../markdown.js";
-import { markdownView, plainChoice, setPlainChoice } from "../markdown-view.js";
+import { markdownView, onPlainChoice, plainChoice, setPlainChoice } from "../markdown-view.js";
 import { createWaitsBlock } from "../cards/plan-waits.js";
 import { commandBlock } from "../frame/command.js";
 import { fileRefusal, handChooser, handOverStep, toBase64 } from "./hand-file.js";
@@ -123,8 +123,7 @@ export function createCard(item, env) {
     const on = plainChoice();
     const button = h("button", { class: "pui-btn pui-surface pui-outline wb-small-button wb-card-plain", type: "button", "data-key": "plain", "aria-pressed": String(on), text: "Plain text" });
     button.addEventListener("click", () => {
-      setPlainChoice(!plainChoice());
-      render();
+      setPlainChoice(!plainChoice());     // every card that listens draws again (below), this one too
       const next = root.querySelector ? root.querySelector("button.wb-card-plain") : null;
       if (next && next.focus) next.focus();
     });
@@ -590,6 +589,14 @@ export function createCard(item, env) {
     }
   }
 
+  // R-34: one choice for the session: when any card flips it, every card of the page draws its text again (the Floor's Inbox and the Lobby's)
+  let seen = false;
+  const stopListening = onPlainChoice(() => {
+    if (root.isConnected) {
+      seen = true;
+      render();
+    } else if (seen) stopListening();
+  });
   render();
   loadDrop();
   return {

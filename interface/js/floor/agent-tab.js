@@ -11,7 +11,7 @@
 import { fill, h } from "../dom.js";
 import * as router from "../router.js";
 import { MODES, MODE_LINES, currentSub, meters, stateRow, stateTone, taskWord } from "../floor-model.js";
-import { commandBlock, copyCommand, isCommand } from "../frame/command.js";
+import { commandBlock, copyCommand, isCommand, selectNode } from "../frame/command.js";
 import { icon } from "../frame/icons.js";
 import { trackNode } from "../scene/plates.js";
 import { runBlock } from "./run-block.js";
@@ -23,7 +23,6 @@ import { waitLines } from "../waits.js";
 export { MAX_FILE_BYTES, fileRefusal, toBase64 } from "./hand-file.js";
 export const STANDING = "Stop agent and Supervise take effect at once and need no acceptance.";
 export const WIDER = "A wider mode is set in the terminal, not on this page.";
-export const WIDER_BELOW = "A wider mode is set in the terminal, not on this page:";
 export const WIDER_BELOW_NOTE = "A wider mode is set in the terminal, not on this page: copy the command and run it.";
 
 /** Keep the keyboard focus on the control with the same `data-key` after a part is drawn again. */
@@ -114,10 +113,10 @@ export function createAgentTab(env) {
       return;
     }
     if (modeResult.accepted) {
-      fill(resultBox, h("div", { class: "wb-notice-card", role: "status" }, h("strong", { text: `Mode set to ${modeResult.mode}.` })));
+      fill(resultBox, h("div", { class: "notice pui-soft pui-success wb-notice-card", role: "status" }, h("strong", { text: `Mode set to ${modeResult.mode}.` })));
       return;
     }
-    fill(resultBox, h("div", { class: "wb-notice-card is-warn", role: "status" },
+    fill(resultBox, h("div", { class: "notice pui-soft pui-warn wb-notice-card is-warn", role: "status" },
       h("strong", { text: `Mode set to ${modeResult.mode}. Nothing works on this page until you accept the new configuration in the terminal.` }),
       commandBlock({ command: modeResult.next })));
   }
@@ -190,7 +189,7 @@ export function createAgentTab(env) {
       fill(widerBox, widerNote(WIDER));
       return;
     }
-    const id = `wb-wider-${env.agent}`;
+    const id = `mode-wider-${env.agent}`;
     const select = h("select", { class: "pui-input wb-select", id, "data-key": "wider" }, list.map((w) => h("option", { value: w.command, title: MODE_LINES[w.mode] || null, text: w.mode })));
     select.value = list[0].command;
     const code = h("code", { class: "wb-command-code wb-wider-code", text: list[0].command });
@@ -202,14 +201,14 @@ export function createAgentTab(env) {
       status.textContent = "";
     });
     copy.addEventListener("click", async () => {
-      const result = await copyCommand(select.value, { clipboard: typeof navigator !== "undefined" && navigator.clipboard ? navigator.clipboard : null, select: () => false });
+      const result = await copyCommand(select.value, { clipboard: typeof navigator !== "undefined" && navigator.clipboard ? navigator.clipboard : null, select: () => selectNode(code) });
       word.textContent = result === "copied" ? "Copied" : "Selected";
       status.textContent = result === "copied" ? "Copied to the clipboard." : "Select the command and copy it with the keyboard.";
       setTimeout(() => { word.textContent = "Copy"; status.textContent = ""; }, 2000);
     });
     fill(widerBox, h("div", { class: "wb-wider-box" },
       h("div", { class: "wb-wider-row" }, h("label", { class: "wb-wider-label", for: id, text: "Mode" }), select, copy),
-      widerNote(WIDER_BELOW_NOTE), code, status));
+      code, widerNote(WIDER_BELOW_NOTE), status));
   }
 
   function drawCurrent(view) {
@@ -251,7 +250,7 @@ export function createAgentTab(env) {
       view.others.map((t) => {
         const nodes = taskActionsUse.nodes(t, { pending: view.decisions, links, locked });
         return h("div", { class: "wb-other" },
-          h("div", { class: "wb-cur-head wb-other-row" }, h("strong", { class: "wb-other-title", text: `#${t.id} ${t.title || t.key || ""}`.trim() }), chip(taskWord(t.state), stateTone(t.state))),
+          h("div", { class: "wb-cur-head" }, h("strong", { class: "wb-other-title", text: `#${t.id} ${t.title || t.key || ""}`.trim() }), chip(taskWord(t.state), stateTone(t.state))),
           nodes.length ? h("div", { class: "wb-task-actions" }, nodes) : null,
           waitLines(t).map((line) => h("p", { class: "wb-task-waits wb-muted", text: line })),
           taskActionsUse.failure(t.id));

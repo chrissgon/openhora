@@ -7,13 +7,23 @@ import { renderMarkdown } from "./markdown.js";
 
 let plainChosen = false;
 
-/** The session's choice of "Plain text" (R-34: one for the session; the Inbox's cards read and set it too, through these two). */
+const listeners = new Set();
+
+/** The session's choice of "Plain text" (R-34: one for the session; the Inbox's cards read and set it too, through these three). */
 export function plainChoice() {
   return plainChosen;
 }
 
+/** Set the choice and tell every card that listens, so that all of them draw the same view (a card that is gone from the page removes itself). */
 export function setPlainChoice(value) {
   plainChosen = Boolean(value);
+  for (const fn of [...listeners]) fn(plainChosen);
+}
+
+/** Listen for a change of the choice; returns the function that stops listening. */
+export function onPlainChoice(fn) {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
 }
 
 /**

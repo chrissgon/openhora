@@ -52,11 +52,10 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
 .wb-wider-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 8px; }
 .wb-wider-label { grid-column: 1 / -1; padding-left: 4px; font-size: 13px; }
 .wb-wider-code { display: block; font-size: 12px; overflow-wrap: anywhere; }
-.wb-wider-box .wb-copy-status { order: 2; padding-left: 4px; font-size: 12px; }
+.wb-wider-box .wb-copy-status { padding-left: 4px; font-size: 12px; }
 .wb-wider-box .wb-copy-status:empty { display: none; }
-.wb-wider-note { display: flex; align-items: flex-start; gap: 8px; order: 3; margin: 0; font-size: 13px; }
+.wb-wider-note { display: flex; align-items: flex-start; gap: 8px; margin: 0; font-size: 13px; }
 .wb-wider-note > .wb-icon { margin-top: 2px; }
-.wb-wider { margin: 0; padding: 0 4px; font-size: 13px; }
 .wb-runs-total { margin: 0; padding: 0 4px; font-size: 12px; }
 .wb-held-detail { margin: 0; font-size: 12px; }
 .wb-held { display: grid; gap: 6px; }
@@ -102,9 +101,7 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
 /* decision cards (cards.md): the card is the sunken ground; its head has the kind, the meta and, on a card that renders Markdown, `Plain text` (R-34) */
 .wb-card { border: 1px solid transparent; background-color: var(--wb-sunken); }
 .wb-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: var(--pui-border-width) solid var(--pui-border); }
-.wb-card-head:has(.wb-card-plain) { flex-wrap: nowrap; }
-.wb-card-head:has(.wb-card-plain) .wb-card-meta { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wb-card-plain { flex: none; margin-left: auto; padding: 2px 8px; font-size: 12px; }
+.wb-card-plain { margin-left: auto; padding: 2px 8px; font-size: 12px; }
 .wb-card-plain[aria-pressed="true"] { background-color: var(--wb-tint-selected); }
 .wb-card-meta { color: var(--pui-text-muted); font-size: 12px; }
 .wb-card-content { display: grid; gap: 10px; padding: 12px; }
@@ -302,7 +299,6 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
 .wb-task-waits { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
 .wb-task-actions > .wb-task-effect { flex: 1 1 12em; min-width: 0; font-size: 12px; overflow-wrap: anywhere; }
 .wb-task-actions > .wb-task-note { flex: 1 1 12em; min-width: 0; margin: 0; overflow-wrap: anywhere; }
-.wb-other-row { flex-wrap: wrap; }
 
 .wb-waits { display: grid; gap: 6px; padding: 10px 12px; border: var(--pui-border-width) solid var(--pui-warn); border-radius: var(--pui-radius); background-color: var(--wb-sunken); font-size: 12px; }
 .wb-waits-title { font-size: 13px; }
@@ -320,4 +316,10 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
 /* README Floor (b) 6: on a phone the crumbs drop "City" (`northwind-shop / Engineering`) so they fit beside Back and the door */
 @media (max-width: 899px) {
   .wb-frame[data-screen="floor"] .wb-bottom-bar .wb-crumb-item:first-child, .wb-frame[data-screen="floor"] .wb-bottom-bar .wb-crumb-item:nth-child(2) > .wb-crumb-sep { display: none; }
+}
+
+/* the phone: the head wraps so that nothing of it is cut (`Plain text` takes a row of its own), and the board's label is not drawn (floor.html draws none at 375 px: the tracking bar and the tiles float where it would hang) */
+@media (max-width: 899px) {
+  .wb-card-plain { flex: 1 1 100%; justify-content: center; margin-left: 0; }
+  .wb-wallboard { display: none; }
 }

@@ -96,7 +96,11 @@ export function createInbox(env) {
           h("summary", {}, h("span", { class: "wb-tl-text" }, h("strong", { class: "wb-tl-title wb-resolved-title", text: line.title }), h("span", { class: "wb-tl-sub wb-muted", text: `${line.text}${ago}` })),
             h("span", { class: "wb-task-mark", "aria-hidden": "true" }, icon("chevron-down", 16))),
           h("div", { class: "wb-tl-body" }, h("p", { class: "wb-muted wb-resolved-body", text: line.when ? `Resolved ${line.when}` : "Resolved" }), saidBlock(line.said)));
-        details.addEventListener("toggle", () => openLines.set(line.id, details.open));
+        // only a choice that differs from the default is kept: the toggle event the browser fires when a line is made open must not make an older line stay open beside a newer one
+        details.addEventListener("toggle", () => {
+          if (details.open === (index === 0)) openLines.delete(line.id);
+          else openLines.set(line.id, details.open);
+        });
         return h("li", { class: "pui-checkpoint wb-tl-item" }, h("span", { class: `pui-checkpoint-icon ${line.tone} wb-tl-icon` }, icon(line.icon || "check", 14)), details);
       })));
   }
