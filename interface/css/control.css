@@ -7,10 +7,6 @@
 .wb-frame[data-screen="control"] .wb-waiting { width: var(--wb-panel-wide); }   /* R-50: the closed card is as wide as the panel: the two stand as one column */
 .wb-frame[data-screen="control"] .wb-track { display: none; }                   /* R-50, R-55: this screen has no tracking bar: Back and the crumbs sit at the edge, a phone has no strip */
 
-@media (max-width: 899px) {
-  .wb-frame[data-screen="control"] .wb-track { display: none; }
-}
-
 /* the chart's second series is the brand colour mixed to 38 percent (R-52, E-8; the third is the muted neutral), named once */
 :root {
   --wb-tint-series: color-mix(in srgb, var(--pui-theme) 38%, var(--wb-raised));
@@ -18,7 +14,7 @@
 
 /* the in-between band (not drawn, R4D-6; the phone's layout now runs up to 899 px, M-3): the wide panel takes what the KPI column leaves, its tables scroll inside their cards */
 @media (min-width: 900px) and (max-width: 1023px) {
-  .wb-frame[data-screen="control"] .wb-panel-wide { width: calc(100vw - var(--wb-kpi-w) - var(--wb-edge) * 3); }
+  .wb-frame[data-screen="control"] .wb-panel-wide, .wb-frame[data-screen="control"] .wb-waiting { width: calc(100vw - var(--wb-kpi-w) - var(--wb-edge) * 3); }   /* R-50: the closed card is as wide as the panel in this band too */
   .wb-filter-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .wb-filter-body > :last-child { grid-column: 1 / -1; }
 }
@@ -75,6 +71,8 @@
 .wb-skill-head { background-color: var(--wb-sunken); color: var(--pui-text-muted); font-size: 12px; font-weight: 600; }
 .wb-skill-row + .wb-skill-row, .wb-skill-head + .wb-skill-row { border-top: var(--pui-border-width) solid var(--pui-border); }
 .wb-skill-row > summary, .wb-skill-card > summary { list-style: none; cursor: pointer; }
+/* the lists clip their corners (overflow hidden), so a focused summary draws its ring inside the row */
+.wb-skill-row > summary:focus-visible, .wb-filters > summary:focus-visible, .wb-chart-acc > summary:focus-visible, .wb-need > summary:focus-visible { outline: 2px solid var(--pui-theme); outline-offset: -2px; }
 .wb-skill-sum:hover { background-color: var(--wb-ground); }
 .wb-skill-ver, .wb-skill-area { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wb-skill-name { overflow: hidden; font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
@@ -97,7 +95,7 @@
 
 /* --- Costs ------------------------------------------------------------------------------------------------------------------------------------------------------------------- */
 .wb-since { max-width: 200px; }
-.wb-footnote, .wb-foot { margin: 0; font-size: 12px; }
+.wb-foot { margin: 0; font-size: 12px; }
 
 /* the caps (R-52, E-16): the agent with its runs of the day under its name, then Runs today and Spend today, each a value in 600 weight over a meter */
 .wb-caps { overflow: hidden; font-size: 13px; }

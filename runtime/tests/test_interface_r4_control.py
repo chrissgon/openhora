@@ -244,9 +244,6 @@ out.noAgentsRows = capsAgain.all((n) => has(n, "wb-cap-row")).slice(1).map((r) =
 // no cap, no caps card
 costs.set({ status: "ready", data: { ...data, caps: [] }, agents, fieldValue: "2026-09-09" });
 out.noCaps = costs.el.all((n) => has(n, "wb-caps")).length;
-// no runs since the date: the page draws the field and the dashed block alone (no caps card)
-costs.set({ status: "ready", data: { ...data, rows: [] }, agents, fieldValue: "2026-09-09" });
-out.emptyParts = costs.el.children.map((c) => c.cls()[0]);
 // no runs since the date: the page draws the field and the dashed block alone, no caps card (R-52's page: co-empty)
 costs.set({ status: "ready", data: { ...data, rows: [] }, agents, fieldValue: "2026-09-09" });
 out.emptyParts = costs.el.children.map((c) => c.cls()[0]);
@@ -498,9 +495,39 @@ def test_the_notice_the_meters_the_accordion_and_the_phone_follow_the_page_in_th
         assert rules(own, selector), f"control.css draws {selector}"
     assert "grid-template-columns: auto minmax(0, 1fr)" in rules(own, ".wb-cnotice")[0]
     assert "var(--pui-theme)" in rules(own, ".wb-need > summary")[0], "the disclosure is in the theme colour"
-    assert "minmax(0, 1fr) 190px 190px" in rules(own, ".wb-cap-row")[0] or "190px" in rules(own, ".wb-cap-row")[0]
+    assert "grid-template-columns: minmax(0, 1fr) 190px 190px" in rules(own, ".wb-cap-row")[0]
     assert re.search(r'url\("\.\./icons/triangle-alert\.svg"\)', css), "the notice's icon is a clean file of the icon set"
     assert not re.search(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(", own), "no colour literal"
     phone = own[own.index("@media (max-width: 899px) {\n  .wb-control-content"):]  # M-3: the phone's layout runs up to 899 px
     assert ".wb-skill-list { display: none; }" in phone.replace("\n", " ") or re.search(r"\.wb-skill-list \{ display: none; \}", phone), "on a phone the list gives way to one card per skill"
     assert re.search(r"\.wb-skill-cards \{ display: grid;", phone)
+
+
+def test_a_focused_summary_has_its_ring_inside_the_row_and_the_closed_card_follows_the_panel_in_the_in_between_band():
+    """Review nits 3 and 4 of PR 294: the lists clip their corners, so a summary draws its ring inside; at 900 to 1023 px the panel is narrower than 700 px and the closed
+    "Waiting for you" is as wide as the panel (R-50)."""
+    own = control_css()
+    for selector in (".wb-skill-row > summary:focus-visible", ".wb-filters > summary:focus-visible", ".wb-chart-acc > summary:focus-visible", ".wb-need > summary:focus-visible"):
+        found = rules(own, selector)
+        assert found and "outline: 2px solid var(--pui-theme)" in found[0] and "outline-offset: -2px" in found[0], selector
+    band = own[own.index("@media (min-width: 900px) and (max-width: 1023px)"):]
+    band = band[:band.index("\n}")]
+    panel = re.search(r'\.wb-frame\[data-screen="control"\] \.wb-panel-wide, \.wb-frame\[data-screen="control"\] \.wb-waiting \{ width: (calc\([^;]+\)); \}', band)
+    assert panel and panel.group(1) == "calc(100vw - var(--wb-kpi-w) - var(--wb-edge) * 3)", "the panel and the closed card take the same width in the band"
+    assert "wb-footnote" not in own
+
+
+FAILED_LABEL = HELPERS + r"""
+import { sceneModel } from "@JS@/views/control-model.js";
+const conn = { classes: [], secrets: [], image: { name: "i", present: true, evidence: true }, platform: {} };
+console.log(JSON.stringify([sceneModel({ accepted: true, connections: null, failed: true }).label, sceneModel({ accepted: true, connections: null }).label,
+  sceneModel({ accepted: false, connections: null, failed: true }).label, sceneModel({ accepted: true, connections: conn }).label]));
+"""
+
+
+@needs_node_here
+def test_the_scene_says_the_connections_were_not_read_when_the_read_failed(tmp_path):
+    """A6-13: a failed read says nothing was read; the page's label ("... 0 connections missing") would claim nothing is missing."""
+    got = node(tmp_path, FAILED_LABEL)
+    assert got == ["Server room, connections not read", "Server room, loading", "Server room, waiting for the configuration to be accepted",
+                   "Server room: 3 racks, 0 connections missing, runs of the last 7 days"]

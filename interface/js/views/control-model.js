@@ -465,7 +465,7 @@ export function sceneModel({ accepted = true, connections = null, costs = null, 
   const ready = Boolean(accepted && connections);
   const label = ready
     ? `Server room: ${RACKS.length} racks, ${missing} ${missing === 1 ? "connection" : "connections"} missing, runs of the last 7 days`
-    : accepted ? "Server room, loading" : "Server room, waiting for the configuration to be accepted";
+    : accepted ? (failed ? "Server room, connections not read" : "Server room, loading") : "Server room, waiting for the configuration to be accepted";   // A6-13: a failed read says nothing was read; the page's label would claim nothing is missing
   // B3-5: a failed read of the connections draws the room as the page does, the lights off and the open tab's object marked (no data was read, but the person is on that tab); loading and not accepted draw no brackets
   const marked = ready || Boolean(accepted && failed);
   return { ready, failed: Boolean(accepted && failed && !connections), leds, facts: facts.length, missing, racks, bars, tips: { wall: "Runs by day · Costs tab", console: "Console · Skills tab" }, label, open: marked ? [...(OPEN_OF[tabOf(tab)] || [])] : [] };
