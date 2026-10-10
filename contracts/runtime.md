@@ -306,7 +306,7 @@ From stage 6 the task runtime runs unattended through two recurring jobs of the 
 
 **The rules of a request, in order; each is a refusal unless the request satisfies it** (each has a test in `runtime/tests/test_service.py`):
 
-1. The socket is bound to `127.0.0.1`; there is no option for another address.
+1. The socket is bound to `127.0.0.1`; there is no option for another address. It listens with a backlog of 128 (`Server.request_queue_size`), because every response closes its connection and a page of dozens of modules and icons opens that many at once; the default of 5 overflowed and some systems reset the overflow (`runtime/tests/test_service_static.py`).
 2. `Host` is `127.0.0.1:<port>` or `localhost:<port>`, else `403` (`host`). A name that resolves to the machine is refused.
 3. `Origin`, when present, is `http://127.0.0.1:<port>` or `http://localhost:<port>`, else `403` (`origin`); a `POST` without one is refused the same way.
 4. A path under `/api/` needs the token, else `401` (`token`). The static files need none and hold no data. One more path needs none, `GET /token-file` ("Before the token" below).
