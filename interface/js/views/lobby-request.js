@@ -68,27 +68,29 @@ export function createBlock({ api, project, request, body, open, now, signal, on
     if (onExpand) onExpand(!fullText.hidden);
   });
   const notice = routeNotice
-    ? h("div", { class: `wb-lobby-notice-card${routeNotice.tone === "info" ? " is-info" : ""}`, role: routeNotice.tone === "info" ? "status" : "alert" },
+    ? h("div", { class: `wb-lobby-notice-card notice${routeNotice.tone === "info" ? "" : " pui-soft pui-error"} wb-lr-note`, role: routeNotice.tone === "info" ? "status" : "alert" },
       h("strong", { class: "wb-lobby-notice-title", text: routeNotice.title }), h("span", { text: routeNotice.text })) : null;
   const cancel = line.cancellable
     ? h("button", { class: "pui-btn pui-link pui-error wb-lobby-cancel-link", type: "button", text: "Cancel request", "aria-label": `Cancel request ${request.id}` }) : null;
   const route = line.routable
-    ? h("button", { class: "pui-btn pui-surface pui-outline wb-route-button", type: "button", text: routing ? "Routing..." : "Route it", disabled: Boolean(routing),
+    ? h("button", { class: "pui-btn pui-surface pui-outline wb-small-button wb-route-button", type: "button", text: routing ? "Routing..." : "Route it", disabled: Boolean(routing),
       "aria-label": `Route request ${request.id}` }) : null;
   // After a reload the flow chosen in the form is forgotten: the line offers the flows beside "Route it" (E-20). The page never changes the request's text.
   const options = flows ? flowOptions(flows) : [];
   const chooser = route && !remembered && options.length > 1
-    ? h("select", { class: "pui-input wb-route-flow", "aria-label": `Flow for request ${request.id}`, disabled: Boolean(routing) }, options.map((o) => h("option", { value: o.value, text: o.label })))
+    ? h("select", { class: "pui-input wb-select wb-route-flow", "aria-label": `Flow for request ${request.id}`, disabled: Boolean(routing) }, options.map((o) => h("option", { value: o.value, text: o.label })))
     : null;
   if (chooser) {
     chooser.value = flow || "";
     chooser.addEventListener("change", () => { if (onFlow) onFlow(chooser.value); });
   }
-  const row = h("div", { class: `wb-lobby-request-line${chooser ? " has-flow" : ""}`, role: "group", "aria-label": line.name },
+  // R-47: the request line is a small bordered block: the number, the title and the state chip in the state's colour on one line; `Route it` and `Cancel request`
+  // on the line under it (E-28); the whole text and a notice under those
+  const row = h("div", { class: "wb-lobby-request-line", role: "group", "aria-label": line.name },
     h("span", { class: "pui-badge pui-muted pui-soft pui-rounded-full", text: `#${request.id}` }),
     titleButton,
-    line.state ? h("span", { class: "pui-chip pui-muted pui-soft wb-chip-small", text: line.state }) : null,
-    chooser, route, cancel);
+    line.state ? h("span", { class: `pui-chip ${line.tone} wb-chip-small`, text: line.state }) : null);
+  const actions = chooser || route || cancel ? h("div", { class: `wb-lr-actions${chooser ? " has-flow" : ""}` }, chooser, route, cancel) : null;
   if (cancel) cancel.addEventListener("click", () => onCancel(request, cancel));
   if (route) route.addEventListener("click", () => onRoute(request, remembered || (chooser ? chooser.value : "")));
 
@@ -108,7 +110,8 @@ export function createBlock({ api, project, request, body, open, now, signal, on
       decisions.push(resolvedLine(item, now));
     }
   }
-  const el = h("div", { class: "wb-request-block", id: `wb-request-${request.id}`, tabindex: "-1" }, line.final ? null : row, line.final ? null : fullText, line.final ? null : notice, ...decisions);
+  const box = line.final ? null : h("div", { class: "wb-request-box" }, row, actions, fullText, notice);
+  const el = h("div", { class: "wb-request-block", id: `wb-request-${request.id}`, tabindex: "-1" }, box, ...decisions);
   return {
     el,
     /** Move the focus to the request's title (the block itself when the request is final and has no line). */

@@ -1,5 +1,5 @@
 // The plan card (handoff cards.md, "Plan card"): the approval point of a plan. It shows the exact thing approved ahead of its
-// button: the table of the tasks, what the plan will wait for (A-29: derived waits with a "Go ahead" box each, a required input nothing writes,
+// button: the tasks as blocks, what the plan will wait for (A-29: derived waits with a "Go ahead" box each, a required input nothing writes,
 // a circle), the limits, the whole plan hash and the plan as text. "Approve this plan" sends exactly {sha256: <the hash displayed>} and, for
 // the boxes ticked, {go_ahead: [task keys]} (a job); "Reject" sends the note when one was typed. The card never changes by itself: after an
 // action it asks its host to read again (`onChanged`) and the host draws what it got, a resolved line in place of the card. Text
@@ -9,7 +9,7 @@ import { h } from "../dom.js";
 import * as format from "../format.js";
 import { markdownView } from "../markdown-view.js";
 import * as router from "../router.js";
-import { COLUMNS, failureText, limitsLine, planHash, planText, stackedRow, taskRows } from "./plan-rows.js";
+import { failureText, limitsLine, planHash, planText, stackedRow, taskRows } from "./plan-rows.js";
 import { createWaitsBlock } from "./plan-waits.js";
 
 let counter = 0;
@@ -35,23 +35,16 @@ export function createPlanCard({ api, project, item, now, onChanged, signal, ann
   if (item.created_at) meta.setAttribute("title", item.created_at);
   const title = h("h3", { class: "wb-card-title", id: titleId, tabindex: "-1", text: item.title || `Plan ${item.id}` });
 
-  const table = h("table", { class: "pui-table wb-plan-table" },
-    h("caption", { class: "wb-sr", text: "Tasks" }),
-    h("thead", {}, h("tr", {}, COLUMNS.map((c) => h("th", { scope: "col", text: c })))),
-    h("tbody", {}, rows.map((r) => h("tr", {},
-      h("td", { class: "wb-cell-n", text: r.n }),
-      h("td", { class: "wb-cell-task", text: r.task }),
-      h("td", { class: "wb-cell-skill", text: r.skill }),
-      h("td", { text: r.agent }),
-      h("td", { text: r.after }),
-      h("td", { text: r.milestone }),
-      h("td", { text: r.web })))));
-  const tableWrap = h("div", { class: "table-wrap wb-plan-wide", tabindex: "0", role: "region", "aria-label": "Plan tasks" }, table);
-  // Below 640 px the table is replaced by one block per task (the design system's rule for a narrow screen).
-  const stack = h("ol", { class: "wb-plan-stack", "aria-label": "Plan tasks" }, rows.map((r) => {
+  // R-47: the plan's tasks are blocks at every width (the panel is narrower than the seven columns need): the number, the task, its skill and agent, and
+  // what it waits for; the table the card had is gone
+  const list = h("ol", { class: "wb-plan-list", "aria-label": "Plan tasks" }, rows.map((r) => {
     const s = stackedRow(r);
-    return h("li", { class: "wb-plan-stacked" }, h("strong", { text: s.head }),
-      h("span", { class: "wb-plan-stacked-skill" }, h("code", { text: s.skill }), s.agent ? ` · ${s.agent}` : ""), h("span", { class: "wb-card-note", text: s.tail }));
+    return h("li", { class: "wb-plan-task" },
+      h("span", { class: "wb-task-n", text: r.n }),
+      h("div", { class: "wb-plan-task-text" },
+        h("strong", { class: "wb-cell-task", text: r.task }),
+        h("span", { class: "wb-muted wb-cur-sub" }, h("code", { class: "mono wb-cell-skill", text: s.skill }), s.agent ? ` · ${s.agent}` : ""),
+        h("span", { class: "wb-muted wb-cur-sub", text: s.tail })));
   }));
 
   const waits = createWaitsBlock(item.payload);
@@ -65,21 +58,21 @@ export function createPlanCard({ api, project, item, now, onChanged, signal, ann
     : null;
 
   const noteId = `${titleId}-note`;
-  const note = h("input", { class: "pui-input wb-lobby-field", id: noteId, type: "text", autocomplete: "off" });
-  const noteGroup = h("label", { class: "pui-field-group", for: noteId }, h("span", { text: "Note (optional, used when you reject)" }), note);
-  const error = h("div", { class: "notice error wb-card-error", role: "alert", hidden: true });
+  const note = h("input", { class: "pui-input wb-lobby-field wb-field-input", id: noteId, type: "text", autocomplete: "off" });
+  const noteGroup = h("label", { class: "pui-field-group wb-field", for: noteId }, h("span", { text: "Note (optional, used when you reject)" }), note);
+  const error = h("div", { class: "notice pui-soft pui-error wb-card-error", role: "alert", hidden: true });
   const working = h("span", { class: "wb-lobby-working", hidden: true, text: "Working..." });
   const approve = actions.includes("approved") && shown
-    ? h("button", { class: "pui-btn pui-theme pui-outline", type: "button", text: "Approve this plan" }) : null;
+    ? h("button", { class: "pui-btn pui-solid pui-theme wb-card-button", type: "button", text: "Approve this plan" }) : null;
   const reject = actions.includes("rejected")
-    ? h("button", { class: `pui-btn ${approve ? "pui-surface" : "pui-theme"} pui-outline`, type: "button", text: "Reject" }) : null;
+    ? h("button", { class: `pui-btn ${approve ? "pui-surface pui-outline" : "pui-solid pui-theme"} wb-card-button`, type: "button", text: "Reject" }) : null;
   const buttons = [approve, reject].filter(Boolean);
-  const row = buttons.length ? h("div", { class: "wb-card-buttons" }, ...buttons, working) : null;
+  const row = buttons.length ? h("div", { class: "wb-card-buttons wb-card-actions" }, ...buttons, working) : null;
 
   const el = h("article", { class: "pui-card wb-card wb-plan-card", "aria-labelledby": titleId },
     h("div", { class: "wb-card-head" }, kind, meta),
     h("div", { class: "pui-card-content wb-card-content" },
-      title, tableWrap, stack, waits ? waits.el : null, limits ? h("p", { class: "wb-card-note", text: limits }) : null, hashBlock, asText,
+      title, list, waits ? waits.el : null, limits ? h("p", { class: "wb-card-note", text: limits }) : null, hashBlock, asText,
       reject ? noteGroup : null, error, row));
 
   let sending = false;
