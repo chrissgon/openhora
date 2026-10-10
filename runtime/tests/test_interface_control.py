@@ -476,7 +476,7 @@ def test_the_three_tabs_show_what_the_operations_returned_in_the_columns_and_wor
     assert got["connLoading"] == "Loading the proof, costs and connections..."
     # Costs
     assert got["costsLoadingNoField"] == 0
-    assert got["since"] == ["2026-09-07", "text", "Since"], "the field's value is the operation's own since; it is a text field"
+    assert got["since"] == ["2026-09-07", "date", "Since"], "the field's value is the operation's own since; it is a date field (M-8: was a text field)"
     assert got["caps"][0] == "Agent Runs today Spend today engineering 5 / 12 $1.87 / $4.00", "R-52: the caps are rows with meters, under the KPI cards' words"
     assert got["caps"][1].startswith("Caps by agent.") and "subscription or free credential" in got["caps"][1]
     assert got["chartHead"] == "Runs per day by agent engineering marketing"
