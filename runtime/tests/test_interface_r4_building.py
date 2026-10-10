@@ -20,7 +20,7 @@ from interface_css import interface_css
 
 JS = INTERFACE / "js"
 CSS = interface_css()
-PHONE = "\n".join(media_blocks(CSS, "max-width: 639px"))
+PHONE = "\n".join(media_blocks(CSS, "max-width: 899px"))
 TOP = without_media(CSS)
 
 # --- the model: the state badge, the dot, the plate's size, the rows of "Requests (n)" -----------------------------------------------------------------

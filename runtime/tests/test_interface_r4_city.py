@@ -18,8 +18,7 @@ from interface_css import interface_css
 
 JS = INTERFACE / "js"
 CSS = interface_css()
-PHONE = "\n".join(media_blocks(CSS, "max-width: 639px"))
-DOCKED = "\n".join(media_blocks(CSS, "min-width: 640px) and (max-width: 899px"))
+PHONE = "\n".join(media_blocks(CSS, "max-width: 899px"))
 TOP = without_media(CSS)
 
 # --- the view's markup: a sheet with the waiting card alone, the list as a twin, no project controls -------------------------------------------
@@ -235,7 +234,7 @@ def test_the_band_over_the_city_is_at_most_620_px_wide_beside_the_kpi_column_as_
     band = next(d for sel, d in rules(TOP) if sel == ".wb-notice-box")
     assert band["left"] == "calc(var(--wb-kpi-w) + var(--wb-edge) + 12px)" and band["max-width"] == "620px" and band["top"] == "var(--wb-kpi-top)", \
         "city.html \"A project not accepted\": the band stands 12 px right of the KPI column, at the top, 620 px wide (it was 632 at 1280 px)"
-    assert "max-width: none" in PHONE and "max-width: none" in DOCKED, "a phone and the docked band keep the band as wide as they were"
+    assert "max-width: none" in PHONE, "M-3: a phone, up to 899 px now, keeps the band as wide as the screen (there is no docked band any more)"
 
 
 def test_the_empty_card_is_centred_on_what_the_cards_leave_free():
@@ -243,8 +242,9 @@ def test_the_empty_card_is_centred_on_what_the_cards_leave_free():
     assert card["top"] == "50%" and card["left"] == "42%" and card["translate"] == "-50% -50%" and card["max-width"] == "26rem", "city.html \"Empty\": the card at 42 percent across and half down"
 
 
-def test_the_docked_band_keeps_the_list_a_twin_too_and_nothing_names_the_removed_box():
-    assert ".wb-buildings" not in DOCKED, "R-22: the list is the scene's keyboard twin at every width: the docked band (not drawn: R4D-6) no longer docks it in full, the switcher holds the projects"
+def test_the_list_is_a_twin_at_every_width_and_nothing_names_the_removed_box():
+    assert not media_blocks(CSS, "min-width: 640px"), "M-3: the docked band (640 to 899 px, which A2-1 had made a twin too) is gone: the phone is up to 899 px"
+    assert ".wb-buildings:focus-within" in PHONE and ".wb-buildings" not in "".join(media_blocks(CSS, "min-width: 900px")), "R-22: the list is the scene's keyboard twin at every width, shown only with the focus"
     for gone in (".wb-city-projects", ".wb-city-projects-bar", ".wb-leave-project", r"--wb-wait-h(?![\w-])", ".wb-city-drawer > .wb-city-projects"):
         assert not re.search(gone.replace(".", r"\.") if gone.startswith(".") else gone, CSS), f"{gone}: the box of project controls is gone (R-22)"
     assert ".wb-add-project" in CSS, "the frame's command panel keeps its own rules"

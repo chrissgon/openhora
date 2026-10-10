@@ -384,7 +384,7 @@ def test_the_ids_the_scenes_register_are_the_ids_the_screens_open():
 
 def test_every_wb_class_the_new_modules_build_is_styled_or_a_hook_the_scripts_read():
     css = interface_css()
-    hooks = {"wb-tabpanel", "wb-floor-normal", "wb-label-name", "wb-label-sub", "wb-state-box", "wb-cancel-dialog", "wb-share", "wb-y", "wb-request", "wb-chip"}   # a prefix of a built name, or a custom property
+    hooks = {"wb-tabpanel", "wb-floor-normal", "wb-label-name", "wb-label-sub", "wb-state-box", "wb-cancel-dialog", "wb-share", "wb-y", "wb-request", "wb-chip", "wb-panel-building"}   # M-3: the Building panel's class named a rule only in the docked band, which is gone; a prefix of a built name, or a custom property
     missing = {}
     for name in FLOOR_FILES:
         text = (INTERFACE / "js" / name).read_text(encoding="utf-8")
