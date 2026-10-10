@@ -31,7 +31,8 @@ export function createControlView(frame) {
   const panel = createPanel({ screen: "control", title: "Control room", subtitle: model.subtitleOf("skills", ""), icon: "server", width: "wide" });
   panel.el.classList.add("wb-control");
   const skills = createSkillsTab();
-  const costs = createCostsTab({ onSince: (text) => readCosts(text) });
+  // M-8: a cleared date means no date: the read without `since`, the operation's own window (the field then shows that window's first day)
+  const costs = createCostsTab({ onSince: (text) => readCosts(text === "" ? undefined : text) });
   const connections = createConnectionsTab();
   const tabs = new Map([["skills", skills], ["costs", costs], ["connections", connections]]);
   const waiting = h("div", { class: "wb-tab-body" });
