@@ -49,7 +49,7 @@ export class NoWebGL extends Error {
 
 /**
  * Create the engine in `host`: it makes the canvas and the label overlay itself.
- * options: {label, getInsets() -> {left, right, top, bottom, pad}, onOpen(id), onHover(id|null), onUnavailable()}.
+ * options: {label, getInsets({dim}) -> {left, right, top, bottom, pad}, onOpen(id), onHover(id|null), onUnavailable()}.
  */
 export function createEngine(host, options) {
   const canvas = h("canvas", { class: "wb-canvas", role: "img", tabindex: "0", "aria-label": options.label || "Scene" });
@@ -414,9 +414,13 @@ export function createEngine(host, options) {
     return content.subject ? boundsOfBox(THREE, camera, content.subject()) : contentBounds(THREE, camera, content.group);
   }
 
+  // What the drawing says about itself to the page that measures the room round it: `dim` is true for a project that is not accepted, whose last data stays as it
+  // was (building.html draws the notice band over it, not the drawing fitted under the band).
+  const about = () => ({ dim: Boolean(content && content.dim) });
+
   // The frustum the camera should show now: the subject fitted in the free rectangle the page's panels leave, the person's view on top.
   function computeFit() {
-    const insets = options.getInsets ? options.getInsets() : {};
+    const insets = options.getInsets ? options.getInsets(about()) : {};
     lastInsets = insets;
     tools.style.setProperty("--wb-y", `${Math.max(16, insets.bottom || 0)}px`);   // above the tracking bar, whatever its height
     bounds = subjectBounds();
@@ -858,7 +862,7 @@ export function createEngine(host, options) {
       }
       const hit = content && content.hits.find((x) => x.id === id);
       if (!hit || reducedQuery.matches || !frustum) return Promise.resolve(false);
-      const insets = options.getInsets ? options.getInsets() : {};
+      const insets = options.getInsets ? options.getInsets(about()) : {};
       const target = fitFrustum(contentBounds(THREE, camera, hit.object), size, insets, 1.6);
       const move = tween.start(frustumOf(frustum, view), target, clock(), FLY_SETTLE_AT);
       tooltip.hidden = true;

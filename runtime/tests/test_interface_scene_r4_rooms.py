@@ -114,18 +114,18 @@ console.log(JSON.stringify(out));
 # --- the bookcase -----------------------------------------------------------------------------------------------------------------------------
 
 @needs_node
-def test_a_bookcase_holds_sixteen_binders_and_a_second_and_third_come_as_they_fill_an_empty_one_when_there_is_none(tmp_path):
+def test_a_room_has_one_bookcase_of_sixteen_binders_at_most_and_an_empty_one_when_there_is_none(tmp_path):
     got = run_node(tmp_path, ROOMS_JS + r"""
 const tones = roomTones(light);
 const kit = createKit(palette);
 const vertices = (n) => { const b = kit.batch(); furniture.bookcase(pageBatch(b, FRAME), tones, 5.38, 0, n); return b.count(); };
 const out = {};
-out.cases = [0, 1, 16, 17, 32, 33, 48, 49, 200, null, -3].map(furniture.casesFor);
-out.shown = [0, 5, 48, 49, 200, null, -1].map(furniture.bindersShown);
-out.left = [0, 1, 2].map(furniture.caseLeft);
-out.board = [1, 2, 3].map(furniture.boardRight).map((v) => Math.round(v * 100) / 100);
-out.capacity = [1, 2, 3].map(furniture.noteCapacity);
-out.per = [furniture.BINDERS_PER_CASE, furniture.MAX_CASES];
+out.shown = [0, 5, 16, 17, 38, 100, null, -1].map(furniture.bindersShown);
+out.left = furniture.CASE_LEFT;
+out.board = furniture.BOARD_RIGHT;
+out.capacity = furniture.NOTE_CAPACITY;
+out.per = furniture.BINDERS_PER_CASE;
+out.gone = ["casesFor", "caseLeft", "boardRight", "noteCapacity", "MAX_CASES"].filter((name) => name in furniture);
 // one binder is the same number of faces whichever it is, so the bookcase grows by that much for each document, from none to sixteen
 out.empty = vertices(0);
 out.deltas = Array.from({ length: 16 }, (_, n) => vertices(n + 1) - vertices(n));
@@ -138,10 +138,10 @@ out.fourOnSeven = four.every((k) => seven.has(k));
 out.oneOnOne = [colourSet(1).has(four[0]), colourSet(1).has(four[1])];
 console.log(JSON.stringify(out));
 """)
-    assert got["cases"] == [1, 1, 1, 2, 2, 3, 3, 3, 3, 1, 1], "R-23: one bookcase with sixteen binders, a second with the seventeenth, a third with the thirty-third, no more; an empty one when there is none yet"
-    assert got["shown"] == [0, 5, 48, 48, 48, 0, 0], "a binder for each document, as many as three bookcases hold"
-    assert got["left"] == [5.38, 3.88, 2.38] and got["board"] == [4.93, 3.43, 1.93], "the bookcases stand against the back wall from its right-hand end, and the board gives them its room"
-    assert got["capacity"] == [12, 6, 2] and got["per"] == [16, 3], "the board's two rows hold fewer notes as the bookcases take its room"
+    assert got["shown"] == [0, 5, 16, 16, 16, 16, 0, 0], "a binder for each document, as many as the one bookcase holds, sixteen (M-7 supersedes R-49's three bookcases and B2-5's 48 binders)"
+    assert got["left"] == 5.38 and got["board"] == 4.93, "the one bookcase stands against the back wall at its right-hand end, and the board is the rest of the wall"
+    assert got["capacity"] == 12 and got["per"] == 16, "the board's two rows always hold twelve notes (M-7 supersedes B2-4's six and two beside more bookcases)"
+    assert got["gone"] == [], "nothing counts bookcases any more: the case count is not a parameter of the room"
     assert got["empty"] > 0 and len(set(got["deltas"])) == 1 and got["deltas"][0] > 0, "each document is one binder: the bookcase grows by the same amount for each, from none to sixteen"
     assert got["covers"] == [1, 3, 1, 3, 2, 4, 2, 1, 3, 1], "the page's first seven covers, then again"
     assert got["fourOnSeven"] is True and got["oneOnOne"] == [True, False], "four cover tones, each binder in its own"
@@ -154,22 +154,22 @@ def test_the_board_has_a_note_for_each_task_coloured_by_state_with_a_shadow_a_pi
     got = run_node(tmp_path, ROOMS_JS + r"""
 const tones = roomTones(light);
 const kit = createKit(palette);
-const board = (cases, notes) => { const b = kit.batch(); const shown = furniture.taskBoard(pageBatch(b, FRAME), tones, cases, notes); const mesh = b.mesh(new THREE.Group()); return { shown, vertices: b.count(), mesh }; };
+const board = (notes) => { const b = kit.batch(); const shown = furniture.taskBoard(pageBatch(b, FRAME), tones, notes); const mesh = b.mesh(new THREE.Group()); return { shown, vertices: b.count(), mesh }; };
 const out = {};
-out.shown = [[1, []], [1, ["done"]], [1, ["done", "run", "left"]], [1, Array(30).fill("left")], [3, ["done", "done", "done"]], [2, Array(7).fill("run")]].map(([cases, notes]) => board(cases, notes).shown);
-out.deltas = [0, 1, 2, 3, 4].map((n) => board(1, Array(n + 1).fill("done")).vertices - board(1, Array(n).fill("done")).vertices);
+out.shown = [[], ["done"], ["done", "run", "left"], Array(30).fill("left"), Array(7).fill("run")].map((notes) => board(notes).shown);
+out.deltas = [0, 1, 2, 3, 4].map((n) => board(Array(n + 1).fill("done")).vertices - board(Array(n).fill("done")).vertices);
 // a note's tone is its state's: only that state's tone is on the board
 const tone = (state) => hex(tones.note[state]);
 // (a tone may be used by something else on the board too: the marker is the brand like a running note) so the faces of a tone are counted, with a note and without
 const count = (mesh, h) => { const a = mesh.geometry.getAttribute("color"); let n = 0; for (let i = 0; i < a.count; i++) if (new THREE.Color(a.getX(i), a.getY(i), a.getZ(i)).getHexString() === h) n += 1; return n; };
-const bare = board(1, []).mesh;
-out.tones = ["done", "run", "left"].map((s) => { const m = board(1, [s]).mesh; return ["done", "run", "left"].map((o) => count(m, tone(o)) - count(bare, tone(o))); });
+const bare = board([]).mesh;
+out.tones = ["done", "run", "left"].map((s) => { const m = board([s]).mesh; return ["done", "run", "left"].map((o) => count(m, tone(o)) - count(bare, tone(o))); });
 out.empty = out.tones.length;
 // the board with a note is the board with none, plus the note's faces: a shadow, a border, the note, its folded corner, three lines and a pin
-out.faces = (board(1, ["done"]).vertices - board(1, []).vertices) / 3;
+out.faces = (board(["done"]).vertices - board([]).vertices) / 3;
 console.log(JSON.stringify(out));
 """)
-    assert got["shown"] == [0, 1, 3, 12, 2, 6], "one note for each task of the agent, as many as the board holds (two rows)"
+    assert got["shown"] == [0, 1, 3, 12, 7], "one note for each task of the agent, as many as the board holds (two rows of six, M-7: always the full board)"
     assert len(set(got["deltas"])) == 1 and got["deltas"][0] > 0, "every note is the same set of faces"
     assert got["tones"] == [[6, 0, 0], [0, 6, 0], [0, 0, 6]], "R-23b: a note is coloured by its task's state: done, running, still to do (a quad of that tone and no other state's)"
     assert got["faces"] * 3 == 15, "a note is seven quads (a shadow, a border, the paper, three lines, a pin) and the triangle of its folded corner: 15 triangles"
@@ -398,7 +398,7 @@ const door = a.parts[0].door;
 const box = new THREE.Box3().setFromObject(door);
 const out = { kinds: door.children.length, meshes: meshesIn(door).length };
 out.door = [box.min.x < BF.X(0.2), box.max.y < BF.Y(2.3), box.max.y > BF.Y(2.1), box.min.z > BF.Z(3.0), box.max.z < BF.Z(4.9)];
-const anchor = anchors(1);
+const anchor = anchors();
 out.anchors = [anchor.door.y > box.max.y - 0.01, anchor.board.y > anchor.door.y - 1, Math.abs(anchor.door.z - (BF.Z(3.18) + BF.Z(4.8)) / 2) < 1e-9];
 const open = world.text(model({ focus: "a", floor: "planning", room: { tips: { agent: "x" }, board: { title: "t", lines: [], dot: "theme" }, door: true, doorTip: "Control room · x" } }));
 out.labels = open.labels.map((l) => [l.id, l.kind, l.text || null]);
@@ -797,3 +797,181 @@ def test_the_rooms_hold_no_colour_literal_no_text_and_nothing_of_the_old_room():
     assert "kit.box(" not in room and "kit.cyl(" not in room, "the room is drawn in batches (one draw call for its still parts), not a mesh for each box"
     css = (INTERFACE / "scene.css").read_text(encoding="utf-8")
     assert not re.search(r"#[0-9A-Fa-f]{3,8}\b|rgb\(|hsl\(", css), "scene.css writes no colour literal"
+
+
+# --- a project that stops being accepted keeps the size of its open building (R4-B4) ------------------------------------------------------------------
+
+@needs_node
+def test_the_open_tower_of_a_project_that_stops_being_accepted_stays_open_and_unsquashed_with_every_floor_dark(tmp_path):
+    # R4-A3 saw a small tower and called it squashed like a closed one. It is not: the tower keeps its progress and its pitch (B1-1's squash is for a closed tower only);
+    # what shrank was the camera's fit (see the next test)
+    got = run_node_engine(tmp_path, ENGINE_PAGE_JS + PRODUCT_JS + r"""
+const { createEngine } = await import("@JS@/scene/engine.js");
+const host = document.createElement("div");
+const engine = createEngine(host, { label: "scene", getInsets: () => ({ left: 0, right: 0, top: 0, bottom: 0, pad: 1.04 }), onOpen() {}, onHover() {} });
+const canvas = engine.canvas;
+const run = (n) => { for (let i = 0; i < n; i++) frame(1000 / 30); };
+const shop = () => {
+  const roots = [];
+  globalThis.__scene.traverse((o) => { if (o.isGroup && o.children.length === 2 && o.children[0].isGroup && o.children[1].isGroup && o.children[0].children.length >= 5) roots.push(o); });
+  const g = roots.sort((a, b) => a.children[0].position.x - b.children[0].position.x)[0].children[0];   // the first lot's tower (the shop, at the City's west)
+  return { sy: +g.scale.y.toFixed(3), py: +g.position.y.toFixed(3), pitch: +(g.children.filter((f) => f.isGroup && f.children.length > 1).map((f) => f.position.y).reduce((a, y, i, l) => (i ? Math.max(a, y - l[i - 1]) : a), 0)).toFixed(3) };
+};
+engine.show("world", models.city(), "City");
+run(10);
+engine.flyTo(A);
+engine.show("world", models.building(null), "Building");
+run(150);
+const out = { open: shop(), towers: canvas.wbStats().towers[A], dim: canvas.classList.contains("is-dim") };
+snapshot.projects[0].config.accepted = false;
+engine.show("world", models.building(DOCS), "Building");
+run(150);
+out.after = shop();
+out.towersAfter = canvas.wbStats().towers[A];
+out.dimAfter = canvas.classList.contains("is-dim");
+console.log(JSON.stringify(out));
+""")
+    assert got["towers"] == 1 and got["towersAfter"] == 1, "the building stays open when its project stops being accepted"
+    assert got["open"] == got["after"] and got["after"]["sy"] == 1, "its height is the open one, not the closed squash of 0.64 (B1-1)"
+    assert got["dim"] is False and got["dimAfter"] is True, "R-26: the same open tower, the whole drawing at 55 percent"
+
+
+@needs_node
+def test_the_engine_says_when_its_drawing_is_dimmed_and_the_building_then_fits_as_if_the_notice_band_were_not_there(tmp_path):
+    # the cause of R4-A3's small tower: the notice band over the scene was an obstacle of the camera's fit, 357 px at the top, and the open tower was fitted under it
+    got = run_node_engine(tmp_path, ENGINE_PAGE_JS + PRODUCT_JS + r"""
+import { createFrame } from "@JS@/frame/frame.js";
+const { createEngine } = await import("@JS@/scene/engine.js");
+const calls = [];
+const host = document.createElement("div");
+const engine = createEngine(host, { label: "scene", getInsets: (about) => { calls.push(about ? about.dim : "none"); return { left: 0, right: 0, top: 0, bottom: 0, pad: 1.04 }; }, onOpen() {}, onHover() {} });
+engine.show("world", models.building(null), "Building");
+const accepted = calls.slice();
+calls.length = 0;
+snapshot.projects[0].config.accepted = false;
+engine.show("world", models.building(DOCS), "Building");
+const dimmed = calls.slice();
+// the frame: a band 620 by 273 px over the scene's top; the insets with and without it
+const root = document.createElement("div");
+const fr = createFrame(root, { onSelectProject() {}, onForgetToken() {}, onRetry() {} });
+fr.notice({ kind: "error", lead: "shop is not accepted yet", text: "read the file" });
+fr.noticeBox.getBoundingClientRect = () => ({ left: 236, top: 72, right: 856, bottom: 345, width: 620, height: 273 });
+const out = { accepted, dimmed, withBand: fr.insets(null).top, defaultBand: fr.insets(null, {}).top, ignoredBand: fr.insets(null, { notice: false }).top };
+console.log(JSON.stringify(out));
+""")
+    assert set(got["accepted"]) == {False} and set(got["dimmed"]) == {True}, "the engine tells getInsets whether the drawing is dimmed (a project that is not accepted), every time it reads them"
+    assert got["withBand"] == got["defaultBand"] == 357, "every other screen: the band is an obstacle, 345 px to its foot and 12 of air"
+    assert got["ignoredBand"] == 16, "asked not to count the band, the frame keeps its 16 px margin"
+    building = (JS / "views" / "building.js").read_text(encoding="utf-8")
+    assert "getInsets: (about) =>" in building and "frame.insets(panel, { notice: !(about && about.dim) })" in building, "the Building does not fit its dimmed tower under the band: building.html draws the band over it"
+
+
+# --- one bookcase in every room, the board always whole (M-7) ----------------------------------------------------------------------------------
+
+@needs_node
+def test_every_room_has_one_bookcase_of_sixteen_binders_at_most_and_the_full_board_on_a_floor_and_in_the_lobby(tmp_path):
+    # M-6/M-7 (the maintainer): "the bookcase is only an object for interaction"; B2-4 (a board of six, then two, beside more bookcases) and B2-5 (48 binders) are superseded
+    got = run_node(tmp_path, ROOMS_JS + r"""
+const out = {};
+const room = (lobby, documents, notes) => {
+  const floors = [lot("a").floors[0], lot("a").floors[3]].map((f, i) => ({ ...f, name: i ? "engineering" : "planning", lobby: i === 0, documents, notes }));
+  const { world } = make({ lots: [lot("a", { floors }), lot("b"), lot("c")] });
+  world.setFocus("a", true);
+  const parts = world.towers.get("a").parts[lobby ? 0 : 1];
+  const shelfMesh = parts.shelf.children[0];
+  return { lobby: Boolean(parts.door), binders: parts.binders, notes: parts.notesShown, shelves: parts.shelf.children.length, vertices: shelfMesh.geometry.getAttribute("position").count, capacity: parts.capacity() };
+};
+const many = Array(30).fill("left");
+for (const documents of [0, 16, 38, 100]) {
+  out[`floor${documents}`] = room(false, documents, many);
+  out[`lobby${documents}`] = room(true, documents, many);
+}
+console.log(JSON.stringify(out));
+""")
+    for kind in ("floor", "lobby"):
+        for documents in (0, 16, 38, 100):
+            r = got[f"{kind}{documents}"]
+            assert r["lobby"] is (kind == "lobby"), "the Lobby's room has its door, the floor's has none"
+            assert r["binders"] == min(documents, 16) and r["shelves"] == 1, f"{kind} with {documents} documents: one bookcase, at most 16 binders (M-7)"
+            assert r["notes"] == 12 and r["capacity"] == 12, f"{kind} with {documents} documents: the board holds its twelve notes (M-7)"
+    for kind in ("floor", "lobby"):
+        assert got[f"{kind}16"]["vertices"] == got[f"{kind}38"]["vertices"] == got[f"{kind}100"]["vertices"], "past sixteen documents the bookcase does not grow: it is the same drawing"
+        assert got[f"{kind}0"]["vertices"] < got[f"{kind}16"]["vertices"], "an empty bookcase has no binders"
+
+
+# --- two potted plants in every room, not in the server room (A-45, M-6) -------------------------------------------------------------------------
+
+PLANTS_JS = ROOMS_JS + r"""
+import { PLANTS, POT, CROWN, plants } from "@JS@/scene/plants.js";
+import { createCamera } from "@JS@/scene/rig.js";
+import { DOOR, SEAT } from "@JS@/scene/furniture.js";
+const camera = createCamera(THREE);
+// a box in page units as the camera sees it: [x0, x1, y0, y1] of its eight corners
+const shadowOf = (x0, x1, y0, y1, z0, z1) => { const xs = []; const ys = []; for (const x of [x0, x1]) for (const y of [y0, y1]) for (const z of [z0, z1]) { const p = new THREE.Vector3(FRAME.X(x), FRAME.Y(y), FRAME.Z(z)).applyMatrix4(camera.matrixWorldInverse); xs.push(p.x); ys.push(p.y); } return [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]; };
+const apart = (a, b) => a[1] <= b[0] || b[1] <= a[0] || a[3] <= b[2] || b[3] <= a[2];
+"""
+
+
+@needs_node
+def test_every_room_has_two_potted_plants_in_its_one_still_mesh_in_the_tokens_never_picked_and_the_server_room_has_none(tmp_path):
+    got = run_node(tmp_path, PLANTS_JS + r"""
+const out = {};
+const crownSet = (p) => new Set(cityTones(p).crown.map(hex));
+const count = (mesh, set) => { const a = mesh.geometry.getAttribute("color"); let n = 0; for (let i = 0; i < a.count; i++) if (set.has(new THREE.Color(a.getX(i), a.getY(i), a.getZ(i)).getHexString())) n += 1; return n; };
+const { world } = make({ lots: [lot("a"), lot("b"), lot("c")] });
+world.setFocus("a", true);
+const tower = world.towers.get("a");
+// five floors' worth (the four of the fixture and every floor of it): two plants each, in the room's still mesh (the first mesh of the room; no mesh of its own)
+out.crownVertices = tower.parts.map((p, i) => count(tower.inner[i].children[0].children[0], crownSet(palette)));
+out.meshesPerRoom = tower.parts.map((p, i) => tower.inner[i].children[0].children.filter((n) => n.isMesh).length);
+out.lobby = tower.parts.map((p) => Boolean(p.door));
+// the plants are not an object of the room: none of the hits holds them, and no hit is the room's still mesh
+world.setFloors("engineering", null, true);
+const hitMeshes = world.hits.flatMap((h) => { const list = []; h.object.traverse((n) => { if (n.isMesh) list.push(n); }); return list; });
+const still = tower.inner[tower.lot.floors.findIndex((f) => f.name === "engineering")].children[0].children[0];
+out.hits = world.hits.map((h) => h.id).sort();
+out.stillPicked = hitMeshes.includes(still);
+// the colours are tokens: the crown is the trees' four tones, the pot a mix in roomTones, and both follow the palette
+const t = roomTones(palette);
+const dark = roomTones({ ...palette, dark: true });
+out.tokens = [t.crown.every((v, i) => hex(v) === hex(cityTones(palette).crown[i])), ["top", "left", "right"].every((k) => t.pot[k].isColor), hex(t.pot.left) !== hex(dark.pot.left)];
+// a plant's footprint: two plants, the pot a hair over the floor (the floor's own tone is what the floor's vertices say)
+out.plants = [PLANTS.length, POT.sides, plants.length];
+console.log(JSON.stringify(out));
+""")
+    assert got["crownVertices"] == [120] * 4, "two crowns of twenty facets in every room: 120 vertices in the trees' four tones, Lobby included"
+    assert got["meshesPerRoom"] == [2] * 4, "a room's still mesh and its glass: the plants add no mesh and no draw call (they are in the still mesh)"
+    assert got["stillPicked"] is False and "tasks" in got["hits"] and "desk" in got["hits"], "the ways in are picked; the still mesh, the plants with it, is not (not pickable, no tooltip)"
+    assert got["tokens"] == [True, True, True], "the crown is the trees' tones, the pot a token mix that follows the palette"
+    assert got["plants"][0] == 2 and got["plants"][1] == 6, "two plants, each a six-sided pot"
+    plants_js = (SCENE / "plants.js").read_text(encoding="utf-8")
+    assert not re.search(r"#[0-9A-Fa-f]{3,8}\b|rgb\(|hsl\(|0x[0-9a-fA-F]{6}", plants_js), "plants.js writes no colour literal"
+    assert "castShadow" not in plants_js and "motion" not in plants_js.lower() and "userData" not in plants_js, "no real-time shadow, no animation, nothing for the pick"
+    callers = [path.name for path in SCENE.glob("*.js") if "plants(" in path.read_text(encoding="utf-8") and path.name != "plants.js"]
+    assert callers == ["building.js"], "only a floor's room plants: the server room (R-51 removed its plant) never calls it"
+
+
+@needs_node
+def test_the_plants_stand_against_the_window_wall_clear_of_the_owl_the_board_the_bookcase_and_the_lobbys_door(tmp_path):
+    got = run_node(tmp_path, PLANTS_JS + r"""
+const out = {};
+// each plant's true silhouette: the convex hull of the vertices `plants()` draws for it, seen by the camera; the other objects' too (a box or a rectangle on a wall)
+const hull = (points) => { const p = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1]); const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]); const lo = []; for (const q of p) { while (lo.length >= 2 && cross(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); } const up = []; for (const q of [...p].reverse()) { while (up.length >= 2 && cross(up[up.length - 2], up[up.length - 1], q) <= 0) up.pop(); up.push(q); } return [...lo.slice(0, -1), ...up.slice(0, -1)]; };
+const onScreen = (list) => list.map(([x, y, z]) => { const p = new THREE.Vector3(FRAME.X(x), FRAME.Y(y), FRAME.Z(z)).applyMatrix4(camera.matrixWorldInverse); return [p.x, p.y]; });
+const boxHull = (x0, x1, y0, y1, z0, z1) => hull(onScreen([x0, x1].flatMap((x) => [y0, y1].flatMap((y) => [z0, z1].map((z) => [x, y, z])))));
+// the gap between two convex polygons along their edges' normals (negative when they overlap)
+const gap = (A, B) => { let best = -1e9; for (const P of [A, B]) for (let i = 0; i < P.length; i++) { const a = P[i]; const b = P[(i + 1) % P.length]; const n = [b[1] - a[1], a[0] - b[0]]; const l = Math.hypot(...n); n[0] /= l; n[1] /= l; const pa = A.map((p) => p[0] * n[0] + p[1] * n[1]); const pb = B.map((p) => p[0] * n[0] + p[1] * n[1]); best = Math.max(best, Math.max(Math.min(...pb) - Math.max(...pa), Math.min(...pa) - Math.max(...pb))); } return best; };
+const silhouette = (place) => { const kit = createKit(palette); const batch = kit.batch(); plants(THREE, pageBatch(batch, FRAME), FRAME, roomTones(palette), [place]); const mesh = batch.mesh(new THREE.Group()); const a = mesh.geometry.getAttribute("position"); const list = []; const v = new THREE.Vector3(); for (let i = 0; i < a.count; i++) { v.fromBufferAttribute(a, i).applyMatrix4(camera.matrixWorldInverse); list.push([v.x, v.y]); } return hull(list); };
+const board = boxHull(0.535, 4.93, 0.565, 2.37, 0.2, 0.2);
+const bookcase = boxHull(5.38, 6.83, 0, 2.2, 0.2, 0.82);
+const door = boxHull(0.2, 0.2, 0, DOOR.top, DOOR.z0, DOOR.z1);
+const owls = Object.values(SEAT.owl).map(([x, z]) => boxHull(x - 0.5, x + 0.5, 0, 1.4, z - 0.5, z + 0.5));
+out.gaps = PLANTS.map((place) => { const s = silhouette(place); return { board: gap(s, board), bookcase: gap(s, bookcase), door: gap(s, door), owls: owls.map((o) => gap(s, o)) }; });
+out.wall = PLANTS.map(([x]) => x);
+out.ends = PLANTS.map(([, z]) => z);
+console.log(JSON.stringify(out));
+""")
+    for r in got["gaps"]:
+        assert min(r["board"], r["bookcase"], r["door"], *r["owls"]) > 0, "a plant covers neither the board of notes, nor the bookcase, nor the Lobby's door, nor the owl in any of its three places"
+    assert all(x < 1.0 for x in got["wall"]), "against the left wall, the one that carries the windows"
+    assert abs(got["ends"][0] - 0.916) < 0.3 and 4.976 < got["ends"][1] < 5.6, "one at the first end of the window run (z 0.916), one past its last end (z 4.976) and inside the room (5.6)"

@@ -582,7 +582,7 @@ export function createTower(kit, lot, cx, cz) {
     tower.lot.floors.forEach((f, i) => {
       const y = worldY(floorY(i, pitch), s);
       (tower.plateAnchors[i] = tower.plateAnchors[i] || new THREE.Vector3()).set(cx + W / 2 + 0.2, y + 1.2, cz - D / 2);
-      const a = anchors(tower.parts[i] ? tower.parts[i].cases : 1);
+      const a = anchors();
       (tower.boardAnchors[i] = tower.boardAnchors[i] || new THREE.Vector3()).set(cx + a.board.x, y + a.board.y, cz + a.board.z);
       (tower.doorAnchors[i] = tower.doorAnchors[i] || new THREE.Vector3()).set(cx + a.door.x, y + a.door.y, cz + a.door.z);
     });
