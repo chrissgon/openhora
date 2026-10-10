@@ -1,7 +1,7 @@
 """Tests of the local service (runtime/service.py): the rules of a request, the routes, the jobs, the loops, the static
 files and the shutdown. A stand-in operations object records every call, so a test sees exactly what the service asked the
-operations layer; the tests that need the real operations use the stand-in tree of standin_tree.py. No socket is opened
-except by the loopback test, which binds a real port, makes four requests and closes it.
+operations layer; the tests that need the real operations use the stand-in tree of standin_tree.py. Most tests open no
+socket; the few that bind a real port on 127.0.0.1 (the loopback test and the token-file test) make their requests and close it.
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_service.py
 """

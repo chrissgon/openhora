@@ -42,7 +42,7 @@ the `uv run --with keyring==25.7.0` command that starts the service. The token i
 asks the person to paste it once per browser session; it is never in a URL, a log line or a page.
 
 The rules of a request, in this order, each a refusal unless the request satisfies it:
-  1. The socket is bound to 127.0.0.1.
+  1. The socket is bound to 127.0.0.1, listening with a backlog of 128.
   2. Host is 127.0.0.1:<port> or localhost:<port>, else 403 "host".
   3. Origin, when present, is http://127.0.0.1:<port> or http://localhost:<port>, else 403 "origin"; a POST without an
      Origin is refused the same way.
@@ -739,6 +739,10 @@ def make_handler(service: Service):
 
 class Server(http.server.ThreadingHTTPServer):
     daemon_threads = True
+    # Every response closes its connection, so a page of dozens of modules and icons is dozens of new connections at
+    # once. The class default (5) overflows the accept queue and some systems answer the overflow with a reset
+    # (R4-C2). 128 is the usual system ceiling; the listening address is still 127.0.0.1 only.
+    request_queue_size = 128
 
 
 LABELS = (("secret_store", "secret store"), ("credential", "credential"), ("docker", "docker"), ("image", "image"),
