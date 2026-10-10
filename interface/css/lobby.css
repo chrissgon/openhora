@@ -5,7 +5,7 @@
    are written again here for the Lobby only, so that the Lobby does not wait for them; a later package may hoist them. */
 
 /* --- the Lobby (handoff lobby.md, cards.md): the panel with its tabs, the conversation, the cards and the composer ----------------- */
-.wb-panel-lobby { grid-template-rows: auto auto minmax(120px, 1fr) minmax(0, auto); }
+.wb-panel-lobby { grid-template-rows: auto auto minmax(60px, 1fr) auto; }      /* the composer is the last row and keeps its whole height; on a phone at half the thread above it gives way */
 .wb-lobby-body { display: block; padding: 0; overflow: hidden; }
 .wb-lobby-tabpanel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .wb-lobby-tabpanel-later { padding: 16px; gap: 12px; }
