@@ -656,7 +656,7 @@ def test_the_stylesheet_draws_the_lobby_as_the_page_does_M3():
     # M-3: the phone's layout is up to 899 px, and no block of the docked band is left
     assert "@media (max-width: 899px)" in css and "639px" not in css and "640px" not in css, "M-3: the phone applies up to 899 px, the docked band (640 to 899 px) is removed"
     assert not re.search(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(", css), "the Lobby's rules set no colour of their own"
-    assert not re.search(r"bottom left|\.wb-dock|\.wb-nav|\.wb-back|\.wb-crumb", css), "M-4: nothing here relies on the bottom-left dock"
+    assert not re.search(r"bottom left|\.wb-dock|\.wb-nav|\.wb-back|\.wb-crumb", css), "M-4 was revoked (M-10): the stylesheet makes no assumption about the frame's bottom left, free or not"
     desk = (VIEWS / "lobby-desk.js").read_text(encoding="utf-8")
     assert "PHONE_QUERY" in desk and "max-width" not in desk, "M-3: the width is the frame's one query, not a literal"
     for source in (*VIEWS.glob("lobby*.js"), *CARDS.glob("*.js")):
