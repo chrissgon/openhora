@@ -172,7 +172,9 @@ def test_the_control_models_chips_filters_notice_platform_chart_and_words_follow
         ["wb:1", "present", "pui-success", "It is the image the evidence was measured in: not known"],
         ["-", "missing", "pui-error", "It is the image the evidence was measured in: not known"],
     ]
-    assert got["classes"][0] == {"class": "publisher:social", "provider": "no provider found", "found": False, "status": "missing", "needed": "mkt-publish, mkt-engage", "note": "none"}
+    # R-54, E-15: the row also carries the skills as a list and their count (the tab shows `<n> skills` as a disclosure past four) and whether a provider exists
+    assert got["classes"][0] == {"class": "publisher:social", "provider": "no provider found", "provided": False, "found": False, "status": "missing", "needed": "mkt-publish, mkt-engage",
+                                 "skills": ["mkt-publish", "mkt-engage"], "count": 2, "note": "none"}
     assert got["classes"][1]["provider"] == "github" and got["classes"][1]["status"] == "found"
     assert got["secrets"] == [{"name": "CODE_HOST_TOKEN", "found": True, "status": "found", "where": "secret store"},
                               {"name": "FLOOR_MODEL_KEY", "found": False, "status": "missing", "where": "-"}], \
@@ -213,7 +215,7 @@ class FakeText { constructor(data) { this.data = String(data); this.parent = nul
 class FakeNode {
   constructor(tag, ns = null) {
     this.tagName = tag.toUpperCase(); this.ns = ns; this.attrs = {}; this.children = []; this.parent = null; this.listeners = {};
-    this.dataset = {}; this.style = { setProperty: () => { throw new Error("a script wrote a style"); } }; this.title = ""; this.disabled = false; this.value = ""; this.open = false; this.scrollTop = 0;
+    this.dataset = {}; this.props = {}; this.style = { setProperty: (name, value) => { if (name !== "--wb-share") throw new Error("a script wrote a style"); owner.props[name] = value; } }; this.title = ""; this.disabled = false; this.value = ""; this.open = false; this.scrollTop = 0;
     const owner = this;
     this.classList = {
       add: (...n) => { const s = new Set(owner.cls()); n.forEach((x) => s.add(x)); owner.attrs.class = [...s].join(" "); },
@@ -294,10 +296,11 @@ out.skillsLoading = text(skills.el);
 const busy = skills.el.find((n) => n.attrs["aria-busy"] === "true");
 out.skillsBusy = Boolean(busy);
 skills.set({ status: "ready", data: skillsData });
-const tableNow = () => skills.el.find((n) => n.tagName === "TABLE" && has(n, "wb-table"));
-out.headers = tableNow().all((n) => n.tagName === "TH").map(text);
-const bodyRows = () => tableNow().all((n) => n.tagName === "TR" && n.parent.tagName === "TBODY");
-out.rowCount = bodyRows().length;
+// R-53: the table is a list of accordions in five columns (the chevron, the name, the version, the area, the two tiers); Manifest and Runs here are in the open row
+const listNow = () => skills.el.find((n) => has(n, "wb-skill-list"));
+out.headers = listNow().find((n) => has(n, "wb-skill-head")).children.map(text);
+const rowsNow = () => listNow().all((n) => n.tagName === "DETAILS" && has(n, "wb-skill-row"));
+out.rowCount = rowsNow().length;
 out.firstChild = skills.el.children[0].attrs.class;           // no notice: the legend comes first
 out.legend = text(skills.el.find((n) => has(n, "wb-legend")));
 const labels = skills.el.all((n) => n.tagName === "LABEL").map((n) => text(n));
@@ -309,25 +312,20 @@ const bandSelect = skills.el.all((n) => n.tagName === "SELECT")[1];
 out.areaOptions = areaSelect.all((n) => n.tagName === "OPTION").map(text);
 out.bandOptions = bandSelect.all((n) => n.tagName === "OPTION").map(text);
 out.filtersSummary = text(skills.el.find((n) => n.tagName === "SUMMARY"));
-const cells = (r) => r.all((n) => n.tagName === "TD").map(text);
-out.firstRow = cells(bodyRows()[0]);
-out.untestedRow = cells(bodyRows().filter((r) => !has(r, "wb-detail-row"))[2]);
+const cellsOf = (r) => r.children[0].children.map(text).slice(1);
+out.firstRow = cellsOf(rowsNow()[0]);
+out.untestedRow = cellsOf(rowsNow()[2]);
 out.noZero = !text(skills.el).includes("0.00");
-const detailRows = () => bodyRows().filter((r) => has(r, "wb-detail-row"));
-out.detailHiddenAtFirst = detailRows().every((r) => r.hidden);
-const expander = bodyRows()[0].find((n) => n.tagName === "BUTTON");
-out.expanderBefore = expander.getAttribute("aria-expanded");
-expander.fire("click");
-out.expanderAfter = expander.getAttribute("aria-expanded");
-out.detailShown = !detailRows()[0].hidden;
-out.detailText = detailRows()[0].all((n) => n.tagName === "SPAN").map(text);
-expander.fire("click");
-out.detailHiddenAgain = detailRows()[0].hidden;
+out.detailHiddenAtFirst = rowsNow().every((r) => !r.open);
+const bodyOf = (r) => r.find((n) => has(n, "wb-skill-detail")).all((n) => n.tagName === "P").map(text);
+out.detailText = bodyOf(rowsNow()[0]);
+rowsNow()[0].open = true; rowsNow()[0].fire("toggle");
+out.openAfter = rowsNow()[0].open;
 // the cards of a phone: a details whose summary is the card and whose body holds the two sentences
 const card = skills.el.all((n) => has(n, "wb-skill-card"))[0];
-out.card = { summary: text(card.find((n) => n.tagName === "SUMMARY")), body: card.find((n) => has(n, "wb-detail")).all((n) => n.tagName === "SPAN").map(text) };
+out.card = { summary: text(card.find((n) => n.tagName === "SUMMARY")), body: bodyOf(card) };
 // the filters narrow the rows and nothing else
-const names = () => bodyRows().filter((r) => !has(r, "wb-detail-row")).map((r) => text(r.find((n) => n.tagName === "CODE")));
+const names = () => rowsNow().map((r) => text(r.find((n) => n.tagName === "CODE")));
 areaSelect.value = "marketing"; areaSelect.fire("change"); out.afterArea = names();
 areaSelect.value = ""; areaSelect.fire("change");
 bandSelect.value = "watch"; bandSelect.fire("change"); out.afterBand = names();
@@ -342,12 +340,12 @@ out.noticeFirst = skills.el.children[0].attrs.class;
 skills.set({ status: "ready", data: skillsData });
 skills.set({ status: "ready", data: { ...skillsData, checks: { measurement: "ok", image: "the eval image is not on this machine" } } });
 out.searchKeptAfterNotice = [search.dropped || 0, search.value];
-out.notice = skills.el.children[0].all((n) => n.tagName === "STRONG" || n.tagName === "SPAN").map(text);
+out.notice = skills.el.children[0].all((n) => n.tagName === "STRONG" || n.tagName === "P").map(text);
 out.noticeRole = skills.el.children[0].attrs.role;
 skills.set({ status: "ready", data: { skills: [], checks: { measurement: "ok", image: "ok" } } });
 out.empty = text(skills.el);
 skills.set({ status: "failed", error: "the proof of x cannot be read: y" });
-out.failed = [text(skills.el.find((n) => has(n, "wb-failed-title"))), text(skills.el.find((n) => has(n, "wb-failed-text")))];
+out.failed = [text(skills.el.find((n) => has(n, "wb-cnotice-title"))), text(skills.el.find((n) => has(n, "wb-cnotice-line")))];
 
 // --- Connections
 const conn = createConnectionsTab();
@@ -359,9 +357,9 @@ const connData = (platform, image) => ({
 conn.set({ status: "ready", data: connData({ machine: "arm64", evidence: "linux/arm64", here: "linux/arm64", same: true }, { name: "workbench-runtime:local", present: true, evidence: false }) });
 const tablesOf = (el) => el.all((n) => n.tagName === "TABLE").map((t) => ({ headers: t.all((n) => n.tagName === "TH").map(text), rows: t.all((n) => n.tagName === "TR" && n.parent.tagName === "TBODY").map((r) => r.all((n) => n.tagName === "TD").map(text)) }));
 out.conn = tablesOf(conn.el);
-out.eyebrows = conn.el.all((n) => has(n, "wb-eyebrow")).map(text);
+out.eyebrows = conn.el.all((n) => has(n, "wb-sec-head")).map(text);
 out.noValue = !JSON.stringify([...conn.el.walk()].map((n) => [n.textContent, n.attrs])).includes("SECRET");
-const cards = () => conn.el.all((n) => has(n, "wb-info-card"));
+const cards = () => conn.el.all((n) => has(n, "wb-ccard"));
 out.imageCard = text(cards()[0]);
 out.platformSame = text(cards()[1]);
 out.sameWide = has(cards()[1], "is-wide");
@@ -375,7 +373,7 @@ out.imageMissing = text(cards()[0]);
 conn.set({ status: "ready", data: { ...connData({}, {}), secrets_note: "the secret resolver could not be used: KeyError" } });
 out.secretsNote = text(conn.el.find((n) => has(n, "wb-note")));
 conn.set({ status: "failed", error: "connections: the secret store did not answer within 5 s" });
-out.connFailed = [text(conn.el.find((n) => has(n, "wb-failed-title"))), text(conn.el.find((n) => has(n, "wb-failed-text")))];
+out.connFailed = [text(conn.el.find((n) => has(n, "wb-cnotice-title"))), text(conn.el.find((n) => has(n, "wb-cnotice-line")))];
 conn.set({ status: "loading" });
 out.connLoading = text(conn.el);
 
@@ -402,26 +400,26 @@ costs.set({ status: "ready", data: costsData, agents: [{ name: "engineering", ru
 out.sinceKept = [input.dropped || 0, input.parent !== null];
 out.since = [input.value, input.getAttribute("type"), text(costs.el.find((n) => n.tagName === "LABEL"))];
 const caps = costs.el.find((n) => has(n, "wb-caps"));
-out.caps = [text(caps), caps.getAttribute("title")];
+out.caps = [text(caps), caps.getAttribute("aria-label")];
 out.chartHead = text(costs.el.find((n) => has(n, "wb-chart-head")));
 const plot = costs.el.find((n) => has(n, "wb-plot"));
 out.plot = { role: plot.attrs.role, label: plot.attrs["aria-label"], cols: plot.cls().filter((c) => c.startsWith("wb-cols")), svgs: plot.all((n) => n.tagName === "SVG").length,
   ns: plot.find((n) => n.tagName === "SVG").ns.endsWith("/2000/svg"), rects: plot.all((n) => n.tagName === "RECT").map((r) => [r.attrs.class, r.attrs.y, r.attrs.height]) };
 out.plotLabels = text(costs.el.find((n) => has(n, "wb-plot-labels")));
-const disclosure = costs.el.find((n) => has(n, "wb-chart-disclosure"));
+const disclosure = costs.el.find((n) => has(n, "wb-chart-acc"));
 out.disclosure = [text(disclosure.find((n) => n.tagName === "SUMMARY")), disclosure.open, disclosure.all((n) => n.tagName === "TH" && n.attrs.scope === "col").map(text), disclosure.all((n) => n.tagName === "TR" && n.parent.tagName === "TBODY").map((r) => r.children.map(text))];
 const big = costs.el.find((n) => has(n, "wb-costs-table"));
 out.costHeaders = big.all((n) => n.tagName === "TH").map(text);
 out.costRows = big.all((n) => n.tagName === "TR" && n.parent.tagName === "TBODY").map((r) => r.all((n) => n.tagName === "TD").map(text));
-out.footnote = text(costs.el.find((n) => has(n, "wb-footnote")));
+out.footnote = text(costs.el.find((n) => has(n, "wb-foot")));
 input.value = "2026-10-01"; input.fire("change");
 out.sinceCalls = sinceCalls;
 costs.set({ status: "refused", error: "since is a day: YYYY-MM-DD", agents: null, fieldValue: "2026-13-07" });
-out.refused = [text(costs.el.find((n) => has(n, "wb-failed-title"))), text(costs.el.find((n) => has(n, "wb-failed-text"))), input.value, input.getAttribute("aria-invalid"), costs.el.all((n) => n.tagName === "TABLE").length];
+out.refused = [text(costs.el.find((n) => has(n, "wb-cnotice-title"))), text(costs.el.find((n) => has(n, "wb-cnotice-line"))), input.value, input.getAttribute("aria-invalid"), costs.el.all((n) => n.tagName === "TABLE").length];
 costs.set({ status: "ready", data: { since: "2026-09-07", rows: [], caps: [] }, agents: [], fieldValue: "2026-09-07" });
 out.costsEmpty = [text(costs.el.find((n) => has(n, "wb-empty-block"))), costs.el.all((n) => n.tagName === "TABLE").length, input.getAttribute("aria-invalid")];
 costs.set({ status: "failed", error: "costs: the store did not answer", agents: null, fieldValue: "2026-09-07" });
-out.costsFailed = [text(costs.el.find((n) => has(n, "wb-failed-title"))), text(costs.el.find((n) => has(n, "wb-failed-text")))];
+out.costsFailed = [text(costs.el.find((n) => has(n, "wb-cnotice-title"))), text(costs.el.find((n) => has(n, "wb-cnotice-line")))];
 costs.set({ status: "ready", data: { since: "2026-09-07", rows: [crow("2026-10-07", null, "m", "a", 1, null, null, null, 0, null)], caps: [] }, agents: [], fieldValue: "2026-09-07" });
 out.nullAgentRow = [...costs.el.find((n) => has(n, "wb-costs-table")).all((n) => n.tagName === "TR" && n.parent.tagName === "TBODY")[0].all((n) => n.tagName === "TD").map(text)];
 console.log(JSON.stringify(out));
@@ -435,26 +433,26 @@ def test_the_three_tabs_show_what_the_operations_returned_in_the_columns_and_wor
     got = run_node(tmp_path, TABS_SCRIPT.replace("@FAKE@", fake.as_uri()))
     # Skills
     assert got["skillsLoading"] == "Loading the proof, costs and connections..." and got["skillsBusy"] is True
-    assert got["headers"] == ["Skill", "Version", "Area", "Manifest", "Runs here", "Reference model", "Floor model"]
-    assert got["rowCount"] == 6, "three skills, each with its (hidden) detail row"
+    assert got["headers"] == ["", "Skill", "Version", "Area", "Reference model", "Floor model"], "R-53, E-13: five columns after the chevron; Manifest and Runs here moved into the open row"
+    assert got["rowCount"] == 3, "R-53: three skills, each an accordion"
     assert got["firstChild"] == "wb-legend" and got["legend"] == "reliable watch needs a test band per model tier, with the score"
     assert got["filterLabels"] == ["Area All areas brand marketing", "Band All bands reliable watch needs a test", "Search by name"]
     assert got["placeholder"] is None, "the search field has no placeholder text"
     assert got["areaOptions"] == ["All areas", "brand", "marketing"] and got["bandOptions"] == ["All bands", "reliable", "watch", "needs a test"]
     assert got["filtersSummary"] == "Filters"
-    assert got["firstRow"] == ["brand-voice", "1.2.0", "brand", "yes", "3", "reliable 0.86", "watch 0.58"]
-    assert got["untestedRow"] == ["mkt-publish", "1.2.0", "marketing", "yes", "3", "reliable 0.86", "needs a test -"], "an untested pair shows '-' and never 0.00"
+    assert got["firstRow"] == ["brand-voice", "1.2.0", "brand", "0.86 reliable", "0.58 watch"], "R-53, M-2: in a tier the score comes first, then the band's chip"
+    assert got["untestedRow"] == ["mkt-publish", "1.2.0", "marketing", "0.86 reliable", "- needs a test"], "an untested pair shows '-' and never 0.00"
     assert got["noZero"] is True
-    assert got["detailHiddenAtFirst"] is True and got["expanderBefore"] == "false" and got["expanderAfter"] == "true"
-    assert got["detailShown"] is True and got["detailHiddenAgain"] is True
-    assert got["detailText"] == ["Reference model: reference-model-1, adapter-a, mean 0.86, 9 runs. Cause: none.",
-                                 "Floor model: floor-model-1, adapter-b, mean 0.58, 9 runs. Cause: pessimistic score under 0.70."]
-    assert got["card"]["summary"].startswith("brand-voice 1.2.0 · brand Manifest yes · 3 runs here Reference reliable 0.86 Floor watch 0.58")
-    assert got["card"]["body"] == got["detailText"]
+    assert got["detailHiddenAtFirst"] is True and got["openAfter"] is True, "R-53: a row is a `details`: it opens and stays open"
+    assert got["detailText"] == ["Manifest: yes", "Runs here: 3",
+                                 "Reference model: reference-model-1, adapter-a, mean 0.86, 9 runs. Cause: none.",
+                                 "Floor model: floor-model-1, adapter-b, mean 0.58, 9 runs. Cause: pessimistic score under 0.70."], "E-13: Manifest and Runs here, then the two sentences"
+    assert got["card"]["summary"].startswith("brand-voice 1.2.0 · brand Manifest yes · 3 runs here Reference 0.86 reliable Floor 0.58 watch"), "R-53 on the phone's card: the score first"
+    assert got["card"]["body"] == got["detailText"][2:], "the card says the manifest and the runs in its summary"
     assert got["afterArea"] == ["mkt-publish"] and got["afterBand"] == ["brand-voice", "brand-identity"] and got["afterName"] == ["brand-voice"]
     assert got["afterNothing"] == "No skill matches these filters." and got["afterReset"] == ["brand-voice", "brand-identity", "mkt-publish"]
     assert got["searchKept"] == [True, 0] and got["searchKeptAfterNotice"] == [0, "" ], "a redraw of the Skills tab never takes the search field out of the page: it keeps its focus"
-    assert got["noticeFirst"] == "wb-check-notice" and got["noticeRole"] == "alert"
+    assert got["noticeFirst"] == "notice pui-soft pui-error wb-cnotice" and got["noticeRole"] == "alert", "R-54: the soft error style"
     assert got["notice"] == ["A check of the proof failed", "These skills run as not proven: on the reference model and without autonomy.",
                              "Measurement check: ok", "Image check: the eval image is not on this machine"]
     assert got["empty"] == "No skills are in scope of this project."
@@ -465,11 +463,11 @@ def test_the_three_tabs_show_what_the_operations_returned_in_the_columns_and_wor
     assert classes["rows"] == [["publisher:social", "no provider found", "missing", "mkt-publish"], ["integration:vcs", "github", "found", "eng-code-review, ops-pull-request"]]
     assert secrets["headers"] == ["Name", "Status", "Where"]
     assert secrets["rows"] == [["CODE_HOST_TOKEN", "found", "secret store"], ["FLOOR_MODEL_KEY", "missing", "-"]]
-    assert got["eyebrows"] == ["Requirement classes", "Secrets (names only, never a value)", "Image", "Platform"]
+    assert got["eyebrows"] == ["Requirement classes", "Secrets (names only, never a value)", "Image", "Platform"], "the page's headings are `h3.wb-sec-head`"
     assert got["noValue"] is True, "a value, a masked value or a length the operation sent is never put in the page"
     assert got["imageCard"] == "Image workbench-runtime:local present It is the image the evidence was measured in: no"
-    assert got["platformSame"] == "Platform This machine: linux/arm64 Evidence: linux/arm64 same" and got["sameWide"] is False
-    assert got["platformDiffers"] == "Platform This machine: linux/amd64 Evidence: linux/arm64 differs" and got["differsWide"] is True
+    assert got["platformSame"] == "Platform This machine: linux/arm64 same Evidence: linux/arm64" and got["sameWide"] is False, "the page: the chip beside the first line"
+    assert got["platformDiffers"] == "Platform This machine: linux/amd64 · Evidence: linux/arm64 differs" and got["differsWide"] is True, "the page writes the separator in the line"
     assert got["noConsequence"] is True, "the page states no rule about a difference of platform"
     assert got["platformNull"] == "Platform This machine: linux/arm64 Evidence: not known", "no chip when the operation could not compare"
     assert got["imageMissing"] == "Image workbench-runtime:local missing It is the image the evidence was measured in: not known"
@@ -479,7 +477,8 @@ def test_the_three_tabs_show_what_the_operations_returned_in_the_columns_and_wor
     # Costs
     assert got["costsLoadingNoField"] == 0
     assert got["since"] == ["2026-09-07", "text", "Since"], "the field's value is the operation's own since; it is a text field"
-    assert got["caps"][0] == "Caps · engineering: runs 5 / 12, spend $1.87 / $4.00" and "subscription or free credential" in got["caps"][1]
+    assert got["caps"][0] == "Agent Runs today Spend today engineering 5 / 12 $1.87 / $4.00", "R-52: the caps are rows with meters, under the KPI cards' words"
+    assert got["caps"][1].startswith("Caps by agent.") and "subscription or free credential" in got["caps"][1]
     assert got["chartHead"] == "Runs per day by agent engineering marketing"
     plot = got["plot"]
     assert plot["role"] == "img" and plot["label"] == "Runs per day by agent, table below" and plot["cols"] == ["wb-cols-7"]
@@ -562,7 +561,7 @@ out.readsAfterPoll = calls.length;
 // a hash that names the costs tab: the tab changes, nothing is read again
 view.update({ loaded: true, known: true, accepted: true, projectId: "aaaaaaaaaaaa", tab: "costs" });
 out.costsTab = [panel("skills").hidden, panel("costs").hidden, tab("costs").attrs["aria-selected"], tab("skills").attrs["aria-selected"], tab("costs").attrs.tabindex, tab("skills").attrs.tabindex];
-out.costsText = [text(panel("costs")).includes("Caps · engineering: runs 5 / 12, spend $1.87 / $4.00"), text(panel("costs")).includes("Recomputed")];
+out.costsText = [text(panel("costs")).includes("engineering 5 / 12 $1.87 / $4.00"), text(panel("costs")).includes("Recomputed")];
 // the Connections read failed: its own notice; the other tabs keep their data
 view.update({ loaded: true, known: true, accepted: true, projectId: "aaaaaaaaaaaa", tab: "connections" });
 out.connFailed = [text(panel("connections")).includes("The read failed"), text(panel("connections")).includes("connections: the secret store did not answer within 5 s"), text(panel("skills")).includes("brand-voice")];
@@ -608,7 +607,7 @@ def test_the_control_view_reads_once_per_entry_and_shows_each_tabs_own_state(tmp
     assert got["mounted"] == 1
     assert got["noWebGL"] == [True], "without WebGL the scene area says so and the tabs are the whole screen"
     assert got["tablist"] == [["Skills", "true", "0"], ["Costs", "false", "-1"], ["Connections", "false", "-1"]]
-    assert got["title"] == ["Control room", "Skills, costs and connections of this machine"]
+    assert got["title"] == ["Control room", "Skills, costs and connections of this project"], "E-10: the sub line follows the tab; before the project is known no name is made up"
     assert got["unread"] == [0, 0]
     assert got["beforeLoad"] == [True, 0] and got["notAccepted"] == [True, 0, True]
     assert got["reads"] == sorted(["GET agents", "GET connections", "GET costs", "GET skills"]), "the three reads and the agents read for the caps line"
@@ -660,12 +659,16 @@ def test_the_control_room_builds_the_chart_as_same_origin_svg_with_a_table_and_n
     for path in control_files():
         text = path.read_text(encoding="utf-8")
         assert not re.search(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(", text), f"{path.name} has a colour literal"
-        assert not re.search(r"\.style\b|\bstyle\s*:", text), f"{path.name} writes a style"
+        # R-52: the caps' meters write the one custom property `--wb-share` through the CSS Object Model, as the KPI cards do (control-parts.js); no other style, no style attribute
+        without_share = re.sub(r'\.style\.setProperty\("--wb-share", ', "", text)
+        assert not re.search(r"\.style\b|\bstyle\s*:", without_share), f"{path.name} writes a style"
+        if path.name != "control-parts.js":
+            assert ".style.setProperty" not in text
     css = interface_css()
     series = dict(re.findall(r"\.(wb-series-[a-z0-9]+) \{ --wb-series: ([^;]+); \}", css))
     assert series == {"wb-series-1": "var(--pui-theme)", "wb-series-2": "var(--wb-tint-series)", "wb-series-3": "var(--pui-muted)", "wb-series-other": "var(--pui-bg-emphasis)"}
     root = re.findall(r"--wb-tint-series: ([^;]+);", css)
-    assert root == ["color-mix(in oklab, var(--pui-theme) 45%, var(--wb-raised))"], "the second series is written once, from tokens"
+    assert root == ["color-mix(in srgb, var(--pui-theme) 38%, var(--wb-raised))"], "R-52: the second series is the brand colour at 38 percent, written once, from tokens"
     assert re.search(r"--wb-ink-error: color-mix\(in oklab, var\(--pui-error\), var\(--pui-text\) 25%\);", css)
 
 
@@ -791,6 +794,6 @@ def test_the_server_room_builder_draws_with_the_engines_kit_holds_no_colour_and_
     for token in ("roomTones(palette)", "serverTones(palette)", "buildGround(kit, 1)", "boxBrackets", "planeBrackets"):
         assert token in scene, f"the scene reads {token}"
     engine = (JS / "scene" / "engine.js").read_text(encoding="utf-8")
-    assert "buildServer" not in engine and "server:" not in engine and '"server"' not in engine, "the engine is not edited: the scene registers itself"
+    assert "buildServer" not in engine and "server:" not in engine and '"server"' not in engine, "the engine names no server-room builder: the scene registers itself through BUILDERS (B3 edited the engine for the brackets, so this is a rule about the registry, not a ban on every edit)"
     control = (VIEWS / "control.js").read_text(encoding="utf-8")
     assert 'engine.show("server"' in control and "NoWebGL" in control and "frame.sceneUnavailable" in control and "frame.insets(panel.el)" in control

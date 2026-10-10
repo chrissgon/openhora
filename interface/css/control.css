@@ -1,24 +1,23 @@
-/* control.css: the Control room screen: the 700 px panel, the filters, the tables of Skills, Connections and Costs, the charts and the phone's cards. A package for the Control
-   room edits this file and test_interface_r4_control.py.
+/* control.css: the Control room screen, as control-room.html draws it (R-50, R-52 to R-55): the 700 px panel with its three tabs as a segmented control filling the width, the legend
+   and the filters, the list of skills as accordions in five columns (a card per skill on a phone), the caps as rows with meters, the chart and its table in one card, the tables
+   of runs, classes and secrets, the soft notices with an icon, the Connections cards. The parts the page draws that base.css lacks are built here, scoped to the screen (R4D P-2:
+   a later package may hoist them). A package for the Control room edits this file and test_interface_r4_control.py.
    Linked by index.html in this order: base, frame, token, city, building, floor, lobby, control, then scene.css. A later rule wins a tie, so a rule that overrides one of the same weight stays in the same file as that rule or in a file that loads after it. */
 
 .wb-frame[data-screen="control"] .wb-waiting { width: var(--wb-panel-wide); }   /* R-50: the closed card is as wide as the panel: the two stand as one column */
-.wb-frame[data-screen="control"] .wb-track { display: none; }
+.wb-frame[data-screen="control"] .wb-track { display: none; }                   /* R-50, R-55: this screen has no tracking bar: Back and the crumbs sit at the edge, a phone has no strip */
 
-@media (max-width: 639px) {
+@media (max-width: 899px) {
   .wb-frame[data-screen="control"] .wb-track { display: none; }
 }
 
-/* --- the Control room (WP-9.5, handoff control-room.md): a 700 px panel with a tablist and a scrolling content -------------------
-   DEVIATION-12: the title of a notice that reports an error uses the error colour mixed toward the text, written from tokens.
-   DEVIATION-16: the chart's second series is a mix of the theme with the raised ground, named once. */
+/* the chart's second series is the brand colour mixed to 38 percent (R-52, E-8; the third is the muted neutral), named once */
 :root {
-  --wb-ink-error: color-mix(in oklab, var(--pui-error), var(--pui-text) 25%);
-  --wb-tint-series: color-mix(in oklab, var(--pui-theme) 45%, var(--wb-raised));
+  --wb-tint-series: color-mix(in srgb, var(--pui-theme) 38%, var(--wb-raised));
 }
 
-/* a tablet (not drawn, OPEN-12): the wide panel takes what the KPI column leaves, its tables scroll inside their cards */
-@media (min-width: 640px) and (max-width: 1023px) {
+/* the in-between band (not drawn, R4D-6; the phone's layout now runs up to 899 px, M-3): the wide panel takes what the KPI column leaves, its tables scroll inside their cards */
+@media (min-width: 900px) and (max-width: 1023px) {
   .wb-frame[data-screen="control"] .wb-panel-wide { width: calc(100vw - var(--wb-kpi-w) - var(--wb-edge) * 3); }
   .wb-filter-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .wb-filter-body > :last-child { grid-column: 1 / -1; }
@@ -29,120 +28,100 @@
   .wb-frame[data-screen="control"] .wb-notice-box { right: calc(var(--wb-panel-wide) + var(--wb-edge) * 2); }
 }
 
+/* the page: on a desktop the panel stops 6 px above the closed card (the Building's gap is 12); on the phone the panel is the sheet and has no bottom edge of its own */
+@media (min-width: 900px) {
+  .wb-frame[data-screen="control"] .wb-panel { bottom: calc(var(--wb-edge) + 60px); }
+}
+
+/* --- the panel (R-50): the head has no line under it, the tabs are a segmented control that fills the width, the content scrolls under them --------------------------------- */
 .wb-frame[data-screen="control"] .wb-panel-body { display: block; padding: 0; overflow: hidden; }
+.wb-frame[data-screen="control"] .wb-panel-head { padding-bottom: 4px; border-bottom: 0; }
+.wb-frame[data-screen="control"] .wb-panel-head .wb-tile { width: 28px; height: 28px; }
+.wb-frame[data-screen="control"] .wb-panel-head .wb-icon { width: 16px; height: 16px; }
 .wb-control-body { display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100%; min-height: 0; }
-.wb-control-content { min-height: 0; padding: 14px 16px; overflow-y: auto; }
+.wb-control .wb-tablist .wb-tab { flex: 1 1 0; justify-content: center; padding: 5px 7px; font-size: 13px; }
+.wb-control-content { min-height: 0; padding: 14px 12px 16px; overflow-y: auto; scrollbar-width: thin; }
 .wb-tab-body { display: grid; gap: 12px; grid-auto-rows: max-content; }
 
-.pui-card.wb-sunken-card { border-color: transparent; background-color: var(--wb-sunken); }
-.wb-chip-s { padding: 0 7px; font-size: 11px; }
-.wb-chip-legend { padding: 0 8px; font-size: 12px; }
 .wb-code { font-size: 1em; white-space: normal; overflow-wrap: break-word; }
-.wb-table td[data-label="Class"] .wb-code, .wb-table td[data-label="Name"] .wb-code { white-space: nowrap; overflow-wrap: normal; }
-.wb-table td[data-label="Provider"], .wb-table td[data-label="Status"] { white-space: nowrap; }
-.wb-strong { font-weight: 600; }
 
-.wb-eyebrow { color: var(--pui-text-muted); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }
-.wb-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--pui-text-muted); font-size: 12px; }
+/* the accordion's chevron is the house form (R-39): a chevron that points right and turns down when the row opens; the icon is drawn pointing right and the span turns it */
+.wb-control .wb-acc-chev .wb-icon { width: 13px; height: 13px; rotate: 90deg; }
 
-/* the filters: a row on desktop, an accordion called "Filters" on a phone */
-.pui-accordion-item.wb-filters, .pui-accordion-item.wb-filters[open] { border-color: transparent; border-radius: 0; background-color: transparent; }
+/* a notice (R-54): the library's soft style in the error colour with an icon at its start; the title bold, one line under it for each sentence the service gave */
+.wb-icon-triangle-alert { -webkit-mask-image: url("../icons/triangle-alert.svg"); mask-image: url("../icons/triangle-alert.svg"); }
+.wb-cnotice { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; padding: 10px 12px; font-size: 13px; }
+.wb-cnotice-title { font-weight: 600; }
+.wb-cnotice-icon .wb-icon { width: 16px; height: 16px; margin-top: 2px; }
+.wb-cnotice-line { margin: 3px 0 0; font-size: 12px; }
+
+/* the dashed block: an empty list, a read in flight (with the static ring) */
+.wb-loading .wb-ring { vertical-align: -2px; }
+.wb-empty-block { padding: 16px; border: 1px dashed var(--pui-border); border-radius: calc(var(--pui-radius) * 1.5); color: var(--pui-text-muted); font-size: 13px; text-align: center; }
+
+/* --- Skills ------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
+.wb-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.wb-legend-note { margin-left: 4px; font-size: 12px; }
+
+/* the filters: a row of three fields on the sunken ground on desktop, an accordion called "Filters" on a phone */
+.wb-filters, .wb-filters[open] { border-radius: calc(var(--pui-radius) * 1.5); }
 .wb-filters > summary { display: none; }
-.wb-filter-body { display: grid; grid-template-columns: 160px 160px minmax(0, 1fr); gap: 10px; }
+.wb-filter-body { display: grid; grid-template-columns: 1fr 1fr 1.4fr; gap: 10px; padding: 10px 12px; border-radius: calc(var(--pui-radius) * 1.5); background-color: var(--wb-sunken); }
+.wb-filter-body > label { min-width: 0; }
 
-/* tables */
-.pui-table.wb-table { font-size: 13px; }
-.pui-table.wb-table :is(th, td) { padding: 8px 10px; }
-.pui-table.wb-costs-table, .pui-table.wb-chart-table { font-size: 12px; }
-.pui-table.wb-costs-table :is(th, td) { padding: 8px; }
-.pui-table.wb-chart-table :is(th, td) { padding: 4px 8px; }
-.wb-costs-card { overflow-x: auto; }
-.wb-costs-table td:not([data-label="Model"]), .wb-costs-table td[data-label="Adapter"] .wb-code { white-space: nowrap; }
-.pui-table.wb-chart-table tbody th { font-weight: 400; }
-.wb-expander {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.wb-expander .wb-icon { rotate: -90deg; }
-.wb-expander.is-open .wb-icon { rotate: 0deg; }
-.pui-table.wb-table tr.is-open, .pui-table.wb-table tr.wb-detail-row { background-color: var(--wb-raised); }
-.pui-table.wb-table tr.wb-detail-row td { padding: 4px 10px 10px 30px; color: var(--pui-text-muted); font-size: 12px; }
-.wb-detail { display: grid; gap: 2px; }
-.wb-skill-table td:nth-child(n + 6) { white-space: nowrap; }
+/* the list of skills (R-53): five columns, the chevron first; the head row is for the eye, each row names its cells for a screen reader */
+.wb-skill-list { border: var(--pui-border-width) solid var(--pui-border); border-radius: calc(var(--pui-radius) * 1.5); overflow: hidden; font-size: 13px; }
+.wb-skill-head, .wb-skill-sum { display: grid; grid-template-columns: 16px minmax(0, 1.5fr) 56px minmax(0, 0.9fr) 132px 132px; align-items: center; gap: 10px; padding: 9px 12px; }
+.wb-skill-head { background-color: var(--wb-sunken); color: var(--pui-text-muted); font-size: 12px; font-weight: 600; }
+.wb-skill-row + .wb-skill-row, .wb-skill-head + .wb-skill-row { border-top: var(--pui-border-width) solid var(--pui-border); }
+.wb-skill-row > summary, .wb-skill-card > summary { list-style: none; cursor: pointer; }
+.wb-skill-sum:hover { background-color: var(--wb-ground); }
+.wb-skill-ver, .wb-skill-area { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-skill-name { overflow: hidden; font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
+.wb-skill-tier { min-width: 0; white-space: nowrap; }
+.wb-band { display: inline-flex; align-items: center; gap: 6px; }
+.wb-score { font-variant-numeric: tabular-nums; }
+.wb-skill-detail { display: grid; gap: 3px; padding: 4px 12px 12px 38px; color: var(--pui-text-muted); font-size: 12px; }
+.wb-skill-detail p { margin: 0; }
 .wb-results { display: grid; gap: 10px; }
 .wb-skill-cards { display: none; }
-.wb-skill-table { overflow-x: auto; }
 
-/* a notice, a failed read, the loading line, an empty block */
-.wb-check-notice, .wb-failed {
-  display: grid;
-  gap: 4px;
-  padding: 12px 14px;
-  border: 1px solid var(--pui-error);
-  border-radius: calc(var(--pui-radius) * 1.5);
-  background-color: var(--wb-sunken);
-  font-size: 13px;
-}
-.wb-failed { gap: 2px; }
-.wb-failed-title { color: var(--wb-ink-error); font-weight: 600; }
-.wb-failed-text { font-family: var(--wb-font-mono); font-size: 12px; overflow-wrap: anywhere; }
-.wb-loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 12px 14px;
-  border-radius: calc(var(--pui-radius) * 1.5);
-  background-color: var(--wb-sunken);
-  color: var(--pui-text-muted);
-  font-size: 13px;
-}
+/* the phone's card of a skill (R-55): the name and "version · area", the manifest and the runs, the two tiers; opened: the two sentences */
+.wb-skill-card { border: var(--pui-border-width) solid var(--pui-border); border-radius: calc(var(--pui-radius) * 1.5); background-color: var(--wb-sunken); font-size: 13px; }
+.wb-skill-card > summary { display: grid; gap: 4px; padding: 10px 12px; }
+.wb-sc-1 { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px; }
+.wb-sc-2 { font-size: 12px; }
+.wb-sc-3 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; }
+.wb-sc-3 > span { display: grid; gap: 2px; justify-items: start; }
+.wb-skill-card .wb-skill-detail { padding: 0 12px 10px; }
 
-.wb-empty-block {
-  padding: 12px 14px;
-  border: 1px dashed var(--pui-border);
-  border-radius: calc(var(--pui-radius) * 1.5);
-  color: var(--pui-text-muted);
-  font-size: 13px;
-}
+/* --- Costs ------------------------------------------------------------------------------------------------------------------------------------------------------------------- */
+.wb-since { max-width: 200px; }
+.wb-footnote, .wb-foot { margin: 0; font-size: 12px; }
 
-/* Connections */
-.wb-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.pui-card.wb-info-card { display: grid; gap: 6px; padding: 12px 14px; }
-.wb-info-card.is-wide { grid-column: 1 / -1; gap: 8px; }
-.wb-info-grid.is-stacked { grid-template-columns: minmax(0, 1fr); }
-.wb-info-row { display: flex; align-items: center; gap: 8px; }
-.wb-info-row > :first-child { flex: 1; min-width: 0; }
-.wb-platform { font-size: 13px; }
-.wb-platform-line { display: block; }
-.wb-info-card.is-wide .wb-platform-line { display: inline; }
-.wb-info-card.is-wide .wb-platform-line + .wb-platform-line::before { content: " · "; }
+/* the caps (R-52, E-16): the agent with its runs of the day under its name, then Runs today and Spend today, each a value in 600 weight over a meter */
+.wb-caps { overflow: hidden; font-size: 13px; }
+.wb-cap-row { display: grid; grid-template-columns: minmax(0, 1fr) 190px 190px; gap: 16px; align-items: start; padding: 9px 12px; }
+.wb-caps.is-runs-only .wb-cap-row, .wb-caps.is-spend-only .wb-cap-row { grid-template-columns: minmax(0, 1fr) 190px; }
+.wb-cap-row + .wb-cap-row { border-top: var(--pui-border-width) solid var(--pui-border); }
+.wb-cap-head { background-color: var(--wb-sunken); color: var(--pui-text-muted); font-size: 12px; font-weight: 600; }
+.wb-cap-agent { display: grid; gap: 1px; min-width: 0; overflow-wrap: anywhere; }
+.wb-cap-agent .wb-muted, .wb-cap-note { font-size: 12px; }
+.wb-cap-m { display: grid; gap: 2px; min-width: 0; }
+.wb-cap-val { font-variant-numeric: tabular-nums; font-weight: 600; }
 
-/* Costs */
-.wb-since-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
-.wb-since { width: 200px; }
-.wb-caps { padding-bottom: 8px; color: var(--pui-text-muted); font-size: 12px; }
-.wb-footnote { font-size: 12px; }
-.pui-card.wb-chart-card { display: grid; gap: 10px; padding: 12px 14px; }
-.wb-chart-head { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
-.wb-chart-head strong { flex: 1; font-size: 13px; font-weight: 600; }
-.wb-legend-items { display: flex; flex-wrap: wrap; gap: 12px; }
-.wb-legend-item { display: inline-flex; align-items: center; gap: 5px; color: var(--pui-text-muted); font-size: 12px; }
+/* the chart and its table in one card (R-52) */
+.wb-chart { display: grid; gap: 10px; padding: 12px; }
+.wb-chart-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+.wb-legend-items { display: flex; flex-wrap: wrap; gap: 12px; color: var(--pui-text-muted); font-size: 12px; }
+.wb-legend-item { display: inline-flex; align-items: center; gap: 5px; }
 .wb-swatch { width: 10px; height: 10px; border-radius: 2px; background-color: var(--wb-series); }
-.wb-swatch.wb-series-other { border: 1px solid var(--pui-border); }
 .wb-series-1 { --wb-series: var(--pui-theme); }
 .wb-series-2 { --wb-series: var(--wb-tint-series); }
 .wb-series-3 { --wb-series: var(--pui-muted); }
 .wb-series-other { --wb-series: var(--pui-bg-emphasis); }
-.wb-plot, .wb-plot-labels { display: grid; grid-template-columns: repeat(var(--wb-cols, 7), minmax(0, 1fr)); gap: 14px; padding: 0 4px; }
+.wb-swatch.wb-series-2, .wb-swatch.wb-series-other { border: 1px solid var(--pui-border); }
+.wb-plot, .wb-plot-labels { display: grid; grid-template-columns: repeat(var(--wb-cols, 7), minmax(0, 1fr)); gap: 14px; }
 .wb-cols-1 { --wb-cols: 1; }
 .wb-cols-2 { --wb-cols: 2; }
 .wb-cols-3 { --wb-cols: 3; }
@@ -150,49 +129,69 @@
 .wb-cols-5 { --wb-cols: 5; }
 .wb-cols-6 { --wb-cols: 6; }
 .wb-cols-7 { --wb-cols: 7; }
-.wb-plot { align-items: end; height: 130px; border-bottom: var(--pui-border-width) solid var(--pui-border); }
-.wb-col { display: block; width: 100%; height: 100%; }
-.wb-seg { fill: var(--wb-series); stroke: var(--wb-sunken); stroke-width: 1px; vector-effect: non-scaling-stroke; }
-.wb-seg.wb-series-other { stroke: var(--pui-border); }
-.wb-plot-labels { color: var(--pui-text-muted); font-size: 11px; text-align: center; }
-.pui-accordion-item.wb-chart-disclosure { border-radius: var(--pui-radius); background-color: var(--wb-raised); }
-.wb-chart-disclosure > summary { font-size: 12px; }
+.wb-plot { align-items: end; height: 130px; }
+.wb-col { display: block; width: 100%; height: 100%; border-bottom: var(--pui-border-width) solid var(--pui-border); }
+.wb-seg { fill: var(--wb-series); stroke: none; }
+.wb-seg.wb-series-2, .wb-seg.wb-series-other { stroke: var(--pui-border); stroke-width: 1px; vector-effect: non-scaling-stroke; }
+.wb-plot-labels { margin-top: -6px; color: var(--pui-text-muted); font-size: 11px; text-align: center; }
+.wb-chart-acc > summary { display: flex; align-items: center; gap: 6px; color: var(--pui-text-muted); font-size: 12px; list-style: none; cursor: pointer; }
+.wb-chart-acc .wb-acc-body { padding-top: 8px; }
 
-/* the phone card of a skill (OPEN-31: a details whose summary is the card and whose body holds the two sentences) */
-.pui-accordion-item.wb-skill-card, .pui-accordion-item.wb-skill-card[open] { border-color: transparent; border-radius: var(--pui-radius); background-color: var(--wb-sunken); font-size: 13px; }
-.wb-card-rows { display: grid; flex: 1; gap: 6px; min-width: 0; }
-.wb-card-line { display: flex; align-items: baseline; gap: 8px; }
-.wb-card-line .wb-muted { font-size: 12px; }
-.wb-card-rows > .wb-muted { font-size: 12px; }
-.wb-card-tiers { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px 10px; font-size: 12px; }
-.wb-skill-card .wb-detail { padding: 0 12px 10px; color: var(--pui-text-muted); font-size: 12px; }
+/* the tables (Costs, Connections): a card that scrolls sideways inside itself, a head on the sunken ground, a line between rows */
+.wb-tcard { overflow-x: auto; }
+.wb-ctable { width: 100%; border-collapse: collapse; font-size: 12px; }
+.wb-ctable th { background-color: var(--wb-sunken); color: var(--pui-text-muted); font-weight: 600; text-align: left; }
+.wb-ctable th, .wb-ctable td { padding: 7px 8px; vertical-align: top; }
+.wb-ctable tbody tr + tr td { border-top: var(--pui-border-width) solid var(--pui-border); }
+.wb-ctable .wb-num { text-align: right; font-variant-numeric: tabular-nums; }
+.wb-ctable .wb-code { font-size: 11.5px; }
+.wb-ctable th, .wb-ctable td:first-child { white-space: nowrap; }
+.wb-costs-table td:not([data-label="Model"]), .wb-costs-table td[data-label="Adapter"] .wb-code { white-space: nowrap; }
+.wb-ctable td[data-label="Class"] .wb-code, .wb-ctable td[data-label="Name"] .wb-code { white-space: nowrap; overflow-wrap: normal; }
+.wb-ctable td[data-label="Provider"], .wb-ctable td[data-label="Status"] { white-space: nowrap; }
+.wb-chart-table tbody th { font-weight: 400; }
 
-@media (max-width: 639px) {
+/* "Needed by" past four skills is a count in the theme colour that opens the list under it (R-54, E-15) */
+.wb-need > summary { color: var(--pui-theme); cursor: pointer; }
+
+/* --- Connections: the page's headings and cards ---------------------------------------------------------------------------------------------------------------------------- */
+.wb-ccards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.wb-ccard { display: grid; gap: 6px; align-content: start; padding: 12px; font-size: 13px; }
+.wb-ccard.is-wide { grid-column: 1 / -1; }
+.wb-ccard p { margin: 0; font-size: 12px; }
+.wb-ccard .wb-sec-head { padding: 0; }
+.wb-ccard-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.wb-service { gap: 14px; }
+.wb-svc { display: grid; gap: 4px; }
+.wb-svc p { margin: 0; }
+.wb-tab-body .wb-note { margin: 0; font-size: 12px; }
+
+/* the phone (R-55; up to 899 px since M-3): the content has 12 px of room, the filters fold into one line, the skills are cards, tables stack into rows */
+@media (max-width: 899px) {
   .wb-control-content { padding: 12px; }
   .wb-tab-body { gap: 10px; }
-  .wb-skill-table { display: none; }
+  .wb-skill-list { display: none; }
   .wb-skill-cards { display: grid; gap: 10px; }
-  .wb-filters > summary { display: flex; font-size: 13px; }
-  .pui-accordion-item.wb-filters, .pui-accordion-item.wb-filters[open] { border-color: transparent; border-radius: var(--pui-radius); background-color: var(--wb-sunken); }
-  .wb-filter-body { grid-template-columns: minmax(0, 1fr); padding: 0 12px 12px; }
-  .wb-info-grid { grid-template-columns: minmax(0, 1fr); }
-  .wb-since { width: 100%; }
-  .wb-since-row { align-items: stretch; }
-  .wb-caps { padding-bottom: 0; }
+  .wb-filters, .wb-filters[open] { background-color: var(--wb-sunken); border-radius: var(--pui-radius); }
+  .wb-filters > summary { display: flex; align-items: center; gap: 6px; padding: 8px 10px; font-size: 13px; list-style: none; cursor: pointer; }
+  .wb-filter-body { grid-template-columns: minmax(0, 1fr); padding: 0 12px 12px; background-color: transparent; }
+  .wb-ccards { grid-template-columns: minmax(0, 1fr); }
+  .wb-since { max-width: none; }
   .wb-plot, .wb-plot-labels { gap: 6px; }
+  /* the caps (not drawn on a phone): the head row gives way, each meter says what it counts, the agent has the row's first line */
+  .wb-cap-head { display: none; }
+  .wb-cap-row, .wb-caps.is-runs-only .wb-cap-row, .wb-caps.is-spend-only .wb-cap-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 10px; }
+  .wb-cap-agent { grid-column: 1 / -1; }
+  .wb-cap-m[data-label]::before { content: attr(data-label); color: var(--pui-text-muted); font-size: 12px; }
+  .wb-cap-m:empty { display: none; }
+  .wb-cap-m .wb-meter { position: relative; right: auto; bottom: auto; left: auto; height: 4px; margin-top: 3px; border-radius: 9999px; }   /* the frame's phone rule lays the KPI tiles' meter along the tile's foot */
   /* tables become stacked rows: the heading row is read by a screen reader only, each cell names itself */
   .wb-stackable thead { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); }
   .wb-stackable, .wb-stackable tbody { display: block; }
   .wb-stackable tr { display: grid; gap: 2px; padding: 8px 10px; border-bottom: var(--pui-border-width) solid var(--pui-border); }
-  .pui-table.wb-stackable :is(th, td) { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr); gap: 8px; padding: 2px 0; border: 0; }
+  .wb-ctable.wb-stackable :is(th, td) { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr); gap: 8px; padding: 2px 0; border: 0; text-align: left; }
   .wb-stackable td::before { content: attr(data-label); color: var(--pui-text-muted); font-size: 12px; }
-  .pui-table.wb-stackable td[data-label] .wb-code { white-space: normal; overflow-wrap: anywhere; }
-  .pui-table.wb-stackable td[data-label] { white-space: normal; }
-  .wb-stackable td > .wb-chip-s { justify-self: start; }
-}
-
-@media (min-width: 640px) and (max-width: 899px) {
-  .wb-frame[data-screen="control"] .wb-panel-body { overflow: visible; }
-  .wb-control-body { height: auto; }
-  .wb-control-content { overflow: visible; }
+  .wb-ctable.wb-stackable td[data-label] .wb-code { white-space: normal; overflow-wrap: anywhere; }
+  .wb-ctable.wb-stackable td[data-label] { white-space: normal; }
+  .wb-stackable td > .wb-chip-12 { justify-self: start; }
 }
