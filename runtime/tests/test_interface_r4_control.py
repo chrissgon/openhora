@@ -609,6 +609,7 @@ def test_the_date_field_follows_the_colour_mode_through_color_scheme_scoped_to_t
 CLEARED = HELPERS + r"""
 import { createControlView } from "@JS@/views/control.js";
 const calls = [];
+const hold = { on: false, release: null };
 globalThis.fetch = async (url, init) => {
   const u = new URL(url, "http://127.0.0.1");
   const path = u.pathname.replace("/api/v1/projects/aaaaaaaaaaaa/", "");
@@ -617,6 +618,7 @@ globalThis.fetch = async (url, init) => {
   const body = { skills: skillsData, agents: { agents: [] }, connections: { classes: [], secrets: [], image: {}, platform: {} },
     costs: { since: "2026-09-10", rows: [], caps: [] } }[path];
   if (bad) return { ok: false, status: 400, json: async () => ({ error: "usage", message: "since is a day: YYYY-MM-DD" }) };
+  if (path === "costs" && !u.search && hold.on) await new Promise((r) => { hold.release = r; });
   return { ok: Boolean(body), status: body ? 200 : 404, json: async () => body || { error: "not_found", message: "x" } };
 };
 const frame = { main: new FakeNode("main"), sceneHost: new FakeNode("div"), noticeBox: new FakeNode("div"), insets: () => ({}), sceneUnavailable() {} };
@@ -626,9 +628,15 @@ await settle();
 const panel = view.el.find((n) => n.attrs.id === "wb-tabpanel-costs");
 const input = panel.find((n) => n.tagName === "INPUT");
 const before = calls.length;
+input.value = "2026-10-08"; input.fire("change");
+await settle();
+hold.on = true;
 input.value = ""; input.fire("change");
 await settle();
-console.log(JSON.stringify({ calls: calls.slice(before), notice: panel.all((n) => has(n, "wb-cnotice")).length, text: text(panel).includes("Date refused"), value: input.value, invalid: input.getAttribute("aria-invalid") }));
+const whileReading = [input.value, text(panel).includes("Loading")];   // the old date must not flash back into the cleared field
+hold.on = false; hold.release();
+await settle();
+console.log(JSON.stringify({ whileReading, calls: calls.slice(before).filter((c) => c.startsWith("costs")), notice: panel.all((n) => has(n, "wb-cnotice")).length, text: text(panel).includes("Date refused"), value: input.value, invalid: input.getAttribute("aria-invalid") }));
 """
 
 
@@ -636,6 +644,7 @@ console.log(JSON.stringify({ calls: calls.slice(before), notice: panel.all((n) =
 def test_a_cleared_since_date_reads_the_default_window_and_shows_no_refusal(tmp_path):
     """M-8, decided by the supervisor for A6b-3: "empty means no date": the read goes without `since`, the service has nothing to refuse, and the field shows the window's first day."""
     got = node(tmp_path, CLEARED)
-    assert got["calls"] == ["costs", "agents"] or got["calls"] == ["agents", "costs"], "the read without a query (no `since=`), with the agents read that feeds the caps"
+    assert got["calls"] == ["costs?since=2026-10-08", "costs"], "a date reads with it; the cleared field reads without a query (no `since=`)"
+    assert got["whileReading"] == ["", True], "while the read lasts the cleared field stays empty (the old date does not flash back)"
     assert got["notice"] == 0 and got["text"] is False and got["invalid"] is None
     assert got["value"] == "2026-09-10", "the field shows the operation's own window"
