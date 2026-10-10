@@ -2,17 +2,20 @@
 // they run under a test. Nothing is decided here: a request's state and a decision's actions are the service's own words.
 
 import * as format from "../format.js";
-import { drawersOf } from "../floor-model.js";
+import { drawersOf, stateTone } from "../floor-model.js";
 import { windowState } from "../scene/look.js";
 
 export const POLL_BUSY_MS = 2000;     // the conversation is read every 2 seconds while a `say` job runs; otherwise only when the page reloads
 export const JOB_EVERY_MS = 1000;     // pollJob's period
 export const MAX_BODIES = 8;          // the requests whose decisions are read with `task`: the newest few
+export const MAX_INBOX_BODIES = 50;   // P-6: with the Inbox open, the requests whose bodies are read: those with a decision open, then the newest, up to this many
+export const RESOLVED_LINES = 50;     // P-6: the resolved lines the Inbox lists, newest first
 
-export const TABS = Object.freeze([["conversation", "Conversation"], ["inbox", "Inbox"], ["desk", "Desk"], ["tasks", "Tasks"], ["agent", "Agent"]]);
+// R-43 (C-6): Conversation, Inbox, Tasks, Desk, Agent
+export const TABS = Object.freeze([["conversation", "Conversation"], ["inbox", "Inbox"], ["tasks", "Tasks"], ["desk", "Desk"], ["agent", "Agent"]]);
 
-export const HINT = "A line that starts with / is a command; /help lists them.";
-export const AFTER_HINT = "/new --after 3 followed by the text makes a request that waits for request 3.";
+// R-45: the hint under the field; the second hint (`/new --after`) is gone, since "After request" is a field of the form (R-46)
+export const HINT = "Type / to list the commands.";
 // A-23: while a run is in progress a plain line is stored and routed by the service when the run ends; the commands answer at once.
 export const RUN_LINE = "A run is in progress: your line will be routed when it ends; a question about the state is answered now.";
 export const QUEUED_WORD = "queued";
@@ -22,6 +25,8 @@ export const BUSY_NOTICE = Object.freeze({ title: "Not sent", text: "A run is in
 export const NOT_ACCEPTED_TEXT = "Waiting for the configuration to be accepted.";
 export const EMPTY_TEXT = "No messages yet. Describe what you want done.";
 export const AUTO_FLOW = "Let the planning agent route it";
+export const AFTER_NONE = "None: it starts when it can";       // R-46: the first option of "After request"
+export const AFTER_FORM_HINT = "The request waits until the one you pick is done or cancelled. Only requests still open are listed.";
 export const FORM_HINT = "A flow plans the request from a predefined route. Without one, the planning agent routes it.";
 const FINAL = new Set(["done", "cancelled"]);
 
@@ -132,6 +137,20 @@ export function wantedBodies(placed, requests, pending = []) {
   return [...must, ...rest.slice(0, Math.max(0, MAX_BODIES - must.length))];
 }
 
+/**
+ * The requests whose `task` body the Inbox reads (P-6): the Inbox lists the decisions of every request of the project, so not only the requests the
+ * conversation shows. The requests with a decision open come first (their cards must be drawn), then the others, newest first, a cancelled or done request
+ * included (its resolved and cancelled lines are the Inbox's too); the whole is MAX_INBOX_BODIES at most, more when more requests than that have a decision
+ * open. A request is read again only when its signature moves (signatureOf), never on every draw.
+ */
+export function inboxBodies(requests, pending = []) {
+  const known = (requests || []).filter((r) => r && Number.isInteger(r.id)).map((r) => r.id);
+  const open = new Set((pending || []).map((p) => p.task_id));
+  const must = known.filter((id) => open.has(id)).sort((a, b) => b - a);
+  const rest = known.filter((id) => !open.has(id)).sort((a, b) => b - a);
+  return [...must, ...rest.slice(0, Math.max(0, MAX_INBOX_BODIES - must.length))];
+}
+
 /** A change signature of one request in a status body: the state, the task count and the open decisions' ids. */
 export function signatureOf(request, pending) {
   const open = (pending || []).filter((p) => p.task_id === request.id).map((p) => p.id).join(",");
@@ -182,6 +201,7 @@ export function requestLine(request, open) {
   return {
     id: request.id, title: request.title || `Request ${request.id}`, state: stateWord(request.state), final,
     name: `Request ${request.id}, ${request.title || ""}, ${request.state}`,
+    tone: stateTone(request.state),     // C-23: the chip takes the state's colour (R-47)
     cancellable: !final,
     routable: request.state === "requested" && open === 0,
   };
@@ -214,6 +234,34 @@ export function resolvedWord(item) {
   const kind = format.kindWord(item.kind);
   if (item.status === "cancelled") return `${kind} cancelled`;
   return item.resolution ? `${kind} ${item.resolution}` : `${kind} resolved`;
+}
+
+/**
+ * The options of "After request" (R-46): the first is `None: it starts when it can`, then one option for every request that is not final, by number from the
+ * lowest: `#<n> <title> · <state>`; a request that waits for its route says `Waiting for its route`, as the page draws it. A request that is done or cancelled
+ * is not offered, so the number cannot be wrong. The value of an option is the request's number as text.
+ */
+export function afterOptions(requests) {
+  const open = (Array.isArray(requests) ? requests : []).filter((r) => r && Number.isInteger(r.id) && !FINAL.has(r.state)).sort((a, b) => a.id - b.id);
+  return [{ value: "", label: AFTER_NONE }, ...open.map((r) => {
+    const title = requestWords(r, null).title || `Request ${r.id}`;
+    return { value: String(r.id), label: `#${r.id} ${title} · ${r.state === "requested" ? "Waiting for its route" : stateWord(r.state)}` };
+  })];
+}
+
+/**
+ * The commands the list shows for what is typed (R-45): rows are `{command, arguments, help}` as the service gave them. The list is open while the
+ * field holds one word that starts with `/` (no space or line break yet): the rows whose command starts with it, in the service's order. `[]` for any other text.
+ */
+export function commandMatches(rows, typed) {
+  if (typeof typed !== "string" || !/^\/\S*$/.test(typed)) return [];
+  const word = typed.toLowerCase();
+  return (Array.isArray(rows) ? rows : []).filter((r) => r && typeof r.command === "string" && r.command.toLowerCase().startsWith(word));
+}
+
+/** What choosing a command writes in the field: the command, and a space after it when it takes arguments. */
+export function commandFill(row) {
+  return `${row.command}${row.arguments ? " " : ""}`;
 }
 
 /** The options of the Flow select: the first is the planning agent's own route, then one per flow, labelled by its title. */

@@ -1,7 +1,7 @@
 // The Lobby's Agent tab (handoff lobby.md, "Agent tab"): the planning agent shown by the Floor's Agent tab (floor/agent-tab.js): the
 // state row, the mode plate and "Set mode", the notices about the configuration, the meters, the current task, the other tasks and
 // "Hand a file over". It is built from `agents`, `status`, and the bodies of the planning agent's tasks (`task`, read for the current
-// and the running task, and for the first twelve when the Inbox is open, as the Floor reads them), through the Floor's model with the
+// and the running task, and for the first forty when the Inbox is open (P-6)), through the Floor's model with the
 // planning agent allowed. Every control sends its request through floor/actions.js, handed to the tab.
 
 import * as api from "../api.js";
@@ -13,7 +13,7 @@ import * as router from "../router.js";
 
 const TASK_FRESH_MS = 5000;
 const TASK_STALE_MS = 15000;
-const MAX_TASK_READS = 12;
+const MAX_TASK_READS = 40;     // P-6: with the Inbox open the planning agent's tasks are read for their resolved lines, the newest 40 (the Floor reads 12)
 export const NO_AGENT_TEXT = "This project has no agents in its configuration.";
 
 /**

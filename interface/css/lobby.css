@@ -1,6 +1,8 @@
-/* lobby.css: the Lobby screen: its panel and tabs, the conversation, the request lines, the footer with the form and the composer, the dialog that cancels a request. A package
+/* lobby.css: the Lobby screen: its panel and tabs, the conversation, the request lines, the "New request" form, the composer with the list of commands, the Desk's rows, the plan card's blocks, the dialog that cancels a request. A package
    for the Lobby edits this file and test_interface_r4_lobby.py.
-   Linked by index.html in this order: base, frame, token, city, building, floor, lobby, control, then scene.css. A later rule wins a tie, so a rule that overrides one of the same weight stays in the same file as that rule or in a file that loads after it. */
+   Linked by index.html in this order: base, frame, token, city, building, floor, lobby, control, then scene.css. A later rule wins a tie, so a rule that overrides one of the same weight stays in the same file as that rule or in a file that loads after it.
+   Round 4 (R4-A5): what the page `lobby.html` draws is built here, scoped to the Lobby's panel. Parts that `base.css` or `floor.css` will draw for the Floor (the segmented tabs, the accordions, the decision cards' shell)
+   are written again here for the Lobby only, so that the Lobby does not wait for them; a later package may hoist them. */
 
 /* --- the Lobby (handoff lobby.md, cards.md): the panel with its tabs, the conversation, the cards and the composer ----------------- */
 .wb-panel-lobby { grid-template-rows: auto auto minmax(120px, 1fr) minmax(0, auto); }
@@ -9,110 +11,145 @@
 .wb-lobby-tabpanel-later { padding: 16px; gap: 12px; }
 .wb-lobby-waiting { padding: 16px; }
 
-/* the tab list: the scrollbar is hidden, the list still scrolls (DIFF-24) */
-.wb-lobby-tabs {
-  display: flex;
-  gap: 4px;
-  padding: 0 12px;
-  overflow-x: auto;
-  border-bottom: var(--pui-border-width) solid var(--pui-border);
-  scrollbar-width: none;
-}
-.wb-lobby-tabs::-webkit-scrollbar { display: none; }
+/* R-43: the tab list is a segmented control that fills the panel's width in equal parts, in the regular weight, in a smaller size: a sunken track and the
+   selected tab a raised piece. The bar under the panel's head has a line under it. */
+.wb-lobby-tabbar { padding: 0 0 0; border-bottom: var(--pui-border-width) solid var(--pui-border); }
+.wb-lobby-tabs { display: flex; gap: 2px; margin: 8px 10px; padding: 3px; border-radius: var(--pui-radius); background-color: light-dark(var(--pui-bg-emphasis), var(--pui-bg)); }
 .wb-lobby-tab {
   display: inline-flex;
-  flex: none;
+  flex: 1 1 0;
   align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
+  justify-content: center;
+  gap: 6px;
+  padding: 5px 7px;
   border: 0;
-  border-bottom: 2px solid transparent;
-  background: none;
+  border-radius: calc(var(--pui-radius) - 3px);
+  background: transparent;
   color: var(--pui-text-muted);
   font: inherit;
-  font-size: 15px;
+  font-size: 13px;
+  font-weight: 400;
   cursor: pointer;
 }
 .wb-lobby-tab:hover { color: var(--pui-text); }
-.wb-lobby-tab.is-selected { border-bottom-color: var(--pui-theme); color: var(--pui-text); font-weight: 600; }
-.wb-lobby-tab-count { font-size: 12px; font-weight: 400; }
+.wb-lobby-tab.is-selected { background-color: var(--wb-raised); box-shadow: var(--wb-elev); color: var(--pui-text); }
+.wb-lobby-tab-count { padding: 0; border: 0; background-color: transparent; color: var(--wb-ink-warn); font-size: 13px; font-weight: 400; }
 
 /* the conversation */
-.wb-thread { display: grid; grid-template-columns: minmax(0, 1fr); flex: 1 1 auto; gap: 10px; align-content: start; min-height: 0; padding: 12px; overflow-y: auto; }
-.wb-msg { display: grid; justify-items: start; gap: 2px; max-width: 90%; }
-.wb-msg.is-user { justify-self: end; justify-items: end; max-width: 86%; }
-.wb-msg-meta { color: var(--pui-text-muted); font-size: 11px; }
-.wb-bubble { padding: 8px 12px; border-radius: calc(var(--pui-radius) * 1.5); font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.wb-thread { display: grid; grid-template-columns: minmax(0, 1fr); flex: 1 1 auto; gap: 12px; align-content: start; min-height: 0; padding: 12px; overflow-y: auto; }
+.wb-msg { display: grid; justify-items: start; gap: 3px; max-width: 88%; }
+.wb-msg.is-user { justify-self: end; justify-items: end; }
+.wb-msg-meta { padding: 0 4px; color: var(--pui-text-muted); font-size: 11px; }
+.wb-queued { color: var(--wb-ink-warn); }
+.wb-bubble { padding: 8px 12px; border-radius: calc(var(--pui-radius) * 1.4); font-size: 13px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 .wb-bubble.pui-soft { color: var(--pui-text); }
 .wb-bubble-agent { background-color: var(--wb-sunken); }
+.wb-msg.is-user .wb-bubble { border-bottom-right-radius: 4px; }
+.wb-msg.is-agent .wb-bubble { border-bottom-left-radius: 4px; }
+
+/* R-47: a request is a small bordered block: the number, the title and the state chip on one line (the chip in the state's colour); `Route it` and `Cancel request`
+   on the line under it; the whole text and a notice under those. What the request holds (its plan card, a pointer, a resolved line) follows the block. */
 .wb-request-block { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
-.wb-lobby-request-line { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.wb-lobby-request-line > .pui-badge, .wb-lobby-request-line > .pui-chip, .wb-lobby-request-line > .pui-btn:not(.wb-lobby-request-title) { flex: none; }
+.wb-request-box { display: grid; gap: 4px; padding: 8px 10px; border: var(--pui-border-width) solid var(--pui-border); border-radius: var(--pui-radius); }
+.wb-lobby-request-line { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; font-size: 12px; }
+.wb-lobby-request-line > .pui-badge, .wb-lobby-request-line > .pui-chip { flex: none; }
+.wb-lr-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
 
 /* one line (A-1): the title is cut with an ellipsis, its tooltip holds the whole text and a click opens it under the line */
-.wb-lobby-request-title.pui-btn { display: block; flex: 1 1 0; min-width: 0; padding: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; color: var(--pui-text); font: inherit; text-decoration: none; }
+.wb-lobby-request-title.pui-btn { display: block; min-width: 0; padding: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; color: var(--pui-text); font: inherit; font-size: 13px; font-weight: 600; text-decoration: none; }
 .wb-lobby-request-title.pui-btn:hover { text-decoration: underline; }
 .wb-lobby-request-full { margin: 0; color: var(--pui-text-muted); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.wb-lobby-cancel-link { padding: 0; white-space: nowrap; color: var(--wb-ink-error); font-size: 12px; text-decoration: none; }
+.wb-lobby-cancel-link { min-height: 0; padding: 0; white-space: nowrap; color: var(--wb-ink-error); font-size: 12px; text-decoration: none; }
 .wb-lobby-cancel-link:hover { text-decoration: underline; }
-.wb-route-button { padding: 2px 10px; font-size: 12px; }
 .wb-route-flow { flex: 0 1 12rem; width: auto; min-width: 0; padding-block: 2px; font-size: 12px; }   /* the flow beside "Route it" (E-20) */
-.wb-lobby-request-line.has-flow { flex-wrap: wrap; row-gap: 4px; }   /* with the select the controls may wrap under the title, which keeps a readable width */
-.wb-lobby-request-line.has-flow > .wb-lobby-request-title.pui-btn { flex: 1 1 9rem; }
-.wb-lobby-resolved { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border-radius: var(--pui-radius); background-color: var(--wb-sunken); color: var(--pui-text-muted); font-size: 12px; }
+.wb-lobby-resolved { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 0 4px; color: var(--pui-text-muted); font-size: 12px; }
 .wb-lobby-resolved-text { min-width: 0; overflow-wrap: anywhere; }
+.wb-pointer { padding: 8px 10px; border-radius: var(--pui-radius); background-color: var(--wb-sunken); }
 .wb-pointer .pui-link { margin-left: auto; }
 
 .wb-panel-lobby .wb-card .pui-btn.pui-surface { background-color: var(--wb-raised); }
 
-.wb-panel-lobby .wb-plan-table { width: 100%; font-size: 12px; }
-.wb-panel-lobby .wb-plan-table th, .wb-panel-lobby .wb-plan-table td { padding: 4px 3px; text-align: left; vertical-align: top; overflow-wrap: normal; }
+/* R-47: the plan's tasks are blocks at every width (the table is gone): a bordered list, the number at the left, then the task in bold, its skill and agent,
+   and what it waits for. Under "Before it starts", `Go ahead` is a checkbox with the runtime's reason beneath it. */
+.wb-panel-lobby .wb-plan-list { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; border: var(--pui-border-width) solid var(--pui-border); border-radius: var(--pui-radius); background-color: var(--wb-raised); }
+.wb-panel-lobby .wb-plan-task { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; padding: 8px 10px; font-size: 13px; }
+.wb-panel-lobby .wb-plan-task + .wb-plan-task { border-top: var(--pui-border-width) solid var(--pui-border); }
+.wb-panel-lobby .wb-plan-task-text { display: grid; gap: 1px; min-width: 0; }
+.wb-panel-lobby .wb-plan-task .wb-task-n { color: var(--pui-text-muted); font-variant-numeric: tabular-nums; }
+.wb-panel-lobby .wb-plan-task .wb-cur-sub { font-size: 12px; overflow-wrap: anywhere; }
+.wb-panel-lobby .wb-plan-task .wb-cell-skill { font-size: 12px; }
+.wb-panel-lobby .wb-waits { gap: 4px; padding: 0; border: 0; border-radius: 0; background: none; font-size: 13px; }
+.wb-panel-lobby .wb-waits-title { color: var(--pui-text-muted); font-size: 12px; font-weight: 400; }
+.wb-panel-lobby .wb-waits-task { font-weight: 400; }
+.wb-panel-lobby .wb-waits-reasons, .wb-panel-lobby .wb-waits .wb-card-note { font-size: 12px; }
 
 /* fields: the edge is the muted token; the ground is the library's own, never a `.wb-*` rule's (A-14) */
 .wb-lobby-field { --pui-edge: var(--pui-muted); }
 
-/* the footer: the "New request" disclosure, then the composer */
-.wb-lobby-footer { display: grid; grid-template-rows: minmax(0, auto) auto; gap: 8px; min-height: 0; padding: 10px 12px; overflow: hidden; border-top: var(--pui-border-width) solid var(--pui-border); }
-.wb-form-scroll { grid-row: 1; min-height: 0; overflow-y: auto; }
-.wb-lobby-footer > .wb-composer-wrap { grid-row: 2; }
-.wb-new-request { border-color: transparent; border-radius: var(--pui-radius); background-color: var(--wb-sunken); }
-.wb-new-request > summary { font-size: 13px; font-weight: 600; }
-.wb-form-body { display: grid; gap: 10px; padding: 0 12px 12px; }
-.wb-form-row { display: flex; align-items: center; gap: 10px; }
-.wb-form-hint { margin: 0; color: var(--pui-text-muted); font-size: 12px; }
-.wb-composer-wrap { display: grid; gap: 8px; }
-.wb-composer { display: flex; align-items: flex-end; gap: 8px; }
-.wb-composer-field { flex: 1 1 auto; min-width: 0; }
-.wb-composer-field > span { font-size: 13px; }
-.wb-composer .pui-input { resize: vertical; min-height: 36px; }
+/* the footer: the composer; the form takes the thread's place, not the footer's */
+.wb-lobby-footer { display: grid; gap: 8px; min-height: 0; padding: 10px 12px 12px; border-top: var(--pui-border-width) solid var(--pui-border); }
+.wb-composer-wrap { display: grid; gap: 6px; }
+.wb-comp-label { color: var(--pui-text-muted); font-size: 12px; }
+.wb-composer-field { display: block; }
+.wb-comp-line { margin: 0; font-size: 12px; }
+.wb-composer { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.wb-composer > .wb-comp-field { grid-column: 1 / -1; grid-row: 1; min-height: 40px; resize: none; }
 .wb-composer .pui-input:disabled::placeholder { color: transparent; }
-.wb-composer-wrap.is-sending .wb-composer-field > span { opacity: 0.5; }
-.wb-send { gap: 8px; flex: none; }
-.wb-lobby-hint { margin: 0; color: var(--pui-text-muted); font-size: 11px; }
-.wb-lobby-busy { display: flex; align-items: center; gap: 8px; color: var(--pui-text-muted); font-size: 13px; }
+.wb-composer-wrap.is-sending .wb-comp-label { opacity: 0.5; }
+.wb-send { grid-column: 2; grid-row: 2; gap: 6px; }
+.wb-new-btn { grid-column: 1; grid-row: 2; justify-self: start; gap: 6px; }       /* later in the markup than Send (the keyboard order), drawn at its left */
+.wb-lobby-hint { margin: 0; color: var(--pui-text-muted); font-size: 12px; }
+.wb-lobby-busy { display: flex; align-items: center; gap: 8px; color: var(--pui-text-muted); }
 .wb-lobby-ring { flex: none; width: 12px; height: 12px; border: 2px solid var(--pui-bg-emphasis); border-top-color: var(--pui-theme); border-radius: 9999px; }
-.wb-lobby-notice-card {
-  display: grid;
-  gap: 2px;
-  padding: 10px 12px;
-  border: var(--pui-border-width) solid var(--pui-error);
-  border-radius: calc(var(--pui-radius) * 1.5);
-  background-color: var(--wb-sunken);
-  font-size: 13px;
-  overflow-wrap: anywhere;
-}
-.wb-lobby-notice-title { color: var(--wb-ink-error); font-weight: 600; }
+.wb-lobby-run { color: var(--pui-text-muted); }
+.wb-lobby-run[hidden] { display: none; }
 
-/* the Inbox, Desk and Agent tabs: the Floor's modules inside the Lobby's panel (WP-9.4b); the viewer takes the whole panel */
+/* R-11: a notice of the Lobby is the soft style in the state's colour (`notice pui-soft pui-error`, no line round it); its title runs into its text */
+.wb-lobby-notice-card { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+.wb-lobby-notice-title { margin-right: 0.3em; color: var(--wb-ink-error); font-weight: 600; }
+.wb-lobby-notice-card:not(.pui-error) .wb-lobby-notice-title { color: var(--pui-text); }
+.wb-lr-note { margin: 2px 0 0; }
+
+/* R-45: "/" opens the list of commands over the field: a card above it, one row for each command (the command in bold with its arguments, its help line under) */
+.wb-slash { position: absolute; right: 0; bottom: calc(100% + 6px); left: 0; z-index: 3; display: grid; gap: 2px; max-height: 296px; margin: 0; padding: 4px; overflow-y: auto; list-style: none; scrollbar-width: thin; box-shadow: var(--wb-elev); }
+.wb-slash-row { display: grid; gap: 1px; padding: 6px 8px; border-radius: calc(var(--pui-radius) - 3px); cursor: pointer; }
+.wb-slash-row.is-active, .wb-slash-row:hover { background-color: var(--pui-bg-emphasis); }
+.wb-slash-cmd { font-size: 12.5px; }
+.wb-slash-help { font-size: 12px; line-height: 1.35; }
+
+/* R-44: "New request" is a form inside the Conversation, in the place of the thread and the composer: Back at its head, the title, the four fields, `Create request` */
+.wb-newreq { display: grid; flex: 1 1 auto; gap: 12px; align-content: start; min-height: 0; padding: 12px; overflow-y: auto; }
+.wb-newreq-head { display: flex; }
+.wb-newreq-back { display: inline-flex; align-items: center; gap: 6px; }
+.wb-newreq-title { font-size: 15px; }
+.wb-newreq .wb-form-body { display: grid; gap: 12px; }
+.wb-newreq .wb-field { display: grid; gap: 4px; font-size: 13px; }
+.wb-newreq .wb-hint { margin-top: -8px; }                  /* the hint of "After request" stands under its select, as one block */
+.wb-newreq .wb-card-hint { color: var(--pui-text-muted); font-size: 12px; }
+.wb-newreq-buttons { display: flex; justify-content: flex-end; }
+
+/* the Inbox, Tasks and Agent tabs: the Floor's modules inside the Lobby's panel (WP-9.4b); the viewer takes the whole panel */
 .wb-lobby-scroll { overflow-y: auto; }
 .wb-lobby-scroll > * { flex: none; }
 .wb-lobby-inbox { display: grid; align-content: start; }
-.wb-lobby-pointers { display: grid; gap: 8px; padding: 12px 12px 0; }
+.wb-lobby-pointers { display: grid; gap: 6px; padding: 12px 12px 0; }
 .wb-lobby-pointers:empty { display: none; }
 .wb-lobby-agent { display: block; }
 .wb-lobby-none { padding: 16px; }
 .wb-panel-lobby.is-viewing { grid-template-rows: minmax(0, 1fr); }
 .wb-panel-lobby > .wb-viewer-host { min-height: 0; }
+
+/* R-40, R-47: the Lobby's Desk is a list of two-line rows: the path with the agent as a badge at its right, then the owner skill, the size and the time */
+.wb-panel-lobby .wb-desk-tab { gap: 10px; padding: 12px; }
+.wb-desk-list-box { display: block; }
+.wb-desk-list { display: grid; margin: 0; padding: 0; list-style: none; overflow: hidden; }
+.wb-desk-list .wb-desk-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: start; padding: 9px 12px; border-top: var(--pui-border-width) solid var(--pui-border); cursor: pointer; }
+.wb-desk-list .wb-desk-row:first-child { border-top: 0; }
+.wb-desk-list .wb-desk-row:hover { background-color: var(--wb-ground); }
+.wb-desk-list .wb-path-btn { padding: 0; border: 0; background: transparent; color: var(--wb-ink-theme); font-size: 12px; text-align: left; cursor: pointer; }
+.wb-desk-list .wb-desk-agent { align-self: start; font-size: 11px; overflow-wrap: normal; }
+.wb-desk-list .wb-desk-meta { grid-column: 1 / -1; font-size: 12px; }
+.wb-desk-list .wb-desk-owner { font-size: 12px; overflow-wrap: normal; }
 
 /* the dialog "Cancel this request and what is still open under it?" */
 .wb-dialog { width: min(26rem, calc(100vw - 32px)); }
@@ -120,16 +157,10 @@
 .wb-dialog-content { display: grid; gap: 12px; padding: 16px; }
 .wb-dialog-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 
-@media (max-width: 639px) {
+/* M-3: the phone's layout applies up to 899 px; the docked band is gone */
+@media (max-width: 899px) {
   :root { --wb-panel-lobby: auto; }
-}
-
-@media (max-width: 639px) {
   .wb-dialog-buttons .pui-btn { flex: 1 1 100%; min-height: 44px; }
-  .wb-send { min-height: 44px; }
+  .wb-send, .wb-new-btn { min-height: 44px; }
+  .wb-lobby-tab { padding: 5px 6px; font-size: 12px; }
 }
-
-.wb-lobby-run { margin: 0; padding: 8px 10px; border: var(--pui-border-width) solid var(--pui-border); border-radius: var(--pui-radius); background-color: var(--wb-sunken); font-size: 12px; overflow-wrap: anywhere; }
-.wb-lobby-run[hidden] { display: none; }
-.wb-lobby-notice-card.is-info { border-color: var(--pui-border); }
-.wb-msg.is-queued .wb-msg-meta { color: var(--wb-ink-warn); }
