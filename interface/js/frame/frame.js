@@ -1,7 +1,7 @@
 // The shared frame of every scene screen (round 4, R-1 to R-11): a top row of floating controls with no strip behind it (the brand, the
 // project switcher, the colour-mode button, the door to the control room), two KPI cards in a column at the left with the camera buttons under
-// them, Back and the breadcrumbs in the top row right after the brand (M-4), the tracking bar at the bottom left, "Waiting for you" as a card at
-// the bottom right, the panel slot, the scene container and, for a phone (up to 899 px, M-3), the bottom bar of two rows. Built once; a screen fills it through the methods below. Every control
+// them, Back and the breadcrumbs docked at the bottom left above the tracking bar (R-2, M-10), "Waiting for you" as a card at the bottom right, the panel
+// slot, the scene container and, for a phone (up to 899 px, M-3), the bottom bar of two rows. Built once; a screen fills it through the methods below. Every control
 // has an accessible name and a keyboard path; no element carries a style attribute.
 
 import { h } from "../dom.js";
@@ -83,13 +83,12 @@ export function createFrame(root, handlers) {
 
   const door = h("button", { class: "pui-btn pui-surface pui-outline wb-door", type: "button", "aria-label": "Control room" },
     icon("server", 16), h("span", { class: "wb-door-label", text: "Control room" }));
-  // the top row (R-1, M-4): the brand at the left and right after it Back and the crumbs; at the right the switcher, the colour-mode button and the door, each
-  // a raised control on the scene. The order of the children is the keyboard order. On a phone Back and the crumbs are the bottom bar's second row (R-10).
+  // the top row (R-1): the brand at the left; at the right the switcher, the colour-mode button and the door, each a raised control on the scene
   const topEnd = h("div", { class: "wb-topbar-end" }, switcher.el, modeButton.el, door);
-  const brand = createBrand();
-  const header = h("header", { class: "wb-topbar" }, brand, nav.el, topEnd);
-  // the tracking bar's place at the bottom left, beside "Waiting for you" (R-8); on a phone the bar floats at the top of the scene
-  const dock = h("div", { class: "wb-dock" }, track.el);
+  const header = h("header", { class: "wb-topbar" }, createBrand(), topEnd);
+  // Back and the crumbs are docked at the bottom left above the tracking bar (R-2, M-10); on a phone they are the bottom bar's second row
+  const navDock = h("div", { class: "wb-navdock" }, nav.el);
+  const dock = h("div", { class: "wb-dock" }, navDock, track.el);
   const barTop = h("div", { class: "wb-bottom-row" }, waitingMenu.el);
   const barEnd = h("div", { class: "wb-bottom-row" });
   const bottomBar = h("div", { class: "wb-bottom-bar" }, barTop, barEnd);
@@ -172,7 +171,7 @@ export function createFrame(root, handlers) {
 
   // On a phone the tracking bar and the two KPI tiles float at the top of the scene (R-10) and the bottom bar holds, in two rows, the switcher, the inbox
   // button and the colour-mode button, then Back, the crumbs and the door; above a phone's width they stand where a desktop has them: Back and the crumbs
-  // in the top row after the brand (M-4), the tracking bar in the dock. Moved, never copied.
+  // and the tracking bar in the dock. Moved, never copied.
   function placeParts() {
     // A part that is moved loses the focus in a browser: the one that held it gets it back (the window crossed 899 px while a person tabbed or clicked in it).
     const held = document.activeElement;
@@ -185,7 +184,7 @@ export function createFrame(root, handlers) {
       if (kpis.el.parentNode === float) sceneArea.append(kpis.el);
       if (track.el.parentNode === float) dock.append(track.el);
       topEnd.replaceChildren(switcher.el, modeButton.el, door);
-      header.replaceChildren(brand, nav.el, topEnd);
+      navDock.replaceChildren(nav.el);
       barTop.replaceChildren(waitingMenu.el);
       barEnd.replaceChildren();
     }
