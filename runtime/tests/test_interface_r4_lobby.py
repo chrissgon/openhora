@@ -596,7 +596,7 @@ console.log(JSON.stringify(out));
 def test_the_lobbys_desk_is_a_list_of_two_line_rows_with_the_agent_as_a_badge():
     got = run_view_node(Path_tmp(), DESK_MARKUP)
     assert got["list"] == ["UL", "Documents of the project, newest first", True] and got["table"] == 0, "R-40, R-47: a list, not a table"
-    assert got["rows"][0][0][0] == "BUTTON" and got["rows"][0][1] == ["SPAN", "pui-badge pui-muted pui-soft wb-desk-agent"] and got["rows"][0][-1][1].startswith("wb-desk-meta"), \
+    assert got["rows"][0][0][0] == "SPAN" and got["rows"][0][1] == ["SPAN", "pui-badge pui-muted pui-soft wb-desk-agent"] and got["rows"][0][-1][1].startswith("wb-desk-meta"), \
         "the path, the agent's badge, then the meta line"
     assert got["badges"] == [["Engineering", True], ["Lobby", True], ["—", True]], "R-47: the agent as a badge, in the frame's word for it (the planning agent is the Lobby), a dash for none"
     assert got["meta"][1].startswith("state · 1.8 KB · Markdown · ") and got["meta"][1].count("2026-10-08") == 1, "the owner skill, the size and kind, the time"
@@ -604,7 +604,7 @@ def test_the_lobbys_desk_is_a_list_of_two_line_rows_with_the_agent_as_a_badge():
     assert got["order"] == ["docs/engineering/sale-route.md", "docs/workbench/state.md", "docs/notes/x.md"] and got["opened"] == ["docs/engineering/sale-route.md"]
 
 
-def test_escape_leaves_the_new_request_form_before_a_menu_and_after_a_dialog_or_a_document():
+def test_escape_leaves_the_new_request_form_after_a_menu_a_dialog_and_a_document():
     import subprocess
     script = f"""
 import {{ escapeStep }} from {json.dumps((JS / 'frame' / 'escape.js').as_uri())};
@@ -622,8 +622,8 @@ console.log(JSON.stringify(out));
     done = subprocess.run(["node", str(path)], capture_output=True, text=True, timeout=30)
     assert done.returncode == 0, done.stderr
     got = json.loads(done.stdout.strip().splitlines()[-1])
-    assert got["form"]["step"] == "form" and got["field"]["step"] == "none" and got["dialog"]["step"] == "dialog", "R-44 (R-45): Escape with a field focused does nothing; a dialog closes first"
-    assert got["doc"] == "document" and got["menu"]["step"] == "form" and got["none"] == "up" and got["floor"] == "form"
+    assert got["form"]["step"] == "form" and got["field"]["step"] == "none" and got["dialog"]["step"] == "dialog", "R-44 (R-45): Escape with a field focused does nothing; a dialog closes first; an open menu or list (switcher, waiting card, command panel, request menu) closes before the form"
+    assert got["doc"] == "document" and got["menu"]["step"] == "menu" and got["none"] == "up" and got["floor"] == "form"
     frame = (JS / "frame" / "frame.js").read_text(encoding="utf-8")
     assert 'step.step === "form"' in frame and ".wb-newreq:not([hidden])" in frame, "the frame turns the step into a click on Back"
 
@@ -693,3 +693,104 @@ console.log(JSON.stringify(out));
 def test_the_thread_opens_at_its_end_follows_it_and_lets_go_when_the_person_scrolls_away():
     got = run_view_node(Path_tmp(), R4_STICK)
     assert got == {"opened": 1000, "followed": 1600, "left": 200, "back": 2200}, "(b)5: the thread opens at its end, also when what it holds grows after the first draw"
+
+
+# === the review's fixes of PR #300 ================================================================================================
+
+R4_REVIEW = R4_HEAD + r"""
+import { setToken } from "@JS@/token.js";
+import * as router from "@JS@/router.js";
+import { createComposer } from "@JS@/views/lobby-composer.js";
+import { createLobbyDesk } from "@JS@/views/lobby-desk.js";
+import { createLobbyAgent } from "@JS@/views/lobby-agent.js";
+import { createLobbyView } from "@JS@/views/lobby.js";
+
+setToken("t".repeat(40));
+globalThis.ResizeObserver = class { observe() {} disconnect() {} };
+document.removeEventListener = (type, fn) => { document.listeners[type] = (document.listeners[type] || []).filter((f) => f !== fn); };
+const P = "0123456789ab";
+const NOW = new Date("2026-10-08T12:00:00Z");
+const sent = [];
+const answers = new Map();
+globalThis.fetch = async (url, init) => {
+  sent.push({ method: init.method, url });
+  const answer = answers.get(`${init.method} ${url.split("?")[0]}`) || (url.includes("/conversation") ? { status: 200, body: { messages: [] } } : { status: 200, body: {} });
+  return { ok: answer.status < 400, status: answer.status, json: async () => answer.body };
+};
+const A = (path) => `/api/v1/projects/${P}${path}`;
+const count = (re) => sent.filter((s) => re.test(s.url)).length;
+
+// 1. Enter on a command that takes arguments fills the field with it and a space; it sends nothing
+const sentTexts = [];
+const composer = createComposer({ onSend: (t) => sentTexts.push(t) });
+const field = all(composer.el, "textarea")[0];
+composer.setCommands([{ command: "/new", arguments: "<text>", help: "start a new request" }, { command: "/help", arguments: "", help: "list the commands" }]);
+typeInto(field, "/new");
+out.enterNew = [press(field, { key: "Enter" }), field.value, sentTexts.length];
+out.enterNewAgain = [press(field, { key: "Enter" }), sentTexts.slice()];       // the list closed: the second Enter sends
+typeInto(field, "/help");
+out.enterHelp = [press(field, { key: "Enter" }), sentTexts.slice(-1)[0]];
+
+// 2. a `bound` document keeps its row in two columns: the chip is in the path's cell
+answers.set(`GET ${A("/artifacts")}`, { status: 200, body: { artifacts: [{ path: "docs/a.md", owner: "x", agent: "brand", size: 10, modified_at: "2026-10-08T09:00:00Z", bound: true, kind: "markdown" }], truncated: false } });
+const desk = createLobbyDesk({ project: P, open() {}, changed() {} });
+desk.update({ tab: "desk", ready: true });
+await settle();
+const row = byClass(desk.el, "wb-desk-row")[0];
+out.bound = { children: row.children.map((c) => (c.attrs.class || "").split(" ")[0]), inPath: byClass(row, "wb-desk-path")[0].children.map((c) => (c.attrs.class || "").split(" ")[0]) };
+
+// 3. the planning agent's task bodies for the Inbox are read once while the task's state is the same
+const task = (id) => ({ id, key: `k${id}`, title: `Task ${id}`, skill: "core-clarify", state: "done", note: null, agent: "planning" });
+const tasks = Array.from({ length: 20 }, (_, i) => task(i + 1));
+for (const t of tasks) answers.set(`GET ${A("/tasks/" + t.id)}`, { status: 200, body: { task: t, runs: [], pending: [] } });
+const agentRow = { name: "planning", pack: "x", enabled: true, mode: "supervised", acting_mode: "supervised", max_runs_per_day: 8, max_usd_per_day: 4, runs_today: 0, usd_today: 0, runs_without_cost: 0, queued: 0 };
+const snapshot = { projects: [{ id: P, name: "northwind-shop", config: { accepted: true } }], details: { [P]: { status: { requests: [{ id: 99, title: "R", state: "done", tasks }], pending: [] }, agents: [agentRow] } }, tasks: {}, loaded: true };
+sent.length = 0;
+const agent = createLobbyAgent({ project: P, now: () => NOW, refresh() {}, changed() {} });
+agent.update({ snapshot, tab: "inbox" });
+await settle();
+const first = count(/\/tasks\/\d+$/);
+const realNow = Date.now;
+Date.now = () => realNow() + 20000;      // more than TASK_STALE_MS later
+agent.update({ snapshot, tab: "inbox" }); await settle();
+Date.now = () => realNow() + 40000;
+agent.update({ snapshot, tab: "inbox" }); await settle();
+out.agent = { first, afterTicks: count(/\/tasks\/\d+$/) };
+agent.reload();
+agent.update({ snapshot, tab: "inbox" }); await settle();
+out.agent.afterReload = count(/\/tasks\/\d+$/);
+Date.now = realNow;
+
+// 4. a failed read of the commands and of a request body is remembered: not asked again on every update
+const status = { requests: [{ id: 2, title: "Gone", state: "planned", tasks: [] }, { id: 3, title: "Other", state: "planned", tasks: [] }], pending: [] };
+const snap2 = { loaded: true, projects: [{ id: P, name: "northwind-shop", config: { accepted: true } }], tasks: {}, details: { [P]: { agents: [agentRow], status } } };
+answers.set(`GET ${A("/commands")}`, { status: 500, body: { error: "internal", message: "no" } });
+answers.set(`GET ${A("/flows")}`, { status: 500, body: { error: "internal", message: "no" } });
+answers.set(`GET ${A("/tasks/2")}`, { status: 404, body: { error: "not_found", message: "gone" } });
+answers.set(`GET ${A("/tasks/3")}`, { status: 200, body: { task: { id: 3 }, runs: [], pending: [] } });
+const makeFrame = () => ({ el: new FakeNode("div"), main: new FakeNode("main"), sceneHost: new FakeNode("div"), track: { el: new FakeNode("div") }, noticeBox: new FakeNode("div"),
+  insets: () => ({ left: 0, right: 0, top: 0, bottom: 0, pad: 1 }), sceneUnavailable() {}, announce() {}, acquireWorld: () => ({ show() {}, setOptions() {}, flyTo: () => Promise.resolve(false), stats() { return {}; } }), kpis: { el: new FakeNode("div") } });
+window.location.hash = `#/p/${P}/lobby`;
+sent.length = 0;
+const view = createLobbyView(makeFrame(), { project: P, onChanged: async () => {} });
+const upd = () => view.update({ snapshot: snap2, route: router.parse(`#/p/${P}/lobby`), now: NOW, projectName: "northwind-shop" });
+for (let i = 0; i < 5; i++) { upd(); await new Promise((r) => setTimeout(r, 120)); await settle(); }
+out.failed = { commands: count(/\/commands$/), flows: count(/\/flows$/), gone: count(/\/tasks\/2$/), other: count(/\/tasks\/3$/) };
+view.dispose();
+console.log(JSON.stringify(out));
+process.exit(0);
+"""
+
+
+def test_the_reviews_fixes_enter_on_a_command_with_arguments_one_read_of_a_task_a_bound_row_and_a_failed_read_remembered():
+    got = run_view_node(Path_tmp(), R4_REVIEW)
+    assert got["enterNew"] == [True, "/new ", 0] and got["enterNewAgain"] == [True, ["/new "]], "R-45: Enter fills the field with `/new ` and sends nothing; the second Enter, the list closed, sends"
+    assert got["enterHelp"] == [True, "/help"], "a command that takes no arguments, typed whole, is sent"
+    assert got["bound"]["children"] == ["wb-desk-path", "pui-badge", "wb-desk-meta"] and got["bound"]["inPath"] == ["wb-path-button", "pui-chip"], \
+        "the `bound` chip is in the path's cell: the row stays two columns"
+    a = got["agent"]
+    assert a["first"] == 20 and a["afterTicks"] == 20, "P-6: the bodies read for the Inbox are not read again later while the tasks' state is the same, however much time passed"
+    assert a["afterReload"] == 40, "a change of the store (reload) makes them stale"
+    f = got["failed"]
+    assert f["commands"] == 1 and f["flows"] == 1, "a failed read of the commands or the flows is not repeated on every update"
+    assert f["gone"] == 1 and f["other"] == 1, "a request body that failed (404) is read once, not on every update; one that came is read once"

@@ -18,10 +18,6 @@ export const NONE_IN_PROJECT = "The project has no documents under docs/ yet.";
 const DOCS_OPEN_MS = 5000;
 const DOCS_IDLE_MS = 30000;
 
-/**
- * Create the Desk. env: {project, open(path) (the person chose a document), changed() (the documents were read)}. Returns {el, update({tab,
- * ready}), rows() (the planning agent's documents, or null while unread), focusRow(path)}.
- */
 /** A path as nodes with a `wbr` after each of "/", "-" and ".", so a name is never broken inside a word. */
 function pathNodes(path) {
   const out = [];
@@ -61,8 +57,8 @@ function createDeskList(env) {
       });
       const kind = r.kind ? `${r.size ? " · " : ""}${r.kind}` : "";
       const row = h("li", { class: "wb-desk-row" },
-        open,
-        r.bound ? h("span", { class: "pui-chip pui-muted pui-soft wb-chip-11", title: "bound to a decision" }, "bound", h("span", { class: "wb-sr", text: " to a decision" })) : null,
+        h("span", { class: "wb-desk-path" }, open,
+          r.bound ? h("span", { class: "pui-chip pui-muted pui-soft wb-chip-11", title: "bound to a decision" }, "bound", h("span", { class: "wb-sr", text: " to a decision" })) : null),
         h("span", { class: "pui-badge pui-muted pui-soft wb-desk-agent", text: r.agent ? format.agentWord(r.agent) : "—" }),
         h("span", { class: "wb-desk-meta wb-muted" },
           h("span", { class: "mono wb-desk-owner", text: r.owner }), r.owner ? " · " : "", h("span", { class: "wb-nowrap" }, r.size, h("span", { class: "wb-desk-kind", text: kind })), " · ", ...whenParts(r.modified)));
@@ -127,6 +123,10 @@ function createDeskList(env) {
   };
 }
 
+/**
+ * Create the Desk. env: {project, open(path) (the person chose a document), changed() (the documents were read)}. Returns {el, update({tab,
+ * ready}), rows() (the planning agent's documents, or null while unread), focusRow(path)}.
+ */
 export function createLobbyDesk(env) {
   const { project } = env;
   const desk = createDeskList({ open: env.open });

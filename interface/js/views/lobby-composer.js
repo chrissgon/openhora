@@ -132,8 +132,8 @@ export function createComposer({ onSend, onNew = () => {} }) {
       event.preventDefault();
       choose(active);
     } else if (event.key === "Enter" && !event.shiftKey && !event.isComposing && !event.ctrlKey && !event.metaKey && !event.altKey) {
-      // Enter fills the field from the open list, unless the field already holds exactly the command that is active and it takes no arguments
-      if (open && field.value.trim() !== shown[active].command + (shown[active].arguments ? " " : "").trim()) {
+      // Enter fills the field from the open list (R-45), unless the field already holds exactly the command that is active and that command takes no arguments
+      if (open && (field.value.trim() !== shown[active].command || shown[active].arguments)) {
         event.preventDefault();
         choose(active);
         return;

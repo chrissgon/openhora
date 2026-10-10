@@ -34,6 +34,8 @@ import { createThread } from "./lobby-thread.js";
 import * as model from "../model.js";
 import { worldModel } from "../world-model.js";
 
+const RETRY_READ_MS = 60000;      // a read of the commands or the flows that failed is tried again after a minute
+
 /**
  * Create the Lobby of `project` in `frame`. options: {project, onChanged(): Promise (the page reads the project again)}.
  * Returns {update({snapshot, route, now, projectName, reload}), dispose()}.
@@ -56,6 +58,8 @@ export function createLobbyView(frame, { project, onChanged }) {
   let readingConversation = false;
   let flowsAsked = false;
   let commandsAsked = false;
+  let commandsFailedAt = 0;           // a read that failed is tried again after RETRY_READ_MS, not on every update
+  let flowsFailedAt = 0;
   let formOpen = false;               // the "New request" form stands in the place of the thread and the composer (R-44); its draft stays in its fields
   let flows = null;                   // the project's flows, read once: the form's select and the one beside "Route it" after a reload (E-20)
   let requestFollowed = null;         // the request whose route was followed (scrolled to, title focused); forgotten when the route names none
@@ -213,7 +217,10 @@ export function createLobbyView(frame, { project, onChanged }) {
         if (tabOf(last.route) === "inbox") drawTabs();      // P-6: the Inbox's resolved lines come from these bodies
       } catch (e) {
         if (e && e.name === "AbortError") return;
-        if (e && e.status === 404) bodies.delete(id);
+        // a failed read is remembered like a read one (its signature): not tried again on every update, but when the request changes or the store does (a 404: the body is gone)
+        const held = bodies.get(id);
+        bodies.set(id, { sig: began === changes ? sig : null, body: e && e.status === 404 ? null : held ? held.body : null });
+        redraw();
       } finally {
         reading.delete(id);
         if (began !== changes && !disposed) {
@@ -540,13 +547,13 @@ export function createLobbyView(frame, { project, onChanged }) {
       waiting.hidden = shown;
       form.set({ disabled: !accepted });
       drawComposer();
-      if (accepted && !commandsAsked) {
+      if (accepted && !commandsAsked && Date.now() - commandsFailedAt >= RETRY_READ_MS) {
         commandsAsked = true;      // R-45: the commands of the `chat` channel as data, read once; until they are known no list opens
-        api.commands(project, { signal }).then((got) => { composer.setCommands(got.commands); }).catch(() => { commandsAsked = false; });
+        api.commands(project, { signal }).then((got) => { composer.setCommands(got.commands); }).catch(() => { commandsAsked = false; commandsFailedAt = Date.now(); });
       }
-      if (accepted && !flowsAsked) {
+      if (accepted && !flowsAsked && Date.now() - flowsFailedAt >= RETRY_READ_MS) {
         flowsAsked = true;
-        api.flows(project, { signal }).then((got) => { flows = Array.isArray(got.flows) ? got.flows : []; form.setFlows(got.flows); redraw(); }).catch(() => { flowsAsked = false; });
+        api.flows(project, { signal }).then((got) => { flows = Array.isArray(got.flows) ? got.flows : []; form.setFlows(got.flows); redraw(); }).catch(() => { flowsAsked = false; flowsFailedAt = Date.now(); });
       }
       if (status) readBodies(status.requests || [], status.pending || []);
       redraw();

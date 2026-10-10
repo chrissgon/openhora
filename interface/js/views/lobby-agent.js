@@ -42,7 +42,7 @@ export function createLobbyAgent(env) {
   function ensure(task, maxAge) {
     const cached = bodies.get(task.id);
     if (reading.has(task.id)) return;
-    if (cached && cached.state === task.state && Date.now() - cached.at < maxAge) return;
+    if (cached && cached.state === task.state && cached.at !== 0 && Date.now() - cached.at < maxAge) return;      // at 0: the store changed meanwhile
     reading.add(task.id);
     const began = changes;
     const stamped = () => (began === changes ? Date.now() : 0);     // 0: stale, read again by the next update
@@ -61,8 +61,14 @@ export function createLobbyAgent(env) {
     if (model.current) wanted.set(model.current.id, model.current);
     const running = model.tasks.find((t) => t.state === "running");
     if (running) wanted.set(running.id, running);
-    if (selected === "inbox") for (const t of model.tasks.slice(0, MAX_TASK_READS)) wanted.set(t.id, t);
-    for (const t of wanted.values()) ensure(t, t.state === "running" ? TASK_FRESH_MS : TASK_STALE_MS);
+    const listed = new Set();      // the tasks read only for the Inbox's resolved lines: a body stays fresh while the task's state is the same (a store change resets it: reload())
+    if (selected === "inbox") {
+      for (const t of model.tasks.slice(0, MAX_TASK_READS)) {
+        if (!wanted.has(t.id)) listed.add(t.id);
+        wanted.set(t.id, t);
+      }
+    }
+    for (const t of wanted.values()) ensure(t, t.state === "running" ? TASK_FRESH_MS : listed.has(t.id) ? Infinity : TASK_STALE_MS);
   }
 
   return {
