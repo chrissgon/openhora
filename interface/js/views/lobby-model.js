@@ -96,7 +96,7 @@ export function readAfter(messages) {
 
 /**
  * The task a run is in progress for, from a status body: {id, title, agent} of the oldest running task, or null. The composer says so before Send
- * (A-23). A router run, which the status does not show, is not named; the service queues the line all the same.
+ * (A-23). A router run holds a request, not a task, so it is not named here: `model.routingRequest` names it (A-51); the service queues the line all the same.
  */
 export function runningTask(status) {
   for (const request of (Array.isArray(status && status.requests) ? status.requests : [])) {

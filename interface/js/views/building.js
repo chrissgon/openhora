@@ -256,7 +256,7 @@ export function createBuildingView(frame, env) {
   // R-27 (C-2): the panel keeps Configuration and Running now; the request followed and the decisions count are the selected row and the KPI card
   function drawFacts(view) {
     const f = view.facts;
-    const running = f.running ? h("a", { href: f.running.link, text: `task #${f.running.id}${f.running.title ? ` · ${f.running.title}` : ""}` }) : h("span", { class: "wb-muted", text: "Nothing is running" });
+    const running = f.running ? h("a", { href: f.running.link, text: f.running.label || `task #${f.running.id}${f.running.title ? ` · ${f.running.title}` : ""}` }) : h("span", { class: "wb-muted", text: "Nothing is running" });
     fill(factsBox,
       factRow("Configuration", chip(f.configuration, f.accepted ? "pui-success pui-soft" : "pui-warn pui-soft")),
       f.accepted || f.kept ? factRow("Running now", running, true) : null);
@@ -357,7 +357,7 @@ export function createBuildingView(frame, env) {
   function redraw() {
     if (disposed || !last) return;
     const { snapshot } = last;
-    const view = fm.building(snapshot, projectId);
+    const view = fm.building(snapshot, projectId, last.now);
     const loading = !snapshot.loaded || !view;
     // the hash names a project the service does not hold (the band says so): building.html draws no panel and an empty scene
     const unknown = snapshot.loaded && !view;

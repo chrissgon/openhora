@@ -1560,14 +1560,14 @@ def set_mode(project: str, agent: str, mode: str) -> dict:
 
 def status(project: str) -> dict:
     """{"config": {"path", "sha256"}, "requests": [{"id", "title", "flow", "state", "tasks": [{"id", "key", "title",
-    "agent", "skill", "state", "note", "waiting_for"}], "after"}], "pending": [... each with "agent" and "actions"], "documents": [{"path", "status", "note", "on_platform"}],
+    "agent", "skill", "state", "note", "waiting_for"}], "after", "routing"}], "pending": [... each with "agent" and "actions"], "documents": [{"path", "status", "note", "on_platform"}],
     "board": {"left_out_final"} or None, "held": [{"task_id", "agent", "reason", "at", "next"}]}: everything from the
     store's records. "left_out_final" is the number of tasks the board never mirrors because they were final when it
     was configured (runtime/board.py). A task's "title" and "agent" are the store's: the agent is None when the project
     has no area agents. A request's "title" is plan.request_title: the one given, else its first sentence, else its
     first line cut at a word. "held" lists the ready tasks the last dispatcher round did not start, each with its
     reason (runtime/dispatcher.py, REASONS) and "at", the time of the round; while the local service dispatches nothing
-    every ready task is held with `dispatch off`; "next" is the command that gets past the reason, or None."""
+    every ready task is held with `dispatch off`; "next" is the command that gets past the reason, or None. A request's "routing" is the router's run on it now (ops_reads.routing_of) or None."""
     ctx = core.context(project)
     rows = core._stored(ctx, ctx["store"].tasks_list)
     agents = _agent_by_task(rows)
@@ -1580,7 +1580,7 @@ def status(project: str) -> dict:
                  "tasks": [{**{key: t[key] for key in ("id", "key", "title", "agent", "skill", "state", "note")}, **board_of(t)}
                            for t in rows if t["parent_id"] == r["id"]]}
                 for r in rows if r["parent_id"] is None]
-    return {"config": {"path": ctx["cfg"]["path"], "sha256": ctx["cfg"]["sha256"]}, "requests": ops_waits.in_status(ctx, requests, rows),
+    return {"config": {"path": ctx["cfg"]["path"], "sha256": ctx["cfg"]["sha256"]}, "requests": ops_reads.with_routing(ctx, ops_waits.in_status(ctx, requests, rows)),
             "pending": [_listed(item, ctx["store"], agents) for item in core._stored(ctx, ctx["store"].pending_list)],
             "documents": [{"path": d["path"], "status": d["status"], "note": d["note"], "on_platform": bool(d["remote_id"])}
                           for d in core._stored(ctx, ctx["store"].documents_list)],

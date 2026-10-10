@@ -49,6 +49,20 @@ def _ops():
     return importlib.import_module("ops")
 
 
+def routing_of(ctx: dict, request_id: int):
+    """The router's run that holds a request now, or None: {"run_id", "skill", "started_at"} of the newest run of the
+    request whose status is `running`. A router run is a row of task_runs whose task is the request (route_run_start);
+    the request keeps its state and has no task, so the row is the one record that says a run is in progress."""
+    runs = core._stored(ctx, ctx["store"].task_runs_list, request_id)
+    live = [r for r in runs if r["status"] == "running"]
+    return {"run_id": live[-1]["id"], "skill": live[-1]["skill"], "started_at": live[-1]["started_at"]} if live else None
+
+
+def with_routing(ctx: dict, requests: list) -> list:
+    """The requests of `status` each with `routing` (routing_of); a cancelled request is never asked."""
+    return [{**r, "routing": None if r["state"] == "cancelled" else routing_of(ctx, r["id"])} for r in requests]
+
+
 # --- stage 9: the local service --------------------------------------------------------------------------------------
 
 

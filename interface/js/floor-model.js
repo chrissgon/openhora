@@ -8,7 +8,7 @@
 
 import * as format from "./format.js";
 import * as router from "./router.js";
-import { MAX_FLOORS, acceptance, floorNumber, openRequests, pickRequest, requestChoice } from "./model.js";
+import { MAX_FLOORS, acceptance, floorNumber, openRequests, pickRequest, requestChoice, routingRequest, routingWords } from "./model.js";
 import { windowState } from "./scene/look.js";
 import { waitLines, waitingLabel, waitsOf } from "./waits.js";
 
@@ -148,7 +148,7 @@ export function stateOf(agent, status, accepted = true) {
   if (!accepted) return "off";
   const name = agent.name || PLANNING;
   const requests = (status && Array.isArray(status.requests)) ? status.requests : [];
-  const running = name === PLANNING ? requests.some((r) => r.state === "running") : agentTasks(status, name).some((t) => t.state === "running");
+  const running = name === PLANNING ? requests.some((r) => r.state === "running" || r.routing) : agentTasks(status, name).some((t) => t.state === "running");
   if (running) return "working";
   if (agent.enabled === false || agent.acting_mode === "stopped") return "off";
   if (agentDecisions(status, name).length > 0) return "waiting";
@@ -270,8 +270,8 @@ export function floorRow(agent, status, context) {
   };
 }
 
-/** The Building's data: {project, accepted, none, rows (bottom to top), more, tag, facts}. `now` is a Date. */
-export function building(snapshot, projectId) {
+/** The Building's data: {project, accepted, none, rows (bottom to top), more, tag, facts}. `now` is a Date (or null: the facts then leave out how long a run has lasted). */
+export function building(snapshot, projectId, now = null) {
   const project = (snapshot.projects || []).find((p) => p.id === projectId) || null;
   if (!project) return null;
   const detail = snapshot.details[projectId] || null;
@@ -282,7 +282,7 @@ export function building(snapshot, projectId) {
   const rows = ordered.map((agent) => floorRow(agent, status, { accepted, kept, project: projectId, number: floorNumber(ordered, agent.name || PLANNING) }));
   return {
     id: projectId, name: project.name, accepted, kept, none: none && (accepted || kept) && Boolean(status), rows, more: Math.max(0, rows.length - MAX_FLOORS), loaded: Boolean(status),
-    tag: workOrder(status, rows, projectId), facts: facts(project, status, accepted, kept),
+    tag: workOrder(status, rows, projectId), facts: facts(project, status, accepted, kept, now),
   };
 }
 
@@ -309,7 +309,7 @@ export function requestRows(status, projectId) {
     const tasks = Array.isArray(request.tasks) ? request.tasks : [];
     const done = tasks.filter((t) => t.state === "done").length;
     const current = tasks.find((t) => t.state === "running") || tasks.find((t) => t.state === "waiting") || null;
-    const now = current ? (current.state === "running" ? `now on ${format.agentWord(agentOf(current))}` : "waiting for you") : "";
+    const now = current ? (current.state === "running" ? `now on ${format.agentWord(agentOf(current))}` : "waiting for you") : request.routing ? "being routed" : "";
     const title = request.title || `Request ${request.id}`;
     const state = typeof request.state === "string" ? request.state : "";
     const word = state ? state.charAt(0).toUpperCase() + state.slice(1) : "";
@@ -322,7 +322,7 @@ export function requestRows(status, projectId) {
 }
 
 /** The panel's facts: Configuration, Running now, Request, Waiting for you. */
-export function facts(project, status, accepted, kept = false) {
+export function facts(project, status, accepted, kept = false, now = null) {
   const out = { configuration: accepted ? "Accepted" : "Not accepted", accepted, running: null, request: null, waiting: 0 };
   if (kept) out.kept = true;
   if (!(accepted || kept) || !status) return out;
@@ -334,6 +334,12 @@ export function facts(project, status, accepted, kept = false) {
     // not accepted: the project list no longer says which task runs; the last status does
     const running = (status.requests || []).flatMap((r) => r.tasks || []).find((t) => t.state === "running");
     id = running ? running.id : null;
+  }
+  const routed = routingRequest(status);
+  if ((id === null || id === undefined) && routed) {
+    // A-51: no task runs while the router works on a request; the run row is the one record of it
+    out.running = { id: routed.id, title: routed.title || "", link: router.requestHash(project.id, routed.id), label: routingWords(routed, now) };
+    return out;
   }
   if (id !== null && id !== undefined) {
     let found = null;
