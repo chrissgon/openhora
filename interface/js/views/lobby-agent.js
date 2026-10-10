@@ -1,7 +1,7 @@
 // The Lobby's Agent tab (handoff lobby.md, "Agent tab"): the planning agent shown by the Floor's Agent tab (floor/agent-tab.js): the
 // state row, the mode plate and "Set mode", the notices about the configuration, the meters, the current task, the other tasks and
 // "Hand a file over". It is built from `agents`, `status`, and the bodies of the planning agent's tasks (`task`, read for the current
-// and the running task, and for the first twelve when the Inbox is open, as the Floor reads them), through the Floor's model with the
+// and the running task, and for the first forty when the Inbox is open (P-6)), through the Floor's model with the
 // planning agent allowed. Every control sends its request through floor/actions.js, handed to the tab.
 
 import * as api from "../api.js";
@@ -13,7 +13,7 @@ import * as router from "../router.js";
 
 const TASK_FRESH_MS = 5000;
 const TASK_STALE_MS = 15000;
-const MAX_TASK_READS = 12;
+const MAX_TASK_READS = 40;     // P-6: with the Inbox open the planning agent's tasks are read for their resolved lines, the newest 40 (the Floor reads 12)
 export const NO_AGENT_TEXT = "This project has no agents in its configuration.";
 
 /**
@@ -42,7 +42,7 @@ export function createLobbyAgent(env) {
   function ensure(task, maxAge) {
     const cached = bodies.get(task.id);
     if (reading.has(task.id)) return;
-    if (cached && cached.state === task.state && Date.now() - cached.at < maxAge) return;
+    if (cached && cached.state === task.state && cached.at !== 0 && Date.now() - cached.at < maxAge) return;      // at 0: the store changed meanwhile
     reading.add(task.id);
     const began = changes;
     const stamped = () => (began === changes ? Date.now() : 0);     // 0: stale, read again by the next update
@@ -61,8 +61,14 @@ export function createLobbyAgent(env) {
     if (model.current) wanted.set(model.current.id, model.current);
     const running = model.tasks.find((t) => t.state === "running");
     if (running) wanted.set(running.id, running);
-    if (selected === "inbox") for (const t of model.tasks.slice(0, MAX_TASK_READS)) wanted.set(t.id, t);
-    for (const t of wanted.values()) ensure(t, t.state === "running" ? TASK_FRESH_MS : TASK_STALE_MS);
+    const listed = new Set();      // the tasks read only for the Inbox's resolved lines: a body stays fresh while the task's state is the same (a store change resets it: reload())
+    if (selected === "inbox") {
+      for (const t of model.tasks.slice(0, MAX_TASK_READS)) {
+        if (!wanted.has(t.id)) listed.add(t.id);
+        wanted.set(t.id, t);
+      }
+    }
+    for (const t of wanted.values()) ensure(t, t.state === "running" ? TASK_FRESH_MS : listed.has(t.id) ? Infinity : TASK_STALE_MS);
   }
 
   return {

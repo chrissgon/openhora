@@ -447,7 +447,8 @@ LOBBY_TAB_FILES = ("views/lobby-inbox.js", "views/lobby-desk.js", "views/lobby-a
 def test_the_lobbys_tabs_are_the_floors_modules_with_no_card_of_their_own_and_no_write_path_of_their_own():
     texts = {name: (INTERFACE / "js" / name).read_text(encoding="utf-8") for name in LOBBY_TAB_FILES}
     assert 'from "../floor/inbox.js"' in texts["views/lobby-inbox.js"] and 'from "../floor/actions.js"' in texts["views/lobby-inbox.js"]
-    assert 'from "../floor/desk-tab.js"' in texts["views/lobby-desk.js"] and 'from "../floor/viewer.js"' in texts["views/lobby-desk.js"]
+    assert 'from "../floor/viewer.js"' in texts["views/lobby-desk.js"] and 'from "../floor/desk-tab.js"' not in texts["views/lobby-desk.js"], \
+        "R-47: the Lobby's Desk builds its own list of two-line rows and shows a document in the Floor's viewer"
     assert 'from "../floor/agent-tab.js"' in texts["views/lobby-agent.js"] and 'from "../floor/actions.js"' in texts["views/lobby-agent.js"]
     writes = {"answer", "release", "approve", "reject", "request", "route", "cancel", "retry", "handOver", "verdict", "setMode", "say", "sync", "dispatch"}
     for name, text in texts.items():
@@ -676,7 +677,7 @@ def test_the_tasks_tab_is_the_fourth_tab_of_a_floor_and_a_tab_of_the_lobby_and_e
         "the Floor's tabs are Agent, Inbox, Tasks and Desk, in that order (R-33, C-6: the order changed from Agent, Inbox, Desk, Tasks)"
     assert 'import { createTasksTab } from "../floor/tasks-tab.js";' in floor_view and "createTasksTab({" in floor_view
     lobby_model = (INTERFACE / "js" / "views" / "lobby-model.js").read_text(encoding="utf-8")
-    assert '["desk", "Desk"], ["tasks", "Tasks"], ["agent", "Agent"]' in lobby_model, "the Lobby's Tasks tab is beside its Desk tab"
+    assert '["inbox", "Inbox"], ["tasks", "Tasks"], ["desk", "Desk"], ["agent", "Agent"]' in lobby_model, "R-43 (C-6): the Lobby's Tasks tab is beside its Desk tab, Tasks first"
     lobby = (INTERFACE / "js" / "views" / "lobby.js").read_text(encoding="utf-8")
     assert 'import { createTasksTab } from "../floor/tasks-tab.js";' in lobby and "createTasksTab({" in lobby
     assert "reload: last.reload" in floor_view and "reload: reloaded" in lobby, "each view gives the tab the page's reload stamp (WP-9.13)"

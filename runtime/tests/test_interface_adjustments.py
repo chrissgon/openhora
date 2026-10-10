@@ -354,7 +354,7 @@ composer.set({ sending: false, notice: null, disabled: true, running: { text: "T
 out.notAccepted = { hidden: runLine().hidden, send: send.disabled };
 composer.set({ sending: false, notice: null, disabled: false, running: null });
 out.after = { hidden: runLine().hidden };
-out.hints = byClass(composer.el, "wb-lobby-hint").map(textOf);
+out.hints = byClass(composer.el, "wb-lobby-hint").map(textOf);      // R-45: one hint
 
 // the model: which line is queued, which message a read asks above, the task that runs
 const msgs = [{ id: 3, role: "user", text: "a", queued: false }, { id: 5, role: "user", text: "b", queued: true }, { id: 8, role: "assistant", text: "c", queued: false }];
@@ -381,14 +381,15 @@ const form = createForm({ onCreate: () => {} });
 const got = [];
 const form2 = createForm({ onCreate: (v) => got.push(v) });
 const submit = (f) => (f.el.querySelector("form").listeners.submit || []).forEach((fn) => fn({ preventDefault() {} }));
-const fields = (f) => f.el.querySelectorAll("input");
-const afterInput = fields(form2).find((i) => i.attrs.id === "wb-new-after");
+// R-46: "After request" is a select of the open requests, not a number field
+form2.setRequests([{ id: 3, title: "Spring sale page", state: "planned" }]);
+const afterInput = form2.el.querySelectorAll("select").find((i) => i.attrs.id === "wb-new-after");
 const textArea = form2.el.querySelectorAll("textarea")[0];
 textArea.value = "Landing page";
 submit(form2);
 afterInput.value = "3";
 submit(form2);
-out.form = { sent: got, label: textOf(afterInput.parent.querySelector("span")), inputmode: afterInput.attrs.inputmode };
+out.form = { sent: got, label: textOf(afterInput.parent.querySelector("span")), tag: afterInput.tagName };
 out.afterNumber = ["3", " #4 ", "", "x", "0", "-2", 5, "1.5", "12345678901"].map((v) => actions.afterNumber(v));
 
 // a request made during a run: `request` carries `after`, then `route`; the route answers queued

@@ -7,7 +7,7 @@
 import { h } from "../dom.js";
 import { renderMarkdown } from "../markdown.js";
 import { createBlock } from "./lobby-request.js";
-import { EMPTY_TEXT, metaOf, nameOf, placeBlocks, signatureOf } from "./lobby-model.js";
+import { EMPTY_TEXT, QUEUED_WORD, metaOf, nameOf, placeBlocks, signatureOf } from "./lobby-model.js";
 
 /** The log. options: {api, project, signal, onChanged, onCancel, onRoute(request, flow), announce}. Returns {el, update(state), focusDecision(request, decision), focusRequest(request)}. */
 export function createThread({ api, project, signal, onChanged, onCancel, onRoute, announce }) {
@@ -17,9 +17,20 @@ export function createThread({ api, project, signal, onChanged, onCancel, onRout
   const expanded = new Set();     // request ids whose whole text is open: a block rebuilt by a poll is given it back
   const chosen = new Map();       // request id -> the flow chosen beside "Route it" (E-20): a block rebuilt by a poll is given it back
   const empty = h("p", { class: "wb-empty", text: "" });
+  let stick = true;               // the thread follows its end until the person scrolls away from it; scrolling back to within 48 px of the end follows again
+  el.addEventListener("scroll", () => { stick = el.scrollHeight - el.scrollTop - el.clientHeight < 48; });
+
+  /** The meta line over a message: its words, and the word "queued" (A-23) in its own span so that it alone takes the warn ink. */
+  function drawMeta(meta, message, now) {
+    const line = metaOf(message, now);
+    const tail = ` · ${QUEUED_WORD}`;
+    if (message.queued && line.endsWith(tail)) meta.replaceChildren(line.slice(0, -tail.length), " · ", h("span", { class: "wb-queued", text: QUEUED_WORD }));
+    else meta.replaceChildren(line);
+  }
 
   function messageNode(message, now) {
-    const meta = h("time", { class: "wb-msg-meta", datetime: message.created_at || false, title: message.created_at || false, text: metaOf(message, now) });
+    const meta = h("time", { class: "wb-msg-meta wb-muted", datetime: message.created_at || false, title: message.created_at || false });
+    drawMeta(meta, message, now);
     const mine = message.role === "user";     // what the person typed is shown as typed; the agent's reply is drawn as Markdown
     const bubble = mine ? h("div", { class: "wb-bubble pui-soft pui-theme", text: message.text }) : h("div", { class: "wb-bubble wb-bubble-agent" }, renderMarkdown(message.text));
     const node = h("div", { class: `wb-msg ${message.role === "user" ? "is-user" : "is-agent"}${message.queued ? " is-queued" : ""}`, role: "article", "aria-label": nameOf(message, now) }, meta, bubble);
@@ -40,7 +51,6 @@ export function createThread({ api, project, signal, onChanged, onCancel, onRout
       for (const [id, held] of blocks) {
         if (active && active.classList && active.classList.contains("wb-lobby-request-title") && held.el.contains(active)) titled.push(id);
       }
-      const nearEnd = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
       const placed = placeBlocks(list, requests);
       const desired = [];
       const byId = new Map((requests || []).map((r) => [r.id, r]));
@@ -69,7 +79,7 @@ export function createThread({ api, project, signal, onChanged, onCancel, onRout
           held = messageNode(message, now);
           messages.set(message.id, held);
         } else {
-          held.meta.textContent = metaOf(message, now);
+          drawMeta(held.meta, message, now);
           held.el.setAttribute("aria-label", nameOf(message, now));
           held.el.classList.toggle("is-queued", Boolean(message.queued));      // the word "queued" goes when the reply arrives
         }
@@ -97,10 +107,7 @@ export function createThread({ api, project, signal, onChanged, onCancel, onRout
         const held = blocks.get(id);
         if (held && held.el.isConnected && !held.el.contains(document.activeElement)) held.block.focusTitle();
       }
-      if (nearEnd || (list.length && !el.dataset.scrolled)) {
-        el.scrollTop = el.scrollHeight;       // the first draw with messages, and any draw while the person is at the end
-        if (list.length) el.dataset.scrolled = "1";
-      }
+      if (stick) el.scrollTop = el.scrollHeight;       // the thread opens at its end and follows it (b-5) until the person scrolls away from the end
     },
     /**
      * Scroll to the block of a request and focus its title (the route `.../conversation/request/<n>`). Returns false when the block is not drawn

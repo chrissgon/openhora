@@ -527,9 +527,6 @@ def test_no_module_of_the_page_names_a_colour_but_the_owls_palette_modules():
 
 from interface_css import css_paths   # noqa: E402
 
-# The stylesheets of the packages that have not moved their phone query yet (R4-A4: base, floor; R4-A5: lobby; R4-A6 moved control.css and left the set). Each package
-# moves its own files (P-7); the test below lets such a file keep the old width until then, and nothing else. Once A4 and A5 have merged the set is empty: delete it.
-LAGGING = {"lobby.css"}
 PHONE_WIDTH = 899
 
 
@@ -549,11 +546,8 @@ def test_the_phone_query_is_one_width_in_the_module_and_in_every_stylesheet():
         phone = sorted({w for w in _widths(css, "max") if w < 1000})   # 1023 and 1099 are the bands above the phone
         if phone:
             found[path.name] = phone
-        if path.name not in LAGGING:
-            assert phone in ([], [PHONE_WIDTH]), f"M-3: {path.name} has a phone query other than max-width: {PHONE_WIDTH}px: {phone}"
-            assert 640 not in _widths(css, "min"), f"M-3: {path.name} still has a block that starts at 640 px (the docked band is gone)"
-        else:
-            assert set(phone) <= {639, PHONE_WIDTH}, f"{path.name} (not moved yet) has a phone width that is neither the old one nor the new one: {phone}"
+        assert phone in ([], [PHONE_WIDTH]), f"M-3: {path.name} has a phone query other than max-width: {PHONE_WIDTH}px: {phone}"
+        assert 640 not in _widths(css, "min"), f"M-3: {path.name} still has a block that starts at 640 px (the docked band is gone)"
     assert {"frame.css", "token.css", "city.css", "building.css"} <= set(found), "the phone rules of the four stylesheets of R4-F2 are all there"
     for name in ("frame.css", "token.css", "city.css", "building.css"):
         assert found[name] == [PHONE_WIDTH], f"{name}: one phone width, {PHONE_WIDTH} px"

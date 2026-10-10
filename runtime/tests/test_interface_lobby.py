@@ -431,7 +431,7 @@ const form = createForm({ onCreate: (v) => created.push(v) });
 form.setFlows([{ flow: "brand", title: "Brand", tasks: 3 }, { flow: "design", title: "Design", tasks: 4 }]);
 const labels = find(form.el, (n) => n.tagName === "LABEL").map((n) => n.children[0].textContent);
 const select = find(form.el, (n) => n.tagName === "SELECT")[0];
-out.form = { open: "open" in form.el.attrs, summary: find(form.el, (n) => n.tagName === "SUMMARY").map(textOf), labels, options: select.children.map((o) => [o.attrs.value, textOf(o)]),
+out.form = { open: form.isOpen(), hidden: form.el.hidden, summary: find(form.el, (n) => n.tagName === "SUMMARY").map(textOf), labels, options: select.children.map((o) => [o.attrs.value, textOf(o)]),
   hint: byClass(form.el, "wb-form-hint")[0].textContent, button: find(form.el, (n) => n.tagName === "BUTTON").map(textOf) };
 const textarea = find(form.el, (n) => n.tagName === "TEXTAREA")[0];
 textarea.value = "Add a sale page, <b>please</b>";
@@ -439,7 +439,7 @@ select.value = "design";
 (find(form.el, (n) => n.tagName === "FORM")[0].listeners.submit || []).forEach((fn) => fn({ preventDefault() {} }));
 out.created = created;
 form.set({ creating: true });
-out.creating = { button: find(form.el, (n) => n.tagName === "BUTTON")[0].textContent, disabled: [textarea.disabled, select.disabled], busy: byClass(form.el, "wb-lobby-busy")[0].hidden };
+out.creating = { button: find(form.el, (n) => n.tagName === "BUTTON" && n.cls().includes("pui-solid"))[0].textContent, disabled: [textarea.disabled, select.disabled], busy: byClass(form.el, "wb-lobby-busy")[0].hidden };
 (find(form.el, (n) => n.tagName === "FORM")[0].listeners.submit || []).forEach((fn) => fn({ preventDefault() {} }));
 out.createdWhileCreating = created.length;
 form.set({ creating: false, error: "the request's text is empty" });
@@ -512,8 +512,8 @@ def test_the_plan_card_sends_exactly_the_hash_it_shows_one_button_per_word_of_ac
     shown = "ab" * 32
     card = got["card"]
     assert card["words"] == ["Approve this plan", "Reject"] and card["shown"] == shown and len(card["shown"]) == 64, "the whole hash, 64 characters"
-    assert card["head"].startswith("Plan#22 · request #14 · Lobby · ") and card["named"] is True and card["caption"] == ["Tasks"]
-    assert card["headers"] == ["#", "Task", "Skill", "Agent", "After", "Milestone", "Web"]
+    assert card["head"].startswith("Plan#22 · request #14 · Lobby · ") and card["named"] is True and card["caption"] == [], "R-47: no table, so no caption"
+    assert card["headers"] == [], "R-47: the plan's tasks are blocks at every width; the seven columns are gone (COLUMNS stays the model's)"
     assert card["elements"] == 0, "a title or a body with markup is shown as typed, never as markup"
     assert card["title"] == "Plan: <i>x</i> (1 task)" and card["taskCell"] == "<b>Build</b> the page" and card["asText"] == ["Source: <script>alert(1)</script>\nplan text"]
     assert card["note"] == ["Note (optional, used when you reject)"]
@@ -537,7 +537,7 @@ def test_the_request_line_the_open_card_the_pointer_and_the_resolved_line_and_th
     got = run_node(tmp_path, CARD)
     block = got["block"]
     assert block["group"] == "Request 14, Spring campaign, planned" and block["plans"] == 1
-    assert block["line"].startswith("#14Spring campaignPlanned") and block["line"].endswith("Cancel request")
+    assert block["line"] == "#14Spring campaignPlanned", "R-47: the request line is number, title and state chip; its actions are under it"
     assert block["resolved"][-1] == "Plan rejected" or any(t.startswith("Plan rejected") for t in block["resolved"])
     assert any(t.startswith("Question") and "Which audience?" in t for t in block["resolved"]), "another open kind is a line that points at the Inbox"
     assert block["pointerLink"] == ["#/p/p1/lobby/inbox/21"]
@@ -557,7 +557,7 @@ def test_the_composer_sends_on_enter_not_on_shift_enter_and_draws_sending_refuse
     c = got["composer"]
     assert c["sent"] == ["  /help me  "], "Enter sends the text exactly as typed; Shift+Enter, a composing key and any other key do not"
     assert c["stopped"] == [True, False, False, False]
-    assert c["label"] == ["Message to the planning agent"] and c["hint"] == "A line that starts with / is a command; /help lists them."
+    assert c["label"] == ["Message to the planning agent"] and c["hint"] == "Type / to list the commands."      # R-45
     assert c["button"] == "Send" and c["type"] == "submit" and c["placeholder"] == "Describe what you want done" and c["described"] == "wb-say-hint"
     s = got["sending"]
     assert s["field"] is True and s["button"] is True and s["word"] == "Sending..." and s["busyAttr"] == "true" and s["busyLine"] is False
@@ -573,8 +573,8 @@ def test_the_composer_sends_on_enter_not_on_shift_enter_and_draws_sending_refuse
 def test_the_new_request_form_is_closed_by_default_in_the_drawn_order_and_reports_what_was_typed(tmp_path):
     got = run_node(tmp_path, CARD)
     f = got["form"]
-    assert f["open"] is False and f["summary"] == ["New request"]
-    assert f["labels"] == ["What do you want done?", "Flow", "Title (optional)", "After request # (optional)"] and f["button"] == ["Create request"]       # A-29: the field after the title
+    assert f["open"] is False and f["summary"] == [] and f["hidden"] is True, "R-44: no disclosure; the form is hidden until New request"
+    assert f["labels"] == ["What do you want done?", "Flow", "Title (optional)", "After request (optional)"] and f["button"] == ["Back to the conversation", "Create request"]       # A-29: the field after the title; R-46: a select
     assert f["options"] == [["", "Let the planning agent route it"], ["brand", "Brand"], ["design", "Design"]]
     assert f["hint"] == "A flow plans the request from a predefined route. Without one, the planning agent routes it."
     assert got["created"] == [{"text": "Add a sale page, <b>please</b>", "flow": "design", "title": ""}], "the form reports the typed text, the chosen flow and the title"
@@ -586,7 +586,7 @@ def test_the_new_request_form_is_closed_by_default_in_the_drawn_order_and_report
 def test_the_tab_list_names_the_tab_in_the_url_and_moves_with_the_arrows(tmp_path):
     got = run_node(tmp_path, CARD)
     t = got["tabs"]
-    assert t["list"] == "tablist" and t["names"] == ["Conversation", "Inbox, 2 waiting", "Desk", "Tasks", "Agent"]
+    assert t["list"] == "tablist" and t["names"] == ["Conversation", "Inbox, 2 waiting", "Tasks", "Desk", "Agent"], "R-43 (C-6): Tasks before Desk"
     assert t["selected"] == ["true", "false", "false", "false", "false"] and len(set(t["controls"])) == 5
     assert got["clickHash"] == "#/p/aaaaaaaaaaaa/lobby/inbox" and got["wrap"] == "#/p/aaaaaaaaaaaa/lobby/conversation"
     assert got["end"] == "#/p/aaaaaaaaaaaa/lobby/agent" and got["home"] == "#/p/aaaaaaaaaaaa/lobby/conversation"
@@ -907,8 +907,8 @@ def test_the_lobbys_desk_is_the_floors_table_over_every_document_with_the_agent_
     assert got["deskBefore"] == "Loading the floor..."
     assert got["desk"]["rows"] == ["docs/brand/voice.md", "docs/marketing/x.md", "docs/notes/kickoff.md", "docs/workbench/briefs/a.md"], "C-2: the brand's and the marketing agent's documents are on this desk too (same time: by path)"
     assert got["desk"]["rowsOf"] == ["docs/notes/kickoff.md", "docs/workbench/briefs/a.md", "docs/brand/voice.md", "docs/marketing/x.md"] and got["desk"]["read"] == 1
-    assert got["desk"]["owners"] == ["brand-voice", "mkt-x", "core-clarify"], "R-40: a row with no owner skill names none on its second line"
-    assert got["desk"]["agents"] == ["Brand", "Marketing", "Lobby", "Lobby"], "R-47: the agent of each row is a badge: the agent's word, the Lobby's for a document with none"
+    assert got["desk"]["owners"] == ["brand-voice", "mkt-x", "", "core-clarify"]
+    assert got["desk"]["agents"] == ["Brand", "Marketing", "—", "Lobby"], "R-47: the agent of each row as a badge, in the frame's word for it (the planning agent is the Lobby), a dash when null"
     assert got["opened"] == ["docs/brand/voice.md"], "a row asks to open its path; the viewer reads the file"
     assert got["askedOnce"] == 1, "a second update inside the period reads nothing"
     assert got["deskError"] == "The documents could not be readthe documents could not be listed"
