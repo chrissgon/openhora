@@ -663,3 +663,16 @@ def test_the_dock_ends_at_the_closed_cards_left_edge_where_the_card_is_as_wide_a
     assert card == "calc(100vw - var(--wb-kpi-w) - var(--wb-edge) * 3)"
     # the card's width + 2 edges = 100vw - kpi - 3 edges + 2 edges = 100vw - kpi - 1 edge
     assert 'right: calc(100vw - var(--wb-kpi-w) - var(--wb-edge));' in band
+
+
+def test_the_crumbs_fit_left_of_the_closed_card_by_giving_way_where_the_dock_is_narrow():
+    """Review of R4-F3, measured in the served page at 900 and 1000 px: the dock is the KPI column's width there (208 px), Back and three crumbs need 322 px, so below about 1070 px the
+    project's crumb goes (the switcher names the project) and the crumbs shrink with an ellipsis rather than run under the card; from 1100 px nothing changes."""
+    own = control_css()
+    assert "grid-template-columns: minmax(0, 1fr)" in " ".join(rules(own, '.wb-frame[data-screen="control"] .wb-dock'))
+    assert "min-width: 0" in rules(own, '.wb-frame[data-screen="control"] .wb-navdock, .wb-frame[data-screen="control"] .wb-nav, .wb-frame[data-screen="control"] .wb-crumb-nav'.split(", ")[0])[0]
+    assert rules(own, '.wb-frame[data-screen="control"] .wb-crumb-item:not(:last-child) .wb-crumb')
+    narrow = own[own.index("@media (min-width: 900px) and (max-width: 1069px)"):]
+    narrow = narrow[:narrow.index("\n}")]
+    assert ".wb-crumb-item:nth-child(2) { display: none; }" in narrow
+    assert "min-width: 1070px" not in own and "max-width: 1069px" in own, "from 1070 px up the three crumbs fit and stay"
