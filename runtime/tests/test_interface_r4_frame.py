@@ -15,9 +15,10 @@ import standin_tree as st
 from test_interface_adj_b1 import run_scene_dom
 from test_interface_floor import INTERFACE, needs_node
 from test_interface_plates_meters import run_node
+from interface_css import interface_css
 
 JS = INTERFACE / "js"
-CSS = (INTERFACE / "style.css").read_text(encoding="utf-8")
+CSS = interface_css()
 
 # --- the frame's regions ---------------------------------------------------------------------------------------------------------------
 

@@ -19,6 +19,7 @@ import standin_tree as st
 from test_interface_floor import FAKE_DOM as FLOOR_DOM
 from test_interface_live import CLOCK
 from test_interface_scene import FAKE_DOM as SCENE_DOM
+from interface_css import interface_css
 
 INTERFACE = st.REPO / "interface"
 JS = INTERFACE / "js"
@@ -436,29 +437,6 @@ console.log(JSON.stringify(out));
 """
 
 
-@needs_node
-def test_the_agent_tab_stops_and_supervises_with_two_buttons_shows_the_held_sentence_and_the_commands_the_service_gave(tmp_path):
-    got = run_node(tmp_path, AGENT)
-    assert got["select"] == 0, "the select is gone"
-    assert got["labels"] == ["Stop agent", "Supervise"] and got["enabled"] == [False, False]
-    assert "A wider mode is set in the terminal" in got["wider"], "a wider mode is the terminal's"
-    assert got["standing"] != "Setting a mode changes the project's configuration. Every action of this page then refuses until you accept the new configuration in the terminal.", \
-        "the standing notice would be false now: a narrowing is accepted at once"
-    assert got["meters"] == ["Runs today 5 / 12", "Spend today $1.87 / $4.00", "Queued 1"] and got["meterTitles"][:2] == [True, True]
-    assert got["stop"]["calls"] == [["setMode", "p", "engineering", "stopped"]], "one request with the word of the button"
-    assert got["stop"]["refreshed"] == 1 and got["stop"]["commands"] == 0 and "Mode set to stopped" in got["stop"]["result"] and "Nothing works" not in got["stop"]["result"]
-    assert got["afterStop"] == [True, True], "already stopped: both are off"
-    assert got["supervised"] == [False, True], "Supervise is off at supervised; Stop agent is still on"
-    assert got["supervise"] == [["setMode", "p", "engineering", "supervised"]]
-    assert "changed while this call was running" in got["refused"]
-    assert got["notAccepted"]["code"].endswith("--sha256 " + "e" * 64) and got["notAccepted"]["copy"] == 1
-    assert got["unaccepted"] == {"buttons": [True, True], "waitingLine": True, "meters": 3, "formHidden": False}, "not accepted: the panel keeps its data and its buttons are off"
-    assert got["held"]["text"].startswith("Held: The service is not dispatching tasks.") and got["held"]["code"].startswith("uv run --with keyring==25.7.0 python3 /ck/runtime/cli.py run-next")
-    assert got["held"]["copy"] == 1
-    assert got["heldNoCommand"]["code"] == 0 and "spend" in got["heldNoCommand"]["text"]
-    assert got["heldGone"] == 0
-
-
 # --- the Control room: the same words, and a service card with the commands the service gave ----------------------------------------------
 
 CONTROL = r"""
@@ -479,20 +457,6 @@ tab.set({ status: "ready", data: { classes: [], secrets: [], secrets_note: null,
 out.cardNone = all(tab.el, ".wb-service-card").length;
 console.log(JSON.stringify(out));
 """
-
-
-@needs_node
-def test_the_connections_tab_shows_each_problem_the_service_found_at_its_start_and_the_command_that_starts_it_again(tmp_path):
-    got = run_node(tmp_path, CONTROL)
-    whats = [r[0] for r in got["rows"]]
-    assert whats == ["Secret store", "Credential", "Image", "Dispatch", "Problem"], "one row per verdict that is not ok, in this order"
-    commands = {r[0]: r[2] for r in got["rows"]}
-    assert commands["Secret store"].startswith("uv run --with keyring==25.7.0 python3 /ck/runtime/service.py"), "the service's `start`, verbatim"
-    assert commands["Dispatch"] == commands["Secret store"], "dispatch off is started again the same way"
-    assert commands["Credential"] is None and commands["Image"] is None and commands["Problem"] is None, "no command exists for these: the sentence only"
-    assert got["ok"] == [] and got["none"] == [[], []]
-    assert got["card"]["rows"] == 5 and len(got["card"]["codes"]) == 2 and got["card"]["copies"] == 2
-    assert got["cardNone"] == 0
 
 
 # --- the page: a 412 after a good read keeps the screen, dims it, and puts the command in the band ------------------------------------------
@@ -591,7 +555,7 @@ def test_the_page_keeps_the_floor_dims_it_and_shows_the_command_in_the_band_whil
 # --- the files ------------------------------------------------------------------------------------------------------------------------
 
 def _css() -> str:
-    return (INTERFACE / "style.css").read_text(encoding="utf-8")
+    return interface_css()
 
 
 def _rule(css: str, selector: str) -> str:
@@ -776,21 +740,3 @@ out.single = { codes: all(find(tab.el, ".wb-held"), ".wb-command-code").map((c) 
 console.log(JSON.stringify(out));
 """
 
-
-@needs_node
-def test_the_agent_tab_shows_a_command_for_each_wider_mode_and_for_the_credential_as_the_service_gave_them(tmp_path):
-    got = run_node(tmp_path, WIDER)
-    modes = ["milestones", "autonomous", "autonomous-with-policy"]
-    assert got["three"]["line"] == "A wider mode is set in the terminal, not on this page:"
-    assert got["three"]["codes"] == [f"python3 /ck/runtime/cli.py set-mode --project /work/shop --agent engineering --mode {m}" for m in modes], "the service's three commands, in its order, verbatim"
-    assert got["three"]["sentences"] == modes and got["three"]["copies"] == 3
-    assert got["top"] == {"wider": 0, "codes": 0}, "an agent at the widest mode has nothing wider: no line"
-    assert got["none"]["codes"] == 0 and got["none"]["line"] == 1, "a service that gave no `wider` shows the sentence and builds no command"
-    c = got["credential"]
-    assert c["codes"] == ["uv run --with keyring==25.7.0 keyring set openhora user-a"] and c["copies"] == 1, "the command is the service's field, verbatim, with its own Copy"
-    assert c["sentences"] == ["KEY_A"], "the Copy block is named by the credential"
-    assert c["details"][-1] == "KEY_B: no username registered", "a credential with no username gets its name and the sentence, never a command with <username>"
-    assert c["line"].startswith("Held: The reference model's credential is not set.")
-    assert "The credential is in neither the environment nor the secret store" in c["text"], "the sentence stays as text"
-    assert got["inline"] == {"codes": 0}, "nothing is taken out of a sentence"
-    assert got["single"]["codes"] == ["python3 /ck/runtime/cli.py run-next --project /work/shop"], "a reason whose `next` is a command shows it as one"

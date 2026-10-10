@@ -1,8 +1,8 @@
 // The owl of the token prompt (R-15): the identity's drawing (the mark), inline on this screen only, so that its eyes can move.
-// It keeps watch: now and then it blinks slowly and its eyes travel to one side, then the other, and return, in a slow 8 s cycle (style.css,
+// It keeps watch: now and then it blinks slowly and its eyes travel to one side, then the other, and return, in a slow 8 s cycle (css/token.css,
 // `.owl-pupil`, `.owl-lid`, `.owl-lidline`); under reduced motion it is still. No shape of the drawing changes.
 //
-// The palette below is the mark's own and is fixed in every scheme: the one place besides the brand pair of style.css that names colours, because the
+// The palette below is the mark's own and is fixed in every scheme: the one place besides the brand pair of css/base.css that names colours, because the
 // owl is the brand's drawing and not the interface's (the same exception the design system makes for the owl in the scene). Nothing here is read
 // from the service; the drawing links to nothing and carries no script.
 

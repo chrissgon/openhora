@@ -19,6 +19,7 @@ import pytest
 import standin_tree as st
 from test_interface_scene import FAKE_DOM
 from test_interface_scene_round3 import ENGINE_PAGE_JS, PRODUCT_JS, run_node_engine
+from interface_css import interface_css
 
 INTERFACE = st.REPO / "interface"
 JS = INTERFACE / "js"
@@ -27,7 +28,7 @@ VIEWS = JS / "views"
 NODE = shutil.which("node")
 needs_node = pytest.mark.skipif(NODE is None, reason="node is not installed: the sheet's logic is tested only by its text")
 
-CSS = (INTERFACE / "style.css").read_text(encoding="utf-8")
+CSS = interface_css()
 
 
 def run_node(tmp_path: Path, body: str) -> dict:

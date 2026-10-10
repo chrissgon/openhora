@@ -14,6 +14,7 @@ import re
 import pytest
 
 import standin_tree as st
+from interface_css import css_paths
 from test_interface_scene_round3 import WORLD_JS, needs_node, run_node
 
 INTERFACE = st.REPO / "interface"
@@ -432,7 +433,7 @@ def test_the_scenes_style_sheet_is_linked_once_after_the_pages_and_holds_no_colo
         assert name in css, f"scene.css draws {name}"
     assert "var(--pui-theme)" in css and "var(--wb-raised)" in css and "var(--pui-border)" in css
     page = (INTERFACE / "index.html").read_text(encoding="utf-8")
-    assert page.count('href="./scene.css"') == 1 and page.index('href="./style.css"') < page.index('href="./scene.css"'), "scene.css is loaded once, after style.css"
+    assert page.count('href="./scene.css"') == 1 and all(page.index(f'href="./css/{path.name}"') < page.index('href="./scene.css"') for path in css_paths()), "scene.css is loaded once, after the page's stylesheets"
     assert "<style" not in page and "style=" not in page, "no inline style: the service's policy forbids it"
 
 

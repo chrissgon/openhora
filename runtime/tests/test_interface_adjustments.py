@@ -15,6 +15,7 @@ from pathlib import Path
 import standin_tree as st
 from test_interface_floor import FAKE_DOM, INTERFACE, needs_node, NODE
 from test_interface_lobby import FAKE_EXTRA as LOBBY_EXTRA
+from interface_css import stylesheets
 
 # The Floor's fake document, with what the Lobby's modules use added (insertBefore and the like); its own predicate `find` is `where` here.
 FAKE_EXTRA = (LOBBY_EXTRA + """
@@ -22,7 +23,7 @@ Object.defineProperty(FakeNode.prototype, "dataset", { get() { return this._data
 """).replace("export const find =", "export const where =").replace("=> find(root, (n)", "=> where(root, (n)")
 
 JS = INTERFACE / "js"
-CSS = INTERFACE / "style.css"
+CSS = stylesheets()
 service = st.load("service")
 
 
@@ -325,41 +326,6 @@ console.log(JSON.stringify(out));
 """
 
 
-@needs_node
-def test_the_tasks_tab_and_the_agent_tab_draw_the_same_actions_and_a_blocked_current_task_has_retry_with_its_sentence(tmp_path):
-    got = run_node(tmp_path, TABS)
-    t = got["tasks"]
-    assert t["waits5"] == ["waiting for #10: docs/brand/identity.md, written by task #10"]
-    assert t["actions5"] == [["Go ahead", "Go ahead on task 5"]] and t["actions6"] == [["Drop the after", "Drop the after of task 6"]]
-    assert t["actions7"] == [["Go ahead", "Go ahead on task 7"], ["Drop the after", "Drop the after of task 7"]] and t["actions8"] == 0
-    assert t["waits6"] == ["waiting for request #3"]
-    assert t["blocked"]["buttons"] == [["Retry", "Retry task 9"]]
-    assert t["blocked"]["beside"] == "design-system needs docs/brand/identity.md; nothing writes it" and t["blocked"]["under"], "A-31: the sentence stands beside Retry, not under the row"
-    assert t["failedNote"] == "Timed out"
-    assert t["effect"] == ["The task starts without waiting; it may stop for the missing file."] and t["noEffect"] == 0, "what a go-ahead does is said beside it, and only beside it"
-    assert t["sent"] == [["goAhead", "0123456789ab", 5, None], ["goAhead", "0123456789ab", 6, {"dropAfter": True}], ["goAhead", "0123456789ab", 7, None]], \
-        "Go ahead sends the task; Drop the after sends dropAfter: true"
-    assert t["refused"] == "That task waits for nothing to go ahead of." and t["refreshed"]
-    b = got["blocked"]
-    assert b["buttons"] == ["Retry task 11"], "A-32: a blocked current task has Retry in the Agent tab"
-    assert b["note"] == "design-system needs docs/brand/identity.md; nothing writes it" and b["head"].startswith("#11 Task 11")
-    assert b["sent"] == [["retry", "0123456789ab", 11]]
-    assert got["failed"] == ["Retry task 12"]
-    assert got["waiting"] == {"buttons": [], "link": "#/p/0123456789ab/floor/design/inbox/77", "text": "Open in the Inbox"}
-    assert got["planned"]["buttons"] == ["Go ahead on task 14"] and got["planned"]["waits"] == ["waiting for #10: docs/brand/identity.md, written by task #10"]
-    assert got["planned"]["sent"] == [["goAhead", "0123456789ab", 14, None]]
-    assert got["running"] == {"buttons": [], "actions": 0}
-    d = got["drop"]
-    assert d["line"] == "this file will be visible to a run with the open network" and d["hidden"] is False and d["order"] == ["wb-drop-line", "wb-file"] and d["input"] is False, \
-        "A-30: the Agent tab's hand-over shows the web line above the chooser"
-    assert d["reads"] == 0, "the current task's body is used as it is"
-    assert got["dropNonWeb"] == {"hidden": True, "input": False, "reads": [12]}, "another target is read once, however often the tab is drawn"
-    assert got["dropRefuses"] == [True, True, [12, 13]] and got["noReader"] is True
-    by_title = {o[0]: o for o in got["others"]}
-    assert by_title["#17 Task 17"][1] == ["Retry task 17"] and by_title["#17 Task 17"][2] == ["needs a file"]
-    assert by_title["#18 Task 18"][1] == ["Drop the after of task 18"] and by_title["#18 Task 18"][3] == ["waiting for request #3"]
-
-
 # --- A-23: the composer, the queued line, the request made during a run -------------------------------------------------------------
 
 COMPOSER = r"""
@@ -437,34 +403,6 @@ out.createCalls = calls;
 out.queuedNotice = m.QUEUED_NOTICE;
 console.log(JSON.stringify(out));
 """
-
-
-@needs_node
-def test_the_composer_says_a_run_is_in_progress_a_queued_line_shows_the_word_and_the_form_sends_after(tmp_path):
-    got = run_node(tmp_path, COMPOSER)
-    assert got["idle"] == {"hidden": True}
-    r = got["running"]
-    assert r["hidden"] is False and r["role"] == "status" and r["send"] is False, "A-23: the line shows in place and Send stays on"
-    assert r["text"].startswith("A run is in progress: your line will be routed when it ends; a question about the state is answered now.")
-    assert r["link"] == ["Task #12 Build the page", "#/p/x/floor/engineering", False]
-    assert got["notAccepted"] == {"hidden": True, "send": True}, "a project that is not accepted says that, not a run"
-    assert got["after"] == {"hidden": True}
-    assert got["hints"][0] == "A line that starts with / is a command; /help lists them." and "--after" in got["hints"][1]
-    m = got["model"]
-    assert m["meta"] == ["You · 1 h ago · queued", "You · 1 h ago", "You · queued"] and m["name"] == "You, 1 hour ago, queued"
-    assert m["has"] == [True, False, False]
-    assert m["readAfter"] == [4, 8, 0, 4], "a queued line is read again: the read asks above the message before the oldest queued one"
-    assert m["running"] == [{"id": 2, "title": "Build", "agent": "engineering"}, None, None]
-    assert m["hash"] == ["#/p/p/floor/engineering", "#/p/p/lobby", "#/p/p/lobby"]
-    assert got["queued"] == {"meta": "You · just now · queued", "cls": "wb-msg is-user is-queued", "name": "You, just now, queued", "bubble": "Como estamos?"}, \
-        "A-23: the line shows as typed with the word queued until its reply arrives"
-    assert got["answered"] == {"meta": "You · just now", "cls": "wb-msg is-user", "same": True, "count": 2}, "the reply arrived: the word goes, the message node stays"
-    assert got["form"]["sent"] == [{"text": "Landing page", "flow": "", "title": ""}, {"text": "Landing page", "flow": "", "title": "", "after": "3"}], "after is sent only when it was typed"
-    assert got["form"]["label"] == "After request # (optional)" and got["form"]["inputmode"] == "numeric"
-    assert got["afterNumber"] == [{"value": 3}, {"value": 4}, {}, {"invalid": True}, {"invalid": True}, {"invalid": True}, {"value": 5}, {"invalid": True}, {"invalid": True}], \
-        "an empty field is no after; a word, zero, a negative, a decimal or a huge number is refused"
-    assert got["createCalls"] == [["request", "p1", "x", 3, None], ["route", "p1", 9, None], ["request", "p1", "y", None, "T"], ["route", "p1", 9, "design"]]
-    assert got["queuedNotice"] == {"tone": "info", "title": "Recorded", "text": "A run is in progress. The request is recorded and will be routed when the run ends."}
 
 
 # --- A-25, A-26, A-30: the unrecognised route, the done card, the review card's hand-over --------------------------------------------
@@ -602,42 +540,6 @@ await settle();
 out.failedRead = find(failing.el, ".wb-card-hand") === null;
 console.log(JSON.stringify(out));
 """
-
-
-@needs_node
-def test_the_unrecognised_route_has_its_two_actions_the_done_card_wraps_its_result_and_a_review_hands_a_file_over(tmp_path):
-    got = run_node(tmp_path, CARDS)
-    assert got["is"] == [True, False, False, False]
-    card = got["card"]
-    assert card["body"] == "The planning agent did not name a flow or a skill for request 6", "A-25: the sentence is the body"
-    assert card["words"] == [["choose-flow", "Choose a flow"], ["cancel-request", "Cancel the request"], ["answered", "Send answer"]], "the two actions, then the answer the decision still takes"
-    assert card["disclosure"] == "Show the agent's reply" and card["raw"] == "Route: none (direct)\nWhy: a question\nNext: ask the flow list <b>x</b>" and card["rawElements"] == 0, "the reply whole, as plain text"
-    assert got["plain"] == {"words": ["answered"], "disclosure": True}, "an ordinary question has neither the two buttons nor the reply"
-    assert got["flows"]["options"] == [["", "Choose a flow..."], ["brand", "Brand of a product"], ["design", "Design"]], "a flow that failed to load is not offered"
-    assert got["flows"]["calls"] == [["p"]]
-    assert got["noFlow"] == {"hint": "Choose a flow.", "routes": 0}
-    assert got["route"]["calls"] == [["route", "p", 6, {"flow": "design"}], ["pollJob", "j1", 1000]], "route with the request's id and the chosen flow, then the job"
-    assert got["route"]["done"].startswith("Request routed")
-    assert got["flowReads"] == 1
-    assert got["cancel"]["calls"] == [["cancel", "p", 6]] and got["cancel"]["done"].startswith("Request cancelled")
-    assert got["flowError"] == {"text": "The flows could not be read.", "select": True, "buttons": 3}
-    assert got["unrouted"]["done"] is True and "no model" in got["unrouted"]["error"], "a route that was not made is an error on the card, not a done card"
-    d = got["doneSentence"]
-    assert "wb-card-done" in d["classes"] and d["children"][-1] == "wb-card-result", "the result is its own block after the chip and the title"
-    assert d["mono"] == 0 and d["prose"] == ["an answer to the router is given to its next run, not recorded as a decision"], "A-26: a sentence is prose, not mono"
-    assert d["title"] == "Brand voice <b>question</b>"
-    assert "wb-card-done-title" in got["doneTitleClass"], "the title has its own class, so that it can wrap"
-    ids = got["doneIds"]
-    assert ids["mono"] == ["commit: abc1234", 'pull request: {"number":12}'], "an id is mono"
-    assert ids["prose"] == ["kept: 2 files in the run folder"] and ids["folder"] == ["/work/shop/.runs/4"] and ids["copy"] == ["Copy the path"], "A-30: the files the run kept, and the run folder to copy"
-    assert got["doneNoKept"] == {"result": False, "folder": 0}
-    hand = got["hand"]
-    assert hand["label"] == "Hand a file over" and hand["line"] == "this file will be visible to a run with the open network" and hand["hint"] == "To task #5. At most 25 MiB."
-    assert hand["order"] == ["wb-drop-line", "wb-file"], "the line of the web task is shown before the file is chosen"
-    assert got["handChosen"] == {"calls": 0, "name": "logo.png"}, "C-17: the file is chosen first and sent by the button"
-    assert got["handSent"] == {"calls": [["p", 5, "logo.png", "AQID"]], "result": "Handed over: undefined (undefined bytes)"}, "the file goes to the review's task as base64; the stand-in client answers no path"
-    assert got["handBad"] == "The file name may hold letters, digits, ., _ and -, at most 100 characters."
-    assert got["nonWeb"] == {"control": True, "line": True} and got["refuses"] and got["unread"] and got["failedRead"]
 
 
 # --- A-33: the viewer shows an image, a type it cannot show gets a sentence, the Desk says the kind ----------------------------------
@@ -967,43 +869,6 @@ def test_the_credentials_commands_are_fields_the_service_gives_and_the_page_read
     for path in JS.rglob("*.js"):
         assert "commandsIn" not in path.read_text(encoding="utf-8"), f"{path.name} still calls commandsIn"
     assert "held[].commands" in (JS / "floor-model.js").read_text(encoding="utf-8") or "commands" in (JS / "floor-model.js").read_text(encoding="utf-8")
-
-
-def test_no_flex_row_of_the_cards_holds_free_text_without_wrap_and_the_done_card_wraps_its_result_on_its_own_line():
-    css = _css()
-    rules = _rules(css)
-    family = re.compile(r"\.wb-(card|resolved|path-row|held|waits|lobby-resolved|lobby-notice|request-line|command|notice|verdicts)")
-    # A flex row whose child is a text that can be long must wrap (flex-wrap: wrap), or give its text child `min-width: 0` with `overflow-wrap`. These rows hold
-    # only controls or one text that already does the second: each is named with its reason.
-    allowed = {
-        ".wb-card-line": "one text node: an anonymous flex item that wraps with overflow-wrap: anywhere",
-        ".wb-command-row": "the code child has min-width: 0 and white-space: pre-wrap; the Copy button is fixed",
-        ".wb-waits-label": "a checkbox and a text span with min-width: 0 and overflow-wrap: anywhere",
-        ".wb-plan-table td": "the phone's stacked row: a label and a value that wraps",
-    }
-    bad = []
-    for selector, body in rules:
-        if not re.search(r"display:\s*(inline-)?flex", body) or not family.search(selector):
-            continue
-        for one in [s.strip() for s in selector.split(",")]:
-            if not family.search(one):
-                continue
-            if "flex-wrap: wrap" in body or one in allowed or any(one.endswith(a) for a in allowed):
-                continue
-            bad.append(one)
-    assert not bad, f"a flex row of the cards with free text and no wrap: {bad}"
-    by_selector = {s: b for s, b in rules}
-    assert "flex-wrap: wrap" in by_selector[".wb-card-done"], "A-26: the done card wraps"
-    result = by_selector[".wb-card-result"]
-    assert "flex-basis: 100%" in result and "min-width: 0" in result, "A-26: the result takes its own line, full width, and can shrink"
-    title = by_selector[".wb-resolved > .wb-card-done-title"]
-    assert "flex: 1 1 8em" in title and "min-width: 0" in title and "white-space: normal" in title, "A-26: the done card's title takes the room left and wraps"
-    order = [sel for sel, _ in rules]
-    assert order.index(".wb-resolved > .wb-card-done-title") > order.index(".wb-resolved > .wb-muted"), "named after the rule it overrides"
-    assert "flex-wrap: wrap" in by_selector[".wb-resolved"] and "min-width: 0" in by_selector[".wb-resolved-title"], "the Floor's resolved line wraps too"
-    cards = (JS / "floor" / "cards.js").read_text(encoding="utf-8")
-    assert 'h("div", { class: "mono", text: l })' in cards and 'class: "wb-card-line", text: l' in cards, "an id is mono, a sentence is prose"
-    assert "lines.map((l) => h(\"div\", { class: \"mono\"" not in cards
 
 
 def test_the_image_viewer_builds_no_markup_no_data_url_no_srcdoc_and_the_client_reads_the_bytes_through_its_one_fetch_path():

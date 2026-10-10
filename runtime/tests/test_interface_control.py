@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 import standin_tree as st
+from interface_css import interface_css
 
 INTERFACE = st.REPO / "interface"
 JS = INTERFACE / "js"
@@ -660,7 +661,7 @@ def test_the_control_room_builds_the_chart_as_same_origin_svg_with_a_table_and_n
         text = path.read_text(encoding="utf-8")
         assert not re.search(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(", text), f"{path.name} has a colour literal"
         assert not re.search(r"\.style\b|\bstyle\s*:", text), f"{path.name} writes a style"
-    css = (INTERFACE / "style.css").read_text(encoding="utf-8")
+    css = interface_css()
     series = dict(re.findall(r"\.(wb-series-[a-z0-9]+) \{ --wb-series: ([^;]+); \}", css))
     assert series == {"wb-series-1": "var(--pui-theme)", "wb-series-2": "var(--wb-tint-series)", "wb-series-3": "var(--pui-muted)", "wb-series-other": "var(--pui-bg-emphasis)"}
     root = re.findall(r"--wb-tint-series: ([^;]+);", css)

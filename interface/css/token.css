@@ -1,0 +1,89 @@
+/* token.css: the token prompt, the page that stands in place of the frame until the person has the token: the technical sheet, the form, the command step and the owl.
+   Linked by index.html in this order: base, frame, token, city, building, floor, lobby, control, then scene.css. A later rule wins a tie, so a rule that overrides one of the same weight stays in the same file as that rule or in a file that loads after it. */
+
+/* the token field: a text field the stylesheet masks, so that the browser does not read it as a login and offer to save the token (A-11) */
+.wb-token-field { -webkit-text-security: disc; text-security: disc; }
+
+/* --- the token prompt (R-13 to R-15; ADJ-B3, A-39 for what it says): a technical sheet, not a card. A frame 1040 px wide with a line at each side on a ground of faint
+   dots, small crosses at the corners of its body, a bar, the form, the owl at the right and the numbered steps along the foot. Tokens only: the dots are the text
+   colour at 28 percent in light and 20 percent in dark. ------------------------------------------------------------------------------------------------------- */
+.tk-root { position: relative; min-height: 100dvh; background-color: var(--wb-ground); }
+.tk-grid { position: absolute; inset: 0; width: 100%; height: 100%; fill: light-dark(color-mix(in srgb, var(--pui-text) 28%, transparent), color-mix(in srgb, var(--pui-text) 20%, transparent)); }
+.tk { position: relative; display: grid; place-items: center; width: 100%; min-height: 100dvh; padding: 0 16px; }
+.tk-frame { display: grid; grid-template-rows: auto 1fr auto; width: min(1040px, 100%); min-height: 100dvh; border-inline: 1px solid var(--pui-border); background-color: var(--wb-ground); }
+.tk-bar { display: flex; align-items: center; gap: 16px; height: 56px; padding: 0 28px; border-bottom: 1px solid var(--pui-border); }
+.tk-bar .wb-brand { gap: 8px; }
+.tk-bar .wb-wordmark { font-size: 1.125rem; }
+.tk-meta, .tk-eyebrow, .tk-cap, .tk-label, .wb-token-label, .wb-token-system { font-family: var(--wb-font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--pui-text-muted); }
+.tk-meta { margin-left: auto; }
+.tk-bar .wb-mode-btn { box-shadow: none; }
+.tk-body { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 360px; align-items: center; }
+.tk-main { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-content: center; min-width: 0; padding: 48px 56px 48px 64px; }
+.tk-main > *, .tk-cmd > *, .tk-form > * { min-width: 0; }
+.tk-title { margin: 0; max-width: 14ch; font-size: 52px; font-weight: 600; line-height: 1.04; letter-spacing: -0.03em; }
+.tk-text { max-width: 46ch; color: var(--pui-text-muted); font-size: 16px; line-height: 1.6; }
+.tk-main > .notice { max-width: 520px; }
+.tk-form { display: grid; gap: 8px; max-width: 520px; margin-top: 6px; }
+.tk-field { display: flex; gap: 8px; padding: 8px; border: 1px solid var(--pui-muted); border-radius: calc(var(--pui-radius) * 1.5); background-color: var(--wb-raised); }
+.tk-field:focus-within { outline: 2px solid var(--pui-theme); outline-offset: 2px; }
+.tk-field .pui-input { flex: 1 1 auto; min-height: 44px; border-color: transparent; font-family: var(--wb-font-mono); }
+.tk-field .pui-input:focus-visible { outline: none; }
+.tk-field .pui-btn { flex: none; min-height: 44px; padding-inline: 20px; font-weight: 600; }
+.tk-help, .wb-token-help { color: var(--pui-text-muted); font-size: 12px; }
+.tk-side { position: relative; display: grid; place-content: center; justify-items: center; align-self: stretch; }
+
+/* step 1: the one command that copies the token, in a sunken block in the mono face; a long path scrolls inside it, never the page */
+.wb-token-how:empty { display: none; }
+.tk-cmd { display: grid; gap: 8px; max-width: 520px; margin-top: 8px; }
+.tk-cmd-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.tk-cmd .wb-command-block { gap: 8px; font-size: 13px; }
+.tk-cmd .wb-command-row { align-items: center; gap: 8px; padding: 8px 8px 8px 14px; border: 1px solid var(--pui-border); border-radius: calc(var(--pui-radius) * 1.5); background-color: var(--wb-sunken); }
+.tk-cmd .wb-command-code { padding: 0; border: 0; border-radius: 0; background-color: transparent; overflow-x: auto; font-size: 13px; line-height: 44px; scrollbar-width: none; white-space: nowrap; }
+.tk-cmd .wb-copy { gap: 6px; min-height: 36px; }
+.tk-cmd .wb-copy.is-done { color: var(--pui-success); }
+.tk-cmd .wb-copy-status:empty { display: none; }
+.tk-cross { position: absolute; z-index: 1; width: 13px; height: 13px; }
+.tk-cross::before, .tk-cross::after { content: ""; position: absolute; background-color: var(--pui-text); }
+.tk-cross::before { top: 0; left: 6px; width: 1px; height: 13px; }
+.tk-cross::after { top: 6px; left: 0; width: 13px; height: 1px; }
+.tk-tl { top: -7px; left: -7px; }
+.tk-tr { top: -7px; right: -7px; }
+.tk-bl { bottom: -7px; left: -7px; }
+.tk-br { bottom: -7px; right: -7px; }
+.tk-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--pui-border); }
+.tk-steps.is-two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.tk-step { display: grid; gap: 10px; padding: 24px 28px 28px; }
+.tk-step + .tk-step { border-left: 1px solid var(--pui-border); }
+.tk-num { font-size: 40px; font-weight: 600; line-height: 1; letter-spacing: -0.03em; }
+
+/* the owl keeps watch (R-15): now and then it blinks slowly and its eyes travel to one side, then the other, and return, in an 8 s cycle; still under reduced motion */
+.wb-owl { display: block; }
+.owl-pupil { animation: owl-look 8s ease-in-out infinite; }
+.owl-lid { transform-box: fill-box; transform-origin: 50% 0; animation: owl-lid 8s ease-in-out infinite; }
+.owl-lidline { transform-box: fill-box; transform-origin: 50% 50%; animation: owl-line 8s ease-in-out infinite; }
+@keyframes owl-look { 0%, 30% { transform: translateX(0); } 36%, 52% { transform: translateX(-12px); } 59%, 71% { transform: translateX(4px); } 78%, 100% { transform: translateX(0); } }
+@keyframes owl-lid { 0%, 18%, 23%, 83%, 88%, 100% { transform: scaleY(1); } 20.5%, 85.5% { transform: scaleY(2.2); } }
+@keyframes owl-line { 0%, 18%, 23%, 83%, 88%, 100% { transform: translateY(0) scaleX(1); } 20.5%, 85.5% { transform: translateY(24px) scaleX(0.72); } }
+
+@media (prefers-reduced-motion: reduce) { .owl-pupil, .owl-lid, .owl-lidline { animation: none; } }
+
+@media (max-width: 639px) {
+  .tk { padding: 0; }
+  .tk-frame { border-inline: 0; }
+  .tk-bar { padding: 0 16px; }
+  .tk-meta, .tk-cross { display: none; }
+  .tk-bar .wb-mode-btn { margin-left: auto; }
+  .tk-body { grid-template-columns: minmax(0, 1fr); align-content: center; }
+  .tk-side { order: -1; place-content: start center; align-self: auto; padding: 24px 16px 0; }
+  .tk-side .wb-owl { width: 64px; height: 64px; }
+  .tk-main { align-content: start; gap: 14px; padding: 12px 16px 28px; }
+  .tk-title { font-size: 34px; }
+  .tk-text { font-size: 14px; }
+  .tk-cmd, .tk-form { max-width: 100%; }
+  .tk-cmd .wb-command-row { flex-direction: column; align-items: stretch; padding: 8px; }
+  .tk-cmd .wb-command-code { padding-inline: 6px; line-height: 36px; }
+  .tk-field { flex-direction: column; }
+  .tk-step { gap: 6px; padding: 14px 12px 16px; }
+  .tk-num { font-size: 24px; }
+  .tk-cap { font-size: 10px; letter-spacing: 0.06em; }
+}

@@ -18,6 +18,7 @@ import pytest
 import standin_tree as st
 from test_interface_floor import FAKE_DOM as FLOOR_DOM
 from test_interface_scene import FAKE_DOM
+from interface_css import interface_css
 
 INTERFACE = st.REPO / "interface"
 JS = INTERFACE / "js"
@@ -618,7 +619,7 @@ def test_the_lobby_files_exist_and_only_they_call_the_routes_that_write(tmp_path
                      "lobby-thread.js", "lobby-scene.js", "plan.js", "plan-rows.js"}
     for icon in ("send", "message-square"):
         assert (INTERFACE / "icons" / f"{icon}.svg").is_file() and f'"{icon}"' in (JS / "frame" / "icons.js").read_text(encoding="utf-8")
-        assert f".wb-icon-{icon} " in (INTERFACE / "style.css").read_text(encoding="utf-8")
+        assert f".wb-icon-{icon} " in interface_css()
     source = "\n".join(p.read_text(encoding="utf-8") for p in lobby_files())
     called = set(re.findall(r"\bapi\.(\w+)\(", source))
     assert called >= {"say", "request", "route", "cancel", "approve", "reject", "conversation", "flows", "task", "pollJob"}
@@ -646,7 +647,7 @@ def test_the_plan_card_sends_the_displayed_hash_and_draws_no_button_for_a_word_i
 
 
 def test_the_lobby_modules_take_no_style_and_no_colour_and_load_nothing_from_another_host():
-    css = (INTERFACE / "style.css").read_text(encoding="utf-8")
+    css = interface_css()
     section = css[css.index("the Lobby (handoff lobby.md"):]
     assert not re.search(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(", section), "the Lobby's rules set no colour of their own"
     for path in lobby_files():

@@ -20,6 +20,7 @@ import pytest
 
 import standin_tree as st
 from test_interface_floor import FAKE_DOM
+from interface_css import interface_css
 
 INTERFACE = st.REPO / "interface"
 JS = INTERFACE / "js"
@@ -480,7 +481,7 @@ console.log(JSON.stringify(out));
 
 
 def test_the_in_between_layout_has_the_tablet_rules_of_the_handoff_and_the_panel_docks_below_900_px():
-    css = (INTERFACE / "style.css").read_text(encoding="utf-8")
+    css = interface_css()
     block = css[css.index("the in-between layout (WP-9.11"):]
     assert "@media (min-width: 640px) and (max-width: 1099px)" in block and "@media (min-width: 640px) and (max-width: 899px)" in block
     mid = block[:block.index("@media (min-width: 640px) and (max-width: 899px)")]
@@ -523,7 +524,7 @@ console.log(JSON.stringify({ rows: options.length, longTitle: longOption.attrs.t
 """)
     assert got["rows"] == 9 and got["longTitle"] is True and got["spanTitle"] is True and got["shortTitle"] == "Request 1", "each row carries its whole title as the tooltip"
     assert got["scrolled"] == [["8", "nearest"], ["7", "nearest"]], "the arrows keep the row they reach in view of the bounded list"
-    css = (INTERFACE / "style.css").read_text(encoding="utf-8")
+    css = interface_css()
     menu = css[css.index(".wb-req-menu {"):css.index(".wb-req-menu[hidden]")]
     assert "max-width: min(28rem, 90vw)" in menu and "max-height: min(calc(6 * var(--wb-req-row) + 5 * 2px + 8px), 60vh)" in menu and "overflow-y: auto" in menu, "about six rows, then it scrolls; 28 rem wide at most"
     assert "grid-template-columns: minmax(0, 1fr)" in menu, "the single column is limited by the box: a long title is cut, it never widens the rows (seen in the pane)"

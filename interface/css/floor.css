@@ -1,0 +1,268 @@
+/* floor.css: the Floor screen and the parts it hands to the Lobby: the Floor's panel and tabs, the Agent tab, the decision cards, the Inbox, the Desk, the Tasks tab and the plan
+   card. The Lobby shows these modules inside its own panel, so a change here reaches it. A package for the Floor edits this file and test_interface_r4_floor.py.
+   Linked by index.html in this order: base, frame, token, city, building, floor, lobby, control, then scene.css. A later rule wins a tie, so a rule that overrides one of the same weight stays in the same file as that rule or in a file that loads after it. */
+
+.wb-mode-wrap { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.wb-mode-plate { display: inline-flex; align-items: center; gap: 6px; padding: 0 8px; font-size: 12px; white-space: nowrap; }
+.wb-acting-plate { font-size: 11px; }
+.wb-card-button { justify-content: center; }
+
+.wb-chip-11 { padding: 0 6px; font-size: 11px; }
+
+/* the Floor's panel: header, tabs, one tab's content; the viewer replaces the whole panel */
+.wb-panel-floor { grid-template-rows: minmax(0, 1fr); }
+.wb-panel-floor > * { min-height: 0; }
+.wb-floor-normal { display: grid; grid-template-rows: auto auto minmax(0, 1fr); height: 100%; min-height: 0; }
+.wb-floor-head { padding-bottom: 10px; border-bottom: 0; }
+.wb-header-mode { justify-self: start; margin-top: 4px; }
+
+.wb-tabpanel { padding: 0; gap: 0; }
+.wb-agent-tab, .wb-desk-tab, .wb-inbox { display: grid; gap: 16px; align-content: start; padding: 16px; }
+.wb-desk-tab { gap: 12px; }
+.wb-inbox { gap: 12px; padding: 12px; }
+.wb-cards { display: grid; gap: 12px; }
+.wb-floor-unknown { display: grid; gap: 8px; padding: 16px; }
+
+.wb-busy { display: flex; align-items: center; gap: 8px; padding: 16px; color: var(--pui-text-muted); font-size: 13px; }
+.wb-empty-line { margin: 0; color: var(--pui-text-muted); font-size: 13px; }
+.wb-section { display: grid; gap: 8px; }
+.wb-section-label { color: var(--pui-text-muted); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }
+
+.wb-state-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 12px; border-radius: calc(var(--pui-radius) * 1.5); background-color: var(--wb-sunken); }
+.wb-state-line { font-size: 13px; }
+.wb-state-row .wb-small-button { margin-left: auto; }
+.wb-mode-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.wb-mode-row:empty { display: none; }
+.wb-mode-line { font-size: 13px; }
+.wb-mode-controls { display: flex; align-items: flex-end; gap: 8px; }
+.wb-mode-controls .wb-field { flex: 1; min-width: 0; }
+.wb-select { text-overflow: ellipsis; }
+.wb-notice-card { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--pui-border); border-radius: calc(var(--pui-radius) * 1.5); background-color: var(--wb-sunken); font-size: 13px; overflow-wrap: anywhere; }
+.wb-notice-card.is-warn { border-color: var(--pui-warn); }
+.wb-notice-card.is-error { border-color: var(--pui-error); }
+
+.wb-wider { margin: 0; font-size: 12px; }
+.wb-wider[hidden] { display: none; }
+.wb-wider-modes { display: grid; gap: 8px; }
+.wb-wider-modes:empty { display: none; }
+.wb-runs-total { margin: 0; font-size: 12px; }
+.wb-held-detail { margin: 0; font-size: 12px; }
+.wb-held { display: grid; gap: 6px; }
+.wb-held-line { margin: 0; font-size: 13px; }
+.wb-service-card { display: grid; gap: 8px; }
+.wb-service-row { display: grid; gap: 4px; min-width: 0; }
+.wb-result-box:empty, .wb-form-error:empty, .wb-hand-result:empty { display: none; }
+.wb-meters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.wb-meter-cell { display: grid; gap: 2px; align-content: start; min-width: 0; }
+.wb-meter-label { font-size: 12px; }
+.wb-meter-value { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.wb-meter-track { margin-top: 2px; }
+
+.wb-current { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid transparent; background-color: var(--wb-sunken); }
+.wb-current-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.wb-current-sub { font-size: 12px; }
+.wb-run { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 3px 10px; margin: 0; padding-top: 8px; border-top: var(--pui-border-width) solid var(--pui-border); font-size: 12px; }
+.wb-run dt, .wb-run dd { margin: 0; }
+.wb-run dd.mono { overflow-wrap: anywhere; }
+.wb-other { display: grid; gap: 4px; }
+.wb-other-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: var(--pui-radius); background-color: var(--wb-sunken); }
+.wb-other-title { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.wb-hand { display: grid; gap: 8px; }
+
+/* decision cards (cards.md) */
+.wb-card { border: 1px solid transparent; background-color: var(--wb-sunken); }
+.wb-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: var(--pui-border-width) solid var(--pui-border); }
+.wb-card-meta { color: var(--pui-text-muted); font-size: 12px; }
+.wb-card-content { display: grid; gap: 10px; padding: 12px; }
+.wb-card-title { margin: 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.wb-card-title:focus-visible { outline: 2px solid var(--pui-theme); outline-offset: 2px; }
+.wb-card-body { font-size: 13px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.wb-card-hint { color: var(--pui-text-muted); font-size: 12px; overflow-wrap: anywhere; }
+.wb-card-line { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.wb-scroll { max-height: 24rem; overflow-y: auto; }
+.wb-pre { max-height: 24rem; margin: 0; padding: 10px 12px; overflow-y: auto; border: var(--pui-border-width) solid var(--pui-border); border-radius: var(--pui-radius); font-family: var(--wb-font-mono); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap; }
+.wb-hash { display: block; padding: 8px 10px; border: 1px dashed var(--pui-muted); border-radius: var(--pui-radius); font-family: var(--wb-font-mono); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; user-select: all; }
+.wb-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.wb-card-actions.is-end { justify-content: flex-end; }
+.wb-working { color: var(--pui-text-muted); font-size: 12px; }
+.wb-paths { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.wb-path-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.wb-path { flex: 1 1 12rem; font-size: 12px; overflow-wrap: anywhere; }
+.wb-blocked { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--pui-error); border-radius: var(--pui-radius); background-color: var(--wb-raised); font-size: 12px; }
+.wb-blocked-title { color: var(--wb-ink-error); font-size: 13px; }
+.wb-verdict { border-radius: var(--pui-radius); background-color: var(--wb-raised); }
+.wb-summary { font-size: 13px; cursor: pointer; }
+.wb-verdicts { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 8px; }
+.wb-verdict-button { padding: 4px 10px; gap: 6px; }
+.wb-plan-table { font-size: 12px; }
+.wb-plan-table th, .wb-plan-table td { padding: 4px; }
+.wb-skill { font-family: var(--wb-font-mono); font-size: 11px; overflow-wrap: normal; word-break: normal; }
+.wb-resolved { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; font-size: 12px; }
+.wb-resolved-list { display: grid; gap: 6px; }
+
+/* the library's accordion item, one surface for the header and the body (A-5): the item holds the ground and the panel's radius, the header and the body paint nothing */
+.pui-accordion-item.wb-resolved-item, .pui-accordion-item.wb-resolved-item[open] { border-color: transparent; border-radius: var(--pui-radius); background-color: var(--wb-sunken); }
+.wb-resolved-item > summary { cursor: pointer; }
+.wb-resolved-body { padding: 0 12px 10px; }
+.wb-res-said { display: grid; gap: 2px; max-height: 24rem; margin: 0 12px 10px; overflow-y: auto; padding: 8px 12px; border-left: 2px solid var(--pui-border); border-radius: 0 var(--pui-radius) var(--pui-radius) 0; background-color: var(--wb-sunken); font-size: 13px; }
+.wb-res-said p { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.wb-resolved-title { flex: 1 1 8em; min-width: 0; overflow-wrap: anywhere; }
+.wb-resolved > .wb-muted { flex: none; white-space: nowrap; }
+
+/* the done card's title is a sentence, not an age: it takes the room that is left and wraps (it is a `.wb-muted` child too, so it must be named after the rule above) */
+.wb-resolved > .wb-card-done-title { flex: 1 1 8em; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+
+/* A-26: the card wraps, and the result stands on its own line under the chip and the title, full width: a sentence is prose, only an id is mono */
+.wb-card-done { margin: 0; flex-wrap: wrap; }
+.wb-card-result { display: grid; gap: 4px; flex: 1 1 100%; flex-basis: 100%; min-width: 0; font-size: 12px; overflow-wrap: anywhere; }
+.wb-card-result > .wb-card-line { margin: 0; }
+.wb-card-result > .mono { overflow-wrap: anywhere; }
+.wb-busy-card { padding: 12px; font-size: 13px; }
+.wb-request-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
+.wb-cancel-link { margin-left: auto; padding: 0; color: var(--wb-ink-error); text-decoration: none; }
+.wb-cancel-link:hover { text-decoration: underline; }
+.wb-cancel-dialog { width: min(28rem, calc(100vw - 32px)); }
+
+/* the Desk */
+.wb-desk-card { padding: 4px 0; border: 1px solid transparent; background-color: var(--wb-sunken); }
+.wb-desk-table { font-size: 12px; }
+.wb-desk-table th, .wb-desk-table td { padding: 8px; vertical-align: top; }
+.wb-desk-row { cursor: pointer; }
+.wb-path-button { display: inline; min-height: 0; padding: 0; font-family: var(--wb-font-mono); font-size: 12px; text-align: left; white-space: normal; overflow-wrap: break-word; }
+.wb-desk-path .pui-chip { margin-left: 6px; }
+.wb-desk-owner { font-size: 11px; overflow-wrap: normal; }
+.wb-desk-agent { font-size: 11px; overflow-wrap: normal; }   /* the Lobby's desk lists every document: the agent of each */
+
+.wb-desk-states { display: grid; gap: 8px; }
+.wb-desk-states:empty { display: none; }
+.wb-state-block { padding: 10px 12px; border: 1px solid var(--pui-border); border-radius: var(--pui-radius); background-color: var(--wb-sunken); font-size: 13px; }
+.wb-state-block.is-sunken { border-color: transparent; }
+.wb-state-block.is-dashed { border-style: dashed; background-color: transparent; }
+.wb-state-block.is-error { display: grid; gap: 6px; border-color: var(--pui-error); }
+
+@media (max-width: 639px) {
+  .wb-card-actions .pui-btn { flex: 1 1 100%; min-height: 44px; }
+  .wb-verdicts .pui-btn { flex: 1; min-height: 44px; }
+  .wb-mode-controls { flex-direction: column; align-items: stretch; }
+}
+
+@media (max-width: 639px) {
+  .wb-meters { grid-template-columns: minmax(0, 1fr); }
+  .wb-plan-table thead { display: none; }
+  .wb-plan-table tr { display: grid; gap: 2px; padding: 8px 0; border-bottom: var(--pui-border-width) solid var(--pui-border); }
+  .wb-plan-table td { display: flex; gap: 8px; padding: 0; }
+  .wb-plan-table td::before { content: attr(data-label); min-width: 5rem; color: var(--pui-text-muted); }
+  .wb-desk-table thead { display: none; }
+  .wb-desk-table tr { display: grid; gap: 2px; min-height: 44px; padding: 8px 12px; border-bottom: var(--pui-border-width) solid var(--pui-border); }
+  .wb-desk-table td { display: block; padding: 0; }
+  .wb-desk-table td:not(.wb-desk-path) { color: var(--pui-text-muted); }
+  .wb-desk-table td:not(.wb-desk-path)::before { content: attr(data-label) ": "; }
+}
+
+/* a decision card (cards.md): the shell and the plan card */
+.wb-card-note { margin: 0; color: var(--pui-text-muted); font-size: 12px; overflow-wrap: anywhere; }
+.wb-card-label { color: var(--pui-text-muted); font-size: 12px; }
+.wb-card-error { font-size: 13px; }
+.wb-card-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+.wb-lobby-working { color: var(--pui-text-muted); font-size: 12px; }
+
+.wb-plan-table .wb-cell-skill { font-family: var(--wb-font-mono); font-size: 11px; }
+.wb-plan-hash-block { display: grid; gap: 4px; }
+.wb-plan-hash {
+  display: block;
+  padding: 8px 10px;
+  border: 1px dashed var(--pui-muted);
+  border-radius: var(--pui-radius);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.wb-plan-text { background-color: var(--wb-raised); border-radius: var(--pui-radius); }
+.wb-plan-body { margin: 0; padding: 8px 12px; font-family: var(--wb-font-mono); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.wb-plan-body { padding: 8px 12px; }
+
+.wb-plan-pre { margin: 0; font-family: var(--wb-font-mono); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.wb-plan-stack { display: none; margin: 0; padding: 0; list-style: none; }
+.wb-plan-stacked { display: grid; gap: 2px; padding: 6px 0; border-bottom: var(--pui-border-width) solid var(--pui-border); }
+.wb-plan-stacked-skill { font-size: 11px; color: var(--pui-text-muted); }
+.wb-plan-stacked-skill code { font-size: 11px; }
+
+@media (max-width: 639px) {
+  .wb-plan-wide { display: none; }
+  .wb-plan-stack { display: grid; }
+}
+
+@media (max-width: 639px) {
+  .wb-card-buttons .pui-btn { flex: 1 1 100%; min-height: 44px; }
+}
+
+@media (min-width: 640px) and (max-width: 899px) {
+  .wb-floor-normal { display: block; height: auto; }
+  .wb-tabpanel { overflow: visible; }
+}
+
+/* --- the Tasks tab (WP-9.16): the groups by state, a row for each task, the paths a done task returned, the runs of an expanded row ---- */
+.wb-tasks-tab { display: grid; gap: 12px; align-content: start; padding: 12px; }
+.wb-tasks-groups { display: grid; gap: 10px; }
+.wb-task-group { border-radius: calc(var(--pui-radius) * 1.5); background-color: var(--wb-sunken); }
+.wb-task-group-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; color: var(--pui-text-muted); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; }
+.wb-task-group-name { flex: 0 1 auto; }
+.wb-task-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.wb-task { display: grid; gap: 4px; padding: 8px 12px; border-top: var(--pui-border-width) solid var(--pui-border); }
+.wb-task-head { display: flex; align-items: center; gap: 8px; }
+.wb-task-toggle { display: flex; flex: 1; align-items: baseline; gap: 8px; min-width: 0; min-height: 0; padding: 2px 0; justify-content: flex-start; text-align: left; white-space: normal; }
+.wb-task-num { flex: none; color: var(--pui-text-muted); font-size: 12px; }
+.wb-task-title { min-width: 0; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.wb-task-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; font-size: 12px; }
+.wb-task-skill { font-size: 11px; overflow-wrap: anywhere; }
+.wb-task-request { min-width: 0; overflow-wrap: anywhere; }
+.wb-task-age { white-space: nowrap; }
+.wb-task-failure { margin: 0; color: var(--wb-ink-error); font-size: 12px; overflow-wrap: anywhere; }
+.wb-task-note { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+.wb-task-paths { padding-top: 2px; }
+.wb-task-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.wb-task-inbox { font-size: 13px; }
+.wb-task-retry { align-self: start; }
+.wb-task-detail { display: grid; gap: 8px; padding-top: 6px; }
+.wb-task-detail[hidden] { display: none; }
+
+@media (max-width: 639px) {
+  .wb-task-group-head, .wb-task-toggle, .wb-task-retry { min-height: 44px; }
+  .wb-task-inbox, .wb-task-request a, .wb-task-paths a { display: inline-flex; align-items: center; min-height: 44px; }
+  .wb-task-toggle { align-items: center; }
+}
+
+/* ADJ-I2: waits, queued lines, the card extras, the image viewer, add a project (A-22 to A-33) */
+.wb-task-waits { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+.wb-task-actions > .wb-task-effect { flex: 1 1 12em; min-width: 0; font-size: 12px; overflow-wrap: anywhere; }
+.wb-task-actions > .wb-task-note { flex: 1 1 12em; min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.wb-current-actions { display: grid; gap: 6px; }
+.wb-other-row { flex-wrap: wrap; }
+.wb-other-row > .wb-task-effect { flex: 1 1 100%; margin: 0; font-size: 12px; }
+.wb-other-row > .wb-task-note { flex: 1 1 100%; margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+
+.wb-waits { display: grid; gap: 6px; padding: 10px 12px; border: var(--pui-border-width) solid var(--pui-warn); border-radius: var(--pui-radius); background-color: var(--wb-sunken); font-size: 12px; }
+.wb-waits-title { font-size: 13px; }
+.wb-waits-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.wb-waits-item { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.wb-waits-label { display: flex; align-items: center; gap: 8px; min-width: 0; cursor: pointer; }
+.wb-waits-task { min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.wb-waits-reasons { min-width: 0; overflow-wrap: anywhere; }
+.wb-waits-list.is-missing .wb-waits-item, .wb-waits-list.is-cycles .wb-waits-item { color: var(--wb-ink-warn); }
+
+.wb-desk-kind { font-size: 12px; }
+
+.wb-route-controls { display: grid; gap: 8px; }
+.wb-route-actions { flex-wrap: wrap; }
+.wb-card-hand { display: grid; gap: 6px; }
+
+/* a file is handed over in two steps (C-17): the chosen name and the button that sends it */
+.wb-hand-step { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.wb-hand-steps:empty { display: none; }
+.wb-hand-chosen { font-family: var(--wb-font-mono); font-size: 12px; overflow-wrap: anywhere; }
+.wb-hand-button { font-size: 12px; }
+.wb-raw-reply .wb-pre { margin: 0 0 8px; }
+.wb-drop-line { margin: 0 0 6px; padding: 6px 8px; border-radius: var(--pui-radius); background-color: var(--wb-sunken); color: var(--wb-ink-warn); font-size: 12px; overflow-wrap: anywhere; }

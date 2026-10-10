@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 import standin_tree as st
+from interface_css import interface_css
 
 INTERFACE = st.REPO / "interface"
 JS = INTERFACE / "js"
@@ -660,7 +661,7 @@ def test_a_script_writes_only_custom_properties_to_an_elements_style():
 
 
 def test_the_stylesheet_derives_the_pages_tokens_from_the_librarys_and_every_icon_it_names_is_a_clean_file():
-    css = (INTERFACE / "style.css").read_text(encoding="utf-8")
+    css = interface_css()
     root = re.search(r":root \{(.*?)\n\}", css, re.S).group(1)
     for name in ("--wb-raised", "--wb-ground", "--wb-sunken", "--wb-shadow-ink", "--wb-elev", "--wb-ink-theme", "--wb-ink-warn", "--wb-tint-selected"):
         assert re.search(rf"{name}:", root), f"{name} is defined on :root"
@@ -668,7 +669,7 @@ def test_the_stylesheet_derives_the_pages_tokens_from_the_librarys_and_every_ico
     # OH-3: the one literal is the brand pair of the primary token (test_interface_files.py keeps that line whole and alone)
     without_brand = re.sub(r"^[ \t]*--pui-theme: light-dark\(#6B4429, #C99A6E\);$", "", css, flags=re.M)
     assert not re.search(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(", without_brand), "no colour literal anywhere in the stylesheet but the brand pair"
-    named = sorted(set(re.findall(r'url\("\./icons/([a-z0-9-]+)\.svg"\)', css)))
+    named = sorted(set(re.findall(r'url\("\.\./icons/([a-z0-9-]+)\.svg"\)', css)))
     classes = sorted(set(re.findall(r"\.wb-icon-([a-z0-9-]+) \{", css)))
     files = sorted(p.stem for p in (INTERFACE / "icons").glob("*.svg"))
     assert named == classes == files, "one class and one file for each icon"
@@ -720,7 +721,7 @@ def test_every_name_the_scene_engine_calls_from_a_sibling_module_is_imported():
 
 def test_the_notice_band_and_the_commands_it_shows_have_no_fixed_height_that_clips_them():
     """The `accept-config` command is copied whole: the band's text, the Floor's notice card and its command wrap, never scroll."""
-    css = (INTERFACE / "style.css").read_text(encoding="utf-8")
+    css = interface_css()
     css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
     seen = set()
     for selector, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):

@@ -11,6 +11,7 @@ import re
 
 import standin_tree as st
 from test_interface_plates_meters import needs_node, run_node
+from interface_css import interface_css
 
 INTERFACE = st.REPO / "interface"
 JS = INTERFACE / "js"
@@ -200,6 +201,6 @@ def test_the_client_names_the_services_route_and_the_page_spells_no_command():
     assert not re.search(r"commands\.\w+\s*\+|\+\s*commands\.|`[^`]*\$\{[^}]*(?:token_file|path)[^}]*\}", prompt), "no path is joined into a command"
     main = (JS / "main.js").read_text(encoding="utf-8")
     assert "tokenFile:" in main and "api.tokenFile" in main, "the page hands the prompt the read"
-    css = (INTERFACE / "style.css").read_text(encoding="utf-8")
+    css = interface_css()
     for name in sorted(set(re.findall(r'"(wb-token-[a-z-]+)"', prompt))):
         assert re.search(r"\." + name + r"(?![\w-])", css), f"{name} is a rule of the stylesheet"

@@ -23,7 +23,7 @@ import { cancelCount } from "./lobby-model.js";
 import { createCancelDialog } from "./lobby-request.js";
 
 export const PLATE_GAP_X = 14;
-export const PLATE_SHIFT = 28;     // the plates stand this far from the column the scene puts them in (style.css: `.wb-plate { margin-left }`), where building.html draws them
+export const PLATE_SHIFT = 28;     // the plates stand this far from the column the scene puts them in (css/building.css: `.wb-plate { margin-left }`), where building.html draws them
 const PHONE_LEVEL = 16;       // the camera buttons stand at least this far from the scene's bottom edge (scene/engine.js)
 const PHONE_TOOLS_H = 44;     // their height and the gap above them: the floor card hangs from there
 const STATE_PATH = "docs/workbench/state.md";

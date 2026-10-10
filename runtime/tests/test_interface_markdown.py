@@ -18,6 +18,7 @@ import pytest
 import standin_tree as st
 import test_interface_floor as floor_tests
 import test_interface_lobby as lobby_tests
+from interface_css import interface_css
 
 INTERFACE = st.REPO / "interface"
 JS = INTERFACE / "js"
@@ -522,11 +523,11 @@ def test_markdown_js_builds_nodes_only_and_nothing_else_in_the_page_renders_mark
 
 
 def test_every_class_markdown_js_builds_is_a_rule_of_the_stylesheet_and_none_sets_a_colour_of_its_own():
-    css = (INTERFACE / "style.css").read_text(encoding="utf-8")
+    css = interface_css()
     classes = set(re.findall(r"\bwb-md[a-z0-9-]*", MARKDOWN.read_text(encoding="utf-8") + (JS / "markdown-view.js").read_text(encoding="utf-8")))
     assert {"wb-md", "wb-md-tools"} <= classes
     for cls in classes:
-        assert re.search(re.escape("." + cls) + r"(?![A-Za-z0-9_-])", css), f".{cls} has no rule in style.css"
+        assert re.search(re.escape("." + cls) + r"(?![A-Za-z0-9_-])", css), f".{cls} has no rule in the stylesheets"
     block = "\n".join(line for line in css.splitlines() if ".wb-md" in line)
     assert not re.search(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(", block), "the renderer's rules use the page's tokens, no colour literal"
     assert "overflow-x" not in block and "scroll" not in block, "code and tables wrap: nothing scrolls sideways"

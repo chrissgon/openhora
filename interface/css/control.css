@@ -1,0 +1,198 @@
+/* control.css: the Control room screen: the 700 px panel, the filters, the tables of Skills, Connections and Costs, the charts and the phone's cards. A package for the Control
+   room edits this file and test_interface_r4_control.py.
+   Linked by index.html in this order: base, frame, token, city, building, floor, lobby, control, then scene.css. A later rule wins a tie, so a rule that overrides one of the same weight stays in the same file as that rule or in a file that loads after it. */
+
+.wb-frame[data-screen="control"] .wb-waiting { width: var(--wb-panel-wide); }   /* R-50: the closed card is as wide as the panel: the two stand as one column */
+.wb-frame[data-screen="control"] .wb-track { display: none; }
+
+@media (max-width: 639px) {
+  .wb-frame[data-screen="control"] .wb-track { display: none; }
+}
+
+/* --- the Control room (WP-9.5, handoff control-room.md): a 700 px panel with a tablist and a scrolling content -------------------
+   DEVIATION-12: the title of a notice that reports an error uses the error colour mixed toward the text, written from tokens.
+   DEVIATION-16: the chart's second series is a mix of the theme with the raised ground, named once. */
+:root {
+  --wb-ink-error: color-mix(in oklab, var(--pui-error), var(--pui-text) 25%);
+  --wb-tint-series: color-mix(in oklab, var(--pui-theme) 45%, var(--wb-raised));
+}
+
+/* a tablet (not drawn, OPEN-12): the wide panel takes what the KPI column leaves, its tables scroll inside their cards */
+@media (min-width: 640px) and (max-width: 1023px) {
+  .wb-frame[data-screen="control"] .wb-panel-wide { width: calc(100vw - var(--wb-kpi-w) - var(--wb-edge) * 3); }
+  .wb-filter-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .wb-filter-body > :last-child { grid-column: 1 / -1; }
+}
+
+/* the band under the header stops short of the wide panel (the frame's own rule leaves room for the narrow one) */
+@media (min-width: 1024px) {
+  .wb-frame[data-screen="control"] .wb-notice-box { right: calc(var(--wb-panel-wide) + var(--wb-edge) * 2); }
+}
+
+.wb-frame[data-screen="control"] .wb-panel-body { display: block; padding: 0; overflow: hidden; }
+.wb-control-body { display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100%; min-height: 0; }
+.wb-control-content { min-height: 0; padding: 14px 16px; overflow-y: auto; }
+.wb-tab-body { display: grid; gap: 12px; grid-auto-rows: max-content; }
+
+.pui-card.wb-sunken-card { border-color: transparent; background-color: var(--wb-sunken); }
+.wb-chip-s { padding: 0 7px; font-size: 11px; }
+.wb-chip-legend { padding: 0 8px; font-size: 12px; }
+.wb-code { font-size: 1em; white-space: normal; overflow-wrap: break-word; }
+.wb-table td[data-label="Class"] .wb-code, .wb-table td[data-label="Name"] .wb-code { white-space: nowrap; overflow-wrap: normal; }
+.wb-table td[data-label="Provider"], .wb-table td[data-label="Status"] { white-space: nowrap; }
+.wb-strong { font-weight: 600; }
+
+.wb-eyebrow { color: var(--pui-text-muted); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }
+.wb-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--pui-text-muted); font-size: 12px; }
+
+/* the filters: a row on desktop, an accordion called "Filters" on a phone */
+.pui-accordion-item.wb-filters, .pui-accordion-item.wb-filters[open] { border-color: transparent; border-radius: 0; background-color: transparent; }
+.wb-filters > summary { display: none; }
+.wb-filter-body { display: grid; grid-template-columns: 160px 160px minmax(0, 1fr); gap: 10px; }
+
+/* tables */
+.pui-table.wb-table { font-size: 13px; }
+.pui-table.wb-table :is(th, td) { padding: 8px 10px; }
+.pui-table.wb-costs-table, .pui-table.wb-chart-table { font-size: 12px; }
+.pui-table.wb-costs-table :is(th, td) { padding: 8px; }
+.pui-table.wb-chart-table :is(th, td) { padding: 4px 8px; }
+.wb-costs-card { overflow-x: auto; }
+.wb-costs-table td:not([data-label="Model"]), .wb-costs-table td[data-label="Adapter"] .wb-code { white-space: nowrap; }
+.pui-table.wb-chart-table tbody th { font-weight: 400; }
+.wb-expander {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.wb-expander .wb-icon { rotate: -90deg; }
+.wb-expander.is-open .wb-icon { rotate: 0deg; }
+.pui-table.wb-table tr.is-open, .pui-table.wb-table tr.wb-detail-row { background-color: var(--wb-raised); }
+.pui-table.wb-table tr.wb-detail-row td { padding: 4px 10px 10px 30px; color: var(--pui-text-muted); font-size: 12px; }
+.wb-detail { display: grid; gap: 2px; }
+.wb-skill-table td:nth-child(n + 6) { white-space: nowrap; }
+.wb-results { display: grid; gap: 10px; }
+.wb-skill-cards { display: none; }
+.wb-skill-table { overflow-x: auto; }
+
+/* a notice, a failed read, the loading line, an empty block */
+.wb-check-notice, .wb-failed {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--pui-error);
+  border-radius: calc(var(--pui-radius) * 1.5);
+  background-color: var(--wb-sunken);
+  font-size: 13px;
+}
+.wb-failed { gap: 2px; }
+.wb-failed-title { color: var(--wb-ink-error); font-weight: 600; }
+.wb-failed-text { font-family: var(--wb-font-mono); font-size: 12px; overflow-wrap: anywhere; }
+.wb-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: calc(var(--pui-radius) * 1.5);
+  background-color: var(--wb-sunken);
+  color: var(--pui-text-muted);
+  font-size: 13px;
+}
+
+.wb-empty-block {
+  padding: 12px 14px;
+  border: 1px dashed var(--pui-border);
+  border-radius: calc(var(--pui-radius) * 1.5);
+  color: var(--pui-text-muted);
+  font-size: 13px;
+}
+
+/* Connections */
+.wb-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.pui-card.wb-info-card { display: grid; gap: 6px; padding: 12px 14px; }
+.wb-info-card.is-wide { grid-column: 1 / -1; gap: 8px; }
+.wb-info-grid.is-stacked { grid-template-columns: minmax(0, 1fr); }
+.wb-info-row { display: flex; align-items: center; gap: 8px; }
+.wb-info-row > :first-child { flex: 1; min-width: 0; }
+.wb-platform { font-size: 13px; }
+.wb-platform-line { display: block; }
+.wb-info-card.is-wide .wb-platform-line { display: inline; }
+.wb-info-card.is-wide .wb-platform-line + .wb-platform-line::before { content: " · "; }
+
+/* Costs */
+.wb-since-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.wb-since { width: 200px; }
+.wb-caps { padding-bottom: 8px; color: var(--pui-text-muted); font-size: 12px; }
+.wb-footnote { font-size: 12px; }
+.pui-card.wb-chart-card { display: grid; gap: 10px; padding: 12px 14px; }
+.wb-chart-head { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.wb-chart-head strong { flex: 1; font-size: 13px; font-weight: 600; }
+.wb-legend-items { display: flex; flex-wrap: wrap; gap: 12px; }
+.wb-legend-item { display: inline-flex; align-items: center; gap: 5px; color: var(--pui-text-muted); font-size: 12px; }
+.wb-swatch { width: 10px; height: 10px; border-radius: 2px; background-color: var(--wb-series); }
+.wb-swatch.wb-series-other { border: 1px solid var(--pui-border); }
+.wb-series-1 { --wb-series: var(--pui-theme); }
+.wb-series-2 { --wb-series: var(--wb-tint-series); }
+.wb-series-3 { --wb-series: var(--pui-muted); }
+.wb-series-other { --wb-series: var(--pui-bg-emphasis); }
+.wb-plot, .wb-plot-labels { display: grid; grid-template-columns: repeat(var(--wb-cols, 7), minmax(0, 1fr)); gap: 14px; padding: 0 4px; }
+.wb-cols-1 { --wb-cols: 1; }
+.wb-cols-2 { --wb-cols: 2; }
+.wb-cols-3 { --wb-cols: 3; }
+.wb-cols-4 { --wb-cols: 4; }
+.wb-cols-5 { --wb-cols: 5; }
+.wb-cols-6 { --wb-cols: 6; }
+.wb-cols-7 { --wb-cols: 7; }
+.wb-plot { align-items: end; height: 130px; border-bottom: var(--pui-border-width) solid var(--pui-border); }
+.wb-col { display: block; width: 100%; height: 100%; }
+.wb-seg { fill: var(--wb-series); stroke: var(--wb-sunken); stroke-width: 1px; vector-effect: non-scaling-stroke; }
+.wb-seg.wb-series-other { stroke: var(--pui-border); }
+.wb-plot-labels { color: var(--pui-text-muted); font-size: 11px; text-align: center; }
+.pui-accordion-item.wb-chart-disclosure { border-radius: var(--pui-radius); background-color: var(--wb-raised); }
+.wb-chart-disclosure > summary { font-size: 12px; }
+
+/* the phone card of a skill (OPEN-31: a details whose summary is the card and whose body holds the two sentences) */
+.pui-accordion-item.wb-skill-card, .pui-accordion-item.wb-skill-card[open] { border-color: transparent; border-radius: var(--pui-radius); background-color: var(--wb-sunken); font-size: 13px; }
+.wb-card-rows { display: grid; flex: 1; gap: 6px; min-width: 0; }
+.wb-card-line { display: flex; align-items: baseline; gap: 8px; }
+.wb-card-line .wb-muted { font-size: 12px; }
+.wb-card-rows > .wb-muted { font-size: 12px; }
+.wb-card-tiers { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px 10px; font-size: 12px; }
+.wb-skill-card .wb-detail { padding: 0 12px 10px; color: var(--pui-text-muted); font-size: 12px; }
+
+@media (max-width: 639px) {
+  .wb-control-content { padding: 12px; }
+  .wb-tab-body { gap: 10px; }
+  .wb-skill-table { display: none; }
+  .wb-skill-cards { display: grid; gap: 10px; }
+  .wb-filters > summary { display: flex; font-size: 13px; }
+  .pui-accordion-item.wb-filters, .pui-accordion-item.wb-filters[open] { border-color: transparent; border-radius: var(--pui-radius); background-color: var(--wb-sunken); }
+  .wb-filter-body { grid-template-columns: minmax(0, 1fr); padding: 0 12px 12px; }
+  .wb-info-grid { grid-template-columns: minmax(0, 1fr); }
+  .wb-since { width: 100%; }
+  .wb-since-row { align-items: stretch; }
+  .wb-caps { padding-bottom: 0; }
+  .wb-plot, .wb-plot-labels { gap: 6px; }
+  /* tables become stacked rows: the heading row is read by a screen reader only, each cell names itself */
+  .wb-stackable thead { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); }
+  .wb-stackable, .wb-stackable tbody { display: block; }
+  .wb-stackable tr { display: grid; gap: 2px; padding: 8px 10px; border-bottom: var(--pui-border-width) solid var(--pui-border); }
+  .pui-table.wb-stackable :is(th, td) { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr); gap: 8px; padding: 2px 0; border: 0; }
+  .wb-stackable td::before { content: attr(data-label); color: var(--pui-text-muted); font-size: 12px; }
+  .pui-table.wb-stackable td[data-label] .wb-code { white-space: normal; overflow-wrap: anywhere; }
+  .pui-table.wb-stackable td[data-label] { white-space: normal; }
+  .wb-stackable td > .wb-chip-s { justify-self: start; }
+}
+
+@media (min-width: 640px) and (max-width: 899px) {
+  .wb-frame[data-screen="control"] .wb-panel-body { overflow: visible; }
+  .wb-control-body { height: auto; }
+  .wb-control-content { overflow: visible; }
+}

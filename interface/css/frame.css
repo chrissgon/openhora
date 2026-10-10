@@ -1,0 +1,535 @@
+/* frame.css: the frame every screen stands in. The top row and the switcher, the KPI column, the camera buttons, the dock (Back, the crumbs, the tracking bar), "Waiting for you",
+   the panel shell, the command panel, the phone's bottom bar and sheet, and the layouts of the narrower bands. A rule that serves one screen only is in the file of that screen.
+   Linked by index.html in this order: base, frame, token, city, building, floor, lobby, control, then scene.css. A later rule wins a tie, so a rule that overrides one of the same weight stays in the same file as that rule or in a file that loads after it. */
+
+/* --- the frame (F-1 to F-9): desktop, every part placed over the scene -------------------------------------------------------- */
+.wb-app { min-height: 100dvh; }
+
+.wb-frame {
+  position: relative;
+  height: 100dvh;
+  overflow: hidden;
+  background-color: var(--wb-ground);
+  font-size: 13px;
+}
+
+.wb-frame.is-stale .wb-kpis, .wb-frame.is-stale .wb-waiting, .wb-frame.is-stale .wb-track { opacity: 0.6; }
+
+/* A-16: the configuration is not accepted; the last data read stays, dimmed, and the band on top says why. The band is never dimmed; the City
+   dims its cards and its bar only (its other buildings stay clickable); a project's screens also dim the scene (no pointer actions) and the panel. */
+.wb-frame.is-unaccepted .wb-kpis, .wb-frame.is-unaccepted .wb-track { opacity: 0.55; }
+.wb-frame.is-unaccepted:not([data-screen="city"]) .wb-panel { opacity: 0.55; }
+.wb-frame.is-unaccepted:not([data-screen="city"]) .wb-scene { opacity: 0.55; pointer-events: none; }
+
+.wb-scene-area { position: absolute; inset: 0; }
+.wb-scene { position: absolute; inset: 0; }
+.wb-canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }   /* a drag on the ground pans: the page does not scroll from here */
+.wb-canvas.is-pointer { cursor: pointer; }
+.wb-canvas.is-dragging { cursor: grabbing; }
+.wb-canvas:focus-visible { outline: 2px solid var(--pui-theme); outline-offset: -2px; }
+.wb-scene-fallback {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  translate: -50% -50%;
+  max-width: 32rem;
+  padding: 0 16px;
+  color: var(--pui-text-muted);
+  text-align: center;
+}
+.wb-overlay { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+
+/* the camera's buttons (zoom in, zoom out, fit): the HTML equivalent of the wheel, the pinch and the double click */
+/* R-9: a column at the left, under the KPI cards, on every screen; the frame writes where the last card ends as --wb-cam-top (frame.js) */
+.wb-camera-tools { position: absolute; top: var(--wb-cam-top, calc(var(--wb-kpi-top) + 150px)); left: var(--wb-edge); z-index: 2; display: flex; flex-direction: column; gap: 4px; }
+.wb-camera-btn { padding: 8px; background-color: var(--wb-raised); box-shadow: var(--wb-elev); }
+.wb-frame.no-scene .wb-camera-tools { display: none; }
+
+/* labels over the canvas: their position is two custom properties written by the scene */
+.wb-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  translate: var(--wb-x, 0px) var(--wb-y, 0px);
+  transform: translate(-50%, -100%);
+  white-space: nowrap;
+}
+.wb-label.is-culled { visibility: hidden; }
+
+.wb-tooltip.pui-tooltip {
+  position: absolute;
+  inset: 0 auto auto 0;
+  position-area: none;
+  position-try-fallbacks: none;
+  translate: var(--wb-x, 0px) var(--wb-y, 0px);
+  z-index: 5;
+  margin: 0;
+  box-shadow: var(--wb-elev);
+  white-space: nowrap;
+}
+
+/* the top row (R-1): 56 px high with no strip behind it. At the left the brand, in one raised box; at the right, in this order, the project switcher, the
+   colour-mode button and the door, each a raised control of its own on the scene. */
+.wb-topbar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: var(--wb-bar-h);
+  padding: 0 var(--wb-edge);
+  pointer-events: none;
+}
+.wb-topbar > * { pointer-events: auto; }
+.wb-topbar-end { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.wb-topbar .wb-brand { gap: 8px; padding: 5px 14px 5px 8px; border: var(--pui-border-width) solid var(--pui-border); border-radius: var(--pui-radius); background-color: var(--wb-raised); box-shadow: var(--wb-elev); }
+.wb-topbar .wb-wordmark { font-size: 1.25rem; }
+
+/* Back and the crumbs (R-2): docked at the bottom left, above the tracking bar (they share one box, .wb-dock, so the bar's height never has to be measured) */
+.wb-dock {
+  position: absolute;
+  right: calc(var(--wb-wait-w) + var(--wb-edge) * 2);
+  bottom: var(--wb-edge);
+  left: var(--wb-edge);
+  z-index: 2;
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  pointer-events: none;
+}
+.wb-dock > * { pointer-events: auto; }
+.wb-dock > .wb-track { justify-self: stretch; }
+.wb-navdock { max-width: 100%; }
+.wb-nav { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.wb-back { min-height: var(--wb-control-h); padding: 8px; background-color: var(--wb-raised); box-shadow: var(--wb-elev); }
+.wb-crumb-nav {
+  display: flex;
+  align-items: center;
+  min-height: var(--wb-control-h);
+  padding: 0 12px;
+  border: var(--pui-border-width) solid var(--pui-border);
+  border-radius: var(--pui-radius);
+  background-color: var(--wb-raised);
+  box-shadow: var(--wb-elev);
+  font-size: var(--pui-font-size);
+  min-width: 0;
+}
+.wb-crumbs { display: flex; align-items: center; gap: 6px; margin: 0; padding: 0; list-style: none; white-space: nowrap; min-width: 0; }
+.wb-crumb-item { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.wb-crumb { color: var(--pui-text-muted); text-decoration: none; }
+a.wb-crumb:hover { text-decoration: underline; }
+.wb-crumb.is-current { color: var(--pui-text); font-weight: 600; }
+.wb-crumb-sep { color: var(--pui-text-muted); }
+
+/* OH-3: the mark (js/brand.js): 28 px in the top row, 24 px in the token prompt's bar. The size is the img's own attributes. */
+.wb-mark { display: block; flex: none; }
+.wb-brand { display: flex; align-items: center; gap: 12px; }
+.wb-wordmark { font-family: var(--wb-font-brand); font-size: 1.5rem; font-weight: 500; line-height: 1.25; letter-spacing: -0.02em; }   /* 500 is the one weight of the face: a heavier request would be drawn faux bold */
+
+.wb-switcher { position: relative; }
+.wb-switch-group { border-radius: var(--pui-radius); box-shadow: var(--wb-elev); }
+.wb-switch-group > .pui-btn { min-height: var(--wb-control-h); background-color: var(--wb-raised); }
+
+/* R-3: the project's name gives way with an ellipsis before the icons do; the swap icon keeps a clear space to the right */
+.wb-switch-group { max-width: 100%; min-width: 0; }
+.wb-switch-main { gap: 8px; min-width: 0; max-width: 22rem; padding-right: 12px; }
+.wb-switch-main.is-label { cursor: default; pointer-events: none; }   /* with one project (or none) the main button is a label: nothing to cycle to */
+.wb-switch-main .wb-icon { color: var(--wb-ink-theme); }
+.wb-switch-name { flex: 0 1 auto; min-width: 0; overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.wb-switch-pos { color: var(--pui-text-muted); font-size: 12px; }
+.wb-switch-main > .wb-icon, .wb-switch-pos, .wb-switch-swap { flex: none; }
+.wb-switch-swap { display: inline-flex; margin-left: 4px; }
+.wb-switch-swap .wb-icon { color: var(--pui-text-muted); }
+.wb-switch-main:hover .wb-switch-swap .wb-icon { color: var(--wb-ink-theme); }
+.wb-switch-chevron { padding: 8px; }
+.wb-switch-chevron.is-open { background-color: var(--wb-ground); }
+.wb-listbox-card {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 6;
+  width: max-content;
+  min-width: var(--wb-listbox-min);
+  max-width: min(22rem, calc(100vw - 32px));
+  box-shadow: var(--wb-elev);
+}
+.wb-listbox-head { padding: 8px 12px; font-size: 12px; }
+.wb-listbox { padding: 4px; list-style: none; }
+.wb-listbox:focus-visible { outline: none; }
+.wb-option { display: grid; grid-template-columns: minmax(0, 1fr) auto 24px; align-items: center; gap: 8px; cursor: pointer; }
+.wb-option.is-selected, .pui-list.pui-hoverable > .wb-option.is-selected:hover { background-color: var(--pui-bg-emphasis); }   /* R-3 */
+.wb-option.is-active { box-shadow: inset 0 0 0 2px var(--pui-theme); }
+.wb-check:not(.is-on) { visibility: hidden; }
+.wb-check { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: var(--pui-radius); }   /* R-3: the check in a soft success box at the end of the row */
+.wb-option-text { display: grid; min-width: 0; }
+.wb-option-name { font-weight: 600; overflow-wrap: anywhere; }
+.wb-option-sub { color: var(--pui-text-muted); font-size: 12px; }
+.wb-listbox-foot { display: grid; gap: 2px; padding: 4px; border-top: var(--pui-border-width) solid var(--pui-border); }
+.wb-foot-row { justify-content: flex-start; gap: 8px; width: 100%; padding: 6px 12px; font-size: 13px; }   /* R-3, A-35: a row with an icon; the two that remove are .pui-error */
+.wb-foot-sep { height: 0; margin: 2px 0; border-top: var(--pui-border-width) solid var(--pui-border); }
+.wb-listbox-empty { padding: 8px 12px; }
+
+/* the colour-mode button (R-4): one control in the top row (the bottom bar's first row on a phone); the icon of the chosen mode shows (js/frame/mode-button.js) */
+.wb-mode-btn { width: var(--wb-control-h); min-height: var(--wb-control-h); padding: 0; background-color: var(--wb-raised); box-shadow: var(--wb-elev); }
+.wb-mode-icon { display: none; line-height: 0; }
+.wb-mode-btn[data-choice="system"] .wb-mode-icon[data-icon="system"], .wb-mode-btn[data-choice="light"] .wb-mode-icon[data-icon="light"],
+.wb-mode-btn[data-choice="dark"] .wb-mode-icon[data-icon="dark"] { display: inline-flex; }
+
+/* the door (top row) and the inbox button (a phone's bottom bar) */
+.wb-door, .wb-wait-btn { min-height: var(--wb-control-h); gap: 8px; background-color: var(--wb-raised); box-shadow: var(--wb-elev); }
+.wb-door.is-selected { background-color: var(--wb-tint-selected); border-color: var(--pui-theme); }
+.wb-wait-menu-wrap { position: relative; }
+.wb-wait-btn .wb-icon { color: var(--wb-ink-warn); }
+.wb-wait-btn { display: none; }        /* R-7: only a phone has the inbox button; elsewhere the card at the bottom right is the list */
+
+/* KPI cards (F-3) */
+.wb-kpis {
+  position: absolute;
+  top: var(--wb-kpi-top);
+  left: var(--wb-edge);
+  z-index: 2;
+  display: grid;
+  gap: 10px;
+  width: var(--wb-kpi-w);
+}
+.wb-kpi {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  box-shadow: var(--wb-elev);
+}
+.wb-kpi > .wb-kpi-tile { width: 40px; height: 40px; }
+
+.wb-kpi-body { display: grid; min-width: 0; }
+.wb-kpi-label { color: var(--pui-text-muted); font-size: 11px; line-height: 1.3; }
+.wb-kpi-short { display: none; }   /* the tablet layout shows the short form of a card's label */
+.wb-kpi-row { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.wb-kpi-figure { font-size: 17px; font-weight: 600; line-height: 1.15; }
+.wb-kpi-unit { overflow: hidden; color: var(--pui-text-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+
+.wb-kpi-note { font-size: 11px; line-height: 1.3; }
+.wb-kpi-note:empty { display: none; }
+
+/* the bottom sheet's handle and the City's sheet wrapper: a phone's (the phone block below); elsewhere the handle is not drawn and the wrapper takes no box */
+.wb-grip { display: none; }
+.wb-city-drawer, .wb-drawer-scroll, .wb-float { display: contents; }
+
+/* the main area: where a screen puts its panel; on desktop its children are placed over the scene */
+.wb-main { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.wb-main > * { pointer-events: auto; }
+
+.wb-notice-box { position: absolute; top: var(--wb-kpi-top); left: calc(var(--wb-kpi-w) + var(--wb-edge) + 12px); right: calc(var(--wb-wait-w) + var(--wb-edge) * 2); max-width: 620px; z-index: 4; }   /* R-11: beside the KPI column; the round's page draws it 620 px wide */
+.wb-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 14px;
+  border: var(--pui-border-width) solid var(--pui-border);
+  border-radius: calc(var(--pui-radius) * 1.5);
+  background-color: var(--wb-raised);
+  box-shadow: var(--wb-elev);
+  font-size: 13px;
+}
+
+/* R-11: an error notice is the library's soft style in the error colour, no line round it; it floats over the scene, so its tint is mixed into the raised
+   surface (opaque) and the drawing does not show through */
+.wb-notice.is-error.pui-soft { border-color: transparent; background-color: color-mix(in oklab, var(--pui-color) 15%, var(--wb-raised)); color: var(--wb-ink-error); }
+.wb-notice.is-error.pui-soft :is(.wb-notice-text, .wb-command-sentence) { color: var(--pui-text); }      /* the service's sentence is plain text; the lead and the command carry the ink */
+.wb-notice-lead { flex: 1 1 100%; margin: 0; font-weight: 600; }
+.wb-notice-text { flex: 1 1 16rem; margin: 0; overflow-wrap: anywhere; }   /* no fixed height: the accept-config command is copied whole */
+
+.wb-empty { margin: 0; padding: 12px 16px; color: var(--pui-text-muted); font-size: 13px; }
+.wb-empty-card { position: absolute; top: 50%; left: 42%; translate: -50% -50%; max-width: 26rem; box-shadow: var(--wb-elev); }   /* centred on what the cards leave free, as the page draws it */
+
+/* "Waiting for you" (F-4, R-7): the card at the bottom right of every screen, 380 px. Open on the City; on a project's screens closed on its header line, and a
+   click opens it upward (it stands on the bottom edge and grows up). A row: the title with the kind badge after it, the place under it, the age and a chevron. */
+.wb-waiting {
+  position: absolute;
+  right: var(--wb-edge);
+  bottom: var(--wb-edge);
+  z-index: 3;
+  width: var(--wb-wait-w);
+  box-shadow: var(--wb-elev);
+}
+.wb-wait-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: var(--pui-border-width) solid var(--pui-border);
+}
+.wb-wait-toggle { width: 100%; border-width: 0 0 var(--pui-border-width); background-color: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.wb-waiting.is-collapsed .wb-wait-toggle { border-bottom-width: 0; }
+.wb-wait-heading { font-size: 15px; }
+.wb-wait-up { display: inline-flex; margin-left: auto; color: var(--pui-text-muted); }
+.wb-wait-list { display: grid; gap: 2px; max-height: 300px; margin: 0; padding: 6px; overflow-y: auto; list-style: none; }
+.wb-wait-item { padding: 0; }
+.wb-wait-row {
+  display: grid;
+  grid-template-columns: minmax(0, auto) auto minmax(0, 1fr) auto 14px;
+  grid-template-areas: "title kind . age chev" "where where where age chev";
+  align-items: center;
+  row-gap: 2px;
+  column-gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--pui-radius);
+  color: inherit;
+  text-decoration: none;
+}
+.wb-wait-row.no-chevron { grid-template-columns: minmax(0, auto) auto minmax(0, 1fr) auto; grid-template-areas: "title kind . age" "where where where age"; }
+.wb-wait-kind { grid-area: kind; justify-self: start; }
+.wb-wait-title { grid-area: title; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.wb-wait-where { grid-area: where; overflow: hidden; color: var(--pui-text-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.wb-wait-age { grid-area: age; justify-self: end; color: var(--pui-text-muted); font-size: 12px; }
+.wb-wait-chev { grid-area: chev; display: inline-flex; color: var(--pui-text-muted); }
+
+/* the panel shell (F-7) */
+.wb-panel {
+  position: absolute;
+  top: var(--wb-kpi-top);
+  right: var(--wb-edge);
+  bottom: calc(var(--wb-edge) + var(--wb-wait-closed));   /* R-7, R-27: down to the closed "Waiting for you" */
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: var(--wb-panel-narrow);
+  box-shadow: var(--wb-elev);
+}
+.wb-panel-wide { width: var(--wb-panel-wide); }
+
+.wb-panel-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: var(--pui-border-width) solid var(--pui-border); }
+.wb-panel-titles { display: grid; min-width: 0; }
+.wb-panel-title { font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
+.wb-panel-sub { color: var(--pui-text-muted); font-size: 12px; overflow-wrap: anywhere; }
+.wb-panel-body { display: grid; gap: 10px; align-content: start; grid-auto-rows: max-content; padding: 12px; overflow-y: auto; }
+
+/* the tracking bar (F-6) */
+.wb-track { box-shadow: var(--wb-elev); }     /* R-8: at the bottom left beside "Waiting for you", in the dock (.wb-dock) under Back and the crumbs */
+.wb-track-desktop { display: grid; grid-template-columns: minmax(0, 1fr) var(--wb-side-card); }
+.wb-track-phone { display: none; }
+.wb-track-left { display: grid; gap: 8px; min-width: 0; padding: 12px 16px; }
+.wb-track-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.wb-track[hidden] { display: none; }
+
+/* the request selector: the number as a chip that opens a list of the open requests, with a previous and a next button */
+.wb-req-select { position: relative; display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.wb-req-chip { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; min-height: 24px; font-size: 12px; font-weight: 600; }
+.wb-req-step { display: inline-flex; align-items: center; justify-content: center; padding: 0; width: 24px; min-height: 24px; }
+.wb-req-menu {
+  position: fixed;   /* the bar clips what overflows it: the list is placed over the page from the chip's own box */
+  top: 0;
+  left: 0;
+  translate: var(--wb-x, 0px) var(--wb-y, 0px);
+  transform: translate(0, -100%);
+  z-index: 5;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);   /* one column that the box limits: a long title never widens it (the rows would reach their text's width) */
+  gap: 2px;
+  min-width: 18rem;
+  max-width: min(28rem, 90vw);   /* a long title is cut with an ellipsis (its whole text is the tooltip) */
+  max-height: min(calc(6 * var(--wb-req-row) + 5 * 2px + 8px), 60vh);   /* about six rows, then the list scrolls */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  align-content: start;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--pui-border);
+  border-radius: calc(var(--pui-radius) * 1.5);
+  background-color: var(--wb-raised);
+  box-shadow: var(--wb-elev);
+}
+.wb-req-menu[hidden] { display: none; }
+.wb-req-option { display: flex; align-items: center; gap: 8px; width: 100%; min-height: var(--wb-req-row); padding: 6px 8px; border: 0; border-radius: var(--pui-radius); background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.wb-req-option:hover, .wb-req-option.is-selected { background-color: var(--wb-sunken); }
+.wb-req-option-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-req-option-state { color: var(--pui-text-muted); font-size: 11px; white-space: nowrap; }
+.wb-track-title { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-track-project { flex: none; white-space: nowrap; }      /* R-8: the followed project is a badge after the title */
+.wb-track-count { margin-left: auto; color: var(--pui-text-muted); font-size: 12px; white-space: nowrap; }
+.wb-steps { margin: 0; padding: 0; list-style: none; }
+.wb-step { min-width: 0; gap: 6px; }
+.wb-step-text { display: grid; min-width: 0; color: inherit; text-decoration: none; }
+.wb-step-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; font-size: 13px; font-weight: 600; line-height: 1.3; }
+.wb-step-sub { overflow: hidden; color: var(--pui-text-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.pui-checkpoint-icon.is-running { border-width: 2px; }
+.wb-now {
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 12px 16px;
+  border-left: var(--pui-border-width) solid var(--pui-border);
+  background-color: var(--wb-ground);
+}
+.wb-now-where { color: var(--pui-text-muted); font-size: 12px; }
+.wb-now-title { overflow: hidden; color: var(--pui-text); font-size: 15px; font-weight: 600; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+a.wb-now-title:hover { text-decoration: underline; }
+.wb-now-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.wb-now-sub { color: var(--pui-text-muted); font-size: 12px; }
+
+/* --- tablet width: the 1280 arrangement, scaled; the specification's tablet layout was not drawn (OPEN-12). Round 4 does not draw it either (R4D-6): the frame keeps its
+   places and the parts take the narrower widths. -------------------------------------------------------------------------------------------------------------- */
+@media (max-width: 1023px) {
+  :root { --wb-wait-w: min(340px, 36vw); --wb-panel-narrow: min(380px, 42vw); --wb-side-card: 220px; }
+}
+
+/* --- phone width: the scene is the background of the whole upper part of the page; the KPI row and the tracking bar float over it, bottom-aligned
+   just above the panel, and the panel is a bottom sheet with three positions (A-27, A-28). No rule here gives the scene a height: it takes what
+   the bottom bar leaves, and the camera is fitted (the engine measures the rectangles, frame.insets) in what the cards and the sheet leave. ----- */
+@media (max-width: 639px) {
+  /* R-10: the scene above, the bottom bar of two rows under it; no top row (its controls are in the bottom bar, the brand is the favicon: D-3) */
+  .wb-frame { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+  .wb-topbar, .wb-dock { display: none; }
+  .wb-scene-area { position: relative; inset: auto; grid-area: 1 / 1; overflow: hidden; }
+
+  /* the main area is laid over the scene's cell: a stack from the top down (a notice, the tracking bar and the two KPI tiles), the sheet at the bottom */
+  .wb-main { position: relative; inset: auto; grid-area: 1 / 1; z-index: 2; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .wb-float { display: flex; flex: none; flex-direction: column; gap: 6px; padding: 8px 8px 0; pointer-events: none; }
+  .wb-float > * { pointer-events: auto; }
+  .wb-frame.is-sheet-full .wb-float, .wb-frame.is-sheet-rising .wb-float { display: none; }
+  .wb-main > .wb-empty-card, .wb-notice-box {
+    position: static; flex: none; width: auto; height: auto; max-width: none; translate: none; margin: 8px 8px 0; overflow: visible; clip-path: none;
+  }
+  .wb-main > .wb-waiting { display: none; }     /* the inbox button of the bottom bar opens the list (the City's sheet holds it as its own part) */
+  .wb-track { position: static; flex: none; }
+  .wb-track-desktop { display: none; }
+  .wb-track-phone { display: grid; gap: 2px; padding: 6px 12px; }
+  .wb-track-open { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; justify-content: start; align-items: center; width: 100%; min-width: 0; padding: 0; text-align: left; white-space: normal; }
+  .wb-dots { display: flex; align-items: center; gap: 8px; }
+  .wb-dots .pui-checkpoint-icon { position: relative; }
+  .wb-dots .pui-checkpoint-icon + .pui-checkpoint-icon::before { content: ""; position: absolute; top: 50%; right: 100%; width: 8px; border-top: var(--pui-border-width) solid var(--pui-border); }
+  .wb-track-now-text { display: grid; min-width: 0; text-align: left; }
+  .wb-track-now-text > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }   /* one line each: the bar is a strip over the scene, not a card to read */
+  .wb-camera-tools { left: 8px; }
+
+  /* the KPI row: two tiles, one line each in 12 px; the meter is a thin line along the tile's foot */
+  .wb-kpis { position: static; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; width: auto; }
+  .wb-kpi { position: relative; display: block; padding: 8px 10px 10px; overflow: hidden; font-size: 12px; }
+  .wb-kpi-tile { display: none; }
+  .wb-kpi-body { display: flex; align-items: baseline; gap: 4px; min-width: 0; white-space: nowrap; }
+  .wb-kpi-label, .wb-kpi-figure, .wb-kpi-unit { font-size: 12px; line-height: 1.3; }
+  .wb-kpi-label { flex: none; }
+  .wb-kpi-long { display: none; }
+  .wb-kpi-short { display: inline; }
+  .wb-kpi-row { gap: 4px; }
+  .wb-kpi-note, .wb-kpi-unit { display: none; }   /* the sentence with the cap is the tile's title and name; a tile that cut it mid-word said less */
+  .wb-meter { position: absolute; right: 0; bottom: 0; left: 0; height: 3px; margin: 0; border-radius: 0; }
+
+  /* the bottom sheet: the panel of a screen (or the City's two lists) with a handle at its top. Its position is a class: collapsed (the header line
+     only), half (the default) or full (it covers the scene). A drag writes its height as one custom property while it lasts. */
+  .wb-grip {
+    position: absolute; top: 0; right: 0; left: 0; z-index: 1; display: flex; align-items: center; justify-content: center;
+    height: var(--wb-grip-h); padding: 0; border: 0; background-color: transparent; color: inherit; cursor: grab; touch-action: none;
+  }
+  .wb-grip-bar { width: 40px; height: 4px; border-radius: 9999px; background-color: var(--pui-muted); }
+  .wb-frame .wb-main > .wb-drawer {
+    position: relative; inset: auto; flex: none; width: auto; max-width: none; height: auto; margin: auto 0 0; padding-top: var(--wb-grip-h);
+    border-width: var(--pui-border-width) 0 0; border-radius: calc(var(--pui-radius) * 2) calc(var(--pui-radius) * 2) 0 0; overflow: hidden; z-index: 3;
+  }
+  .wb-frame .wb-main > .wb-drawer.is-half { height: var(--wb-drawer-half); }
+  .wb-frame .wb-main > .wb-drawer.is-full { flex: 1 1 0; height: auto; min-height: 0; }
+  .wb-frame .wb-main > .wb-drawer.is-dragging { flex: none; height: var(--wb-drawer-drag, auto); }
+  .wb-drawer .wb-panel-head, .wb-wait-head { touch-action: none; user-select: none; }
+  .wb-drawer .wb-panel-head { padding-top: 6px; }
+  .wb-drawer.is-dragging .wb-panel-head { cursor: grabbing; }
+  .wb-panel-wide, .wb-panel { width: auto; }
+
+  /* collapsed: the header line only (a panel's head; the City's two lists keep their heads) */
+  .wb-drawer.is-collapsed:not(.is-dragging) > :not(.wb-grip, .wb-panel-head, .wb-floor-normal, .wb-drawer-scroll) { display: none; }
+  .wb-drawer.is-collapsed:not(.is-dragging) .wb-floor-normal > :not(.wb-panel-head) { display: none; }
+  .wb-drawer.is-collapsed:not(.is-dragging) .wb-wait-body > :not(.wb-wait-head) { display: none; }
+}
+
+@media (max-width: 639px) {
+  .wb-wait-head { padding: 11px 14px; }
+  .wb-wait-list { max-height: none; }
+
+  /* the bottom bar (R-10), visible whatever the sheet's position: row one the switcher, the inbox button and the colour-mode button; row two Back, the crumbs and the door */
+  .wb-bottom-bar { position: relative; z-index: 4; display: grid; gap: 6px; padding: 8px 12px 10px; border-top: var(--pui-border-width) solid var(--pui-border); background-color: var(--wb-raised); }
+  .wb-bottom-row { display: flex; align-items: stretch; gap: 8px; min-width: 0; }
+  .wb-bottom-bar .pui-btn { min-height: var(--wb-control-h); }
+  .wb-bottom-bar .wb-switcher { flex: 1 1 auto; min-width: 0; }
+  .wb-bottom-bar .wb-switch-group { display: flex; width: 100%; box-shadow: none; }
+  .wb-bottom-bar .wb-switch-main { flex: 1 1 auto; justify-content: flex-start; min-width: 0; max-width: none; }
+  .wb-bottom-bar .wb-switch-swap { margin-left: auto; padding-left: 4px; }
+  .wb-bottom-bar .wb-back, .wb-bottom-bar .wb-door, .wb-bottom-bar .wb-wait-btn, .wb-bottom-bar .wb-mode-btn { box-shadow: none; }
+  .wb-bottom-bar .wb-wait-btn { display: inline-flex; gap: 6px; padding: 0 10px; }
+  .wb-bottom-bar .wb-nav { flex: 1 1 auto; min-width: 0; }
+  .wb-bottom-bar .wb-crumb-nav { flex: 1 1 auto; min-width: 0; overflow: hidden; box-shadow: none; font-size: 13px; }
+  .wb-crumbs { overflow: hidden; }
+  .wb-crumb-item { overflow: hidden; text-overflow: ellipsis; }
+  .wb-crumb-item:last-child { flex: none; font-weight: 600; }
+  .wb-door-label { display: none; }
+  .wb-listbox-card { top: auto; bottom: calc(100% + 6px); right: -12px; left: -12px; width: auto; max-width: none; }
+  .wb-listbox .wb-option { min-height: 44px; }
+  .wb-sheet-body .wb-wait-row { min-height: 56px; }
+}
+
+@media (max-width: 1023px) {
+  :root { --wb-card-w: 250px; --wb-plate-w: 250px; }
+}
+
+/* --- the Lobby (handoff lobby.md, cards.md): the panel with its tabs, the conversation, the cards and the composer ----------------- */
+.wb-panel-lobby { width: var(--wb-panel-lobby); }
+
+@media (max-width: 1023px) {
+  :root { --wb-panel-lobby: min(420px, 46vw); }
+}
+
+/* --- the in-between layout (WP-9.11; the specification's tablet layout, OPEN-12, built): 640 to 1099 px ------------------------------
+   The top row, the KPI column, the dock and the card keep the places of the desktop (R4D-6: round 4 does not draw this band); the door is an icon, the
+   plates keep the name and the meters, the tracking bar scrolls sideways, and the panel is 340 px, as wide as "Waiting for you" under it. The scene is fitted
+   in what none of them covers (the engine measures the rectangles, frame.insets). */
+@media (min-width: 640px) and (max-width: 1099px) {
+  :root { --wb-panel-narrow: 340px; --wb-wait-w: 340px; --wb-side-card: 220px; --wb-plate-w: 230px; --wb-card-w: 250px; --wb-panel-lobby: 340px; }
+  .wb-door-label { display: none; }
+  .wb-door { padding: 8px 10px; gap: 6px; }
+  .wb-crumb-nav { max-width: 22rem; overflow: hidden; }
+  .wb-crumbs { overflow: hidden; }
+  .wb-crumb-item { overflow: hidden; text-overflow: ellipsis; }
+  .wb-track-left .wb-steps { overflow-x: auto; }
+  .wb-track-left .wb-step { flex: 0 0 9rem; }
+}
+
+/* below 900 px the scene would get less than 40 percent of the width beside a 340 px panel and the plates: the panel docks below the scene */
+@media (min-width: 640px) and (max-width: 899px) {
+  :root { --wb-dock-h: 34dvh; }
+  .wb-frame { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, var(--wb-dock-h)) auto; grid-template-areas: "scene" "content" "track"; }
+  .wb-scene-area { position: relative; inset: auto; grid-area: scene; overflow: hidden; }
+  .wb-main { position: static; z-index: auto; grid-area: content; display: grid; align-content: start; gap: 12px; padding: 0 var(--wb-edge) var(--wb-edge); overflow-y: auto; pointer-events: auto; }
+  .wb-main > .wb-waiting, .wb-main > .wb-panel, .wb-main > .wb-empty-card, .wb-notice-box,
+  .wb-drawer-scroll > .wb-waiting {
+    position: static; width: auto; height: auto; max-width: none; translate: none; margin: 0; overflow: visible; clip-path: none;
+  }
+
+  /* the docked band: every panel is as wide as the page. This rule is here and not in frame.css because it must come after the width of .wb-panel-lobby above (a rule of the same weight that comes later wins) */
+  .wb-panel-wide, .wb-panel, .wb-panel-lobby { width: auto; }
+  .wb-wait-list { max-height: none; }
+  .wb-dock { position: static; grid-area: track; padding: 0 var(--wb-edge) var(--wb-edge); }
+  .wb-panel-floor, .wb-panel-building { height: auto; }
+}
+
+@media (min-width: 640px) and (max-width: 899px) {
+  .wb-frame[data-screen="lobby"] .wb-main > .wb-panel-lobby { height: auto; min-height: 30rem; }
+}
+
+.wb-add-project { display: grid; gap: 8px; padding: 8px; border-top: var(--pui-border-width) solid var(--pui-border); min-width: 0; }
+.wb-add-project[hidden] { display: none; }
+.wb-add-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.wb-add-form { display: grid; gap: 8px; min-width: 0; }
+
+/* the command panel the switcher's "Add a project..." and "Leave this project..." open (A-35): the existing panel in a card of the frame, with its Close */
+.wb-cmd-panel { position: absolute; top: var(--wb-kpi-top); right: calc(var(--wb-edge) * 4); z-index: 6; width: 420px; max-height: 560px; overflow: auto; box-shadow: var(--wb-elev); }
+.wb-cmd-panel .wb-add-head { padding: 12px 16px; border-bottom: var(--pui-border-width) solid var(--pui-border); }
+.wb-cmd-panel .wb-add-form { padding: 12px; gap: 12px; }
+
+/* the phone's part of the round-4 components, after their rules above so that it is the one that applies (a rule of an earlier phone block would lose to them) */
+@media (max-width: 639px) {
+  .wb-cmd-panel { position: fixed; top: auto; right: 8px; bottom: 96px; left: 8px; width: auto; max-height: 60dvh; }
+}

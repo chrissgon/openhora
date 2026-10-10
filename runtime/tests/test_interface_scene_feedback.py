@@ -20,6 +20,7 @@ import pytest
 import standin_tree as st
 from test_interface_floor import FAKE_DOM
 from test_interface_scene_round3 import WORLD_JS
+from interface_css import interface_css
 
 INTERFACE = st.REPO / "interface"
 JS = INTERFACE / "js"
@@ -154,7 +155,7 @@ def test_the_engine_moves_the_camera_on_demand_only_and_offers_the_buttons_the_k
     assert "loop.requestRender()" in set_view and "requestAnimationFrame" not in engine.replace("raf: (fn) => requestAnimationFrame(fn)", ""), \
         "a camera change asks for one frame; there is no loop for it"
     assert 'tabindex: "0"' in engine and 'role: "img"' in engine, "the canvas can have the focus for the keys"
-    css = (INTERFACE / "style.css").read_text(encoding="utf-8")
+    css = interface_css()
     assert "touch-action: none" in css and ".wb-camera-tools" in css and ".wb-canvas:focus-visible" in css
     for name in ("plus", "maximize", "minus"):
         assert (INTERFACE / "icons" / f"{name}.svg").is_file()
@@ -512,7 +513,7 @@ def test_the_request_selector_opens_a_list_chooses_steps_both_ways_and_the_bar_h
     for needle in ('"aria-haspopup": "listbox"', 'role: "listbox"', 'role: "option"', '"ArrowDown"', '"ArrowUp"', '"Escape"', "focusout"):
         assert needle in track, f"track.js: {needle} (keyboard path of the selector)"
     assert "model.chooseRequest" in (JS / "main.js").read_text(encoding="utf-8") and "resetRequestChoices()" in (JS / "main.js").read_text(encoding="utf-8")
-    css = (INTERFACE / "style.css").read_text(encoding="utf-8")
+    css = interface_css()
     assert ".wb-track[hidden]" in css and ".wb-req-menu" in css and "position: fixed" in css
 
 
@@ -703,7 +704,7 @@ def test_the_citys_card_shows_its_theme_border_only_for_a_project_the_person_has
     # (C-7: the card is measured again when it opens, since a quiet project's dot is another size; the condition itself is the same)
     assert 'const open = Boolean(entry.spec.selected) || entry.spec.id === hoverId || (Boolean(content) && entry.spec.id === content.marked);' in engine and 'classList.toggle("is-selected", open)' in engine, "hovered, followed or chosen by the route"
     assert engine.count("markLabels();") >= 3, "marked on every hover change, build and relabel"
-    css = (INTERFACE / "style.css").read_text(encoding="utf-8")
+    css = interface_css()
     assert ".wb-pill.is-selected" in (INTERFACE / "scene.css").read_text(encoding="utf-8") and "wb-camera-bottom" not in css and "156px" not in css.split(".wb-camera-tools")[1].split("}")[0]
     assert 'tools.style.setProperty("--wb-y"' in engine and "insets.bottom" in engine, "the buttons sit above the bar by the height the frame measured"
     assert "translate: 0 calc(0px - var(--wb-y" in css

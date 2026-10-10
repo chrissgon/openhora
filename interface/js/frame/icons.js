@@ -1,4 +1,4 @@
-// Icons: a span drawn with a CSS mask from a file of interface/icons/ (style.css has one rule per name). Decorative: the
+// Icons: a span drawn with a CSS mask from a file of interface/icons/ (css/base.css has one rule per name). Decorative: the
 // control or text beside it carries the name.
 
 import { h } from "../dom.js";

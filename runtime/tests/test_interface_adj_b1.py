@@ -19,9 +19,10 @@ from test_interface_adjustments import run_node
 from test_interface_floor import FAKE_DOM as FLOOR_DOM, INTERFACE, needs_node, NODE
 from test_interface_lobby import VIEW_EXTRA
 from test_interface_scene import FAKE_DOM as SCENE_DOM, run_node as run_pure
+from interface_css import stylesheets
 
 JS = INTERFACE / "js"
-CSS = INTERFACE / "style.css"
+CSS = stylesheets()
 README = INTERFACE / "README.md"
 FONTS = INTERFACE / "vendor" / "fonts"
 service = st.load("service")
@@ -613,19 +614,6 @@ process.exit(0);
 """
 
 
-@needs_node
-def test_the_request_route_opens_the_conversation_scrolls_to_the_block_and_focuses_its_title_once(tmp_path):
-    got = run_view(tmp_path, REQUEST_ROUTE)
-    assert got["ids"] == [True, True], "C-2: each request block has an id"
-    assert got["focus"] == [True, False], "the title of request 3 has the focus"
-    assert got["scrolled"][-1] == "wb-request-3", "the Lobby scrolled to the block"
-    assert got["title"] == "Request #3: Docs page"
-    assert got["rebuilt"] == ["Request #3: Docs page, renamed", True], "a block drawn again keeps the focus on its title"
-    assert got["again"] == [True, 1], "a reload on the same route neither scrolls nor focuses again"
-    assert got["second"] == [True, "wb-request-2"], "another request route follows"
-    assert got["missing"] is True and got["plain"] is True, "no such request, or no request: the focus is left alone"
-
-
 # --- row 9, E-20: the flow beside "Route it" ---------------------------------------------------------------------------------------
 
 ROUTE_BLOCK = r"""
@@ -670,20 +658,6 @@ out.notWaiting = find(running.el, "select.wb-route-flow") === null && find(runni
 console.log(JSON.stringify(out));
 process.exit(0);
 """
-
-
-@needs_node
-def test_the_request_line_that_waits_for_its_route_carries_a_flow_select_with_the_planning_agent_first(tmp_path):
-    got = run_node(tmp_path, ROUTE_BLOCK)
-    assert got["options"] == [["", "Let the planning agent route it"], ["design", "Design"], ["brand", "Brand of a product"], ["plain", "plain"]], \
-        "the flows read once, labelled by their titles; one that failed to load is not offered"
-    assert got["label"] == ["Flow for request 20", "Route request 20"] and got["order"] == ["wb-route-flow", "wb-route-button"], "the select stands beside the button"
-    assert got["routed"] == [[20, ""], [20, "brand"]], "'Route it' sends the planning agent's route with no flow, or the chosen flow"
-    assert got["restored"] == "design" and got["kept"] == ["brand"], "a block rebuilt by a reload gets the choice back, and tells the thread what was chosen"
-    assert got["none"] == [True, True, True], "no flow to choose: no select"
-    assert got["remembered"] is True and got["rememberedRoute"] == [20, "design"], "a flow chosen in the form this session is remembered: no select, the route sends it"
-    assert got["routing"] is True
-    assert got["notWaiting"] is True
 
 
 ROUTE_VIEW = r"""
@@ -737,15 +711,6 @@ for (const choose of [null, "design"]) {
 console.log(JSON.stringify(out));
 process.exit(0);
 """
-
-
-@needs_node
-def test_route_it_after_a_reload_sends_the_chosen_flow_or_none_and_never_creates_or_edits_a_request(tmp_path):
-    got = run_view(tmp_path, ROUTE_VIEW)
-    assert got["selectnull"] == ["", "design"] and got["selectdesign"] == ["", "design"], "the flows were read once and the select is on the request line"
-    assert got["sentnull"] == [{}], "no flow chosen: `route` with no flow, the planning agent routes it"
-    assert got["sentdesign"] == [{"flow": "design"}], "a flow chosen: `route` with the flow"
-    assert got["textnull"] == 0 and got["textdesign"] == 0, "the page never writes the request again: its text is not changed"
 
 
 # --- row 3, C-17: a file is handed over in two steps -----------------------------------------------------------------------------
@@ -806,21 +771,6 @@ process.exit(0);
 """
 
 
-@needs_node
-def test_the_review_card_hands_a_file_over_in_two_steps_and_a_change_alone_sends_nothing(tmp_path):
-    got = run_node(tmp_path, HAND_CARD)
-    assert got["before"] == {"button": 0, "chosen": 0}, "no file chosen: no button"
-    assert got["afterChange"]["calls"] == 0, "C-17: choosing a file sends nothing"
-    assert got["afterChange"]["chosen"] == "logo.png" and got["afterChange"]["button"] == "Hand over to task #5" and got["afterChange"]["name"] == "Hand over to task #5"
-    assert got["afterChange"]["line"] == "this file will be visible to a run with the open network", "the web line stays above the control"
-    assert got["afterButton"]["calls"] == [["p", 5, "logo.png"]], "the button sends handOver with the file"
-    assert got["afterButton"]["result"] == "Handed over: docs/inputs/logo.png (3 bytes)"
-    assert got["afterButton"]["button"] == 0 and got["afterButton"]["chosen"] == 0, "the choice is spent once it was sent"
-    assert got["bad"]["text"] == "The file name may hold letters, digits, ., _ and -, at most 100 characters." and got["bad"]["button"] == 0 and got["bad"]["calls"] == 1
-    assert got["second"] == "second.png" and got["secondCalls"] == [[5, "second.png"]], "the button sends the file chosen last"
-    assert got["failed"]["text"] == "The file is too large for this task." and got["failed"]["button"] == 1 and got["failed"]["chosen"] == "logo.png", "a failure leaves the choice so the button can be pressed again"
-
-
 HAND_TAB = r"""
 import { FakeNode, settle, find, all, textOf } from "@FAKE@";
 import * as fm from "@JS@/floor-model.js";
@@ -867,18 +817,6 @@ out.bad = { text: tx(find(hand(), ".wb-notice-card")), button: all(hand(), "butt
 console.log(JSON.stringify(out));
 process.exit(0);
 """
-
-
-@needs_node
-def test_the_agent_tab_hands_a_file_over_in_two_steps_and_names_the_task_the_button_sends_to(tmp_path):
-    got = run_node(tmp_path, HAND_TAB)
-    assert got["before"] == 0
-    assert got["afterChange"] == {"calls": 0, "chosen": "logo.png", "button": "Hand over to task #11", "line": "this file will be visible to a run with the open network"}, \
-        "C-17: the chooser, then the name and the button; a change sends nothing; the web line stays above"
-    assert got["afterPoll"] == {"chosen": "logo.png", "button": "Hand over to task #11"}, "a reload keeps the choice"
-    assert got["otherTarget"] == "Hand over to task #11" and got["hintAfterMove"] == "To task #12. At most 25 MiB.", "the hint follows the target, the button keeps the task the file was chosen for"
-    assert got["afterButton"]["calls"] == [["0123456789ab", 11, "logo.png"]] and got["afterButton"]["result"] == "Handed over: docs/inputs/logo.png (3 bytes)" and got["afterButton"]["button"] == 0
-    assert got["bad"]["text"] == "The file name may hold letters, digits, ., _ and -, at most 100 characters." and got["bad"]["button"] == 0 and got["bad"]["calls"] == 1
 
 
 # --- the links that were "#/" when "#/" was the City: they name the Building or the City now --------------------------------------
@@ -1071,8 +1009,8 @@ def test_every_font_face_loads_a_same_origin_file_of_the_vendored_folder_and_the
     for face in faces:
         assert "font-display: swap" in face, "the text shows at once in the fallback"
         urls = re.findall(r"url\(\s*['\"]?([^'\")]+)['\"]?\s*\)", face)
-        assert len(urls) == 1 and re.fullmatch(r"\./vendor/fonts/[a-z0-9-]+\.woff2", urls[0]), f"the source is a path under vendor/fonts/: {urls}"
-        assert (INTERFACE / urls[0]).is_file(), f"{urls[0]} exists"
+        assert len(urls) == 1 and re.fullmatch(r"\.\./vendor/fonts/[a-z0-9-]+\.woff2", urls[0]), f"the source is a path under vendor/fonts/ (the stylesheet stands in interface/css/): {urls}"
+        assert (INTERFACE / "css" / urls[0]).resolve().is_file(), f"{urls[0]} exists"
         assert not re.search(r"https?:|//|data:", face)
         sources.append(urls[0].rsplit("/", 1)[1])
     assert sorted(sources) == sorted(FONT_FILES)

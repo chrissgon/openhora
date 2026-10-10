@@ -1,6 +1,6 @@
 // The owl of the scene (R-41, R4D-2): the brand mark's own drawing as flat meshes, in the mark's fixed palette. The palette
 // below is the one place where this scene holds a colour literal: it is the brand's drawing, not the interface's (round 4, the brand's
-// exception to "no colour literal"; the same rule keeps the brand pair in `style.css`). Everything else in the scene is a token or a mix.
+// exception to "no colour literal"; the same rule keeps the brand pair in `css/base.css`). Everything else in the scene is a token or a mix.
 //
 // This module holds the owl's parts as data and builds them as flat shapes with `svgpath.js`; no texture, no HTML. The City's shadow (R-19) takes
 // the owl's outline from it; the rooms (R-41) take the three poses, each a list of parts back to front: waiting (it faces the person, one wing raised),

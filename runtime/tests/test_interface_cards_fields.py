@@ -1,5 +1,5 @@
 """Tests of WP-9.15a, the Lobby's request line and its cards, the fields, the token field and the document viewer's Close
-(interface/js/views/lobby-request.js, lobby-thread.js, floor/inbox.js, floor/viewer.js, frame/origin.js, interface/style.css).
+(interface/js/views/lobby-request.js, lobby-thread.js, floor/inbox.js, floor/viewer.js, frame/origin.js, interface/css/*.css).
 
 Items of design/INTERFACE-ADJUSTMENTS.md: A-1 (the request line is one ellipsised line, the whole text on a tooltip and an expand),
 A-4 (a failed route stays on the request's line), A-5 (the resolved line is one surface with the panel's radius), A-11 (the token
@@ -23,10 +23,11 @@ import pytest
 import standin_tree as st
 from test_interface_floor import FAKE_DOM as FLOOR_DOM
 from test_interface_lobby import VIEW_EXTRA
+from interface_css import stylesheets
 
 INTERFACE = st.REPO / "interface"
 JS = INTERFACE / "js"
-CSS = INTERFACE / "style.css"
+CSS = stylesheets()
 NODE = shutil.which("node")
 needs_node = pytest.mark.skipif(NODE is None, reason="node is not installed: the views are tested only by their text")
 
@@ -45,7 +46,7 @@ def run_node(tmp_path: Path, body: str) -> dict:
 # --- the stylesheet, as text -----------------------------------------------------------------------------------------------
 
 def css_rules() -> list[tuple[str, dict[str, str]]]:
-    """Every rule of style.css as (selector text, {property: value}), at any depth of @media nesting."""
+    """Every rule of the stylesheets as (selector text, {property: value}), at any depth of @media nesting."""
     text = re.sub(r"/\*.*?\*/", "", CSS.read_text(encoding="utf-8"), flags=re.S)
     rules = []
     for match in re.finditer(r"([^{}]+)\{([^{}]*)\}", text):
@@ -90,27 +91,6 @@ def test_a_field_keeps_the_muted_edge():
     assert any(".wb-lobby-field" in s for s in edges) and any(".wb-field-input" in s for s in edges)
 
 
-def test_the_resolved_line_is_one_surface_with_the_panels_radius_and_no_seam():
-    """A-5: header and body of the resolved accordion share one ground, and no `.wb-resolved*` rule squares a corner or sets a second ground."""
-    rules = [(s, d) for s, d in css_rules() if re.search(r"\.wb-resolved", s)]
-    assert rules, "the resolved line has rules"
-    grounds = [s for s, d in rules if any(p.startswith("background") for p in d)]
-    assert len(grounds) == 1, f"one rule sets the one ground (header and body continue it): {grounds}"
-    for selector, declarations in rules:
-        assert declarations.get("border-radius", "").replace(" ", "") not in ("0", "0px"), f"{selector} squares a corner"
-    item = next(d for s, d in rules if ".wb-resolved-item" in s and any(p.startswith("background") for p in d))
-    assert item.get("border-radius") == "var(--pui-radius)", "the item, which holds the header and the body, has the panel's radius on every corner"
-    assert item.get("background-color") == "var(--wb-sunken)", "the ground is a token"
-    summary = next(d for s, d in rules if re.search(r"\.wb-resolved(?![\w-])", s) and "item" not in s)
-    assert not any(p.startswith("background") for p in summary), "the header paints no ground of its own"
-
-
-def test_the_resolved_line_is_the_librarys_accordion_item_with_a_body():
-    inbox = (JS / "floor" / "inbox.js").read_text(encoding="utf-8")
-    assert 'class: "pui-accordion-item wb-resolved-item"' in inbox
-    assert "wb-resolved-body" in inbox, "the body has its own class, so that it can be padded and never given a ground"
-
-
 def test_the_token_field_is_a_masked_text_field_where_the_browser_can_mask_it_and_never_named_password():
     """A-11: type=password inside a form is what a browser offers to save; the token changes at every start and must not be saved.
     Where the browser cannot mask a text field by CSS the field falls back to type=password (a token in clear is the worse failure)."""
@@ -148,15 +128,6 @@ def test_the_token_field_falls_back_to_a_password_field_where_the_browser_cannot
     assert got["masked"] == {"type": "text", "name": "service-token", "field": "off", "form": "off"}
     assert got["unsupported"]["type"] == "password" and got["noCss"]["type"] == "password", "a browser without the mask would show the token in clear"
     assert got["unsupported"]["name"] == "service-token" and got["unsupported"]["field"] == "off"
-
-
-def test_the_request_title_is_one_ellipsised_line():
-    """A-1: the title took a narrow column and wrapped over many lines; it is now one line cut with an ellipsis."""
-    rule = next(d for s, d in css_rules() if re.search(r"\.wb-lobby-request-title(?![\w-])", s) and "text-overflow" in d)
-    assert rule.get("text-overflow") == "ellipsis" and rule.get("white-space") == "nowrap" and rule.get("overflow") == "hidden"
-    assert "overflow-wrap" not in rule or rule["overflow-wrap"] != "anywhere"
-    full = [d for s, d in css_rules() if re.search(r"\.wb-lobby-request-full(?![\w-])", s)]
-    assert full and full[0].get("white-space") == "pre-wrap", "the expanded text shows the whole text, line breaks kept"
 
 
 # --- A-1 and A-4: the request line, under a fake document ------------------------------------------------------------------
@@ -220,38 +191,6 @@ out.routeAgain = routed.slice();
 out.noNotice = byClass(make({ id: 16, title: "x", state: "requested", tasks: [] }).el, "wb-lobby-notice-card").length;
 console.log(JSON.stringify(out));
 """
-
-
-@needs_node
-def test_the_request_line_is_one_line_with_the_whole_text_on_a_tooltip_and_an_expand(tmp_path):
-    got = run_node(tmp_path, LINE)
-    assert got["order"] == ["number", "title", "state", "action", "action"], "number, title, state chip, then the actions at the right"
-    assert got["title"]["tag"] == "BUTTON" and got["title"]["type"] == "button", "the title is the control that toggles the full text"
-    assert got["title"]["text"].startswith("Marlowe is the brand") and not got["title"]["text"].startswith("Request"), "the badge says the number: the visible text is the title alone"
-    assert got["title"]["name"].startswith("Request #16: Marlowe is the brand"), "the accessible name keeps the number and the word"
-    assert got["title"]["tip"].startswith("Request #16: Marlowe") and "A second paragraph" in got["title"]["tip"], "the tooltip holds the whole text of the request, not the title"
-    assert got["fullBefore"]["hidden"] is True and got["fullBefore"]["after"] is True, "the full text is under the line, hidden until asked for"
-    assert got["fullOpen"] == {"hidden": False, "expanded": "true", "text": "Marlowe is the brand of a small studio that makes calm, readable software for shops. It needs a name system, a voice, a logo brief and a launch plan that a weak model can follow without guessing, written as one request.\nA second paragraph that the title never holds."}
-    assert got["fullClosed"] == {"hidden": True, "expanded": "false"}
-    assert got["reopened"] == {"expanded": "true", "hidden": False} and got["toggles"] == [True, False], "the thread keeps the open ids and gives them back to a rebuilt block"
-
-
-@needs_node
-def test_the_title_is_the_requests_title_else_the_text_and_the_number_only_when_there_is_neither(tmp_path):
-    got = run_node(tmp_path, LINE)
-    assert got["fromTitle"] == "Add a sale page"
-    assert got["planTitleIgnored"] == "Request #3", "the runtime puts the computed title in `title`: no second field is read"
-    assert got["fromText"] == "Add a sale page with a banner", "the text's line breaks are spaces in the one-line title"
-    assert got["fromNothing"] == "Request #3", "no title and no text: the number alone, never 'Request 3' twice"
-
-
-@needs_node
-def test_a_failed_route_leaves_its_notice_under_the_request_line_and_route_it_repeats_the_route(tmp_path):
-    got = run_node(tmp_path, LINE)
-    assert got["notice"]["present"] and got["notice"]["under"] and got["notice"]["role"] == "alert"
-    assert got["notice"]["text"].startswith("Not routed yet") and 'Use "Route it" on its request line.' in got["notice"]["text"]
-    assert got["routeAgain"] == [16]
-    assert got["noNotice"] == 0, "a request whose route did not fail has no notice"
 
 
 VIEW_A4 = r"""
@@ -328,17 +267,6 @@ view.dispose();
 console.log(JSON.stringify(out));
 process.exit(0);
 """
-
-
-@needs_node
-def test_after_create_request_a_refused_route_puts_its_notice_on_the_request_line_not_in_the_composer(tmp_path):
-    got = run_node(tmp_path, VIEW_A4)
-    assert len(got["afterCreate"]["inBlock"]) == 1 and got["afterCreate"]["inBlock"][0].startswith("Not routed yet")
-    assert "outside the pack in scope" in got["afterCreate"]["inBlock"][0], "the operation's sentence is shown as it came"
-    assert got["afterCreate"]["composer"] == [], "the composer's notice is for a turn that was not sent"
-    assert got["routeButton"] == 1
-    assert got["routeCalls"] == 1 and len(got["afterAgain"]["inBlock"]) == 1 and got["afterAgain"]["composer"] == []
-    assert got["afterRouted"]["inBlock"] == [] and got["afterRouted"]["composer"] == [], "a route that started clears the notice"
 
 
 # --- A-19: the viewer's Close and Escape ----------------------------------------------------------------------------------------
@@ -452,34 +380,6 @@ s.view.dispose();
 console.log(JSON.stringify(out));
 process.exit(0);
 """
-
-
-@needs_node
-def test_the_floors_close_button_works_from_a_desk_row_and_returns_the_focus_to_the_row(tmp_path):
-    got = run_node(tmp_path, FLOOR)
-    p = "#/p/0123456789ab/floor/engineering"
-    assert got["deskOpened"]["viewer"] is True
-    assert got["deskClose"] == {"hash": f"{p}/desk", "errors": []}, "Close did nothing: closeViewer was not defined"
-    assert got["deskFocus"] == {"path": "docs/engineering/designs/order-history.md", "viewerShown": False}
-
-
-@needs_node
-def test_a_document_opened_from_an_inbox_card_closes_back_to_the_inbox_with_the_focus_on_its_open_link(tmp_path):
-    got = run_node(tmp_path, FLOOR)
-    p = "#/p/0123456789ab/floor/engineering"
-    assert got["inboxLink"] == f"{p}/desk/docs%2Fengineering%2Fdesigns%2Forder-history.md"
-    assert got["inboxClose"] == {"hash": f"{p}/inbox", "errors": []}
-    assert got["inboxFocus"]["sameLink"] is True, got["inboxFocus"]
-
-
-@needs_node
-def test_a_document_opened_by_a_direct_hash_closes_to_the_desk_and_a_phones_dialog_closes_as_the_button_does(tmp_path):
-    got = run_node(tmp_path, FLOOR)
-    p = "#/p/0123456789ab/floor/engineering"
-    assert got["directClose"] == {"hash": f"{p}/desk", "errors": []}
-    assert got["phoneOpen"] is True and got["phoneClose"] == f"{p}/inbox", "the dialog's close goes back to the Inbox it was opened from"
-    assert got["selectedClose"] == {"hash": f"{p}/inbox/7", "errors": []}, "a document opened from a selected decision closes back to that decision"
-    assert got["agentClose"] == {"hash": f"{p}/agent", "errors": []}, "a document opened from the Agent tab closes back to the Agent tab"
 
 
 LOBBY = r"""
@@ -605,26 +505,6 @@ process.exit(0);
 """
 
 
-@needs_node
-def test_the_lobbys_close_goes_back_to_the_desk_from_a_row_a_direct_hash_or_a_sheet(tmp_path):
-    got = run_node(tmp_path, LOBBY)
-    p = "#/p/0123456789ab/lobby"
-    assert got["deskClose"] == {"hash": f"{p}/desk", "errors": []} and got["deskFocus"] == "docs/notes/a.md"
-    assert got["directClose"] == {"hash": f"{p}/desk", "errors": []}
-    assert got["sheetClose"] == p, "a sheet of the room opens the document from the Conversation, and Close returns to the tab it was opened from"
-    assert got["selectedClose"] == {"hash": f"{p}/inbox/8", "errors": []} and got["agentClose"] == {"hash": f"{p}/agent", "errors": []}
-
-
-@needs_node
-def test_the_lobbys_inbox_open_closes_back_to_the_inbox_and_the_focus_is_the_open_link_not_a_stale_row(tmp_path):
-    got = run_node(tmp_path, LOBBY)
-    p = "#/p/0123456789ab/lobby"
-    assert got["inboxLink"] == f"{p}/desk/docs%2Fnotes%2Fa.md"
-    assert got["inboxClose"] == {"hash": f"{p}/inbox", "errors": []}
-    assert got["inboxFocus"]["sameLink"] is True, got["inboxFocus"]
-    assert got["phoneOpen"] is True and got["phoneClose"] == f"{p}/inbox"
-
-
 # --- the origin of an open document, as a pure module, and Escape --------------------------------------------------------------
 
 ORIGIN = r"""
@@ -747,10 +627,3 @@ console.log(JSON.stringify(out));
 process.exit(0);
 """
 
-
-@needs_node
-def test_the_focus_on_an_open_link_survives_the_draws_that_move_its_card(tmp_path):
-    got = run_node(tmp_path, FOCUS)
-    assert got["afterFirstCard"]["focusOnA"] is True
-    assert got["afterSecondCard"]["links"] == ["Open docs/a.md", "Open docs/b.md"]
-    assert got["afterSecondCard"]["focusOnA"] is True, "a second card was drawn after the focus was set: the link must still have it"

@@ -13,8 +13,9 @@ import subprocess
 
 from test_interface_adjustments import FAKE_EXTRA  # what the Lobby's modules use
 from test_interface_floor import FAKE_DOM, INTERFACE, needs_node, NODE
+from interface_css import stylesheets
 
-CSS = INTERFACE / "style.css"
+CSS = stylesheets()
 JS = INTERFACE / "js"
 
 SCRIPT = r"""

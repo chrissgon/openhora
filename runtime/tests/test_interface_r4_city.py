@@ -14,9 +14,10 @@ from test_interface_adj_b1 import run_scene_dom
 from test_interface_floor import INTERFACE, needs_node
 from test_interface_phone_sheet import media_blocks, rules, without_media
 from test_interface_plates_meters import run_node
+from interface_css import interface_css
 
 JS = INTERFACE / "js"
-CSS = (INTERFACE / "style.css").read_text(encoding="utf-8")
+CSS = interface_css()
 PHONE = "\n".join(media_blocks(CSS, "max-width: 639px"))
 DOCKED = "\n".join(media_blocks(CSS, "min-width: 640px) and (max-width: 899px"))
 TOP = without_media(CSS)

@@ -16,9 +16,10 @@ from test_interface_floor import INTERFACE, needs_node
 from test_interface_live import VIEW_HEAD
 from test_interface_phone_sheet import media_blocks, rules, without_media
 from test_interface_plates_meters import run_node
+from interface_css import interface_css
 
 JS = INTERFACE / "js"
-CSS = (INTERFACE / "style.css").read_text(encoding="utf-8")
+CSS = interface_css()
 PHONE = "\n".join(media_blocks(CSS, "max-width: 639px"))
 TOP = without_media(CSS)
 
