@@ -17,7 +17,6 @@ import "./control-scene.js";
 import { createSkillsTab } from "./control-skills.js";
 
 const AGE_MS = 30000;      // the Skills and Connections tabs are read again, on a change or on opening, when their data is this old
-const SUBTITLE = "Skills, costs and connections of this machine";
 
 /** The text of a failure: the service's own message for a refusal, the client's sentence for a lost connection. */
 export function messageOf(error) {
@@ -25,11 +24,11 @@ export function messageOf(error) {
 }
 
 /**
- * Create the Control room in `frame`. Returns {el, update({loaded, known, accepted, projectId, tab}), dispose()}.
+ * Create the Control room in `frame`. Returns {el, update({loaded, known, accepted, projectId, projectName, tab}), dispose()}.
  * loaded: the page has read the project list once; known: the project exists; accepted: its configuration is accepted.
  */
 export function createControlView(frame) {
-  const panel = createPanel({ screen: "control", title: "Control room", subtitle: SUBTITLE, icon: "server", width: "wide" });
+  const panel = createPanel({ screen: "control", title: "Control room", subtitle: model.subtitleOf("skills", ""), icon: "server", width: "wide" });
   panel.el.classList.add("wb-control");
   const skills = createSkillsTab();
   const costs = createCostsTab({ onSince: (text) => readCosts(text) });
@@ -74,6 +73,7 @@ export function createControlView(frame) {
   observer.observe(frame.noticeBox);
 
   let projectId = null;
+  let projectName = "";
   let tab = "skills";
   let shown = "skills";     // the tab whose panel is on show, so that a newly chosen one starts at its top
   let disposed = false;
@@ -99,12 +99,20 @@ export function createControlView(frame) {
       connections: loads.connections.status === "ready" ? loads.connections.data : null,
       costs: sceneCosts,
       tab,
+      failed: loads.connections.status === "failed",   // B3-5: a failed read keeps the open tab's object marked, as the page draws it
     });
     engine.show("server", sceneModel, sceneModel.label);
   }
 
+  /** The line under the title follows the tab (E-10): the project's for Skills and Costs, the machine's for Connections. */
+  function setSub() {
+    const words = model.subtitleOf(tab, projectName);
+    if (panel.sub.textContent !== words) panel.sub.textContent = words;
+  }
+
   function select(id) {
     tab = id;
+    setSub();
     for (const [name, button] of buttons) {
       const on = name === id;
       button.setAttribute("aria-selected", String(on));
@@ -220,6 +228,7 @@ export function createControlView(frame) {
     /** state: {loaded, known, accepted, projectId, tab, reload}; called on every render, so it only reconciles; when `reload` moves the store changed. */
     update(state) {
       projectId = state.projectId;
+      projectName = typeof state.projectName === "string" ? state.projectName : "";
       const wanted = model.tabOf(state.tab);
       const changed = wanted !== tab;
       let next = null;
@@ -231,6 +240,8 @@ export function createControlView(frame) {
       if (!same || changed) {
         tab = wanted;
         render();
+      } else {
+        setSub();   // the project's name may have arrived with this update
       }
       const moved = reloaded !== null && state.reload !== reloaded && state.accepted !== false;
       reloaded = state.reload;
