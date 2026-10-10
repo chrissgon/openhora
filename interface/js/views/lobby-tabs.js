@@ -1,13 +1,15 @@
-// The Lobby panel's tab list (design system "Tabs"): Conversation, Inbox with a count, Desk, Agent. The URL names the tab, so a tab
-// is a button that sets the hash; Left and Right move to the next tab, Home and End jump to the first and the last.
+// The Lobby panel's tab list (R-43): a segmented control that fills the panel's width in equal parts, in the regular weight: Conversation, Inbox with a
+// count, Tasks, Desk, Agent. The URL names the tab, so a tab is a button that sets the hash; Left and Right move to the next tab, Home and End jump to
+// the first and the last. The list stands in a bar (`bar`) with a line under it, which the screen hides with the list when a document takes the panel.
 
 import { h } from "../dom.js";
 import * as router from "../router.js";
 import { TABS } from "./lobby-model.js";
 
-/** Create the tab list. Returns {el, set({project, selected, counts}), panelId(id)}. */
+/** Create the tab list. Returns {el, bar, set({project, selected, counts}), setHidden(on), panelId(id), tabId(id)}. */
 export function createTabs() {
   const el = h("div", { class: "wb-lobby-tabs", role: "tablist", "aria-label": "Lobby" });
+  const bar = h("div", { class: "wb-lobby-tabbar" }, el);
   const buttons = new Map();
   let project = null;
   const panelId = (id) => `wb-lobby-panel-${id}`;
@@ -39,8 +41,13 @@ export function createTabs() {
 
   return {
     el,
+    bar,
     panelId,
     tabId,
+    setHidden(on) {
+      bar.hidden = Boolean(on);
+      el.hidden = Boolean(on);
+    },
     /** counts: {inbox: n}; a count of 0 is not drawn. */
     set({ project: id, selected, counts }) {
       project = id;

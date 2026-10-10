@@ -1,6 +1,6 @@
-// The Lobby (handoff lobby.md): the planning agent's floor. A room (lobby-scene.js) beside a 420 px panel whose Conversation tab
+// The Lobby (handoff lobby.md): the planning agent's floor. A room (lobby-scene.js) beside a 380 px panel (R-43) whose Conversation tab
 // holds the messages, each request's line and its decisions (the plan card under the message that produced it), and at the bottom
-// the "New request" disclosure and the composer. The page decides nothing: it sends what the person typed (`say`, or `request`
+// the composer with "New request" beside "Send"; that button puts the form in the place of the thread and the composer (R-44). The page decides nothing: it sends what the person typed (`say`, or `request`
 // then `route`), reads `conversation` and `task` and draws what came. The conversation is read every 2 seconds while a job of
 // this screen runs, never while the document is hidden, and again, with the request bodies, the documents and the planning agent's
 // task bodies, whenever the page reloads because the store changed (the stamp `reload` of what `update` is given). The Inbox, Desk and Agent tabs are the
@@ -25,7 +25,7 @@ import { createForm } from "./lobby-form.js";
 import { createLobbyInbox } from "./lobby-inbox.js";
 import {
   NOT_ACCEPTED_TEXT, QUEUED_NOTICE, cancelCount, canvasLabel, hasQueued, inboxParts, isNamed, lobbyDecisions, mergeMessages, noticeFor, notRoutedNotice, placeBlocks,
-  pollInterval, readAfter, roomModel, runningTask, signatureOf, tabOf, wantedBodies,
+  RESOLVED_LINES, inboxBodies, pollInterval, readAfter, roomModel, runningTask, signatureOf, tabOf, wantedBodies,
 } from "./lobby-model.js";
 import { createCancelDialog } from "./lobby-request.js";
 import { mountLobbyScene } from "./lobby-scene.js";
@@ -33,6 +33,8 @@ import { createTabs } from "./lobby-tabs.js";
 import { createThread } from "./lobby-thread.js";
 import * as model from "../model.js";
 import { worldModel } from "../world-model.js";
+
+const RETRY_READ_MS = 60000;      // a read of the commands or the flows that failed is tried again after a minute
 
 /**
  * Create the Lobby of `project` in `frame`. options: {project, onChanged(): Promise (the page reads the project again)}.
@@ -55,6 +57,10 @@ export function createLobbyView(frame, { project, onChanged }) {
   let timer = null;
   let readingConversation = false;
   let flowsAsked = false;
+  let commandsAsked = false;
+  let commandsFailedAt = 0;           // a read that failed is tried again after RETRY_READ_MS, not on every update
+  let flowsFailedAt = 0;
+  let formOpen = false;               // the "New request" form stands in the place of the thread and the composer (R-44); its draft stays in its fields
   let flows = null;                   // the project's flows, read once: the form's select and the one beside "Route it" after a reload (E-20)
   let requestFollowed = null;         // the request whose route was followed (scrolled to, title focused); forgotten when the route names none
   let accepted = true;
@@ -68,7 +74,7 @@ export function createLobbyView(frame, { project, onChanged }) {
   let changes = 0;                    // how many times it moved: a read that began before the last move is not fresh when it ends
 
   // --- the pieces ---------------------------------------------------------------------------------------------------------
-  const panel = createPanel({ screen: "lobby", title: "Lobby · Planning agent", subtitle: "", icon: "message-square", tone: "theme", width: "lobby" });
+  const panel = createPanel({ screen: "lobby", title: "Planning agent", subtitle: "Lobby · floor 0", icon: "message-square", tone: "theme", width: "lobby" });
   panel.el.classList.add("wb-panel-lobby");
   const tabs = createTabs();
   const refresh = async () => {
@@ -83,7 +89,8 @@ export function createLobbyView(frame, { project, onChanged }) {
     onRoute: (request, flow) => routeAgain(request, flow), announce: (text) => frame.announce(text),
   });
   const waiting = h("p", { class: "wb-empty wb-lobby-waiting", hidden: true, text: NOT_ACCEPTED_TEXT });
-  const conversationPanel = h("div", { class: "wb-lobby-tabpanel", role: "tabpanel", id: tabs.panelId("conversation"), "aria-labelledby": tabs.tabId("conversation") }, waiting, thread.el);
+  const form = createForm({ onCreate: (values) => create(values), onBack: () => closeForm() });
+  const conversationPanel = h("div", { class: "wb-lobby-tabpanel", role: "tabpanel", id: tabs.panelId("conversation"), "aria-labelledby": tabs.tabId("conversation") }, waiting, thread.el, form.el);
   // the Inbox, Desk and Agent tabs: the Floor's modules with the planning agent (lobby-inbox.js, lobby-desk.js, lobby-agent.js)
   const waitingLine = () => h("p", { class: "wb-empty-line wb-lobby-waiting", hidden: true, text: NOT_ACCEPTED_TEXT });
   const inbox = createLobbyInbox({ project, now: () => new Date(), refresh: () => { refresh(); } });
@@ -100,14 +107,12 @@ export function createLobbyView(frame, { project, onChanged }) {
   for (const [id, part] of Object.entries(sections)) {
     tabPanels[id] = h("div", { class: "wb-lobby-tabpanel wb-lobby-scroll", role: "tabpanel", id: tabs.panelId(id), "aria-labelledby": tabs.tabId(id), hidden: true }, part.waiting, part.body);
   }
-  const form = createForm({ onCreate: (values) => create(values) });
-  const composer = createComposer({ onSend: (text) => send(text) });
-  // The keyboard order is the field, "Send", then the "New request" summary (lobby.md, Keyboard); the form is drawn above the field by the grid.
-  const footer = h("div", { class: "wb-lobby-footer" }, composer.el, h("div", { class: "wb-form-scroll" }, form.el));
+  const composer = createComposer({ onSend: (text) => send(text), onNew: () => openForm() });
+  const footer = h("div", { class: "wb-lobby-footer" }, composer.el);
   const cancelDialog = createCancelDialog({ api, project, onChanged: refresh });
   panel.body.classList.add("wb-lobby-body");
   panel.body.append(conversationPanel, tabPanels.inbox, tabPanels.desk, tabPanels.tasks, tabPanels.agent);
-  panel.el.insertBefore(tabs.el, panel.body);
+  panel.el.insertBefore(tabs.bar, panel.body);
   panel.el.append(footer);
   frame.main.append(panel.el, cancelDialog.el);
   // "Close" and a phone's dialog go to the one hash the frame's key handler also uses: the tab the document was opened from (frame/origin.js)
@@ -133,6 +138,7 @@ export function createLobbyView(frame, { project, onChanged }) {
       if (row && row.state !== "requested") routeNotices.delete(id);
     }
     thread.update({ messages, requests, pending, bodies: held, now: last.now, loading: !loaded, routing, notices: routeNotices, flows, remembered: chosenFlow });
+    form.setRequests(requests);      // R-46: "After request" offers the requests that are not final
     if (wantsRequest()) setTimeout(followRequest, 0);      // after the frame's own focus of a new screen's heading
   }
 
@@ -208,9 +214,13 @@ export function createLobbyView(frame, { project, onChanged }) {
         const body = await api.task(project, id, { signal });
         bodies.set(id, { sig: began === changes ? sig : null, body });     // null: the store changed meanwhile, read again below
         redraw();
+        if (tabOf(last.route) === "inbox") drawTabs();      // P-6: the Inbox's resolved lines come from these bodies
       } catch (e) {
         if (e && e.name === "AbortError") return;
-        if (e && e.status === 404) bodies.delete(id);
+        // a failed read is remembered like a read one (its signature): not tried again on every update, but when the request changes or the store does (a 404: the body is gone)
+        const held = bodies.get(id);
+        bodies.set(id, { sig: began === changes ? sig : null, body: e && e.status === 404 ? null : held ? held.body : null });
+        redraw();
       } finally {
         reading.delete(id);
         if (began !== changes && !disposed) {
@@ -229,7 +239,10 @@ export function createLobbyView(frame, { project, onChanged }) {
 
   function readBodies(requests, pending) {
     const placed = placeBlocks(messages, requests);
-    for (const id of wantedBodies(placed, requests, pending)) {
+    // P-6: with the Inbox open every request is read (a decision of a request the conversation does not show, a cancelled request's lines), up to MAX_INBOX_BODIES
+    const wanted = wantedBodies(placed, requests, pending);
+    const ids = tabOf(last.route) === "inbox" ? [...new Set([...wanted, ...inboxBodies(requests, pending)])] : wanted;
+    for (const id of ids) {
       const request = requests.find((r) => r.id === id);
       const sig = signatureOf(request, pending);
       const held = bodies.get(id);
@@ -303,8 +316,34 @@ export function createLobbyView(frame, { project, onChanged }) {
     const ids = [...(status ? status.requests || [] : []).map((r) => r.id), ...(model ? model.tasks.map((t) => t.id) : [])];
     inbox.update({
       cards: parts.cards, pointers: parts.pointers, requests: status ? status.requests || [] : [],
-      resolved: fm.resolvedLines({ ...held, ...agent.bodies() }, ids, now), selected: route.pending, loading: !snapshot.loaded || (withheld > 0 && cards.length === 0),
+      resolved: fm.resolvedLines({ ...held, ...agent.bodies() }, ids, now, RESOLVED_LINES), selected: route.pending, loading: !snapshot.loaded || (withheld > 0 && cards.length === 0),
     });
+  }
+
+  // --- the "New request" form, in the place of the thread and the composer (R-44) ---------------------------------------------------
+  let conversationShown = true;      // the Conversation tab is the one open, with nothing over it (a document) and the project readable
+
+  /** Draw what the Conversation holds: the thread and the composer, or the form. `visible` says whether the Conversation is on show at all. */
+  function applyForm(visible = conversationShown) {
+    conversationShown = visible;
+    const readable = accepted || frozen;
+    const showForm = visible && formOpen && readable;
+    form.open(showForm);
+    thread.el.hidden = showForm || !readable;
+    footer.hidden = !visible || showForm;
+  }
+
+  function openForm() {
+    if (disposed || !accepted) return;
+    formOpen = true;
+    applyForm();
+    form.focus();
+  }
+
+  function closeForm() {
+    formOpen = false;
+    applyForm();
+    composer.focus();
   }
 
   // --- what the person does -------------------------------------------------------------------------------------------------
@@ -419,7 +458,8 @@ export function createLobbyView(frame, { project, onChanged }) {
     }
     form.reset();
     form.set({ creating: false, error: "", disabled: false });
-    form.open(false);
+    formOpen = false;
+    applyForm();
     if (result.error) await refresh();
   }
 
@@ -479,7 +519,6 @@ export function createLobbyView(frame, { project, onChanged }) {
       }
       const status = detail && detail.status;
       const tab = tabOf(route);
-      panel.el.querySelector(".wb-panel-sub").textContent = `${projectName || ""} · floor 0`;
       tabs.set({ project, selected: tab, counts: { inbox: status ? lobbyDecisions(status).length : 0 } });
       const onConversation = tab === "conversation";
       conversationPanel.hidden = !onConversation;
@@ -494,9 +533,9 @@ export function createLobbyView(frame, { project, onChanged }) {
       const inline = showing === "inline";
       panel.el.classList.toggle("is-viewing", inline);
       panelHead.hidden = inline;
-      tabs.el.hidden = inline;
+      tabs.setHidden(inline);
       panel.body.hidden = inline;
-      footer.hidden = !onConversation || inline;
+      applyForm(onConversation && !inline);
       if (viewerWas && !showing && shownPath !== null) {     // the viewer was closed: the focus goes back to what opened it
         const back = shownPath;
         if (tab === "inbox") inbox.focusOpen(back);
@@ -506,12 +545,15 @@ export function createLobbyView(frame, { project, onChanged }) {
       viewerWas = Boolean(showing);
       shownPath = showing ? route.path : null;
       waiting.hidden = shown;
-      thread.el.hidden = !shown;
       form.set({ disabled: !accepted });
       drawComposer();
-      if (accepted && !flowsAsked) {
+      if (accepted && !commandsAsked && Date.now() - commandsFailedAt >= RETRY_READ_MS) {
+        commandsAsked = true;      // R-45: the commands of the `chat` channel as data, read once; until they are known no list opens
+        api.commands(project, { signal }).then((got) => { composer.setCommands(got.commands); }).catch(() => { commandsAsked = false; commandsFailedAt = Date.now(); });
+      }
+      if (accepted && !flowsAsked && Date.now() - flowsFailedAt >= RETRY_READ_MS) {
         flowsAsked = true;
-        api.flows(project, { signal }).then((got) => { flows = Array.isArray(got.flows) ? got.flows : []; form.setFlows(got.flows); redraw(); }).catch(() => { flowsAsked = false; });
+        api.flows(project, { signal }).then((got) => { flows = Array.isArray(got.flows) ? got.flows : []; form.setFlows(got.flows); redraw(); }).catch(() => { flowsAsked = false; flowsFailedAt = Date.now(); });
       }
       if (status) readBodies(status.requests || [], status.pending || []);
       redraw();

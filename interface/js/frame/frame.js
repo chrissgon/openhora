@@ -133,7 +133,7 @@ export function createFrame(root, handlers) {
     const requestMenu = document.querySelector(".wb-req-menu:not([hidden])");
     const step = escapeStep({
       route: currentRoute, field: isField(document.activeElement), dialog: dialogs.length > 0,
-      menu: switcher.isOpen() || waitingCard.isOpen() || Boolean(panelOf && panelOf.isOpen()) || Boolean(requestMenu), selection: Boolean(world && world.hasSelection()), from: controlFrom, origin: documentOrigin(),
+      menu: switcher.isOpen() || waitingCard.isOpen() || Boolean(panelOf && panelOf.isOpen()) || Boolean(requestMenu), selection: Boolean(world && world.hasSelection()), form: Boolean(document.querySelector(".wb-newreq:not([hidden])")), from: controlFrom, origin: documentOrigin(),
     });
     if (step.step === "none") return;
     event.preventDefault();
@@ -142,6 +142,9 @@ export function createFrame(root, handlers) {
       const cancel = new Event("cancel", { cancelable: true });
       dialog.dispatchEvent(cancel);   // as the browser does: a dialog that refuses to be cancelled (a request in flight) stays
       if (!cancel.defaultPrevented) dialog.close();
+    } else if (step.step === "form") {
+      const back = document.querySelector(".wb-newreq:not([hidden]) .wb-newreq-back");      // the Lobby's "New request" form: back to the conversation (R-44)
+      if (back) back.click();
     } else if (step.step === "menu") {
       closeLists();
       if (panelOf) panelOf.close();

@@ -520,7 +520,7 @@ let changed = 0;
 const desk = createLobbyDesk({ project: P, open() {}, changed: () => { changed += 1; } });
 desk.update({ tab: "desk", ready: true });
 await settle();
-out.lobbyDesk = { rows: desk.rows().map((d) => d.path), table: all(desk.el, "tr.wb-desk-row").length, heads: heads(desk), changed: changed > 0 };
+out.lobbyDesk = { rows: desk.rows().map((d) => d.path), table: all(desk.el, "li.wb-desk-row").length, tables: all(desk.el, "table").length, changed: changed > 0 };      // R-47: the Lobby's Desk is a list of two-line rows
 console.log(JSON.stringify(out));
 process.exit(0);
 """
@@ -538,7 +538,7 @@ def test_the_lobby_desk_lists_every_document_with_the_agent_after_the_owner_skil
     assert got["sentence"] == "No documents of this agent. Every document is on the Lobby's desk."
     assert got["floorEmpty"] == [got["sentence"]]
     assert got["lobbyDesk"]["rows"] == ["docs/a.md", "docs/b.md", "docs/c.md", "docs/d.md"] and got["lobbyDesk"]["table"] == 4
-    assert got["lobbyDesk"]["heads"] == ["Path", "Owner skill", "Agent", "Size", "Modified"] and got["lobbyDesk"]["changed"] is True
+    assert got["lobbyDesk"]["tables"] == 0 and got["lobbyDesk"]["changed"] is True, "R-47: rows, not a table (the Floor's own table is the Floor package's)"
 
 
 REQUEST_ROUTE = r"""
@@ -631,7 +631,7 @@ const block = make();
 const select = find(block.el, "select.wb-route-flow") || new FakeNode("select");
 out.options = all(select, "option").map((o) => [o.attrs.value, text(o)]);
 out.label = [select.attrs["aria-label"] || null, find(block.el, "button.wb-route-button").attrs["aria-label"]];
-out.order = [...find(block.el, ".wb-lobby-request-line").walk()].filter((n) => /wb-route-flow|wb-route-button/.test(n.attrs.class || "")).map((n) => n.attrs.class.split(" ").pop());
+out.order = [...find(block.el, ".wb-lr-actions").walk()].filter((n) => /wb-route-flow|wb-route-button/.test(n.attrs.class || "")).map((n) => n.attrs.class.split(" ").pop());
 find(block.el, "button.wb-route-button").click();           // the first option: the planning agent routes it
 select.value = "brand";
 (select.listeners.change || []).forEach((fn) => fn());

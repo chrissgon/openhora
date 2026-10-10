@@ -155,7 +155,8 @@ out.order = line.children.map((n) => (n.cls().includes("pui-badge") ? "number" :
 const title = byClass(block.el, "wb-lobby-request-title")[0];
 out.title = { tag: title.tagName, text: title.textContent, tip: title.attrs.title, name: title.attrs["aria-label"], expanded: title.attrs["aria-expanded"], type: title.attrs.type };
 const full = byClass(block.el, "wb-lobby-request-full")[0];
-out.fullBefore = { hidden: full.hidden, text: full.textContent, after: block.el.children.indexOf(full) === block.el.children.indexOf(line) + 1 };
+const box = byClass(block.el, "wb-request-box")[0];      // R-47: the request line is a bordered block holding the line, its actions, the whole text and a notice
+out.fullBefore = { hidden: full.hidden, text: full.textContent, after: box.children.indexOf(full) > box.children.indexOf(line) };
 click(title);
 out.fullOpen = { hidden: full.hidden, expanded: title.attrs["aria-expanded"], text: full.textContent };
 click(title);
@@ -181,7 +182,7 @@ out.fromNothing = named({ id: 3, title: "", state: "requested", tasks: [] }, nul
 const routed = [];
 const notice = { title: "Not routed yet", text: 'Request #16 was created. The flow names skills outside the pack in scope. Use "Route it" on its request line.' };
 block = make({ id: 16, title: "Add a sale page", state: "requested", tasks: [] }, { notice, routed });
-const children = block.el.children;
+const children = byClass(block.el, "wb-request-box")[0].children;      // R-47
 const lineAt = children.indexOf(byClass(block.el, "wb-lobby-request-line")[0]);
 const noticeNode = byClass(block.el, "wb-lobby-notice-card")[0];
 out.notice = { present: Boolean(noticeNode), under: children.indexOf(noticeNode) > lineAt, role: noticeNode.attrs.role, text: noticeNode.textContent };
