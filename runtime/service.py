@@ -739,6 +739,10 @@ def make_handler(service: Service):
 
 class Server(http.server.ThreadingHTTPServer):
     daemon_threads = True
+    # Every response closes its connection, so a page of dozens of modules and icons is dozens of new connections at
+    # once. The class default (5) overflows the accept queue and some systems answer the overflow with a reset
+    # (R4-C2). 128 is the usual system ceiling; the listening address is still 127.0.0.1 only.
+    request_queue_size = 128
 
 
 LABELS = (("secret_store", "secret store"), ("credential", "credential"), ("docker", "docker"), ("image", "image"),
