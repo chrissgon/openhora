@@ -244,9 +244,27 @@ out.noAgentsRows = capsAgain.all((n) => has(n, "wb-cap-row")).slice(1).map((r) =
 // no cap, no caps card
 costs.set({ status: "ready", data: { ...data, caps: [] }, agents, fieldValue: "2026-09-09" });
 out.noCaps = costs.el.all((n) => has(n, "wb-caps")).length;
-// no runs since the date: the page draws the field and the dashed block alone, no caps card (R-52's page: co-empty)
+// no runs since the date: the caps (today's figures) stay above the field, then the dashed block (M-9, which supersedes A6-4: the page's co-empty frame has no caps)
 costs.set({ status: "ready", data: { ...data, rows: [] }, agents, fieldValue: "2026-09-09" });
-out.emptyParts = costs.el.children.map((c) => c.cls()[0]);
+out.emptyParts = costs.el.children.map((c) => c.cls().find((x) => ["wb-caps", "pui-field-group", "wb-empty-block"].includes(x)));
+// M-9: the order of the tab's children in each state; the caps are kept while a read is in flight, failed or refused, when they were read
+const kinds = ["wb-caps", "pui-field-group", "wb-empty-block", "notice", "wb-chart", "wb-tcard", "wb-foot"];
+const parts = (tab) => tab.el.children.map((c) => c.cls().find((x) => kinds.includes(x)));
+const fresh = createCostsTab({ onSince() {} });
+const states = {};
+fresh.set({ status: "loading", fieldValue: "2026-09-09" });
+states.loadingFirst = parts(fresh);
+fresh.set({ status: "ready", data, agents, fieldValue: "2026-09-09" });
+fresh.set({ status: "loading", data, agents: null, fieldValue: "2026-09-09" });
+states.loading = parts(fresh);
+fresh.set({ status: "failed", error: "x", data, agents: null, fieldValue: "2026-09-09" });
+states.failed = parts(fresh);
+fresh.set({ status: "refused", error: "since is a day: YYYY-MM-DD", agents: null, fieldValue: "" });
+states.refused = parts(fresh);
+fresh.set({ status: "ready", data: { ...data, caps: [] }, agents, fieldValue: "2026-09-09" });
+fresh.set({ status: "loading", fieldValue: "2026-09-09" });
+states.noCaps = parts(fresh);
+out.states = states;
 // runs only for every agent: the spend column is not drawn at all
 costs.set({ status: "ready", data: { ...data, caps: data.caps.slice(1, 2) }, agents, fieldValue: "2026-09-09" });
 out.runsOnly = costs.el.find((n) => has(n, "wb-caps")).cls().filter((c) => c.startsWith("is-"));
@@ -259,7 +277,7 @@ def test_the_costs_caps_are_rows_with_meters_and_the_chart_holds_its_table(tmp_p
     """R-52 and (a) 6, 7, (b) 1: the caps as rows (the agent with `Runs today: n` under its name, `Runs today` and `Spend today` as a value in 600 weight over a meter, the recorded and
     reserved note under the spend); "The chart as a table" inside the chart's card, under the plot."""
     got = node(tmp_path, COSTS_R4)
-    assert got["order"] == ["pui-field-group", "wb-caps", "wb-chart", "wb-tcard", "wb-foot"], "the Since field, then the caps card, the chart, the runs table, the footnote"
+    assert got["order"] == ["wb-caps", "pui-field-group", "wb-chart", "wb-tcard", "wb-foot"], "M-9: the caps card (today's figures) first, then the Since field, then what the field filters: the chart, the runs table, the footnote"
     assert got["caps"]["role"] == "table" and got["caps"]["card"] is True
     assert got["caps"]["label"].startswith("Caps by agent.") and "subscription or free credential" in got["caps"]["label"] and "metered credential" in got["caps"]["label"], "the two sentences of the cap words move to the table's name"
     assert got["head"] == ["row", [["columnheader", "Agent"], ["columnheader", "Runs today"], ["columnheader", "Spend today"]]]
@@ -278,7 +296,9 @@ def test_the_costs_caps_are_rows_with_meters_and_the_chart_holds_its_table(tmp_p
     assert got["table"][0] == ["pui-table", "wb-ctable", "wb-stackable", "wb-costs-table"] and got["table"][1] == ["Runs", "Tokens"]
     assert got["noAgentsRows"] == [["engineering", "- / 12", "- / $4.00"], ["marketing", "- / 6", "- / $2.00"], ["brand", "- / 6", "- / $2.00"]]
     assert got["noCaps"] == 0
-    assert got["emptyParts"] == ["pui-field-group", "wb-empty-block"]
+    assert got["emptyParts"] == ["wb-caps", "pui-field-group", "wb-empty-block"], "M-9 (supersedes A6-4): the caps show whatever Since returns, so on 'no runs since' they stay above the field"
+    assert got["states"] == {"loadingFirst": ["pui-field-group", "wb-empty-block"], "loading": ["wb-caps", "pui-field-group", "wb-empty-block"], "failed": ["wb-caps", "pui-field-group", "notice"],
+                             "refused": ["wb-caps", "pui-field-group", "notice"], "noCaps": ["pui-field-group", "wb-empty-block"]}, "M-9: while loading, failed or refused the caps stay if they were read; with none read there is no card"
     assert got["runsOnly"] == ["is-runs-only"]
 
 
@@ -531,3 +551,56 @@ def test_the_scene_says_the_connections_were_not_read_when_the_read_failed(tmp_p
     got = node(tmp_path, FAILED_LABEL)
     assert got == ["Server room, connections not read", "Server room, loading", "Server room, waiting for the configuration to be accepted",
                    "Server room: 3 racks, 0 connections missing, runs of the last 7 days"]
+
+
+# --- R4-A6b: the Since field is a date (M-8, A-47) ---------------------------------------------------------------------------------
+
+SINCE_DATE = HELPERS + r"""
+import { createCostsTab } from "@JS@/views/control-costs.js";
+const sent = [];
+const costs = createCostsTab({ onSince: (value) => sent.push(value) });
+const price = { source: "page", date: "2026-09-30" };
+const data = { since: "2026-09-09", rows: [{ day: "2026-10-07", agent: "engineering", model: "m", adapter: "a", runs: 2, tokens: 5, recorded_usd: null, recomputed_usd: 1, unknown_runs: 0, price }], caps: [] };
+costs.set({ status: "ready", data, agents: [], fieldValue: "2026-09-09" });
+const input = costs.el.find((n) => n.tagName === "INPUT");
+const label = costs.el.find((n) => n.tagName === "LABEL");
+const out = { type: input.getAttribute("type"), label: text(label), attrs: Object.keys(input.attrs).sort(), value: input.value, cls: input.cls() };
+// a date chosen is sent as the value, YYYY-MM-DD; cleared, it sends what an empty field sent before: the empty text
+input.value = "2026-10-01"; input.fire("change");
+input.value = ""; input.fire("change");
+out.sent = sent;
+// a re-read keeps the field's value and the same node (the one the person is in keeps its focus)
+costs.set({ status: "loading", data, agents: null, fieldValue: "2026-10-01" });
+costs.set({ status: "ready", data, agents: [], fieldValue: "2026-10-01" });
+out.kept = [input.value, input.parent !== null, input.dropped || 0];
+// a refusal: the field keeps what was chosen, is marked invalid and described by the notice
+costs.set({ status: "refused", error: "since is a day: YYYY-MM-DD", agents: null, fieldValue: "" });
+out.refused = [input.value, input.getAttribute("aria-invalid"), input.getAttribute("aria-describedby"), costs.el.find((n) => n.attrs.id === "wb-since-notice") !== null];
+costs.set({ status: "ready", data, agents: [], fieldValue: "2026-10-01" });
+out.cleared = [input.getAttribute("aria-invalid"), input.getAttribute("aria-describedby")];
+console.log(JSON.stringify(out));
+"""
+
+
+@needs_node_here
+def test_the_since_field_is_a_date_input_with_the_same_label_trigger_and_read(tmp_path):
+    """M-8, A-47: `input type="date"`, labelled "Since"; a change sends its value (always YYYY-MM-DD or empty); the notice's description and the value through a re-read stay;
+    no `min` and no `max`."""
+    got = node(tmp_path, SINCE_DATE)
+    assert got["type"] == "date" and got["label"] == "Since" and got["value"] == "2026-09-09"
+    assert "min" not in got["attrs"] and "max" not in got["attrs"] and "spellcheck" not in got["attrs"] and "placeholder" not in got["attrs"]
+    assert got["sent"] == ["2026-10-01", ""], "a date is sent as the value; an empty field sends the empty text, as it did"
+    assert got["kept"] == ["2026-10-01", True, 0]
+    assert got["refused"] == ["", "true", "wb-since-notice", True]
+    assert got["cleared"] == [None, None]
+
+
+def test_the_date_field_follows_the_colour_mode_through_color_scheme_scoped_to_the_field():
+    """M-8: the library sets `color-scheme` on the root from its mode attribute, and the page's mode button sets that attribute; the field inherits it so the browser's picker and
+    its calendar icon follow the mode (a scoped rule makes it explicit); same height as the other fields."""
+    own = control_css()
+    found = rules(own, '.wb-since input[type="date"]')
+    assert found and "color-scheme: inherit" in found[0] and "height: 31.5px" in found[0]
+    assert not re.search(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(", own)
+    library = (INTERFACE / "vendor" / "perfectui" / "css" / "core.css").read_text(encoding="utf-8")
+    assert "[data-pui-mode=light]{color-scheme:light}" in library and "[data-pui-mode=dark]{color-scheme:dark}" in library
