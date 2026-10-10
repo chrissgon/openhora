@@ -543,7 +543,7 @@ const shown = (canvas) => canvas.wbMarks().filter(([, on]) => on).map(([id]) => 
   engine.show("server", ready, "Server room");
   out.back = shown(canvas);
 }
-// a phone (under 640 px): none, the pointer's included, and they come back when the canvas grows
+// a phone (under 900 px, M-3): none, the pointer's included, and they come back when the canvas grows
 {
   const { engine, host, canvas } = engineAt(375);
   engine.show("server", ready, "Server room");
@@ -551,12 +551,12 @@ const shown = (canvas) => canvas.wbMarks().filter(([, on]) => on).map(([id]) => 
   engine.highlight("console");
   out.phoneHover = shown(canvas);
   engine.clearHover();
-  host.clientWidth = 640;
+  host.clientWidth = 900;
   engine.refit();
-  out.at640 = shown(canvas);
-  host.clientWidth = 639;
+  out.at900 = shown(canvas);
+  host.clientWidth = 899;
   engine.refit();
-  out.at639 = shown(canvas);
+  out.at899 = shown(canvas);
 }
 console.log(JSON.stringify(out));
 """
@@ -570,5 +570,5 @@ def test_the_page_draws_no_brackets_on_a_phone_while_loading_or_not_accepted_so_
     assert got["loading"] == [] and got["loadingHover"] == [], "loading: none, and the pointer's stand down with them"
     assert got["notAccepted"] == [], "not accepted: none"
     assert got["back"] == ["wall"], "and they return when the room is read"
-    assert got["phone"] == [] and got["phoneHover"] == [], "under 640 px (a phone: the page's phone frames draw none): none, the pointer's included"
-    assert got["at640"] == ["wall"] and got["at639"] == [], "the limit is 640 px, and a resize across it moves them"
+    assert got["phone"] == [] and got["phoneHover"] == [], "under 900 px (a phone, M-3: the page's phone frames draw none): none, the pointer's included"
+    assert got["at900"] == ["wall"] and got["at899"] == [], "the limit is 900 px (M-3, was 640), and a resize across it moves them"
