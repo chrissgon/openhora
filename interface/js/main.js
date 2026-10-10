@@ -296,7 +296,7 @@ function render() {
   } else if (view.screen === "control") {
     const detail = routeProject ? snapshot.details[routeProject.id] : null;
     const found = model.acceptance(routeProject, detail);
-    view.control.update({ reload: reloads, loaded: snapshot.loaded, unread: Boolean(failure) && !snapshot.loaded, known: Boolean(routeProject), accepted: found.accepted, kept: found.kept, projectId: route.project, tab: route.tab });
+    view.control.update({ reload: reloads, loaded: snapshot.loaded, unread: Boolean(failure) && !snapshot.loaded, known: Boolean(routeProject), accepted: found.accepted, kept: found.kept, projectId: route.project, projectName: routeProject ? routeProject.name : "", tab: route.tab });
   } else if (view.screen === "lobby") {
     view.lobby.update({ reload: reloads, snapshot, route, now, projectName: routeProject ? routeProject.name : "" });
     if (!known) frame.notice({ kind: "error", text: "The service has no such project." });

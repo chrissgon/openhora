@@ -6,23 +6,35 @@
 import { h } from "../dom.js";
 import { commandBlock } from "../frame/command.js";
 import * as model from "./control-model.js";
-import { cell, chip, code, eyebrow, failedCard, FAILED_TITLE, loadingCard, tableCard } from "./control-parts.js";
+import { cell, chip, code, failedCard, FAILED_TITLE, loadingCard, sectionHead, tableCard } from "./control-parts.js";
+
+/**
+ * "Needed by" (E-15, R-54): up to four skills the list as it is; past four, `<n> skills` as a disclosure in the theme colour with the list under the count. The full list
+ * stays in the control's accessible name, so a screen reader hears it without opening anything.
+ */
+function neededCell(r) {
+  if (!r.count) return "-";
+  if (r.count <= model.NEEDED_LIST) return code(r.needed);
+  return h("details", { class: "wb-need" },
+    h("summary", { "aria-label": `${r.count} skills: ${r.needed}`, text: `${r.count} skills` }),
+    code(r.needed));
+}
 
 function classesTable(rows) {
   const head = ["Class", "Provider", "Status", "Needed by"];
-  return h("table", { class: "pui-table wb-table wb-stackable" },
+  return h("table", { class: "pui-table wb-ctable wb-stackable" },
     h("caption", { class: "wb-sr", text: "Requirement classes the skills in scope need, and whether a provider was found" }),
     h("thead", {}, h("tr", {}, head.map((t) => h("th", { scope: "col", text: t })))),
     h("tbody", {}, rows.map((r) => h("tr", {},
       cell("Class", code(r.class)),
-      h("td", { "data-label": "Provider", title: r.note || null, text: r.provider }),
+      h("td", { "data-label": "Provider", title: r.note || null }, r.provided ? r.provider : h("span", { class: "wb-muted", text: r.provider })),
       cell("Status", chip(`pui-chip ${r.found ? "pui-success" : "pui-error"} pui-soft`, r.status)),
-      cell("Needed by", r.needed ? code(r.needed) : "-")))));
+      cell("Needed by", neededCell(r))))));
 }
 
 function secretsTable(rows) {
   const head = ["Name", "Status", "Where"];
-  return h("table", { class: "pui-table wb-table wb-stackable" },
+  return h("table", { class: "pui-table wb-ctable wb-stackable" },
     h("caption", { class: "wb-sr", text: "Secrets by name: found or missing, and where; never a value" }),
     h("thead", {}, h("tr", {}, head.map((t) => h("th", { scope: "col", text: t })))),
     h("tbody", {}, rows.map((r) => h("tr", { "aria-label": model.secretName(r) },
@@ -32,30 +44,30 @@ function secretsTable(rows) {
 }
 
 function imageCard(spec) {
-  return h("div", { class: "pui-card wb-sunken-card wb-info-card" },
-    eyebrow("Image"),
-    h("div", { class: "wb-info-row" }, h("code", { class: "wb-code wb-strong", text: spec.name }), chip(`pui-chip ${spec.tone} pui-soft`, spec.chip)),
-    h("span", { class: "wb-muted", text: spec.sentence }));
+  return h("div", { class: "pui-card wb-ccard" },
+    sectionHead("Image"),
+    h("div", { class: "wb-ccard-line" }, h("strong", { class: "mono", text: spec.name }), chip(`pui-chip ${spec.tone} pui-soft`, spec.chip)),
+    h("p", { class: "wb-muted", text: spec.sentence }));
 }
 
+// The Platform card: "This machine" and "Evidence" on two lines; when the platforms differ the card spans the width and says both on one line (E-11: no consequence is stated).
 function platformCard(spec) {
-  const lines = [
-    h("span", { class: "wb-platform-line" }, "This machine: ", code(spec.here)),
-    h("span", { class: "wb-platform-line" }, "Evidence: ", code(spec.evidence)),
-  ];
-  return h("div", { class: `pui-card wb-sunken-card wb-info-card${spec.differs ? " is-wide" : ""}` },
-    eyebrow("Platform"),
-    h("div", { class: "wb-info-row" }, h("span", { class: "wb-platform" }, lines), spec.chip ? chip(`pui-chip ${spec.tone} pui-soft`, spec.chip) : null));
+  const badge = spec.chip ? chip(`pui-chip ${spec.tone} pui-soft`, spec.chip) : null;
+  const here = h("span", {}, "This machine: ", code(spec.here));
+  return h("div", { class: `pui-card wb-ccard${spec.differs ? " is-wide" : ""}` },
+    sectionHead("Platform"),
+    spec.differs
+      ? h("div", { class: "wb-ccard-line" }, h("span", {}, "This machine: ", code(spec.here), " · Evidence: ", code(spec.evidence)), badge)
+      : [h("div", { class: "wb-ccard-line" }, here, badge), h("p", {}, "Evidence: ", code(spec.evidence))]);
 }
 
 // What the local service found at its start (`service` of the answer): one row for each verdict that is not ok; where the terminal has a
 // command that fixes it, the component shows the service's own text of it.
 function serviceCard(rows) {
-  return h("div", { class: "pui-card wb-sunken-card wb-info-card wb-service-card" },
-    eyebrow("Service"),
-    rows.map((r) => h("div", { class: "wb-service-row" },
+  return h("div", { class: "pui-card wb-ccard wb-service wb-service-card" },
+    rows.map((r) => h("div", { class: "wb-svc wb-service-row" },
       h("strong", { text: r.what }),
-      r.command ? commandBlock({ command: r.command, sentence: r.sentence }) : h("span", { class: "wb-muted", text: r.sentence }))));
+      r.command ? commandBlock({ command: r.command, sentence: r.sentence }) : h("p", { class: "wb-muted", text: r.sentence }))));
 }
 
 /** The tab. Returns {el, set(state)}; state: {status: "loading"|"ready"|"failed", data, error}. */
@@ -79,13 +91,14 @@ export function createConnectionsTab() {
       const note = typeof data.secrets_note === "string" && data.secrets_note ? data.secrets_note : null;
       const service = model.serviceRows(data.service);
       el.replaceChildren(...[
-        eyebrow("Requirement classes"),
+        sectionHead("Requirement classes"),
         tableCard(classesTable(classes)),
-        eyebrow("Secrets (names only, never a value)"),
+        sectionHead("Secrets (names only, never a value)"),
         tableCard(secretsTable(secrets)),
         note ? h("p", { class: "wb-muted wb-note", text: note }) : null,
+        service.length ? sectionHead("Service") : null,
         service.length ? serviceCard(service) : null,
-        h("div", { class: `wb-info-grid${platform.differs ? " is-stacked" : ""}` }, imageCard(model.imageCard(data)), platformCard(platform)),
+        h("div", { class: "wb-ccards" }, imageCard(model.imageCard(data)), platformCard(platform)),
       ].filter(Boolean));
     },
   };

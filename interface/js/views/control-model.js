@@ -15,9 +15,19 @@ export function tabOf(name) {
   return TABS.some(([id]) => id === name) ? name : "skills";
 }
 
+/**
+ * The panel's sub line (E-10): skills and costs are the project's, only the connections are the machine's. `name` is the project's name as the crumbs show it;
+ * without one the line says "this project" (nothing is made up).
+ */
+export function subtitleOf(tab, name) {
+  const whose = tabOf(tab) === "connections" ? "this machine" : (typeof name === "string" && name ? name : "this project");
+  return `Skills, costs and connections of ${whose}`;
+}
+
 // --- the Skills tab -------------------------------------------------------------------------------------------------------
 
 export const BANDS = Object.freeze(["reliable", "watch", "needs a test"]);
+export const NEEDED_LIST = 4;       // E-15: up to four skills the list is shown as it is; past four it is a count and a disclosure
 const BAND_TONE = Object.freeze({ reliable: "pui-success", watch: "pui-muted", "needs a test": "pui-error" });
 export const TIER_COLUMNS = Object.freeze([["strong", "Reference model"], ["floor", "Floor model"]]);
 
@@ -89,6 +99,14 @@ export function detailLines(skill) {
   return TIER_COLUMNS.map(([tier, column]) => detailLine(skill, tier, column));
 }
 
+/**
+ * The lines of an open row (R-53, E-13): "Manifest: yes", "Runs here: 3" (a dash when the operation sent none), then the two sentences. The phone's card says the manifest
+ * and the runs in its summary, so its body is `detailLines` alone.
+ */
+export function openLines(skill) {
+  return [`Manifest: ${manifestText(skill)}`, `Runs here: ${skill && skill.runs_here !== undefined && skill.runs_here !== null ? skill.runs_here : "-"}`, ...detailLines(skill)];
+}
+
 /** "yes" or "no" for the Manifest column (only `true` is yes). */
 export function manifestText(skill) {
   return skill && skill.manifest === true ? "yes" : "no";
@@ -113,15 +131,18 @@ export function checksNotice(checks) {
 
 // --- the Connections tab --------------------------------------------------------------------------------------------------
 
-/** The Requirement classes rows: {class, provider, found, status, needed, note}. */
+/** The Requirement classes rows: {class, provider, provided, found, status, needed, skills, count, note}. `needed` is every skill, comma separated; past NEEDED_LIST skills the tab shows `<count> skills` as a disclosure (E-15, R-54). */
 export function classRows(connections) {
   const list = connections && Array.isArray(connections.classes) ? connections.classes : [];
   return list.map((c) => ({
     class: String(c.class),
     provider: typeof c.provider === "string" && c.provider ? c.provider : "no provider found",
+    provided: typeof c.provider === "string" && c.provider !== "",
     found: c.found === true,
     status: c.found === true ? "found" : "missing",
     needed: Array.isArray(c.skills) ? c.skills.join(", ") : "",
+    skills: Array.isArray(c.skills) ? c.skills.map(String) : [],
+    count: Array.isArray(c.skills) ? c.skills.length : 0,
     note: typeof c.note === "string" ? c.note : "",
   }));
 }
@@ -247,6 +268,48 @@ export function capsLine(caps, agents) {
   return { text: `Caps · ${parts.join("; ")}`, title: `${format.METER_TIPS.runs} ${format.METER_TIPS.spend}` };
 }
 
+/**
+ * The caps as rows (R-52, E-16): one row per agent of `costs.caps` with the day's use from `agents` (null when that read failed: the used amounts are "-").
+ * {title, runs, spend, rows: [{agent, total, runs: {text, share, full} | null, spend: {text, recordedShare, reservedShare, note, full} | null}]}.
+ * `runs` and `spend` say whether any row has that meter (a meter whose cap is not in use for an agent, `caps_in_use`, is null in its row; one that no agent uses has no column).
+ * `total` is the agent's runs of every model today (`runs_total_today`), null when the read has none: it is the muted "Runs today: n" under the name.
+ * The words and the sentences are the KPI cards': `format.METER_WORDS` and `format.METER_TIPS`. Returns null when there is no cap.
+ */
+export function capsRows(caps, agents) {
+  const list = Array.isArray(caps) ? caps : [];
+  if (!list.length) return null;
+  const used = new Map((Array.isArray(agents) ? agents : []).map((a) => [a.name, a]));
+  const finite = (value) => typeof value === "number" && Number.isFinite(value);
+  const share = (value, cap) => (finite(value) && finite(cap) && cap > 0 ? Math.max(0, Math.min(1, value / cap)) : 0);
+  const rows = list.map((cap) => {
+    const now = used.get(cap.agent);
+    const use = format.metersInUse(now);
+    const runs = !use.runs ? null : {
+      text: `${now && finite(now.runs_today) ? now.runs_today : "-"} / ${finite(cap.max_runs_per_day) ? cap.max_runs_per_day : "-"}`,
+      share: now ? share(now.runs_today, cap.max_runs_per_day) : 0,
+    };
+    if (runs) runs.full = runs.share >= 1;
+    let spend = null;
+    if (use.spend) {
+      const total = now ? share(now.usd_today, cap.max_usd_per_day) : 0;
+      // the recorded part and the part reserved for runs whose cost is not recorded yet (A-20); when the read says nothing of the split the whole is "recorded"
+      const split = now && finite(now.usd_recorded) && finite(now.usd_reserved);
+      const recordedShare = split ? share(now.usd_recorded, cap.max_usd_per_day) : total;
+      const reservedShare = split ? Math.min(1 - recordedShare, share(now.usd_reserved, cap.max_usd_per_day)) : 0;
+      spend = {
+        text: `${now && finite(now.usd_today) ? format.dollars(now.usd_today) : "-"} / ${finite(cap.max_usd_per_day) ? format.dollars(cap.max_usd_per_day) : "-"}`,
+        recordedShare, reservedShare, full: total >= 1,
+        note: now && finite(now.usd_reserved) ? format.spendNote(now.usd_recorded, now.usd_reserved) : "",
+      };
+    }
+    return { agent: agentLabel(cap.agent), total: now && finite(now.runs_total_today) ? now.runs_total_today : null, runs, spend };
+  });
+  return {
+    title: `Caps by agent. ${format.METER_TIPS.runs} ${format.METER_TIPS.spend}`,
+    runs: rows.some((r) => r.runs), spend: rows.some((r) => r.spend), rows,
+  };
+}
+
 // --- the service card ----------------------------------------------------------------------------------------------------
 
 /**
@@ -358,17 +421,23 @@ export const RACKS = Object.freeze([
 export const UNITS = 7;
 export const SLOTS = RACKS.length * UNITS;
 export const OPENS = Object.freeze({ "rack-1": "connections", "rack-2": "connections", "rack-3": "connections", wall: "costs", console: "skills" });
-/** The object of each tab, the one the scene marks with its corner brackets while the tab is open (R-51): the console on Skills, the wall screen on Costs, the racks on Connections. */
-export const OPEN_OF = Object.freeze({ skills: Object.freeze(["console"]), costs: Object.freeze(["wall"]), connections: Object.freeze(["rack-1", "rack-2", "rack-3"]) });
+/**
+ * The object of each tab, the one the scene marks with its corner brackets while the tab is open (R-51): the console on Skills, the wall screen on Costs, the racks on Connections.
+ * It is the grouping of `OPENS` (one list, not two that must agree), in the order of `OPENS`.
+ */
+const OBJECTS_OF = {};
+for (const [object, tab] of Object.entries(OPENS)) (OBJECTS_OF[tab] = OBJECTS_OF[tab] || []).push(object);
+export const OPEN_OF = Object.freeze(Object.fromEntries(Object.entries(OBJECTS_OF).map(([tab, objects]) => [tab, Object.freeze(objects)])));
 
 /**
  * What the scene shows, from what the page has read: {ready, leds: [21 of "ok"|"bad"|"off"], facts, missing, racks: [{id, name,
  * missing, tip}], bars: [7 numbers from 0 to 1], tips: {wall, console}, label}. `ready` is false while the proof is loading,
  * for a project that is not accepted or before the connections have been read: every LED is then off and there are no bars.
  * An LED has one fact: the first 21 facts fill the racks from the top unit down; `missing` counts every fact the operation gave. `open` is the ids of the objects of the open `tab`
- * (a name this screen does not have is Skills), which the scene marks with corner brackets (R-51); none while the room is loading or not accepted (`ready` false), as the page draws it.
+ * (a name this screen does not have is Skills), which the scene marks with corner brackets (R-51); none while the room is loading or not accepted, as the page draws it. `failed`
+ * (the view's: the read of the connections failed) keeps the brackets on, as the page draws "A read that failed" (B3-5); the lights stay off and the bars empty.
  */
-export function sceneModel({ accepted = true, connections = null, costs = null, tab = "skills" } = {}) {
+export function sceneModel({ accepted = true, connections = null, costs = null, tab = "skills", failed = false } = {}) {
   const facts = [];
   if (accepted && connections) {
     for (const row of classRows(connections)) facts.push(row.found);
@@ -396,6 +465,8 @@ export function sceneModel({ accepted = true, connections = null, costs = null, 
   const ready = Boolean(accepted && connections);
   const label = ready
     ? `Server room: ${RACKS.length} racks, ${missing} ${missing === 1 ? "connection" : "connections"} missing, runs of the last 7 days`
-    : accepted ? "Server room, loading" : "Server room, waiting for the configuration to be accepted";
-  return { ready, leds, facts: facts.length, missing, racks, bars, tips: { wall: "Runs by day · Costs tab", console: "Console · Skills tab" }, label, open: ready ? [...OPEN_OF[tabOf(tab)]] : [] };
+    : accepted ? (failed ? "Server room, connections not read" : "Server room, loading") : "Server room, waiting for the configuration to be accepted";   // A6-13: a failed read says nothing was read; the page's label would claim nothing is missing
+  // B3-5: a failed read of the connections draws the room as the page does, the lights off and the open tab's object marked (no data was read, but the person is on that tab); loading and not accepted draw no brackets
+  const marked = ready || Boolean(accepted && failed);
+  return { ready, failed: Boolean(accepted && failed && !connections), leds, facts: facts.length, missing, racks, bars, tips: { wall: "Runs by day · Costs tab", console: "Console · Skills tab" }, label, open: marked ? [...(OPEN_OF[tabOf(tab)] || [])] : [] };
 }

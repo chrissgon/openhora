@@ -5,7 +5,7 @@
 // a click opens the tab that holds the same facts as HTML. The room is static: nothing in it moves, and there is no label and no text in 3D.
 //
 // What it shows is worked out by sceneModel in control-model.js (pure, tested under Node); the builder takes the engine's kit, as the City's does, and registers itself as the scene
-// kind "server" through the engine's BUILDERS, so the engine is not edited. The measures are the page's, in `scene/server-room.js`; the tones are `roomTones` and `serverTones`
+// kind "server" through the engine's BUILDERS: the engine names no server-room builder, and adding a scene kind adds a builder here, not a case there. The measures are the page's, in `scene/server-room.js`; the tones are `roomTones` and `serverTones`
 // (palette.js), recipes of the page's `scene.css`; the statics are baked into a few batches (kit.batch): one for the shell, one for each rack, the wall screen and the console.
 
 import { buildGround, KERB } from "../scene/city.js";
@@ -18,7 +18,10 @@ import { topOf } from "../scene/world.js";
 import { RACKS, UNITS } from "./control-model.js";
 
 /** The canvas width under which the room wears no brackets: the phone (the page's phone frames draw none). */
-export const MARKS_MIN_WIDTH = 640;
+export const MARKS_MIN_WIDTH = 900;
+
+/** The page draws brackets once the room has been read, and also on "A read that failed" (B3-5: `failed`, which the view sets); not while it loads or waits for the configuration. */
+const marksShown = (m) => Boolean(m.ready || m.failed);
 
 /** Build the server room. model: sceneModel(). Returns what the engine needs, like buildCity: the group, the hits (each with its tooltip, the place of it and its brackets), `open`, `subject`. */
 export function buildServer(kit, model) {
@@ -76,10 +79,10 @@ export function buildServer(kit, model) {
   );
 
   // the words (the tooltips; there is no label) and the object of the open tab: a model with the same structure changes them without building the room again
-  const text = (m) => ({ labels: [], tips: new Map([...m.racks.map((r) => [r.id, r.tip]), ["wall", m.tips.wall], ["console", m.tips.console]]), open: m.open || [], noMarks: !m.ready });
-  // the page draws no brackets on its phone frames (under 640 px: `marksMinWidth`) nor while the room is loading or waiting for the configuration (`noMarks`: nothing is read), and the pointer's
+  const text = (m) => ({ labels: [], tips: new Map([...m.racks.map((r) => [r.id, r.tip]), ["wall", m.tips.wall], ["console", m.tips.console]]), open: m.open || [], noMarks: !marksShown(m) });
+  // the page draws no brackets on its phone frames (under 900 px, the phone's layout: `marksMinWidth`) nor while the room is loading or waiting for the configuration (`noMarks`: nothing is read), and the pointer's
   // brackets stand down with them
-  return { group, hits, labels: [], beacons: [], markers: [], outlines: [], selected: null, open: model.open || [], noMarks: !model.ready, marksMinWidth: MARKS_MIN_WIDTH, subject, text };
+  return { group, hits, labels: [], beacons: [], markers: [], outlines: [], selected: null, open: model.open || [], noMarks: !marksShown(model), marksMinWidth: MARKS_MIN_WIDTH, subject, text };
 }
 
 /** What the room is made of, for a model: the LEDs and the bars; the tooltips, the label and the open tab are words. */
