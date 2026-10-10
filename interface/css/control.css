@@ -17,6 +17,12 @@
   .wb-frame[data-screen="control"] .wb-panel-wide, .wb-frame[data-screen="control"] .wb-waiting { width: calc(100vw - var(--wb-kpi-w) - var(--wb-edge) * 3); }   /* R-50: the closed card is as wide as the panel in this band too */
   .wb-filter-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .wb-filter-body > :last-child { grid-column: 1 / -1; }
+  .wb-frame[data-screen="control"] .wb-dock { right: calc(100vw - var(--wb-kpi-w) - var(--wb-edge)); }   /* the card's width + 2 edges (the frame's rule assumes a 340 px card): the dock ends at the card's left edge */
+}
+
+/* the dock (Back and the crumbs, bottom left) ends at the closed card's left edge, whose width here is the panel's: the frame's rule assumes a 340 px card and let the crumbs run under it */
+@media (min-width: 1024px) {
+  .wb-frame[data-screen="control"] .wb-dock { right: calc(var(--wb-panel-wide) + var(--wb-edge) * 2); }
 }
 
 /* the band under the header stops short of the wide panel (the frame's own rule leaves room for the narrow one) */

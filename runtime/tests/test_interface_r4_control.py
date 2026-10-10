@@ -648,3 +648,18 @@ def test_a_cleared_since_date_reads_the_default_window_and_shows_no_refusal(tmp_
     assert got["whileReading"] == ["", True], "while the read lasts the cleared field stays empty (the old date does not flash back)"
     assert got["notice"] == 0 and got["text"] is False and got["invalid"] is None
     assert got["value"] == "2026-09-10", "the field shows the operation's own window"
+
+
+def test_the_dock_ends_at_the_closed_cards_left_edge_where_the_card_is_as_wide_as_the_panel():
+    """Review of R4-F3: the frame's dock ends 340 px (the narrow card) plus two edges from the right, so on the Control room, whose closed card is as wide as the panel (R-50), the
+    crumbs ran under it at 900 to about 1050 px. The dock's right edge is the card's width plus two edges, in both bands."""
+    own = control_css()
+    wide = own[own.index("@media (min-width: 1024px) {\n  .wb-frame[data-screen=\"control\"] .wb-dock"):]
+    wide = wide[:wide.index("\n}")]
+    assert 'right: calc(var(--wb-panel-wide) + var(--wb-edge) * 2)' in wide
+    band = own[own.index("@media (min-width: 900px) and (max-width: 1023px)"):]
+    band = band[:band.index("\n}")]
+    card = re.search(r'\.wb-waiting \{ width: (calc\([^;]+\)); \}', band).group(1)
+    assert card == "calc(100vw - var(--wb-kpi-w) - var(--wb-edge) * 3)"
+    # the card's width + 2 edges = 100vw - kpi - 3 edges + 2 edges = 100vw - kpi - 1 edge
+    assert 'right: calc(100vw - var(--wb-kpi-w) - var(--wb-edge));' in band
