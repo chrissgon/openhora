@@ -95,6 +95,8 @@
 
 /* --- Costs ------------------------------------------------------------------------------------------------------------------------------------------------------------------- */
 .wb-since { max-width: 200px; }
+/* M-8: the Since field is a date; the browser's picker and its calendar icon follow the colour mode through `color-scheme`, which the library sets on the root from its mode attribute (and "light dark" for System) */
+.wb-since input[type="date"] { color-scheme: inherit; height: 31.5px; }  /* the height of the library's text field at 13 px: a date input is taller by itself */
 .wb-foot { margin: 0; font-size: 12px; }
 
 /* the caps (R-52, E-16): the agent with its runs of the day under its name, then Runs today and Spend today, each a value in 600 weight over a meter */
