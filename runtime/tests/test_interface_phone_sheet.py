@@ -407,7 +407,7 @@ def test_the_handle_is_the_phones_and_the_desktop_rules_are_as_they_were():
     # the desktop panel is placed as before: absolute at the right of the scene, at its fixed width
     panel = next(d for sel, d in rules(top) if sel == ".wb-panel")
     assert panel["position"] == "absolute" and panel["right"] == "var(--wb-edge)" and panel["width"] == "var(--wb-panel-narrow)"
-    assert next(d for sel, d in rules(top) if sel == ".wb-dock")["position"] == "absolute", "R-8, M-4: the tracking bar stands at the bottom left in the dock (Back and the crumbs are in the top row)"
+    assert next(d for sel, d in rules(top) if sel == ".wb-dock")["position"] == "absolute", "R-8, M-10: the tracking bar stands at the bottom left in the dock, under Back and the crumbs (M-4 put them in the top row and was revoked)"
     assert "position" not in next(d for sel, d in rules(top) if sel == ".wb-track")
     assert next(d for sel, d in rules(top) if sel == ".wb-kpis")["position"] == "absolute"
     # the sheet's rules sit in the phone block alone

@@ -68,8 +68,8 @@
   white-space: nowrap;
 }
 
-/* the top row (R-1, M-4): 56 px high with no strip behind it. At the left the brand, in one raised box, and right after it Back and the crumbs; at the right, in this
-   order, the project switcher, the colour-mode button and the door, each a raised control of its own on the scene. The order in the markup is the keyboard order. */
+/* the top row (R-1): 56 px high with no strip behind it. At the left the brand, in one raised box; at the right, in this order, the project switcher, the
+   colour-mode button and the door, each a raised control of its own on the scene. */
 .wb-topbar {
   position: absolute;
   top: 0;
@@ -84,13 +84,12 @@
   pointer-events: none;
 }
 .wb-topbar > * { pointer-events: auto; }
-.wb-topbar-end { display: flex; flex: none; align-items: center; gap: 8px; margin-left: auto; }   /* the crumbs give way before these do (P-8) */
-.wb-topbar > .wb-nav { flex: 0 1 auto; }
+.wb-topbar-end { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .wb-topbar .wb-brand { gap: 8px; padding: 5px 14px 5px 8px; border: var(--pui-border-width) solid var(--pui-border); border-radius: var(--pui-radius); background-color: var(--wb-raised); box-shadow: var(--wb-elev); }
 .wb-topbar .wb-wordmark { font-size: 1.25rem; }
 
-/* the tracking bar's place (R-8): at the bottom left, beside "Waiting for you". The dock paints nothing and holds the bar alone, so where the bar is hidden (the Control room)
-   nothing stands at the bottom left. */
+/* Back and the crumbs (R-2, M-10: M-4 put them in the top row for a day and was revoked): docked at the bottom left, above the tracking bar (they share one box, .wb-dock,
+   so the bar's height never has to be measured). Where the bar is hidden (the Control room) they stand at the bottom left edge (R-50). */
 .wb-dock {
   position: absolute;
   right: calc(var(--wb-wait-w) + var(--wb-edge) * 2);
@@ -98,16 +97,18 @@
   left: var(--wb-edge);
   z-index: 2;
   display: grid;
+  gap: 8px;
+  justify-items: start;
   pointer-events: none;
 }
 .wb-dock > * { pointer-events: auto; }
 .wb-dock > .wb-track { justify-self: stretch; }
-
-/* Back and the crumbs (R-2, M-4): two raised controls, as high as the switcher, the colour button and the door; in the top row on a desktop, the bottom bar's second row
-   on a phone. When the row is short the crumb that names the project (the middle one, or the last on the Building) is cut with an ellipsis (its whole name is its text and its
-   tooltip); the City and a last crumb that names a floor, the Lobby or the Control room are never cut (P-8, F2-7). */
+.wb-navdock { max-width: 100%; }
+/* Back and the crumbs: two raised controls; the bottom bar's second row on a phone. When the dock is narrower than the trail the crumb that names the project (the middle one,
+   or the last on the Building) is cut with an ellipsis (its whole name is its text and its tooltip); the City and a last crumb that names a floor, the Lobby or the Control room
+   are never cut (P-8, F2-7). */
 .wb-nav { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.wb-back { min-width: var(--wb-control-h); min-height: var(--wb-control-h); padding: 8px; background-color: var(--wb-raised); box-shadow: var(--wb-elev); }
+.wb-back { min-height: var(--wb-control-h); padding: 8px; background-color: var(--wb-raised); box-shadow: var(--wb-elev); }
 .wb-crumb-nav {
   display: flex;
   align-items: center;
@@ -315,7 +316,7 @@ a.wb-crumb:hover { text-decoration: underline; }
 .wb-panel-body { display: grid; gap: 10px; align-content: start; grid-auto-rows: max-content; padding: 12px; overflow-y: auto; }
 
 /* the tracking bar (F-6) */
-.wb-track { box-shadow: var(--wb-elev); }     /* R-8: at the bottom left beside "Waiting for you", in the dock (.wb-dock) */
+.wb-track { box-shadow: var(--wb-elev); }     /* R-8: at the bottom left beside "Waiting for you", in the dock (.wb-dock) under Back and the crumbs */
 .wb-track-desktop { display: grid; grid-template-columns: minmax(0, 1fr) var(--wb-side-card); }
 .wb-track-phone { display: none; }
 .wb-track-left { display: grid; gap: 8px; min-width: 0; padding: 12px 16px; }
@@ -487,14 +488,13 @@ a.wb-now-title:hover { text-decoration: underline; }
 }
 
 /* --- the in-between layout (WP-9.11; the specification's tablet layout, OPEN-12, built): 900 to 1099 px ------------------------------
-   The top row (with Back and the crumbs, M-4), the KPI column, the dock and the card keep the places of the desktop (R4D-6: round 4 does not draw this band); the door is
+   The top row, the KPI column, the dock (Back and the crumbs, the tracking bar) and the card keep the places of the desktop (R4D-6: round 4 does not draw this band); the door is
    an icon, the plates keep the name and the meters, the tracking bar scrolls sideways, and the panel is 340 px, as wide as "Waiting for you" under it. The scene is fitted
    in what none of them covers (the engine measures the rectangles, frame.insets). Under 900 px the page is the phone's (M-3): there is no docked band. */
 @media (min-width: 900px) and (max-width: 1099px) {
   :root { --wb-panel-narrow: 340px; --wb-wait-w: 340px; --wb-side-card: 220px; --wb-plate-w: 230px; --wb-card-w: 250px; --wb-panel-lobby: 340px; }
   .wb-door-label { display: none; }
   .wb-door { padding: 8px 10px; gap: 6px; }
-  .wb-topbar .wb-switch-main { max-width: 15rem; }   /* M-4: the top row is shortest here: the project's name in the switcher leaves the crumbs some room (P-8) */
   .wb-track-left .wb-steps { overflow-x: auto; }
   .wb-track-left .wb-step { flex: 0 0 9rem; }
 }
