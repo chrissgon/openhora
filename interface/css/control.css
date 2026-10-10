@@ -17,6 +17,26 @@
   .wb-frame[data-screen="control"] .wb-panel-wide, .wb-frame[data-screen="control"] .wb-waiting { width: calc(100vw - var(--wb-kpi-w) - var(--wb-edge) * 3); }   /* R-50: the closed card is as wide as the panel in this band too */
   .wb-filter-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .wb-filter-body > :last-child { grid-column: 1 / -1; }
+  .wb-frame[data-screen="control"] .wb-dock { right: calc(100vw - var(--wb-kpi-w) - var(--wb-edge)); }   /* the card's width + 2 edges (the frame's rule assumes a 340 px card): the dock ends at the card's left edge */
+}
+
+/* the dock (Back and the crumbs, bottom left) ends at the closed card's left edge, whose width here is the panel's: the frame's rule assumes a 340 px card and let the crumbs run under it */
+@media (min-width: 1024px) {
+  .wb-frame[data-screen="control"] .wb-dock { right: calc(var(--wb-panel-wide) + var(--wb-edge) * 2); }
+}
+
+/* where the dock is narrower than Back and the crumbs (900 to about 1050 px: the card is as wide as the panel, and the room left of it is the KPI column's), the crumbs give way with an
+   ellipsis, the current page last; they never run under the card (and below about 1070 px the project's crumb goes, next rule) */
+@media (min-width: 900px) {
+  .wb-frame[data-screen="control"] .wb-dock { grid-template-columns: minmax(0, 1fr); }
+  .wb-frame[data-screen="control"] .wb-navdock, .wb-frame[data-screen="control"] .wb-nav, .wb-frame[data-screen="control"] .wb-crumb-nav { min-width: 0; max-width: 100%; }
+  .wb-frame[data-screen="control"] .wb-crumb-nav, .wb-frame[data-screen="control"] .wb-crumbs { overflow: hidden; }
+  .wb-frame[data-screen="control"] .wb-crumb-item:not(:last-child) .wb-crumb { overflow: hidden; text-overflow: ellipsis; }
+}
+
+/* below about 1070 px the project's crumb gives way (the switcher in the top row names the project): "City / Control room" is what fits left of the card */
+@media (min-width: 900px) and (max-width: 1069px) {
+  .wb-frame[data-screen="control"] .wb-crumb-item:nth-child(2) { display: none; }
 }
 
 /* the band under the header stops short of the wide panel (the frame's own rule leaves room for the narrow one) */
@@ -95,6 +115,10 @@
 
 /* --- Costs ------------------------------------------------------------------------------------------------------------------------------------------------------------------- */
 .wb-since { max-width: 200px; }
+/* M-8: the Since field is a date. The browser's picker and its calendar icon follow the colour mode through `color-scheme`; the property inherits by itself and the library sets it on the root
+   from its mode attribute ("light dark" for System), so `color-scheme: inherit` below only states the rule. 31.5px is the height the library gives its own text field and selects at 13 px
+   (measured in the served page, `.pui-input` in a `.wb-field`); a date input is 33.5px by itself. */
+.wb-since input[type="date"] { color-scheme: inherit; height: 31.5px; }
 .wb-foot { margin: 0; font-size: 12px; }
 
 /* the caps (R-52, E-16): the agent with its runs of the day under its name, then Runs today and Spend today, each a value in 600 weight over a meter */

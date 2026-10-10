@@ -88,15 +88,19 @@ function capsCard(spec) {
 
 /**
  * The tab. handlers: {onSince(text)}. Returns {el, set(state)}. state: {status: "loading"|"ready"|"failed"|"refused", data
- * ({since, rows, caps}), agents (the `agents` array or null), error (the message), fieldValue (the text of the Since field, or
+ * ({since, rows, caps}), agents (the `agents` array or null), error (the message), fieldValue (the value of the Since field, a day or empty, or
  * null before the first read)}.
  */
 export function createCostsTab(handlers) {
   const el = h("div", { class: "wb-tab-body" });
-  const input = h("input", { class: "pui-input wb-field-input", type: "text", autocomplete: "off", spellcheck: "false" });
+  // M-8, A-47: a date field. The browser's picker gives a value that is always YYYY-MM-DD or empty; the change and the read are the text field's (the service stays the one validator).
+  const input = h("input", { class: "pui-input wb-field-input", type: "date", autocomplete: "off" });
   const row = h("label", { class: "pui-field-group wb-field wb-since" }, h("span", { text: "Since" }), input);
   const disclosure = { open: false };
   input.addEventListener("change", () => handlers.onSince(input.value));
+  // M-9: the caps are today's figures and do not depend on Since, so they come first and show whatever the field returns; while a read is in flight, failed or refused
+  // the card last read stays (null until a read has had caps)
+  let capsNode = null;
 
   return {
     el,
@@ -105,12 +109,17 @@ export function createCostsTab(handlers) {
       if (fieldShown && input.value !== state.fieldValue) input.value = state.fieldValue;
       input.removeAttribute("aria-invalid");
       input.removeAttribute("aria-describedby");
+      if (state.status === "ready") {
+        const spec = model.capsRows(state.data.caps, state.agents);
+        capsNode = spec ? capsCard(spec) : null;
+      }
+      const caps = capsNode;
       if (state.status === "loading") {
-        reconcile(el, [fieldShown ? row : null, loadingCard(model.LOADING)].filter(Boolean));
+        reconcile(el, [caps, fieldShown ? row : null, loadingCard(model.LOADING)].filter(Boolean));
         return;
       }
       if (state.status === "failed") {
-        reconcile(el, [fieldShown ? row : null, failedCard(FAILED_TITLE, state.error)].filter(Boolean));
+        reconcile(el, [caps, fieldShown ? row : null, failedCard(FAILED_TITLE, state.error)].filter(Boolean));
         return;
       }
       if (state.status === "refused") {
@@ -118,21 +127,20 @@ export function createCostsTab(handlers) {
         input.setAttribute("aria-describedby", "wb-since-notice");
         const notice = failedCard("Date refused", state.error);
         notice.id = "wb-since-notice";
-        reconcile(el, [row, notice]);
+        reconcile(el, [caps, row, notice].filter(Boolean));
         return;
       }
       const data = state.data;
       const rows = Array.isArray(data.rows) ? data.rows : [];
-      const caps = model.capsRows(data.caps, state.agents);
       if (!rows.length) {
-        reconcile(el, [row, emptyBlock(`No runs since ${data.since}.`)]);   // the page's frame: the field and the dashed block; the caps are of a tab that has runs
+        reconcile(el, [caps, row, emptyBlock(`No runs since ${data.since}.`)].filter(Boolean));
         return;
       }
       const chart = model.chartOf(rows, data.since);
       // the field stays in place: the one the person is typing in keeps its focus through a read
       reconcile(el, [
+        caps,
         row,
-        caps ? capsCard(caps) : null,
         chart ? chartCard(chart, disclosure) : null,
         tableCard(runsTable(rows), "wb-costs-card"),
         h("p", { class: "wb-muted wb-foot", text: model.footnote(rows) }),
