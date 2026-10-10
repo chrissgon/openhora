@@ -133,6 +133,19 @@ out.growBefore = where();
 mql.matches = false;
 changes.forEach((fn) => fn());
 out.growAfter = where();
+// F2-7: the frame marks the crumb that names the project
+g.setScreen(router.parse(`#/p/${a}`), { projectName: "northwind-shop", projectId: a });
+const marked = (frameParts) => walkAll(frameParts.el).filter((n) => cls(n).includes("wb-crumb-item")).map((n) => cls(n).includes("is-project"));
+out.projectMark = [marked(g)];
+g.setScreen(router.parse(`#/p/${a}/lobby`), { projectName: "northwind-shop", projectId: a });
+out.projectMark.push(marked(g));
+// the focus stays with the part that held it when the window crosses 899 px (a browser drops it when a part is moved)
+const originalReplace = FakeNode.prototype.replaceChildren;
+FakeNode.prototype.focus = function () { document.activeElement = this; };   // this fake's focus() only notes the node: a browser's sets document.activeElement
+FakeNode.prototype.replaceChildren = function (...moved) { for (const it of moved) if (it instanceof FakeNode && it.contains(document.activeElement)) document.activeElement = null; return originalReplace.apply(this, moved); };
+const focusAcross = (part, toPhone) => { part.focus(); mql.matches = toPhone; changes.forEach((fn) => fn()); return document.activeElement === part; };
+out.focus = [focusAcross(first(g.el, "wb-back"), true), focusAcross(first(g.el, "wb-door"), false), focusAcross(first(g.el, "wb-back"), false), focusAcross(first(g.switcher.el, "wb-switch-main"), true), focusAcross(first(g.el, "wb-mode-btn"), false)];
+FakeNode.prototype.replaceChildren = originalReplace;
 console.log(JSON.stringify(out));
 """
 
@@ -172,6 +185,8 @@ def test_the_frame_has_the_top_row_the_dock_the_two_cards_the_bottom_bar_and_the
     phone = got["phone"]
     assert phone["float"] == ["pui-card wb-track", "wb-kpis"], "R-10: the tracking bar and the two KPI tiles float at the top of the scene"
     assert phone["top"] == 0 and phone["dock"] == [] and phone["topNav"] is False and phone["barNav"] is True, "a phone's top row and dock are empty (the stylesheet does not draw them): the controls moved to the bottom bar, Back and the crumbs with them"
+    assert got["projectMark"] == [[False, True], [False, True, False]], "F2-7: the frame marks the crumb that names the project, last on the Building, middle on the Lobby"
+    assert got["focus"] == [True] * 5, "F2-7: the focus stays with Back, the door, the switcher or the colour button when the window crosses 899 px and the part is moved"
     assert got["growBefore"] == [False, True] and got["growAfter"] == [True, False], "M-4: past the phone's width Back and the crumbs go back to the top row, and leave the bottom bar"
     assert phone["rows"] == [["wb-switcher", "wb-wait-menu-wrap", "wb-mode-btn"], ["wb-nav", "wb-door"]], "R-10: the switcher, the inbox button, the colour mode; then Back with the crumbs, and the door"
 
@@ -519,9 +534,9 @@ def test_no_module_of_the_page_names_a_colour_but_the_owls_palette_modules():
 
 from interface_css import css_paths   # noqa: E402
 
-# The stylesheets of the packages that have not moved their phone query yet (R4-A4: base, floor; R4-A5: lobby; R4-A6: control). Each package moves its own
-# files (P-7); the test below lets such a file keep the old width until then, and nothing else. Once all four have merged the set is empty: delete it.
-LAGGING = {"base.css", "floor.css", "lobby.css", "control.css"}
+# The stylesheets of the packages that have not moved their phone query yet (R4-A4: base, floor; R4-A5: lobby; R4-A6 moved control.css and left the set). Each package
+# moves its own files (P-7); the test below lets such a file keep the old width until then, and nothing else. Once A4 and A5 have merged the set is empty: delete it.
+LAGGING = {"base.css", "floor.css", "lobby.css"}
 PHONE_WIDTH = 899
 
 
@@ -569,10 +584,10 @@ def test_the_top_row_draws_back_and_the_crumbs_as_raised_controls_of_the_same_he
     assert top[".wb-crumb-nav"]["border-radius"] == "var(--pui-radius)" and "border" in top[".wb-crumb-nav"]
     assert top[".wb-topbar > .wb-nav"]["flex"] == "0 1 auto", "M-4: the crumbs give way when the row is short"
     assert top[".wb-topbar-end"]["flex"] == "none", "the switcher, the colour button and the door keep their room: the crumbs yield first (P-8)"
-    middle = ".wb-crumb-item:not(:first-child):not(:last-child)"
-    assert top[middle]["flex"] == "0 1 auto" and top[middle]["min-width"] == "0", "P-8: the middle crumb, the project, shrinks"
-    assert top[middle + " > .wb-crumb"]["text-overflow"] == "ellipsis" and top[middle + " > .wb-crumb"]["overflow"] == "hidden", "P-8: and is cut with an ellipsis"
-    assert top[".wb-crumb-item"]["flex"] == "none", "P-8: the first and the last crumb are never cut"
+    project = ".wb-crumb-item.is-project"
+    assert top[project]["flex"] == "0 1 auto" and top[project]["min-width"] == "0", "P-8, F2-7: the crumb that names the project (middle, or last on the Building) shrinks"
+    assert top[project + " > .wb-crumb"]["text-overflow"] == "ellipsis" and top[project + " > .wb-crumb"]["overflow"] == "hidden", "P-8: and is cut with an ellipsis"
+    assert top[".wb-crumb-item"]["flex"] == "none", "P-8: the City and a last crumb that names a floor, the Lobby or the Control room are never cut"
     assert top[".wb-crumbs"]["white-space"] == "nowrap"
     dock = top[".wb-dock"]
     assert dock["position"] == "absolute" and dock["bottom"] == "var(--wb-edge)" and dock["left"] == "var(--wb-edge)", "R-8: the tracking bar stays at the bottom left"
@@ -594,22 +609,24 @@ import { FakeNode } from "@FAKE@";
 import { createNav } from "@JS@/frame/header.js";
 const out = {};
 const nav = createNav();
-const items = (labels) => labels.map((label, i) => ({ label, href: i < labels.length - 1 ? "#/x" + i : undefined }));
+const items = (labels, project = 1) => labels.map((label, i) => ({ label, href: i < labels.length - 1 ? "#/x" + i : undefined, ...(i === project ? { project: true } : {}) }));
 const state = () => [...nav.el.walk()].filter((n) => n.cls().includes("wb-crumb")).map((n) => [n.textContent, n.attrs.title || null, n.tagName]);
+const lis = () => [...nav.el.walk()].filter((n) => n.cls().includes("wb-crumb-item")).map((n) => n.cls().includes("is-project"));
 nav.set(items(["City", "northwind-shop-with-a-long-name", "Lobby"]), "#/p/1");
-out.three = state();
-nav.set(items(["City", "northwind-shop"]), "#/city");
-out.two = state();
-nav.set(items(["City"]), null);
-out.one = [state(), [...nav.el.walk()].find((n) => n.cls().includes("wb-back")).disabled];
+out.three = [state(), lis()];
+nav.set(items(["City", "northwind-shop-with-a-long-name"]), "#/city");
+out.two = [state(), lis()];
+nav.set(items(["City"], -1), null);
+out.one = [state(), [...nav.el.walk()].find((n) => n.cls().includes("wb-back")).disabled, lis()];
 console.log(JSON.stringify(out));
 """
 
 
 @needs_node
-def test_the_middle_crumb_keeps_its_whole_name_as_a_tooltip_and_the_last_crumb_never_has_one_to_cut(tmp_path):
+def test_the_crumb_that_names_the_project_keeps_its_whole_name_as_a_tooltip_and_is_the_one_that_is_cut(tmp_path):
     got = run_node(tmp_path, HEADER)
-    assert got["three"] == [["City", None, "A"], ["northwind-shop-with-a-long-name", "northwind-shop-with-a-long-name", "A"], ["Lobby", None, "SPAN"]], \
-        "P-8: the project crumb carries its whole name as tooltip (its text is its accessible name); the first and the last crumb need none"
-    assert got["two"] == [["City", None, "A"], ["northwind-shop", None, "SPAN"]], "on the Building the project is the last crumb: it is never cut"
-    assert got["one"] == [[["City", None, "SPAN"]], True]
+    name = "northwind-shop-with-a-long-name"
+    assert got["three"] == [[["City", None, "A"], [name, name, "A"], ["Lobby", None, "SPAN"]], [False, True, False]], \
+        "P-8: the project crumb carries its whole name as tooltip (its text is its accessible name) and is the one marked to be cut; the City and the Lobby are never"
+    assert got["two"] == [[["City", None, "A"], [name, name, "SPAN"]], [False, True]], "F2-7: on the Building the project is the last crumb: it is cut too, with its whole name as tooltip"
+    assert got["one"] == [[["City", None, "SPAN"]], True, [False]]

@@ -21,18 +21,19 @@ export function createNav() {
   });
   return {
     el,
-    /** items: [{label, href}] (the last is the current one, with no href); backHash: where Back goes, or null (disabled). */
+    /** items: [{label, href, project?}] (the last is the current one, with no href; `project` marks the crumb that names the project); backHash: where Back goes, or null (disabled). */
     set(items, backHash) {
       target = backHash;
       back.disabled = !backHash;
       list.replaceChildren(...items.map((item, i) => {
         const last = i === items.length - 1;
-        // P-8: when the row is short the middle crumb (the project) is cut with an ellipsis; its whole name is its text, so it is the accessible name, and the tooltip
-        const attrs = i > 0 && !last ? { title: item.label } : {};
+        // P-8: when the row is short the crumb that names the project (the middle one, or the last on the Building) is cut with an ellipsis; its whole name is its
+        // text, so it is the accessible name, and the tooltip. The City and a last crumb that names a floor, the Lobby or the Control room are never cut.
+        const attrs = item.project ? { title: item.label } : {};
         const label = last
-          ? h("span", { class: "wb-crumb is-current", "aria-current": "page", text: item.label })
+          ? h("span", { class: "wb-crumb is-current", "aria-current": "page", text: item.label, ...attrs })
           : h("a", { class: "wb-crumb", href: item.href, text: item.label, ...attrs });
-        return h("li", { class: "wb-crumb-item" }, i > 0 ? h("span", { class: "wb-crumb-sep", "aria-hidden": "true", text: "/" }) : null, label);
+        return h("li", { class: item.project ? "wb-crumb-item is-project" : "wb-crumb-item" }, i > 0 ? h("span", { class: "wb-crumb-sep", "aria-hidden": "true", text: "/" }) : null, label);
       }));
     },
   };

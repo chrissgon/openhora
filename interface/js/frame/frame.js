@@ -174,6 +174,9 @@ export function createFrame(root, handlers) {
   // button and the colour-mode button, then Back, the crumbs and the door; above a phone's width they stand where a desktop has them: Back and the crumbs
   // in the top row after the brand (M-4), the tracking bar in the dock. Moved, never copied.
   function placeParts() {
+    // A part that is moved loses the focus in a browser: the one that held it gets it back (the window crossed 899 px while a person tabbed or clicked in it).
+    const held = document.activeElement;
+    const keeps = held && typeof held.focus === "function" && [nav.el, switcher.el, modeButton.el, door, waitingMenu.el].some((part) => part.contains(held));
     if (phone.matches) {
       float.append(track.el, kpis.el);
       barTop.replaceChildren(switcher.el, waitingMenu.el, modeButton.el);
@@ -186,6 +189,7 @@ export function createFrame(root, handlers) {
       barTop.replaceChildren(waitingMenu.el);
       barEnd.replaceChildren();
     }
+    if (keeps && document.activeElement !== held) held.focus({ preventScroll: true });
   }
   placeParts();
   phone.addEventListener("change", placeParts);
@@ -283,10 +287,10 @@ export function createFrame(root, handlers) {
       if (!["city", "building", "floor", "lobby"].includes(route.screen)) releaseWorld();   // the Control room draws its own scene
       const items = [{ label: "City", href: router.cityHash() }];
       if (route.screen !== "city" && projectName) {
-        items.push({ label: projectName, href: router.buildingHash(route.project) });
+        items.push({ label: projectName, href: router.buildingHash(route.project), project: true });
         if (route.screen !== "building") items.push({ label: leaf || SCREEN_NAMES[route.screen] });
       }
-      items[items.length - 1] = { label: items[items.length - 1].label };
+      items[items.length - 1] = { label: items[items.length - 1].label, project: items[items.length - 1].project };
       nav.set(items, router.parentHash(route));
       doorTarget = projectId ? router.controlHash(projectId) : null;
       door.disabled = !doorTarget;

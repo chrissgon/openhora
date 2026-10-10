@@ -104,7 +104,8 @@
 .wb-dock > .wb-track { justify-self: stretch; }
 
 /* Back and the crumbs (R-2, M-4): two raised controls, as high as the switcher, the colour button and the door; in the top row on a desktop, the bottom bar's second row
-   on a phone. When the row is short the middle crumb, the project, is cut with an ellipsis (its whole name is its text and its tooltip); the first and the last are never cut (P-8). */
+   on a phone. When the row is short the crumb that names the project (the middle one, or the last on the Building) is cut with an ellipsis (its whole name is its text and its
+   tooltip); the City and a last crumb that names a floor, the Lobby or the Control room are never cut (P-8, F2-7). */
 .wb-nav { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .wb-back { min-width: var(--wb-control-h); min-height: var(--wb-control-h); padding: 8px; background-color: var(--wb-raised); box-shadow: var(--wb-elev); }
 .wb-crumb-nav {
@@ -122,8 +123,8 @@
 }
 .wb-crumbs { display: flex; align-items: center; gap: 6px; margin: 0; padding: 0; list-style: none; white-space: nowrap; min-width: 0; }
 .wb-crumb-item { display: flex; flex: none; align-items: center; gap: 6px; }
-.wb-crumb-item:not(:first-child):not(:last-child) { flex: 0 1 auto; min-width: 0; }
-.wb-crumb-item:not(:first-child):not(:last-child) > .wb-crumb { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.wb-crumb-item.is-project { flex: 0 1 auto; min-width: 0; }
+.wb-crumb-item.is-project > .wb-crumb { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .wb-crumb { color: var(--pui-text-muted); text-decoration: none; }
 a.wb-crumb:hover { text-decoration: underline; }
 .wb-crumb.is-current { color: var(--pui-text); font-weight: 600; }
@@ -381,6 +382,7 @@ a.wb-now-title:hover { text-decoration: underline; }
 /* --- tablet width: the 1280 arrangement, scaled; the specification's tablet layout was not drawn (OPEN-12). Round 4 does not draw it either (R4D-6): the frame keeps its
    places and the parts take the narrower widths. From 900 px up only: up to 899 px the page is the phone's (M-3). -------------------------------------------------------------- */
 @media (max-width: 1023px) {
+  /* the tablet's widths; they are set up to 1023 px, but only the parts of a desktop layout (900 px and up) read them: the phone's rules never use these three */
   :root { --wb-wait-w: min(340px, 36vw); --wb-panel-narrow: min(380px, 42vw); --wb-side-card: 220px; }
 }
 
