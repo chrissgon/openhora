@@ -650,3 +650,65 @@ def test_the_board_label_is_not_drawn_on_a_phone_and_a_card_head_wraps_instead_o
     meta = next(d for s, d in css_rules() if s.strip() == ".wb-card-meta")
     assert "white-space" not in meta and "text-overflow" not in meta, "the card's meta is never cut: the head wraps"
     assert ":has(.wb-card-plain)" not in floor
+
+
+# --- M-12 (the maintainer's word, A-52): no mode chip in the Floor's head; the soft notice of the Lobby's dialog and of the placeholder -------------------------------------
+
+HEAD = r"""
+import { FakeNode, settle, find, all } from "@FAKE@";
+import { setToken } from "@JS@/token.js";
+import * as router from "@JS@/router.js";
+import { createFloorView } from "@JS@/views/floor.js";
+
+setToken("t".repeat(40));
+globalThis.ResizeObserver = class { observe() {} disconnect() {} };
+document.removeEventListener = () => {};
+const P = "0123456789ab";
+globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({}) });
+const agent = (name) => ({ name, pack: "x", enabled: true, mode: "supervised", acting_mode: "supervised", max_runs_per_day: 8, max_usd_per_day: 4, runs_today: 1, usd_today: 0.1, runs_without_cost: 0, queued: 0, wider: [] });
+const snapshot = { loaded: true, projects: [{ id: P, name: "northwind-shop", config: { accepted: true } }], tasks: {},
+  details: { [P]: { agents: [agent("engineering"), agent("planning")], status: { requests: [], pending: [], documents: [] } } } };
+const out = {};
+for (const phone of [false, true]) {
+  globalThis.window.matchMedia = () => ({ matches: phone, addEventListener() {}, removeEventListener() {} });
+  const frame = { el: new FakeNode("div"), main: new FakeNode("main"), track: { el: new FakeNode("div") }, noticeBox: new FakeNode("div"), insets: () => ({ left: 0, right: 0, top: 0, bottom: 0, pad: 1 }),
+    isPhone: () => phone, sceneUnavailable() {}, announce() {}, acquireWorld: () => ({ show() {}, setOptions() {}, refit() {}, stats() { return {}; } }) };
+  const view = createFloorView(frame, { refresh() {} });
+  for (const tab of ["agent", "inbox", "tasks", "desk"]) {
+    view.update({ snapshot, route: router.parse(`#/p/${P}/floor/engineering/${tab}`), now: new Date("2026-10-10T12:00:00Z"), reload: 1 });
+    await settle();
+    const head = find(frame.main, ".wb-floor-head");
+    out[`${phone ? "phone" : "desktop"}-${tab}`] = { chips: all(head, ".pui-chip").length, header: all(head, ".wb-header-mode, .wb-mode-plate").length, own: all(frame.main, ".wb-mode-row .wb-mode-plate").length, title: find(head, ".wb-panel-title").textContent };
+  }
+  view.dispose();
+}
+console.log(JSON.stringify(out));
+process.exit(0);
+"""
+
+
+@needs_node
+def test_the_floors_head_has_no_mode_chip_on_any_tab_or_width_and_the_mode_stays_in_the_agent_tab(tmp_path):
+    from test_interface_adj_b1 import run_view
+    got = run_view(tmp_path, HEAD)
+    for key, value in got.items():
+        assert value["chips"] == 0 and value["header"] == 0, f"M-12: {key}: the head names no mode"
+        assert value["title"] == "Engineering agent"
+    assert got["desktop-agent"]["own"] == 1 and got["phone-agent"]["own"] == 1, "M-12: the mode stays in the Agent tab"
+    for name in ("views/floor.js",):
+        source = (INTERFACE / "js" / name).read_text(encoding="utf-8")
+        assert "wb-header-mode" not in source and "modeChip" not in source
+    assert "wb-header-mode" not in interface_css()
+    for path in sorted((INTERFACE / "js" / "views").glob("lobby*.js")):
+        assert "wb-header-mode" not in path.read_text(encoding="utf-8"), f"M-12: {path.name}: the Lobby's head shows no mode chip either"
+
+
+def test_every_notice_the_page_builds_is_the_soft_style_the_lobby_s_cancel_dialog_and_the_placeholder_included():
+    bad = []
+    for path in sorted((INTERFACE / "js").rglob("*.js")):
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if re.search(r'class: ["`]notice(?! pui-soft)', line):
+                bad.append(f"{path.name}:{lineno}")
+    assert not bad, f"a notice that is not the soft style (R-11), which no stylesheet draws: {bad}"
+    assert 'class: "notice pui-soft pui-error wb-card-error"' in (INTERFACE / "js" / "views" / "lobby-request.js").read_text(encoding="utf-8")
+    assert (INTERFACE / "js" / "views" / "placeholder.js").read_text(encoding="utf-8").count('class: "notice pui-soft pui-error"') == 3

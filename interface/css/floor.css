@@ -15,7 +15,6 @@
 .wb-panel-floor > * { min-height: 0; }
 .wb-floor-normal { display: grid; grid-template-rows: auto auto minmax(0, 1fr); height: 100%; min-height: 0; }
 .wb-floor-head { padding-bottom: 4px; border-bottom: 0; }
-.wb-header-mode { margin-left: auto; }
 .wb-floor-head > .wb-kpi-tile { display: inline-grid; }     /* the frame hides the KPI tiles' icons on a phone; the head keeps its own */
 
 .wb-panel-floor .wb-tabbar .wb-tab { padding: 5px 9px; }     /* floor.html: four tabs and a count in the panel's width */

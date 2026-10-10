@@ -54,8 +54,7 @@ export function createFloorView(frame, env) {
   const tile = h("span", { class: "wb-kpi-tile pui-soft pui-warn" });
   const title = h("strong", { class: "wb-panel-title", id: "wb-floor-title", text: "" });
   const sub = h("span", { class: "wb-panel-sub", text: "" });
-  const modeChip = h("span", { class: "pui-chip pui-muted pui-outline pui-rounded-full wb-mode-plate wb-header-mode", hidden: true });
-  const head = h("div", { class: "wb-panel-head wb-floor-head" }, tile, h("div", { class: "wb-panel-titles" }, title, sub), modeChip);     // R-33: no line under it
+  const head = h("div", { class: "wb-panel-head wb-floor-head" }, tile, h("div", { class: "wb-panel-titles" }, title, sub));     // R-33: no line under it; M-12: no mode chip in the head on any tab or width (the mode is the Agent tab's)
   const tabs = createTabs("Floor", TABS, (id) => { window.location.hash = router.floorHash(project, agent, id); });
   const tabbar = h("div", { class: "wb-tabbar" }, tabs.el);
   const tabpanel = h("div", { class: "wb-panel-body wb-tabpanel", id: "wb-tabpanel", role: "tabpanel" });
@@ -209,12 +208,6 @@ export function createFloorView(frame, env) {
     fill(tile, icon(header.icon, 16));
     const warn = model.row && model.row.state === "waiting";
     tile.className = `wb-kpi-tile pui-soft pui-${warn ? "warn" : "theme"}`;
-    const showMode = (tab !== "agent" || phone.matches) && model.row && model.row.mode && !model.notAccepted;     // the Agent tab has its own plate except in the phone's sheet, whose head always names the mode (floor.html); C-5: the word, no pips
-    modeChip.hidden = !showMode;
-    if (showMode) {
-      modeChip.textContent = model.row.mode;
-      modeChip.setAttribute("title", fm.MODE_LINES[model.row.mode] || "");
-    }
   }
 
   function redraw() {
@@ -240,7 +233,6 @@ export function createFloorView(frame, env) {
       sub.textContent = "";
       fill(tile);
       tile.hidden = true;
-      modeChip.hidden = true;
       showScene(null, "Floor, agent not in the configuration", false);
       return;
     }
@@ -249,7 +241,6 @@ export function createFloorView(frame, env) {
       fill(tile, icon("building-2", 16));
       title.textContent = format_title(agent);
       sub.textContent = "Loading the floor...";
-      modeChip.hidden = true;
       tabs.set(tab, {}, {});
       fill(tabpanel, busyLine("Loading the floor..."));
       showScene(null, "Floor, loading", false);

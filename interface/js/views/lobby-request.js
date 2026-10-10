@@ -130,7 +130,7 @@ export function createCancelDialog({ api, project, onChanged }) {
   const titleId = "wb-cancel-title";
   const heading = h("strong", { class: "wb-card-title", id: titleId, text: "Cancel this request and what is still open under it?" });
   const sub = h("span", { class: "wb-card-note", text: "" });
-  const error = h("div", { class: "notice error wb-card-error", role: "alert", hidden: true });
+  const error = h("div", { class: "notice pui-soft pui-error wb-card-error", role: "alert", hidden: true });
   const keep = h("button", { class: "pui-btn pui-surface pui-outline", type: "button", text: "Keep it" });
   const confirm = h("button", { class: "pui-btn pui-error pui-outline", type: "button", text: "Cancel request" });
   const card = h("div", { class: "pui-card wb-dialog-card" },
