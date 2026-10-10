@@ -39,7 +39,7 @@ def test_a_burst_of_simultaneous_static_requests_is_all_served(tmp_path):
                         break
                     data += chunk
             result = "ok" if data.startswith(b"HTTP/1.") and b" 200 " in data.split(b"\r\n")[0] and data.endswith(f"{n};\n".encode()) else "bad"
-        except OSError as e:
+        except (OSError, threading.BrokenBarrierError) as e:
             result = type(e).__name__
         with lock:
             outcomes.append(result)
