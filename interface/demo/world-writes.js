@@ -106,6 +106,16 @@ function planTasks(P, flow) {
   }));
 }
 
+/** The router run the project holds ends (one at a time, as in the store): its run row is closed and the slot is free. */
+export function endRouting(ctx, P) {
+  if (!P.routing) return;
+  const run = P.runs.find((r) => r.id === P.routing.run_id);
+  if (run && run.status === "running") {
+    Object.assign(run, { status: "ok", ending: "done", attempts: 1, ended_at: iso(ctx), duration_ms: Math.max(1000, Date.parse(iso(ctx)) - Date.parse(run.started_at)), tokens: 4200 });
+  }
+  P.routing = null;
+}
+
 /** Open the plan of a request that waits for its route: a pending decision of kind `plan`, its hash taken over the tasks. */
 export async function openPlan(ctx, P, request, flow, source) {
   const tasks = planTasks(P, flow);
@@ -124,11 +134,7 @@ export async function openPlan(ctx, P, request, flow, source) {
   const item = itemRow(ctx, P, "plan", { task_id: request.id, title: `Plan: ${flow} (${tasks.length} tasks)`, body, payload });
   P.pending.push(item);
   request.flow = flow;
-  if (P.routing && P.routing.request === request.id) {
-    const run = P.runs.find((r) => r.id === P.routing.run_id);
-    if (run) Object.assign(run, { status: "ok", ending: "done", attempts: 1, ended_at: iso(ctx), duration_ms: Date.parse(iso(ctx)) - Date.parse(run.started_at), tokens: 4200 });
-    P.routing = null;
-  }
+  if (P.routing && P.routing.request === request.id) endRouting(ctx, P);
   addMessage(ctx, P, "assistant", `The planning agent proposes: the flow ${flow}, ${tasks.length} tasks. Approve the plan to start.`, request.id);
   return item;
 }
@@ -143,6 +149,7 @@ export function newRequest(ctx, P, { text, flow = null, title = null, after = nu
     addMessage(ctx, P, "assistant", route ? "Recorded as request " + id + ". The planning agent is routing it." : `Recorded as request ${id}. Press "Route it" to plan it.`, id);
   }
   if (route) {
+    endRouting(ctx, P);      // a router run that holds another request ends first: the slot is one, and that request waits for its "Route it"
     P.routing = { request: id, run_id: P.next.run++, skill: "core-orchestrator", started_at: iso(ctx) };
     P.runs.push(runRow(ctx, { id: P.routing.run_id, task_id: id, skill: "core-orchestrator", run_dir: runDir(P, P.routing.run_id) }));
   }
@@ -180,6 +187,9 @@ async function approvePlan(ctx, P, item, body) {
 async function approveEffect(ctx, P, item, body) {
   if (typeof body.sha256 !== "string" || !body.sha256) throw refused(`pending decision ${item.id} is an effect: it is approved only with its hash, ${item.payload_sha256}`);
   if (body.sha256 !== item.payload_sha256) throw refused(`the effect's hash is ${item.payload_sha256} and you sent ${body.sha256}: nothing was sent`);
+  // as for a plan: the hash it states must be the hash of the content it holds, taken again now
+  const held = P.effectDocs[item.id];
+  if (held && (await sha256Hex(canonical(held))) !== item.payload_sha256) throw refused(`pending decision ${item.id}: its content does not have the hash it states; nothing was sent`);
   resolve(ctx, item, "approved");
   const task = taskOf(P, item.task_id);
   task.state = "done";
@@ -238,7 +248,7 @@ function cancelRequest(ctx, P, id, pendingId = null) {
       closed.push(p.id);
     }
   }
-  if (P.routing && P.routing.request === id) P.routing = null;
+  if (P.routing && P.routing.request === id) endRouting(ctx, P);
   return pendingId === null ? fill(WORDS.cancel, { request: id, cancelled, pending: closed }) : fill(WORDS.reject, { pending_id: pendingId, request: id, cancelled, pending: closed });
 }
 

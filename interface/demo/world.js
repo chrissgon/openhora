@@ -7,7 +7,7 @@ import { F } from "./fixtures.js";
 import { buildState } from "./world-state.js";
 import * as reads from "./world-reads.js";
 import * as writes from "./world-writes.js";
-import { applyStory } from "./world-story.js";
+import { applyStory, storyRequestId } from "./world-story.js";
 import { Refusal, clone, fill, notFound, notInDemo } from "./util.js";
 
 const PREFIX = "/api/v1";
@@ -186,6 +186,11 @@ export function createWorld({ now = () => Date.now(), later = (fn, ms) => setTim
       await started();
       await applyStory(ctx, change);
       for (const P of Object.values(state.projects)) touch(P);
+    },
+    /** The number of the story's request in the world as it stands, or null. */
+    async storyRequest() {
+      await started();
+      return storyRequestId(ctx);
     },
     /** Back to the first state. The change signal keeps growing, so a page that is open reloads. */
     async reset() {

@@ -98,7 +98,9 @@ const OPS = {
       `Approve exactly this: python3 runtime/cli.py approve --project <project> --id <this pending decision's id> --sha256 ${digest}`,
       "Or answer with what to change, or reject it: nothing is sent until you approve.", "",
     ].join("\n");
-    P.pending.push(itemRow(ctx, P, "effect", { task_id: task.id, run_id: run.id, title: SPRING.effect.title, body, payload, payload_sha256: digest, agent: task.agent }));
+    const item = itemRow(ctx, P, "effect", { task_id: task.id, run_id: run.id, title: SPRING.effect.title, body, payload, payload_sha256: digest, agent: task.agent });
+    P.pending.push(item);
+    P.effectDocs[item.id] = doc;
     upsertDoc(ctx, P, { path: "docs/marketing/sale-post.md", owner: "mkt-social-copy", agent: "marketing", kind: "markdown", text: SPRING.effect.doc });
   },
 
@@ -122,6 +124,12 @@ const OPS = {
 };
 
 export const OP_NAMES = Object.keys(OPS);
+
+/** The number of the story's request in the story's project, or null before it exists (the plan step opens its line, whatever number it got). */
+export function storyRequestId(ctx) {
+  const row = request(ctx.state().projects[STORY_PROJECT]);
+  return row ? row.id : null;
+}
 
 /** Apply one change of the story to the project it names (the story's project when none). */
 export async function applyStory(ctx, op) {

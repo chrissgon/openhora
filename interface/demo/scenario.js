@@ -11,7 +11,7 @@
 import { STORY_PROJECT } from "./world-story.js";
 
 const P = STORY_PROJECT;
-const REQUEST = 4;        // the request of the story is the fourth task of northwind-shop's store
+const REQUEST = 4;        // the number the story's request gets when the visitor has made none: the plan step looks it up by its title, and falls back to this
 const lobby = `#/p/${P}/lobby/conversation`;
 const CONFIRM_MS = 900;   // how long the page gets to make a change itself before the autopilot makes it
 
@@ -25,7 +25,7 @@ export const STEPS = Object.freeze([
     ],
   },
   {
-    id: "plan", seconds: 7, caption: "tour.plan", route: `${lobby}/request/${REQUEST}`,
+    id: "plan", seconds: 7, caption: "tour.plan", route: `${lobby}/request/{request}`,
     at: [
       { t: 0, op: "open-plan" },
       { t: 4800, ui: [{ do: "click", selector: "button.wb-card-button", label: "Approve this plan" }], op: "approve-plan" },
@@ -67,9 +67,14 @@ export function createAutopilot({ world, setRoute, perform = null, schedule, can
     timers = [];
     epoch += 1;
   };
-  const later = (fn, ms) => {
-    const mine = epoch;
-    timers.push(schedule(() => { if (mine === epoch) fn(); }, ms));
+  const later = (fn, ms, at = epoch) => {
+    timers.push(schedule(() => { if (at === epoch) fn(); }, ms));
+  };
+  /** The route of a step: `{request}` is the number of the story's request in the world as it stands (a visitor's own request may hold #4). */
+  const routeOf = async (route) => {
+    if (!route.includes("{request}")) return route;
+    const id = typeof world.storyRequest === "function" ? await world.storyRequest() : null;
+    return route.replace("{request}", String(id === null || id === undefined ? REQUEST : id));
   };
   const apply = (entry) => world.apply({ op: entry.op, project: entry.project });
 
@@ -98,12 +103,15 @@ export function createAutopilot({ world, setRoute, perform = null, schedule, can
     const mine = epoch;
     post({ type: "step", step: i, id: step.id, caption: step.caption });
     for (const entry of step.at) {
+      if (mine !== epoch) return;      // paused, taken over or moved while a change was made: nothing of this step is scheduled
       if (entry.t === 0) await runEntry(entry);
-      else later(() => { runEntry(entry); }, entry.t);
+      else later(() => { runEntry(entry); }, entry.t, mine);
     }
     if (mine !== epoch) return;
-    setRoute(step.route);
-    later(() => next(), step.seconds * 1000);
+    const route = await routeOf(step.route);
+    if (mine !== epoch) return;
+    setRoute(route);
+    later(() => next(), step.seconds * 1000, mine);
   }
 
   async function next() {
@@ -122,7 +130,7 @@ export function createAutopilot({ world, setRoute, perform = null, schedule, can
     index = i;
     status = i + 1 >= steps.length ? "ended" : "paused";
     await catchUp(i, true);
-    setRoute(steps[i].route);
+    setRoute(await routeOf(steps[i].route));
     post({ type: "step", step: i, id: steps[i].id, caption: steps[i].caption });
     if (i + 1 >= steps.length) post({ type: "ended", step: i, id: steps[i].id, caption: steps[i].caption });
   }

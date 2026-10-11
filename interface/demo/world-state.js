@@ -77,7 +77,7 @@ function agentRow(spec) {
 export function buildProject(ctx, spec) {
   const P = {
     id: spec.id, name: spec.name, folder: spec.folder, accepted: true, configSha: "", acceptedSha: "", version: 1, changedAt: iso(ctx),
-    agents: spec.agents.map(agentRow), tasks: [], runs: [], pending: [], messages: [], docs: [], routing: null, verdicts: {}, accept: new Set(),
+    agents: spec.agents.map(agentRow), tasks: [], runs: [], pending: [], messages: [], docs: [], routing: null, verdicts: {}, accept: new Set(), effectDocs: {},
     next: { task: 1, pending: 1, run: 1, message: 1, approval: 1 }, startedAt: iso(ctx),
   };
   for (const request of spec.requests) {

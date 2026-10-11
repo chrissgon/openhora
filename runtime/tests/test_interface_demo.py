@@ -49,12 +49,14 @@ def built(tmp_path_factory) -> Path:
 
 
 def js_files(root: Path, skip=()):
-    return [p for p in sorted(root.rglob("*.js")) if not any(part in p.relative_to(root).parts for part in skip)]
+    """The .js files under `root` except those under a skipped folder: each skip is the first parts of a path, such as ("vendor", "three")."""
+    return [p for p in sorted(root.rglob("*.js")) if not any(p.relative_to(root).parts[:len(prefix)] == prefix for prefix in skip)]
 
 
 # --- the built page makes no network call ---------------------------------------------------------------------------------------------
 
-NETWORK = re.compile(r"\bfetch\(|XMLHttpRequest|\bWebSocket\b|\bEventSource\b|sendBeacon|https?://")
+THREE = ("vendor", "three")      # the one exemption of the scan, by path (the reason is in the first test below)
+NETWORK = re.compile(r"\bfetch\(|XMLHttpRequest|\bWebSocket\b|\bEventSource\b|sendBeacon|\bnew\s+Request\b|https?://|\bimport\(\s*[^\s\"'`]")
 
 
 def test_the_built_tree_holds_no_network_call_and_its_transport_is_the_demos(built):
@@ -62,10 +64,16 @@ def test_the_built_tree_holds_no_network_call_and_its_transport_is_the_demos(bui
     # names; the page loads no model, texture or file with it (the scene is built in code), and the browser's request log in the package's
     # report shows the page asking for nothing but its own files. Every other JS file, the page's own and the demo's, holds none of these.
     offenders = []
-    for path in js_files(built, skip=("three",)):
+    for path in js_files(built, skip=(THREE,)):
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if NETWORK.search(line):
                 offenders.append(f"{path.relative_to(built)}:{number}: {line.strip()[:80]}")
+    # the same for the built page's styles and documents: no absolute URL, but the SVG namespace name that the vendored library's own data URIs hold
+    for path in sorted(p for p in built.rglob("*") if p.suffix in (".css", ".html") and p.relative_to(built).parts[:len(THREE)] != THREE):
+        text = path.read_text(encoding="utf-8")
+        found = re.findall(r"https?:[^\s'\"]*", text)
+        allowed = path.relative_to(built).parts[:2] == ("vendor", "perfectui") and all(f == "http://www.w3.org/2000/svg" for f in found)
+        assert not found or allowed, f"{path.relative_to(built)} holds an absolute URL: {found[:2]}"
     assert offenders == []
     assert (built / "js" / "transport.js").read_bytes() == (DEMO / "transport.js").read_bytes(), "the built page's js/transport.js is the demo's"
     assert not (built / "README.md").exists() and not list(built.rglob("tests")), "the built copy has no README and no tests"
@@ -81,7 +89,7 @@ def test_every_url_of_the_built_page_is_relative_and_every_import_resolves(built
     page = (built / "index.html").read_text(encoding="utf-8")
     for url in re.findall(r'(?:src|href)="([^"]+)"', page):
         assert url.startswith("./"), url
-    for path in js_files(built, skip=("vendor",)):
+    for path in js_files(built, skip=(("vendor",),)):
         for target in re.findall(r"""(?:import|export)[^;]*?from\s+["']([^"']+)["']|import\(\s*["']([^"']+)["']""", path.read_text(encoding="utf-8")):
             spec = target[0] or target[1]
             assert spec.startswith("."), f"{path.relative_to(built)} imports {spec}: only relative imports"
@@ -95,6 +103,22 @@ def test_every_javascript_file_of_the_demo_parses():
         assert done.returncode == 0, f"{path.name}: {done.stderr}"
 
 
+def test_only_api_js_imports_the_transport_and_only_it_calls_it():
+    # a second caller is caught here as a second `fetch(` was: transport.js is imported by api.js alone and `transport(` is called there alone
+    allowed = {"js/api.js", "js/transport.js", "demo/transport.js"}
+    importers, callers = [], []
+    for path in js_files(INTERFACE, skip=(("vendor",),)):
+        rel_path = path.relative_to(INTERFACE).as_posix()
+        text = path.read_text(encoding="utf-8")
+        code = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith(("//", "*", "/*")))
+        if re.search(r"""from\s+["'](?:\./|\.\./)transport\.js["']|import\(\s*["'][^"']*transport\.js""", code):
+            importers.append(rel_path)
+        if re.search(r"\btransport\(", code):
+            callers.append(rel_path)
+    assert importers == ["js/api.js"], importers
+    assert set(callers) <= allowed and "js/api.js" in callers, callers
+
+
 def test_the_real_interface_has_one_transport_which_is_the_browsers_and_no_switch_to_the_demo():
     transport = (INTERFACE / "js" / "transport.js").read_text(encoding="utf-8")
     code = "\n".join(line for line in transport.splitlines() if not line.lstrip().startswith("//"))
@@ -102,7 +126,7 @@ def test_the_real_interface_has_one_transport_which_is_the_browsers_and_no_switc
     assert not re.search(r"localStorage|sessionStorage|location|URLSearchParams|import |demo", code), "nothing in the real transport can switch it"
     api = (INTERFACE / "js" / "api.js").read_text(encoding="utf-8")
     assert not re.search(r"\bfetch\(|XMLHttpRequest|WebSocket|EventSource|sendBeacon", api) and len(re.findall(r"\btransport\(", api)) == 1
-    for path in js_files(INTERFACE, skip=("vendor", "demo")):
+    for path in js_files(INTERFACE, skip=(("vendor",), ("demo",))):
         if path.name != "transport.js":
             assert not re.search(r"\bfetch\(|XMLHttpRequest|\bWebSocket\b|\bEventSource\b|sendBeacon", path.read_text(encoding="utf-8")), path.name
         if path.name != "transport.js":      # its comment says what the build does; its code is checked above
@@ -401,6 +425,39 @@ const out = {};
   out.refusals = refusals;
 }
 
+// 7. a visitor who takes over and sends a request: the story still reaches its plan, on the request it made, and the visitor's router run ends
+{
+  const world = fresh();
+  const routes = [];
+  const ap = createAutopilot({ world, setRoute: (h) => routes.push(h), schedule, cancel, post: () => {} });
+  await ap.play();
+  await advance(7000);                      // the City step takes 6 s: now in the Lobby step, before the story types its request
+  out.visitorTook = ap.takeOver();
+  const sent = await post(world, `/projects/${P}/conversation`, { text: "Hello there" });
+  await get(world, `/jobs/${sent.body.job}`);
+  const mine = (await get(world, `/projects/${P}/conversation`)).messages.filter((m) => m.task_id).pop().task_id;
+  await ap.play();                          // resumes the Lobby step
+  await advance(14000);                     // through the plan step and its approval
+  const d = await world.dump();
+  const P1 = d.projects[P];
+  const story = P1.tasks.find((t) => t.parent_id === null && t.title === "Spring sale page");
+  out.visitor = {
+    mine, story: story && story.id, routing: P1.routing, plan: routes.filter((r) => r.includes("/request/")).pop(),
+    visitorRuns: P1.runs.filter((r) => r.task_id === mine).map((r) => r.status),
+    visitorState: P1.tasks.find((t) => t.id === mine).state,
+    storyTasks: P1.tasks.filter((t) => t.parent_id === (story && story.id)).map((t) => t.state),
+    running: P1.runs.filter((r) => r.status === "running").map((r) => r.task_id),
+  };
+  // cancelling a request that a router run holds ends that run too
+  const again = await post(world, `/projects/${P}/conversation`, { text: "Another line" });
+  await get(world, `/jobs/${again.body.job}`);
+  const theirs = (await world.dump()).projects[P];
+  const held = theirs.routing && theirs.routing.request;
+  await post(world, `/projects/${P}/requests/${held}/cancel`);
+  const after = (await world.dump()).projects[P];
+  out.cancelled = [Boolean(held), after.routing, after.runs.filter((r) => r.task_id === held).map((r) => r.status)];
+}
+
 // 6. the bridge: only the same origin and only the window that frames the demo are heard
 {
   const heard = [];
@@ -513,6 +570,17 @@ def test_an_approval_is_checked_against_the_hash_of_the_exact_content(run):
     text = re.search(r"Post:\n(.+)\n", a["effectBody"]).group(1)
     import hashlib
     assert a["effectHash"] == hashlib.sha256(json.dumps({"account": "northwind-shop", "kind": "publish", "text": text}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+@needs_node
+def test_a_visitors_own_request_does_not_break_the_story(run):
+    v = run["visitor"]
+    assert run["visitorTook"] is True and v["mine"] == 4 and v["story"] == 5, "the visitor's request took the number the story had assumed"
+    assert v["plan"].endswith("/request/5"), "the plan step opens the story's request, found by its title"
+    assert v["routing"] is None and v["visitorRuns"] == ["ok"] and v["visitorState"] == "requested", "the visitor's router run ended; their request waits for its route"
+    assert v["storyTasks"] == ["running", "planned"] and v["running"] == [6], "the story went on to its plan and its approval, and its first task runs"
+    held, routing, runs = run["cancelled"]
+    assert held and routing is None and runs == ["ok"], "cancelling a request ends the router run it held"
 
 
 @needs_node
