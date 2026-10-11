@@ -654,9 +654,9 @@ def test_a_script_writes_only_custom_properties_to_an_elements_style():
     for path in sorted(JS.rglob("*.js")):
         text = path.read_text(encoding="utf-8")
         for call in re.findall(r"\.style\.(\w+)\(([^)]*)", text):
-            ok = call[0] == "setProperty" and (re.match(r'\s*"--wb-(x|y|share|drawer-drag|wait-h|cam-top|notice-bottom)"', call[1]) or (path.name == "palette.js" and "color" in call[1]))
+            ok = call[0] == "setProperty" and (re.match(r'\s*"--wb-(x|y|a|b|c|d|share|drawer-drag|wait-h|cam-top|notice-bottom)"', call[1]) or (path.name == "palette.js" and "color" in call[1]))
             assert ok, \
-                f"{path.name}: {call}: a script writes the page's own position and share properties only"
+                f"{path.name}: {call}: a script writes the page's own position, matrix (A-59: `--wb-a` to `--wb-d` of a label fitted on a plate) and share properties only"
         assert not re.search(r"\.style\.\w+\s*=[^=]", text), f"{path.name} assigns a style property"
         assert "style.cssText" not in text and "setAttribute(\"style\"" not in text
 

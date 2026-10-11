@@ -177,7 +177,8 @@ export function buildWorld(kit, model) {
           tips.set("desk", words.desk);
           tips.set("lobby-door", words.door);
           if (room.board) labels.push({ id: "board-label", kind: "board", rank: 0, title: room.board.title, lines: room.board.lines, dot: room.board.dot, decisions: 0, running: false, anchor: tower.boardAnchors[index], make: boardNode });
-          if (room.door) labels.push({ id: "door-label", kind: "door", rank: 5, text: "Control room", decisions: 0, running: false, anchor: tower.doorAnchors[index], make: doorNode });
+          if (room.door) labels.push({ id: "door-label", kind: "door", rank: 5, text: "Control room", decisions: 0, running: false, anchor: tower.doorAnchors[index], fit: tower.doorPlaques[index], shown: () => tower.open > 0.9 && tower.vis[index] > 0.999,   // the label ignores a floor's own scale, so it waits until the floor has its full size
+           make: doorNode });
         } else {
           // a plate for each floor beside the building (desktop and tablet); the phone has the compact card in the corner instead, which is the page's
           if (!m.frame) {
@@ -305,16 +306,6 @@ export function buildWorld(kit, model) {
     const k = floorIndex(tower);
     if (k >= 0) return floorBox(THREE, x, z, k);
     return towerBox(THREE, x, z, lots[i].floors.length, 1);
-  };
-
-  /**
-   * On the Floor and in the Lobby the other buildings are hidden once everything has settled, never before (the prototype showed them throughout the motion);
-   * any motion draws them again at once. The streets and the trees stay, as the round's pages draw them.
-   */
-  content.hideSurroundings = (on) => {
-    // the page draws the streets and the parks round the room (`floor.html`, `lobby.html`): only the other buildings are put away, so that the room stands alone on its block
-    // the open building is always drawn: a tower put away on an earlier Floor that has become the focus since (the switcher went to another project) comes back with it
-    for (const tower of towers.values()) tower.root.visible = tower.id === focus ? true : !on;
   };
 
   /**
