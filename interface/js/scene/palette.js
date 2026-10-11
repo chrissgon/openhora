@@ -139,7 +139,6 @@ export function cityTones(palette) {
     glass: pick(mix(emph, tm, 0.78), mix(bgt, bg, 0.55)),
     glassOff: pick(mix(bg, emph, 0.9), mix(bgt, emph, 0.6)),
     glassLit: pick(mix(bg, T.warn, 0.34), mix(tx, th, 0.36)),
-    store: pick(mix(bg, th, 0.34), mix(bgt, th, 0.46)),
     door: pick(mix(bg, th, 0.62), mix(bgt, th, 0.66)),
     sill: pick(bg.clone(), mix(emph, tm, 0.34)),
     jamb: pick(mix(emph, tm, 0.7), bgt.clone()),
