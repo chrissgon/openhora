@@ -250,6 +250,9 @@ export function roomTones(palette) {
     doorShade: mix(th, ink, 0.38),
     doorPanel: pick(mix(bg, th, 0.78), mix(bgt, th, 0.5)),
     knob: pick(bg, tx),
+    // the two potted plants (A-45): a dark pot in three tones, and the trees' four crown tones
+    pot: solid(pick(mix(tx, tm, 0.5), eh(0.3)), pick(mix(tx, tm, 0.25), eh(0.16)), pick(mix(tx, tm, 0.1), eh(0.1))),
+    crown: city.crown,
     bracket: city.bracket,
   };
 }

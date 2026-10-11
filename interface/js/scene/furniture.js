@@ -1,7 +1,7 @@
 // The furniture of a room in the round's style (R-23, R-23b, R-42, R-49), every measure taken off `building.html`, `floor.html` and `lobby.html` in the page's
 // units (room-frame.js) and every tone from `roomTones` (palette.js): the bookcase with its binders, the task board with its notes, the agent's desk and
 // the office chair, the Lobby's door. Each function draws into a batch of page units (`pageBatch`); a layer that stands on another (a label on a binder,
-// a note on the board) is put a hair in front of it, as the page paints it over. No tray, no table of sheets, no cabinet, no plants, no lamp: the
+// a note on the board) is put a hair in front of it, as the page paints it over. No tray, no table of sheets, no cabinet, no lamp (the two plants are plants.js's, A-45): the
 // room's three objects are its three ways in (R-23b). Nothing here knows a project or an agent.
 
 const E = 0.002;   // the distance between a layer and the one under it, in page units
@@ -9,19 +9,13 @@ const E = 0.002;   // the distance between a layer and the one under it, in page
 // --- the bookcase --------------------------------------------------------------------------------------------------------------------
 
 export const BINDERS_PER_CASE = 16;   // four shelves of four
-export const MAX_CASES = 3;
-const CASE = { w: 1.45, first: 5.38, pitch: 1.5, front: 0.76, shelf: 0.485, board: 0.065, rows: 4, perRow: 4 };
+const CASE = { w: 1.45, left: 5.38, front: 0.76, shelf: 0.485, board: 0.065, rows: 4, perRow: 4 };
 
-/** How many bookcases hold `documents` binders: one with none, a second and a third as they fill, no more. */
-export function casesFor(documents) {
-  return Math.max(1, Math.min(MAX_CASES, Math.ceil((documents || 0) / BINDERS_PER_CASE)));
-}
+/** The left edge of the room's one bookcase against the back wall, in page units: at the right-hand end (M-7: every room has one, whatever its documents; it is an object to open, not storage). */
+export const CASE_LEFT = CASE.left;
 
-/** The left edge of bookcase `k` against the back wall, in page units: the first at the right-hand end, the next ones to its left. */
-export const caseLeft = (k) => CASE.first - k * CASE.pitch;
-
-/** The binders a floor shows: one for each document up to what the cases hold. */
-export const bindersShown = (documents) => Math.min(Math.max(0, documents || 0), MAX_CASES * BINDERS_PER_CASE);
+/** The binders a room shows: one for each document up to what the one bookcase holds. */
+export const bindersShown = (documents) => Math.min(Math.max(0, documents || 0), BINDERS_PER_CASE);
 
 // a binder's width, height and how far its spine stands out of the case, cycling as the page draws its first seven
 const WIDTHS = [0.21, 0.17, 0.24, 0.18, 0.17, 0.24, 0.18];
@@ -88,28 +82,24 @@ export function bookcase(pb, t, x0, first, count) {
 export const NOTE = { w: 0.51, h: 0.53, gap: 0.13, rowGap: 0.14 };
 const BOARD = { left: 0.535, right: 4.93, wall: 0.2 };
 
-/** The right edge of the board for `cases` bookcases: the board gives them its room, a bookcase at a time from its right-hand end. */
-export const boardRight = (cases) => BOARD.right - (cases - 1) * CASE.pitch;
+/** The right edge of the board, in page units: the bookcase stands at its right-hand end and the board is all that is left of the wall (M-7). */
+export const BOARD_RIGHT = BOARD.right;
 
-/** How many notes stand in a row of the board for `cases` bookcases (the board has two rows). */
-function perRow(cases) {
-  const right = boardRight(cases) - 0.1 - 0.27;
-  const left = BOARD.left + 0.098 + 0.1;
-  return Math.max(1, Math.floor((right - NOTE.w - left) / (NOTE.w + NOTE.gap)) + 1);
-}
+/** How many notes stand in a row of the board (it has two rows). */
+const PER_ROW = Math.max(1, Math.floor((BOARD.right - 0.1 - 0.27 - NOTE.w - (BOARD.left + 0.098 + 0.1)) / (NOTE.w + NOTE.gap)) + 1);
 
 /** How many notes the board holds: two rows of as many as stand across it. */
-export const noteCapacity = (cases) => 2 * perRow(cases);
+export const NOTE_CAPACITY = 2 * PER_ROW;
 
 /**
  * The board of notes on the back wall: a framed panel with a shade, one note for each task of the agent in the followed request (`notes`: "done", "run" or "left"),
  * coloured by state, filling the top row from the right and then the next; a ledge with two markers and an eraser. A note has a shadow, a pin, three lines of writing
  * and a folded corner. Returns how many notes it drew.
  */
-export function taskBoard(pb, t, cases, notes) {
+export function taskBoard(pb, t, notes) {
   const w = BOARD.wall;
   const xl = BOARD.left;
-  const xr = boardRight(cases);
+  const xr = BOARD.right;
   pb.front(t.tbFrame, xl, 0.6325, xr, 2.37, w + E);
   const px0 = xl + 0.098;
   const px1 = xr - 0.1;
@@ -123,8 +113,8 @@ export function taskBoard(pb, t, cases, notes) {
     if (xr - dx > eraser + 0.28) pb.box(back, xr - dx, 0.635, w + 0.035, 0.31, 0.05, 0.05);
   }
   const right = px1 - 0.27;
-  const per = perRow(cases);
-  const shown = Math.min(notes.length, 2 * per);
+  const per = PER_ROW;
+  const shown = Math.min(notes.length, NOTE_CAPACITY);
   for (let k = 0; k < shown; k++) {
     const row = Math.floor(k / per);
     const x1 = right - (k % per) * (NOTE.w + NOTE.gap);

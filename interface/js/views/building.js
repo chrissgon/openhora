@@ -174,8 +174,8 @@ export function createBuildingView(frame, env) {
   try {
     engine = frame.acquireWorld({
       label: "Building, loading",
-      getInsets: () => {
-        const base = frame.insets(panel);
+      getInsets: (about) => {
+        const base = frame.insets(panel, { notice: !(about && about.dim) });   // building.html: the band over a project that is not accepted floats over the tower, which keeps its size
         if (frame.isPhone()) {
           // The floor card hangs bottom left above the camera buttons (A-28); the floor steps stand at the right, level with those buttons.
           const level = Math.max(PHONE_LEVEL, base.bottom);

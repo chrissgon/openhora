@@ -1,14 +1,15 @@
 // The room of a floor in the round's style (R-21, R-23, R-23b, R-28, R-31, R-41, R-42, R-49): the same room in the City's building, in the Building's cutaway, on the Floor
 // and in the Lobby, because it is the same meshes. A room is the floor's slab, its floor (a tone that says what the agent does: a lit room is a soft warm tone), two back
 // walls (the left one pierced by two windows, or by one window and the Lobby's door) and, in them, the agent's three ways in: the owl, the task board with a note for each
-// task, and the bookcase with a binder for each document. The agent's desk and chair stand along the room's right edge. No tray, no table of sheets, no plants, no lamp, no roof.
+// task, and the one bookcase with a binder for each document (sixteen at most, M-7). The agent's desk and chair stand along the room's right edge. No tray, no table of sheets, no lamp, no roof; two plants stand by the windows (plants.js).
 // Everything static is baked into a few meshes in the tones of `roomTones` (kit.batch); the tower (tower.js) puts a room in each of its floors and closes the building round
 // them with the walls the City shows. No colour and no name is written here: the page's measures are in room-frame.js and furniture.js.
 
-import { BINDERS_PER_CASE, DOOR, SEAT, bookcase, boardRight, bindersShown, caseLeft, casesFor, chair, desk, door, noteCapacity, taskBoard } from "./furniture.js";
+import { BOARD_RIGHT, CASE_LEFT, DOOR, NOTE_CAPACITY, SEAT, bindersShown, bookcase, chair, desk, door, taskBoard } from "./furniture.js";
 import { boxBrackets, planeBrackets } from "./marks.js";
 import { buildOwl, towardCamera } from "./owl-build.js";
 import { roomTones } from "./palette.js";
+import { plants } from "./plants.js";
 import { owlScale, pageBatch, pageFrame } from "./room-frame.js";
 
 export const W = 6.4;
@@ -34,9 +35,9 @@ const WALL = 0.2;
 const BOARD_LEFT = 0.535;
 
 /** Where the HTML labels of a room stand, relative to the floor's origin, in world units: over the board of notes, over the door. */
-export function anchors(cases) {
+export function anchors() {
   return {
-    board: { x: FRAME.X((BOARD_LEFT + boardRight(cases)) / 2), y: FRAME.Y(2.37), z: FRAME.Z(WALL) },
+    board: { x: FRAME.X((BOARD_LEFT + BOARD_RIGHT) / 2), y: FRAME.Y(2.37), z: FRAME.Z(WALL) },
     door: { x: FRAME.X(WALL), y: FRAME.Y(DOOR.top), z: FRAME.Z((DOOR.z0 + DOOR.z1) / 2) },
   };
 }
@@ -128,6 +129,7 @@ export function fillFloor(kit, parent, f, ctx) {
   windows(pb, make(glassBatch), tones, glassOf(tones, accepted, f.window), openings);
   desk(pb, tones);
   chair(pb, tones);
+  plants(THREE, pb, FRAME, tones);
   still.mesh(room, { cast: false });
   const glass = glassBatch.mesh(room, { cast: false });
 
@@ -151,7 +153,7 @@ export function fillFloor(kit, parent, f, ctx) {
   const boardMarks = holder();
   const shelfMarks = holder();
   room.add(board, shelf, boardMarks, shelfMarks);
-  const state = { notes: [], documents: 0, cases: 1, shown: 0 };
+  const state = { notes: [], documents: 0, shown: 0 };
   // what a holder shows is one mesh that stays while it is made again: its geometry is swapped in place and the old one freed, so that nothing of the room is replaced
   const refill = (holder, mesh) => {
     const old = holder.children[0];
@@ -164,21 +166,19 @@ export function fillFloor(kit, parent, f, ctx) {
   };
   const buildBoard = () => {
     const batch = kit.batch();
-    state.shown = taskBoard(make(batch), tones, state.cases, state.notes);
+    state.shown = taskBoard(make(batch), tones, state.notes);
     refill(board, batch.mesh(new THREE.Group(), { cast: false }));
-    refill(boardMarks, planeBrackets(kit, make, { plane: "z", at: WALL + 0.02, a0: BOARD_LEFT - 0.07, a1: boardRight(state.cases) + 0.07, y0: 0.565, y1: 2.4, arm: 0.63, tone: tones.bracket }));
+    refill(boardMarks, planeBrackets(kit, make, { plane: "z", at: WALL + 0.02, a0: BOARD_LEFT - 0.07, a1: BOARD_RIGHT + 0.07, y0: 0.565, y1: 2.4, arm: 0.63, tone: tones.bracket }));
   };
   const buildShelf = () => {
     const batch = kit.batch();
     const pbs = make(batch);
-    const shown = bindersShown(state.documents);
-    for (let k = 0; k < state.cases; k++) bookcase(pbs, tones, caseLeft(k), k * BINDERS_PER_CASE, Math.max(0, Math.min(BINDERS_PER_CASE, shown - k * BINDERS_PER_CASE)));
+    bookcase(pbs, tones, CASE_LEFT, 0, bindersShown(state.documents));
     refill(shelf, batch.mesh(new THREE.Group(), { cast: false }));
-    refill(shelfMarks, boxBrackets(kit, make, { x0: caseLeft(state.cases - 1) - 0.12, x1: caseLeft(0) + 1.45 + 0.12, z0: 0.1, z1: 0.92, y0: 0, y1: 2.4, arm: 0.45, drop: 0.475, tone: tones.bracket }));
+    refill(shelfMarks, boxBrackets(kit, make, { x0: CASE_LEFT - 0.12, x1: CASE_LEFT + 1.45 + 0.12, z0: 0.1, z1: 0.92, y0: 0, y1: 2.4, arm: 0.45, drop: 0.475, tone: tones.bracket }));
   };
   const setCounts = (documents, notes) => {
     state.documents = typeof documents === "number" ? documents : 0;
-    state.cases = casesFor(state.documents);
     state.notes = notes;
   };
   setCounts(f.documents, f.notes || []);
@@ -218,7 +218,8 @@ export function fillFloor(kit, parent, f, ctx) {
     agent, board, shelf, door: doorGroup, pose, motion: owl ? owl.motion : null,
     marks: { room: roomMarks, agent: agentMarks, board: boardMarks, shelf: shelfMarks, door: doorMarks },
     get notesShown() { return state.shown; },
-    get cases() { return state.cases; },
+    /** How many binders the bookcase shows (M-7: one bookcase, sixteen at most). */
+    get binders() { return bindersShown(state.documents); },
     setWindow(window) {
       if (glass) paint(glass, glassOf(tones, accepted, window));
     },
@@ -227,13 +228,12 @@ export function fillFloor(kit, parent, f, ctx) {
       state.notes = list;
       buildBoard();
     },
-    /** The bookcases hold `n` documents: a second and a third as they fill; the board gives them its room. */
+    /** The bookcase holds `n` documents (sixteen binders at most: M-7). */
     setDocuments(n) {
       setCounts(n, state.notes);
       buildShelf();
-      buildBoard();
     },
-    capacity: () => noteCapacity(state.cases),
+    capacity: () => NOTE_CAPACITY,
     /** Free the geometry and the materials the room made, and take it out of its floor. */
     dispose() {
       if (owl) owl.dispose();
