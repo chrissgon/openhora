@@ -1567,7 +1567,7 @@ def status(project: str) -> dict:
     has no area agents. A request's "title" is plan.request_title: the one given, else its first sentence, else its
     first line cut at a word. "held" lists the ready tasks the last dispatcher round did not start, each with its
     reason (runtime/dispatcher.py, REASONS) and "at", the time of the round; while the local service dispatches nothing
-    every ready task is held with `dispatch off`; "next" is the command that gets past the reason, or None. A request's "routing" is the router's run on it now (ops_reads.routing_of) or None."""
+    every ready task is held with `dispatch off`; "next" is the command that gets past the reason, or None. A request's "routing" is the router's run on it now (ops_reads.with_routing) or None."""
     ctx = core.context(project)
     rows = core._stored(ctx, ctx["store"].tasks_list)
     agents = _agent_by_task(rows)

@@ -19,6 +19,8 @@ export const HINT = "Type / to list the commands.";
 // A-23: while a run is in progress a plain line is stored and routed by the service when the run ends; the commands answer at once.
 export const RUN_LINE = "A run is in progress: your line will be routed when it ends; a question about the state is answered now.";
 export const QUEUED_WORD = "queued";
+// Route it on a request while a run holds the project (another request being routed, or a task that runs): the service does not refuse it, it queues it (A-23)
+export const QUEUE_REASON = "A run is in progress: this request is routed when it ends.";
 export const QUEUED_NOTICE = Object.freeze({ tone: "info", title: "Recorded", text: "A run is in progress. The request is recorded and will be routed when the run ends." });
 export const SENDING_TEXT = "The planning agent is working on this turn. It can take minutes.";
 export const BUSY_NOTICE = Object.freeze({ title: "Not sent", text: "A run is in progress for this project. Your message was not stored." });

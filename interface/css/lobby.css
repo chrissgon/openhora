@@ -54,6 +54,7 @@
 .wb-lobby-request-line { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; font-size: 12px; }
 .wb-lobby-request-line > .pui-badge, .wb-lobby-request-line > .pui-chip { flex: none; }
 .wb-lr-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.wb-lr-run { min-width: 0; color: var(--pui-text-muted); font-size: 12px; overflow-wrap: anywhere; }      /* A-51: the words of the router's run, wrapping under the disabled button */
 
 /* one line (A-1): the title is cut with an ellipsis, its tooltip holds the whole text and a click opens it under the line */
 .wb-lobby-request-title.pui-btn { display: block; min-width: 0; padding: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; color: var(--pui-text); font: inherit; font-size: 13px; font-weight: 600; text-decoration: none; }

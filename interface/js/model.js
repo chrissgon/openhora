@@ -175,26 +175,33 @@ export function buildingOf(project, detail) {
   });
   const open = !shown ? 0 : status ? decided.length : format.count(project.open_pending);
   const runningTask = shown && project.running_task !== null && project.running_task !== undefined ? project.running_task : null;
-  return { id: project.id, name: project.name, accepted, kept, floors, decisions: open, runningTask, held: shown ? heldCount(status) : 0, message: project.message || "" };
+  const routing = shown && Number.isInteger(project.routing_request) ? project.routing_request : null;      // A-51: the request a router run holds
+  return { id: project.id, name: project.name, accepted, kept, floors, decisions: open, runningTask, routing, held: shown ? heldCount(status) : 0, message: project.message || "" };
+}
+
+/** What runs in a building: "task #5 running", "routing request #2" (the router's run, A-51) or "no task running". */
+function runWords(building) {
+  if (building.runningTask !== null) return `task #${building.runningTask} running`;
+  return building.routing !== null && building.routing !== undefined ? `routing request #${building.routing}` : "no task running";
 }
 
 /** The tooltip sentence of a building (the specification's). */
 export function tooltipOf(building) {
   if (!building.accepted) return `${building.name}: not accepted yet`;
-  const running = building.runningTask === null ? "no task running" : `task #${building.runningTask} running`;
+  const running = runWords(building);
   return `${building.name}: ${format.decisions(building.decisions)} waiting, ${running}${building.held > 0 ? `, ${building.held} held` : ""}`;
 }
 
 /** The sub line of a building's label card. */
 export function subOf(building) {
   if (!building.accepted) return "not accepted yet";
-  return building.runningTask === null ? "no task running" : `task #${building.runningTask} running`;
+  return runWords(building);
 }
 
 /** The name a link to a building carries for a screen reader. */
 export function linkNameOf(building) {
   if (!building.accepted) return `${building.name}, not accepted yet`;
-  return `${building.name}, ${format.decisions(building.decisions)} waiting, ${building.runningTask === null ? "no task running" : `task #${building.runningTask} running`}${building.held > 0 ? `, ${building.held} held` : ""}`;
+  return `${building.name}, ${format.decisions(building.decisions)} waiting, ${runWords(building)}${building.held > 0 ? `, ${building.held} held` : ""}`;
 }
 
 /** The City's data in one value: its buildings, the waiting rows and the canvas label. */
@@ -285,7 +292,7 @@ export function tracking(snapshot, projectId, now) {
   });
   const current = steps.find((s) => s.state === "running") || steps.find((s) => s.state === "waiting") || null;
   let nowCard = null;
-  if (current) {
+  if (current && !(request.routing && current.state !== "running")) {      // a router run on the request wins over a step that only waits (a delivery routed again)
     const body = snapshot.tasks[taskKey(project.id, current.id)];
     const floor = current.agent ? floorNumber(ordered, current.agent) : null;
     const running = current.state === "running";

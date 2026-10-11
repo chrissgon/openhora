@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import threading
 import time
+import types
 
 import pytest
 
@@ -143,6 +144,52 @@ def test_a_run_of_a_task_of_a_plan_is_not_a_routing_run(tree):
     listed = kit.Jobs(ops, [{"id": "1", "name": "invented", "path": path}]).projects_list()["projects"][0]
     assert listed["running_task"] == task["id"] and listed["routing_request"] is None
     store.task_run_finish(conn, run, status="failed", task_state="failed", failure="internal", error="stopped")
+
+
+def test_a_cancelled_request_never_has_a_run_and_a_task_run_matches_no_request():
+    live = [{"id": 9, "task_id": 4, "skill": "r", "started_at": "t"}]
+    ctx = {"conn": None, "store": types.SimpleNamespace(task_runs_running=lambda _conn: live, StoreError=Exception)}
+    rows = ops_reads.with_routing(ctx, [{"id": 4, "state": "cancelled"}, {"id": 5, "state": "requested"}])
+    assert [r["routing"] for r in rows] == [None, None], "a cancelled request has none; request 5 is not task 4's"
+    live[0]["task_id"] = 5
+    assert ops_reads.with_routing(ctx, [{"id": 5, "state": "requested"}])[0]["routing"] == {"run_id": 9, "skill": "r", "started_at": "t"}
+
+
+def test_a_delivery_routed_again_marks_its_planned_request_as_routing(tree):
+    path = project(tree)
+    release(tree)
+    said = ops.say(path, "Which market should the invented studio go after first?")
+    ops.approve(path, said["pending_id"])
+    request = said["request_id"]
+    assert request_row(tree, request)["state"] == "planned" and request_row(tree, request)["routing"] is None
+    ctx = ops_core.context(path)
+    run = ctx["store"].route_run_start(ctx["conn"], request, skill=router.ROUTER_SKILL, model="m", adapter="h", reroute=True)["run_id"]
+    row = request_row(tree, request)
+    assert row["state"] == "planned" and row["routing"]["run_id"] == run, "the request keeps its state; the run is the one record"
+    ctx["store"].route_run_finish(ctx["conn"], run, status="failed", failure="internal", error="stopped")
+    assert request_row(tree, request)["routing"] is None
+
+
+def count_task_run_reads(tree, requests: int) -> int:
+    """How many statements on task_runs one `status` makes with this many requests."""
+    path = project(tree)
+    for n in range(requests):
+        ops.request(path, f"Invented request number {n}.", title=f"R{n}")
+    ctx = ops_core.context(path)
+    seen: list = []
+    ctx["conn"].set_trace_callback(lambda sql: seen.append(sql) if "task_runs" in sql else None)
+    try:
+        listed = ops_reads.with_routing(ctx, ops.status(path)["requests"])
+    finally:
+        ctx["conn"].set_trace_callback(None)
+    assert len(listed) >= requests
+    return len(seen)
+
+
+def test_status_reads_the_live_run_once_whatever_the_number_of_requests(tree):
+    one = count_task_run_reads(tree, 1)
+    many = count_task_run_reads(tree, 8)
+    assert one == many and one >= 1, f"the reads of task_runs do not grow with the requests: {one} for 1, {many} for 9"
 
 
 # --- the shell's list, on a stand-in ----------------------------------------------------------------------------------------

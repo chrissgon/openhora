@@ -9,7 +9,7 @@ import { h } from "../dom.js";
 import * as format from "../format.js";
 import { routingWords } from "../model.js";
 import * as router from "../router.js";
-import { ago, flowOptions, requestLine, requestWords, resolvedWord } from "./lobby-model.js";
+import { QUEUE_REASON, ago, flowOptions, requestLine, requestWords, resolvedWord } from "./lobby-model.js";
 
 /** The line of a decision that is no longer open: a chip with "<kind> <resolution>" and the title and age. */
 function resolvedLine(item, now) {
@@ -51,7 +51,7 @@ function pointer(project, item, now) {
  * The plan card is drawn here only when a message names the request; otherwise its card is in the Inbox and this is a line that points at it.
  * The block has an id (`wb-request-<n>`) that the route `#/p/<id>/lobby/conversation/request/<n>` scrolls to. Returns {el, focusCard(id), focusTitle()}.
  */
-export function createBlock({ api, project, request, body, open, now, signal, onChanged, onCancel, onRoute, routing, announce, viaMessage = true, routeNotice = null, expanded = false, onExpand = null,
+export function createBlock({ api, project, request, body, open, now, signal, onChanged, onCancel, onRoute, routing, runBusy = false, announce, viaMessage = true, routeNotice = null, expanded = false, onExpand = null,
   flows = null, flow = "", onFlow = null, remembered = "" }) {
   const line = requestLine(request, open);
   const words = requestWords(request, body);
@@ -77,7 +77,9 @@ export function createBlock({ api, project, request, body, open, now, signal, on
     ? h("button", { class: "pui-btn pui-link pui-error wb-lobby-cancel-link", type: "button", text: "Cancel request", "aria-label": `Cancel request ${request.id}` }) : null;
   const route = line.routable
     ? h("button", { class: "pui-btn pui-surface pui-outline wb-small-button wb-route-button", type: "button", text: routing ? "Routing..." : "Route it", disabled: Boolean(routing),
-      "aria-label": routing ? `Request ${request.id} is being routed` : `Route request ${request.id}`, title: request.routing ? routingWords(request, now) : null }) : null;
+      "aria-label": routing ? `Request ${request.id} is being routed` : `Route request ${request.id}`, title: request.routing ? routingWords(request, now) : runBusy && !remembered ? QUEUE_REASON : null }) : null;
+  // the run's words on an element that wraps, not only on the button's tooltip (a touch screen has no tooltip)
+  const runNote = request.routing ? h("span", { class: "wb-lr-run", text: routingWords(request, now) }) : null;
   // After a reload the flow chosen in the form is forgotten: the line offers the flows beside "Route it" (E-20). The page never changes the request's text.
   const options = flows ? flowOptions(flows) : [];
   const chooser = route && !routing && !remembered && options.length > 1
@@ -93,7 +95,7 @@ export function createBlock({ api, project, request, body, open, now, signal, on
     h("span", { class: "pui-badge pui-muted pui-soft pui-rounded-full", text: `#${request.id}` }),
     titleButton,
     line.state ? h("span", { class: `pui-chip ${line.tone} wb-chip-small`, text: line.state }) : null);
-  const actions = chooser || route || cancel ? h("div", { class: `wb-lr-actions${chooser ? " has-flow" : ""}` }, chooser, route, cancel) : null;
+  const actions = chooser || route || cancel ? h("div", { class: `wb-lr-actions${chooser ? " has-flow" : ""}` }, chooser, route, cancel, runNote) : null;
   if (cancel) cancel.addEventListener("click", () => onCancel(request, cancel));
   if (route && !routing) route.addEventListener("click", () => onRoute(request, remembered || (chooser ? chooser.value : "")));
 

@@ -7,6 +7,7 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_interface_r4_routing.
 """
 from __future__ import annotations
 
+from test_interface_adj_b1 import run_view
 from test_interface_floor import INTERFACE, needs_node
 from test_interface_plates_meters import run_node
 
@@ -59,6 +60,12 @@ const city = model.buildingOf(routed.projects[0], routed.details[P]);
 out.city = city.floors.map((fl) => [fl.agent, JSON.stringify(fl.window)]);
 const quietCity = model.buildingOf(routed.projects[0], { ...routed.details[P], status: status([request(1, "requested")]) });
 out.cityQuiet = quietCity.floors.map((fl) => [fl.agent, JSON.stringify(fl.window)]);
+// the City's label says what the project list says (routing_request), and a task that runs wins
+const label = (project) => { const b = model.buildingOf(project, routed.details[P]); return [model.subOf(b), model.tooltipOf(b), model.linkNameOf(b)]; };
+out.labels = [label({ ...routed.projects[0], routing_request: 2 }), label({ ...routed.projects[0], running_task: 5 }), label(routed.projects[0]), label({ ...routed.projects[0], running_task: 5, routing_request: 2 })];
+// a delivery routed again: the planned request has a waiting step and a run; the run is what the bar and the row say
+const again = snapshot([request(2, "planned", { routing: run, tasks: [{ id: 5, key: "k", title: "k", skill: "s", state: "waiting", agent: "brand" }] })]);
+out.again = [model.tracking(again, P, NOW).now.title, fm.requestRows(again.details[P].status, P)[0].steps];
 console.log(JSON.stringify(out));
 """
 
@@ -74,6 +81,9 @@ def test_the_model_names_a_router_run_for_the_bar_the_building_and_the_planning_
     assert got["words"] == ["Planning agent · routing request #2 · for 3 min", "Planning agent · routing request #2", 2, None, None]
     assert got["rows"] == [[1, "0 of 0 steps done"], [2, "0 of 0 steps done · being routed"]]
     assert got["cancellable"] == [[1, True], [2, False]], "the Building's request row offers no Cancel request while a run holds the request"
+    assert [row[0] for row in got["labels"]] == ["routing request #2", "task #5 running", "no task running", "task #5 running"]
+    assert "routing request #2" in got["labels"][0][1] and "routing request #2" in got["labels"][0][2] and "no task running" in got["labels"][2][1], "the City's label names the router's run (routing_request)"
+    assert got["again"] == ["Planning agent · routing request #2", "0 of 1 steps done · being routed"], "a router run wins over a step that waits"
     assert got["quiet"] is None, "without a run the bar says 'Nothing is running' as before (the model gives no card)"
     assert got["both"] is True, "a task that runs is shown before a routing flag"
     assert got["facts"] == {"id": 2, "title": "Request 2", "link": got["facts"]["link"], "label": "Planning agent · routing request #2 · for 3 min"} \
@@ -128,14 +138,67 @@ def test_a_request_line_a_run_holds_says_routing_with_no_route_it_no_flow_select
     assert got["final"]["route"] is None
 
 
-def test_the_lobby_reads_the_service_s_routing_for_its_blocks_its_owl_and_its_composer():
-    thread = (JS / "views" / "lobby-thread.js").read_text(encoding="utf-8")
-    assert "Boolean(request.routing)" in thread and "routing: routingNow" in thread, "a block is drawn as routing when the service says so, and drawn again when that changes"
-    lobby = (JS / "views" / "lobby.js").read_text(encoding="utf-8")
-    assert "model.routingRequest(status)" in lobby and lobby.count("model.routingRequest(status)") == 2, "the owl works and the composer names the run"
-    assert "model.routingWords(routed, last.now)" in lobby
-    building = (JS / "views" / "building.js").read_text(encoding="utf-8")
-    assert "f.running.label ||" in building and "fm.building(snapshot, projectId, last.now)" in building, "the Building's Running now takes its words from the model"
+VIEW = r"""
+import { FakeNode, find, all, text, settle } from "@FAKE@";
+import { setToken } from "@JS@/token.js";
+import * as router from "@JS@/router.js";
+import { createLobbyView } from "@JS@/views/lobby.js";
+
+setToken("t".repeat(40));
+globalThis.ResizeObserver = class { observe() {} disconnect() {} };
+document.removeEventListener = (type, fn) => { document.listeners[type] = (document.listeners[type] || []).filter((f) => f !== fn); };
+const P = "0123456789ab";
+const NOW = new Date("2026-10-10T12:00:00Z");
+globalThis.fetch = async (url) => {
+  let body = {};
+  if (url.includes("/conversation")) body = { messages: [] };
+  else if (url.endsWith("/flows")) body = { flows: [{ flow: "design", title: "Design" }] };
+  else if (/\/tasks\/\d+$/.test(url)) body = { task: { id: 2 }, runs: [], pending: [] };
+  return { ok: true, status: 200, json: async () => body };
+};
+const agent = (name) => ({ name, pack: "x", enabled: true, mode: "supervised", acting_mode: "supervised", max_runs_per_day: 8, max_usd_per_day: 4, runs_today: 1, usd_today: 0.1, runs_without_cost: 0, queued: 0 });
+const run = { run_id: 3, skill: "core-orchestrator", started_at: "2026-10-10T11:57:00Z" };
+const snapshot = (routing) => ({ loaded: true, projects: [{ id: P, name: "northwind-shop", config: { accepted: true } }], tasks: {},
+  details: { [P]: { agents: [agent("planning")], status: { requests: [{ id: 1, title: "Size guide", state: "requested", tasks: [], routing: null }, { id: 2, title: "Sale page", state: "requested", tasks: [], routing }], pending: [] } } } });
+const shown = [];
+const makeFrame = () => ({ el: new FakeNode("div"), main: new FakeNode("main"), sceneHost: new FakeNode("div"), track: { el: new FakeNode("div") }, noticeBox: new FakeNode("div"),
+  insets: () => ({ left: 0, right: 0, top: 0, bottom: 0, pad: 1 }), sceneUnavailable() {}, announce() {},
+  acquireWorld: () => ({ show(world, model) { shown.push(JSON.stringify(model)); }, setOptions() {}, flyTo: () => Promise.resolve(false), stats() { return {}; } }), kpis: { el: new FakeNode("div") } });
+const out = {};
+for (const routing of [run, null]) {
+  shown.length = 0;
+  const frame = makeFrame();
+  const view = createLobbyView(frame, { project: P, onChanged: async () => {} });
+  view.update({ snapshot: snapshot(routing), route: router.parse(`#/p/${P}/lobby`), now: NOW, projectName: "northwind-shop" });
+  await settle();
+  const blocks = all(frame.main, ".wb-request-block");
+  const block = (n) => blocks.find((b) => b.attrs.id === `wb-request-${n}`);
+  const route = (n) => find(block(n), "button.wb-route-button");
+  const link = find(frame.main, ".wb-lobby-run a, .wb-lobby-run .pui-link, a.wb-run-link");
+  const runLine = find(frame.main, ".wb-lobby-run");
+  out[routing ? "routed" : "quiet"] = {
+    two: [route(2).textContent, "disabled" in route(2).attrs, find(block(2), ".wb-lr-run") ? find(block(2), ".wb-lr-run").textContent : null, find(block(2), "select.wb-route-flow") === null],
+    one: [route(1).textContent, "disabled" in route(1).attrs, route(1).attrs.title || null],
+    composer: runLine ? [runLine.hidden === true, runLine.textContent] : null,
+    owl: shown.some((m) => /"state":"working"/.test(m)),
+  };
+  view.dispose();
+}
+console.log(JSON.stringify(out));
+process.exit(0);
+"""
+
+
+@needs_node
+def test_the_lobby_view_draws_the_routing_run_in_its_blocks_its_composer_and_its_owl_and_queues_route_it_on_the_other_requests(tmp_path):
+    got = run_view(tmp_path, VIEW)
+    routed, quiet = got["routed"], got["quiet"]
+    assert routed["two"] == ["Routing...", True, "Planning agent · routing request #2 · for 3 min", True], "A-51: the line says Routing... and names the run in text that wraps"
+    assert routed["one"][:2] == ["Route it", False] and routed["one"][2] == "A run is in progress: this request is routed when it ends.", \
+        "another request keeps Route it (the service queues it, A-23) and says so before the click"
+    assert routed["composer"][0] is False and "Planning agent · routing request #2 · for 3 min" in routed["composer"][1], "the composer's run line names the run"
+    assert routed["owl"] is True, "the planning agent's room is working"
+    assert quiet["two"][0] == "Route it" and quiet["one"][2] is None and quiet["composer"][0] is True and quiet["owl"] is False, "no run: nothing is said"
 
 
 TRACK = r"""

@@ -309,7 +309,7 @@ export function requestRows(status, projectId) {
     const tasks = Array.isArray(request.tasks) ? request.tasks : [];
     const done = tasks.filter((t) => t.state === "done").length;
     const current = tasks.find((t) => t.state === "running") || tasks.find((t) => t.state === "waiting") || null;
-    const now = current ? (current.state === "running" ? `now on ${format.agentWord(agentOf(current))}` : "waiting for you") : request.routing ? "being routed" : "";
+    const now = request.routing && !(current && current.state === "running") ? "being routed" : current ? (current.state === "running" ? `now on ${format.agentWord(agentOf(current))}` : "waiting for you") : "";
     const title = request.title || `Request ${request.id}`;
     const state = typeof request.state === "string" ? request.state : "";
     const word = state ? state.charAt(0).toUpperCase() + state.slice(1) : "";
