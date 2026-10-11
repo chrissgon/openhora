@@ -288,3 +288,64 @@ def test_a_refused_key_that_reports_no_tokens_is_still_no_spend(tree):
     runs = ctx["store"].runs_since(ctx["conn"], "2000-01-01T00:00:00Z")
     assert (runs[0]["failure"], runs[0]["attempts"], runs[0]["tokens"]) == ("auth", 1, None)
     assert autonomy.never_reached_the_model(runs[0]) is True
+
+
+# --- every attempt's reported usage counts (R4-C7b) -----------------------------------------------------------------------
+
+
+def write_timing(folder, tokens=None, cost=None):
+    import json
+    import os
+    os.makedirs(os.path.join(folder, "outputs"), exist_ok=True)
+    with open(os.path.join(folder, "outputs", "timing.json"), "w") as f:
+        json.dump({"total_tokens": tokens, "cost_usd": cost}, f)
+
+
+def test_reported_usage_reads_every_attempt_a_paused_one_included(tmp_path):
+    """A paused attempt (the account limit) may have spent before it stopped: its timing adds to the run's usage."""
+    dest = str(tmp_path / "run")
+    write_timing(dest, 100, 0.01)                       # the last attempt
+    write_timing(dest + "/failed-1", 100, 0.02)
+    write_timing(dest + "/early-end-1", 50, 0.005)
+    write_timing(dest + "/paused-1", 70, 0.03)         # stopped on the limit after it spent
+    got = lab.reported_usage(dest)
+    assert got["total_tokens"] == 320 and got["cost_usd"] == pytest.approx(0.065)
+    nothing = lab.reported_usage(str(tmp_path / "none"))
+    assert nothing == {"cost_usd": None, "total_tokens": None}
+    write_timing(dest + "/paused-2", None, None)       # a file with no number adds nothing
+    assert lab.reported_usage(dest)["total_tokens"] == 320
+
+
+def test_a_run_that_succeeds_after_failed_attempts_records_the_usage_of_every_attempt(tree, monkeypatch):
+    path = request_ready(tree)
+    monkeypatch.setattr(ops_core, "_tier_billing", lambda *a, **k: "metered")
+    st.fail(tree["adapter"], "adapter", 2)      # attempts 1 and 2 fail after reporting (100 tokens, $0.01); attempt 3 answers
+    out = ops.run_next(path)
+    assert out["status"] == "ok"
+    ctx = ops_core.context(path)
+    row = dict(ctx["conn"].execute("SELECT status, attempts, cost_usd, tokens FROM task_runs ORDER BY id DESC LIMIT 1").fetchone())
+    assert row["status"] == "ok" and row["attempts"] == 3
+    assert row["cost_usd"] == pytest.approx(0.03) and row["tokens"] == 300     # not the last attempt's alone
+
+
+def test_a_run_that_succeeds_at_once_records_its_own_usage_as_before(tree, monkeypatch):
+    path = request_ready(tree)
+    monkeypatch.setattr(ops_core, "_tier_billing", lambda *a, **k: "metered")
+    ops.run_next(path)
+    ctx = ops_core.context(path)
+    row = dict(ctx["conn"].execute("SELECT attempts, cost_usd, tokens FROM task_runs ORDER BY id DESC LIMIT 1").fetchone())
+    assert row["attempts"] == 1 and row["cost_usd"] == pytest.approx(0.01) and row["tokens"] == 100
+
+
+def test_a_refused_key_that_reported_tokens_keeps_its_reservation_end_to_end(tree):
+    """The stand-in's auth case reports usage this time (an adapter that met the 401 after calls): the row keeps tokens and the
+    split reserves for it."""
+    path = request_ready(tree)
+    (tree["adapter"] / "auth-reports-usage").write_text("1\n")
+    st.fail(tree["adapter"], "auth", 1)
+    ops.run_next(path)
+    ctx = ops_core.context(path)
+    runs = ctx["store"].runs_since(ctx["conn"], "2000-01-01T00:00:00Z")
+    assert (runs[0]["failure"], runs[0]["attempts"], runs[0]["tokens"]) == ("auth", 1, 100)
+    assert autonomy.never_reached_the_model(runs[0]) is False
+    assert autonomy.spend_split([dict(r, billing="metered") for r in runs], runs[0]["agent"], PER_RUN)["usd_reserved"] == PER_RUN

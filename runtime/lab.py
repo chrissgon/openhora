@@ -331,12 +331,14 @@ def stop_runs() -> dict:
 
 
 def reported_usage(dest: str) -> dict:
-    """What the attempts of a failed run reported: {"cost_usd", "total_tokens"}, each the sum over the attempts' timing.json
-    (the run folder's outputs/ and those the lab kept from the attempts it retried, failed-<n>/ and early-end-<n>/), or None
-    when no attempt reported it. An attempt that stopped on the account limit (paused-<n>/) counts as no result and is not
-    read. Nothing is guessed: a file that is missing or holds no number adds nothing."""
+    """What the attempts of a run reported, whether it ended or failed: {"cost_usd", "total_tokens"}, each the sum over the
+    attempts' timing.json (the run folder's outputs/ and those the lab kept from the attempts it set aside, failed-<n>/,
+    early-end-<n>/ and paused-<n>/), or None when no attempt reported it. A paused attempt (the account limit) counts as no
+    result, but it may have spent before it stopped, so its usage is read: reading it only adds spend. A run id is never
+    reused over a leftover run folder (the store's ids are AUTOINCREMENT), so every folder under dest is this run's.
+    Nothing is guessed: a file that is missing or holds no number adds nothing."""
     folders = [os.path.join(dest, "outputs")]
-    for prefix in ("failed-", "early-end-"):
+    for prefix in ("failed-", "early-end-", "paused-"):
         folders += sorted(glob.glob(os.path.join(glob.escape(dest), prefix + "*", "outputs")))
     sums = {"cost_usd": None, "total_tokens": None}
     for folder in folders:
