@@ -12,6 +12,7 @@
 import * as client from "../api.js";
 import { fill, h } from "../dom.js";
 import { arrowNav } from "../frame/arrows.js";
+import { icon } from "../frame/icons.js";
 import { runBlock } from "./run-block.js";
 import { createTaskActions } from "./task-actions.js";
 import { groupTasks, rowOf } from "./tasks-model.js";
@@ -106,15 +107,21 @@ export function createTasksTab(env) {
       return cached && !reading.has(task.id) ? h("p", { class: "wb-empty-line", text: "The runs could not be read." }) : busyLine("Loading the runs...");
     }
     if (!row.runs.length) return h("p", { class: "wb-empty-line", text: "No run yet." });
-    return [h("div", { class: "wb-section-label", text: "Runs, newest first" }), ...row.runs.map(runBlock)];
+    return [h("span", { class: "wb-sec-head wb-runs-head", text: "Runs, newest first" }), ...row.runs.map(runBlock)];
   }
 
+  /**
+   * R-39: a task is an accordion. Its header is one button, the number, the title, the state chip and a marker that turns when it opens; the rest of the row (the meta, the
+   * failure, the wait lines, the paths, the actions and the runs) is its body, shown when it is opened. The disclosure keeps `aria-expanded` and `aria-controls`, and the
+   * arrow keys of the group (frame/arrows.js).
+   */
   function rowNode(task) {
     const row = rowOf(task, { requests: last.requests, pending: last.pending, body: (bodies.get(task.id) || {}).body || null, now: env.now() });
     const isOpen = expanded.has(task.id);
     const detailId = `wb-task-detail-${task.id}`;
-    const toggle = h("button", { class: "pui-btn pui-link wb-task-toggle", type: "button", "data-key": `toggle-${task.id}`, "aria-expanded": isOpen ? "true" : "false", "aria-controls": detailId },
-      h("span", { class: "wb-task-num", text: row.number }), h("span", { class: "wb-task-title", text: row.title }));
+    const toggle = h("button", { class: "pui-btn pui-link wb-task-toggle wb-task-head", type: "button", "data-key": `toggle-${task.id}`, "aria-expanded": isOpen ? "true" : "false", "aria-controls": `wb-task-body-${task.id}` },
+      h("span", { class: "wb-task-num wb-task-n", text: row.number }), h("span", { class: "wb-task-title", text: row.title }), chip(row.word, row.tone),
+      h("span", { class: "wb-task-mark", "aria-hidden": "true" }, icon("chevron-down", 16)));
     toggle.addEventListener("click", () => toggleRow(task));
     const meta = h("div", { class: "wb-task-meta wb-muted" },
       row.skill ? h("code", { class: "wb-task-skill", text: row.skill }) : null,
@@ -123,22 +130,25 @@ export function createTasksTab(env) {
     const buttons = actions.nodes(task, { pending: last.pending, links: env.links });
     const showNote = row.note && (task.state === "failed" || task.state === "cancelled");     // a blocked task's sentence stands beside Retry
     const failure = row.failure ? `${row.failure.failure}${row.failure.ending ? ` · ${row.failure.ending}` : ""}` : "";
-    return h("li", { class: "wb-task", "data-task": String(task.id) },
-      h("div", { class: "wb-task-head" }, toggle, chip(row.word, row.tone)),
-      meta,
-      failure ? h("p", { class: "wb-task-failure", text: failure }) : null,
-      row.waits.map((line) => h("p", { class: "wb-task-waits wb-muted", text: line })),
-      showNote ? h("p", { class: "wb-task-note wb-muted", text: row.note }) : null,
-      row.returned.length ? h("ul", { class: "wb-paths wb-task-paths" }, row.returned.map(pathRow)) : null,
-      buttons.length ? h("div", { class: "wb-task-actions" }, buttons) : null,
-      actions.failure(task.id),
-      h("div", { class: "wb-task-detail", id: detailId, hidden: !isOpen }, isOpen ? detailOf(task, row) : null));
+    return h("li", { class: `wb-task wb-task-acc${isOpen ? " is-open" : ""}`, "data-task": String(task.id) },
+      toggle,
+      h("div", { class: "wb-task-body", id: `wb-task-body-${task.id}`, hidden: !isOpen },
+        meta,
+        failure ? h("p", { class: "wb-task-failure", text: failure }) : null,
+        row.waits.map((line) => h("p", { class: "wb-task-waits wb-muted", text: line })),
+        showNote ? h("p", { class: "wb-task-note wb-muted", text: row.note }) : null,
+        row.returned.length ? h("ul", { class: "wb-paths wb-task-paths" }, row.returned.map(pathRow)) : null,
+        buttons.length ? h("div", { class: "wb-task-actions" }, buttons) : null,
+        actions.failure(task.id),
+        h("div", { class: "wb-task-detail", id: detailId, hidden: !isOpen }, isOpen ? detailOf(task, row) : null)));
   }
 
+  /** A group (R-39): a bordered block; its header has the state's icon in the state's colour (faint when the group is empty), the name in small capitals and the count at the right. */
   function groupNode(group) {
     const isOpen = group.count > 0 && (opened.has(group.id) ? opened.get(group.id) : true);
     const summary = h("summary", { class: "wb-task-group-head", "data-key": `group-${group.id}` },
-      h("span", { class: "wb-task-group-name", text: group.label }), h("span", { class: "pui-badge pui-muted pui-soft pui-rounded-full", text: String(group.count) }));
+      h("span", { class: `wb-tile wb-group-tile pui-soft ${group.tone}${group.count === 0 ? " is-none" : ""}`, "aria-hidden": "true" }, icon(group.icon, 14)),
+      h("span", { class: "wb-task-group-name wb-group-name", text: group.label }), h("span", { class: "pui-badge pui-muted pui-soft pui-rounded-full", text: String(group.count) }));
     const details = h("details", { class: "wb-task-group", "data-group": group.id, open: isOpen },
       summary, isOpen ? h("ul", { class: "wb-task-list", role: "list" }, group.tasks.map(rowNode)) : null);
     details.addEventListener("toggle", () => {

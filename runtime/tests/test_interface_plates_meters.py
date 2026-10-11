@@ -225,7 +225,7 @@ def test_the_models_keep_the_whole_building_the_floors_the_kpis_and_the_bar_when
     assert got["noData"][0:2] == [False, False] and set(got["noData"][2]) == {"not accepted"}, "no data was ever read: the old placeholder row"
     assert got["noData"][3] == ["Waiting for the configuration to be accepted."]
     assert got["floor"]["found"] is True and got["floor"]["notAccepted"] is False and got["floor"]["unaccepted"] is True, "the floor keeps its room and panel"
-    assert got["floor"]["tasks"] == [4, 2] and got["floor"]["decisions"] == 1 and got["floor"]["title"] == "Marketing · Marketing agent"
+    assert got["floor"]["tasks"] == [4, 2] and got["floor"]["decisions"] == 1 and got["floor"]["title"] == "Marketing agent"     # C-6
     assert got["floor"]["sub"].endswith("not accepted") and "not accepted" in got["floor"]["canvas"]
     assert got["floorNoData"] == [True, False]
     assert got["board"] == "#4 Task 4 · current task"
@@ -390,7 +390,7 @@ tab.update(view(agent(), [task(4, "ready")]));
 out.select = all(tab.el, "select").length;
 out.labels = [buttons().stop.textContent, buttons().supervise.textContent];
 out.enabled = [buttons().stop.disabled, buttons().supervise.disabled];
-out.wider = find(tab.el, ".wb-mode-form").textContent;
+out.wider = find(tab.el, ".wb-wider-modes").textContent;     // R-35: the wider modes are under the standing line, not in the mode form
 out.standing = find(tab.el, ".wb-notice-card").textContent;
 out.meters = all(tab.el, ".wb-meter-cell").map((c) => c.attrs["aria-label"]);
 out.meterTitles = all(tab.el, ".wb-meter-cell").map((c) => Boolean(c.attrs.title));
@@ -540,7 +540,7 @@ process.exit(0);
 def test_the_page_keeps_the_floor_dims_it_and_shows_the_command_in_the_band_while_the_configuration_is_not_accepted(tmp_path):
     got = run_node(tmp_path, MAIN.replace("@REFUSAL@", json.dumps(REFUSAL)).replace("@NEXT@", json.dumps(ACCEPT)).replace("@TAB@", ""), SCENE_DOM)
     before, during, after = got["before"], got["during"], got["after"]
-    assert before["dimmed"] is False and before["codes"] == [] and before["title"] == "Marketing · Marketing agent"
+    assert before["dimmed"] is False and before["codes"] == [] and before["title"] == "Marketing agent"     # C-6
     assert during["dimmed"] is True, "one class on the screen"
     assert during["title"] == before["title"] and during["kpis"] == before["kpis"] and during["track"] == before["track"], "the panel, the KPI cards and the bar are what they were"
     assert during["state"] == before["state"] and during["meters"] == before["meters"], "the Agent tab keeps its state row and its meters"
@@ -588,7 +588,7 @@ def test_every_notice_that_needs_the_terminal_uses_the_one_component_and_the_pag
         # `keyring==` is the library's version pin, which every command of the service carries. A-22: the credential's commands are the fields
         # `held[].commands` the service gives (command.js no longer reads them out of a sentence), so no module holds a pattern of one.
         assert "cli.py" not in text and "keyring==" not in text and "accept-config --" not in text and "run-next --" not in text, f"{path.name}: a command is the service's, never built on the page"
-    assert '"select"' not in (JS / "floor/agent-tab.js").read_text(encoding="utf-8"), "the mode select is gone"
+    assert (JS / "floor/agent-tab.js").read_text(encoding="utf-8").count('"select"') == 1, "A-17 took the mode select away; R-35 brings back one, for the wider modes only"
 
 
 @needs_node
@@ -716,12 +716,19 @@ const task = { id: 4, key: "k", title: "T", skill: "s", state: "ready", note: nu
 const view = (a, held = []) => fm.floor({ projects: [{ id: P, name: "n", config: { accepted: true } }], details: { [P]: { status: { requests: [{ id: 1, title: "R", state: "ready", tasks: [task] }], pending: [], held }, agents: [a] } }, tasks: {}, loaded: true }, P, "engineering", {});
 const out = {};
 tab.update(view(agent({ wider: wider("supervised", ["milestones", "autonomous", "autonomous-with-policy"]) })));
-const form = find(tab.el, ".wb-mode-form");
-out.three = { line: find(form, ".wb-wider").textContent, codes: all(form, ".wb-command-code").map((c) => c.textContent), sentences: all(form, ".wb-command-sentence").map((c) => c.textContent), copies: all(form, "button.wb-copy").length };
+const form = find(tab.el, ".wb-wider-modes");
+// R-35: a select of the wider modes, the chosen mode's command under it, Copy beside it, a soft warn notice with an icon under the command
+const sel = find(form, "select");
+const copied = [];
+out.three = { line: find(form, ".wb-wider-note").textContent, label: find(form, ".wb-wider-label").textContent, options: all(form, "option").map((o) => o.textContent), values: all(form, "option").map((o) => o.attrs.value),
+  code: find(form, ".wb-wider-code").textContent, copies: all(form, "button.wb-copy").length, noteClass: find(form, ".wb-wider-note").attrs.class, icon: find(form, ".wb-wider-note .wb-icon-triangle-alert") !== null, labelFor: find(form, ".wb-wider-label").attrs.for === sel.attrs.id };
+sel.value = sel.children[1].attrs.value;
+(sel.listeners.change || []).forEach((fn) => fn());
+out.chosen = find(form, ".wb-wider-code").textContent;
 tab.update(view(agent({ mode: "autonomous-with-policy", acting_mode: "autonomous-with-policy", wider: [] })));
-out.top = { wider: all(find(tab.el, ".wb-mode-form"), ".wb-wider").filter((n) => !n.hidden).length, codes: all(find(tab.el, ".wb-mode-form"), ".wb-command-code").length };
+out.top = { wider: all(find(tab.el, ".wb-wider-modes"), ".wb-wider-note").length, hidden: find(tab.el, ".wb-wider-modes").hidden, codes: all(find(tab.el, ".wb-wider-modes"), ".wb-command-code").length };
 tab.update(view(agent({})));
-out.none = { codes: all(find(tab.el, ".wb-mode-form"), ".wb-command-code").length, line: all(find(tab.el, ".wb-mode-form"), ".wb-wider").filter((n) => !n.hidden).length };
+out.none = { codes: all(find(tab.el, ".wb-wider-modes"), ".wb-command-code").length, line: all(find(tab.el, ".wb-wider-modes"), ".wb-wider-note").length };
 
 // the held reason credential (A-22): the sentence is text; each command is a field of the service's `commands` ([{name, command}]), drawn with Copy, and a name with no
 // username registered (command null) is its name and "no username registered": nothing is read out of the sentence

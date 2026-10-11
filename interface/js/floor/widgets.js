@@ -18,10 +18,14 @@ export function chip(text, tone, size = "12") {
   return h("span", { class: `pui-chip ${tone} wb-chip-${size}`, text });
 }
 
-/** A notice: kind "error" has role alert and the error edge; "warn" has role status and the warn edge. */
+/**
+ * A notice (R-11): the library's soft style in the state's colour, a tint and no line round it. kind "error" has role alert and the error colour, "warn" role status and the warn
+ * colour, any other the muted soft style. The old classes `wb-notice-card is-error|is-warn` stay beside the new ones.
+ */
 export function notice(text, kind = "info", ...extra) {
   const role = kind === "error" ? "alert" : kind === "warn" ? "status" : null;
-  return h("div", { class: `wb-notice-card${kind === "error" ? " is-error" : kind === "warn" ? " is-warn" : ""}`, role }, h("span", { text }), ...extra);
+  const tone = kind === "error" ? "pui-error" : kind === "warn" ? "pui-warn" : "pui-muted";
+  return h("div", { class: `notice pui-soft ${tone} wb-notice-card${kind === "error" ? " is-error" : kind === "warn" ? " is-warn" : ""}`, role }, h("span", { text }), ...extra);
 }
 
 /**

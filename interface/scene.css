@@ -1,5 +1,5 @@
-/* The scene's own HTML (round 4): what sits over the canvas and belongs to the scene, not to the frame. The frame's rules are in style.css. Colours are
-   tokens (--pui-*, --wb-*) only; no colour literal stands in this file. Loaded after style.css. */
+/* The scene's own HTML (round 4): what sits over the canvas and belongs to the scene, not to the frame. The frame's rules are in the stylesheets of css/. Colours are
+   tokens (--pui-*, --wb-*) only; no colour literal stands in this file. Loaded after them. */
 
 /* a building's label in the City: a pill, one line (R-16 on; city.html). Its place is two custom properties the scene writes (--wb-x, --wb-y), so the
    rules that place a label are repeated here: this file does not depend on the frame's class for them. */

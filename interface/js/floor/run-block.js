@@ -10,6 +10,6 @@ export function runBlock(run) {
   const rows = runRows(run);
   return h("dl", { class: "wb-run" }, rows.flatMap((r) => [
     h("dt", { class: "wb-muted", text: r.label }),
-    h("dd", { class: r.kind === "code" || r.kind === "wrap" ? "mono" : null }, r.kind === "chip" ? chip(r.value, r.tone, "11") : r.value),
+    h("dd", { class: r.kind === "code" || r.kind === "wrap" ? "mono" : null }, r.kind === "chip" ? chip(r.value, r.tone, "12") : r.value),
   ]));
 }
