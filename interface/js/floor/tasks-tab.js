@@ -13,7 +13,7 @@ import * as client from "../api.js";
 import { fill, h } from "../dom.js";
 import { arrowNav } from "../frame/arrows.js";
 import { icon } from "../frame/icons.js";
-import { runBlock } from "./run-block.js";
+import { runsSection } from "./run-block.js";
 import { createTaskActions } from "./task-actions.js";
 import { groupTasks, rowOf } from "./tasks-model.js";
 import { busyLine, chip } from "./widgets.js";
@@ -108,22 +108,12 @@ export function createTasksTab(env) {
       return cached && !reading.has(task.id) ? h("p", { class: "wb-empty-line", text: "The runs could not be read." }) : busyLine("Loading the runs...");
     }
     if (!row.runs.length) return h("p", { class: "wb-empty-line", text: "No run yet." });
-    // A-72: the run in progress (else the last run) is "This run"; the earlier attempts, failed ones with their error, wait behind a closed disclosure, so the old failure
-    // is not read as the state of the task. With one run there is no disclosure.
-    const parts = [h("span", { class: "wb-sec-head wb-runs-head", text: "This run" }), runBlock(row.thisRun)];
-    if (row.earlier.length) {
-      const isOpen = earlierOpen.has(task.id);
-      const listId = `wb-earlier-list-${task.id}`;
-      const toggle = h("button", { class: "pui-btn pui-link wb-earlier-toggle wb-muted", type: "button", "data-key": `earlier-${task.id}`, "aria-expanded": isOpen ? "true" : "false", "aria-controls": listId, text: `Earlier attempts (${row.earlier.length})` },
-        h("span", { class: "wb-earlier-mark", "aria-hidden": "true" }, icon("chevron-down", 14)));
-      toggle.addEventListener("click", () => {
-        if (earlierOpen.has(task.id)) earlierOpen.delete(task.id);
-        else earlierOpen.add(task.id);
-        draw();
-      });
-      parts.push(toggle, h("div", { class: "wb-earlier-list", id: listId, hidden: !isOpen }, isOpen ? row.earlier.map(runBlock) : null));
-    }
-    return parts;
+    // A-72: "This run" and the closed "Earlier attempts (n)" (run-block.js, shared with the Agent tab's current-task card)
+    return runsSection(row.runs, { key: task.id, isOpen: earlierOpen.has(task.id), onToggle: () => {
+      if (earlierOpen.has(task.id)) earlierOpen.delete(task.id);
+      else earlierOpen.add(task.id);
+      draw();
+    } });
   }
 
   /**

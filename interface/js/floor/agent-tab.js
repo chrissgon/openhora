@@ -14,7 +14,7 @@ import { MODES, MODE_LINES, currentSub, meters, stateRow, stateTone, taskWord } 
 import { commandBlock, copyCommand, isCommand, selectNode } from "../frame/command.js";
 import { icon } from "../frame/icons.js";
 import { trackNode } from "../scene/plates.js";
-import { runBlock } from "./run-block.js";
+import { runsSection } from "./run-block.js";
 import { fileRefusal, handChooser, handOverStep, toBase64 } from "./hand-file.js";
 import { createTaskActions } from "./task-actions.js";
 import { busyLine, chip, errorText, notice, ring } from "./widgets.js";
@@ -61,6 +61,7 @@ export function createAgentTab(env) {
   fill(el, stateBox, plateBox, formBox, standing, resultBox, widerBox, body);
 
   const shown = {};
+  const earlierOpen = new Set();     // the current task's "Earlier attempts" disclosure, open by the person's choice (A-72)
   const swap = (name, value, draw) => {
     const key = JSON.stringify(value);
     if (shown[name] === key) return;
@@ -229,14 +230,18 @@ export function createAgentTab(env) {
       return;
     }
     const sub = currentSub(task, view.currentBody, view.decisions, env.now());
-    fill(currentBox, h("span", { class: "wb-sec-head", text: "Current task" }),
+    redraw(currentBox, () => fill(currentBox, h("span", { class: "wb-sec-head", text: "Current task" }),
       h("div", { class: "pui-card wb-current" },
         h("div", { class: "wb-cur-head wb-current-head" }, h("strong", { text: `#${task.id} ${task.title || task.key || ""}`.trim() }), chip(taskWord(task.state), stateTone(task.state))),
         h("span", { class: "wb-muted wb-cur-sub wb-current-sub" }, h("span", { class: "mono", text: sub.skill }), sub.when ? ` · ${sub.when}` : ""),
         waitLines(task).map((line) => h("p", { class: "wb-task-waits wb-muted", text: line })),
         taskActions(task, view),
         view.heldCurrent ? heldBlock(view.heldCurrent) : null,
-        view.runs.map(runBlock)));
+        runsSection(view.runs, { key: `current-${task.id}`, isOpen: earlierOpen.has(task.id), onToggle: () => {
+          if (earlierOpen.has(task.id)) earlierOpen.delete(task.id);
+          else earlierOpen.add(task.id);
+          if (lastView) drawCurrent(lastView);
+        } }))));
   }
 
   // The actions of a task (task-actions.js): the same nodes as a Tasks-tab row, for the current task and for each of the others.
@@ -410,7 +415,7 @@ export function createAgentTab(env) {
       widerBox.hidden = widerEmpty;
       const pendingIds = view.decisions.map((d) => [d.id, d.task_id]);
       const sub = view.current ? currentSub(view.current, view.currentBody, view.decisions, env.now()) : null;     // "for 12 min" moves with the clock: it is part of what is drawn
-      swap("current", [view.current, view.runs, view.tasks.length, view.heldCurrent, pendingIds, sub, taskActionsUse.signature(), locked], () => drawCurrent(view));
+      swap("current", [view.current, view.runs, view.current ? earlierOpen.has(view.current.id) : false, view.tasks.length, view.heldCurrent, pendingIds, sub, taskActionsUse.signature(), locked], () => drawCurrent(view));
       swap("others", [view.others.map((t) => [t.id, t.title, t.state, t.note, t.waiting_for]), pendingIds, taskActionsUse.signature(), locked], () => drawOthers(view));
       swap("hand", [view.target ? view.target.id : null, locked, Boolean(view.currentBody)], () => drawHand(view));
     },

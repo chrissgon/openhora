@@ -482,8 +482,8 @@ def test_the_tab_files_exist_and_the_agent_tab_and_the_tasks_tab_import_the_same
         assert path.is_file(), f"{path.name} is a file of the page"
     agent = (INTERFACE / "js" / "floor" / "agent-tab.js").read_text(encoding="utf-8")
     tasks = TAB.read_text(encoding="utf-8")
-    assert 'import { runBlock } from "./run-block.js";' in agent and 'import { runBlock } from "./run-block.js";' in tasks
-    assert "function runBlock" not in agent, "the Agent tab keeps no run block of its own"
+    assert 'import { runsSection } from "./run-block.js";' in agent and 'import { runsSection } from "./run-block.js";' in tasks
+    assert "function runBlock" not in agent and "runBlock(" not in agent and "runBlock(" not in tasks, "both tabs draw the runs through the one runsSection (A-72)"
 
 
 def test_the_tasks_tab_sends_only_retry_and_go_ahead_through_its_environment_and_reads_only_task():
@@ -609,3 +609,72 @@ def test_with_no_run_in_progress_the_last_run_is_this_run_and_the_earlier_ones_f
     assert last["this"]["Run"] == "#22 eng-implement 1.0.0" and last["toggle"]["text"] == "Earlier attempts (2)"
     assert [r["Run"] for r in last["list"]["runs"]] == ["#21 eng-implement 1.0.0", "#20 eng-implement 1.0.0"]
     assert got["split"] == [[None, []], [1, []], [2, [3, 1]], [None, []]], "a running run wins over a newer one; the rest keep their order"
+
+
+CURRENT_RUNS = r"""
+import { FakeNode, settle, find, all } from "@FAKE@";
+import { setToken } from "@JS@/token.js";
+import * as fm from "@JS@/floor-model.js";
+import { createAgentTab } from "@JS@/floor/agent-tab.js";
+
+setToken("t".repeat(40));
+const NOW = new Date("2026-10-10T12:00:00Z");
+const P = "0123456789ab";
+const text = (n) => (n ? n.textContent : null);
+const task = (id, state) => ({ id, key: `k${id}`, title: `Task ${id}`, skill: "implement-change", state, note: null, agent: "engineering", requestId: 2, waiting_for: [] });
+const agent = { name: "engineering", pack: "x", enabled: true, mode: "supervised", acting_mode: "supervised", max_runs_per_day: 6, max_usd_per_day: 2, runs_today: 3, usd_today: 0, runs_without_cost: 0, queued: 0, held: 0 };
+const run = (id, extra = {}) => ({ id, skill: "implement-change", skill_version: "1.4.0", model: "reference", status: "ok", ending: "done", attempts: 1, started_at: "2026-10-10T11:00:00Z", tokens: 10, cost_usd: null, duration_ms: 1000, ...extra });
+const view = (runs, state = "running") => fm.floor({ projects: [{ id: P, name: "n", config: { accepted: true } }], details: { [P]: { status: { requests: [{ id: 2, title: "R", state: "running", tasks: [task(52, state)] }], pending: [], held: [] }, agents: [agent] } }, tasks: {}, loaded: true },
+  P, "engineering", { 52: { task: { id: 52, updated_at: "2026-10-10T11:50:00Z" }, runs, pending: [] } });
+const tab = createAgentTab({ project: P, agent: "engineering", api: { setMode: async () => ({}), retry: async () => ({}), goAhead: async () => ({}), handOver: async () => ({}) }, refresh() {}, now: () => NOW });
+const facts = (d) => Object.fromEntries(all(d, "dt").map((t, i) => [text(t), text(all(d, "dd")[i])]));
+const shape = () => {
+  const card = find(tab.el, ".wb-current");
+  const toggle = card.querySelector("button.wb-earlier-toggle");
+  const list = card.querySelector(".wb-earlier-list");
+  return {
+    heads: all(card, ".wb-runs-head").map(text), blocks: all(card, "dl.wb-run").length, thisRun: facts(card.children.find((c) => c.tagName === "DL")),
+    toggle: toggle ? [text(toggle), toggle.attrs["aria-expanded"], toggle.attrs["aria-controls"] === list.attrs.id] : null,
+    list: list ? { hidden: list.hidden, runs: all(list, "dl.wb-run").map(facts) } : null,
+  };
+};
+const out = {};
+// one run: no disclosure
+tab.update(view([run(5, { status: "running", ending: null })]));
+await settle();
+out.one = shape();
+// a running run (stored last) and an earlier failed one: closed by default, then open, then closed again, kept across an update
+tab.update(view([run(4, { status: "failed", failure: "timeout", ending: null, error: "stopped after 40 minutes" }), run(5, { status: "running", ending: null })]));
+await settle();
+out.closed = shape();
+find(tab.el, ".wb-current").querySelector("button.wb-earlier-toggle").click();
+await settle();
+out.opened = shape();
+tab.update(view([run(4, { status: "failed", failure: "timeout", ending: null, error: "stopped after 40 minutes" }), run(5, { status: "running", ending: null })]));
+await settle();
+out.afterUpdate = shape().toggle[1];
+find(tab.el, ".wb-current").querySelector("button.wb-earlier-toggle").click();
+await settle();
+out.closedAgain = shape().toggle[1];
+// no run in progress: the last run is this run
+tab.update(view([run(1), run(2, { status: "failed", failure: "refused", ending: null, error: "no" }), run(3)], "ready"));
+await settle();
+out.last = shape();
+console.log(JSON.stringify(out));
+"""
+
+
+@needs_node
+def test_the_agent_tabs_current_task_draws_this_run_and_a_closed_earlier_attempts_like_the_tasks_tab(tmp_path):
+    got = run_node(tmp_path, CURRENT_RUNS)
+    assert got["one"]["heads"] == ["This run"] and got["one"]["blocks"] == 1 and got["one"]["toggle"] is None
+    closed = got["closed"]
+    assert closed["heads"] == ["This run"] and closed["thisRun"]["Run"] == "#5 implement-change 1.4.0" and closed["thisRun"]["Status"] == "Running"
+    assert closed["blocks"] == 1 and closed["toggle"] == ["Earlier attempts (1)", "false", True] and closed["list"]["hidden"] is True and closed["list"]["runs"] == []
+    opened = got["opened"]
+    assert opened["toggle"][1] == "true" and opened["list"]["hidden"] is False and opened["blocks"] == 2
+    [earlier] = opened["list"]["runs"]
+    assert earlier["Run"] == "#4 implement-change 1.4.0" and earlier["Status"] == "Failed" and earlier["Error"] == "stopped after 40 minutes"
+    assert got["afterUpdate"] == "true" and got["closedAgain"] == "false"
+    last = got["last"]
+    assert last["thisRun"]["Run"] == "#3 implement-change 1.4.0" and last["toggle"][0] == "Earlier attempts (2)"
