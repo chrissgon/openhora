@@ -66,6 +66,31 @@ function placeColumn(plates, project, hidden, insets, size) {
   });
 }
 
+/** The size, in pixels, a fitted label is laid out in before its matrix maps it onto its plate (the same numbers as `.wb-label-fit` in `css/building.css`). */
+export const FIT_SIZE = Object.freeze({ w: 108, h: 45 });
+/** The least height, in pixels, a fitted label's plate may have on the screen for its text to be shown (the text is 12 px at 45 px of plate: under this it would be under 2 px). */
+export const MIN_FIT_HEIGHT = 8;
+
+/**
+ * Fit a label on a plane of the scene (A-59): `spec.fit` has three world points of it, `origin` (the bottom left), `right` (a width to its right) and `up` (a height above it); the
+ * label, laid out at `FIT_SIZE`, is mapped onto the parallelogram they have on the screen by a matrix (CSSOM properties the class reads), so it is as the plate is, in position, size
+ * and slant, and follows it as the camera moves. `spec.shown()` false hides it (the plate is not there, or a floor is away).
+ */
+function fitLabel(entry, project) {
+  const o = project(entry.spec.fit.origin);
+  const r = project(entry.spec.fit.right);
+  const u = project(entry.spec.fit.up);
+  const number = (value) => String(Number(value.toFixed(5)));
+  entry.node.style.setProperty("--wb-a", number((r.x - o.x) / FIT_SIZE.w));
+  entry.node.style.setProperty("--wb-b", number((r.y - o.y) / FIT_SIZE.w));
+  entry.node.style.setProperty("--wb-c", number((o.x - u.x) / FIT_SIZE.h));
+  entry.node.style.setProperty("--wb-d", number((o.y - u.y) / FIT_SIZE.h));
+  entry.node.style.setProperty("--wb-x", `${u.x.toFixed(2)}px`);
+  entry.node.style.setProperty("--wb-y", `${u.y.toFixed(2)}px`);
+  // hidden while the plate is not shown, and when it is too small to read: its height under MIN_FIT_HEIGHT pixels (a phone's Lobby, a far camera)
+  entry.node.classList.toggle("is-culled", (entry.spec.shown ? !entry.spec.shown() : false) || Math.hypot(o.x - u.x, o.y - u.y) < MIN_FIT_HEIGHT);
+}
+
 /**
  * Place the labels: project each anchor with the camera, write the position, and hide the ones the culling drops. `project(anchor)`
  * returns {x, y} in pixels of the scene area. `hidden` hides all. A label with `place: "column"` is a floor plate: the plates are
@@ -77,6 +102,10 @@ export function placeLabels(entries, project, { hidden = false, insets = null, s
   entries.forEach((entry, index) => {
     if (entry.spec.place === "column") {
       plates.push({ entry, index });
+      return;
+    }
+    if (entry.spec.fit) {
+      fitLabel(entry, project);
       return;
     }
     const p = project(entry.spec.anchor);

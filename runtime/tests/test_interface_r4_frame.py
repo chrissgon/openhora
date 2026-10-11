@@ -294,6 +294,37 @@ console.log(JSON.stringify(out));
 """
 
 
+HOSTBAR = r"""
+import { FakeNode, find } from "@FAKE@";
+import { showTokenPrompt } from "@JS@/views/token-prompt.js";
+
+const out = {};
+const bar = (options) => { const root = new FakeNode("div"); showTokenPrompt(root, { message: null, onSubmit: async () => {}, platform: "MacIntel", ...options }); return find(root, ".tk-meta"); };
+out.given = bar({ host: "192.168.1.20:8765" }).textContent;
+out.local = bar({ host: "127.0.0.1:8765" }).textContent;
+globalThis.location = { host: "10.0.0.5:9000" };
+out.opened = bar({}).textContent;
+globalThis.location = { host: "" };
+out.empty = bar({}).textContent;
+globalThis.location = { host: "<b>x</b>" };
+const hostile = bar({});
+out.hostile = [hostile.textContent, [...hostile.walk()].some((n) => n.tagName === "B")];
+delete globalThis.location;
+out.none = bar({}).textContent;
+console.log(JSON.stringify(out));
+"""
+
+
+@needs_node
+def test_the_prompt_bar_names_the_address_the_page_was_opened_on_as_text(tmp_path):
+    got = run_node(tmp_path, HOSTBAR)
+    assert got["given"] == "local service · 192.168.1.20:8765", "opened through --lan on a phone: the LAN address"
+    assert got["local"] == "local service · 127.0.0.1:8765"
+    assert got["opened"] == "local service · 10.0.0.5:9000", "by default the address the browser opened"
+    assert got["empty"] == got["none"] == "local service · 127.0.0.1", "no address to read: the old text"
+    assert got["hostile"] == ["local service · <b>x</b>", False], "it is text, never markup"
+
+
 @needs_node
 def test_the_token_prompt_is_a_technical_sheet_with_two_steps_the_refusals_in_the_soft_style_and_the_owl_at_the_right(tmp_path):
     got = run_node(tmp_path, PROMPT)

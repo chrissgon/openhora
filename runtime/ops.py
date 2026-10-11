@@ -33,8 +33,8 @@ Operations of stage 1 of the platform plan:
                                    model is called
   verdict(project, run_id, word)   record the person's verdict (worked, corrected, failed) on the use of a run,
                                    with the existing recorder (scripts/evidence.py)
-  accept_config(project, sha256)   record the hash of docs/workbench/runtime.json the person accepts; every
-                                   other operation refuses a configuration whose hash is not the accepted one
+  accept_config(project, sha256)   record the hash of docs/workbench/runtime.json the person accepts (runtime/ops_config.py);
+                                   every other operation refuses a configuration whose hash is not the accepted one
 
 Operations of stage 3:
   request(project, text)           without a flow: a request that waits for its route
@@ -72,11 +72,13 @@ Operations of stage 6:
                                    a class of targets resolved from a recorded fact first) holding the run lock, runs
                                    the kind's judgement, makes the provider's dry run and its confirmed call, records
                                    the action; with replay_log it does every check and nothing else
-  set_mode(project, agent, mode)   set one area agent's autonomy mode in runtime.json (runtime/autonomy.py, the five
-                                   modes, in the order stopped < supervised < milestones < autonomous < autonomous-with-policy).
-                                   A move down that order is accepted by code at once (`code:narrowing`); a move up
-                                   is accepted by the person (accept_config). Either rewrites the state file's
-                                   Checkpoints line, a generated copy of the most careful enabled agent's mode
+  set_mode(project, agent, mode[, accept, channel])   set one area agent's autonomy mode in runtime.json (runtime/ops_config.py;
+                                   runtime/autonomy.py, the five modes, in the order stopped < supervised < milestones <
+                                   autonomous < autonomous-with-policy). A move down that order is accepted by code at once
+                                   (`code:narrowing`); a move up is accepted by the person (accept_config), or, with
+                                   `accept` from the terminal only, in the same step (`person`), when the file was the accepted
+                                   one before. Either rewrites the state file's Checkpoints line, a generated copy of the
+                                   most careful enabled agent's mode
   route(project, request_id)       a request whose lines starting with "- " list several deliveries gets one router
                                    run per delivery and one plan of them all, chained in the order listed
                                    (runtime/plan.py, combine); a route to the brief skill plans one brief task, and
@@ -165,13 +167,14 @@ releases it as it stands, its open questions left in it, or answers it, and the 
 stopped on a missing input that another skill writes (ending `blocked`) opens nothing: the task is `blocked`, with
 the start of the reply as its note, until the person retries it.
 
-The layer is five files (CONS-1B; ADJ-R1 added ops_waits.py). The names every part shares (the checkout, the refusal, the project's context, the
+The layer is six files (CONS-1B; ADJ-R1 added ops_waits.py; R4-C3 added ops_config.py). The names every part shares (the checkout, the refusal, the project's context, the
 locks, the runtime's own key, the data-folder names) live once in runtime/ops_core.py and are read as `core.<name>`
 at call time, never bound at import, so that a test patching `ops_core.ROOT` reaches every reader. The conversation
 (`say`, `chat_memory`) is runtime/ops_say.py and the reads of the local interface (`version`, `agents`, `skills`,
 `costs`, `connections`, `artifacts`, ...) are runtime/ops_reads.py; both reach an operation that stays here at call
 time, and this file exposes them under their names at its end, so a shell still imports `ops` only. The derived waits
-(runtime/ops_waits.py) reach no operation of this file. A test of size (runtime/tests/test_runtime_rules.py) caps it.
+(runtime/ops_waits.py) and the configuration's acceptance (`accept_config`, `set_mode`, the one writer of the accepted hash:
+runtime/ops_config.py) reach no operation of this file. A test of size (runtime/tests/test_runtime_rules.py) caps it.
 
 Usage (a library; the shell is runtime/cli.py): python3 runtime/ops.py --help
 
@@ -197,6 +200,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ops_core as core  # noqa: E402  (the shared names: read as core.<name>, never bound at import)
 import ops_reads  # noqa: E402  (the reads of the interface; this file re-exports them at its end)
 import ops_say  # noqa: E402  (the conversation and its queue; this file re-exports `say` at its end)
+import ops_config  # noqa: E402  (the configuration's acceptance: accept_config, set_mode; this file re-exports them at its end)
 import ops_waits  # noqa: E402  (the derived waits between requests: rederive, for_plan, annotate, approve_plan)
 import autonomy  # noqa: E402  (the same folder, as scripts/runtime.py imports runtime_vote)
 import board  # noqa: E402
@@ -1154,57 +1158,6 @@ def verdict(project: str, run_id: int, word: str) -> dict:
     return {"run_id": run_id, "use": use, "verdict": word}
 
 
-ACCEPTED_BY = "config:accepted-by"  # the store's cursor that says who accepted the hash in ACCEPTED: "person" or "code:narrowing"
-
-
-def _record_acceptance(ctx: dict, cfg: dict, sha256: str, by: str) -> dict:
-    """Record sha256 as the accepted hash of cfg's file, and who accepted it, and rewrite the state file's Checkpoints
-    line. The one writer of the accepted hash: accept_config (the person, in the terminal) and set_mode (code, for a
-    move down the order of the modes, which widens nothing) call it, and nothing else does. Returns {"previous",
-    "checkpoints"}."""
-    previous = core._stored(ctx, ctx["store"].cursor_get, project_config.ACCEPTED)
-    core._stored(ctx, ctx["store"].cursor_set, ACCEPTED_BY, by)
-    core._stored(ctx, ctx["store"].cursor_set, project_config.ACCEPTED, sha256)
-    return {"previous": previous, "checkpoints": _write_checkpoints(cfg)}
-
-
-def accept_config(project: str, sha256: str) -> dict:
-    """Record the hash of the project's configuration that the person accepts, after reading the file. The only
-    operation that accepts any change of it (set_mode accepts only a move down the order of the modes), and the only
-    one that runs on a configuration that was not accepted. Returns {"accepted", "previous", "path", "checkpoints"}."""
-    ctx = core.context(project, check_config=False)
-    cfg = ctx["cfg"]
-    with core._config_lock(cfg):
-        cfg = core._config_of(project)  # the file as it is now, under the lock
-        if sha256 != cfg["sha256"]:
-            raise core.OpsError(f"the file's hash is {cfg['sha256']} and you typed {sha256}: nothing was accepted", 1)
-        done = _record_acceptance(ctx, cfg, sha256, "person")
-    return {"accepted": sha256, "previous": done["previous"], "path": cfg["path"], "checkpoints": done["checkpoints"]}
-
-
-def _write_checkpoints(cfg: dict):
-    """The state file's "- Checkpoints:" line rewritten from the area agents (autonomy.state_checkpoints): only its
-    value changes, and only when the configuration has area agents and the file did not change between its read and
-    the write (L12). Returns {"written", "value"}, or a text saying why nothing was written."""
-    if cfg["raw"].get("area_agents") is None:
-        return "no area agents are configured"
-    target = os.path.join(cfg["project"], *path_rule.STATE.split("/"))
-    if not os.path.isfile(target) or os.path.islink(target):
-        return "the project has no state file"
-    value = autonomy.state_checkpoints(cfg["area_agents"])
-    before = _sha256(target)
-    text, found = state_merge.with_checkpoints(_read(target), value)
-    if not found:
-        return "no line to write"
-    if _sha256(target) != before:
-        return "the state file changed while the line was being written; it is written at the next acceptance"
-    temporary = f"{target}.{os.getpid()}.tmp"
-    with open(temporary, "w", encoding="utf-8") as f:
-        f.write(text)
-    os.replace(temporary, target)
-    return {"written": True, "value": value}
-
-
 POLICY_EXPIRY_DAYS = 365  # a standing approval always has an expiry, at most this far ahead
 
 
@@ -1506,56 +1459,6 @@ def execute_under_policy(project: str, policy: str, effect_file: str, replay_log
         shutil.rmtree(private, ignore_errors=True)
     return {"executed": True, "policy": policy, "approval_id": row["id"],
             "action": {"id": action["id"], "created": action["created"]}, "result": printed}
-
-
-def set_mode(project: str, agent: str, mode: str) -> dict:
-    """Set one area agent's autonomy mode: only area_agents.<agent>.mode of runtime.json changes (decision P1: the
-    mode is the configuration's word). A move down the order of the modes (autonomy.MODES: stopped < supervised <
-    milestones < autonomous < autonomous-with-policy) widens nothing, so code accepts the new hash at once, as the
-    acceptance accept-config writes, recorded `code:narrowing`, and no operation refuses afterwards; this is the only
-    acceptance made by code. A move up leaves the hash unaccepted: every operation then refuses until the person
-    accepts it (accept-config), and `next` is the command. The same mode changes nothing. Returns {"agent", "mode",
-    "config_sha256", "accepted", "by" ("code:narrowing" or None), "next" (the command, or None)}, with "checkpoints"
-    after a narrowing and "unchanged" true when the mode was the one set. Two calls at once, or a call and the
-    terminal, never overlap (_config_lock), and a call that finds the file or the accepted hash moved since it began
-    writes nothing and is refused (code 1): code never accepts a widening that a stale copy of the file would bring."""
-    ctx = core.context(project)
-    cfg = ctx["cfg"]
-    if mode not in autonomy.MODES:
-        raise core.OpsError(f"a mode is one of {', '.join(autonomy.MODES)}", 2)
-    if agent not in cfg["area_agents"]:
-        raise core.OpsError(f"{agent!r} is not an agent of area_agents in {cfg['path']}", 2)
-    old = cfg["area_agents"][agent]["mode"]
-    with core._config_lock(cfg):
-        # Under the lock, the file and the accepted hash are read again: another change (a request at the same time, the
-        # terminal) may have finished since context() read them. This call writes the accepted copy plus its one word,
-        # so it goes on only when the file is still that accepted copy; else it writes nothing, and the caller asks again.
-        fresh = core._config_of(project)
-        accepted = core._stored(ctx, ctx["store"].cursor_get, project_config.ACCEPTED)
-        if fresh["sha256"] != cfg["sha256"] or accepted != cfg["sha256"]:
-            raise core.OpsError("the configuration changed while this call was running: nothing was written; read it, "
-                           "and ask again", 1)
-        if old == mode:
-            return {"agent": agent, "mode": mode, "config_sha256": cfg["sha256"], "accepted": True, "by": None,
-                    "next": None, "unchanged": True}
-        raw = json.loads(json.dumps(fresh["raw"]))
-        raw["area_agents"][agent]["mode"] = mode
-        temporary = f"{cfg['path']}.{os.getpid()}.tmp"
-        with open(temporary, "w", encoding="utf-8") as f:
-            f.write(json.dumps(raw, indent=2, ensure_ascii=False) + "\n")
-        os.replace(temporary, cfg["path"])
-        new = _sha256(cfg["path"])
-        out = {"agent": agent, "mode": mode, "config_sha256": new, "accepted": False, "by": None,
-               "next": core._command("accept-config", cfg["project"], sha256=new)}
-        if autonomy.narrows(old, mode):
-            try:
-                written = project_config.load(project)
-            except project_config.ConfigError as e:
-                raise core.OpsError(str(e), 3) from None
-            if written["sha256"] == new:  # nothing else changed the file between the write and this read
-                done = _record_acceptance(ctx, written, new, "code:narrowing")
-                out.update(accepted=True, by="code:narrowing", next=None, checkpoints=done["checkpoints"])
-    return out
 
 
 def status(project: str) -> dict:
@@ -2569,7 +2472,7 @@ def poll(project: str) -> dict:
         current = _read(target) if os.path.isfile(target) and not os.path.islink(target) else None
         if current is not None:
             text, found = state_merge.with_checkpoints(current, autonomy.state_checkpoints(cfg["area_agents"]))
-            if found and text != current and isinstance(_write_checkpoints(cfg), dict):
+            if found and text != current and isinstance(ops_config.write_checkpoints(cfg), dict):
                 state = "written"
     released = []
     if cfg["area_agents"]:
@@ -2764,6 +2667,8 @@ OpsError = core.OpsError  # a shell catches ops.OpsError; the class has one home
 # The conversation (runtime/ops_say.py): the two operations, and the constants the shells and the tests read.
 from ops_say import chat_memory, route_queued, say  # noqa: E402,F401
 from ops_say import ASK_NEXT, CONVERSATION, MEMORY_CHARS, MEMORY_CUT, MEMORY_HEAD, MEMORY_TAIL, MEMORY_TURNS, PLAN_NEXT  # noqa: E402,F401
+# The configuration's acceptance (runtime/ops_config.py): its two operations, and the names a shell and a test read.
+from ops_config import accept_config, set_mode  # noqa: E402,F401
 # The reads of the local interface (runtime/ops_reads.py): the operations, and the one constant a test reads.
 from ops_reads import agents, artifact, artifact_raw, artifacts, connections, conversation, costs, service_check, skills  # noqa: E402,F401
 from ops_reads import commands, stop_runs, version  # noqa: E402,F401

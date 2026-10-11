@@ -226,7 +226,7 @@ export function createEngine(host, options) {
     cameraSet = Boolean(content.live ? lotCount > 0 : true);
     dropMarkers(fresh);
     startWorld();
-    syncSurroundings();
+    repick();
     startTag();
     syncBeacons();
   }
@@ -247,11 +247,9 @@ export function createEngine(host, options) {
     loop.start("drops", { ambient: false });
   }
 
-  // The Floor and the Lobby show the room alone once the camera and the floors have settled; any motion shows the city round it again.
-  function syncSurroundings() {
+  // What a settled or moving scene changes for the pointer: the picks are made again, and one frame is drawn. Every building stays drawn on the Floor and in the Lobby (M-15).
+  function repick() {
     if (!content || !content.live) return;
-    const settled = !tween.active() && !content.moving();
-    content.hideSurroundings(settled && Boolean(model.floor));
     pickCache = null;
     loop.requestRender();
   }
@@ -367,7 +365,7 @@ export function createEngine(host, options) {
       fit();
     }
     startWorld();
-    syncSurroundings();
+    repick();
     startTag();
     syncBeacons();
     loop.requestRender();
@@ -539,7 +537,7 @@ export function createEngine(host, options) {
       positionLabels();   // the labels ride along with the camera (the prototype projected them every frame)
       if (!tween.active()) {
         loop.stop("camera");
-        syncSurroundings();
+        repick();
       }
     }
     if (tagRun) {
@@ -561,7 +559,7 @@ export function createEngine(host, options) {
       refreshOutline();
       if (!moving) {
         loop.stop("world");
-        syncSurroundings();
+        repick();
       }
     }
     if (drops.length) {
@@ -745,7 +743,7 @@ export function createEngine(host, options) {
       if (content && content.live) {
         content.finish();
         loop.stop("world");
-        syncSurroundings();
+        repick();
         pickCache = null;
         renderer.shadowMap.needsUpdate = true;
         positionLabels();

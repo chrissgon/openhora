@@ -11,7 +11,7 @@ project file, and imports only the operations layer and the kit it shares with t
 
 Usage:
   uv run --with keyring==25.7.0 python3 runtime/service.py --project <dir> [--project <dir>]... [--port 8765]
-                             [--poll-every 60] [--dispatch-every 30 | --no-dispatch] [--token-file <path>]
+                             [--poll-every 60] [--dispatch-every 30 | --no-dispatch] [--token-file <path>] [--lan [<ip>]]
   python3 runtime/service.py --help
 
 Start it with the `uv run --with keyring==25.7.0` form: the secret store is read through that library, and a service
@@ -22,7 +22,8 @@ serves the pages and the reads all the same.
                    `config` operation: a folder that is not a configured project ends the start (exit 3), a configuration
                    you did not accept yet does not (the project is listed with "accepted": false, and every route of it
                    answers 412 until `accept-config` is typed in the terminal)
-  --port           the port on 127.0.0.1 (default 8765; 0 lets the system choose). There is no option for another address
+  --port           the port on 127.0.0.1 (default 8765; 0 lets the system choose). The service listens on 127.0.0.1 only,
+                   unless --lan is given: there is no option for any other address
   --poll-every     seconds between two runs of `poll` for each project (mirrors, expired approvals, releases by a mode; no
                    model); default 60; 0 turns it off
   --dispatch-every seconds between two rounds of `dispatch` for each project (the handlers' ticks, the releases by a mode,
@@ -33,8 +34,19 @@ serves the pages and the reads all the same.
                    Give it when the project already has the scheduler's two jobs (contracts/runtime.md, "The
                    dispatcher's two jobs"), so that two dispatchers do not run. It cannot be given with --dispatch-every
   --token-file     where the token is written (default: service.token in the data folder of the first project)
+  --lan [<ip>]     off by default; a risk the person accepts, to open the page on a phone on the same wifi. The service also
+                   listens on one private LAN address (the IPv4 address of the default route, found without sending a packet,
+                   or the <ip> given: only 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 and 169.254.0.0/16 are taken; a public
+                   address, 0.0.0.0, the loopback and an address ending in .0 or .255 are refused, exit 2), on the same port, as plain HTTP: the page and the
+                   token cross the network unencrypted. At its start it prints a warning on standard error, then the address
+                   to open (never with the token in it). Anyone on the network who reads the token can approve effects and
+                   read the documents of the projects: use it to test on a phone on a network you trust, and stop the
+                   service when you are done. Host and Origin are then the loopback's on the loopback socket and
+                   that address's on the LAN socket, and GET /token-file answers the path to the loopback socket only (rules
+                   2, 3 and "Before the token")
 
-It prints one JSON line, {"url", "token_file", "projects": [{"id", "name"}]}, and never the token. After it, on
+It prints one JSON line, {"url", "token_file", "projects": [{"id", "name"}]} ("lan_url" too, after "url", with --lan), and never
+the token. After it, on
 standard error, it says what it found at its start for each project (operation `service-check`: the secret store, the
 credential, docker, the eval image, whether it dispatches); when the secret store cannot be read, the first lines give
 the `uv run --with keyring==25.7.0` command that starts the service. The token is
@@ -42,10 +54,12 @@ the `uv run --with keyring==25.7.0` command that starts the service. The token i
 asks the person to paste it once per browser session; it is never in a URL, a log line or a page.
 
 The rules of a request, in this order, each a refusal unless the request satisfies it:
-  1. The socket is bound to 127.0.0.1, listening with a backlog of 128.
-  2. Host is 127.0.0.1:<port> or localhost:<port>, else 403 "host".
-  3. Origin, when present, is http://127.0.0.1:<port> or http://localhost:<port>, else 403 "origin"; a POST without an
-     Origin is refused the same way.
+  1. The socket is bound to 127.0.0.1, listening with a backlog of 128. With --lan a second socket is bound to the one
+     private LAN address, on the same port; never 0.0.0.0.
+  2. Host is 127.0.0.1:<port> or localhost:<port>, else 403 "host". With --lan the socket a request came in on decides: on
+     the LAN socket only <lan-ip>:<port> is valid, on the loopback socket only the two above (a name that resolves to the
+     LAN address, a DNS-rebinding name, another address or port is refused on both).
+  3. Origin, when present, is http://<a valid Host>, else 403 "origin"; a POST without an Origin is refused the same way.
   4. A path under /api/ needs "Authorization: Bearer <token>" (hmac.compare_digest), else 401 "token". The static files
      need none and hold no data. One more path needs none, GET /token-file, outside /api/: see "Before the token".
   5. Only GET and POST (OPTIONS and every other method: 405 "method", and no Access-Control-* header is ever sent). A
@@ -75,7 +89,9 @@ Before the token. The page cannot tell the person where the token file is until 
 one unauthenticated read, GET /token-file (outside /api/, under rules 2, 3, 5 and 9: no CORS header, Cache-Control no-store,
 GET only, no query): {"token_file": <the absolute path>, "commands": {"macos", "linux", "powershell"}}, the commands
 being the operations layer's text (operations.token_commands) that put the file's content on the clipboard or print it in
-a terminal. It never holds the token. A path with a control character has no safe command: both values are then null. A
+a terminal. It never holds the token. With --lan it is answered to the loopback socket only (a request that arrived on the
+LAN socket gets the 404 of a service with no token file, so that a device on the network cannot learn the machine's paths
+without the token). A path with a control character has no safe command: both values are then null. A
 service without a token file (a test's) answers 404. What the answer names, the account and the project's folder, is
 readable by any local process on this origin; contracts/runtime.md says why that is accepted.
 
@@ -97,12 +113,15 @@ approvals, contained-run, poll, route-queued, handler, pin and service-check (th
 approved from here with the hash the page showed, as the channel "page" (the service passes it itself; a request cannot
 name a channel). The route of set-mode may narrow autonomy and never widen it: a move down the order of the modes
 (stopped < supervised < milestones < autonomous < autonomous-with-policy) is accepted by code at once, a move up leaves
-the configuration unaccepted (every route then answers 412 with the command that accepts it, in the terminal).
+the configuration unaccepted (every route then answers 412 with the command that accepts it, in the terminal). The route takes
+the mode and nothing else: `accept` is the terminal's (set-mode --accept), so a body that carries it is a 400, and the operation
+refuses it from any channel but the terminal besides.
 
 When it stops (SIGINT or SIGTERM) it ends the runs a job started (ops.stop_runs) and does not exit before that returns;
 a second signal while it stops is ignored.
 
-Exit codes: 0 stopped by a signal, 1 the port could not be bound, 2 usage error, 3 a project is not configured.
+Exit codes: 0 stopped by a signal, 1 the port (or the LAN address) could not be bound, 2 usage error (a refused --lan address
+included), 3 a project is not configured.
 Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
@@ -111,12 +130,14 @@ import base64
 import binascii
 import hmac
 import http.server
+import ipaddress
 import json
 import os
 import re
 import secrets
 import shutil
 import signal
+import socket
 import sys
 import threading
 import time
@@ -131,6 +152,17 @@ import shell_kit  # noqa: E402  (the same folder: what this shell shares with th
 from shell_kit import EXPOSED_KINDS, Busy, Stopping, project_id, status_of  # noqa: E402,F401
 
 HOST = "127.0.0.1"
+# --lan takes an address in one of these networks and no other (RFC 1918 and link-local): never a public one.
+LAN_NETWORKS = tuple(ipaddress.ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16"))
+LAN_PROBE = ("10.254.254.254", 9)         # detection connects a UDP socket here; connect on UDP sends nothing (it only picks the route)
+IPV4 = re.compile(r"(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])")
+# What --lan prints on standard error before the address (the one text the contract and the readme quote).
+LAN_WARNING = (
+    "WARNING: --lan opens this service to your local network.",
+    "  The page and the token cross the network as plain HTTP, unencrypted.",
+    "  Anyone on the network who reads the token can approve effects and read the documents of the projects.",
+    "  Use it only to test on a phone on a network you trust, and stop the service (Ctrl-C) when you are done.",
+)
 DISPATCH_EVERY = 30.0                     # seconds between two rounds of `dispatch` unless --dispatch-every or --no-dispatch says otherwise
 QUEUE_EVERY = 5.0                         # seconds between two looks of `route_queued` at the lines and requests that wait for the end of a run
 MODEL_LOOPS = ("dispatch", "route_queued")  # the loops that call a model: they hold the project's model slot while they run
@@ -161,8 +193,8 @@ TYPES = {
 }
 PAGE_TYPES = ("text/html", "image/svg+xml")  # a document the browser can run: it carries the policy headers
 WORDS = {
-    "host": "the Host header must be 127.0.0.1:<port> or localhost:<port>",
-    "origin": "the Origin must be this service's own (http://127.0.0.1:<port> or http://localhost:<port>); a POST needs one",
+    "host": "the Host header must be 127.0.0.1:<port> or localhost:<port> (or the LAN address, when the service was started with --lan)",
+    "origin": "the Origin must be this service's own (http://127.0.0.1:<port> or http://localhost:<port>, or the LAN address with --lan); a POST needs one",
     "token": "an API path needs the header Authorization: Bearer <the token in the token file>",
     "content_type": "a POST needs Content-Type: application/json",
     "length": "a POST needs a Content-Length, and no Transfer-Encoding",
@@ -215,7 +247,7 @@ ROUTES = (
     _route("POST", "/projects/{p}/tasks/{id}/go-ahead", "go-ahead", bind={"task_id": "id"}),
     _route("POST", "/projects/{p}/tasks/{id}/files", "hand-over", bind={"task_id": "id"}, hidden=("file",), upload=True),
     _route("POST", "/projects/{p}/runs/{id}/verdict", "verdict", bind={"run_id": "id"}),
-    _route("POST", "/projects/{p}/agents/{name}/mode", "set-mode", bind={"agent": "name"}),
+    _route("POST", "/projects/{p}/agents/{name}/mode", "set-mode", bind={"agent": "name"}, take=("mode",)),
     _route("GET", "/projects/{p}/progress", "progress"),
     _route("GET", "/projects/{p}/agents", "agents", take=()),
     _route("GET", "/projects/{p}/conversation", "conversation", take=("conversation", "after")),
@@ -294,16 +326,31 @@ def _is_api(bare: str) -> bool:
     return bare == "/api" or bare.startswith("/api/")
 
 
-def check_request(method: str, path: str, headers: dict, port: int, token: str):
+def allowed_hosts(port: int, lan_ip=None, on_lan=None) -> tuple:
+    """The Host values a request may carry. On the LAN socket of --lan (`on_lan` true) only `<lan-ip>:<port>`; on the
+    loopback socket (`on_lan` false) the loopback's two; when the socket is not told (None: a caller with no socket) the
+    loopback's two and, with a `lan_ip`, that address too. Nothing else, ever."""
+    if on_lan:
+        return (f"{lan_ip}:{port}",) if lan_ip else ()
+    names = [f"{HOST}:{port}", f"localhost:{port}"]
+    if lan_ip and on_lan is None:
+        names.append(f"{lan_ip}:{port}")
+    return tuple(names)
+
+
+def check_request(method: str, path: str, headers: dict, port: int, token: str, lan_ip=None, on_lan=None):
     """None when the request may proceed, else (status, error word): the rules 2 to 5 in order. It reads nothing but its
-    arguments (no file, no socket); `path` may carry its query, which is not looked at here."""
+    arguments (no file, no socket); `path` may carry its query, which is not looked at here. `lan_ip` is the LAN address
+    of a service started with --lan (None otherwise: the Host and the Origin are then the loopback's alone); `on_lan` says
+    which socket the request came in on (allowed_hosts)."""
     h = {str(k).lower(): v for k, v in headers.items()}
     host = h.get("host")
-    if not isinstance(host, str) or host.lower() not in (f"{HOST}:{port}", f"localhost:{port}"):
+    hosts = allowed_hosts(port, lan_ip, on_lan)
+    if not isinstance(host, str) or host.lower() not in hosts:
         return 403, "host"
     origin = h.get("origin")
     if origin is not None:
-        if not isinstance(origin, str) or origin.lower() not in (f"http://{HOST}:{port}", f"http://localhost:{port}"):
+        if not isinstance(origin, str) or origin.lower() not in tuple(f"http://{x}" for x in hosts):
             return 403, "origin"
     elif method == "POST":
         return 403, "origin"
@@ -450,7 +497,8 @@ class Service(shell_kit.Jobs):
     """What a request is served from: the operations object (the module ops, or a stand-in), the projects, the token,
     the port, the folder of the static files, the jobs (shell_kit.Jobs). Holds the token without ever showing it."""
 
-    def __init__(self, ops_module, projects, token: str, port: int, interface_dir=None, log=None, token_file=None):
+    def __init__(self, ops_module, projects, token: str, port: int, interface_dir=None, log=None, token_file=None,
+                 lan_ip=None):
         if not isinstance(token, str) or len(token) < 32:
             raise ValueError("the token is at least 32 characters")
         super().__init__(ops_module, projects, log)
@@ -459,6 +507,7 @@ class Service(shell_kit.Jobs):
         self.interface_dir = interface_dir
         self.token_file = token_file   # the absolute path of the token file, or None (then GET /token-file is not a route)
         self.address = None      # (host, port) the socket is bound to, set by serve()
+        self.lan_ip = lan_ip     # the private address of --lan (a second socket, the same port), or None: the default
 
     def __repr__(self) -> str:
         return f"<Service port={self.port} projects={len(self.projects)}>"
@@ -581,12 +630,14 @@ def _operation(service: Service, route: dict, params: dict, query: str, body: by
     return _json(200, call())
 
 
-def _token_file(service: Service, method: str, query: str) -> tuple:
+def _token_file(service: Service, method: str, query: str, loopback: bool = True) -> tuple:
     """GET /token-file: the token file's absolute path and the commands that read it, never the token. Both are null when
-    the path has a control character (no safe command exists). The commands are the operations layer's text."""
+    the path has a control character (no safe command exists). The commands are the operations layer's text. `loopback`
+    is false for a request that arrived on the LAN socket or names a Host that is not a loopback one: it gets the 404 of
+    a service with no token file, so a device on the network cannot learn the machine's paths without the token."""
     if method != "GET":
         return _error(405, "method")
-    if service.token_file is None:
+    if service.token_file is None or not loopback:
         return _error(404, "not_found")
     if query:
         return _error(400, "usage", "this route takes no query")
@@ -621,16 +672,19 @@ def _static(service: Service, method: str, bare: str) -> tuple:
     return 200, _headers(content_type), data
 
 
-def handle(service: Service, method: str, path: str, headers: dict, body: bytes) -> tuple:
+def handle(service: Service, method: str, path: str, headers: dict, body: bytes, lan: bool = False) -> tuple:
     """The whole of one request without a socket: (status, headers, body bytes). The rules 2 to 5 (check_request), then
     the route, the project, the arguments, the one operation. A request that passes check_request and names no route is
-    404 or 405; an operation's refusal is its documented status."""
-    refused = check_request(method, path, headers, service.port, service.token)
+    404 or 405; an operation's refusal is its documented status. `lan` is true when the request arrived on the LAN
+    socket of --lan (the handler decides it from the address the connection was reached on); only GET /token-file reads it."""
+    refused = check_request(method, path, headers, service.port, service.token, service.lan_ip, lan if service.lan_ip else None)
     if refused:
         return _error(*refused)
     bare, _, query = path.partition("?")
     if bare == TOKEN_FILE_ROUTE:
-        return _token_file(service, method, query)
+        host = {str(k).lower(): v for k, v in headers.items()}.get("host")
+        loopback_host = str(host).lower() in allowed_hosts(service.port)
+        return _token_file(service, method, query, loopback=loopback_host and not lan)
     if not _is_api(bare):
         return _static(service, method, bare)
     found = match(method, bare)
@@ -665,6 +719,19 @@ def handle(service: Service, method: str, path: str, headers: dict, body: bytes)
 # --- the server ------------------------------------------------------------------------------------------------------
 
 REASONS = {400: "usage", 414: "usage", 431: "usage", 501: "method", 505: "usage"}
+
+
+def _on_lan(connection) -> bool:
+    """Whether a request came in on the LAN socket of --lan: true unless the address this connection was reached on is a
+    loopback one. It fails closed: an address it cannot read, or one that is not an IP address, counts as the LAN's."""
+    try:
+        address = connection.getsockname()[0]
+        ip = ipaddress.ip_address(str(address).partition("%")[0])
+        if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+            ip = ip.ipv4_mapped
+        return not ip.is_loopback
+    except Exception:  # noqa: BLE001  (any failure to tell is the safe answer)
+        return True
 
 
 def request_line(method: str, path: str, status: int, seconds: float) -> str:
@@ -713,7 +780,9 @@ def make_handler(service: Service):
             if headers is None:
                 answer = _error(400, "usage", "a header that must appear once was repeated")
             else:
-                refused = check_request(method, path, headers, service.port, service.token)
+                lan = _on_lan(self.connection) if service.lan_ip else False  # without --lan the old path, untouched
+                refused = check_request(method, path, headers, service.port, service.token, service.lan_ip,
+                                        lan if service.lan_ip else None)
                 if refused:
                     answer = _error(*refused)
                 else:
@@ -725,7 +794,7 @@ def make_handler(service: Service):
                     if len(raw) != length:
                         answer = _error(400, "usage", "the body ended before its Content-Length")
                     else:
-                        answer = handle(service, method, path, headers, raw)
+                        answer = handle(service, method, path, headers, raw, lan=lan)
             try:
                 self._send(*answer)
             except (BrokenPipeError, ConnectionResetError):
@@ -741,7 +810,7 @@ class Server(http.server.ThreadingHTTPServer):
     daemon_threads = True
     # Every response closes its connection, so a page of dozens of modules and icons is dozens of new connections at
     # once. The class default (5) overflows the accept queue and some systems answer the overflow with a reset
-    # (R4-C2). 128 is the usual system ceiling; the listening address is still 127.0.0.1 only.
+    # (R4-C2). 128 is the usual system ceiling; the listening address is 127.0.0.1, and with --lan one private address too.
     request_queue_size = 128
 
 
@@ -776,9 +845,10 @@ def check_projects(ops_module, projects, dispatch_every, log) -> None:
 
 
 def serve(projects, port=8765, poll_every=60.0, dispatch_every=DISPATCH_EVERY, token_file=None, interface_dir=None,
-          ops_module=None, stop=None, ready=None, log=None, out=None, server_class=None) -> int:
-    """Check every project with the `config` operation, bind 127.0.0.1:<port>, write the token file, print the one
-    JSON line, and serve until a signal (or `stop`, an Event, is set); then end the runs the jobs started
+          ops_module=None, stop=None, ready=None, log=None, out=None, server_class=None, lan=None) -> int:
+    """Check every project with the `config` operation, bind 127.0.0.1:<port> (and, with `lan` -- "auto" or a private
+    address -- that one address on the same port, after the warning of LAN_WARNING is logged; a refused address is exit 2),
+    write the token file, print the one JSON line, and serve until a signal (or `stop`, an Event, is set); then end the runs the jobs started
     (ops.stop_runs, which is waited for) and remove the token file. The `poll` loop runs every `poll_every` seconds
     (0: not at all), the `dispatch` loop every `dispatch_every` seconds (30 unless told; None or 0: not at all). After
     the JSON line it logs what each project's check found (check_projects). Returns the exit code.
@@ -793,6 +863,13 @@ def serve(projects, port=8765, poll_every=60.0, dispatch_every=DISPATCH_EVERY, t
     except ops_module.OpsError as e:
         print(f"error: {e}", file=sys.stderr)
         return e.code
+    lan_ip = None
+    if lan:
+        try:
+            lan_ip = lan_address(lan)
+        except Refused as e:
+            print(f"error: --lan: {e}", file=sys.stderr)
+            return 2
     token = new_token()
     target = token_file or os.path.join(found[0]["data_dir"], TOKEN_NAME)
     interface_dir = interface_dir if interface_dir is not None else os.path.join(ROOT, "interface")
@@ -801,14 +878,25 @@ def serve(projects, port=8765, poll_every=60.0, dispatch_every=DISPATCH_EVERY, t
     except OSError as e:
         print(f"error: cannot listen on {HOST}:{port}: {e.strerror}", file=sys.stderr)
         return 1
+    lan_server = None
+    if lan_ip:  # the second socket: the one LAN address, the port the first one got; never 0.0.0.0
+        try:
+            lan_server = (server_class or Server)((lan_ip, server.server_address[1]), http.server.BaseHTTPRequestHandler)
+        except OSError as e:
+            server.server_close()
+            print(f"error: cannot listen on {lan_ip}:{server.server_address[1]}: {e.strerror}", file=sys.stderr)
+            return 1
+    servers = [s for s in (server, lan_server) if s is not None]
     service = Service(ops_module, [{k: p[k] for k in ("id", "name", "path")} for p in found], token,
-                      server.server_address[1], interface_dir, log, token_file=os.path.abspath(target))
+                      server.server_address[1], interface_dir, log, token_file=os.path.abspath(target), lan_ip=lan_ip)
     service.address = tuple(server.server_address[:2])
-    server.RequestHandlerClass = make_handler(service)
+    for one in servers:
+        one.RequestHandlerClass = make_handler(service)
     try:
         write_token(target, token)
     except OSError as e:
-        server.server_close()
+        for one in servers:
+            one.server_close()
         print(f"error: cannot write the token file {target}: {e.strerror}", file=sys.stderr)
         return 1
     stop = stop or threading.Event()
@@ -823,14 +911,27 @@ def serve(projects, port=8765, poll_every=60.0, dispatch_every=DISPATCH_EVERY, t
             previous[sig] = signal.signal(sig, on_signal)
     serving = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.2}, daemon=True)
     threads = [serving]
+    serving_lan = None
+    if lan_server is not None:
+        serving_lan = threading.Thread(target=lan_server.serve_forever, kwargs={"poll_interval": 0.2}, daemon=True)
+        threads.append(serving_lan)
     for every, op in ((poll_every, "poll"), (dispatch_every, "dispatch"),
                       (QUEUE_EVERY if hasattr(ops_module, "route_queued") else 0, "route_queued")):
         if every:
             threads.append(threading.Thread(target=dispatch_loop, args=(service, float(every), stop, op), daemon=True))
     try:
+        shown = {"url": f"http://{HOST}:{service.port}/"}
+        if lan_ip:  # the warning first, before any thread listens, then the address to open, then the one JSON line
+            for line in LAN_WARNING:
+                log(line)
+            lan_url = f"http://{lan_ip}:{service.port}/"
+            log(f"Open on the phone: {lan_url}")
+            log("The token is never in the address: paste it on the phone when the page asks for it. To read it on this "
+                f"machine, open http://{HOST}:{service.port}/ for the command that copies it; its file is {os.path.abspath(target)}")
+            shown["lan_url"] = lan_url
         for thread in threads:
             thread.start()
-        print(json.dumps({"url": f"http://{HOST}:{service.port}/", "token_file": target,
+        print(json.dumps({**shown, "token_file": target,
                           "projects": [{"id": p["id"], "name": p["name"]} for p in found]}), file=out, flush=True)
         check_projects(ops_module, found, dispatch_every, log)
         if ready:
@@ -840,9 +941,11 @@ def serve(projects, port=8765, poll_every=60.0, dispatch_every=DISPATCH_EVERY, t
     finally:
         stop.set()
         service.stopping.set()
-        if serving.ident is not None:  # shutdown() waits for serve_forever, which must have been started
-            server.shutdown()
-        server.server_close()
+        for one, thread in ((server, serving), (lan_server, serving_lan)):
+            if one is not None and thread.ident is not None:  # shutdown() waits for serve_forever, which must have been started
+                one.shutdown()
+        for one in servers:
+            one.server_close()
         left = service.end_runs(threads)
         if left:
             log(f"stopped with {left} job thread(s) still ending")
@@ -862,6 +965,48 @@ class Refused(Exception):
     pass
 
 
+def check_lan_address(text) -> str:
+    """The address `--lan` may listen on, or Refused. Only an IPv4 address of 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 or
+    169.254.0.0/16 is taken; 0.0.0.0 (every interface), the loopback, a public address and anything else is refused."""
+    if text == "0.0.0.0":
+        raise Refused("0.0.0.0 would listen on every interface; give the one private LAN address of this machine")
+    if not isinstance(text, str) or not IPV4.fullmatch(text):
+        raise Refused(f"{str(text)[:40]!r} is not a dotted IPv4 address")
+    ip = ipaddress.ip_address(text)
+    if text.endswith((".0", ".255")):
+        raise Refused(f"{text} is a network or broadcast address, not the address of this machine; give the machine's own")
+    if not any(ip in network for network in LAN_NETWORKS):
+        raise Refused(f"{text} is not a private address (10.x.x.x, 172.16-31.x.x, 192.168.x.x or 169.254.x.x); "
+                      "only a private LAN address is taken, never a public one or the loopback")
+    return text
+
+
+def detect_lan_ip():
+    """The IPv4 address this machine uses on its default route, or None when it has no route. A UDP socket is connected
+    to a private address and asked for its own: connecting a UDP socket sends no packet, so no other host is contacted."""
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.connect(LAN_PROBE)
+        return probe.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        probe.close()
+
+
+def lan_address(requested) -> str:
+    """The address `--lan` listens on: the one given, or, for "auto", the one found on the default route; both checked."""
+    if requested != "auto":
+        return check_lan_address(requested)
+    found = detect_lan_ip()
+    if found is None:
+        raise Refused("no LAN address was found (the machine has no route to a private network); give it: --lan <ip>")
+    try:
+        return check_lan_address(found)
+    except Refused as e:
+        raise Refused(f"the address of the default route is not a private LAN address ({e}); give the right one: --lan <ip>") from None
+
+
 def _number(text: str, flag: str, low: float, high: float) -> float:
     try:
         value = float(text)
@@ -874,9 +1019,10 @@ def _number(text: str, flag: str, low: float, high: float) -> float:
 
 def parse(argv) -> dict:
     """The command line as {"projects", "port", "poll_every", "dispatch_every", "token_file"}. dispatch_every is
-    DISPATCH_EVERY unless --dispatch-every gives another or --no-dispatch makes it None. Refused (Refused) for an
-    unknown flag, a flag without its value, a number out of range, no project, or --no-dispatch with --dispatch-every.
-    There is no flag for another address."""
+    DISPATCH_EVERY unless --dispatch-every gives another or --no-dispatch makes it None. The key "lan" is there only when
+    --lan is given ("auto" alone, else the private address that follows it, which is checked here). Refused (Refused) for an unknown flag,
+    a flag without its value, a number out of range, no project, --no-dispatch with --dispatch-every, or an address --lan
+    may not take. There is no other flag for an address."""
     out = {"projects": [], "port": 8765, "poll_every": 60.0, "dispatch_every": DISPATCH_EVERY, "token_file": None}
     flags = {"--project", "--port", "--poll-every", "--dispatch-every", "--token-file"}
     args, said_every, no_dispatch = list(argv), False, False
@@ -884,6 +1030,9 @@ def parse(argv) -> dict:
         flag = args.pop(0)
         if flag == "--no-dispatch":
             no_dispatch = True
+            continue
+        if flag == "--lan":  # its value is optional: a following word that is not a flag is the address
+            out["lan"] = check_lan_address(args.pop(0)) if args and not args[0].startswith("--") else "auto"
             continue
         if flag not in flags:
             raise Refused(f"unknown argument {flag!r}")
@@ -921,6 +1070,9 @@ def main(argv=None) -> int:
     except Refused as e:
         print(f"error: {e}. See --help.", file=sys.stderr)
         return 2
+    if given.get("lan"):  # only when asked: without --lan the call is the one it always was
+        return serve(given["projects"], given["port"], given["poll_every"], given["dispatch_every"] or None,
+                     given["token_file"], lan=given["lan"])
     return serve(given["projects"], given["port"], given["poll_every"], given["dispatch_every"] or None,
                  given["token_file"])
 

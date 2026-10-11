@@ -97,7 +97,7 @@ def test_each_agent_lists_every_mode_above_its_own_with_the_absolute_command(tre
         assert [w["mode"] for w in agent["wider"]] == above, agent["name"]
         for w in agent["wider"]:
             assert w["command"] == (f"python3 {tree['tree']}/runtime/cli.py set-mode --project {path} --agent {agent['name']} "
-                                    f"--mode {w['mode']}")
+                                    f"--mode {w['mode']} --accept")  # R4-C3: one step in the terminal
     top = [a for a in ops.agents(path)["agents"] if a["mode"] == "autonomous-with-policy"]
     assert top and all(a["wider"] == [] for a in top)
 

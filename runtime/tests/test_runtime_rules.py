@@ -154,7 +154,7 @@ def test_the_python_39_job_runs_the_tests_of_the_runtime_and_of_the_store():
     assert "providers/store/tests" in job
 
 
-# --- the operations layer is four files (CONS-1B): runtime/ops.py, ops_say.py, ops_reads.py and ops_core.py ----------
+# --- the operations layer is six files (CONS-1B, ADJ-R1, R4-C3): runtime/ops.py and its siblings ops_say.py, ops_reads.py, ops_waits.py, ops_config.py, ops_core.py ----------
 
 SHARED_NAMES = ("ROOT", "context", "_stored", "OpsError", "_run_lock", "_config_lock")
 
@@ -220,7 +220,7 @@ def test_ops_core_imports_no_other_file_of_the_operations_layer():
 def test_the_siblings_of_ops_py_do_not_import_ops_py_at_module_level():
     """ops.py imports its siblings; a sibling reaches an operation of ops.py at call time, so that no import cycle
     exists. ops_say.py imports neither sibling above it; ops_reads.py imports ops_say.py (the conversation's name)."""
-    allowed = {"ops_say.py": {"ops_core"}, "ops_reads.py": {"ops_core", "ops_say"}}
+    allowed = {"ops_say.py": {"ops_core"}, "ops_reads.py": {"ops_core", "ops_say"}, "ops_config.py": {"ops_core"}}
     for name, may in allowed.items():
         tree = ast.parse((RUNTIME / name).read_text(encoding="utf-8"))
         at_top = set()
