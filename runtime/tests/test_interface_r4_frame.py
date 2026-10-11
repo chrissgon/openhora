@@ -648,3 +648,98 @@ def test_the_crumb_that_names_the_project_keeps_its_whole_name_as_a_tooltip_and_
         "P-8: the project crumb carries its whole name as tooltip (its text is its accessible name) and is the one marked to be cut; the City and the Lobby are never"
     assert got["two"] == [[["City", None, "A"], [name, name, "SPAN"]], [False, True]], "F2-7: on the Building the project is the last crumb: it is cut too, with its whole name as tooltip"
     assert got["one"] == [[["City", None, "SPAN"]], True, [False]]
+
+
+# --- R4-F4: the KPI cards open the Control room's Costs tab (the maintainer's word) -------------------------------------------------------------
+
+KPI_LINKS = r"""
+import { FakeNode } from "@FAKE@";
+import * as router from "@JS@/router.js";
+document.querySelector = () => null;
+const all = (root, c) => [...root.walk()].filter((n) => n.cls().includes(c));
+const kids = (n) => n.children.filter((c) => c instanceof FakeNode);
+const a = "aaaaaaaaaaaa", b = "bbbbbbbbbbbb";
+const sums = { runs: 3, runsCap: 8, usd: 1.2, usdCap: 5, usdRecorded: 1.2, usdReserved: 0, runsTotal: 3, inUse: { runs: true, spend: true } };
+async function build(phone, tag) {
+  window.matchMedia = () => ({ matches: phone, addEventListener() {}, removeEventListener() {} });
+  const { createFrame } = await import("@JS@/frame/frame.js?kpi" + tag);
+  const f = createFrame(new FakeNode("div"), { onSelectProject() {}, onForgetToken() {}, onRetry() {} });
+  f.kpis.update(sums, "ready");
+  return f;
+}
+const cards = (f) => all(f.el, "wb-kpi").map((c) => [c.tagName, c.attrs.href || null, c.attrs["aria-label"], c.attrs.role || null, c.hidden]);
+const out = {};
+const f = await build(false, "d");
+// no project: not links, a group with the figure alone
+f.setScreen(router.parse("#/city"), { projectName: null, projectId: null });
+out.none = cards(f);
+// the City: the project the switcher shows (the followed one); the others: the project of the screen
+f.setScreen(router.parse("#/city"), { projectName: "northwind-shop", projectId: b });
+out.city = cards(f).map((c) => c[1]);
+for (const [name, hash] of [["building", `#/p/${a}`], ["floor", `#/p/${a}/floor/engineering`], ["lobby", `#/p/${a}/lobby`], ["control", `#/p/${a}/control`], ["costs", `#/p/${a}/control/costs`]]) {
+  f.setScreen(router.parse(hash), { projectName: "northwind-shop", projectId: a });
+  out[name] = cards(f).map((c) => c[1]);
+  if (name === "costs") out.costsHash = hash;
+}
+out.named = cards(f);
+// a card whose cap is not in use stays hidden, and stays a link
+f.kpis.update({ ...sums, inUse: { runs: true, spend: false } }, "ready");
+out.hidden = cards(f).map((c) => [c[1] !== null, c[4]]);
+// loading
+f.kpis.update(null, "loading");
+out.loading = cards(f).map((c) => c[2]);
+f.kpis.update(null, "error");
+out.error = cards(f).map((c) => c[2]);
+// the keyboard order: after the top row's controls and before the scene's canvas and camera buttons
+const area = all(f.el, "wb-scene-area")[0];
+out.order = { frame: kids(f.el).map((c) => c.cls()[0] || c.tagName), area: kids(area).map((c) => c.cls()[0] || c.tagName) };
+// the phone: the tiles float over the scene and are links too
+const p = await build(true, "p");
+p.setScreen(router.parse(`#/p/${a}/lobby`), { projectName: "northwind-shop", projectId: a });
+out.phone = { hrefs: cards(p).map((c) => c[1]), inFloat: all(all(p.main, "wb-float")[0], "wb-kpi").length };
+p.setScreen(router.parse("#/city"), { projectName: null, projectId: null });
+out.phoneNone = cards(p).map((c) => [c[1], c[3]]);
+// back to a desktop width: the cards return to the scene area, first
+if (!FakeNode.prototype.prepend) FakeNode.prototype.prepend = function (node) { if (node.parent) node.parent.children = node.parent.children.filter((x) => x !== node); node.parent = this; this.children.unshift(node); };   // this fake has no prepend
+if (!("parentNode" in FakeNode.prototype)) Object.defineProperty(FakeNode.prototype, "parentNode", { get() { return this.parent; } });   // the frame reads parentNode; this fake names it parent
+const changes = [];
+const mql = { matches: true, addEventListener: (t, fn) => changes.push(fn), removeEventListener() {} };
+window.matchMedia = () => mql;
+const { createFrame } = await import("@JS@/frame/frame.js?kpigrow");
+const g = createFrame(new FakeNode("div"), { onSelectProject() {}, onForgetToken() {}, onRetry() {} });
+mql.matches = false; changes.forEach((fn) => fn());
+out.grown = kids(all(g.el, "wb-scene-area")[0]).map((c) => c.cls()[0] || c.tagName);
+console.log(JSON.stringify(out));
+"""
+
+
+@needs_node
+def test_the_kpi_cards_are_links_to_the_costs_tab_of_the_project_the_screen_shows_or_the_followed_one_and_plain_without_a_project(tmp_path):
+    got = run_scene_dom(tmp_path, KPI_LINKS)
+    a, b = "aaaaaaaaaaaa", "bbbbbbbbbbbb"
+    assert got["none"] == [["A", None, "Runs today 3 of 8", "group", False], ["A", None, "Spend today $1.20 of $5.00 cap", "group", False]], "with no project the cards are not links: a group named by the figure alone"
+    assert got["city"] == [f"#/p/{b}/control/costs"] * 2, "on the City the cards open the Costs tab of the project the switcher shows (the followed one)"
+    for screen in ("building", "floor", "lobby", "control", "costs"):
+        assert got[screen] == [f"#/p/{a}/control/costs"] * 2, f"on the {screen} screen the cards open the Costs tab of the project the screen shows"
+    assert got["costs"] == [got["costsHash"]] * 2, "on the Costs screen the cards' hash is the current one: a click is a no-op navigation, nothing changes"
+    assert [c[2] for c in got["named"]] == ["Runs today: 3 of 8. Open the costs", "Spend today: $1.20 of $5.00 cap. Open the costs"], "the name says the figure and the action"
+    assert all(c[0] == "A" and c[3] is None for c in got["named"]), "a link has no group role of its own"
+    assert got["hidden"] == [[True, False], [True, True]], "a card whose cap is not in use stays hidden (R4D-5), a link as the other"
+    assert got["loading"] == ["Runs today, loading. Open the costs", "Spend today, loading. Open the costs"] and got["error"] == ["Runs today, not available. Open the costs", "Spend today, not available. Open the costs"]
+    assert got["order"]["frame"][:5] == ["wb-skip", "wb-skip", "wb-sr", "wb-topbar", "wb-scene-area"], "the top row comes first in the markup, then the scene area"
+    assert got["order"]["area"] == ["wb-kpis", "wb-scene", "wb-scene-fallback"], "the cards come before the scene's canvas and camera buttons in the keyboard order"
+    assert got["phone"] == {"hrefs": [f"#/p/{a}/control/costs"] * 2, "inFloat": 2}, "on a phone the tiles float over the scene and are links too"
+    assert got["phoneNone"] == [[None, "group"], [None, "group"]]
+    assert got["grown"] == ["wb-kpis", "wb-scene", "wb-scene-fallback"], "past the phone's width the cards return to the scene area, first"
+
+
+def test_a_kpi_card_looks_like_a_raised_control_that_answers_the_pointer_and_the_keyboard_and_a_card_without_a_project_does_not():
+    top = rules_of(top_level(CSS))
+    assert top["a.wb-kpi"]["color"] == "inherit" and top["a.wb-kpi"]["text-decoration"] == "none", "the card keeps the text colour of the card, not the browser's link colour"
+    assert top["a.wb-kpi[href]"]["cursor"] == "pointer", "the pointer shows only on a card that is a link"
+    hover = top["a.wb-kpi[href]:hover"]
+    assert hover["border-color"] == "var(--pui-theme)" and hover["background-color"] == "var(--wb-tint-selected)", "hover: the brand outline and its faint tint, as a selected raised control"
+    assert top["a.wb-kpi:focus-visible"]["outline"] == "2px solid var(--pui-theme)", "focus: the frame's focus ring"
+    assert "wb-kpi" in (JS / "frame" / "kpis.js").read_text(encoding="utf-8") and 'router' not in (JS / "frame" / "kpis.js").read_text(encoding="utf-8"), "the module takes the hash it is given: the frame builds it with the router's helper"
+    frame = (JS / "frame" / "frame.js").read_text(encoding="utf-8")
+    assert 'router.controlHash(projectId, "costs")' in frame and "#/p/" not in frame, "the hash is the router's helper, never a hand-made string"

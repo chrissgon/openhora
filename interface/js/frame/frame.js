@@ -95,7 +95,8 @@ export function createFrame(root, handlers) {
 
   const sceneHost = h("div", { class: "wb-scene" });
   const fallback = h("p", { class: "wb-scene-fallback", hidden: true, text: "Your browser cannot draw the 3D scene; the panels have everything." });
-  const sceneArea = h("div", { class: "wb-scene-area" }, sceneHost, fallback, kpis.el);
+  // The KPI cards come first in the scene area: they are links (R4-F4) and the keyboard reaches them after the top row and before the scene's canvas and camera buttons.
+  const sceneArea = h("div", { class: "wb-scene-area" }, kpis.el, sceneHost, fallback);
 
   const noticeBox = h("div", { class: "wb-notice-box", hidden: true });
   // On a phone the KPI row and the tracking bar float over the scene just above the bottom sheet (A-28): they are moved into this stack there, and
@@ -184,7 +185,7 @@ export function createFrame(root, handlers) {
       barTop.replaceChildren(switcher.el, waitingMenu.el, modeButton.el);
       barEnd.replaceChildren(nav.el, door);
     } else {
-      if (kpis.el.parentNode === float) sceneArea.append(kpis.el);
+      if (kpis.el.parentNode === float) sceneArea.prepend(kpis.el);   // the cards first again; the scene's host (and its live canvas) is not touched
       if (track.el.parentNode === float) dock.append(track.el);
       topEnd.replaceChildren(switcher.el, modeButton.el, door);
       navDock.replaceChildren(nav.el);
@@ -295,6 +296,7 @@ export function createFrame(root, handlers) {
       items[items.length - 1] = { label: items[items.length - 1].label, project: items[items.length - 1].project };
       nav.set(items, router.parentHash(route));
       doorTarget = projectId ? router.controlHash(projectId) : null;
+      kpis.setTarget(projectId ? router.controlHash(projectId, "costs") : null);   // R4-F4: the cards open the Costs tab of the project the screen shows, or the followed one on the City
       door.disabled = !doorTarget;
       door.classList.toggle("is-selected", route.screen === "control");
       door.setAttribute("aria-current", route.screen === "control" ? "page" : "false");
