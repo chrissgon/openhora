@@ -35,7 +35,7 @@ A class is <role>:<target> (providers/CONTRACT.md). How it maps to a folder and 
   before the rename runs a copy of the runtime that asks for `store`.
 An implementation is providers/<folder>/<name>.py; helpers next to it (auth.py) are not one.
 
-A class with a parameter. In `publisher:<platform>` the part after the colon is not a second name
+A class with a parameter. In `publisher:<platform>` and `messenger:<platform>` the part after the colon is not a second name
 of the class: it is handed to the implementation as --platform, and one implementation may serve
 several platforms. Each implementation of such a class declares the platforms it serves in one
 line at the top level of its file, `PLATFORMS = ("<platform>", ...)`, which is read here as text,
@@ -92,7 +92,7 @@ LISTED = ["generator:image", "generator:video", "integration:design-tool", "inte
           "integration:vcs", "publisher:<platform>", "reader:email", "scheduler:job", "search:web", "sender:email",
           "store:runtime"]
 # Roles whose folder and variables are derived from the text of the class.
-ROLES = {"integration", "search", "generator", "publisher"}
+ROLES = {"integration", "search", "generator", "publisher", "messenger"}
 # The four classes that were bare names: (folder, variable), both kept as they were, so that no provider file,
 # no test folder, no scheduled job and no project's environment has to move.
 FIXED = {"reader:email": ("mailbox", "MAILBOX_PROVIDER"), "sender:email": ("mailer", "MAILER_PROVIDER"),
@@ -100,7 +100,7 @@ FIXED = {"reader:email": ("mailbox", "MAILBOX_PROVIDER"), "sender:email": ("mail
 # The old names, still read.
 ALIASES = {"mailbox": "reader:email", "mailer": "sender:email", "scheduler": "scheduler:job", "store": "store:runtime"}
 # The roles whose part after the colon is a parameter handed to the implementation (--platform).
-PARAMETER_ROLES = {"publisher"}
+PARAMETER_ROLES = {"publisher", "messenger"}
 PLATFORMS_LINE = re.compile(r"^PLATFORMS\s*=\s*([(\[].*?[)\]])\s*(?:#.*)?$", re.M)
 # Documented defaults per platform (sys.platform prefix -> implementation).
 PLATFORM_DEFAULTS = {"scheduler:job": {"darwin": "launchd", "linux": "systemd"}}

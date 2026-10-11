@@ -69,7 +69,7 @@ The closed key lists the configuration is checked against (names only, never a v
 | Keys of | Constant | Names |
 |---|---|---|
 | the top level of `runtime.json`, required | `REQUIRED` of `runtime/project_config.py` | `workbench`, `data_dir`, `store_db` |
-| the top level, read by the task runtime | `TASK_RUNTIME_KEYS` of `runtime/project_config.py` | `workbench`, `data_dir`, `store_db`, `area_agents`, `handlers`, `task_board`, `documents`, `protected_paths`, `code`, `dependencies`, `max_cost_usd_per_run`, `model_prices` |
+| the top level, read by the task runtime | `TASK_RUNTIME_KEYS` of `runtime/project_config.py` | `workbench`, `data_dir`, `store_db`, `area_agents`, `handlers`, `task_board`, `documents`, `protected_paths`, `code`, `dependencies`, `max_cost_usd_per_run`, `model_prices`, `messaging`, `channels` |
 | the top level, read by the first runtime | `FIRST_RUNTIME_KEYS` of `runtime/project_config.py` | `agent`, `harness`, `model`, `mailbox`, `publisher`, `store`, `scheduler`, `notification_query`, `first_lookback_minutes`, `max_events_per_tick`, `daily_cost_cap_usd`, `timeout_seconds`, `notify`, `path`, `vote` |
 | the `code` object | `CODE_KEYS` of `runtime/project_config.py` | `provider`, `repo`, `base`, `branch_prefix` |
 | an entry of `model_prices`, which is keyed by model id | `PRICE_KEYS` of `runtime/project_config.py` | `input_usd_per_mtok`, `output_usd_per_mtok`, `cache_read_usd_per_mtok`, `cache_write_usd_per_mtok`, `source`, `date` |

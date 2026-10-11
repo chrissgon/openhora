@@ -66,6 +66,12 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/lab.py` | The lab facade: the one file of runtime/ that talks to the lab (evals/execution.py, the execution kit). |
 | `runtime/manifest.py` | The runtime manifest of a skill: skills/&lt;name&gt;/evals/runtime-manifest.json, read and checked. |
 | `runtime/mcp.py` | The MCP mode: the operations layer of runtime/ops.py served as tools of a Model Context Protocol server over standard input and output. |
+| `runtime/messaging.py` | The messaging bridge: the operations layer of runtime/ops.py reached from a messaging app the person already uses, with no model between the app and the operations. |
+| `runtime/messaging_bridge.py` | The messaging bridge's logic (runtime/messaging.py is its shell): notices out, intents in, every operation through one call path. |
+| `runtime/messaging_cards.py` | A notice as a platform-neutral card (runtime/messaging.py): a pending decision becomes {"text", "actions", "link", "document"}, the message every messenger provider takes (providers/messenger/README.md), plus what the bridge needs to bind a tap to it. |
+| `runtime/messaging_inbound.py` | What a person sent to the messaging bridge, as an intent (runtime/messaging.py). |
+| `runtime/messaging_ledger.py` | The messaging bridge's ledger: what it sent, so that a restart sends nothing twice and a tapped button or a reply is bound to the card the person saw (runtime/messaging.py). |
+| `runtime/messaging_provider.py` | The messaging bridge's access to a messenger provider (class messenger:&lt;platform&gt;, providers/messenger/README.md): the four verbs as methods, started through providers/resolve.py, the one function that resolves a class and runs a provider's verb. |
 | `runtime/operations.py` | The table of operations: the one place that says what the operations layer (runtime/ops.py) offers to a shell. |
 | `runtime/ops.py` | The operations layer of the task runtime: every operation a person or a scheduler can perform, once. |
 | `runtime/ops_config.py` | The configuration's acceptance in the operations layer: who may accept a change of docs/workbench/runtime.json, and the two operations that change or accept it. |
@@ -431,19 +437,19 @@ The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-
 | `request` | `request` | terminal, page, mcp | no | record what you want; with a flow, plan it from the flow file, else it waits for its route; with after, run it after that request |
 | `route` | `route` | terminal, page, mcp | yes, without --flow | plan a request that waits for its route: one run of the router skill, or the plan of a flow file; on the page, while a run is in progress, the request is queued |
 | `route_queued` | `route-queued` | terminal | yes | route the oldest queued line or request, when no run is in progress (the local service calls it every few seconds) |
-| `status` | `status` | terminal, chat, page, mcp | no | requests, tasks and what waits for you |
-| `task` | `task` | terminal, page, mcp | no | one task or request with its runs and its pending decisions |
+| `status` | `status` | terminal, chat, page, mcp, messaging | no | requests, tasks and what waits for you |
+| `task` | `task` | terminal, page, mcp, messaging | no | one task or request with its runs and its pending decisions |
 | `flows` | `flows` | terminal, page, mcp | no | the flow files of this checkout, with their titles and how many tasks each holds |
 | `config` | `config` | terminal, page | no | the configuration's path and hash, whether you accepted it, and the data folder; it never refuses |
-| `progress` | `progress` | terminal, chat, page, mcp | no | where the work stands and what happened (since: 7d, <n>d or YYYY-MM-DD) |
-| `pending` | `pending` | terminal, chat, page, mcp | no | what waits for you; with an id, that decision whole |
-| `answer` | `answer` | terminal, chat, page, mcp | no | answer a pending decision |
-| `release` | `release` | terminal, chat, page, mcp | no | release a delivery (it stays a draft) |
-| `approve` | `approve` | terminal, chat, page | no | approve a plan or an acceptance (a plan: --go-ahead <task key>, repeated, drops that task's derived waits); an effect is approved in the terminal or on the page, with its hash |
-| `reject` | `reject` | terminal, chat, page | no | reject a plan, an acceptance or an effect |
-| `retry` | `retry` | terminal, chat, page | no | make a failed or blocked task ready again |
+| `progress` | `progress` | terminal, chat, page, mcp, messaging | no | where the work stands and what happened (since: 7d, <n>d or YYYY-MM-DD) |
+| `pending` | `pending` | terminal, chat, page, mcp, messaging | no | what waits for you; with an id, that decision whole |
+| `answer` | `answer` | terminal, chat, page, mcp, messaging | no | answer a pending decision |
+| `release` | `release` | terminal, chat, page, mcp, messaging | no | release a delivery (it stays a draft) |
+| `approve` | `approve` | terminal, chat, page, messaging | no | approve a plan or an acceptance (a plan: --go-ahead <task key>, repeated, drops that task's derived waits); an effect is approved in the terminal or on the page, with its hash |
+| `reject` | `reject` | terminal, chat, page, messaging | no | reject a plan, an acceptance or an effect |
+| `retry` | `retry` | terminal, chat, page, messaging | no | make a failed or blocked task ready again |
 | `go_ahead` | `go-ahead` | terminal, page | no | go ahead on a task that waits for another request's task: its derived waits end (with drop-after, its after wait) |
-| `cancel` | `cancel` | terminal, chat, page | no | cancel a request |
+| `cancel` | `cancel` | terminal, chat, page, messaging | no | cancel a request |
 | `deps` | `deps` | terminal | no | install the dependency sets of runtime.json, by code |
 | `run_next` | `run-next` | terminal | yes | run the next ready task: one skill, once, on the model its proof gives |
 | `accept_config` | `accept-config` | terminal | no | record the hash of runtime.json you accept |
@@ -461,14 +467,14 @@ The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-
 | `poll` | `poll` | terminal | no | the short job: mirrors, expired approvals, the state file's generated lines, the releases |
 | `handler_call` | `handler` | terminal | no | start one verb of a handler that runtime.json names |
 | `pin` | `pin` | terminal | no | write the pin of the dispatcher's two jobs |
-| `say` | `say` | terminal, page, mcp | yes, for a new request | one turn of the conversation with the planning agent; on the page, while a run is in progress, a line that needs the planner is queued (elsewhere refused); a question about the state is answered at once |
-| `agents` | `agents` | terminal, page, mcp | no | each area agent: its mode, its caps, what it used today and how many tasks wait for it |
+| `say` | `say` | terminal, page, mcp, messaging | yes, for a new request | one turn of the conversation with the planning agent; on the page, while a run is in progress, a line that needs the planner is queued (elsewhere refused); a question about the state is answered at once |
+| `agents` | `agents` | terminal, page, mcp, messaging | no | each area agent: its mode, its caps, what it used today and how many tasks wait for it |
 | `conversation` | `conversation` | terminal, page, mcp | no | the messages of the project's conversation above a message id, oldest first |
-| `skills` | `skills` | terminal, page, mcp | no | the skills in scope with their proof on each model, their runs here and the two checks of the proof |
-| `costs` | `costs` | terminal, page, mcp | no | the runs by day, agent, model and adapter, with the recorded cost and the cost recomputed from the prices |
+| `skills` | `skills` | terminal, page, mcp, messaging | no | the skills in scope with their proof on each model, their runs here and the two checks of the proof |
+| `costs` | `costs` | terminal, page, mcp, messaging | no | the runs by day, agent, model and adapter, with the recorded cost and the cost recomputed from the prices |
 | `connections` | `connections` | terminal, page, mcp | no | which provider each requirement class resolves to, which secrets are found (never a value), the image |
-| `artifacts` | `artifacts` | terminal, page, mcp | no | the project's files under docs/ with their owner skill, size and time |
-| `artifact` | `artifact` | terminal, page, mcp | no | the text of one file under docs/ of the project, read-only |
+| `artifacts` | `artifacts` | terminal, page, mcp, messaging | no | the project's files under docs/ with their owner skill, size and time |
+| `artifact` | `artifact` | terminal, page, mcp, messaging | no | the text of one file under docs/ of the project, read-only |
 | `artifact_raw` | `artifact-raw` | page | no | the bytes of one image under docs/ of the project (png, jpeg, webp or svg, by its magic number), read-only; the service answers them with their media type |
 | `version` | `version` | page, mcp | no | the change signal of the project's store: a number that grows on every write, and when the file was last written |
 | `commands` | `commands` | page | no | the commands of the conversation as rows, command, arguments and help line, in the order /help prints them (the page lists them when the person types /) |

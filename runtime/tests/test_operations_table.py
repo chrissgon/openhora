@@ -32,7 +32,7 @@ NOT_OPERATIONS = {"store_module", "context", "task_prompt", "code_task", "chat_m
                   "run_busy", "queue_route", "held_commands", "held_next", "drop_note", "asks_state", "waiting", "queue_stale", "with_routing",
                   "write_checkpoints"}  # ops_config.py: the one writer of the accepted hash and the Checkpoints line
 KINDS = ("int", "str", "text", "file", "list", "flag", "choice", "pairs")
-CHANNELS = ("terminal", "chat", "page", "mcp")
+CHANNELS = ("terminal", "chat", "page", "mcp", "messaging")
 # Modules that still hold the terminal's command as a string, outside the operations layer's own texts.
 HOLDS_THE_COMMAND = {"lab.py": "an error message of the lab facade, in the region of the execution kit's move (WP-R.8)"}
 

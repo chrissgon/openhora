@@ -50,6 +50,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import operations  # noqa: E402  (the table: the channel policy, operations.permitted)
 import ops_core as core  # noqa: E402  (the shared names: read as core.<name>, never bound at import)
 import path_rule  # noqa: E402
 import plan  # noqa: E402
@@ -57,6 +58,7 @@ import state_merge  # noqa: E402
 
 FINAL = ("done", "cancelled")
 LIVE = ("planned", "ready")      # the states in which a task has not started and may still wait
+MESSAGING = "messaging"          # the channel of the messaging bridge (runtime/messaging.py)
 NEW = "new"                      # the request name of a plan that is not created yet
 
 
@@ -275,10 +277,19 @@ def current_tasks(ctx: dict) -> list:
     return core._stored(ctx, ctx["store"].tasks_list)
 
 
-def only_on_plans(item: dict, go_ahead) -> None:
-    """A go-ahead is said on the tasks of a plan: any other pending decision is refused."""
+def only_on_plans(item: dict, go_ahead, sha256=None, channel=None, policy=None) -> None:
+    """What approve checks of the decision before anything else. A go-ahead is said on the tasks of a plan: any other
+    pending decision is refused. The channel's policy (operations.permitted, decision M-8) must cover the approval of a
+    plan or an acceptance (an effect keeps its own rule, EFFECT_CHANNELS). A plan approved from a messaging app carries
+    its hash: the tap or the typed command names exactly what the person saw (an acceptance has none; the bridge binds
+    it to the card, runtime/messaging.py)."""
     if go_ahead and item["kind"] != "plan":
         raise core.OpsError(f"pending decision {item['id']} is a {item['kind']}: go ahead is said on the tasks of a plan", 2)
+    if item["kind"] in ("plan", "acceptance") and channel and not operations.permitted("approve", channel, policy, item["kind"]):
+        raise core.OpsError(operations.not_enabled("approve", channel), 1)
+    if channel == MESSAGING and item["kind"] == "plan" and sha256 is None:
+        raise core.OpsError("a plan is approved from a messaging app only with its hash: send /approve "
+                            f"{item['id']} <hash>, or tap the button of its card", 1)
 
 
 def settled(ctx: dict, out):

@@ -225,6 +225,10 @@ ALLOWED = (
     ("runtime/service.py", ("runtime/ops.py", "runtime/shell_kit.py")),
     ("runtime/mcp.py", ("runtime/ops.py", "runtime/shell_kit.py")),
     ("runtime/shell_kit.py", ()),
+    # the messaging bridge (MSG-1): a shell over ops.py and the kit, with its own modules; the modules reach the kit and the
+    # resolver of providers (the one function that runs a messenger provider's verb), never ops.py
+    ("runtime/messaging.py", ("runtime/ops.py", "runtime/shell_kit.py", "runtime/messaging_*.py")),
+    ("runtime/messaging_*.py", ("runtime/messaging_*.py", "runtime/shell_kit.py", "providers/resolve.py")),
     # the handlers: the resolver of providers and the shell's verbs, nothing imported from runtime/
     # a handler reaches the resolver, the terminal shell, the shared credential formats and its sibling handlers
     ("runtime/handlers/*.py", ("providers/resolve.py", "runtime/cli.py", "scripts/redact.py", "runtime/handlers/")),
@@ -376,6 +380,8 @@ def test_the_rules_the_diagram_states_hold_for_the_code_as_it_is():
             assert file == "runtime/lab.py", (file, target)
         if file in ("runtime/cli.py", "runtime/chat.py"):
             assert target == "runtime/ops.py", (file, target)
+        if file == "runtime/messaging.py":  # the bridge's shell imports ops.py, shell_kit.py and its own modules
+            assert target in ("runtime/ops.py", "runtime/shell_kit.py") or fnmatch.fnmatch(target, "runtime/messaging_*.py"), (file, target)
         if file in ("runtime/service.py", "runtime/mcp.py"):  # a shell imports only ops.py and shell_kit.py
             assert target in ("runtime/ops.py", "runtime/shell_kit.py"), (file, target)
         if file == "runtime/shell_kit.py":  # the kit imports nothing of the runtime: it is handed the operations object

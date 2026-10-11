@@ -45,6 +45,9 @@ ON_SYSTEM_PYTHON = [
     "runtime/service.py",
     # The MCP mode (stage 9): the same operations layer over standard input and output.
     "runtime/mcp.py",
+    # The messaging bridge (MSG-1): its shell and its modules, started with the system interpreter like the other shells.
+    "runtime/messaging.py", "runtime/messaging_bridge.py", "runtime/messaging_cards.py", "runtime/messaging_inbound.py",
+    "runtime/messaging_ledger.py", "runtime/messaging_provider.py",
     # What the two shells share (stage 9, WP-9.9): the job registry, the status words, the project list.
     "runtime/shell_kit.py",
     # The cost of a run recomputed from its token counts (stage 9): the operations layer imports it.
