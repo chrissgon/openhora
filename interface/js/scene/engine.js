@@ -297,6 +297,7 @@ export function createEngine(host, options) {
   // A building's card is drawn with the theme border while the person has that project: hovered (on the scene or in the list) or
   // chosen by the route. The tracking bar's default project does not count.
   function markLabels() {
+    let changed = false;
     for (const entry of labelEntries) {
       if (entry.spec.kind !== "card") continue;
       const open = Boolean(entry.spec.selected) || entry.spec.id === hoverId || (Boolean(content) && entry.spec.id === content.marked);
@@ -306,8 +307,33 @@ export function createEngine(host, options) {
       // culling reads the size
       entry.width = entry.node.offsetWidth;
       entry.height = entry.node.offsetHeight;
-      if (size.w) positionLabels();
+      changed = true;
     }
+    if (changed && size.w) refitLabels();
+  }
+
+  // A label changed size (a quiet dot opened into its card): on a canvas too narrow for the card the City's fit makes room for it, and gives the room back when the dot closes. The camera
+  // goes there as it goes anywhere (a short move, none when motion is reduced); on a canvas with room the fit does not change and only the labels are placed again.
+  function refitLabels() {
+    if (!content || !content.zoomCap || !frustum) {
+      positionLabels();
+      return;
+    }
+    if (tween.active()) {   // a move is in flight: it goes on to the new goal
+      fit();
+      return;
+    }
+    const from = cameraNow();
+    const goal = computeFit();
+    const same = Math.abs(goal.left - from.left) + Math.abs(goal.right - from.right) + Math.abs(goal.top - from.top) + Math.abs(goal.bottom - from.bottom) < 1e-6;
+    positionLabels();
+    if (same) return;
+    if (cameraSet && !reducedQuery.matches) {
+      tween.start(from, goal, clock(), 1);
+      loop.start("camera", { ambient: false });
+    } else applyView();
+    positionLabels();
+    loop.requestRender();
   }
 
   function applyOutlines() {

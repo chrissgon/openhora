@@ -854,3 +854,74 @@ console.log(JSON.stringify(out));
 """)
     for name in ("phone", "tablet"):
         assert got[name]["zoomedIn"] is True and got[name]["back"] is True and got[name]["pastFit"] is True, f"{name}: zooming in narrows the view, zooming out comes back to the fit, and the fit is the least zoom"
+
+
+@needs_node
+def test_every_label_box_of_the_phones_city_is_inside_the_free_rectangle_in_each_state_and_when_a_label_grows(tmp_path):
+    # R4-B8, review of PR 321: the box of each label (its anchor projected by the camera, its measured size) is inside the insets; a quiet project's dot is sized by its card,
+    # so opening it makes the fit give it room and closing gives the room back, and a pill whose words grow is fitted again by the poll's update
+    got = run_node_engine(tmp_path, ENGINE_PAGE_JS + WORLD_JS + r"""
+import { all } from "@FAKE@";
+const { createEngine } = await import("@JS@/scene/engine.js");
+const widths = { card: 250, dot: 12, pill: 60 };
+const makeNode = document.createElement;
+document.createElement = (tag) => {
+  const n = makeNode(tag);
+  Object.defineProperty(n, "offsetWidth", { get: () => {
+    const c = n.cls();
+    if (!c.includes("wb-pill")) return 200;
+    return c.includes("is-quiet") && !c.includes("is-selected") ? widths.dot : (c.includes("is-quiet") ? widths.card : widths.pill);
+  }, set: () => {} });
+  return n;
+};
+const out = {};
+const inset = { left: 8, right: 8, top: 120, bottom: 300, pad: 1.02 };
+const run = (name, w, h, lots, regrow, open) => {
+  const host = document.createElement("div");
+  host.clientWidth = w; host.clientHeight = h;
+  const engine = createEngine(host, { label: "City", getInsets: () => inset, onOpen() {}, onHover() {}, onUnavailable() {} });
+  engine.show("world", model({ lots }), "City");
+  for (let i = 0; i < 30; i++) frame(40);
+  const boxes = () => all(host, ".wb-pill").map((n) => {
+    const x = parseFloat(n._style["--wb-x"]), y = parseFloat(n._style["--wb-y"]);
+    return { x0: x - n.offsetWidth / 2, x1: x + n.offsetWidth / 2, y: y, top: y - n.offsetHeight };   // the label as it is now: a dot, or its card once opened
+  });
+  const ok = (list) => list.length > 0 && list.every((b) => b.x0 >= inset.left - 0.6 && b.x1 <= w - inset.right + 0.6 && b.top >= inset.top - 0.6 && b.y <= h - inset.bottom + 0.6);
+  out[name] = { n: boxes().length, inside: ok(boxes()), boxes: boxes() };
+  if (open) {
+    const view = () => { const v = engine.canvas.wbStats().view; return [v.left, v.right, v.top, v.bottom].map((x) => +x.toFixed(4)); };
+    const fitted = view();
+    engine.highlight(open, "keyboard");   // the focus on the row of that project opens its dot into its card
+    for (let i = 0; i < 40; i++) frame(40);
+    out[name].opened = ok(boxes());
+    out[name].openedBoxes = boxes();
+    out[name].moved = JSON.stringify(view()) !== JSON.stringify(fitted);
+    engine.highlight(null, "keyboard");
+    for (let i = 0; i < 40; i++) frame(40);
+    out[name].closed = JSON.stringify(view()) === JSON.stringify(fitted);
+  }
+  if (regrow) {
+    widths.pill = 250;   // the words of a pill got longer: the labels are made again by the next poll
+    engine.show("world", model({ lots: lots.map((l) => ({ ...l, sub: "task #12 running with more words" })) }), "City");
+    for (let i = 0; i < 30; i++) frame(40);
+    out[name].relabels = engine.canvas.wbStats().relabels;
+    out[name].grown = ok(boxes());
+    out[name].grownBoxes = boxes();
+    widths.pill = 60;
+  }
+};
+const busy = (id) => lot(id, { decisions: 2, runningTask: 5 });
+const quiet = (id) => lot(id, { decisions: 0, runningTask: null });
+run("busy", 375, 812, [busy("a"), busy("b"), busy("c")], true, null);
+run("quiet", 375, 812, [busy("a"), quiet("b"), quiet("c")], false, "c");
+run("tablet", 768, 1024, [busy("a"), quiet("b"), quiet("c")], false, "b");
+console.log(JSON.stringify(out));
+""")
+    for name in ("busy", "quiet", "tablet"):
+        assert got[name]["n"] == 3 and got[name]["inside"] is True, f"{name}: the three labels' boxes are inside the free rectangle: {got[name]['boxes']}"
+    for name in ("quiet", "tablet"):
+        assert got[name]["opened"] is True, f"{name}: the card a dot opens into is inside the free rectangle: {got[name]['openedBoxes']}"
+        assert got[name]["closed"] is True, f"{name}: the room is given back when the dot closes"
+    assert got["quiet"]["moved"] is True, "on the phone the camera makes room for the opened card"
+    assert got["busy"]["relabels"] >= 1, "the new words reach the labels the way a poll's do (updateWorld: relabel, then the fit again)"
+    assert got["busy"]["grown"] is True, f"a pill that grew is inside again after the update: {got['busy']['grownBoxes']}"

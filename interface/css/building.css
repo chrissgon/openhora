@@ -189,7 +189,9 @@
   font-weight: 600;
   line-height: 1.1;
   text-align: center;
-  white-space: normal;
+  white-space: normal;   /* two lines, not one: one line would be a smaller type on the same plate; a word is never broken, and what a wider fallback font pushes out of the plate is clipped */
+  overflow-wrap: normal;
+  overflow: hidden;
   background: none;
   border: 0;
   box-shadow: none;

@@ -9,6 +9,7 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_interface_scene_r4_ro
 """
 from __future__ import annotations
 
+import json
 import re
 
 import standin_tree as st
@@ -1017,7 +1018,7 @@ console.log(JSON.stringify(out));
         if wall >= 0.9:
             assert not any(room), f"at open progress {o} the walls are solid and no room is drawn behind them"
     assert got["together"] is True, "the walls, the ledges, the canopy and the roof fade in together: the closed shell is whole as one"
-    assert got["xz"] is True
+    assert got["xz"] is True, "every plant's own place (its x and z in the frame) is inside the shell's left and front faces"
 
 
 @needs_node
@@ -1068,7 +1069,7 @@ console.log(JSON.stringify({ at, firstClosed, steps, ring: !!tower.beacon }));
             assert r["visible"] is True, f"part {i} is visible at {label}"
             assert r["opacity"] == 1 and r["depthWrite"] is True and r["transparent"] is False, f"part {i} is opaque and writes depth at {label}: {r}"
     assert first == later, "every part, its jambs' geometry and scale included, is the same at the first closed frame as two seconds later"
-    assert [r["scale"] for r in near] == [r["scale"] for r in later] or True
+    assert [r["scale"] for r in near] == [r["scale"] for r in later], "the shell's scale (the jambs' width in x and z, the squash in y) at progress 0.99 is the one it keeps"
 
 
 @needs_node
@@ -1082,7 +1083,6 @@ const m = new THREE.Matrix4();
 const scales = (o) => { tower.open = o; tower.target = o; tower.apply(); m.fromArray(tower.plants.instanceMatrix.array, 0); return [m.elements[0], m.elements[5], m.elements[10]].map((v) => +v.toFixed(4)); };
 const out = {};
 out.opened = [1, 0.9, 0.7, 0.6].map(scales);
-out.src = null;
 console.log(JSON.stringify(out));
 """)
     assert got["opened"] == [[1, 1, 1]] * 4, "from fully open down to 60 percent the plants are exactly their size: nothing scales them with the opening"
@@ -1348,6 +1348,7 @@ console.log(JSON.stringify(out));
     assert tablet["plateHeight"] < got["min"][0] and tablet["culled"] is True, "at 768 px the plate is under the minimum readable height and the label is hidden, not drawn unreadable"
     css = (INTERFACE / "css" / "building.css").read_text(encoding="utf-8")
     rule = css[css.index(".wb-label-fit {"):css.index("}", css.index(".wb-label-fit {"))]
+    assert "overflow: hidden" in rule and "overflow-wrap: normal" in rule, "a wider fallback font cannot draw outside the plate: the box clips, and no word is broken"
     assert "font-size: 23px" in rule and "font-weight: 600" in rule and f"width: {got['min'][1]}px" in rule and f"height: {got['min'][2]}px" in rule, "the label is laid out at the plate's shape, weight 600"
 
 
@@ -1359,18 +1360,35 @@ def _luminance(hex_colour: str) -> float:
     return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
 
 
+def _page_tokens() -> dict:
+    """The page's own token values in light and in dark, read from the stylesheet that defines them (`--pui-name: light-dark(light, dark)`), never rebuilt here."""
+    css = (INTERFACE / "vendor" / "perfectui" / "css" / "core.css").read_text(encoding="utf-8")
+    out: dict = {"light": {}, "dark": {}}
+    for name in ("bg", "bg-emphasis", "text", "text-muted", "theme"):
+        found = re.search(r"--pui-" + re.escape(name) + r":light-dark\((#[0-9a-fA-F]{3,6}),(#[0-9a-fA-F]{3,6})\)", css)
+        assert found, f"the stylesheet defines --pui-{name} as light-dark(light, dark)"
+        for scheme, value in zip(("light", "dark"), found.groups()):
+            value = value.lstrip("#")
+            out[scheme][name] = "".join(ch * 2 for ch in value) if len(value) == 3 else value
+    return out
+
+
 @needs_node
 def test_the_door_label_reads_on_its_plate_in_light_and_in_dark_with_the_contrast_of_wcag_aa(tmp_path):
-    # the text is `--pui-text`, the plate a mix of tokens that follows the scheme: the pair, in the page's own tokens in each scheme, is at least 4.5 to 1
-    got = run_node(tmp_path, ROOMS_JS + r"""
+    # the text is `--pui-text`, the plate a mix of tokens that follows the scheme: the pair, with the page's own token values of each scheme (read from the stylesheet), is at least 4.5 to 1
+    tokens = _page_tokens()
+    got = run_node(tmp_path, ROOMS_JS + "const REAL = " + json.dumps(tokens) + r""";
 const out = {};
-const tokens = {
-  light: { dark: false, bg: c(0xffffff), mix: mixSrgb, T: { ...T2, bgToken: c(0xffffff), emphasis: c(0xe5e7eb), textMuted: c(0x676d7b), text: c(0x111827) } },
-  dark: { dark: true, bg: c(0x0b0f19), mix: mixSrgb, T: { ...DK, bgToken: c(0x0b0f19), emphasis: c(0x1f2937), textMuted: c(0x9ca3af), text: c(0xf3f4f6) } },
-};
-for (const [name, p] of Object.entries(tokens)) out[name] = [hex(roomTones(p).plaque.plate), hex(p.T.text)];
+const col = (v) => c(parseInt(v, 16));
+for (const [name, real] of Object.entries(REAL)) {
+  const T = { ...T2, bgToken: col(real.bg), emphasis: col(real["bg-emphasis"]), text: col(real.text), textMuted: col(real["text-muted"]), theme: col(real.theme) };
+  const p = { dark: name === "dark", bg: T.bgToken, mix: mixSrgb, T };
+  out[name] = [hex(roomTones(p).plaque.plate), hex(T.text)];
+}
 console.log(JSON.stringify(out));
 """)
+    assert set(got) == {"light", "dark"}
     for scheme, (plate, text) in got.items():
+        assert text == tokens[scheme]["text"].lower().zfill(6), f"{scheme}: the label's text is the page's text token"
         a, b = sorted((_luminance(plate), _luminance(text)), reverse=True)
         assert (a + 0.05) / (b + 0.05) >= 4.5, f"{scheme}: the label's text on the plate is under 4.5 to 1"
