@@ -23,7 +23,9 @@ import { waitLines } from "../waits.js";
 export { MAX_FILE_BYTES, fileRefusal, toBase64 } from "./hand-file.js";
 export const STANDING = "Stop agent and Supervise take effect at once and need no acceptance.";
 export const WIDER = "A wider mode is set in the terminal, not on this page.";
-export const WIDER_BELOW_NOTE = "A wider mode is set in the terminal, not on this page: copy the command and run it.";
+export const WIDER_BELOW_NOTE = "Run this command in the terminal: it sets the mode and accepts it.";     // A-62, M-21: one step; the command the service sends sets the mode and accepts it
+export const WAITING_NOTE = "The new mode takes effect once the configuration is accepted. Run this command in the terminal.";
+export const BRING_BACK = "To bring it back, choose supervised below and run its command in the terminal.";
 
 /** Keep the keyboard focus on the control with the same `data-key` after a part is drawn again. */
 function redraw(container, render) {
@@ -121,7 +123,7 @@ export function createAgentTab(env) {
       commandBlock({ command: modeResult.next })));
   }
 
-  function drawPlate(agent) {
+  function drawPlate(agent, waiting = false) {
     if (!agent || !agent.mode) {
       fill(plateBox);
       return;
@@ -129,7 +131,9 @@ export function createAgentTab(env) {
     const plate = h("span", { class: "pui-chip pui-muted pui-outline pui-rounded-full wb-mode-plate", text: agent.mode });
     const acting = agent.acting_mode && agent.acting_mode !== agent.mode
       ? h("span", { class: "pui-chip pui-muted pui-outline pui-rounded-full wb-mode-plate wb-acting-plate", text: `acting as ${agent.acting_mode}` }) : null;
-    fill(plateBox, plate, acting, h("span", { class: "wb-muted wb-mode-line", text: `${MODE_LINES[agent.mode] || ""}.` }));
+    // A-62: a stopped agent's line says how to bring it back (not while the configuration waits for acceptance: that step comes first)
+    const back = agent.mode === "stopped" && !waiting ? ` ${BRING_BACK}` : "";
+    fill(plateBox, plate, acting, h("span", { class: "wb-muted wb-mode-line", text: `${MODE_LINES[agent.mode] || ""}.${back}` }));
   }
 
   // --- the other parts -----------------------------------------------------------------------------------------------------------
@@ -178,8 +182,13 @@ export function createAgentTab(env) {
    * chooses, the command follows it, Copy copies what the select holds (the service's own command, verbatim). The person's choice survives a draw that changes nothing.
    */
   let widerEmpty = false;
-  function drawWider(wider) {
+  function drawWider(wider, waiting = null) {
     const list = Array.isArray(wider) ? wider : null;
+    if (waiting) {      // A-62: the configuration waits for acceptance: that step, with its command and Copy, in place of the mode select; no other set-mode is offered
+      widerEmpty = false;
+      fill(widerBox, h("div", { class: "wb-wider-box wb-accept-step" }, h("p", { class: "wb-card-line", text: WAITING_NOTE }), waiting.command ? commandBlock({ command: waiting.command }) : null));
+      return;
+    }
     widerEmpty = Boolean(list) && list.length === 0;     // nothing is wider than the widest mode
     if (widerEmpty) {
       fill(widerBox);
@@ -388,13 +397,14 @@ export function createAgentTab(env) {
       }
       const row = stateRow(view.row.state, view.decisions.length, view.runningBody, env.now());
       swap("state", row, () => drawState(row, view));
-      swap("plate", [view.agent.mode, view.agent.acting_mode], () => drawPlate(view.agent));
+      const waiting = view.unaccepted ? { command: view.acceptNext } : null;     // A-62
+      swap("plate", [view.agent.mode, view.agent.acting_mode, Boolean(waiting)], () => drawPlate(view.agent, Boolean(waiting)));
       locked = Boolean(view.unaccepted);
       currentMode = view.agent.mode || null;
       drawButtons();
       swap("meters", meters(view.agent), () => drawMeters(meters(view.agent)));
       runsTotalLine.hidden = !meters(view.agent).runsTotal;     // every update: a draw skipped as identical must not leave it hidden after a not-accepted spell
-      swap("wider", view.agent.wider || null, () => drawWider(view.agent.wider));
+      swap("wider", [view.agent.wider || null, waiting], () => drawWider(view.agent.wider, waiting));
       widerBox.hidden = widerEmpty;
       const pendingIds = view.decisions.map((d) => [d.id, d.task_id]);
       const sub = view.current ? currentSub(view.current, view.currentBody, view.decisions, env.now()) : null;     // "for 12 min" moves with the clock: it is part of what is drawn

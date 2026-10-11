@@ -545,7 +545,7 @@ def test_the_page_keeps_the_floor_dims_it_and_shows_the_command_in_the_band_whil
     assert during["title"] == before["title"] and during["kpis"] == before["kpis"] and during["track"] == before["track"], "the panel, the KPI cards and the bar are what they were"
     assert during["state"] == before["state"] and during["meters"] == before["meters"], "the Agent tab keeps its state row and its meters"
     assert during["skeleton"] == 0, "nothing is swapped for a skeleton"
-    assert during["codes"] == [ACCEPT] and during["copies"] == 1, "the band carries the service's command whole, with Copy"
+    assert during["codes"] == [ACCEPT, ACCEPT] and during["copies"] == 2, "the band carries the service's command whole, with Copy, and (A-62) so does the Agent tab's accept step in the select's place"
     assert "not accepted" in during["band"] and "Read the file" in during["band"]
     assert during["band"].count("accept-config") == 1, "the command is in the code block once: the sentence is the service's message without it"
     assert during["sentence"].endswith("when it is what you want, run:")
