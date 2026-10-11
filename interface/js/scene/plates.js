@@ -130,9 +130,9 @@ export function boardNode(spec) {
     ...spec.lines.map((line) => h("span", { class: "mono wb-wb-line wb-label-sub", text: line })));
 }
 
-/** The door's label in the Lobby. */
+/** The door's label in the Lobby (A-59, M-17): text alone, fitted on the plaque of the door (labels.js `placeLabels` writes its matrix); the plate in the scene is its ground, so it has no badge, border or shadow. */
 export function doorNode(spec) {
-  return h("div", { class: "wb-label wb-label-door" }, h("span", { class: "pui-btn pui-theme pui-soft wb-door-tag", text: spec.text }));
+  return h("div", { class: "wb-label wb-label-fit" }, h("span", { class: "wb-door-tag", text: spec.text }));
 }
 
 /**
