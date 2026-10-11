@@ -185,7 +185,7 @@ export function createFrame(root, handlers) {
       barTop.replaceChildren(switcher.el, waitingMenu.el, modeButton.el);
       barEnd.replaceChildren(nav.el, door);
     } else {
-      if (kpis.el.parentNode === float) sceneArea.append(kpis.el, sceneHost, fallback);   // the cards first again: the host and the line are appended after them
+      if (kpis.el.parentNode === float) sceneArea.prepend(kpis.el);   // the cards first again; the scene's host (and its live canvas) is not touched
       if (track.el.parentNode === float) dock.append(track.el);
       topEnd.replaceChildren(switcher.el, modeButton.el, door);
       navDock.replaceChildren(nav.el);

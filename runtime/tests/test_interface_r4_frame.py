@@ -648,6 +648,7 @@ out.city = cards(f).map((c) => c[1]);
 for (const [name, hash] of [["building", `#/p/${a}`], ["floor", `#/p/${a}/floor/engineering`], ["lobby", `#/p/${a}/lobby`], ["control", `#/p/${a}/control`], ["costs", `#/p/${a}/control/costs`]]) {
   f.setScreen(router.parse(hash), { projectName: "northwind-shop", projectId: a });
   out[name] = cards(f).map((c) => c[1]);
+  if (name === "costs") out.costsHash = hash;
 }
 out.named = cards(f);
 // a card whose cap is not in use stays hidden, and stays a link
@@ -668,6 +669,7 @@ out.phone = { hrefs: cards(p).map((c) => c[1]), inFloat: all(all(p.main, "wb-flo
 p.setScreen(router.parse("#/city"), { projectName: null, projectId: null });
 out.phoneNone = cards(p).map((c) => [c[1], c[3]]);
 // back to a desktop width: the cards return to the scene area, first
+if (!FakeNode.prototype.prepend) FakeNode.prototype.prepend = function (node) { if (node.parent) node.parent.children = node.parent.children.filter((x) => x !== node); node.parent = this; this.children.unshift(node); };   // this fake has no prepend
 if (!("parentNode" in FakeNode.prototype)) Object.defineProperty(FakeNode.prototype, "parentNode", { get() { return this.parent; } });   // the frame reads parentNode; this fake names it parent
 const changes = [];
 const mql = { matches: true, addEventListener: (t, fn) => changes.push(fn), removeEventListener() {} };
@@ -688,6 +690,7 @@ def test_the_kpi_cards_are_links_to_the_costs_tab_of_the_project_the_screen_show
     assert got["city"] == [f"#/p/{b}/control/costs"] * 2, "on the City the cards open the Costs tab of the project the switcher shows (the followed one)"
     for screen in ("building", "floor", "lobby", "control", "costs"):
         assert got[screen] == [f"#/p/{a}/control/costs"] * 2, f"on the {screen} screen the cards open the Costs tab of the project the screen shows"
+    assert got["costs"] == [got["costsHash"]] * 2, "on the Costs screen the cards' hash is the current one: a click is a no-op navigation, nothing changes"
     assert [c[2] for c in got["named"]] == ["Runs today: 3 of 8. Open the costs", "Spend today: $1.20 of $5.00 cap. Open the costs"], "the name says the figure and the action"
     assert all(c[0] == "A" and c[3] is None for c in got["named"]), "a link has no group role of its own"
     assert got["hidden"] == [[True, False], [True, True]], "a card whose cap is not in use stays hidden (R4D-5), a link as the other"
