@@ -144,7 +144,7 @@ def agents(project: str) -> dict:
     today, whatever its billing. billing is {"runs": [the billing words counted in runs_today], "spend": [the words
     counted in usd_today]} and caps_in_use {"runs": bool, "spend": bool}: whether the project's credentials, or a run
     of today, have that billing, so that a page draws a meter only for a cap in use. wider lists, for every mode above
-    the agent's own, the absolute set-mode command (the page offers it with Copy and builds none).
+    the agent's own, the absolute `set-mode ... --accept` command (the page offers it with Copy and builds none).
     A project without area_agents: {"agents": []}."""
     ctx = core.context(project)
     day = _ops()._agents_of_the_day(ctx)
@@ -186,9 +186,10 @@ def _caps_use(used, name: str) -> dict:
 
 def _wider(project: str, agent: str, mode: str) -> list:
     """[{"mode", "command"}] for every mode above this one in the order of autonomy.MODES, each the absolute `set-mode`
-    command (a wider mode is accepted by the person in the terminal): the page shows it, it builds none."""
+    command with `--accept` (a wider mode is set and accepted by the person in the terminal, in one step): the page
+    shows it, it builds none."""
     above = autonomy.MODES[autonomy.MODES.index(mode) + 1:]
-    return [{"mode": m, "command": core._command("set-mode", project, agent=agent, mode=m)} for m in above]
+    return [{"mode": m, "command": core._command("set-mode", project, agent=agent, mode=m, accept=True)} for m in above]
 
 
 def held_commands(project: str, reason: str, missing=None) -> list:
