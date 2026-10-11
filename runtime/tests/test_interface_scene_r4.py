@@ -15,7 +15,7 @@ import pytest
 
 import standin_tree as st
 from interface_css import css_paths
-from test_interface_scene_round3 import WORLD_JS, needs_node, run_node
+from test_interface_scene_round3 import ENGINE_PAGE_JS, PRODUCT_JS, WORLD_JS, needs_node, run_node, run_node_engine
 
 INTERFACE = st.REPO / "interface"
 JS = INTERFACE / "js"
@@ -787,3 +787,141 @@ console.log(JSON.stringify(out));
     assert got["rest"] == [0, 0.62, 0], "reduced motion: one still figure at its window, as every floor's (R-19)"
     assert got["before"] == 0 and got["after"] == 1, "when the planning agent starts the shadow comes where it stands"
     assert got["door"] == [-1.3, -0.1], "the door stays, in the second bay, under the canopy"
+
+
+# --- the City's fit holds the labels (R4-B8, A-70) ----------------------------------------------------------------------------------------------------
+
+@needs_node
+def test_the_fit_makes_room_for_a_label_wider_than_its_building_and_leaves_a_canvas_with_room_framed_as_before(tmp_path):
+    # root cause (A-70): the fit was made on the buildings' geometry alone, and a label is as wide as its text in pixels whatever the zoom, so on a phone the first building's pill
+    # ("northwind-shop", 260 px) ran out of the free rectangle at the left edge; "Fit the scene" and "Zoom out" go back to that fit (the view cannot go under 1), so they did nothing
+    got = run_node(tmp_path, r"""
+import { fitFrustum, fitFrustumWithLabels } from "@JS@/scene/fit.js";
+const out = {};
+const bounds = { x0: -15, x1: 15, y0: -5, y1: 12 };
+const label = (x, width) => ({ x, y: 12, width, height: 30 });
+const sameFrustum = (a, b) => ["left", "right", "top", "bottom"].every((k) => Math.abs(a[k] - b[k]) < 1e-9);
+// a canvas with room: every label inside the free rectangle: the plain fit, to the last digit
+const wide = { w: 1280, h: 800 };
+const insets = { left: 220, right: 220, top: 80, bottom: 160 };
+out.roomy = sameFrustum(fitFrustumWithLabels(bounds, wide, insets, 1.04, 17.85, [label(-10, 260), label(10, 200)]), fitFrustum(bounds, wide, insets, 1.04, 17.85));
+// a phone: the first label is 260 px wide over a building at the left, and the free rectangle is 359 px wide
+const phone = { w: 375, h: 812 };
+const pins = { left: 8, right: 8, top: 120, bottom: 300, pad: 1.02 };
+const plain = fitFrustum(bounds, phone, pins, 1.02, 17.85);
+const fitted = fitFrustumWithLabels(bounds, phone, pins, 1.02, 17.85, [label(-12, 260), label(8, 10)]);
+const scale = (f) => (f.right - f.left) / phone.w;
+const rect = (f, l) => { const s = scale(f); return [l.x - (l.width / 2) * s, l.x + (l.width / 2) * s]; };
+const free = (f) => { const s = scale(f); return [f.left + pins.left * s, f.right - pins.right * s]; };
+const inside = (f, l) => { const [a, b] = rect(f, l); const [lo, hi] = free(f); return a >= lo - 1e-6 && b <= hi + 1e-6; };
+out.plainCuts = !inside(plain, label(-12, 260));
+out.fittedHolds = [inside(fitted, label(-12, 260)), inside(fitted, label(8, 10))];
+out.wider = fitted.right - fitted.left > plain.right - plain.left;
+// the fit with no label is the plain one, and the fit does not depend on how many rounds it took (it is stable when asked again with the same labels)
+out.none = sameFrustum(fitFrustumWithLabels(bounds, phone, pins, 1.02, 17.85, []), plain);
+out.stable = sameFrustum(fitted, fitFrustumWithLabels(bounds, phone, pins, 1.02, 17.85, [label(-12, 260), label(8, 10)]));
+// three labels, one at each side, on a narrower canvas, and one too wide for the canvas at all (it fits as well as it can and does not loop)
+const narrow = fitFrustumWithLabels(bounds, { w: 320, h: 640 }, { left: 8, right: 8, top: 100, bottom: 200 }, 1.02, 17.85, [label(-14, 260), label(14, 260), label(0, 400)]);
+out.narrow = Number.isFinite(narrow.left) && narrow.right > narrow.left;
+console.log(JSON.stringify(out));
+""")
+    assert got["roomy"] is True, "with room to spare the City is framed exactly as before (the desktop's framing is unchanged)"
+    assert got["plainCuts"] is True and got["fittedHolds"] == [True, True] and got["wider"] is True, "the fit on the buildings alone cuts the wide label; the fit with labels holds every label inside the free rectangle, by zooming out"
+    assert got["none"] is True and got["stable"] is True and got["narrow"] is True, "no labels: the plain fit; the same labels give the same fit; an impossible label does not loop"
+
+
+@needs_node
+def test_the_phones_city_frames_every_label_and_zoom_out_and_fit_come_back_to_that_frame(tmp_path):
+    got = run_node_engine(tmp_path, ENGINE_PAGE_JS + PRODUCT_JS + r"""
+const { createEngine } = await import("@JS@/scene/engine.js");
+const out = {};
+for (const [name, w, h] of [["phone", 375, 812], ["tablet", 768, 1024]]) {
+  const host = document.createElement("div");
+  host.clientWidth = w; host.clientHeight = h;
+  const engine = createEngine(host, { label: "City", getInsets: () => ({ left: 8, right: 8, top: 120, bottom: 300, pad: 1.02 }), onOpen() {}, onHover() {}, onUnavailable() {} });
+  engine.show("world", models.city(), "City");
+  for (let i = 0; i < 30; i++) frame(40);
+  const view = () => { const v = engine.canvas.wbStats().view; return [v.left, v.right, v.top, v.bottom].map((x) => +x.toFixed(4)); };
+  const fitted = view();
+  engine.zoomBy(1.25); for (let i = 0; i < 5; i++) frame(40);
+  const zoomed = view();
+  engine.zoomBy(1 / 1.25); for (let i = 0; i < 5; i++) frame(40);
+  const back = view();
+  engine.zoomBy(0.5); for (let i = 0; i < 5; i++) frame(40);
+  out[name] = { fitted, zoomedIn: zoomed[1] - zoomed[0] < fitted[1] - fitted[0], back: JSON.stringify(back) === JSON.stringify(fitted), pastFit: JSON.stringify(view()) === JSON.stringify(fitted) };
+}
+console.log(JSON.stringify(out));
+""")
+    for name in ("phone", "tablet"):
+        assert got[name]["zoomedIn"] is True and got[name]["back"] is True and got[name]["pastFit"] is True, f"{name}: zooming in narrows the view, zooming out comes back to the fit, and the fit is the least zoom"
+
+
+@needs_node
+def test_every_label_box_of_the_phones_city_is_inside_the_free_rectangle_in_each_state_and_when_a_label_grows(tmp_path):
+    # R4-B8, review of PR 321: the box of each label (its anchor projected by the camera, its measured size) is inside the insets; a quiet project's dot is sized by its card,
+    # so opening it makes the fit give it room and closing gives the room back, and a pill whose words grow is fitted again by the poll's update
+    got = run_node_engine(tmp_path, ENGINE_PAGE_JS + WORLD_JS + r"""
+import { all } from "@FAKE@";
+const { createEngine } = await import("@JS@/scene/engine.js");
+const widths = { card: 250, dot: 12, pill: 60 };
+const makeNode = document.createElement;
+document.createElement = (tag) => {
+  const n = makeNode(tag);
+  Object.defineProperty(n, "offsetWidth", { get: () => {
+    const c = n.cls();
+    if (!c.includes("wb-pill")) return 200;
+    return c.includes("is-quiet") && !c.includes("is-selected") ? widths.dot : (c.includes("is-quiet") ? widths.card : widths.pill);
+  }, set: () => {} });
+  return n;
+};
+const out = {};
+const inset = { left: 8, right: 8, top: 120, bottom: 300, pad: 1.02 };
+const run = (name, w, h, lots, regrow, open) => {
+  const host = document.createElement("div");
+  host.clientWidth = w; host.clientHeight = h;
+  const engine = createEngine(host, { label: "City", getInsets: () => inset, onOpen() {}, onHover() {}, onUnavailable() {} });
+  engine.show("world", model({ lots }), "City");
+  for (let i = 0; i < 30; i++) frame(40);
+  const boxes = () => all(host, ".wb-pill").map((n) => {
+    const x = parseFloat(n._style["--wb-x"]), y = parseFloat(n._style["--wb-y"]);
+    return { x0: x - n.offsetWidth / 2, x1: x + n.offsetWidth / 2, y: y, top: y - n.offsetHeight };   // the label as it is now: a dot, or its card once opened
+  });
+  const ok = (list) => list.length > 0 && list.every((b) => b.x0 >= inset.left - 0.6 && b.x1 <= w - inset.right + 0.6 && b.top >= inset.top - 0.6 && b.y <= h - inset.bottom + 0.6);
+  out[name] = { n: boxes().length, inside: ok(boxes()), boxes: boxes() };
+  if (open) {
+    const view = () => { const v = engine.canvas.wbStats().view; return [v.left, v.right, v.top, v.bottom].map((x) => +x.toFixed(4)); };
+    const fitted = view();
+    engine.highlight(open, "keyboard");   // the focus on the row of that project opens its dot into its card
+    for (let i = 0; i < 40; i++) frame(40);
+    out[name].opened = ok(boxes());
+    out[name].openedBoxes = boxes();
+    out[name].moved = JSON.stringify(view()) !== JSON.stringify(fitted);
+    engine.highlight(null, "keyboard");
+    for (let i = 0; i < 40; i++) frame(40);
+    out[name].closed = JSON.stringify(view()) === JSON.stringify(fitted);
+  }
+  if (regrow) {
+    widths.pill = 250;   // the words of a pill got longer: the labels are made again by the next poll
+    engine.show("world", model({ lots: lots.map((l) => ({ ...l, sub: "task #12 running with more words" })) }), "City");
+    for (let i = 0; i < 30; i++) frame(40);
+    out[name].relabels = engine.canvas.wbStats().relabels;
+    out[name].grown = ok(boxes());
+    out[name].grownBoxes = boxes();
+    widths.pill = 60;
+  }
+};
+const busy = (id) => lot(id, { decisions: 2, runningTask: 5 });
+const quiet = (id) => lot(id, { decisions: 0, runningTask: null });
+run("busy", 375, 812, [busy("a"), busy("b"), busy("c")], true, null);
+run("quiet", 375, 812, [busy("a"), quiet("b"), quiet("c")], false, "c");
+run("tablet", 768, 1024, [busy("a"), quiet("b"), quiet("c")], false, "b");
+console.log(JSON.stringify(out));
+""")
+    for name in ("busy", "quiet", "tablet"):
+        assert got[name]["n"] == 3 and got[name]["inside"] is True, f"{name}: the three labels' boxes are inside the free rectangle: {got[name]['boxes']}"
+    for name in ("quiet", "tablet"):
+        assert got[name]["opened"] is True, f"{name}: the card a dot opens into is inside the free rectangle: {got[name]['openedBoxes']}"
+        assert got[name]["closed"] is True, f"{name}: the room is given back when the dot closes"
+    assert got["quiet"]["moved"] is True, "on the phone the camera makes room for the opened card"
+    assert got["busy"]["relabels"] >= 1, "the new words reach the labels the way a poll's do (updateWorld: relabel, then the fit again)"
+    assert got["busy"]["grown"] is True, f"a pill that grew is inside again after the update: {got['busy']['grownBoxes']}"
