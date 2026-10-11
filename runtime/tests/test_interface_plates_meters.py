@@ -420,7 +420,7 @@ out.refused = find(tab.el, ".wb-form-error").textContent;
 script = { setMode: async () => ({ agent: "engineering", mode: "stopped", accepted: false, next: "python3 /ck/runtime/cli.py accept-config --project /work/shop --sha256 " + "e".repeat(64) }) };
 buttons().stop.click();
 await settle();
-out.notAccepted = { code: find(tab.el, ".wb-result-box .wb-command-code").textContent, copy: all(tab.el, ".wb-result-box button.wb-copy").length };
+out.notAccepted = { text: find(tab.el, ".wb-result-box").textContent, code: all(tab.el, ".wb-result-box .wb-command-code").length, copy: all(tab.el, ".wb-result-box button.wb-copy").length };
 
 // a configuration that is not accepted: the controls are off, the data stays
 tab.update(view(agent(), [task(4, "ready")], [], false));

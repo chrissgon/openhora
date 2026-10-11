@@ -193,7 +193,8 @@ def test_the_agent_tab_stops_and_supervises_with_two_buttons_shows_the_held_sent
     assert got["supervised"] == [False, True], "Supervise is off at supervised; Stop agent is still on"
     assert got["supervise"] == [["setMode", "p", "engineering", "supervised"]]
     assert "changed while this call was running" in got["refused"]
-    assert got["notAccepted"]["code"].endswith("--sha256 " + "e" * 64) and got["notAccepted"]["copy"] == 1
+    assert got["notAccepted"]["code"] == 0 and got["notAccepted"]["copy"] == 0 and got["notAccepted"]["text"].endswith("Accept the configuration in the terminal (the step below)."), \
+        "A-62: the result points at the accept step and repeats no command: the step the tab draws while the configuration waits carries it"
     assert got["unaccepted"] == {"buttons": [True, True], "waitingLine": True, "meters": 3, "formHidden": False}, "not accepted: the panel keeps its data and its buttons are off"
     assert got["held"]["text"].startswith("Held: The service is not dispatching tasks.") and got["held"]["code"].startswith("uv run --with keyring==25.7.0 python3 /ck/runtime/cli.py run-next")
     assert got["held"]["copy"] == 1
@@ -782,7 +783,7 @@ def test_the_agent_tab_says_how_a_stopped_agent_comes_back_runs_one_step_and_sho
     waiting = got["waiting"]
     assert waiting["step"] == "The new mode takes effect once the configuration is accepted. Run this command in the terminal." and waiting["code"].endswith("--sha256 " + "a" * 64) and waiting["copies"] == 1, "A-62 (2): the accept step with its command (the service's, verbatim) and Copy"
     assert waiting["select"] == 0 and waiting["note"] is None and back not in waiting["modeLine"], "no other set-mode is offered while the configuration waits, and the bring-back line gives way to that step"
-    assert got["waitingNoCommand"]["step"] == waiting["step"] and got["waitingNoCommand"]["copies"] == 0 and got["waitingNoCommand"]["select"] == 0, "a refusal without a command shows the sentence and builds none"
+    assert got["waitingNoCommand"]["step"] == "The new mode takes effect once the configuration is accepted in the terminal." and got["waitingNoCommand"]["copies"] == 0 and got["waitingNoCommand"]["select"] == 0, "a refusal without a command says it without \"this command\" and builds none"
     assert got["back"]["select"] == 1 and got["back"]["step"] is None and back in got["back"]["modeLine"], "once accepted, the select and the line come back"
     source = (INTERFACE / "js" / "floor" / "agent-tab.js").read_text(encoding="utf-8")
     assert "cli.py" not in source and "accept-config" not in source and "--accept" not in source, "the page builds no command: it shows what the service sent"

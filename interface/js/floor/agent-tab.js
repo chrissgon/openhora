@@ -25,6 +25,8 @@ export const STANDING = "Stop agent and Supervise take effect at once and need n
 export const WIDER = "A wider mode is set in the terminal, not on this page.";
 export const WIDER_BELOW_NOTE = "Run this command in the terminal: it sets the mode and accepts it.";     // A-62, M-21: one step; the command the service sends sets the mode and accepts it
 export const WAITING_NOTE = "The new mode takes effect once the configuration is accepted. Run this command in the terminal.";
+export const WAITING_NOTE_NO_COMMAND = "The new mode takes effect once the configuration is accepted in the terminal.";     // the refusal gave no command: nothing for "this command" to point at
+export const NOT_ACCEPTED_RESULT = "Accept the configuration in the terminal (the step below).";
 export const BRING_BACK = "To bring it back, choose supervised below and run its command in the terminal.";
 
 /** Keep the keyboard focus on the control with the same `data-key` after a part is drawn again. */
@@ -118,9 +120,9 @@ export function createAgentTab(env) {
       fill(resultBox, h("div", { class: "notice pui-soft pui-success wb-notice-card", role: "status" }, h("strong", { text: `Mode set to ${modeResult.mode}.` })));
       return;
     }
+    // A-62: the accept command is shown once, in the step the tab draws while the configuration waits (the refusal's own command); the result only points at it
     fill(resultBox, h("div", { class: "notice pui-soft pui-warn wb-notice-card is-warn", role: "status" },
-      h("strong", { text: `Mode set to ${modeResult.mode}. Nothing works on this page until you accept the new configuration in the terminal.` }),
-      commandBlock({ command: modeResult.next })));
+      h("strong", { text: `Mode set to ${modeResult.mode}. Nothing works on this page until you accept the new configuration. ${NOT_ACCEPTED_RESULT}` })));
   }
 
   function drawPlate(agent, waiting = false) {
@@ -186,7 +188,7 @@ export function createAgentTab(env) {
     const list = Array.isArray(wider) ? wider : null;
     if (waiting) {      // A-62: the configuration waits for acceptance: that step, with its command and Copy, in place of the mode select; no other set-mode is offered
       widerEmpty = false;
-      fill(widerBox, h("div", { class: "wb-wider-box wb-accept-step" }, h("p", { class: "wb-card-line", text: WAITING_NOTE }), waiting.command ? commandBlock({ command: waiting.command }) : null));
+      fill(widerBox, h("div", { class: "wb-wider-box wb-accept-step" }, h("p", { class: "wb-card-line", text: waiting.command ? WAITING_NOTE : WAITING_NOTE_NO_COMMAND }), waiting.command ? commandBlock({ command: waiting.command }) : null));
       return;
     }
     widerEmpty = Boolean(list) && list.length === 0;     // nothing is wider than the widest mode
