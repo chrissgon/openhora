@@ -31,7 +31,8 @@ export function createControlView(frame) {
   const panel = createPanel({ screen: "control", title: "Control room", subtitle: model.subtitleOf("skills", ""), icon: "server", width: "wide" });
   panel.el.classList.add("wb-control");
   const skills = createSkillsTab();
-  const costs = createCostsTab({ onSince: (text) => readCosts(text) });
+  // M-8: a cleared date means no date: the read without `since`, the operation's own window (the field then shows that window's first day)
+  const costs = createCostsTab({ onSince: (text) => (text === "" ? readCosts(undefined, false, true) : readCosts(text)) });
   const connections = createConnectionsTab();
   const tabs = new Map([["skills", skills], ["costs", costs], ["connections", connections]]);
   const waiting = h("div", { class: "wb-tab-body" });
@@ -174,14 +175,14 @@ export function createControlView(frame) {
     show("connections");
   }
 
-  /** since: the text the person typed, or undefined for the operation's default. The service is the one validator of a date. */
-  async function readCosts(since, quiet = false) {
+  /** since: the text the person typed, or undefined for the operation's default (`cleared`: the person emptied the date field). The service is the one validator of a date. */
+  async function readCosts(since, quiet = false, cleared = false) {
     const mine = ++generation.costs;
     lastSince = since;
     const before = loads.costs;
     // a read on return from a hidden tab does not blank a tab that has its data; a new date does show the loading line
     if (!quiet || before.status !== "ready") {
-      loads.costs = { ...before, status: "loading", fieldValue: since === undefined ? before.fieldValue : since };
+      loads.costs = { ...before, status: "loading", fieldValue: cleared ? "" : since === undefined ? before.fieldValue : since };   // a cleared field stays empty while its read lasts: the old date does not flash back
       show("costs");
     }
     try {
