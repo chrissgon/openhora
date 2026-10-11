@@ -171,7 +171,7 @@
 .wb-costs-table td:not([data-label="Model"]), .wb-costs-table td[data-label="Adapter"] .wb-code { white-space: nowrap; }
 .wb-ctable td[data-label="Class"] .wb-code, .wb-ctable td[data-label="Name"] .wb-code { white-space: nowrap; overflow-wrap: normal; }
 .wb-ctable td[data-label="Provider"], .wb-ctable td[data-label="Status"] { white-space: nowrap; }
-.wb-chart-table tbody th { font-weight: 400; }
+.wb-chart-table tbody th { background-color: transparent; font-weight: 400; }     /* F2-D14: the day column has no tint of its own (control-room.html) */
 
 /* "Needed by" past four skills is a count in the theme colour that opens the list under it (R-54, E-15) */
 .wb-need > summary { color: var(--pui-theme); cursor: pointer; }
@@ -216,4 +216,15 @@
   .wb-ctable.wb-stackable td[data-label] .wb-code { white-space: normal; overflow-wrap: anywhere; }
   .wb-ctable.wb-stackable td[data-label] { white-space: normal; }
   .wb-stackable td > .wb-chip-12 { justify-self: start; }
+}
+
+/* M-32, the Control room's text and fields on a phone (max-width 899px): fields, buttons and tabs 16 px, the reading text 16 px (the stacked tables' values too), labels and meta lines at least 12 px */
+@media (max-width: 899px) {
+  .wb-control .wb-tablist .wb-tab { font-size: 16px; }
+  .wb-control :is(input, select, textarea) { font-size: 16px; }
+  .wb-control :is(button, .pui-btn), .wb-filters > summary, .wb-chart-acc > summary { font-size: 16px; }
+  .wb-skill-name, .wb-skill-detail { font-size: 16px; }     /* a skill's name and its sentences are list rows: reading text; the version, area and tier lines stay meta */
+  .wb-cnotice, .wb-cnotice-line, .wb-empty-block, .wb-skill-card, .wb-caps, .wb-chart-head, .wb-ccard, .wb-ccard p, .wb-ctable.wb-stackable :is(th, td) { font-size: 16px; }
+  .wb-plot-labels { font-size: 12px; }
+  .wb-ctable .wb-code, .wb-ctable.wb-stackable td[data-label] .wb-code { font-size: 14px; }
 }

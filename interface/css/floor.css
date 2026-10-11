@@ -24,8 +24,10 @@
 .wb-agent-body { display: grid; gap: var(--wb-tab-gap, 14px); }
 .wb-agent-body > :empty { display: none; }
 .wb-cards { display: grid; gap: 12px; }
-.wb-floor-unknown { display: grid; gap: 8px; padding: 16px; }
+.wb-floor-unknown { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
+.wb-floor-unknown .wb-panel-body { gap: 8px; padding: 16px; }
 .wb-floor-unknown p { margin: 0; }
+.wb-unknown-title { font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
 
 .wb-busy { display: flex; align-items: center; gap: 8px; padding: 16px; color: var(--pui-text-muted); font-size: 13px; }
 .wb-empty-line { margin: 0; color: var(--pui-text-muted); font-size: 13px; }
@@ -103,10 +105,12 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
 
 /* decision cards (cards.md): the card is the sunken ground; its head has the kind, the meta and, on a card that renders Markdown, `Plain text` (R-34) */
 .wb-card { border: 1px solid transparent; background-color: var(--wb-sunken); }
-.wb-card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: var(--pui-border-width) solid var(--pui-border); }
-.wb-card-plain { margin-left: auto; padding: 2px 8px; font-size: 12px; }
+.wb-card-head { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: var(--pui-border-width) solid var(--pui-border); }
+.wb-card-head > .wb-card-kind { flex: none; }
+.wb-card-plain { flex: none; margin-left: auto; padding: 2px 8px; font-size: 12px; }
 .wb-card-plain[aria-pressed="true"] { background-color: var(--wb-tint-selected); }
-.wb-card-meta { color: var(--pui-text-muted); font-size: 12px; }
+.wb-card-meta a:focus-visible { outline-offset: -2px; }     /* the head clips its meta: the link's ring is drawn inside it */
+.wb-card-meta { min-width: 0; overflow: hidden; color: var(--pui-text-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }     /* F2-D1: the head is one row, as floor.html draws it: the meta is cut with an ellipsis, its title holds the date */
 .wb-card-content { display: grid; gap: 10px; padding: 12px; }
 .wb-card-title { margin: 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
 .wb-card-title:focus-visible { outline: 2px solid var(--pui-theme); outline-offset: 2px; }
@@ -126,7 +130,12 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
 .wb-ret .wb-path { flex: 0 1 auto; }
 .wb-blocked { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--pui-error); border-radius: var(--pui-radius); background-color: var(--wb-raised); font-size: 12px; }
 .wb-blocked-title { color: var(--wb-ink-error); font-size: 13px; }
-.wb-verdict { border-radius: var(--pui-radius); background-color: var(--wb-raised); }
+/* F2-D3, F2-D4: a disclosure inside a card is a plain muted line with the native triangle (floor.html, lobby.html), never a bordered box with a chevron; scoped here (P-2) */
+.wb-disclosure { padding: 0; border: 0; border-radius: 0; background: none; }
+.wb-disclosure > summary { display: list-item; padding: 2px 0; color: var(--pui-text-muted); list-style-position: inside; cursor: pointer; }
+.wb-disclosure > summary:hover { color: var(--pui-text); }
+.wb-disclosure[open] > summary { margin-bottom: 6px; }
+.wb-verdict[open] > .wb-verdicts { padding-top: 0; }
 .wb-summary { font-size: 13px; cursor: pointer; }
 .wb-verdicts { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 8px; }
 .wb-verdict-button { padding: 4px 10px; gap: 6px; }
@@ -135,6 +144,7 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
 .wb-skill { font-family: var(--wb-font-mono); font-size: 11px; overflow-wrap: normal; word-break: normal; }
 
 /* the done card: the card after the person's action; the result stands on its own line under the chip and the title, full width: a sentence is prose, only an id is mono (A-26) */
+.wb-card-content.is-done { padding: 0; }     /* F2-D6: the done line is the card (floor.html): its own padding is the only inset */
 .wb-resolved { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border-radius: var(--pui-radius); background-color: var(--wb-sunken); font-size: 12px; }
 .wb-resolved > .wb-muted { flex: none; white-space: nowrap; }
 .wb-resolved > .wb-card-done-title { flex: 1 1 8em; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
@@ -231,8 +241,8 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
   overflow-wrap: anywhere;
   user-select: all;
 }
-.wb-plan-text { background-color: var(--wb-raised); border-radius: var(--pui-radius); }
-.wb-plan-body { margin: 0; padding: 8px 12px; font-family: var(--wb-font-mono); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.wb-plan-text > summary { font-size: 13px; }
+.wb-plan-body { margin: 0; padding: 8px 12px; border-radius: var(--pui-radius); background-color: var(--wb-raised); font-family: var(--wb-font-mono); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .wb-plan-body { padding: 8px 12px; }
 
@@ -330,5 +340,34 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
 /* the phone: the head wraps so that nothing of it is cut (`Plain text` takes a row of its own), and the board's label is not drawn (floor.html draws none at 375 px: the tracking bar and the tiles float where it would hang) */
 @media (max-width: 899px) {
   .wb-card-plain { flex: 1 1 100%; justify-content: center; margin-left: 0; }
+  .wb-card-head { flex-wrap: wrap; }
+  .wb-card-meta { overflow: visible; text-overflow: clip; white-space: normal; }
   .wb-wallboard { display: none; }
+}
+
+/* A-77: a swipe between tabs on a phone slides the panel in from the side it came from, briefly; nothing under reduced motion (swipe.js adds the class only without it) */
+@keyframes wb-swipe-in-next { from { opacity: 0.4; transform: translateX(28px); } to { opacity: 1; transform: none; } }
+@keyframes wb-swipe-in-prev { from { opacity: 0.4; transform: translateX(-28px); } to { opacity: 1; transform: none; } }
+.is-swipe-next { animation: wb-swipe-in-next 0.2s ease-out; }
+.is-swipe-prev { animation: wb-swipe-in-prev 0.2s ease-out; }
+@media (prefers-reduced-motion: reduce) { .is-swipe-next, .is-swipe-prev { animation: none; } }
+
+/* M-32, the phone's text and fields (max-width 899px, the frame's PHONE_QUERY): every field and button is 16 px, the reading text of the Floor's panel and of the cards it hands the Lobby is 16 px
+   (code in a card 14 px, it wraps), chips, meta lines and table heads are at least 12 px. A rule here beats the one of the same name above because it comes later in the file. */
+@media (max-width: 899px) {
+  .wb-panel :is(input, textarea, select) { font-size: 16px; }
+  .wb-panel :is(button, .pui-btn) { font-size: 16px; }
+  .wb-panel .wb-md { font-size: 16px; }
+  .wb-panel .wb-md :is(h3, h4) { font-size: 16px; }
+  .wb-panel .wb-md h2 { font-size: 17px; }
+  .wb-panel .wb-md h1 { font-size: 19px; }
+  .wb-panel .wb-md pre, .wb-panel .wb-md.is-plain, .wb-panel .wb-md table { font-size: 14px; }     /* a card's plain text is not larger than its code */
+  .wb-busy, .wb-empty-line, .wb-state-line, .wb-mode-row, .wb-mode-line, .notice.wb-notice-card, .wb-wider-label, .wb-wider-note, .wb-held-line, .wb-held-detail,
+  .wb-meter-cell, .wb-meter-label, .wb-meter-value, .wb-cur-head, .wb-current-head, .wb-card-title, .wb-card-body, .wb-card-line, .wb-card-error, .wb-card-note,
+  .wb-summary, .wb-plan-text > summary, .wb-blocked, .wb-blocked-title, .wb-busy-card, .wb-request-line, .wb-tl-title, .wb-resolved-title, .wb-tl-body, .wb-resolved-body,
+  .wb-res-said, .wb-state-block, .wb-resolved, .wb-card-result, .wb-ret, .wb-path, .wb-path-button, .wb-task-toggle, .wb-task-head, .wb-task-title, .wb-task-failure,
+  .wb-task-note, .wb-task-waits, .wb-waits, .wb-waits-title, .wb-waits-reasons, .wb-runs-total, .wb-drop-line, .wb-hand-name, .wb-plan-table, .wb-plan-stacked { font-size: 16px; }
+  .wb-pre, .wb-hash, .wb-plan-hash, .wb-plan-body, .wb-plan-pre, .wb-wider-code { font-size: 14px; }
+  .wb-mode-plate, .wb-chip-11, .wb-acting-plate, .wb-skill, .wb-desk-agent, .wb-wb-line, .wb-plan-table .wb-cell-skill, .wb-plan-stacked-skill, .wb-plan-stacked-skill code,
+  .wb-task-group-name, .wb-group-name, .wb-meter-cell > .wb-note { font-size: 12px; }
 }
