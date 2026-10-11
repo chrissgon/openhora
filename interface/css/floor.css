@@ -290,10 +290,16 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
 .wb-task-detail { display: grid; gap: 8px; padding-top: 6px; }
 .wb-task-detail[hidden] { display: none; }
 .wb-runs-head { padding: 0; }
-@media (prefers-reduced-motion: reduce) { .wb-task-mark { transition: none; } }
+/* A-72: the earlier attempts of a task behind a closed disclosure, in muted text; opened, each attempt is a run block */
+.wb-earlier-toggle { display: inline-flex; align-items: center; gap: 4px; justify-self: start; padding: 0; font-size: 12px; background: none; }
+.wb-earlier-mark { display: inline-flex; transition: transform 0.15s ease; }
+.wb-earlier-toggle[aria-expanded="true"] .wb-earlier-mark { transform: rotate(180deg); }
+.wb-earlier-list { display: grid; gap: 8px; }
+.wb-earlier-list[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) { .wb-task-mark, .wb-earlier-mark { transition: none; } }
 
 @media (max-width: 899px) {
-  .wb-task-group-head, .wb-task-toggle, .wb-task-retry { min-height: 44px; }
+  .wb-task-group-head, .wb-task-toggle, .wb-task-retry, .wb-earlier-toggle { min-height: 44px; }
   .wb-task-inbox, .wb-task-request a, .wb-task-paths a { display: inline-flex; align-items: center; min-height: 44px; }
 }
 

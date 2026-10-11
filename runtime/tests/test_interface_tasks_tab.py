@@ -322,8 +322,8 @@ def test_a_row_expands_into_its_runs_newest_first_and_task_is_read_once_per_row(
     assert got["collapsed"] == ["false", True]
     e = got["expanded"]
     assert e["aria"] == "true" and e["hidden"] is False
-    assert [r["Run"] for r in e["runs"]] == ["#3 eng-implement 1.0.0", "#2 eng-implement 1.0.0"], "newest first"
-    assert e["runs"][0]["Failure"] == "Refused" and e["runs"][0]["Model"] == "model-a" and e["runs"][1]["Failure"] == "Timed out"
+    assert [r["Run"] for r in e["runs"]] == ["#3 eng-implement 1.0.0"], "the last run is the only one drawn until the earlier attempts are opened (A-72)"
+    assert e["runs"][0]["Failure"] == "Refused" and e["runs"][0]["Model"] == "model-a"
     assert all(r["Cost"] == "unknown" for r in e["runs"]), "an unknown cost is unknown, never $0"
     assert e["readsBefore"] == 1 and e["readsAfter"] == 1, "the tab read the body once; the expand did not read it again"
     assert got["readsAfterToggles"] == 1, "collapsing and expanding again reads nothing"
@@ -497,3 +497,115 @@ def test_the_tasks_tab_sends_only_retry_and_go_ahead_through_its_environment_and
         assert forbidden not in text and forbidden not in MODEL_FILE.read_text(encoding="utf-8"), forbidden
     for target in re.findall(r"href: ([^,}]+)", text):
         assert target.strip().startswith("env.links."), f"tasks-tab.js links only through the links its view builds with the router: {target}"
+
+
+# --- A-72: "This run" and "Earlier attempts (n)" ---------------------------------------------------------------------------------
+
+EARLIER = r"""
+import { FakeNode, settle, find, all } from "@FAKE@";
+import { setToken } from "@JS@/token.js";
+import { createTasksTab } from "@JS@/floor/tasks-tab.js";
+import { splitRuns } from "@JS@/floor/tasks-model.js";
+
+setToken("t".repeat(40));
+const P = "0123456789ab";
+const NOW = new Date("2026-10-08T12:00:00Z");
+const bodies = new Map();
+globalThis.fetch = async (url) => {
+  const m = String(url).match(/\/tasks\/(\d+)$/);
+  const body = m ? bodies.get(Number(m[1])) : null;
+  return { ok: Boolean(body), status: body ? 200 : 404, json: async () => body || { error: "not_found", message: "no" } };
+};
+const text = (n) => n.textContent;
+const task = (id, state) => ({ id, key: `k${id}`, title: `Task ${id}`, skill: "eng-implement", state, note: null, agent: "engineering", requestId: 1 });
+const run = (id, extra = {}) => ({ id, skill: "eng-implement", skill_version: "1.0.0", model: "model-a", status: "ok", ending: "done", attempts: 1, started_at: "2026-10-08T11:00:00Z", duration_ms: 42000, tokens: 1200, cost_usd: 0.1, ...extra });
+const failed = (id, error) => run(id, { status: "failed", failure: "adapter", ending: null, cost_usd: null, error });
+const body = (t, runs) => ({ task: { id: t.id, state: t.state, created_at: "2026-10-08T08:00:00Z", updated_at: "2026-10-08T10:00:00Z" }, runs, pending: [] });
+const out = {};
+const env = { project: P, now: () => NOW, refresh() {}, api: { retry: async () => ({}) }, links: { request: () => "#", inbox: () => "#", open: () => "#" } };
+const list = [task(1, "done"), task(2, "running"), task(3, "failed")];
+bodies.set(1, body(list[0], [run(1)]));
+bodies.set(2, body(list[1], [failed(10, "the adapter said <b>no</b>"), run(11, { status: "running", ending: null, cost_usd: null })]));          // stored oldest first
+bodies.set(3, body(list[2], [run(20), failed(21, "first error"), failed(22, "second error")]));
+const data = { tasks: list.slice().sort((a, b) => b.id - a.id), requests: [{ id: 1, title: "R", state: "ready" }], pending: [], loading: false };
+const tab = createTasksTab(env);
+tab.update(data);
+await settle();
+tab.update(data);
+const li = (id) => all(tab.el, "li.wb-task").find((n) => n.attrs["data-task"] === String(id));
+const open = async (id) => { li(id).querySelector("button.wb-task-toggle").click(); await settle(); tab.update(data); };
+const facts = (d) => Object.fromEntries(all(d, "dt").map((t, i) => [text(t), text(all(d, "dd")[i])]));
+const shape = (id) => {
+  const row = li(id);
+  const toggle = row.querySelector("button.wb-earlier-toggle");
+  const listNode = row.querySelector(".wb-earlier-list");
+  return {
+    heads: all(row, ".wb-runs-head").map(text),
+    blocks: all(row, "dl.wb-run").length,
+    this: facts(row.querySelector(".wb-task-detail").children.find((c) => c.tagName === "DL")),
+    toggle: toggle ? { text: text(toggle), aria: toggle.attrs["aria-expanded"], controls: toggle.attrs["aria-controls"], muted: (toggle.attrs.class || "").includes("wb-muted") } : null,
+    list: listNode ? { id: listNode.attrs.id, hidden: listNode.hidden, runs: all(listNode, "dl.wb-run").map((d) => facts(d)) } : null,
+  };
+};
+
+// one run: the heading and the run, no disclosure
+await open(1);
+out.one = shape(1);
+
+// a running run with an earlier failed one: closed by default, then opened, then closed again
+await open(2);
+out.running = { closed: shape(2) };
+li(2).querySelector("button.wb-earlier-toggle").click();
+await settle();
+out.running.opened = shape(2);
+out.running.markup = [...li(2).walk()].filter((n) => n.tagName === "B").length;
+tab.update(data);                                       // a poll with the same data keeps the choice
+out.running.afterPoll = shape(2).toggle.aria;
+li(2).querySelector("button.wb-earlier-toggle").click();
+await settle();
+out.running.closedAgain = shape(2);
+
+// no run in progress: the last run is "This run"; the earlier ones are newest first
+await open(3);
+li(3).querySelector("button.wb-earlier-toggle").click();
+await settle();
+out.last = shape(3);
+
+// the pure split
+out.split = [splitRuns([]), splitRuns([{ id: 1, status: "ok" }]), splitRuns([{ id: 3, status: "failed" }, { id: 2, status: "running" }, { id: 1, status: "failed" }]), splitRuns(null)]
+  .map((s) => [s.thisRun ? s.thisRun.id : null, s.earlier.map((r) => r.id)]);
+console.log(JSON.stringify(out));
+"""
+
+
+@needs_node
+def test_one_run_is_drawn_under_this_run_with_no_disclosure(tmp_path):
+    got = run_node(tmp_path, EARLIER)["one"]
+    assert got["heads"] == ["This run"] and got["blocks"] == 1 and got["toggle"] is None and got["list"] is None
+    assert got["this"]["Run"] == "#1 eng-implement 1.0.0"
+
+
+@needs_node
+def test_the_running_run_is_this_run_and_the_earlier_failed_one_waits_behind_a_closed_disclosure_that_opens(tmp_path):
+    got = run_node(tmp_path, EARLIER)["running"]
+    closed = got["closed"]
+    assert closed["heads"] == ["This run"] and closed["this"]["Run"] == "#11 eng-implement 1.0.0" and closed["this"]["Status"] == "Running"
+    assert closed["blocks"] == 1, "the failed run is not drawn while the disclosure is closed"
+    assert closed["toggle"]["text"] == "Earlier attempts (1)" and closed["toggle"]["aria"] == "false" and closed["toggle"]["muted"] is True
+    assert closed["toggle"]["controls"] == closed["list"]["id"] and closed["list"]["hidden"] is True and closed["list"]["runs"] == []
+    opened = got["opened"]
+    assert opened["toggle"]["aria"] == "true" and opened["list"]["hidden"] is False and opened["blocks"] == 2
+    [earlier] = opened["list"]["runs"]
+    assert earlier["Run"] == "#10 eng-implement 1.0.0" and earlier["Status"] == "Failed" and earlier["Failure"] == "The adapter failed"
+    assert earlier["Error"] == "the adapter said <b>no</b>", "the error is text, never markup"
+    assert got["markup"] == 0 and got["afterPoll"] == "true", "a poll with the same data keeps the person's choice"
+    assert got["closedAgain"]["toggle"]["aria"] == "false" and got["closedAgain"]["blocks"] == 1
+
+
+@needs_node
+def test_with_no_run_in_progress_the_last_run_is_this_run_and_the_earlier_ones_follow_newest_first(tmp_path):
+    got = run_node(tmp_path, EARLIER)
+    last = got["last"]
+    assert last["this"]["Run"] == "#22 eng-implement 1.0.0" and last["toggle"]["text"] == "Earlier attempts (2)"
+    assert [r["Run"] for r in last["list"]["runs"]] == ["#21 eng-implement 1.0.0", "#20 eng-implement 1.0.0"]
+    assert got["split"] == [[None, []], [1, []], [2, [3, 1]], [None, []]], "a running run wins over a newer one; the rest keep their order"

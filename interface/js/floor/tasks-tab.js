@@ -45,6 +45,7 @@ export function createTasksTab(env) {
   const bodies = new Map();        // task id -> {body, state, at}
   const reading = new Set();
   const expanded = new Set();
+  const earlierOpen = new Set();   // task ids whose "Earlier attempts" disclosure is open (closed by default)
   const opened = new Map();        // group id -> the person's choice, over "open when it holds a task"
   const actions = createTaskActions({ project: env.project, api: env.api, refresh: () => env.refresh(), redraw: () => draw(), done: (id) => bodies.delete(id) });
   let shown = "";
@@ -107,7 +108,22 @@ export function createTasksTab(env) {
       return cached && !reading.has(task.id) ? h("p", { class: "wb-empty-line", text: "The runs could not be read." }) : busyLine("Loading the runs...");
     }
     if (!row.runs.length) return h("p", { class: "wb-empty-line", text: "No run yet." });
-    return [h("span", { class: "wb-sec-head wb-runs-head", text: "Runs, newest first" }), ...row.runs.map(runBlock)];
+    // A-72: the run in progress (else the last run) is "This run"; the earlier attempts, failed ones with their error, wait behind a closed disclosure, so the old failure
+    // is not read as the state of the task. With one run there is no disclosure.
+    const parts = [h("span", { class: "wb-sec-head wb-runs-head", text: "This run" }), runBlock(row.thisRun)];
+    if (row.earlier.length) {
+      const isOpen = earlierOpen.has(task.id);
+      const listId = `wb-earlier-list-${task.id}`;
+      const toggle = h("button", { class: "pui-btn pui-link wb-earlier-toggle wb-muted", type: "button", "data-key": `earlier-${task.id}`, "aria-expanded": isOpen ? "true" : "false", "aria-controls": listId, text: `Earlier attempts (${row.earlier.length})` },
+        h("span", { class: "wb-earlier-mark", "aria-hidden": "true" }, icon("chevron-down", 14)));
+      toggle.addEventListener("click", () => {
+        if (earlierOpen.has(task.id)) earlierOpen.delete(task.id);
+        else earlierOpen.add(task.id);
+        draw();
+      });
+      parts.push(toggle, h("div", { class: "wb-earlier-list", id: listId, hidden: !isOpen }, isOpen ? row.earlier.map(runBlock) : null));
+    }
+    return parts;
   }
 
   /**
@@ -171,7 +187,7 @@ export function createTasksTab(env) {
     const now = env.now();
     // the signature is everything a row draws: a poll that changed nothing draws nothing, so it never takes the focus away
     const key = JSON.stringify([groups.map((g) => [g.id, g.count, g.tasks.map((t) => [t.id, t.title, t.skill, t.state, t.note, t.requestId, t.waiting_for])]), last.requests.map((r) => [r.id, r.title]),
-      last.pending.map((p) => [p.id, p.task_id]), [...bodies].map(([id, v]) => [id, Boolean(v.body), v.body ? [v.body.runs, v.body.pending, v.body.task] : null]), [...expanded].sort(), [...opened], actions.signature(),
+      last.pending.map((p) => [p.id, p.task_id]), [...bodies].map(([id, v]) => [id, Boolean(v.body), v.body ? [v.body.runs, v.body.pending, v.body.task] : null]), [...expanded].sort(), [...earlierOpen].sort(), [...opened], actions.signature(),
       [...reading], last.tasks.map((t) => (bodies.get(t.id) && bodies.get(t.id).body ? rowOf(t, { requests: last.requests, pending: last.pending, body: bodies.get(t.id).body, now }).age : ""))]);
     if (key === shown) return;
     shown = key;
