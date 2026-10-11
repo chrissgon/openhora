@@ -530,7 +530,8 @@ def _run(ctx: dict, task: dict, tier: str | None = None) -> dict:
                 return fail("internal", code["refused"])
         current = (code or {}).get("current")
         gate = known.get("gate")
-        kind = _effect_kind(gate, meta["requires"])  # the module of the gate's effect kind; None when the word or the skill names none
+        # the module of the gate's effect kind; None when the word or the skill names none
+        kind = _effect_kind(gate, meta["requires"])
         if kind is not None:
             refused = kind.refusal(cfg, current)
             if refused:
@@ -621,8 +622,8 @@ def _run(ctx: dict, task: dict, tier: str | None = None) -> dict:
         decision["payload"]["gate"] = gate_found if ending == "gate" else {**gate_found, "recovered": False,
                                                                             "why": f"the run ended {ending}, not at its gate"}
     if ending == "gate" and gate_found is not None:
-        decision = _effect_or_review(ctx, task, request, dest, decision, gate_found, made, code, known["gate"]["effect"],
-                                   meta["requires"])
+        decision = _effect_or_review(ctx, task, request, dest, decision, gate_found, made, code,
+                                     known["gate"]["effect"], meta["requires"])
     if mandatory:
         decision["payload"]["mandatory_milestone"] = True
         if cut:  # the sentence stays at the end of a body that was cut
@@ -634,7 +635,7 @@ def _run(ctx: dict, task: dict, tier: str | None = None) -> dict:
     return out
 
 
-def _effect_kind(gate, requires=()):
+def _effect_kind(gate, requires):
     """The module of the effect kind a manifest's gate names (gate.effect, through effects.gate_kind), or None when
     there is no gate, its word names no kind, the kind is not one of the gate path (GATE), or the skill does not
     declare the class of provider that executes the kind (`requires`): a design skill's `create` is no pull request.
@@ -643,7 +644,7 @@ def _effect_kind(gate, requires=()):
 
 
 def _effect_or_review(ctx: dict, task: dict, request: dict, dest: str, decision: dict, gate_found: dict, made, code,
-                      effect: str, requires=()) -> dict:
+                      effect: str, requires) -> dict:
     """The pending decision a run that stopped at its gate opens: an `effect` (the effect document's hash in
     payload_sha256) when the payload was recovered and parsed, its base and head are the configuration's, the
     configuration has code, and the change set it would commit is not blocked; else the review, its body starting

@@ -67,8 +67,8 @@ A kind of one path alone has only that path's names. EFFECT_KEYS and RESERVED_FL
 document a handler hands over and the flags the operation adds and a handler never may.
 
 Public names: recover_payload(reply, tmp_dir, readable), EffectError, KINDS, EFFECT_KEYS, RESERVED_FLAGS,
-module_for(kind), gate_kind(word, requires), policy_kinds(), write(run_dir, doc), read_document(effect_file, sha256), provider_call(provider,
-args[, run]), approval_row(approval, doc).
+module_for(kind), gate_kind(word, requires), policy_kinds(), write(run_dir, doc), read_document(effect_file, sha256),
+provider_call(provider, args[, run]), approval_row(approval, doc).
 
 Usage (a library): python3 runtime/effects.py --help
 
