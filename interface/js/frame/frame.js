@@ -199,6 +199,7 @@ export function createFrame(root, handlers) {
 
   // The camera buttons stand in the KPI column, under its last card (R-9): the frame writes where that is, as the one number the stylesheet needs.
   const placeCamera = () => {
+    if (typeof kpis.el.getBoundingClientRect !== "function") return;      // a document with no layout (a test's) places nothing
     const box = kpis.el.getBoundingClientRect();
     const scene = sceneArea.getBoundingClientRect();
     const bottom = box.height > 0 ? box.bottom - scene.top : 0;
@@ -210,6 +211,7 @@ export function createFrame(root, handlers) {
     cameraWatch = new ResizeObserver(placeCamera);
     cameraWatch.observe(kpis.el);
     cameraWatch.observe(sceneArea);
+    cameraWatch.observe(noticeBox);   // the band moves the stack and the tiles under it without resizing them; it is also placed from notice() below, at once
     cameraWatch.observe(float);      // on a phone the tracking bar above the tiles changes height (a title wraps, a step list grows) and moves them without resizing them (F1-D11)
   }
 
@@ -222,6 +224,17 @@ export function createFrame(root, handlers) {
       if (box.height > 0) bottom = Math.round(box.bottom - frame.getBoundingClientRect().top);
     }
     frame.style.setProperty("--wb-notice-bottom", `${bottom}px`);
+    // a band that is taller than its box on a phone (capped at 40 percent of the screen, it scrolls) is a region the keyboard can scroll: a browser that does not focus a scroller by itself (Safari) needs a tab stop
+    const scrolls = !noticeBox.hidden && noticeBox.scrollHeight > noticeBox.clientHeight + 1;
+    if (scrolls) {
+      noticeBox.setAttribute("tabindex", "0");
+      noticeBox.setAttribute("role", "region");
+      noticeBox.setAttribute("aria-label", "Notice, scrolls");
+    } else {
+      noticeBox.removeAttribute("tabindex");
+      noticeBox.removeAttribute("role");
+      noticeBox.removeAttribute("aria-label");
+    }
   };
   let noticeWatch = null;
   if (typeof ResizeObserver === "function") {
@@ -342,6 +355,7 @@ export function createFrame(root, handlers) {
       frame.classList.toggle("has-notice", Boolean(spec));
       if (!spec) {
         placeNotice();
+        placeCamera();
         return;
       }
       const band = h("div", { class: `wb-notice${spec.kind === "error" ? " is-error pui-soft pui-error" : ""}`, role: spec.kind === "error" ? "alert" : "status" });
@@ -359,6 +373,7 @@ export function createFrame(root, handlers) {
       for (const extra of spec.more || []) band.append(sentence(extra.text, extra.command, true));
       noticeBox.append(band);
       placeNotice();
+      placeCamera();      // the band pushes the tiles down on a phone: the camera buttons go with them
     },
     /** Tell a screen reader: at most one sentence per two seconds. */
     announce(text) {

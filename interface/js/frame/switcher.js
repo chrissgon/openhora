@@ -43,6 +43,7 @@ export function createSwitcher({ onSelect, onForgetToken, onOpen, onAdd = () => 
   let selected = null;
   let active = 0;
   let open = false;
+  let byKeyboard = false;      // the list was opened, or is being driven, from the keyboard: its active row wears the ring (a browser that does not match :focus-visible on a script's focus() still gets it)
 
   const indexOfSelected = () => Math.max(0, projects.findIndex((p) => p.id === selected));
 
@@ -59,6 +60,7 @@ export function createSwitcher({ onSelect, onForgetToken, onOpen, onAdd = () => 
     card.hidden = !open;
     chevron.setAttribute("aria-expanded", String(open));
     chevron.classList.toggle("is-open", open);
+    card.classList.toggle("is-keyboard", open && byKeyboard);
     if (open) {
       onOpen();
       setActive(indexOfSelected());
@@ -81,14 +83,18 @@ export function createSwitcher({ onSelect, onForgetToken, onOpen, onAdd = () => 
     setOpen(false, { focus: false });
     onSelect(next.id);
   });
+  chevron.addEventListener("pointerdown", () => { byKeyboard = false; });
   chevron.addEventListener("click", () => setOpen(!open));
   chevron.addEventListener("keydown", (event) => {
+    byKeyboard = true;
     if (event.key === "ArrowDown") {
       event.preventDefault();
       setOpen(true);
     }
   });
   list.addEventListener("keydown", (event) => {
+    byKeyboard = true;
+    card.classList.toggle("is-keyboard", true);
     if (event.key === "ArrowDown") { event.preventDefault(); setActive(active + 1); }
     else if (event.key === "ArrowUp") { event.preventDefault(); setActive(active - 1); }
     else if (event.key === "Home") { event.preventDefault(); setActive(0); }

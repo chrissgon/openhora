@@ -34,17 +34,30 @@ export function createProjectsPanel(env) {
   let reading = false;
   const pending = () => head === null || reading;
   const readingNote = () => h("p", { class: "wb-card-note wb-muted wb-reading", text: "Reading the start line of the service..." });
+  // A read that never answers must not leave the panel on "Reading..." for the session: after START_WAIT_MS (env.startWaitMs in a test) the panel gives up waiting, shows the placeholder with
+  // its note, and asks again the next time it opens. An answer that comes late is still taken, and the panel is drawn again with it.
+  const START_WAIT_MS = Number.isFinite(env.startWaitMs) ? env.startWaitMs : 5000;
   async function readHead() {
     if (head || reading) return;
     reading = true;
     head = "";
-    try {
-      head = startHead(await env.readStart());
-    } catch (e) {
-      head = "";
-    }
+    const answer = Promise.resolve().then(() => env.readStart()).then((start) => startHead(start), () => "");
+    let timer = null;
+    const gaveUp = new Promise((resolve) => { timer = setTimeout(() => resolve(null), START_WAIT_MS); });
+    const got = await Promise.race([answer, gaveUp]);
+    clearTimeout(timer);
     reading = false;
-    draw();
+    if (got === null) {
+      answer.then((late) => {
+        if (late && !head) {
+          head = late;
+          draw(true);
+        }
+      });
+    } else {
+      head = got;
+    }
+    draw(true);      // the person may be typing the folder: the field keeps its focus and caret when the read lands
   }
 
   function close() {

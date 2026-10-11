@@ -120,7 +120,9 @@ def test_the_switcher_is_muted_and_disabled_while_loading_and_the_card_is_its_fo
 
 def test_the_row_the_arrow_keys_are_on_has_its_ring_only_for_the_keyboard():
     css = css_file("frame")
-    assert ".wb-listbox:focus-visible .wb-option.is-active { box-shadow: inset 0 0 0 2px var(--pui-theme); }" in css, "F1-D13: the ring is drawn while the list has the focus by keyboard"
+    assert ".wb-listbox:focus-visible .wb-option.is-active, .wb-listbox-card.is-keyboard .wb-option.is-active { box-shadow: inset 0 0 0 2px var(--pui-theme); }" in css, \
+        "F1-D13: the ring is drawn while the list has the focus by keyboard (:focus-visible, or the class the switcher sets when a key opened or drove it)"
+    assert "wb-listbox-empty" not in css, "the empty row is not drawn any more, so its rule is gone"
     assert not re.search(r"(^|\n)\.wb-option\.is-active \{", css), "no ring for the active row on a click"
     assert ".wb-listbox:focus-visible { outline: none; }" in css
 
@@ -323,3 +325,156 @@ def test_the_command_panel_says_it_is_reading_the_start_line_and_asks_again_afte
     assert got["reopened"] == {"reads": 1, "codes": got["read"]["codes"]}, "a head that was read stays: no second read"
     assert got["first"]["couldNot"] is True and got["first"]["codes"][0].startswith("python3 <the workbench folder>/runtime/service.py"), "an empty answer ends in the placeholder and the note"
     assert got["second"]["asked"] == 2 and got["second"]["couldNot"] is False and got["second"]["codes"] == got["read"]["codes"], "an empty answer is asked again when the panel opens again"
+
+
+# --- the review of #325 ---------------------------------------------------------------------------------------------------------------------------
+
+KEYBOARD = r"""
+import { FakeNode, find } from "@FAKE@";
+import { createSwitcher } from "@JS@/frame/switcher.js";
+
+const sw = createSwitcher({ onSelect() {}, onForgetToken() {}, onOpen() {} });
+const root = new FakeNode("div");
+root.append(sw.el);
+const p = (id) => ({ id, name: id, accepted: true, badge: 0, sub: "" });
+sw.update({ projects: [p("a"), p("b")], selectedId: "a", heading: "Projects" });
+const chevron = find(sw.el, ".wb-switch-chevron");
+const card = find(sw.el, ".wb-listbox-card");
+const fire = (n, type, event = {}) => (n.listeners[type] || []).forEach((fn) => fn({ preventDefault() {}, stopPropagation() {}, ...event }));
+const out = {};
+fire(chevron, "pointerdown");
+chevron.click();
+out.pointer = [!card.hidden, card.cls().includes("is-keyboard"), find(sw.el, ".is-active") !== null];
+chevron.click();
+fire(chevron, "keydown", { key: "ArrowDown" });
+out.key = [!card.hidden, card.cls().includes("is-keyboard"), find(sw.el, ".is-active") !== null];
+chevron.click();       // closed
+fire(chevron, "keydown", { key: "Enter" });
+chevron.click();       // Enter on a button is a click
+out.enter = [!card.hidden, card.cls().includes("is-keyboard")];
+chevron.click();
+fire(chevron, "pointerdown");
+chevron.click();
+out.pointerAgain = [!card.hidden, card.cls().includes("is-keyboard")];
+console.log(JSON.stringify(out));
+"""
+
+
+@needs_node
+def test_a_list_opened_from_the_keyboard_marks_itself_so_the_ring_shows_in_every_browser(tmp_path):
+    got = run_view(tmp_path, KEYBOARD)
+    assert got["pointer"] == [True, False, True], "a click opens it with the active row set and no keyboard class: no ring"
+    assert got["key"] == [True, True, True], "ArrowDown on the chevron opens it with the active row set and the keyboard class"
+    assert got["enter"] == [True, True], "Enter or Space (a click after a key) counts as the keyboard"
+    assert got["pointerAgain"] == [True, False], "a later click clears it"
+
+
+NOTICE = r"""
+import { FakeNode } from "@FAKE@";
+import { createFrame } from "@JS@/frame/frame.js";
+
+const root = new FakeNode("div");
+const frame = createFrame(root, { onSelectProject() {}, onSelectRequest() {}, onForgetToken() {}, onRetry() {} });
+const rect = (left, top, right, bottom) => ({ left, top, right, bottom, width: right - left, height: bottom - top });
+const written = [];
+frame.el.style.setProperty = (name, value) => written.push([name, value]);
+frame.el.getBoundingClientRect = () => rect(0, 0, 375, 800);
+frame.sceneHost.parent.getBoundingClientRect = () => rect(0, 0, 375, 700);
+let tilesTop = 100;
+frame.kpis.el.getBoundingClientRect = () => rect(8, tilesTop, 367, tilesTop + 32);
+const out = {};
+frame.notice(null);
+out.none = written.filter((w) => w[0] === "--wb-cam-top").slice(-1)[0];
+// the band appears and pushes the tiles down: the camera is placed again by the same call, at once
+tilesTop = 300;
+frame.noticeBox.getBoundingClientRect = () => rect(8, 8, 367, 290);
+frame.noticeBox.scrollHeight = 600;
+frame.noticeBox.clientHeight = 280;
+frame.notice({ kind: "error", lead: "tinykv-docs is not accepted yet", text: "long", command: "uv run x" });
+out.band = written.filter((w) => w[0] === "--wb-cam-top").slice(-1)[0];
+out.scroller = [frame.noticeBox.getAttribute("tabindex"), frame.noticeBox.getAttribute("role"), frame.noticeBox.getAttribute("aria-label")];
+// a band that fits is not a tab stop
+frame.noticeBox.scrollHeight = 100;
+frame.noticeBox.clientHeight = 100;
+frame.notice({ kind: "error", lead: "short", retry: true });
+out.fits = [frame.noticeBox.getAttribute("tabindex"), frame.noticeBox.getAttribute("role"), frame.noticeBox.getAttribute("aria-label")];
+console.log(JSON.stringify(out));
+"""
+
+
+@needs_node
+def test_the_camera_is_placed_again_when_the_band_appears_and_a_scrolling_band_is_a_tab_stop(tmp_path):
+    got = run_scene_dom(tmp_path, NOTICE)
+    assert got["band"] == ["--wb-cam-top", "342px"], "F1-D11 and the review: the band moves the tiles, and the same notice() call writes where the camera goes (tiles' bottom 332 + 10)"
+    assert got["scroller"] == ["0", "region", "Notice, scrolls"], "a capped band that scrolls can be scrolled from the keyboard in Safari too"
+    assert got["fits"] == [None, None, None]
+    frame = (JS / "frame" / "frame.js").read_text(encoding="utf-8")
+    assert "cameraWatch.observe(noticeBox);" in frame
+    css = css_file("frame")
+    assert re.search(r"\.wb-camera-tools \{ left: auto; right: 8px; flex-direction: row; \}", "\n".join(phone_blocks(css))), \
+        "on the phone the camera buttons are a row at the right edge, clear of the Building's floor card and plates at the left"
+
+
+PANEL_SLOW = r"""
+import { FakeNode, settle, find, all, textOf } from "@FAKE@";
+import { createProjectsPanel } from "@JS@/views/city-projects.js";
+
+const START = "uv run --with keyring==25.7.0 python3 /opt/ck/runtime/service.py --project /work/shop";
+const projects = [{ id: "a".repeat(12), name: "shop", folder: "/work/shop" }, { id: "b".repeat(12), name: "blog", folder: "/work/blog" }];
+const copy = { clipboard: null, select: () => false, later: () => {} };
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const codes = (p) => all(p.el, ".wb-command-code").map(textOf);
+const notes = (p) => all(p.el, ".wb-card-note").map(textOf);
+const out = {};
+
+// a read that never answers: the panel gives up after startWaitMs, shows the placeholder and its note, and a second opening reads again
+let reads = 0;
+const never = createProjectsPanel({ readStart: () => { reads += 1; return new Promise(() => {}); }, startWaitMs: 30, copy });
+never.setProjects(projects);
+never.openLeave(projects[1].id);
+await settle();
+out.during = { reading: !!find(never.el, ".wb-reading"), codes: codes(never).length };
+await wait(80);
+out.gaveUp = { reading: !!find(never.el, ".wb-reading"), couldNot: notes(never).some((n) => n.includes("could not read")), code: codes(never)[0] };
+never.close();
+never.openLeave(projects[1].id);
+await wait(5);
+out.again = { reads, reading: !!find(never.el, ".wb-reading") };
+
+// an answer that comes after the panel gave up is still taken
+let release;
+const late = createProjectsPanel({ readStart: () => new Promise((resolve) => { release = () => resolve(START); }), startWaitMs: 20, copy });
+late.setProjects(projects);
+late.openLeave(projects[1].id);
+await wait(60);
+out.beforeLate = codes(late)[0];
+release();
+await wait(20);
+out.afterLate = codes(late)[0];
+
+// the person types the folder while the read is out: the field keeps its focus and caret when it lands
+let done;
+const typing = createProjectsPanel({ readStart: () => new Promise((resolve) => { done = () => resolve(START); }), startWaitMs: 500, copy });
+typing.setProjects(projects);
+typing.openAdd();
+const folder = () => find(typing.el, "input[data-key=project-folder]");
+folder().focus();
+folder().value = "/work/new";
+folder().listeners.input.forEach((fn) => fn());
+await settle();
+done();
+await wait(20);
+out.typing = { focus: document.activeElement === folder(), value: folder().value, codes: codes(typing).length };
+console.log(JSON.stringify(out));
+"""
+
+
+@needs_node
+def test_the_command_panel_gives_up_on_a_read_that_never_answers_and_keeps_the_typing_focus(tmp_path):
+    got = run_node(tmp_path, PANEL_SLOW)
+    assert got["during"] == {"reading": True, "codes": 0}
+    assert got["gaveUp"]["reading"] is False and got["gaveUp"]["couldNot"] is True and got["gaveUp"]["code"].startswith("python3 <the workbench folder>/runtime/service.py"), \
+        "a read that never answers ends in the placeholder and its note, not in \"Reading...\" for the session"
+    assert got["again"] == {"reads": 2, "reading": True}, "opened again, it asks again"
+    assert got["beforeLate"].startswith("python3 <the workbench folder>") and got["afterLate"].startswith("uv run --with keyring==25.7.0 python3 /opt/ck/runtime/service.py"), "a late answer is taken"
+    assert got["typing"] == {"focus": True, "value": "/work/new", "codes": 1}, "the field keeps its focus and its text when the read lands, and the line is drawn"
