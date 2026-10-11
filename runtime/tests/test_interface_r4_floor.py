@@ -193,7 +193,8 @@ def test_the_agent_tab_stops_and_supervises_with_two_buttons_shows_the_held_sent
     assert got["supervised"] == [False, True], "Supervise is off at supervised; Stop agent is still on"
     assert got["supervise"] == [["setMode", "p", "engineering", "supervised"]]
     assert "changed while this call was running" in got["refused"]
-    assert got["notAccepted"]["code"].endswith("--sha256 " + "e" * 64) and got["notAccepted"]["copy"] == 1
+    assert got["notAccepted"]["code"] == 0 and got["notAccepted"]["copy"] == 0 and got["notAccepted"]["text"].endswith("Accept the configuration in the terminal (the step below)."), \
+        "A-62: the result points at the accept step and repeats no command: the step the tab draws while the configuration waits carries it"
     assert got["unaccepted"] == {"buttons": [True, True], "waitingLine": True, "meters": 3, "formHidden": False}, "not accepted: the panel keeps its data and its buttons are off"
     assert got["held"]["text"].startswith("Held: The service is not dispatching tasks.") and got["held"]["code"].startswith("uv run --with keyring==25.7.0 python3 /ck/runtime/cli.py run-next")
     assert got["held"]["copy"] == 1
@@ -207,7 +208,7 @@ def test_the_agent_tab_shows_a_command_for_each_wider_mode_and_for_the_credentia
     modes = ["milestones", "autonomous", "autonomous-with-policy"]
     cmd = lambda m: f"python3 /ck/runtime/cli.py set-mode --project /work/shop --agent engineering --mode {m}"
     t = got["three"]
-    assert t["line"] == "A wider mode is set in the terminal, not on this page: copy the command and run it." and t["label"] == "Mode" and t["labelFor"] is True, "R-35: the label over the select, the soft warn notice"
+    assert t["line"] == "Run this command in the terminal: it sets the mode and accepts it." and t["label"] == "Mode" and t["labelFor"] is True, "R-35: the label over the select, the soft warn notice; A-62, M-21: one step, the service's command sets the mode and accepts it"
     assert t["options"] == modes and t["values"] == [cmd(m) for m in modes], "R-35: a select of the wider modes, each option holding the service's command verbatim, in its order"
     assert t["code"] == cmd("milestones") and got["chosen"] == cmd("autonomous"), "R-35: the command under the select follows the chosen mode"
     assert t["copies"] == 1 and t["icon"] is True and "pui-soft" in t["noteClass"] and "pui-warn" in t["noteClass"]
@@ -712,6 +713,80 @@ def test_every_notice_the_page_builds_is_the_soft_style_the_lobby_s_cancel_dialo
     assert not bad, f"a notice that is not the soft style (R-11), which no stylesheet draws: {bad}"
     assert 'class: "notice pui-soft pui-error wb-card-error"' in (INTERFACE / "js" / "views" / "lobby-request.js").read_text(encoding="utf-8")
     assert (INTERFACE / "js" / "views" / "placeholder.js").read_text(encoding="utf-8").count('class: "notice pui-soft pui-error"') == 3
+
+
+# --- R4-A4b (A-61, M-19): the Agent tab's sections breathe ---------------------------------------------------------------------------------------------------------
+
+def test_the_agent_tabs_sections_keep_the_tabs_gap_above_the_runs_total_the_other_tasks_and_the_hand_over_box():
+    rules = {}
+    for selector, declarations in css_rules():
+        rules.setdefault(selector.strip(), declarations)
+    root = rules[".wb-agent-tab, .wb-desk-tab, .wb-inbox, .wb-tasks-tab"]
+    assert root.get("--wb-tab-gap") == "14px" and root.get("gap") == "var(--wb-tab-gap)", "the tab's gap is one property: the sections of the tab and of its body read the same"
+    body = rules[".wb-agent-body"]
+    assert body.get("display") == "grid" and body.get("gap") == "var(--wb-tab-gap, 14px)", "A-61: the body that holds the meters, the runs total, the current task, the others and the hand-over box has the tab's gap between them"
+    assert rules[".wb-agent-body > :empty"].get("display") == "none", "an empty section adds no gap"
+    assert rules[".wb-section"].get("gap") == "6px", "a section's heading keeps the smaller gap to its own rows"
+    source = (INTERFACE / "js" / "floor" / "agent-tab.js").read_text(encoding="utf-8")
+    assert 'h("div", { class: "wb-agent-body" }, waitingLine, metersBox, runsTotalLine, currentBox, othersBox, handBox)' in source, "the three gaps are above the runs total, the others (a .wb-section: heading and rows) and the hand-over box"
+    assert 'const othersBox = h("div", { class: "wb-section" })' in source
+
+
+# --- R4-A4b (A-62, M-20, M-21): how the mode comes back --------------------------------------------------------------------------------------------------------------
+
+MODE_STEPS = r"""
+import { FakeNode, settle, find, all } from "@FAKE@";
+import * as fm from "@JS@/floor-model.js";
+import { createAgentTab } from "@JS@/floor/agent-tab.js";
+
+const P = "0123456789ab";
+const text = (n) => (n ? n.textContent : null);
+const wider = (names) => names.map((m) => ({ mode: m, command: `python3 /ck/cli.py set-mode --project /work/shop --agent engineering --mode ${m} --accept` }));
+const agent = (mode, extra = {}) => ({ name: "engineering", pack: "x", enabled: true, mode, acting_mode: mode, max_runs_per_day: 6, max_usd_per_day: 2, runs_today: 0, usd_today: 0, runs_without_cost: 0, queued: 0, held: 0, ...extra });
+const task = { id: 4, key: "k", title: "T", skill: "s", state: "ready", note: null, agent: "engineering", requestId: 1, waiting_for: [] };
+const view = (a, error = null, accepted = true) => fm.floor({ projects: [{ id: P, name: "n", config: { accepted } }], details: { [P]: { status: { requests: [{ id: 1, title: "R", state: "ready", tasks: [task] }], pending: [], held: [] }, agents: [a], ...(error ? { error } : {}) } }, tasks: {}, loaded: true }, P, "engineering", {});
+const tab = createAgentTab({ project: P, agent: "engineering", api: { setMode: async () => ({}), retry: async () => ({}), goAhead: async () => ({}), handOver: async () => ({}) }, refresh() {}, now: () => new Date() });
+const out = {};
+const read = () => ({ modeLine: text(find(tab.el, ".wb-mode-line")), note: text(find(tab.el, ".wb-wider-note")), select: all(tab.el, ".wb-wider-box select").length, options: all(tab.el, ".wb-wider-box option").map(text),
+  step: text(find(tab.el, ".wb-accept-step .wb-card-line")), code: text(find(tab.el, ".wb-accept-step .wb-command-code")), copies: all(tab.el, ".wb-accept-step button.wb-copy").length });
+
+tab.update(view(agent("stopped", { wider: wider(["supervised", "milestones", "autonomous"]) })));
+await settle();
+out.stopped = read();
+tab.update(view(agent("supervised", { wider: wider(["milestones", "autonomous"]) })));
+await settle();
+out.chosen = read();
+const accept = "python3 /ck/cli.py accept-config --project /work/shop --sha256 " + "a".repeat(64);
+tab.update(view(agent("stopped", { wider: wider(["supervised", "milestones"]) }), { status: 412, word: "not_accepted", message: "not accepted", next: accept }, false));
+await settle();
+out.waiting = read();
+tab.update(view(agent("supervised", { wider: wider(["milestones"]) }), { status: 412, word: "not_accepted", message: "not accepted", next: null }, false));
+await settle();
+out.waitingNoCommand = read();
+tab.update(view(agent("stopped", { wider: wider(["supervised", "milestones"]) })));
+await settle();
+out.back = read();
+console.log(JSON.stringify(out));
+process.exit(0);
+"""
+
+
+@needs_node
+def test_the_agent_tab_says_how_a_stopped_agent_comes_back_runs_one_step_and_shows_the_accept_step_while_the_configuration_waits(tmp_path):
+    got = run_node(tmp_path, MODE_STEPS)
+    one = "Run this command in the terminal: it sets the mode and accepts it."
+    back = "To bring it back, choose supervised below and run its command in the terminal."
+    stopped = got["stopped"]
+    assert stopped["modeLine"] == f"Off, starts nothing. {back}", "A-62 (3): the stopped line says how to bring the agent back, in these words"
+    assert stopped["options"][0] == "supervised" and stopped["note"] == one and stopped["select"] == 1, "the select starts with supervised, and the block is one step"
+    assert got["chosen"]["note"] == one and got["chosen"]["modeLine"] == "Every review reaches you." and got["chosen"]["select"] == 1, "A-62, M-21 (1): a wider mode chosen is one step; no bring-back line off the stopped mode"
+    waiting = got["waiting"]
+    assert waiting["step"] == "The new mode takes effect once the configuration is accepted. Run this command in the terminal." and waiting["code"].endswith("--sha256 " + "a" * 64) and waiting["copies"] == 1, "A-62 (2): the accept step with its command (the service's, verbatim) and Copy"
+    assert waiting["select"] == 0 and waiting["note"] is None and back not in waiting["modeLine"], "no other set-mode is offered while the configuration waits, and the bring-back line gives way to that step"
+    assert got["waitingNoCommand"]["step"] == "The new mode takes effect once the configuration is accepted in the terminal." and got["waitingNoCommand"]["copies"] == 0 and got["waitingNoCommand"]["select"] == 0, "a refusal without a command says it without \"this command\" and builds none"
+    assert got["back"]["select"] == 1 and got["back"]["step"] is None and back in got["back"]["modeLine"], "once accepted, the select and the line come back"
+    source = (INTERFACE / "js" / "floor" / "agent-tab.js").read_text(encoding="utf-8")
+    assert "cli.py" not in source and "accept-config" not in source and "--accept" not in source, "the page builds no command: it shows what the service sent"
 
 
 # --- the ready floor: a task queued behind the one run at a time (M-24, A-65, R4-B6) -----------------------------------------------------------------

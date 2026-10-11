@@ -531,6 +531,8 @@ export function floor(snapshot, projectId, name, bodies = {}, options = {}) {
   return {
     found: true, view, row, agent, tasks, current, others: tasks.filter((t) => !current || t.id !== current.id), decisions, runs, currentBody,
     unaccepted: Boolean(row.unaccepted),
+    // A-62: while the configuration waits for acceptance the tab says so and shows the accept step; the command is the service's, as it gave it with the refusal (412), never built here
+    acceptNext: detail && detail.error && detail.error.status === 412 && typeof detail.error.next === "string" && detail.error.next.trim() ? detail.error.next : null,
     heldCurrent: holding ? { task_id: holding.task_id, reason: holding.reason, sentence: heldSentence(holding.reason), next: typeof holding.next === "string" && holding.next ? holding.next : null, ...(heldCommands(holding).length ? { commands: heldCommands(holding) } : {}) } : null,
     target: handOverTarget(tasks, current), runningBody: runningTask ? bodies[runningTask.id] || null : null,
     header: { title: `${row.label} agent`, sub: subParts.filter((p) => p !== null).join(" · "), icon: "building-2" },     // C-6; floor.html draws the building icon for every agent
