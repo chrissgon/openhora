@@ -1,0 +1,84 @@
+{
+  "flow": "website",
+  "title": "Website",
+  "tasks": [
+    {
+      "key": "prd",
+      "skill": "product-prd",
+      "title": "The website's PRD",
+      "text": "write the PRD of the website this request describes (docs/product/prd.md), from the request and the documents the project holds (docs/brand/, docs/business/ and the like when they exist). The website is the product this PRD describes: who the audience is, the one action a visitor should take, the pages, what success is and what is out of scope. Ask the person what only they can answer; never invent an audience or a goal.",
+      "depends_on": [],
+      "milestone": true
+    },
+    {
+      "key": "spec",
+      "skill": "product-feature-spec",
+      "title": "The website as a feature",
+      "text": "the PRD is done (docs/product/prd.md). Specify the website the request describes as one feature, docs/product/specs/website.md: every page, section by section, with its goal and its content and copy requirements; the responsive widths 1280 and 375; light and dark; motion only to show a state, and reduced motion; accessibility; the performance budget.",
+      "depends_on": [
+        "prd"
+      ],
+      "milestone": false
+    },
+    {
+      "key": "flows",
+      "skill": "design-ux-flows",
+      "title": "Site map and visitor paths",
+      "text": "the PRD and the feature specification are done (docs/product/prd.md and docs/product/specs/website.md). Define the site map, the page inventory with the regions and states of each page, and the visitor's paths from arrival to the one action, with the failure branches and the keyboard path: write docs/design/flows.md.",
+      "depends_on": [
+        "spec"
+      ],
+      "milestone": false
+    },
+    {
+      "key": "system",
+      "skill": "design-system",
+      "title": "Visual foundations",
+      "text": "the site map and the visitor's paths are done (docs/design/flows.md). Define the visual foundations the website is built from (colours with light and dark values, type, spacing, radii, elevation, grid and the components), from the brand documents the project holds (docs/brand/ when it exists; otherwise ask the person for the identity facts needed), and write the design system document in docs/design/, where the brief will read it.",
+      "depends_on": [
+        "flows"
+      ],
+      "milestone": false
+    },
+    {
+      "key": "brief",
+      "skill": "design-brief",
+      "title": "One brief for the whole website",
+      "text": "the design system and the site map are done (the design system document under docs/design/ and docs/design/flows.md), and so is the specification (docs/product/specs/website.md). Write one design brief for the whole website, docs/design/briefs/website.md: the creative direction, every page, all the copy, the animations, and for every claim how the page proves it. Name every SCREEN of docs/design/flows.md that the brief covers, one for each page of the site, so that the brief's lint can run for each page. Take every text from a document or from the person; never write final copy of your own.",
+      "depends_on": [
+        "system"
+      ],
+      "milestone": true
+    },
+    {
+      "key": "execute",
+      "skill": "design-execute",
+      "title": "The brief as code prototypes",
+      "text": "the design brief is done (docs/design/briefs/website.md). Run it in its code-prototype mode and write the results document docs/design/results/website.md. Round 1: one run for each direction of the brief. Ask the person which direction to keep. Round 2: the chosen direction complete, one static HTML page for each page of the site, rendered to PNG at 1280 and 375 pixels wide, in light and in dark.",
+      "depends_on": [
+        "brief"
+      ],
+      "milestone": true
+    },
+    {
+      "key": "handoff",
+      "skill": "design-handoff",
+      "title": "Hand the mockups to engineering",
+      "text": "the mockups are done and the person has chosen among them (docs/design/results/website.md and the pages under docs/design/results/website/), and so are the brief (docs/design/briefs/website.md), the design system document under docs/design/, the site map (docs/design/flows.md) and the specification (docs/product/specs/website.md). Write one hand-off for the artifact website, docs/design/handoff/website.md, with the exported HTML of the chosen direction as its reference (docs/design/handoff/website/export/) and a component row for the regions of every page of docs/design/flows.md.",
+      "depends_on": [
+        "execute"
+      ],
+      "milestone": false
+    },
+    {
+      "key": "implement",
+      "skill": "eng-implement",
+      "title": "Build the site",
+      "text": "the hand-off is done (docs/design/handoff/website.md, with the exported pages under docs/design/handoff/website/export/), and so is the specification (docs/product/specs/website.md). This is a change to existing code: turn the exported pages of the chosen mockups into the static site in site/ (or the folder the request names), touching that folder only, so that each change set stays inside it. The check is a test you write first, in that folder's tests/, run with a command you name in your reply: for every page of the hand-off it asserts that the page file exists, that its text matches the hand-off, and that no horizontal scroll appears at 1280 and 375 pixels wide, in light and in dark. Run it and quote the failing line, then make the smallest change that passes it, one page at a time, and quote the passing line. Propose the commit and do not make it.",
+      "depends_on": [
+        "handoff"
+      ],
+      "milestone": true
+    }
+  ]
+}
