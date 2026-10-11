@@ -5,7 +5,9 @@ import { cityTones } from "./palette.js";
 
 // The decision mark: a small amber exclamation, a bar over a cube, as the drawing has it (a bar 0.8 over a cube 0.26 with a gap of 0.13 at the
 // drawing's scale), a little larger so that it reads: a floor of the closed City is 1.9 units high and the mark is a little over two thirds of it.
-export const MARK = Object.freeze({ cube: 0.32, gap: 0.16, bar: [0.32, 0.96, 0.32] });
+// A-60, M-18: the maintainer found it too big: it is drawn at 70 percent of what R-20's first build drew, from the one constant below; its place beside the floor, its motion and its colour are the same.
+export const MARK_SCALE = 0.7;
+export const MARK = Object.freeze({ cube: 0.32 * MARK_SCALE, gap: 0.16 * MARK_SCALE, bar: Object.freeze([0.32 * MARK_SCALE, 0.96 * MARK_SCALE, 0.32 * MARK_SCALE]) });
 export const MARK_HEIGHT = MARK.cube + MARK.gap + MARK.bar[1];
 
 /**

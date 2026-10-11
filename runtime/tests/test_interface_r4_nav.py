@@ -14,31 +14,27 @@ from test_interface_scene_round3 import ENGINE_PAGE_JS, PRODUCT_JS, WORLD_JS, JS
 
 @needs_node
 def test_the_world_shows_the_new_open_building_again_when_the_open_one_changes_after_a_floor(tmp_path):
-    # root cause: `hideSurroundings` put away "every tower but the focus" with `visible = !on`, so a tower that was put away and then became the focus was never reset
+    # root cause of R4-N1: `hideSurroundings` put away "every tower but the focus" with `visible = !on`, so a tower that was put away and then became the focus was never reset.
+    # M-15 removed the hiding altogether (every building stays drawn on a Floor); this is the same sequence, which must keep every tower drawn
     got = run_node(tmp_path, WORLD_JS + r"""
 const { world } = make();
 world.setFocus("a", true);
 world.setFloors("business", null, true);
-world.hideSurroundings(true);
 const visible = () => ["a", "b", "c"].map((id) => world.towers.get(id).root.visible);
-const out = { onFloor: visible() };
+const out = { onFloor: visible(), hide: typeof world.hideSurroundings };
 world.setFocus("b", true);               // the switcher went to another project; its Floor is not there, so no floor is chosen
 world.setFloors(null, null, true);
-world.hideSurroundings(false);
 out.backOnB = visible();
 world.setFocus("c", true);
 world.setFloors("design", null, true);
-world.hideSurroundings(true);            // a Floor of the third project: the others are put away, the open one stays
 out.floorOfC = visible();
 world.setFocus("a", true);
-world.setFloors("design", null, true);
-world.hideSurroundings(true);            // a Floor of the first, straight from the third's
+world.setFloors("design", null, true);   // a Floor of the first, straight from the third's
 out.floorOfA = visible();
 console.log(JSON.stringify(out));
 """)
-    assert got["onFloor"] == [True, False, False], "on a Floor the other buildings are put away (as before)"
-    assert got["backOnB"] == [True, True, True], "when the focus moves to a building that was put away and no floor is chosen, every building is drawn, the new focus first of all"
-    assert got["floorOfC"] == [False, False, True] and got["floorOfA"] == [True, False, False], "a Floor puts away every building but its own, whichever it is"
+    assert got["onFloor"] == [True, True, True] and got["hide"] == "undefined", "on a Floor every building stays drawn (M-15 supersedes R4-N1's 'the other buildings are put away')"
+    assert got["backOnB"] == [True, True, True] and got["floorOfC"] == [True, True, True] and got["floorOfA"] == [True, True, True], "and so through the whole sequence: whichever building is open, none is put away (M-15)"
 
 
 @needs_node
