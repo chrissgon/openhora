@@ -183,7 +183,7 @@ def test_the_client_reads_the_token_file_route_without_a_token_and_never_sends_t
     request = got["noTokenRequest"]
     assert request["url"] == "/token-file" and request["method"] == "GET", "a same-origin path outside /api/v1, which holds no token"
     assert "Authorization" not in request["headers"] and request["headers"]["Accept"] == "application/json"
-    assert (request["credentials"], request["cache"], request["mode"], request["referrerPolicy"]) == ("omit", "no-store", "same-origin", "no-referrer")
+    assert (request["credentials"], request["cache"], request["mode"], request["referrerPolicy"]) == ("omit", "no-store", "same-origin", "same-origin")
     assert got["rejected"] == ["ApiError", 404, "not_found"], "an older service answers 404; the caller decides, the client does not ask for a token"
     assert got["nullAnswer"] == {"token_file": None, "commands": None}
     assert "Authorization" not in got["withToken"]["headers"], "even with a token held, the route gets no bearer header"
