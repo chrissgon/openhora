@@ -320,11 +320,55 @@ def test_the_person_s_flag_reaches_the_acceptance_only_through_the_terminal_chan
     first = body[0]  # the refusal of a channel but the terminal is the first statement, before anything is read
     assert isinstance(first, ast.If) and ast.unparse(first.test) == "accept and channel not in ACCEPT_CHANNELS"
     assert isinstance(first.body[0], ast.Raise) and "2" in ast.unparse(first.body[0])
-    calls = [n for n in ast.walk(function) if isinstance(n, ast.Call) and ast.unparse(n.func) == "record_acceptance"]
+    calls = [n for n in ast.walk(function) if isinstance(n, ast.Call) and ast.unparse(n.func) == "_record_acceptance"]
     assert len(calls) == 1  # one call, under the one test that says who may be accepted
     guards = [n for n in ast.walk(function) if isinstance(n, ast.If) and calls[0] in list(ast.walk(n))]
     assert "narrowing or accept" in [ast.unparse(g.test) for g in guards]
     assert "narrowing = autonomy.narrows(old, mode)" in [ast.unparse(n) for n in ast.walk(function) if isinstance(n, ast.Assign)]
     callers = sorted(f.name for f in ast.walk(tree_) if isinstance(f, ast.FunctionDef)
-                     for n in ast.walk(f) if isinstance(n, ast.Call) and ast.unparse(n.func) == "record_acceptance")
+                     for n in ast.walk(f) if isinstance(n, ast.Call) and ast.unparse(n.func) == "_record_acceptance")
     assert callers == ["accept_config", "set_mode"], callers
+
+
+def test_a_file_edited_between_the_replace_and_the_hash_is_not_accepted(tree, monkeypatch):
+    """The hash accepted is the hash of the bytes this call wrote, taken before the file is replaced: an edit that
+    lands right after the replace (before anything reads the file back) must not be accepted as the person's act."""
+    project = str(tree["project"])
+    real = ops_config.os.replace
+    done = {"edited": False}
+
+    def replace(src, dst, *a, **kw):
+        real(src, dst, *a, **kw)
+        if dst == str(config_path(tree)) and not done["edited"]:
+            done["edited"] = True
+            edit_by_hand(tree)  # the file changes at once after the replace
+
+    accepted = cursor(tree, project_config.ACCEPTED)
+    by = cursor(tree, ops_config.ACCEPTED_BY)
+    monkeypatch.setattr(ops_config.os, "replace", replace)
+    out = ops.set_mode(project, "planning", "milestones", accept=True, channel="terminal")
+    monkeypatch.setattr(ops_config.os, "replace", real)
+    assert done["edited"] is True
+    assert out["accepted"] is False and out["by"] is None and "accept-config" in out["next"]
+    assert out["config_sha256"] == project_config.load(project)["sha256"] and out["config_sha256"] in out["next"]
+    assert cursor(tree, project_config.ACCEPTED) == accepted and cursor(tree, ops_config.ACCEPTED_BY) == by
+
+
+def test_the_hash_set_mode_accepts_is_the_hash_of_the_bytes_it_wrote(tree):
+    out = ops.set_mode(str(tree["project"]), "planning", "milestones", accept=True, channel="terminal")
+    import hashlib
+    assert out["config_sha256"] == hashlib.sha256(config_path(tree).read_bytes()).hexdigest()
+
+
+def test_no_module_but_ops_config_calls_record_acceptance():
+    """The writer of the accepted hash is private to ops_config.py: any call whose name ends in record_acceptance, in a
+    module of the runtime, its handlers or the scripts, fails here unless it is in ops_config.py."""
+    found = []
+    for folder in (st.RUNTIME, st.RUNTIME / "handlers", st.REPO / "scripts"):
+        for path in sorted(folder.glob("*.py")):
+            if path.name == "ops_config.py" and folder == st.RUNTIME:
+                continue
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if isinstance(node, ast.Call) and ast.unparse(node.func).endswith("record_acceptance"):
+                    found.append(f"{folder.name}/{path.name}:{node.lineno}")
+    assert found == [], found

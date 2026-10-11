@@ -7,7 +7,7 @@
 the two operations that change or accept it.
 
 A change of the configuration takes effect only when its hash is the accepted one (contracts/runtime.md, "The
-configuration, and who may accept a change of it"). The accepted hash has one writer, `record_acceptance`, and three
+configuration, and who may accept a change of it"). The accepted hash has one writer, `_record_acceptance`, and three
 paths reach it, each under the configuration lock (ops_core._config_lock):
 
   accept_config   the person, in the terminal, who typed the hash after reading the file: `by: "person"`
@@ -18,7 +18,7 @@ paths reach it, each under the configuration lock (ops_core._config_lock):
                   unaccepted change is refused and nothing is written: the person reads the file and runs accept-config.
 
 Functions:
-  record_acceptance(ctx, cfg, sha256, by)   record the accepted hash, who accepted it, and the state file's Checkpoints line
+  _record_acceptance(ctx, cfg, sha256, by)   record the accepted hash, who accepted it, and the state file's Checkpoints line
   write_checkpoints(cfg)                    the state file's "- Checkpoints:" line rewritten from the area agents
   accept_config(project, sha256)            the person accepts a hash
   set_mode(project, agent, mode[, accept, channel])   set one area agent's autonomy mode
@@ -60,7 +60,7 @@ def _read(path: str):
         return None
 
 
-def record_acceptance(ctx: dict, cfg: dict, sha256: str, by: str) -> dict:
+def _record_acceptance(ctx: dict, cfg: dict, sha256: str, by: str) -> dict:
     """Record sha256 as the accepted hash of cfg's file, and who accepted it, and rewrite the state file's Checkpoints
     line. The one writer of the accepted hash: accept_config (the person, in the terminal) and set_mode (code, for a
     move down the order of the modes, which widens nothing; the person, for a move up, with `accept` from the terminal)
@@ -82,7 +82,7 @@ def accept_config(project: str, sha256: str) -> dict:
         cfg = core._config_of(project)  # the file as it is now, under the lock
         if sha256 != cfg["sha256"]:
             raise core.OpsError(f"the file's hash is {cfg['sha256']} and you typed {sha256}: nothing was accepted", 1)
-        done = record_acceptance(ctx, cfg, sha256, "person")
+        done = _record_acceptance(ctx, cfg, sha256, "person")
     return {"accepted": sha256, "previous": done["previous"], "path": cfg["path"], "checkpoints": done["checkpoints"]}
 
 
@@ -150,11 +150,12 @@ def set_mode(project: str, agent: str, mode: str, accept: bool = False, channel=
                     "next": None, "unchanged": True}
         raw = json.loads(json.dumps(fresh["raw"]))
         raw["area_agents"][agent]["mode"] = mode
+        text = json.dumps(raw, indent=2, ensure_ascii=False) + "\n"
+        new = hashlib.sha256(text.encode("utf-8")).hexdigest()  # the hash of the exact bytes written, taken before the file is replaced
         temporary = f"{cfg['path']}.{os.getpid()}.tmp"
         with open(temporary, "w", encoding="utf-8") as f:
-            f.write(json.dumps(raw, indent=2, ensure_ascii=False) + "\n")
+            f.write(text)
         os.replace(temporary, cfg["path"])
-        new = _sha256(cfg["path"])
         out = {"agent": agent, "mode": mode, "config_sha256": new, "accepted": False, "by": None,
                "next": core._command("accept-config", cfg["project"], sha256=new)}
         narrowing = autonomy.narrows(old, mode)
@@ -165,8 +166,11 @@ def set_mode(project: str, agent: str, mode: str, accept: bool = False, channel=
                 raise core.OpsError(str(e), 3) from None
             if written["sha256"] == new:  # nothing else changed the file between the write and this read
                 by = "code:narrowing" if narrowing else "person"
-                done = record_acceptance(ctx, written, new, by)
+                done = _record_acceptance(ctx, written, new, by)
                 out.update(accepted=True, by=by, next=None, checkpoints=done["checkpoints"])
+            else:  # the file is not the one this call wrote: nothing is accepted, and the hash to read and accept is the file's
+                out.update(config_sha256=written["sha256"],
+                           next=core._command("accept-config", cfg["project"], sha256=written["sha256"]))
     return out
 
 
