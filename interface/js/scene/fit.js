@@ -53,6 +53,28 @@ export function fitFrustumWithLabels(bounds, size, insets, pad, maxScale, labels
   return fitted;
 }
 
+/** How much smaller (as a share) the scale of another reading of the free rectangle must be before the fit moves to it: a tie, or a gain of a few percent, keeps the first. */
+export const BETTER_FIT = 0.97;
+
+/**
+ * The best of several readings of the free rectangle (R4-D2). A screen whose panels can be read two ways (the KPI cards as a strip down the left side, or as a block at the top
+ * above the subject) offers both, `choices` the first of which is the one it draws by default; `fitOf(insets)` is the frustum of one reading. The reading that lets the
+ * subject stand largest (the smaller frustum) wins, and the first keeps the place unless another is better by `BETTER_FIT`. Returns {frustum, index}.
+ */
+export function bestFit(choices, fitOf) {
+  const width = (f) => f.right - f.left;
+  let index = 0;
+  let frustum = fitOf(choices[0]);
+  for (let i = 1; i < choices.length; i++) {
+    const other = fitOf(choices[i]);
+    if (width(other) < width(frustum) * BETTER_FIT) {
+      index = i;
+      frustum = other;
+    }
+  }
+  return { frustum, index };
+}
+
 /**
  * The frustum of a camera move at progress `p` (0 to 1), the prototype's way: the centre is moved in a straight line and the ZOOM
  * (the reciprocal of the frustum's half width, the prototype's `cam.zoom`) is moved in a straight line, not the frustum's sides.

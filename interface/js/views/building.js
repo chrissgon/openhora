@@ -29,6 +29,23 @@ const PHONE_COLUMN = 52;      // the floor steps' column at the right and its ga
 const STATE_PATH = "docs/workbench/state.md";
 const ARTIFACTS_EVERY_MS = 20000;
 
+/**
+ * The Building's insets on a desktop or a tablet (the phone has its own, in `getInsets`): `base` is the frame's usual reading of the page (`frame.insets(panel, ...)`).
+ * F1-D1: the Back and the crumbs stand at the bottom left, under the KPI column, never under the tower, which is framed to the right of that column: only the tracking bar bounds it
+ * below (building.html draws the tower down to the bar), where the frame's own inset also counts the dock.
+ * R4-D2: two cards of KPIs are a column that, read as the strip they stand in, takes the whole left side and, on a page too narrow to hold it beside the panel and the plates, leaves the
+ * tower a hundred pixels: the other reading (the cards as a block at the top, the tower below them) is offered beside it as `alternatives`, and the camera keeps the one that lets the tower stand
+ * larger. The plates' column and the corner keep the first reading's top (`plateTop`): the cards are at the left, not over the plates.
+ */
+export function desktopInsets(frame, panel, about, base) {
+  const main = frame.main.getBoundingClientRect();
+  const bar = frame.track.el.getBoundingClientRect();
+  const bottom = bar.height > 0 ? Math.max(16, Math.min(base.bottom, main.bottom - bar.top + 16)) : base.bottom;
+  const under = frame.insets(panel, { notice: !(about && about.dim), cardsAbove: true });
+  const reading = under.left !== base.left || under.top !== base.top ? [{ ...under, bottom, pad: 1, right: under.right + frame.plateWidth() + PLATE_GAP_X + PLATE_SHIFT, plateRight: under.right + PLATE_SHIFT, plateTop: base.top }] : [];
+  return { ...base, bottom, pad: 1, right: base.right + frame.plateWidth() + PLATE_GAP_X + PLATE_SHIFT, plateRight: base.right + PLATE_SHIFT, alternatives: reading };   // F1-D1: building.html fills the free height with the tower: no padding on top of its box
+}
+
 /** Create the Building in `frame`. env: {refresh()}. Returns {update({snapshot, route, now, reload}), dispose(), stats()}. */
 export function createBuildingView(frame, env) {
   let engine = null;
@@ -183,12 +200,7 @@ export function createBuildingView(frame, env) {
           steps.style.setProperty("--wb-y", `${level}px`);
           return { left: 8, right: PHONE_COLUMN, top: base.top, bottom: base.bottom, pad: 0.98, cornerRight: 10, cornerLeft: 10, cornerBottom: level };
         }
-        // F1-D1: the Back and the crumbs stand at the bottom left, under the KPI column, never under the tower, which is framed to the right of that column: only the tracking bar bounds it
-        // below (building.html draws the tower down to the bar), where the frame's own inset also counts the dock
-        const main = frame.main.getBoundingClientRect();
-        const bar = frame.track.el.getBoundingClientRect();
-        const bottom = bar.height > 0 ? Math.max(16, Math.min(base.bottom, main.bottom - bar.top + 16)) : base.bottom;
-        return { ...base, bottom, pad: 1, right: base.right + frame.plateWidth() + PLATE_GAP_X + PLATE_SHIFT, plateRight: base.right + PLATE_SHIFT };   // F1-D1: building.html fills the free height with the tower: no padding on top of its box
+        return desktopInsets(frame, panel, about, base);
       },
       onOpen: open,
       onHover: (id, how) => highlightRow(id && String(id).startsWith("floor:") ? String(id).slice(6) : null, true, how === "clear" ? "clear" : "pointer"),
