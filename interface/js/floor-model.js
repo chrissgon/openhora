@@ -316,7 +316,7 @@ export function requestRows(status, projectId) {
     const steps = `${done} of ${tasks.length} steps done${now ? ` · ${now}` : ""}`;
     return {
       id: request.id, title, state: word, tone: stateTone(state), steps, selected: Boolean(shown) && shown.id === request.id, link: router.requestHash(projectId, request.id),
-      name: `Request ${request.id}, ${title}, ${word || state}, ${steps}`, cancellable: !FINAL_REQUEST.has(request.state), request,
+      name: `Request ${request.id}, ${title}, ${word || state}, ${steps}`, cancellable: !FINAL_REQUEST.has(request.state) && !request.routing, request,   // A-51: the store refuses to cancel a request a run holds
     };
   });
 }

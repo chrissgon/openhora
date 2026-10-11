@@ -36,6 +36,7 @@ out.picked = model.pickRequest(routed.details[P].status).id;      // the request
 out.words = [model.routingWords(routed.details[P].status.requests[1], NOW), model.routingWords(routed.details[P].status.requests[1]), model.routingRequest(routed.details[P].status).id,
   model.routingRequest(status([request(1, "requested")])), model.routingRequest(null)];
 out.rows = fm.requestRows(routed.details[P].status, P).map((r) => [r.id, r.steps]);
+out.cancellable = fm.requestRows(routed.details[P].status, P).map((r) => [r.id, r.cancellable]);
 
 // no run: the bar says nothing is running, as before
 out.quiet = model.tracking(snapshot([request(1, "requested")]), P, NOW).now;
@@ -72,6 +73,7 @@ def test_the_model_names_a_router_run_for_the_bar_the_building_and_the_planning_
     assert got["others"] == [[2, True], [1, False]], "the request list marks the one with a run as running"
     assert got["words"] == ["Planning agent · routing request #2 · for 3 min", "Planning agent · routing request #2", 2, None, None]
     assert got["rows"] == [[1, "0 of 0 steps done"], [2, "0 of 0 steps done · being routed"]]
+    assert got["cancellable"] == [[1, True], [2, False]], "the Building's request row offers no Cancel request while a run holds the request"
     assert got["quiet"] is None, "without a run the bar says 'Nothing is running' as before (the model gives no card)"
     assert got["both"] is True, "a task that runs is shown before a routing flag"
     assert got["facts"] == {"id": 2, "title": "Request 2", "link": got["facts"]["link"], "label": "Planning agent · routing request #2 · for 3 min"} \
