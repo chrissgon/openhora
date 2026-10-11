@@ -413,3 +413,23 @@ textarea.wb-field-input { min-height: 76px; resize: vertical; }
 .wb-reply.is-cut:not(.is-open) .wb-reply-body { -webkit-mask-image: linear-gradient(to bottom, var(--pui-text) calc(100% - 3em), transparent); mask-image: linear-gradient(to bottom, var(--pui-text) calc(100% - 3em), transparent); }
 .wb-reply-toggle { padding: 0; color: var(--wb-ink-theme); font-size: 12px; text-decoration: underline; }
 @media (max-width: 899px) { .wb-reply-toggle { min-height: 44px; padding-block: 12px; } }     /* a phone's tap target */
+
+/* --- M-32, the phone (up to 899 px, M-3): no zoom, and the text readable without it ---------------------------------------------------------------------
+   index.html's viewport says maximum-scale=1 and user-scalable=no; here a tap is a tap (`touch-action: manipulation` drops the double-tap zoom and its 300 ms wait; the scene's
+   canvas and the sheet's handle keep their own `touch-action: none`). DEVIATION-16: the library's base size, `--pui-font-size` (0.875 rem), is 1 rem here, so every field, button,
+   tab and list row of the library is 16 px (a field under 16 px makes a phone's browser zoom into it); the sizes below are the page's own text. Reading text is 16 px; the chips,
+   the meta lines and the table heads are at least 12 px; a command or a file's text, in the monospace face, is 14 px, which is as large to the eye as 16 px of the text face. */
+@media (max-width: 899px) {
+  :root { --pui-font-size: 1rem; }
+  html, body { touch-action: manipulation; }
+  .pui-input, .wb-field-input, .wb-select, .wb-file, input, textarea, select { font-size: 16px; }
+  .wb-field, .wb-field-label, .wb-tab, .wb-reply-toggle, .wb-viewer-path, .wb-viewer-body, .wb-refusal, .wb-refusal-title, .wb-md { font-size: 16px; }
+  .wb-md h1 { font-size: 20px; }
+  .wb-md h2 { font-size: 18px; }
+  .wb-md h3 { font-size: 17px; }
+  .wb-md h4 { font-size: 16px; }
+  .wb-plan-body .wb-md { font-size: 16px; }
+  .wb-md pre, .wb-md table, .wb-md.is-plain, .wb-md-rest, .wb-viewer-text, .wb-command, .wb-command-code { font-size: 14px; }
+  .wb-md th { font-size: 12px; }
+  .wb-note, .wb-hint, .wb-copy-status, .wb-viewer-line, .wb-md-note, .wb-chip-small { font-size: 12px; }
+}

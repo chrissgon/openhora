@@ -30,7 +30,8 @@ function head(count, { collapsible, open, onToggle }) {
   const parts = [
     h("span", { class: "wb-kpi-tile pui-soft pui-warn" }, icon("inbox", 16)),
     h("strong", { class: "wb-wait-heading", text: "Waiting for you" }),
-    h("span", { class: "pui-badge pui-warn pui-soft pui-rounded-full", text: String(count) }),
+    // F2-D9: with nothing waiting the card says so in a muted word instead of a "0" chip; the count chip stays for one or more, and "..." while it is read
+    count === 0 ? h("span", { class: "wb-wait-none", text: "nothing waits" }) : h("span", { class: "pui-badge pui-warn pui-soft pui-rounded-full", text: String(count) }),
   ];
   if (!collapsible) return h("div", { class: "wb-wait-head" }, parts);
   parts.push(h("span", { class: "wb-wait-up", "aria-hidden": "true" }, icon(open ? "chevron-down" : "chevron-up", 16)));
