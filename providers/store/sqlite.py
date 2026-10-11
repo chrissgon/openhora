@@ -2478,6 +2478,13 @@ def task_runs_list(conn: sqlite3.Connection, task_id: int) -> list:
     return [row_dict(r) for r in conn.execute("SELECT * FROM task_runs WHERE task_id = ? ORDER BY id", (task_id,))]
 
 
+def task_runs_running(conn: sqlite3.Connection) -> list:
+    """The runs whose status is `running`, as {"id", "task_id", "skill", "started_at"}, oldest first: one query, whatever the
+    number of tasks. One run at a time per project, so the list holds at most one; a router run is the one whose task is a request."""
+    return [row_dict(r) for r in conn.execute(
+        "SELECT id, task_id, skill, started_at FROM task_runs WHERE status = 'running' ORDER BY id")]
+
+
 def pending_get(conn: sqlite3.Connection, pending_id: int) -> dict:
     """One pending decision, with its payload as an object."""
     row = conn.execute("SELECT * FROM pending_decisions WHERE id = ?", (pending_id,)).fetchone()

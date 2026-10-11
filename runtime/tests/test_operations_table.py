@@ -28,7 +28,7 @@ effects = st.load("effects")
 
 # Public functions of ops.py that are not an operation of a shell: what the other modules and the tests use.
 NOT_OPERATIONS = {"store_module", "context", "task_prompt", "code_task", "chat_memory", "state_question", "state_reply", "queued_ids",
-                  "run_busy", "queue_route", "held_commands", "held_next", "drop_note", "asks_state", "waiting", "queue_stale"}
+                  "run_busy", "queue_route", "held_commands", "held_next", "drop_note", "asks_state", "waiting", "queue_stale", "with_routing"}
 KINDS = ("int", "str", "text", "file", "list", "flag", "choice", "pairs")
 CHANNELS = ("terminal", "chat", "page", "mcp")
 # Modules that still hold the terminal's command as a string, outside the operations layer's own texts.

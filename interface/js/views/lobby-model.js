@@ -19,6 +19,8 @@ export const HINT = "Type / to list the commands.";
 // A-23: while a run is in progress a plain line is stored and routed by the service when the run ends; the commands answer at once.
 export const RUN_LINE = "A run is in progress: your line will be routed when it ends; a question about the state is answered now.";
 export const QUEUED_WORD = "queued";
+// Route it on a request while a run holds the project (another request being routed, or a task that runs): the service does not refuse it, it queues it (A-23)
+export const QUEUE_REASON = "A run is in progress: this request is routed when it ends.";
 export const QUEUED_NOTICE = Object.freeze({ tone: "info", title: "Recorded", text: "A run is in progress. The request is recorded and will be routed when the run ends." });
 export const SENDING_TEXT = "The planning agent is working on this turn. It can take minutes.";
 export const BUSY_NOTICE = Object.freeze({ title: "Not sent", text: "A run is in progress for this project. Your message was not stored." });
@@ -96,7 +98,7 @@ export function readAfter(messages) {
 
 /**
  * The task a run is in progress for, from a status body: {id, title, agent} of the oldest running task, or null. The composer says so before Send
- * (A-23). A router run, which the status does not show, is not named; the service queues the line all the same.
+ * (A-23). A router run holds a request, not a task, so it is not named here: `model.routingRequest` names it (A-51); the service queues the line all the same.
  */
 export function runningTask(status) {
   for (const request of (Array.isArray(status && status.requests) ? status.requests : [])) {

@@ -254,7 +254,7 @@ export function createLobbyView(frame, { project, onChanged }) {
     const status = last.snapshot && last.snapshot.details[project] && last.snapshot.details[project].status;
     const requestRow = status ? model.pickRequest(status, model.requestChoice(project)) : null;
     const room = roomModel({
-      working: turn !== null || routing.size > 0, decisions: status ? lobbyDecisions(status).length : 0, hasMessages: messages.length > 0,
+      working: turn !== null || routing.size > 0 || Boolean(model.routingRequest(status)), decisions: status ? lobbyDecisions(status).length : 0, hasMessages: messages.length > 0,
       accepted, request: requestRow, ready: Boolean(status), documents: desk.rows(),
     });
     const words = {
@@ -268,6 +268,8 @@ export function createLobbyView(frame, { project, onChanged }) {
   function runningNote() {
     const status = last.snapshot && last.snapshot.details[project] && last.snapshot.details[project].status;
     const task = accepted ? runningTask(status) : null;
+    const routed = accepted && !task ? model.routingRequest(status) : null;      // A-51: the router's run holds a request and no task runs
+    if (routed) return { text: model.routingWords(routed, last.now), href: router.requestHash(project, routed.id) };
     if (!task) return null;
     return { text: `Task #${task.id}${task.title ? ` ${task.title}` : ""}`, href: router.agentHash(project, task.agent) };
   }

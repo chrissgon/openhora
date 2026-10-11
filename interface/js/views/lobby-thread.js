@@ -62,11 +62,13 @@ export function createThread({ api, project, signal, onChanged, onCancel, onRout
         const bodySig = body ? (body.pending || []).map((p) => `${p.id}:${p.status}:${p.resolution || ""}`).join(",") : "-";
         const open = (pending || []).filter((p) => p.task_id === requestId).length;
         const routeNotice = (notices && notices.get(requestId)) || null;
+        const runBusy = (requests || []).some((r) => (r.routing && r.id !== requestId) || (r.tasks || []).some((t) => t.state === "running"));      // a run holds the project: Route it is queued, and says so
+        const routingNow = Boolean(routing && routing.has(requestId)) || Boolean(request.routing);      // A-51: this page's click, or a run the service reports
         const kept = (remembered && remembered.get(requestId)) || "";
-        const sig = `${signatureOf(request, pending)}|${bodySig}|${routing && routing.has(requestId) ? "r" : ""}|${viaMessage ? "m" : "t"}|${request.title}|${routeNotice ? `${routeNotice.title}:${routeNotice.text}` : ""}|${flows ? flows.length : "-"}|${kept}`;
+        const sig = `${signatureOf(request, pending)}|${bodySig}|${routingNow ? "r" : ""}${runBusy ? "b" : ""}|${viaMessage ? "m" : "t"}|${request.title}|${routeNotice ? `${routeNotice.title}:${routeNotice.text}` : ""}|${flows ? flows.length : "-"}|${kept}`;
         const held = blocks.get(requestId);
         if (held && held.sig === sig) return held.el;
-        const block = createBlock({ api, project, request, body, open, now, signal, onChanged, onCancel, onRoute, announce, routing: routing && routing.has(requestId), viaMessage, routeNotice,
+        const block = createBlock({ api, project, request, body, open, now, signal, onChanged, onCancel, onRoute, announce, routing: routingNow, runBusy, viaMessage, routeNotice,
           expanded: expanded.has(requestId), onExpand: (open) => { if (open) expanded.add(requestId); else expanded.delete(requestId); },
           flows, flow: chosen.get(requestId) || "", onFlow: (value) => chosen.set(requestId, value), remembered: kept });
         blocks.set(requestId, { el: block.el, sig, block });
