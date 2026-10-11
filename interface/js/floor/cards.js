@@ -20,6 +20,7 @@ import * as router from "../router.js";
 import { ENDING, openable } from "../floor-model.js";
 import { renderMarkdown } from "../markdown.js";
 import { markdownView, onPlainChoice, plainChoice, setPlainChoice } from "../markdown-view.js";
+import { replyView } from "./reply.js";
 import { createWaitsBlock } from "../cards/plan-waits.js";
 import { commandBlock } from "../frame/command.js";
 import { fileRefusal, handChooser, handOverStep, toBase64 } from "./hand-file.js";
@@ -100,6 +101,7 @@ export function createCard(item, env) {
     drop: null,                                         // {web, takes, line} of the review's task (the file drop), read once
     picked: null,                                       // the file chosen for the hand-over, held until its button sends it (C-17)
     handed: null,                                       // the last file handed over from the review card: {text, error}
+    replyOpen: {},                                      // which of the card's replies are open (A-67): per card, never stored
     goAhead: new Set(),                                 // the plan's task keys ticked "Go ahead"
   };
   let inputs = {};
@@ -142,7 +144,9 @@ export function createCard(item, env) {
 
   /** The text of a card as the person asked for it: rendered Markdown, or the text exactly as it came (`wb-md is-plain`, mono). */
   const markdownOf = (value) => (plainChoice() ? h("div", { class: "wb-md is-plain", text: value || "" }) : renderMarkdown(value || ""));
-  const text = (value, cls = "wb-card-body") => h("div", { class: cls }, markdownOf(value));
+  /** A long reply opens in place instead of scrolling inside the card (A-67, M-25): `name` keys the choice, kept while the card lives (a Plain text redraw keeps it). */
+  const reply = (name, ...content) => replyView(content, { open: Boolean(state.replyOpen[name]), onToggle: (value) => { state.replyOpen[name] = value; } }).el;
+  const text = (value, cls = "wb-card-body") => h("div", { class: cls }, reply("body", markdownOf(value)));
 
   // --- the controls ----------------------------------------------------------------------------------------------------------
 
@@ -281,7 +285,7 @@ export function createCard(item, env) {
     const returned = Array.isArray(payload.returned) ? payload.returned : [];
     const kept = Array.isArray(payload.kept) ? payload.kept : [];
     const parts = [h("h3", { class: "wb-card-title", id: titleId, tabindex: "-1", text: it.title }),
-      h("div", { class: "wb-card-body wb-scroll", tabindex: "0", "aria-label": "Text of the review" }, markdownOf(it.body || ""))];
+      h("div", { class: "wb-card-body", tabindex: "0", "aria-label": "Text of the review" }, reply("body", markdownOf(it.body || "")))];
     if (returned.length || kept.length) {      // floor.html: the two lists of paths stand together in one small block
       parts.push(h("div", { class: "wb-ret" },
         returned.length ? h("span", { class: "wb-card-label", text: "Returned" }) : null, returned.length ? h("ul", { class: "wb-paths" }, returned.map((f) => pathRow(f, true))) : null,
@@ -406,7 +410,7 @@ export function createCard(item, env) {
       waits ? waits.el : null,
       h("div", { class: "wb-card-hint", text: limitsLine(payload) }),
       h("div", { class: "wb-card-hint", text: "Plan hash" }), hash,
-      h("details", { class: "pui-accordion-item wb-verdict" }, h("summary", { class: "wb-summary", text: "Plan as text" }), h("div", { class: "wb-card-body wb-scroll" }, markdownView(it.body || "", { name: "the plan", renderedLabel: "Plan as text", plainClass: "wb-pre" }))),
+      h("details", { class: "pui-accordion-item wb-verdict" }, h("summary", { class: "wb-summary", text: "Plan as text" }), h("div", { class: "wb-card-body" }, reply("plan", markdownView(it.body || "", { name: "the plan", renderedLabel: "Plan as text", plainClass: "wb-pre" })))),
       noteInput(), message(), buttons(),
     ];
   }

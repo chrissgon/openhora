@@ -113,8 +113,7 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
 .wb-card-body { font-size: 13px; overflow-wrap: anywhere; white-space: pre-wrap; }
 .wb-card-hint { color: var(--pui-text-muted); font-size: 12px; overflow-wrap: anywhere; }
 .wb-card-line { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
-.wb-scroll { max-height: 24rem; overflow-y: auto; }
-.wb-pre { max-height: 24rem; margin: 0; padding: 10px 12px; overflow-y: auto; border: var(--pui-border-width) solid var(--pui-border); border-radius: var(--pui-radius); font-family: var(--wb-font-mono); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap; }
+.wb-pre { margin: 0; padding: 10px 12px; border: var(--pui-border-width) solid var(--pui-border); border-radius: var(--pui-radius); font-family: var(--wb-font-mono); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap; }
 .wb-hash { display: block; padding: 8px 10px; border: 1px dashed var(--pui-muted); border-radius: var(--pui-radius); font-family: var(--wb-font-mono); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; user-select: all; }
 .wb-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .wb-card-actions.is-end { justify-content: flex-end; }
@@ -168,7 +167,7 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
 .wb-tl-sub { font-size: 12px; }
 .wb-tl-body { display: grid; gap: 6px; padding: 4px 6px 8px; font-size: 12px; }
 .wb-tl-body > p { margin: 0; }
-.wb-res-said { display: grid; gap: 2px; max-height: 24rem; margin: 0; padding: 8px 12px; overflow-y: auto; border-left: 2px solid var(--pui-border); border-radius: 0 var(--pui-radius) var(--pui-radius) 0; background-color: var(--wb-sunken); font-size: 13px; }
+.wb-res-said { display: grid; gap: 2px; margin: 0; padding: 8px 12px; border-left: 2px solid var(--pui-border); border-radius: 0 var(--pui-radius) var(--pui-radius) 0; background-color: var(--wb-sunken); font-size: 13px; }
 .wb-res-said p { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .wb-resolved-body { font-size: 12px; }
 

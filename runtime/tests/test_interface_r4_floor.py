@@ -787,3 +787,89 @@ def test_the_agent_tab_says_how_a_stopped_agent_comes_back_runs_one_step_and_sho
     assert got["back"]["select"] == 1 and got["back"]["step"] is None and back in got["back"]["modeLine"], "once accepted, the select and the line come back"
     source = (INTERFACE / "js" / "floor" / "agent-tab.js").read_text(encoding="utf-8")
     assert "cli.py" not in source and "accept-config" not in source and "--accept" not in source, "the page builds no command: it shows what the service sent"
+
+
+# --- R4-A4c (A-67, M-25): a long reply opens in place; no inner scroll on a card's body --------------------------------------------------------------------------------
+
+REPLY = r"""
+import { FakeNode, settle, find, all } from "@FAKE@";
+import { replyView, SHOW_WHOLE, SHOW_LESS } from "@JS@/floor/reply.js";
+import { createCard } from "@JS@/floor/cards.js";
+
+const observers = [];
+globalThis.ResizeObserver = class { constructor(cb) { observers.push(cb); } observe() {} disconnect() {} };
+const text = (n) => (n ? n.textContent : null);
+const cls = (n) => (n.attrs.class || "").split(/\s+/).filter(Boolean);
+const out = {};
+const measure = (tall) => (body) => tall.value;
+
+// the helper: the button is in the page only when the reply is taller than the preview (a measured height), toggles, and says so
+const tall = { value: false };
+const fit = replyView(new FakeNode("p"), { measure: measure(tall) });
+out.fits = { buttons: all(fit.el, "button").length, cut: cls(fit.el).includes("is-cut") };
+tall.value = true;
+fit.update();
+const button = find(fit.el, "button.wb-reply-toggle");
+out.cut = { buttons: all(fit.el, "button").length, label: text(button), expanded: button.attrs["aria-expanded"], controls: button.attrs["aria-controls"] === find(fit.el, ".wb-reply-body").attrs.id, cut: cls(fit.el).includes("is-cut") };
+button.click();
+out.open = { label: text(button), expanded: button.attrs["aria-expanded"], open: cls(fit.el).includes("is-open"), cut: cls(fit.el).includes("is-cut"), buttons: all(fit.el, "button").length };
+tall.value = false;      // open: the button stays, whatever the measure says
+fit.update();
+out.openStays = all(fit.el, "button").length;
+button.click();
+out.closed = { label: text(button), expanded: button.attrs["aria-expanded"], open: cls(fit.el).includes("is-open") };
+out.labels = [SHOW_WHOLE, SHOW_LESS];
+
+// a card: a long review opens in place, Plain text keeps working in both states, a short one has no button
+const item = (id, body) => ({ id, kind: "review", title: `Review ${id}`, body, payload: { returned: [], kept: [] }, status: "open", actions: ["released", "answered"], agent: "engineering", task_id: 4, created_at: new Date().toISOString() });
+const env = { project: "p", now: () => new Date(), api: {}, requestIds: new Set(), links: { floor: () => "#", lobby: () => "#", open: () => "#" }, changed() {}, gone() {} };
+const card = createCard(item(1, "A **long** reply"), env);
+const tallen = () => { for (const body of all(card.el, ".wb-reply-body")) { body.scrollHeight = 900; body.clientHeight = 96; } observers.forEach((cb) => cb()); };
+tallen();
+const toggle = () => find(card.el, "button.wb-reply-toggle");
+out.card = { before: text(toggle()), scrollClass: all(card.el, ".wb-scroll").length };
+toggle().click();
+out.card.open = text(toggle());
+find(card.el, "button.wb-card-plain").click();      // Plain text redraws the card: the reply stays open
+tallen();
+out.card.plainOpen = { label: text(toggle()), plain: all(card.el, ".wb-md.is-plain").length, pressed: find(card.el, "button.wb-card-plain").attrs["aria-pressed"] };
+toggle().click();
+out.card.plainClosed = text(toggle());
+find(card.el, "button.wb-card-plain").click();
+const short = createCard(item(2, "short"), env);
+out.short = { buttons: all(short.el, "button.wb-reply-toggle").length };
+console.log(JSON.stringify(out));
+process.exit(0);
+"""
+
+
+@needs_node
+def test_a_long_reply_opens_in_place_the_button_appears_only_when_the_body_is_taller_than_the_preview_and_plain_text_keeps_working(tmp_path):
+    got = run_node(tmp_path, REPLY)
+    assert got["fits"] == {"buttons": 0, "cut": False}, "a reply that fits shows whole: no button, no fade"
+    assert got["cut"] == {"buttons": 1, "label": "Show the whole reply", "expanded": "false", "controls": True, "cut": True}, "A-67: the button, with aria-expanded and aria-controls"
+    assert got["open"] == {"label": "Show less", "expanded": "true", "open": True, "cut": False, "buttons": 1} and got["openStays"] == 1
+    assert got["closed"] == {"label": "Show the whole reply", "expanded": "false", "open": False}
+    assert got["card"]["before"] == "Show the whole reply" and got["card"]["scrollClass"] == 0 and got["card"]["open"] == "Show less"
+    assert got["card"]["plainOpen"] == {"label": "Show less", "plain": 1, "pressed": "true"}, "R-34: Plain text works on an open reply and the choice of the reply survives the redraw"
+    assert got["card"]["plainClosed"] == "Show the whole reply"
+    assert got["short"] == {"buttons": 0}
+
+
+def test_no_card_body_scrolls_inside_the_card_the_preview_is_clipped_and_the_whole_is_the_only_other_state():
+    css = interface_css()
+    bad = []
+    for selector, declarations in css_rules():
+        if re.search(r"wb-(card|bubble|pre|res-said|md|plan|reply|scroll)", selector) and "max-height" in declarations and re.search(r"overflow(-y)?", " ".join(declarations)):
+            if any(v in ("auto", "scroll") for k, v in declarations.items() if k.startswith("overflow")):
+                bad.append(selector)
+    assert not bad, f"M-25: a card body scrolls inside the card: {bad}"
+    rules = {}
+    for selector, declarations in css_rules():
+        rules.setdefault(selector.strip(), declarations)
+    preview = rules[".wb-reply:not(.is-open) .wb-reply-body"]
+    assert preview.get("overflow") == "hidden" and "var(--wb-reply-lines)" in preview.get("max-height", "") and rules[".wb-reply"].get("--wb-reply-lines") == "8", "about eight lines, clipped, not scrolled"
+    fade = rules[".wb-reply.is-cut:not(.is-open) .wb-reply-body"]
+    assert "var(--pui-text)" in fade.get("mask-image", "") and not re.search(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(", str(fade)), "the fade is a mask of a token: no colour literal"
+    for path in (INTERFACE / "js").rglob("*.js"):
+        assert "wb-scroll" not in path.read_text(encoding="utf-8"), f"{path.name}: the scrolling class is gone"

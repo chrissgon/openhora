@@ -8,6 +8,7 @@
 import { h } from "../dom.js";
 import * as format from "../format.js";
 import { markdownView } from "../markdown-view.js";
+import { replyView } from "../floor/reply.js";
 import * as router from "../router.js";
 import { failureText, limitsLine, planHash, planText, stackedRow, taskRows } from "./plan-rows.js";
 import { createWaitsBlock } from "./plan-waits.js";
@@ -54,7 +55,7 @@ export function createPlanCard({ api, project, item, now, onChanged, signal, ann
     : h("p", { class: "wb-card-note", text: "This plan carries no hash, so it cannot be approved from here." });
   const text = planText(item);
   const asText = text
-    ? h("details", { class: "pui-accordion-item wb-plan-text" }, h("summary", { text: "Plan as text" }), h("div", { class: "wb-plan-body" }, markdownView(text, { name: "the plan", renderedLabel: "Plan as text", plainClass: "wb-plan-pre" })))
+    ? h("details", { class: "pui-accordion-item wb-plan-text" }, h("summary", { text: "Plan as text" }), h("div", { class: "wb-plan-body" }, replyView(markdownView(text, { name: "the plan", renderedLabel: "Plan as text", plainClass: "wb-plan-pre" })).el))
     : null;
 
   const noteId = `${titleId}-note`;
