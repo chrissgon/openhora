@@ -1,7 +1,7 @@
 // The room of a floor in the round's style (R-21, R-23, R-23b, R-28, R-31, R-41, R-42, R-49): the same room in the City's building, in the Building's cutaway, on the Floor
 // and in the Lobby, because it is the same meshes. A room is the floor's slab, its floor (a tone that says what the agent does: a lit room is a soft warm tone), two back
 // walls (the left one pierced by two windows, or by one window and the Lobby's door) and, in them, the agent's three ways in: the owl, the task board with a note for each
-// task, and the one bookcase with a binder for each document (sixteen at most, M-7). The agent's desk and chair stand along the room's right edge. No tray, no table of sheets, no lamp, no roof; two plants stand by the windows (plants.js).
+// task, and the one bookcase with a binder for each document (sixteen at most, M-7). The agent's desk and chair stand along the room's right edge. No tray, no table of sheets, no lamp, no roof; two plants stand by the windows (plants.js, drawn by the tower).
 // Everything static is baked into a few meshes in the tones of `roomTones` (kit.batch); the tower (tower.js) puts a room in each of its floors and closes the building round
 // them with the walls the City shows. No colour and no name is written here: the page's measures are in room-frame.js and furniture.js.
 
@@ -9,7 +9,6 @@ import { BOARD_RIGHT, CASE_LEFT, DOOR, NOTE_CAPACITY, SEAT, bindersShown, bookca
 import { boxBrackets, planeBrackets } from "./marks.js";
 import { buildOwl, towardCamera } from "./owl-build.js";
 import { roomTones } from "./palette.js";
-import { plants } from "./plants.js";
 import { owlScale, pageBatch, pageFrame } from "./room-frame.js";
 
 export const W = 6.4;
@@ -129,7 +128,6 @@ export function fillFloor(kit, parent, f, ctx) {
   windows(pb, make(glassBatch), tones, glassOf(tones, accepted, f.window), openings);
   desk(pb, tones);
   chair(pb, tones);
-  plants(THREE, pb, FRAME, tones);
   still.mesh(room, { cast: false });
   const glass = glassBatch.mesh(room, { cast: false });
 

@@ -308,16 +308,6 @@ export function buildWorld(kit, model) {
   };
 
   /**
-   * On the Floor and in the Lobby the other buildings are hidden once everything has settled, never before (the prototype showed them throughout the motion);
-   * any motion draws them again at once. The streets and the trees stay, as the round's pages draw them.
-   */
-  content.hideSurroundings = (on) => {
-    // the page draws the streets and the parks round the room (`floor.html`, `lobby.html`): only the other buildings are put away, so that the room stands alone on its block
-    // the open building is always drawn: a tower put away on an earlier Floor that has become the focus since (the switcher went to another project) comes back with it
-    for (const tower of towers.values()) tower.root.visible = tower.id === focus ? true : !on;
-  };
-
-  /**
    * How close the camera may come, in pixels to a world unit, for a canvas of `size`: in the City, as large as `city.html` draws a building at 1280 by 800 (its ledge is 212 px
    * across for a ledge of 8.9 units of screen), scaled with the canvas down to three quarters of it, which is what the page's phone frames draw (a ledge of 87 px against
    * 116 for the same two projects); null for a building, a floor or a room, which fill the free rectangle.

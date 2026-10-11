@@ -650,22 +650,19 @@ console.log(JSON.stringify(out));
 
 
 @needs_node
-def test_the_floor_and_the_lobby_keep_the_streets_and_the_other_buildings_go_when_everything_has_settled(tmp_path):
+def test_the_floor_and_the_lobby_keep_the_streets_and_every_other_building_drawn(tmp_path):
+    # M-15 supersedes the round's "the other buildings are put away once everything has settled": a neighbour that vanishes a few seconds after the camera settles looks strange
     got = run_node(tmp_path, WORLD_JS + r"""
 const { world } = make();
 world.setFocus("a", true);
 world.setFloors("business", null, true);
-world.hideSurroundings(true);
+world.finish();
 const ground = world.group.children[0];
-out0();
-function out0() {}
-const out = { ground: ground.visible, others: ["b", "c"].map((id) => world.towers.get(id).root.visible), own: world.towers.get("a").root.visible };
-world.hideSurroundings(false);
-out.back = ["b", "c"].map((id) => world.towers.get(id).root.visible);
+const out = { ground: ground.visible, towers: ["a", "b", "c"].map((id) => world.towers.get(id).root.visible), hide: typeof world.hideSurroundings };
 console.log(JSON.stringify(out));
 """)
-    assert got["ground"] is True and got["others"] == [False, False] and got["own"] is True and got["back"] == [True, True], \
-        "the round's pages draw the streets and the parks round the room (floor.html, lobby.html): only the other buildings are put away"
+    assert got["ground"] is True and got["towers"] == [True, True, True] and got["hide"] == "undefined", \
+        "the streets, the parks and every building stay drawn on a Floor (M-15); nothing puts a neighbour away any more"
 
 
 # --- the review of the package: fixes with their probes ---------------------------------------------------------------------------------------------
@@ -902,7 +899,7 @@ console.log(JSON.stringify(out));
 # --- two potted plants in every room, not in the server room (A-45, M-6) -------------------------------------------------------------------------
 
 PLANTS_JS = ROOMS_JS + r"""
-import { PLANTS, POT, CROWN, plants } from "@JS@/scene/plants.js";
+import { PLANTS, POT, CROWN, plantGeometry } from "@JS@/scene/plants.js";
 import { createCamera } from "@JS@/scene/rig.js";
 import { DOOR, SEAT } from "@JS@/scene/furniture.js";
 const camera = createCamera(THREE);
@@ -913,7 +910,7 @@ const apart = (a, b) => a[1] <= b[0] || b[1] <= a[0] || a[3] <= b[2] || b[3] <= 
 
 
 @needs_node
-def test_every_room_has_two_potted_plants_in_its_one_still_mesh_in_the_tokens_never_picked_and_the_server_room_has_none(tmp_path):
+def test_every_room_has_two_potted_plants_drawn_by_the_tower_in_the_tokens_never_picked_and_the_server_room_has_none(tmp_path):
     got = run_node(tmp_path, PLANTS_JS + r"""
 const out = {};
 const crownSet = (p) => new Set(cityTones(p).crown.map(hex));
@@ -921,34 +918,76 @@ const count = (mesh, set) => { const a = mesh.geometry.getAttribute("color"); le
 const { world } = make({ lots: [lot("a"), lot("b"), lot("c")] });
 world.setFocus("a", true);
 const tower = world.towers.get("a");
-// five floors' worth (the four of the fixture and every floor of it): two plants each, in the room's still mesh (the first mesh of the room; no mesh of its own)
-out.crownVertices = tower.parts.map((p, i) => count(tower.inner[i].children[0].children[0], crownSet(palette)));
+// the plants are one instanced mesh of the tower, two for each of its rooms (M-16), and no room's still mesh holds one
+out.instanced = [tower.plants.isInstancedMesh, tower.plants.count, tower.plantRooms.length, tower.plants.castShadow, tower.overlay.children.includes(tower.plants)];
+out.crownVertices = [count(tower.plants, crownSet(palette)), tower.plants.geometry.getAttribute("position").count];
+out.inRooms = tower.parts.map((p, i) => count(tower.inner[i].children[0].children[0], crownSet(palette)));
 out.meshesPerRoom = tower.parts.map((p, i) => tower.inner[i].children[0].children.filter((n) => n.isMesh).length);
 out.lobby = tower.parts.map((p) => Boolean(p.door));
-// the plants are not an object of the room: none of the hits holds them, and no hit is the room's still mesh
+// the plants are not an object of the room: none of the hits holds them
 world.setFloors("engineering", null, true);
 const hitMeshes = world.hits.flatMap((h) => { const list = []; h.object.traverse((n) => { if (n.isMesh) list.push(n); }); return list; });
-const still = tower.inner[tower.lot.floors.findIndex((f) => f.name === "engineering")].children[0].children[0];
 out.hits = world.hits.map((h) => h.id).sort();
-out.stillPicked = hitMeshes.includes(still);
+out.plantsPicked = hitMeshes.includes(tower.plants);
 // the colours are tokens: the crown is the trees' four tones, the pot a mix in roomTones, and both follow the palette
 const t = roomTones(palette);
 const dark = roomTones({ ...palette, dark: true });
 out.tokens = [t.crown.every((v, i) => hex(v) === hex(cityTones(palette).crown[i])), ["top", "left", "right"].every((k) => t.pot[k].isColor), hex(t.pot.left) !== hex(dark.pot.left)];
-// a plant's footprint: two plants, the pot a hair over the floor (the floor's own tone is what the floor's vertices say)
-out.plants = [PLANTS.length, POT.sides, plants.length];
+out.plants = [PLANTS.length, POT.sides];
 console.log(JSON.stringify(out));
 """)
-    assert got["crownVertices"] == [120] * 4, "two crowns of twenty facets in every room: 120 vertices in the trees' four tones, Lobby included"
-    assert got["meshesPerRoom"] == [2] * 4, "a room's still mesh and its glass: the plants add no mesh and no draw call (they are in the still mesh)"
-    assert got["stillPicked"] is False and "tasks" in got["hits"] and "desk" in got["hits"], "the ways in are picked; the still mesh, the plants with it, is not (not pickable, no tooltip)"
+    assert got["instanced"] == [True, 8, 4, False, True], "one instanced mesh for the tower, two plants for each of its four rooms, casting no shadow, in the tower's overlay (never squashed) and in no room (M-16)"
+    assert got["crownVertices"][0] == 60 * 1 and got["crownVertices"][1] > 60, "a plant is the trees' crown of twenty facets (60 vertices in the crown tones) on a pot"
+    assert got["inRooms"] == [0] * 4 and got["meshesPerRoom"] == [2] * 4, "no room's still mesh holds a plant: a room is its still mesh and its glass, and the plants add no draw call a room"
+    assert got["plantsPicked"] is False and "tasks" in got["hits"] and "desk" in got["hits"], "the ways in are picked; the plants are in no hit (not pickable, no tooltip)"
     assert got["tokens"] == [True, True, True], "the crown is the trees' tones, the pot a token mix that follows the palette"
-    assert got["plants"][0] == 2 and got["plants"][1] == 6, "two plants, each a six-sided pot"
+    assert got["plants"] == [2, 6], "two plants, each a six-sided pot"
     plants_js = (SCENE / "plants.js").read_text(encoding="utf-8")
     assert not re.search(r"#[0-9A-Fa-f]{3,8}\b|rgb\(|hsl\(|0x[0-9a-fA-F]{6}", plants_js), "plants.js writes no colour literal"
     assert "castShadow" not in plants_js and "motion" not in plants_js.lower() and "userData" not in plants_js, "no real-time shadow, no animation, nothing for the pick"
-    callers = [path.name for path in SCENE.glob("*.js") if "plants(" in path.read_text(encoding="utf-8") and path.name != "plants.js"]
-    assert callers == ["building.js"], "only a floor's room plants: the server room (R-51 removed its plant) never calls it"
+    callers = [path.name for path in SCENE.glob("*.js") if "plantGeometry(" in path.read_text(encoding="utf-8") and path.name != "plants.js"]
+    assert callers == ["tower.js"], "only a tower plants its rooms: the server room (R-51 removed its plant) never calls it"
+
+
+# --- the tower closes whole and nothing of a room shows through it (A-58, M-16) -------------------------------------------------------------------
+
+@needs_node
+def test_nothing_of_a_room_shows_through_a_closing_tower_and_the_closed_shell_comes_in_whole(tmp_path):
+    # M-16: while a Building closed, the plants (which stand past the shell's outer face) showed through the walls fading in, the rooms stayed drawn until the last frame behind
+    # walls that were not solid yet, and the roof and canopy came in over a longer stretch than the walls, so the closed shell came whole only at the end
+    got = run_node(tmp_path, WORLD_JS + r"""
+const { world } = make();
+world.setFocus("a", true);
+const tower = world.towers.get("a");
+const out = { open: [], plants: [], rooms: [], walls: [], roofs: [], together: true };
+const opacities = (list) => list.map((m) => m.opacity);
+world.setFocus(null);   // the close begins
+for (let i = 0; i < 400; i++) {
+  const moving = world.step(1 / 60);
+  const walls = [];
+  tower.floorGroups.forEach((g) => g.children[0].traverse((n) => { if (n.material && n.material.opacity !== undefined) walls.push(n.material.opacity); }));
+  const roof = []; tower.group.traverse((n) => { if (n.material && n.parent && n.parent.parent === tower.group && n.position.y > -1 && n.isMesh && n.material.transparent && !tower.floorGroups.includes(n.parent)) roof.push(n.material.opacity); });
+  const lo = Math.min(...walls);
+  if (Math.abs(Math.min(...roof, lo) - lo) > 1e-9 && roof.length) out.together = false;
+  out.open.push(+tower.open.toFixed(3));
+  out.plants.push([tower.plants.visible, tower.plants.visible ? Math.max(...Array.from({ length: 8 }, (_, k) => { const m = new THREE.Matrix4().fromArray(tower.plants.instanceMatrix.array, k * 16); return m.elements[0]; })) : 0]);
+  out.rooms.push(tower.inner.map((inner) => inner.visible));
+  out.walls.push(lo);
+  if (!moving) break;
+}
+// the first frame of the opening back up has the plants still away
+console.log(JSON.stringify(out));
+""")
+    opens, plants, rooms, walls = got["open"], got["plants"], got["rooms"], got["walls"]
+    assert opens[-1] == 0 and len(opens) > 20, "the building closes by itself"
+    for o, (shown, size), room, wall in zip(opens, plants, rooms, walls):
+        if o <= 0.6:
+            assert shown is False and size == 0, f"at open progress {o} the plants are away: they have shrunk to nothing before the walls come in"
+        if wall >= 0.999:
+            assert not any(room), f"at open progress {o} the walls are solid and no room is drawn behind them"
+    first_walls = next(i for i, w in enumerate(walls) if w > 0.01)
+    assert all(not p[0] for p in plants[first_walls:]), "once the walls begin to show no plant is drawn"
+    assert got["together"] is True, "the walls, the ledges, the canopy and the roof fade in together: the closed shell is whole as one"
 
 
 @needs_node
@@ -961,7 +1000,7 @@ const onScreen = (list) => list.map(([x, y, z]) => { const p = new THREE.Vector3
 const boxHull = (x0, x1, y0, y1, z0, z1) => hull(onScreen([x0, x1].flatMap((x) => [y0, y1].flatMap((y) => [z0, z1].map((z) => [x, y, z])))));
 // the gap between two convex polygons along their edges' normals (negative when they overlap)
 const gap = (A, B) => { let best = -1e9; for (const P of [A, B]) for (let i = 0; i < P.length; i++) { const a = P[i]; const b = P[(i + 1) % P.length]; const n = [b[1] - a[1], a[0] - b[0]]; const l = Math.hypot(...n); n[0] /= l; n[1] /= l; const pa = A.map((p) => p[0] * n[0] + p[1] * n[1]); const pb = B.map((p) => p[0] * n[0] + p[1] * n[1]); best = Math.max(best, Math.max(Math.min(...pb) - Math.max(...pa), Math.min(...pa) - Math.max(...pb))); } return best; };
-const silhouette = (place) => { const kit = createKit(palette); const batch = kit.batch(); plants(THREE, pageBatch(batch, FRAME), FRAME, roomTones(palette), [place]); const mesh = batch.mesh(new THREE.Group()); const a = mesh.geometry.getAttribute("position"); const list = []; const v = new THREE.Vector3(); for (let i = 0; i < a.count; i++) { v.fromBufferAttribute(a, i).applyMatrix4(camera.matrixWorldInverse); list.push([v.x, v.y]); } return hull(list); };
+const silhouette = (place) => { const geo = plantGeometry(THREE, FRAME, roomTones(palette)); const a = geo.getAttribute("position"); const list = []; const v = new THREE.Vector3(); for (let i = 0; i < a.count; i++) { v.fromBufferAttribute(a, i).add(new THREE.Vector3(FRAME.X(place[0]), FRAME.Y(0), FRAME.Z(place[1]))).applyMatrix4(camera.matrixWorldInverse); list.push([v.x, v.y]); } return hull(list); };
 const board = boxHull(0.535, 4.93, 0.565, 2.37, 0.2, 0.2);
 const bookcase = boxHull(5.38, 6.83, 0, 2.2, 0.2, 0.82);
 const door = boxHull(0.2, 0.2, 0, DOOR.top, DOOR.z0, DOOR.z1);

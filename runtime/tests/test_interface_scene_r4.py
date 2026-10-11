@@ -270,7 +270,7 @@ console.log(JSON.stringify(out));
     assert got["colour"] == [36, 36, 3, True, True], "one colour for every vertex, drawn with the kit's one vertex-colour material, casting a shadow"
     assert got["empty"] is None
     assert got["toneOfFirstFace"] == [True, True, True], "the top, the left face and the right face each take their own tone"
-    assert got["ground"][0] == 3 and got["ground"][1] == 3 and got["ground"][2] is True, "the ground is three batches and three instanced meshes (crowns, trunks, shadows: A-44 made it three, M-5), however many blocks"
+    assert got["ground"][0] == 3 and got["ground"][1] == 6 and got["ground"][2] is True, "the ground is three batches and six instanced meshes (a crown for each of the four variants, the trunks, the shadows: M-14 made it six, after M-5's three), however many blocks"
     assert got["same"] is True, "the same city every time"
     assert got["lots"][0] == {"x": 0, "z": 0} and got["lots"][1] == 0 and got["lots"][2] == float(got["lots"][3]), "the lots stand one block apart, in a row centred on the origin"
     assert got["kinds"] == ["lot", "lot", "plaza", "park", "plaza", "park", "park"], "a lot's block holds a project; the others alternate between a paved square and a park"
@@ -559,9 +559,9 @@ const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3
 for (const mesh of meshes) for (let i = 0; i < mesh.count; i++) { mesh.getMatrixAt(i, m); m.decompose(p, q, s); turns.add([q.x, q.y, q.z, q.w].map((v) => +v.toFixed(6)).join(",")); scales.add(+s.x.toFixed(2)); }
 out.turns = [...turns];
 const at = (mesh, i) => { mesh.getMatrixAt(i, m); return new THREE.Vector3().setFromMatrixPosition(m).applyMatrix4(camera.matrixWorldInverse); };
-out.shadowLeft = +((at(meshes[2], 0).x - at(meshes[1], 0).x) * P).toFixed(1);
+out.shadowLeft = +((at(meshes[1], 0).x - at(meshes[0], 0).x) * P).toFixed(1);   // the trunks, then the shadows, then a crown for each variant
 out.sizesSet = scales.size > 3;
-out.instanced = [meshes.length, meshes.map((x) => x.castShadow), new Set(meshes.map((x) => x.count)).size];
+out.instanced = [meshes.length, meshes.map((x) => x.castShadow), meshes[0].count === meshes[1].count && meshes.slice(2).reduce((n, m) => n + m.count, 0) === meshes[0].count];
 console.log(JSON.stringify(out));
 """)
     assert got["counts"] == [20, 6, 16], "an icosahedron of twenty facets, a trunk of the three faces the camera sees (six triangles), a flat shadow of sixteen"
@@ -571,11 +571,11 @@ console.log(JSON.stringify(out));
     assert seen == sorted(seen) and set(seen) == {0, 1, 2, 3}, "the facets the camera sees are lighter the more light they face: the tone never goes back"
     assert seen.count(0) >= 1 and seen.count(3) >= seen.count(0) and seen.count(3) >= seen.count(1), "shared among the tones as the page shares its eight (1, 2, 2, 3): the fewest in the lightest, the most in the darkest"
     crown_w, crown_h, trunk_w, shadow_w = got["sizes"]
-    assert abs(crown_w - 20.1) < 1.5 and abs(crown_h - 22.6) < 1.5 and abs(trunk_w - 5.9) < 0.7 and abs(shadow_w - 20.4) < 1.5, "the page's tree at size 1: 20.1 by 22.6 px crown, 5.9 px trunk, 20.4 px shadow (city.html)"
+    assert abs(crown_w - 20.1) < 1.5 and abs(crown_h - 22.6) < 1.5 and 3 < trunk_w < 5 and abs(shadow_w - 20.4) < 1.5, "the page's tree at size 1: 20.1 by 22.6 px crown and 20.4 px shadow (city.html); the trunk is thinner than its 5.9 px, 3 to 5 px (M-14: the earlier look)"
     assert -11 < got["shadowLeft"] < -8, "the shadow's centre lies about 9.5 px to the left of the trunk, as the page draws it"
     assert got["turns"] == ["0,0,0,1"], "no tree is turned: its facets were lit once, for the one camera (a turn would light a crown from another side)"
     assert got["sizesSet"] is True, "the variation between trees is their size, as before"
-    assert got["instanced"][0] == 3 and got["instanced"][1] == [False, False, False] and got["instanced"][2] == 1, "three instanced meshes (crown, trunk, shadow) of one count, none casting a real-time shadow (M-5)"
+    assert got["instanced"][0] == 6 and got["instanced"][1] == [False] * 6 and got["instanced"][2] is True, "six instanced meshes (the trunks, the shadows and a crown for each of the four variants: M-14), the crowns together as many as the trunks, none casting a real-time shadow (M-5)"
 
 
 @needs_node
@@ -586,11 +586,96 @@ for (const dark of [false, true]) {
   const p = { ...palette, dark };
   const ground = buildGround(createKit(p), 1);
   const meshes = []; ground.group.traverse((n) => { if (n.isInstancedMesh) meshes.push(n); });
-  const shadow = meshes[2];
-  out[dark ? "dark" : "light"] = [shadow.material.transparent, shadow.material.opacity, shadow.material.depthWrite, hexOf(shadow.material.color) === hexOf(cityTones(p).shadow), shadow.material !== meshes[0].material];
+  const shadow = meshes[1];
+  out[dark ? "dark" : "light"] = [shadow.material.transparent, shadow.material.opacity, shadow.material.depthWrite, hexOf(shadow.material.color) === hexOf(cityTones(p).shadow), shadow.material !== meshes[2].material];
 }
 console.log(JSON.stringify(out));
 """)
     assert got["light"] == [True, 0.09, False, True, True] and got["dark"] == [True, 0.42, False, True, True], "scene.css's `.m-shadow`: the shadow ink at 9 percent in light and 42 in dark, transparent, writing no depth, and its own material"
     city = (SCENE / "city.js").read_text(encoding="utf-8")
     assert not re.search(r"#[0-9A-Fa-f]{3,8}\b|rgb\(|hsl\(|0x[0-9a-fA-F]{6}", city), "city.js writes no colour literal"
+
+
+# --- the trees vary, the trunk is thin and tapered and a bark brown (M-14, R4-B5) ----------------------------------------------------------------
+
+@needs_node
+def test_the_crown_variants_differ_each_is_lit_in_the_world_and_a_trees_pick_is_seeded(tmp_path):
+    # M-14 supersedes B4-3 (variety by size only): a few crowns, each turned or moved and lit after that, a seeded pick, a width and a height of its own
+    got = run_node(tmp_path, TREES_JS + r"""
+import { VARIANTS, treeLook } from "@JS@/scene/city.js";
+const out = {};
+const g = treeGeometries(THREE, tones);
+out.variants = [VARIANTS.length, g.crowns.length];
+const key = (geo) => Array.from(geo.getAttribute("position").array).map((v) => v.toFixed(3)).join(",");
+out.distinct = new Set(g.crowns.map(key)).size;
+out.facets = g.crowns.map((geo) => geo.getAttribute("position").count / 3);
+const light = treeLight(THREE);
+const front = new THREE.Vector3(Math.sin(AZIMUTH) * Math.cos(ELEVATION), Math.sin(ELEVATION), Math.cos(AZIMUTH) * Math.cos(ELEVATION));
+const names = tones.crown.map(hexOf);
+out.lit = g.crowns.map((geo) => {
+  const pos = geo.getAttribute("position"), col = geo.getAttribute("color");
+  const seen = [];
+  for (let f = 0; f < pos.count / 3; f++) {
+    const a = new THREE.Vector3().fromBufferAttribute(pos, f * 3), b = new THREE.Vector3().fromBufferAttribute(pos, f * 3 + 1), c = new THREE.Vector3().fromBufferAttribute(pos, f * 3 + 2);
+    const n = new THREE.Vector3().crossVectors(b.clone().sub(a), c.clone().sub(a)).normalize();
+    if (n.dot(front) > 0.01) seen.push({ dot: n.dot(light), tone: names.indexOf(new THREE.Color(col.getX(f * 3), col.getY(f * 3), col.getZ(f * 3)).getHexString()) });
+  }
+  seen.sort((p, q) => q.dot - p.dot);
+  const tonesOrder = seen.map((s) => s.tone);
+  return [tonesOrder.every((t, i) => !i || t >= tonesOrder[i - 1]), new Set(tonesOrder).size, tonesOrder[0] === 0, tonesOrder[tonesOrder.length - 1] === 3];
+});
+// the pick: the same place gives the same tree, and the trees of a city use every variant and vary in width and height
+out.same = JSON.stringify(treeLook(3, -2, 5)) === JSON.stringify(treeLook(3, -2, 5));
+const looks = []; for (let col = -6; col < 6; col++) for (let row = -5; row < 6; row++) for (const c of [-9, 0, 9]) looks.push(treeLook(col, row, c));
+out.used = [...new Set(looks.map((l) => l.variant))].sort();
+out.widths = [Math.min(...looks.map((l) => l.width)) >= TREE.width[0], Math.max(...looks.map((l) => l.width)) <= TREE.width[1], new Set(looks.map((l) => l.width.toFixed(2))).size > 10];
+out.heights = [Math.min(...looks.map((l) => l.height)) >= TREE.height[0], Math.max(...looks.map((l) => l.height)) <= TREE.height[1], new Set(looks.map((l) => l.height.toFixed(2))).size > 10];
+// the trees of the ground: each in the mesh of its variant, all of them there, none turned, and the same on every build
+const build = () => { const ground = buildGround(createKit(palette), 2); const meshes = []; ground.group.traverse((n) => { if (n.isInstancedMesh) meshes.push(n); }); return { meshes, trees: ground.trees }; };
+const a = build(), b = build();
+out.counts = [a.meshes.length, a.meshes.slice(2).reduce((n, m) => n + m.count, 0) === a.trees, a.meshes[0].count === a.trees];
+out.sameBuild = JSON.stringify(a.meshes.map((m) => m.count)) === JSON.stringify(b.meshes.map((m) => m.count)) && Array.from(a.meshes[2].instanceMatrix.array.slice(0, 64)).join() === Array.from(b.meshes[2].instanceMatrix.array.slice(0, 64)).join();
+console.log(JSON.stringify(out));
+""")
+    assert got["variants"] == [4, 4] and got["distinct"] == 4, "four crown variants, all different in their vertices"
+    assert got["facets"] == [20] * 4, "each is an icosahedron of twenty facets"
+    for ordered, tone_count, lightest, darkest in got["lit"]:
+        assert ordered and tone_count == 4 and lightest and darkest, "each variant is lit in the world after its turn: the facets the camera sees are lighter the more light they face, the lightest facing it most, in four tones"
+    assert got["same"] is True and got["used"] == [0, 1, 2, 3], "the pick is seeded by where the tree stands, and a city uses every variant"
+    assert got["widths"] == [True, True, True] and got["heights"] == [True, True, True], "width and height of each tree vary inside their bounds"
+    assert got["counts"] == [6, True, True] and got["sameBuild"] is True, "every tree is in the mesh of its variant, with a trunk and a shadow, the same on every build"
+
+
+@needs_node
+def test_the_trunk_is_thin_a_little_tapered_six_sided_and_a_bark_brown_darker_than_before_in_dark_never_yellow(tmp_path):
+    got = run_node(tmp_path, TREES_JS + r"""
+import { roomTones } from "@JS@/scene/palette.js";
+const out = {};
+const lum = (c) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+const g = treeGeometries(THREE, tones);
+const pos = g.trunk.getAttribute("position");
+// width at the foot and at the top of the trunk (the vertices at height 0 and at the top)
+const widthAt = (y) => { let r = 0; for (let i = 0; i < pos.count; i++) if (Math.abs(pos.getY(i) - y) < 1e-6) r = Math.max(r, Math.hypot(pos.getX(i), pos.getZ(i))); return r; };   // the radius at that height
+out.taper = [widthAt(0), widthAt(TREE.trunkHeight)];
+out.faces = pos.count / 3;
+out.sides = TREE.trunkSides;
+const old = (p) => p.mix(p.T.textMuted, p.T.warn, 0.25);   // the old recipe, mix(text-muted, warn 25%)
+for (const dark of [false, true]) {
+  const p = dark ? { ...palette, dark, bg: c(0x101010), T: { ...palette.T, bgToken: c(0x0a0a0a), text: c(0xffffff), textMuted: c(0x9ca3af), warn: c(0xf59e0b), error: c(0xf87171) } } : { ...palette, T: { ...palette.T, text: c(0x111111), textMuted: c(0x676d7b), warn: c(0xd97706), error: c(0xdc2626) } };   // the page's tokens in each scheme
+  const t = cityTones(p);
+  const was = old(p);
+  const hue = (c) => { const max = Math.max(c.r, c.g, c.b), min = Math.min(c.r, c.g, c.b); if (max === min) return 0; const d = max - min; const h = max === c.r ? ((c.g - c.b) / d) % 6 : max === c.g ? (c.b - c.r) / d + 2 : (c.r - c.g) / d + 4; return (h * 60 + 360) % 360; };
+  out[dark ? "dark" : "light"] = { bark: [lum(t.trunk), lum(was)].map((v) => +v.toFixed(3)), shade: lum(t.trunkShade) < lum(t.trunk), hue: +hue(t.trunk).toFixed(0), red: t.trunk.r > t.trunk.g && t.trunk.g >= t.trunk.b, ratio: +(t.trunk.g / t.trunk.r).toFixed(2), isColour: [t.trunk.isColor, t.trunkShade.isColor] };
+}
+console.log(JSON.stringify(out));
+""")
+    foot, top = got["taper"]
+    assert 0.07 < foot < 0.1 and top < foot * 0.8, "the trunk is thin (the box was 0.0875 of half-width, a square 0.175 across, and the earlier look 0.09 to 0.11 of radius on a taller crown) and narrower at the top than at the foot"
+    assert got["faces"] == 6 and got["sides"] == 6, "six sides, the three the camera sees: six triangles"
+    for scheme in ("light", "dark"):
+        r = got[scheme]
+        assert r["red"] and r["ratio"] < 0.72 and 5 <= r["hue"] <= 35 and all(r["isColour"]), f"{scheme}: a bark brown (orange hue, green well under red), not the old yellowish mix"
+        assert r["shade"] is True, f"{scheme}: the sides the sun does not reach are a step darker"
+    assert got["dark"]["bark"][0] < got["dark"]["bark"][1], "in dark the bark is darker than the old trunk"
+    palette_js = (SCENE / "palette.js").read_text(encoding="utf-8")
+    assert "mix(T.warn, T.error, 0.3)" in palette_js and "trunkShade" in palette_js, "the bark is a mix of tokens, with a shade of its own"

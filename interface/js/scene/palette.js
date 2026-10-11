@@ -123,7 +123,10 @@ export function cityTones(palette) {
     walk: pick(mix(bg, emph, 0.55), mix(emph, T.border, 0.35)),
     plaza: pick(bg.clone(), mix(bgt, bg, 0.78)),
     grass: pick(mix(bg, T.success, 0.26), mix(bgt, T.success, 0.3)),
-    trunk: mix(tm, T.warn, 0.25),
+    // the bark (M-14): the warn orange turned a little toward the error red and darkened toward the ink in light and toward the page colour in dark, so that it is brown and
+    // never yellow in either; the sides the sun does not reach are a step darker
+    trunk: pick(mix(mix(T.warn, T.error, 0.3), ink, 0.42), mix(mix(T.warn, T.error, 0.3), bgt, 0.52)),
+    trunkShade: pick(mix(mix(mix(T.warn, T.error, 0.3), ink, 0.42), ink, 0.3), mix(mix(mix(T.warn, T.error, 0.3), bgt, 0.52), bgt, 0.34)),
     // the four tones of a crown, lightest first: facets are given the tone of the light they face
     crown: [
       pick(mix(bg, T.success, 0.48), mix(bgt, T.success, 0.62)),
