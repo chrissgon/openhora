@@ -42,6 +42,7 @@ The flow files, one row each, with their tasks in order. A flow file is not a fl
 | `code-change` | A code change, to its pull request | `implement` (`eng-implement`), `pull-request` (`ops-pull-request`) |
 | `design` | Design | `spec` (`product-feature-spec`), `flows` (`design-ux-flows`), `system` (`design-system`), `brief-city` (`design-brief`), `brief-building` (`design-brief`), `brief-floor` (`design-brief`), `brief-lobby` (`design-brief`), `brief-control-room` (`design-brief`) |
 | `market-positioning` | Market and positioning | `market` (`biz-market-analysis`), `positioning` (`biz-icp-positioning`) |
+| `website` | Website | `prd` (`product-prd`), `spec` (`product-feature-spec`), `flows` (`design-ux-flows`), `system` (`design-system`), `brief` (`design-brief`), `execute` (`design-execute`), `handoff` (`design-handoff`), `implement` (`eng-implement`) |
 <!-- /generated -->
 
 ## Abstractions
