@@ -805,3 +805,36 @@ console.log(JSON.stringify(out));
     assert got["scene"][0][1:] == ["ready", "lit"] or any(s[1:] == ["ready", "lit"] for s in got["scene"]), "the scene's floor carries the state and the lit window"
     assert got["lobby"][0] == ["ready", "lit", "Planning agent · queued · starts when the current run ends"], "the Lobby's room: ready, lit, and the tooltip's sentence"
     assert got["lobby"][1][0] == "idle" and got["lobby"][2][0] == "waiting" and got["lobby"][3][0] == "working" and got["lobby"][4][0] == "off", "idle, waiting, working and off outrank or leave ready as before"
+
+
+@needs_node
+def test_a_queued_floor_is_muted_whatever_holds_it_and_what_the_page_can_tell_keeps_a_task_from_starting_is_not_queued(tmp_path):
+    # review of R4-B6: the real ready case always carries the dispatcher's `job running` (it reports that for every ready task while a run is in progress); the page also knows a daily
+    # cap (from the agents it reads) and an open wait (from the status rows) itself, and the planner that is stopped or disabled is off
+    got = run_node(tmp_path, READY_JS + r"""
+import { queuedFree as fromModel } from "@JS@/model.js";
+const out = {};
+// the plate's tone: a queued floor held only by `job running` is muted, not the amber of a hold; a task held for another reason keeps the amber
+const turn = rowOf([agent("design", { queued: 1, held: 1 })], [task(1, "ready", "design")], { held: [held(1, "design", "job running")] }).rows.find((x) => x.name === "design");
+const own = rowOf([agent("design", { queued: 1, held: 1 })], [task(1, "ready", "design")], { held: [held(1, "design", "dispatch off")] }).rows.find((x) => x.name === "design");
+out.tone = [turn.state, turn.plateWord, turn.plateTone, turn.heldReason, own.state, own.plateWord, own.plateTone];
+// a daily cap in use: runs, spend; a cap not in use (caps_in_use false) does not count
+const capped = (extra) => stateOf(rowOf([agent("design", { queued: 1, held: 1, max_runs_per_day: 4, runs_today: 4, max_usd_per_day: 2, usd_today: 0, ...extra })], [task(1, "ready", "design")], { held: [held(1, "design", "job running")] }), "design");
+out.caps = [capped({}), capped({ runs_today: 3 }), capped({ runs_today: 0, usd_today: 2 }), capped({ runs_today: 0, usd_today: 1.5 }), capped({ caps_in_use: { runs: false, spend: true } }), capped({ runs_today: 0, usd_today: 2, caps_in_use: { runs: true, spend: false } })];
+// an open wait: a ready task that waits for another task is not free; one that does not is
+const waitTask = (id) => ({ ...task(id, "ready", "design"), waiting_for: [{ task_id: 9, request_id: 1, reason: "needs docs/a.md" }] });
+const waits = (tasks, queuedCount) => stateOf(rowOf([agent("design", { queued: queuedCount, held: queuedCount })], tasks, { held: tasks.map((t) => held(t.id, "design", "job running")) }), "design");
+out.waits = [waits([waitTask(1)], 1), waits([waitTask(1), task(2, "ready", "design")], 2)];
+out.same = fromModel === fm.queuedFree && fm.TURN_REASON === "job running";
+// the Lobby's planner: stopped or disabled is off, whatever is queued (the view's predicate)
+out.cityCap = model.buildingOf({ id: P, name: "shop", config: { accepted: true } }, { status: { requests: [], pending: [], held: [] }, agents: [agent("design", { queued: 1, max_runs_per_day: 2, runs_today: 2 })] }).floors[0].window;
+console.log(JSON.stringify(out));
+""")
+    assert got["tone"] == ["ready", "queued", "pui-muted", "job running", "idle", "held: dispatch off", "pui-warn"], "a queued floor held only by `job running` is muted; a hold of another kind is amber and keeps the idle look"
+    assert got["caps"] == ["idle", "ready", "idle", "ready", "ready", "ready"], "an agent at a daily cap in use (runs or spend) is not queued; a cap not in use does not count"
+    assert got["waits"] == ["idle", "ready"], "a ready task with an open wait is not queued; one without is"
+    assert got["same"] is True and got["cityCap"] == "grey", "one definition (model.js), read by the floors and by the City's window rule, which leaves a capped agent's window dark"
+    lobby = (JS / "views" / "lobby.js").read_text(encoding="utf-8")
+    assert 'planner.enabled !== false && planner.acting_mode !== "stopped" && fm.queuedFree(planner, status) > 0' in lobby, "the Lobby's planner that is stopped or disabled is off, not ready"
+    readme = (INTERFACE / "README.md").read_text(encoding="utf-8")
+    assert "during a run the dispatcher reports only" in readme, "the limit is written down"

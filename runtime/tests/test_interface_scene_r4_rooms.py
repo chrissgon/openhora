@@ -200,7 +200,7 @@ console.log(JSON.stringify(out));
 """)
     assert got["poses"] == {"waiting": {"layers": 24, "first": "shadow", "groups": ["wave"], "pivots": ["wave"]}, "working": {"layers": 22, "first": "shadow", "groups": ["hand-far", "hand-near"], "pivots": ["hand-far", "hand-near"]},
                             "idle": {"layers": 22, "first": "shadow", "groups": [], "pivots": []},
-                            "ready": {"layers": 22, "first": "shadow", "groups": ["blink"], "pivots": ["blink"]}}, "R-41, M-24: four poses, each a list of parts back to front, the shadow first; what moves is named (the ready owl's two lids)"
+                            "ready": {"layers": 20, "first": "shadow", "groups": ["blink"], "pivots": ["blink"]}}, "R-41, M-24: four poses, each a list of parts back to front, the shadow first; what moves is named (the ready owl's two lids)"
     assert got["allKnown"] is True and got["waitingHasNoRightWing"] is True, "a pose is made of the parts of the drawing; the waiting owl's right wing is the raised one"
     assert got["fills"] is True, "every colour of the owl is one of the mark's six"
     assert got["lid"] == [True, True, True], "a lid is the circle of the eye above the line"
@@ -1147,6 +1147,7 @@ const kit = createKit(palette);
 const ready = OWL_POSES.ready;
 const ids = ready.layers.map((l) => l.part.id);
 out.parts = [ids[0], ids.includes("w-face"), ids.includes("body"), ids.includes("wing-left") && ids.includes("wing-right"), ids.filter((i) => i.startsWith("zee")).length, ids.some((i) => /hand|wave|shut|closed/.test(i))];
+out.awake = ids.filter((i) => /brow|w-lid|w-pupil|w-glint/.test(i)).length;   // none of the working owl's heavy brows, half lids or downcast pupils
 out.groups = [...new Set(ready.layers.map((l) => l.group).filter(Boolean))];
 out.fills = ready.layers.map((l) => l.part.fill).filter(Boolean).every((v) => Object.values(OWL_PALETTE).includes(v));
 out.lids = ["r-lid-left", "r-lid-right"].map((id) => [owlPartById(id).kind, owlPartById(id).fill === OWL_PALETTE.brown]);
@@ -1171,6 +1172,7 @@ out.zeesOnlyIdle = [OWL_ZEES.length, Object.keys(buildOwl(kit, "idle", { scale: 
 console.log(JSON.stringify(out));
 """)
     assert got["parts"] == ["shadow", True, True, True, 0, False] and got["groups"] == ["blink"], "the working owl's face turned toward the board, the idle owl's body and its wings at rest, no z, no wing that moves; its one moving part is the lids"
+    assert got["awake"] == 0, "awake: no heavy brows, no half lids and no pupils looking down at the keys (the eyes are fully open, raised toward the board)"
     assert got["fills"] is True and got["lids"] == [["lid", True], ["lid", True]], "the owl's own palette: the lids are the brown of its face, no new colour, no texture"
     assert got["built"] == [True, True, 0], "built from flat parts: a still mesh, the lids on a pivot, no z and no waving or typing wing"
     assert got["rest"] == 0.001, "the eyes are open at rest: the lids have no height"

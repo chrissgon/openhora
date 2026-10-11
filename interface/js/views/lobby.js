@@ -254,7 +254,7 @@ export function createLobbyView(frame, { project, onChanged }) {
   function queuedPlanner(status) {
     const detail = last.snapshot && last.snapshot.details[project];
     const planner = detail && Array.isArray(detail.agents) ? detail.agents.find((a) => a.name === "planning") : null;
-    return Boolean(planner) && fm.queuedFree(planner, status) > 0;
+    return Boolean(planner) && planner.enabled !== false && planner.acting_mode !== "stopped" && fm.queuedFree(planner, status) > 0;   // a stopped or disabled planner is off, whatever is queued
   }
 
   function drawRoom() {

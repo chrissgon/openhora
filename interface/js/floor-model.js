@@ -8,7 +8,7 @@
 
 import * as format from "./format.js";
 import * as router from "./router.js";
-import { MAX_FLOORS, acceptance, floorNumber, openRequests, pickRequest, requestChoice, routingRequest, routingWords } from "./model.js";
+import { MAX_FLOORS, TURN_REASON, acceptance, floorNumber, openRequests, pickRequest, queuedFree, requestChoice, routingRequest, routingWords } from "./model.js";
 import { windowState } from "./scene/look.js";
 import { waitLines, waitingLabel, waitsOf } from "./waits.js";
 
@@ -143,20 +143,8 @@ export function handOverTarget(tasks, current) {
   return tasks.find((t) => t.state === "failed" || t.state === "blocked") || current || null;
 }
 
-/** The reason the dispatcher gives a ready task that only waits its turn, behind the one run at a time: it is queued, not held (M-24). */
-export const TURN_REASON = "job running";
-
-/**
- * How many ready tasks of an agent wait their turn behind the one run at a time and are not held (M-24, A-65): the agent's `queued` (its ready tasks) less the ones the last round
- * held for a reason of their own (`status.held`: a stopped agent, a cap, dispatch off, a wait on another task or request; the agent's own `held` count when the status lists none), never
- * under zero. A task held for `TURN_REASON` is waiting for its turn and so is queued. A held task keeps its reason and the idle look; a queued one that is free to start is "ready".
- */
-export function queuedFree(agent, status) {
-  const name = (agent && agent.name) || PLANNING;
-  const listed = status && Array.isArray(status.held);
-  const held = listed ? heldOf(status, name).filter((h) => h.reason !== TURN_REASON).length : format.count(agent && agent.held);
-  return Math.max(0, format.count(agent && agent.queued) - held);
-}
+// `queuedFree` and `TURN_REASON` are model.js's (the City's window rule needs them too); the Floor's modules and the tests read them here.
+export { TURN_REASON, queuedFree };
 
 /** "working", "off", "waiting", "ready" or "idle" for an agent (the City's window rule first: a running task lights the floor; then a decision; then a task queued and not held). */
 export function stateOf(agent, status, accepted = true) {
@@ -263,7 +251,7 @@ export function floorRow(agent, status, context) {
   // R-26: the state as a soft badge: working (brand), resting and off (muted), waiting for you, held: ... and not accepted (warn)
   const plateWord = !configured ? "not accepted"
     : state === "working" ? "working" : state === "off" ? "Off, mode is stopped" : state === "waiting" ? "waiting for you" : state === "ready" ? "queued" : heldReason ? `held: ${heldReason}` : "resting";
-  const plateTone = !configured ? "pui-warn" : state === "working" ? "pui-theme" : state === "off" ? "pui-muted" : (state === "waiting" || heldReason) ? "pui-warn" : "pui-muted";
+  const plateTone = !configured ? "pui-warn" : state === "working" ? "pui-theme" : state === "off" ? "pui-muted" : state === "ready" ? "pui-muted" : (state === "waiting" || heldReason) ? "pui-warn" : "pui-muted";   // a queued floor is muted whatever else is held (the real ready case always carries `job running`)
   const lower = state === "working" ? "working" : state === "waiting" ? "waiting for you" : state === "ready" ? "queued" : state === "idle" ? "idle" : "off";
   const inUse = format.metersInUse(agent);        // A-38: a meter only for a cap in use
   const money = `${format.dollars(usd)} of ${format.dollars(usdCap)}`;

@@ -83,9 +83,14 @@ const WORKING_PARTS = Object.freeze([
   { id: "w-hand-near", kind: "path", d: "M94 134 Q86 154 104 162 Q124 170 144 166 Q154 158 144 150 Q130 146 118 132Z", fill: P.brown, stroke: { colour: P.ink, width: 6 } },
 ]);
 
-// The ready owl (M-24, A-65) is the working owl's three-quarter turn to its desk with its eyes open and its wings at rest (the idle owl's), and a lid over each eye that
-// comes down and goes up again as a slow blink (`blink`): a lid is the whole of its eye, drawn in the owl's brown, scaled from nothing about its top.
+// The ready owl (M-24, A-65) is the working owl's three-quarter turn with its eyes fully open and its wings at rest (the idle owl's): no half lids and no heavy brows (they are the working
+// owl's, bent over its work), the pupils raised toward the board (the working owl's look down at the keys), and a lid over each eye that comes down and goes up again as a slow blink
+// (`blink`): a lid is the whole of its eye, drawn in the owl's brown, scaled from nothing about its top.
 const READY_PARTS = Object.freeze([
+  { id: "r-pupil-left", kind: "ellipse", e: [113, 93, 11, 11], fill: P.ink, stroke: null },
+  { id: "r-pupil-right", kind: "ellipse", e: [157, 91, 6, 10], fill: P.ink, stroke: null },
+  { id: "r-glint-left", kind: "ellipse", e: [117, 89, 4, 4], fill: P.white, stroke: null },
+  { id: "r-glint-right", kind: "ellipse", e: [159, 88, 2.6, 2.6], fill: P.white, stroke: null },
   { id: "r-lid-left", kind: "lid", e: [106, 98, 22, 22], cut: 130, fill: P.brown, stroke: null },
   { id: "r-lid-right", kind: "lid", e: [155, 98, 11, 21], cut: 130, fill: P.brown, stroke: null },
 ]);
@@ -119,9 +124,9 @@ export const OWL_POSES = Object.freeze({
   }),
   // awake at its desk, looking toward the board: the working owl's face turned three-quarters, its eyes open, the wings at rest, and a blink that is its only motion
   ready: Object.freeze({
-    layers: [...front("shadow", "w-ear-left", "w-ear-right", "w-foot-left", "w-foot-right", "body", "wing-left", "wing-right", "w-face", "w-eye-left", "w-eye-right", "w-pupil-left", "w-pupil-right",
-      "w-glint-left", "w-glint-right"), { part: part("r-lid-left"), group: "blink" }, { part: part("r-lid-right"), group: "blink" },
-      ...front("w-ring-left", "w-ring-right", "w-brow-left", "w-brow-right", "w-beak")],
+    layers: [...front("shadow", "w-ear-left", "w-ear-right", "w-foot-left", "w-foot-right", "body", "wing-left", "wing-right", "w-face", "w-eye-left", "w-eye-right", "r-pupil-left", "r-pupil-right",
+      "r-glint-left", "r-glint-right"), { part: part("r-lid-left"), group: "blink" }, { part: part("r-lid-right"), group: "blink" },
+      ...front("w-ring-left", "w-ring-right", "w-beak")],
     pivots: { blink: [0.5, 0] },
   }),
   idle: Object.freeze({
