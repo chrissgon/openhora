@@ -250,7 +250,7 @@ def test_the_project_list_shows_each_projects_hash_and_counts_and_a_refused_proj
                                {"id": "3", "name": "half", "path": "/half"}])
     listed = jobs.projects_list()["projects"]
     assert listed[0] == {"id": "1", "name": "ok", "folder": "/ok", "config": {"sha256": "a" * 64, "accepted": True},
-                         "open_pending": 2, "running_task": 7}
+                         "open_pending": 2, "running_task": 7, "routing_request": None}   # R4-L1: the new key, null while no router run holds a request
     assert listed[1] == {"id": "2", "name": "bad", "folder": "/bad", "config": {"accepted": False}, "message": "not accepted"}
     assert [e["folder"] for e in listed] == ["/ok", "/bad", "/half"], "A-34: every entry carries the folder, accepted or not"
     assert listed[2]["message"] == "no state" and "open_pending" not in listed[2] and listed[2]["config"]["accepted"]

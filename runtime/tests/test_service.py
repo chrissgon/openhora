@@ -943,7 +943,8 @@ def test_the_config_operation_never_refuses_an_unaccepted_configuration_and_the_
     assert ops.config(real.path)["accepted"] is True
     [entry] = call(real, "GET", "/api/v1/projects")[2]["projects"]
     assert entry["config"] == {"sha256": digest, "accepted": True} and entry["open_pending"] == 0 and entry["running_task"] is None
-    assert "message" not in entry and set(entry) == {"id", "name", "folder", "config", "open_pending", "running_task"} \
+    assert entry["routing_request"] is None   # R4-L1: the request a router run holds, null here
+    assert "message" not in entry and set(entry) == {"id", "name", "folder", "config", "open_pending", "running_task", "routing_request"} \
         and entry["folder"] == real.path
     # a change of the file makes it unaccepted again, and the list still answers
     with open(ops.project_config.path(real.path), "ab") as f:

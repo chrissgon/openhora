@@ -183,7 +183,8 @@ class Jobs:
     def projects_list(self) -> dict:
         """{"projects": [...]}: each project with its `folder` (the absolute path the shell was given, which is the word
         a `--project` takes: the page writes the restart line with it), its configuration's hash and whether it was
-        accepted, and, when it was, the number of pending decisions and the task that runs. A project whose
+        accepted, and, when it was, the number of pending decisions, the task that runs (`running_task`) and the request a
+        router run holds (`routing_request`, from `routing` of each request of `status`; null when none). A project whose
         configuration is not accepted (or cannot be read) is listed with accepted false, the operation's refusal as
         `message` and no counts: never refused."""
         out = []
@@ -204,5 +205,6 @@ class Jobs:
                 entry["open_pending"] = len(state["pending"])
                 entry["running_task"] = next(
                     (t["id"] for r in state["requests"] for t in r["tasks"] if t["state"] == "running"), None)
+                entry["routing_request"] = next((r["id"] for r in state["requests"] if r.get("routing")), None)
             out.append(entry)
         return {"projects": out}

@@ -47,6 +47,21 @@ function rowsOf(status) {
   return out;
 }
 
+/**
+ * The request a run of the planning agent's router holds now (A-51): the request row of a status body whose `routing` is set, or null. One run at a
+ * time per project, so at most one. A request that is routed holds no task, so no task of the status is running while it is. A reroute of a
+ * delivery holds a planned or done request: the search takes every request, final or not.
+ */
+export function routingRequest(status) {
+  return (status && Array.isArray(status.requests) ? status.requests : []).find((r) => r && r.routing) || null;
+}
+
+/** The words of that run: "Planning agent · routing request #2 · for 3 min" (the last part only when `now` is given and the start time is known). */
+export function routingWords(request, now = null) {
+  const lasted = now && request.routing ? format.runningFor(request.routing.started_at, now) : "";
+  return `Planning agent · routing request #${request.id}${lasted ? ` · ${lasted}` : ""}`;
+}
+
 /** The newest request that is not final (done or cancelled) of a status body, or null. */
 export function openRequest(status) {
   const open = (status && Array.isArray(status.requests) ? status.requests : []).filter((r) => !FINAL.has(r.state));
@@ -69,7 +84,7 @@ export function pickRequest(status, choice = null) {
   if (!open.length) return null;
   const chosen = choice === null || choice === undefined ? null : open.find((r) => r.id === choice);
   if (chosen) return chosen;
-  return open.find((r) => (r.tasks || []).some((t) => t.state === "running")) || open[0];
+  return open.find((r) => (r.tasks || []).some((t) => t.state === "running") || r.routing) || open[0];
 }
 
 /** The request after (delta 1) or before (delta -1) `currentId` in the newest-first list, wrapping round; null when none is open. */
@@ -147,6 +162,7 @@ export function buildingOf(project, detail) {
   const decided = decisionsOf(status);
   const running = new Set();
   for (const r of rowsOf(status)) {
+    if (r.request && r.routing) running.add("planning");      // A-51: the router's run lights the Lobby's window like a task that runs
     if (r.state !== "running") continue;
     running.add(r.request ? "planning" : r.agent || "planning");
   }
@@ -159,26 +175,33 @@ export function buildingOf(project, detail) {
   });
   const open = !shown ? 0 : status ? decided.length : format.count(project.open_pending);
   const runningTask = shown && project.running_task !== null && project.running_task !== undefined ? project.running_task : null;
-  return { id: project.id, name: project.name, accepted, kept, floors, decisions: open, runningTask, held: shown ? heldCount(status) : 0, message: project.message || "" };
+  const routing = shown && Number.isInteger(project.routing_request) ? project.routing_request : null;      // A-51: the request a router run holds
+  return { id: project.id, name: project.name, accepted, kept, floors, decisions: open, runningTask, routing, held: shown ? heldCount(status) : 0, message: project.message || "" };
+}
+
+/** What runs in a building: "task #5 running", "routing request #2" (the router's run, A-51) or "no task running". */
+function runWords(building) {
+  if (building.runningTask !== null) return `task #${building.runningTask} running`;
+  return building.routing !== null && building.routing !== undefined ? `routing request #${building.routing}` : "no task running";
 }
 
 /** The tooltip sentence of a building (the specification's). */
 export function tooltipOf(building) {
   if (!building.accepted) return `${building.name}: not accepted yet`;
-  const running = building.runningTask === null ? "no task running" : `task #${building.runningTask} running`;
+  const running = runWords(building);
   return `${building.name}: ${format.decisions(building.decisions)} waiting, ${running}${building.held > 0 ? `, ${building.held} held` : ""}`;
 }
 
 /** The sub line of a building's label card. */
 export function subOf(building) {
   if (!building.accepted) return "not accepted yet";
-  return building.runningTask === null ? "no task running" : `task #${building.runningTask} running`;
+  return runWords(building);
 }
 
 /** The name a link to a building carries for a screen reader. */
 export function linkNameOf(building) {
   if (!building.accepted) return `${building.name}, not accepted yet`;
-  return `${building.name}, ${format.decisions(building.decisions)} waiting, ${building.runningTask === null ? "no task running" : `task #${building.runningTask} running`}${building.held > 0 ? `, ${building.held} held` : ""}`;
+  return `${building.name}, ${format.decisions(building.decisions)} waiting, ${runWords(building)}${building.held > 0 ? `, ${building.held} held` : ""}`;
 }
 
 /** The City's data in one value: its buildings, the waiting rows and the canvas label. */
@@ -269,7 +292,7 @@ export function tracking(snapshot, projectId, now) {
   });
   const current = steps.find((s) => s.state === "running") || steps.find((s) => s.state === "waiting") || null;
   let nowCard = null;
-  if (current) {
+  if (current && !(request.routing && current.state !== "running")) {      // a router run on the request wins over a step that only waits (a delivery routed again)
     const body = snapshot.tasks[taskKey(project.id, current.id)];
     const floor = current.agent ? floorNumber(ordered, current.agent) : null;
     const running = current.state === "running";
@@ -282,9 +305,17 @@ export function tracking(snapshot, projectId, now) {
       sub: `task #${current.id}${running ? (lasted ? ` · ${lasted}` : "") : ` · ${format.decisions(open)}`}`,
       link: current.link,
     };
+  } else if (request.routing) {
+    // A-51: the router works on the request: no task runs, the run row is the one record of it
+    const floor = floorNumber(ordered, "planning");
+    const lasted = format.runningFor(request.routing.started_at, now);
+    nowCard = {
+      where: `Now on${floor === null ? "" : ` floor ${floor}`} · lobby`, title: routingWords(request), state: "Running", running: true,
+      sub: lasted || "just started", link: router.requestHash(project.id, request.id),
+    };
   }
   const others = openRequests(detail.status).map((r) => ({
-    id: r.id, title: r.title || `Request ${r.id}`, state: r.state, running: (r.tasks || []).some((t) => t.state === "running"), selected: r.id === request.id,
+    id: r.id, title: r.title || `Request ${r.id}`, state: r.state, running: (r.tasks || []).some((t) => t.state === "running") || Boolean(r.routing), selected: r.id === request.id,
   }));
   return {
     request: { id: request.id, title: request.title || "", state: request.state, project: project.name, projectId: project.id },
