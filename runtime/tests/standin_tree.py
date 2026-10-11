@@ -11,6 +11,8 @@ Otherwise it acts by the skill staged in the copy:
   demo-writes  writes docs/business/icp.md from docs/business/market.md; without that input it says so
   demo-code    runs adapters/h/code.sh in the copy, when a test wrote one (with the attempt number as $1), and
                replies that it changed the files
+  demo-design  a design skill with the side effect create and a gate (R4-C6): writes docs/design/design-system.md; when
+               a test wrote adapters/h/design-gate it also stops at its gate with a payload in a folder from mktemp -d
   demo-gate    a skill with a confirmation gate: records the copy's branches, log and status in its output folder,
                writes payload.md in a folder from mktemp -d and replies in the pull-request skill's form; when a test
                wrote adapters/h/gate.sh it runs that instead (in the copy, with the output folder as $1)
@@ -37,6 +39,7 @@ skill=none
 for name in demo-asks demo-writes; do [ -d "$cwd/.h/skills/$name" ] && skill="$name"; done
 [ -d "$cwd/.h/skills/demo-code" ] && skill=demo-code
 [ -d "$cwd/.h/skills/demo-gate" ] && skill=demo-gate
+[ -d "$cwd/.h/skills/demo-design" ] && skill=demo-design
 n=1; while ! mkdir "$here/call-$skill.$n" 2>/dev/null; do n=$((n + 1)); done
 echo "$skill $n" >> "$here/calls.txt"
 (cd "$cwd" && find . -path ./.git -prune -o -type f -print | sort) > "$out/files.txt"
@@ -101,6 +104,17 @@ Temporary folder: %s
 
 Proceed? (yes/no)
 ' "$d" "$sha" "$TMPDIR" > "$out/response.md"
+    fi ;;
+  demo-design)
+    mkdir -p "$cwd/docs/design"
+    printf '# Design system\n\n- Owner: demo-design\n- File: none available\n' > "$cwd/docs/design/design-system.md"
+    if [ -f "$here/design-gate" ]; then
+      d=$(mktemp -d "${TMPDIR:-/tmp}/tmp.XXXXXXXX")
+      printf 'Tool: a design tool\nFile: Demo\nCreate: variables\n' > "$d/payload.md"
+      sha=$( (sha256sum "$d/payload.md" 2>/dev/null || shasum -a 256 "$d/payload.md") | cut -d' ' -f1)
+      printf 'Nothing is created in the file before an explicit yes.\n\nPayload file: `%s/payload.md`, sha256 `%s`\n\nBuild these in the file? (yes/no)\n' "$d" "$sha" > "$out/response.md"
+    else
+      printf -- '- Design system: docs/design/design-system.md\n- Design tool: none available, nothing built\n' > "$out/response.md"
     fi ;;
   *) echo "ok" > "$out/response.md" ;;
 esac
@@ -198,9 +212,25 @@ def gate_skill(tree: Path) -> Path:
     """demo-gate: a skill with the side effect create and a gate whose payload is under the temporary folder."""
     folder = skill(tree, "demo-gate", "docs/workbench/state.md", "", area="delivery")
     text = (folder / "SKILL.md").read_text(encoding="utf-8")
-    (folder / "SKILL.md").write_text(text.replace("  side_effects: []", "  side_effects: [create]"), encoding="utf-8")
+    # like the real pull-request skill: it declares the class of provider that executes its kind of effect (R4-C6)
+    (folder / "SKILL.md").write_text(text.replace("  side_effects: []", "  side_effects: [create]").replace(
+        "  requires: []", "  requires: [integration:vcs]"), encoding="utf-8")
     data = json.loads((folder / "evals" / "runtime-manifest.json").read_text(encoding="utf-8"))
     data.update(asking_openings=["Nothing was pushed or created yet. This is what will be sent"],
+                gate={"effect": "create", "payload_file": "<tmp>/payload.md"})
+    (folder / "evals" / "runtime-manifest.json").write_text(json.dumps(data), encoding="utf-8")
+    return folder
+
+
+def design_skill(tree: Path) -> Path:
+    """demo-design: what design-system and design-execute declare (R4-C6): area design, side effect create, a gate whose
+    payload is under the temporary folder, and the design-tool class as its requirement, not the code provider's."""
+    folder = skill(tree, "demo-design", "docs/workbench/state.md", "docs/design/design-system.md", area="design")
+    text = (folder / "SKILL.md").read_text(encoding="utf-8")
+    (folder / "SKILL.md").write_text(text.replace("  side_effects: []", "  side_effects: [create]").replace(
+        "  requires: []", "  requires: [integration:design-tool]"), encoding="utf-8")
+    data = json.loads((folder / "evals" / "runtime-manifest.json").read_text(encoding="utf-8"))
+    data.update(asking_openings=["Nothing is created in the file before an explicit yes"],
                 gate={"effect": "create", "payload_file": "<tmp>/payload.md"})
     (folder / "evals" / "runtime-manifest.json").write_text(json.dumps(data), encoding="utf-8")
     return folder
@@ -235,6 +265,7 @@ def build(tmp_path: Path, monkeypatch, lab) -> dict:
     skill(tree, "demo-writes", "docs/workbench/state.md, docs/business/market.md", "docs/business/icp.md")
     skill(tree, "demo-code", "docs/workbench/state.md", "", area="engineering")  # a code task (ops.code_task)
     gate_skill(tree)
+    design_skill(tree)
     (tree / "flows").mkdir()
     (tree / "flows" / "demo.json").write_text(json.dumps({"flow": "demo", "title": "Demo flow", "tasks": [
         {"key": "market", "skill": "demo-asks", "title": "Market", "text": "do the market analysis."},

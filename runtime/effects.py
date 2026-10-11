@@ -67,7 +67,7 @@ A kind of one path alone has only that path's names. EFFECT_KEYS and RESERVED_FL
 document a handler hands over and the flags the operation adds and a handler never may.
 
 Public names: recover_payload(reply, tmp_dir, readable), EffectError, KINDS, EFFECT_KEYS, RESERVED_FLAGS,
-module_for(kind), policy_kinds(), write(run_dir, doc), read_document(effect_file, sha256), provider_call(provider,
+module_for(kind), gate_kind(word, requires), policy_kinds(), write(run_dir, doc), read_document(effect_file, sha256), provider_call(provider,
 args[, run]), approval_row(approval, doc).
 
 Usage (a library): python3 runtime/effects.py --help
@@ -172,6 +172,22 @@ def module_for(kind):
     if name is None:
         raise EffectError("usage", f"there is no effect kind {kind!r} (the kinds: {', '.join(sorted(KINDS))})")
     return importlib.import_module(name)
+
+
+def gate_kind(word, requires):
+    """The module of the effect kind a skill's confirmation gate names, or None. A side-effect word is shared by skills
+    of different meaning (`create` is a pull request for the pull-request skill and a thing made in a design tool for a
+    design skill), so the word alone never picks the kind: the module is the skill's only when it is a kind of the gate
+    path (GATE) and the skill declares, among its `requires`, the class of provider that executes it (PROVIDER_CLASS).
+    A skill that declares nothing, or another class, names no kind: its gate opens a review for the person to read and
+    an effect is never opened, so nothing can run that the skill did not declare."""
+    try:
+        module = module_for(word)
+    except EffectError:
+        return None
+    if getattr(module, "GATE", False) is not True or getattr(module, "PROVIDER_CLASS", None) not in (requires or ()):
+        return None
+    return module
 
 
 def policy_kinds() -> list:
