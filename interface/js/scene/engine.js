@@ -78,7 +78,7 @@ export function createEngine(host, options) {
 
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFShadowMap;   // the library's soft filter: the PCFSoft name was folded into it, and `shadow.radius` softens it
+  renderer.shadowMap.type = THREE.PCFShadowMap;   // the library's soft filter: the PCFSoft name was folded into it, and `shadow.radius` softens it (a texel of it or two: more is noise)
   renderer.shadowMap.autoUpdate = false;   // the sun does not move: shadows are drawn again only when the geometry changes
   const scene = new THREE.Scene();
   const camera = createCamera(THREE);
@@ -145,7 +145,7 @@ export function createEngine(host, options) {
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     Object.assign(sun.shadow.camera, { left: -45, right: 45, top: 45, bottom: -45, near: 1, far: 140 });
-    sun.shadow.radius = 5;
+    sun.shadow.radius = 1;   // F1-D2: the filter turns its five taps by a noise per pixel, so a wide radius is a speckle on a pale plaza (1 texel, 4 cm of the world, is a soft edge with none)
     sun.shadow.bias = -0.0006;
     const ground = new THREE.Mesh(worldKit.track(new THREE.PlaneGeometry(600, 600)), worldKit.unlit(palette.ground));
     ground.rotation.x = -Math.PI / 2;
@@ -716,6 +716,7 @@ export function createEngine(host, options) {
       // an object of a room has its tooltip over it (R-31); a building follows the pointer
       const above = result.hit.anchor ? project(result.hit.anchor) : null;
       tooltip.classList.toggle("is-above", Boolean(above));
+      tooltip.classList.toggle("is-card", Boolean(result.hit.brackets));   // F1-D5: a building's tooltip is a light card like its label (city.html); the dark one is for what a room holds (R-31)
       // the tooltip stays inside the canvas: a word over an object at the edge is moved in by half its width, and one over an object at the top is let down under the top edge
       const { x, y } = tooltipPlace({ above, at: result, size, wide: tooltip.offsetWidth || 0, tall: tooltip.offsetHeight || 0 });
       tooltip.style.setProperty("--wb-x", `${x.toFixed(1)}px`);

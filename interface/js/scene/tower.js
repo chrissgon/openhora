@@ -71,8 +71,8 @@ export function roofY(n, s) {
 export function towerBox(THREE, cx, cz, n, s) {
   const k = clamp01(s / 0.7);
   const mix = (closed, open) => closed + (open - closed) * k;
-  const top = mix(worldY(roofY(n, s), s) + 1.4, floorY(n - 1, P + GAP * s) + FRAME.Y(FRAME.wallTop) + 0.6);
-  return new THREE.Box3(new THREE.Vector3(cx - W / 2 - mix(1.2, 0.9), 0, cz - D / 2 - mix(0.3, 0.3)), new THREE.Vector3(cx + W / 2 + mix(1.2, 0.9), top, cz + D / 2 + mix(1.7, 0.4)));
+  const top = mix(worldY(roofY(n, s), s) + 1.4, floorY(n - 1, P + GAP * s) + FRAME.Y(FRAME.wallTop) + 0.3);   // F1-D1: open, the box is the room's wall and the mark's head (0.6 over it left a tenth of the height empty)
+  return new THREE.Box3(new THREE.Vector3(cx - W / 2 - mix(1.2, 0.5), 0, cz - D / 2 - mix(0.3, 0.2)), new THREE.Vector3(cx + W / 2 + mix(1.2, 0.5), top, cz + D / 2 + mix(1.7, 0.2)));
 }
 
 /**
@@ -374,15 +374,23 @@ export function createTower(kit, lot, cx, cz) {
   });
   shells.forEach((shell) => claim(shell, fadeMats));
   claim(roof, roofMats);
-  // The shell is drawn translucent only while it is plainly fading: from `SOLID` of its opacity up it is opaque (opacity 1, writing depth, out of the transparent pass), so the last tenth of the
+  // The shell is drawn translucent only while it is plainly fading: from `SOLID` of its fade up it is opaque (opacity 1, writing depth, out of the transparent pass), so the last tenth of the
   // fade, which an exponential approach draws out for a second or more, is not a translucent shell with no depth: its jambs, mullions, ledges and the roof's ring and its centre are drawn
-  // and ordered as in the closed building from the moment it is solid (A-75: details used to appear seconds after the close, their widths changing)
+  // and ordered as in the closed building from the moment it is solid (A-75: details used to appear seconds after the close, their widths changing). Below `SOLID` the opacity is the fade
+  // read over that range (`shownOf`), so it is 1 at the edge: no step between the opaque shell and the first translucent one (A-81: the facade used to lose a tenth of itself in one frame).
+  const shownOf = (fade) => (fade >= SOLID ? 1 : fade / SOLID);
   const setOpacity = (list, value) => {
     const solid = value >= SOLID;
     for (const m of list) {
-      m.opacity = solid ? 1 : value;
+      m.opacity = shownOf(value);
       m.depthWrite = solid;
-      m.transparent = !solid;
+      // A-81: the renderer compiles a material's program with an OPAQUE define (the fragment's alpha forced to 1) when `transparent` is false, and does not compile it again when `transparent`
+      // alone changes: a shell first drawn closed, then made translucent, was blended with an alpha that stayed 1 and so stayed whole until it was put away, the abrupt pop of the facade.
+      // A flip asks for a new program (`needsUpdate`), only when it is a flip: never every frame.
+      if (m.transparent !== !solid) {
+        m.transparent = !solid;
+        m.needsUpdate = true;
+      }
     }
   };
 
@@ -557,8 +565,11 @@ export function createTower(kit, lot, cx, cz) {
     const bodyTop = roofY(n, s) + 0.3;
     silhouette.scale.set(W + 0.2, bodyTop - BASE, D + 0.2);
     silhouette.position.set(0, BASE + (bodyTop - BASE) / 2, 0);
-    const fade = 1 - clamp01(s / 0.55);
-    const roofFade = fade;                   // M-16: the roof, the canopy and the walls fade together (the roof used to fade over a longer stretch, so the closed shell came whole only at the end)
+    // A-81: the whole shell (walls, windows, ledges, the door, the canopy and the roof) fades over the whole of the opening, which the exponential approach spends mostly at the start: read over
+    // the first half of it (`s / 0.55`, as the rise is) the shell was gone in a quarter of a second, which the eye takes for a cut. M-16: the roof, the canopy and the walls fade together
+    // (the roof used to fade over a longer stretch, so the closed shell came whole only at the end).
+    const fade = 1 - s;
+    const roofFade = fade;
     setOpacity(fadeMats, fade);
     setOpacity(roofMats, roofFade);
     shells.forEach((shell) => { shell.visible = fade > 0.01; });
@@ -577,7 +588,7 @@ export function createTower(kit, lot, cx, cz) {
     });
     tower.brackets.roof.position.y = worldY(roofY(n, s), s) + ROOF_H * sy;
     tower.brackets.closed = s < 0.01;
-    tower.inner.forEach((inner) => { if (inner) inner.visible = tower.open > 0 && fade < SOLID; });   // M-16: a room is put away as soon as the walls are solid, not at the last frame
+    tower.inner.forEach((inner) => { if (inner) inner.visible = tower.open > 0 && shownOf(fade) < SOLID; });   // M-16: a room is put away as soon as the walls are solid, not at the last frame
     if (tower.plants) {
       // the plants are always their own size (A-74, M-30: not scaled in once the building has opened): they stand where the rooms stand, squashed with the tower as the rooms are (R-16),
       // and inside the shell's outer faces at every frame of the close (`PLANTS` keeps the crowns off them); they are put away with the rooms, once the walls are solid
@@ -592,7 +603,7 @@ export function createTower(kit, lot, cx, cz) {
         });
       });
       tower.plants.instanceMatrix.needsUpdate = true;
-      tower.plants.visible = tower.open > 0 && fade < SOLID;
+      tower.plants.visible = tower.open > 0 && shownOf(fade) < SOLID;
     }
     if (tower.tag) {
       tower.tag.group.position.set(-W / 2 + 0.6, floorY(tower.tag.index, pitch) + SLAB, D / 2 - 0.5);
