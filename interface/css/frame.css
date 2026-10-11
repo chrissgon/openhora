@@ -211,6 +211,11 @@ a.wb-crumb:hover { text-decoration: underline; }
   box-shadow: var(--wb-elev);
 }
 .wb-kpi > .wb-kpi-tile { width: 40px; height: 40px; }
+/* a card is a link to the Costs tab (R4-F4): a raised control that answers the pointer and the keyboard as the frame's other raised controls do */
+a.wb-kpi { color: inherit; text-decoration: none; }
+a.wb-kpi[href] { cursor: pointer; }
+a.wb-kpi[href]:hover { border-color: var(--pui-theme); background-color: var(--wb-tint-selected); }
+a.wb-kpi:focus-visible { outline: 2px solid var(--pui-theme); outline-offset: 2px; }
 
 .wb-kpi-body { display: grid; min-width: 0; }
 .wb-kpi-label { color: var(--pui-text-muted); font-size: 11px; line-height: 1.3; }

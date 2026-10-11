@@ -416,7 +416,7 @@ out.regionsUnnamed = nodes.filter((n) => (n.attrs.role === "region" || n.tagName
 out.styleOrEvent = nodes.flatMap((n) => Object.keys(n.attrs).filter((k) => k === "style" || /^on[a-z]+$/i.test(k)));
 out.badLinks = nodes.filter((n) => n.tagName === "A" && !/^#/.test(n.attrs.href || "")).map((n) => n.attrs.href);
 out.names = {
-  kpis: nodes.filter((n) => n.attrs.role === "group").map((n) => n.attrs["aria-label"]),
+  kpis: nodes.filter((n) => (n.attrs.class || "").split(" ").includes("wb-kpi")).map((n) => n.attrs["aria-label"]),   // R4-F4: the cards are links, so they have no group role
   back: accessibleName(nodes.find((n) => (n.attrs.class || "").includes("wb-back"))),
   nav: nodes.find((n) => n.tagName === "NAV").attrs["aria-label"],
   crumbs: nodes.filter((n) => (n.attrs.class || "").includes("wb-crumb ")).map((n) => n.textContent),
@@ -449,7 +449,7 @@ frame.kpis.update(null, "loading");
 frame.waitingCard.set([], "loading");
 frame.track.set(null, "loading");
 const nodes3 = [...root.walk()];
-out.loading = { kpis: nodes3.filter((n) => n.attrs.role === "group").map((n) => n.attrs["aria-label"]), unnamed: nodes3.filter((n) => ["BUTTON", "A"].includes(n.tagName) && !accessibleName(n)).length };
+out.loading = { kpis: nodes3.filter((n) => (n.attrs.class || "").split(" ").includes("wb-kpi")).map((n) => n.attrs["aria-label"]), unnamed: nodes3.filter((n) => ["BUTTON", "A"].includes(n.tagName) && !accessibleName(n)).length };
 frame.setScreen(city, { projectName: "northwind-shop", projectId: a });     // the City: the card is open (on a project's screen it is closed on its header line, R-7)
 frame.waitingCard.set([], "ready");
 out.empty = [...root.walk()].filter((n) => (n.attrs.class || "") === "wb-empty").map((n) => n.textContent);
@@ -466,7 +466,7 @@ def test_every_control_of_the_frame_has_an_accessible_name_and_the_names_say_wha
     assert got["regionsUnnamed"] == [], "every region, group and navigation is named"
     assert got["styleOrEvent"] == [] and got["badLinks"] == [], "no style or event attribute; every link is a hash link of this page"
     names = got["names"]
-    assert names["kpis"] == ["Runs today 17 of 70", "Spend today $4.90 of $21.50 cap"], "R-5: two cards; the count of open decisions is on \"Waiting for you\""
+    assert names["kpis"] == ["Runs today: 17 of 70. Open the costs", "Spend today: $4.90 of $21.50 cap. Open the costs"], "R-5: two cards; the count of open decisions is on \"Waiting for you\""
     assert names["back"] == "Back" and names["nav"] == "Breadcrumbs" and names["chevron"] == "Choose a project"
     assert names["crumbs"] == ["City"]
     assert names["main"] == "northwind-shop, project 1 of 2, go to the next project"
@@ -483,7 +483,7 @@ def test_every_control_of_the_frame_has_an_accessible_name_and_the_names_say_wha
     assert got["floor"] == {"crumbs": ["City", "northwind-shop", "current:Marketing"], "backDisabled": False, "waitingElsewhere": [False, True, None], "screen": "floor"}, \
         "R-7: on a project's screen the card is closed on its header line and gives up the panel's id"
     assert got["control"] == {"selected": True}
-    assert got["loading"]["kpis"] == ["Runs today, loading", "Spend today, loading"] and got["loading"]["unnamed"] == 0
+    assert got["loading"]["kpis"] == ["Runs today, loading. Open the costs", "Spend today, loading. Open the costs"] and got["loading"]["unnamed"] == 0   # R4-F4: on a project's screen the cards are links
     assert "Nothing waits for you." in got["empty"] and "Loading the request..." in got["empty"]
 
 
