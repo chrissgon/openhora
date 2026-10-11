@@ -712,3 +712,96 @@ def test_every_notice_the_page_builds_is_the_soft_style_the_lobby_s_cancel_dialo
     assert not bad, f"a notice that is not the soft style (R-11), which no stylesheet draws: {bad}"
     assert 'class: "notice pui-soft pui-error wb-card-error"' in (INTERFACE / "js" / "views" / "lobby-request.js").read_text(encoding="utf-8")
     assert (INTERFACE / "js" / "views" / "placeholder.js").read_text(encoding="utf-8").count('class: "notice pui-soft pui-error"') == 3
+
+
+# --- the ready floor: a task queued behind the one run at a time (M-24, A-65, R4-B6) -----------------------------------------------------------------
+
+READY_JS = r"""
+import * as fm from "@JS@/floor-model.js";
+import * as model from "@JS@/model.js";
+import { roomModel } from "@JS@/views/lobby-model.js";
+import { stateRow, queuedFree, HELD_SENTENCES, QUEUED_NOTE, TURN_REASON } from "@JS@/floor-model.js";
+
+const P = "0123456789ab";
+const agent = (name, extra = {}) => ({ name, pack: "x", enabled: true, mode: "supervised", acting_mode: "supervised", max_runs_per_day: 8, max_usd_per_day: 2, runs_today: 0, usd_today: 0, runs_without_cost: 0, queued: 0, held: 0, ...extra });
+const task = (id, state, agentName) => ({ id, key: `k${id}`, title: `Task ${id}`, skill: "s", state, note: null, agent: agentName });
+const held = (id, agentName, reason) => ({ task_id: id, agent: agentName, reason, at: "2026-10-08T11:59:30Z", next: null });
+const rowOf = (agents, tasks, extra = {}) => {
+  const status = { requests: [{ id: 1, title: "R", state: "ready", tasks }], pending: [], held: [], ...extra };
+  const snapshot = { projects: [{ id: P, name: "shop", config: { accepted: true } }], details: { [P]: { status, agents } }, tasks: {}, loaded: true };
+  return { rows: fm.building(snapshot, P).rows, snapshot, status };
+};
+const stateOf = (r, name) => r.rows.find((x) => x.name === name).state;
+"""
+
+
+@needs_node
+def test_a_floor_whose_task_is_queued_and_not_held_is_ready_and_every_other_case_keeps_its_state(tmp_path):
+    got = run_node(tmp_path, READY_JS + r"""
+const out = {};
+const queued = [agent("design", { queued: 1 })];
+// queued alone, and with nothing queued
+out.alone = stateOf(rowOf(queued, [task(1, "ready", "design")]), "design");
+out.none = stateOf(rowOf([agent("design")], [task(1, "planned", "design")]), "design");
+// queued while another floor runs: this one is ready, the other works
+const two = rowOf([agent("design", { queued: 1 }), agent("engineering")], [task(1, "ready", "design"), task(2, "running", "engineering")]);
+out.whileOtherRuns = [stateOf(two, "design"), stateOf(two, "engineering")];
+// held for each reason of the dispatcher's list: a hold keeps the idle look and its reason; a task that only waits for its turn (`job running`) is queued
+out.reasons = {};
+for (const reason of Object.keys(HELD_SENTENCES)) out.reasons[reason] = stateOf(rowOf([agent("design", { queued: 1, held: 1 })], [task(1, "ready", "design")], { held: [held(1, "design", reason)] }), "design");
+// two queued, one of them held: the other is free, so it is ready; both held: idle
+out.oneFree = stateOf(rowOf([agent("design", { queued: 2, held: 1 })], [task(1, "ready", "design"), task(2, "ready", "design")], { held: [held(1, "design", "cap: runs per day")] }), "design");
+out.bothHeld = stateOf(rowOf([agent("design", { queued: 2, held: 2 })], [task(1, "ready", "design"), task(2, "ready", "design")], { held: [held(1, "design", "dispatch off"), held(2, "design", "dispatch off")] }), "design");
+// the agent's own count when the status lists no hold at all (an older service)
+out.countOnly = [stateOf(rowOf([agent("design", { queued: 1, held: 1 })], [task(1, "ready", "design")], { held: undefined }), "design"), queuedFree(agent("design", { queued: 3, held: 1 }), {})];
+// queued and waiting for the person: waiting; queued and running: working; queued and stopped: off
+const pendingRow = rowOf([agent("design", { queued: 1 })], [task(1, "ready", "design"), task(2, "waiting", "design")], { pending: [{ id: 5, kind: "question", title: "Q", task_id: 2, agent: "design", created_at: "2026-10-08T11:00:00Z" }] });
+out.waiting = stateOf(pendingRow, "design");
+out.running = stateOf(rowOf([agent("design", { queued: 1 })], [task(1, "ready", "design"), task(2, "running", "design")]), "design");
+out.stopped = stateOf(rowOf([agent("design", { queued: 1, mode: "stopped", acting_mode: "stopped" })], [task(1, "ready", "design")]), "design");
+console.log(JSON.stringify(out));
+""")
+    assert got["alone"] == "ready" and got["none"] == "idle", "M-24: a task queued and not held makes the floor ready; nothing queued is idle"
+    assert got["whileOtherRuns"] == ["ready", "working"], "queued while another floor runs: ready, and the other floor works"
+    for reason, state in got["reasons"].items():
+        assert state == ("ready" if reason == "job running" else "idle"), f"a task held for {reason!r} keeps the idle look and its reason; one that only waits for its turn is queued"
+    assert got["oneFree"] == "ready" and got["bothHeld"] == "idle", "two queued and one held: the other is free; both held: idle"
+    assert got["countOnly"] == ["idle", 2], "with no list of holds the agent's own count is read"
+    assert got["waiting"] == "waiting" and got["running"] == "working" and got["stopped"] == "off", "waiting for the person, working and off all outrank ready"
+
+
+@needs_node
+def test_a_ready_floor_is_lit_in_the_city_the_building_and_the_lobby_and_says_queued_where_a_sentence_fits(tmp_path):
+    got = run_node(tmp_path, READY_JS + r"""
+const out = {};
+const r = rowOf([agent("design", { queued: 1 }), agent("brand")], [task(1, "ready", "design")]);
+const row = r.rows.find((x) => x.name === "design");
+const idle = r.rows.find((x) => x.name === "brand");
+out.window = [row.window, idle.window];
+out.plate = [row.plateWord, row.plateTone, row.cardWord, row.stateWord, row.dot, row.plateDot, idle.plateWord];
+out.tip = [row.tip, row.linkName];
+out.stateRow = [stateRow("ready", 0, null), stateRow("idle", 0, null).chip];
+out.note = [QUEUED_NOTE, TURN_REASON];
+// the City's window rule (model.js) lights it too, not an idle floor, not a stopped one
+const city = model.buildingOf({ id: P, name: "shop", config: { accepted: true } }, { status: r.status, agents: [agent("design", { queued: 1 }), agent("brand"), agent("business", { queued: 1, mode: "stopped", acting_mode: "stopped" })] });
+out.city = city.floors.map((f) => [f.agent, f.window]);
+// the City's window with the agent's task held for a reason of its own: dark; held only for its turn: lit
+const heldCity = (reason) => model.buildingOf({ id: P, name: "shop", config: { accepted: true } }, { status: { ...r.status, held: [held(1, "design", reason)] }, agents: [agent("design", { queued: 1, held: 1 })] }).floors[0].window;
+out.cityHeld = [heldCity("dispatch off"), heldCity("job running")];
+// the Floor's room and the scene's floor
+out.scene = fm.buildingScene(fm.building(r.snapshot, P), null).floors.map((f) => [f.name, f.state, f.window]);
+// the Lobby's room: the planning agent with a task queued and not held
+const lobby = (extra) => roomModel({ working: false, decisions: 0, hasMessages: true, accepted: true, request: null, ...extra });
+out.lobby = [lobby({ queued: true }), lobby({}), lobby({ queued: true, decisions: 2 }), lobby({ queued: true, working: true }), lobby({ queued: true, accepted: false })].map((m) => [m.state, m.window, m.tips.agent]);
+console.log(JSON.stringify(out));
+""")
+    assert got["window"] == ["lit", "grey"], "R-21 extended: a queued floor's window is lit, an idle one's is dark"
+    assert got["plate"][:4] == ["queued", "pui-muted", "Queued", "Queued"] and got["plate"][4:6] == ["theme", "theme"] and got["plate"][6] == "resting", "the plate says queued (a floor with nothing queued still says resting); its dot is the brand colour"
+    assert ", queued" in got["tip"][0] and ", queued" in got["tip"][1], "the floor's tooltip and its link's name say queued"
+    assert got["stateRow"][0] == {"tone": "pui-theme pui-soft", "chip": "Queued", "line": "Queued, starts when the current run ends", "off": False} and got["stateRow"][1] == "Idle", "the Agent tab's state line: the chip, and the sentence"
+    assert got["note"] == ["starts when the current run ends", "job running"]
+    assert got["city"] == [["design", "lit"], ["brand", "grey"], ["business", "grey"]], "the City's window rule lights a queued agent, not an idle or a stopped one"
+    assert got["cityHeld"] == ["grey", "lit"], "a task held for a reason of its own leaves the window dark; one that only waits for its turn lights it"
+    assert got["scene"][0][1:] == ["ready", "lit"] or any(s[1:] == ["ready", "lit"] for s in got["scene"]), "the scene's floor carries the state and the lit window"
+    assert got["lobby"][0] == ["ready", "lit", "Planning agent · queued · starts when the current run ends"], "the Lobby's room: ready, lit, and the tooltip's sentence"
+    assert got["lobby"][1][0] == "idle" and got["lobby"][2][0] == "waiting" and got["lobby"][3][0] == "working" and got["lobby"][4][0] == "off", "idle, waiting, working and off outrank or leave ready as before"

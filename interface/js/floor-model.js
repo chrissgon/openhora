@@ -143,7 +143,22 @@ export function handOverTarget(tasks, current) {
   return tasks.find((t) => t.state === "failed" || t.state === "blocked") || current || null;
 }
 
-/** "working", "off", "waiting" or "idle" for an agent (the City's window rule first: a running task lights the floor). */
+/** The reason the dispatcher gives a ready task that only waits its turn, behind the one run at a time: it is queued, not held (M-24). */
+export const TURN_REASON = "job running";
+
+/**
+ * How many ready tasks of an agent wait their turn behind the one run at a time and are not held (M-24, A-65): the agent's `queued` (its ready tasks) less the ones the last round
+ * held for a reason of their own (`status.held`: a stopped agent, a cap, dispatch off, a wait on another task or request; the agent's own `held` count when the status lists none), never
+ * under zero. A task held for `TURN_REASON` is waiting for its turn and so is queued. A held task keeps its reason and the idle look; a queued one that is free to start is "ready".
+ */
+export function queuedFree(agent, status) {
+  const name = (agent && agent.name) || PLANNING;
+  const listed = status && Array.isArray(status.held);
+  const held = listed ? heldOf(status, name).filter((h) => h.reason !== TURN_REASON).length : format.count(agent && agent.held);
+  return Math.max(0, format.count(agent && agent.queued) - held);
+}
+
+/** "working", "off", "waiting", "ready" or "idle" for an agent (the City's window rule first: a running task lights the floor; then a decision; then a task queued and not held). */
 export function stateOf(agent, status, accepted = true) {
   if (!accepted) return "off";
   const name = agent.name || PLANNING;
@@ -152,11 +167,13 @@ export function stateOf(agent, status, accepted = true) {
   if (running) return "working";
   if (agent.enabled === false || agent.acting_mode === "stopped") return "off";
   if (agentDecisions(status, name).length > 0) return "waiting";
+  if (queuedFree(agent, status) > 0) return "ready";   // M-24: a task queued behind the one run at a time and not held: the owl is awake, ready
   return "idle";
 }
 
-const STATE_WORDS = { working: "Running", waiting: "Waiting for you", idle: "Idle", off: "Off, mode is stopped" };
-const DOT = { working: "theme", waiting: "warn", idle: "muted", off: "border" };
+const STATE_WORDS = { working: "Running", waiting: "Waiting for you", ready: "Queued", idle: "Idle", off: "Off, mode is stopped" };
+export const QUEUED_NOTE = "starts when the current run ends";   // what a queued floor says where a sentence fits (M-24)
+const DOT = { working: "theme", waiting: "warn", ready: "theme", idle: "muted", off: "border" };
 
 /** The words of an agent's state, as the floors list reads them. */
 export function stateWords(state) {
@@ -245,9 +262,9 @@ export function floorRow(agent, status, context) {
   const stateWord = accepted ? STATE_WORDS[state] : "Waiting for the configuration to be accepted.";
   // R-26: the state as a soft badge: working (brand), resting and off (muted), waiting for you, held: ... and not accepted (warn)
   const plateWord = !configured ? "not accepted"
-    : state === "working" ? "working" : state === "off" ? "Off, mode is stopped" : state === "waiting" ? "waiting for you" : heldReason ? `held: ${heldReason}` : "resting";
+    : state === "working" ? "working" : state === "off" ? "Off, mode is stopped" : state === "waiting" ? "waiting for you" : state === "ready" ? "queued" : heldReason ? `held: ${heldReason}` : "resting";
   const plateTone = !configured ? "pui-warn" : state === "working" ? "pui-theme" : state === "off" ? "pui-muted" : (state === "waiting" || heldReason) ? "pui-warn" : "pui-muted";
-  const lower = state === "working" ? "working" : state === "waiting" ? "waiting for you" : state === "idle" ? "idle" : "off";
+  const lower = state === "working" ? "working" : state === "waiting" ? "waiting for you" : state === "ready" ? "queued" : state === "idle" ? "idle" : "off";
   const inUse = format.metersInUse(agent);        // A-38: a meter only for a cap in use
   const money = `${format.dollars(usd)} of ${format.dollars(usdCap)}`;
   const usage = [inUse.runs ? `${runs} of ${runsCap} runs` : "", inUse.spend ? money : ""].filter(Boolean);
@@ -255,8 +272,8 @@ export function floorRow(agent, status, context) {
   const counts = [`${done} done`, running > 0 ? `${running} running` : "", queued > 0 ? `${queued} queued` : "", `${left} left`, waits ? waits.text : ""].filter(Boolean).join(", ");
   return {
     name, label, lobby, number: context.number, state, stateWord, accepted,
-    unaccepted, held: heldTasks.length, heldReason, inUse,
-    window: windowState(configured && (state === "working" || state === "waiting")), dot: DOT[state], decisions, queued, done, running, left, waits, notes,
+    unaccepted, held: heldTasks.length, heldReason, inUse,   // R-21 extended (M-24): the window is lit while the agent works, waits or is ready (a queued task)
+    window: windowState(configured && (state === "working" || state === "waiting" || state === "ready")), dot: DOT[state], decisions, queued, done, running, left, waits, notes,
     runs, runsCap, usd, usdCap, unknown, ...split, runsTotal: agent.runs_total_today === undefined ? null : format.count(agent.runs_total_today), mode, acting, pips: mode ? PIPS[mode] || 0 : 0, actingPips: acting ? PIPS[acting] || 0 : 0,
     actingDiffers: Boolean(mode && acting && mode !== acting),
     link: lobby ? router.lobbyHash(context.project) : router.floorHash(context.project, name),
@@ -386,7 +403,7 @@ export function cardOf(row) {
   const runsLine = [row.inUse.runs ? `runs ${row.runs} / ${row.runsCap}` : "",
     row.inUse.spend ? `spend ${format.dollars(row.usd)} / ${format.dollars(row.usdCap)}` : ""].filter(Boolean).join(" · ");
   return {
-    name: row.name, label: row.label, dot: row.plateDot, decisions: row.decisions, word: row.cardWord, tone: row.configured ? ({ working: "pui-theme", waiting: "pui-warn", idle: "pui-muted", off: "pui-muted" }[row.state]) : "pui-warn",
+    name: row.name, label: row.label, dot: row.plateDot, decisions: row.decisions, word: row.cardWord, tone: row.configured ? ({ working: "pui-theme", waiting: "pui-warn", ready: "pui-muted", idle: "pui-muted", off: "pui-muted" }[row.state]) : "pui-warn",
     mode: row.mode, modeLine: row.modeLine, pips: row.pips, acting: row.actingDiffers ? row.acting : null, actingPips: row.actingPips,
     runsLine: row.accepted ? runsLine : "", runsNote: row.accepted && row.inUse.spend ? format.costNote(row.usdNote, row.usdReserved, row.unknown) : "", off: row.state === "off",
   };
@@ -449,6 +466,7 @@ export function stateRow(state, decisions, runningBody, now = new Date()) {
   }
   if (state === "waiting") return { tone: "pui-warn pui-soft", chip: "Waiting for you", line: `${format.decisions(decisions)} in the Inbox`, off: false };
   if (state === "off") return { tone: "pui-muted pui-outline", chip: "Off", line: "Off, mode is stopped", off: true };
+  if (state === "ready") return { tone: "pui-theme pui-soft", chip: "Queued", line: `Queued, ${QUEUED_NOTE}`, off: false };
   return { tone: "pui-muted pui-soft", chip: "Idle", line: "Waiting for the next task", off: false };
 }
 
@@ -528,7 +546,7 @@ export function floor(snapshot, projectId, name, bodies = {}, options = {}) {
     heldCurrent: holding ? { task_id: holding.task_id, reason: holding.reason, sentence: heldSentence(holding.reason), next: typeof holding.next === "string" && holding.next ? holding.next : null, ...(heldCommands(holding).length ? { commands: heldCommands(holding) } : {}) } : null,
     target: handOverTarget(tasks, current), runningBody: runningTask ? bodies[runningTask.id] || null : null,
     header: { title: `${row.label} agent`, sub: subParts.filter((p) => p !== null).join(" · "), icon: "building-2" },     // C-6; floor.html draws the building icon for every agent
-    canvasLabel: `${row.label} floor of ${view.name}, ${row.label} agent ${row.accepted && !row.unaccepted ? { working: "working", waiting: "waiting", idle: "idle", off: "off" }[row.state] : "not accepted"}, ${format.decisions(decisions.length)}`,
+    canvasLabel: `${row.label} floor of ${view.name}, ${row.label} agent ${row.accepted && !row.unaccepted ? { working: "working", waiting: "waiting", ready: "queued", idle: "idle", off: "off" }[row.state] : "not accepted"}, ${format.decisions(decisions.length)}`,
   };
 }
 
@@ -573,7 +591,7 @@ export function roomScene(view, documents, ready = true, now = new Date()) {
   return {
     ready, state: row.state, window: row.window, decisions: row.decisions, drawers: drawersOf(documents.length), sheets, documents: documents.length,
     tips: {
-      agent: `${row.label} · ${row.state === "working" ? "working" : row.state === "waiting" ? "waiting for you" : row.state === "off" ? "off" : "idle"}`,
+      agent: `${row.label} · ${row.state === "working" ? "working" : row.state === "waiting" ? "waiting for you" : row.state === "ready" ? `queued · ${QUEUED_NOTE}` : row.state === "off" ? "off" : "idle"}`,
       desk: tasks, tray: `Inbox · ${row.decisions} waiting`, cabinet: `${documents.length} document${documents.length === 1 ? "" : "s"} · open the Desk tab`,
       board: board.lines[0] || board.title,
     },

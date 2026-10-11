@@ -250,12 +250,19 @@ export function createLobbyView(frame, { project, onChanged }) {
     }
   }
 
+  /** A task of the planning agent is queued behind the one run at a time and is not held (M-24): its owl is ready. */
+  function queuedPlanner(status) {
+    const detail = last.snapshot && last.snapshot.details[project];
+    const planner = detail && Array.isArray(detail.agents) ? detail.agents.find((a) => a.name === "planning") : null;
+    return Boolean(planner) && fm.queuedFree(planner, status) > 0;
+  }
+
   function drawRoom() {
     const status = last.snapshot && last.snapshot.details[project] && last.snapshot.details[project].status;
     const requestRow = status ? model.pickRequest(status, model.requestChoice(project)) : null;
     const room = roomModel({
       working: turn !== null || routing.size > 0 || Boolean(model.routingRequest(status)), decisions: status ? lobbyDecisions(status).length : 0, hasMessages: messages.length > 0,
-      accepted, request: requestRow, ready: Boolean(status), documents: desk.rows(),
+      accepted, request: requestRow, ready: Boolean(status), documents: desk.rows(), queued: accepted && queuedPlanner(status),
     });
     const words = {
       tips: room.tips, board: room.board, door: true, doorTip: room.tips.door, state: room.state, window: room.window, decisions: room.decisions,

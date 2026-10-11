@@ -409,8 +409,10 @@ def test_the_state_animations_keep_the_rules_of_the_scene_and_the_owl_does_not_f
     # R-41: the owl moves only with its state: the raised wing waves while it waits, the wings tap while it works, it breathes and the z rise while it is idle
     motion = (SCENE / "owl-motion.js").read_text(encoding="utf-8")
     build = (SCENE / "owl-build.js").read_text(encoding="utf-8")
-    for fidget in ("Math.random", "spark", "blink", "nod"):
+    for fidget in ("Math.random", "spark", "nod"):
         assert fidget not in motion + build, f"the owl has no {fidget}: it moves only for the state it is in"
+    # M-24: the ready owl blinks, slowly, and only that pose does: the blink is a function of time of its own and one line of the builder, in the ready pose
+    assert motion.count("blinkPose") == 1 and build.count("blinkPose(seconds)") == 1 and 'if (pose === "ready") lids(blinkPose(seconds))' in build, "the blink belongs to the ready pose alone (M-24)"
     assert 'if (pose === "waiting") turnOf("wave"' in build and 'if (pose === "working")' in build and 'if (pose === "idle")' in build, "each motion belongs to one pose"
     engine = (SCENE / "engine.js").read_text(encoding="utf-8")
     assert re.search(r"export const CAMERA_MS = 1023;", engine) and "OPEN_MS = 1439" in engine and "FLY_SETTLE_AT = 0.9" in engine

@@ -199,7 +199,8 @@ out.zee = [z.length, OWL_ZEES.length, OWL_ZEES.map((e) => e.size), Math.min(...z
 console.log(JSON.stringify(out));
 """)
     assert got["poses"] == {"waiting": {"layers": 24, "first": "shadow", "groups": ["wave"], "pivots": ["wave"]}, "working": {"layers": 22, "first": "shadow", "groups": ["hand-far", "hand-near"], "pivots": ["hand-far", "hand-near"]},
-                            "idle": {"layers": 22, "first": "shadow", "groups": [], "pivots": []}}, "R-41: three poses, each a list of parts back to front, the shadow first; what moves is named"
+                            "idle": {"layers": 22, "first": "shadow", "groups": [], "pivots": []},
+                            "ready": {"layers": 22, "first": "shadow", "groups": ["blink"], "pivots": ["blink"]}}, "R-41, M-24: four poses, each a list of parts back to front, the shadow first; what moves is named (the ready owl's two lids)"
     assert got["allKnown"] is True and got["waitingHasNoRightWing"] is True, "a pose is made of the parts of the drawing; the waiting owl's right wing is the raised one"
     assert got["fills"] is True, "every colour of the owl is one of the mark's six"
     assert got["lid"] == [True, True, True], "a lid is the circle of the eye above the line"
@@ -1129,3 +1130,85 @@ console.log(JSON.stringify(out));
     css = (INTERFACE / "css" / "building.css").read_text(encoding="utf-8")
     rule = css[css.index(".wb-label-fit {"):css.index("}", css.index(".wb-label-fit {"))]
     assert "background: none" in rule and "border: 0" in rule and "box-shadow: none" in rule and "var(--pui-text)" in rule and "pointer-events: none" in rule, "no background, border or shadow; the text in a token colour; never the pointer's"
+
+
+# --- the owl's fourth pose, ready (M-24, A-65, R4-B6) ------------------------------------------------------------------------------------------------
+
+@needs_node
+def test_the_ready_owl_is_awake_at_its_desk_with_wings_at_rest_a_slow_blink_and_no_z(tmp_path):
+    got = run_node(tmp_path, ROOMS_JS + r"""
+import { OWL_POSES, OWL_PALETTE, OWL_ZEES, owlPartById } from "@JS@/scene/owl.js";
+import { buildOwl } from "@JS@/scene/owl-build.js";
+import { BLINK_SECONDS, REST, blinkPose } from "@JS@/scene/owl-motion.js";
+import { SEAT } from "@JS@/scene/furniture.js";
+import { owlPose } from "@JS@/scene/building.js";
+const out = {};
+const kit = createKit(palette);
+const ready = OWL_POSES.ready;
+const ids = ready.layers.map((l) => l.part.id);
+out.parts = [ids[0], ids.includes("w-face"), ids.includes("body"), ids.includes("wing-left") && ids.includes("wing-right"), ids.filter((i) => i.startsWith("zee")).length, ids.some((i) => /hand|wave|shut|closed/.test(i))];
+out.groups = [...new Set(ready.layers.map((l) => l.group).filter(Boolean))];
+out.fills = ready.layers.map((l) => l.part.fill).filter(Boolean).every((v) => Object.values(OWL_PALETTE).includes(v));
+out.lids = ["r-lid-left", "r-lid-right"].map((id) => [owlPartById(id).kind, owlPartById(id).fill === OWL_PALETTE.brown]);
+// built: a lid mesh that turns on its pivot, no z, no wing that moves, an eye that is open at rest
+const owl = buildOwl(kit, "ready", { scale: owlScale(FRAME), mix: palette.mix, floorTone: c(0x808080), handLift: 0 });
+out.built = [Boolean(owl.parts.blink), Boolean(owl.parts.still), Object.keys(owl.parts).filter((k) => /zee|wave|hand/.test(k)).length];
+out.rest = owl.parts.blink.scale.y;
+// the blink: open for most of the period, shut for an instant near its end, a slow period, periodic
+const samples = Array.from({ length: 480 }, (_, i) => blinkPose((i / 480) * BLINK_SECONDS));
+out.blink = [BLINK_SECONDS, blinkPose(0), +Math.max(...samples).toFixed(3), +(samples.filter((v) => v > 0.05).length / samples.length).toFixed(3), +blinkPose(BLINK_SECONDS * 0.925).toFixed(3), blinkPose(1.3) === blinkPose(1.3 + BLINK_SECONDS)];
+owl.motion.tick(BLINK_SECONDS * 0.925);
+out.shut = owl.parts.blink.scale.y;
+owl.motion.tick(1.0);
+out.open = owl.parts.blink.scale.y;
+owl.motion.tick(BLINK_SECONDS * 0.925);
+owl.motion.rest();                                   // reduced motion: the pose still, the eyes open
+out.still = [owl.parts.blink.scale.y, REST.blink];
+// where it stands, and when it is chosen
+out.seat = [SEAT.owl.ready, SEAT.owl.working];
+out.pose = [owlPose({ accepted: true, state: "ready" }), owlPose({ accepted: false, state: "ready" }), owlPose({ accepted: true, state: "off" }), owlPose({ accepted: true, state: "idle" })];
+out.zeesOnlyIdle = [OWL_ZEES.length, Object.keys(buildOwl(kit, "idle", { scale: owlScale(FRAME), mix: palette.mix, floorTone: c(0x808080) }).parts).filter((k) => k.startsWith("zee")).length];
+console.log(JSON.stringify(out));
+""")
+    assert got["parts"] == ["shadow", True, True, True, 0, False] and got["groups"] == ["blink"], "the working owl's face turned toward the board, the idle owl's body and its wings at rest, no z, no wing that moves; its one moving part is the lids"
+    assert got["fills"] is True and got["lids"] == [["lid", True], ["lid", True]], "the owl's own palette: the lids are the brown of its face, no new colour, no texture"
+    assert got["built"] == [True, True, 0], "built from flat parts: a still mesh, the lids on a pivot, no z and no waving or typing wing"
+    assert got["rest"] == 0.001, "the eyes are open at rest: the lids have no height"
+    assert got["blink"][0] == 4.8 and got["blink"][1] == 0 and got["blink"][2] == 1 and got["blink"][3] < 0.1 and got["blink"][4] == 1 and got["blink"][5] is True, "a slow blink: every 4.8 s, the eyes shut for an instant (under a tenth of the period), the same every period"
+    assert got["shut"] == 1 and got["open"] == 0.001, "the lids come down and go up again"
+    assert got["still"] == [0.001, 0], "reduced motion: the pose still, the eyes open"
+    assert got["seat"][0] == got["seat"][1], "it sits at the desk where the working owl does"
+    assert got["pose"] == ["ready", None, None, "idle"], "chosen for the ready state; no owl when the project is not accepted or the agent is off"
+    assert got["zeesOnlyIdle"] == [3, 3], "the z belong to the idle owl alone"
+
+
+@needs_node
+def test_every_room_that_shows_an_owl_gives_a_ready_floor_the_ready_owl_lit_and_moving_only_to_blink(tmp_path):
+    got = run_node(tmp_path, ROOMS_JS + r"""
+const out = {};
+const floors = ["planning", "business", "design", "engineering"].map((name, i) => ({ ...lot("a").floors[i], name, lobby: i === 0, state: ["ready", "idle", "ready", "working"][i], window: ["lit", "grey", "lit", "lit"][i], decisions: 0 }));
+const { world } = make({ lots: [lot("a", { floors }), lot("b"), lot("c")] });
+world.setFocus("a", true);
+const tower = world.towers.get("a");
+out.poses = tower.parts.map((p) => p.pose);
+out.agents = tower.parts.map((p) => Boolean(p.agent));
+out.lobbyDoor = tower.parts.map((p) => Boolean(p.door));
+out.lit = tower.lot.floors.map((f) => f.window);
+// the room's motions: the ready owls move (the blink), the idle one breathes; the state change makes the room again with the new pose
+out.motions = tower.roomMotions.length;
+const before = tower.parts[2].agent;
+world.update({ ...model({ lots: [lot("a", { floors: floors.map((f) => (f.name === "design" ? { ...f, state: "idle", window: "grey" } : f)) }), lot("b"), lot("c")], focus: "a" }) });
+out.changed = [tower.parts[2].pose, tower.parts[2].agent !== before];
+// the Floor and the Lobby show the same room
+world.setFloors("design", null, true);
+out.floorHits = world.hits.map((h) => h.id);
+console.log(JSON.stringify(out));
+""")
+    assert got["poses"] == ["ready", "idle", "ready", "working"], "the Lobby's room and a floor's both give a ready floor the ready owl"
+    assert all(got["agents"]) and got["lobbyDoor"] == [True, False, False, False]
+    assert got["lit"] == ["lit", "grey", "lit", "lit"]
+    assert got["motions"] == 4, "every owl has its motion: the ready owls blink, the working one types, the idle one breathes"
+    assert got["changed"] == ["idle", True], "when the state changes the room is made again with the owl of the new state"
+    assert "agent" in got["floorHits"], "on the Floor the ready owl is what the pointer meets (the Agent tab)"
+    floor_model = (JS / "floor-model.js").read_text(encoding="utf-8")
+    assert "queued · ${QUEUED_NOTE}" in floor_model, "the room's tooltip says queued and the sentence"

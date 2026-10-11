@@ -83,6 +83,13 @@ const WORKING_PARTS = Object.freeze([
   { id: "w-hand-near", kind: "path", d: "M94 134 Q86 154 104 162 Q124 170 144 166 Q154 158 144 150 Q130 146 118 132Z", fill: P.brown, stroke: { colour: P.ink, width: 6 } },
 ]);
 
+// The ready owl (M-24, A-65) is the working owl's three-quarter turn to its desk with its eyes open and its wings at rest (the idle owl's), and a lid over each eye that
+// comes down and goes up again as a slow blink (`blink`): a lid is the whole of its eye, drawn in the owl's brown, scaled from nothing about its top.
+const READY_PARTS = Object.freeze([
+  { id: "r-lid-left", kind: "lid", e: [106, 98, 22, 22], cut: 130, fill: P.brown, stroke: null },
+  { id: "r-lid-right", kind: "lid", e: [155, 98, 11, 21], cut: 130, fill: P.brown, stroke: null },
+]);
+
 /** The z of a sleeping owl: `size` is the letter's em in the drawing's units; [x, y] its baseline's left end. */
 export const OWL_ZEES = Object.freeze([
   { id: "zee-1", x: 160, y: 44, size: 28, capital: false },
@@ -90,7 +97,7 @@ export const OWL_ZEES = Object.freeze([
   { id: "zee-3", x: 196, y: 0, size: 46, capital: true },
 ]);
 
-const part = (id) => OWL_PARTS.find((x) => x.id === id) || WORKING_PARTS.find((x) => x.id === id);
+const part = (id) => OWL_PARTS.find((x) => x.id === id) || WORKING_PARTS.find((x) => x.id === id) || READY_PARTS.find((x) => x.id === id);
 const front = (...ids) => ids.map((id) => ({ part: part(id) }));
 
 /**
@@ -109,6 +116,13 @@ export const OWL_POSES = Object.freeze({
       "w-glint-left", "w-glint-right", "w-lid-left", "w-lid-right", "w-ring-left", "w-ring-right", "w-brow-left", "w-brow-right", "w-beak"),
       { part: part("w-hand-far"), group: "hand-far" }, { part: part("w-hand-near"), group: "hand-near" }],
     pivots: { "hand-far": [0.08, 0.1], "hand-near": [0.08, 0.1] },
+  }),
+  // awake at its desk, looking toward the board: the working owl's face turned three-quarters, its eyes open, the wings at rest, and a blink that is its only motion
+  ready: Object.freeze({
+    layers: [...front("shadow", "w-ear-left", "w-ear-right", "w-foot-left", "w-foot-right", "body", "wing-left", "wing-right", "w-face", "w-eye-left", "w-eye-right", "w-pupil-left", "w-pupil-right",
+      "w-glint-left", "w-glint-right"), { part: part("r-lid-left"), group: "blink" }, { part: part("r-lid-right"), group: "blink" },
+      ...front("w-ring-left", "w-ring-right", "w-brow-left", "w-brow-right", "w-beak")],
+    pivots: { blink: [0.5, 0] },
   }),
   idle: Object.freeze({
     layers: front("shadow", "ear-left", "ear-right", "foot-left", "foot-right", "body", "wing-left", "wing-right", "face", "eye-left", "eye-right", "shut-left", "shut-right",
