@@ -2352,15 +2352,15 @@ def tasks_add(conn: sqlite3.Connection, request_id: int, tasks, waits: list | No
 
 
 RUNS_SINCE = ("SELECT r.id, r.task_id, COALESCE(t.parent_id, t.id) AS request_id, t.agent, r.skill, r.model, "
-              "r.adapter, r.status, r.failure, r.cost_usd, r.billing, r.started_at, r.ended_at FROM task_runs r "
+              "r.adapter, r.status, r.failure, r.attempts, r.tokens, r.cost_usd, r.billing, r.started_at, r.ended_at FROM task_runs r "
               "JOIN tasks t ON t.id = r.task_id WHERE r.started_at >= ? AND (? IS NULL OR t.agent = ?) ORDER BY r.id")
 
 
 def runs_since(conn: sqlite3.Connection, since: str, *, agent: str | None = None) -> list:
     """The runs started at or after since (ISO-8601), oldest first, each with the agent of its task and its request:
-    {"id", "task_id", "request_id", "agent", "skill", "model", "adapter", "status", "failure", "cost_usd",
-    "billing" (None for a run older than migration 9), "started_at", "ended_at"}. A run of the router belongs to its request, whose agent is None. With agent, only the
-    runs of that agent's tasks."""
+    {"id", "task_id", "request_id", "agent", "skill", "model", "adapter", "status", "failure", "attempts" (the attempts that
+    began: 0 when none did), "tokens" (None when not reported), "cost_usd", "billing" (None for a run older than migration 9), "started_at", "ended_at"}. A run
+    of the router belongs to its request, whose agent is None. With agent, only the runs of that agent's tasks."""
     since = since_arg(since, "since")
     agent = text_arg(agent, "agent", LABEL_MAX, required=False)
     return [row_dict(r) for r in conn.execute(RUNS_SINCE, (since, agent, agent)).fetchall()]

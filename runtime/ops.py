@@ -490,10 +490,10 @@ def _run(ctx: dict, task: dict, tier: str | None = None) -> dict:
            "failure": None, "task_state": "failed", "pending_id": None, "returned": [], "kept": [], "left_out": [],
            "entered": None, "state": None, "routing": routing, "use": None}
 
-    def fail(kind: str, reason: str, attempts: int = 0, digest=None, redactions=None) -> dict:
+    def fail(kind: str, reason: str, attempts: int = 0, digest=None, redactions=None, reported=None) -> dict:
         core._stored(ctx, store.task_run_finish, run_id, status="failed", failure=kind, task_state="failed",
                 attempts=attempts, image_digest=digest, run_dir=dest, error=_note(reason), task_note=_note(reason),
-                redactions=redactions)
+                redactions=redactions, **_reported_usage(reported, routing))
         out["failure"] = {"kind": kind, "reason": _note(reason)}
         return out
 
@@ -558,17 +558,17 @@ def _run(ctx: dict, task: dict, tier: str | None = None) -> dict:
                                    prepare=prepare, finish=finish, tmp_in_run=bool(gate),
                                    max_cost=budget)
     except lab.LabError as e:
-        return fail("internal", f"{e.kind}: {e.reason}")
+        return fail("internal", f"{e.kind}: {e.reason}", getattr(e, "attempts", 0))  # attempts: how many began (A-57)
     except Exception as e:  # the task never stays `running`: the error is recorded, then shown
         traceback.print_exc()
-        return fail("internal", f"{type(e).__name__}: {e}")
+        return fail("internal", f"{type(e).__name__}: {e}", getattr(e, "attempts", 0))
     finally:
         shutil.rmtree(prepared_dir, ignore_errors=True)
     counts, timing = result["counts"], result["timing"]
     if result["status"] != "ok":
         failure = result["failure"]
         return fail(failure["kind"], failure["reason"], counts["attempts"], result["image_digest"],
-                    _count(counts.get("redactions")))
+                    _count(counts.get("redactions")), result.get("reported"))
     left = result["changes"]["created"] + result["changes"]["modified"]
     bound = manifest.bound_among(known, left)
     made = _changeset_of(ctx, task, run_id, dest, result, entered, code, bound) if code is not None else None
@@ -632,6 +632,19 @@ def _run(ctx: dict, task: dict, tier: str | None = None) -> dict:
             decision["body"] = body.encode("utf-8")[:room].decode("utf-8", errors="ignore") + tail
     done = core._stored(ctx, store.task_run_finish, run_id, task_state="waiting", pending=decision, **finish)
     out.update(status="ok", ending=ending, task_state="waiting", pending_id=done["pending_id"], returned=returned, kept=kept)
+    return out
+
+
+def _reported_usage(reported, routing: dict) -> dict:
+    """The usage a failed run's attempts reported (lab.reported_usage), as the arguments that record it: tokens always, the
+    cost only on a metered credential (only a metered run has a billed cost, as for a run that ended). Nothing when none
+    was reported, so a failed run with a reported cost keeps it and the reservation does not stand in for it (A-57)."""
+    reported = reported or {}
+    out = {}
+    if reported.get("total_tokens") is not None:
+        out["tokens"] = int(reported["total_tokens"])
+    if reported.get("cost_usd") is not None and routing.get("billing") == "metered":
+        out["cost_usd"] = float(reported["cost_usd"])
     return out
 
 
@@ -1660,9 +1673,10 @@ def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False) 
            "status": "failed", "ending": None, "failure": None, "pending_id": None, "kind": None, "kept": [],
            "left_out": [], "entered": None, "routing": routing, "use": None}
 
-    def fail(kind: str, reason: str, attempts: int = 0, digest=None, redactions=None) -> dict:
+    def fail(kind: str, reason: str, attempts: int = 0, digest=None, redactions=None, reported=None) -> dict:
         core._stored(ctx, store.route_run_finish, run_id, status="failed", failure=kind, attempts=attempts,
-                image_digest=digest, run_dir=dest, error=_note(reason), redactions=redactions)
+                image_digest=digest, run_dir=dest, error=_note(reason), redactions=redactions,
+                **_reported_usage(reported, routing))
         out["failure"] = {"kind": kind, "reason": _note(reason)}
         return {"out": out, "failed": True}
 
@@ -1683,17 +1697,17 @@ def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False) 
             result = lab.run_skill(skill, prompt, entered["files"], dest, web=False, tier=routing["tier"],
                                    max_cost=budget)
     except lab.LabError as e:
-        return fail("internal", f"{e.kind}: {e.reason}")
+        return fail("internal", f"{e.kind}: {e.reason}", getattr(e, "attempts", 0))  # attempts: how many began (A-57)
     except Exception as e:  # the run row never stays `running`: the error is recorded, then shown
         traceback.print_exc()
-        return fail("internal", f"{type(e).__name__}: {e}")
+        return fail("internal", f"{type(e).__name__}: {e}", getattr(e, "attempts", 0))
     finally:
         shutil.rmtree(prepared_dir, ignore_errors=True)
     counts, timing = result["counts"], result["timing"]
     if result["status"] != "ok":
         failure = result["failure"]
         return fail(failure["kind"], failure["reason"], counts["attempts"], result["image_digest"],
-                    _count(counts.get("redactions")))
+                    _count(counts.get("redactions")), result.get("reported"))
     # Nothing a route-only run left comes back: the router's run sees only the router installed, so what it would
     # write (a line about a skill it finds missing) is wrong here by construction.
     facts = {"staged": result["staged"]}
