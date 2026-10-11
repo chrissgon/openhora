@@ -84,7 +84,9 @@ async function send(method, path, options = {}) {
   if (!open) headers.Authorization = `Bearer ${token}`;
   const init = {
     method, headers, credentials: "omit", cache: "no-store", redirect: "error", mode: "same-origin",
-    referrerPolicy: "no-referrer", signal: options.signal,
+    // "same-origin", never "no-referrer": under no-referrer a browser that follows the Fetch spec (Safari, so a phone) serialises the
+    // Origin of a POST as `null`, which the service refuses. Same-origin keeps the real Origin and sends a referrer to this service alone.
+    referrerPolicy: "same-origin", signal: options.signal,
   };
   if (method === "POST") {
     headers["Content-Type"] = "application/json";
