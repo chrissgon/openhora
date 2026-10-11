@@ -244,10 +244,11 @@ def test_the_switcher_main_button_is_a_label_with_one_project_and_the_foot_opens
     none = got["none"]
     assert none["chevron"] is False and none["name"] == "No project" and none["closed"] is True, "C-20: the chevron stays enabled"
     assert none["open"] is True and none["focus"] is True, "the card opens with the foot, and the foot has the keyboard focus"
-    assert none["line"] == "No project" and none["lineHidden"] is False and none["options"] == 0 and none["foot"] is True
+    # F1-D3 (R4-P2, the final check against frame.html's "No project" card, C-20): the card is its foot alone, with no header and no "No project" row
+    assert none["line"] is None and none["lineHidden"] is None and none["options"] == 0 and none["foot"] is True
     assert none["calls"] == [["forget"]], "Forget the token is reachable with no project"
     assert none["closedAgain"] is True, "Escape closes the card"
-    assert got["back"] == {"lineHidden": True, "options": 1}, "with a project the empty line goes"
+    assert got["back"] == {"lineHidden": None, "options": 1}, "with a project the card has its row and no empty line (F1-D3: the line is not drawn at all)"
 
 
 @needs_node

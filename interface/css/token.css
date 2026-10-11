@@ -78,12 +78,14 @@
   .tk-side .wb-owl { width: 64px; height: 64px; }
   .tk-main { align-content: start; gap: 14px; padding: 12px 16px 28px; }
   .tk-title { font-size: 34px; }
-  .tk-text { font-size: 14px; }
+  .tk-text { font-size: 16px; }      /* M-32: the reading text is 16 px on the phone; the labels, the help line and the step captions keep at least 12 px */
+  .tk-eyebrow, .tk-label, .wb-token-label, .wb-token-system { font-size: 12px; }
+  .tk-cmd .wb-command-block, .tk-cmd .wb-command-code { font-size: 14px; }
   .tk-cmd, .tk-form { max-width: 100%; }
   .tk-cmd .wb-command-row { flex-direction: column; align-items: stretch; padding: 8px; }
   .tk-cmd .wb-command-code { padding-inline: 6px; line-height: 36px; }
   .tk-field { flex-direction: column; }
   .tk-step { gap: 6px; padding: 14px 12px 16px; }
   .tk-num { font-size: 24px; }
-  .tk-cap { font-size: 10px; letter-spacing: 0.06em; }
+  .tk-cap { font-size: 12px; letter-spacing: 0.06em; }
 }
