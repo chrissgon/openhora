@@ -230,7 +230,7 @@ function run(label, at, cap = 120) {
 //    documents arrive on frame 12
 world.setFocus(A);
 run("open", [[3, () => world.update(models.building(null))], [11, () => world.update(models.building(DOCS))]]);
-out.afterOpen = { open: a.open, cases: a.parts.map((p) => p && p.cases) };
+out.afterOpen = { open: a.open, binders: a.parts.map((p) => p && p.binders) };
 // 2. the click on a floor: the Floor view starts without documents, reads them on frame 8
 world.setFloors(chosenName, null);
 run("floor", [[2, () => world.update(models.floor(null))], [8, () => world.update(models.floor(DOCS))]]);
@@ -476,8 +476,8 @@ console.log(JSON.stringify(out));
     assert got["header"] == {"side": "top", "amount": 64} and got["track"] == {"side": "bottom", "amount": 166}
     assert got["dockedPanel"] is None and got["nothing"] is None, "a part that does not touch the scene (the panel docked below it) takes nothing"
     frame = (JS / "frame" / "frame.js").read_text(encoding="utf-8")
-    assert "obstacleInset(part.getBoundingClientRect(), scene)" in frame and "kpis.el, header, noticeBox.hidden ? null : noticeBox, dock" in frame, \
-        "every part over the scene is measured, none is assumed (R-1, R-2: the top row and the dock are the parts now; the header button of the actions is gone)"
+    assert "obstacleInset(part.getBoundingClientRect(), scene)" in frame and "kpis.el, header, notice && !noticeBox.hidden ? noticeBox : null, dock" in frame, \
+        "every part over the scene is measured, none is assumed (R-1, R-2: the top row and the dock are the parts now; the header button of the actions is gone); the notice is one of them unless a screen asks for it not to count (R4-B4: a dimmed Building)"
 
 
 def test_the_in_between_layout_has_the_tablet_rules_of_the_handoff_and_there_is_no_docked_band_below_900_px():
@@ -580,15 +580,15 @@ const { world } = make({ lots: [states(), lot("b"), lot("c")] });
 world.setFocus("a", true);
 const a = world.towers.get("a");
 const out = { board: [0, 1, 2, 3].map((i) => Boolean(a.parts[i].board && a.parts[i].board.children.length === 1)), shelf: [0, 1, 2, 3].map((i) => Boolean(a.parts[i].shelf && a.parts[i].shelf.children.length === 1)),
-  cases: [0, 1, 2, 3].map((i) => a.parts[i].cases), notes: [0, 1, 2, 3].map((i) => a.parts[i].notesShown), noTray: [0, 1, 2, 3].every((i) => a.parts[i].tray === undefined && a.parts[i].sheets === undefined) };
+  binders: [0, 1, 2, 3].map((i) => a.parts[i].binders), notes: [0, 1, 2, 3].map((i) => a.parts[i].notesShown), noTray: [0, 1, 2, 3].every((i) => a.parts[i].tray === undefined && a.parts[i].sheets === undefined) };
 // the roof: gone when the building is open, and the top floor has no ceiling slab
 out.roof = a.group.children.filter((c) => c.position.y > a.floorGroups[3].position.y + 2).map((c) => c.visible);
 out.shells = a.floorGroups.map((g) => g.children[0].visible);
 console.log(JSON.stringify(out));
 """)
     assert got["board"] == [True] * 4 and got["shelf"] == [True] * 4, "the board of notes and the bookcase stand on every floor, with or without a task or a document"
-    assert got["cases"] == [1, 1, 1, 2], "one bookcase holds sixteen binders, a second comes with the seventeenth"
-    assert got["notes"] == [0, 1, 3, 6], "one note for each task of the agent, as many as the board holds: a second bookcase (17 documents) leaves it room for six of the seven"
+    assert got["binders"] == [0, 3, 16, 16], "one bookcase holds sixteen binders and no more, whatever the documents (M-7 supersedes R-49's second bookcase at the seventeenth)"
+    assert got["notes"] == [0, 1, 3, 7], "one note for each task of the agent: the board is always the full one, twelve notes (M-7 supersedes B2-4's six beside a second bookcase)"
     assert got["noTray"] is True, "no tray and no table of sheets"
     assert got["roof"] == [False] and got["shells"] == [False] * 4, "no roof slab over the top floor and no front wall: the room is open like the others"
 
@@ -704,13 +704,13 @@ out.decisionsDown = edit((l) => { l.floors[2].decisions = 0; });
 out.notes = [a.parts[3].notesShown];
 out.notesUp = edit((l) => { l.floors[3].notes = ["done", "run", "left"]; });
 out.notes.push(a.parts[3].notesShown);
-// the bookcase: a second one comes with the seventeenth document, a third with the thirty-fourth
-out.cases = [a.parts[3].cases];
-out.documentsUp = edit((l) => { l.floors[3].documents = 17; }); out.cases.push(a.parts[3].cases);
-out.documentsMore = edit((l) => { l.floors[3].documents = 40; }); out.cases.push(a.parts[3].cases);
+// the bookcase: the one bookcase fills to sixteen binders and holds there (M-7)
+out.binders = [a.parts[3].binders];
+out.documentsUp = edit((l) => { l.floors[3].documents = 17; }); out.binders.push(a.parts[3].binders);
+out.documentsMore = edit((l) => { l.floors[3].documents = 40; }); out.binders.push(a.parts[3].binders);
 // unread documents and tasks: null changes nothing
 out.unread = edit((l) => { l.floors[3].documents = null; l.floors[3].notes = null; });
-out.unreadCases = a.parts[3].cases;
+out.unreadBinders = a.parts[3].binders;
 // the window of a floor: the material of the same meshes
 out.window = edit((l) => { l.floors[0].window = "lit"; });
 // R-16: the glass of a floor is one batched mesh, and a window's state is a repaint of its vertices (R-18: the lit tone is the warm white)
@@ -733,8 +733,8 @@ console.log(JSON.stringify(out));
         assert got[key]["same"] is True and got[key]["r"]["structure"] is False, f"{key}: the same tower, nothing built again"
     assert got["decisionsUp"]["lost"] == 0 and got["decisionsDown"]["lost"] == 0, "the decisions of a floor draw nothing: the owl's hit, the mark and the tooltip follow"
     assert got["notes"] == [2, 3] and got["notesUp"]["lost"] == 0 and got["notesUp"]["added"] == 0, "a task that arrives is a note on the board, in the board's own mesh (R-23b)"
-    assert got["cases"] == [1, 2, 3] and got["documentsUp"]["lost"] == 0 and got["documentsMore"]["lost"] == 0, "the binders are made again in the bookcase's own mesh; a second bookcase comes at the seventeenth document (R-49)"
-    assert got["unread"]["lost"] == 0 and got["unread"]["added"] == 0 and got["unreadCases"] == 3, "documents and tasks not read yet (null) change nothing: the shelves keep their binders"
+    assert got["binders"] == [2, 16, 16] and got["documentsUp"]["lost"] == 0 and got["documentsMore"]["lost"] == 0, "the binders are made again in the bookcase's own mesh, up to sixteen: there is no second bookcase (M-7 supersedes R-49)"
+    assert got["unread"]["lost"] == 0 and got["unread"]["added"] == 0 and got["unreadBinders"] == 16, "documents and tasks not read yet (null) change nothing: the shelves keep their binders"
     assert got["window"]["lost"] == 0 and got["litGlass"] is True, "a window changes its colour, not its meshes (R-16, R-18)"
     assert got["markers"] == 0 and got["markersAfter"] == 1, "a decision that arrives on a floor that waits makes the mark beside it (R-20, R-21)"
     assert got["stateRoom"]["replaced"] is True and got["stateRoom"]["othersKept"] is True, "a state change makes that floor's room again (the owl takes another pose) and no other floor's"
