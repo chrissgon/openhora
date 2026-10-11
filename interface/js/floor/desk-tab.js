@@ -1,11 +1,12 @@
-// The Floor's Desk tab (handoff floor.md): the agent's documents from `artifacts` as a table (path, owner skill, size with the kind beside it:
-// text, Markdown, image or other, A-33, and modified; the Lobby's desk, which lists every document of the project, has the agent after the
-// owner skill: `agentColumn`),
+// The Floor's Desk tab (handoff floor.md, R-40): the agent's documents from `artifacts` as a list of two-line rows: the path (a button, with `bound` beside it), then the owner skill,
+// the size with the kind beside it (text, Markdown, image or other, A-33) and the time on one muted line; the Lobby's desk, which lists every document of the project, has the
+// agent as a badge beside the path (`agentColumn`),
 // a filter that works in the page over the rows already read (no request), a "bound" chip, and the states loading, empty,
 // truncated and no match. A row opens the viewer by its hash. A path is text: it wraps after "/", "-" and "." and never
 // inside a name. The desk draws what the operation returned; opening a file is a read.
 
 import { fill, h } from "../dom.js";
+import * as format from "../format.js";
 import { arrowNav } from "../frame/arrows.js";
 import { deskRows, pathParts } from "../floor-model.js";
 import { busyLine, field } from "./widgets.js";
@@ -38,30 +39,32 @@ export function createDeskTab(env) {
   const input = h("input", { class: "pui-input wb-field-input", type: "text", placeholder: "Path or owner skill", "data-key": "filter" });
   const filterField = field("Filter documents", input);
   const states = h("div", { class: "wb-desk-states" });
-  const tableBox = h("div", { class: "pui-card wb-desk-card" });
+  const tableBox = h("div", { class: "wb-desk-box" });
   fill(el, filterField, states, tableBox);
   let last = { documents: [], truncated: false, loading: true, error: null, elsewhere: 0 };
   let shown = "";
   input.addEventListener("input", () => draw(true));
 
-  function table(rows) {
-    const body = h("tbody", {}, rows.map((r) => {
-      const open = h("button", { class: "pui-btn pui-link wb-path-button", type: "button", "data-path": r.path, "aria-label": `Open ${r.path}` }, pathNodes(r.path));
+  /** R-40: one two-line row for each document. The row and its path button both open the document by its hash; Up and Down move between the buttons. */
+  function list(rows) {
+    const items = rows.map((r) => {
+      const open = h("button", { class: "pui-btn pui-link wb-path-button wb-path-btn", type: "button", "data-path": r.path, "aria-label": `Open ${r.path}` }, pathNodes(r.path));
       open.addEventListener("click", (event) => {
         event.stopPropagation();
         env.open(r.path);
       });
-      const row = h("tr", { class: "wb-desk-row" },
-        h("td", { "data-label": "Path", class: "wb-desk-path" }, open, r.bound ? h("span", { class: "pui-chip pui-muted pui-soft wb-chip-11", title: "bound to a decision" }, "bound", h("span", { class: "wb-sr", text: " to a decision" })) : null),
-        h("td", { "data-label": "Owner skill", class: "mono wb-desk-owner", text: r.owner }),
-        env.agentColumn ? h("td", { "data-label": "Agent", class: "mono wb-desk-agent", text: r.agent || "—" }) : null,
-        h("td", { "data-label": "Size", class: "wb-nowrap" }, r.size, r.kind ? h("span", { class: "wb-desk-kind wb-muted", text: `${r.size ? " · " : ""}${r.kind}` }) : null),
-        h("td", { "data-label": "Modified", class: "wb-desk-when" }, ...whenParts(r.modified)));
+      const tags = [
+        r.bound ? h("span", { class: "pui-chip pui-muted pui-outline wb-chip-12", title: "bound to a decision" }, "bound", h("span", { class: "wb-sr", text: " to a decision" })) : null,
+        env.agentColumn ? h("span", { class: "pui-badge pui-muted pui-soft wb-desk-agent", text: format.agentWord(r.agent) }) : null,
+      ].filter(Boolean);
+      const size = [r.size, r.kind].filter(Boolean).join(" · ");
+      const parts = [r.owner ? h("span", { class: "mono wb-desk-owner", text: r.owner }) : null, size ? h("span", { class: "wb-nowrap", text: size }) : null, h("span", { class: "wb-desk-when" }, ...whenParts(r.modified))].filter(Boolean);
+      const meta = h("span", { class: "wb-desk-meta wb-muted" }, parts.flatMap((part, i) => (i ? [" · ", part] : [part])));
+      const row = h("li", { class: "wb-desk-row" }, open, tags.length ? h("span", { class: "wb-desk-tags" }, tags) : null, meta);
       row.addEventListener("click", () => env.open(r.path));
       return row;
-    }));
-    const node = h("table", { class: "pui-table pui-hoverable wb-desk-table" },
-      h("thead", {}, h("tr", {}, (env.agentColumn ? ["Path", "Owner skill", "Agent", "Size", "Modified"] : ["Path", "Owner skill", "Size", "Modified"]).map((t) => h("th", { scope: "col", text: t })))), body);
+    });
+    const node = h("ul", { class: "pui-card wb-desk-list", "aria-label": env.agentColumn ? "Documents of the project, newest first" : "Documents, newest first" }, items);
     arrowNav(node, "button.wb-path-button");
     return node;
   }
@@ -98,7 +101,7 @@ export function createDeskTab(env) {
       last.truncated ? h("div", { class: "wb-state-block", role: "status", text: "Only the first 2000 files are listed" }) : null,
       !rows.length ? h("div", { class: "wb-state-block is-dashed wb-muted", role: "status", text: "No document matches the filter." }) : null);
     tableBox.hidden = !rows.length;
-    fill(tableBox, rows.length ? h("div", { class: "table-wrap" }, table(rows)) : null);
+    fill(tableBox, rows.length ? list(rows) : null);
     if (path) {
       const next = tableBox.querySelectorAll ? [...tableBox.querySelectorAll("button.wb-path-button")].find((b) => b.getAttribute("data-path") === path) : null;
       if (next) next.focus({ preventScroll: true });

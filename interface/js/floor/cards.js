@@ -19,10 +19,10 @@ import * as format from "../format.js";
 import * as router from "../router.js";
 import { ENDING, openable } from "../floor-model.js";
 import { renderMarkdown } from "../markdown.js";
-import { markdownView } from "../markdown-view.js";
+import { markdownView, onPlainChoice, plainChoice, setPlainChoice } from "../markdown-view.js";
 import { createWaitsBlock } from "../cards/plan-waits.js";
 import { commandBlock } from "../frame/command.js";
-import { fileRefusal, handOverStep, toBase64 } from "./hand-file.js";
+import { fileRefusal, handChooser, handOverStep, toBase64 } from "./hand-file.js";
 import { agoText, chip, errorText, field, isGone, jobText, notice, ring } from "./widgets.js";
 
 // The buttons of each kind, in the drawn order, by the word of `actions` they send, with their "-ing" word.
@@ -116,6 +116,20 @@ export function createCard(item, env) {
     return h("a", { class: "pui-link pui-theme", href: agent ? env.links.floor(agent) : env.links.lobby(), text: `task #${it.task_id}` });
   }
 
+  // The kinds whose body is rendered Markdown carry "Plain text" in their head (R-34): the card's own text as it came, and back; the choice is one for the session
+  const RENDERS = ["question", "acceptance", "review"];
+
+  function plainButton() {
+    const on = plainChoice();
+    const button = h("button", { class: "pui-btn pui-surface pui-outline wb-small-button wb-card-plain", type: "button", "data-key": "plain", "aria-pressed": String(on), text: "Plain text" });
+    button.addEventListener("click", () => {
+      setPlainChoice(!plainChoice());     // every card that listens draws again (below), this one too
+      const next = root.querySelector ? root.querySelector("button.wb-card-plain") : null;
+      if (next && next.focus) next.focus();
+    });
+    return button;
+  }
+
   function header() {
     const it = state.item;
     const request = (env.requestIds && env.requestIds.has(it.task_id)) || it.kind === "plan" || it.kind === "acceptance";
@@ -123,10 +137,12 @@ export function createCard(item, env) {
     const ago = agoText(it.created_at, env.now());
     const meta = h("span", { class: "wb-card-meta" }, `#${it.id} · `, taskLink(), where ? ` · ${where}` : "", ago ? ` · ${ago}` : "");
     if (it.created_at) meta.setAttribute("title", it.created_at);
-    return h("div", { class: "wb-card-head" }, h("span", { class: "pui-badge pui-warn pui-soft", text: format.kindWord(it.kind) }), meta);
+    return h("div", { class: "wb-card-head" }, h("span", { class: "pui-badge pui-warn pui-soft", text: format.kindWord(it.kind) }), meta, RENDERS.includes(it.kind) ? plainButton() : null);
   }
 
-  const text = (value, cls = "wb-card-body") => h("div", { class: cls }, renderMarkdown(value || ""));
+  /** The text of a card as the person asked for it: rendered Markdown, or the text exactly as it came (`wb-md is-plain`, mono). */
+  const markdownOf = (value) => (plainChoice() ? h("div", { class: "wb-md is-plain", text: value || "" }) : renderMarkdown(value || ""));
+  const text = (value, cls = "wb-card-body") => h("div", { class: cls }, markdownOf(value));
 
   // --- the controls ----------------------------------------------------------------------------------------------------------
 
@@ -137,7 +153,7 @@ export function createCard(item, env) {
       const blocked = state.item.kind === "review" && word === "released" && blockedChange(state.item);
       const mine = state.busy === word;
       const button = h("button", {
-        class: `pui-btn ${i === 0 ? "pui-theme" : "pui-surface"} pui-outline wb-card-button`, type: "button", "data-word": word,
+        class: `pui-btn ${i === 0 ? "pui-solid pui-theme" : "pui-surface pui-outline"} wb-card-button`, type: "button", "data-word": word,
         "aria-busy": mine ? "true" : null, "aria-disabled": blocked ? "true" : null, "aria-describedby": blocked ? `${uid}-blocked` : null,
       }, mine ? ring(true) : null, mine ? busyLabel : label);
       button.disabled = Boolean(state.busy) || Boolean(state.done);
@@ -215,7 +231,7 @@ export function createCard(item, env) {
     const lost = isUnrecognised(it);
     return [h("h3", { class: "wb-card-title", id: titleId, tabindex: "-1", text: it.title }), text(it.body),
       lost ? replyDisclosure(it.payload.raw) : null, lost ? routeControls() : null,
-      textarea("answer", "Your answer", 2, h("small", { class: state.empty === "answer" ? "wb-hint is-error" : "wb-hint", text: state.empty === "answer" ? "Type an answer." : "Ctrl or Cmd plus Enter sends." }), state.empty === "answer"),
+      textarea("answer", "Your answer", 3, h("small", { class: state.empty === "answer" ? "wb-hint is-error" : "wb-hint", text: state.empty === "answer" ? "Type an answer." : "Ctrl or Cmd plus Enter sends." }), state.empty === "answer"),
       message(), buttons()];
   }
 
@@ -265,10 +281,13 @@ export function createCard(item, env) {
     const returned = Array.isArray(payload.returned) ? payload.returned : [];
     const kept = Array.isArray(payload.kept) ? payload.kept : [];
     const parts = [h("h3", { class: "wb-card-title", id: titleId, tabindex: "-1", text: it.title }),
-      h("div", { class: "wb-card-body wb-scroll", tabindex: "0", "aria-label": "Text of the review" }, renderMarkdown(it.body || ""))];
-    if (returned.length) parts.push(h("div", { class: "wb-card-hint", text: "Returned" }), h("ul", { class: "wb-paths" }, returned.map((f) => pathRow(f, true))));
-    if (kept.length) parts.push(h("div", { class: "wb-card-hint", text: "Kept" }), h("ul", { class: "wb-paths" }, kept.map((f) => pathRow(f, false))));
-    if (payload.ending) parts.push(h("div", { class: "wb-card-line" }, h("span", { class: "wb-muted", text: "Ending: " }), ENDING[payload.ending] || String(payload.ending)));
+      h("div", { class: "wb-card-body wb-scroll", tabindex: "0", "aria-label": "Text of the review" }, markdownOf(it.body || ""))];
+    if (returned.length || kept.length) {      // floor.html: the two lists of paths stand together in one small block
+      parts.push(h("div", { class: "wb-ret" },
+        returned.length ? h("span", { class: "wb-card-label", text: "Returned" }) : null, returned.length ? h("ul", { class: "wb-paths" }, returned.map((f) => pathRow(f, true))) : null,
+        kept.length ? h("span", { class: "wb-card-label", text: "Kept" }) : null, kept.length ? h("ul", { class: "wb-paths" }, kept.map((f) => pathRow(f, false))) : null));
+    }
+    if (payload.ending) parts.push(h("p", { class: "wb-card-line" }, "Ending: ", ENDING[payload.ending] || String(payload.ending)));
     if (payload.why) parts.push(h("div", { class: "wb-card-body wb-muted", text: String(payload.why) }));
     const change = payload.changeset || {};
     if (change.error) parts.push(notice(String(change.error), "error"));
@@ -278,7 +297,7 @@ export function createCard(item, env) {
         (change.refused || []).map((r) => h("div", { class: "wb-path-row" }, h("code", { class: "wb-path", text: r.path || "the whole set" }), h("span", { class: "wb-card-hint", text: String(r.reason || "") }))),
         h("span", { class: "wb-card-line", text: "Answer the review with a comment, or cancel the request." })));
     }
-    parts.push(textarea("comment", "Comment", 2, state.empty === "comment" ? h("small", { class: "wb-hint is-error", text: "Type a comment." }) : null, state.empty === "comment"), handOver(), message());
+    parts.push(textarea("comment", "Comment", 3, state.empty === "comment" ? h("small", { class: "wb-hint is-error", text: "Type a comment." }) : null, state.empty === "comment"), handOver(), message());
     let disclosure = null;
     if (it.run_id !== null && it.run_id !== undefined) disclosure = verdictDisclosure(it.run_id);
     parts.push(buttons(), disclosure);
@@ -298,10 +317,13 @@ export function createCard(item, env) {
     input.disabled = Boolean(state.busy) || Boolean(state.done) || Boolean(state.handing);
     input.addEventListener("change", () => pickFile(input));
     const line = drop.web && typeof drop.line === "string" && drop.line ? h("p", { class: "wb-drop-line", role: "note", text: drop.line }) : null;
+    const hint = h("span", { class: "wb-hint wb-muted wb-cur-sub", text: `To task #${state.item.task_id}. At most 25 MiB.` });
+    const chooser = handChooser({ input, line, hint });
+    chooser.button.disabled = input.disabled;
     return h("div", { class: "wb-hand wb-card-hand" },
-      h("label", { class: "pui-field-group wb-field" }, h("span", { class: "wb-field-label", text: "Hand a file over" }), line, input,
-        h("small", { class: "wb-hint", text: `To task #${state.item.task_id}. At most 25 MiB.` })),
+      chooser.nodes.slice(0, 4),
       handOverStep(state.picked, state.item.task_id, () => handFile(), { disabled: Boolean(state.busy) || Boolean(state.done) || Boolean(state.handing) }),
+      hint,
       state.handing ? h("div", { class: "wb-busy", role: "status", "aria-busy": "true" }, ring(true), h("span", { text: "Sending..." })) : null,
       state.handed ? (state.handed.error ? notice(state.handed.text, "error") : h("p", { class: "wb-card-line", role: "status", text: state.handed.text })) : null);
   }
@@ -567,6 +589,14 @@ export function createCard(item, env) {
     }
   }
 
+  // R-34: one choice for the session: when any card flips it, every card of the page draws its text again (the Floor's Inbox and the Lobby's)
+  let seen = false;
+  const stopListening = onPlainChoice(() => {
+    if (root.isConnected) {
+      seen = true;
+      render();
+    } else if (seen) stopListening();
+  });
   render();
   loadDrop();
   return {

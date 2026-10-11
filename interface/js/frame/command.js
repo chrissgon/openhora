@@ -30,7 +30,8 @@ export async function copyCommand(text, env) {
   return env.select() ? "copied" : "selected";
 }
 
-function selectNode(node) {
+/** Select the contents of a node and ask the browser to copy them: true when the old copy command worked, false when the text was only selected (for the keyboard). */
+export function selectNode(node) {
   try {
     const range = document.createRange();
     range.selectNodeContents(node);

@@ -673,8 +673,8 @@ TASKS_TAB_FILES = ("floor/tasks-model.js", "floor/tasks-tab.js", "floor/run-bloc
 
 def test_the_tasks_tab_is_the_fourth_tab_of_a_floor_and_a_tab_of_the_lobby_and_each_view_gives_it_the_floors_client_and_router_links():
     floor_view = (INTERFACE / "js" / "views" / "floor.js").read_text(encoding="utf-8")
-    assert re.search(r'TABS = \[\{ id: "agent", label: "Agent" \}, \{ id: "inbox", label: "Inbox" \}, \{ id: "desk", label: "Desk" \}, \{ id: "tasks", label: "Tasks" \}\]', floor_view), \
-        "the Floor's tabs are Agent, Inbox, Desk and Tasks, in that order"
+    assert re.search(r'TABS = \[\{ id: "agent", label: "Agent" \}, \{ id: "inbox", label: "Inbox" \}, \{ id: "tasks", label: "Tasks" \}, \{ id: "desk", label: "Desk" \}\]', floor_view), \
+        "the Floor's tabs are Agent, Inbox, Tasks and Desk, in that order (R-33, C-6: the order changed from Agent, Inbox, Desk, Tasks)"
     assert 'import { createTasksTab } from "../floor/tasks-tab.js";' in floor_view and "createTasksTab({" in floor_view
     lobby_model = (INTERFACE / "js" / "views" / "lobby-model.js").read_text(encoding="utf-8")
     assert '["inbox", "Inbox"], ["tasks", "Tasks"], ["desk", "Desk"], ["agent", "Agent"]' in lobby_model, "R-43 (C-6): the Lobby's Tasks tab is beside its Desk tab, Tasks first"

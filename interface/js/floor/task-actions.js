@@ -51,7 +51,7 @@ export function createTaskActions(env) {
       const out = [];
       for (const action of actionsFor(task, pending)) {
         if (action.kind === "inbox") {
-          out.push(h("a", { class: "pui-link pui-theme wb-task-inbox", href: links.inbox(action.pending), "data-key": `inbox-${task.id}`, text: "Open in the Inbox" }));
+          out.push(h("a", { class: "pui-btn pui-surface pui-outline wb-small-button wb-task-inbox", href: links.inbox(action.pending), "data-key": `inbox-${task.id}`, text: "Open in the Inbox" }));
           continue;
         }
         const [word, doing, label] = WORDS[action.kind];

@@ -174,7 +174,7 @@ const bodies = { 4: { task: task(4, "running", "engineering"), runs: [{ id: 1, s
 const floor = fm.floor(snapshot, P, "engineering", bodies);
 out.floor = { found: floor.found, current: floor.current.id, others: floor.others.map((t) => t.id), target: floor.target.id, header: floor.header, runs: floor.runs.length, label: floor.canvasLabel };
 out.board = fm.boardOf(floor);
-out.state = fm.stateRow("working", 0, floor.runningBody).line.startsWith("Running since");
+out.state = fm.stateRow("working", 0, floor.runningBody).line.startsWith("Running for ");     // R-8
 out.stateRows = [fm.stateRow("waiting", 1, null), fm.stateRow("waiting", 2, null).line, fm.stateRow("idle", 0, null).line, fm.stateRow("off", 0, null)];
 out.runRows = fm.runRows(bodies[5].runs[0]).map((r) => [r.label, r.value, r.kind]);
 out.runRowsOk = fm.runRows({ id: 3, skill: "s", skill_version: "1", model: "m", status: "ok", ending: "gate", attempts: 1 }).map((r) => [r.label, r.value]);
@@ -242,8 +242,8 @@ def test_the_model_derives_each_floors_state_and_facts_from_what_the_service_ret
 def test_the_floor_model_picks_the_current_task_the_other_tasks_the_hand_over_target_and_the_words(tmp_path):
     got = run_node(tmp_path, MODEL)
     assert got["floor"] == {"found": True, "current": 4, "others": [6, 5], "target": 6, "runs": 1, "label": "Engineering floor of northwind-shop, Engineering agent working, 0 decisions",
-                            "header": {"title": "Engineering · Engineering agent", "sub": "northwind-shop · floor 4 · Running", "icon": "building-2"}}
-    assert got["board"]["title"] == "#4 Task 4 · current task" and got["board"]["dot"] == "theme" and got["board"]["lines"][0].startswith("skill s · Running · Running since ")
+                            "header": {"title": "Engineering agent", "sub": "floor 4 · Running", "icon": "building-2"}}     # C-6 and floor.html: the agent named once, the project is in the crumbs
+    assert got["board"]["title"] == "#4 Task 4 · current task" and got["board"]["dot"] == "theme" and got["board"]["lines"][0].startswith("skill s · Running · for ")
     assert got["state"] is True
     assert got["stateRows"][0]["chip"] == "Waiting for you" and got["stateRows"][0]["line"] == "1 decision in the Inbox" and got["stateRows"][1] == "2 decisions in the Inbox"
     assert got["stateRows"][2] == "Waiting for the next task" and got["stateRows"][3]["off"] is True and got["stateRows"][3]["line"] == "Off, mode is stopped"
@@ -701,7 +701,7 @@ console.log(JSON.stringify(out));
 def test_the_agent_tab_sends_set_mode_retry_and_the_hand_over_as_one_request_each_and_shows_the_command_the_service_gave(tmp_path):
     got = run_node(tmp_path, AGENT)
     assert got["loading"] == "Loading the floor..."
-    assert got["state"] == "WorkingRunning since 11:30" or got["state"].startswith("WorkingRunning since ")
+    assert got["state"].startswith("WorkingRunning for "), "R-8: how long the task has run, not since when"
     assert got["plate"].startswith("supervised") and got["plate"].endswith("Every review reaches you."), "the plate says the mode and its one line"
     assert got["options"] == 0, "A-17: no select; the mode is changed by Stop agent and Supervise"
     assert got["standing"] is True

@@ -65,6 +65,7 @@ out.floor = blocks(inbox.el);
 out.markup = [...inbox.el.walk()].filter((n) => ["B", "SCRIPT", "IMG", "I"].includes(n.tagName)).length;
 out.attrs = [...inbox.el.walk()].filter((n) => "onerror" in n.attrs || "src" in n.attrs).length;
 out.order = all(inbox.el, "details.wb-resolved-item")[0].children.map((c) => (c.attrs.class || c.tagName));
+out.body = find(all(inbox.el, "details.wb-resolved-item")[0], ".wb-tl-body").children.map((c) => (c.attrs.class || c.tagName));
 
 const lobby = createLobbyInbox({ project: "0123456789ab", now: () => NOW, refresh() {} });
 lobby.update({ cards: [], pointers: [], requests: [], resolved: lines, selected: null, loading: false });
@@ -118,7 +119,7 @@ def test_the_block_sits_under_the_date_with_its_label_and_the_text_as_plain_text
     assert (first["label"], first["text"], first["inP"], first["tag"]) == ("Your answer", "The price with tax, always.", 1, "P")
     assert first["hint"].startswith("Resolved "), "the date line is still there"
     assert got["floor"]["Decision 3"]["label"] == "Your note" and got["floor"]["Decision 2"]["label"] == "Your comment"
-    assert got["order"] == ["wb-resolved", "wb-card-hint wb-resolved-body", "wb-res-said"], "the line, the date, and the block under the date"
+    assert got["order"] == ["SUMMARY", "wb-tl-body"] and got["body"] == ["wb-muted wb-resolved-body", "wb-res-said"], "R-38: the line is the summary; in its body the date and the block under the date"
 
 
 @needs_node

@@ -170,7 +170,7 @@ def test_no_flex_row_of_the_cards_holds_free_text_without_wrap_and_the_done_card
     assert "flex: 1 1 8em" in title and "min-width: 0" in title and "white-space: normal" in title, "A-26: the done card's title takes the room left and wraps"
     order = [sel for sel, _ in rules]
     assert order.index(".wb-resolved > .wb-card-done-title") > order.index(".wb-resolved > .wb-muted"), "named after the rule it overrides"
-    assert "flex-wrap: wrap" in by_selector[".wb-resolved"] and "min-width: 0" in by_selector[".wb-resolved-title"], "the Floor's resolved line wraps too"
+    assert "flex-wrap: wrap" in by_selector[".wb-resolved"] and "overflow-wrap: anywhere" in by_selector[".wb-tl-title, .wb-resolved-title"], "the Floor's resolved line wraps too (R-38: its title wraps)"
     cards = (JS / "floor" / "cards.js").read_text(encoding="utf-8")
     assert 'h("div", { class: "mono", text: l })' in cards and 'class: "wb-card-line", text: l' in cards, "an id is mono, a sentence is prose"
     assert "lines.map((l) => h(\"div\", { class: \"mono\"" not in cards
@@ -183,7 +183,7 @@ def test_the_agent_tab_stops_and_supervises_with_two_buttons_shows_the_held_sent
     got = run_node_plates_meters(tmp_path, AGENT)
     assert got["select"] == 0, "the select is gone"
     assert got["labels"] == ["Stop agent", "Supervise"] and got["enabled"] == [False, False]
-    assert "A wider mode is set in the terminal" in got["wider"], "a wider mode is the terminal's"
+    assert "A wider mode is set in the terminal" in got["wider"], "a wider mode is the terminal's (R-35: the notice stands under the select)"
     assert got["standing"] != "Setting a mode changes the project's configuration. Every action of this page then refuses until you accept the new configuration in the terminal.", \
         "the standing notice would be false now: a narrowing is accepted at once"
     assert got["meters"] == ["Runs today 5 / 12", "Spend today $1.87 / $4.00", "Queued 1"] and got["meterTitles"][:2] == [True, True]
@@ -205,10 +205,13 @@ def test_the_agent_tab_stops_and_supervises_with_two_buttons_shows_the_held_sent
 def test_the_agent_tab_shows_a_command_for_each_wider_mode_and_for_the_credential_as_the_service_gave_them(tmp_path):
     got = run_node_plates_meters(tmp_path, WIDER)
     modes = ["milestones", "autonomous", "autonomous-with-policy"]
-    assert got["three"]["line"] == "A wider mode is set in the terminal, not on this page:"
-    assert got["three"]["codes"] == [f"python3 /ck/runtime/cli.py set-mode --project /work/shop --agent engineering --mode {m}" for m in modes], "the service's three commands, in its order, verbatim"
-    assert got["three"]["sentences"] == modes and got["three"]["copies"] == 3
-    assert got["top"] == {"wider": 0, "codes": 0}, "an agent at the widest mode has nothing wider: no line"
+    cmd = lambda m: f"python3 /ck/runtime/cli.py set-mode --project /work/shop --agent engineering --mode {m}"
+    t = got["three"]
+    assert t["line"] == "A wider mode is set in the terminal, not on this page: copy the command and run it." and t["label"] == "Mode" and t["labelFor"] is True, "R-35: the label over the select, the soft warn notice"
+    assert t["options"] == modes and t["values"] == [cmd(m) for m in modes], "R-35: a select of the wider modes, each option holding the service's command verbatim, in its order"
+    assert t["code"] == cmd("milestones") and got["chosen"] == cmd("autonomous"), "R-35: the command under the select follows the chosen mode"
+    assert t["copies"] == 1 and t["icon"] is True and "pui-soft" in t["noteClass"] and "pui-warn" in t["noteClass"]
+    assert got["top"] == {"wider": 0, "hidden": True, "codes": 0}, "an agent at the widest mode has nothing wider: nothing is drawn"
     assert got["none"]["codes"] == 0 and got["none"]["line"] == 1, "a service that gave no `wider` shows the sentence and builds no command"
     c = got["credential"]
     assert c["codes"] == ["uv run --with keyring==25.7.0 keyring set openhora user-a"] and c["copies"] == 1, "the command is the service's field, verbatim, with its own Copy"
@@ -226,20 +229,19 @@ def test_the_resolved_line_is_one_surface_with_the_panels_radius_and_no_seam():
     """A-5: header and body of the resolved accordion share one ground, and no `.wb-resolved*` rule squares a corner or sets a second ground."""
     rules = [(s, d) for s, d in css_rules() if re.search(r"\.wb-resolved", s)]
     assert rules, "the resolved line has rules"
-    grounds = [s for s, d in rules if any(p.startswith("background") for p in d)]
-    assert len(grounds) == 1, f"one rule sets the one ground (header and body continue it): {grounds}"
     for selector, declarations in rules:
         assert declarations.get("border-radius", "").replace(" ", "") not in ("0", "0px"), f"{selector} squares a corner"
-    item = next(d for s, d in rules if ".wb-resolved-item" in s and any(p.startswith("background") for p in d))
-    assert item.get("border-radius") == "var(--pui-radius)", "the item, which holds the header and the body, has the panel's radius on every corner"
-    assert item.get("background-color") == "var(--wb-sunken)", "the ground is a token"
-    summary = next(d for s, d in rules if re.search(r"\.wb-resolved(?![\w-])", s) and "item" not in s)
-    assert not any(p.startswith("background") for p in summary), "the header paints no ground of its own"
+    # R-38: the resolved decisions are a timeline of accordions on the panel's own ground: the item paints none, only its summary on hover, in a token; a line joins the icons
+    assert not [s for s, d in rules if ".wb-resolved-item" in s and any(p.startswith("background") for p in d)], "the timeline's item holds no ground of its own (R-38)"
+    hover = next(d for s, d in css_rules() if s.strip() == ".wb-tl-acc > summary:hover")
+    assert hover.get("background-color") == "var(--wb-ground)"
+    line = next(d for s, d in css_rules() if s.strip() == ".wb-tl-item:not(:last-child)::before")
+    assert line.get("background-color") == "var(--pui-border)" and line.get("width") == "1px"
 
 
 def test_the_resolved_line_is_the_librarys_accordion_item_with_a_body():
     inbox = (JS / "floor" / "inbox.js").read_text(encoding="utf-8")
-    assert 'class: "pui-accordion-item wb-resolved-item"' in inbox
+    assert 'class: "pui-timeline wb-tl"' in inbox and 'class: "wb-tl-acc wb-resolved-item"' in inbox, "R-38: an ordered timeline of accordions (the library's timeline, a details for each item)"
     assert "wb-resolved-body" in inbox, "the body has its own class, so that it can be padded and never given a ground"
 
 
@@ -277,3 +279,436 @@ def test_the_focus_on_an_open_link_survives_the_draws_that_move_its_card(tmp_pat
     assert got["afterFirstCard"]["focusOnA"] is True
     assert got["afterSecondCard"]["links"] == ["Open docs/a.md", "Open docs/b.md"]
     assert got["afterSecondCard"]["focusOnA"] is True, "a second card was drawn after the focus was set: the link must still have it"
+
+
+# =================================================================================================================================
+# R4-A4: the Floor as floor.html of round 4 draws it (R-31 to R-40). New tests; each states the ruling it checks.
+# =================================================================================================================================
+
+STRUCTURE = r"""
+import { FakeNode, settle, find, all } from "@FAKE@";
+import { setToken } from "@JS@/token.js";
+import * as fm from "@JS@/floor-model.js";
+import { createAgentTab } from "@JS@/floor/agent-tab.js";
+import { createInbox } from "@JS@/floor/inbox.js";
+import { createTasksTab } from "@JS@/floor/tasks-tab.js";
+import { createDeskTab } from "@JS@/floor/desk-tab.js";
+import { createViewer } from "@JS@/floor/viewer.js";
+import { boardNode } from "@JS@/scene/plates.js";
+import { ICONS } from "@JS@/frame/icons.js";
+
+setToken("t".repeat(40));
+const NOW = new Date("2026-10-10T12:00:00Z");
+const ago = (m) => new Date(NOW.getTime() - m * 60000).toISOString();
+const P = "0123456789ab";
+const text = (n) => (n ? n.textContent : null);
+const cls = (n) => (n.attrs.class || "").split(/\s+/).filter(Boolean);
+const out = {};
+
+// --- the model: how long, not since when (R-8), the board's lines (R-32), the head (C-6)
+const task = (id, state, extra = {}) => ({ id, key: `k${id}`, title: `Task ${id}`, skill: "implement-change", state, note: null, agent: "engineering", requestId: 2, waiting_for: [], ...extra });
+const agent = { name: "engineering", pack: "x", enabled: true, mode: "supervised", acting_mode: "supervised", max_runs_per_day: 6, max_usd_per_day: 2, runs_today: 3, usd_today: 0.03, runs_without_cost: 0, queued: 0, held: 0,
+  usd_recorded: 0.03, usd_reserved: 0.5, wider: [{ mode: "milestones", command: "python3 /ck/cli.py set-mode --mode milestones" }, { mode: "autonomous", command: "python3 /ck/cli.py set-mode --mode autonomous" }] };
+const run = { id: 118, skill: "implement-change", skill_version: "1.4.0", model: "reference", status: "running", attempts: 1, started_at: ago(12), tokens: 48210, cost_usd: null, duration_ms: null };
+const body = (t, runs = [run], pending = []) => ({ task: { id: t.id, updated_at: ago(12) }, runs, pending, drop: { web: true, takes: true, line: "this file will be visible to a run with the open network" } });
+const snap = (tasks, pending = []) => ({ projects: [{ id: P, name: "northwind-shop", config: { accepted: true } }], details: { [P]: { status: { requests: [{ id: 2, title: "Spring", state: "running", tasks }], pending, held: [] }, agents: [agent] } }, tasks: {}, loaded: true });
+const view = (tasks, bodies, pending = []) => fm.floor(snap(tasks, pending), P, "engineering", bodies);
+const running = view([task(52, "running"), task(53, "planned", { waiting_for: [] })], { 52: body(task(52, "running")) });
+out.model = { state: fm.stateRow("working", 0, running.runningBody, NOW).line, stateNoRun: fm.stateRow("working", 0, null, NOW).line, header: running.header,
+  board: fm.boardOf(running, NOW), sub: [fm.currentSub(task(52, "running"), body(task(52, "running")), [], NOW), fm.currentSub(task(57, "waiting"), body(task(57, "waiting")), [{ task_id: 57, created_at: ago(2880) }], NOW),
+    fm.currentSub(task(52, "ready"), body(task(52, "ready")), [], NOW), fm.currentSub(task(52, "done"), body(task(52, "done")), [], NOW)],
+  unknownCost: fm.boardOf(view([task(52, "running")], { 52: body(task(52, "running"), [{ ...run, cost_usd: 0.0123 }]) }), NOW).lines[1] };
+
+// --- the Agent tab (R-35, R-36, R-8, floor.html (b) 1 to 3)
+const tab = createAgentTab({ project: P, agent: "engineering", api: { setMode: async () => ({}), retry: async () => ({}), goAhead: async () => ({}), handOver: async () => ({}) }, refresh() {}, now: () => NOW });
+tab.update(running);
+await settle();
+const rowsOf = (n) => n.children.map((c) => cls(c)[0] || c.tagName);
+out.agent = {
+  order: rowsOf(tab.el), state: text(find(tab.el, ".wb-state-row")), pips: all(tab.el, ".wb-pip").length, plate: text(find(tab.el, ".wb-mode-plate")),
+  meters: all(tab.el, ".wb-meter-cell").map((c) => [text(find(c, ".wb-meter-label")), text(find(c, ".wb-meter-value")), all(c, ".wb-meter").length, text(find(c, ".wb-note"))]),
+  reserved: all(tab.el, ".wb-meter-reserved").length,
+  cur: { head: text(find(tab.el, ".wb-current .wb-cur-head")), sub: text(find(tab.el, ".wb-current .wb-cur-sub")), run: all(tab.el, ".wb-current dl.wb-run").length, card: cls(find(tab.el, ".wb-current")).includes("pui-card"),
+    heading: text(find(tab.el, ".wb-section .wb-sec-head")) },
+  other: text(find(tab.el, ".wb-other .wb-cur-head")),
+  wider: { label: text(find(tab.el, ".wb-wider-label")), options: all(tab.el, ".wb-wider-box option").map(text), code: text(find(tab.el, ".wb-wider-code")), note: cls(find(tab.el, ".wb-wider-note")).join(" "), copy: text(find(tab.el, "button.wb-copy")) },
+  hand: { heading: text(find(tab.el, ".wb-hand .wb-sec-head")), choose: text(find(tab.el, ".wb-hand button.wb-hand-choose")), input: cls(find(tab.el, ".wb-hand input")).join(" "), hint: text(find(tab.el, ".wb-hand .wb-hint")), name: all(tab.el, ".wb-hand-name").length, send: all(tab.el, ".wb-hand-send").length },
+};
+const input = find(tab.el, ".wb-hand input.wb-file");
+input.files = [{ name: "sale-banner.png", size: 3, arrayBuffer: async () => new ArrayBuffer(3) }];
+(input.listeners.change || []).forEach((fn) => fn());
+await settle();
+out.agent.picked = { name: text(find(tab.el, ".wb-hand-name")), send: text(find(tab.el, ".wb-hand-send")) };
+find(tab.el, "button.wb-hand-choose").click();   // the visible button opens the file input
+const idle = fm.floor(snap([]), P, "engineering", {});
+tab.update(idle);
+await settle();
+out.agent.idle = { state: text(find(tab.el, ".wb-state-row")), current: text(find(find(tab.el, ".wb-section"), ".wb-empty-line")) };
+
+// --- the Inbox: the timeline of resolved decisions (R-38), Plain text in a card's head (R-34), three lines (R-37)
+const row = (id, kind, resolution, answer, hours) => ({ id, kind, status: "resolved", resolution, answer, title: `Decision ${id}`, created_at: new Date(NOW.getTime() - hours * 3600e3).toISOString(), resolved_at: new Date(NOW.getTime() - hours * 3600e3).toISOString() });
+const lines = fm.resolvedLines({ 4: { task: { id: 4 }, runs: [], pending: [row(1, "question", "answered", "The price with tax.", 48), row(2, "review", "released", null, 72), row(3, "effect", "rejected", "Too early.", 120)] } }, [4], NOW);
+out.lines = lines.map((l) => [l.icon, l.tone]);
+const item = (id, kind, extra = {}) => ({ id, kind, title: `Card ${id}`, body: "A **bold** body", payload: {}, payload_sha256: kind === "effect" ? "e".repeat(64) : null, status: "open", actions: kind === "question" ? ["answered"] : kind === "review" ? ["released", "answered"] : ["approved", "rejected"], agent: "engineering", task_id: 4, created_at: ago(120), ...extra });
+const items = new Map([[11, item(11, "question")], [12, item(12, "review", { payload: { returned: [], kept: [] }, run_id: 118 })], [13, item(13, "effect")], [14, item(14, "acceptance", { actions: ["accepted", "rejected"] })]]);
+globalThis.fetch = async (url) => { const id = Number(String(url).match(/pending\/(\d+)/)[1]); return { ok: true, status: 200, json: async () => items.get(id) }; };
+const inbox = createInbox({ project: P, now: () => NOW, api: {}, refresh() {}, links: { open: () => "#", floor: () => "#", lobby: () => "#", parent: () => "#" } });
+inbox.update({ decisions: [11, 12, 13, 14].map((id) => ({ id, task_id: 4, kind: items.get(id).kind, agent: "engineering" })), requests: [], resolved: lines, selected: null, loading: false });
+await settle();
+const cards = all(inbox.el, "article.wb-card");
+out.cards = cards.map((c) => [text(find(c, ".wb-card-title")), all(find(c, ".wb-card-head"), "button.wb-card-plain").length, find(c, "textarea") ? find(c, "textarea").attrs.rows : null]);
+const q = cards[0];
+const plain = find(q, ".wb-card-head button.wb-card-plain");
+out.plain = { label: text(plain), pressed: plain.attrs["aria-pressed"], before: all(q, ".wb-md.is-plain").length };
+plain.click();
+const q2 = all(inbox.el, "article.wb-card")[0];
+out.plain.after = { pressed: find(q2, ".wb-card-plain").attrs["aria-pressed"], plainBody: text(find(q2, ".wb-md.is-plain")), strong: all(q2, "strong").length };
+find(q2, ".wb-card-plain").click();   // back: one choice for the session
+const tl = find(inbox.el, "ol.wb-tl");
+out.timeline = { aria: tl.attrs["aria-label"], items: all(tl, "li.wb-tl-item").length, icons: all(tl, ".wb-tl-icon .wb-icon").map((i) => cls(i).find((c) => /^wb-icon-/.test(c))), open: all(tl, "details").map((d) => d.open === true || "open" in d.attrs),
+  firstSub: text(all(tl, ".wb-tl-sub")[0]), firstBody: all(find(tl, ".wb-tl-body"), "p").map(text), said: text(find(tl, ".wb-res-said")), heading: text(find(inbox.el, ".wb-resolved-tl .wb-sec-head")) };
+
+// --- the Tasks tab (R-39)
+const tasks = [task(52, "running"), task(53, "planned"), task(48, "done"), task(41, "done"), task(60, "failed"), task(61, "cancelled")];
+const tt = createTasksTab({ project: P, now: () => NOW, refresh() {}, api: { retry: async () => ({}), goAhead: async () => ({}) }, links: { request: () => "#", inbox: () => "#", open: () => "#" } });
+globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => body(task(52, "running")) });
+tt.update({ tasks, requests: [{ id: 2, title: "Spring" }], pending: [], loading: false, reload: 1, unaccepted: false });
+await settle();
+const groups = all(tt.el, "details.wb-task-group");
+out.tasks = { groups: groups.map((g) => [text(find(g, ".wb-group-name")), cls(find(g, ".wb-group-tile")).filter((c) => /^pui-(theme|warn|muted|success|error)$/.test(c))[0], cls(find(g, ".wb-group-tile")).includes("is-none"), text(find(g, ".pui-badge")), cls(find(g, ".wb-group-tile .wb-icon")).find((c) => /^wb-icon-/.test(c))]),
+  open: groups.map((g) => "open" in g.attrs || g.open === true) };
+const toggle = find(tt.el, "button.wb-task-toggle");
+out.tasks.row = { n: text(find(toggle, ".wb-task-num")), title: text(find(toggle, ".wb-task-title")), chip: text(find(toggle, ".pui-chip")), mark: all(toggle, ".wb-task-mark .wb-icon-chevron-down").length, expanded: toggle.attrs["aria-expanded"], bodyHidden: "hidden" in find(tt.el, ".wb-task-body").attrs };
+toggle.click();
+await settle();
+out.tasks.opened = { expanded: find(tt.el, "button.wb-task-toggle").attrs["aria-expanded"], bodyHidden: "hidden" in find(tt.el, ".wb-task-body").attrs, runs: all(tt.el, "dl.wb-run").length };
+
+// --- the Desk (R-40): two-line rows
+const docs = [{ path: "docs/brand/voice.md", owner: "brand-voice", agent: "brand", size: 3174, modified_at: "2026-10-10T11:02:00Z", kind: "markdown", bound: true }, { path: "docs/brand/shot.png", owner: null, agent: null, size: 49152, modified_at: "2026-10-09T11:02:00Z", kind: "image", bound: false }];
+const desk = createDeskTab({ project: P, agent: "brand", open() {} });
+desk.update({ documents: docs, truncated: false, loading: false, error: null });
+const lobbyDesk = createDeskTab({ project: P, agent: "planning", open() {}, agentColumn: true });
+lobbyDesk.update({ documents: docs, truncated: false, loading: false, error: null });
+const first = find(desk.el, "li.wb-desk-row");
+out.desk = { list: cls(find(desk.el, "ul.wb-desk-list")).join(" "), aria: find(desk.el, "ul.wb-desk-list").attrs["aria-label"], rows: all(desk.el, "li.wb-desk-row").length, table: all(desk.el, "table").length, path: text(find(first, "button.wb-path-button")), bound: text(find(first, ".wb-chip-12")).trim(),
+  meta: text(find(first, ".wb-desk-meta")), agents: all(desk.el, ".wb-desk-agent").length, lobby: all(lobbyDesk.el, "li.wb-desk-row .wb-desk-agent").map(text), lobbyAria: find(lobbyDesk.el, "ul.wb-desk-list").attrs["aria-label"] };
+
+// --- the viewer's head: the path and the size line at the left, `Plain text` and `Close` at the right
+globalThis.fetch = async (url) => ({ ok: true, status: 200, json: async () => ({ path: String(url).includes("md") ? "docs/a.md" : "docs/a.txt", text: "# A\n\nbody", size: 9, modified_at: "2026-10-10T11:02:00Z" }) });
+const viewer = createViewer({ onClose() {}, listed: () => ({ kind: "markdown" }) });
+await viewer.load(P, "docs/a.md");
+const tools = (v) => all(find(v.el, ".wb-viewer-head"), "button").map(text);
+out.viewer = { md: tools(viewer), left: all(find(viewer.el, ".wb-viewer-head"), ".wb-viewer-path").map(text), line: text(find(viewer.el, ".wb-viewer-line")), bodyHasToggle: all(find(viewer.el, ".wb-viewer-body"), "button").length };
+const txt = createViewer({ onClose() {}, listed: () => ({ kind: "text" }) });
+await txt.load(P, "docs/a.txt");
+out.viewer.txt = tools(txt);
+
+// --- the board's label (R-32) and the icons the screen draws
+const label = boardNode({ title: "#52 Implement the change · current task", lines: ["skill x · Running · for 12 min", "run #118 Running"], dot: "theme" });
+out.board = { cls: cls(label), title: text(find(label, ".wb-fp-name")), lines: all(label, ".wb-wb-line").map(text), dot: cls(find(label, ".wb-dot")).includes("is-theme") };
+out.icons = ["triangle-alert", "list", "ban", "activity", "circle-alert", "clock", "check", "x", "chevron-down"].map((n) => ICONS.includes(n));
+console.log(JSON.stringify(out));
+process.exit(0);
+"""
+
+
+@needs_node
+def test_the_floors_models_say_how_long_a_task_has_run_the_board_is_the_r32_label_and_the_head_names_the_agent_once(tmp_path):
+    got = run_node(tmp_path, STRUCTURE)
+    m = got["model"]
+    assert m["state"] == "Running for 12 min" and m["stateNoRun"] == "Running", "R-8: how long, not since when"
+    assert m["header"] == {"title": "Engineering agent", "sub": "floor 1 · Running", "icon": "building-2"}, "C-6, floor.html"
+    assert m["board"]["title"] == "#52 Task 52 · current task" and m["board"]["lines"][0] == "skill implement-change · Running · for 12 min", "R-32: the title, then the skill, the state and how long"
+    assert m["board"]["lines"][1] == "run #118 Running · attempt 1 · 48,210 tokens · unknown", "R-32: then the run; a cost not recorded reads unknown"
+    assert m["unknownCost"] == "run #118 Running · attempt 1 · 48,210 tokens · $0.0123"
+    assert [s["when"] for s in m["sub"]] == ["for 12 min", "asked 2 d ago", "queued 12 min ago", "12 min ago"] and m["sub"][0]["skill"] == "skill implement-change"
+    assert got["icons"] == [True] * 9, "the three new icons are registered, with the six the groups and the timeline draw"
+
+
+@needs_node
+def test_the_agent_tab_is_the_page_s_rows_a_select_of_wider_modes_the_current_card_and_the_dashed_box(tmp_path):
+    got = run_node(tmp_path, STRUCTURE)["agent"]
+    assert got["order"] == ["wb-state-box", "wb-mode-row", "wb-mode-form", "wb-notice-card", "wb-result-box", "wb-wider-modes", "wb-agent-body"], "floor.html: state, mode, the two buttons, the standing line, the result, the wider modes, then the rest"
+    assert got["state"] == "WorkingRunning for 12 min" and got["pips"] == 0 and got["plate"] == "supervised", "R-8, C-5: the word, no pips"
+    names = [[m[0], m[1], m[2], m[3]] for m in got["meters"]]
+    assert names == [["Runs today", "3 / 6", 1, None], ["Spend today", "$0.03 / $2.00", 1, "$0.03 recorded · up to $0.50 reserved"], ["Queued", "0", 0, None]], "R-36, R-6: name, figure, a track; Queued last with no track"
+    assert got["reserved"] == 1
+    assert got["cur"]["heading"] == "Current task" and got["cur"]["head"].startswith("#52 Task 52") and got["cur"]["sub"] == "skill implement-change · for 12 min" and got["cur"]["run"] == 1 and got["cur"]["card"]
+    assert got["other"].startswith("#53 Task 53")
+    w = got["wider"]
+    assert w["label"] == "Mode" and w["options"] == ["milestones", "autonomous"] and w["code"].endswith("--mode milestones") and w["copy"] == "Copy" and "pui-soft" in w["note"] and "pui-warn" in w["note"], "R-35"
+    h = got["hand"]
+    assert h["heading"] == "Hand a file over" and h["choose"] == "Choose a file" and "wb-file" in h["input"] and h["hint"] == "To task #52. At most 25 MiB." and h["name"] == 0 and h["send"] == 0
+    assert got["picked"] == {"name": "sale-banner.png", "send": "Hand over to task #52"}, "README (b) 3: the chosen name, then the button"
+    assert got["idle"] == {"state": "IdleWaiting for the next task", "current": "This agent has no task yet."}
+
+
+@needs_node
+def test_the_inbox_resolved_decisions_are_a_timeline_of_accordions_and_a_card_that_renders_markdown_has_plain_text_in_its_head(tmp_path):
+    got = run_node(tmp_path, STRUCTURE)
+    assert got["lines"] == [["check", "pui-success pui-soft"], ["check", "pui-success pui-soft"], ["x", "pui-muted pui-soft"]], "R-38: a check for an outcome, a cross for a rejection"
+    t = got["timeline"]
+    assert t["aria"] == "Resolved decisions, newest first" and t["items"] == 3 and t["heading"] == "Resolved"
+    assert t["icons"] == ["wb-icon-check", "wb-icon-check", "wb-icon-x"] and t["open"] == [True, False, False], "the newest is open until the person chooses"
+    assert t["firstSub"] == "Question answered · 2 d ago" and t["firstBody"][0].startswith("Resolved 2026-10-08") and t["said"] == "Your answerThe price with tax.", "R-38: the date and what the person said"
+    by = {c[0]: c[1:] for c in got["cards"]}
+    assert by["Card 11"] == [1, "3"] and by["Card 12"] == [1, "3"] and by["Card 14"][0] == 1, "R-34: the question, the review and the acceptance render Markdown and carry the button; R-37: three lines"
+    assert by["Card 13"] == [0, "None"] or by["Card 13"][0] == 0, "an effect is never rendered: no Plain text"
+    p = got["plain"]
+    assert p["label"] == "Plain text" and p["pressed"] == "false" and p["before"] == 0
+    assert p["after"] == {"pressed": "true", "plainBody": "A **bold** body", "strong": 0}, "R-34: the card's text as it came, in the card"
+
+
+@needs_node
+def test_the_tasks_tab_has_a_bordered_group_with_its_states_icon_and_each_task_is_an_accordion_the_desk_is_two_line_rows(tmp_path):
+    got = run_node(tmp_path, STRUCTURE)
+    t = got["tasks"]
+    assert t["groups"][0] == ["Running", "pui-theme", False, "1", "wb-icon-activity"] and t["groups"][1] == ["Waiting for you", "pui-warn", True, "0", "wb-icon-circle-alert"]
+    assert [g[0] for g in t["groups"]] == ["Running", "Waiting for you", "Ready (queued)", "Planned or blocked", "Done", "Failed", "Cancelled"]
+    assert [g[4] for g in t["groups"]] == [f"wb-icon-{n}" for n in ("activity", "circle-alert", "list", "clock", "check", "x", "ban")] and [g[1] for g in t["groups"]][4:] == ["pui-success", "pui-error", "pui-muted"], "R-39: the state's icon in the state's colour"
+    assert [g[2] for g in t["groups"]] == [False, True, True, False, False, False, False] and t["open"] == [True, False, False, True, True, True, True], "an empty group is its header, faint"
+    assert t["row"] == {"n": "#52", "title": "Task 52", "chip": "Running", "mark": 1, "expanded": "false", "bodyHidden": True}, "R-39: number, title, state and a marker"
+    assert t["opened"] == {"expanded": "true", "bodyHidden": False, "runs": 1}
+    d = got["desk"]
+    assert d["rows"] == 2 and d["table"] == 0 and "pui-card" in d["list"] and d["aria"] == "Documents, newest first", "R-40: a list of rows, not a table"
+    assert d["path"] == "docs/brand/voice.md" and d["bound"] == "bound to a decision" and d["meta"] == "brand-voice · 3.1 KB · Markdown · 2026-10-10 11:02" or d["meta"].startswith("brand-voice · 3.1 KB · Markdown ·"), "the path, then the owner skill, the size and kind, the time"
+    assert d["agents"] == 0 and d["lobby"] == ["Brand", "Lobby"] and d["lobbyAria"] == "Documents of the project, newest first", "R-47: the Lobby's rows carry the agent as a badge"
+
+
+@needs_node
+def test_the_viewer_head_has_the_path_and_the_size_at_the_left_and_the_tools_at_the_right_and_the_board_label_is_the_pages(tmp_path):
+    got = run_node(tmp_path, STRUCTURE)
+    v = got["viewer"]
+    assert v["md"] == ["Plain text", "Close"] and v["txt"] == ["Close"] and v["bodyHasToggle"] == 0, "floor.html: Plain text beside Close in the head, only for a Markdown document"
+    assert v["left"] == ["docs/a.md"] and v["line"].startswith("9 B, modified ")
+    b = got["board"]
+    assert "wb-wallboard" in b["cls"] and "wb-label" in b["cls"] and b["title"] == "#52 Implement the change · current task" and b["lines"] == ["skill x · Running · for 12 min", "run #118 Running"] and b["dot"], "R-32"
+
+
+def test_the_floors_stylesheet_draws_the_rows_the_three_line_fields_the_segmented_tabs_and_no_literal_colour():
+    css = interface_css()
+    rules = {}
+    for selector, declarations in css_rules():
+        rules.setdefault(selector.strip(), declarations)     # the first rule of a selector: a phone's override comes later
+    assert "min-height: 76px" in "".join(f"{k}:{v}" for k, v in rules.get("textarea.wb-field-input", {}).items()) or rules.get("textarea.wb-field-input", {}).get("min-height") == "76px", "R-37"
+    assert rules[".wb-meters"].get("grid-template-columns") == "minmax(0, 1fr)" and rules[".wb-meter-cell"].get("grid-template-columns") == "minmax(0, 1fr) auto", "R-36: rows"
+    assert rules[".wb-floor-head"].get("border-bottom") == "0" and rules[".wb-tabbar > .wb-tabs, .wb-tabbar > .wb-tablist"].get("flex") == "0 1 auto", "R-33: no line under the head; the track is as wide as its tabs"
+    assert rules[".wb-hand"].get("border") == "1px dashed var(--pui-muted)", "README (b) 3: a dashed box"
+    assert rules[".wb-desk-row"].get("grid-template-columns") == "minmax(0, 1fr) auto" and rules[".wb-desk-meta"].get("grid-column") == "1 / -1", "R-40"
+    assert "uppercase" in rules[".wb-task-group-name, .wb-group-name"].get("text-transform", ""), "R-39: the group's name in small capitals"
+    floor = (INTERFACE / "css" / "floor.css").read_text(encoding="utf-8")
+    assert not re.search(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(", floor), "tokens only"
+    assert "max-width: 639px" not in floor and "min-width: 640px" not in floor, "M-3: the phone layout goes to 899 px and there is no docked band"
+    assert "max-width: 899px" in floor
+    assert '.wb-frame[data-screen="floor"] .wb-bottom-bar .wb-crumb-item:first-child' in floor, "README Floor (b) 6: on a phone the crumbs drop City"
+    assert ".wb-floor-head > .wb-kpi-tile { display: inline-grid; }" in floor, "the head's tile stays on a phone, where the frame hides the KPI tiles' icons"
+
+
+# --- the review of the PR: the soft notices on every path, Copy's fallback, one choice of Plain text for every card, the toggle of the newest line ---------------------------
+
+REVIEW_FIXES = r"""
+import { FakeNode, settle, find, all } from "@FAKE@";
+import { setToken } from "@JS@/token.js";
+import * as fm from "@JS@/floor-model.js";
+import { notice } from "@JS@/floor/widgets.js";
+import { createAgentTab } from "@JS@/floor/agent-tab.js";
+import { createInbox } from "@JS@/floor/inbox.js";
+import { createCard } from "@JS@/floor/cards.js";
+
+setToken("t".repeat(40));
+const NOW = new Date("2026-10-10T12:00:00Z");
+const ago = (m) => new Date(NOW.getTime() - m * 60000).toISOString();
+const P = "0123456789ab";
+const text = (n) => (n ? n.textContent : null);
+const cls = (n) => (n.attrs.class || "").split(/\s+/).filter(Boolean);
+const out = {};
+
+// every notice path: the library's soft style in the state's colour, and the old classes kept
+out.notice = ["error", "warn", "info"].map((k) => { const n = notice("text", k); return [cls(n), n.attrs.role || null]; });
+
+const agentRow = { name: "engineering", pack: "x", enabled: true, mode: "milestones", acting_mode: "milestones", max_runs_per_day: 6, max_usd_per_day: 2, runs_today: 0, usd_today: 0, runs_without_cost: 0, queued: 0, held: 0,
+  wider: [{ mode: "autonomous", command: "python3 /ck/cli.py set-mode --mode autonomous" }, { mode: "autonomous-with-policy", command: "python3 /ck/cli.py set-mode --mode autonomous-with-policy" }] };
+const task = { id: 4, key: "k", title: "T", skill: "s", state: "ready", note: null, agent: "engineering", requestId: 1, waiting_for: [] };
+const view = () => fm.floor({ projects: [{ id: P, name: "n", config: { accepted: true } }], details: { [P]: { status: { requests: [{ id: 1, title: "R", state: "ready", tasks: [task] }], pending: [], held: [] }, agents: [agentRow] } }, tasks: {}, loaded: true }, P, "engineering", {});
+let reply = async () => ({ mode: "supervised", accepted: true });
+const tab = createAgentTab({ project: P, agent: "engineering", api: { setMode: (...a) => reply(...a), retry: async () => ({}), goAhead: async () => ({}), handOver: async () => ({}) }, refresh() {}, now: () => NOW });
+tab.update(view());
+await settle();
+const press = async () => { find(tab.el, "button[data-key=stop-agent]").click(); await settle(); };
+reply = async () => { throw Object.assign(new Error("refused"), { name: "ApiError", status: 500 }); };
+await press();
+out.failed = cls(find(tab.el, ".wb-form-error .wb-notice-card"));
+reply = async () => ({ mode: "stopped", accepted: true });
+await press();
+out.accepted = cls(find(tab.el, ".wb-result-box .wb-notice-card"));
+reply = async () => ({ mode: "stopped", accepted: false, next: "python3 /ck/cli.py accept-config --sha256 " + "a".repeat(64) });
+await press();
+out.unaccepted = cls(find(tab.el, ".wb-result-box .wb-notice-card"));
+// a card whose request failed
+const item = { id: 11, kind: "question", title: "Q", body: "body", payload: {}, status: "open", actions: ["answered"], agent: "engineering", task_id: 4, created_at: ago(5) };
+const card = createCard(item, { project: P, now: () => NOW, api: { answer: async () => { throw Object.assign(new Error("nope"), { name: "ApiError", status: 500 }); } }, requestIds: new Set(), links: { floor: () => "#", lobby: () => "#", open: () => "#" }, changed() {}, gone() {} });
+find(card.el, "textarea").value = "an answer";
+find(card.el, "textarea").listeners.input.forEach((fn) => fn());
+find(card.el, "button[data-word=answered]").click();
+await settle();
+out.cardError = cls(find(card.el, ".wb-notice-card"));
+
+// R-35: Copy writes the chosen option's command whole; a refused clipboard selects the command
+const written = [];
+Object.defineProperty(globalThis, "navigator", { value: { clipboard: { writeText: async (v) => { written.push(v); } } }, configurable: true });
+const select = find(tab.el, ".wb-wider-box select");
+select.value = select.children[1].attrs.value;
+select.listeners.change.forEach((fn) => fn());
+find(tab.el, "button.wb-copy[data-key=wider-copy]").click();
+await settle();
+out.copy = { written, label: text(find(tab.el, "button.wb-copy[data-key=wider-copy]")), status: text(find(tab.el, ".wb-wider-box .wb-copy-status")), order: find(tab.el, ".wb-wider-box").children.map((c) => ["wb-wider-row", "wb-command-code", "wb-wider-note", "wb-copy-status"].find((k) => cls(c).includes(k))) };
+let selected = null;
+Object.defineProperty(globalThis, "navigator", { value: { clipboard: { writeText: async () => { throw new Error("refused"); } } }, configurable: true });
+document.createRange = () => ({ selectNodeContents: (n) => { selected = n; } });
+globalThis.window.getSelection = () => ({ removeAllRanges() {}, addRange() {} });
+document.execCommand = () => false;
+find(tab.el, "button.wb-copy[data-key=wider-copy]").click();
+await settle();
+out.fallback = { selected: selected === find(tab.el, ".wb-wider-code"), selectedText: selected ? selected.textContent : null, status: text(find(tab.el, ".wb-wider-box .wb-copy-status")) };
+
+// the file input is described by the hint (and by the web line)
+const input = find(tab.el, ".wb-hand input.wb-file");
+const ids = (input.attrs["aria-describedby"] || "").split(" ").filter(Boolean);
+out.describedby = { ids: ids.length, found: ids.map((id) => all(tab.el, `#${id}`).length) };
+
+// R-34: two Markdown cards, one choice
+const items = new Map([[21, { ...item, id: 21, title: "First", body: "A **bold** one" }], [22, { ...item, id: 22, title: "Second", body: "Another **bold** one" }]]);
+globalThis.fetch = async (url) => ({ ok: true, status: 200, json: async () => items.get(Number(String(url).match(/pending\/(\d+)/)[1])) });
+const inbox = createInbox({ project: P, now: () => NOW, api: {}, refresh() {}, links: { open: () => "#", floor: () => "#", lobby: () => "#", parent: () => "#" } });
+const rows = (resolved) => ({ decisions: [21, 22].map((id) => ({ id, task_id: 4, kind: "question", agent: "engineering" })), requests: [], resolved, selected: null, loading: false });
+const line = (id, hours) => ({ id, kind: "question", resolution: "answered", text: "Question answered", tone: "pui-success pui-soft", icon: "check", title: `Line ${id}`, stamp: ago(hours * 60), age: `${hours} h`, when: "2026-10-09 10:00", said: null });
+inbox.update(rows([line(1, 5), line(2, 6)]));
+await settle();
+const cardsOf = () => all(inbox.el, "article.wb-card");
+const state = () => cardsOf().map((c) => [find(c, ".wb-card-plain").attrs["aria-pressed"], all(c, ".wb-md.is-plain").length]);
+out.two = { before: state() };
+find(cardsOf()[0], ".wb-card-plain").click();
+out.two.after = state();
+find(cardsOf()[1], ".wb-card-plain").click();
+out.two.back = state();
+
+// A4-4: the toggle the browser fires for the newest line must not keep it open when a newer one arrives
+const detailsOf = () => all(inbox.el, "details.wb-resolved-item");
+for (const d of detailsOf()) { d.open = "open" in d.attrs; (d.listeners.toggle || []).forEach((fn) => fn()); }
+inbox.update(rows([line(3, 1), line(1, 5), line(2, 6)]));
+out.lines = detailsOf().map((d) => "open" in d.attrs);
+detailsOf()[2].open = true; detailsOf()[2].listeners.toggle.forEach((fn) => fn());   // the person opens an older line: it stays open
+inbox.update(rows([line(4, 0), line(3, 1), line(1, 5), line(2, 6)]));
+out.kept = detailsOf().map((d) => "open" in d.attrs);
+console.log(JSON.stringify(out));
+process.exit(0);
+"""
+
+
+@needs_node
+def test_every_notice_path_of_the_floor_is_the_soft_style_with_the_old_classes_kept(tmp_path):
+    got = run_node(tmp_path, REVIEW_FIXES)
+    error, warn, info = got["notice"]
+    assert error == [["notice", "pui-soft", "pui-error", "wb-notice-card", "is-error"], "alert"] and warn == [["notice", "pui-soft", "pui-warn", "wb-notice-card", "is-warn"], "status"], "R-11"
+    assert info[0] == ["notice", "pui-soft", "pui-muted", "wb-notice-card"] and info[1] is None
+    for key in ("failed", "cardError"):
+        assert {"notice", "pui-soft", "pui-error"} <= set(got[key]), f"{key}: an error on the Agent tab or on a card is the soft error style"
+    assert {"notice", "pui-soft", "pui-success"} <= set(got["accepted"]) and {"notice", "pui-soft", "pui-warn", "is-warn"} <= set(got["unaccepted"]), "the mode result"
+    js = INTERFACE / "js"
+    for path in (js / "floor").glob("*.js"):
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if "wb-notice-card" in line and "class:" in line:
+                assert "notice pui-soft" in line or 'h("p", { class: "wb-notice-card"' in line, f"{path.name}:{lineno} builds a notice that is not the soft style"
+
+
+@needs_node
+def test_copy_writes_the_chosen_modes_command_whole_and_a_refused_clipboard_selects_it(tmp_path):
+    got = run_node(tmp_path, REVIEW_FIXES)
+    assert got["copy"]["written"] == ["python3 /ck/cli.py set-mode --mode autonomous-with-policy"] and got["copy"]["label"] == "Copied" and got["copy"]["status"] == "Copied to the clipboard."
+    assert got["copy"]["order"] == ["wb-wider-row", "wb-command-code", "wb-wider-note", "wb-copy-status"], "the block's DOM order is its visual order"
+    assert got["fallback"]["selected"] is True and got["fallback"]["selectedText"].endswith("--mode autonomous-with-policy"), "a refused clipboard selects the command"
+    assert "Select the command" in got["fallback"]["status"]
+    assert got["describedby"] == {"ids": 1, "found": [1]} or got["describedby"]["ids"] >= 1 and all(n == 1 for n in got["describedby"]["found"]), "the file input is described by the hint (and the web line)"
+
+
+@needs_node
+def test_plain_text_is_one_choice_for_every_markdown_card_and_the_newest_resolved_line_does_not_keep_an_older_one_open(tmp_path):
+    got = run_node(tmp_path, REVIEW_FIXES)
+    two = got["two"]
+    assert two["before"] == [["false", 0], ["false", 0]]
+    assert two["after"] == [["true", 1], ["true", 1]], "R-34: flipping it on one card draws every card"
+    assert two["back"] == [["false", 0], ["false", 0]]
+    assert got["lines"] == [True, False, False], "a toggle event fired for the line that was newest does not keep it open beside the newer one"
+    assert got["kept"] == [True, False, False, True], "a line the person opened stays open (here the oldest), the newest is open by default"
+
+
+def test_the_board_label_is_not_drawn_on_a_phone_and_a_card_head_wraps_instead_of_cutting():
+    floor = (INTERFACE / "css" / "floor.css").read_text(encoding="utf-8")
+    phone = floor[floor.rindex("@media (max-width: 899px) {\n  .wb-card-plain"):]
+    assert ".wb-wallboard { display: none; }" in phone, "floor.html draws no board label at 375 px: the label would lie under the tracking bar and the tiles"
+    assert ".wb-card-plain { flex: 1 1 100%;" in phone, "Plain text has a row of its own on a phone"
+    meta = next(d for s, d in css_rules() if s.strip() == ".wb-card-meta")
+    assert "white-space" not in meta and "text-overflow" not in meta, "the card's meta is never cut: the head wraps"
+    assert ":has(.wb-card-plain)" not in floor
+
+
+# --- M-12 (the maintainer's word, A-52): no mode chip in the Floor's head; the soft notice of the Lobby's dialog and of the placeholder -------------------------------------
+
+HEAD = r"""
+import { FakeNode, settle, find, all } from "@FAKE@";
+import { setToken } from "@JS@/token.js";
+import * as router from "@JS@/router.js";
+import { createFloorView } from "@JS@/views/floor.js";
+
+setToken("t".repeat(40));
+globalThis.ResizeObserver = class { observe() {} disconnect() {} };
+document.removeEventListener = () => {};
+const P = "0123456789ab";
+globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({}) });
+const agent = (name) => ({ name, pack: "x", enabled: true, mode: "supervised", acting_mode: "supervised", max_runs_per_day: 8, max_usd_per_day: 4, runs_today: 1, usd_today: 0.1, runs_without_cost: 0, queued: 0, wider: [] });
+const snapshot = { loaded: true, projects: [{ id: P, name: "northwind-shop", config: { accepted: true } }], tasks: {},
+  details: { [P]: { agents: [agent("engineering"), agent("planning")], status: { requests: [], pending: [], documents: [] } } } };
+const out = {};
+for (const phone of [false, true]) {
+  globalThis.window.matchMedia = () => ({ matches: phone, addEventListener() {}, removeEventListener() {} });
+  const frame = { el: new FakeNode("div"), main: new FakeNode("main"), track: { el: new FakeNode("div") }, noticeBox: new FakeNode("div"), insets: () => ({ left: 0, right: 0, top: 0, bottom: 0, pad: 1 }),
+    isPhone: () => phone, sceneUnavailable() {}, announce() {}, acquireWorld: () => ({ show() {}, setOptions() {}, refit() {}, stats() { return {}; } }) };
+  const view = createFloorView(frame, { refresh() {} });
+  for (const tab of ["agent", "inbox", "tasks", "desk"]) {
+    view.update({ snapshot, route: router.parse(`#/p/${P}/floor/engineering/${tab}`), now: new Date("2026-10-10T12:00:00Z"), reload: 1 });
+    await settle();
+    const head = find(frame.main, ".wb-floor-head");
+    out[`${phone ? "phone" : "desktop"}-${tab}`] = { chips: all(head, ".pui-chip").length, header: all(head, ".wb-header-mode, .wb-mode-plate").length, own: all(frame.main, ".wb-mode-row .wb-mode-plate").length, title: find(head, ".wb-panel-title").textContent };
+  }
+  view.dispose();
+}
+console.log(JSON.stringify(out));
+process.exit(0);
+"""
+
+
+@needs_node
+def test_the_floors_head_has_no_mode_chip_on_any_tab_or_width_and_the_mode_stays_in_the_agent_tab(tmp_path):
+    from test_interface_adj_b1 import run_view
+    got = run_view(tmp_path, HEAD)
+    for key, value in got.items():
+        assert value["chips"] == 0 and value["header"] == 0, f"M-12: {key}: the head names no mode"
+        assert value["title"] == "Engineering agent"
+    assert got["desktop-agent"]["own"] == 1 and got["phone-agent"]["own"] == 1, "M-12: the mode stays in the Agent tab"
+    for name in ("views/floor.js",):
+        source = (INTERFACE / "js" / name).read_text(encoding="utf-8")
+        assert "wb-header-mode" not in source and "modeChip" not in source
+    assert "wb-header-mode" not in interface_css()
+    for path in sorted((INTERFACE / "js" / "views").glob("lobby*.js")):
+        assert "wb-header-mode" not in path.read_text(encoding="utf-8"), f"M-12: {path.name}: the Lobby's head shows no mode chip either"
+
+
+def test_every_notice_the_page_builds_is_the_soft_style_the_lobby_s_cancel_dialog_and_the_placeholder_included():
+    bad = []
+    for path in sorted((INTERFACE / "js").rglob("*.js")):
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if re.search(r'class: ["`]notice(?! pui-soft)', line):
+                bad.append(f"{path.name}:{lineno}")
+    assert not bad, f"a notice that is not the soft style (R-11), which no stylesheet draws: {bad}"
+    assert 'class: "notice pui-soft pui-error wb-card-error"' in (INTERFACE / "js" / "views" / "lobby-request.js").read_text(encoding="utf-8")
+    assert (INTERFACE / "js" / "views" / "placeholder.js").read_text(encoding="utf-8").count('class: "notice pui-soft pui-error"') == 3

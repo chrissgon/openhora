@@ -495,19 +495,19 @@ const out = {};
 out.all = lobbyDocuments(rows).map((d) => d.path);
 out.junk = [lobbyDocuments(undefined), lobbyDocuments(null), lobbyDocuments([null, { path: "x", agent: null }]).length];
 
-// the desk table: the Lobby's has the Agent column after the owner skill, a floor's keeps its four
-const heads = (tab) => all(tab.el, "th").map(text);
+// the desk list (R-40, R-47): the Lobby's rows carry the agent as a badge, a floor's have none
+const heads = (tab) => all(tab.el, ".wb-desk-agent").length;
 const floorTab = createDeskTab({ project: P, agent: "engineering", open() {} });
 floorTab.update({ documents: rows.slice(0, 1), truncated: false, loading: false, error: null });
-out.floor = { heads: heads(floorTab), cells: all(floorTab.el, "td").map((c) => c.attrs["data-label"]) };
+out.floor = { heads: heads(floorTab), rows: all(floorTab.el, "li.wb-desk-row").length };
 const lobbyTab = createDeskTab({ project: P, agent: "planning", open() {}, agentColumn: true });
 lobbyTab.update({ documents: rows, truncated: false, loading: false, error: null });
-out.lobby = { heads: heads(lobbyTab), agents: all(lobbyTab.el, "td").filter((c) => c.attrs["data-label"] === "Agent").map(text), rows: all(lobbyTab.el, "tr.wb-desk-row").length };
+out.lobby = { heads: heads(lobbyTab), agents: all(lobbyTab.el, ".wb-desk-agent").map(text), rows: all(lobbyTab.el, "li.wb-desk-row").length };
 
 // the filter still matches the owner skill and the path; the agent is a column, not a filter key
 lobbyTab.el.querySelector("input").value = "brand";
 (lobbyTab.el.querySelector("input").listeners.input || []).forEach((fn) => fn());
-out.filtered = all(lobbyTab.el, "tr.wb-desk-row").length;
+out.filtered = all(lobbyTab.el, "li.wb-desk-row").length;
 
 // the sentence of a floor with none of its own
 out.sentence = NONE_OF_ITS_OWN;
@@ -531,9 +531,9 @@ def test_the_lobby_desk_lists_every_document_with_the_agent_after_the_owner_skil
     got = run_node(tmp_path, DESK)
     assert got["all"] == ["docs/a.md", "docs/b.md", "docs/c.md", "docs/d.md"], "C-2: the filter by agent is gone"
     assert got["junk"] == [[], [], 1], "an unread list is empty, and a row that is not an object is dropped"
-    assert got["floor"]["heads"] == ["Path", "Owner skill", "Size", "Modified"], "a floor's table is as it was"
-    assert got["lobby"]["heads"] == ["Path", "Owner skill", "Agent", "Size", "Modified"]
-    assert got["lobby"]["agents"] == ["engineering", "—", "brand", "planning"], "the agent of the row as the service gave it, a dash when null (rows are newest first)"
+    assert got["floor"] == {"heads": 0, "rows": 1}, "R-40: a floor's rows are two lines and carry no agent"
+    assert got["lobby"]["heads"] == 4
+    assert got["lobby"]["agents"] == ["Engineering", "Lobby", "Brand", "Lobby"], "R-47: the agent of the row is a badge, the Lobby's word for a document with none (rows are newest first)"
     assert got["lobby"]["rows"] == 4 and got["filtered"] == 1
     assert got["sentence"] == "No documents of this agent. Every document is on the Lobby's desk."
     assert got["floorEmpty"] == [got["sentence"]]
@@ -895,8 +895,8 @@ def test_the_wall_board_names_the_task_with_its_number_and_says_it_is_the_curren
     assert got["noRun"]["title"] == "#9 Open the pull request · current task"
     assert got["untitled"]["title"] == "#10 k10 · current task", "no title: the key stands in"
     assert got["none"]["title"] == "No task yet", "no current task: the board is as it was"
-    assert got["running"]["lines"][2] == "attempt 1 · 42 s · 1,200 tokens · $0.0123 · m"
-    assert got["unknown"]["lines"][2] == "attempt 1 · 42 s · 1,200 tokens · unknown · m", "C-18 (E-27): one word, as in the run block"
+    assert got["running"]["lines"][1] == "run #3 done · attempt 1 · 1,200 tokens · $0.0123", "R-32: the run is one line, as floor.html draws it (the duration and the model are in the run block)"
+    assert got["unknown"]["lines"][1] == "run #3 done · attempt 1 · 1,200 tokens · unknown", "C-18 (E-27): one word, as in the run block"
     assert "recorded: not available" not in json.dumps(got)
 
 
@@ -917,7 +917,7 @@ const lines = fm.resolvedLines(bodies, [4], NOW);
 out.ages = lines.map((l) => l.age);
 const inbox = createInbox({ project: "p", now: () => NOW, api: {}, refresh() {}, links: { open: () => "#", floor: () => "#", lobby: () => "#", parent: () => "#" } });
 inbox.update({ decisions: [], requests: [], resolved: lines, selected: null, loading: false });
-out.summary = all(inbox.el, "summary.wb-resolved").map((s) => textOf(s));
+out.summary = all(inbox.el, ".wb-tl-acc summary").map((s) => textOf(s))     // R-38: the resolved lines are a timeline of accordions;
 console.log(JSON.stringify(out));
 process.exit(0);
 """
@@ -928,7 +928,7 @@ def test_a_line_resolved_within_the_minute_says_just_now_never_now_ago(tmp_path)
     got = run_node(tmp_path, AGES)
     assert got["ages"] == ["now", "10 min"]
     assert "now ago" not in "".join(got["summary"]), "C-19: a line resolved within the minute never reads 'now ago'"
-    assert got["summary"] == ["Review releasedFresh · just now", "Effect cancelledOld · 10 min ago"]
+    assert got["summary"] == ["FreshReview released · just now", "OldEffect cancelled · 10 min ago"]
     assert got["words"] == ["just now", "12 min ago", "5 h ago", "2 d ago", "", ""], "one helper words an age"
     for path in JS.rglob("*.js"):
         assert not re.search(r"\$\{[^}]*age[^}]*\} ago", path.read_text(encoding="utf-8")), f"{path.name} builds an age phrase by hand: use format.agoPhrase"

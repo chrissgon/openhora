@@ -29,11 +29,11 @@ export function createPlaceholder(frame, route) {
       const parts = [];
       parts.push(h("p", { class: "wb-muted", text: "This screen comes with a later package. These are the project's counts for now." }));
       if (!project) {
-        parts.push(h("p", { class: "notice error", role: "alert", text: snapshot.loaded ? "The service has no such project." : "Loading..." }));
+        parts.push(h("p", { class: "notice pui-soft pui-error", role: "alert", text: snapshot.loaded ? "The service has no such project." : "Loading..." }));
       } else if (project.config && !project.config.accepted) {
-        parts.push(h("p", { class: "notice error", text: project.message || "The project's configuration is not accepted yet." }));
+        parts.push(h("p", { class: "notice pui-soft pui-error", text: project.message || "The project's configuration is not accepted yet." }));
       } else if (detail && detail.error && !detail.status) {
-        parts.push(h("p", { class: "notice error", role: "alert", text: detail.error.message }));
+        parts.push(h("p", { class: "notice pui-soft pui-error", role: "alert", text: detail.error.message }));
       } else if (detail && detail.status) {
         const pending = (detail.status.pending || []).length;
         const states = countByState(detail.status.requests);

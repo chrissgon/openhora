@@ -8,15 +8,15 @@ import { ENDING, FAILURE, openable, stateTone, taskWord } from "../floor-model.j
 import { waitKinds, waitLines, waitingLabel } from "../waits.js";
 import { agoText } from "./widgets.js";
 
-/** The groups, in the order the tab draws them. A task belongs to the group that lists its state. */
+/** The groups, in the order the tab draws them. A task belongs to the group that lists its state. Each has the icon of its state and the library's tone for it (R-39). */
 export const GROUPS = Object.freeze([
-  { id: "running", label: "Running", states: ["running"] },
-  { id: "waiting", label: "Waiting for you", states: ["waiting"] },
-  { id: "ready", label: "Ready (queued)", states: ["ready"] },
-  { id: "planned", label: "Planned or blocked", states: ["requested", "planned", "blocked"] },
-  { id: "done", label: "Done", states: ["done"] },
-  { id: "failed", label: "Failed", states: ["failed"] },
-  { id: "cancelled", label: "Cancelled", states: ["cancelled"] },
+  { id: "running", label: "Running", states: ["running"], icon: "activity", tone: "pui-theme" },
+  { id: "waiting", label: "Waiting for you", states: ["waiting"], icon: "circle-alert", tone: "pui-warn" },
+  { id: "ready", label: "Ready (queued)", states: ["ready"], icon: "list", tone: "pui-muted" },
+  { id: "planned", label: "Planned or blocked", states: ["requested", "planned", "blocked"], icon: "clock", tone: "pui-muted" },
+  { id: "done", label: "Done", states: ["done"], icon: "check", tone: "pui-success" },
+  { id: "failed", label: "Failed", states: ["failed"], icon: "x", tone: "pui-error" },
+  { id: "cancelled", label: "Cancelled", states: ["cancelled"], icon: "ban", tone: "pui-muted" },
 ]);
 
 export const NO_AGE = "—";
@@ -28,8 +28,8 @@ export const NO_AGE = "—";
  */
 export function groupTasks(tasks) {
   const list = [...(Array.isArray(tasks) ? tasks : [])].sort((a, b) => b.id - a.id);
-  const out = GROUPS.map((g) => ({ id: g.id, label: g.label, count: 0, tasks: [] }));
-  const other = { id: "other", label: "Other", count: 0, tasks: [] };
+  const out = GROUPS.map((g) => ({ id: g.id, label: g.label, icon: g.icon, tone: g.tone, count: 0, tasks: [] }));
+  const other = { id: "other", label: "Other", icon: "list", tone: "pui-muted", count: 0, tasks: [] };
   for (const task of list) {
     const at = GROUPS.findIndex((g) => g.states.includes(task.state));
     const group = at < 0 ? other : out[at];

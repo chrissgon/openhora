@@ -1,7 +1,7 @@
 # Vendored: the brand typefaces
 
 The three typefaces of the interface, as woff2 files of their latin subsets, copied unchanged. Nothing here is edited: a test
-(`runtime/tests/test_interface_files.py`) compares every file listed below with the hash written here. `style.css` declares them with
+(`runtime/tests/test_interface_files.py`) compares every file listed below with the hash written here. `css/base.css` declares them with
 `@font-face` (`font-display: swap`, so the text shows at once in the fallback stack) and loads them by relative paths; nothing is loaded
 from another host and `index.html` preloads nothing.
 

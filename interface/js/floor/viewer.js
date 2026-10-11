@@ -12,7 +12,6 @@ import * as api from "../api.js";
 import { fill, h } from "../dom.js";
 import { formatSize, formatWhen } from "../floor-model.js";
 import { commandBlock } from "../frame/command.js";
-import { icon } from "../frame/icons.js";
 import { markdownView } from "../markdown-view.js";
 import { busyLine } from "./widgets.js";
 
@@ -82,13 +81,16 @@ export function createViewer({ onClose, listed = () => undefined, object = null,
       commandBlock({ command: path, sentence: "Path", label: "Copy the path" })];
   }
 
-  function head(path, line) {
+  /**
+   * The head (floor.html): the path and, under it, the size and the time at the left; at the right the tools: `Plain text` for a Markdown document (the toggle of `markdownView`,
+   * which the body no longer carries) and `Close`.
+   */
+  function head(path, line, tools = null) {
     const close = h("button", { class: "pui-btn pui-surface pui-outline wb-small-button", type: "button", "data-key": "close", text: "Close" });
     close.addEventListener("click", () => onClose());
     return h("div", { class: "wb-viewer-head" },
-      h("span", { class: "wb-tile pui-soft pui-theme wb-tile-small" }, icon("file-text", 16)),
-      h("div", { class: "wb-viewer-titles" }, h("strong", { class: "wb-viewer-path mono", id: titleId, tabindex: "-1", text: path }), line ? h("span", { class: "wb-muted wb-viewer-line", text: line }) : null),
-      close);
+      h("div", { class: "wb-viewer-titles wb-panel-titles" }, h("strong", { class: "wb-viewer-path mono", id: titleId, tabindex: "-1", text: path }), line ? h("span", { class: "wb-muted wb-viewer-line wb-panel-sub", text: line }) : null),
+      h("span", { class: "wb-viewer-tools" }, tools, close));
   }
 
   return {
@@ -141,7 +143,8 @@ export function createViewer({ onClose, listed = () => undefined, object = null,
         if (mine.signal.aborted) return;
         release();
         const line = `${formatSize(doc.size)}, modified ${formatWhen(doc.modified_at)}`;
-        fill(el, head(doc.path || path, line), h("div", { class: "wb-viewer-body" }, documentBody(doc, path)));
+        const [tools, ...body] = documentBody(doc, path);
+        fill(el, head(doc.path || path, line, MARKDOWN_FILE.test(doc.path || path) ? tools : null), h("div", { class: "wb-viewer-body" }, MARKDOWN_FILE.test(doc.path || path) ? body : [tools, ...body]));
       } catch (e) {
         if (mine.signal.aborted || (e && e.name === "AbortError")) return;
         release();
