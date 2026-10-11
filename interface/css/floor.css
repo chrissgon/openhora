@@ -19,7 +19,10 @@
 
 .wb-panel-floor .wb-tabbar .wb-tab { padding: 5px 9px; }     /* floor.html: four tabs and a count in the panel's width */
 .wb-tabpanel { padding: 0; gap: 0; }
-.wb-agent-tab, .wb-desk-tab, .wb-inbox, .wb-tasks-tab { display: grid; gap: 14px; align-content: start; padding: 14px 12px 28px; }
+.wb-agent-tab, .wb-desk-tab, .wb-inbox, .wb-tasks-tab { --wb-tab-gap: 14px; display: grid; gap: var(--wb-tab-gap); align-content: start; padding: 14px 12px 28px; }
+/* A-61, M-19: the Agent tab's body (the meters, the runs total, the current task, the others, the hand-over box) keeps the tab's own gap between its sections; a section's heading keeps the smaller gap to its rows */
+.wb-agent-body { display: grid; gap: var(--wb-tab-gap, 14px); }
+.wb-agent-body > :empty { display: none; }
 .wb-cards { display: grid; gap: 12px; }
 .wb-floor-unknown { display: grid; gap: 8px; padding: 16px; }
 .wb-floor-unknown p { margin: 0; }
@@ -50,6 +53,7 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
 .wb-wider-box { display: grid; gap: 8px; }
 .wb-wider-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 8px; }
 .wb-wider-label { grid-column: 1 / -1; padding-left: 4px; font-size: 13px; }
+.wb-accept-step { align-content: start; }     /* A-62: the step that accepts the configuration, in the select's place */
 .wb-wider-code { display: block; font-size: 12px; overflow-wrap: anywhere; }
 .wb-wider-box .wb-copy-status { padding-left: 4px; font-size: 12px; }
 .wb-wider-box .wb-copy-status:empty { display: none; }

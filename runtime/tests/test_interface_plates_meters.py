@@ -420,7 +420,7 @@ out.refused = find(tab.el, ".wb-form-error").textContent;
 script = { setMode: async () => ({ agent: "engineering", mode: "stopped", accepted: false, next: "python3 /ck/runtime/cli.py accept-config --project /work/shop --sha256 " + "e".repeat(64) }) };
 buttons().stop.click();
 await settle();
-out.notAccepted = { code: find(tab.el, ".wb-result-box .wb-command-code").textContent, copy: all(tab.el, ".wb-result-box button.wb-copy").length };
+out.notAccepted = { text: find(tab.el, ".wb-result-box").textContent, code: all(tab.el, ".wb-result-box .wb-command-code").length, copy: all(tab.el, ".wb-result-box button.wb-copy").length };
 
 // a configuration that is not accepted: the controls are off, the data stays
 tab.update(view(agent(), [task(4, "ready")], [], false));
@@ -545,7 +545,7 @@ def test_the_page_keeps_the_floor_dims_it_and_shows_the_command_in_the_band_whil
     assert during["title"] == before["title"] and during["kpis"] == before["kpis"] and during["track"] == before["track"], "the panel, the KPI cards and the bar are what they were"
     assert during["state"] == before["state"] and during["meters"] == before["meters"], "the Agent tab keeps its state row and its meters"
     assert during["skeleton"] == 0, "nothing is swapped for a skeleton"
-    assert during["codes"] == [ACCEPT] and during["copies"] == 1, "the band carries the service's command whole, with Copy"
+    assert during["codes"] == [ACCEPT, ACCEPT] and during["copies"] == 2, "the band carries the service's command whole, with Copy, and (A-62) so does the Agent tab's accept step in the select's place"
     assert "not accepted" in during["band"] and "Read the file" in during["band"]
     assert during["band"].count("accept-config") == 1, "the command is in the code block once: the sentence is the service's message without it"
     assert during["sentence"].endswith("when it is what you want, run:")
