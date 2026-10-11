@@ -526,6 +526,12 @@ export function floor(snapshot, projectId, name, bodies = {}, options = {}) {
   };
 }
 
+/** Whether `projectId` has the Floor of area agent `name`: a project that is not accepted answers for every floor (its waiting line); an unknown project has none. */
+export function hasFloor(snapshot, projectId, name) {
+  const found = floor(snapshot, projectId, name);
+  return Boolean(found && found.found);
+}
+
 /**
  * The wall board's content (R-32, floor.html): the title `#52 Implement the change · current task`, then the skill, the state and how long it has run (`for 12 min`, R-8), then the run:
  * its number and status, its ending (or failure) when it is over and says more than the status, its attempt, its tokens, and the cost, which reads `unknown` when it is not recorded
