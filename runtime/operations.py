@@ -1,7 +1,7 @@
 """The table of operations: the one place that says what the operations layer (runtime/ops.py) offers to a shell.
 
 A shell (the terminal's runtime/cli.py, the conversation's runtime/chat.py, the local service's runtime/service.py, the MCP
-mode's runtime/mcp.py) derives what it accepts from
+mode's runtime/mcp.py, the messaging bridge's runtime/messaging.py) derives what it accepts from
 this table and spells nothing of its own: one row per operation, with its arguments, the channels that may call it
 and whether it calls a model. Adding an operation adds one row here and one function in ops.py; adding a shell adds a
 file. The channel rule is a column: a row lists the channels that may call it, and a row whose function takes the
@@ -26,7 +26,9 @@ do, so that the generated tables and the shells cannot differ). A row:
                runtime/mcp.py: a tool exists only for an operation whose row lists "mcp"; the reads, and the writes a
                model client may make: request, route, answer, release a draft and say; never approve, reject, cancel
                or retry, as a tool or typed into `say`, whose row takes the channel and does a command only when
-               that command's row lists it)
+               that command's row lists it), "messaging" (the messaging bridge, runtime/messaging.py: the reads, the
+               writes a chat may make, and approve, reject, retry and cancel; code, not a prompt, narrows approve there:
+               a plan only with its hash, an acceptance bound by the bridge to the card the person saw, an effect never)
   model        whether it calls a model: False, True, or the words that say when ("without --flow")
   help         one line: what it does
   channel_arg  (optional) the function takes `channel=<name>` and decides what that channel may do
@@ -72,45 +74,45 @@ OPERATIONS = (
      "help": "plan a request that waits for its route: one run of the router skill, or the plan of a flow file; on the page, while a run is in progress, the request is queued"},
     {"name": "route-queued", "call": "route_queued", "args": (), "channels": ("terminal",), "model": True, "job": True,
      "help": "route the oldest queued line or request, when no run is in progress (the local service calls it every few seconds)"},
-    {"name": "status", "call": "status", "args": (), "channels": ("terminal", "chat", "page", "mcp"), "model": False,
+    {"name": "status", "call": "status", "args": (), "channels": ("terminal", "chat", "page", "mcp", "messaging"), "model": False,
      "help": "requests, tasks and what waits for you"},
     {"name": "task", "call": "task",
      "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"},),
-     "channels": ("terminal", "page", "mcp"), "model": False,
+     "channels": ("terminal", "page", "mcp", "messaging"), "model": False,
      "help": "one task or request with its runs and its pending decisions"},
     {"name": "flows", "call": "flows", "args": (), "channels": ("terminal", "page", "mcp"), "model": False,
      "help": "the flow files of this checkout, with their titles and how many tasks each holds"},
     {"name": "config", "call": "config", "args": (), "channels": ("terminal", "page"), "model": False,
      "help": "the configuration's path and hash, whether you accepted it, and the data folder; it never refuses"},
     {"name": "progress", "call": "progress", "args": ({"name": "since", "kind": "str"},),
-     "channels": ("terminal", "chat", "page", "mcp"), "model": False, "chat_reply": "text",
+     "channels": ("terminal", "chat", "page", "mcp", "messaging"), "model": False, "chat_reply": "text",
      "help": "where the work stands and what happened (since: 7d, <n>d or YYYY-MM-DD)"},
     {"name": "pending", "call": "pending",
      "args": ({"name": "pending_id", "kind": "int", "flag": "id"},),
-     "channels": ("terminal", "chat", "page", "mcp"), "model": False,
+     "channels": ("terminal", "chat", "page", "mcp", "messaging"), "model": False,
      "help": "what waits for you; with an id, that decision whole"},
     {"name": "answer", "call": "answer",
      "args": ({"name": "pending_id", "kind": "int", "required": True, "flag": "id"},
               {"name": "text", "kind": "text", "required": True},
               {"name": "with_comments", "kind": "flag", "flag": "with-comments"}),
-     "channels": ("terminal", "chat", "page", "mcp"), "model": False,
+     "channels": ("terminal", "chat", "page", "mcp", "messaging"), "model": False,
      "help": "answer a pending decision"},
     {"name": "release", "call": "release",
      "args": ({"name": "pending_id", "kind": "int", "required": True, "flag": "id"},),
-     "channels": ("terminal", "chat", "page", "mcp"), "model": False, "job": True,
+     "channels": ("terminal", "chat", "page", "mcp", "messaging"), "model": False, "job": True,
      "help": "release a delivery (it stays a draft)"},
     {"name": "approve", "call": "approve",
      "args": ({"name": "pending_id", "kind": "int", "required": True, "flag": "id"}, {"name": "sha256", "kind": "str"},
               {"name": "go_ahead", "kind": "list", "flag": "go-ahead"}),
-     "channels": ("terminal", "chat", "page"), "model": False, "channel_arg": True, "job": True,
+     "channels": ("terminal", "chat", "page", "messaging"), "model": False, "channel_arg": True, "job": True,
      "help": "approve a plan or an acceptance (a plan: --go-ahead <task key>, repeated, drops that task's derived waits); an effect is approved in the terminal or on the page, with its hash"},
     {"name": "reject", "call": "reject",
      "args": ({"name": "pending_id", "kind": "int", "required": True, "flag": "id"}, {"name": "note", "kind": "str"}),
-     "channels": ("terminal", "chat", "page"), "model": False,
+     "channels": ("terminal", "chat", "page", "messaging"), "model": False,
      "help": "reject a plan, an acceptance or an effect"},
     {"name": "retry", "call": "retry",
      "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"},),
-     "channels": ("terminal", "chat", "page"), "model": False,
+     "channels": ("terminal", "chat", "page", "messaging"), "model": False,
      "help": "make a failed or blocked task ready again"},
     {"name": "go-ahead", "call": "go_ahead",
      "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"},
@@ -119,7 +121,7 @@ OPERATIONS = (
      "help": "go ahead on a task that waits for another request's task: its derived waits end (with drop-after, its after wait)"},
     {"name": "cancel", "call": "cancel",
      "args": ({"name": "request_id", "kind": "int", "required": True, "flag": "request", "label": "request id"},),
-     "channels": ("terminal", "chat", "page"), "model": False,
+     "channels": ("terminal", "chat", "page", "messaging"), "model": False,
      "help": "cancel a request"},
     {"name": "deps", "call": "deps", "args": (), "channels": ("terminal",), "model": False,
      "help": "install the dependency sets of runtime.json, by code"},
@@ -192,26 +194,26 @@ OPERATIONS = (
     {"name": "pin", "call": "pin", "args": (), "channels": ("terminal",), "model": False,
      "help": "write the pin of the dispatcher's two jobs"},
     {"name": "say", "call": "say", "args": ({"name": "text", "kind": "text", "required": True},),
-     "channels": ("terminal", "page", "mcp"), "model": "for a new request", "job": True, "channel_arg": True, "queues": True,
+     "channels": ("terminal", "page", "mcp", "messaging"), "model": "for a new request", "job": True, "channel_arg": True, "queues": True,
      "help": "one turn of the conversation with the planning agent; on the page, while a run is in progress, a line that needs the planner is queued (elsewhere refused); a question about the state is answered at once"},
-    {"name": "agents", "call": "agents", "args": (), "channels": ("terminal", "page", "mcp"), "model": False,
+    {"name": "agents", "call": "agents", "args": (), "channels": ("terminal", "page", "mcp", "messaging"), "model": False,
      "help": "each area agent: its mode, its caps, what it used today and how many tasks wait for it"},
     {"name": "conversation", "call": "conversation",
      "args": ({"name": "conversation", "kind": "str"}, {"name": "after", "kind": "int"}),
      "channels": ("terminal", "page", "mcp"), "model": False,
      "help": "the messages of the project's conversation above a message id, oldest first"},
-    {"name": "skills", "call": "skills", "args": (), "channels": ("terminal", "page", "mcp"), "model": False,
+    {"name": "skills", "call": "skills", "args": (), "channels": ("terminal", "page", "mcp", "messaging"), "model": False,
      "help": "the skills in scope with their proof on each model, their runs here and the two checks of the proof"},
     {"name": "costs", "call": "costs", "args": ({"name": "since", "kind": "str"},),
-     "channels": ("terminal", "page", "mcp"), "model": False,
+     "channels": ("terminal", "page", "mcp", "messaging"), "model": False,
      "help": "the runs by day, agent, model and adapter, with the recorded cost and the cost recomputed from the prices"},
     {"name": "connections", "call": "connections", "args": (), "channels": ("terminal", "page", "mcp"), "model": False,
      "help": "which provider each requirement class resolves to, which secrets are found (never a value), the image"},
-    {"name": "artifacts", "call": "artifacts", "args": (), "channels": ("terminal", "page", "mcp"), "model": False,
+    {"name": "artifacts", "call": "artifacts", "args": (), "channels": ("terminal", "page", "mcp", "messaging"), "model": False,
      "help": "the project's files under docs/ with their owner skill, size and time"},
     {"name": "artifact", "call": "artifact",
      "args": ({"name": "path", "kind": "str", "required": True},),
-     "channels": ("terminal", "page", "mcp"), "model": False,
+     "channels": ("terminal", "page", "mcp", "messaging"), "model": False,
      "help": "the text of one file under docs/ of the project, read-only"},
     {"name": "artifact-raw", "call": "artifact_raw",
      "args": ({"name": "path", "kind": "str", "required": True},),
@@ -234,6 +236,25 @@ CHAT_OWN = (
     {"name": "new", "args": "text", "help": "start a new request, whatever is open (--after <id> before the text: run it after that request)", "order": "last"},
 )
 
+# The channel policy (decision M-8). The `channels` column of the table is the ceiling of a channel; a project's
+# runtime.json (`channels.<channel>`, a list of these group names) narrows it, never widens it. A group names the
+# operations it covers, and, for `approve`, the kind of decision (a group with no kind covers every kind its
+# operations take). Pure literals, like the table.
+GROUPS = {
+    "read": {"operations": ("status", "progress", "pending", "task", "agents", "costs", "skills", "artifacts", "artifact"), "kind": None},
+    "talk": {"operations": ("say",), "kind": None},
+    "answer": {"operations": ("answer",), "kind": None},
+    "release": {"operations": ("release",), "kind": None},
+    "approve-plans": {"operations": ("approve",), "kind": "plan"},
+    "approve-acceptances": {"operations": ("approve",), "kind": "acceptance"},
+    "reject-cancel-retry": {"operations": ("reject", "cancel", "retry"), "kind": None},
+}
+# The policy of a channel that has no entry in the project's configuration. A channel absent from this table keeps its
+# whole ceiling; the terminal is never narrowed. The messaging channel is closed: what changes the work other than a
+# line to the planning agent and an answer is turned on explicitly.
+DEFAULT_POLICY = {"messaging": ("read", "talk", "answer")}
+NEVER_NARROWED = ("terminal",)
+
 POSITIONAL = ("int", "str", "text")  # the kinds the conversation reads from a line
 
 
@@ -243,6 +264,41 @@ def by_name(name: str) -> dict:
         if row["name"] == name:
             return row
     raise KeyError(name)
+
+
+def policy_groups(channel: str, policy) -> tuple:
+    """The groups that apply to a channel: the project's entry, else the default of the channel, else None (the whole
+    ceiling)."""
+    given = (policy or {}).get(channel)
+    return tuple(given) if given is not None else DEFAULT_POLICY.get(channel)
+
+
+def permitted(op_name: str, channel: str, policy, kind: str | None = None) -> bool:
+    """Whether a channel may call an operation under a project's policy (pure). False when the row does not list the
+    channel (the ceiling). The terminal is never narrowed. For any other channel with groups (the project's entry, else
+    the default), true only when a group covers the operation and, for a group with a kind, the decision's kind (`kind`
+    None asks whether any group covers the operation). A channel with no groups keeps its ceiling."""
+    try:
+        row = by_name(op_name)
+    except KeyError:
+        return False
+    if channel not in row["channels"]:
+        return False
+    if channel in NEVER_NARROWED:
+        return True
+    groups = policy_groups(channel, policy)
+    if groups is None:
+        return True
+    for name in groups:
+        group = GROUPS.get(name)
+        if group and op_name in group["operations"] and (group["kind"] is None or kind is None or group["kind"] == kind):
+            return True
+    return False
+
+
+def not_enabled(name: str, channel: str) -> str:
+    """The sentence of an operation the channel's ceiling lists and the project's policy does not turn on."""
+    return f"/{name} is not enabled for this channel; the project's configuration (channels.{channel}) turns it on"
 
 
 def terminal_verbs() -> tuple:

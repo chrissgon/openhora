@@ -131,6 +131,11 @@ REGISTRY: dict[str, Secret] = {s.name: s for s in (
            "given only the base and the parent page the project names",
            ("providers/issue-tracker/notion.py", "providers/documents/notion.py"),
            store_username="notion"),
+    Secret("MESSENGER_TELEGRAM_BOT_TOKEN",
+           "receive the person's messages and send the notices of the messaging bridge, as a Telegram bot",
+           "a bot created for this person with the platform's bot service, used only by this bridge",
+           ("providers/messenger/telegram.py",),
+           store_username="messenger-telegram"),
 )}
 
 

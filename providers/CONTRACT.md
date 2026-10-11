@@ -16,17 +16,19 @@ A class is `<role>:<target>` (`contracts/environment.md`, "Classes"). `providers
 | Class | Folder | Variables, most specific first |
 |-------|--------|--------------------------------|
 | `publisher:<platform>` | `providers/publisher/` | `PUBLISHER_<PLATFORM>_PROVIDER`, then `PUBLISHER_PROVIDER` |
+| `messenger:<platform>` | `providers/messenger/` | `MESSENGER_<PLATFORM>_PROVIDER`, then `MESSENGER_PROVIDER` |
 | `generator:image`, `generator:video` | `providers/generator/` | `GENERATOR_IMAGE_PROVIDER` (or `GENERATOR_VIDEO_PROVIDER`), then `GENERATOR_PROVIDER` |
 | `search:web` | `providers/search/` | `SEARCH_WEB_PROVIDER`, then `SEARCH_PROVIDER` |
 | `integration:<service>` | `providers/<service>/` (`integration:vcs` is `providers/vcs/`) | `INTEGRATION_<SERVICE>_PROVIDER` only: each integration is a different kind of service, and one never serves another |
 | `reader:email` | `providers/mailbox/` | `MAILBOX_PROVIDER` |
+| `messenger:<platform>` (a class the runtime uses, not one a skill may require: on purpose it is not in `contracts/environment.md`) | `capabilities --platform <p>`, `receive --platform <p> --offset <n> --timeout <s>`, `send --platform <p> --chat <id> --message-file <f>`, `ack --platform <p> --action-ref <ref>` (the neutral message and the shapes are in `providers/messenger/README.md`). The messaging bridge (`runtime/messaging.py`) is the one caller: it sends only to a chat of the project's accepted `messaging.senders` list, and its ledger is the record of what was sent, so these verbs take neither `--confirmed` nor an idempotency key | `capabilities`: `max_text`, `buttons`, `max_buttons`, `max_button_label`, `lists`, `max_list_rows`, `url_buttons`, `reply_context`, `documents`; `receive`: `updates` (each `update_id`, `sender`, `chat`, `private`, `text`, `action`, `action_ref`, `reply_to`) and `next_offset`; `send`: `message_id`; `ack`: `acked` |
 | `sender:email` | `providers/mailer/` (no implementation ships) | `MAILER_PROVIDER` |
 | `scheduler:job` | `providers/scheduler/` | `SCHEDULER_PROVIDER` |
 | `store:runtime` | `providers/store/` | `STORE_PROVIDER` |
 
 The first four rows are derived from the text of the class: the folder is the role (the service, for an integration), and a hyphen in a name becomes `_` in a variable. The last four are an explicit table in `resolve.py`: those classes were the bare names `mailbox`, `mailer`, `scheduler` and `store` until 2026-10-02, and their folders and variables keep those names, because the provider tests, the Python 3.9 set, the pre-commit hook, every provider's path to the secret resolver and the jobs already scheduled on users' machines all name the folders. `resolve.py` still reads the four old class names as aliases of the new ones. `providers/secrets/` is not a class.
 
-**A class with a parameter.** In `publisher:<platform>` the part after the colon is handed to the implementation as `--platform`, because one implementation may serve several platforms. Each implementation of such a class declares the platforms it serves in one line at the top level of its file:
+**A class with a parameter.** In `publisher:<platform>` and `messenger:<platform>` the part after the colon is handed to the implementation as `--platform`, because one implementation may serve several platforms. Each implementation of such a class declares the platforms it serves in one line at the top level of its file:
 
 ```python
 PLATFORMS = ("<platform>", "<another platform>")
@@ -40,7 +42,7 @@ One function chooses the implementation of a class: `providers/resolve.py` (`res
 
 The order, first match wins:
 
-The candidates are the implementations shipped in the class's folder; for `publisher:<p>`, those among them that serve `<p>`. So a second publisher added for another platform changes nothing for the first, and a platform nobody serves does not resolve.
+The candidates are the implementations shipped in the class's folder; for `publisher:<p>` and `messenger:<p>`, those among them that serve `<p>`. So a second publisher added for another platform changes nothing for the first, and a platform nobody serves does not resolve.
 
 1. The environment, most specific first: the variables of the table above (`PUBLISHER_<PLATFORM>_PROVIDER=buffer`, then `PUBLISHER_PROVIDER=buffer`; `SCHEDULER_PROVIDER=systemd`; `INTEGRATION_VCS_PROVIDER=github`). For `publisher:<p>` the general variable is a preference: when the implementation it names does not serve `<p>`, it is passed over.
 2. The platform default, where the class has one: `scheduler:job` is `launchd` on macOS and `systemd` on Linux (`providers/scheduler/README.md`).

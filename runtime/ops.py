@@ -1505,14 +1505,14 @@ def status(project: str) -> dict:
 
 def config(project: str) -> dict:
     """What a shell may know of a project's configuration, and the one read that never refuses an unaccepted one:
-    {"path", "sha256", "accepted", "data_dir"}. "accepted" says whether the file's hash is the one the person
+    {"path", "sha256", "accepted", "data_dir", "messaging", "channels"}. "accepted" says whether the file's hash is the one the person
     accepted last. A configuration that cannot be read at all, or that names another checkout, is still refused
     (code 3): there is nothing to report."""
     ctx = core.context(project, check_config=False)
     cfg = ctx["cfg"]
     accepted = core._stored(ctx, ctx["store"].cursor_get, project_config.ACCEPTED)
     return {"path": cfg["path"], "sha256": cfg["sha256"], "accepted": accepted == cfg["sha256"],
-            "data_dir": cfg["data_dir"]}
+            "data_dir": cfg["data_dir"], "messaging": cfg["messaging"], "channels": cfg["channels"]}
 
 
 def task(project: str, task_id: int) -> dict:
@@ -2030,7 +2030,7 @@ def approve(project: str, pending_id: int, sha256: str | None = None, channel: s
     sent (the pending row is read first, to know its kind; the rule fails closed). go_ahead: a plan's task keys to go ahead on."""
     ctx = core.context(project)
     item = core._stored(ctx, ctx["store"].pending_get, pending_id)
-    ops_waits.only_on_plans(item, go_ahead)
+    ops_waits.only_on_plans(item, go_ahead, sha256, channel, ctx["cfg"]["channels"])
     if item["kind"] == "effect" and channel not in EFFECT_CHANNELS:
         raise core.OpsError("an effect is approved in the terminal, with its hash: "
                        + core._command("approve", ctx["cfg"]["project"], pending_id=pending_id, sha256="<hash>"), 1)

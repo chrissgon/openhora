@@ -476,7 +476,8 @@ def test_the_config_operation_reports_the_hash_and_whether_it_was_accepted_and_n
     digest = ops.project_config.load(path)["sha256"]
     before = ops.config(path)
     assert before == {"path": os.path.join(path, "docs", "workbench", "runtime.json"), "sha256": digest, "accepted": False,
-                      "data_dir": str(built["data"])}
+                      "data_dir": str(built["data"]), "messaging": {"senders": {}, "notices": "text", "page_url": None},
+                      "channels": {}}
     with pytest.raises(ops.OpsError) as refused:
         ops.pending(path)
     assert refused.value.code == 3
