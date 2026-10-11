@@ -625,7 +625,7 @@ def test_the_engine_keeps_the_performance_rules_of_the_scene():
     # 23 modules before round 4; R-41 and R4D-2 add owl.js and svgpath.js, R-19 and R-20 city-motion.js, R-17 and R-20 marks.js; R4-B2 drops figure.js (R-24, R-41: the agent is the
     # owl) and adds owl-build.js, owl-motion.js (R-41), room-frame.js (R-23) and room-words.js (R-31); R4-B3 adds server-room.js (R-51: the server room's measures);
     # R4-B4 adds plants.js (A-45, M-6: the two potted plants of a room)
-    assert len(list(SCENE.glob("*.js"))) == 32 and (SCENE / "tween.js").is_file()
+    assert len(list(SCENE.glob("*.js"))) == 33 and (SCENE / "tween.js").is_file()   # R4-P1 adds band.js (F2-D15: where a drawing stands beside a notice band)
 
 
 def test_the_scene_draws_nothing_decorative_and_holds_no_colour_of_its_own():

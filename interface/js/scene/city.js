@@ -51,7 +51,7 @@ export function treesOf(kind, col, row) {
   const hz = PAVED_D / 2 - 1.1;
   if (kind === "lot") return [[-hx, -hz, 1.1], [hx, -hz, 1.0], [hx, hz - 0.6, 1.05], [-hx, hz - 0.6, 1.15]];
   // F1-D1: a park of city.html holds 8 to 12 trees and a plaza 2 to 4, scattered over the block. The block is a grid of cells (3 across, 4 deep), `count` of them chosen by a seeded order
-  // and a tree stands in each, moved off the cell's middle by a seeded amount: an even scatter (two never within a metre of each other) where the plain draw of a spot put the trees of a park in a band
+  // and a tree stands in each, moved off the cell's middle by a seeded amount: an even scatter (no two trees closer than 0.79 units, about 20 px at the City's scale) where the plain draw of a spot put the trees of a park in a band
   const count = kind === "park" ? 9 + Math.floor(hash(col, row, 1) * 4) : 2 + Math.floor(hash(col, row, 2) * 3);
   const across = 3;
   const deep = 4;

@@ -82,7 +82,7 @@ export function buildServer(kit, model) {
   const text = (m) => ({ labels: [], tips: new Map([...m.racks.map((r) => [r.id, r.tip]), ["wall", m.tips.wall], ["console", m.tips.console]]), open: m.open || [], noMarks: !marksShown(m) });
   // the page draws no brackets on its phone frames (under 900 px, the phone's layout: `marksMinWidth`) nor while the room is loading or waiting for the configuration (`noMarks`: nothing is read), and the pointer's
   // brackets stand down with them
-  return { group, hits, labels: [], beacons: [], markers: [], outlines: [], selected: null, open: model.open || [], noMarks: !marksShown(model), marksMinWidth: MARKS_MIN_WIDTH, bandOver: true, subject, text };   // F2-D15: the accept band floats over the room, which keeps its size (control-room.html draws it whole beside the panel)
+  return { group, hits, labels: [], beacons: [], markers: [], outlines: [], selected: null, open: model.open || [], noMarks: !marksShown(model), marksMinWidth: MARKS_MIN_WIDTH, subject, text };
 }
 
 /** What the room is made of, for a model: the LEDs and the bars; the tooltips, the label and the open tab are words. */

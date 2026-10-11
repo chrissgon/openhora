@@ -53,10 +53,10 @@
 .wb-plate.is-off .wb-plate-name, .wb-fl-row.is-off .wb-fl-name, .wb-floor-card.is-off .wb-fc-name { color: var(--pui-text-muted); }
 .wb-plate-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .wb-plate-name { font-size: 13px; font-weight: 600; }
-/* F1-D6: a long mode word (autonomous-with-policy) gives way to the state badge, never the other way round: the mode takes the room that is left and is cut with an ellipsis (its whole
-   text is the title), the state keeps its width up to a share of the row and is itself cut by an ellipsis rather than pushed out of the plate */
-.wb-plate-mode { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--pui-text-muted); }
-.wb-plate-state { display: flex; justify-content: flex-end; flex: 0 0 auto; min-width: 3.5em; max-width: 60%; margin-left: auto; }
+/* F1-D6: building.html keeps the mode word whole and cuts the state badge ("waiting f..."): the mode is a word of at most nine ems and a longer one (autonomous-with-policy) is cut with an
+   ellipsis (its whole text is the title) so that it never pushes the state out; the state is what gives way when the row is full, down to three and a half ems, and is itself cut by an ellipsis */
+.wb-plate-mode { flex: 0 0 auto; min-width: 0; max-width: 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--pui-text-muted); }
+.wb-plate-state { display: flex; justify-content: flex-end; flex: 0 1 auto; min-width: 3.5em; margin-left: auto; }
 .wb-st { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 .wb-plate-meters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .wb-plate-meter { display: grid; gap: 1px; font-variant-numeric: tabular-nums; }

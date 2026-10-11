@@ -440,8 +440,7 @@ export function createEngine(host, options) {
 
   // What the drawing says about itself to the page that measures the room round it: `dim` is true for a project that is not accepted, whose last data stays as it
   // was (building.html draws the notice band over it, not the drawing fitted under the band).
-  // `bandOver`: the notice band floats over this drawing and is not part of what its camera fits (the Control room's server room keeps its size under it, F2-D15)
-  const about = () => ({ dim: Boolean(content && content.dim), bandOver: Boolean(content && content.bandOver) });
+  const about = () => ({ dim: Boolean(content && content.dim) });
 
   // The City's labels as the fit needs them: where each stands on the closed City (`fitAnchor`, not where it is in the middle of a close) in camera space and how big it is on the screen (a quiet building's dot is small, its card is not)
   function labelRoom() {

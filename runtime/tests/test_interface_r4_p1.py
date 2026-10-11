@@ -86,24 +86,22 @@ def test_a_material_that_turns_translucent_asks_for_a_new_program_and_only_then(
     # A-81: a program is compiled with OPAQUE (alpha forced to 1) while `transparent` is false and is not compiled again when `transparent` alone changes, so a shell first drawn closed
     # stayed whole while it faded. The flip bumps the material's version (`needsUpdate`), and nothing else does: not every frame
     got = run_node(tmp_path, SHELL_JS + r"""
-const material = shell[0];
+const all = [...new Set([...shell, ...roof])];
 const log = [];
-let before = material.version, was = material.transparent;
+const state = all.map((m) => ({ m, before: m.version, was: m.transparent }));
+const sample = () => {
+  for (const s of state) {
+    log.push({ flipped: s.m.transparent !== s.was, bumped: s.m.version > s.before });
+    s.before = s.m.version; s.was = s.m.transparent;
+  }
+};
 world.setFocus("a");
-for (let f = 0; f < 120; f++) {
-  world.step(1 / 60);
-  log.push({ flipped: material.transparent !== was, bumped: material.version > before, transparent: material.transparent });
-  before = material.version; was = material.transparent;
-}
+for (let f = 0; f < 120; f++) { world.step(1 / 60); sample(); }
 world.setFocus(null);
-for (let f = 0; f < 240; f++) {
-  const moving = world.step(1 / 60);
-  log.push({ flipped: material.transparent !== was, bumped: material.version > before, transparent: material.transparent });
-  before = material.version; was = material.transparent;
-  if (!moving) break;
-}
-console.log(JSON.stringify({ log, all: shell.every((m) => typeof m.version === "number") }));
+for (let f = 0; f < 240; f++) { const moving = world.step(1 / 60); sample(); if (!moving) break; }
+console.log(JSON.stringify({ log, count: all.length, roofs: roof.length }));
 """)
+    assert got["roofs"] >= 1 and got["count"] > got["roofs"], "the shell and the roof are both checked"
     log = got["log"]
     flips = [row for row in log if row["flipped"]]
     assert len(flips) >= 2, "the shell goes translucent on the open and solid again on the close"
@@ -214,8 +212,8 @@ def test_the_plate_cuts_the_mode_word_and_keeps_the_state_badge():
     css = css_file("building")
     mode = rule(css, ".wb-plate-mode")
     state = rule(css, ".wb-plate-state")
-    assert mode.get("min-width") == "0" and mode.get("text-overflow") == "ellipsis" and mode.get("overflow") == "hidden", "the mode is the part that gives way, with an ellipsis"
-    assert state.get("flex") == "0 0 auto" and "max-width" in state and "min-width" in state, "the state keeps its width up to a share of the row"
+    assert mode.get("text-overflow") == "ellipsis" and mode.get("overflow") == "hidden" and mode.get("max-width") == "9em" and mode.get("flex") == "0 0 auto", "a common mode word stays whole (building.html); a long one is cut at nine ems with an ellipsis"
+    assert state.get("flex") == "0 1 auto" and state.get("min-width") == "3.5em", "the state badge is what gives way when the row is full, as the page's `waiting f...`, down to a floor"
 
 
 # --- F1-D8: the phone's room is framed between the buttons, the card hangs from the sheet -------------------------------------------------------------------------
@@ -265,3 +263,31 @@ def test_the_city_list_names_a_project_at_16_px_on_a_phone():
     got = sizes(css_file("city"), [".wb-building-name"])
     assert got[".wb-building-name"] == "16px"
     assert rule(without_media(css_file("city")), ".wb-building-sub").get("font-size") == "12px", "its line under it is a meta line"
+
+
+# --- F2-D15: the server room stands beside the accept band, not under it ---------------------------------------------------------------------------------------------
+
+@needs_node
+def test_the_room_stands_in_the_strip_beside_a_tall_band_below_the_cards(tmp_path):
+    got = run_node(tmp_path, r"""
+import { insetsBesideBand, MIN_STRIP } from "@JS@/scene/band.js";
+const rect = (left, top, right, bottom) => ({ left, top, right, bottom, width: right - left, height: bottom - top });
+const scene = rect(0, 0, 1280, 800);
+const counted = { left: 564, right: 715, top: 68, bottom: 70, pad: 1.04 };
+const free = { left: 240, right: 715, top: 68, bottom: 70, pad: 1.04 };
+const kpis = rect(16, 72, 224, 245);
+const tall = rect(236, 72, 548, 693);
+const out = {
+  tall: insetsBesideBand({ counted, free, band: tall, scene, kpis }),
+  none: insetsBesideBand({ counted, free, band: null, scene, kpis }) === free,
+  wide: insetsBesideBand({ counted, free, band: rect(236, 70, 1000, 120), scene, kpis }) === counted,
+  narrow: insetsBesideBand({ counted, free, band: rect(150, 72, 400, 693), scene, kpis }) === free,
+  min: MIN_STRIP,
+};
+console.log(JSON.stringify(out));
+""")
+    assert got["tall"] == {"left": 8, "right": 1280 - 236 + 12, "top": 257, "bottom": 70, "pad": 1.04}, "the strip left of the band (8 px to 12 px before it), under the KPI cards, above the dock"
+    assert got["none"] is True and got["wide"] is True, "no band: the page's insets; a strip along the top: the page's own, which put the drawing under it"
+    assert got["narrow"] is True, "no strip worth having beside it: the band floats over the drawing"
+    source = text("js/views/control.js")
+    assert "insetsBesideBand({ counted, free: frame.insets(panel.el, { notice: false })" in source and "frame.isPhone()" in source, "the Control room asks for it, never on a phone (the page's band always counts there)"

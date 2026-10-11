@@ -7,6 +7,7 @@ import * as api from "../api.js";
 import { h } from "../dom.js";
 import { EVENT as DRAWER_EVENT } from "../frame/drawer.js";
 import { createPanel } from "../frame/panel.js";
+import { insetsBesideBand } from "../scene/band.js";
 import { createEngine, NoWebGL } from "../scene/engine.js";
 import * as router from "../router.js";
 import { bindSwipe } from "../swipe.js";
@@ -61,7 +62,12 @@ export function createControlView(frame) {
   try {
     engine = createEngine(frame.sceneHost, {
       label: "Server room, loading",
-      getInsets: (about) => frame.insets(panel.el, { notice: !(about && about.bandOver) }),   // F2-D15 (R4-P1, one line of this file): a band that floats over the room is not what the camera fits
+      getInsets: () => {   // F2-D15 (R4-P1): a band over the scene is not what the camera fits; the room stands in the strip beside it (scene/band.js)
+        const counted = frame.insets(panel.el);
+        if (frame.isPhone() || frame.noticeBox.hidden) return counted;
+        const rect = (el) => el.getBoundingClientRect();
+        return insetsBesideBand({ counted, free: frame.insets(panel.el, { notice: false }), band: rect(frame.noticeBox), scene: rect(frame.sceneHost), kpis: rect(frame.kpis.el) });
+      },
       onOpen: (id) => go(model.OPENS[id] || "skills"),
       onUnavailable: () => frame.sceneUnavailable(true),
     });
