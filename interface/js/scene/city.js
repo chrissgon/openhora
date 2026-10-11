@@ -61,9 +61,10 @@ export function treesOf(kind, col, row) {
   return out;
 }
 
-// A tree as `city.html` draws it (A-44, R4-B4): a trunk of two faces and a crown of about eight visible triangles in four tones lit from the upper left, over a flat
-// shadow ellipse. At size 1 (the page's most common tree) the crown is 20 px across and 22.6 px tall at the City's 23.8 px to a camera unit, the trunk 5.9 px across and
-// 12.6 px tall, the crown's lowest point on the trunk's top and the shadow's centre 9.5 px to the left of the trunk, which are the numbers below in world units.
+// A tree as `city.html` draws it (A-44, R4-B4) with the variety and the trunk the maintainer asked for (A-55, M-14): a crown of about eight visible triangles in four tones lit from the
+// upper left (here an icosahedron in one of four variants), over a flat shadow ellipse. At size 1 (the page's most common tree) the crown is 20 px across and 22.6 px tall at the City's
+// 23.8 px to a camera unit and the shadow's centre 9.5 px to the left of the trunk, which are the numbers below in world units; the trunk is thinner than the page's 5.9 px, a thin
+// six-sided column 3 to 5 px across and 12.6 px tall, narrower at the top, with its top hidden in the crown.
 export const TREE = Object.freeze({
   trunkFoot: 0.085, trunkTop: 0.058, trunkHeight: 0.65, trunkSides: 6,   // a thin trunk, a little tapered (M-14), the earlier look: six sides, wider at the foot, its top hidden in the crown
   crownRadius: 0.5, crownStretch: 1.16,       // an icosahedron on a vertical axis, taller than wide as the page's is (20.1 by 22.6 px)
@@ -238,7 +239,7 @@ export function buildGround(kit, n) {
       const kind = blockKind(col, row, count);
       base.box(BLOCK_W, KERB, BLOCK_D, cx, 0, cz, { top: tones.walk, left: tones.kerb, right: tones.kerb });
       paving.flat(cx - PAVED_W / 2, cz - PAVED_D / 2, cx + PAVED_W / 2, cz + PAVED_D / 2, KERB + ABOVE, kind === "park" ? tones.grass : tones.plaza);
-      for (const [dx, dz, size] of treesOf(kind, col, row)) planted.push([cx + dx, cz + dz, size, treeLook(col, row, Math.round(dx * 7))]);
+      treesOf(kind, col, row).forEach(([dx, dz, size], k) => planted.push([cx + dx, cz + dz, size, treeLook(col, row, k)]));   // a tree's look is seeded by its place in its block: two trees of a block never share one
       // the lane line runs down the middle of each street beside the block: along x under it, along z beside it
       for (let t = -BLOCK_W / 2 + DASH / 2; t <= BLOCK_W / 2 - DASH / 2; t += DASH + GAP) {
         lanes.flat(cx + t - DASH / 2, cz + BLOCK_D / 2 + STREET / 2 - LANE / 2, cx + t + DASH / 2, cz + BLOCK_D / 2 + STREET / 2 + LANE / 2, ABOVE, tones.lane);

@@ -1055,7 +1055,7 @@ console.log(JSON.stringify(out));
 def test_the_door_label_is_text_alone_anchored_to_the_plate_and_mapped_onto_it_as_the_camera_moves(tmp_path):
     got = run_node(tmp_path, ROOMS_JS + r"""
 import { FakeNode } from "@FAKE@";
-import { placeLabels, FIT_SIZE } from "@JS@/scene/labels.js";
+import { placeLabels, FIT_SIZE, MIN_FIT_HEIGHT } from "@JS@/scene/labels.js";
 import { doorNode } from "@JS@/scene/plates.js";
 const out = {};
 const { world } = make({ lots: [lot("a"), lot("b"), lot("c")] });
@@ -1101,6 +1101,21 @@ placeLabels([e2], proj, { hidden: false, size: { w: 1280, h: 800 } });
 shown = false;
 placeLabels([e2], proj, { hidden: false, size: { w: 1280, h: 800 } });
 out.hidden = hiddenFlags;
+// too small to read: the plate's height on the screen under the minimum hides the label (a phone's Lobby)
+const small = [];
+const e3 = { spec: label, node: { style: { setProperty() {} }, classList: { toggle: (c, on) => small.push(on), add() {}, remove() {} } }, width: 1, height: 1 };
+placeLabels([e3], (p) => ({ x: proj(p).x * 0.2, y: proj(p).y * 0.2 }), { hidden: false, size: { w: 1280, h: 800 } });   // the plate's height 11.7 px becomes 2.3 px
+placeLabels([e3], proj, { hidden: false, size: { w: 1280, h: 800 } });                                                     // and back to 11.7 px
+out.small = small;
+out.min = MIN_FIT_HEIGHT;
+// a floor that is still tweening to its full size (`vis` under 1) has no label: the label ignores the floor's own scale
+const tw = world.towers.get("a");
+const live = world.text(roomModel("planning")).labels.find((l) => l.id === "door-label");
+const before = live.shown();
+tw.vis[0] = 0.8;
+const tweening = live.shown();
+tw.vis[0] = 1;
+out.tween = [before, tweening, live.shown()];
 console.log(JSON.stringify(out));
 """)
     assert got["spec"] == [True, True, True, True] and got["corners"] == [True] * 3, "the label is anchored to the plaque's three corners (which the tower moves with the floor) and shown while the plate is"
@@ -1109,6 +1124,8 @@ console.log(JSON.stringify(out));
     assert got["mapped"] == [True, True, True], "the matrix maps the label's box onto the plate's parallelogram: same position, size and slant"
     assert got["follows"] is True, "and it follows the camera"
     assert got["hidden"] == [["is-culled", False], ["is-culled", True]], "it is hidden when the plate is not shown"
+    assert got["small"] == [True, False] and got["min"] == 8, "under 8 px of plate the label is hidden (a phone, a far camera), and it comes back when the plate is big enough"
+    assert got["tween"] == [True, False, True], "the label waits until its floor has its full size: it does not follow the floor's own scale while it tweens"
     css = (INTERFACE / "css" / "building.css").read_text(encoding="utf-8")
     rule = css[css.index(".wb-label-fit {"):css.index("}", css.index(".wb-label-fit {"))]
     assert "background: none" in rule and "border: 0" in rule and "box-shadow: none" in rule and "var(--pui-text)" in rule and "pointer-events: none" in rule, "no background, border or shadow; the text in a token colour; never the pointer's"

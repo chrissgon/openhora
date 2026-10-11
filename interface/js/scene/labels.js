@@ -66,8 +66,10 @@ function placeColumn(plates, project, hidden, insets, size) {
   });
 }
 
-/** The size, in pixels, a fitted label is laid out in before its matrix maps it onto its plate (the same numbers as `.wb-label-fit` in scene.css). */
+/** The size, in pixels, a fitted label is laid out in before its matrix maps it onto its plate (the same numbers as `.wb-label-fit` in `css/building.css`). */
 export const FIT_SIZE = Object.freeze({ w: 108, h: 45 });
+/** The least height, in pixels, a fitted label's plate may have on the screen for its text to be shown (the text is 12 px at 45 px of plate: under this it would be under 2 px). */
+export const MIN_FIT_HEIGHT = 8;
 
 /**
  * Fit a label on a plane of the scene (A-59): `spec.fit` has three world points of it, `origin` (the bottom left), `right` (a width to its right) and `up` (a height above it); the
@@ -85,7 +87,8 @@ function fitLabel(entry, project) {
   entry.node.style.setProperty("--wb-d", number((o.y - u.y) / FIT_SIZE.h));
   entry.node.style.setProperty("--wb-x", `${u.x.toFixed(2)}px`);
   entry.node.style.setProperty("--wb-y", `${u.y.toFixed(2)}px`);
-  entry.node.classList.toggle("is-culled", entry.spec.shown ? !entry.spec.shown() : false);
+  // hidden while the plate is not shown, and when it is too small to read: its height under MIN_FIT_HEIGHT pixels (a phone's Lobby, a far camera)
+  entry.node.classList.toggle("is-culled", (entry.spec.shown ? !entry.spec.shown() : false) || Math.hypot(o.x - u.x, o.y - u.y) < MIN_FIT_HEIGHT);
 }
 
 /**

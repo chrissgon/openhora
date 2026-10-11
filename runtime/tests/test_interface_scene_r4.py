@@ -574,7 +574,7 @@ console.log(JSON.stringify(out));
     assert abs(crown_w - 20.1) < 1.5 and abs(crown_h - 22.6) < 1.5 and 3 < trunk_w < 5 and abs(shadow_w - 20.4) < 1.5, "the page's tree at size 1: 20.1 by 22.6 px crown and 20.4 px shadow (city.html); the trunk is thinner than its 5.9 px, 3 to 5 px (M-14: the earlier look)"
     assert -11 < got["shadowLeft"] < -8, "the shadow's centre lies about 9.5 px to the left of the trunk, as the page draws it"
     assert got["turns"] == ["0,0,0,1"], "no tree is turned: its facets were lit once, for the one camera (a turn would light a crown from another side)"
-    assert got["sizesSet"] is True, "the variation between trees is their size, as before"
+    assert got["sizesSet"] is True, "trees differ in size (and, since M-14, in crown, width and height)"
     assert got["instanced"][0] == 6 and got["instanced"][1] == [False] * 6 and got["instanced"][2] is True, "six instanced meshes (the trunks, the shadows and a crown for each of the four variants: M-14), the crowns together as many as the trunks, none casting a real-time shadow (M-5)"
 
 
@@ -710,3 +710,25 @@ console.log(JSON.stringify(out));
     assert got["height"][0] == got["height"][1] and got["box"][0] == 1.008 and got["box"][1] == 0.224, "a mark 1.008 tall and 0.224 across (it was 1.44 and 0.32)"
     assert got["tone"] is True, "the same amber tones"
     assert got["marks"][0] == 1 and got["marks"][1] == 3.65 and got["marks"][2] == -2.95, "beside its floor's right back corner, where it stood"
+
+
+@needs_node
+def test_the_trees_of_a_block_never_share_a_look_and_a_look_is_seeded_by_the_trees_place_in_its_block(tmp_path):
+    # review of R4-B5: the look was seeded by `Math.round(dx * 7)`, so two trees of a block whose rounded offsets collided had the same crown, width and height
+    got = run_node(tmp_path, TREES_JS + r"""
+import { treesOf, treeLook, blockKind } from "@JS@/scene/city.js";
+const out = { blocks: 0, clashes: 0, trees: 0 };
+for (let col = -8; col < 8; col++) for (let row = -6; row < 7; row++) {
+  const trees = treesOf(blockKind(col, row, 2), col, row);
+  const looks = trees.map((t, k) => JSON.stringify(treeLook(col, row, k)));
+  out.blocks += 1; out.trees += trees.length;
+  if (new Set(looks).size !== looks.length) out.clashes += 1;
+}
+// the planted trees follow it: the same city, the look of tree k of a block
+const ground = buildGround(createKit(palette), 2);
+out.planted = ground.trees;
+console.log(JSON.stringify(out));
+""")
+    assert got["blocks"] == 16 * 13 and got["trees"] > 300 and got["clashes"] == 0, "no two trees of a block have the same crown, width and height"
+    city = (SCENE / "city.js").read_text(encoding="utf-8")
+    assert "treeLook(col, row, k)" in city and "Math.round(dx * 7)" not in city, "the look is seeded by the tree's place in its block, not by its rounded offset"
