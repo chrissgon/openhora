@@ -1,0 +1,100 @@
+{
+  "id": 6,
+  "task_id": 6,
+  "run_id": 5,
+  "kind": "effect",
+  "title": "Pull request: Carry the providers",
+  "body": "Code opens this pull request after your approval, and nothing else:\n\nRepository: example-org/northwind-shop\nBase ← head: main ← wb/request-4\nCommit: one commit, made by the code provider with your own git and signature, over d1338445ecc8b9cd39d780c0cad4520ba6bdc0cc\nTitle: Carry the providers\nBody:\nWhat changes, and why.\n\nFiles:\n- src/app.py sha256 dba0082ec68e72d47fa926dcc91fb9b00961ceb4342554a0c2aa567144a5a6d3\n\nHash of this effect: dfd5922f5aa9441e95d21ed58bb9f2209a004912a1232e89f75f725bd37f3d4a\nApprove exactly this: python3 runtime/cli.py approve --project <project> --id <this pending decision's id> --sha256 dfd5922f5aa9441e95d21ed58bb9f2209a004912a1232e89f75f725bd37f3d4a\nOr answer with what to change, or reject it: nothing is sent until you approve.\n",
+  "payload": {
+    "body_cut": false,
+    "body_masked": 0,
+    "changeset": {
+      "blocked": false,
+      "file": null,
+      "files": 1,
+      "refused": [],
+      "removed": 0,
+      "sha256": "8c09b37123eb0d9dcec63788149e576b1614ed481ad002512d0a47a09cbf59fc"
+    },
+    "changeset_dir": "/home/demo/.openhora/data/northwind-shop/task-runs/4/changeset",
+    "changeset_file": "/home/demo/.openhora/data/northwind-shop/task-runs/4/changeset/changeset.json",
+    "effect": {
+      "base": "main",
+      "head": "wb/request-4",
+      "opened": true,
+      "repo": "example-org/northwind-shop"
+    },
+    "effect_file": "/home/demo/.openhora/data/northwind-shop/task-runs/5/effect.json",
+    "ending": "gate",
+    "entered": {
+      "agents_md": null,
+      "files": 5,
+      "kind": "general"
+    },
+    "gate": {
+      "parsed": true,
+      "payload_file": "/home/demo/.openhora/data/northwind-shop/task-runs/5/payload.md",
+      "payload_sha256": "c1db13ab836db24060490c83b83c089adb1ce9e6e1899d81e02d398cec22e6b1",
+      "recovered": true,
+      "tmp_left": [
+        {
+          "bytes": 160,
+          "name": "tmp.AbCd1234/payload.md"
+        }
+      ],
+      "why": null
+    },
+    "kept": [],
+    "left_out": [
+      {
+        "path": "AGENTS.md",
+        "reason": "the skill does not declare it"
+      },
+      {
+        "path": "docs/workbench/runtime.json",
+        "reason": "the runtime's configuration never enters a run"
+      }
+    ],
+    "payload_file": "/home/demo/.openhora/data/northwind-shop/task-runs/5/payload.md",
+    "response_file": "/home/demo/.openhora/data/northwind-shop/task-runs/5/outputs/response.md",
+    "returned": [],
+    "routing": {
+      "adapter": "h",
+      "autonomy": true,
+      "bands": {
+        "floor": "needs a test",
+        "strong": "reliable"
+      },
+      "billing": "subscription",
+      "checks": {
+        "image": null,
+        "measurement": null
+      },
+      "key": null,
+      "model": "m",
+      "proven": true,
+      "reasons": [
+        "the band on the floor model is needs a test",
+        "no key for the floor model: the runtime's own key (WB_RUNTIME_FLOOR_KEY) is not stored; the gate file names no variable for the floor model's key"
+      ],
+      "tier": "strong",
+      "web": false
+    },
+    "run_dir": "/home/demo/.openhora/data/northwind-shop/task-runs/5",
+    "state": null,
+    "use": "0123abcd",
+    "why": "the run wrote the file of its confirmation gate and asks for approval"
+  },
+  "payload_sha256": "dfd5922f5aa9441e95d21ed58bb9f2209a004912a1232e89f75f725bd37f3d4a",
+  "status": "open",
+  "resolution": null,
+  "answer": null,
+  "created_at": "2026-10-01T09:00:00Z",
+  "resolved_at": null,
+  "resolved_by": null,
+  "agent": null,
+  "actions": [
+    "approved",
+    "rejected"
+  ]
+}

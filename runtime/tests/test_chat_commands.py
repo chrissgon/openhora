@@ -171,4 +171,4 @@ def test_the_client_reads_the_commands_with_one_get_and_the_token_in_the_header(
 def test_the_client_has_the_function_and_still_one_fetch_path():
     client = (JS / "api.js").read_text(encoding="utf-8")
     assert re.search(r"export function commands\(p, options\) \{\n  return send\(\"GET\", `/projects/\$\{enc\(p\)\}/commands`, options\);\n\}", client)
-    assert len(re.findall(r"\bfetch\(", client)) == 1
+    assert len(re.findall(r"\btransport\(", client)) == 1 and not re.search(r"\bfetch\(", client)
