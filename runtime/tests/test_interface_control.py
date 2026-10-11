@@ -796,4 +796,4 @@ def test_the_server_room_builder_draws_with_the_engines_kit_holds_no_colour_and_
     engine = (JS / "scene" / "engine.js").read_text(encoding="utf-8")
     assert "buildServer" not in engine and "server:" not in engine and '"server"' not in engine, "the engine names no server-room builder: the scene registers itself through BUILDERS (B3 edited the engine for the brackets, so this is a rule about the registry, not a ban on every edit)"
     control = (VIEWS / "control.js").read_text(encoding="utf-8")
-    assert 'engine.show("server"' in control and "NoWebGL" in control and "frame.sceneUnavailable" in control and "frame.insets(panel.el)" in control
+    assert 'engine.show("server"' in control and "NoWebGL" in control and "frame.sceneUnavailable" in control and "frame.insets(panel.el)" in control and "insetsBesideBand" in control   # R4-P1 F2-D15: the room stands beside the accept band (scene/band.js)

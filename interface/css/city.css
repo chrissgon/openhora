@@ -86,4 +86,6 @@
      stands in the flow of the main area, under them */
   .wb-buildings:focus-within { top: 8px; right: 8px; left: 8px; z-index: 6; width: auto; }
   .wb-frame.no-scene .wb-buildings { position: static; top: auto; left: auto; width: auto; margin: 8px 8px 0; }
+  /* M-32: a project's name in the list is reading text, 16 px; its line under it is a meta line at 12 */
+  .wb-building-name, .wb-buildings .wb-empty, .wb-empty-card .wb-empty { font-size: 16px; }   /* `.wb-empty` alone is the frame's too (the tracking bar, the switcher, the waiting card): scoped to the City's own */
 }

@@ -533,7 +533,7 @@ def test_the_floor_card_of_the_building_hangs_from_a_point_at_the_bottom_and_the
     assert got["top"] == [{"x": 365, "y": 80}, {"x": 500, "y": 64}]
     assert got["topFit"] == [{"top": 166, "right": 70, "cornerRight": 10}, {"top": 64, "right": 300}, {}]
     building = (VIEWS / "building.js").read_text(encoding="utf-8")
-    assert "cornerBottom: level + PHONE_TOOLS_H" in building and "cornerLeft: 10" in building and "cornerRight: 10" in building
+    assert "cornerBottom: level }" in building and "cornerLeft: 10" in building and "cornerRight: 10" in building   # R4-P1 F1-D8: the camera buttons moved under the KPI tiles (R-9), so the card hangs from the sheet's edge
     assert re.search(r"\.wb-corner-card\.is-bottom \{ transform: translate\(0, -100%\); \}", CSS)
     assert re.search(r"\.wb-floor-steps \{[^}]*translate: 0 calc\(0px - var\(--wb-y, 10px\)\)", "\n".join(PHONE) + CSS), "the floor steps stand level with the camera buttons"
 
