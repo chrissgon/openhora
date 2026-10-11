@@ -177,7 +177,7 @@ export function buildWorld(kit, model) {
           tips.set("desk", words.desk);
           tips.set("lobby-door", words.door);
           if (room.board) labels.push({ id: "board-label", kind: "board", rank: 0, title: room.board.title, lines: room.board.lines, dot: room.board.dot, decisions: 0, running: false, anchor: tower.boardAnchors[index], make: boardNode });
-          if (room.door) labels.push({ id: "door-label", kind: "door", rank: 5, text: "Control room", decisions: 0, running: false, anchor: tower.doorAnchors[index], make: doorNode });
+          if (room.door) labels.push({ id: "door-label", kind: "door", rank: 5, text: "Control room", decisions: 0, running: false, anchor: tower.doorAnchors[index], fit: tower.doorPlaques[index], shown: () => tower.open > 0.9 && tower.vis[index] > 0.6, make: doorNode });
         } else {
           // a plate for each floor beside the building (desktop and tablet); the phone has the compact card in the corner instead, which is the page's
           if (!m.frame) {

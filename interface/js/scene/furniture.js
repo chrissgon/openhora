@@ -188,6 +188,8 @@ export function chair(pb, t) {
 // --- the Lobby's door ----------------------------------------------------------------------------------------------------------------
 
 export const DOOR = Object.freeze({ z0: 3.18, z1: 4.8, top: 2.28 });
+/** The plaque on the door leaf (A-59, M-17), in page units: a framed plate at about eye height on the upper sunk panel, standing out of the leaf by `relief`. The HTML label "Control room" is fitted on its plate. */
+export const PLAQUE = Object.freeze({ z0: 3.58, z1: 4.3, y0: 1.38, y1: 1.62, x: 0.116, relief: 0.035, rim: 0.05 });
 
 /** The door of the Lobby on the left wall, set into the wall: a casing, a leaf with two sunk panels and a handle. */
 export function door(pb, t) {
@@ -203,4 +205,8 @@ export function door(pb, t) {
     pb.side(t.doorPanel, 3.447, y0, 4.428, y1, leaf + 2 * E);
   }
   pb.box({ top: t.knob, left: t.knob, right: t.knob }, leaf, 0.925, 4.355, 0.04, 0.11, 0.135);
+  // the plaque: a frame in relief on the upper panel and, on it, the plate the label is fitted on (the plate is the label's ground)
+  const q = PLAQUE;
+  pb.box(t.plaque.frame, q.x + 0.004, q.y0 - q.rim, q.z0 - q.rim, q.relief, q.y1 - q.y0 + 2 * q.rim, q.z1 - q.z0 + 2 * q.rim);
+  pb.side(t.plaque.plate, q.z0, q.y0, q.z1, q.y1, q.x + 0.004 + q.relief + E);
 }

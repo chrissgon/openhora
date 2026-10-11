@@ -114,8 +114,6 @@
   white-space: normal;
 }
 .wb-label-board .wb-label-sub { font-size: 11px; overflow-wrap: anywhere; white-space: normal; }
-.wb-label-door { transform: translate(0, -100%); }
-.wb-door-tag { padding: 4px 10px; font-size: 12px; pointer-events: none; }
 
 /* the Building's panel (R-27): the head with Project state as an icon button, the facts, Requests (n), Documents (n) and Floors, some space after the last row */
 .wb-state-btn { flex: none; width: 32px; min-height: 32px; margin-left: auto; padding: 0; }
@@ -175,3 +173,24 @@
 }
 
 .wb-chip-waiting { font-weight: 400; }
+
+/* the Lobby's door label (A-59, M-17): text alone, laid out at 108 by 45 px and mapped onto the plate of the door by the matrix labels.js writes (`--wb-a` to `--wb-d`; `FIT_SIZE`), so it
+   is the plate's own size and slant and follows it with the camera; the plate in the scene is its ground, so it has no background, border or shadow */
+.wb-label-fit {
+  width: 108px;
+  height: 45px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform-origin: 0 0;
+  transform: matrix(var(--wb-a, 1), var(--wb-b, 0), var(--wb-c, 0), var(--wb-d, 1), 0, 0);
+  color: var(--pui-text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  background: none;
+  border: 0;
+  box-shadow: none;
+  pointer-events: none;
+}
+.wb-label-fit .wb-door-tag { pointer-events: none; }

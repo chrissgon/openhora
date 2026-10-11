@@ -5,7 +5,7 @@
 // Everything static is baked into a few meshes in the tones of `roomTones` (kit.batch); the tower (tower.js) puts a room in each of its floors and closes the building round
 // them with the walls the City shows. No colour and no name is written here: the page's measures are in room-frame.js and furniture.js.
 
-import { BOARD_RIGHT, CASE_LEFT, DOOR, NOTE_CAPACITY, SEAT, bindersShown, bookcase, chair, desk, door, taskBoard } from "./furniture.js";
+import { BOARD_RIGHT, CASE_LEFT, DOOR, NOTE_CAPACITY, PLAQUE, SEAT, bindersShown, bookcase, chair, desk, door, taskBoard } from "./furniture.js";
 import { boxBrackets, planeBrackets } from "./marks.js";
 import { buildOwl, towardCamera } from "./owl-build.js";
 import { roomTones } from "./palette.js";
@@ -38,6 +38,8 @@ export function anchors() {
   return {
     board: { x: FRAME.X((BOARD_LEFT + BOARD_RIGHT) / 2), y: FRAME.Y(2.37), z: FRAME.Z(WALL) },
     door: { x: FRAME.X(WALL), y: FRAME.Y(DOOR.top), z: FRAME.Z((DOOR.z0 + DOOR.z1) / 2) },
+    // the plaque's plate (A-59): its bottom left corner as the camera sees it (the larger z is the left), and the corners a width to its right and a height above it
+    plaque: { origin: { x: FRAME.X(PLAQUE.x + 0.004 + PLAQUE.relief), y: FRAME.Y(PLAQUE.y0), z: FRAME.Z(PLAQUE.z1) }, right: { x: FRAME.X(PLAQUE.x + 0.004 + PLAQUE.relief), y: FRAME.Y(PLAQUE.y0), z: FRAME.Z(PLAQUE.z0) }, up: { x: FRAME.X(PLAQUE.x + 0.004 + PLAQUE.relief), y: FRAME.Y(PLAQUE.y1), z: FRAME.Z(PLAQUE.z1) } },
   };
 }
 

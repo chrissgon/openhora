@@ -125,8 +125,8 @@ export function cityTones(palette) {
     grass: pick(mix(bg, T.success, 0.26), mix(bgt, T.success, 0.3)),
     // the bark (M-14): the warn orange turned a little toward the error red and darkened toward the ink in light and toward the page colour in dark, so that it is brown and
     // never yellow in either; the sides the sun does not reach are a step darker
-    trunk: pick(mix(mix(T.warn, T.error, 0.3), ink, 0.42), mix(mix(T.warn, T.error, 0.3), bgt, 0.52)),
-    trunkShade: pick(mix(mix(mix(T.warn, T.error, 0.3), ink, 0.42), ink, 0.3), mix(mix(mix(T.warn, T.error, 0.3), bgt, 0.52), bgt, 0.34)),
+    trunk: pick(mix(mix(T.warn, T.error, 0.3), ink, 0.42), mix(mix(T.warn, T.error, 0.3), bgt, 0.62)),
+    trunkShade: pick(mix(mix(mix(T.warn, T.error, 0.3), ink, 0.42), ink, 0.3), mix(mix(mix(T.warn, T.error, 0.3), bgt, 0.62), bgt, 0.34)),
     // the four tones of a crown, lightest first: facets are given the tone of the light they face
     crown: [
       pick(mix(bg, T.success, 0.48), mix(bgt, T.success, 0.62)),
@@ -251,6 +251,11 @@ export function roomTones(palette) {
     doorFrame: pick(eh(0.4), eh(0.4)),
     door: city.door,
     doorShade: mix(th, ink, 0.38),
+    // the plaque on the Lobby's door (A-59): a frame in the door's own brand tones, darker, and a plate that the label's text (`--pui-text`) reads on in light and in dark
+    plaque: {
+      frame: solid(mix(th, ink, 0.34), mix(th, ink, 0.5), mix(th, ink, 0.42)),
+      plate: pick(mix(bg, emph, 0.3), mix(bgt, tx, 0.16)),
+    },
     doorPanel: pick(mix(bg, th, 0.78), mix(bgt, th, 0.5)),
     knob: pick(bg, tx),
     // the two potted plants (A-45): a dark pot in three tones, and the trees' four crown tones

@@ -141,7 +141,7 @@ export function createTower(kit, lot, cx, cz) {
     vis: lot.floors.map(() => 1), visTarget: lot.floors.map(() => 1),
     motions: [], roomMotions: [], markers: [], outlines: [], inner: [], parts: [], plants: null, beacon: null, tag: null, brackets: bracketing,
     shown: lot.floors.map((f) => ({ state: f.state, window: f.window, decisions: f.decisions, notes: null, documents: null })),
-    cardAnchor: new THREE.Vector3(cx, 0, cz), plateAnchors: [], boardAnchors: [], doorAnchors: [], tagAnchor: new THREE.Vector3(), marksHidden: false,
+    cardAnchor: new THREE.Vector3(cx, 0, cz), plateAnchors: [], boardAnchors: [], doorAnchors: [], doorPlaques: [], tagAnchor: new THREE.Vector3(), marksHidden: false,
   };
   const fadeMats = [];
   const roofMats = [];
@@ -609,6 +609,8 @@ export function createTower(kit, lot, cx, cz) {
       const a = anchors();
       (tower.boardAnchors[i] = tower.boardAnchors[i] || new THREE.Vector3()).set(cx + a.board.x, y + a.board.y, cz + a.board.z);
       (tower.doorAnchors[i] = tower.doorAnchors[i] || new THREE.Vector3()).set(cx + a.door.x, y + a.door.y, cz + a.door.z);
+      const plaque = (tower.doorPlaques[i] = tower.doorPlaques[i] || { origin: new THREE.Vector3(), right: new THREE.Vector3(), up: new THREE.Vector3() });
+      for (const corner of ["origin", "right", "up"]) plaque[corner].set(cx + a.plaque[corner].x, y + a.plaque[corner].y, cz + a.plaque[corner].z);
     });
     tower.cardAnchor.set(cx, worldY(roofY(n, s), s) + 1.6, cz);
   };

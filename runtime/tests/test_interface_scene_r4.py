@@ -679,3 +679,34 @@ console.log(JSON.stringify(out));
     assert got["dark"]["bark"][0] < got["dark"]["bark"][1], "in dark the bark is darker than the old trunk"
     palette_js = (SCENE / "palette.js").read_text(encoding="utf-8")
     assert "mix(T.warn, T.error, 0.3)" in palette_js and "trunkShade" in palette_js, "the bark is a mix of tokens, with a shade of its own"
+
+
+# --- the decision mark at 70 percent (A-60, M-18, R4-B5) ---------------------------------------------------------------------------------------------
+
+@needs_node
+def test_the_decision_mark_is_drawn_at_seventy_percent_of_its_first_size_from_one_constant_in_the_same_place_and_colour(tmp_path):
+    got = run_node(tmp_path, WORLD_JS + r"""
+import { MARK, MARK_SCALE, MARK_HEIGHT, decisionMark } from "@JS@/scene/marks.js";
+const out = {};
+out.scale = MARK_SCALE;
+out.sizes = [MARK.cube, MARK.gap, ...MARK.bar].map((v) => +(v / MARK_SCALE).toFixed(3));   // the first build's: cube 0.32, gap 0.16, bar 0.32 x 0.96 x 0.32
+out.height = [+MARK_HEIGHT.toFixed(3), +((0.32 + 0.16 + 0.96) * 0.7).toFixed(3)];
+const kit = createKit(palette);
+const parent = new THREE.Group();
+const mark = decisionMark(kit, parent, 1, 0, 2);
+const box = new THREE.Box3().setFromObject(mark);
+out.box = [+(box.max.y - box.min.y).toFixed(3), +(box.max.x - box.min.x).toFixed(3), mark.position.toArray()];
+const mesh = mark.children[0];
+const colour = mesh.geometry.getAttribute("color");
+out.tone = new THREE.Color(colour.getX(0), colour.getY(0), colour.getZ(0)).getHexString() === cityTones(palette).mark.top.getHexString();
+// beside its floor, as before: the tower puts the mark at the same place, and its foot is on the slab
+const { world } = make({ lots: [lot("a", { floors: [{ ...lot("x").floors[0] }, { ...lot("x").floors[2], state: "waiting", window: "lit", decisions: 2 }] }), lot("b"), lot("c")] });
+const tower = world.towers.get("a");
+const marks = tower.overlay.children.filter((c) => c.userData.mark);
+out.marks = [marks.length, +marks[0].position.x.toFixed(3), +marks[0].position.z.toFixed(3)];
+console.log(JSON.stringify(out));
+""")
+    assert got["scale"] == 0.7 and got["sizes"] == [0.32, 0.16, 0.32, 0.96, 0.32], "every measure is the first build's times the one constant, 70 percent"
+    assert got["height"][0] == got["height"][1] and got["box"][0] == 1.008 and got["box"][1] == 0.224, "a mark 1.008 tall and 0.224 across (it was 1.44 and 0.32)"
+    assert got["tone"] is True, "the same amber tones"
+    assert got["marks"][0] == 1 and got["marks"][1] == 3.65 and got["marks"][2] == -2.95, "beside its floor's right back corner, where it stood"

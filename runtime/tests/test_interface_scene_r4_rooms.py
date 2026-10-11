@@ -1014,3 +1014,101 @@ console.log(JSON.stringify(out));
         assert min(r["board"], r["bookcase"], r["door"], *r["owls"]) > 0, "a plant covers neither the board of notes, nor the bookcase, nor the Lobby's door, nor the owl in any of its three places"
     assert all(x < 1.0 for x in got["wall"]), "against the left wall, the one that carries the windows"
     assert abs(got["ends"][0] - 0.916) < 0.3 and 4.976 < got["ends"][1] < 5.6, "one at the first end of the window run (z 0.916), one past its last end (z 4.976) and inside the room (5.6)"
+
+
+# --- the plaque on the Lobby's door and the label fitted on it (A-59, M-17) ------------------------------------------------------------------------
+
+@needs_node
+def test_the_lobbys_door_has_a_plaque_in_its_own_mesh_in_the_tokens_and_no_other_door_does(tmp_path):
+    got = run_node(tmp_path, ROOMS_JS + r"""
+import { PLAQUE } from "@JS@/scene/furniture.js";
+const out = {};
+const { world } = make({ lots: [lot("a"), lot("b"), lot("c")] });
+world.setFocus("a", true);
+const tower = world.towers.get("a");
+const t = roomTones(palette);
+const plate = hex(t.plaque.plate), frame = ["top", "left", "right"].map((k) => hex(t.plaque.frame[k]));
+out.doors = tower.parts.map((p) => (p.door ? colours(p.door.children[0]).has(plate) : null));
+out.frame = tower.parts.map((p) => (p.door ? frame.every((h) => colours(p.door.children[0]).has(h)) : null));
+// the rest of the room does not hold the plate's tone
+out.rooms = tower.parts.map((p, i) => colours(tower.inner[i].children[0].children[0]).has(plate));
+// the plaque is in the door's mesh: the pointer meets it as the door, and the mesh is the object of the door's hit
+world.setFloors("planning", null, true);
+const hit = world.hits.find((h) => h.id === "lobby-door");
+out.pickedAs = [Boolean(hit), hit.object === tower.parts[0].door, colours(hit.object.children[0]).has(plate)];
+// the plate sits on the leaf, at eye height, on the upper panel
+const box = new THREE.Box3().setFromObject(hit.object);
+out.size = [+(box.max.y - box.min.y).toFixed(2), PLAQUE.y0 > 1.0 && PLAQUE.y1 < 1.9, PLAQUE.z0 > 3.447 && PLAQUE.z1 < 4.428];
+out.tokens = [t.plaque.plate.isColor, hex(roomTones({ ...palette, dark: true }).plaque.plate) !== plate];
+console.log(JSON.stringify(out));
+""")
+    assert got["doors"] == [True, None, None, None] and got["frame"] == [True, None, None, None], "the plaque (frame and plate) is in the Lobby's door only: no other floor has a door"
+    assert got["rooms"] == [False] * 4, "and nothing else of a room is in the plate's tone"
+    assert got["pickedAs"] == [True, True, True], "the plaque is in the door's own mesh, so a click on it is a click on the door (the Control room)"
+    assert got["size"][1] is True and got["size"][2] is True, "at eye height on the upper sunk panel of the leaf"
+    assert got["tokens"] == [True, True], "the plate is a token mix that follows the palette"
+    furniture = (SCENE / "furniture.js").read_text(encoding="utf-8")
+    assert not re.search(r"#[0-9A-Fa-f]{3,8}\b|rgb\(|hsl\(|0x[0-9a-fA-F]{6}", furniture), "no colour literal in furniture.js"
+
+
+@needs_node
+def test_the_door_label_is_text_alone_anchored_to_the_plate_and_mapped_onto_it_as_the_camera_moves(tmp_path):
+    got = run_node(tmp_path, ROOMS_JS + r"""
+import { FakeNode } from "@FAKE@";
+import { placeLabels, FIT_SIZE } from "@JS@/scene/labels.js";
+import { doorNode } from "@JS@/scene/plates.js";
+const out = {};
+const { world } = make({ lots: [lot("a"), lot("b"), lot("c")] });
+const roomModel = (name) => model({ lots: [lot("a"), lot("b"), lot("c")], focus: "a", floor: name, room: { tips: { agent: "x" }, board: { title: "t", lines: [], dot: "theme" }, door: true, doorTip: "Control room" } });
+world.setFocus("a", true);
+world.setFloors("planning", null, true);
+const words = world.text(roomModel("planning"));
+const label = words.labels.find((l) => l.id === "door-label");
+const plaque = world.towers.get("a").doorPlaques[0];
+out.spec = [Boolean(label), label.fit === plaque, label.anchor === world.towers.get("a").doorAnchors[0], label.shown()];
+out.corners = ["origin", "right", "up"].map((k) => plaque[k].isVector3);
+// the corners are on the door's leaf, as the plate of the door's mesh is: bottom left, a width to the right (the camera's right is the smaller z), a height above
+out.shape = [plaque.right.z < plaque.origin.z, Math.abs(plaque.right.y - plaque.origin.y) < 1e-9, plaque.up.y > plaque.origin.y, Math.abs(plaque.up.z - plaque.origin.z) < 1e-9];
+// the node: text alone, with no badge, button, border or shadow class
+const node = doorNode(label);
+const classes = []; node.classList && classes.push(...node.classList.values ? [...node.classList.values()] : []);
+const html = JSON.stringify(node, (k, v) => (k === "parent" || k === "ownerDocument" ? undefined : v));
+out.badge = ["pui-btn", "pui-soft", "pui-theme", "wb-pill", "pui-badge", "pui-chip"].filter((c) => html.includes(c));
+out.fit = html.includes("wb-label-fit");
+out.text = html.includes("Control room");
+// the fit: an affine projection stands for the camera; the matrix maps the label's box onto the plate's parallelogram
+const proj = (p) => ({ x: 400 + 50 * p.x - 30 * p.z, y: 300 - 40 * p.y + 20 * p.x + 20 * p.z });
+const props = {};
+const entry = { spec: label, node: { style: { setProperty: (k, v) => { props[k] = v; } }, classList: { toggle: () => {}, add() {}, remove() {} }, offsetWidth: 108, offsetHeight: 45 }, width: 108, height: 45 };
+placeLabels([entry], proj, { hidden: false, size: { w: 1280, h: 800 } });
+const m = ["--wb-a", "--wb-b", "--wb-c", "--wb-d"].map((k) => Number(props[k]));
+const tx = parseFloat(props["--wb-x"]), ty = parseFloat(props["--wb-y"]);
+const map = (x, y) => [tx + m[0] * x + m[2] * y, ty + m[1] * x + m[3] * y];
+const near = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 0.1;
+const o = proj(plaque.origin), r = proj(plaque.right), u = proj(plaque.up);
+out.mapped = [near(map(0, FIT_SIZE.h), [o.x, o.y]), near(map(FIT_SIZE.w, FIT_SIZE.h), [r.x, r.y]), near(map(0, 0), [u.x, u.y])];
+// it follows the camera: another projection, another matrix
+const props2 = { ...props };
+entry.node.style.setProperty = (k, v) => { props2[k] = v; };
+placeLabels([entry], (p) => ({ x: 2 * proj(p).x, y: 2 * proj(p).y }), { hidden: false, size: { w: 1280, h: 800 } });
+out.follows = Number(props2["--wb-a"]) === +(2 * m[0]).toFixed(5) && props2["--wb-x"] !== props["--wb-x"];
+// hidden when the plate is not shown: a floor that is away
+let shown = true;
+const hiddenFlags = [];
+const spec2 = { ...label, shown: () => shown };
+const e2 = { spec: spec2, node: { style: { setProperty() {} }, classList: { toggle: (c, on) => hiddenFlags.push([c, on]), add() {}, remove() {} } }, width: 1, height: 1 };
+placeLabels([e2], proj, { hidden: false, size: { w: 1280, h: 800 } });
+shown = false;
+placeLabels([e2], proj, { hidden: false, size: { w: 1280, h: 800 } });
+out.hidden = hiddenFlags;
+console.log(JSON.stringify(out));
+""")
+    assert got["spec"] == [True, True, True, True] and got["corners"] == [True] * 3, "the label is anchored to the plaque's three corners (which the tower moves with the floor) and shown while the plate is"
+    assert got["shape"] == [True] * 4, "the plate is a rectangle on the leaf: bottom left, a width to its right, a height above"
+    assert got["badge"] == [] and got["fit"] is True and got["text"] is True, "text alone: no button, badge, chip or pill class (the plate is its ground)"
+    assert got["mapped"] == [True, True, True], "the matrix maps the label's box onto the plate's parallelogram: same position, size and slant"
+    assert got["follows"] is True, "and it follows the camera"
+    assert got["hidden"] == [["is-culled", False], ["is-culled", True]], "it is hidden when the plate is not shown"
+    css = (INTERFACE / "css" / "building.css").read_text(encoding="utf-8")
+    rule = css[css.index(".wb-label-fit {"):css.index("}", css.index(".wb-label-fit {"))]
+    assert "background: none" in rule and "border: 0" in rule and "box-shadow: none" in rule and "var(--pui-text)" in rule and "pointer-events: none" in rule, "no background, border or shadow; the text in a token colour; never the pointer's"
