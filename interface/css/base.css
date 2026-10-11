@@ -411,4 +411,5 @@ textarea.wb-field-input { min-height: 76px; resize: vertical; }
 .wb-reply-body { width: 100%; min-width: 0; }
 .wb-reply:not(.is-open) .wb-reply-body { max-height: calc(var(--wb-reply-lines) * 1.5em); overflow: hidden; }
 .wb-reply.is-cut:not(.is-open) .wb-reply-body { -webkit-mask-image: linear-gradient(to bottom, var(--pui-text) calc(100% - 3em), transparent); mask-image: linear-gradient(to bottom, var(--pui-text) calc(100% - 3em), transparent); }
-.wb-reply-toggle { padding: 0; font-size: 12px; }
+.wb-reply-toggle { padding: 0; color: var(--wb-ink-theme); font-size: 12px; text-decoration: underline; }
+@media (max-width: 899px) { .wb-reply-toggle { min-height: 44px; padding-block: 12px; } }     /* a phone's tap target */

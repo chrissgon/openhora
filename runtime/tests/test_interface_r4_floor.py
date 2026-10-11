@@ -999,3 +999,67 @@ def test_no_card_body_scrolls_inside_the_card_the_preview_is_clipped_and_the_who
     assert "var(--pui-text)" in fade.get("mask-image", "") and not re.search(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(", str(fade)), "the fade is a mask of a token: no colour literal"
     for path in (INTERFACE / "js").rglob("*.js"):
         assert "wb-scroll" not in path.read_text(encoding="utf-8"), f"{path.name}: the scrolling class is gone"
+
+
+# --- the review of PR #316 -----------------------------------------------------------------------------------------------------------------------------------------
+
+REPLY_FIXES = r"""
+import { FakeNode, settle, find, all } from "@FAKE@";
+import { replyView } from "@JS@/floor/reply.js";
+import { createCard } from "@JS@/floor/cards.js";
+
+const out = {};
+const cls = (n) => (n.attrs.class || "").split(/\s+/).filter(Boolean);
+
+// 2: the focus enters the clipped part: the reply opens
+const link = new FakeNode("a");
+const inner = new FakeNode("div"); inner.append(link);
+const view = replyView(inner, { measure: () => true });
+out.before = { open: view.isOpen(), buttons: all(view.el, "button").length };
+(view.el.listeners.focusin || []).forEach((fn) => fn({ target: link }));
+out.focusOpens = { open: view.isOpen(), label: find(view.el, "button").textContent };
+(view.el.listeners.focusin || []).forEach((fn) => fn({ target: find(view.el, "button") }));      // the focus on the button itself does not toggle it again
+out.buttonFocus = view.isOpen();
+
+// 5: closing keeps the button in view
+let scrolled = null;
+const button = find(view.el, "button");
+button.scrollIntoView = (o) => { scrolled = o; };
+button.click();
+out.closed = { open: view.isOpen(), scrolled };
+
+// 3: no way to measure (no ResizeObserver, no measure of its own): the reply is whole, not clipped with no button
+delete globalThis.ResizeObserver;
+const unmeasured = replyView(new FakeNode("p"));
+out.unmeasured = { classes: cls(unmeasured.el), buttons: all(unmeasured.el, "button").length };
+
+// 4: the review body no longer scrolls: it is no tab stop and has no name of a scroller
+const card = createCard({ id: 1, kind: "review", title: "R", body: "text", payload: { returned: [], kept: [] }, status: "open", actions: ["released", "answered"], agent: "engineering", task_id: 4, created_at: new Date().toISOString() },
+  { project: "p", now: () => new Date(), api: {}, requestIds: new Set(), links: { floor: () => "#", lobby: () => "#", open: () => "#" }, changed() {}, gone() {} });
+const body = all(card.el, ".wb-card-body")[0];
+out.review = { tabindex: body.attrs.tabindex === undefined, label: body.attrs["aria-label"] === undefined };
+console.log(JSON.stringify(out));
+process.exit(0);
+"""
+
+
+@needs_node
+def test_the_reply_opens_when_the_focus_enters_it_closing_keeps_the_button_in_view_and_an_unmeasurable_reply_shows_whole(tmp_path):
+    got = run_node(tmp_path, REPLY_FIXES)
+    assert got["before"] == {"open": False, "buttons": 1}
+    assert got["focusOpens"] == {"open": True, "label": "Show less"} and got["buttonFocus"] is True, "the focus on a link in the clipped part opens the reply; the focus on the button does not toggle it"
+    assert got["closed"] == {"open": False, "scrolled": {"block": "nearest"}}, "closing scrolls the button into view"
+    assert got["unmeasured"] == {"classes": ["wb-reply", "is-open"], "buttons": 0}, "without a measure the reply is not clipped and has no button"
+    assert got["review"] == {"tabindex": True, "label": True}, "the review body no longer scrolls: no tab stop, no scroller's name"
+
+
+def test_the_replys_button_reads_as_a_control_and_is_a_phone_tap_target_and_the_plan_text_keeps_its_choice_across_a_rebuild():
+    rules = {}
+    for selector, declarations in css_rules():
+        rules.setdefault(selector.strip(), declarations)
+    toggle = rules[".wb-reply-toggle"]
+    assert toggle.get("color") == "var(--wb-ink-theme)" and toggle.get("text-decoration") == "underline", "it reads as a control, in tokens"
+    base = (INTERFACE / "css" / "base.css").read_text(encoding="utf-8")
+    assert "@media (max-width: 899px) { .wb-reply-toggle { min-height: 44px;" in base, "a phone's tap target"
+    plan = (INTERFACE / "js" / "cards" / "plan.js").read_text(encoding="utf-8")
+    assert "const planOpen = new Map()" in plan and "open: Boolean(planOpen.get(item.id)), onToggle: (value) => planOpen.set(item.id, value)" in plan, "the Lobby's plan text keeps the open choice across a rebuild"

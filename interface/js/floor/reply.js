@@ -50,10 +50,18 @@ export function replyView(content, { open = false, onToggle = null, measure = ov
     button.textContent = isOpen ? SHOW_LESS : SHOW_WHOLE;
     if (onToggle) onToggle(isOpen);
     update();
+    if (!isOpen && button.scrollIntoView) button.scrollIntoView({ block: "nearest" });     // closed: the page gets shorter under the reader; the button stays in view
   }
   button.addEventListener("click", toggle);
+  // the focus enters the clipped part (a link, the Plain text toolbar inside it): the reply opens, so that what has the focus is never hidden
+  root.addEventListener("focusin", (event) => {
+    if (!isOpen && event.target !== button && body.contains(event.target)) toggle();
+  });
 
+  // Without a way to measure (no ResizeObserver and no measure of its own) the reply is not clipped: it shows whole, with no button, rather than cut with no way to open it
+  const measurable = typeof ResizeObserver === "function" || measure !== overflows;
   if (typeof ResizeObserver === "function") new ResizeObserver(() => update()).observe(body);
-  update();
+  if (measurable) update();
+  else root.classList.add("is-open");
   return { el: root, update, isOpen: () => isOpen, toggle };
 }

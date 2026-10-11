@@ -285,7 +285,7 @@ export function createCard(item, env) {
     const returned = Array.isArray(payload.returned) ? payload.returned : [];
     const kept = Array.isArray(payload.kept) ? payload.kept : [];
     const parts = [h("h3", { class: "wb-card-title", id: titleId, tabindex: "-1", text: it.title }),
-      h("div", { class: "wb-card-body", tabindex: "0", "aria-label": "Text of the review" }, reply("body", markdownOf(it.body || "")))];
+      h("div", { class: "wb-card-body" }, reply("body", markdownOf(it.body || "")))];
     if (returned.length || kept.length) {      // floor.html: the two lists of paths stand together in one small block
       parts.push(h("div", { class: "wb-ret" },
         returned.length ? h("span", { class: "wb-card-label", text: "Returned" }) : null, returned.length ? h("ul", { class: "wb-paths" }, returned.map((f) => pathRow(f, true))) : null,

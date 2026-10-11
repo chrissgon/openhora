@@ -15,6 +15,9 @@ import { createWaitsBlock } from "./plan-waits.js";
 
 let counter = 0;
 
+/** Whether the plan text of each decision is open (A-67): kept across a rebuild of the card, never stored. */
+const planOpen = new Map();
+
 /**
  * A plan card. options: {api, project, item (a pending decision with payload and actions), now (Date), onChanged(): Promise,
  * signal, announce(text) (optional: a sentence for the live region)}. Returns {el, focus()}. `api` is the client module (`approve`, `reject`, `pollJob`), passed in so a test can stand in for it.
@@ -55,7 +58,7 @@ export function createPlanCard({ api, project, item, now, onChanged, signal, ann
     : h("p", { class: "wb-card-note", text: "This plan carries no hash, so it cannot be approved from here." });
   const text = planText(item);
   const asText = text
-    ? h("details", { class: "pui-accordion-item wb-plan-text" }, h("summary", { text: "Plan as text" }), h("div", { class: "wb-plan-body" }, replyView(markdownView(text, { name: "the plan", renderedLabel: "Plan as text", plainClass: "wb-plan-pre" })).el))
+    ? h("details", { class: "pui-accordion-item wb-plan-text" }, h("summary", { text: "Plan as text" }), h("div", { class: "wb-plan-body" }, replyView(markdownView(text, { name: "the plan", renderedLabel: "Plan as text", plainClass: "wb-plan-pre" }), { open: Boolean(planOpen.get(item.id)), onToggle: (value) => planOpen.set(item.id, value) }).el))
     : null;
 
   const noteId = `${titleId}-note`;
