@@ -109,6 +109,7 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
 .wb-card-head > .wb-card-kind { flex: none; }
 .wb-card-plain { flex: none; margin-left: auto; padding: 2px 8px; font-size: 12px; }
 .wb-card-plain[aria-pressed="true"] { background-color: var(--wb-tint-selected); }
+.wb-card-meta a:focus-visible { outline-offset: -2px; }     /* the head clips its meta: the link's ring is drawn inside it */
 .wb-card-meta { min-width: 0; overflow: hidden; color: var(--pui-text-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }     /* F2-D1: the head is one row, as floor.html draws it: the meta is cut with an ellipsis, its title holds the date */
 .wb-card-content { display: grid; gap: 10px; padding: 12px; }
 .wb-card-title { margin: 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
@@ -360,6 +361,7 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
   .wb-panel .wb-md :is(h3, h4) { font-size: 16px; }
   .wb-panel .wb-md h2 { font-size: 17px; }
   .wb-panel .wb-md h1 { font-size: 19px; }
+  .wb-panel .wb-md pre, .wb-panel .wb-md.is-plain, .wb-panel .wb-md table { font-size: 14px; }     /* a card's plain text is not larger than its code */
   .wb-busy, .wb-empty-line, .wb-state-line, .wb-mode-row, .wb-mode-line, .notice.wb-notice-card, .wb-wider-label, .wb-wider-note, .wb-held-line, .wb-held-detail,
   .wb-meter-cell, .wb-meter-label, .wb-meter-value, .wb-cur-head, .wb-current-head, .wb-card-title, .wb-card-body, .wb-card-line, .wb-card-error, .wb-card-note,
   .wb-summary, .wb-plan-text > summary, .wb-blocked, .wb-blocked-title, .wb-busy-card, .wb-request-line, .wb-tl-title, .wb-resolved-title, .wb-tl-body, .wb-resolved-body,
@@ -368,5 +370,4 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
   .wb-pre, .wb-hash, .wb-plan-hash, .wb-plan-body, .wb-plan-pre, .wb-wider-code { font-size: 14px; }
   .wb-mode-plate, .wb-chip-11, .wb-acting-plate, .wb-skill, .wb-desk-agent, .wb-wb-line, .wb-plan-table .wb-cell-skill, .wb-plan-stacked-skill, .wb-plan-stacked-skill code,
   .wb-task-group-name, .wb-group-name, .wb-meter-cell > .wb-note { font-size: 12px; }
-  .wb-task-group-name, .wb-group-name { font-size: 12px; }
 }

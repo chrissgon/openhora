@@ -651,7 +651,8 @@ def test_the_board_label_is_not_drawn_on_a_phone_and_a_card_head_wraps_instead_o
     assert ".wb-card-plain { flex: 1 1 100%;" in phone, "Plain text has a row of its own on a phone"
     meta = next(d for s, d in css_rules() if s.strip() == ".wb-card-meta")
     assert meta.get("text-overflow") == "ellipsis", "F2-D1 (R4-P3): on the desktop the head is one row and the meta is cut with an ellipsis (its title holds the date)"
-    assert ".wb-card-head { flex-wrap: wrap; }" in phone and "white-space: normal" in phone, "the meta is never cut on a phone: the head wraps"
+    assert re.search(r"\.wb-card-head \{ flex-wrap: wrap; \}", phone), "the head wraps on a phone"
+    assert re.search(r"\.wb-card-meta \{ overflow: visible; text-overflow: clip; white-space: normal; \}", phone), "the meta is never cut on a phone"
     assert ":has(.wb-card-plain)" not in floor
 
 

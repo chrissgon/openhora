@@ -180,11 +180,31 @@ def test_the_held_command_of_a_service_that_dispatches_nothing_is_labelled():
 # --- A-77: swipe between tabs on a phone ----------------------------------------------------------------------------------------------------------
 
 SWIPE_JS = r"""
-import { swipeTarget, ownsTouch, bindSwipe, MIN_DISTANCE } from "@JS@/swipe.js";
+import { swipeTarget, ownsTouch, bindSwipe, MIN_DISTANCE, OWN } from "@JS@/swipe.js";
+
+// a tiny selector matcher for what OWN uses: a tag, [attr], [attr="v"] and :not([attr="v"]), joined by commas
+function matchesOwn(node, selector) {
+  return selector.split(/,(?![^\[]*\])/).some((part) => {
+    part = part.trim();
+    const tag = part.match(/^[a-z][a-z0-9]*/);
+    if (tag && node.tag !== tag[0]) return false;
+    const attr = (src, negate) => {
+      for (const m of src.matchAll(/\[([a-z-]+)(?:=(?:"([^"]*)"|([^\]]*)))?\]/g)) {
+        const has = m[1] in node.attrs;
+        const ok = has && (m[2] === undefined && m[3] === undefined ? true : node.attrs[m[1]] === (m[2] ?? m[3]));
+        if (negate ? ok : !ok) return false;
+      }
+      return true;
+    };
+    const nots = [...part.matchAll(/:not\(([^)]*\))/g)].map((m) => m[1]);
+    const positive = part.replace(/:not\([^)]*\)\)?/g, "");
+    return attr(positive, false) && nots.every((n) => attr(n, true));
+  });
+}
 
 class N {
-  constructor(opts = {}) { Object.assign(this, { parentElement: null, scrollWidth: 100, clientWidth: 100, field: false, overflowX: "visible", cls: new Set(), listeners: {} }, opts); }
-  matches() { return this.field; }
+  constructor(opts = {}) { Object.assign(this, { parentElement: null, scrollWidth: 100, clientWidth: 100, field: false, overflowX: "visible", cls: new Set(), listeners: {}, tag: "div", attrs: {} }, opts); }
+  matches(selector) { return this.field || (selector === OWN && matchesOwn(this, OWN)); }
   addEventListener(type, fn) { this.listeners[type] = fn; }
   removeEventListener(type) { delete this.listeners[type]; }
   get classList() { const s = this.cls; return { add: (...n) => n.forEach((x) => s.add(x)), remove: (...n) => n.forEach((x) => s.delete(x)), contains: (n) => s.has(n) }; }
@@ -211,6 +231,18 @@ const cell = new N({ parentElement: table });
 const field = new N({ parentElement: root, field: true });
 const text = new N({ parentElement: root });
 const scrolled = new N({ parentElement: root, scrollWidth: 120, clientWidth: 100, overflowX: "hidden" });
+const tagged = (tag, attrs = {}) => new N({ parentElement: root, tag, attrs });
+out.ownSelector = {
+  input: ownsTouch(tagged("input", { type: "text" }), root), textarea: ownsTouch(tagged("textarea"), root), select: ownsTouch(tagged("select"), root),
+  range: ownsTouch(tagged("input", { type: "range" }), root), slider: ownsTouch(tagged("div", { role: "slider" }), root), textbox: ownsTouch(tagged("div", { role: "textbox" }), root),
+  editable: ownsTouch(tagged("div", { contenteditable: "" }), root), editableTrue: ownsTouch(tagged("div", { contenteditable: "true" }), root),
+  editableFalse: ownsTouch(tagged("div", { contenteditable: "false" }), root), canvas: ownsTouch(tagged("canvas"), root), marked: ownsTouch(tagged("div", { "data-no-swipe": "" }), root),
+  plainDiv: ownsTouch(tagged("div"), root), button: ownsTouch(tagged("button"), root), paragraph: ownsTouch(tagged("p", { class: "x" }), root),
+};
+const inMarked = new N({ parentElement: tagged("section", { "data-no-swipe": "" }) });
+out.insideMarked = ownsTouch(inMarked, root);
+const sidewaysRoot = new N({ scrollWidth: 300, clientWidth: 100, overflowX: "auto" });
+out.rootScrollsSideways = ownsTouch(new N({ parentElement: sidewaysRoot }), sidewaysRoot);
 out.owns = { cell: ownsTouch(cell, root), field: ownsTouch(field, root), text: ownsTouch(text, root), hiddenOverflow: ownsTouch(scrolled, root), rootItself: ownsTouch(root, root) };
 
 let current = "inbox";
@@ -255,6 +287,18 @@ def test_a_swipe_never_starts_on_a_field_a_sideways_scroller_or_a_second_finger_
 
 
 @needs_node
+def test_the_selector_of_what_keeps_its_touch_matches_fields_ranges_canvas_and_data_no_swipe_and_nothing_else(tmp_path):
+    got = run_node(tmp_path, SWIPE_JS)
+    o = got["ownSelector"]
+    for name in ("input", "textarea", "select", "range", "slider", "textbox", "editable", "editableTrue", "canvas", "marked"):
+        assert o[name] is True, f"{name} keeps its touch"
+    for name in ("editableFalse", "plainDiv", "button", "paragraph"):
+        assert o[name] is False, f"{name} does not keep its touch"
+    assert got["insideMarked"] is True, "a touch inside a [data-no-swipe] block is the block's"
+    assert got["rootScrollsSideways"] is True, "a panel that itself scrolls sideways never changes tab on a drag"
+
+
+@needs_node
 def test_the_slide_is_drawn_without_reduced_motion_and_not_under_it_and_the_binding_can_be_removed(tmp_path):
     got = run_node(tmp_path, SWIPE_JS)
     assert got["slideLeft"] == ["is-swipe-next"] and got["slideRight"] == ["is-swipe-prev"], "the panel slides in from the side the swipe came from"
@@ -291,7 +335,7 @@ def test_the_phones_fields_buttons_and_tabs_are_16_px_and_no_text_is_left_under_
             if media or not size or float(size.group(1)) >= 12:
                 continue
             for part in (p.strip() for p in head.split(",")):
-                raised = re.search(re.escape(part) + r"[^{}]*\{[^}]*font-size:\s*(\d+(?:\.\d+)?)px", phone)
+                raised = re.search(r"(?:^|[,}\n])\s*" + re.escape(part) + r"\s*(?:,[^{}]*)?\{[^}]*font-size:\s*(\d+(?:\.\d+)?)px", phone)
                 assert raised and float(raised.group(1)) >= 12, f"{name}.css: {part} is {size.group(1)} px and stays so on a phone"
     floor = _phone_text(css_file("floor"))
     assert re.search(r"\.wb-panel :is\(input, textarea, select\) \{ font-size: 16px; \}", floor), "every field is 16 px (and the page cannot be zoomed)"
@@ -300,6 +344,28 @@ def test_the_phones_fields_buttons_and_tabs_are_16_px_and_no_text_is_left_under_
     assert re.search(r"\.wb-lobby-tab \{[^}]*font-size: 16px", _phone_text(css_file("lobby")))
     assert re.search(r"\.wb-control \.wb-tablist \.wb-tab \{ font-size: 16px; \}", _phone_text(css_file("control")))
     assert re.search(r"\.wb-bubble, ", _phone_text(css_file("lobby")))
+
+
+def test_the_lobby_sheet_keeps_room_for_the_thread_on_a_phone_and_its_tab_list_scrolls():
+    phone = _phone_text(css_file("lobby"))
+    assert re.search(r"\.wb-lobby-hint \{ display: none; \}", phone), "the hint under the composer goes on a phone"
+    assert re.search(r"\.wb-comp-label \{ position: absolute; width: 1px; height: 1px;[^}]*clip-path: inset\(50%\)", phone), "the label stays for a screen reader"
+    assert re.search(r"\.wb-lobby-run:not\(\[hidden\]\) \{ display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; \}", phone), "the run line is one line cut by an ellipsis"
+    assert re.search(r"\.wb-thread \{ min-height: 4\.5rem; \}", phone) and "minmax(4.5rem, 1fr)" in phone, "the thread has a floor of two lines"
+    assert re.search(r"\.wb-lobby-tabs \{ overflow-x: auto;", phone) and re.search(r"\.wb-lobby-tab \{ flex: 1 0 auto; \}", phone), "five tabs at 16 px scroll below about 340 px"
+    css = css_file("lobby")
+    assert "@media (max-width: 899px) and (max-height: 700px)" in css and ".wb-new-label" in css, "a short phone gets a one-row composer"
+    composer = (JS / "views" / "lobby-composer.js").read_text(encoding="utf-8")
+    assert "runLine.title" in composer and 'class: "wb-new-label"' in composer, "the run line's title holds all of it; New request keeps its words"
+    assert "keepInView(button)" in (JS / "views" / "lobby-tabs.js").read_text(encoding="utf-8"), "the selected tab is brought into view"
+
+
+def test_markdown_in_a_panel_is_not_larger_than_its_code_on_a_phone_and_a_clipped_meta_keeps_its_link_ring_inside():
+    floor = css_file("floor")
+    assert re.search(r"\.wb-panel \.wb-md pre, \.wb-panel \.wb-md\.is-plain, \.wb-panel \.wb-md table \{ font-size: 14px; \}", _phone_text(floor))
+    assert re.search(r"\.wb-card-meta a:focus-visible \{ outline-offset: -2px; \}", floor), "the card head clips its meta: the link's ring is inside it"
+    assert len(re.findall(r"\.wb-task-group-name, \.wb-group-name", _phone_text(floor))) == 1
+    assert re.search(r"\.wb-skill-name, \.wb-skill-detail \{ font-size: 16px; \}", _phone_text(css_file("control")))
 
 
 def test_the_new_rules_name_colours_by_token_only():

@@ -4,6 +4,8 @@
 //
 // A swipe counts when it is long enough, mostly horizontal, quick enough and one finger; it moves one tab (never past the first or the last). It never
 // starts on a field, a range, a canvas (the 3D scene), a table or a block of code that scrolls sideways, or on what the screen marks `data-no-swipe`.
+// The slide's classes (`is-swipe-next`, `is-swipe-prev`) and their keyframes are in css/floor.css, which every screen's page loads (a stylesheet of one screen would not
+// reach the others); a screen that binds this module needs nothing else in its own stylesheet.
 // It listens to touch only (a mouse drag does nothing) and only at phone width. Under reduced motion no slide is drawn: the tab just changes.
 
 import { PHONE_QUERY } from "./frame/drawer.js";
@@ -14,7 +16,7 @@ export const MAX_MS = 800;           // a slower drag is a scroll or a selection
 const SLIDE_MS = 200;
 
 // what takes a touch for itself: a swipe that starts on one of these is theirs (selecting text, moving a range, a scene's pan)
-const OWN = "input, textarea, select, [contenteditable]:not([contenteditable=\"false\"]), [role=\"slider\"], [role=\"textbox\"], canvas, [data-no-swipe]";
+export const OWN = "input, textarea, select, [contenteditable]:not([contenteditable=\"false\"]), [role=\"slider\"], [role=\"textbox\"], canvas, [data-no-swipe]";
 
 /**
  * The tab a swipe goes to, or null for no tab. dx and dy are the finger's travel (end minus start) in px and ms the time it took. A swipe to the
@@ -39,7 +41,7 @@ function scrollsSideways(node) {
 export function ownsTouch(start, root) {
   for (let node = start; node; node = node.parentElement) {
     if (node.matches && node.matches(OWN)) return true;
-    if (node !== root && scrollsSideways(node)) return true;     // `root` itself is the panel: its own sideways scroll is not a table's
+    if (scrollsSideways(node)) return true;     // a table, a block of code, or the panel itself when it scrolls sideways: a drag there moves its content, not the tab
     if (node === root) return false;
   }
   return false;

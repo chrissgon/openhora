@@ -223,6 +223,7 @@
   .wb-control .wb-tablist .wb-tab { font-size: 16px; }
   .wb-control :is(input, select, textarea) { font-size: 16px; }
   .wb-control :is(button, .pui-btn), .wb-filters > summary, .wb-chart-acc > summary { font-size: 16px; }
+  .wb-skill-name, .wb-skill-detail { font-size: 16px; }     /* a skill's name and its sentences are list rows: reading text; the version, area and tier lines stay meta */
   .wb-cnotice, .wb-cnotice-line, .wb-empty-block, .wb-skill-card, .wb-caps, .wb-chart-head, .wb-ccard, .wb-ccard p, .wb-ctable.wb-stackable :is(th, td) { font-size: 16px; }
   .wb-plot-labels { font-size: 12px; }
   .wb-ctable .wb-code, .wb-ctable.wb-stackable td[data-label] .wb-code { font-size: 14px; }
