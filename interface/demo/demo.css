@@ -1,0 +1,37 @@
+/* The ribbon of the demo, in the page's own tokens: it says the data is fictional and offers to start the story again. */
+.wb-demo-ribbon {
+  position: fixed;
+  z-index: 60;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border: var(--pui-border-width) solid var(--pui-border);
+  border-radius: var(--pui-radius);
+  background-color: var(--wb-raised);
+  box-shadow: var(--wb-elev);
+  font-size: 0.8125rem;
+}
+
+/* On a phone (the layout up to 899 px) the top of the page is the tracking bar: the ribbon becomes a strip above the page, and the page is
+   that much shorter, so that it covers nothing. */
+@media (max-width: 899px) {
+  :root { --wb-demo-h: 36px; }
+  .wb-demo-ribbon {
+    position: sticky;
+    top: 0;
+    transform: none;
+    justify-content: center;
+    box-sizing: border-box;
+    height: var(--wb-demo-h);
+    padding: 0 8px;
+    border-width: 0 0 var(--pui-border-width);
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .wb-app { min-height: calc(100dvh - var(--wb-demo-h)); }
+  .wb-frame { height: calc(100dvh - var(--wb-demo-h)); }
+}

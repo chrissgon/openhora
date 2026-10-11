@@ -878,7 +878,7 @@ def test_the_image_viewer_builds_no_markup_no_data_url_no_srcdoc_and_the_client_
         assert forbidden not in viewer, f"viewer.js uses {forbidden}"
     assert "createObjectURL" in viewer and "revokeObjectURL" in viewer and 'h("img"' in viewer
     client = (JS / "api.js").read_text(encoding="utf-8")
-    assert client.count("fetch(") == 1, "the client has one fetch path"
+    assert client.count("transport(") == 1 and "fetch(" not in client, "the client has one network path: transport.js"
     assert 'send("GET", `/projects/${enc(p)}/artifact/raw`' in client and "raw: true" in client
     route = next(r for r in service.ROUTES if r["pattern"] == "/projects/{p}/artifact/raw")
     assert route["method"] == "GET" and route["take"] == ("path",) and route["raw"] is True

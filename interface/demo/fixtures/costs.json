@@ -1,0 +1,96 @@
+{
+  "since": "2026-10-01",
+  "rows": [
+    {
+      "day": "2026-10-01",
+      "agent": null,
+      "model": "m",
+      "adapter": "h",
+      "runs": 6,
+      "tokens": 200,
+      "recorded_usd": 0.55,
+      "recomputed_usd": null,
+      "unknown_runs": 6,
+      "price": {
+        "source": "https://prices.example/models",
+        "date": "2026-10-01"
+      }
+    },
+    {
+      "day": "2026-10-01",
+      "agent": "marketing",
+      "model": "m",
+      "adapter": "h",
+      "runs": 1,
+      "tokens": 100,
+      "recorded_usd": null,
+      "recomputed_usd": null,
+      "unknown_runs": 1,
+      "price": {
+        "source": "https://prices.example/models",
+        "date": "2026-10-01"
+      }
+    },
+    {
+      "day": "2026-10-01",
+      "agent": "planning",
+      "model": "m",
+      "adapter": "h",
+      "runs": 2,
+      "tokens": 200,
+      "recorded_usd": null,
+      "recomputed_usd": null,
+      "unknown_runs": 2,
+      "price": {
+        "source": "https://prices.example/models",
+        "date": "2026-10-01"
+      }
+    }
+  ],
+  "caps": [
+    {
+      "agent": "planning",
+      "max_runs_per_day": 12,
+      "max_usd_per_day": 5,
+      "runs_today": 2,
+      "usd_today": 0.0,
+      "runs_without_cost": 0,
+      "usd_recorded": 0.0,
+      "usd_reserved": 0.0,
+      "runs_total_today": 2
+    },
+    {
+      "agent": "design",
+      "max_runs_per_day": 6,
+      "max_usd_per_day": 3,
+      "runs_today": 0,
+      "usd_today": 0.0,
+      "runs_without_cost": 0,
+      "usd_recorded": 0.0,
+      "usd_reserved": 0.0,
+      "runs_total_today": 0
+    },
+    {
+      "agent": "engineering",
+      "max_runs_per_day": 8,
+      "max_usd_per_day": 4,
+      "runs_today": 0,
+      "usd_today": 0.0,
+      "runs_without_cost": 0,
+      "usd_recorded": 0.0,
+      "usd_reserved": 0.0,
+      "runs_total_today": 0
+    },
+    {
+      "agent": "marketing",
+      "max_runs_per_day": 6,
+      "max_usd_per_day": 2,
+      "runs_today": 1,
+      "usd_today": 0.0,
+      "runs_without_cost": 0,
+      "usd_recorded": 0.0,
+      "usd_reserved": 0.0,
+      "runs_total_today": 1
+    }
+  ]
+}

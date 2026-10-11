@@ -1,0 +1,59 @@
+{
+  "commands": [
+    {
+      "command": "/help",
+      "arguments": "",
+      "help": "list the commands"
+    },
+    {
+      "command": "/status",
+      "arguments": "",
+      "help": "requests, tasks and what waits for you"
+    },
+    {
+      "command": "/progress",
+      "arguments": "[since]",
+      "help": "where the work stands and what happened (since: 7d, <n>d or YYYY-MM-DD)"
+    },
+    {
+      "command": "/pending",
+      "arguments": "[id]",
+      "help": "what waits for you; with an id, that decision whole"
+    },
+    {
+      "command": "/answer",
+      "arguments": "<id> <text>",
+      "help": "answer a pending decision"
+    },
+    {
+      "command": "/release",
+      "arguments": "<id>",
+      "help": "release a delivery (it stays a draft)"
+    },
+    {
+      "command": "/approve",
+      "arguments": "<id> [sha256]",
+      "help": "approve a plan or an acceptance (a plan: --go-ahead <task key>, repeated, drops that task's derived waits); an effect is approved in the terminal or on the page, with its hash"
+    },
+    {
+      "command": "/reject",
+      "arguments": "<id> [note]",
+      "help": "reject a plan, an acceptance or an effect"
+    },
+    {
+      "command": "/retry",
+      "arguments": "<task id>",
+      "help": "make a failed or blocked task ready again"
+    },
+    {
+      "command": "/cancel",
+      "arguments": "<request id>",
+      "help": "cancel a request"
+    },
+    {
+      "command": "/new",
+      "arguments": "<text>",
+      "help": "start a new request, whatever is open (--after <id> before the text: run it after that request)"
+    }
+  ]
+}

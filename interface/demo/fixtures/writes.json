@@ -1,0 +1,148 @@
+{
+  "request": {
+    "request": 1,
+    "state": "requested",
+    "next": "route"
+  },
+  "route": {
+    "routed": true,
+    "pending_id": 1,
+    "source": "named",
+    "flow": "demo",
+    "cancelled": [],
+    "recovered": []
+  },
+  "approve-plan": {
+    "request": 1,
+    "tasks": [
+      {
+        "id": 2,
+        "key": "market",
+        "skill": "biz-market-analysis",
+        "state": "ready"
+      },
+      {
+        "id": 3,
+        "key": "profile",
+        "skill": "mkt-social-copy",
+        "state": "planned"
+      }
+    ],
+    "ready": [
+      2
+    ],
+    "waits": [],
+    "plan_sha256": "042896dc1966b8a6214e5383aba5b8b931cfa049d17aafa37eb8a77c859b95da"
+  },
+  "answer": {
+    "pending_id": 2,
+    "task_id": 2,
+    "task_state": "ready",
+    "ready": [],
+    "completed": [],
+    "state": {
+      "written": true
+    }
+  },
+  "release": {
+    "pending_id": 3,
+    "task_id": 2,
+    "task_state": "done",
+    "ready": [
+      3
+    ],
+    "completed": []
+  },
+  "say": {
+    "reply": "{\n \"config\": {\n  \"path\": \"/home/demo/northwind-shop/docs/workbench/runtime.json\",\n  \"sha256\": \"1bbcad29320f20847a515cc854063cda0ddaea20cdcff45eb6b5e0e9ee15fbd4\"\n },\n \"requests\": [\n  {\n   \"id\": 1,\n   \"flow\": \"demo\",\n   \"state\": \"done\",\n   \"title\": \"Do the market analysis.\",\n   \"on_board\": false,\n   \"open_comments\": 0,\n   \"tasks\": [\n    {\n     \"id\": 2,\n     \"key\": \"market\",\n     \"title\": \"Market\",\n     \"agent\": \"planning\",\n     \"skill\": \"biz-market-analysis\",\n     \"state\": \"done\",\n     \"note\": null,\n     \"on_board\": false,\n     \"open_comments\": 0,\n     \"waiting_for\": []\n    },\n    {\n     \"id\": 3,\n     \"key\": \"profile\",\n     \"title\": \"Profile\",\n     \"agent\": \"marketing\",\n     \"skill\": \"mkt-social-copy\",\n     \"state\": \"done\",\n     \"note\": null,\n     \"on_board\": false,\n     \"open_comments\": 0,\n     \"waiting_for\": []\n    }\n   ],\n   \"after\": null,\n   \"routing\": null\n  }\n ],\n \"pending\": [],\n \"documents\": [],\n \"board\": null,\n \"held\": []\n}",
+    "request_id": null,
+    "pending_id": null,
+    "ran": false,
+    "queued": false
+  },
+  "request-flow": {
+    "request": 4,
+    "state": "planned",
+    "tasks": [
+      {
+        "id": 5,
+        "key": "change",
+        "skill": "eng-implement",
+        "state": "ready"
+      },
+      {
+        "id": 6,
+        "key": "pull-request",
+        "skill": "ops-pull-request",
+        "state": "planned"
+      }
+    ],
+    "waits": [],
+    "missing": [],
+    "flow": "gate-demo"
+  },
+  "verdict": {
+    "run_id": 1,
+    "use": "0123abcd",
+    "verdict": "worked"
+  },
+  "cancel": {
+    "request": 10,
+    "cancelled": [
+      10
+    ],
+    "pending": []
+  },
+  "retry": {
+    "task_id": 8,
+    "state": "ready",
+    "previous": "failed"
+  },
+  "reject": {
+    "pending_id": 8,
+    "request": 11,
+    "cancelled": [
+      11
+    ],
+    "pending": []
+  },
+  "approve-effect": {
+    "pending_id": 6,
+    "approval_id": 1,
+    "task_id": 6,
+    "task_state": "done",
+    "ready": [],
+    "completed": [
+      4
+    ],
+    "commit": "cccccccccccccccccccccccccccccccccccccccc",
+    "pull_request": {
+      "number": 7,
+      "url": "https://code.example/example-org/northwind-shop/pull/7"
+    },
+    "replayed": false,
+    "state": {
+      "written": true
+    }
+  },
+  "set-mode-down": {
+    "agent": "design",
+    "mode": "stopped",
+    "config_sha256": "01dc6054f16adcd6557fd9261016d679b2b3ad2b4b1da6d19449e8ebe02697bf",
+    "accepted": true,
+    "by": "code:narrowing",
+    "next": null,
+    "checkpoints": {
+      "written": true,
+      "value": "every-phase"
+    }
+  },
+  "set-mode-up": {
+    "agent": "engineering",
+    "mode": "autonomous",
+    "config_sha256": "bf7be128c7d4dc05da04c62f93c864bf00620d58d53613b228ba8085440cf858",
+    "accepted": false,
+    "by": null,
+    "next": "python3 /home/demo/openhora/runtime/cli.py accept-config --project /home/demo/northwind-shop --sha256 bf7be128c7d4dc05da04c62f93c864bf00620d58d53613b228ba8085440cf858"
+  }
+}
