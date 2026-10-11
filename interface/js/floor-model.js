@@ -516,6 +516,12 @@ export function floor(snapshot, projectId, name, bodies = {}, options = {}) {
   };
 }
 
+/** Whether `projectId` has the Floor of area agent `name`: a project that is not accepted answers for every floor (its waiting line); an unknown project has none. */
+export function hasFloor(snapshot, projectId, name) {
+  const found = floor(snapshot, projectId, name);
+  return Boolean(found && found.found);
+}
+
 /** The wall board's content (the title and up to three mono lines) and the state dot colour. */
 export function boardOf(view) {
   const { row, current, currentBody } = view;

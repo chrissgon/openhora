@@ -313,7 +313,8 @@ export function buildWorld(kit, model) {
    */
   content.hideSurroundings = (on) => {
     // the page draws the streets and the parks round the room (`floor.html`, `lobby.html`): only the other buildings are put away, so that the room stands alone on its block
-    for (const tower of towers.values()) if (tower.id !== focus) tower.root.visible = !on;
+    // the open building is always drawn: a tower put away on an earlier Floor that has become the focus since (the switcher went to another project) comes back with it
+    for (const tower of towers.values()) tower.root.visible = tower.id === focus ? true : !on;
   };
 
   /**

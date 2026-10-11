@@ -7,6 +7,7 @@
 import * as api from "./api.js";
 import { emptySnapshot, refresh, versionKey } from "./data.js";
 import { h } from "./dom.js";
+import * as fm from "./floor-model.js";
 import { createFrame } from "./frame/frame.js";
 import { createProjectsPanel } from "./views/city-projects.js";
 import { projectsOf, readableProject } from "./views/city-projects-model.js";
@@ -185,9 +186,8 @@ function selectProject(id) {
     reload();
     return;
   }
-  const hash = { building: router.buildingHash(id), floor: route.agent ? router.floorHash(id, route.agent) : router.buildingHash(id),
-    lobby: router.lobbyHash(id), control: router.controlHash(id) }[route.screen];
-  window.location.hash = hash;
+  // M-13: the same screen in the project chosen, but a Floor only when that project has the area agent (else its Building)
+  window.location.hash = router.switchHash(route, id, route.agent ? fm.hasFloor(snapshot, id, route.agent) : true);
 }
 
 function noticeFor(route) {

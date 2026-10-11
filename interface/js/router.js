@@ -111,3 +111,15 @@ export function parentHash(route) {
   if (route.screen === "building") return cityHash();
   return buildingHash(route.project);
 }
+
+/**
+ * The hash that opens the same screen in another project (the top switcher): a Floor stays a Floor only when the project chosen has that area agent
+ * (`hasFloor`), else the chosen project's Building; the Lobby and the Control room exist in every project and open on their first tab; a Building stays one.
+ * A tab, a decision or a document belongs to the floor that was left, so none is carried over.
+ */
+export function switchHash(route, project, hasFloor) {
+  if (route.screen === "floor") return route.agent && hasFloor ? floorHash(project, route.agent) : buildingHash(project);
+  if (route.screen === "lobby") return lobbyHash(project);
+  if (route.screen === "control") return controlHash(project);
+  return buildingHash(project);
+}
