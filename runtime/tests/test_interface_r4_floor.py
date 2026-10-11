@@ -913,3 +913,153 @@ console.log(JSON.stringify(out));
     assert 'planner.enabled !== false && planner.acting_mode !== "stopped" && fm.queuedFree(planner, status) > 0' in lobby, "the Lobby's planner that is stopped or disabled is off, not ready"
     readme = (INTERFACE / "README.md").read_text(encoding="utf-8")
     assert "during a run the dispatcher reports only" in readme, "the limit is written down"
+
+
+# --- R4-A4c (A-67, M-25): a long reply opens in place; no inner scroll on a card's body --------------------------------------------------------------------------------
+
+REPLY = r"""
+import { FakeNode, settle, find, all } from "@FAKE@";
+import { replyView, SHOW_WHOLE, SHOW_LESS } from "@JS@/floor/reply.js";
+import { createCard } from "@JS@/floor/cards.js";
+
+const observers = [];
+globalThis.ResizeObserver = class { constructor(cb) { observers.push(cb); } observe() {} disconnect() {} };
+const text = (n) => (n ? n.textContent : null);
+const cls = (n) => (n.attrs.class || "").split(/\s+/).filter(Boolean);
+const out = {};
+const measure = (tall) => (body) => tall.value;
+
+// the helper: the button is in the page only when the reply is taller than the preview (a measured height), toggles, and says so
+const tall = { value: false };
+const fit = replyView(new FakeNode("p"), { measure: measure(tall) });
+out.fits = { buttons: all(fit.el, "button").length, cut: cls(fit.el).includes("is-cut") };
+tall.value = true;
+fit.update();
+const button = find(fit.el, "button.wb-reply-toggle");
+out.cut = { buttons: all(fit.el, "button").length, label: text(button), expanded: button.attrs["aria-expanded"], controls: button.attrs["aria-controls"] === find(fit.el, ".wb-reply-body").attrs.id, cut: cls(fit.el).includes("is-cut") };
+button.click();
+out.open = { label: text(button), expanded: button.attrs["aria-expanded"], open: cls(fit.el).includes("is-open"), cut: cls(fit.el).includes("is-cut"), buttons: all(fit.el, "button").length };
+tall.value = false;      // open: the button stays, whatever the measure says
+fit.update();
+out.openStays = all(fit.el, "button").length;
+button.click();
+out.closed = { label: text(button), expanded: button.attrs["aria-expanded"], open: cls(fit.el).includes("is-open") };
+out.labels = [SHOW_WHOLE, SHOW_LESS];
+
+// a card: a long review opens in place, Plain text keeps working in both states, a short one has no button
+const item = (id, body) => ({ id, kind: "review", title: `Review ${id}`, body, payload: { returned: [], kept: [] }, status: "open", actions: ["released", "answered"], agent: "engineering", task_id: 4, created_at: new Date().toISOString() });
+const env = { project: "p", now: () => new Date(), api: {}, requestIds: new Set(), links: { floor: () => "#", lobby: () => "#", open: () => "#" }, changed() {}, gone() {} };
+const card = createCard(item(1, "A **long** reply"), env);
+const tallen = () => { for (const body of all(card.el, ".wb-reply-body")) { body.scrollHeight = 900; body.clientHeight = 96; } observers.forEach((cb) => cb()); };
+tallen();
+const toggle = () => find(card.el, "button.wb-reply-toggle");
+out.card = { before: text(toggle()), scrollClass: all(card.el, ".wb-scroll").length };
+toggle().click();
+out.card.open = text(toggle());
+find(card.el, "button.wb-card-plain").click();      // Plain text redraws the card: the reply stays open
+tallen();
+out.card.plainOpen = { label: text(toggle()), plain: all(card.el, ".wb-md.is-plain").length, pressed: find(card.el, "button.wb-card-plain").attrs["aria-pressed"] };
+toggle().click();
+out.card.plainClosed = text(toggle());
+find(card.el, "button.wb-card-plain").click();
+const short = createCard(item(2, "short"), env);
+out.short = { buttons: all(short.el, "button.wb-reply-toggle").length };
+console.log(JSON.stringify(out));
+process.exit(0);
+"""
+
+
+@needs_node
+def test_a_long_reply_opens_in_place_the_button_appears_only_when_the_body_is_taller_than_the_preview_and_plain_text_keeps_working(tmp_path):
+    got = run_node(tmp_path, REPLY)
+    assert got["fits"] == {"buttons": 0, "cut": False}, "a reply that fits shows whole: no button, no fade"
+    assert got["cut"] == {"buttons": 1, "label": "Show the whole reply", "expanded": "false", "controls": True, "cut": True}, "A-67: the button, with aria-expanded and aria-controls"
+    assert got["open"] == {"label": "Show less", "expanded": "true", "open": True, "cut": False, "buttons": 1} and got["openStays"] == 1
+    assert got["closed"] == {"label": "Show the whole reply", "expanded": "false", "open": False}
+    assert got["card"]["before"] == "Show the whole reply" and got["card"]["scrollClass"] == 0 and got["card"]["open"] == "Show less"
+    assert got["card"]["plainOpen"] == {"label": "Show less", "plain": 1, "pressed": "true"}, "R-34: Plain text works on an open reply and the choice of the reply survives the redraw"
+    assert got["card"]["plainClosed"] == "Show the whole reply"
+    assert got["short"] == {"buttons": 0}
+
+
+def test_no_card_body_scrolls_inside_the_card_the_preview_is_clipped_and_the_whole_is_the_only_other_state():
+    css = interface_css()
+    bad = []
+    for selector, declarations in css_rules():
+        if re.search(r"wb-(card|bubble|pre|res-said|md|plan|reply|scroll)", selector) and "max-height" in declarations and re.search(r"overflow(-y)?", " ".join(declarations)):
+            if any(v in ("auto", "scroll") for k, v in declarations.items() if k.startswith("overflow")):
+                bad.append(selector)
+    assert not bad, f"M-25: a card body scrolls inside the card: {bad}"
+    rules = {}
+    for selector, declarations in css_rules():
+        rules.setdefault(selector.strip(), declarations)
+    preview = rules[".wb-reply:not(.is-open) .wb-reply-body"]
+    assert preview.get("overflow") == "hidden" and "var(--wb-reply-lines)" in preview.get("max-height", "") and rules[".wb-reply"].get("--wb-reply-lines") == "8", "about eight lines, clipped, not scrolled"
+    fade = rules[".wb-reply.is-cut:not(.is-open) .wb-reply-body"]
+    assert "var(--pui-text)" in fade.get("mask-image", "") and not re.search(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(", str(fade)), "the fade is a mask of a token: no colour literal"
+    for path in (INTERFACE / "js").rglob("*.js"):
+        assert "wb-scroll" not in path.read_text(encoding="utf-8"), f"{path.name}: the scrolling class is gone"
+
+
+# --- the review of PR #316 -----------------------------------------------------------------------------------------------------------------------------------------
+
+REPLY_FIXES = r"""
+import { FakeNode, settle, find, all } from "@FAKE@";
+import { replyView } from "@JS@/floor/reply.js";
+import { createCard } from "@JS@/floor/cards.js";
+
+const out = {};
+const cls = (n) => (n.attrs.class || "").split(/\s+/).filter(Boolean);
+
+// 2: the focus enters the clipped part: the reply opens
+const link = new FakeNode("a");
+const inner = new FakeNode("div"); inner.append(link);
+const view = replyView(inner, { measure: () => true });
+out.before = { open: view.isOpen(), buttons: all(view.el, "button").length };
+(view.el.listeners.focusin || []).forEach((fn) => fn({ target: link }));
+out.focusOpens = { open: view.isOpen(), label: find(view.el, "button").textContent };
+(view.el.listeners.focusin || []).forEach((fn) => fn({ target: find(view.el, "button") }));      // the focus on the button itself does not toggle it again
+out.buttonFocus = view.isOpen();
+
+// 5: closing keeps the button in view
+let scrolled = null;
+const button = find(view.el, "button");
+button.scrollIntoView = (o) => { scrolled = o; };
+button.click();
+out.closed = { open: view.isOpen(), scrolled };
+
+// 3: no way to measure (no ResizeObserver, no measure of its own): the reply is whole, not clipped with no button
+delete globalThis.ResizeObserver;
+const unmeasured = replyView(new FakeNode("p"));
+out.unmeasured = { classes: cls(unmeasured.el), buttons: all(unmeasured.el, "button").length };
+
+// 4: the review body no longer scrolls: it is no tab stop and has no name of a scroller
+const card = createCard({ id: 1, kind: "review", title: "R", body: "text", payload: { returned: [], kept: [] }, status: "open", actions: ["released", "answered"], agent: "engineering", task_id: 4, created_at: new Date().toISOString() },
+  { project: "p", now: () => new Date(), api: {}, requestIds: new Set(), links: { floor: () => "#", lobby: () => "#", open: () => "#" }, changed() {}, gone() {} });
+const body = all(card.el, ".wb-card-body")[0];
+out.review = { tabindex: body.attrs.tabindex === undefined, label: body.attrs["aria-label"] === undefined };
+console.log(JSON.stringify(out));
+process.exit(0);
+"""
+
+
+@needs_node
+def test_the_reply_opens_when_the_focus_enters_it_closing_keeps_the_button_in_view_and_an_unmeasurable_reply_shows_whole(tmp_path):
+    got = run_node(tmp_path, REPLY_FIXES)
+    assert got["before"] == {"open": False, "buttons": 1}
+    assert got["focusOpens"] == {"open": True, "label": "Show less"} and got["buttonFocus"] is True, "the focus on a link in the clipped part opens the reply; the focus on the button does not toggle it"
+    assert got["closed"] == {"open": False, "scrolled": {"block": "nearest"}}, "closing scrolls the button into view"
+    assert got["unmeasured"] == {"classes": ["wb-reply", "is-open"], "buttons": 0}, "without a measure the reply is not clipped and has no button"
+    assert got["review"] == {"tabindex": True, "label": True}, "the review body no longer scrolls: no tab stop, no scroller's name"
+
+
+def test_the_replys_button_reads_as_a_control_and_is_a_phone_tap_target_and_the_plan_text_keeps_its_choice_across_a_rebuild():
+    rules = {}
+    for selector, declarations in css_rules():
+        rules.setdefault(selector.strip(), declarations)
+    toggle = rules[".wb-reply-toggle"]
+    assert toggle.get("color") == "var(--wb-ink-theme)" and toggle.get("text-decoration") == "underline", "it reads as a control, in tokens"
+    base = (INTERFACE / "css" / "base.css").read_text(encoding="utf-8")
+    assert "@media (max-width: 899px) { .wb-reply-toggle { min-height: 44px;" in base, "a phone's tap target"
+    plan = (INTERFACE / "js" / "cards" / "plan.js").read_text(encoding="utf-8")
+    assert "const planOpen = new Map()" in plan and "open: Boolean(planOpen.get(item.id)), onToggle: (value) => planOpen.set(item.id, value)" in plan, "the Lobby's plan text keeps the open choice across a rebuild"

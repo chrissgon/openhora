@@ -404,3 +404,12 @@ textarea.wb-field-input { min-height: 76px; resize: vertical; }
 .wb-acc > summary::-webkit-details-marker { display: none; }
 .wb-acc-chev { display: inline-grid; place-items: center; width: 16px; rotate: -90deg; color: var(--pui-text-muted); }
 .wb-acc[open] > summary .wb-acc-chev { rotate: 0deg; }
+
+/* a card's rendered reply opens in place and never scrolls inside the card (A-67, M-25): a preview of about eight lines, cut with a fade to the card's ground (the mask only reads
+   the text token's opacity), and a button that opens it to its full height; a reply that fits has no button. The page's panel is the only scroll. */
+.wb-reply { --wb-reply-lines: 8; display: grid; gap: 4px; justify-items: start; }
+.wb-reply-body { width: 100%; min-width: 0; }
+.wb-reply:not(.is-open) .wb-reply-body { max-height: calc(var(--wb-reply-lines) * 1.5em); overflow: hidden; }
+.wb-reply.is-cut:not(.is-open) .wb-reply-body { -webkit-mask-image: linear-gradient(to bottom, var(--pui-text) calc(100% - 3em), transparent); mask-image: linear-gradient(to bottom, var(--pui-text) calc(100% - 3em), transparent); }
+.wb-reply-toggle { padding: 0; color: var(--wb-ink-theme); font-size: 12px; text-decoration: underline; }
+@media (max-width: 899px) { .wb-reply-toggle { min-height: 44px; padding-block: 12px; } }     /* a phone's tap target */
