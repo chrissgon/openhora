@@ -83,16 +83,19 @@ POLICY_MODE = "autonomous-with-policy"
 BILLINGS = ("subscription", "metered", "free", "unknown")
 RUNS_BILLINGS = ("subscription", "free")
 SPEND_BILLINGS = ("metered",)
-# The failure words of a run row (providers/store/sqlite.py RUN_FAILURES) that PROVE no model was called, so that the run spent
+# The failure words of a run row (providers/store/sqlite.py RUN_FAILURES) that can PROVE no model was called, so that the run spent
 # nothing and used none of the runs cap (A-57, P-19). Each is set where the lab or the runtime refuses before the model could answer:
 #   auth      evals/run_attempts.py: the provider refused the key or the credential (a 401); never retried
 #   settings  evals/run_attempts.py: the copy carries a tool's settings; refused before the adapter is called
-# A word that does not prove it keeps the per-run reservation, because dollars are never left uncounted: timeout, refused (the
-# provider declined a request it received), adapter (it failed after it started), early_end (the model answered), stopped (a
-# restart or the lab stopped it mid-run). `internal` is the runtime's own word for a refusal before the adapter (the image
-# missing, no secret, a bad configuration, a copy that could not be built) and also for a crash mid-run: it proves nothing but
-# with `attempts` 0, which the runtime records only when no attempt began (ops.py, lab.run_skill). NO_SPEND_FAILURES is the one
-# definition; never_reached_the_model is the one test.
+# A word alone proves nothing: with retries an earlier attempt may have spent before the one that was refused, an adapter may meet a
+# 401 after several calls, and the lab's reading of "HTTP 401" scans the model's own output. So the word proves it only for a run
+# whose FIRST attempt was the refused one (`attempts` 1) and that reported no tokens and no cost (a failed row stores what its
+# attempts' timing.json reported). A word that does not prove it keeps the per-run reservation, because dollars are never left
+# uncounted: timeout, refused (the provider declined a request it received), adapter (it failed after it started), early_end (the
+# model answered), stopped (a restart or the lab stopped it mid-run). `internal` is the runtime's own word for a refusal before the
+# adapter (the image missing, no secret, a bad configuration, a copy that could not be built) and also for a crash mid-run: it
+# proves nothing but with `attempts` 0, which the runtime records only when no attempt began (ops.py, lab.run_skill).
+# NO_SPEND_FAILURES is the one definition; never_reached_the_model is the one test.
 NO_SPEND_FAILURES = ("auth", "settings")
 # The least a metered run may be given as its own spend limit when the day's dollar cap is nearly reached: a run is not started
 # with a budget of a few cents, it is held with "cap: usd per day" instead.
@@ -224,13 +227,14 @@ def with_billing(runs, floor_model: str) -> list:
 
 
 def never_reached_the_model(run: dict) -> bool:
-    """Whether the stored failure of a run row proves that no model was called: its failure is one of NO_SPEND_FAILURES, or
-    `internal` with `attempts` 0 (no attempt began). A row that records a cost is never one: what was billed is counted. A run
-    that did not fail, or whose row lacks `failure` or `attempts`, is not one."""
-    if run.get("cost_usd") is not None:
+    """Whether the stored failure of a run row proves that no model was called: it is one of NO_SPEND_FAILURES with `attempts` 1
+    (the first attempt was the refused one: a later attempt means an earlier one ran), or `internal` with `attempts` 0 (no
+    attempt began); and the row records no cost and no tokens (what the adapter reported is counted, whatever the word). A
+    run that did not fail, or whose row lacks `failure` or `attempts`, is not one."""
+    if run.get("cost_usd") is not None or run.get("tokens"):
         return False
-    failure = run.get("failure")
-    return failure in NO_SPEND_FAILURES or (failure == "internal" and run.get("attempts") == 0)
+    failure, attempts = run.get("failure"), run.get("attempts")
+    return (failure in NO_SPEND_FAILURES and attempts == 1) or (failure == "internal" and attempts == 0)
 
 
 def spend_split(runs, agent: str, per_run_usd: float) -> dict:

@@ -24,9 +24,9 @@ store_module = None
 PER_RUN = 1.5
 
 
-def run(failure=None, attempts=1, cost=None, billing="metered", agent="planning", status=None):
+def run(failure=None, attempts=1, cost=None, billing="metered", agent="planning", status=None, tokens=None):
     return {"agent": agent, "billing": billing, "cost_usd": cost, "failure": failure, "attempts": attempts,
-            "status": status or ("failed" if failure else "ok")}
+            "tokens": tokens, "status": status or ("failed" if failure else "ok")}
 
 
 def split(*runs, billing_of=None):
@@ -82,6 +82,25 @@ def test_a_run_that_may_have_spent_keeps_its_reservation_and_its_place_in_the_ca
     assert split(run(word, billing="unknown"))["usd_reserved"] == PER_RUN   # a billing nobody knows is metered
 
 
+@pytest.mark.parametrize("word", sorted(NO_SPEND))
+def test_a_refusal_after_an_earlier_attempt_keeps_its_reservation(word):
+    """With retries, attempt 1 may have timed out after spending and attempt 2 meet the 401: attempts says so (review of #319)."""
+    for attempts in (2, 3):
+        assert split(run(word, attempts=attempts))["usd_reserved"] == PER_RUN, (word, attempts)
+        assert split(run(word, attempts=attempts, billing="subscription"))["runs_counted"] == 1
+    for attempts in (0, None):   # an auth refusal with no attempt, or an unknown count, proves nothing either
+        assert split(run(word, attempts=attempts))["usd_reserved"] == PER_RUN, (word, attempts)
+
+
+@pytest.mark.parametrize("word", sorted(NO_SPEND) + ["internal"])
+def test_a_run_that_reported_tokens_reached_the_model_whatever_its_word(word):
+    attempts = 0 if word == "internal" else 1
+    assert split(run(word, attempts=attempts, tokens=1200))["usd_reserved"] == PER_RUN
+    assert split(run(word, attempts=attempts, tokens=1, billing="subscription"))["runs_counted"] == 1
+    assert split(run(word, attempts=attempts, tokens=0))["usd_reserved"] == 0.0      # 0 and none are the same: nothing reported
+    assert split(run(word, attempts=attempts, tokens=None))["usd_reserved"] == 0.0
+
+
 def test_internal_is_no_spend_only_when_no_attempt_began():
     """`internal` is where the runtime records a refusal before the adapter (the image missing, no secret, a bad
     configuration, a copy that could not be built) and also a crash mid-run: attempts tells them apart."""
@@ -89,6 +108,7 @@ def test_internal_is_no_spend_only_when_no_attempt_began():
     assert split(run("internal", attempts=0, billing="subscription"))["runs_counted"] == 0
     for attempts in (1, 2, None):
         assert split(run("internal", attempts=attempts))["usd_reserved"] == PER_RUN, attempts
+    assert split(run("internal", attempts=0, tokens=50))["usd_reserved"] == PER_RUN
     assert split({"agent": "planning", "billing": "metered", "cost_usd": None, "failure": "internal"})["usd_reserved"] == PER_RUN
 
 
@@ -145,6 +165,7 @@ def test_the_stored_rows_of_the_day_carry_attempts_and_failure(tree):
     ctx = ops_core.context(path)
     rows = ctx["store"].runs_since(ctx["conn"], "2000-01-01T00:00:00Z")
     assert [(r["failure"], r["attempts"]) for r in rows] == [("auth", 1), ("internal", 0)]
+    assert all("tokens" in r for r in rows)
 
 
 def test_the_agent_tab_meters_and_the_cost_caps_read_the_new_figures(tree):
@@ -230,3 +251,40 @@ def test_the_lab_names_how_many_attempts_began_on_an_exception_that_leaves_it(tr
     with lab.session(), pytest.raises(lab.LabError) as raised:
         lab.run_skill("demo-asks", "go\n", [], str(tmp_path / "data" / "run-c7"), prepare=boom)
     assert raised.value.kind == "copy" and raised.value.attempts == 1   # an attempt began: its reservation is kept
+
+
+# --- a failed run records what the adapter reported (review of #319) ---------------------------------------------------
+
+
+def test_a_failed_run_records_the_cost_and_tokens_its_attempts_reported_and_the_split_counts_them(tree, monkeypatch):
+    path = request_ready(tree)
+    monkeypatch.setattr(ops_core, "_tier_billing", lambda *a, **k: "metered")   # a metered credential: its cost is billed
+    st.fail(tree["adapter"], "adapter", 9)   # every attempt fails after the adapter wrote timing.json (100 tokens, $0.01)
+    out = ops.run_next(path)
+    assert out["failure"]["kind"] == "adapter"
+    ctx = ops_core.context(path)
+    row = dict(ctx["conn"].execute("SELECT failure, attempts, cost_usd, tokens FROM task_runs ORDER BY id DESC LIMIT 1").fetchone())
+    assert row["failure"] == "adapter" and row["attempts"] == 3
+    assert row["cost_usd"] == pytest.approx(0.03) and row["tokens"] == 300     # the three attempts, the retried ones included
+    runs = ctx["store"].runs_since(ctx["conn"], "2000-01-01T00:00:00Z")
+    got = autonomy.spend_split(runs, runs[0]["agent"], PER_RUN)
+    assert got["usd_recorded"] == pytest.approx(0.03) and got["usd_reserved"] == 0.0   # the recorded cost replaces the reservation
+
+
+def test_a_failed_run_on_a_subscription_records_tokens_and_no_cost(tree):
+    path = request_ready(tree)
+    st.fail(tree["adapter"], "adapter", 9)
+    ops.run_next(path)
+    ctx = ops_core.context(path)
+    row = dict(ctx["conn"].execute("SELECT cost_usd, tokens, billing FROM task_runs ORDER BY id DESC LIMIT 1").fetchone())
+    assert row["cost_usd"] is None and row["tokens"] == 300      # only a metered run has a billed cost (as for a run that ended)
+
+
+def test_a_refused_key_that_reports_no_tokens_is_still_no_spend(tree):
+    path = request_ready(tree)
+    st.fail(tree["adapter"], "auth", 1)
+    ops.run_next(path)
+    ctx = ops_core.context(path)
+    runs = ctx["store"].runs_since(ctx["conn"], "2000-01-01T00:00:00Z")
+    assert (runs[0]["failure"], runs[0]["attempts"], runs[0]["tokens"]) == ("auth", 1, None)
+    assert autonomy.never_reached_the_model(runs[0]) is True
