@@ -19,6 +19,41 @@ export function fitFrustum(bounds, size, insets, pad, maxScale) {
 }
 
 /**
+ * The fit with room for the labels that stand over the subject (R4-B8): the subject's bounds are of its geometry, and a label (a building's pill, a card) is as wide as its text in pixels
+ * whatever the zoom, so on a narrow canvas a label wider than its building runs out of the free rectangle (a phone's City cut the first building's name at the left edge).
+ * `labels` are {x, y (the anchor in camera space: the label stands centred over it), width, height (pixels)}. The plain fit is returned when every label is inside the free rectangle
+ * it leaves, so a canvas with room is framed exactly as before; otherwise the bounds grow to hold the labels as they are at the scale the fit then has, until they hold (a few rounds:
+ * a wider box is a smaller scale, which makes a label wider in camera units).
+ */
+export function fitFrustumWithLabels(bounds, size, insets, pad, maxScale, labels) {
+  const ins = { left: 0, right: 0, top: 0, bottom: 0, ...(insets || {}) };
+  const w = Math.max(1, size.w);
+  const h = Math.max(1, size.h);
+  let fitted = fitFrustum(bounds, size, ins, pad, maxScale);
+  const list = Array.isArray(labels) ? labels : [];
+  if (!list.length) return fitted;
+  let box = bounds;
+  for (let round = 0; round < 8; round++) {
+    const s = (fitted.right - fitted.left) / w;
+    const free = { x0: fitted.left + ins.left * s, x1: fitted.right - ins.right * s, y1: fitted.top - ins.top * s, y0: fitted.bottom + ins.bottom * s };
+    const rects = list.map((l) => ({ x0: l.x - (l.width / 2) * s, x1: l.x + (l.width / 2) * s, y0: l.y, y1: l.y + l.height * s }));
+    const out = rects.some((r) => r.x0 < free.x0 - 1e-9 || r.x1 > free.x1 + 1e-9 || r.y1 > free.y1 + 1e-9 || r.y0 < free.y0 - 1e-9);
+    if (!out) return fitted;
+    const grown = { x0: bounds.x0, x1: bounds.x1, y0: bounds.y0, y1: bounds.y1 };
+    for (const r of rects) {
+      grown.x0 = Math.min(grown.x0, r.x0);
+      grown.x1 = Math.max(grown.x1, r.x1);
+      grown.y0 = Math.min(grown.y0, r.y0);
+      grown.y1 = Math.max(grown.y1, r.y1);
+    }
+    if (grown.x0 === box.x0 && grown.x1 === box.x1 && grown.y0 === box.y0 && grown.y1 === box.y1) return fitted;
+    box = grown;
+    fitted = fitFrustum(box, size, ins, pad, maxScale);
+  }
+  return fitted;
+}
+
+/**
  * The frustum of a camera move at progress `p` (0 to 1), the prototype's way: the centre is moved in a straight line and the ZOOM
  * (the reciprocal of the frustum's half width, the prototype's `cam.zoom`) is moved in a straight line, not the frustum's sides.
  * Moving the sides in a straight line made a fly-in start slowly and end fast; moving the zoom is what the prototype did.

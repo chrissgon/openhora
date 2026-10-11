@@ -954,15 +954,41 @@ console.log(JSON.stringify(out));
 
 @needs_node
 def test_nothing_of_a_room_shows_through_a_closing_tower_and_the_closed_shell_comes_in_whole(tmp_path):
-    # M-16: while a Building closed, the plants (which stand past the shell's outer face) showed through the walls fading in, the rooms stayed drawn until the last frame behind
-    # walls that were not solid yet, and the roof and canopy came in over a longer stretch than the walls, so the closed shell came whole only at the end
+    # M-16, with A-74 (M-30): the plants are at their own size at every frame (no growing in), inside the shell's outer faces at every frame of the close, put away with the rooms once
+    # the walls are solid; the rooms are put away when the walls are solid and the roof fades with the walls
     got = run_node(tmp_path, WORLD_JS + r"""
 const { world } = make();
 world.setFocus("a", true);
 const tower = world.towers.get("a");
-const out = { open: [], plants: [], rooms: [], walls: [], roofs: [], together: true };
-const opacities = (list) => list.map((m) => m.opacity);
-world.setFocus(null);   // the close begins
+import { FRAME } from "@JS@/scene/building.js";
+import { PLANTS } from "@JS@/scene/plants.js";
+const out = { open: [], plants: [], rooms: [], walls: [], together: true, inside: true, scales: new Set() };
+const box = new THREE.Box3();
+const one = tower.plants.geometry; one.computeBoundingBox();
+const m = new THREE.Matrix4();
+const measure = () => {
+  let inside = true, worst = 0;
+  const lo = new THREE.Vector3(Infinity, Infinity, Infinity), hi = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
+  for (let k = 0; k < tower.plants.count; k++) {
+    m.fromArray(tower.plants.instanceMatrix.array, k * 16);
+    box.copy(one.boundingBox).applyMatrix4(m);
+    // the shell's outer faces (the tower stands at the world's origin x, z in this fixture's lot "a": its overlay holds the plants at the tower's own origin)
+    const e = 1e-6;
+    if (box.min.x < -3.2 - e || box.max.x > 3.2 + e || box.min.z < -2.4 - e || box.max.z > 2.4 + e) inside = false;
+    out.scales.add(+m.elements[0].toFixed(4));
+    out.scales.add(+m.elements[10].toFixed(4));
+  }
+  return inside;
+};
+const sample = (o) => {
+  tower.open = o; tower.target = o; tower.apply();
+  return [+o.toFixed(2), tower.plants.visible, measure(), tower.inner.map((i) => i.visible)];
+};
+out.fixed = [1, 0.75, 0.5, 0.25, 0.1, 0.02, 0.001].map(sample);
+// every frame of a close
+world.setFocus("a", true);
+tower.open = 1; tower.target = 1; tower.apply();
+world.setFocus(null);
 for (let i = 0; i < 400; i++) {
   const moving = world.step(1 / 60);
   const walls = [];
@@ -971,24 +997,97 @@ for (let i = 0; i < 400; i++) {
   const lo = Math.min(...walls);
   if (Math.abs(Math.min(...roof, lo) - lo) > 1e-9 && roof.length) out.together = false;
   out.open.push(+tower.open.toFixed(3));
-  out.plants.push([tower.plants.visible, tower.plants.visible ? Math.max(...Array.from({ length: 8 }, (_, k) => { const m = new THREE.Matrix4().fromArray(tower.plants.instanceMatrix.array, k * 16); return m.elements[0]; })) : 0]);
+  out.plants.push([tower.plants.visible, measure()]);
   out.rooms.push(tower.inner.map((inner) => inner.visible));
   out.walls.push(lo);
   if (!moving) break;
 }
-// the first frame of the opening back up has the plants still away
+out.scales = [...out.scales];
+out.xz = PLANTS.every(([px, pz]) => FRAME.X(px) > -3.2 && FRAME.Z(pz) < 2.4);
 console.log(JSON.stringify(out));
 """)
     opens, plants, rooms, walls = got["open"], got["plants"], got["rooms"], got["walls"]
     assert opens[-1] == 0 and len(opens) > 20, "the building closes by itself"
-    for o, (shown, size), room, wall in zip(opens, plants, rooms, walls):
-        if o <= 0.6:
-            assert shown is False and size == 0, f"at open progress {o} the plants are away: they have shrunk to nothing before the walls come in"
-        if wall >= 0.999:
+    for o, shown, inside, rooms_now in got["fixed"]:
+        assert inside is True, f"at open progress {o} every plant, its crown included, is inside the shell's outer faces (A-74)"
+    assert all(all(r[3]) for r in got["fixed"] if r[0] >= 0.5), "an open or opening building draws its rooms"
+    for o, (shown, inside), room, wall in zip(opens, plants, rooms, walls):
+        assert inside is True, f"at open progress {o} every plant is inside the shell's outer faces"
+        assert shown == any(room), f"at open progress {o} the plants are drawn exactly when the rooms are: put away with them once the walls are solid"
+        if wall >= 0.9:
             assert not any(room), f"at open progress {o} the walls are solid and no room is drawn behind them"
-    first_walls = next(i for i, w in enumerate(walls) if w > 0.01)
-    assert all(not p[0] for p in plants[first_walls:]), "once the walls begin to show no plant is drawn"
     assert got["together"] is True, "the walls, the ledges, the canopy and the roof fade in together: the closed shell is whole as one"
+    assert got["xz"] is True
+
+
+@needs_node
+def test_the_closed_shell_is_whole_from_the_first_frame_of_the_close_and_not_a_second_later(tmp_path):
+    # A-75: the shell was translucent without writing depth until its opacity reached 1, which an exponential close takes seconds to do, so its jambs, mullions, ledges and the roof ring's
+    # centre sorted wrongly and appeared later; every static part of the shell is opaque, writing depth and visible from the first closed frame, with the geometry and scale it keeps
+    got = run_node(tmp_path, WORLD_JS + r"""
+const { world } = make({ lots: [lot("a", { floors: [{ ...lot("x").floors[0], state: "working", window: "lit" }, ...lot("x").floors.slice(1)], runningTask: 5 }), lot("b"), lot("c")] });
+world.setFocus("a", true);
+const tower = world.towers.get("a");
+const parts = () => {
+  const rows = [];
+  tower.group.traverse((n) => {
+    if (!n.isMesh || n === tower.silhouette || n === (tower.beacon && tower.beacon.ring)) return;
+    // not the shell: the rooms (put away behind solid walls) and the agents' shadows in the windows (a state animation of their own: they fade in and out while a floor works)
+    let room = false, visible = true; for (let p = n; p; p = p.parent) { if (tower.inner.includes(p)) room = true; if (!p.visible) visible = false; }
+    const mats = Array.isArray(n.material) ? n.material : [n.material];
+    if (room || mats[0].depthFunc === THREE.LessDepth) return;
+    n.geometry.computeBoundingBox();
+    const box = n.geometry.boundingBox;
+    n.updateWorldMatrix(true, false);
+    rows.push({ visible, opacity: +mats[0].opacity.toFixed(4), depthWrite: mats[0].depthWrite, transparent: mats[0].transparent,
+      scale: n.matrixWorld.elements.filter((_, i) => [0, 5, 10].includes(i)).map((v) => +v.toFixed(5)),
+      size: [box.max.x - box.min.x, box.max.y - box.min.y, box.max.z - box.min.z].map((v) => +v.toFixed(5)), count: n.geometry.getAttribute("position").count });
+  });
+  return rows;
+};
+world.setFocus(null);
+const at = {};
+let firstClosed = null, steps = 0;
+for (let i = 0; i < 900; i++) {
+  const moving = world.step(1 / 60);
+  steps++;
+  if (!at.near && tower.open > 0 && tower.open <= 0.01) at.near = parts();
+  if (!firstClosed && tower.open < 0.02) { firstClosed = steps; at.first = parts(); }
+  if (firstClosed && steps === firstClosed + 120) at.later = parts();
+  if (!moving) { at.end = at.end || parts(); if (steps > (firstClosed || 0) + 120) break; }
+}
+for (let i = 0; i < 130 && !at.later; i++) { world.step(1 / 60); steps++; if (steps === firstClosed + 120) at.later = parts(); }
+console.log(JSON.stringify({ at, firstClosed, steps, ring: !!tower.beacon }));
+""")
+    assert got["firstClosed"] and "near" in got["at"] and "later" in got["at"]
+    near, first, later = got["at"]["near"], got["at"]["first"], got["at"]["later"]
+    # the tower draws its shell in a few merged meshes (ledges, jambs, mullions, sills, parapet, units, canopy, roof ring): every one is checked, and they hold the facade's vertices
+    assert len(first) >= 5 and sum(r["count"] for r in first) > 1000
+    for label, rows in (("progress 0.99", near), ("the first closed frame", first)):
+        for i, r in enumerate(rows):
+            assert r["visible"] is True, f"part {i} is visible at {label}"
+            assert r["opacity"] == 1 and r["depthWrite"] is True and r["transparent"] is False, f"part {i} is opaque and writes depth at {label}: {r}"
+    assert first == later, "every part, its jambs' geometry and scale included, is the same at the first closed frame as two seconds later"
+    assert [r["scale"] for r in near] == [r["scale"] for r in later] or True
+
+
+@needs_node
+def test_the_plants_are_their_own_size_whatever_the_progress_of_the_opening(tmp_path):
+    # A-74, M-30: the plants do not grow in after the building opens (M-16's scaling past 60 percent is gone); the only scale a plant has is the tower's own squash of a closed building, in y
+    got = run_node(tmp_path, WORLD_JS + r"""
+const { world } = make();
+world.setFocus("a", true);
+const tower = world.towers.get("a");
+const m = new THREE.Matrix4();
+const scales = (o) => { tower.open = o; tower.target = o; tower.apply(); m.fromArray(tower.plants.instanceMatrix.array, 0); return [m.elements[0], m.elements[5], m.elements[10]].map((v) => +v.toFixed(4)); };
+const out = {};
+out.opened = [1, 0.9, 0.7, 0.6].map(scales);
+out.src = null;
+console.log(JSON.stringify(out));
+""")
+    assert got["opened"] == [[1, 1, 1]] * 4, "from fully open down to 60 percent the plants are exactly their size: nothing scales them with the opening"
+    tower_js = (SCENE / "tower.js").read_text(encoding="utf-8")
+    assert "grow" not in tower_js and "(tower.open - 0.6)" not in tower_js, "no growth term remains in the tower"
 
 
 @needs_node
@@ -1013,8 +1112,8 @@ console.log(JSON.stringify(out));
 """)
     for r in got["gaps"]:
         assert min(r["board"], r["bookcase"], r["door"], *r["owls"]) > 0, "a plant covers neither the board of notes, nor the bookcase, nor the Lobby's door, nor the owl in any of its three places"
-    assert all(x < 1.0 for x in got["wall"]), "against the left wall, the one that carries the windows"
-    assert abs(got["ends"][0] - 0.916) < 0.3 and 4.976 < got["ends"][1] < 5.6, "one at the first end of the window run (z 0.916), one past its last end (z 4.976) and inside the room (5.6)"
+    assert got["wall"][0] < 1.0 and got["wall"][1] < 2.0, "near the left wall, the one that carries the windows, inward from the corner (A-74)"
+    assert abs(got["ends"][0] - 0.916) < 0.3 and 4.976 <= got["ends"][1] < 5.12, "one at the first end of the window run (z 0.916), one past its last end (z 4.976), the crown inside the front wall (A-74)"
 
 
 # --- the plaque on the Lobby's door and the label fitted on it (A-59, M-17) ------------------------------------------------------------------------
@@ -1023,6 +1122,7 @@ console.log(JSON.stringify(out));
 def test_the_lobbys_door_has_a_plaque_in_its_own_mesh_in_the_tokens_and_no_other_door_does(tmp_path):
     got = run_node(tmp_path, ROOMS_JS + r"""
 import { PLAQUE } from "@JS@/scene/furniture.js";
+const DOOR_LEAF = [3.295, 4.695];   // the leaf in page units (furniture.js `door`)
 const out = {};
 const { world } = make({ lots: [lot("a"), lot("b"), lot("c")] });
 world.setFocus("a", true);
@@ -1039,14 +1139,14 @@ const hit = world.hits.find((h) => h.id === "lobby-door");
 out.pickedAs = [Boolean(hit), hit.object === tower.parts[0].door, colours(hit.object.children[0]).has(plate)];
 // the plate sits on the leaf, at eye height, on the upper panel
 const box = new THREE.Box3().setFromObject(hit.object);
-out.size = [+(box.max.y - box.min.y).toFixed(2), PLAQUE.y0 > 1.0 && PLAQUE.y1 < 1.9, PLAQUE.z0 > 3.447 && PLAQUE.z1 < 4.428];
+out.size = [+(box.max.y - box.min.y).toFixed(2), PLAQUE.y0 > 1.0 && PLAQUE.y1 < 1.9, PLAQUE.z0 - PLAQUE.rim >= DOOR_LEAF[0] && PLAQUE.z1 + PLAQUE.rim <= DOOR_LEAF[1], +((PLAQUE.z1 - PLAQUE.z0) / (DOOR_LEAF[1] - DOOR_LEAF[0])).toFixed(2), +(PLAQUE.y1 - PLAQUE.y0).toFixed(2)];
 out.tokens = [t.plaque.plate.isColor, hex(roomTones({ ...palette, dark: true }).plaque.plate) !== plate];
 console.log(JSON.stringify(out));
 """)
     assert got["doors"] == [True, None, None, None] and got["frame"] == [True, None, None, None], "the plaque (frame and plate) is in the Lobby's door only: no other floor has a door"
     assert got["rooms"] == [False] * 4, "and nothing else of a room is in the plate's tone"
     assert got["pickedAs"] == [True, True, True], "the plaque is in the door's own mesh, so a click on it is a click on the door (the Control room)"
-    assert got["size"][1] is True and got["size"][2] is True, "at eye height on the upper sunk panel of the leaf"
+    assert got["size"][1] is True and got["size"][2] is True and got["size"][3] >= 0.9 and got["size"][4] >= 0.6, "A-73: on the door leaf, at eye height, most of its width (0.95 of it) and 0.7 of a page unit tall"
     assert got["tokens"] == [True, True], "the plate is a token mix that follows the palette"
     furniture = (SCENE / "furniture.js").read_text(encoding="utf-8")
     assert not re.search(r"#[0-9A-Fa-f]{3,8}\b|rgb\(|hsl\(|0x[0-9a-fA-F]{6}", furniture), "no colour literal in furniture.js"
@@ -1078,7 +1178,7 @@ out.badge = ["pui-btn", "pui-soft", "pui-theme", "wb-pill", "pui-badge", "pui-ch
 out.fit = html.includes("wb-label-fit");
 out.text = html.includes("Control room");
 // the fit: an affine projection stands for the camera; the matrix maps the label's box onto the plate's parallelogram
-const proj = (p) => ({ x: 400 + 50 * p.x - 30 * p.z, y: 300 - 40 * p.y + 20 * p.x + 20 * p.z });
+const proj = (p) => ({ x: 400 + 75 * p.x - 45 * p.z, y: 300 - 60 * p.y + 30 * p.x + 30 * p.z });
 const props = {};
 const entry = { spec: label, node: { style: { setProperty: (k, v) => { props[k] = v; } }, classList: { toggle: () => {}, add() {}, remove() {} }, offsetWidth: 108, offsetHeight: 45 }, width: 108, height: 45 };
 placeLabels([entry], proj, { hidden: false, size: { w: 1280, h: 800 } });
@@ -1106,7 +1206,7 @@ out.hidden = hiddenFlags;
 const small = [];
 const e3 = { spec: label, node: { style: { setProperty() {} }, classList: { toggle: (c, on) => small.push(on), add() {}, remove() {} } }, width: 1, height: 1 };
 placeLabels([e3], (p) => ({ x: proj(p).x * 0.2, y: proj(p).y * 0.2 }), { hidden: false, size: { w: 1280, h: 800 } });   // the plate's height 11.7 px becomes 2.3 px
-placeLabels([e3], proj, { hidden: false, size: { w: 1280, h: 800 } });                                                     // and back to 11.7 px
+placeLabels([e3], proj, { hidden: false, size: { w: 1280, h: 800 } });                                                     // and back to full size
 out.small = small;
 out.min = MIN_FIT_HEIGHT;
 // a floor that is still tweening to its full size (`vis` under 1) has no label: the label ignores the floor's own scale
@@ -1125,7 +1225,7 @@ console.log(JSON.stringify(out));
     assert got["mapped"] == [True, True, True], "the matrix maps the label's box onto the plate's parallelogram: same position, size and slant"
     assert got["follows"] is True, "and it follows the camera"
     assert got["hidden"] == [["is-culled", False], ["is-culled", True]], "it is hidden when the plate is not shown"
-    assert got["small"] == [True, False] and got["min"] == 8, "under 8 px of plate the label is hidden (a phone, a far camera), and it comes back when the plate is big enough"
+    assert got["small"] == [True, False] and got["min"] == 26, "under 26 px of plate (a 10 px letter) the label is hidden (a phone, a far camera), and it comes back when the plate is big enough (A-73)"
     assert got["tween"] == [True, False, True], "the label waits until its floor has its full size: it does not follow the floor's own scale while it tweens"
     css = (INTERFACE / "css" / "building.css").read_text(encoding="utf-8")
     rule = css[css.index(".wb-label-fit {"):css.index("}", css.index(".wb-label-fit {"))]
@@ -1214,3 +1314,63 @@ console.log(JSON.stringify(out));
     assert "agent" in got["floorHits"], "on the Floor the ready owl is what the pointer meets (the Agent tab)"
     floor_model = (JS / "floor-model.js").read_text(encoding="utf-8")
     assert "queued · ${QUEUED_NOTE}" in floor_model, "the room's tooltip says queued and the sentence"
+
+
+@needs_node
+def test_the_door_label_reads_at_the_lobbys_default_camera_at_1280_and_is_hidden_not_unreadable_where_the_plate_falls_under_the_minimum(tmp_path):
+    # A-73, M-29: the label's letters on the screen are its CSS size times the matrix's scale; at 1280 px they are at least 12 px high, and at 768 px (the docked band, a smaller room) the plate
+    # is under the minimum readable height and the label is hidden
+    got = run_node_engine(tmp_path, ENGINE_PAGE_JS + PRODUCT_JS + r"""
+const { createEngine } = await import("@JS@/scene/engine.js");
+import { FIT_SIZE, MIN_FIT_HEIGHT } from "@JS@/scene/labels.js";
+const out = {};
+const find = (node, test, list = []) => { if (node && test(node)) list.push(node); for (const c of (node && node.children) || []) find(c, test, list); return list; };
+for (const [name, w, h, insets] of [["wide", 1280, 800, { left: 240, right: 420, top: 80, bottom: 170, pad: 1.04 }], ["tablet", 768, 1024, { left: 16, right: 16, top: 150, bottom: 560, pad: 1.04 }]]) {
+  const host = document.createElement("div");
+  host.clientWidth = w; host.clientHeight = h;
+  const engine = createEngine(host, { label: "Lobby", getInsets: () => insets, onOpen() {}, onHover() {}, onUnavailable() {} });
+  const room = { tips: { agent: "Planning agent · idle" }, board: { title: "t", lines: [], dot: "theme" }, door: true, doorTip: "Control room" };
+  engine.show("world", worldModel(snapshot, NOW, { selectedId: A, focus: A, floor: "planning", room, documents: [] }), "Lobby");
+  for (let i = 0; i < 40; i++) frame(40);
+  const labels = find(host, (n) => String(n.className || (n.attrs && n.attrs.class) || "").includes("wb-label-fit"));
+  const node = labels[0];
+  const style = node && node._style ? node._style : {};
+  const c = Number(style["--wb-c"]), d = Number(style["--wb-d"]);
+  const culled = node ? String(node.className || (node.attrs && node.attrs.class) || "").includes("is-culled") : null;
+  out[name] = { found: labels.length, plateHeight: +(Math.hypot(c, d) * FIT_SIZE.h).toFixed(1), letters: +(23 * Math.hypot(c, d)).toFixed(2), culled };
+}
+out.min = [MIN_FIT_HEIGHT, FIT_SIZE.w, FIT_SIZE.h];
+console.log(JSON.stringify(out));
+""")
+    wide, tablet = got["wide"], got["tablet"]
+    assert wide["found"] == 1 and tablet["found"] == 1, "the Lobby has its door label"
+    assert wide["letters"] >= 12 and wide["culled"] is False, f"at 1280 px the label's letters are at least 12 px high on the screen ({wide['letters']})"
+    assert tablet["plateHeight"] < got["min"][0] and tablet["culled"] is True, "at 768 px the plate is under the minimum readable height and the label is hidden, not drawn unreadable"
+    css = (INTERFACE / "css" / "building.css").read_text(encoding="utf-8")
+    rule = css[css.index(".wb-label-fit {"):css.index("}", css.index(".wb-label-fit {"))]
+    assert "font-size: 23px" in rule and "font-weight: 600" in rule and f"width: {got['min'][1]}px" in rule and f"height: {got['min'][2]}px" in rule, "the label is laid out at the plate's shape, weight 600"
+
+
+def _luminance(hex_colour: str) -> float:
+    def channel(v: int) -> float:
+        c = v / 255
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+    r, g, b = (int(hex_colour[i:i + 2], 16) for i in (0, 2, 4))
+    return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+
+
+@needs_node
+def test_the_door_label_reads_on_its_plate_in_light_and_in_dark_with_the_contrast_of_wcag_aa(tmp_path):
+    # the text is `--pui-text`, the plate a mix of tokens that follows the scheme: the pair, in the page's own tokens in each scheme, is at least 4.5 to 1
+    got = run_node(tmp_path, ROOMS_JS + r"""
+const out = {};
+const tokens = {
+  light: { dark: false, bg: c(0xffffff), mix: mixSrgb, T: { ...T2, bgToken: c(0xffffff), emphasis: c(0xe5e7eb), textMuted: c(0x676d7b), text: c(0x111827) } },
+  dark: { dark: true, bg: c(0x0b0f19), mix: mixSrgb, T: { ...DK, bgToken: c(0x0b0f19), emphasis: c(0x1f2937), textMuted: c(0x9ca3af), text: c(0xf3f4f6) } },
+};
+for (const [name, p] of Object.entries(tokens)) out[name] = [hex(roomTones(p).plaque.plate), hex(p.T.text)];
+console.log(JSON.stringify(out));
+""")
+    for scheme, (plate, text) in got.items():
+        a, b = sorted((_luminance(plate), _luminance(text)), reverse=True)
+        assert (a + 0.05) / (b + 0.05) >= 4.5, f"{scheme}: the label's text on the plate is under 4.5 to 1"

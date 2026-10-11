@@ -163,7 +163,7 @@ export function buildWorld(kit, model) {
       if (!m.focus) {
         labels.push({
           id: lot.id, kind: "card", name: lot.name, decisions: lot.decisions, running: lot.runningTask !== null, sub: lot.sub,
-          selected: lot.id === m.selectedId, accepted: lot.accepted, anchor: tower.cardAnchor,
+          selected: lot.id === m.selectedId, accepted: lot.accepted, anchor: tower.cardAnchor, fitAnchor: tower.cardRestAnchor,
           quiet: m.lots.length >= 3 && lot.accepted && lot.decisions === 0 && lot.runningTask === null,
         });
       } else if (m.focus === lot.id) {
