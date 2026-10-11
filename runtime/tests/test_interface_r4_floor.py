@@ -150,6 +150,7 @@ def test_no_flex_row_of_the_cards_holds_free_text_without_wrap_and_the_done_card
         ".wb-command-row": "the code child has min-width: 0 and white-space: pre-wrap; the Copy button is fixed",
         ".wb-waits-label": "a checkbox and a text span with min-width: 0 and overflow-wrap: anywhere",
         ".wb-plan-table td": "the phone's stacked row: a label and a value that wraps",
+        ".wb-card-head": "F2-D1 (R4-P3): one row on the desktop, as floor.html draws it; the meta has min-width: 0 and is cut with an ellipsis, and the phone's block wraps the head",
     }
     bad = []
     for selector, body in rules:
@@ -649,7 +650,9 @@ def test_the_board_label_is_not_drawn_on_a_phone_and_a_card_head_wraps_instead_o
     assert ".wb-wallboard { display: none; }" in phone, "floor.html draws no board label at 375 px: the label would lie under the tracking bar and the tiles"
     assert ".wb-card-plain { flex: 1 1 100%;" in phone, "Plain text has a row of its own on a phone"
     meta = next(d for s, d in css_rules() if s.strip() == ".wb-card-meta")
-    assert "white-space" not in meta and "text-overflow" not in meta, "the card's meta is never cut: the head wraps"
+    assert meta.get("text-overflow") == "ellipsis", "F2-D1 (R4-P3): on the desktop the head is one row and the meta is cut with an ellipsis (its title holds the date)"
+    assert re.search(r"\.wb-card-head \{ flex-wrap: wrap; \}", phone), "the head wraps on a phone"
+    assert re.search(r"\.wb-card-meta \{ overflow: visible; text-overflow: clip; white-space: normal; \}", phone), "the meta is never cut on a phone"
     assert ":has(.wb-card-plain)" not in floor
 
 
