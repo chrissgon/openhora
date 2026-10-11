@@ -139,7 +139,8 @@ export function createCard(item, env) {
     const ago = agoText(it.created_at, env.now());
     const meta = h("span", { class: "wb-card-meta" }, `#${it.id} · `, taskLink(), where ? ` · ${where}` : "", ago ? ` · ${ago}` : "");
     if (it.created_at) meta.setAttribute("title", it.created_at);
-    return h("div", { class: "wb-card-head" }, h("span", { class: "pui-badge pui-warn pui-soft", text: format.kindWord(it.kind) }), meta, RENDERS.includes(it.kind) ? plainButton() : null);
+    // lobby.html draws the route question (the reply that named no route) without `Plain text`: its body is one short sentence
+    return h("div", { class: "wb-card-head" }, h("span", { class: "pui-badge pui-warn pui-soft wb-card-kind", text: format.kindWord(it.kind) }), meta, RENDERS.includes(it.kind) && !isUnrecognised(it) ? plainButton() : null);
   }
 
   /** The text of a card as the person asked for it: rendered Markdown, or the text exactly as it came (`wb-md is-plain`, mono). */
@@ -242,14 +243,14 @@ export function createCard(item, env) {
   /** "Show the agent's reply": the planning agent's reply whole, as plain text (A-25). */
   function replyDisclosure(raw) {
     if (typeof raw !== "string" || !raw) return null;
-    return h("details", { class: "pui-accordion-item wb-verdict wb-raw-reply" }, h("summary", { class: "wb-summary", text: "Show the agent's reply" }),
+    return h("details", { class: "wb-disclosure wb-verdict wb-raw-reply" }, h("summary", { class: "wb-summary", text: "Show the agent's reply" }),
       h("pre", { class: "wb-pre", tabindex: "0", "aria-label": "The planning agent's reply" }, raw));
   }
 
   /** A button of the unrecognised-route card, outside `actions`: it sends the request of its word. */
-  function routeButton(word, label, busyLabel, theme) {
+  function routeButton(word, label, busyLabel, theme, solid = false) {
     const mine = state.busy === word;
-    const button = h("button", { class: `pui-btn ${theme} pui-outline wb-card-button`, type: "button", "data-word": word, "aria-busy": mine ? "true" : null }, mine ? ring(true) : null, mine ? busyLabel : label);
+    const button = h("button", { class: `pui-btn ${theme} ${solid ? "pui-solid" : "pui-outline"} wb-card-button`, type: "button", "data-word": word, "aria-busy": mine ? "true" : null }, mine ? ring(true) : null, mine ? busyLabel : label);
     button.disabled = Boolean(state.busy) || Boolean(state.done);
     button.addEventListener("click", () => press(word));
     return button;
@@ -269,7 +270,7 @@ export function createCard(item, env) {
       select.addEventListener("change", () => { r.flow = select.value; });
       inputs.flow = select;
       parts.push(field("Flow", select, h("small", { class: state.empty === "flow" ? "wb-hint is-error" : "wb-hint", text: state.empty === "flow" ? "Choose a flow." : "The request is planned from this flow." })),
-        h("div", { class: "wb-card-actions" }, routeButton("route", "Route with this flow", "Routing...", "pui-theme")));
+        h("div", { class: "wb-card-actions" }, routeButton("route", "Route with this flow", "Routing...", "pui-theme", true)));
     }
     return h("div", { class: "wb-route-controls" }, parts);
   }
@@ -302,9 +303,9 @@ export function createCard(item, env) {
         h("span", { class: "wb-card-line", text: "Answer the review with a comment, or cancel the request." })));
     }
     parts.push(textarea("comment", "Comment", 3, state.empty === "comment" ? h("small", { class: "wb-hint is-error", text: "Type a comment." }) : null, state.empty === "comment"), handOver(), message());
-    let disclosure = null;
-    if (it.run_id !== null && it.run_id !== undefined) disclosure = verdictDisclosure(it.run_id);
-    parts.push(buttons(), disclosure);
+    // floor.html: "Record a verdict" is a plain line between the comment and the buttons
+    if (it.run_id !== null && it.run_id !== undefined) parts.push(verdictDisclosure(it.run_id));
+    parts.push(buttons());
     return parts;
   }
 
@@ -388,7 +389,7 @@ export function createCard(item, env) {
       button.addEventListener("click", () => sendVerdict(word, runId));
       row.append(button);
     }
-    return h("details", { class: "pui-accordion-item wb-verdict" },
+    return h("details", { class: "wb-disclosure wb-verdict" },
       h("summary", { class: "wb-summary", text: "Record a verdict" }), row,
       state.verdict ? (state.verdict.error ? notice(state.verdict.text, "error") : h("p", { class: "wb-card-line", role: "status", text: state.verdict.text })) : null);
   }
@@ -410,7 +411,7 @@ export function createCard(item, env) {
       waits ? waits.el : null,
       h("div", { class: "wb-card-hint", text: limitsLine(payload) }),
       h("div", { class: "wb-card-hint", text: "Plan hash" }), hash,
-      h("details", { class: "pui-accordion-item wb-verdict" }, h("summary", { class: "wb-summary", text: "Plan as text" }), h("div", { class: "wb-card-body" }, reply("plan", markdownView(it.body || "", { name: "the plan", renderedLabel: "Plan as text", plainClass: "wb-pre" })))),
+      h("details", { class: "wb-disclosure wb-verdict" }, h("summary", { class: "wb-summary", text: "Plan as text" }), h("div", { class: "wb-card-body" }, reply("plan", markdownView(it.body || "", { name: "the plan", renderedLabel: "Plan as text", plainClass: "wb-pre" })))),
       noteInput(), message(), buttons(),
     ];
   }
@@ -455,7 +456,7 @@ export function createCard(item, env) {
     else if (it.kind === "review") body = reviewBody();
     else if (it.kind === "plan") body = planBody();
     else body = unknownBody();
-    if (state.done) fill(root, h("div", { class: "pui-card-content wb-card-content" }, h("h3", { class: "wb-sr", id: titleId, text: it.title }), body));
+    if (state.done) fill(root, h("div", { class: "pui-card-content wb-card-content is-done" }, h("h3", { class: "wb-sr", id: titleId, text: it.title }), body));
     else fill(root, header(), h("div", { class: "pui-card-content wb-card-content" }, body));
     root.setAttribute("aria-busy", state.busy ? "true" : "false");
     if (word) {

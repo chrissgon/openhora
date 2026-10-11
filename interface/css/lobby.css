@@ -7,6 +7,8 @@
 /* --- the Lobby (handoff lobby.md, cards.md): the panel with its tabs, the conversation, the cards and the composer ----------------- */
 .wb-panel-lobby { grid-template-rows: auto auto minmax(0, 1fr) auto; }      /* the composer is the last row and keeps its whole height; on a phone at half the thread above it gives way */
 .wb-lobby-body { display: block; padding: 0; overflow: hidden; }
+/* F2-D2: no line between the head and the tabs, as on the Floor (frame.css gives every panel head a line; lobby.html draws the Lobby's with none, the tabs close under it) */
+.wb-panel-lobby > .wb-panel-head { padding-bottom: 4px; border-bottom: 0; }
 .wb-lobby-tabpanel { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .wb-lobby-tabpanel-later { padding: 16px; gap: 12px; }
 .wb-lobby-waiting { padding: 16px; }
@@ -67,6 +69,7 @@
 .wb-lobby-resolved-text { min-width: 0; overflow-wrap: anywhere; }
 .wb-pointer { padding: 8px 10px; border-radius: var(--pui-radius); background-color: var(--wb-sunken); }
 .wb-pointer .pui-link { margin-left: auto; }
+.wb-pointer-title { color: var(--pui-text); font-weight: 600; }     /* F2-D11: the pointer's title is bold in the text colour, the date after it muted (lobby.html) */
 
 .wb-panel-lobby .wb-card .pui-btn.pui-surface { background-color: var(--wb-raised); }
 
@@ -167,4 +170,40 @@
   .wb-lobby-footer { padding: 8px 12px 10px; }                       /* the composer is the sheet's last row at half: it keeps its whole height, the thread above gives way */
   .wb-composer-wrap { gap: 4px; }
   .wb-lobby-tab { padding: 5px 6px; font-size: 12px; }
+}
+
+/* M-32, the Lobby's text and fields on a phone (max-width 899px): fields, buttons and tabs 16 px, the reading text 16 px, meta lines at least 12 px; the Floor's cards the Lobby shows follow floor.css */
+@media (max-width: 899px) {
+  .wb-lobby-tab { padding: 6px 4px; gap: 3px; font-size: 16px; }
+  .wb-lobby-tab-count { font-size: 13px; }
+  .wb-msg-meta { font-size: 12px; }
+  .wb-bubble, .wb-lobby-request-full, .wb-lobby-resolved, .wb-lobby-notice-card, .wb-slash-cmd, .wb-newreq .wb-field, .wb-panel-lobby .wb-plan-task,
+  .wb-panel-lobby .wb-waits, .wb-panel-lobby .wb-waits-title, .wb-panel-lobby .wb-waits-reasons, .wb-panel-lobby .wb-waits .wb-card-note { font-size: 16px; }
+  .wb-lobby-request-title.pui-btn, .wb-newreq-title, .wb-desk-list .wb-path-btn, .wb-route-flow { font-size: 16px; }
+  .wb-desk-list .wb-desk-agent { font-size: 12px; }
+}
+
+/* The Lobby's sheet at half on a phone keeps room for the thread: the composer gives up what is not needed to type (the hint under it; the label above it stays for a screen reader,
+   the placeholder says the same), the run line is one line cut by an ellipsis (its title holds the whole line), and the thread has a floor with its own scroll. */
+@media (max-width: 899px) {
+  .wb-panel-lobby { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(4.5rem, 1fr) auto; }     /* one column that can be narrower than its widest child, so the tab list scrolls instead of widening the panel */
+  .wb-thread { min-height: 4.5rem; }     /* two lines of 16 px text with the thread's padding */
+  .wb-lobby-hint { display: none; }
+  .wb-composer-wrap { position: relative; }
+  .wb-comp-label { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+  .wb-lobby-run:not([hidden]) { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* five tabs at 16 px do not fit below about 340 px: the list scrolls (the selected tab is scrolled into view by lobby-tabs.js) */
+  .wb-lobby-tabs { overflow-x: auto; scrollbar-width: none; }
+  .wb-lobby-tabs::-webkit-scrollbar { display: none; }
+  .wb-lobby-tab { flex: 1 0 auto; }
+}
+/* a short phone (667 px and under): the composer is one row, New request as its icon (the words stay for a screen reader), the field, Send, so that the thread keeps its two lines at half */
+@media (max-width: 899px) and (max-height: 700px) {
+  .wb-composer { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .wb-composer > .wb-comp-field { grid-column: 2; grid-row: 1; }
+  .wb-new-btn { grid-column: 1; grid-row: 1; padding-inline: 12px; }
+  .wb-send { grid-column: 3; grid-row: 1; }
+  .wb-composer > .wb-comp-field { overflow: hidden; }
+  .wb-composer > .wb-comp-field::placeholder { white-space: nowrap; text-overflow: ellipsis; }
+  .wb-new-label { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 }
