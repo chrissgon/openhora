@@ -209,6 +209,7 @@ snap.details[P].agents = [agent("planning"), agent("business"), agent("brand"), 
 snap.details[P].status = { requests: [
     { id: 2, title: "Sale page", state: "running", tasks: [task(4, "done", "planning"), task(5, "running", "engineering"), task(6, "waiting", "marketing")] },
     { id: 3, title: "Autumn catalogue", state: "planned", tasks: [task(7, "planned", "brand")] },
+    { id: 4, title: "openhora website: docs, HTML mockups, then the site in site/", state: "requested", tasks: [] },
     { id: 1, title: "Done long ago", state: "done", tasks: [] }],
   pending: [{ id: 8, kind: "question", title: "Which colour?", task_id: 6, agent: "marketing", created_at: "2026-10-08T08:00:00Z", actions: ["answered"] }], documents: [], held: [] };
 const route = router.parse(`#/p/${P}`);
@@ -234,6 +235,7 @@ const items = byClass(panel, "wb-rq");
 out.requests = items.map((li) => ({ classes: cls(li), id: li.attrs["data-request"], main: kids(byClass(li, "wb-rq-main")[0]).map((c) => c.tagName + ":" + c.textContent), current: byClass(li, "wb-rq-main")[0].attrs["aria-current"] || null,
   name: byClass(li, "wb-rq-main")[0].attrs["aria-label"], open: [byClass(li, "wb-rq-open")[0].attrs.href, byClass(li, "wb-rq-open")[0].attrs["aria-label"]],
   cancel: [byClass(li, "wb-rq-cancel")[0].textContent, byClass(li, "wb-rq-cancel")[0].attrs["aria-label"], byClass(li, "wb-rq-cancel")[0].tagName, cls(byClass(li, "wb-rq-cancel")[0]).join(" ")],
+  titles: [byClass(li, "wb-rq-title")[0].attrs.title, byClass(li, "wb-rq-sub")[0].attrs.title, byClass(li, "wb-rq-title")[0].textContent],
   order: kids(li).map((c) => cls(c).find((k) => k.startsWith("wb-rq-"))) }));
 const docs = byClass(panel, "wb-docs-link")[0];
 out.docs = { href: docs.attrs.href, text: docs.textContent, icons: kids(docs).map((c) => cls(c).join(" ")) };
@@ -318,14 +320,14 @@ def test_the_panel_is_the_head_with_project_state_as_an_icon_button_the_facts_re
     assert g["facts"][:2] == ["Configuration", "Accepted"] and g["facts"][2] == "Running now", "C-2: Configuration and Running now only"
     assert "Request" not in g["facts"] and "Waiting for you" not in g["facts"], "C-2: the request followed is the selected row, the decisions' count is the KPI card"
     assert [x[0] for x in g["sections"]] == ["", "", "wb-scene-list"] and [x[2] for x in g["sections"]] == [False, False, False]
-    assert g["requestsHeading"] == ["Requests (2)", "Floors"], "R-27: `Requests (n)` and `Floors` (not `Floors, top to bottom`)"
+    assert g["requestsHeading"] == ["Requests (3)", "Floors"], "R-27: `Requests (n)` and `Floors` (not `Floors, top to bottom`)"
     assert g["floors"]["heading"] == "Floors" and g["floors"]["label"] == "Floors, top to bottom", "the list keeps its accessible name"
 
 
 @needs_node
 def test_a_request_row_is_the_number_the_title_and_the_state_chip_the_steps_line_the_chevron_and_cancel_request_on_a_line_of_its_own(building):
     r = building["requests"]
-    assert [x["id"] for x in r] == ["2", "3"], "the open requests, from the lowest number; the finished one is not listed"
+    assert [x["id"] for x in r] == ["2", "3", "4"], "the open requests, from the lowest number; the finished one is not listed"
     followed = r[0]
     assert "is-selected" in followed["classes"] and followed["current"] == "true" and r[1]["current"] is None, "R-27: the followed request takes the emphasis ground (aria-current)"
     assert followed["main"][:3] == ["SPAN:#2", "STRONG:Sale page", "SPAN:Running"], "R-27: the number, the title and the state chip"
@@ -490,7 +492,7 @@ def test_the_stylesheet_draws_the_plate_the_rows_the_requests_and_the_tag_as_the
     has(".wb-st", "text-overflow: ellipsis", "font-size: 11px")
     has(".wb-rq.is-selected", "background-color: var(--pui-bg-emphasis)")
     has(".wb-rq-cancel", "grid-column: 1 / -1", "margin: -2px 0 6px 44px")
-    has(".wb-rq-main", 'grid-template-areas: "n title chip" "n sub sub"')
+    has(".wb-rq-main", 'grid-template-areas: "n title chip ." "n sub sub sub"')   # R4-A3b: a fourth, free column carries the leftover width, so the chip's column is never squeezed
     has(".wb-fl-row", 'grid-template-areas: "dot title state chev" ". chips chips chev"')
     has(".wb-docs-link", "display: flex")
     has(".wb-state-btn", "width: 32px", "margin-left: auto")
@@ -501,6 +503,51 @@ def test_the_stylesheet_draws_the_plate_the_rows_the_requests_and_the_tag_as_the
     assert re.search(r"@media \(prefers-reduced-motion: reduce\) \{ \.wb-plate, \.wb-fl-row \{ transition: none; \} \}", CSS), "the hover mark's transition goes under reduced motion"
     for gone in ("wb-plate-chips", "wb-plate-note", "wb-label-tag", "wb-list-heading", "wb-state-link", "wb-floor-row", "wb-floor-item"):
         assert gone not in CSS, f"{gone} is gone"
+
+
+def decls(selector):
+    """The declarations of every flat rule whose selector is exactly `selector`, merged (a later one wins)."""
+    merged = {}
+    for sel, decl in rules(TOP):
+        if sel == selector:
+            merged.update(decl)
+    assert merged, f"{selector} has no rule"
+    return merged
+
+
+def test_a_long_request_title_ellipsises_in_one_line_and_never_pushes_the_badge_out_of_the_row_nor_scrolls_the_panel_sideways():
+    """A-50 / M-11 (R4-A3b): the row's title column was `minmax(0, auto)` beside a chip column of `minmax(0, 1fr)`; a long title took its whole width and left the chip's column
+    at 0, so the state badge stood past the row's edge and the panel scrolled sideways. The title shrinks, the badge and the chevron never do, and no column of the panel's
+    body takes the width of its widest child."""
+    main = decls(".wb-rq-main")
+    cols = main["grid-template-columns"]
+    assert cols.split()[0] == "auto" and "minmax(0, auto)" in cols and "minmax(0, 1fr)" in cols, "the number auto, the title shrinks to 0, the leftover column is free"
+    assert re.fullmatch(r"auto minmax\(0, auto\) auto minmax\(0, 1fr\)", cols), "the chip's column is `auto` (never squeezed), the free column is the fourth"
+    assert main["min-width"] == "0" and main["overflow"] == "hidden", "the button holds whatever it draws"
+    title = decls(".wb-rq-title")
+    assert title["min-width"] == "0" and title["overflow"] == "hidden" and title["text-overflow"] == "ellipsis" and title["white-space"] == "nowrap", "one line, an ellipsis"
+    sub = decls(".wb-rq-sub")
+    assert sub["min-width"] == "0" and sub["overflow"] == "hidden" and sub["text-overflow"] == "ellipsis" and sub["white-space"] == "nowrap", "the steps line ellipsises too"
+    for selector in (".wb-rq-n", ".wb-rq-state"):
+        d = decls(selector)
+        assert d["flex"] == "none" and d["white-space"] == "nowrap" and d["min-width"] == "max-content", f"{selector}: the number and the state badge never shrink"
+    open_btn = decls(".wb-rq-open")
+    assert open_btn["flex"] == "none" and open_btn["min-width"] == "28px", "the chevron button keeps its size"
+    for selector in (".wb-rq", ".wb-rq-list, .wb-fl-list", ".wb-sec"):
+        assert decls(selector)["min-width"] == "0", f"{selector}: a grid child without min-width 0 takes the width of its widest child"
+    body = decls(".wb-bpanel > .wb-panel-body")
+    assert body["grid-template-columns"] == "minmax(0, 1fr)" and body["overflow-x"] == "hidden", "R-27: the panel's one column is the panel's width, and the panel never scrolls sideways"
+
+
+@needs_node
+def test_a_request_row_carries_its_whole_title_as_title_and_as_its_accessible_name(building):
+    long = building["requests"][2]
+    whole = "openhora website: docs, HTML mockups, then the site in site/"
+    assert long["id"] == "4" and long["main"][1] == f"STRONG:{whole}", "the title is in the row whole, the ellipsis is the stylesheet's"
+    assert long["titles"][0] == whole and long["titles"][2] == whole, "the whole text is the title's `title`"
+    assert long["titles"][1] == long["main"][3].removeprefix("SPAN:"), "the steps line carries its whole text as `title`"
+    assert whole in long["name"] and long["name"].startswith("Request 4, "), "the row's button keeps the whole title in its accessible name"
+    assert [x["titles"][0] for x in building["requests"][:2]] == ["Sale page", "Autumn catalogue"]
 
 
 def test_the_buildings_phone_rows_are_at_least_44_px_and_the_sheet_keeps_space_after_the_last_row():
