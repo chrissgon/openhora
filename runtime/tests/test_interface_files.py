@@ -316,7 +316,8 @@ def test_the_screens_keep_no_state_in_a_global_and_the_token_stays_in_the_token_
             continue
         text = path.read_text(encoding="utf-8")
         assert not re.search(r"\bwindow\.__|\bglobalThis\.\w+\s*=", text), f"{rel(path)} keeps state in a global"
-        if path.name not in ("token.js", "api.js", "main.js"):
+        # the demo's boot module is the one other place that sets a token: the fictional one of the demo copy, which has no service (R4-D1)
+        if path.name not in ("token.js", "api.js", "main.js") and rel(path) != "interface/demo/boot.js":
             assert not re.search(r"\b(?:getToken|setToken)\(", text), f"{rel(path)} touches the token"
 
 
@@ -548,7 +549,7 @@ def test_the_control_room_imports_the_client_only_as_a_namespace_and_escape_leav
 KNOWN_GLOBALS = frozenset("""
 Array Boolean Date Error Event Map Number Object Promise RangeError RegExp Set String Symbol TypeError Uint8Array Float32Array Float64Array
 Uint16Array Uint32Array Int32Array ArrayBuffer WeakMap WeakSet BigInt Intl JSON Math Reflect Proxy
-AbortController CustomEvent KeyboardEvent MouseEvent MutationObserver ResizeObserver IntersectionObserver URL URLSearchParams Image TextEncoder TextDecoder
+AbortController CustomEvent Response KeyboardEvent MouseEvent MutationObserver ResizeObserver IntersectionObserver URL URLSearchParams Image TextEncoder TextDecoder
 fetch setTimeout clearTimeout setInterval clearInterval requestAnimationFrame cancelAnimationFrame requestIdleCallback queueMicrotask structuredClone
 parseInt parseFloat isNaN isFinite encodeURIComponent decodeURIComponent atob btoa getComputedStyle matchMedia
 if for while switch catch function async return typeof await new import super delete void yield do else DOMException
