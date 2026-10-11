@@ -27,7 +27,8 @@ function badge(request) {
 // the list, Up and Down move through it, Enter chooses, Escape closes and the focus returns to the chip.
 function selector(model, onSelect) {
   const r = model.request;
-  const requests = model.requests || [];
+  // F1-D12: the list is oldest first (#7 then #9), as the prototype draws it; Previous goes to the older request and Next to the newer one
+  const requests = [...(model.requests || [])].sort((a, b) => a.id - b.id);
   if (requests.length < 2) return badge(r);
   const at = requests.findIndex((q) => q.selected);
   const move = (delta) => onSelect(r.projectId, requests[(at + delta + requests.length) % requests.length].id);
@@ -131,7 +132,7 @@ export function createTrack({ onOpenSteps, onSelectRequest = () => {} }) {
 
   function draw(model, state) {
     if (state === "loading") {
-      desktop.replaceChildren(h("div", { class: "wb-track-left" }, h("p", { class: "wb-empty", text: "Loading the request..." })));
+      desktop.replaceChildren(h("p", { class: "wb-empty wb-track-loading", text: "Loading the request..." }));      // one line in the card, not a column with its own padding (F1-D4)
       phone.replaceChildren(h("p", { class: "wb-empty", text: "Loading the request..." }));
       return;
     }
