@@ -119,28 +119,29 @@
 
 /* the Building's panel (R-27): the head with Project state as an icon button, the facts, Requests (n), Documents (n) and Floors, some space after the last row */
 .wb-state-btn { flex: none; width: 32px; min-height: 32px; margin-left: auto; padding: 0; }
-.wb-bpanel > .wb-panel-body { gap: 14px; padding: 14px 12px 28px; scrollbar-width: thin; }
+.wb-bpanel > .wb-panel-body { grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 14px 12px 28px; overflow-x: hidden; scrollbar-width: thin; }   /* A-50 / M-11: one column as wide as the panel; the panel never scrolls sideways */
 .wb-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 16px; align-items: baseline; margin: 0; padding: 0 4px; font-size: 13px; }
 .wb-facts dt { color: var(--pui-text-muted); font-size: 12px; }
 .wb-facts dt, .wb-facts dd { margin: 0; min-width: 0; }
 .wb-facts-links { display: grid; gap: 2px; }
 .wb-facts a { color: var(--wb-ink-theme); text-decoration: none; overflow-wrap: anywhere; }
 .wb-facts a:hover { text-decoration: underline; }
-.wb-sec { display: grid; gap: 6px; outline: none; }
+.wb-sec { display: grid; gap: 6px; min-width: 0; outline: none; }
 .wb-sec[hidden] { display: none; }
 .wb-sec-head { margin: 0; padding: 0 4px; font-size: 12px; font-weight: 600; }
 .wb-sec-empty { margin: 0; padding: 0 4px; font-size: 12px; }
-.wb-rq-list, .wb-fl-list { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
-.wb-rq { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; padding-right: 6px; border-radius: var(--pui-radius); }
+.wb-rq-list, .wb-fl-list { display: grid; gap: 2px; min-width: 0; margin: 0; padding: 0; list-style: none; }
+.wb-rq { display: grid; grid-template-columns: minmax(0, 1fr) auto; min-width: 0; align-items: start; padding-right: 6px; border-radius: var(--pui-radius); }
 .wb-rq:hover { background-color: var(--wb-ground); }
 .wb-rq.is-selected { background-color: var(--pui-bg-emphasis); }
-.wb-rq-main { display: grid; grid-template-columns: auto minmax(0, auto) minmax(0, 1fr); grid-template-areas: "n title chip" "n sub sub"; align-items: center; gap: 2px 8px; min-width: 0; padding: 8px 4px 8px 8px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.wb-rq-n { grid-area: n; align-self: start; font-variant-numeric: tabular-nums; }
-.wb-rq-title { grid-area: title; overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.wb-rq-main > .pui-chip { grid-area: chip; justify-self: start; }
-.wb-rq-sub { grid-area: sub; overflow: hidden; color: var(--pui-text-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.wb-rq-main { display: grid; grid-template-columns: auto minmax(0, auto) auto minmax(0, 1fr); grid-template-areas: "n title chip ." "n sub sub sub"; align-items: center; gap: 2px 8px; min-width: 0; overflow: hidden; padding: 8px 4px 8px 8px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.wb-rq-n { grid-area: n; align-self: start; flex: none; min-width: max-content; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wb-rq-title { grid-area: title; min-width: 0; overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+/* A-50 / M-11: the title is the one part that shrinks (a column of `minmax(0, auto)` ending in an ellipsis); the number, the state badge and the chevron keep their size */
+.wb-rq-state { grid-area: chip; justify-self: start; flex: none; min-width: max-content; white-space: nowrap; }
+.wb-rq-sub { grid-area: sub; min-width: 0; overflow: hidden; color: var(--pui-text-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .wb-rq-cancel { grid-column: 1 / -1; justify-self: start; min-height: 0; margin: -2px 0 6px 44px; padding: 2px 0; font-size: 12px; }
-.wb-rq-open { min-height: 28px; margin-top: 8px; padding: 6px; }
+.wb-rq-open { flex: none; min-width: 28px; min-height: 28px; margin-top: 8px; padding: 6px; }
 .wb-docs { grid-template-columns: minmax(0, 1fr); }
 .wb-docs-link { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: var(--pui-radius); color: inherit; text-decoration: none; }
 .wb-docs-link:hover { background-color: var(--wb-ground); }
