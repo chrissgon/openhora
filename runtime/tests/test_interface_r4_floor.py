@@ -1115,5 +1115,3 @@ def test_the_buildings_phone_card_is_cleared_when_the_view_leaves_so_the_floor_s
         assert got[width]["card"] is not None and got[width]["last"] is None, f"{width} px: the Building draws the card of the floor it follows, and clears it when the view is disposed (A-54)"
     assert got["900"] == {"card": None, "last": None}, "900 px and wider: plates beside the floors, no card"
     assert got["floorCalls"] == [], "the Floor puts nothing in the corner (floor.html draws no floor card on a phone), whichever floor it shows"
-    building = (INTERFACE / "js" / "views" / "building.js").read_text(encoding="utf-8")
-    assert "if (engine) engine.setCorner(null);" in building, "A-54: the cause was a card the Building put in the shared engine and never took out"

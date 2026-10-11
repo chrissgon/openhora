@@ -295,6 +295,7 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
 .wb-earlier-mark { display: inline-flex; transition: transform 0.15s ease; }
 .wb-earlier-toggle[aria-expanded="true"] .wb-earlier-mark { transform: rotate(180deg); }
 .wb-earlier-list { display: grid; gap: 8px; }
+.wb-earlier-list .wb-run dd { color: var(--pui-text-muted); }     /* M-28: an earlier attempt reads as history; the status chip keeps its own colour */
 .wb-earlier-list[hidden] { display: none; }
 @media (prefers-reduced-motion: reduce) { .wb-task-mark, .wb-earlier-mark { transition: none; } }
 

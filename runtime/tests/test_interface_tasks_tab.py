@@ -555,8 +555,11 @@ out.one = shape(1);
 // a running run with an earlier failed one: closed by default, then opened, then closed again
 await open(2);
 out.running = { closed: shape(2) };
-li(2).querySelector("button.wb-earlier-toggle").click();
+const earlierToggle = li(2).querySelector("button.wb-earlier-toggle");
+earlierToggle.focus();
+earlierToggle.click();
 await settle();
+out.running.focus = [document.activeElement.attrs["data-key"], document.activeElement === li(2).querySelector("button.wb-earlier-toggle")];     // the row is drawn again: the focus is on the new button
 out.running.opened = shape(2);
 out.running.markup = [...li(2).walk()].filter((n) => n.tagName === "B").length;
 tab.update(data);                                       // a poll with the same data keeps the choice
@@ -598,6 +601,7 @@ def test_the_running_run_is_this_run_and_the_earlier_failed_one_waits_behind_a_c
     [earlier] = opened["list"]["runs"]
     assert earlier["Run"] == "#10 eng-implement 1.0.0" and earlier["Status"] == "Failed" and earlier["Failure"] == "The adapter failed"
     assert earlier["Error"] == "the adapter said <b>no</b>", "the error is text, never markup"
+    assert got["focus"] == ["earlier-2", True], "the focus is back on the disclosure's button after the click and the redraw"
     assert got["markup"] == 0 and got["afterPoll"] == "true", "a poll with the same data keeps the person's choice"
     assert got["closedAgain"]["toggle"]["aria"] == "false" and got["closedAgain"]["blocks"] == 1
 
@@ -647,8 +651,11 @@ out.one = shape();
 tab.update(view([run(4, { status: "failed", failure: "timeout", ending: null, error: "stopped after 40 minutes" }), run(5, { status: "running", ending: null })]));
 await settle();
 out.closed = shape();
-find(tab.el, ".wb-current").querySelector("button.wb-earlier-toggle").click();
+const toggleNode = find(tab.el, ".wb-current").querySelector("button.wb-earlier-toggle");
+toggleNode.focus();
+toggleNode.click();
 await settle();
+out.focus = [document.activeElement.attrs["data-key"], document.activeElement === find(tab.el, ".wb-current").querySelector("button.wb-earlier-toggle")];
 out.opened = shape();
 tab.update(view([run(4, { status: "failed", failure: "timeout", ending: null, error: "stopped after 40 minutes" }), run(5, { status: "running", ending: null })]));
 await settle();
@@ -676,5 +683,14 @@ def test_the_agent_tabs_current_task_draws_this_run_and_a_closed_earlier_attempt
     [earlier] = opened["list"]["runs"]
     assert earlier["Run"] == "#4 implement-change 1.4.0" and earlier["Status"] == "Failed" and earlier["Error"] == "stopped after 40 minutes"
     assert got["afterUpdate"] == "true" and got["closedAgain"] == "false"
+    assert got["focus"] == ["earlier-current-52", True], "the focus is back on the disclosure's button after the click and the redraw"
     last = got["last"]
     assert last["thisRun"]["Run"] == "#3 implement-change 1.4.0" and last["toggle"][0] == "Earlier attempts (2)"
+
+
+def test_an_opened_earlier_attempt_reads_in_the_muted_text_token_while_the_status_chip_keeps_its_own_colour():
+    from interface_css import interface_css
+    css = interface_css()
+    m = re.search(r"\.wb-earlier-list \.wb-run dd\s*\{([^}]*)\}", css)
+    assert m and "color: var(--pui-text-muted)" in m.group(1), "M-28: the values of an earlier attempt are muted"
+    assert not re.search(r"\.wb-earlier-list[^{]*\.pui-chip|\.wb-earlier-list[^{]*chip", css), "no rule overrides the chip's own colour"

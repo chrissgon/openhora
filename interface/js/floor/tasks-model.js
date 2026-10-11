@@ -127,6 +127,5 @@ export function rowOf(task, ctx) {
     age: age || NO_AGE, note: task.note || "", actions: actionsFor(task, ctx.pending), waiting: waitingLabel(task), waits: waitLines(task),
     returned: task.state === "done" ? returnedPaths(body) : [], failure: task.state === "failed" ? failureLine(body) : null,
     runs: body && Array.isArray(body.runs) ? [...body.runs].reverse() : [], hasBody: Boolean(body),
-    ...splitRuns(body && Array.isArray(body.runs) ? [...body.runs].reverse() : []),
   };
 }
