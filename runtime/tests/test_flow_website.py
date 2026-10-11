@@ -82,21 +82,59 @@ def test_the_flow_passes_the_dependency_rule_of_the_validator():
     assert flow_files.dependency_problems(flow, info) == []
 
 
-def test_each_task_names_the_file_it_writes_and_what_was_done_before_it():
+WRITES = {"prd": "docs/product/prd.md", "spec": "docs/product/specs/website.md", "flows": "docs/design/flows.md",
+          "system": "docs/design/design-system.md", "brief": "docs/design/briefs/website.md",
+          "execute": "docs/design/results/website.md", "handoff": "docs/design/handoff/website.md",
+          "implement": "site/"}
+# A path of the artifact contract a text may name in words: the file name holds the skill's name, which no text may
+# carry (test_skill_text_binding), so the text says "the design system document".
+SAID = {"docs/design/design-system.md": "the design system document"}
+
+
+def named(text, path):
+    return path in text or SAID.get(path, "\0") in text
+
+
+def test_each_task_names_the_exact_file_it_writes():
     flow = flow_files.load("website", ROOT)
+    for task in flow["tasks"]:
+        assert named(task["text"], WRITES[task["key"]]) or task["key"] == "system", task["key"]
     text = {t["key"]: t["text"] for t in flow["tasks"]}
-    writes = {"prd": "docs/product/prd.md", "spec": "docs/product/specs/website.md", "flows": "docs/design/flows.md",
-              "system": "the design system document", "brief": "docs/design/briefs/website.md",
-              "execute": "docs/design/results/website.md", "handoff": "docs/design/handoff/",
-              "implement": "site/"}
-    for key, path in writes.items():
-        assert path in text[key], key
-    for task in flow["tasks"][1:]:
-        assert re.search(r"\b(is|are) done\b", task["text"]), task["key"]
-        for before in task["depends_on"]:  # it names the file the task before it wrote
-            assert writes[before] in task["text"], (task["key"], before)
-    assert "1280" in text["spec"] and "375" in text["spec"] and "1280" in text["execute"] and "375" in text["execute"]
-    assert "ask" in text["prd"].lower()
+    assert "docs/design/design-system.md" not in text["system"] and "in docs/design/" in text["system"]
+    assert "docs/design/handoff/website/export/" in text["handoff"] and "docs/design/handoff/website/export/" in text["implement"]
+    assert "docs/product/specs/website.md" in text["implement"]
+
+
+def test_each_task_names_every_required_input_that_an_earlier_task_writes():
+    flow = flow_files.load("website", ROOT)
+    outputs = {}  # artifact (placeholders as wildcards) -> the key of the task that writes it
+    checked = []
+    for task in flow["tasks"]:
+        folder = st.REPO / "skills" / task["skill"]
+        meta = skill_meta.declared(str(folder))
+        required = flow_files.required_inputs((folder / "SKILL.md").read_text(encoding="utf-8"), meta["inputs"])
+        for path in required:
+            earlier = [k for art, k in outputs.items() if flow_files._artifact(art) == flow_files._artifact(path)]
+            for _ in earlier:
+                concrete = re.sub(r"<[^<>/]+>", "website", path)
+                assert named(task["text"], concrete), (task["key"], concrete)
+                checked.append((task["key"], concrete))
+        for path in meta["outputs"]:
+            outputs[path] = task["key"]
+    # the check above is not empty: the hand-off alone reads five files that earlier tasks write
+    assert {c for k, c in checked if k == "handoff"} >= {"docs/design/results/website.md", "docs/design/briefs/website.md",
+                                                       "docs/design/flows.md", "docs/design/design-system.md"}
+
+
+def test_the_prd_says_the_website_is_the_product_and_the_person_is_asked():
+    text = {t["key"]: t["text"] for t in flow_files.load("website", ROOT)["tasks"]}
+    assert "The website is the product this PRD describes" in text["prd"]
+    assert re.search(r"Ask the person what only they can answer", text["prd"])
+    assert "Ask the person which direction to keep" in text["execute"]
+    assert re.search(r"Round 1: one run for each direction.*Round 2: the chosen direction complete", text["execute"])
+    assert "SCREEN" in text["brief"] and "1280" in text["spec"] and "375" in text["spec"]
+    assert "a test you write first" in text["implement"] and "quote the failing line" in text["implement"]
+    assert "no horizontal scroll appears at 1280 and 375" in text["implement"]
 
 
 def test_the_flow_names_no_project_no_person_and_no_tool():
