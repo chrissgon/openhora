@@ -29,7 +29,7 @@ export function pointerLine(item, now, link) {
   const when = ago(item.created_at, now);
   return h("div", { class: "wb-lobby-resolved wb-pointer" },
     h("span", { class: "pui-badge pui-warn pui-soft", text: format.kindWord(item.kind) }),
-    h("span", { class: "wb-lobby-resolved-text", text: `${item.title || ""}${when ? ` · ${when}` : ""}` }),
+    h("span", { class: "wb-lobby-resolved-text" }, h("strong", { class: "wb-pointer-title", text: item.title || "" }), when ? ` · ${when}` : ""),
     link);
 }
 

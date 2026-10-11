@@ -383,6 +383,7 @@ def test_a_run_in_progress_gets_its_sentence_and_every_reply_is_split_to_the_tex
     world.fake.answers["say"] = ops.OpsError("another run of this project is in progress: one task at a time per project", 1)
     world.say("hello")
     assert wait_for(lambda: world.texts() and world.texts()[-1].startswith("error: another run"))
+    assert wait_for(lambda: not world.bridge.exclusive)  # the first job has released the project's model slot
     world.fake.answers["say"] = {"reply": "w" * 9000}
     world.caps(max_text=4000)
     world.say("again")

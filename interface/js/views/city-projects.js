@@ -28,15 +28,36 @@ export function createProjectsPanel(env) {
   let noConfig = false;
   let autonomy = AUTONOMY_MODES[0][0];
 
+  // F1-D14: the service takes a second or two to answer (it checks the machine), and until it has the panel said it could not read the start line, with a placeholder in the
+  // command: while the read lasts the panel says it is reading and shows no command. A head that was read stays; one that could not be read (the page had no accepted project to
+  // ask yet, or the read failed) is asked again the next time the panel opens. One read at a time.
+  let reading = false;
+  const pending = () => head === null || reading;
+  const readingNote = () => h("p", { class: "wb-card-note wb-muted wb-reading", text: "Reading the start line of the service..." });
+  // A read that never answers must not leave the panel on "Reading..." for the session: after START_WAIT_MS (env.startWaitMs in a test) the panel gives up waiting, shows the placeholder with
+  // its note, and asks again the next time it opens. An answer that comes late is still taken, and the panel is drawn again with it.
+  const START_WAIT_MS = Number.isFinite(env.startWaitMs) ? env.startWaitMs : 5000;
   async function readHead() {
-    if (head !== null) return;
+    if (head || reading) return;
+    reading = true;
     head = "";
-    try {
-      head = startHead(await env.readStart());
-    } catch (e) {
-      head = "";
+    const answer = Promise.resolve().then(() => env.readStart()).then((start) => startHead(start), () => "");
+    let timer = null;
+    const gaveUp = new Promise((resolve) => { timer = setTimeout(() => resolve(null), START_WAIT_MS); });
+    const got = await Promise.race([answer, gaveUp]);
+    clearTimeout(timer);
+    reading = false;
+    if (got === null) {
+      answer.then((late) => {
+        if (late && !head) {
+          head = late;
+          draw(true);
+        }
+      });
+    } else {
+      head = got;
     }
-    draw();
+    draw(true);      // the person may be typing the folder: the field keeps its focus and caret when the read lands
   }
 
   function close() {
@@ -74,7 +95,9 @@ export function createProjectsPanel(env) {
     const clean = cleanFolder(folder);
     const ready = clean && !refusal;
     const out = [];
-    if (ready) {
+    if (ready && pending()) {
+      out.push(readingNote());
+    } else if (ready) {
       if (noConfig) {
         out.push(copy(initLine({ head, folder: clean, autonomy }), "1. Make the folder a project (this makes docs/workbench/state.md and nothing else):", "Copy the command"));
         out.push(h("p", { class: "wb-card-note", text: "2. Write the project's configuration, docs/workbench/runtime.json, by hand (contracts/runtime.md describes it). The service does not start without that file; once it is running, the page shows the command that accepts it." }));
@@ -113,9 +136,9 @@ export function createProjectsPanel(env) {
     if (line.empty) return h("p", { class: "wb-card-note", text: `${gone.name} is the service's only project, and the service needs at least one. Start it on another folder instead.` });
     return h("div", { class: "wb-add-form" },
       h("p", { class: "wb-card-note", text: `Leaving ${gone.name} stops showing it here; its folder and its data stay where they are.` }),
-      copy(line.command, "Stop the service and start it again with this line (add --port if you started it with one):", "Copy the command"),
-      line.unknown.length ? h("p", { class: "wb-card-note wb-muted", text: `Replace ${line.unknown.map((n) => `<folder of ${n}>`).join(", ")} with the folder of that project.` }) : null,
-      head ? null : h("p", { class: "wb-card-note wb-muted", text: "The page could not read the start line of the service: replace <the workbench folder> with the folder of this checkout, or use the line you started it with." }));
+      pending() ? readingNote() : copy(line.command, "Stop the service and start it again with this line (add --port if you started it with one):", "Copy the command"),
+      !pending() && line.unknown.length ? h("p", { class: "wb-card-note wb-muted", text: `Replace ${line.unknown.map((n) => `<folder of ${n}>`).join(", ")} with the folder of that project.` }) : null,
+      head || pending() ? null : h("p", { class: "wb-card-note wb-muted", text: "The page could not read the start line of the service: replace <the workbench folder> with the folder of this checkout, or use the line you started it with." }));
   }
 
   /** `typing`: the draw follows a keystroke, so the field keeps the focus and the caret. */
@@ -141,8 +164,8 @@ export function createProjectsPanel(env) {
   function open(next, id = null) {
     mode = next;
     leaving = id;
+    readHead();       // before the first draw: it marks the read as started, so the panel says "reading" and never the placeholder
     draw();
-    readHead();
     const field = el.querySelector("[data-key=project-folder]");
     if (field && field.focus) field.focus();
   }

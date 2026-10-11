@@ -2,7 +2,7 @@
 
 An implementation of the class `messenger:<platform>` (`contracts/environment.md`) connects a messaging app to the messaging bridge (`runtime/messaging.py`). The bridge has no model in it: it turns what a person sends into an operation of the operations layer and turns a pending decision into a card. A provider only moves messages. The platform is a parameter, handed to the script as `--platform`; the script declares the platforms it serves on one top-level line, `PLATFORMS = ("<platform>",)`, which `providers/resolve.py` reads as text.
 
-The bridge reaches a provider through `providers/resolve.py` (`call("messenger:<platform>", verb, args)`): the variables `MESSENGER_<PLATFORM>_PROVIDER` then `MESSENGER_PROVIDER` choose among several, and one candidate is chosen on its own. Nothing in the bridge names an implementation.
+The bridge reaches a provider through `providers/resolve.py` (`call("messenger:<platform>", verb, args)`): the variables `MESSENGER_<PLATFORM>_PROVIDER` then `MESSENGER_PROVIDER` choose among several, and one candidate is chosen on its own. Nothing in the bridge names an implementation. `messenger:<platform>` is a class the runtime uses, not one a skill may require, so it is on purpose not in the class table of `contracts/environment.md` (which skills copy).
 
 ## The four subcommands
 

@@ -12,6 +12,15 @@ export function createTabs() {
   const bar = h("div", { class: "wb-lobby-tabbar" }, el);
   const buttons = new Map();
   let project = null;
+  let shownTab = null;
+  /** On a narrow phone the tab list scrolls (320 px): the selected tab is brought into view, sideways only. */
+  function keepInView(button) {
+    if (typeof button.getBoundingClientRect !== "function") return;
+    const b = button.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    if (b.left < r.left) el.scrollLeft -= r.left - b.left + 8;
+    else if (b.right > r.right) el.scrollLeft += b.right - r.right + 8;
+  }
   const panelId = (id) => `wb-lobby-panel-${id}`;
   const tabId = (id) => `wb-lobby-tab-${id}`;
 
@@ -39,6 +48,13 @@ export function createTabs() {
     if (project) window.location.hash = router.lobbyHash(project, ids[next]);
   });
 
+  // a tab that grows (a count arrives) or a panel that gets its width late moves the selected tab: it is brought back into view
+  if (typeof ResizeObserver === "function") {
+    const watch = new ResizeObserver(() => { const on = el.querySelector('[aria-selected="true"]'); if (on) keepInView(on); });
+    for (const { button } of buttons.values()) watch.observe(button);
+    watch.observe(el);
+  }
+
   return {
     el,
     bar,
@@ -56,6 +72,10 @@ export function createTabs() {
         button.setAttribute("aria-selected", on ? "true" : "false");
         button.tabIndex = on ? 0 : -1;
         button.classList.toggle("is-selected", on);
+        if (on && name !== shownTab) {
+          shownTab = name;
+          keepInView(button);
+        }
         const n = counts && counts[name] ? counts[name] : 0;
         count.hidden = n <= 0;
         count.textContent = String(n);

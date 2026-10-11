@@ -5,9 +5,11 @@
 // the status and the word. A route whose operation calls a model or a platform answers 202 with a job: the function
 // returns that job and pollJob(job.job, every) asks for it again until it is done or failed. The token is read from
 // token.js for each request and appears nowhere else here. One route answers bytes (the raw artifact): `artifactRaw` returns a Blob,
-// through the same `send`, so the token still travels only as the bearer header.
+// through the same `send`, so the token still travels only as the bearer header. `send` is the one place a request leaves the client, and it
+// hands the request to transport.js (the page's single network call).
 
 import { getToken } from "./token.js";
+import { transport } from "./transport.js";
 
 const PREFIX = "/api/v1";
 const TOKEN_FILE = "/token-file";   // the one path outside PREFIX: it needs no token, so the page can show where the token file is before it has one
@@ -94,7 +96,7 @@ async function send(method, path, options = {}) {
   }
   let response;
   try {
-    response = await fetch(url, init);
+    response = await transport(url, init);
   } catch (e) {
     if (e && e.name === "AbortError") throw e;
     throw new ApiError(0, "network", "The service could not be reached. Is it still running?");

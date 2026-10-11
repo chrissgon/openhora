@@ -35,7 +35,7 @@ function whenParts(text) {
 /**
  * The list itself: {el, update({documents, truncated, loading, error}), focusRow(path)}. A row is two lines (R-40): the path and the agent's badge; the owner
  * skill, the size with its kind and the time. A filter works in the page over the rows already read (no request). The agent's badge is the word the frame
- * uses for the agent ("Lobby" for the planning agent) and a dash when no agent owns the document.
+ * uses for the agent ("Lobby" for the planning agent, and for a document no agent owns).
  */
 function createDeskList(env) {
   const el = h("div", { class: "wb-desk-tab" });
@@ -59,7 +59,7 @@ function createDeskList(env) {
       const row = h("li", { class: "wb-desk-row" },
         h("span", { class: "wb-desk-path" }, open,
           r.bound ? h("span", { class: "pui-chip pui-muted pui-soft wb-chip-11", title: "bound to a decision" }, "bound", h("span", { class: "wb-sr", text: " to a decision" })) : null),
-        h("span", { class: "pui-badge pui-muted pui-soft wb-desk-agent", text: r.agent ? format.agentWord(r.agent) : "—" }),
+        h("span", { class: "pui-badge pui-muted pui-soft wb-desk-agent", text: r.agent ? format.agentWord(r.agent) : "Lobby" }),
         h("span", { class: "wb-desk-meta wb-muted" },
           h("span", { class: "mono wb-desk-owner", text: r.owner }), r.owner ? " · " : "", h("span", { class: "wb-nowrap" }, r.size, h("span", { class: "wb-desk-kind", text: kind })), " · ", ...whenParts(r.modified)));
       row.addEventListener("click", () => env.open(r.path));

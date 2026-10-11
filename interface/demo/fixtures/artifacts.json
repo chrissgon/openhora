@@ -1,0 +1,32 @@
+{
+  "artifacts": [
+    {
+      "path": "docs/business/icp.md",
+      "owner": "mkt-social-copy",
+      "agent": "marketing",
+      "size": 68,
+      "modified_at": "2026-10-01T09:00:00Z",
+      "kind": "markdown",
+      "bound": false
+    },
+    {
+      "path": "docs/business/market.lint.json",
+      "owner": null,
+      "agent": null,
+      "size": 3,
+      "modified_at": "2026-10-01T09:00:00Z",
+      "kind": "text",
+      "bound": false
+    },
+    {
+      "path": "docs/business/market.md",
+      "owner": "biz-market-analysis",
+      "agent": "planning",
+      "size": 54,
+      "modified_at": "2026-10-01T09:00:00Z",
+      "kind": "markdown",
+      "bound": false
+    }
+  ],
+  "truncated": false
+}

@@ -168,7 +168,7 @@ def test_the_job_poll_pauses_while_the_tab_is_hidden_and_asks_at_once_on_return(
 
 def test_the_poll_has_no_second_fetch_path():
     source = (JS / "api.js").read_text(encoding="utf-8")
-    assert len(re.findall(r"\bfetch\(", source)) == 1, "api.js keeps one fetch call"
+    assert len(re.findall(r"\btransport\(", source)) == 1 and not re.search(r"\bfetch\(", source), "api.js keeps one network call"
 
 
 def test_the_token_prompt_shows_the_flows_sentence_for_a_401():
