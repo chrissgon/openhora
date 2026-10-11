@@ -404,3 +404,13 @@ def test_the_command_line_still_resolves_a_class(tmp_path):
     root = stand_in_workbench(tmp_path)
     done = cli(["--class", "integration:vcs", "--root", str(root)])
     assert done.returncode == 0 and done.stdout.strip().endswith("standin.py")
+
+
+def test_messenger_is_a_class_with_a_platform_parameter_and_telegram_serves_telegram():
+    assert resolve.variables("messenger:telegram") == ["MESSENGER_TELEGRAM_PROVIDER", "MESSENGER_PROVIDER"]
+    assert resolve.folder("messenger:telegram") == "messenger" and resolve.platform_of("messenger:telegram") == "telegram"
+    assert resolve.served_platforms("messenger:<platform>", "telegram", env={}) == ["telegram"]
+    got = resolve.resolve("messenger:telegram", env={})
+    assert got["implementation"] == "telegram" and got["path"] == str(REPO / "providers" / "messenger" / "telegram.py")
+    with pytest.raises(resolve.Unresolved):
+        resolve.resolve("messenger:whatsapp", env={})

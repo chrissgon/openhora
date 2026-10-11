@@ -39,6 +39,7 @@ BEFORE = {
     "GMAIL_CLIENT_SECRET": ((), "gmail-client-secret", ("providers/mailbox/auth.py", "providers/mailbox/gmail.py")),
     # The platform's token joined the core registry on 2026-10-06 (stage 3 of the platform plan, WP-3.10).
     "NOTION_TOKEN": ((), "notion", ("providers/issue-tracker/notion.py", "providers/documents/notion.py")),
+    "MESSENGER_TELEGRAM_BOT_TOKEN": ((), "messenger-telegram", ("providers/messenger/telegram.py",)),
     # The key proxy of the eval network became a reader of the floor key on 2026-10-03: it holds the value of an eval run.
     "OPENROUTER_API_KEY": ((), "openrouter", ("evals/eval_run.py --pass-env", "adapters/agents-dir/run-prompt.sh",
                                               "evals/container/keyproxy/keyproxy.py", "adapters/api/run_agent.py")),

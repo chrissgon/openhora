@@ -82,12 +82,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import autonomy  # noqa: E402  (the same folder: the check of the key "area_agents")
 import deps  # noqa: E402  (the same folder: the recipes and the check of the key "dependencies")
+import operations  # noqa: E402  (the same folder: the groups and the ceilings the key "channels" is checked against)
 
 REL = "docs/workbench/runtime.json"
 REQUIRED = ("workbench", "data_dir", "store_db")
 # The top-level keys of the task runtime: the three required ones and every key this module checks or passes on.
 TASK_RUNTIME_KEYS = ("workbench", "data_dir", "store_db", "area_agents", "handlers", "task_board", "documents",
-                     "protected_paths", "code", "dependencies", "max_cost_usd_per_run", "model_prices")
+                     "protected_paths", "code", "dependencies", "max_cost_usd_per_run", "model_prices", "messaging", "channels")
 # The top-level keys scripts/runtime.py, scripts/runtime_vote.py and scripts/vote_job.py read from the same file
 # (the first runtime). Leaves with stage 7.
 FIRST_RUNTIME_KEYS = ("agent", "harness", "model", "mailbox", "publisher", "store", "scheduler", "notification_query",
@@ -155,7 +156,79 @@ def load(project: str) -> dict:
         raise ConfigError(f"runtime.json {e}") from None
     out["handlers"] = _handlers(raw.get("handlers"), out["area_agents"])
     out["model_prices"] = _model_prices(raw.get("model_prices"))
+    out["messaging"] = _messaging(raw.get("messaging"))
+    out["channels"] = _channels(raw.get("channels"))
     return out
+
+
+POLICY_CHANNELS = ("messaging",)  # the channels a policy narrows today (the others are wired by a later package)
+
+
+def _channels(value) -> dict:
+    """The key "channels" (the channel policy, decision M-8; absent means {}), checked: {"messaging": ["<group>", ...]}.
+    Each group is one of operations.GROUPS and every operation it covers must be listed by the channel's row in the
+    table (the ceiling): a policy narrows what the table allows and never widens it. The terminal is never narrowed.
+    A channel that has no entry keeps the default of operations.DEFAULT_POLICY (messaging: read, talk, answer). Like
+    every key of the file, a change takes effect after accept-config in the terminal."""
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ConfigError("runtime.json channels must be an object from a channel to a list of groups")
+    out = {}
+    for channel, groups in value.items():
+        if channel not in POLICY_CHANNELS:
+            raise ConfigError(f"runtime.json channels: {channel!r} has no policy; the channels with one are {', '.join(POLICY_CHANNELS)} "
+                              "(the terminal is never narrowed)")
+        if not isinstance(groups, list) or not all(isinstance(g, str) for g in groups):
+            raise ConfigError(f"runtime.json channels.{channel} must be a list of group names")
+        for group in groups:
+            if group not in operations.GROUPS:
+                raise ConfigError(f"runtime.json channels.{channel}: {group!r} is not a group (known: {', '.join(operations.GROUPS)})")
+            for name in operations.GROUPS[group]["operations"]:
+                if channel not in operations.by_name(name)["channels"]:
+                    ceiling = ", ".join(operations.by_name(name)["channels"])
+                    raise ConfigError(f"runtime.json channels.{channel}: the group {group!r} covers {name}, which the table "
+                                      f"of operations does not give the channel {channel} (its ceiling: {ceiling}); "
+                                      "a policy narrows the ceiling and never widens it")
+        out[channel] = list(dict.fromkeys(groups))
+    return out
+
+
+MESSAGING_KEYS = ("senders", "notices", "page_url")
+NOTICES = ("text", "count")
+PLATFORM_NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+
+def _messaging(value) -> dict:
+    """The key "messaging" (the messaging bridge, runtime/messaging.py; absent means no sender and the defaults), checked:
+    {"senders": {"<platform>": ["<sender id>", ...]}, "notices": "text" or "count" (default "text"), "page_url": an
+    http:// or https:// URL, or null}. A platform is lowercase words joined by hyphens, a sender id is non-empty text
+    without a space. Nothing in it is a secret (the bot's token is read from the secret store), and, as every key of
+    the file, a change takes effect only after the person runs accept-config in the terminal."""
+    if value is None:
+        return {"senders": {}, "notices": "text", "page_url": None}
+    if not isinstance(value, dict):
+        raise ConfigError("runtime.json messaging must be an object")
+    unknown = sorted(set(value) - set(MESSAGING_KEYS))
+    if unknown:
+        raise ConfigError(f"runtime.json messaging has an unknown key {unknown[0]!r} (known: {', '.join(MESSAGING_KEYS)})")
+    senders = value.get("senders", {})
+    if not isinstance(senders, dict):
+        raise ConfigError("runtime.json messaging.senders must be an object from a platform to a list of sender ids")
+    out_senders = {}
+    for platform, ids in senders.items():
+        if not isinstance(platform, str) or not PLATFORM_NAME.fullmatch(platform):
+            raise ConfigError(f"runtime.json messaging.senders: {platform!r} is not a platform name (lowercase words joined by hyphens)")
+        if not isinstance(ids, list) or not all(isinstance(i, str) and i.strip() and not any(c.isspace() for c in i) for i in ids):
+            raise ConfigError(f"runtime.json messaging.senders.{platform} must be a list of sender ids, each non-empty text without a space")
+        out_senders[platform] = list(dict.fromkeys(ids))
+    notices = value.get("notices", "text")
+    if notices not in NOTICES:
+        raise ConfigError(f"runtime.json messaging.notices must be one of {', '.join(NOTICES)}")
+    page_url = value.get("page_url")
+    if page_url is not None and (not isinstance(page_url, str) or not re.fullmatch(r"https?://[^\s<>\"']+", page_url)):
+        raise ConfigError("runtime.json messaging.page_url must be an http:// or https:// URL, or null")
+    return {"senders": out_senders, "notices": notices, "page_url": page_url}
 
 
 PRICE_KINDS = ("input", "output", "cache_read", "cache_write")
