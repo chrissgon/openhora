@@ -153,7 +153,7 @@ def test_lan_alone_asks_for_detection_and_lan_with_an_address_names_it():
     assert service.parse(["--project", "a", "--lan", "--no-dispatch"])["lan"] == "auto"
 
 
-@pytest.mark.parametrize("address", ["10.0.0.1", "10.255.255.254", "172.16.0.5", "172.31.255.255", "192.168.0.9",
+@pytest.mark.parametrize("address", ["10.0.0.1", "10.255.255.254", "172.16.0.5", "172.31.255.254", "192.168.0.9",
                                      "192.168.255.1", "169.254.3.4"])
 def test_a_private_or_link_local_address_is_taken(address):
     assert service.parse(["--project", "a", "--lan", address])["lan"] == address
@@ -169,6 +169,14 @@ def test_a_public_unspecified_loopback_or_malformed_address_is_refused(address):
         service.parse(["--project", "a", "--lan", address])
     with pytest.raises(service.Refused):
         service.check_lan_address(address)
+
+
+@pytest.mark.parametrize("address", ["192.168.1.0", "192.168.1.255", "10.0.0.0", "10.255.255.255", "172.16.0.0", "172.31.255.255", "169.254.0.255"])
+def test_a_network_or_broadcast_address_is_refused(address):
+    with pytest.raises(service.Refused, match="network or broadcast"):
+        service.check_lan_address(address)
+    with pytest.raises(service.Refused):
+        service.parse(["--project", "a", "--lan", address])
 
 
 def test_the_refusal_names_the_reason_for_an_unspecified_and_a_public_address():
@@ -343,6 +351,26 @@ def test_the_address_the_service_was_given_is_the_only_one_it_accepts_a_second_s
     assert check("192.168.1.30:8765", lan_ip="192.168.1.30") is None
 
 
+@pytest.mark.parametrize("host,on_lan,expected", [
+    (f"{LAN}:{PORT}", True, None), (f"127.0.0.1:{PORT}", True, (403, "host")), (f"localhost:{PORT}", True, (403, "host")),
+    (f"{LAN}:{PORT}", False, (403, "host")), (f"127.0.0.1:{PORT}", False, None), (f"localhost:{PORT}", False, None),
+    ("192.168.1.21:8765", True, (403, "host")), ("192.168.1.21:8765", False, (403, "host")), (f"{LAN}:9999", True, (403, "host"))])
+def test_the_socket_a_request_came_in_on_decides_its_host(host, on_lan, expected):
+    assert service.check_request("GET", "/", {"Host": host}, PORT, TOKEN, LAN, on_lan) == expected
+
+
+@pytest.mark.parametrize("origin,on_lan,expected", [
+    (f"http://{LAN}:{PORT}", True, None), (f"http://127.0.0.1:{PORT}", True, (403, "origin")), (f"http://localhost:{PORT}", True, (403, "origin")),
+    (f"http://{LAN}:{PORT}", False, (403, "origin")), (f"http://127.0.0.1:{PORT}", False, None), (f"http://localhost:{PORT}", False, None)])
+def test_the_socket_a_request_came_in_on_decides_its_origin(origin, on_lan, expected):
+    host = f"{LAN}:{PORT}" if on_lan else f"127.0.0.1:{PORT}"
+    assert service.check_request("GET", "/", {"Host": host, "Origin": origin}, PORT, TOKEN, LAN, on_lan) == expected
+
+
+def test_a_lan_socket_of_a_service_without_an_address_accepts_nothing():
+    assert service.check_request("GET", "/", {"Host": f"127.0.0.1:{PORT}"}, PORT, TOKEN, None, True) == (403, "host")
+
+
 # --- end to end through the real handler --------------------------------------------------------------------------------
 
 
@@ -377,27 +405,20 @@ def test_the_lan_socket_is_told_from_the_loopback_one_by_the_address_it_was_reac
     assert service._on_lan(None) is True
 
 
-def test_a_real_loopback_socket_with_the_lan_host_serves_the_page_and_the_api_but_not_the_token_file_path(tmp_path, project, monkeypatch):
+def test_the_socket_decides_which_host_is_valid_on_a_real_service(tmp_path, project, monkeypatch):
     fake = Standin(tmp_path / "data")
     fake.answers["status"] = STATUS
     interface = tmp_path / "interface"
     interface.mkdir()
     (interface / "index.html").write_text("<!doctype html><title>x</title>", encoding="utf-8")
     token_path = str(tmp_path / "t.token")
-    monkeypatch.setattr(service, "detect_lan_ip", lambda: LAN)
-    # the loopback socket is real; the LAN socket of this test is the same one, told apart by the helper below
     served = {"lan": False}
-    real_on_lan = service._on_lan
-    monkeypatch.setattr(service, "_on_lan", lambda connection: served["lan"] or real_on_lan(connection))
-
+    monkeypatch.setattr(service, "_on_lan", lambda connection: served["lan"])  # the second socket is not on this machine: stood in for
     created = []
 
     def factory(address, handler):
         # the LAN address is not on this machine: the second socket is a recording stub; the first is the real one.
-        if address[0] == "127.0.0.1":
-            server = service.Server(address, handler)
-        else:
-            server = RecordingServer(address, handler)
+        server = service.Server(address, handler) if address[0] == "127.0.0.1" else RecordingServer(address, handler)
         created.append(server)
         return server
 
@@ -406,30 +427,52 @@ def test_a_real_loopback_socket_with_the_lan_host_serves_the_page_and_the_api_bu
         svc = run.service
         port = svc.port
         assert svc.lan_ip == LAN
-        # reached on the loopback: the path is given with a loopback Host
+        # a request on the loopback socket: the loopback Hosts only, the path of the token file is given
         status, body = request(port, "/token-file", f"127.0.0.1:{port}")
         assert status == 200 and json.loads(body)["token_file"] == os.path.abspath(token_path)
-        # the LAN address as the Host over the loopback socket is accepted (page and api)...
+        assert request(port, "/", f"localhost:{port}")[0] == 200
+        assert request(port, "/", f"{LAN}:{port}")[0] == 403, "the LAN Host is not valid on the loopback socket"
+        assert request(port, "/", f"127.0.0.1:{port}", origin=f"http://{LAN}:{port}")[0] == 403
+        assert request(port, "/", f"attacker.example:{port}")[0] == 403
+        assert request(port, "/", f"127.0.0.1:{port + 1}")[0] == 403
+        # a request on the LAN socket: that address and its origin only; no path of the token file; the page and the api work
+        served["lan"] = True
         assert request(port, "/", f"{LAN}:{port}")[0] == 200
+        assert request(port, "/", f"{LAN}:{port}", origin=f"http://{LAN}:{port}")[0] == 200
         assert request(port, "/api/v1/projects", f"{LAN}:{port}", auth=svc.token)[0] == 200
         assert request(port, "/api/v1/projects", f"{LAN}:{port}")[0] == 401
-        # ...but never the path of the token file when the Host is not a loopback one
         status, body = request(port, "/token-file", f"{LAN}:{port}")
         assert status == 404 and token_path.encode() not in body and b"commands" not in body
-        # another Host or Origin is refused
-        assert request(port, "/", f"attacker.example:{port}")[0] == 403
-        assert request(port, "/", f"{LAN}:{port + 1}")[0] == 403
+        for host in (f"127.0.0.1:{port}", f"localhost:{port}", f"attacker.example:{port}", f"{LAN}:{port + 1}"):
+            assert request(port, "/", host)[0] == 403, host
+            assert request(port, "/token-file", host)[0] == 403, host
+        assert request(port, "/", f"{LAN}:{port}", origin=f"http://127.0.0.1:{port}")[0] == 403
         assert request(port, "/", f"{LAN}:{port}", origin="http://attacker.example")[0] == 403
-        # and when the request arrives on the LAN socket (stood in for), the path is not given even with a loopback Host
-        served["lan"] = True
-        status, body = request(port, "/token-file", f"127.0.0.1:{port}")
-        assert status == 404 and token_path.encode() not in body
-        assert request(port, "/", f"127.0.0.1:{port}")[0] == 200, "the page itself is served on the LAN socket"
-        assert request(port, "/api/v1/projects", f"{LAN}:{port}", auth=svc.token)[0] == 200
     finally:
         served["lan"] = False
         assert run.finish() == 0
     assert created[0].socket.fileno() == -1 and created[1].closed, "both sockets are closed"
+
+
+def test_without_lan_the_handler_never_asks_which_socket_a_request_came_in_on(tmp_path, project, monkeypatch):
+    fake = Standin(tmp_path / "data")
+    interface = tmp_path / "interface"
+    interface.mkdir()
+    (interface / "index.html").write_text("<!doctype html><title>x</title>", encoding="utf-8")
+
+    def boom(connection):
+        raise AssertionError("the default path is the old one: it does not look at the socket")
+
+    monkeypatch.setattr(service, "_on_lan", boom)
+    run = run_serve(fake, [project], service.Server, interface_dir=str(interface), token_file=str(tmp_path / "t.token"))
+    try:
+        port = run.service.port
+        assert run.service.lan_ip is None
+        assert request(port, "/", f"127.0.0.1:{port}")[0] == 200
+        assert request(port, "/token-file", f"localhost:{port}")[0] == 200
+        assert request(port, "/", f"{LAN}:{port}")[0] == 403
+    finally:
+        assert run.finish() == 0
 
 
 # --- /token-file ---------------------------------------------------------------------------------------------------------
@@ -445,7 +488,7 @@ def test_token_file_answers_the_path_and_the_commands_to_the_loopback_only(world
     lan_service(world)
     status, _, body = call(world, "GET", "/token-file", auth=False)
     assert status == 200 and body["token_file"] == "/home/demo/shop/.workbench/service.token" and "linux" in body["commands"]
-    answer = service.handle(world.svc, "GET", "/token-file", headers(f"127.0.0.1:{PORT}", auth=False), b"", lan=True)
+    answer = service.handle(world.svc, "GET", "/token-file", headers(f"{LAN}:{PORT}", auth=False), b"", lan=True)
     assert answer[0] == 404
     assert b"/home/demo" not in answer[2] and b"commands" not in answer[2] and b"token_file" not in answer[2]
 
@@ -455,20 +498,21 @@ def test_token_file_answers_the_path_and_the_commands_to_the_loopback_only(world
 def test_a_request_from_the_lan_gets_no_path_with_or_without_the_token_and_whatever_the_host(world, host, auth):
     lan_service(world)
     answer = service.handle(world.svc, "GET", "/token-file", headers(host, auth=auth), b"", lan=True)
-    assert answer[0] == 404 and b"/home/demo" not in answer[2] and b"pbcopy" not in answer[2]
-    assert json.loads(answer[2])["error"] == "not_found"
+    assert answer[0] in (403, 404) and b"/home/demo" not in answer[2] and b"pbcopy" not in answer[2]
+    assert json.loads(answer[2])["error"] in ("host", "not_found")
     assert world.fake.calls == []
 
 
-def test_a_loopback_socket_with_a_lan_host_gets_no_path_either(world):
+def test_a_loopback_socket_with_a_lan_host_is_refused(world):
     lan_service(world)
     answer = service.handle(world.svc, "GET", "/token-file", headers(f"{LAN}:{PORT}", auth=False), b"")
-    assert answer[0] == 404 and b"/home/demo" not in answer[2], "the Host is not a loopback one"
+    assert answer[0] == 403 and b"/home/demo" not in answer[2], "the LAN Host belongs to the LAN socket"
 
 
 def test_the_lan_answer_is_the_answer_of_a_service_that_has_no_token_file(world):
     lan_service(world)
     from_lan = service.handle(world.svc, "GET", "/token-file", headers(f"{LAN}:{PORT}", auth=False), b"", lan=True)
+    assert from_lan[0] == 404
     world.svc.token_file = None
     without = service.handle(world.svc, "GET", "/token-file", headers(f"127.0.0.1:{PORT}", auth=False), b"")
     assert from_lan[0] == without[0] == 404 and from_lan[2] == without[2]
@@ -522,6 +566,33 @@ def test_the_warning_comes_first_then_the_address_then_the_json_line_and_never_h
         printed = json.loads("".join(t for kind, t in out.items if kind == "out"))
         assert printed["url"] == "http://127.0.0.1:4321/" and printed["lan_url"] == f"http://{LAN}:4321/"
         assert set(printed) == {"url", "lan_url", "token_file", "projects"}
+    finally:
+        assert run.finish() == 0
+
+
+def test_the_warning_is_logged_before_any_thread_listens(tmp_path, project, servers, monkeypatch):
+    fake = Standin(tmp_path / "data")
+    out = Events()
+    real = RecordingServer.serve_forever
+
+    def listening(self, poll_interval=0.5):
+        out.items.append(("log", "LISTENING " + self.requested[0]))
+        real(self, poll_interval)
+
+    monkeypatch.setattr(RecordingServer, "serve_forever", listening)
+    loops = []
+    monkeypatch.setattr(service, "dispatch_loop", lambda svc, every, stop, op="dispatch": loops.append(op) or out.items.append(("log", "LOOP " + op)))
+    run = run_serve(fake, [project], RecordingServer, lan=LAN, out=out, log=out.log, dispatch_every=30)
+    try:
+        deadline = __import__("time").monotonic() + WAIT
+        while not [t for k, t in out.items if t.startswith("LISTENING") and LAN in t] and __import__("time").monotonic() < deadline:
+            __import__("time").sleep(0.01)
+        lines = [t for k, t in out.items]
+        first = min(n for n, t in enumerate(lines) if t.startswith(("LISTENING", "LOOP")))
+        warning = [n for n, t in enumerate(lines) if "WARNING" in t][0]
+        address = [n for n, t in enumerate(lines) if "Open on the phone" in t][0]
+        assert warning < address < first, (warning, address, first)
+        assert loops, "the loops did start, after the warning"
     finally:
         assert run.finish() == 0
 

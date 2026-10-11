@@ -37,12 +37,13 @@ serves the pages and the reads all the same.
   --lan [<ip>]     off by default; a risk the person accepts, to open the page on a phone on the same wifi. The service also
                    listens on one private LAN address (the IPv4 address of the default route, found without sending a packet,
                    or the <ip> given: only 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 and 169.254.0.0/16 are taken; a public
-                   address, 0.0.0.0 and the loopback are refused, exit 2), on the same port, as plain HTTP: the page and the
+                   address, 0.0.0.0, the loopback and an address ending in .0 or .255 are refused, exit 2), on the same port, as plain HTTP: the page and the
                    token cross the network unencrypted. At its start it prints a warning on standard error, then the address
                    to open (never with the token in it). Anyone on the network who reads the token can approve effects and
                    read the documents of the projects: use it to test on a phone on a network you trust, and stop the
-                   service when you are done. Host and Origin are then the loopback's and that address's, and
-                   GET /token-file answers the path to the loopback only (rules 2, 3 and "Before the token")
+                   service when you are done. Host and Origin are then the loopback's on the loopback socket and
+                   that address's on the LAN socket, and GET /token-file answers the path to the loopback socket only (rules
+                   2, 3 and "Before the token")
 
 It prints one JSON line, {"url", "token_file", "projects": [{"id", "name"}]} ("lan_url" too, after "url", with --lan), and never
 the token. After it, on
@@ -55,10 +56,10 @@ asks the person to paste it once per browser session; it is never in a URL, a lo
 The rules of a request, in this order, each a refusal unless the request satisfies it:
   1. The socket is bound to 127.0.0.1, listening with a backlog of 128. With --lan a second socket is bound to the one
      private LAN address, on the same port; never 0.0.0.0.
-  2. Host is 127.0.0.1:<port> or localhost:<port>, else 403 "host"; with --lan, <lan-ip>:<port> too, and nothing else (a
-     name that resolves to the LAN address, a DNS-rebinding name, another address or port is refused).
-  3. Origin, when present, is http://127.0.0.1:<port> or http://localhost:<port> (with --lan, http://<lan-ip>:<port> too),
-     else 403 "origin"; a POST without an Origin is refused the same way.
+  2. Host is 127.0.0.1:<port> or localhost:<port>, else 403 "host". With --lan the socket a request came in on decides: on
+     the LAN socket only <lan-ip>:<port> is valid, on the loopback socket only the two above (a name that resolves to the
+     LAN address, a DNS-rebinding name, another address or port is refused on both).
+  3. Origin, when present, is http://<a valid Host>, else 403 "origin"; a POST without an Origin is refused the same way.
   4. A path under /api/ needs "Authorization: Bearer <token>" (hmac.compare_digest), else 401 "token". The static files
      need none and hold no data. One more path needs none, GET /token-file, outside /api/: see "Before the token".
   5. Only GET and POST (OPTIONS and every other method: 405 "method", and no Access-Control-* header is ever sent). A
@@ -88,9 +89,9 @@ Before the token. The page cannot tell the person where the token file is until 
 one unauthenticated read, GET /token-file (outside /api/, under rules 2, 3, 5 and 9: no CORS header, Cache-Control no-store,
 GET only, no query): {"token_file": <the absolute path>, "commands": {"macos", "linux", "powershell"}}, the commands
 being the operations layer's text (operations.token_commands) that put the file's content on the clipboard or print it in
-a terminal. It never holds the token. With --lan it is answered to the loopback only (a request that arrived on the LAN
-socket, or one whose Host is not a loopback name, gets the 404 of a service with no token file, so that a device on the
-network cannot learn the machine's paths without the token). A path with a control character has no safe command: both values are then null. A
+a terminal. It never holds the token. With --lan it is answered to the loopback socket only (a request that arrived on the
+LAN socket gets the 404 of a service with no token file, so that a device on the network cannot learn the machine's paths
+without the token). A path with a control character has no safe command: both values are then null. A
 service without a token file (a test's) answers 404. What the answer names, the account and the project's folder, is
 readable by any local process on this origin; contracts/runtime.md says why that is accepted.
 
@@ -151,7 +152,7 @@ from shell_kit import EXPOSED_KINDS, Busy, Stopping, project_id, status_of  # no
 HOST = "127.0.0.1"
 # --lan takes an address in one of these networks and no other (RFC 1918 and link-local): never a public one.
 LAN_NETWORKS = tuple(ipaddress.ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16"))
-LAN_PROBE = ("10.255.255.255", 9)         # detection connects a UDP socket here; connect on UDP sends nothing (it only picks the route)
+LAN_PROBE = ("10.254.254.254", 9)         # detection connects a UDP socket here; connect on UDP sends nothing (it only picks the route)
 IPV4 = re.compile(r"(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])")
 # What --lan prints on standard error before the address (the one text the contract and the readme quote).
 LAN_WARNING = (
@@ -323,21 +324,26 @@ def _is_api(bare: str) -> bool:
     return bare == "/api" or bare.startswith("/api/")
 
 
-def allowed_hosts(port: int, lan_ip=None) -> tuple:
-    """The Host values a request may carry: the loopback's two, and with --lan the LAN address's; nothing else."""
+def allowed_hosts(port: int, lan_ip=None, on_lan=None) -> tuple:
+    """The Host values a request may carry. On the LAN socket of --lan (`on_lan` true) only `<lan-ip>:<port>`; on the
+    loopback socket (`on_lan` false) the loopback's two; when the socket is not told (None: a caller with no socket) the
+    loopback's two and, with a `lan_ip`, that address too. Nothing else, ever."""
+    if on_lan:
+        return (f"{lan_ip}:{port}",) if lan_ip else ()
     names = [f"{HOST}:{port}", f"localhost:{port}"]
-    if lan_ip:
+    if lan_ip and on_lan is None:
         names.append(f"{lan_ip}:{port}")
     return tuple(names)
 
 
-def check_request(method: str, path: str, headers: dict, port: int, token: str, lan_ip=None):
+def check_request(method: str, path: str, headers: dict, port: int, token: str, lan_ip=None, on_lan=None):
     """None when the request may proceed, else (status, error word): the rules 2 to 5 in order. It reads nothing but its
     arguments (no file, no socket); `path` may carry its query, which is not looked at here. `lan_ip` is the LAN address
-    of a service started with --lan (None otherwise: the Host and the Origin are then the loopback's alone)."""
+    of a service started with --lan (None otherwise: the Host and the Origin are then the loopback's alone); `on_lan` says
+    which socket the request came in on (allowed_hosts)."""
     h = {str(k).lower(): v for k, v in headers.items()}
     host = h.get("host")
-    hosts = allowed_hosts(port, lan_ip)
+    hosts = allowed_hosts(port, lan_ip, on_lan)
     if not isinstance(host, str) or host.lower() not in hosts:
         return 403, "host"
     origin = h.get("origin")
@@ -669,7 +675,7 @@ def handle(service: Service, method: str, path: str, headers: dict, body: bytes,
     the route, the project, the arguments, the one operation. A request that passes check_request and names no route is
     404 or 405; an operation's refusal is its documented status. `lan` is true when the request arrived on the LAN
     socket of --lan (the handler decides it from the address the connection was reached on); only GET /token-file reads it."""
-    refused = check_request(method, path, headers, service.port, service.token, service.lan_ip)
+    refused = check_request(method, path, headers, service.port, service.token, service.lan_ip, lan if service.lan_ip else None)
     if refused:
         return _error(*refused)
     bare, _, query = path.partition("?")
@@ -772,7 +778,9 @@ def make_handler(service: Service):
             if headers is None:
                 answer = _error(400, "usage", "a header that must appear once was repeated")
             else:
-                refused = check_request(method, path, headers, service.port, service.token, service.lan_ip)
+                lan = _on_lan(self.connection) if service.lan_ip else False  # without --lan the old path, untouched
+                refused = check_request(method, path, headers, service.port, service.token, service.lan_ip,
+                                        lan if service.lan_ip else None)
                 if refused:
                     answer = _error(*refused)
                 else:
@@ -784,7 +792,7 @@ def make_handler(service: Service):
                     if len(raw) != length:
                         answer = _error(400, "usage", "the body ended before its Content-Length")
                     else:
-                        answer = handle(service, method, path, headers, raw, lan=_on_lan(self.connection))
+                        answer = handle(service, method, path, headers, raw, lan=lan)
             try:
                 self._send(*answer)
             except (BrokenPipeError, ConnectionResetError):
@@ -910,10 +918,8 @@ def serve(projects, port=8765, poll_every=60.0, dispatch_every=DISPATCH_EVERY, t
         if every:
             threads.append(threading.Thread(target=dispatch_loop, args=(service, float(every), stop, op), daemon=True))
     try:
-        for thread in threads:
-            thread.start()
         shown = {"url": f"http://{HOST}:{service.port}/"}
-        if lan_ip:  # the warning first, then the address to open, then the one JSON line: the token is in none of them
+        if lan_ip:  # the warning first, before any thread listens, then the address to open, then the one JSON line
             for line in LAN_WARNING:
                 log(line)
             lan_url = f"http://{lan_ip}:{service.port}/"
@@ -921,6 +927,8 @@ def serve(projects, port=8765, poll_every=60.0, dispatch_every=DISPATCH_EVERY, t
             log("The token is never in the address: paste it on the phone when the page asks for it. To read it on this "
                 f"machine, open http://{HOST}:{service.port}/ for the command that copies it; its file is {os.path.abspath(target)}")
             shown["lan_url"] = lan_url
+        for thread in threads:
+            thread.start()
         print(json.dumps({**shown, "token_file": target,
                           "projects": [{"id": p["id"], "name": p["name"]} for p in found]}), file=out, flush=True)
         check_projects(ops_module, found, dispatch_every, log)
@@ -963,6 +971,8 @@ def check_lan_address(text) -> str:
     if not isinstance(text, str) or not IPV4.fullmatch(text):
         raise Refused(f"{str(text)[:40]!r} is not a dotted IPv4 address")
     ip = ipaddress.ip_address(text)
+    if text.endswith((".0", ".255")):
+        raise Refused(f"{text} is a network or broadcast address, not the address of this machine; give the machine's own")
     if not any(ip in network for network in LAN_NETWORKS):
         raise Refused(f"{text} is not a private address (10.x.x.x, 172.16-31.x.x, 192.168.x.x or 169.254.x.x); "
                       "only a private LAN address is taken, never a public one or the loopback")

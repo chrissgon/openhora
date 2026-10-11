@@ -44,6 +44,12 @@ function browserPlatform() {
   return String((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "");
 }
 
+/** The address the page was opened on (`host:port`), shown as text: 127.0.0.1:<port> here, the LAN address on a phone (service --lan). */
+function browserHost() {
+  const where = typeof location === "undefined" || !location ? "" : location.host;
+  return typeof where === "string" && where.trim() ? where.trim() : "127.0.0.1";
+}
+
 function browserHints() {
   if (typeof navigator === "undefined" || !navigator) return {};
   return { userAgent: String(navigator.userAgent || ""), touchPoints: Number(navigator.maxTouchPoints) || 0 };
@@ -76,9 +82,9 @@ function dotsGround() {
  * answer has a command for the browser's system (`platform` and `hints`, default the browser's own) the prompt shows two steps, "1 · Run this in a
  * terminal" with the command and Copy, then "2 · Paste the token"; in every other case (no reader, an older service, an error, a path
  * with no safe command, a system not told apart) it keeps its sentence about the first line. The command is the service's string, as it comes
- * (R4D-4): the page picks one and joins nothing into it. `copyEnv` is for a test. Returns {destroy()}.
+ * (R4D-4): the page picks one and joins nothing into it. `host` (default the address the page was opened on) is the address the bar names. `copyEnv` is for a test. Returns {destroy()}.
  */
-export function showTokenPrompt(root, { message, onSubmit, tokenFile, platform, hints, copyEnv }) {
+export function showTokenPrompt(root, { message, onSubmit, tokenFile, platform, hints, copyEnv, host }) {
   const field = h("input", {
     id: "token-field", class: "pui-input wb-token-field", type: masksText() ? "text" : "password", name: "service-token", autocomplete: "off",
     autocapitalize: "off", spellcheck: "false", required: true, "aria-describedby": "token-help",
@@ -157,7 +163,7 @@ export function showTokenPrompt(root, { message, onSubmit, tokenFile, platform, 
       h("div", { class: "tk-frame" },
         h("header", { class: "tk-bar" },
           h("div", { class: "wb-brand" }, markImage(24, ""), h("span", { class: "wb-wordmark", text: "openhora" })),
-          h("span", { class: "tk-meta", text: "local service \u00b7 127.0.0.1" }),
+          h("span", { class: "tk-meta", text: `local service \u00b7 ${host === undefined ? browserHost() : String(host)}` }),
           modeButton.el),
         h("div", { class: "tk-body" },
           corners,
