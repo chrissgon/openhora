@@ -25,11 +25,12 @@ import { createForm } from "./lobby-form.js";
 import { createLobbyInbox } from "./lobby-inbox.js";
 import {
   NOT_ACCEPTED_TEXT, QUEUED_NOTICE, cancelCount, canvasLabel, hasQueued, inboxParts, isNamed, lobbyDecisions, mergeMessages, noticeFor, notRoutedNotice, placeBlocks,
-  RESOLVED_LINES, inboxBodies, pollInterval, readAfter, roomModel, runningTask, signatureOf, tabOf, wantedBodies,
+  RESOLVED_LINES, TABS, inboxBodies, pollInterval, readAfter, roomModel, runningTask, signatureOf, tabOf, wantedBodies,
 } from "./lobby-model.js";
 import { createCancelDialog } from "./lobby-request.js";
 import { mountLobbyScene } from "./lobby-scene.js";
 import { createTabs } from "./lobby-tabs.js";
+import { bindSwipe } from "../swipe.js";
 import { createThread } from "./lobby-thread.js";
 import * as model from "../model.js";
 import { worldModel } from "../world-model.js";
@@ -113,6 +114,11 @@ export function createLobbyView(frame, { project, onChanged }) {
   panel.body.classList.add("wb-lobby-body");
   panel.body.append(conversationPanel, tabPanels.inbox, tabPanels.desk, tabPanels.tasks, tabPanels.agent);
   panel.el.insertBefore(tabs.bar, panel.body);
+  let shownTab = "conversation";      // the tab on show: a swipe on the panel on a phone goes to the one beside it (A-77)
+  const swipe = bindSwipe(panel.body, {
+    ids: () => TABS.map(([id]) => id), current: () => shownTab, enabled: () => !tabs.bar.hidden,
+    go: (id) => { window.location.hash = router.lobbyHash(project, id); },
+  });
   panel.el.append(footer);
   frame.main.append(panel.el, cancelDialog.el);
   // "Close" and a phone's dialog go to the one hash the frame's key handler also uses: the tab the document was opened from (frame/origin.js)
@@ -528,6 +534,7 @@ export function createLobbyView(frame, { project, onChanged }) {
       }
       const status = detail && detail.status;
       const tab = tabOf(route);
+      shownTab = tab;
       tabs.set({ project, selected: tab, counts: { inbox: status ? lobbyDecisions(status).length : 0 } });
       const onConversation = tab === "conversation";
       conversationPanel.hidden = !onConversation;
@@ -576,6 +583,7 @@ export function createLobbyView(frame, { project, onChanged }) {
       origin.reset();
       abort.abort();
       clearTimeout(timer);
+      swipe.destroy();
       document.removeEventListener("visibilitychange", onVisibility);
       viewer.dispose();
       desk.dispose();

@@ -27,6 +27,8 @@ export const WIDER_BELOW_NOTE = "Run this command in the terminal: it sets the m
 export const WAITING_NOTE = "The new mode takes effect once the configuration is accepted. Run this command in the terminal.";
 export const WAITING_NOTE_NO_COMMAND = "The new mode takes effect once the configuration is accepted in the terminal.";     // the refusal gave no command: nothing for "this command" to point at
 export const NOT_ACCEPTED_RESULT = "Accept the configuration in the terminal (the step below).";
+// What the command of a held reason does, in the page's words (the command itself is the service's, verbatim): the service that dispatches nothing gives `run-next`
+const HELD_COMMAND_LABEL = Object.freeze({ "dispatch off": "Run the next task from the terminal" });
 export const BRING_BACK = "To bring it back, choose supervised below and run its command in the terminal.";
 
 /** Keep the keyboard focus on the control with the same `data-key` after a part is drawn again. */
@@ -171,7 +173,7 @@ export function createAgentTab(env) {
   function heldBlock(held) {
     const commands = Array.isArray(held.commands) ? held.commands : [];
     const sentence = held.next && !isCommand(held.next) ? h("p", { class: "wb-held-detail wb-muted", text: held.next }) : null;
-    const single = !commands.length && held.next && isCommand(held.next) ? commandBlock({ command: held.next }) : null;
+    const single = !commands.length && held.next && isCommand(held.next) ? commandBlock({ command: held.next, sentence: HELD_COMMAND_LABEL[held.reason] }) : null;     // F2-D7: floor.html labels the held command
     return h("div", { class: "wb-held" }, h("p", { class: "wb-held-line", text: `Held: ${held.sentence}` }), sentence,
       commands.map((c) => (c.command ? commandBlock({ command: c.command, sentence: c.name }) : h("p", { class: "wb-held-detail wb-muted", text: `${c.name}: no username registered` }))),
       single);

@@ -21,6 +21,7 @@ import * as origin from "../frame/origin.js";
 import { acceptance } from "../model.js";
 import * as router from "../router.js";
 import { NoWebGL } from "../scene/engine.js";
+import { bindSwipe } from "../swipe.js";
 import { worldModel } from "../world-model.js";
 
 const TASK_FRESH_MS = 5000;
@@ -59,8 +60,17 @@ export function createFloorView(frame, env) {
   const tabbar = h("div", { class: "wb-tabbar" }, tabs.el);
   const tabpanel = h("div", { class: "wb-panel-body wb-tabpanel", id: "wb-tabpanel", role: "tabpanel" });
   const normal = h("div", { class: "wb-floor-normal" }, head, tabbar, tabpanel);
+  let shownTab = "agent";      // the tab on show: a swipe on the panel on a phone goes to the one beside it (A-77)
+  const swipe = bindSwipe(tabpanel, {
+    ids: () => TABS.map((t) => t.id), current: () => shownTab, enabled: () => viewerPath === null && Boolean(project),
+    go: (id) => { window.location.hash = router.floorHash(project, agent, id); },
+  });
   const backLink = h("a", { class: "pui-link pui-theme", href: router.cityHash(), text: "Back to the building" });   // the project is not known until the first update, which sets the Building's hash
-  const unknown = h("div", { class: "wb-floor-unknown wb-panel-body", hidden: true }, h("p", { text: "This agent is not in the project's configuration." }), backLink);
+  // floor.html: the panel of an agent that is not in the configuration still has its head, the name alone with the line under it
+  const unknownTitle = h("strong", { class: "wb-unknown-title", text: "" });
+  const unknown = h("div", { class: "wb-floor-unknown", hidden: true },
+    h("div", { class: "wb-panel-head" }, h("div", { class: "wb-panel-titles" }, unknownTitle)),
+    h("div", { class: "wb-panel-body" }, h("p", { text: "This agent is not in the project's configuration." }), backLink));
   const waitingEl = h("p", { class: "wb-empty-line", text: "Waiting for the configuration to be accepted." });
   const viewer = createViewer({
     onClose: () => closeViewer(),
@@ -217,6 +227,7 @@ export function createFloorView(frame, env) {
     const loading = !snapshot.loaded;
     const model = loading ? null : fm.floor(snapshot, project, agent, bodiesPlain());
     const tab = TABS.some((t) => t.id === route.tab) ? route.tab : "agent";
+    shownTab = tab;
     const missing = !loading && model && !model.found;
     unknown.hidden = !missing;
     normal.hidden = Boolean(missing);
@@ -229,7 +240,8 @@ export function createFloorView(frame, env) {
     }
     if (missing) {
       backLink.setAttribute("href", router.buildingHash(project));
-      title.textContent = agent ? `${agent.charAt(0).toUpperCase()}${agent.slice(1)}` : "";     // floor.html: the name alone
+      unknownTitle.textContent = agent ? `${agent.charAt(0).toUpperCase()}${agent.slice(1)}` : "";     // floor.html: the name alone
+      title.textContent = unknownTitle.textContent;
       sub.textContent = "";
       fill(tile);
       tile.hidden = true;
@@ -364,6 +376,7 @@ export function createFloorView(frame, env) {
     dispose() {
       disposed = true;
       origin.reset();
+      swipe.destroy();
       observer.disconnect();
       viewer.close();
       // the scene is the frame's: the Building takes it over (the floors come back), or the frame takes it down

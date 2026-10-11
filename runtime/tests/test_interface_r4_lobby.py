@@ -598,7 +598,7 @@ def test_the_lobbys_desk_is_a_list_of_two_line_rows_with_the_agent_as_a_badge():
     assert got["list"] == ["UL", "Documents of the project, newest first", True] and got["table"] == 0, "R-40, R-47: a list, not a table"
     assert got["rows"][0][0][0] == "SPAN" and got["rows"][0][1] == ["SPAN", "pui-badge pui-muted pui-soft wb-desk-agent"] and got["rows"][0][-1][1].startswith("wb-desk-meta"), \
         "the path, the agent's badge, then the meta line"
-    assert got["badges"] == [["Engineering", True], ["Lobby", True], ["—", True]], "R-47: the agent as a badge, in the frame's word for it (the planning agent is the Lobby), a dash for none"
+    assert got["badges"] == [["Engineering", True], ["Lobby", True], ["Lobby", True]], "R-47: the agent as a badge, in the frame's word for it (the planning agent is the Lobby); F2-D13 (R4-P3): a document no agent owns is the Lobby's, as the Floor says"
     assert got["meta"][1].startswith("state · 1.8 KB · Markdown · ") and got["meta"][1].count("2026-10-08") == 1, "the owner skill, the size and kind, the time"
     assert got["owners"] == ["implement-change", "state", ""] and got["filter"] == "Path or owner skill"
     assert got["order"] == ["docs/engineering/sale-route.md", "docs/workbench/state.md", "docs/notes/x.md"] and got["opened"] == ["docs/engineering/sale-route.md"]
