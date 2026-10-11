@@ -109,13 +109,88 @@ console.log(JSON.stringify(out));
     assert got["roomyOffered"] == got["roomyPlain"], "where the plain reading already gives the tower its room, the camera is where it always was"
 
 
+# --- the plates keep the first reading's top ---------------------------------------------------------------------------------------------------------------------
+
+@needs_node
+def test_a_reading_that_moves_the_camera_top_leaves_the_plates_column_and_the_corner_where_they_stood(tmp_path):
+    got = run_node(tmp_path, r"""
+import { placeLabels, cornerPosition } from "@JS@/scene/labels.js";
+const node = () => { const style = {}; return { style: { setProperty: (k, v) => { style[k] = v; } }, _style: style, classList: { toggle() {}, add() {}, remove() {}, contains: () => false }, offsetWidth: 230, offsetHeight: 66 }; };
+const column = (insets) => {
+  const entries = [0, 1, 2].map((i) => ({ spec: { place: "column", anchor: { y: 10 + i } }, node: node(), width: 230, height: 66 }));
+  placeLabels(entries, (a) => ({ x: 300, y: a.y }), { insets, size: { w: 948, h: 627 } });
+  return entries.map((e) => e.node._style["--wb-y"]);
+};
+const size = { w: 948, h: 627 };
+const base = { left: 240, right: 640, top: 16, bottom: 16, plateRight: 270 };
+const block = { ...base, left: 16, top: 228 };
+console.log(JSON.stringify({
+  base: column(base), block: column(block), kept: column({ ...block, plateTop: base.top }),
+  cornerBase: cornerPosition(size, base), cornerBlock: cornerPosition(size, block), cornerKept: cornerPosition(size, { ...block, plateTop: base.top }),
+}));
+""")
+    assert got["block"] != got["base"], "without `plateTop` the block reading pushes the plates' column down with the camera's top (the defect this guards)"
+    assert got["kept"] == got["base"], "with `plateTop` the plates' column stands where the first reading puts it"
+    assert got["cornerKept"] == got["cornerBase"] and got["cornerBlock"] != got["cornerBase"], "and so does the corner slot"
+
+
+# --- the Building's two readings, from its own function --------------------------------------------------------------------------------------------------------------
+
+@needs_node
+def test_the_buildings_insets_offer_one_alternative_for_two_cards_and_none_for_one_with_the_base_sides_shared(tmp_path):
+    got = run_node(tmp_path, r"""
+import { desktopInsets, PLATE_GAP_X, PLATE_SHIFT } from "@JS@/views/building.js";
+const rect = (top, bottom, h) => ({ top, bottom, height: h });
+const make = (cardsReading) => ({
+  main: { getBoundingClientRect: () => rect(0, 700, 700) }, track: { el: { getBoundingClientRect: () => rect(600, 700, 100) } },
+  plateWidth: () => 230,
+  insets: (panel, opts) => (opts.cardsAbove ? cardsReading : { left: 240, right: 356, top: 16, bottom: 130, pad: 1.04 }),
+});
+const base = { left: 240, right: 356, top: 16, bottom: 130, pad: 1.04 };
+const two = desktopInsets(make({ left: 16, right: 356, top: 228, bottom: 130, pad: 1.04 }), {}, { dim: false }, base);
+const one = desktopInsets(make(base), {}, { dim: false }, base);
+console.log(JSON.stringify({ two, one, plates: 230 + PLATE_GAP_X + PLATE_SHIFT, shift: PLATE_SHIFT }));
+""")
+    assert got["one"]["alternatives"] == [], "one card reads the same either way: nothing is offered"
+    two, alt = got["two"], got["two"]["alternatives"]
+    assert len(alt) == 1 and alt[0]["left"] == 16 and alt[0]["top"] == 228, "two cards: the block reading is offered"
+    assert two["right"] == alt[0]["right"] == 356 + got["plates"] and two["plateRight"] == alt[0]["plateRight"] == 356 + got["shift"], "the panel and the plates take the same room in both readings"
+    assert two["bottom"] == alt[0]["bottom"] == 116, "the tracking bar bounds both from below (700 - 600 + 16)"
+    assert two["pad"] == alt[0]["pad"] == 1 and alt[0]["plateTop"] == two["top"] == 16, "no padding in either, and the plates' column keeps the first reading's top"
+
+
+# --- a tower with room under the cards keeps the block reading -------------------------------------------------------------------------------------------------------
+
+@needs_node
+def test_at_1280_by_720_with_two_cards_a_tower_of_one_floor_stands_larger_under_the_cards_and_clear_of_them(tmp_path):
+    # a tower of one floor is wide and low: the first reading leaves it the width between the strip (240) and the panel and plates (628), the block reading from the margin (16).
+    # Looked at in the served page (R4-D2 report, shots `real-solo-1280x720-*`): the tower stands below the cards (their bottom edge is 216, the block's top 228) and to the
+    # right of the camera buttons, so the larger reading is kept, here and wherever it is better by the margin
+    got = run_node_engine(tmp_path, ENGINE_PAGE_JS + PRODUCT_JS + r"""
+const { createEngine } = await import("@JS@/scene/engine.js");
+snapshot.details[A].agents = snapshot.details[A].agents.filter((a) => a.name === "planning");   // one agent: one floor
+async function widthOf(alternatives) {
+  const host = document.createElement("div");
+  const engine = createEngine(host, { label: "Building", getInsets: () => ({ left: 240, right: 628, top: 16, bottom: 16, pad: 1, alternatives }), onOpen() {}, onHover() {} });
+  engine.show("world", models.building(null), "Building");
+  for (let i = 0; i < 200; i++) frame(1000 / 30);
+  const v = engine.canvas.wbStats().view;
+  return { width: +(v.right - v.left).toFixed(4), towers: engine.canvas.wbStats().towers[A] };
+}
+console.log(JSON.stringify({ plain: await widthOf([]), offered: await widthOf([{ left: 16, right: 628, top: 228, bottom: 16, pad: 1, plateTop: 16 }]) }));
+""")
+    assert got["plain"]["towers"] == 1 and got["offered"]["towers"] == 1, "the one-floor building opens"
+    assert got["offered"]["width"] < got["plain"]["width"] * 0.9, f"a tower of one floor stands clearly larger in the block reading ({got['offered']['width']} against {got['plain']['width']} of view)"
+
+
 # --- the page asks for both readings -----------------------------------------------------------------------------------------------------------------------------
 
 def test_the_building_offers_the_cards_other_reading_and_the_engine_and_frame_know_it():
     building = text("js/views/building.js")
     assert "frame.insets(panel, { notice: !(about && about.dim) })" in building, "the usual reading is asked as it was (R4-B4)"
     assert "cardsAbove: true" in building and "alternatives:" in building, "R4-D2: the other reading (the cards as a block at the top) is offered beside it"
-    assert "frame.isPhone()" in building and building.index("frame.isPhone()") < building.index("cardsAbove: true"), "the phone has its own insets and offers nothing"
+    getter = building[building.index("getInsets: (about) =>"):]
+    assert "frame.isPhone()" in getter and getter.index("frame.isPhone()") < getter.index("desktopInsets("), "the phone has its own insets and offers nothing: only the desktop and tablet path calls desktopInsets"
     engine = text("js/scene/engine.js")
     assert "bestFit(choices, fitOf)" in engine and "given.alternatives" in engine, "the engine keeps the reading that lets the subject stand larger"
     frame = text("js/frame/frame.js")

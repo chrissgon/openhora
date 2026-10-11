@@ -50,7 +50,7 @@ function placeColumn(plates, project, hidden, insets, size) {
   const plateWidth = plates[0].entry.node.offsetWidth || 290;
   const edge = Math.max(...points.map((p) => p.x)) + PLATE_OFFSET;
   const x = Math.max(0, Math.min(edge, size.w - ins.plateRight - plateWidth));
-  const top = ins.top;
+  const top = ins.plateTop !== undefined ? ins.plateTop : ins.top;   // R4-D2: a reading that moves the camera's top (the cards as a block) leaves the plates' column where it stood
   const bottom = size.h - ins.bottom;
   const measure = () => plates.map(({ entry }, i) => ({ want: points[i].y, height: entry.node.offsetHeight || 90 }));
   // R-25: a plate is one size; when the stack would not fit the free height every plate shortens to its name row alone (`is-tiny`)
@@ -131,7 +131,7 @@ export function cornerPosition(size, insets) {
   const ins = { right: 0, top: 0, ...(insets || {}) };
   if (ins.cornerBottom !== undefined) return { x: ins.cornerLeft !== undefined ? ins.cornerLeft : 10, y: Math.max(0, size.h - ins.cornerBottom), bottom: true };
   const right = ins.cornerRight !== undefined ? ins.cornerRight : ins.right;
-  return { x: Math.max(0, size.w - right), y: Math.max(0, ins.top) };
+  return { x: Math.max(0, size.w - right), y: Math.max(0, ins.plateTop !== undefined ? ins.plateTop : ins.top) };
 }
 
 /**
