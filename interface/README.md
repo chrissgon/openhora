@@ -272,4 +272,4 @@ one.
 ## Not here
 
 `accept-config` is not a route: a configuration hash is accepted in the terminal only, so a page can never accept the
-change that widens what an agent may do. `run-next` is not a route either: the dispatcher decides what runs.
+change that widens what an agent may do. The same holds for `set-mode --accept`, the one terminal command that sets a wider mode and accepts it: the mode route takes the mode and nothing else, and the Agent tab only shows that command to copy. `run-next` is not a route either: the dispatcher decides what runs.

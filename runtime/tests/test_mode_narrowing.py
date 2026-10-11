@@ -19,6 +19,7 @@ from test_autonomy import tree  # noqa: F401  (planning supervised, brand autono
 autonomy = st.load("autonomy")
 ops = st.load("ops")
 ops_core = st.load("ops_core")
+ops_config = st.load("ops_config")
 project_config = st.load("project_config")
 
 ORDER = ("stopped", "supervised", "milestones", "autonomous", "autonomous-with-policy")
@@ -64,7 +65,7 @@ def test_a_move_down_the_order_is_accepted_by_code_and_a_move_up_never_is(tree, 
     elif ORDER.index(new) < ORDER.index(old):
         assert out["accepted"] is True and out["by"] == "code:narrowing" and out["next"] is None
         assert cursor(tree, project_config.ACCEPTED) == after["sha256"] == out["config_sha256"]
-        assert cursor(tree, ops.ACCEPTED_BY) == "code:narrowing"
+        assert cursor(tree, ops_config.ACCEPTED_BY) == "code:narrowing"
         assert ops.status(project)["config"]["sha256"] == after["sha256"]  # no route refuses afterwards
         assert ops.config(project)["accepted"] is True
     else:
@@ -122,7 +123,7 @@ def test_a_narrowing_that_finds_the_file_changed_under_it_is_not_accepted(tree, 
 
 
 def test_the_acceptance_cursor_is_written_by_one_function_that_two_operations_call_and_a_narrowing_guards():
-    tree_ = ast.parse((st.RUNTIME / "ops.py").read_text(encoding="utf-8"))
+    tree_ = ast.parse((st.RUNTIME / "ops_config.py").read_text(encoding="utf-8"))  # R4-C3: the two operations live here
     functions = {f.name: f for f in ast.walk(tree_) if isinstance(f, ast.FunctionDef)}
     writers = [name for name, f in functions.items() for n in ast.walk(f)
                if isinstance(n, ast.Call) and "cursor_set" in ast.unparse(n) and "project_config.ACCEPTED" in ast.unparse(n)]
@@ -130,18 +131,26 @@ def test_the_acceptance_cursor_is_written_by_one_function_that_two_operations_ca
     callers = sorted(name for name, f in functions.items() for n in ast.walk(f)
                      if isinstance(n, ast.Call) and ast.unparse(n.func) == "_record_acceptance")
     assert callers == ["accept_config", "set_mode"], callers
+    # the only call inside set_mode sits under the test of a narrowing, or of the person's flag (test_set_mode_accept.py
+    # shows that flag refused from any channel but the terminal)
     guarded = [n for n in ast.walk(functions["set_mode"]) if isinstance(n, ast.If)
-               and "autonomy.narrows" in ast.unparse(n.test)
+               and ("narrowing" in ast.unparse(n.test) or "autonomy.narrows" in ast.unparse(n.test))
                and any(isinstance(c, ast.Call) and ast.unparse(c.func) == "_record_acceptance" for b in n.body for c in ast.walk(b))]
-    assert len(guarded) == 1  # the only call inside set_mode sits under the narrowing test
+    assert len(guarded) == 1
     inside = [n for n in ast.walk(functions["set_mode"]) if isinstance(n, ast.Call) and ast.unparse(n.func) == "_record_acceptance"]
     assert len(inside) == 1
 
 
 def test_no_other_operation_writes_the_cursor_of_the_accepted_hash():
-    sources = {p.name: p.read_text(encoding="utf-8") for p in st.RUNTIME.glob("*.py")}
-    holders = sorted(name for name, text in sources.items() if "ACCEPTED" in text and "cursor_set" in text)
-    assert holders == ["ops.py"], holders
+    """Over every module of the runtime and its handlers: a call that passes `cursor_set` and names an ACCEPTED cursor (the hash
+    or its author) is in ops_config.py and nowhere else."""
+    holders = set()
+    for folder in (st.RUNTIME, st.RUNTIME / "handlers"):
+        for path in sorted(folder.glob("*.py")):
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if isinstance(node, ast.Call) and "cursor_set" in ast.unparse(node) and "ACCEPTED" in ast.unparse(node):
+                    holders.add(path.name)
+    assert sorted(holders) == ["ops_config.py"], holders
 
 
 def test_from_the_page_a_narrowing_is_accepted_and_the_next_read_succeeds_and_a_widening_is_refused_with_the_command(tree, monkeypatch):
@@ -241,4 +250,4 @@ def test_the_accepted_hash_and_its_author_are_written_nowhere_but_the_one_functi
                     holders.setdefault(literal, set()).add(path.name)
             for name in re.findall(r'cursor-set",\s*"--name",\s*f?"([^"]*)"', text):
                 assert not name.startswith("config:"), (path.name, name)
-    assert holders == {"config:accepted-sha256": {"project_config.py"}, "config:accepted-by": {"ops.py"}}, holders
+    assert holders == {"config:accepted-sha256": {"project_config.py"}, "config:accepted-by": {"ops_config.py"}}, holders

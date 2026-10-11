@@ -6,9 +6,9 @@
 """The names every module of the operations layer shares, once: the checkout (ROOT), the refusal (OpsError), the
 project's context and the store call, the two locks, the runtime's own key and the data-folder names.
 
-The operations layer is five files: runtime/ops.py (the operations and the facade every shell imports),
+The operations layer is six files: runtime/ops.py (the operations and the facade every shell imports),
 runtime/ops_say.py (the conversation), runtime/ops_reads.py (the reads of the local interface), runtime/ops_waits.py
-(the derived waits between requests) and this one. Every
+(the derived waits between requests), runtime/ops_config.py (the configuration's acceptance) and this one. Every
 module reads a name of this file as an attribute of it, at call time (`import ops_core as core`, then `core.ROOT`,
 `core.context(...)`), and never binds one at import (no module takes a name of this file with a from-import): a test
 that patches `ops_core.ROOT` then reaches every reader, and a copy bound at import would keep the real checkout. No name
