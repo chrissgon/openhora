@@ -584,9 +584,10 @@ def _run(ctx: dict, task: dict, tier: str | None = None) -> dict:
         out["state"] = {"accepted": len(state_report["accepted"]), "rejected": state_report["rejected"]}
     number = lambda key, kind: timing.get(key) if isinstance(timing.get(key), kind) and not isinstance(timing.get(key), bool) else None
     # Only a metered run has a cost that is billed, whatever the tier; a subscription or free run keeps none (costs.py recomputes it).
+    every = _reported_usage(lab.reported_usage(dest), routing)  # the usage of every attempt, the retried ones too (R4-C7b)
     finish = dict(status="ok", ending=ending, attempts=counts["attempts"],
-                  cost_usd=number("cost_usd", (int, float)) if routing["billing"] == "metered" else None,
-                  tokens=number("total_tokens", int), duration_ms=number("duration_ms", int),
+                  cost_usd=every.get("cost_usd", number("cost_usd", (int, float)) if routing["billing"] == "metered" else None),
+                  tokens=every.get("tokens", number("total_tokens", int)), duration_ms=number("duration_ms", int),
                   skill_loaded=(skill in loaded) if isinstance(loaded, list) else None,
                   image_digest=result["image_digest"], run_dir=dest, redactions=_count(counts.get("redactions")))
     if ending == "blocked":
@@ -1718,9 +1719,10 @@ def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False) 
     body = body.encode("utf-8")[:store.BODY_MAX].decode("utf-8", errors="ignore")
     loaded = timing.get("skills_loaded")
     number = lambda key, kind: timing.get(key) if isinstance(timing.get(key), kind) and not isinstance(timing.get(key), bool) else None
+    every = _reported_usage(lab.reported_usage(dest), routing)  # the usage of every attempt, the retried ones too (R4-C7b)
     finish = dict(status="ok", attempts=counts["attempts"],
-                  cost_usd=number("cost_usd", (int, float)) if routing["billing"] == "metered" else None,
-                  tokens=number("total_tokens", int), duration_ms=number("duration_ms", int),
+                  cost_usd=every.get("cost_usd", number("cost_usd", (int, float)) if routing["billing"] == "metered" else None),
+                  tokens=every.get("tokens", number("total_tokens", int)), duration_ms=number("duration_ms", int),
                   skill_loaded=(skill in loaded) if isinstance(loaded, list) else None,
                   image_digest=result["image_digest"], run_dir=dest, redactions=_count(counts.get("redactions")))
     common = {"run_dir": dest, "response_file": os.path.join(result["outputs"], "response.md"), "kept": out["kept"],
