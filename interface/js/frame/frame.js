@@ -392,9 +392,10 @@ export function createFrame(root, handlers) {
      * lies over the scene (the KPI cards, the header, the notice, the panel or the waiting card at the right, the tracking bar) takes the
      * side it is fixed to, so the scene's objects are fitted into what none of them covers. A part that does not touch the scene (the panel
      * docked below it on a narrow screen) takes nothing. `notice: false`: the band does not count (a dimmed Building is fitted as it was, the band floats over it; a phone's
-     * band always counts). The City under a project that is not accepted is fitted as the Building is (city.html: the buildings keep their size under the band; F1-D10).
+     * band always counts). `cardsAbove` (R4-D2): the KPI cards, when they would take the left side, take the top instead, below their own bottom edge: the other reading of the same page, which the Building
+     * offers the camera beside the first (the scene's `alternatives`). The City under a project that is not accepted is fitted as the Building is (city.html: the buildings keep their size under the band; F1-D10).
      */
-    insets(rightEl, { notice: asked = true } = {}) {
+    insets(rightEl, { notice: asked = true, cardsAbove = false } = {}) {
       const scene = sceneArea.getBoundingClientRect();
       if (phone.matches) {
         // The scene fills the whole upper part of the page; what lies over it is, at the top, the notice, the tracking bar and the two KPI tiles (R-10) and,
@@ -413,7 +414,9 @@ export function createFrame(root, handlers) {
       for (const part of parts) {
         if (!part) continue;
         const take = obstacleInset(part.getBoundingClientRect(), scene);
-        if (take) out[take.side] = Math.max(out[take.side], take.amount);
+        // R4-D2: `cardsAbove` reads the KPI cards as a block over the subject, not as a strip down the whole left side (a column of two cards on a narrow page takes most of its width): they take the top
+        if (take && cardsAbove && part === kpis.el && take.side === "left") out.top = Math.max(out.top, part.getBoundingClientRect().bottom - scene.top + 12);
+        else if (take) out[take.side] = Math.max(out[take.side], take.amount);
       }
       return out;
     },

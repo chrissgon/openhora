@@ -11,7 +11,7 @@ import { h } from "../dom.js";
 import { icon } from "../frame/icons.js";
 import { clampView, fitView, frustumOf, panBy, panPixels, pointerToNdc, zoomAt } from "./camera.js";
 import { pulseBeacon, restBeacon } from "./city.js";
-import { ease, fitFrustum, fitFrustumWithLabels } from "./fit.js";
+import { bestFit, ease, fitFrustum, fitFrustumWithLabels } from "./fit.js";
 import { createKit } from "./kit.js";
 import { cornerPosition, fitInsets, mountLabels, placeLabels } from "./labels.js";
 import { applyOutlineVisibility, showPlan } from "./look.js";
@@ -454,14 +454,21 @@ export function createEngine(host, options) {
 
   // The frustum the camera should show now: the subject fitted in the free rectangle the page's panels leave, the person's view on top.
   function computeFit() {
-    const insets = options.getInsets ? options.getInsets(about()) : {};
-    lastInsets = insets;
-    tools.style.setProperty("--wb-y", `${Math.max(16, insets.bottom || 0)}px`);   // above the tracking bar, whatever its height
+    const given = options.getInsets ? options.getInsets(about()) : {};
     bounds = subjectBounds();
     const cap = content.zoomCap ? content.zoomCap(size) : null;   // the City is not closer than the page draws it
-    const room = fitInsets(insets, corner ? corner.offsetHeight : 0);
-    // the City's labels are as wide as their text whatever the zoom: when one would run out of the free rectangle (a phone) the fit makes room for it (R4-B8); with room to spare it is the plain fit
-    frustum = cap ? fitFrustumWithLabels(bounds, size, room, insets.pad || 1.04, cap, labelRoom()) : fitFrustum(bounds, size, room, insets.pad || 1.04, cap);   // below the corner card, when there is one
+    // R4-D2: a screen may give another reading of the free rectangle in `alternatives` (the Building: the KPI cards as a block at the top, not a strip down the whole left side); the one that lets the subject stand largest is the fit
+    const choices = [given, ...(Array.isArray(given.alternatives) ? given.alternatives : [])];
+    const fitOf = (insets) => {
+      const room = fitInsets(insets, corner ? corner.offsetHeight : 0);
+      // the City's labels are as wide as their text whatever the zoom: when one would run out of the free rectangle (a phone) the fit makes room for it (R4-B8); with room to spare it is the plain fit
+      return cap ? fitFrustumWithLabels(bounds, size, room, insets.pad || 1.04, cap, labelRoom()) : fitFrustum(bounds, size, room, insets.pad || 1.04, cap);   // below the corner card, when there is one
+    };
+    const best = bestFit(choices, fitOf);
+    const insets = choices[best.index];
+    lastInsets = insets;
+    tools.style.setProperty("--wb-y", `${Math.max(16, insets.bottom || 0)}px`);   // above the tracking bar, whatever its height
+    frustum = best.frustum;
     view = clampView(view, frustum, bounds);   // the person's zoom and pan stay while they are inside the limits
     return frustumOf(frustum, view);
   }

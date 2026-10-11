@@ -188,7 +188,11 @@ export function createBuildingView(frame, env) {
         const main = frame.main.getBoundingClientRect();
         const bar = frame.track.el.getBoundingClientRect();
         const bottom = bar.height > 0 ? Math.max(16, Math.min(base.bottom, main.bottom - bar.top + 16)) : base.bottom;
-        return { ...base, bottom, pad: 1, right: base.right + frame.plateWidth() + PLATE_GAP_X + PLATE_SHIFT, plateRight: base.right + PLATE_SHIFT };   // F1-D1: building.html fills the free height with the tower: no padding on top of its box
+        // R4-D2: two cards of KPIs are a column that, read as the strip they stand in, takes the whole left side and, on a page too narrow to hold it beside the panel and the plates, leaves the
+        // tower a hundred pixels: the other reading (the cards as a block at the top, the tower below them) is offered beside it, and the camera keeps the one that lets the tower stand larger
+        const under = frame.insets(panel, { notice: !(about && about.dim), cardsAbove: true });
+        const reading = under.left !== base.left || under.top !== base.top ? [{ ...under, bottom, pad: 1, right: under.right + frame.plateWidth() + PLATE_GAP_X + PLATE_SHIFT, plateRight: under.right + PLATE_SHIFT }] : [];
+        return { ...base, bottom, pad: 1, right: base.right + frame.plateWidth() + PLATE_GAP_X + PLATE_SHIFT, plateRight: base.right + PLATE_SHIFT, alternatives: reading };   // F1-D1: building.html fills the free height with the tower: no padding on top of its box
       },
       onOpen: open,
       onHover: (id, how) => highlightRow(id && String(id).startsWith("floor:") ? String(id).slice(6) : null, true, how === "clear" ? "clear" : "pointer"),
