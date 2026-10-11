@@ -58,7 +58,7 @@ export function createPlanCard({ api, project, item, now, onChanged, signal, ann
     : h("p", { class: "wb-card-note", text: "This plan carries no hash, so it cannot be approved from here." });
   const text = planText(item);
   const asText = text
-    ? h("details", { class: "pui-accordion-item wb-plan-text" }, h("summary", { text: "Plan as text" }), h("div", { class: "wb-plan-body" }, replyView(markdownView(text, { name: "the plan", renderedLabel: "Plan as text", plainClass: "wb-plan-pre" }), { open: Boolean(planOpen.get(item.id)), onToggle: (value) => planOpen.set(item.id, value) }).el))
+    ? h("details", { class: "wb-disclosure wb-plan-text" }, h("summary", { text: "Plan as text" }), h("div", { class: "wb-plan-body" }, replyView(markdownView(text, { name: "the plan", renderedLabel: "Plan as text", plainClass: "wb-plan-pre" }), { open: Boolean(planOpen.get(item.id)), onToggle: (value) => planOpen.set(item.id, value) }).el))
     : null;
 
   const noteId = `${titleId}-note`;

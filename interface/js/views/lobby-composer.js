@@ -29,7 +29,7 @@ export function createComposer({ onSend, onNew = () => {} }) {
   const word = document.createTextNode("Send");
   // the keyboard order is the field, "Send", then "New request" (lobby.md); the stylesheet draws "New request" at the left
   const button = h("button", { class: "pui-btn pui-solid pui-theme wb-send", type: "submit" }, sendIcon, word);
-  const newButton = h("button", { class: "pui-btn pui-surface pui-outline wb-new-btn", type: "button" }, icon("plus", 16), "New request");
+  const newButton = h("button", { class: "pui-btn pui-surface pui-outline wb-new-btn", type: "button" }, icon("plus", 16), h("span", { class: "wb-new-label", text: "New request" }));
   const list = h("ul", { class: "pui-card wb-slash", role: "listbox", id: LIST_ID, "aria-label": "Commands", hidden: true });
   const form = h("form", { class: "wb-composer" }, list, field, button, newButton);
   const hint = h("small", { class: "wb-lobby-hint wb-card-hint", id: "wb-say-hint", text: HINT });
@@ -151,6 +151,7 @@ export function createComposer({ onSend, onNew = () => {} }) {
      */
     set({ sending: on, notice: shownNotice, disabled, running = null }) {
       runLine.hidden = !running || Boolean(disabled);
+      runLine.title = running && running.text ? `${RUN_LINE} ${running.text}` : "";      // on a phone the line is one line cut by an ellipsis: the title holds all of it
       runLink.hidden = !running || !running.text;
       runLink.textContent = running && running.text ? running.text : "";
       if (running && running.href) runLink.setAttribute("href", running.href);

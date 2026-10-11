@@ -908,7 +908,7 @@ def test_the_lobbys_desk_is_the_floors_table_over_every_document_with_the_agent_
     assert got["desk"]["rows"] == ["docs/brand/voice.md", "docs/marketing/x.md", "docs/notes/kickoff.md", "docs/workbench/briefs/a.md"], "C-2: the brand's and the marketing agent's documents are on this desk too (same time: by path)"
     assert got["desk"]["rowsOf"] == ["docs/notes/kickoff.md", "docs/workbench/briefs/a.md", "docs/brand/voice.md", "docs/marketing/x.md"] and got["desk"]["read"] == 1
     assert got["desk"]["owners"] == ["brand-voice", "mkt-x", "", "core-clarify"]
-    assert got["desk"]["agents"] == ["Brand", "Marketing", "—", "Lobby"], "R-47: the agent of each row as a badge, in the frame's word for it (the planning agent is the Lobby), a dash when null"
+    assert got["desk"]["agents"] == ["Brand", "Marketing", "Lobby", "Lobby"], "R-47: the agent of each row as a badge, in the frame's word for it (the planning agent is the Lobby); F2-D13 (R4-P3): Lobby when null, as the Floor says"
     assert got["opened"] == ["docs/brand/voice.md"], "a row asks to open its path; the viewer reads the file"
     assert got["askedOnce"] == 1, "a second update inside the period reads nothing"
     assert got["deskError"] == "The documents could not be readthe documents could not be listed"

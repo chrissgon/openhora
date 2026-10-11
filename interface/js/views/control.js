@@ -9,6 +9,7 @@ import { EVENT as DRAWER_EVENT } from "../frame/drawer.js";
 import { createPanel } from "../frame/panel.js";
 import { createEngine, NoWebGL } from "../scene/engine.js";
 import * as router from "../router.js";
+import { bindSwipe } from "../swipe.js";
 import { createConnectionsTab } from "./control-connections.js";
 import { createCostsTab } from "./control-costs.js";
 import * as model from "./control-model.js";
@@ -49,6 +50,9 @@ export function createControlView(frame) {
     panels.set(id, h("div", { role: "tabpanel", id: `wb-tabpanel-${id}`, "aria-labelledby": `wb-tab-${id}`, hidden: true }, tabs.get(id).el));
   }
   const content = h("div", { class: "wb-control-content" }, ...panels.values(), waiting);
+  let tab = "skills";
+  // A-77: a swipe on the content on a phone goes to the tab beside the one shown, as a click on its button does (not while a message takes the place of the tabs)
+  const swipe = bindSwipe(content, { ids: () => model.TABS.map(([name]) => name), current: () => tab, enabled: () => !message, go: (id) => go(id) });
   panel.body.append(h("div", { class: "wb-control-body" }, list, content));
   frame.main.append(panel.el);
 
@@ -75,7 +79,6 @@ export function createControlView(frame) {
 
   let projectId = null;
   let projectName = "";
-  let tab = "skills";
   let shown = "skills";     // the tab whose panel is on show, so that a newly chosen one starts at its top
   let disposed = false;
   let started = false;
@@ -267,6 +270,7 @@ export function createControlView(frame) {
     },
     dispose() {
       disposed = true;
+      swipe.destroy();
       aborter.abort();
       skills.dispose();
       observer.disconnect();
