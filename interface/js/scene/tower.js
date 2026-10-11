@@ -35,20 +35,18 @@ export const squash = (s) => CLOSED_SQUASH + (1 - CLOSED_SQUASH) * smooth(clamp0
 export const worldY = (y, s) => BASE + squash(s) * (y - BASE);
 const TALL = 1 / CLOSED_SQUASH;   // what is drawn at the drawing's height, before the squash
 
-// The shell's measures, at the building's size (the drawing's proportions: windows 5/7 of a floor's wall, the shop front 11/14, the door 6/7), so
+// The shell's measures, at the building's size (the drawing's proportions: windows 5/7 of a floor's wall, the door 6/7), so
 // that they follow the height of a floor (building.js `H`, shared with the rooms) if the rooms change it.
 const WALL = 0.14;          // a wall's thickness: the glass is set back this far
 const OVER = 0.35;          // how far a ledge and the roof stand out
 const SILL = H / 28;        // a window's foot above the floor's slab
 const GLASS_H = (H * 5) / 7;
-const STORE_FOOT = (H * 3) / 56;
-const STORE_H = (H * 11) / 14;
 const DOOR_H = (H * 6) / 7;
 const ROOF_H = 0.5 * TALL;   // the roof's height in the drawing, before the squash
 const RIM = 0.38;
 const PIT = 0.26 * TALL;
-const CANOPY = { x: -1.0, y: (H * 51) / 56, w: 2.6, d: 1.34, thick: 0.14, post: 0.1 };
-const DOOR = [-1.66, -0.38];
+const CANOPY = { x: -0.7, y: (H * 51) / 56, w: 2.6, d: 1.34, thick: 0.14, post: 0.1 };
+const DOOR = [-1.3, -0.1];   // the second bay of the front: the door stands where an upper floor has its second window
 const VIEW_AXIS = [-Math.cos(ELEVATION) * Math.sin(AZIMUTH), -Math.sin(ELEVATION), -Math.cos(ELEVATION) * Math.cos(AZIMUTH)];   // the camera's way, into the screen
 
 /**
@@ -92,24 +90,15 @@ export function floorBox(THREE, cx, cz, i) {
 
 /**
  * The openings of floor i, along the front wall (x) and the right wall (z): [{a, b, bottom, top, kind: "glass" | "door"}], each from `a` to `b`
- * along its wall and from `bottom` to `top` up it. An upper floor has four windows in front and three at the side; the ground floor a shop front:
- * three windows and the door in front, two windows at the side.
+ * along its wall and from `bottom` to `top` up it. An upper floor has four windows in front and three at the side; the ground floor (the Lobby) has the same windows (M-27, which
+ * replaced R-16's shop front) with the door in place of the second one in front: three windows and the door, and three windows at the side.
  */
 export function openings(i) {
   const win = (c, width, bottom, height) => ({ a: c - width / 2, b: c + width / 2, bottom, top: bottom + height, kind: "glass" });
-  if (i === 0) {
-    const foot = SLAB + STORE_FOOT;
-    const store = (a, b) => ({ a, b, bottom: foot, top: foot + STORE_H, kind: "glass" });
-    return {
-      front: [store(-2.56, -1.92), { a: DOOR[0], b: DOOR[1], bottom: SLAB, top: SLAB + DOOR_H, kind: "door" }, store(0.14, 1.3), store(1.48, 2.64)],
-      right: [store(-1.85, -0.5), store(0.2, 1.55)],
-    };
-  }
   const foot = SLAB + SILL;
-  return {
-    front: [-2.1, -0.7, 0.7, 2.1].map((c) => win(c, 1.2, foot, GLASS_H)),
-    right: [-1.4, 0, 1.4].map((c) => win(c, 1.2, foot, GLASS_H)),
-  };
+  const front = [-2.1, -0.7, 0.7, 2.1].map((c) => win(c, 1.2, foot, GLASS_H));
+  if (i === 0) front[1] = { a: DOOR[0], b: DOOR[1], bottom: SLAB, top: SLAB + DOOR_H, kind: "door" };   // M-27: the ground floor has the windows of the others, the door in place of the second
+  return { front, right: [-1.4, 0, 1.4].map((c) => win(c, 1.2, foot, GLASS_H)) };
 }
 
 /**
@@ -156,7 +145,7 @@ export function createTower(kit, lot, cx, cz) {
   const glassColour = (i, window) => {
     if (!lot.accepted) return tones.glassOff;
     if (window === "lit") return tones.glassLit;
-    return i === 0 ? tones.store : tones.glass;
+    return tones.glass;
   };
   const paintGlass = (mesh, colour) => {
     const attribute = mesh.geometry.getAttribute("color");
