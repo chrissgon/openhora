@@ -14,8 +14,9 @@
 // state is one repaint of its vertices; the shadows and the marks are separate meshes because they move.
 
 import { BASE, D, FRAME, GAP, H, P, SLAB, W, anchors, fillFloor, floorY } from "./building.js";
+import { PLANTS, plantGeometry } from "./plants.js";
 import { agentPose, agentRest, alertPose } from "./city-motion.js";
-import { cityTones } from "./palette.js";
+import { cityTones, roomTones } from "./palette.js";
 import { bracketSet, decisionMark } from "./marks.js";
 import { owlOutline } from "./owl.js";
 import { smooth } from "./prototype-motion.js";
@@ -138,9 +139,9 @@ export function createTower(kit, lot, cx, cz) {
   const tower = {
     id: lot.id, lot, root, group, overlay, n, floorGroups, open: 0, target: 0, interior: false,
     vis: lot.floors.map(() => 1), visTarget: lot.floors.map(() => 1),
-    motions: [], roomMotions: [], markers: [], outlines: [], inner: [], parts: [], beacon: null, tag: null, brackets: bracketing,
+    motions: [], roomMotions: [], markers: [], outlines: [], inner: [], parts: [], plants: null, beacon: null, tag: null, brackets: bracketing,
     shown: lot.floors.map((f) => ({ state: f.state, window: f.window, decisions: f.decisions, notes: null, documents: null })),
-    cardAnchor: new THREE.Vector3(cx, 0, cz), plateAnchors: [], boardAnchors: [], doorAnchors: [], tagAnchor: new THREE.Vector3(), marksHidden: false,
+    cardAnchor: new THREE.Vector3(cx, 0, cz), plateAnchors: [], boardAnchors: [], doorAnchors: [], doorPlaques: [], tagAnchor: new THREE.Vector3(), marksHidden: false,
   };
   const fadeMats = [];
   const roofMats = [];
@@ -453,6 +454,13 @@ export function createTower(kit, lot, cx, cz) {
       tower.inner[i] = inner;
       if (f.interactive) buildRoom(i);
     });
+    // the plants of the rooms (M-16): one instanced mesh for the tower, two for each room, scaled in and out with the opening (`apply`), never part of a room
+    const rooms = tower.lot.floors.map((f, i) => i).filter((i) => tower.inner[i] && tower.parts[i]);
+    tower.plantRooms = rooms;
+    if (rooms.length) {
+      tower.plants = kit.instanced(plantGeometry(THREE, FRAME, roomTones(palette)), rooms.length * PLANTS.length, overlay, { cast: false });   // in the overlay, which is never squashed: the plants stand only while the building is open
+      tower.plants.frustumCulled = false;
+    }
     tower.setTag(tower.lot.tag);
     tower.apply();
     return true;
@@ -555,7 +563,7 @@ export function createTower(kit, lot, cx, cz) {
     silhouette.scale.set(W + 0.2, bodyTop - BASE, D + 0.2);
     silhouette.position.set(0, BASE + (bodyTop - BASE) / 2, 0);
     const fade = 1 - clamp01(s / 0.55);
-    const roofFade = 1 - clamp01(s / 0.7);
+    const roofFade = fade;                   // M-16: the roof, the canopy and the walls fade together (the roof used to fade over a longer stretch, so the closed shell came whole only at the end)
     setOpacity(fadeMats, fade);
     setOpacity(roofMats, roofFade);
     shells.forEach((shell) => { shell.visible = fade > 0.01; });
@@ -574,7 +582,23 @@ export function createTower(kit, lot, cx, cz) {
     });
     tower.brackets.roof.position.y = worldY(roofY(n, s), s) + ROOF_H * sy;
     tower.brackets.closed = s < 0.01;
-    tower.inner.forEach((inner) => { if (inner) inner.visible = tower.open > 0; });
+    tower.inner.forEach((inner) => { if (inner) inner.visible = tower.open > 0 && fade < 0.999; });   // M-16: a room is put away as soon as the walls are solid, not at the last frame
+    if (tower.plants) {
+      // the plants stand only in an open building: nothing of a room shows through a closed or closing shell (M-16); they grow in once the walls are gone and shrink to nothing before they return
+      const grow = clamp01((tower.open - 0.6) / 0.3);
+      const matrix = new THREE.Matrix4();
+      const scale = new THREE.Vector3();
+      tower.plantRooms.forEach((room, k) => {
+        const g = grow * tower.vis[room];
+        PLANTS.forEach(([px, pz], j) => {
+          scale.setScalar(Math.max(g, 1e-4));
+          matrix.compose(new THREE.Vector3(FRAME.X(px) * tower.vis[room], floorGroups[room].position.y + FRAME.Y(0) * tower.vis[room], FRAME.Z(pz) * tower.vis[room]), new THREE.Quaternion(), scale);
+          tower.plants.setMatrixAt(k * PLANTS.length + j, matrix);
+        });
+      });
+      tower.plants.instanceMatrix.needsUpdate = true;
+      tower.plants.visible = grow > 0.01;
+    }
     if (tower.tag) {
       tower.tag.group.position.set(-W / 2 + 0.6, floorY(tower.tag.index, pitch) + SLAB, D / 2 - 0.5);
       tower.tagAnchor.set(cx - W / 2 + 0.6, worldY(floorY(tower.tag.index, pitch) + SLAB, s) + 0.45, cz + D / 2 - 0.5);
@@ -585,6 +609,8 @@ export function createTower(kit, lot, cx, cz) {
       const a = anchors();
       (tower.boardAnchors[i] = tower.boardAnchors[i] || new THREE.Vector3()).set(cx + a.board.x, y + a.board.y, cz + a.board.z);
       (tower.doorAnchors[i] = tower.doorAnchors[i] || new THREE.Vector3()).set(cx + a.door.x, y + a.door.y, cz + a.door.z);
+      const plaque = (tower.doorPlaques[i] = tower.doorPlaques[i] || { origin: new THREE.Vector3(), right: new THREE.Vector3(), up: new THREE.Vector3() });
+      for (const corner of ["origin", "right", "up"]) plaque[corner].set(cx + a.plaque[corner].x, y + a.plaque[corner].y, cz + a.plaque[corner].z);
     });
     tower.cardAnchor.set(cx, worldY(roofY(n, s), s) + 1.6, cz);
   };
