@@ -498,6 +498,8 @@ def _say_command(project: str, ctx: dict, said: str, channel: str, line_id: int)
         return f"error: /{name} is done in the terminal or on the page", None, None, False, None
     if not operations.permitted(name, channel, ctx["cfg"]["channels"]):  # the project's policy (decision M-8), before anything runs
         return f"error: {operations.not_enabled(name, channel)}", None, None, False, None
+    if channel == "messaging" and name == "approve":  # an acceptance approved from a line has no card to be bound to
+        return "error: use the card's button, or /approve <id> as the whole line", None, None, False, None
     if row.get("channel_arg"):
         found = dict(found, channel=channel if channel == "messaging" else "chat")  # a messaging app's own rule (ops_waits) narrows approve
     try:

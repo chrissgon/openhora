@@ -295,7 +295,11 @@ def send(chat: str, message: dict, token: str, base: str) -> dict:
     document = message.get("document")
     if document:
         body, kind = multipart({"chat_id": chat, "reply_to_message_id": sent["message_id"]}, document["name"], document["text"])
-        call("sendDocument", {}, token, base, SEND_TIMEOUT_SECONDS, body=body, content_type=kind)
+        try:
+            call("sendDocument", {}, token, base, SEND_TIMEOUT_SECONDS, body=body, content_type=kind)
+        except ProviderError as e:  # the card went out: its id is still printed, so the bridge records it and never resends
+            print(f"warning: the message was sent and its document was not ({redact(e, token)})", file=sys.stderr)
+            return {"message_id": str(sent["message_id"]), "document_failed": True}
     return {"message_id": str(sent["message_id"])}
 
 

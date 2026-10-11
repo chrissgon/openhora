@@ -156,16 +156,16 @@ def test_a_typed_approve_with_the_policy_on_needs_the_hash_and_a_command_the_tab
     path, plan_id, digest, accept_id, effect = decisions(tree)
     set_policy(path, ["read", "talk", "approve-plans"])
     reply = ops.say(path, f"/approve {plan_id}", channel="messaging")["reply"]
-    assert "only with its hash" in reply and ops.pending(path, plan_id)["status"] == "open"
+    assert "as the whole line" in reply and ops.pending(path, plan_id)["status"] == "open"
     reply = ops.say(path, f"/approve {effect['id']} {effect['payload_sha256']}", channel="messaging")["reply"]
-    assert reply.startswith("error: an effect is approved in the terminal, with its hash") and provider_calls(tree) == []
+    assert "as the whole line" in reply and provider_calls(tree) == []
     reply = ops.say(path, f"/approve {accept_id}", channel="messaging")["reply"]
-    assert NOT_ENABLED in reply and ops.pending(path, accept_id)["status"] == "open"
+    assert "as the whole line" in reply and ops.pending(path, accept_id)["status"] == "open"
     sha = ops.config(path)["sha256"]
     reply = ops.say(path, "/set-mode autonomous", channel="messaging")["reply"]
     assert reply.startswith(operations.HELP_HEAD) and ops.config(path)["sha256"] == sha  # no such command here: the help
     reply = ops.say(path, f"/approve {plan_id} {digest}", channel="messaging")["reply"]
-    assert ops.pending(path, plan_id)["status"] == "resolved", reply
+    assert "as the whole line" in reply and ops.pending(path, plan_id)["status"] == "open"
 
 
 def test_the_terminal_is_unaffected_by_any_policy(tree):  # noqa: F811
@@ -220,3 +220,13 @@ def test_a_valid_section_is_loaded_with_the_project_and_reaches_the_config_opera
     shown = ops.config(path)
     assert shown["accepted"] is False  # a change takes effect only after accept-config
     assert shown["messaging"]["senders"] == {"telegram": ["4242"]} and shown["channels"] == {"messaging": ["read", "talk"]}
+
+
+def test_a_typed_approve_is_refused_outright_from_messaging_even_with_the_policy_on(tree):  # noqa: F811
+    path, plan_id, digest, accept_id, effect = decisions(tree)
+    set_policy(path, ["read", "talk", "approve-plans", "approve-acceptances"])
+    for line in (f"/approve {accept_id}", f"/approve {plan_id} {digest}"):
+        assert ops.say(path, line, channel="messaging")["reply"] == "error: use the card's button, or /approve <id> as the whole line"
+    assert ops.pending(path, accept_id)["status"] == "open" and ops.pending(path, plan_id)["status"] == "open"
+    ops.approve(path, accept_id, channel="messaging")  # the bridge's own call, after its binding, still works
+    assert ops.pending(path, accept_id)["status"] == "resolved"

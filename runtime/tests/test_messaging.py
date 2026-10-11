@@ -411,3 +411,63 @@ def test_the_intents_of_a_line():
     assert parse({**base, "text": "hello", "reply_to": "9"}) == {"kind": "reply", "reply_to": "9", "text": "hello"}
     assert parse({**base, "text": None, "action": "7:approve"}) == {"kind": "action", "action": "7:approve"}
     assert parse({**base, "text": "  "})["kind"] == "ignore"
+
+
+def test_the_ledger_is_written_through_a_temporary_file_and_a_stale_one_blocks_nothing(world):
+    path = world.tmp / "data" / "messaging-telegram.json"
+    world.items[1] = decision("plan", 1)
+    (world.tmp / "data").mkdir(exist_ok=True)
+    (world.tmp / "data" / f"messaging-telegram.json.{os.getpid()}.tmp").write_text("{")  # a stale leftover
+    world.bridge.tick()
+    assert json.loads(path.read_text())["cards"][0]["pending_id"] == 1 and len(world.sent()) == 1
+    assert [f.name for f in (world.tmp / "data").iterdir() if f.name.endswith(".tmp") and f.name != f"messaging-telegram.json.{os.getpid()}.tmp"] == []
+    # a link placed where the ledger will be is not followed: the first write refuses a path that holds anything
+    path.unlink()
+    (world.tmp / "elsewhere").write_text("keep")
+    fresh = ledgers.Ledger(str(world.tmp / "data"), "telegram")
+    path.symlink_to(world.tmp / "elsewhere")
+    fresh.data["cards"].append({"x": 1})
+    fresh._write()  # os.replace puts a regular file over the link; the target keeps its content
+    assert (world.tmp / "elsewhere").read_text() == "keep" and not path.is_symlink()
+
+
+def test_a_ledger_that_cannot_be_written_is_logged_and_the_card_is_not_sent_again(world, monkeypatch):
+    world.items[1] = decision("plan", 1)
+
+    def broken(self):
+        raise OSError("disk full")
+    monkeypatch.setattr(ledgers.Ledger, "_write", broken)
+    world.bridge.tick()
+    world.bridge.tick()
+    assert len(world.sent()) == 1 and any("ledger could not be written (OSError)" in line for line in world.log)
+
+
+def test_a_button_or_a_reply_of_a_card_is_acted_on_only_by_a_sender_of_that_project(world, tmp_path):
+    other = tmp_path / "other-shop"
+    other.mkdir()
+    world.projects.append({"id": shell_kit.project_id(str(other)), "name": "other-shop", "path": str(other),
+                           "data_dir": str(tmp_path / "data")})
+    base = world.fake.config_answer
+
+    def per_project(project):
+        found = base(project)
+        if project == str(other):
+            found = {**found, "messaging": {**found["messaging"], "senders": {"telegram": ["777"]}}}
+        return found
+    world.fake.config_answer = per_project
+    world.bridge = world.make()
+    world.items[1] = decision("plan", 1)
+    world.items[2] = decision("question", 2)
+    world.bridge.tick()
+    action = world.sent()[0]["message"]["actions"][0]["id"]
+    # the same cards, as if they belonged to the other project: sender 777 is listed there only
+    for card in world.bridge.ledger.data["cards"]:
+        card["project"], card["chat"] = shell_kit.project_id(str(world.projects[0]["path"])), "777"
+    world.fake.calls.clear()
+    before = len(world.sent())
+    world.say(None, action=action, sender="777", chat="777")
+    world.say("answer", reply_to="102", sender="777", chat="777")
+    assert world.calls("approve") == [] and world.calls("answer") == []
+    assert world.log[-1] == "dropped an update from an unlisted sender"
+    assert len(world.sent()) == before  # no reply either
+

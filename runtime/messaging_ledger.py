@@ -5,9 +5,8 @@
 """The messaging bridge's ledger: what it sent, so that a restart sends nothing twice and a tapped button or a reply is
 bound to the card the person saw (runtime/messaging.py).
 
-One file, <data_dir of the first project>/messaging-<platform>.json, mode 0600, created with O_EXCL on the first write
-(as the local service creates its token file) and rewritten atomically (a temporary file of mode 0600 made with O_EXCL,
-then os.replace). It holds no text of a project: for each card the project's id, the pending decision's id and kind, the
+One file, <data_dir of the first project>/messaging-<platform>.json, mode 0600, written through a temporary file of mode 0600 (O_EXCL, random name, fsync) and published with os.link the first time
+(refusing a path someone placed) and os.replace after. It holds no text of a project: for each card the project's id, the pending decision's id and kind, the
 content hash (a plan's hash, an effect's payload hash, else the sha256 of the card's decision text), the chat, the
 platform's message id, the action ids made for it and the time it was sent; and the platform's next update offset.
 
@@ -18,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import uuid
 
 VERSION = 1
 FILE = "messaging-{platform}.json"
@@ -47,19 +47,30 @@ class Ledger:
         return data
 
     def _write(self) -> None:
+        """Always through a temporary file of mode 0600 (O_EXCL, a random name, fsync), then published: the first write
+        with os.link, which refuses a path that already holds anything, a link someone placed included; the next ones
+        with os.replace. A crash leaves the old ledger or none, never a truncated one, and a stale temporary file
+        never blocks a write."""
         folder = os.path.dirname(self.path)
         os.makedirs(folder, mode=0o700, exist_ok=True)
-        text = json.dumps(self.data, indent=1)
-        if not os.path.exists(self.path):  # the first write creates the file, never following a link someone placed
-            fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(text)
-            return
-        temporary = f"{self.path}.{os.getpid()}.tmp"
+        temporary = f"{self.path}.{uuid.uuid4().hex}.tmp"
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(text)
-        os.replace(temporary, self.path)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(json.dumps(self.data, indent=1))
+                f.flush()
+                os.fsync(f.fileno())
+            if os.path.lexists(self.path):
+                os.replace(temporary, self.path)
+            else:
+                os.link(temporary, self.path)
+                os.unlink(temporary)
+        except BaseException:
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
+            raise
 
     # --- the offset ---------------------------------------------------------------------------------------------
 

@@ -15,6 +15,10 @@ Senders. An update from a sender who is not in `messaging.senders.<platform>` of
 chat that is not private, is dropped with no reply and no log of who or what. A sender who is listed in several
 projects chooses with /project; the default is the first.
 
+Reads. The bridge reads `pending` itself, outside the policy's `read` group, to build cards and to bind an approval to
+the card the person saw; `read` only decides what a person may ask for (/pending, `status`, and the like), and a policy
+without it also switches the notices off.
+
 Notices. Each tick, per project, every open decision gets one card per listed sender, once per content (the ledger,
 runtime/messaging_ledger.py). A changed plan, or any decision whose content hash changed, gets a new card. At most 10
 cards per project and tick; the rest are announced in one line.
@@ -93,6 +97,14 @@ class Bridge(shell_kit.Jobs):
                 out.append(project)
         return out
 
+    def listed_in(self, project: dict, sender: str) -> bool:
+        """Whether the sender is listed for this very project: a card of one project is acted on only by its senders."""
+        try:
+            settings = self.settings(project)
+        except self.ops.OpsError:
+            return False
+        return bool(settings) and sender in settings["senders"]
+
     def project_of(self, sender: str, listed: list) -> dict:
         wanted = self.chosen.get(sender)
         return next((p for p in listed if p["id"] == wanted), listed[0])
@@ -146,9 +158,12 @@ class Bridge(shell_kit.Jobs):
             if e.kind == "not-configured":
                 raise Fatal(e.reason) from None
             return False
-        self.ledger.add({"project": project["id"], "pending_id": item["id"], "kind": item["kind"],
-                         "content_sha256": card["content_sha256"], "chat": chat, "message_id": message_id,
-                         "actions": made, "sent_at": self.clock()})
+        try:
+            self.ledger.add({"project": project["id"], "pending_id": item["id"], "kind": item["kind"],
+                             "content_sha256": card["content_sha256"], "chat": chat, "message_id": message_id,
+                             "actions": made, "sent_at": self.clock()})
+        except OSError as e:  # the card went out and the process keeps the record in memory; it is not sent again
+            self.log(f"the ledger could not be written ({e.__class__.__name__})")
         return True
 
     # --- notices ---------------------------------------------------------------------------------------------
@@ -227,6 +242,9 @@ class Bridge(shell_kit.Jobs):
             card = self.ledger.by_message(chat, intent["reply_to"])
             if card and card["kind"] == "question":
                 target = next((p for p in self.projects if p["id"] == card["project"]), project)
+                if not self.listed_in(target, sender):
+                    self.log(DROPPED)
+                    return
                 self.act(target, chat, "answer", card["pending_id"], text=intent["text"])
             else:
                 self.say(project, chat, intent["text"])
@@ -243,6 +261,9 @@ class Bridge(shell_kit.Jobs):
         project = next((p for p in self.projects if card and p["id"] == card["project"]), None)
         if card is None or project is None:
             self.reply(chat, STALE)
+            return
+        if not self.listed_in(project, chat):
+            self.log(DROPPED)
             return
         self.act(project, chat, card["actions"][action_id], card["pending_id"], card=card)
 
@@ -372,7 +393,10 @@ class Bridge(shell_kit.Jobs):
                 raise
             except Exception:  # one update never ends the bridge; the class says what failed, never the content
                 self.log("an update failed: " + traceback.format_exc().strip().splitlines()[-1].split(":")[0])
-        self.ledger.set_offset(found["next_offset"])
+        try:
+            self.ledger.set_offset(found["next_offset"])
+        except OSError as e:
+            self.log(f"the ledger could not be written ({e.__class__.__name__})")
         return len(found["updates"])
 
     def serve_loop(self, stop: threading.Event, notice_every: float, poll: int = POLL_SECONDS) -> None:

@@ -190,3 +190,12 @@ def test_the_platforms_line_is_the_one_the_resolver_reads_and_the_token_is_never
     text = SCRIPT.read_text()
     assert 'PLATFORMS = ("telegram",)' in text and '"parse_mode"' not in text
     assert "--token" not in text
+
+
+def test_a_document_that_fails_after_the_message_still_prints_the_message_id(monkeypatch, capsys, tmp_path):
+    url = f"https://api.telegram.org/bot{TOKEN}/sendDocument"
+    opener = Opener({"message_id": 31}, urllib.error.URLError(url))
+    path = message_file(tmp_path, document={"name": "plan.txt", "text": "the whole text"})
+    code, out, err = run(monkeypatch, capsys, opener, "send", "--platform", "telegram", "--chat", "5", "--message-file", path)
+    assert code == 0 and json.loads(out) == {"message_id": "31", "document_failed": True}
+    assert "document was not" in err and TOKEN not in err
