@@ -5,7 +5,7 @@
 // (the raised wing, the two typing wings, the three z) in a mesh of its own that turns on a pivot. `owl-motion.js` says how they move.
 
 import { OWL_ORIGIN, OWL_PALETTE, OWL_POSES, OWL_ZEES, partOutlines, zeePolygon } from "./owl.js";
-import { REST, snorePose, tapPose, wavePose, zzPose } from "./owl-motion.js";
+import { REST, blinkPose, snorePose, tapPose, wavePose, zzPose } from "./owl-motion.js";
 import { strokeTriangles } from "./svgpath.js";
 import { AZIMUTH, ELEVATION } from "./rig.js";
 
@@ -41,7 +41,7 @@ const bounds = (polygons) => {
 };
 
 /**
- * Build the owl in pose `pose` ("waiting", "working" or "idle") for a floor of tone `floorTone`. o: {scale (world units a unit of the drawing: `owlScale`), mix (the
+ * Build the owl in pose `pose` ("waiting", "working", "ready" or "idle") for a floor of tone `floorTone`. o: {scale (world units a unit of the drawing: `owlScale`), mix (the
  * palette's), handLift (how much nearer the camera than the owl the working wings are drawn, so that they cover the keyboard)}. Returns
  * {group (stand it on the owl's feet; it faces the camera), motion {tick(seconds), rest()}, size {w, h} in world units, parts (the meshes by name), dispose()}.
  */
@@ -165,12 +165,14 @@ export function buildOwl(kit, pose, { scale, mix, floorTone, handLift = 0 }) {
   parts.hit = hit;
 
   const turnOf = (name, degrees) => { if (parts[name]) parts[name].rotation.z = -degrees * DEG; };   // a CSS angle runs clockwise, the plane's runs the other way
+  const lids = (shut) => { if (parts.blink) parts.blink.scale.y = Math.max(shut, 0.001); };   // the lids come down from the top of the eyes; open is no lid at all
   const place = (seconds) => {
     if (pose === "waiting") turnOf("wave", wavePose(seconds));
     if (pose === "working") {
       turnOf("hand-far", tapPose(seconds, true));
       turnOf("hand-near", tapPose(seconds, false));
     }
+    if (pose === "ready") lids(blinkPose(seconds));
     if (pose === "idle") {
       const breath = snorePose(seconds);
       inner.scale.set(breath.x, breath.y, 1);
@@ -186,6 +188,7 @@ export function buildOwl(kit, pose, { scale, mix, floorTone, handLift = 0 }) {
     turnOf("wave", REST.wave);
     turnOf("hand-far", REST.tap);
     turnOf("hand-near", REST.tap);
+    lids(REST.blink);
     inner.scale.set(REST.snore.x, REST.snore.y, 1);
     zees.forEach((z) => {
       z.material.opacity = REST.zz.opacity;

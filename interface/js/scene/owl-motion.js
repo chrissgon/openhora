@@ -10,6 +10,7 @@ export const TAP_SECONDS = 0.36;
 export const TAP_DELAY = -0.18;     // the far wing is half a beat behind (`.m-owl-hand.is-b`)
 export const SNORE_SECONDS = 3.2;
 export const ZZ_SECONDS = 3.2;
+export const BLINK_SECONDS = 4.8;      // the ready owl's slow blink (M-24): once every few seconds, the lids down and up again in a quarter of a second
 export const ZZ_DELAYS = Object.freeze([0, 0.5, 1]);
 
 const easeOut = cubicBezier(0, 0, 0.58, 1);
@@ -31,6 +32,11 @@ export function snorePose(seconds) {
   return { x, y };
 }
 
+/** The ready owl's lids at `seconds`: 0 (open) for most of the period, then 1 (the eyes shut) for an instant at its end and open again (`BLINK_SECONDS`). */
+export function blinkPose(seconds) {
+  return sample([[0, 0], [0.9, 0], [0.925, 1], [0.95, 0], [1, 0]], phase(seconds, BLINK_SECONDS), easeInOut);
+}
+
 /**
  * Letter `k` (0 to 2) of the three z at `seconds`: {opacity, dx, dy, scale}, each starting half a second after the one before. It appears small and a little
  * low, settles where the drawing has it, stays, and goes off up and to the right fading (`m-owl-zz`, `ease-out`).
@@ -43,5 +49,5 @@ export function zzPose(seconds, k) {
   return { opacity, dx, dy, scale };
 }
 
-/** Every pose still (reduced motion): the wing and the wings at rest, no breath, the three z shown in the places the drawing gives them. */
-export const REST = Object.freeze({ wave: 0, tap: 0, snore: Object.freeze({ x: 1, y: 1 }), zz: Object.freeze({ opacity: 1, dx: 0, dy: 0, scale: 1 }) });
+/** Every pose still (reduced motion): the wing and the wings at rest, the ready owl's eyes open, no breath, the three z shown in the places the drawing gives them. */
+export const REST = Object.freeze({ wave: 0, tap: 0, blink: 0, snore: Object.freeze({ x: 1, y: 1 }), zz: Object.freeze({ opacity: 1, dx: 0, dy: 0, scale: 1 }) });

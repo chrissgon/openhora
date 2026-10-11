@@ -288,7 +288,7 @@ export function notRoutedNotice(id, reason) {
   return { title: "Not routed yet", text: `Request #${id} was created. ${reason} Use "Route it" on its request line.` };
 }
 
-const DOT = { working: "theme", waiting: "warn", idle: "muted", off: "border" };
+const DOT = { working: "theme", waiting: "warn", ready: "theme", idle: "muted", off: "border" };
 
 /**
  * What the Lobby's room needs, as the plain model of the room scene (the shape the Floor's room builder reads: `ready`, `state`,
@@ -297,18 +297,19 @@ const DOT = { working: "theme", waiting: "warn", idle: "muted", off: "border" };
  * accepted and is idle otherwise. `documents` are the Desk's rows (see lobbyDocuments), as the Floor takes them: the sheets and the cabinet's
  * drawers; null while they are unread (the world keeps what the table shows: an empty cabinet at first).
  */
-export function roomModel({ working, decisions, hasMessages, accepted, request, ready = true, documents = null }) {
+export function roomModel({ working, decisions, hasMessages, accepted, request, ready = true, documents = null, queued = false }) {
   let state = "idle";
   if (!accepted) state = "off";
   else if (working) state = "working";
   else if (decisions > 0) state = "waiting";
-  const words = { working: "working", waiting: "waiting for you", idle: "idle", off: "off" }[state];
+  else if (queued) state = "ready";   // M-24: a task of the planning agent is queued and not held
+  const words = { working: "working", waiting: "waiting for you", ready: "queued · starts when the current run ends", idle: "idle", off: "off" }[state];
   const docs = Array.isArray(documents) ? documents : null;
   const board = request
     ? { title: request.title || `Request ${request.id}`, lines: [`request #${request.id} · ${request.state}`], dot: DOT[state] }
     : { title: accepted ? "No request is open" : NOT_ACCEPTED_TEXT, lines: [], dot: DOT[state] };
   return {
-    kind: "room", ready, door: true, state, window: windowState(state === "working" || state === "waiting"), decisions, drawers: docs ? drawersOf(docs.length) : null,
+    kind: "room", ready, door: true, state, window: windowState(state === "working" || state === "waiting" || state === "ready"), decisions, drawers: docs ? drawersOf(docs.length) : null,
     sheets: docs ? docs.slice(0, 6).map((d) => ({ path: d.path, tip: d.path })) : null, documents: docs ? docs.length : null, empty: !hasMessages,
     tips: {
       agent: `Planning agent · ${words}`, desk: request ? `Current task · ${request.title || `request #${request.id}`}` : "Current task · none yet",
