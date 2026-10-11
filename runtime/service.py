@@ -97,7 +97,9 @@ approvals, contained-run, poll, route-queued, handler, pin and service-check (th
 approved from here with the hash the page showed, as the channel "page" (the service passes it itself; a request cannot
 name a channel). The route of set-mode may narrow autonomy and never widen it: a move down the order of the modes
 (stopped < supervised < milestones < autonomous < autonomous-with-policy) is accepted by code at once, a move up leaves
-the configuration unaccepted (every route then answers 412 with the command that accepts it, in the terminal).
+the configuration unaccepted (every route then answers 412 with the command that accepts it, in the terminal). The route takes
+the mode and nothing else: `accept` is the terminal's (set-mode --accept), so a body that carries it is a 400, and the operation
+refuses it from any channel but the terminal besides.
 
 When it stops (SIGINT or SIGTERM) it ends the runs a job started (ops.stop_runs) and does not exit before that returns;
 a second signal while it stops is ignored.
@@ -215,7 +217,7 @@ ROUTES = (
     _route("POST", "/projects/{p}/tasks/{id}/go-ahead", "go-ahead", bind={"task_id": "id"}),
     _route("POST", "/projects/{p}/tasks/{id}/files", "hand-over", bind={"task_id": "id"}, hidden=("file",), upload=True),
     _route("POST", "/projects/{p}/runs/{id}/verdict", "verdict", bind={"run_id": "id"}),
-    _route("POST", "/projects/{p}/agents/{name}/mode", "set-mode", bind={"agent": "name"}),
+    _route("POST", "/projects/{p}/agents/{name}/mode", "set-mode", bind={"agent": "name"}, take=("mode",)),
     _route("GET", "/projects/{p}/progress", "progress"),
     _route("GET", "/projects/{p}/agents", "agents", take=()),
     _route("GET", "/projects/{p}/conversation", "conversation", take=("conversation", "after")),

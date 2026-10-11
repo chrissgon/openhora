@@ -39,7 +39,7 @@ Usage:
   python3 runtime/cli.py revoke-policy --project <dir> --id <approval id>
   python3 runtime/cli.py standing --project <dir> --policy <name>
   python3 runtime/cli.py execute-under-policy --project <dir> --policy <name> --effect-file <path>
-  python3 runtime/cli.py set-mode --project <dir> --agent <name> --mode stopped|supervised|milestones|autonomous|autonomous-with-policy
+  python3 runtime/cli.py set-mode --project <dir> --agent <name> --mode stopped|supervised|milestones|autonomous|autonomous-with-policy [--accept]
   python3 runtime/cli.py contained-run --project <dir> --skill <name> --prompt-file <file> --out <dir> [--platform <name>]... [--timeout-seconds <n>]
   python3 runtime/cli.py dispatch --project <dir>
   python3 runtime/cli.py poll     --project <dir>
@@ -180,8 +180,12 @@ set-mode  sets one area agent's autonomy mode in docs/workbench/runtime.json (ar
           and an effect inside a policy you approved runs without asking). A question, an unclassified reply, a
           draft with open questions and a mandatory milestone always wait for you. The modes are in that order, the
           least first. A move down it (stop, supervise) widens nothing: code accepts the new hash at once and says
-          `code:narrowing`, so nothing refuses afterwards. A move up never is accepted by code: accept the new hash
-          with accept-config, after reading the file; it also rewrites the Checkpoints line of the state file.
+          `code:narrowing`, so nothing refuses afterwards. A move up never is accepted by code: with --accept (this
+          command, in the terminal, never the page) you set it and accept the new hash in one step, recorded
+          `person`, but only when the file was the accepted one before the change, so the one difference you accept
+          is this mode; with another unaccepted change in the file, it is refused and writes nothing: read the file
+          and run accept-config. Without --accept, accept the new hash with accept-config, after reading the file;
+          either rewrites the Checkpoints line of the state file.
 contained-run  one run of one skill of an area agent's pack, once, in the eval container, on a copy that holds only the
           artifacts the skill declares (never runtime.json, never a versioned file the skill does not declare), on the
           model the skill's proof gives, with no credential but the model's own, no open network and no retry, within
