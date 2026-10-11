@@ -1,0 +1,19 @@
+{
+  "flows": [
+    {
+      "flow": "code-demo",
+      "title": "Code demo",
+      "tasks": 2
+    },
+    {
+      "flow": "demo",
+      "title": "Demo flow",
+      "tasks": 2
+    },
+    {
+      "flow": "gate-demo",
+      "title": "Gate demo",
+      "tasks": 2
+    }
+  ]
+}

@@ -191,6 +191,7 @@ TYPES = {
     ".ico": "image/x-icon", ".woff2": "font/woff2", ".woff": "font/woff", ".glb": "model/gltf-binary",
     ".gltf": "model/gltf+json",
 }
+DEMO_DIR = "demo"  # interface/demo/: the demo mode of the page, never served by this service
 PAGE_TYPES = ("text/html", "image/svg+xml")  # a document the browser can run: it carries the policy headers
 WORDS = {
     "host": "the Host header must be 127.0.0.1:<port> or localhost:<port> (or the LAN address, when the service was started with --lan)",
@@ -661,6 +662,11 @@ def _static(service: Service, method: str, bare: str) -> tuple:
     target = os.path.realpath(os.path.join(root, *parts))
     content_type = TYPES.get(os.path.splitext(target)[1].lower())
     if not target.startswith(root + os.sep) or content_type is None or not os.path.isfile(target):
+        return _error(404, "not_found")
+    # The demo mode's files (interface/demo/: a world of fictional data that answers in place of the service) are for the built copy of the
+    # page only (scripts/build_demo.py): a running service never serves them, by any spelling of the path (the check is on the resolved file,
+    # compared without regard to case, since a file system may fold it).
+    if target.lower().startswith(os.path.join(root, DEMO_DIR).lower() + os.sep):
         return _error(404, "not_found")
     try:
         if os.path.getsize(target) > STATIC_LIMIT:

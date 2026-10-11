@@ -1,0 +1,76 @@
+{
+  "id": 1,
+  "task_id": 1,
+  "run_id": null,
+  "kind": "plan",
+  "title": "Plan: demo (2 tasks)",
+  "body": "Plan for request 1: Do the market analysis.\nSource: the flow you named; flow file flows/demo.json\n\n| # | Task | Skill | After | Milestone | Web |\n|---|---|---|---|---|---|\n| 1 | Market | biz-market-analysis | - | no | no |\n| 2 | Profile | mkt-social-copy | 1 | yes | no |\n\nOne task at a time; each run at most 60 s, retried at most 2 times. At least 2 runs.\nPast runs of these skills here: biz-market-analysis 0; mkt-social-copy 0.\nPlan hash: 042896dc1966b8a6214e5383aba5b8b931cfa049d17aafa37eb8a77c859b95da",
+  "payload": {
+    "cycles": [],
+    "estimate": {
+      "past": [
+        {
+          "mean_duration_ms": null,
+          "runs": 0,
+          "skill": "biz-market-analysis"
+        },
+        {
+          "mean_duration_ms": null,
+          "runs": 0,
+          "skill": "mkt-social-copy"
+        }
+      ],
+      "runs_at_least": 2,
+      "tasks": 2
+    },
+    "flow": "demo",
+    "limits": {
+      "one_task_at_a_time": true,
+      "retries": 2,
+      "timeout_seconds": 60
+    },
+    "missing": [],
+    "plan_sha256": "042896dc1966b8a6214e5383aba5b8b931cfa049d17aafa37eb8a77c859b95da",
+    "route": null,
+    "source": "named",
+    "tasks": [
+      {
+        "agent": "planning",
+        "depends_on": [],
+        "key": "market",
+        "mandatory_milestone": false,
+        "milestone": false,
+        "skill": "biz-market-analysis",
+        "text": "do the market analysis.",
+        "title": "Market",
+        "web": false
+      },
+      {
+        "agent": "marketing",
+        "depends_on": [
+          "market"
+        ],
+        "key": "profile",
+        "mandatory_milestone": false,
+        "milestone": true,
+        "skill": "mkt-social-copy",
+        "text": "choose the profile.",
+        "title": "Profile",
+        "web": false
+      }
+    ],
+    "waits": []
+  },
+  "payload_sha256": null,
+  "status": "open",
+  "resolution": null,
+  "answer": null,
+  "created_at": "2026-10-01T09:00:00Z",
+  "resolved_at": null,
+  "resolved_by": null,
+  "agent": null,
+  "actions": [
+    "approved",
+    "rejected"
+  ]
+}
