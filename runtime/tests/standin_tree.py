@@ -49,7 +49,7 @@ if [ -f "$here/fail-times" ] && [ "$n" -le "$(cat "$here/fail-times")" ]; then
     timeout) sleep 30 ;;
     adapter) echo "the provider is down" >&2; exit 1 ;;
     refused) echo "safeguards flagged this message" > "$out/response.md"; exit 1 ;;
-    auth) echo "API Error: 401 Unauthorized" >&2; exit 1 ;;
+    auth) rm -f "$out/timing.json"; echo "API Error: 401 Unauthorized" >&2; exit 1 ;;   # a refused key reports no usage
     limit) echo "usage limit reached" >&2; exit 1 ;;
     early) echo "Let me just read the template first." > "$out/response.md"; exit 0 ;;
   esac

@@ -330,6 +330,28 @@ def stop_runs() -> dict:
     return {"stopped": True}
 
 
+def reported_usage(dest: str) -> dict:
+    """What the attempts of a failed run reported: {"cost_usd", "total_tokens"}, each the sum over the attempts' timing.json
+    (the run folder's outputs/ and those the lab kept from the attempts it retried, failed-<n>/ and early-end-<n>/), or None
+    when no attempt reported it. An attempt that stopped on the account limit (paused-<n>/) counts as no result and is not
+    read. Nothing is guessed: a file that is missing or holds no number adds nothing."""
+    folders = [os.path.join(dest, "outputs")]
+    for prefix in ("failed-", "early-end-"):
+        folders += sorted(glob.glob(os.path.join(glob.escape(dest), prefix + "*", "outputs")))
+    sums = {"cost_usd": None, "total_tokens": None}
+    for folder in folders:
+        try:
+            with open(os.path.join(folder, "timing.json"), encoding="utf-8") as f:
+                timing = json.load(f)
+        except (OSError, ValueError):
+            continue
+        for key in sums:
+            value = timing.get(key) if isinstance(timing, dict) else None
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
+                sums[key] = (sums[key] or 0) + value
+    return sums
+
+
 def failure_kind(why, out_dir: str, refusal_markers, response: str, changed) -> tuple:
     """How one attempt failed, by the lab's own functions and in the lab's own order: (kind, detail). kind is
     "timeout", "refused", "auth", "adapter", "early_end", or None when the attempt is the run's result. why is what
@@ -561,6 +583,7 @@ def run_skill(skill: str, prompt: str, files, dest: str, *, web: bool = False, t
     def failed(kind, reason, detail=None):
         result["failure"] = {"kind": kind, "reason": reason, "detail": detail}
         result["response"] = LAB.read_text(os.path.join(out, "response.md"), RESPONSE_LIMIT)
+        result["reported"] = reported_usage(dest)
         return result
 
     # What the runtime adds to an attempt; the attempts themselves (the wait on a pause, the place of the shared
@@ -604,13 +627,21 @@ def run_skill(skill: str, prompt: str, files, dest: str, *, web: bool = False, t
     hooks = types.SimpleNamespace(build=build, after_base=after_base, stage=stage, after_run=after_run)
     attempts = _lab_call(LAB.load_attempts)
     try:
-        made = attempts.run(LAB, spec, hooks)
+        try:
+            made = attempts.run(LAB, spec, hooks)
+        except Exception as e:
+            # An exception that leaves the attempts carries how many began (runtime/ops.py records it on the run row): 0
+            # proves the adapter never ran, so a run that never reached the model is told from a crash mid-run (A-57).
+            e.attempts = counts["attempts"]
+            raise
     except LabError:
         raise
     except (RuntimeError, OSError, subprocess.SubprocessError) as e:
         if LAB.STOPPING.is_set():
             return failed("stopped", "stopped before the run ended")
-        raise LabError("container", f"the run could not be prepared or started: {type(e).__name__}: {e}") from None
+        error = LabError("container", f"the run could not be prepared or started: {type(e).__name__}: {e}")
+        error.attempts = e.attempts
+        raise error from None
     result["staged"] = made["staged"]
     failure, why = made["failure"], made["why"]
     if failure is None:
