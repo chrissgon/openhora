@@ -106,7 +106,8 @@ def test_the_owl_module_holds_the_marks_six_colours_and_the_parts_the_shadow_and
     added = ["lid-left", "lid-right", "ring-left", "ring-right", "brow-left", "brow-right", "chain-top", "chain-low", "wing-wave", "shut-left", "shut-right", "closed-left", "closed-right", "shadow"]
     working = ["w-ear-left", "w-ear-right", "w-foot-left", "w-foot-right", "w-face", "w-eye-left", "w-eye-right", "w-pupil-left", "w-pupil-right", "w-glint-left", "w-glint-right",
                "w-lid-left", "w-lid-right", "w-ring-left", "w-ring-right", "w-brow-left", "w-brow-right", "w-beak", "w-hand-far", "w-hand-near"]
-    assert ids == mark + added + working, "the mark's parts, back to front, and what the three poses add to them"
+    ready = ["r-pupil-left", "r-pupil-right", "r-glint-left", "r-glint-right", "r-lid-left", "r-lid-right"]   # M-24: the ready owl's raised pupils and its two lids, the blink
+    assert ids == mark + added + working + ready, "the mark's parts, back to front, and what the four poses add to them"
     assert 'from "./svgpath.js"' in owl and "three.js" not in owl and "export function partShapes(THREE," in owl, "the owl takes the library as an argument, as the parser does"
 
 

@@ -138,7 +138,7 @@ export function taskBoard(pb, t, notes) {
 // --- the desk and the chair ------------------------------------------------------------------------------------------------------------
 
 /** Where the chair and the owl stand, in page units: the chair at the desk's near side facing it, the owl where the page puts it for each state. */
-export const SEAT = Object.freeze({ chair: Object.freeze([4.8, 3.68]), owl: Object.freeze({ waiting: [3.81, 4.86], working: [4.76, 3.64], idle: [2.76, 4.44] }) });
+export const SEAT = Object.freeze({ chair: Object.freeze([4.8, 3.68]), owl: Object.freeze({ waiting: [3.81, 4.86], working: [4.76, 3.64], ready: [4.76, 3.64], idle: [2.76, 4.44] }) });
 
 /**
  * The agent's desk along the room's right edge: a light top on four dark legs, a drawer unit with three drawers and their handles, a keyboard with rows of keys, a mouse,

@@ -302,7 +302,7 @@ def test_the_plates_say_why_a_ready_task_is_held_the_tooltip_counts_them_and_the
     assert got["words"]["engineering"] == "working", "a floor whose task runs says working; the held ready task is on the Agent tab"
     assert got["words"]["design"] == "Off, mode is stopped", "an agent that is stopped keeps its own word"
     assert got["words"]["brand"] == "working", "brand has a task running too"
-    assert got["wordsNone"]["marketing"] == "resting" and got["wordsNone"]["business"] == "resting", "no held task: resting, as before"
+    assert got["wordsNone"]["marketing"] == "queued" and got["wordsNone"]["business"] == "queued", "no held task and a task queued: queued (M-24: it used to say resting)"
     assert got["heldCount"] == 5 and got["tip"] == "northwind-shop: 0 decisions waiting, task #5 running, 5 held", "the City's tooltip counts the held tasks"
     assert got["tipNone"] == "northwind-shop: 0 decisions waiting, task #5 running" and got["link"].endswith("5 held")
     assert got["current"] == 3

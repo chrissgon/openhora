@@ -53,7 +53,7 @@ export function floorTone(tones, { accepted, state, window }) {
 /** The pose of the owl for a floor: none when its agent is off or its project is not accepted (R-41), else by state. */
 export function owlPose({ accepted, state }) {
   if (!accepted || state === "off") return null;
-  return state === "working" ? "working" : state === "waiting" ? "waiting" : "idle";
+  return state === "working" ? "working" : state === "waiting" ? "waiting" : state === "ready" ? "ready" : "idle";
 }
 
 /** The glass of a window state: warm white while lit, the project's glass otherwise, the wall's own tone for a project that is not accepted. */
@@ -194,7 +194,7 @@ export function fillFloor(kit, parent, f, ctx) {
     owl = buildOwl(kit, pose, { scale: owlScale(FRAME), mix: palette.mix, floorTone: tone, handLift: pose === "working" ? 0.5 : 0 });
     agent = owl.group;
     const [px, pz] = SEAT.owl[pose];
-    const lift = towardCamera(THREE).multiplyScalar(pose === "working" ? 0.7 : 0.3);
+    const lift = towardCamera(THREE).multiplyScalar(pose === "working" || pose === "ready" ? 0.7 : 0.3);
     agent.position.set(FRAME.X(px), FRAME.Y(0.01), FRAME.Z(pz)).add(lift);
     room.add(agent);
     ctx.motions.push(owl.motion);

@@ -11,7 +11,7 @@
 import * as format from "./format.js";
 import * as router from "./router.js";
 import { windowState } from "./scene/look.js";
-import { waitLines, waitingLabel } from "./waits.js";
+import { waitLines, waitingLabel, waitsOf } from "./waits.js";
 
 export const MAX_LOTS = 4;       // at most four lots are drawn (EDGE-9); the rest are reached from the lists
 export const MAX_FLOORS = 8;
@@ -45,6 +45,30 @@ function rowsOf(status) {
     for (const t of Array.isArray(request.tasks) ? request.tasks : []) out.push({ ...t, request: false, requestId: request.id });
   }
   return out;
+}
+
+/** The reason the dispatcher gives a ready task that only waits its turn behind the one run at a time: it is queued, not held (M-24). */
+export const TURN_REASON = "job running";
+
+/**
+ * How many ready tasks of an agent wait their turn and are free to start (M-24, A-65): the agent's `queued` (its ready tasks) less what the page can tell keeps them from starting: the
+ * tasks the last round held for a reason of its own (`status.held`, not `TURN_REASON`; the agent's own `held` count when the status lists none), the ready tasks that have an open wait
+ * (the status rows), and all of them while the agent is at a daily cap in use (runs or spend, by its billing as the meters read it). The limit: while a run is in progress the dispatcher
+ * reports every ready task as `TURN_REASON`, so a hold of another kind is known after the run, not during it. Never under zero.
+ */
+export function queuedFree(agent, status) {
+  const name = (agent && agent.name) || "planning";
+  const use = format.metersInUse(agent);
+  const runsCap = format.count(agent && agent.max_runs_per_day);
+  const usdCap = format.count(agent && agent.max_usd_per_day);
+  if ((use.runs && runsCap > 0 && format.count(agent.runs_today) >= runsCap) || (use.spend && usdCap > 0 && format.count(agent.usd_today) >= usdCap)) return 0;
+  const queued = format.count(agent && agent.queued);
+  const listed = status && Array.isArray(status.held);
+  const heldOwn = listed ? status.held.filter((h) => (h.agent || "planning") === name && h.reason !== TURN_REASON) : [];
+  const own = listed ? heldOwn.length : format.count(agent && agent.held);
+  const heldIds = new Set(heldOwn.map((h) => h.task_id));
+  const waiting = rowsOf(status).filter((r) => !r.request && r.state === "ready" && (r.agent || "planning") === name && !heldIds.has(r.id) && waitsOf(r).length > 0).length;
+  return Math.max(0, queued - own - waiting);
 }
 
 /**
@@ -170,7 +194,9 @@ export function buildingOf(project, detail) {
   const floors = (ordered.length ? ordered : [{ name: null, enabled: true, acting_mode: null }]).map((a) => {
     // R-21: a window is lit when the floor's agent is active, running a task or waiting for an answer, and dark otherwise (idle, stopped, not accepted)
     const active = a.enabled !== false && a.acting_mode !== "stopped";   // a stopped or disabled agent is off, whatever it asked (`floor-model.stateOf` says the same)
-    const window = windowState(accepted && Boolean(a.name) && (running.has(a.name) || (waits.has(a.name) && active)));
+    // M-24: a queued task that is not held also lights the window (the agent is ready); the same count the floors make (`queuedFree` above)
+    const ready = active && queuedFree(a, status) > 0;
+    const window = windowState(accepted && Boolean(a.name) && (running.has(a.name) || ((waits.has(a.name) || ready) && active)));
     return { agent: a.name, window, waits: shown && (a.name ? waits.has(a.name) : decided.length > 0) };
   });
   const open = !shown ? 0 : status ? decided.length : format.count(project.open_pending);
