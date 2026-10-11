@@ -439,7 +439,7 @@ def test_the_status_task_rows_carry_their_title_and_agent(tree):
     # new, and a request row the request it runs after.
     assert set(row["tasks"][0]) == {"id", "key", "title", "agent", "skill", "state", "note", "on_board", "open_comments",
                                     "waiting_for"}
-    assert set(row) == {"id", "title", "flow", "state", "on_board", "open_comments", "after", "tasks"}
+    assert set(row) == {"id", "title", "flow", "state", "on_board", "open_comments", "after", "tasks", "routing"}   # R4-L1: routing, the router's run on the request or None
     # Without area agents the agent of a task planned now is None; the title is still there.
     without_area_agents(tree)
     later = planned(tree, "single")

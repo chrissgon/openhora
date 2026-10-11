@@ -331,3 +331,15 @@ def test_a_task_a_run_and_a_pending_decision_are_never_deleted(conn, tmp_path, m
         with six:
             six.execute("DELETE FROM tasks")
     assert six.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 3
+
+
+def test_task_runs_running_lists_only_the_live_run_in_one_query(conn):
+    request = store.request_add(conn, title="A", text="Do it.", flow=None, tasks=[])["request"]
+    other = store.request_add(conn, title="B", text="Do it too.", flow=None, tasks=[])["request"]
+    assert store.task_runs_running(conn) == []
+    run = store.route_run_start(conn, request, skill="core-orchestrator", model="m", adapter="h")["run_id"]
+    [live] = store.task_runs_running(conn)
+    assert set(live) == {"id", "task_id", "skill", "started_at"} and live["id"] == run and live["task_id"] == request
+    store.route_run_finish(conn, run, status="failed", failure="internal", error="stopped")
+    assert store.task_runs_running(conn) == []
+    assert other != request
