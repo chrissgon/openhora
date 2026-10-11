@@ -89,6 +89,10 @@ def test_the_kind_of_a_gate_is_chosen_by_the_skills_requirement(tree):
     assert ops._effect_kind(gate, ["integration:design-tool", "generator:image"]) is None
     assert ops._effect_kind(gate, []) is None  # a skill that declares nothing gets no effect: fail closed
     assert ops._effect_kind(None, ["integration:vcs"]) is None
+    with pytest.raises(TypeError):
+        ops._effect_kind(gate)  # the requirement is required: a caller that forgets it raises, it never silently gets no kind
+    with pytest.raises(TypeError):
+        ops._effect_or_review({}, {}, {}, "", {}, {}, None, None, "create")
     assert ops._effect_kind({"effect": "publish", "payload_file": "x"}, ["publisher:<platform>"]) is None  # a policy kind: GATE is false
     assert ops._effect_kind({"effect": "nothing-known", "payload_file": "x"}, ["integration:vcs"]) is None
 
