@@ -194,7 +194,7 @@ def test_the_client_reads_the_token_file_route_without_a_token_and_never_sends_t
 def test_the_client_names_the_services_route_and_the_page_spells_no_command():
     api = (JS / "api.js").read_text(encoding="utf-8")
     assert re.search(r'const TOKEN_FILE = "([^"]+)"', api).group(1) == service.TOKEN_FILE_ROUTE == "/token-file", "the client's path is the service's"
-    assert len(re.findall(r"\bfetch\(", api)) == 1, "still one way to reach the service"
+    assert len(re.findall(r"\btransport\(", api)) == 1 and not re.search(r"\bfetch\(", api), "still one way to reach the service"
     prompt = (JS / "views" / "token-prompt.js").read_text(encoding="utf-8")
     for spelled in ("pbcopy", "Set-Clipboard", "Get-Content", "-LiteralPath", "shlex", "cat "):
         assert spelled not in prompt, f"the prompt spells no command of its own: {spelled}"
