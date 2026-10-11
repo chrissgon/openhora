@@ -1063,3 +1063,55 @@ def test_the_replys_button_reads_as_a_control_and_is_a_phone_tap_target_and_the_
     assert "@media (max-width: 899px) { .wb-reply-toggle { min-height: 44px;" in base, "a phone's tap target"
     plan = (INTERFACE / "js" / "cards" / "plan.js").read_text(encoding="utf-8")
     assert "const planOpen = new Map()" in plan and "open: Boolean(planOpen.get(item.id)), onToggle: (value) => planOpen.set(item.id, value)" in plan, "the Lobby's plan text keeps the open choice across a rebuild"
+
+
+# --- R4-A4d (A-54): the phone's floor card is the Building's; it does not stay over the Floor --------------------------------------------------------------------------------
+
+CORNER = r"""
+import { createBuildingView } from "@JS@/views/building.js";
+import { createFloorView } from "@JS@/views/floor.js";
+
+const txt = (n) => (n ? n.textContent : null);
+const agentsOf = ["planning", "brand", "design", "engineering"];
+const snap = JSON.parse(JSON.stringify(snapshot));
+snap.details[P].agents = agentsOf.map(agent);
+snap.details[P].status = { requests: [{ id: 2, title: "Sale page", state: "running", tasks: [task(5, "running", "engineering"), task(6, "planned", "brand")] }], pending: [], documents: [], held: [] };
+for (const width of [375, 768, 899, 900]) {
+  window.matchMedia = () => ({ matches: width <= 899, addEventListener() {}, removeEventListener() {} });
+  const calls = [];
+  const frame = makeFrame();
+  frame.sceneHost.querySelectorAll = FakeNode.prototype.querySelectorAll;
+  frame.acquireWorld = () => ({ flyTo: () => Promise.resolve(false), stats: () => ({}), highlight() {}, setCorner: (node) => calls.push(node ? txt(node) : null), show() {}, refit() {}, setOptions() {} });
+  const view = createBuildingView(frame, { refresh: async () => {}, selectRequest() {} });
+  view.update({ snapshot: snap, route: router.parse(`#/p/${P}`), now: NOW, reload: 1 });
+  await settle();
+  const shown = calls.filter((c) => c !== null);
+  view.dispose();      // the Floor takes the scene over: the Building's card must be gone
+  out[width] = { card: shown.length ? shown[shown.length - 1].slice(0, 40) : null, last: calls[calls.length - 1] };
+}
+// the Floor itself never puts a card in the corner (floor.html draws none), whichever floor it shows
+const calls = [];
+const frame = makeFrame();
+frame.sceneHost.querySelectorAll = FakeNode.prototype.querySelectorAll;
+frame.acquireWorld = () => ({ show() {}, refit() {}, setOptions() {}, stats: () => ({}), setCorner: (node) => calls.push(node ? txt(node) : null) });
+for (const name of ["brand", "engineering"]) {
+  const floor = createFloorView(frame, { refresh: async () => {} });
+  floor.update({ snapshot: snap, route: router.parse(`#/p/${P}/floor/${name}`), now: NOW, reload: 1 });
+  await settle();
+  floor.dispose();
+}
+out.floorCalls = calls;
+console.log(JSON.stringify(out));
+process.exit(0);
+"""
+
+
+@needs_node
+def test_the_buildings_phone_card_is_cleared_when_the_view_leaves_so_the_floor_shows_none_and_the_floor_never_draws_one(tmp_path):
+    from test_interface_live import VIEW_HEAD
+    from test_interface_plates_meters import run_node as run_plain
+    got = run_plain(tmp_path, VIEW_HEAD + CORNER)
+    for width in ("375", "768", "899"):
+        assert got[width]["card"] is not None and got[width]["last"] is None, f"{width} px: the Building draws the card of the floor it follows, and clears it when the view is disposed (A-54)"
+    assert got["900"] == {"card": None, "last": None}, "900 px and wider: plates beside the floors, no card"
+    assert got["floorCalls"] == [], "the Floor puts nothing in the corner (floor.html draws no floor card on a phone), whichever floor it shows"

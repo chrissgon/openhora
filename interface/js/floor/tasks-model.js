@@ -79,6 +79,16 @@ export function returnedPaths(body) {
   return [];
 }
 
+/**
+ * A-72: the runs of an opened task split in two. `runs` is every run, newest first (as the service stores them, reversed); `thisRun` is the run in progress, else the last run
+ * when none runs; `earlier` is every other run, still newest first. A task with one run has no earlier run.
+ */
+export function splitRuns(runs) {
+  const list = Array.isArray(runs) ? runs : [];
+  const index = Math.max(0, list.findIndex((r) => r && r.status === "running"));
+  return list.length ? { thisRun: list[index], earlier: list.filter((_, i) => i !== index) } : { thisRun: null, earlier: [] };
+}
+
 const newestRun = (body) => (body && Array.isArray(body.runs) && body.runs.length ? body.runs[body.runs.length - 1] : null);
 
 /**

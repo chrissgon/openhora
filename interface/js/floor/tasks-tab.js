@@ -13,7 +13,7 @@ import * as client from "../api.js";
 import { fill, h } from "../dom.js";
 import { arrowNav } from "../frame/arrows.js";
 import { icon } from "../frame/icons.js";
-import { runBlock } from "./run-block.js";
+import { runsSection } from "./run-block.js";
 import { createTaskActions } from "./task-actions.js";
 import { groupTasks, rowOf } from "./tasks-model.js";
 import { busyLine, chip } from "./widgets.js";
@@ -45,6 +45,7 @@ export function createTasksTab(env) {
   const bodies = new Map();        // task id -> {body, state, at}
   const reading = new Set();
   const expanded = new Set();
+  const earlierOpen = new Set();   // task ids whose "Earlier attempts" disclosure is open (closed by default)
   const opened = new Map();        // group id -> the person's choice, over "open when it holds a task"
   const actions = createTaskActions({ project: env.project, api: env.api, refresh: () => env.refresh(), redraw: () => draw(), done: (id) => bodies.delete(id) });
   let shown = "";
@@ -107,7 +108,12 @@ export function createTasksTab(env) {
       return cached && !reading.has(task.id) ? h("p", { class: "wb-empty-line", text: "The runs could not be read." }) : busyLine("Loading the runs...");
     }
     if (!row.runs.length) return h("p", { class: "wb-empty-line", text: "No run yet." });
-    return [h("span", { class: "wb-sec-head wb-runs-head", text: "Runs, newest first" }), ...row.runs.map(runBlock)];
+    // A-72: "This run" and the closed "Earlier attempts (n)" (run-block.js, shared with the Agent tab's current-task card)
+    return runsSection(row.runs, { key: task.id, isOpen: earlierOpen.has(task.id), onToggle: () => {
+      if (earlierOpen.has(task.id)) earlierOpen.delete(task.id);
+      else earlierOpen.add(task.id);
+      draw();
+    } });
   }
 
   /**
@@ -171,7 +177,7 @@ export function createTasksTab(env) {
     const now = env.now();
     // the signature is everything a row draws: a poll that changed nothing draws nothing, so it never takes the focus away
     const key = JSON.stringify([groups.map((g) => [g.id, g.count, g.tasks.map((t) => [t.id, t.title, t.skill, t.state, t.note, t.requestId, t.waiting_for])]), last.requests.map((r) => [r.id, r.title]),
-      last.pending.map((p) => [p.id, p.task_id]), [...bodies].map(([id, v]) => [id, Boolean(v.body), v.body ? [v.body.runs, v.body.pending, v.body.task] : null]), [...expanded].sort(), [...opened], actions.signature(),
+      last.pending.map((p) => [p.id, p.task_id]), [...bodies].map(([id, v]) => [id, Boolean(v.body), v.body ? [v.body.runs, v.body.pending, v.body.task] : null]), [...expanded].sort(), [...earlierOpen].sort(), [...opened], actions.signature(),
       [...reading], last.tasks.map((t) => (bodies.get(t.id) && bodies.get(t.id).body ? rowOf(t, { requests: last.requests, pending: last.pending, body: bodies.get(t.id).body, now }).age : ""))]);
     if (key === shown) return;
     shown = key;

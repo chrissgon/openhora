@@ -447,6 +447,7 @@ export function createBuildingView(frame, env) {
       frame.sceneHost.removeEventListener("click", onClick);
       viewer.close();
       if (cancelDialog) cancelDialog.el.remove();   // the dialog it added to the frame leaves with the view (an open one is dismissed)
+      if (engine) engine.setCorner(null);   // the phone's floor card is the Building's: the scene is the frame's and outlives this view, so the card must not stay over the Floor or the Lobby (A-54)
       panel.remove();   // the scene is the frame's: the City takes it over (the building closes), or the frame takes it down
       stateDialog.remove();
       steps.remove();
