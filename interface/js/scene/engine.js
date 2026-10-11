@@ -11,7 +11,7 @@ import { h } from "../dom.js";
 import { icon } from "../frame/icons.js";
 import { clampView, fitView, frustumOf, panBy, panPixels, pointerToNdc, zoomAt } from "./camera.js";
 import { pulseBeacon, restBeacon } from "./city.js";
-import { ease, fitFrustum } from "./fit.js";
+import { ease, fitFrustum, fitFrustumWithLabels } from "./fit.js";
 import { createKit } from "./kit.js";
 import { cornerPosition, fitInsets, mountLabels, placeLabels } from "./labels.js";
 import { applyOutlineVisibility, showPlan } from "./look.js";
@@ -297,6 +297,7 @@ export function createEngine(host, options) {
   // A building's card is drawn with the theme border while the person has that project: hovered (on the scene or in the list) or
   // chosen by the route. The tracking bar's default project does not count.
   function markLabels() {
+    let changed = false;
     for (const entry of labelEntries) {
       if (entry.spec.kind !== "card") continue;
       const open = Boolean(entry.spec.selected) || entry.spec.id === hoverId || (Boolean(content) && entry.spec.id === content.marked);
@@ -306,8 +307,33 @@ export function createEngine(host, options) {
       // culling reads the size
       entry.width = entry.node.offsetWidth;
       entry.height = entry.node.offsetHeight;
-      if (size.w) positionLabels();
+      changed = true;
     }
+    if (changed && size.w) refitLabels();
+  }
+
+  // A label changed size (a quiet dot opened into its card): on a canvas too narrow for the card the City's fit makes room for it, and gives the room back when the dot closes. The camera
+  // goes there as it goes anywhere (a short move, none when motion is reduced); on a canvas with room the fit does not change and only the labels are placed again.
+  function refitLabels() {
+    if (!content || !content.zoomCap || !frustum) {
+      positionLabels();
+      return;
+    }
+    if (tween.active()) {   // a move is in flight: it goes on to the new goal
+      fit();
+      return;
+    }
+    const from = cameraNow();
+    const goal = computeFit();
+    const same = Math.abs(goal.left - from.left) + Math.abs(goal.right - from.right) + Math.abs(goal.top - from.top) + Math.abs(goal.bottom - from.bottom) < 1e-6;
+    positionLabels();
+    if (same) return;
+    if (cameraSet && !reducedQuery.matches) {
+      tween.start(from, goal, clock(), 1);
+      loop.start("camera", { ambient: false });
+    } else applyView();
+    positionLabels();
+    loop.requestRender();
   }
 
   function applyOutlines() {
@@ -416,6 +442,16 @@ export function createEngine(host, options) {
   // was (building.html draws the notice band over it, not the drawing fitted under the band).
   const about = () => ({ dim: Boolean(content && content.dim) });
 
+  // The City's labels as the fit needs them: where each stands on the closed City (`fitAnchor`, not where it is in the middle of a close) in camera space and how big it is on the screen (a quiet building's dot is small, its card is not)
+  function labelRoom() {
+    if (!labelEntries.length) return [];
+    camera.updateMatrixWorld();
+    return labelEntries.filter((e) => (e.spec.fitAnchor || e.spec.anchor) && e.width && e.height).map((e) => {
+      const at = (e.spec.fitAnchor || e.spec.anchor).clone().applyMatrix4(camera.matrixWorldInverse);
+      return { x: at.x, y: at.y, width: e.width, height: e.height };
+    });
+  }
+
   // The frustum the camera should show now: the subject fitted in the free rectangle the page's panels leave, the person's view on top.
   function computeFit() {
     const insets = options.getInsets ? options.getInsets(about()) : {};
@@ -423,7 +459,9 @@ export function createEngine(host, options) {
     tools.style.setProperty("--wb-y", `${Math.max(16, insets.bottom || 0)}px`);   // above the tracking bar, whatever its height
     bounds = subjectBounds();
     const cap = content.zoomCap ? content.zoomCap(size) : null;   // the City is not closer than the page draws it
-    frustum = fitFrustum(bounds, size, fitInsets(insets, corner ? corner.offsetHeight : 0), insets.pad || 1.04, cap);   // below the corner card, when there is one
+    const room = fitInsets(insets, corner ? corner.offsetHeight : 0);
+    // the City's labels are as wide as their text whatever the zoom: when one would run out of the free rectangle (a phone) the fit makes room for it (R4-B8); with room to spare it is the plain fit
+    frustum = cap ? fitFrustumWithLabels(bounds, size, room, insets.pad || 1.04, cap, labelRoom()) : fitFrustum(bounds, size, room, insets.pad || 1.04, cap);   // below the corner card, when there is one
     view = clampView(view, frustum, bounds);   // the person's zoom and pan stay while they are inside the limits
     return frustumOf(frustum, view);
   }

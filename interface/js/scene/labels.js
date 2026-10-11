@@ -67,9 +67,9 @@ function placeColumn(plates, project, hidden, insets, size) {
 }
 
 /** The size, in pixels, a fitted label is laid out in before its matrix maps it onto its plate (the same numbers as `.wb-label-fit` in `css/building.css`). */
-export const FIT_SIZE = Object.freeze({ w: 108, h: 45 });
-/** The least height, in pixels, a fitted label's plate may have on the screen for its text to be shown (the text is 12 px at 45 px of plate: under this it would be under 2 px). */
-export const MIN_FIT_HEIGHT = 8;
+export const FIT_SIZE = Object.freeze({ w: 106, h: 60 });   // the door plate's screen shape (1.77 to 1): the label's two lines at 23 px fill it
+/** The least height, in pixels, a fitted label's plate may have on the screen for its text to be shown: the text is 23 px in a 60 px box, so 26 px of plate is a 10 px letter (A-73: under it, a phone's Lobby, it is hidden, not drawn unreadable). */
+export const MIN_FIT_HEIGHT = 26;
 
 /**
  * Fit a label on a plane of the scene (A-59): `spec.fit` has three world points of it, `origin` (the bottom left), `right` (a width to its right) and `up` (a height above it); the

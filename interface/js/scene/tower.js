@@ -33,6 +33,7 @@ export const CLOSED_SQUASH = 0.64;
 export const squash = (s) => CLOSED_SQUASH + (1 - CLOSED_SQUASH) * smooth(clamp01(s / 0.55));
 /** The world's y of a point at height `y` of an unsquashed tower, at open progress `s` (already read through the smoothstep). */
 export const worldY = (y, s) => BASE + squash(s) * (y - BASE);
+export const SOLID = 0.9;   // the share of its opacity from which the shell is drawn opaque
 const TALL = 1 / CLOSED_SQUASH;   // what is drawn at the drawing's height, before the squash
 
 // The shell's measures, at the building's size (the drawing's proportions: windows 5/7 of a floor's wall, the door 6/7), so
@@ -130,7 +131,7 @@ export function createTower(kit, lot, cx, cz) {
     vis: lot.floors.map(() => 1), visTarget: lot.floors.map(() => 1),
     motions: [], roomMotions: [], markers: [], outlines: [], inner: [], parts: [], plants: null, beacon: null, tag: null, brackets: bracketing,
     shown: lot.floors.map((f) => ({ state: f.state, window: f.window, decisions: f.decisions, notes: null, documents: null })),
-    cardAnchor: new THREE.Vector3(cx, 0, cz), plateAnchors: [], boardAnchors: [], doorAnchors: [], doorPlaques: [], tagAnchor: new THREE.Vector3(), marksHidden: false,
+    cardAnchor: new THREE.Vector3(cx, 0, cz), cardRestAnchor: new THREE.Vector3(cx, 0, cz), plateAnchors: [], boardAnchors: [], doorAnchors: [], doorPlaques: [], tagAnchor: new THREE.Vector3(), marksHidden: false,
   };
   const fadeMats = [];
   const roofMats = [];
@@ -373,10 +374,15 @@ export function createTower(kit, lot, cx, cz) {
   });
   shells.forEach((shell) => claim(shell, fadeMats));
   claim(roof, roofMats);
+  // The shell is drawn translucent only while it is plainly fading: from `SOLID` of its opacity up it is opaque (opacity 1, writing depth, out of the transparent pass), so the last tenth of the
+  // fade, which an exponential approach draws out for a second or more, is not a translucent shell with no depth: its jambs, mullions, ledges and the roof's ring and its centre are drawn
+  // and ordered as in the closed building from the moment it is solid (A-75: details used to appear seconds after the close, their widths changing)
   const setOpacity = (list, value) => {
+    const solid = value >= SOLID;
     for (const m of list) {
-      m.opacity = value;
-      m.depthWrite = value >= 0.999;
+      m.opacity = solid ? 1 : value;
+      m.depthWrite = solid;
+      m.transparent = !solid;
     }
   };
 
@@ -571,22 +577,22 @@ export function createTower(kit, lot, cx, cz) {
     });
     tower.brackets.roof.position.y = worldY(roofY(n, s), s) + ROOF_H * sy;
     tower.brackets.closed = s < 0.01;
-    tower.inner.forEach((inner) => { if (inner) inner.visible = tower.open > 0 && fade < 0.999; });   // M-16: a room is put away as soon as the walls are solid, not at the last frame
+    tower.inner.forEach((inner) => { if (inner) inner.visible = tower.open > 0 && fade < SOLID; });   // M-16: a room is put away as soon as the walls are solid, not at the last frame
     if (tower.plants) {
-      // the plants stand only in an open building: nothing of a room shows through a closed or closing shell (M-16); they grow in once the walls are gone and shrink to nothing before they return
-      const grow = clamp01((tower.open - 0.6) / 0.3);
+      // the plants are always their own size (A-74, M-30: not scaled in once the building has opened): they stand where the rooms stand, squashed with the tower as the rooms are (R-16),
+      // and inside the shell's outer faces at every frame of the close (`PLANTS` keeps the crowns off them); they are put away with the rooms, once the walls are solid
       const matrix = new THREE.Matrix4();
       const scale = new THREE.Vector3();
       tower.plantRooms.forEach((room, k) => {
-        const g = grow * tower.vis[room];
+        const v = tower.vis[room];
         PLANTS.forEach(([px, pz], j) => {
-          scale.setScalar(Math.max(g, 1e-4));
-          matrix.compose(new THREE.Vector3(FRAME.X(px) * tower.vis[room], floorGroups[room].position.y + FRAME.Y(0) * tower.vis[room], FRAME.Z(pz) * tower.vis[room]), new THREE.Quaternion(), scale);
+          scale.set(Math.max(v, 1e-4), Math.max(v * sy, 1e-4), Math.max(v, 1e-4));
+          matrix.compose(new THREE.Vector3(FRAME.X(px) * v, group.position.y + sy * (floorGroups[room].position.y + FRAME.Y(0) * v), FRAME.Z(pz) * v), new THREE.Quaternion(), scale);
           tower.plants.setMatrixAt(k * PLANTS.length + j, matrix);
         });
       });
       tower.plants.instanceMatrix.needsUpdate = true;
-      tower.plants.visible = grow > 0.01;
+      tower.plants.visible = tower.open > 0 && fade < SOLID;
     }
     if (tower.tag) {
       tower.tag.group.position.set(-W / 2 + 0.6, floorY(tower.tag.index, pitch) + SLAB, D / 2 - 0.5);
@@ -602,6 +608,7 @@ export function createTower(kit, lot, cx, cz) {
       for (const corner of ["origin", "right", "up"]) plaque[corner].set(cx + a.plaque[corner].x, y + a.plaque[corner].y, cz + a.plaque[corner].z);
     });
     tower.cardAnchor.set(cx, worldY(roofY(n, s), s) + 1.6, cz);
+    tower.cardRestAnchor.set(cx, worldY(roofY(n, 0), 0) + 1.6, cz);   // where the card stands on the closed building: the City's fit reads this one, not the card's place in the middle of a close
   };
 
   /** The y the work-order tag rests at when the building is open: where the tag goes to, whatever the progress now. */

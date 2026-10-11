@@ -1,10 +1,9 @@
 // The two potted plants of a room (A-45, M-6): a dark pot, a tapered six-sided cylinder, and a crown, one icosahedron lit as the City's trees are (city.js
-// `crownFacets`, the same solid and the same four tones). They stand on the floor against the left wall, the one with the windows, one near each end of the
-// run of windows, clear of the room's three ways in (the owl, the board of notes, the bookcase) and of the Lobby's door. They are decoration: never picked,
-// never animated, casting no shadow. The server room has none (R-51).
-// The plants are not in the room's still mesh (M-16): a plant's crown stands past the shell's outer face, so it must not show while the walls close in. The tower draws all
-// its plants as one instanced mesh (`tower.plants`, tower.js), two for each room, each scaled from nothing to its size as the building opens and back as it closes: nothing of a room
-// shows through a closed or closing shell. The measures are page units (room-frame.js); the pot and the crown are the earlier prototype's, a little larger against this room.
+// `crownFacets`, the same solid and the same four tones). They stand on the floor near the left wall, the one with the windows, clear of the room's three ways in (the owl, the board
+// of notes, the bookcase) and of the Lobby's door. They are decoration: never picked, never animated, casting no shadow. The server room has none (R-51).
+// The plants are not in the room's still mesh (M-16): the tower draws all of them as one instanced mesh (`tower.plants`, tower.js), two for each room, at their own size at all times (A-74,
+// M-30: they no longer grow in once the building has opened), squashed with the tower as its rooms are. They stand far enough inside the room that no part of one, the crown included, leaves
+// the closed shell's outer faces at any frame of the close. The measures are page units (room-frame.js); the pot and the crown are the earlier prototype's, a little larger against this room.
 
 import { crownFacets } from "./city.js";
 import { AZIMUTH } from "./rig.js";
@@ -12,8 +11,8 @@ import { AZIMUTH } from "./rig.js";
 const FOOT = 0.012;   // the pot's foot stands a hair over the floor (the floor is at 0.004)
 export const POT = Object.freeze({ top: 0.165, base: 0.125, height: 0.27, sides: 6 });
 export const CROWN = Object.freeze({ radius: 0.29, stretch: 1.1, centre: 0.53 });
-/** Where the plants stand on the floor, [x, z] in page units: against the left wall, at the first window's end and past the last window (the Lobby's door fills the place of the second window, and a plant in front of it would cover it, so the second stands in the front corner). */
-export const PLANTS = Object.freeze([Object.freeze([0.45, 1.1]), Object.freeze([0.4, 5.45])]);
+/** Where the plants stand on the floor, [x, z] in page units: the first by the first window and the back, the second in the front half past the last window, inward from the front wall and the corner (the Lobby's door fills the place of the second window and a plant in front of it would cover it; a crown at the front corner would stand out of the shell). */
+export const PLANTS = Object.freeze([Object.freeze([0.6, 1.2]), Object.freeze([1.6, 5.0])]);
 
 /**
  * One plant as a geometry with a colour on every vertex, its foot centre at the origin and its measures in the world units of the frame `f` (room-frame.js `pageFrame`).
