@@ -505,10 +505,12 @@ def test_the_bar_shows_the_newest_request_with_a_running_task_else_the_newest_op
 def test_the_request_selector_opens_a_list_chooses_steps_both_ways_and_the_bar_hides_when_nothing_is_open(tmp_path):
     got = run_node(tmp_path, REQUESTS)
     assert got["barShown"] is True
-    assert got["selectorParts"] == [True, ["Previous request", "Next request"], [["4", "false"], ["3", "false"], ["2", "true"]], "false", True]
+    # F1-D12 (R4-P2, the final check against frame.html's request list): the list is oldest first, #2 then #3 then #4
+    assert got["selectorParts"] == [True, ["Previous request", "Next request"], [["2", "true"], ["3", "false"], ["4", "false"]], "false", True]
     assert got["opened"] == ["true", False], "the chip opens the list"
     assert got["chose"] == [[["p1", 3]], "false"], "choosing sends the request and closes the list"
-    assert got["stepped"] == [["p1", 3], ["p1", 4]], "previous and next step through the list from the selected one, wrapping"
+    # from #2, the first of the list: Previous wraps to the last (#4) and Next goes to #3 (F1-D12: the list and the buttons follow the same order)
+    assert got["stepped"] == [["p1", 4], ["p1", 3]], "previous and next step through the list from the selected one, wrapping"
     assert got["single"] == [False, True], "with one open request the number is a plain badge"
     assert got["emptyHidden"] is True and got["loadingShown"] is True, "no open request: the bar is hidden; loading: it shows its line"
     track = (JS / "frame" / "track.js").read_text(encoding="utf-8")

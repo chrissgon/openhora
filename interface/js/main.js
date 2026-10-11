@@ -268,7 +268,9 @@ function render() {
   const dims = route.screen === "city" ? model.cityDims(projects, snapshot.details) : Boolean(dimmed) && model.acceptance(dimmed, snapshot.details[dimmed.id]).kept;
   frame.el.classList.toggle("is-unaccepted", state === "ready" && dims);
 
+  frame.setState({ loading: loading && route.screen !== "city", unknown: !known });
   frame.switcher.update({
+    loading,
     projects: projects.map((p) => ({
       id: p.id, name: p.name, accepted: Boolean(p.config && p.config.accepted),
       badge: snapshot.details[p.id] && snapshot.details[p.id].status ? (snapshot.details[p.id].status.pending || []).length : (p.open_pending || 0),

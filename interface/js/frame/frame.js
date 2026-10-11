@@ -202,13 +202,15 @@ export function createFrame(root, handlers) {
     const box = kpis.el.getBoundingClientRect();
     const scene = sceneArea.getBoundingClientRect();
     const bottom = box.height > 0 ? box.bottom - scene.top : 0;
-    frame.style.setProperty("--wb-cam-top", `${Math.round(bottom > 0 ? bottom + 10 : 0)}px`);
+    // no card on the page (a project that is loading or unknown draws none): the stylesheet's own place stands
+    frame.style.setProperty("--wb-cam-top", bottom > 0 ? `${Math.round(bottom + 10)}px` : "");     // an empty value takes the property off
   };
   let cameraWatch = null;
   if (typeof ResizeObserver === "function") {
     cameraWatch = new ResizeObserver(placeCamera);
     cameraWatch.observe(kpis.el);
     cameraWatch.observe(sceneArea);
+    cameraWatch.observe(float);      // on a phone the tracking bar above the tiles changes height (a title wraps, a step list grows) and moves them without resizing them (F1-D11)
   }
 
   // Where the band ends, as the one number the stylesheet needs to keep what stands under it (the City's twin list without WebGL) clear of it: the band's bottom
@@ -315,6 +317,15 @@ export function createFrame(root, handlers) {
     dockWaiting() {
       if (currentRoute && currentRoute.screen !== "city" && waitingCard.el.parentNode !== main) main.append(waitingCard.el);
     },
+    /**
+     * What the page knows about what it shows, as two classes the stylesheet reads. loading: the first read is not back, so a project's screen draws neither KPI cards nor a
+     * tracking bar (the City draws its own "..."); unknown: the route names a project the service does not hold, so the frame draws only the band and the camera buttons
+     * (building.html "No such project"; F1-D4, F1-D5b).
+     */
+    setState({ loading = false, unknown = false } = {}) {
+      frame.classList.toggle("is-loading", Boolean(loading));
+      frame.classList.toggle("is-unknown", Boolean(unknown));
+    },
     /** The projects the command panel of the switcher's foot knows (views/city-projects-model.projectsOf). */
     setProjects(list) {
       if (panelOf) panelOf.setProjects(list);
@@ -366,9 +377,9 @@ export function createFrame(root, handlers) {
      * lies over the scene (the KPI cards, the header, the notice, the panel or the waiting card at the right, the tracking bar) takes the
      * side it is fixed to, so the scene's objects are fitted into what none of them covers. A part that does not touch the scene (the panel
      * docked below it on a narrow screen) takes nothing. `notice: false`: the band does not count (a dimmed Building is fitted as it was, the band floats over it; a phone's
-     * band always counts).
+     * band always counts). The City under a project that is not accepted is fitted as the Building is (city.html: the buildings keep their size under the band; F1-D10).
      */
-    insets(rightEl, { notice = true } = {}) {
+    insets(rightEl, { notice: asked = true } = {}) {
       const scene = sceneArea.getBoundingClientRect();
       if (phone.matches) {
         // The scene fills the whole upper part of the page; what lies over it is, at the top, the notice, the tracking bar and the two KPI tiles (R-10) and,
@@ -382,6 +393,7 @@ export function createFrame(root, handlers) {
         return out;
       }
       const out = { left: 16, right: 16, top: 16, bottom: 16, pad: 1.04 };
+      const notice = asked && !(currentRoute && currentRoute.screen === "city" && frame.classList.contains("is-unaccepted"));
       const parts = [kpis.el, header, notice && !noticeBox.hidden ? noticeBox : null, dock, rightEl && !rightEl.hidden ? rightEl : null];       // the panel at the right stands over the card under it: the card adds no inset
       for (const part of parts) {
         if (!part) continue;

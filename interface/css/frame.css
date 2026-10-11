@@ -18,6 +18,9 @@
 /* A-16: the configuration is not accepted; the last data read stays, dimmed, and the band on top says why. The band is never dimmed; the City
    dims its cards and its bar only (its other buildings stay clickable); a project's screens also dim the scene (no pointer actions) and the panel. */
 .wb-frame.is-unaccepted .wb-kpis, .wb-frame.is-unaccepted .wb-track { opacity: 0.55; }
+/* F1-D4, F1-D5b: a project's screen that is still loading draws no KPI cards and no tracking bar (building.html "Loading"); a route to a project the service does not hold draws
+   the band and the camera buttons alone (building.html "No such project"). The City draws its own loading line and its cards. */
+.wb-frame.is-loading .wb-kpis, .wb-frame.is-loading .wb-track, .wb-frame.is-unknown .wb-kpis, .wb-frame.is-unknown .wb-track, .wb-frame.is-unknown .wb-waiting { display: none; }
 .wb-frame.is-unaccepted:not([data-screen="city"]) .wb-panel { opacity: 0.55; }
 .wb-frame.is-unaccepted:not([data-screen="city"]) .wb-scene { opacity: 0.55; pointer-events: none; }
 
@@ -151,6 +154,9 @@ a.wb-crumb:hover { text-decoration: underline; }
 .wb-switch-swap { display: inline-flex; margin-left: 4px; }
 .wb-switch-swap .wb-icon { color: var(--pui-text-muted); }
 .wb-switch-main:hover .wb-switch-swap .wb-icon { color: var(--wb-ink-theme); }
+/* F1-D4: while the projects are read the switcher is the prototype's loading frame: the name, the icons and the chevron in the muted colour, the button disabled */
+.wb-switch-group.is-loading .wb-switch-main, .wb-switch-group.is-loading .wb-switch-main .wb-icon, .wb-switch-group.is-loading .wb-switch-chevron { color: var(--pui-text-muted); }
+.wb-switch-group.is-loading .wb-switch-main { opacity: 1; }
 .wb-switch-chevron { padding: 8px; }
 .wb-switch-chevron.is-open { background-color: var(--wb-ground); }
 .wb-listbox-card {
@@ -168,7 +174,8 @@ a.wb-crumb:hover { text-decoration: underline; }
 .wb-listbox:focus-visible { outline: none; }
 .wb-option { display: grid; grid-template-columns: minmax(0, 1fr) auto 24px; align-items: center; gap: 8px; cursor: pointer; }
 .wb-option.is-selected, .pui-list.pui-hoverable > .wb-option.is-selected:hover { background-color: var(--pui-bg-emphasis); }   /* R-3 */
-.wb-option.is-active { box-shadow: inset 0 0 0 2px var(--pui-theme); }
+/* F1-D13: the ring of the row the arrow keys are on is the keyboard's: it shows while the list has the focus by keyboard (:focus-visible), never right after a click on the chevron */
+.wb-listbox:focus-visible .wb-option.is-active { box-shadow: inset 0 0 0 2px var(--pui-theme); }
 .wb-check:not(.is-on) { visibility: hidden; }
 .wb-check { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: var(--pui-radius); }   /* R-3: the check in a soft success box at the end of the row */
 .wb-option-text { display: grid; min-width: 0; }
@@ -279,6 +286,7 @@ a.wb-kpi:focus-visible { outline: 2px solid var(--pui-theme); outline-offset: 2p
 .wb-wait-toggle { width: 100%; border-width: 0 0 var(--pui-border-width); background-color: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .wb-waiting.is-collapsed .wb-wait-toggle { border-bottom-width: 0; }
 .wb-wait-heading { font-size: 15px; }
+.wb-wait-none { color: var(--pui-text-muted); font-size: 14px; }
 .wb-wait-up { display: inline-flex; margin-left: auto; color: var(--pui-text-muted); }
 .wb-wait-list { display: grid; gap: 2px; max-height: 300px; margin: 0; padding: 6px; overflow-y: auto; list-style: none; }
 .wb-wait-item { padding: 0; }
@@ -324,6 +332,7 @@ a.wb-kpi:focus-visible { outline: 2px solid var(--pui-theme); outline-offset: 2p
 .wb-track { box-shadow: var(--wb-elev); }     /* R-8: at the bottom left beside "Waiting for you", in the dock (.wb-dock) under Back and the crumbs */
 .wb-track-desktop { display: grid; grid-template-columns: minmax(0, 1fr) var(--wb-side-card); }
 .wb-track-phone { display: none; }
+.wb-track-loading { grid-column: 1 / -1; }      /* the loading line is the card's only content: its 12 px of padding and the line make the 46 px the prototype draws */
 .wb-track-left { display: grid; gap: 8px; min-width: 0; padding: 12px 16px; }
 .wb-track-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .wb-track[hidden] { display: none; }
@@ -518,4 +527,30 @@ a.wb-now-title:hover { text-decoration: underline; }
 /* the phone's part of the round-4 components, after their rules above so that it is the one that applies (a rule of an earlier phone block would lose to them) */
 @media (max-width: 899px) {
   .wb-cmd-panel { position: fixed; top: auto; right: 8px; bottom: 96px; left: 8px; width: auto; max-height: 60dvh; }
+}
+
+/* F2-D10, README Floor (b) 6: on a phone the crumbs of a project's floor, Lobby and Control room drop "City" (`northwind-shop / Lobby`) so they fit beside Back and the door;
+   the Building keeps "City / northwind-shop" (building.html draws it so). Back goes up in any case. */
+@media (max-width: 899px) {
+  .wb-frame:is([data-screen="floor"], [data-screen="lobby"], [data-screen="control"]) .wb-bottom-bar .wb-crumb-item:first-child,
+  .wb-frame:is([data-screen="floor"], [data-screen="lobby"], [data-screen="control"]) .wb-bottom-bar .wb-crumb-item:nth-child(2) > .wb-crumb-sep { display: none; }
+}
+
+/* F1-D10: the band on a phone is one of the stack over the scene: it keeps within the screen, at most 40 percent of its height, and scrolls inside itself when the service's
+   sentence and its command are longer (the Copy button stays reachable) */
+@media (max-width: 899px) {
+  .wb-notice-box { max-height: 40dvh; overflow-y: auto; overscroll-behavior: contain; border-radius: calc(var(--pui-radius) * 1.5); }
+}
+
+/* M-32, the phone's text: the reading text is 16 px (the page's text, the buttons, the tabs, the list rows, the cards and the sheet), the chips, meta lines and table heads
+   keep at least 12 px (the library's badge is 0.857 of its font size, 13.7 px at 16). The library's own base size is one custom property, set on the phone in base.css. */
+@media (max-width: 899px) {
+  .wb-frame { font-size: 16px; }
+  .wb-empty, .wb-notice, .wb-foot-row, .wb-wait-heading, .wb-wait-title, .wb-track-title, .wb-step-title, .wb-sheet-title, .wb-panel-title, .wb-wait-none { font-size: 16px; }
+  .wb-bottom-bar .wb-crumb-nav { font-size: 16px; }
+  .wb-req-option-state, .wb-switch-pos, .wb-option-sub, .wb-listbox-head { font-size: 12px; }
+  .wb-req-chip { min-height: 32px; font-size: 14px; }
+  .wb-req-step { width: 32px; min-height: 32px; }
+  .wb-req-option { font-size: 16px; }
+  .wb-command-code, .wb-command { font-size: 14px; }
 }
