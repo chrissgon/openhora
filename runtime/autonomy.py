@@ -30,6 +30,8 @@ autonomous-with-policy whose approval expired acts as autonomous: its effects as
                                                 day's dollar cap when that is less; None when under MIN_RUN_BUDGET_USD
   spend(runs, agent, per_run_usd)               a day's spend of one agent by billing: {"runs_counted", "usd_metered",
                                                 "runs_without_cost"} (a metered run of unknown cost counts at per_run_usd)
+  NO_SPEND_FAILURES, never_reached_the_model(run)   the failure words that prove no model was called, and the one test:
+                                                such a run reserves nothing and is no run for the runs cap (A-57)
   spend_split(runs, agent, per_run_usd)         the one place the day's rule is written: {"usd_recorded",
                                                 "usd_reserved", "runs_total", "runs_counted", "runs_without_cost"};
                                                 spend reads it (usd_metered = usd_recorded + usd_reserved, exactly)
@@ -81,6 +83,17 @@ POLICY_MODE = "autonomous-with-policy"
 BILLINGS = ("subscription", "metered", "free", "unknown")
 RUNS_BILLINGS = ("subscription", "free")
 SPEND_BILLINGS = ("metered",)
+# The failure words of a run row (providers/store/sqlite.py RUN_FAILURES) that PROVE no model was called, so that the run spent
+# nothing and used none of the runs cap (A-57, P-19). Each is set where the lab or the runtime refuses before the model could answer:
+#   auth      evals/run_attempts.py: the provider refused the key or the credential (a 401); never retried
+#   settings  evals/run_attempts.py: the copy carries a tool's settings; refused before the adapter is called
+# A word that does not prove it keeps the per-run reservation, because dollars are never left uncounted: timeout, refused (the
+# provider declined a request it received), adapter (it failed after it started), early_end (the model answered), stopped (a
+# restart or the lab stopped it mid-run). `internal` is the runtime's own word for a refusal before the adapter (the image
+# missing, no secret, a bad configuration, a copy that could not be built) and also for a crash mid-run: it proves nothing but
+# with `attempts` 0, which the runtime records only when no attempt began (ops.py, lab.run_skill). NO_SPEND_FAILURES is the one
+# definition; never_reached_the_model is the one test.
+NO_SPEND_FAILURES = ("auth", "settings")
 # The least a metered run may be given as its own spend limit when the day's dollar cap is nearly reached: a run is not started
 # with a budget of a few cents, it is held with "cap: usd per day" instead.
 MIN_RUN_BUDGET_USD = 0.05
@@ -210,20 +223,36 @@ def with_billing(runs, floor_model: str) -> list:
     return [run if run.get("billing") is not None else dict(run, billing=history_billing(run, floor_model)) for run in runs]
 
 
+def never_reached_the_model(run: dict) -> bool:
+    """Whether the stored failure of a run row proves that no model was called: its failure is one of NO_SPEND_FAILURES, or
+    `internal` with `attempts` 0 (no attempt began). A row that records a cost is never one: what was billed is counted. A run
+    that did not fail, or whose row lacks `failure` or `attempts`, is not one."""
+    if run.get("cost_usd") is not None:
+        return False
+    failure = run.get("failure")
+    return failure in NO_SPEND_FAILURES or (failure == "internal" and run.get("attempts") == 0)
+
+
 def spend_split(runs, agent: str, per_run_usd: float) -> dict:
     """A day's use of one agent, from the rows of runs_since(<the day's start>) with their billing (with_billing), the one
     place the rule is written: {"usd_recorded", "usd_reserved", "runs_total", "runs_counted", "runs_without_cost"}. A run on
     a credential billed subscription or free adds 1 to runs_counted (what max_runs_per_day compares) and no dollar: its cost
     is not billed. Any other run is metered: it adds its recorded cost to usd_recorded, or per_run_usd to usd_reserved when
     the cost is unknown (and 1 to runs_without_cost); a billing nobody knows is treated as metered, so that dollars are
-    never left uncounted. runs_total is every run of the agent. Each of the two sums is rounded once, to 6 places; spend's
-    usd_metered is their sum."""
+    never left uncounted. A run that never reached the model (never_reached_the_model: it failed on the key, on the
+    copy's settings, or before any attempt) is the exception to both: it reserves nothing and is no run for the runs cap,
+    since it used none of the credential's allowance; a run that may have spent (a timeout, a restart, a crash mid-run)
+    keeps its reservation and its place. runs_total is every run of the agent, the ones that never reached the model
+    included, so that the page lists them. Each of the two sums is rounded once, to 6 places; spend's usd_metered is
+    their sum."""
     recorded = reserved = 0.0
     out = {"runs_total": 0, "runs_counted": 0, "runs_without_cost": 0}
     for run in runs:
         if run.get("agent") != agent:
             continue
         out["runs_total"] += 1
+        if never_reached_the_model(run):
+            continue
         if run.get("billing") in RUNS_BILLINGS:
             out["runs_counted"] += 1
         elif run.get("cost_usd") is None:
@@ -267,7 +296,7 @@ def run_budget(entry: dict, spent: dict, per_run_usd: float):
     or what remains of max_usd_per_day (rounded down to the cent) when that is less. None when what remains is under
     MIN_RUN_BUDGET_USD, or nothing: the run does not start (may_start holds it with "cap: usd per day"). The cap is checked
     here, at the start; the limit travels with the run to the adapter. A run that fails or times out keeps its reservation
-    counted: spend_split reads its recorded cost, else per_run_usd."""
+    counted: spend_split reads its recorded cost, else per_run_usd (unless the failure proves no model was called)."""
     left = round(entry["max_usd_per_day"] - round(spent["usd_metered"], 6), 6)
     if left < MIN_RUN_BUDGET_USD:
         return None

@@ -604,13 +604,21 @@ def run_skill(skill: str, prompt: str, files, dest: str, *, web: bool = False, t
     hooks = types.SimpleNamespace(build=build, after_base=after_base, stage=stage, after_run=after_run)
     attempts = _lab_call(LAB.load_attempts)
     try:
-        made = attempts.run(LAB, spec, hooks)
+        try:
+            made = attempts.run(LAB, spec, hooks)
+        except Exception as e:
+            # An exception that leaves the attempts carries how many began (runtime/ops.py records it on the run row): 0
+            # proves the adapter never ran, so a run that never reached the model is told from a crash mid-run (A-57).
+            e.attempts = counts["attempts"]
+            raise
     except LabError:
         raise
     except (RuntimeError, OSError, subprocess.SubprocessError) as e:
         if LAB.STOPPING.is_set():
             return failed("stopped", "stopped before the run ended")
-        raise LabError("container", f"the run could not be prepared or started: {type(e).__name__}: {e}") from None
+        error = LabError("container", f"the run could not be prepared or started: {type(e).__name__}: {e}")
+        error.attempts = e.attempts
+        raise error from None
     result["staged"] = made["staged"]
     failure, why = made["failure"], made["why"]
     if failure is None:

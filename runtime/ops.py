@@ -558,10 +558,10 @@ def _run(ctx: dict, task: dict, tier: str | None = None) -> dict:
                                    prepare=prepare, finish=finish, tmp_in_run=bool(gate),
                                    max_cost=budget)
     except lab.LabError as e:
-        return fail("internal", f"{e.kind}: {e.reason}")
+        return fail("internal", f"{e.kind}: {e.reason}", getattr(e, "attempts", 0))  # attempts: how many began (A-57)
     except Exception as e:  # the task never stays `running`: the error is recorded, then shown
         traceback.print_exc()
-        return fail("internal", f"{type(e).__name__}: {e}")
+        return fail("internal", f"{type(e).__name__}: {e}", getattr(e, "attempts", 0))
     finally:
         shutil.rmtree(prepared_dir, ignore_errors=True)
     counts, timing = result["counts"], result["timing"]
@@ -1683,10 +1683,10 @@ def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False) 
             result = lab.run_skill(skill, prompt, entered["files"], dest, web=False, tier=routing["tier"],
                                    max_cost=budget)
     except lab.LabError as e:
-        return fail("internal", f"{e.kind}: {e.reason}")
+        return fail("internal", f"{e.kind}: {e.reason}", getattr(e, "attempts", 0))  # attempts: how many began (A-57)
     except Exception as e:  # the run row never stays `running`: the error is recorded, then shown
         traceback.print_exc()
-        return fail("internal", f"{type(e).__name__}: {e}")
+        return fail("internal", f"{type(e).__name__}: {e}", getattr(e, "attempts", 0))
     finally:
         shutil.rmtree(prepared_dir, ignore_errors=True)
     counts, timing = result["counts"], result["timing"]

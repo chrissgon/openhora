@@ -199,7 +199,7 @@ def test_the_runs_of_a_day_are_listed_with_the_agent_of_their_task(conn):
     runs = store.runs_since(conn, start.isoformat())
     assert [r["agent"] for r in runs] == ["business", "marketing"]
     assert set(runs[0]) == {"id", "task_id", "request_id", "agent", "skill", "model", "adapter", "status", "failure",
-                            "cost_usd", "billing", "started_at", "ended_at"}
+                            "attempts", "cost_usd", "billing", "started_at", "ended_at"}  # attempts: R4-C7 (A-57)
     assert all(r["request_id"] == request["request"] for r in runs)
     assert [r["skill"] for r in store.runs_since(conn, start.isoformat(), agent="marketing")] == ["mkt-copy"]
     later = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
