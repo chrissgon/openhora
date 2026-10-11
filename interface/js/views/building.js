@@ -25,7 +25,7 @@ import { createCancelDialog } from "./lobby-request.js";
 export const PLATE_GAP_X = 14;
 export const PLATE_SHIFT = 28;     // the plates stand this far from the column the scene puts them in (css/building.css: `.wb-plate { margin-left }`), where building.html draws them
 const PHONE_LEVEL = 16;       // the camera buttons stand at least this far from the scene's bottom edge (scene/engine.js)
-const PHONE_TOOLS_H = 44;     // their height and the gap above them: the floor card hangs from there
+const PHONE_COLUMN = 52;      // a column of buttons (the camera's at the left, the floor steps' at the right) and its gap: the room is framed between them
 const STATE_PATH = "docs/workbench/state.md";
 const ARTIFACTS_EVERY_MS = 20000;
 
@@ -177,12 +177,18 @@ export function createBuildingView(frame, env) {
       getInsets: (about) => {
         const base = frame.insets(panel, { notice: !(about && about.dim) });   // building.html: the band over a project that is not accepted floats over the tower, which keeps its size
         if (frame.isPhone()) {
-          // The floor card hangs bottom left above the camera buttons (A-28); the floor steps stand at the right, level with those buttons.
+          // F1-D8: the camera buttons stand at the left under the KPI tiles (R-9), no longer above the sheet, so the floor card hangs from the sheet's edge, bottom left, and the floor
+          // steps stand at the right level with it (building.html at 375 px); the room is framed between the two columns of buttons and under the tiles, not under a card's old place
           const level = Math.max(PHONE_LEVEL, base.bottom);
           steps.style.setProperty("--wb-y", `${level}px`);
-          return { left: 4, right: 70, top: base.top, bottom: base.bottom, pad: 0.98, cornerRight: 10, cornerLeft: 10, cornerBottom: level + PHONE_TOOLS_H };
+          return { left: PHONE_COLUMN, right: PHONE_COLUMN, top: base.top, bottom: base.bottom, pad: 0.98, cornerRight: 10, cornerLeft: 10, cornerBottom: level };
         }
-        return { ...base, right: base.right + frame.plateWidth() + PLATE_GAP_X + PLATE_SHIFT, plateRight: base.right + PLATE_SHIFT };
+        // F1-D1: the Back and the crumbs stand at the bottom left, under the KPI column, never under the tower, which is framed to the right of that column: only the tracking bar bounds it
+        // below (building.html draws the tower down to the bar), where the frame's own inset also counts the dock
+        const main = frame.main.getBoundingClientRect();
+        const bar = frame.track.el.getBoundingClientRect();
+        const bottom = bar.height > 0 ? Math.max(16, Math.min(base.bottom, main.bottom - bar.top + 16)) : base.bottom;
+        return { ...base, bottom, pad: 1, right: base.right + frame.plateWidth() + PLATE_GAP_X + PLATE_SHIFT, plateRight: base.right + PLATE_SHIFT };   // F1-D1: building.html fills the free height with the tower: no padding on top of its box
       },
       onOpen: open,
       onHover: (id, how) => highlightRow(id && String(id).startsWith("floor:") ? String(id).slice(6) : null, true, how === "clear" ? "clear" : "pointer"),

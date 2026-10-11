@@ -57,7 +57,7 @@ export function createControlView(frame) {
   try {
     engine = createEngine(frame.sceneHost, {
       label: "Server room, loading",
-      getInsets: () => frame.insets(panel.el),
+      getInsets: (about) => frame.insets(panel.el, { notice: !(about && about.bandOver) }),   // F2-D15 (R4-P1, one line of this file): a band that floats over the room is not what the camera fits
       onOpen: (id) => go(model.OPENS[id] || "skills"),
       onUnavailable: () => frame.sceneUnavailable(true),
     });

@@ -50,12 +50,16 @@ export function treesOf(kind, col, row) {
   const hx = PAVED_W / 2 - 1.1;
   const hz = PAVED_D / 2 - 1.1;
   if (kind === "lot") return [[-hx, -hz, 1.1], [hx, -hz, 1.0], [hx, hz - 0.6, 1.05], [-hx, hz - 0.6, 1.15]];
-  const count = kind === "park" ? 6 + Math.floor(hash(col, row, 1) * 3) : 3;
+  // F1-D1: a park of city.html holds 8 to 12 trees and a plaza 2 to 4, scattered over the block. The block is a grid of cells (3 across, 4 deep), `count` of them chosen by a seeded order
+  // and a tree stands in each, moved off the cell's middle by a seeded amount: an even scatter (two never within a metre of each other) where the plain draw of a spot put the trees of a park in a band
+  const count = kind === "park" ? 9 + Math.floor(hash(col, row, 1) * 4) : 2 + Math.floor(hash(col, row, 2) * 3);
+  const across = 3;
+  const deep = 4;
+  const cells = Array.from({ length: across * deep }, (_, k) => k).sort((p, q) => hash(col, row, 100 + p) - hash(col, row, 100 + q)).slice(0, count);
   const out = [];
-  for (let k = 0; k < count; k++) {
-    const x = (hash(col, row, 10 + k) * 2 - 1) * hx;
-    const z = (hash(col, row, 40 + k) * 2 - 1) * hz;
-    if (out.some(([ox, oz]) => Math.hypot(ox - x, oz - z) < 2.2)) continue;   // two on one spot are one: keep a gap
+  for (const k of cells) {
+    const x = -hx + ((k % across) + 0.5 + (hash(col, row, 200 + k) - 0.5) * 0.7) * ((2 * hx) / across);
+    const z = -hz + ((Math.floor(k / across) + 0.5 + (hash(col, row, 300 + k) - 0.5) * 0.7)) * ((2 * hz) / deep);
     out.push([x, z, 0.9 + hash(col, row, 70 + k) * 0.35]);
   }
   return out;

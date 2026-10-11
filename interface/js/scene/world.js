@@ -21,6 +21,7 @@ import { agentTip, asking, documentsTip, tasksTip } from "./room-words.js";
 /** The page's City at 1280 by 800: a building's ledge, 7.1 by 5.5 units, is 212 px across on the screen, which is (7.1 + 5.5) * 0.7071 units of the camera's space. */
 const CITY_PIXELS_A_UNIT = 212 / ((7.1 + 5.5) * Math.SQRT1_2);
 const CITY_SMALLEST = 0.75;   // the phone's share of it: 87.3 px of a roof's edge against 116.4, in `city.html`
+const EMPTY_FLOORS = 5;      // the floors of the building the empty City is framed on
 const SETTLED = 0.004;       // a tower's open progress that is this near 0 or 1 is there (the prototype's `explode` snap)
 const VIS_RATE = 8;          // the prototype's `f.vis += (target - vis) * (1 - exp(-dt * 8))`
 const VIS_SETTLED = 0.01;
@@ -88,9 +89,12 @@ export function buildWorld(kit, model) {
 
   /** The floor targets: in the open building, the floor the person is on stays and the others go to nothing; everywhere else all are drawn. */
   function aimFloors() {
+    // F1-D7: building.html draws no other building beside the open one (the Floor and the Lobby keep theirs, M-15): while a building is open and no floor of it is entered,
+    // the others shrink to nothing as the floors of a building do, and come back with the floor
+    const alone = Boolean(focus) && !floorSel;
     for (const tower of towers.values()) {
       const only = tower.id === focus ? floorIndex(tower) : -1;
-      tower.visTarget = tower.lot.floors.map((f, i) => (only < 0 || i === only ? 1 : 0));
+      tower.visTarget = tower.lot.floors.map((f, i) => (tower.id !== focus ? (alone ? 0 : 1) : only < 0 || i === only ? 1 : 0));
       const hush = tower.id === focus && Boolean(floorSel);   // the Floor and the Lobby show the room alone: no mark beside it
       if (tower.marksHidden !== hush) {
         tower.marksHidden = hush;
@@ -299,6 +303,9 @@ export function buildWorld(kit, model) {
         const { x, z } = lotAt(i, lots.length);
         box.union(lotBox(THREE, x, z, lot.floors.length));
       });
+      // F1-D3: a City with no project is still the city (city.html draws its streets and blocks behind the line that says so): with no building there is no box to fit, so the camera
+      // frames the one lot the ground is drawn round, at the height of a typical building
+      if (box.isEmpty()) box.union(lotBox(THREE, lotAt(0, 1).x, lotAt(0, 1).z, EMPTY_FLOORS));
       return box;
     }
     const i = lots.findIndex((lot) => lot.id === focus);
