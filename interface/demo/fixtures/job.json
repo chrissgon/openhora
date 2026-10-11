@@ -1,0 +1,12 @@
+{
+  "job": 1,
+  "op": "status",
+  "project": "000000000000",
+  "state": "done",
+  "result": {
+    "ok": true
+  },
+  "error": null,
+  "started_at": "2026-10-01T09:00:00Z",
+  "ended_at": "2026-10-01T09:00:00Z"
+}

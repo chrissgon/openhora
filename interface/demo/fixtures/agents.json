@@ -1,0 +1,176 @@
+{
+  "agents": [
+    {
+      "name": "planning",
+      "pack": "planning",
+      "enabled": true,
+      "mode": "supervised",
+      "acting_mode": "supervised",
+      "max_runs_per_day": 12,
+      "max_usd_per_day": 5,
+      "runs_today": 2,
+      "usd_today": 0.0,
+      "runs_without_cost": 0,
+      "usd_recorded": 0.0,
+      "usd_reserved": 0.0,
+      "runs_total_today": 2,
+      "billing": {
+        "runs": [
+          "subscription",
+          "free"
+        ],
+        "spend": [
+          "metered"
+        ]
+      },
+      "caps_in_use": {
+        "runs": true,
+        "spend": true
+      },
+      "queued": 0,
+      "held": 0,
+      "wider": [
+        {
+          "mode": "milestones",
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent planning --mode milestones --accept"
+        },
+        {
+          "mode": "autonomous",
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent planning --mode autonomous --accept"
+        },
+        {
+          "mode": "autonomous-with-policy",
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent planning --mode autonomous-with-policy --accept"
+        }
+      ]
+    },
+    {
+      "name": "design",
+      "pack": "design",
+      "enabled": true,
+      "mode": "supervised",
+      "acting_mode": "supervised",
+      "max_runs_per_day": 6,
+      "max_usd_per_day": 3,
+      "runs_today": 0,
+      "usd_today": 0.0,
+      "runs_without_cost": 0,
+      "usd_recorded": 0.0,
+      "usd_reserved": 0.0,
+      "runs_total_today": 0,
+      "billing": {
+        "runs": [
+          "subscription",
+          "free"
+        ],
+        "spend": [
+          "metered"
+        ]
+      },
+      "caps_in_use": {
+        "runs": true,
+        "spend": true
+      },
+      "queued": 0,
+      "held": 0,
+      "wider": [
+        {
+          "mode": "milestones",
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent design --mode milestones --accept"
+        },
+        {
+          "mode": "autonomous",
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent design --mode autonomous --accept"
+        },
+        {
+          "mode": "autonomous-with-policy",
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent design --mode autonomous-with-policy --accept"
+        }
+      ]
+    },
+    {
+      "name": "engineering",
+      "pack": "engineering",
+      "enabled": true,
+      "mode": "milestones",
+      "acting_mode": "milestones",
+      "max_runs_per_day": 8,
+      "max_usd_per_day": 4,
+      "runs_today": 0,
+      "usd_today": 0.0,
+      "runs_without_cost": 0,
+      "usd_recorded": 0.0,
+      "usd_reserved": 0.0,
+      "runs_total_today": 0,
+      "billing": {
+        "runs": [
+          "subscription",
+          "free"
+        ],
+        "spend": [
+          "metered"
+        ]
+      },
+      "caps_in_use": {
+        "runs": true,
+        "spend": true
+      },
+      "queued": 0,
+      "held": 0,
+      "wider": [
+        {
+          "mode": "autonomous",
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent engineering --mode autonomous --accept"
+        },
+        {
+          "mode": "autonomous-with-policy",
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent engineering --mode autonomous-with-policy --accept"
+        }
+      ]
+    },
+    {
+      "name": "marketing",
+      "pack": "marketing",
+      "enabled": true,
+      "mode": "supervised",
+      "acting_mode": "supervised",
+      "max_runs_per_day": 6,
+      "max_usd_per_day": 2,
+      "runs_today": 1,
+      "usd_today": 0.0,
+      "runs_without_cost": 0,
+      "usd_recorded": 0.0,
+      "usd_reserved": 0.0,
+      "runs_total_today": 1,
+      "billing": {
+        "runs": [
+          "subscription",
+          "free"
+        ],
+        "spend": [
+          "metered"
+        ]
+      },
+      "caps_in_use": {
+        "runs": true,
+        "spend": true
+      },
+      "queued": 0,
+      "held": 0,
+      "wider": [
+        {
+          "mode": "milestones",
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent marketing --mode milestones --accept"
+        },
+        {
+          "mode": "autonomous",
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent marketing --mode autonomous --accept"
+        },
+        {
+          "mode": "autonomous-with-policy",
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent marketing --mode autonomous-with-policy --accept"
+        }
+      ]
+    }
+  ]
+}
