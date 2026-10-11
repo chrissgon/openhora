@@ -218,10 +218,10 @@ def test_the_plate_cuts_the_mode_word_and_keeps_the_state_badge():
 
 # --- F1-D8: the phone's room is framed between the buttons, the card hangs from the sheet -------------------------------------------------------------------------
 
-def test_the_phone_building_frames_the_room_between_the_two_columns_of_buttons():
+def test_the_phone_building_frames_the_room_beside_the_steps_and_the_card_hangs_from_the_sheet():
     source = text("js/views/building.js")
     assert "PHONE_TOOLS_H" not in source, "the camera buttons are under the KPI tiles now: the floor card no longer hangs above them"
-    assert re.search(r"left: PHONE_COLUMN, right: PHONE_COLUMN,.*cornerBottom: level \}", source), "the room has a column of buttons on each side and the card hangs from the sheet's edge"
+    assert re.search(r"left: 8, right: PHONE_COLUMN, top: base\.top,.*cornerBottom: level \}", source), "the room is framed beside the floor steps (the camera row stands over the corner a diamond leaves empty), and the card hangs from the sheet's edge"
 
 
 # --- F1-D9, M-32: no WebGL on a phone ---------------------------------------------------------------------------------------------------------------------------
@@ -248,9 +248,9 @@ def sizes(css: str, selectors: list[str], query: str = "max-width: 899px") -> di
 
 def test_the_building_panel_reads_at_16_px_on_a_phone_and_nothing_goes_under_12():
     css = css_file("building")
-    got = sizes(css, [".wb-facts", ".wb-facts dt", ".wb-rq-title", ".wb-rq-n", ".wb-rq-sub", ".wb-docs-link", ".wb-fl-name", ".wb-sec-head", ".wb-sec-empty", ".wb-rq-cancel", ".wb-fc-name", ".wb-fc-runs"])
+    got = sizes(css, [".wb-facts", ".wb-facts dt", ".wb-rq-title", ".wb-rq-n", ".wb-rq-sub", ".wb-docs-link", ".wb-fl-name", ".wb-sec-head", ".wb-sec-empty", ".wb-rq-cancel", ".wb-fc-name"])
     assert set(got.values()) == {"16px"}, got
-    small = sizes(css, [".wb-fl-mode", ".wb-fl-chips", ".wb-st", ".wb-acting", ".wb-floor-counter", ".wb-label-board .wb-label-sub"])
+    small = sizes(css, [".wb-fl-mode", ".wb-fl-chips", ".wb-st", ".wb-acting", ".wb-floor-counter", ".wb-fc-runs", ".wb-label-board .wb-label-sub"])
     assert set(small.values()) == {"12px"}, "chips, badges, counters and the mode word are meta: 12 px, never below, inside the phone's query"
     for path in ("css/building.css", "css/city.css"):
         for value in re.findall(r"font-size:\s*(\d+)px", text(path)):

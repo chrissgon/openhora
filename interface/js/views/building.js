@@ -25,7 +25,7 @@ import { createCancelDialog } from "./lobby-request.js";
 export const PLATE_GAP_X = 14;
 export const PLATE_SHIFT = 28;     // the plates stand this far from the column the scene puts them in (css/building.css: `.wb-plate { margin-left }`), where building.html draws them
 const PHONE_LEVEL = 16;       // the camera buttons stand at least this far from the scene's bottom edge (scene/engine.js)
-const PHONE_COLUMN = 52;      // a column of buttons (the camera's at the left, the floor steps' at the right) and its gap: the room is framed between them
+const PHONE_COLUMN = 52;      // the floor steps' column at the right and its gap
 const STATE_PATH = "docs/workbench/state.md";
 const ARTIFACTS_EVERY_MS = 20000;
 
@@ -177,11 +177,11 @@ export function createBuildingView(frame, env) {
       getInsets: (about) => {
         const base = frame.insets(panel, { notice: !(about && about.dim) });   // building.html: the band over a project that is not accepted floats over the tower, which keeps its size
         if (frame.isPhone()) {
-          // F1-D8: the camera buttons stand at the left under the KPI tiles (R-9), no longer above the sheet, so the floor card hangs from the sheet's edge, bottom left, and the floor
-          // steps stand at the right level with it (building.html at 375 px); the room is framed between the two columns of buttons and under the tiles, not under a card's old place
+          // F1-D8: the camera buttons are a row at the right edge under the KPI tiles (R-9, R4-P2), no longer above the sheet, so the floor card hangs from the sheet's edge, bottom left, and the floor
+          // steps stand at the right level with it (building.html at 375 px); the room is framed beside the steps (the camera row at the right edge is over the corner a diamond leaves empty), not under a card's old place
           const level = Math.max(PHONE_LEVEL, base.bottom);
           steps.style.setProperty("--wb-y", `${level}px`);
-          return { left: PHONE_COLUMN, right: PHONE_COLUMN, top: base.top, bottom: base.bottom, pad: 0.98, cornerRight: 10, cornerLeft: 10, cornerBottom: level };
+          return { left: 8, right: PHONE_COLUMN, top: base.top, bottom: base.bottom, pad: 0.98, cornerRight: 10, cornerLeft: 10, cornerBottom: level };
         }
         // F1-D1: the Back and the crumbs stand at the bottom left, under the KPI column, never under the tower, which is framed to the right of that column: only the tracking bar bounds it
         // below (building.html draws the tower down to the bar), where the frame's own inset also counts the dock

@@ -169,16 +169,16 @@
 @media (max-width: 899px) {
   .wb-floor-steps { bottom: 0; display: grid; translate: 0 calc(0px - var(--wb-y, 10px)); }   /* level with the camera buttons, above the cards and the sheet */
   .wb-floor-steps[hidden] { display: none; }
-  :root { --wb-card-w: 300px; }   /* the floor card: 300 px at 375 px (building.html draws 280 at 12 px; its lines are 16 px, M-32, and wrap), clear of the floor steps at the right */
+  :root { --wb-card-w: 300px; }   /* the floor card: 300 px at 375 px (building.html draws 280; the name is 16 px, M-32), clear of the floor steps at the right */
   .wb-bpanel > .wb-panel-body { padding: 12px 12px 28px; }
   .wb-fl-row, .wb-rq-main { min-height: 44px; }
-  /* M-32: on a phone the reading text is 16 px: the panel's facts, request titles and detail lines, the documents line, floor names, the section heads, the empty lines and the cancel
-     button, and the floor card's own lines; chips, badges, counters and the mode word are meta and stand at 12 px, never below. A scene label of the Floor (the board's) is 12 */
+  /* M-32: on a phone the reading text is 16 px: the panel's facts, request titles and detail lines, the documents line, floor names, the section heads, the empty lines, the cancel
+     button and the floor card's name; chips, badges, counters and the mode word are meta and stand at 12 px, never below. A scene label of the Floor (the board's) is 12 */
   .wb-facts, .wb-facts dt { font-size: 16px; }
   .wb-rq-title, .wb-rq-n, .wb-rq-sub, .wb-docs-link, .wb-fl-name, .wb-sec-head, .wb-sec-empty { font-size: 16px; }
   .wb-rq-cancel { min-height: 32px; font-size: 16px; }
-  .wb-fl-mode, .wb-fl-chips, .wb-st, .wb-acting, .wb-floor-counter, .wb-label-board .wb-label-sub { font-size: 12px; }
-  .wb-fc-name, .wb-fc-runs { font-size: 16px; }
+  .wb-fl-mode, .wb-fl-chips, .wb-st, .wb-acting, .wb-floor-counter, .wb-fc-runs, .wb-label-board .wb-label-sub { font-size: 12px; }
+  .wb-fc-name { font-size: 16px; }   /* the card's line of mode, runs and spend is a meta line: at 12 px the card is two lines and the room above the sheet keeps its height */
 }
 
 .wb-chip-waiting { font-weight: 400; }
