@@ -153,7 +153,8 @@ def test_the_block_has_the_drawings_rule_with_tokens_only():
     rules = {m.group(1).strip(): m.group(2) for m in re.finditer(r"(\.wb-res-said[^{]*)\{([^}]*)\}", css)}
     assert ".wb-res-said" in rules and ".wb-res-said p" in rules
     block = rules[".wb-res-said"]
-    for part in ("display: grid", "max-height: 24rem", "overflow-y: auto", "border-left: 2px solid var(--pui-border)", "background-color: var(--wb-sunken)"):
+    for part in ("display: grid", "border-left: 2px solid var(--pui-border)", "background-color: var(--wb-sunken)"):     # A-67, M-25: no inner scroll: the block shows whole
         assert part in block, part
+    assert "max-height" not in block and "overflow" not in block, "M-25: the block never scrolls inside the card"
     assert "white-space: pre-wrap" in rules[".wb-res-said p"] and "overflow-wrap: anywhere" in rules[".wb-res-said p"], "a long or multi-line text wraps and keeps its lines"
     assert not re.search(r"#[0-9a-fA-F]{3,8}\b|rgb\(|hsl\(", "".join(rules.values())), "no colour literal"

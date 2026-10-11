@@ -6,6 +6,7 @@
 
 import { h } from "../dom.js";
 import { renderMarkdown } from "../markdown.js";
+import { replyView } from "../floor/reply.js";
 import { createBlock } from "./lobby-request.js";
 import { EMPTY_TEXT, QUEUED_WORD, metaOf, nameOf, placeBlocks, signatureOf } from "./lobby-model.js";
 
@@ -32,7 +33,8 @@ export function createThread({ api, project, signal, onChanged, onCancel, onRout
     const meta = h("time", { class: "wb-msg-meta wb-muted", datetime: message.created_at || false, title: message.created_at || false });
     drawMeta(meta, message, now);
     const mine = message.role === "user";     // what the person typed is shown as typed; the agent's reply is drawn as Markdown
-    const bubble = mine ? h("div", { class: "wb-bubble pui-soft pui-theme", text: message.text }) : h("div", { class: "wb-bubble wb-bubble-agent" }, renderMarkdown(message.text));
+    // the agent's reply opens in place when it is long (A-67, M-25); the bubble is kept by the thread, so the choice lives with it
+    const bubble = mine ? h("div", { class: "wb-bubble pui-soft pui-theme", text: message.text }) : h("div", { class: "wb-bubble wb-bubble-agent" }, replyView(renderMarkdown(message.text)).el);
     const node = h("div", { class: `wb-msg ${message.role === "user" ? "is-user" : "is-agent"}${message.queued ? " is-queued" : ""}`, role: "article", "aria-label": nameOf(message, now) }, meta, bubble);
     return { el: node, meta, message };
   }
