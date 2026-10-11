@@ -349,13 +349,13 @@ const same = (rgb, col) => Math.abs(rgb[0] - col.r) < 1e-6 && Math.abs(rgb[1] - 
 const out = {};
 out.lit = same(paintOf(tower, 1), tones.glassLit);                // the working floor: warm white
 out.dark = same(paintOf(tower, 2), tones.glass);                  // an upper floor at rest
-out.shop = same(paintOf(tower, 0), tones.store);                  // the ground floor's glass is the shop front's tone
+out.ground = same(paintOf(tower, 0), tones.glass);                 // M-27: the ground floor's glass is a floor's own, no shop front's tone
 out.off = [0, 1, 2, 3].every((i) => same(paintOf(world.towers.get("b"), i), tones.glassOff));   // not accepted: every window the wall's own tone
 out.parts = tower.floorGroups[1].children.filter((c) => c.children.length).length;
 out.shell = tower.floorGroups[1].children[0].children.map((m) => m.isMesh);
 out.upper = [openings(1).front.length, openings(1).right.length, openings(0).front.map((o) => o.kind), openings(0).right.length];
 const tall = (o) => +(o.top - o.bottom).toFixed(6);
-out.heights = [tall(openings(1).front[0]), tall(openings(0).front[2]), tall(openings(0).front[1])];
+out.heights = [tall(openings(1).front[0]), tall(openings(0).front[0]), tall(openings(0).front[1])];
 // a window changes colour in place: no mesh is replaced
 const before = new Set(); tower.group.traverse((n) => { if (n.isMesh) before.add(n); });
 const next = JSON.parse(JSON.stringify(world.update ? model({ lots: [lot("a"), lot("b", { accepted: false })] }) : {}));
@@ -367,10 +367,10 @@ out.inPlace = [[...before].every((m) => after.has(m)), same(paintOf(tower, 2), t
 out.floors = tower.floorGroups.map((g) => +g.position.y.toFixed(3));
 console.log(JSON.stringify(out));
 """)
-    assert got["lit"] is True and got["dark"] is True and got["shop"] is True and got["off"] is True
+    assert got["lit"] is True and got["dark"] is True and got["ground"] is True and got["off"] is True
     assert got["shell"] == [True, True], "a floor's shell is two batched meshes: the walls and the glass"
-    assert got["upper"][0] == 4 and got["upper"][1] == 3 and got["upper"][2] == ["glass", "door", "glass", "glass"] and got["upper"][3] == 2
-    assert got["heights"][0] == 2.0 and got["heights"][1] == 2.2 and got["heights"][2] == 2.4, "windows nearly the floor's height (2.0 of 2.8), the shop front 2.2, the door 2.4"
+    assert got["upper"][0] == 4 and got["upper"][1] == 3 and got["upper"][2] == ["glass", "door", "glass", "glass"] and got["upper"][3] == 3, "M-27: the ground floor has the windows of the others, the door in place of the second one in front, three windows at the side"
+    assert got["heights"][0] == 2.0 and got["heights"][1] == 2.0 and got["heights"][2] == 2.4, "windows nearly the floor's height (2.0 of 2.8) on the ground floor too (M-27), the door 2.4"
     assert got["inPlace"] == [True, True], "a floor that becomes lit is repainted: no mesh is replaced"
     assert got["floors"] == [0.2, 3.2, 6.2, 9.2]
 
@@ -733,3 +733,57 @@ console.log(JSON.stringify(out));
     assert got["blocks"] == 16 * 13 and got["trees"] > 300 and got["clashes"] == 0, "no two trees of a block have the same crown, width and height"
     city = (SCENE / "city.js").read_text(encoding="utf-8")
     assert "treeLook(col, row, k)" in city and "Math.round(dx * 7)" not in city, "the look is seeded by the tree's place in its block, not by its rounded offset"
+
+
+# --- the Lobby's floor has windows like the others (M-27, A-69, R4-B7) -----------------------------------------------------------------------------
+
+@needs_node
+def test_the_ground_floor_has_the_windows_of_the_others_lit_by_the_planning_agent_and_the_owls_shadow_at_them_while_it_works(tmp_path):
+    got = run_node(tmp_path, STATES_JS + r"""
+const tones = cityTones(palette);
+const working = { ...lot("x").floors[0], state: "working", window: "lit", decisions: 0 };
+const resting = { ...lot("x").floors[0], state: "idle", window: "grey", decisions: 0 };
+const build = (ground) => buildWorld(kit, model({ lots: [lot("a", { floors: [ground, { ...lot("x").floors[1], state: "working", window: "lit" }, lot("x").floors[2], lot("x").floors[3]] }), lot("b"), lot("c")] })).towers.get("a");
+const on = build(working), off = build(resting);
+const out = {};
+// the same openings: the front's windows and the sizes, with the door where the second window is; three windows at the side
+const kinds = (i) => openings(i).front.map((o) => o.kind);
+const sizeOf = (o) => [+(o.b - o.a).toFixed(3), +(o.top - o.bottom).toFixed(3), +o.bottom.toFixed(3)];
+out.kinds = [kinds(0), kinds(1)];
+out.sides = [openings(0).right.length, openings(1).right.length, JSON.stringify(openings(0).right) === JSON.stringify(openings(1).right)];
+out.windows = openings(0).front.filter((o) => o.kind === "glass").map(sizeOf).every((s) => JSON.stringify(s) === JSON.stringify(sizeOf(openings(1).front[0])));
+out.positions = openings(0).front.filter((o) => o.kind === "glass").map((o) => +((o.a + o.b) / 2).toFixed(2));
+// the parts of the floor's shell: the same meshes (the walls, the glass) and the same glass quads as upper windows (3 at the front and 3 at the side, two triangles each)
+const shellMeshes = (t, i) => t.floorGroups[i].children[0].children.filter((m) => m.isMesh).length;
+const glassQuads = (t, i) => t.floorGroups[i].children[0].children[1].geometry.getAttribute("position").count / 6;
+out.parts = [shellMeshes(on, 0), shellMeshes(on, 2), glassQuads(on, 0), glassQuads(on, 2)];
+// the glass: warm white while the planning agent works, the project's glass at rest, as a floor's
+const paint = (t, i) => { const g = t.floorGroups[i].children[0].children[1].geometry.getAttribute("color"); return [g.getX(0), g.getY(0), g.getZ(0)]; };
+const same = (rgb, col) => Math.abs(rgb[0] - col.r) < 1e-6 && Math.abs(rgb[1] - col.g) < 1e-6 && Math.abs(rgb[2] - col.b) < 1e-6;
+out.glass = [same(paint(on, 0), tones.glassLit), same(paint(off, 0), tones.glass)];
+// the owl's shadow at the windows while it works (R-19), not at rest, one figure at each of the three windows, the motion still when reduced
+out.shadows = [agentIn(on, 0).length, agentIn(off, 0).length, agentIn(on, 0)[0] ? agentIn(on, 0)[0].children.length : 0];
+out.motions = [on.motions.length, off.motions.length];
+on.motions.forEach((m) => m.rest());
+const holder = agentIn(on, 0)[0];
+out.rest = holder ? holder.children.map((w) => +w.children[0].material.opacity.toFixed(2)) : [];
+// the state changes in place: the shadow comes when the agent starts
+const world = buildWorld(kit, model({ lots: [lot("a", { floors: [resting, lot("x").floors[1], lot("x").floors[2], lot("x").floors[3]] }), lot("b"), lot("c")] }));
+const tower = world.towers.get("a");
+out.before = agentIn(tower, 0).filter((h) => h.visible).length;
+world.update(model({ lots: [lot("a", { floors: [working, lot("x").floors[1], lot("x").floors[2], lot("x").floors[3]] }), lot("b"), lot("c")] }));
+out.after = agentIn(world.towers.get("a"), 0).filter((h) => h.visible).length;
+// the canopy and the door stay: the canopy over the door's bay, on its two posts
+out.door = [openings(0).front[1].a, openings(0).front[1].b];
+console.log(JSON.stringify(out));
+""")
+    assert got["kinds"] == [["glass", "door", "glass", "glass"], ["glass", "glass", "glass", "glass"]], "the ground floor has the front of an upper floor with the door in place of the second window (M-27 supersedes R-16's shop front)"
+    assert got["sides"] == [3, 3, True] and got["windows"] is True, "three windows at the side, as an upper floor's, and every front window the same size and height (same recess, sill, jamb, glass)"
+    assert got["positions"] == [-2.1, 0.7, 2.1], "the windows stand at the upper floor's places, the door where the second one is"
+    assert got["parts"][:2] == [2, 2] and got["parts"][2] == 6 and got["parts"][3] == 7, "the same two meshes, the walls and the glass: six panes (three in front, three at the side) against an upper floor's seven, the door taking the second window's place"
+    assert got["glass"] == [True, True], "lit by the planning agent's state exactly as a floor's: warm white while it works, the project's glass at rest"
+    assert got["shadows"][0] == 1 and got["shadows"][1] == 0 and got["shadows"][2] == 3, "the owl's shadow at the three windows while the planning agent works, none at rest (R-19)"
+    assert got["motions"][0] > got["motions"][1], "its motion is in the tower's list, the same 48 s cycle"
+    assert got["rest"] == [0, 0.62, 0], "reduced motion: one still figure at its window, as every floor's (R-19)"
+    assert got["before"] == 0 and got["after"] == 1, "when the planning agent starts the shadow comes where it stands"
+    assert got["door"] == [-1.3, -0.1], "the door stays, in the second bay, under the canopy"
