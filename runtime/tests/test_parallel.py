@@ -114,3 +114,19 @@ def test_the_module_is_pure_and_imports_only_two_siblings():
     assert siblings == {"skill_meta", "path_rule"}
     assert source.startswith("#!/usr/bin/env python3\n# /// script") and "from __future__ import annotations" in source
     assert "time" not in re.findall(r"^import (\w+)", source, re.M)
+
+
+def effect(request_id):
+    """What an effect that executes looks like to admit (PAR-6): a code entry of its request that fills no slot."""
+    return {"id": -request_id, "agent": None, "request_id": request_id, "code": True, "footprint": frozenset(), "effect": True}
+
+
+def test_a_code_task_waits_while_an_effect_of_its_request_executes():
+    assert parallel.admit(task(1, code=True, request_id=7), [effect(7)], [], AGENTS, 3) == (False, parallel.CODE_IN_REQUEST)
+    assert parallel.admit(task(1, code=True, request_id=8), [effect(7)], [], AGENTS, 3) == (True, "")
+    assert parallel.admit(task(1, code=False, request_id=7), [effect(7)], [], AGENTS, 3) == (True, "")
+
+
+def test_an_executing_effect_is_not_a_task_run_and_fills_no_project_slot():
+    assert parallel.admit(task(1), [effect(7)], [], AGENTS, 1) == (True, "")
+    assert parallel.admit(task(1), [effect(7), task(2, agent="b", footprint=["x"])], [{"id": 2, "agent": "b"}], AGENTS, 1) == (False, parallel.PROJECT_FULL)
