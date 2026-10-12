@@ -10,14 +10,16 @@ import { JOB_EVERY_MS } from "./lobby-model.js";
  * the first option was chosen (the planning agent then routes it). `route` is a job.
  * `form.after` is the number of the request this one runs after (A-29), sent as `after`; see afterNumber.
  * Returns {request, started} when the route started (started is the job), or {request, error} when `route` was refused (a 409
- * busy answer: the request exists and waits for its route). `request` itself failing throws.
+ * busy answer: the request exists and waits for its route). `request` itself failing throws. With `route: false` (the page may not route,
+ * js/permissions.js) the second call is not made: {request, unrouted: true}, and the request waits for its route.
  */
-export async function createRequest(api, project, form, { signal } = {}) {
+export async function createRequest(api, project, form, { signal, route = true } = {}) {
   const text = typeof form.text === "string" ? form.text : "";
   if (!text.trim()) return { request: null, empty: true };
   const title = typeof form.title === "string" && form.title.trim() ? form.title.trim() : undefined;
   const after = afterNumber(form.after).value;
   const made = await api.request(project, text, { title, after, signal });
+  if (!route) return { request: made.request, unrouted: true };
   return routeRequest(api, project, made.request, form.flow, { signal });
 }
 

@@ -9,6 +9,8 @@ import { h } from "../dom.js";
 import * as format from "../format.js";
 import { markdownView } from "../markdown-view.js";
 import { replyView } from "../floor/reply.js";
+import { withheldLine } from "../floor/widgets.js";
+import { wordOf } from "../permissions.js";
 import * as router from "../router.js";
 import { failureText, limitsLine, planHash, planText, stackedRow, taskRows } from "./plan-rows.js";
 import { createWaitsBlock } from "./plan-waits.js";
@@ -20,9 +22,12 @@ const planOpen = new Map();
 
 /**
  * A plan card. options: {api, project, item (a pending decision with payload and actions), now (Date), onChanged(): Promise,
- * signal, announce(text) (optional: a sentence for the live region)}. Returns {el, focus()}. `api` is the client module (`approve`, `reject`, `pollJob`), passed in so a test can stand in for it.
+ * signal, announce(text) (optional: a sentence for the live region), can(op, kind) (optional: whether the page may do an operation, js/permissions.js; all allowed
+ * when left out)}. Returns {el, focus()}. `api` is the client module (`approve`, `reject`, `pollJob`), passed in so a test can stand in for it.
+ * A button the policy withholds is not drawn, the go-ahead boxes are left out when `approve` with the kind go-ahead is withheld, and a line under the remaining
+ * controls says which operations are turned off; the card is built again (the thread's signature) when what the page may do changes.
  */
-export function createPlanCard({ api, project, item, now, onChanged, signal, announce }) {
+export function createPlanCard({ api, project, item, now, onChanged, signal, announce, can = () => true }) {
   counter += 1;
   const titleId = `wb-plan-title-${counter}`;
   const shown = planHash(item);
@@ -51,7 +56,15 @@ export function createPlanCard({ api, project, item, now, onChanged, signal, ann
         h("span", { class: "wb-muted wb-cur-sub", text: s.tail })));
   }));
 
-  const waits = createWaitsBlock(item.payload);
+  const waits = createWaitsBlock(item.payload, { can });
+  const lacking = [];
+  const allow = (op, kind) => {
+    if (can(op, kind)) return true;
+    const word = wordOf(op, kind);
+    if (!lacking.includes(word)) lacking.push(word);
+    return false;
+  };
+  if (waits && waits.withheld) allow("approve", "go-ahead");
   const limits = limitsLine(item);
   const hashBlock = shown
     ? h("div", { class: "wb-plan-hash-block" }, h("span", { class: "wb-card-label", text: "Plan hash" }), h("code", { class: "wb-plan-hash", tabindex: "0", role: "group", "aria-label": "Plan hash", text: shown }))
@@ -66,9 +79,9 @@ export function createPlanCard({ api, project, item, now, onChanged, signal, ann
   const noteGroup = h("label", { class: "pui-field-group wb-field", for: noteId }, h("span", { text: "Note (optional, used when you reject)" }), note);
   const error = h("div", { class: "notice pui-soft pui-error wb-card-error", role: "alert", hidden: true });
   const working = h("span", { class: "wb-lobby-working", hidden: true, text: "Working..." });
-  const approve = actions.includes("approved") && shown
+  const approve = actions.includes("approved") && shown && allow("approve", "plan")
     ? h("button", { class: "pui-btn pui-solid pui-theme wb-card-button", type: "button", text: "Approve this plan" }) : null;
-  const reject = actions.includes("rejected")
+  const reject = actions.includes("rejected") && allow("reject")
     ? h("button", { class: `pui-btn ${approve ? "pui-surface pui-outline" : "pui-solid pui-theme"} wb-card-button`, type: "button", text: "Reject" }) : null;
   const buttons = [approve, reject].filter(Boolean);
   const row = buttons.length ? h("div", { class: "wb-card-buttons wb-card-actions" }, ...buttons, working) : null;
@@ -77,7 +90,7 @@ export function createPlanCard({ api, project, item, now, onChanged, signal, ann
     h("div", { class: "wb-card-head" }, kind, meta),
     h("div", { class: "pui-card-content wb-card-content" },
       title, list, waits ? waits.el : null, limits ? h("p", { class: "wb-card-note", text: limits }) : null, hashBlock, asText,
-      reject ? noteGroup : null, error, row));
+      reject ? noteGroup : null, error, row, withheldLine(lacking)));
 
   let sending = false;
 

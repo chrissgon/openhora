@@ -33,6 +33,7 @@ function keepFocus(container, render) {
 
 /**
  * Create the tab. env: {project, now() (a Date), refresh() (read the page's data again), api: {retry, goAhead} (floor/actions.js),
+ * can(op, kind) (optional: whether the page may do an operation, js/permissions.js; Retry and the go-aheads are drawn only when it allows `retry` and `go-ahead`; all allowed when left out),
  * links: {request(requestId), inbox(pendingId or null), open(path)} (hashes built with the router)}.
  * Returns {el, update({tasks, requests, pending, loading})}: tasks are floor-model.agentTasks(...) rows, requests and pending
  * the status's, loading true before the first read.
@@ -47,7 +48,7 @@ export function createTasksTab(env) {
   const expanded = new Set();
   const earlierOpen = new Set();   // task ids whose "Earlier attempts" disclosure is open (closed by default)
   const opened = new Map();        // group id -> the person's choice, over "open when it holds a task"
-  const actions = createTaskActions({ project: env.project, api: env.api, refresh: () => env.refresh(), redraw: () => draw(), done: (id) => bodies.delete(id) });
+  const actions = createTaskActions({ project: env.project, api: env.api, refresh: () => env.refresh(), redraw: () => draw(), done: (id) => bodies.delete(id), can: env.can });
   let shown = "";
   let reloaded = null;             // the page's reload stamp last seen; null until one is given
   let changes = 0;                 // how many times it moved: a read that began before the last move is not fresh when it ends

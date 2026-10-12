@@ -7,11 +7,12 @@
 import { h } from "../dom.js";
 import { renderMarkdown } from "../markdown.js";
 import { replyView } from "../floor/reply.js";
+import { fingerprint } from "../permissions.js";
 import { createBlock } from "./lobby-request.js";
 import { EMPTY_TEXT, QUEUED_WORD, metaOf, nameOf, placeBlocks, routerBusy, signatureOf } from "./lobby-model.js";
 
-/** The log. options: {api, project, signal, onChanged, onCancel, onRoute(request, flow), announce}. Returns {el, update(state), focusDecision(request, decision), focusRequest(request)}. */
-export function createThread({ api, project, signal, onChanged, onCancel, onRoute, announce }) {
+/** The log. options: {api, project, signal, onChanged, onCancel, onRoute(request, flow), announce, can(op, kind) (optional, js/permissions.js: a block is built again when what it answers changes)}. Returns {el, update(state), focusDecision(request, decision), focusRequest(request)}. */
+export function createThread({ api, project, signal, onChanged, onCancel, onRoute, announce, can = () => true }) {
   const el = h("div", { class: "wb-thread", role: "log", "aria-live": "polite", "aria-label": "Conversation with the planning agent", tabindex: "0" });
   const messages = new Map();     // id -> {el, meta, message}
   const blocks = new Map();       // request id -> {el, sig, block}
@@ -67,12 +68,12 @@ export function createThread({ api, project, signal, onChanged, onCancel, onRout
         const runBusy = routerBusy(requests, requestId);      // the router answers another request: Route it is queued, and says so (a task that runs does not queue it)
         const routingNow = Boolean(routing && routing.has(requestId)) || Boolean(request.routing);      // A-51: this page's click, or a run the service reports
         const kept = (remembered && remembered.get(requestId)) || "";
-        const sig = `${signatureOf(request, pending)}|${bodySig}|${routingNow ? "r" : ""}${runBusy ? "b" : ""}|${viaMessage ? "m" : "t"}|${request.title}|${routeNotice ? `${routeNotice.title}:${routeNotice.text}` : ""}|${flows ? flows.length : "-"}|${kept}`;
+        const sig = `${signatureOf(request, pending)}|${bodySig}|${routingNow ? "r" : ""}${runBusy ? "b" : ""}|${viaMessage ? "m" : "t"}|${request.title}|${routeNotice ? `${routeNotice.title}:${routeNotice.text}` : ""}|${flows ? flows.length : "-"}|${kept}|${fingerprint(can)}`;
         const held = blocks.get(requestId);
         if (held && held.sig === sig) return held.el;
         const block = createBlock({ api, project, request, body, open, now, signal, onChanged, onCancel, onRoute, announce, routing: routingNow, runBusy, viaMessage, routeNotice,
           expanded: expanded.has(requestId), onExpand: (open) => { if (open) expanded.add(requestId); else expanded.delete(requestId); },
-          flows, flow: chosen.get(requestId) || "", onFlow: (value) => chosen.set(requestId, value), remembered: kept });
+          flows, flow: chosen.get(requestId) || "", onFlow: (value) => chosen.set(requestId, value), remembered: kept, can });
         blocks.set(requestId, { el: block.el, sig, block });
         return block.el;
       }

@@ -17,7 +17,8 @@ import { trackNode } from "../scene/plates.js";
 import { runsSection } from "./run-block.js";
 import { fileRefusal, handChooser, handOverStep, toBase64 } from "./hand-file.js";
 import { createTaskActions } from "./task-actions.js";
-import { busyLine, chip, errorText, notice, ring } from "./widgets.js";
+import { busyLine, chip, errorText, notice, ring, withheldLine } from "./widgets.js";
+import { reader } from "../permissions.js";
 import { waitLines } from "../waits.js";
 
 export { MAX_FILE_BYTES, fileRefusal, toBase64 } from "./hand-file.js";
@@ -42,10 +43,13 @@ function redraw(container, render) {
 }
 
 /**
- * Create the Agent tab. env: {project, agent, api: {setMode, retry, goAhead, handOver}, refresh(), now(), links: {inbox(pendingId)} (optional), task(id) (optional: the task's body, for the file-drop line)}. Returns {el, update(view),
- * focusSelect()}; view is floor-model.floor(...) (found, notAccepted or loading).
+ * Create the Agent tab. env: {project, agent, api: {setMode, retry, goAhead, handOver}, refresh(), now(), links: {inbox(pendingId)} (optional), task(id) (optional: the task's body, for the file-drop line),
+ * can(op, kind) (optional: whether the page may do an operation, js/permissions.js, read at every draw; all allowed when left out)}. Returns {el, update(view),
+ * focusSelect()}; view is floor-model.floor(...) (found, notAccepted or loading). "Stop agent" and "Supervise" only narrow the mode, a brake that the policy never withholds
+ * (setMode is exempt, js/permissions.js); "Hand a file over" is `hand-over` and Retry, "Go ahead" and "Drop the after" are drawn by task-actions.js under their own operations.
  */
 export function createAgentTab(env) {
+  const can = reader(env);
   const el = h("div", { class: "wb-agent-tab" });
   const stateBox = h("div", { class: "wb-state-box", role: "status" });
   const plateBox = h("div", { class: "wb-mode-row" });
@@ -58,6 +62,7 @@ export function createAgentTab(env) {
   const currentBox = h("div", { class: "wb-section" });
   const othersBox = h("div", { class: "wb-section" });
   const handBox = h("div", { class: "wb-hand" });
+  const handLine = h("div", { class: "wb-hand-withheld" });
   const body = h("div", { class: "wb-agent-body" }, waitingLine, metersBox, runsTotalLine, currentBox, othersBox, handBox);
   const widerBox = h("div", { class: "wb-wider-modes" });
   fill(el, stateBox, plateBox, formBox, standing, resultBox, widerBox, body);
@@ -254,7 +259,7 @@ export function createAgentTab(env) {
 
   // The actions of a task (task-actions.js): the same nodes as a Tasks-tab row, for the current task and for each of the others.
   const taskActionsUse = createTaskActions({
-    project: env.project, api: env.api, refresh: () => env.refresh(),
+    project: env.project, api: env.api, refresh: () => env.refresh(), can: env.can,
     redraw: () => { shown.current = null; shown.others = null; if (lastView) { drawCurrent(lastView); drawOthers(lastView); } },
   });
   const links = env.links || { inbox: () => router.cityHash() };
@@ -289,7 +294,7 @@ export function createAgentTab(env) {
   const dropLine = h("p", { class: "wb-drop-line", role: "note", hidden: true, text: "" });     // the line of a web task, above the chooser: seen before a file is chosen
   const chooser = handChooser({ input: fileInput, line: dropLine, hint });
   const handStep = h("div", { class: "wb-hand-steps" });     // the second step: the chosen file's name and the button (C-17)
-  fill(handBox, chooser.nodes.slice(0, 4), handStep, hint, handResult);
+  fill(handBox, chooser.nodes.slice(0, 4), handStep, hint, handResult, handLine);
   const drops = new Map();       // task id -> the `drop` of its body ({web, takes, line}), or null: read once, as the review card does
   let target = null;
   let picked = null;       // the file chosen, held until the button sends it (C-17); choosing sends nothing
@@ -321,7 +326,7 @@ export function createAgentTab(env) {
   async function sendFile() {
     const file = picked;
     const to = pickedFor;
-    if (!file || to === null || sending) return;
+    if (!file || to === null || sending || !can("hand-over")) return;
     sending = true;
     fileInput.disabled = true;
     drawStep();
@@ -367,14 +372,19 @@ export function createAgentTab(env) {
     const drop = target ? drops.get(target.id) : null;
     const line = drop && drop.web && drop.takes !== false && typeof drop.line === "string" ? drop.line : "";
     dropLine.textContent = line;
-    dropLine.hidden = !line;
-    fileInput.disabled = !target || locked || Boolean(drop && drop.takes === false);      // a task that takes no file: nothing to choose
+    const mayHand = can("hand-over");
+    dropLine.hidden = !line || !mayHand;
+    fileInput.disabled = !target || locked || !mayHand || Boolean(drop && drop.takes === false);      // a task that takes no file: nothing to choose
     chooser.button.disabled = fileInput.disabled;
   }
 
   function drawHand(view) {
     target = view.target;
     hint.textContent = target ? `To task #${target.id}. At most 25 MiB.` : "This agent has no task to hand a file to.";
+    // the policy withholds `hand-over`: the chooser is left out and the line says so (the other parts of the box stay as they are)
+    const mayHand = can("hand-over");
+    for (const node of [...chooser.nodes.slice(0, 4).filter((n) => n !== dropLine), handStep, hint, handResult]) node.hidden = !mayHand;
+    fill(handLine, mayHand ? null : withheldLine(["hand-over"]));
     if (target) loadDrop(view);
     drawHandLine();
     drawStep();
@@ -426,7 +436,7 @@ export function createAgentTab(env) {
       const cards = (view.currents || []).map((c) => [c.task, c.runs, earlierOpen.has(c.task.id), c.held, currentSub(c.task, c.body, view.decisions, env.now())]);     // "for 12 min" moves with the clock: it is part of what is drawn
       swap("current", [cards, view.tasks.length, pendingIds, taskActionsUse.signature(), locked], () => drawCurrent(view));
       swap("others", [view.others.map((t) => [t.id, t.title, t.state, t.note, t.waiting_for]), view.heldOthers || {}, pendingIds, taskActionsUse.signature(), locked], () => drawOthers(view));
-      swap("hand", [view.target ? view.target.id : null, locked, Boolean(view.currentBody)], () => drawHand(view));
+      swap("hand", [view.target ? view.target.id : null, locked, Boolean(view.currentBody), can("hand-over")], () => drawHand(view));
     },
   };
 }

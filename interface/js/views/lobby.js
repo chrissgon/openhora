@@ -16,6 +16,7 @@ import * as origin from "../frame/origin.js";
 import { actions } from "../floor/actions.js";
 import { createTasksTab } from "../floor/tasks-tab.js";
 import { createPanel } from "../frame/panel.js";
+import { can as pageMay } from "../permissions.js";
 import * as router from "../router.js";
 import { afterNumber, createRequest, routeRequest, sendTurn, waitFor, worthSending } from "./lobby-actions.js";
 import { createLobbyAgent } from "./lobby-agent.js";
@@ -74,6 +75,10 @@ export function createLobbyView(frame, { project, onChanged }) {
   let reloaded = null;                // the page's reload stamp last seen: when it moves the store changed, and everything shown is read again
   let changes = 0;                    // how many times it moved: a read that began before the last move is not fresh when it ends
 
+  // What the page may do in this project (js/permissions.js): read from the project's entry in the snapshot at every draw. The thread, the composer, the
+  // form, the Inbox, the Tasks tab and the Agent tab ask this getter; the service still refuses what it must (409).
+  const may = (op, kind) => pageMay(last.snapshot ? (last.snapshot.projects || []).find((p) => p.id === project) : null, op, kind);
+
   // --- the pieces ---------------------------------------------------------------------------------------------------------
   const panel = createPanel({ screen: "lobby", title: "Planning agent", subtitle: "Lobby · floor 0", icon: "message-square", tone: "theme", width: "lobby" });
   panel.el.classList.add("wb-panel-lobby");
@@ -85,7 +90,7 @@ export function createLobbyView(frame, { project, onChanged }) {
     await settled();      // the cards are drawn from the bodies read again before the caller goes on
   };
   const thread = createThread({
-    api, project, signal, onChanged: refresh,
+    api, project, signal, onChanged: refresh, can: may,
     onCancel: (request) => openCancel(request),
     onRoute: (request, flow) => routeAgain(request, flow), announce: (text) => frame.announce(text),
   });
@@ -94,13 +99,13 @@ export function createLobbyView(frame, { project, onChanged }) {
   const conversationPanel = h("div", { class: "wb-lobby-tabpanel", role: "tabpanel", id: tabs.panelId("conversation"), "aria-labelledby": tabs.tabId("conversation") }, waiting, thread.el, form.el);
   // the Inbox, Desk and Agent tabs: the Floor's modules with the planning agent (lobby-inbox.js, lobby-desk.js, lobby-agent.js)
   const waitingLine = () => h("p", { class: "wb-empty-line wb-lobby-waiting", hidden: true, text: NOT_ACCEPTED_TEXT });
-  const inbox = createLobbyInbox({ project, now: () => new Date(), refresh: () => { refresh(); } });
+  const inbox = createLobbyInbox({ project, now: () => new Date(), refresh: () => { refresh(); }, can: may });
   const desk = createLobbyDesk({
     project, open: (path) => { window.location.hash = router.lobbyDeskHash(project, path); }, changed: () => { drawTabs(); drawRoom(); },
   });
-  const agent = createLobbyAgent({ project, now: () => new Date(), refresh: () => { refresh(); }, changed: () => drawTabs() });
+  const agent = createLobbyAgent({ project, now: () => new Date(), refresh: () => { refresh(); }, changed: () => drawTabs(), can: may });
   const tasks = createTasksTab({
-    project, now: () => new Date(), refresh: () => { refresh(); }, api: actions,
+    project, now: () => new Date(), refresh: () => { refresh(); }, api: actions, can: may,
     links: { request: () => router.lobbyHash(project), inbox: (id) => router.lobbyHash(project, "inbox", id), open: (path) => router.lobbyDeskHash(project, path) },
   });
   const sections = { inbox: { waiting: waitingLine(), body: inbox.el }, desk: { waiting: waitingLine(), body: desk.el }, tasks: { waiting: waitingLine(), body: tasks.el }, agent: { waiting: waitingLine(), body: agent.el } };
@@ -284,7 +289,7 @@ export function createLobbyView(frame, { project, onChanged }) {
   }
 
   function drawComposer() {
-    composer.set({ sending: turn !== null, notice, disabled: !accepted, running: runningNote() });
+    composer.set({ sending: turn !== null, notice, disabled: !accepted, running: runningNote(), say: may("say"), request: may("request") });
   }
 
   /** A click in the room: the board opens the Tasks tab, the tray the Inbox, the bookcase the Desk tab, a sheet its document, the owl the Agent tab. */
@@ -345,7 +350,7 @@ export function createLobbyView(frame, { project, onChanged }) {
   }
 
   function openForm() {
-    if (disposed || !accepted) return;
+    if (disposed || !accepted || !may("request")) return;
     formOpen = true;
     applyForm();
     form.focus();
@@ -359,7 +364,7 @@ export function createLobbyView(frame, { project, onChanged }) {
 
   // --- what the person does -------------------------------------------------------------------------------------------------
   async function send(text) {
-    if (!worthSending(text) || turn !== null || !accepted) return;
+    if (!worthSending(text) || turn !== null || !accepted || !may("say")) return;
     notice = null;
     composer.set({ sending: true, notice: null, disabled: false });
     let started;
@@ -441,6 +446,7 @@ export function createLobbyView(frame, { project, onChanged }) {
   }
 
   async function create(values) {
+    if (!may("request")) return;
     if (!worthSending(values.text)) {
       form.markEmpty();
       return;
@@ -454,14 +460,16 @@ export function createLobbyView(frame, { project, onChanged }) {
     form.set({ creating: true, error: "", disabled: false });
     let result;
     try {
-      result = await createRequest(api, project, values, { signal });
+      result = await createRequest(api, project, values, { signal, route: may("route") });      // without `route` the request is made and waits for its route
     } catch (e) {
       if (e && e.name === "AbortError") return;
       form.set({ creating: false, error: failureText(e), disabled: false });     // the typed text stays
       return;
     }
     if (values.flow) chosenFlow.set(result.request, values.flow);
-    if (result.error) {
+    if (result.unrouted) {
+      redraw();
+    } else if (result.error) {
       routeNotices.set(result.request, notRoutedNotice(result.request, failureText(result.error)));
       redraw();
     } else {
@@ -471,11 +479,11 @@ export function createLobbyView(frame, { project, onChanged }) {
     form.set({ creating: false, error: "", disabled: false });
     formOpen = false;
     applyForm();
-    if (result.error) await refresh();
+    if (result.error || result.unrouted) await refresh();
   }
 
   async function routeAgain(request, flow) {
-    if (routing.has(request.id)) return;
+    if (routing.has(request.id) || !may("route")) return;
     routeNotices.delete(request.id);
     const outcome = await routeRequest(api, project, request.id, flow || chosenFlow.get(request.id), { signal });
     if (outcome.error) {
@@ -510,6 +518,8 @@ export function createLobbyView(frame, { project, onChanged }) {
       if (route.request === null || route.request === undefined) requestFollowed = null;
       if (reloaded !== null && reload !== reloaded) {     // the store changed: everything shown is stale, whatever its age
         changes += 1;
+        commandsAsked = false;      // the policy may have changed (accept-config): the service filters the "/" list by it, so it is read again
+        commandsFailedAt = 0;
         invalidate();
         desk.reload();
         agent.reload();
@@ -558,6 +568,10 @@ export function createLobbyView(frame, { project, onChanged }) {
       shownPath = showing ? route.path : null;
       waiting.hidden = shown;
       form.set({ disabled: !accepted });
+      if (formOpen && !may("request")) {      // the policy changed while the form was open: back to the conversation
+        formOpen = false;
+        applyForm(onConversation && !inline);
+      }
       drawComposer();
       if (accepted && !commandsAsked && Date.now() - commandsFailedAt >= RETRY_READ_MS) {
         commandsAsked = true;      // R-45: the commands of the `chat` channel as data, read once; until they are known no list opens
