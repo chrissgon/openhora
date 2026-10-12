@@ -1331,7 +1331,6 @@ mark.inj { background: color-mix(in srgb, var(--pui-error) 18%, transparent); co
 .tour-state .ts-h { font: 700 1.25rem/1.3 var(--font-display); }
 .tour-state .ts-code { display: block; padding: 10px 12px; border-radius: var(--pui-radius); background: var(--pui-bg-muted); border: 1px solid var(--pui-border); font: 400 .8125rem/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; text-align: left; }
 .tour[data-state="error"] .tour-state.error .box { padding: 22px; border-radius: var(--site-radius-card); background: var(--pui-bg); border: 1px solid color-mix(in srgb, var(--pui-error) 40%, var(--pui-border)); }
-.tour-takeover { position: absolute; z-index: 3; left: 50%; bottom: 16px; transform: translateX(-50%); padding: 8px 14px; border-radius: var(--site-radius-pill); background: color-mix(in srgb, var(--site-shade) 70%, transparent); color: var(--site-on-accent); font: 600 .875rem/1.3 var(--font-text); white-space: nowrap; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
 .tour[data-state="takeover"] .tour-screen { box-shadow: inset 0 0 0 3px var(--pui-theme); }
 
 .screens { display: grid; }
