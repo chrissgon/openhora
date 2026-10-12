@@ -31,6 +31,10 @@ service_bridge = st.load("service_bridge")
 STAND_IN = textwrap.dedent('''
     import json, os, signal, stat, subprocess, sys, time
     mode = os.environ["BRIDGE_MODE"]
+    if mode == "wait":  # before the record exists, so a stop sent as soon as a test sees the record finds the handler
+        signal.signal(signal.SIGTERM, lambda *a: sys.exit(0))
+    if mode == "ignore":
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
     record = {"argv": sys.argv[1:], "executable": sys.executable, "pid": os.getpid(), "sid": os.getsid(0),
               "pgid": os.getpgrp(), "ppid": os.getppid(),
               "stdout_is_null": os.fstat(1).st_rdev == os.stat(os.devnull).st_rdev and stat.S_ISCHR(os.fstat(1).st_mode),
@@ -45,13 +49,11 @@ STAND_IN = textwrap.dedent('''
         print("error: another messaging bridge already serves telegram on this machine", file=sys.stderr)
         sys.exit(4)
     if mode == "ignore":
-        signal.signal(signal.SIGTERM, signal.SIG_IGN)
         while True:
             time.sleep(1)
     if mode == "group":
         while True:
             time.sleep(1)
-    signal.signal(signal.SIGTERM, lambda *a: sys.exit(0))
     while sys.stdin.buffer.read(4096):
         pass
     sys.exit(0)
