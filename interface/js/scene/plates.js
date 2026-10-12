@@ -39,8 +39,12 @@ export function chipNodes(p) {
   const chips = [["done", p.done, "pui-success"], ["running", p.running, "pui-theme"], ["queued", p.queued, "pui-muted"], ["left", p.left, "pui-muted"]];
   const nodes = chips.filter(([, count]) => count > 0).map(([word, count, tone]) => h("span", { class: `pui-badge ${tone} pui-soft pui-rounded-full`, text: `${count} ${word}` }));
   if (p.waits && p.waits.text) nodes.push(h("span", { class: "pui-badge pui-muted pui-outline pui-rounded-full wb-chip-waiting", title: p.waits.title || null, text: p.waits.text }));
+  if (p.slots && p.slots.text) nodes.push(h("span", { class: "pui-badge pui-muted pui-outline pui-rounded-full", title: SLOTS_TIP, text: p.slots.text }));   // PAR-7: the busy slots, only for a floor with two or more
   return nodes;
 }
+
+/** What the slots of a floor are, said once (the plate's meter and the list row's chip both carry it as their title). */
+const SLOTS_TIP = "Slots in use of the most this agent may hold at once: a task holds one while it runs, waits for you, or is about to run again.";
 
 /** The state badge of a plate, a row and the phone's card (R-26): a soft badge in the state's tone, ellipsised with its whole text as the tooltip. */
 function stateBadge(text, tone) {
@@ -55,6 +59,12 @@ function figure(text, word) {
 
 function plateMeter(tip, text, word, share, full, reservedShare = 0) {
   return h("div", { class: "wb-plate-meter", title: tip || null }, figure(text, word), trackNode(share, full, reservedShare));
+}
+
+/** The busy slots of a floor as a third meter of its plate (PAR-7): "1 of 2 slots" over a track filled by the share of them that are held. Only for a floor with two or more slots. */
+function slotsMeter(slots) {
+  const share = slots.max > 0 ? Math.min(1, slots.held / slots.max) : 0;
+  return h("div", { class: "wb-plate-meter", title: SLOTS_TIP }, h("span", {}, h("strong", { text: String(slots.held) }), ` of ${slots.max} slots`), trackNode(share, slots.held >= slots.max));
 }
 
 /**
@@ -75,6 +85,7 @@ export function plateNode(p, attrs = {}, tag = "div") {
   const meters = p.tiny ? null : h("div", { class: "wb-plate-meters" },
     use.runs ? plateMeter(METER_TIPS.runs, p.runsText, "runs", p.runsShare, p.runsShare >= 1) : null,
     use.spend ? plateMeter(spendTip, p.usdText, "", p.usdRecordedShare !== undefined ? p.usdRecordedShare : p.usdShare, p.usdShare >= 1, p.usdReservedShare || 0) : null);
+  if (meters && p.slots && p.slots.text) meters.append(slotsMeter(p.slots));
   const klass = `wb-plate${p.off ? " is-off" : ""}${p.tiny ? " is-short" : ""}${attrs.class ? ` ${attrs.class}` : ""}`;
   return h(tag, { ...attrs, class: klass, "data-floor": p.name }, row1, meters);
 }
