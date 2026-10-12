@@ -1,8 +1,8 @@
 // The room of a floor in the round's style (R-21, R-23, R-23b, R-28, R-31, R-41, R-42, R-49): the same room in the City's building, in the Building's cutaway, on the Floor
 // and in the Lobby, because it is the same meshes. A room is the floor's slab, its floor (a tone that says what the agent does: a lit room is a soft warm tone), two back
 // walls (the left one pierced by two windows, or by one window and the Lobby's door) and, in them, the agent's three ways in: the owl, the task board with a note for each
-// task, and the one bookcase with a binder for each document (sixteen at most, M-7). The workstations (a desk, a chair and an owl for each task that holds a slot) stand in an L at the room's open
-// front corner (seats-layout.js, PAR-7), never an empty desk. No tray, no table of sheets, no lamp, no roof; one plant stands by the windows (plants.js, drawn by the tower).
+// task, and the one bookcase with a binder for each document (sixteen at most, M-7). The workstations (a desk, a chair and an owl for each slot of the agent) stand in an L at the room's open
+// front corner (seats-layout.js, PAR-7); a floor that is off keeps its desks and has no owl. No tray, no table of sheets, no lamp, no roof; one plant stands by the windows (plants.js, drawn by the tower).
 // Everything static is baked into a few meshes in the tones of `roomTones` (kit.batch); the tower (tower.js) puts a room in each of its floors and closes the building round
 // them with the walls the City shows. No colour and no name is written here: the page's measures are in room-frame.js and furniture.js.
 
@@ -60,7 +60,7 @@ export function owlPose({ accepted, state }) {
 
 /**
  * The seats a room draws: the row's `seats` ([{seat, pose, taskId}]) when it carries them, else (a caller that passes none, such as an older test) one seat 0 with the pose the
- * floor's state gives. A project that is not accepted draws none; the caller does not ask.
+ * floor's state gives. The row's seats carry no pose for a floor that is off or not accepted: its desks stay and no owl is made.
  */
 function seatsDrawn(f, accepted) {
   if (Array.isArray(f.seats)) return f.seats;
@@ -140,8 +140,8 @@ export function fillFloor(kit, parent, f, ctx) {
   const pb = make(still);
   const openings = shell(pb, tones, tone, Boolean(f.lobby));
   windows(pb, make(glassBatch), tones, glassOf(tones, accepted, f.window), openings);
-  // the workstations: a desk and a chair for each seat the floor was given, never an empty desk, and the corner top where the two arms of the L meet
-  const seats = accepted ? seatsDrawn(f, accepted) : [];
+  // the workstations: a desk and a chair for each seat the floor was given, one desk for each place of the agent (a free one has its owl asleep, a stopped floor's has none), and the corner top where the two arms of the L meet
+  const seats = seatsDrawn(f, accepted);
   for (const s of seats) {
     const sb = seatBatch(pb, layout.seat(s.seat));
     desk(sb, tones);
@@ -207,7 +207,7 @@ export function fillFloor(kit, parent, f, ctx) {
   const owls = [];
   const lift = (pose) => towardCamera(THREE).multiplyScalar((pose === "waiting" ? 0.3 : 0.7) * layout.S);
   for (const s of seats) {
-    if (!s.pose) continue;
+    if (!s.pose || accepted === false) continue;      // a floor that is off or not accepted keeps its desks and shows no owl
     const owl = buildOwl(kit, s.pose, { scale: owlScale(FRAME) * layout.S, mix: palette.mix, floorTone: tone, handLift: s.pose === "working" ? 0.5 : 0 });
     const [px, pz] = layout.footAt(s.seat, s.pose);
     owl.group.position.set(FRAME.X(px), FRAME.Y(0.01), FRAME.Z(pz)).add(lift(s.pose));
