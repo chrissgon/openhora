@@ -185,7 +185,7 @@ Underneath there are three facts: whether the area agent is enabled, one of the 
 
 ### Other rules
 
-- **One task at a time, per project.** The skills write to common files.
+- **Tasks in parallel, bounded.** Slots per area agent and per project; two tasks run at once only when their skills' outputs and updates do not overlap (decision of 2026-10-12 in docs/decisions.md).
 - **Area agents communicate through the task layer:** the document, a note on the next task, a proposal of a task.
 - **An area agent is a scope:** a pack of skills, the queue, the cap and the mode. No persona text.
 - **Two currencies of spend:** dollars on the floor model, with a key of the runtime's own and a cap; runs per day on the reference model.
@@ -358,7 +358,6 @@ In total, between 3 and 3.5 points, near a fifth of the battery. Nothing redoes 
 | Moving the documents from one implementation to another | A project changes platform with documents already made |
 | A third model, and the status with more than two levels | There is demand |
 | The flows as skills, for whoever uses an interactive tool | Someone needs them outside the runtime |
-| Tasks in parallel in the same project | The single queue delays the work |
 | Synchronising a branch with the base through the runtime | It is missed; it asks for a verb of the provider that redoes the merge |
 | Starting a code project with dependencies from zero | The next case asks for it |
 | Approving an external effect through the task board's platform | The maintainer asks for it |
