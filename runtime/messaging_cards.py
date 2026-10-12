@@ -107,7 +107,9 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
     if kind == "effect":
         footer.append(EFFECT_LINE)
         if effect_command:
-            footer.append(effect_command)
+            # on its own line in single backticks, which a messenger can offer as tap-to-copy; a command that holds a
+            # backtick cannot sit in a code span and is left as it is
+            footer.append(effect_command if "`" in effect_command else f"`{effect_command}`")
     elif refused:
         footer.append(PAGE_LINE)
     link = None
