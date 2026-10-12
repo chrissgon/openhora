@@ -122,7 +122,8 @@ def result() -> dict:
 def _entries(root: str) -> list:
     """Every documents[] entry of every runtime manifest of <root>/skills, with its skill and its machine files. A
     manifest is read by the in-use rule (manifest.in_use, as the classifier of endings reads it): a skill outside the
-    packs in use may hold a partial one, which gives no entry; a malformed manifest still raises."""
+    packs in use may hold a partial one, which gives no entry unless it declares documents; a malformed manifest
+    still raises."""
     out = []
     folder = os.path.join(root, "skills")
     for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
