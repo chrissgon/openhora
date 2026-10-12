@@ -70,7 +70,7 @@ def test_an_agent_set_to_autonomous_asks_for_every_effect_whatever_approvals_exi
 def test_an_absent_cap_is_zero_and_never_unlimited():
     agents = autonomy.agents({"planning": {"pack": "planning"}})
     assert agents["planning"] == {"pack": "planning", "enabled": True, "mode": "milestones", "max_runs_per_day": 0,
-                                  "max_usd_per_day": 0}
+                                  "max_usd_per_day": 0, "max_parallel": 1}
     f = autonomy.facts("planning", agents, [], NOW)
     nothing = {"runs_counted": 0, "usd_metered": 0.0, "runs_without_cost": 0}
     assert autonomy.may_start("planning", agents, f, nothing, "subscription") == (False, "cap: runs per day")
@@ -89,6 +89,17 @@ def test_an_unknown_key_or_mode_of_an_agent_is_refused_by_name():
         with pytest.raises(ValueError) as refused:
             autonomy.agents(raw)
         assert "brand" in str(refused.value) and word in str(refused.value), raw
+
+
+def test_max_parallel_is_from_1_to_the_ceiling_and_defaults_to_1():
+    assert autonomy.MAX_PARALLEL_CEILING == 4 and "max_parallel" in autonomy.AGENT_KEYS
+    assert autonomy.agents({"brand": {"pack": "brand"}})["brand"]["max_parallel"] == 1
+    for value in (1, 2, autonomy.MAX_PARALLEL_CEILING):
+        assert autonomy.agents({"brand": {"pack": "brand", "max_parallel": value}})["brand"]["max_parallel"] == value
+    for bad in (0, -1, autonomy.MAX_PARALLEL_CEILING + 1, 1.5, "2", True, None):
+        with pytest.raises(ValueError) as refused:
+            autonomy.agents({"brand": {"pack": "brand", "max_parallel": bad}})
+        assert str(refused.value) == "area_agents.brand.max_parallel must be an integer from 1 to 4", bad
 
 
 RUNS = [{"agent": "brand", "model": "ref", "cost_usd": None}, {"agent": "brand", "model": "ref", "cost_usd": 0.4},
