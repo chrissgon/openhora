@@ -115,18 +115,19 @@ def test_a_rejected_acceptance_cancels_the_request_and_an_accepted_one_leaves_it
     assert run["request_id"] == kept["request"]
 
 
-def test_a_route_run_is_refused_while_a_task_runs_or_a_plan_is_open(conn):
+def test_a_router_run_is_refused_only_by_another_router_run(conn):
     planned = store.request_add(conn, title="Market", text="Which market?", flow="demo",
                                 tasks=[{"key": "market", "skill": "demo-asks", "title": "Market", "text": "go."}])
     request = a_request(conn)
     task = store.task_claim_next(conn)["task"]
     assert task["parent_id"] == planned["request"]
-    with pytest.raises(store.StoreError) as refused:
-        store.route_run_start(conn, request, skill="core-orchestrator", model="m", adapter="h")
-    assert "one run at a time" in str(refused.value)
     run = store.task_run_start(conn, task["id"], skill="demo-asks", model="m", adapter="h")
+    started = store.route_run_start(conn, request, skill="core-orchestrator", model="m", adapter="h")  # a task runs: allowed
+    other = a_request(conn)
+    with pytest.raises(store.StoreError) as refused:
+        store.route_run_start(conn, other, skill="core-orchestrator", model="m", adapter="h")
+    assert "a router run is in progress: one router run at a time per project" in str(refused.value)
     store.task_run_finish(conn, run["run_id"], status="failed", failure="adapter", task_state="failed")
-    started = store.route_run_start(conn, request, skill="core-orchestrator", model="m", adapter="h")
     with pytest.raises(store.StoreError):
         store.route_run_start(conn, request, skill="core-orchestrator", model="m", adapter="h")  # a run row runs
     with pytest.raises(store.StoreError):
