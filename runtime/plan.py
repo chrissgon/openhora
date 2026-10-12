@@ -47,6 +47,7 @@ Derived waits (A-29: the runtime knows by itself which task waits for which, fro
                                             frontmatter lists, and the inputs whose row of the skill's inputs table says
                                             Required: yes (flow_files.required_inputs)
   owners_of(index, path)                    the skills whose declared outputs are path (placeholders read as wildcards)
+  same_artifact(input, output)              the one matching owners_of and the order of the deliveries use
   derive(nodes, facts, exists, ...)         {"waits", "missing", "cycles"}: for each task not yet started, the open task of
                                             another request that writes an input the project does not have yet; the
                                             required inputs nothing writes; the waits left out because they would wait
@@ -348,7 +349,7 @@ def build(request: dict, tasks: list, route, source: str, limits: dict, past: li
                (f"; flow file flows/{flow}.json" if flow and flow != DELIVERIES_FLOW else "")
     lines = [f"Plan for request {request['id']}: {request_title(request)}", f"Source: {said}", ""]
     if several:
-        lines += ["Deliveries, in the order listed (each starts after the one before it):"]
+        lines += ["Deliveries (a delivery starts after an earlier one only when it reads what that one writes):"]
         lines += [f"- {d['item']}: {d['route']} -> {', '.join(d['tasks'])}"
                   + (f" (routed again after {d['reroute_after']})" if d.get("reroute_after") else "") for d in deliveries]
         lines += [""]
@@ -358,7 +359,8 @@ def build(request: dict, tasks: list, route, source: str, limits: dict, past: li
         milestone = "yes, mandatory" if t.get("mandatory_milestone") else "yes" if t["milestone"] else "no"
         lines.append(f"| {n} | {t['title']} | {t['skill']} | {after} | {milestone} | "
                      f"{'yes' if t['web'] else 'no'} |")
-    lines += ["", f"One task at a time; each run at most {limits.get('timeout_seconds')} s, retried at most "
+    pace = f"Up to {limits['max_running']} tasks at a time; each" if limits.get("max_running") else "Each"
+    lines += ["", f"{pace} run at most {limits.get('timeout_seconds')} s, retried at most "
                   f"{limits.get('retries')} times. At least {len(tasks)} runs.",
               "Past runs of these skills here: " + "; ".join(
                   f"{p['skill']} {p['runs']}" + (f" (mean {p['mean_duration_ms']} ms)" if p["mean_duration_ms"] is not None else "")
@@ -405,13 +407,33 @@ def normal(path: str) -> str:
     return PLACEHOLDER.sub("*", path)
 
 
+def same_artifact(declared_input: str, declared_output: str) -> bool:
+    """The one matching of the artifact contract: the input and the output are equal once placeholders are read as
+    wildcards, or the input is a folder (ends in "/") that the output is under."""
+    wanted = normal(declared_input)
+    found = normal(declared_output)
+    return found == wanted or (wanted.endswith("/") and found.startswith(wanted))
+
+
 def owners_of(facts: dict, path: str) -> list:
     """The skills whose declared outputs are path, sorted: the artifact contract has one owner, so one name in
     practice. A path that ends in "/" is a folder: the skills with an output under it."""
-    wanted = normal(path)
-    if wanted.endswith("/"):
-        return sorted(name for name, f in facts.items() if any(normal(o).startswith(wanted) for o in f["outputs"]))
-    return sorted(name for name, f in facts.items() if any(normal(o) == wanted for o in f["outputs"]))
+    return sorted(name for name, f in facts.items() if any(same_artifact(path, o) for o in f["outputs"]))
+
+
+def _contract_deps(deliveries: list, declared: dict) -> None:
+    """Add to each task of delivery k (k >= 2) the key of every task of an earlier delivery whose skill writes one of
+    its skill's inputs (same_artifact, the matching of owners_of), once, keeping order. deliveries is the task lists of
+    the plan's deliveries in order; declared is {skill: {"inputs", "outputs"}}; a skill missing from it contributes
+    nothing."""
+    for k, mine in enumerate(deliveries):
+        for t in mine:
+            reads = declared.get(t["skill"], {}).get("inputs", [])
+            for earlier in deliveries[:k]:
+                for u in earlier:
+                    writes = declared.get(u["skill"], {}).get("outputs", [])
+                    if u["key"] not in t["depends_on"] and any(same_artifact(i, o) for i in reads for o in writes):
+                        t["depends_on"] = list(t["depends_on"]) + [u["key"]]
 
 
 def _order(ref):
@@ -554,11 +576,12 @@ def combine(request: dict, routed: list, flows: dict, agent_skills: dict, root: 
             past: list) -> dict:
     """One plan from the routes of the deliveries, in the order listed (decision P3). routed is [{"item", "route",
     "reply"}], route None when the router asked or gave no route line, else read_route() with "checked". A delivery
-    whose route is not valid goes to "unrouted" with the whole reply and gets no task. The first tasks of a delivery
-    depend on the last task of the delivery before it. Each task gets its agent (agent_of; None for every task when no
+    whose route is not valid goes to "unrouted" with the whole reply and gets no task. A task depends on a task of an
+    earlier delivery whose skill writes one of its inputs (the artifact contract); other deliveries do not wait for
+    each other. Each task gets its agent (agent_of; None for every task when no
     area agent is configured). Returns {"plan": build(...) or None when no task, "tasks", "deliveries", "unrouted"}."""
     several = len(routed) > 1
-    tasks, deliveries, unrouted, last, routes = [], [], [], None, []
+    tasks, deliveries, unrouted, routes, lists = [], [], [], [], []
     for k, entry in enumerate(routed, 1):
         route = entry.get("route")
         checked = (route or {}).get("checked") or {}
@@ -568,17 +591,22 @@ def combine(request: dict, routed: list, flows: dict, agent_skills: dict, root: 
             continue
         route = dict(route, title=request_title(request) if not several else title_of(entry["item"]))
         mine = delivery_tasks(route, k, flows, root, pack, prefix=several)
-        inside = {t["key"] for t in mine}
         for t in mine:
-            if last is not None and not [d for d in t["depends_on"] if d in inside]:
-                t["depends_on"] = [last] + list(t["depends_on"])
             t["agent"] = agent_of(t["skill"], agent_skills) if agent_skills else None
         brief = mine[0]["key"] if "skill" in checked and checked["skill"] == BRIEF_SKILL else None
         deliveries.append({"item": entry["item"], "route": route["line"], "tasks": [t["key"] for t in mine],
                            "reroute_after": brief})
         tasks += mine
         routes.append(route)
-        last = mine[-1]["key"]
+        lists.append(mine)
+    declared = {}
+    for skill in sorted({t["skill"] for t in tasks}):
+        try:
+            meta = skill_meta.declared(os.path.join(root, "skills", skill))
+        except skill_meta.SkillError:
+            continue
+        declared[skill] = {"inputs": meta["inputs"], "outputs": meta["outputs"]}
+    _contract_deps(lists, declared)
     owner = owner_of(BACKLOG, root)
     full = dict(limits, max_subtasks=SUBTASKS_PER_PLAN,
                 subtask_skills=[SUBTASK_SKILL] if owner and any(t["skill"] == owner for t in tasks) else [])
