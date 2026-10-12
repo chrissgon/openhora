@@ -10,6 +10,14 @@ decision takes, what a state leads to, what a hash must equal are the operations
 project file, and imports only the operations layer, the kit it shares with the MCP mode (shell_kit.py) and, for the
 one option that starts a child process, service_bridge.py (standard library only).
 
+The page's channel policy (contracts/runtime.md, "The channel policy"): before a route's operation runs, after its query is
+read and before the bytes of an upload are written and before a job exists, the service asks `config` (a configuration
+that is not accepted is left to the operation, which answers 412) and calls `operations.refusal` with the channel `page`,
+the project's accepted `channels`, and, for approve, the decision's kind (read with `pending`) and whether it carries task
+keys; a refusal is 409 with the sentence. A read returns before that. `GET /projects` adds per project `permissions` and the
+`commands` answer leaves out what the policy refuses. The policy governs a person's requests, not the dispatch loop the
+service runs on its own timer.
+
 Usage:
   uv run --with keyring==25.7.0 python3 runtime/service.py --project <dir> [--project <dir>]... [--port 8765]
                              [--poll-every 60] [--dispatch-every 30 | --no-dispatch] [--token-file <path>] [--lan [<ip>]]
@@ -638,6 +646,56 @@ def _upload(service: Service, project: dict, row: dict, route: dict, params: dic
     return _json(200, result)
 
 
+def _policy_refusal(service: Service, project: dict, row: dict, route: dict, params: dict, given: dict, from_query: bool) -> None:
+    """The page's channel policy (decisions M-8, M-13), checked for a route before anything runs: before the bytes of an
+    upload are written and before a job exists, so a refused route takes no model slot. The configuration is asked
+    first (`config` never refuses): one that is not accepted is left to the operation, which answers 412 as it does today;
+    otherwise the `channels` of that answer are the project's policy. A read returns at once (a page policy lists `read`).
+    For approve the decision's kind is read here (`pending`), and with task keys the group `go-ahead` is needed too.
+    Raises the operations layer's OpsError (code 1, so 409 "refused") with the sentence of operations.not_enabled.
+    The check is also made inside the operations (ops_waits.only_on_plans, ops_config.set_mode), which stay the authority.
+    The policy governs a person's requests, not the dispatch loop the service runs on its own timer."""
+    operations = service.ops.operations
+    if operations.is_read(row["name"]):
+        return
+    found = service.ops.config(project["path"])
+    if not found.get("accepted"):
+        return
+    kind, go_ahead = None, False
+    if row["name"] == "approve":
+        args = arguments(row, route, params, given, from_query)
+        go_ahead = bool(args.get("go_ahead"))
+        kind = service.ops.pending(project["path"], pending_id=args["pending_id"])["kind"]
+    refused = operations.refusal(row["name"], "page", found.get("channels"), kind, go_ahead)
+    if refused:
+        raise service.ops.OpsError(refused, 1)
+
+
+def _permissions(service: Service, entry: dict):
+    """The page's permissions of one project of GET /projects: {"channel": "page", "allowed": [...]} (operations.permissions),
+    or None when the configuration is not accepted (nothing is permitted yet) or cannot be read."""
+    if not (entry.get("config") or {}).get("accepted"):
+        return None
+    try:
+        found = service.ops.config(entry["folder"])
+    except service.ops.OpsError:
+        return None
+    if not found.get("accepted"):
+        return None
+    return {"channel": "page", "allowed": service.ops.operations.permissions("page", found.get("channels"))}
+
+
+def _shown_commands(service: Service, project: dict, result: dict) -> dict:
+    """The `commands` answer without the commands the page's policy refuses (permitted under the page; `/new` follows
+    `say` (the group talk), `/help` stays): the page lists what it may do."""
+    operations = service.ops.operations
+    policy = service.ops.config(project["path"]).get("channels")
+    names = {"new": "say"}
+    keep = [c for c in result["commands"]
+            if c["command"] == "/help" or operations.permitted(names.get(c["command"][1:], c["command"][1:]), "page", policy)]
+    return {**result, "commands": keep}
+
+
 def _operation(service: Service, route: dict, params: dict, query: str, body: bytes) -> tuple:
     project = service.by_id.get(params.get("p"))
     if project is None:
@@ -653,6 +711,7 @@ def _operation(service: Service, route: dict, params: dict, query: str, body: by
         for key, value in given.items():
             if len(str(value).encode("utf-8")) > route["query_max"]:
                 raise Usage(f"the query value {key!r} is longer than {route['query_max']} bytes")
+    _policy_refusal(service, project, row, route, params, given, from_query)
     if route["upload"]:
         return _upload(service, project, row, route, params, given)
     args = arguments(row, route, params, given, from_query)
@@ -670,6 +729,8 @@ def _operation(service: Service, route: dict, params: dict, query: str, body: by
             return _error(409, "busy", str(e))
         except Stopping:
             return _error(503, "stopping")
+    if row["name"] == "commands":
+        return _json(200, _shown_commands(service, project, call()))
     return _json(200, call())
 
 
@@ -745,7 +806,9 @@ def handle(service: Service, method: str, path: str, headers: dict, body: bytes,
         if route["own"] == "projects":
             if query:
                 raise Usage("this route takes no query")
-            return _json(200, {**service.projects_list(), "messaging": service.messaging_state()})
+            listed = service.projects_list()
+            listed["projects"] = [{**entry, "permissions": _permissions(service, entry)} for entry in listed["projects"]]
+            return _json(200, {**listed, "messaging": service.messaging_state()})
         if route["own"] == "versions":
             if query:
                 raise Usage("this route takes no query")

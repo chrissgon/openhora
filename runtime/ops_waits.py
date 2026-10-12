@@ -280,14 +280,18 @@ def current_tasks(ctx: dict) -> list:
 
 def only_on_plans(item: dict, go_ahead, sha256=None, channel=None, policy=None) -> None:
     """What approve checks of the decision before anything else. A go-ahead is said on the tasks of a plan: any other
-    pending decision is refused. The channel's policy (operations.permitted, decision M-8) must cover the approval of a
-    plan or an acceptance (an effect keeps its own rule, EFFECT_CHANNELS). A plan approved from a messaging app carries
+    pending decision is refused. The channel's policy (operations.refusal, decisions M-8 and M-13) must cover the approval
+    of the decision's kind, and, with task keys, the group `go-ahead` too. An effect is checked against the policy only
+    for a channel that may approve one at all (operations.EFFECT_CHANNELS: the page); for any other channel the rule of
+    ops.approve speaks. The policy is never the only guard of an effect. A plan approved from a messaging app carries
     its hash: the tap or the typed command names exactly what the person saw (an acceptance has none; the bridge binds
     it to the card, runtime/messaging.py)."""
     if go_ahead and item["kind"] != "plan":
         raise core.OpsError(f"pending decision {item['id']} is a {item['kind']}: go ahead is said on the tasks of a plan", 2)
-    if item["kind"] in ("plan", "acceptance") and channel and not operations.permitted("approve", channel, policy, item["kind"]):
-        raise core.OpsError(operations.not_enabled("approve", channel), 1)
+    if channel and (item["kind"] != "effect" or channel in operations.EFFECT_CHANNELS):
+        refused = operations.refusal("approve", channel, policy, item["kind"], bool(go_ahead))
+        if refused:
+            raise core.OpsError(refused, 1)
     if channel == MESSAGING and item["kind"] == "plan" and sha256 is None:
         raise core.OpsError("a plan is approved from a messaging app only with its hash: send /approve "
                             f"{item['id']} <hash>, or tap the button of its card", 1)

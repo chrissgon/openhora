@@ -98,8 +98,10 @@ def test_the_route_is_a_read_that_takes_no_query_and_answers_the_rows_with_the_t
     routes = [r for r in service.ROUTES if r["pattern"] == "/projects/{p}/commands"]
     assert len(routes) == 1 and routes[0]["method"] == "GET" and routes[0]["op"] == "commands" and routes[0]["take"] == ()
     project = world.projects[0]["path"]
+    rows = {"commands": operations.chat_command_rows()}
+    world.fake.answers["commands"] = rows  # the page filters this answer by its policy (MSG-3b): no policy here, so it comes back whole
     status, _, body = call(world, "GET", api(world, "/commands"))
-    assert status == 200 and body == {"op": "commands", "args": {}} and world.fake.calls[-1] == ("commands", project, {})
+    assert status == 200 and body == rows and world.fake.calls[-1] == ("commands", project, {})
     world.fake.calls.clear()
     assert call(world, "GET", api(world, "/commands"), auth=False)[0] == 401
     assert call(world, "GET", api(world, "/commands?x=1"))[0] == 400

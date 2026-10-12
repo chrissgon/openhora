@@ -31,7 +31,7 @@ shell_kit = st.load("shell_kit")
 
 FIXTURE = st.RUNTIME / "tests" / "fixtures" / "messenger_standin.py"
 SENDER = "4242"
-OPEN_POLICY = ["read", "talk", "answer", "release", "approve-plans", "approve-acceptances", "reject-cancel-retry"]
+OPEN_POLICY = ["read", "talk", "answer", "release", "approve-plans", "approve-acceptances", "reject-cancel", "retry"]
 PLAN_HASH = "p" * 64
 SECRET_TEXT = "Northwind shop launch plan, the private paragraph"
 

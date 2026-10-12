@@ -60,6 +60,7 @@ NOT_NAMED_NEXT = ("Cancel it with " + operations.chat_line("cancel", request_id=
                   "terminal with: {route}, or start again with " + operations.chat_line("new", text="<text>"))
 RAW_MAX = 32 * 1024                              # bytes of the router's block kept in the payload's `raw`
 QUEUING_CHANNELS = ("page",)  # the shells that drain the queue: only the local service runs `route_queued` on a loop
+QUEUE_GROUPS = {"talk": "say", "request": "route"}  # the groups an entry stores, and the operation each stands for
 DRAIN = "queue"               # the channel the drain acts as: it may queue again (the lock can be taken meanwhile), never jump the queue
 QUEUED_REQUEST = "Recorded as request {request}. The planning agent routes it when the run ends."
 PROPOSES = "The planning agent proposes: "
@@ -334,19 +335,39 @@ def _enqueue_line(ctx: dict, said: str) -> dict:
         entries = _queue_read(ctx)
         _full(entries)
         stored = core._stored(ctx, ctx["store"].message_add, conversation=CONVERSATION, role="user", text=said)
-        _queue_write(ctx, entries + [{"kind": "line", "id": stored["id"], "at": _now()}])
+        _queue_write(ctx, entries + [{"kind": "line", "id": stored["id"], "at": _now(), "group": "talk"}])
     return stored
 
 
 def queue_route(ctx: dict, request_id: int) -> dict:
     """Queue a request for the router (`route` while the router answers another request): recorded once, routed when the lock is free.
-    Returns what `route` answers for it: {"routed": False, "queued": True, "request", "pending_id": None}."""
+    The entry stores the policy group that created it (`request`: the person asked for the route; `_say_route` re-tags it `talk`
+    when a line made the request), which the drain checks again under the page's policy. Returns what `route` answers for it: {"routed": False, "queued": True, "request", "pending_id": None}."""
     with _queue_lock(ctx["cfg"]):
         entries = _queue_read(ctx)
         if not any(e["kind"] == "route" and e["id"] == request_id for e in entries):
             _full(entries)
-            _queue_write(ctx, entries + [{"kind": "route", "id": request_id, "at": _now()}])
+            _queue_write(ctx, entries + [{"kind": "route", "id": request_id, "at": _now(), "group": "request"}])
     return {"routed": False, "queued": True, "request": request_id, "pending_id": None, "source": "queue"}
+
+
+def _retag(ctx: dict, kind: str, ident: int, group: str) -> None:
+    """Set the policy group of a queued entry (under the queue lock; the other keys stay)."""
+    with _queue_lock(ctx["cfg"]):
+        entries = _queue_read(ctx)
+        for e in entries:
+            if e["kind"] == kind and e["id"] == ident:
+                e["group"] = group
+        _queue_write(ctx, entries)
+
+
+def _drain_refusal(ctx: dict, head: dict):
+    """The sentence that refuses a queued entry under the page's policy as it is now (the only channel that queues), or
+    None. The entry stores the group that created it (`talk` for a line, `request` for a route); an entry queued before
+    the group was stored is a line (`talk`) or a route (`request`). The drain acts as DRAIN to keep the queue first in,
+    first out; the policy it answers to is the page's."""
+    group = head.get("group") if head.get("group") in QUEUE_GROUPS else ("talk" if head["kind"] == "line" else "request")
+    return operations.refusal(QUEUE_GROUPS[group], "page", ctx["cfg"]["channels"])
 
 
 def _unqueue(ctx: dict, kind: str, ident: int) -> None:
@@ -423,6 +444,9 @@ def route_queued(project: str) -> dict:
         return {"routed": None, "queued": left, **({"reason": "another process is routing the first"} if left else {})}
     answered, out = False, None
     try:
+        refused = _drain_refusal(ctx, head)  # the policy as it is now, after any accept-config
+        if refused:
+            raise core.OpsError(refused, 1)
         out = _drain_line(project, ctx, head["id"]) if head["kind"] == "line" else _drain_route(project, ctx, head["id"])
         answered = True
     except core.RunBusy:  # the lock was taken between the check and the run: the entry waits again
@@ -483,10 +507,12 @@ def _router_question(ctx: dict, request_id):
 
 def _say_command(project: str, ctx: dict, said: str, channel: str, line_id: int) -> tuple:
     """(reply, request_id, pending_id, ran, run_id) of a command line: the table of operations reads it
-    (operations.parse_chat); an operation it names is called once with the arguments it read and the channel `chat`
-    (so an effect is never approved from a line), when its row lists the channel that carries the line (`channel`):
-    a command that row does not list is refused with the place where it is done, and a line it does not read gets
-    the help."""
+    (operations.parse_chat); an operation it names is called once with the arguments it read, when its row lists the
+    channel that carries the line (`channel`) and the project's policy permits the command under that channel
+    (operations.refusal with the carrying channel: page, mcp or messaging, never `chat`): a command that row does not
+    list is refused with the place where it is done, a line it does not read gets the help. An effect is never approved
+    from a line, by any channel and whatever the policy: the decision's kind is read first and an effect is refused, and
+    the operation is called as `chat` (or `messaging`), which refuses an effect too."""
     parsed = operations.parse_chat(said)
     if parsed is None or parsed[0] == "help":
         return operations.chat_help(), None, None, False, None
@@ -497,10 +523,23 @@ def _say_command(project: str, ctx: dict, said: str, channel: str, line_id: int)
     row = operations.by_name(name)
     if channel not in row["channels"]:
         return f"error: /{name} is done in the terminal or on the page", None, None, False, None
-    if not operations.permitted(name, channel, ctx["cfg"]["channels"]):  # the project's policy (decision M-8), before anything runs
-        return f"error: {operations.not_enabled(name, channel)}", None, None, False, None
+    policy = ctx["cfg"]["channels"]
+    refused = operations.refusal(name, channel, policy)  # the project's policy, under the channel that carries the line
+    if refused:
+        return f"error: {refused}", None, None, False, None
     if channel == "messaging" and name == "approve":  # an acceptance approved from a line has no card to be bound to
         return "error: use the card's button, or /approve <id> as the whole line", None, None, False, None
+    if name == "approve":  # the decision's kind is read first: the policy covers a kind, and an effect is never approved from a line
+        try:
+            kind = core._stored(ctx, ctx["store"].pending_get, found["pending_id"])["kind"]
+        except core.OpsError as e:
+            return f"error: {e}", None, None, False, None
+        if kind == "effect":  # from a line, on any channel and whatever the policy
+            return ("error: an effect is approved in the terminal, with its hash: "
+                    + core._command("approve", ctx["cfg"]["project"], pending_id=found["pending_id"], sha256="<hash>")), None, None, False, None
+        refused = operations.refusal(name, channel, policy, kind)
+        if refused:
+            return f"error: {refused}", None, None, False, None
     if row.get("channel_arg"):
         found = dict(found, channel=channel if channel == "messaging" else "chat")  # a messaging app's own rule (ops_waits) narrows approve
     try:
@@ -552,6 +591,7 @@ def _say_route(project: str, ctx: dict, said: str, line_id: int, channel: str, a
         request_id = _ops().request(project, text, title=plan.title_of(said), after=after)["request"]
     routed = _ops().route(project, request_id, channel=channel)
     if routed.get("queued"):  # the router was taken after the check: the request waits for the end of its run
+        _retag(ctx, "route", request_id, "talk")  # a line made this request: the drain checks `talk`, not `request`
         return QUEUED_REQUEST.format(request=request_id), request_id, None, False, None
     if routed.get("kind") == "direct":
         core._stored(ctx, ctx["store"].request_cancel, request_id, by="code:direct")

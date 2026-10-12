@@ -2028,7 +2028,7 @@ def _backlog_subtasks(ctx: dict, task: dict) -> dict:
     return {"created": [t["id"] for t in created], "pending_id": pending_id}
 
 
-EFFECT_CHANNELS = ("terminal", "page")  # the channels an effect may be approved from (decision D8, extended)
+EFFECT_CHANNELS = operations.EFFECT_CHANNELS  # the channels an effect may be approved from (decision D8, extended); the source is operations.py
 
 
 def approve(project: str, pending_id: int, sha256: str | None = None, channel: str | None = None, go_ahead=None) -> dict:
