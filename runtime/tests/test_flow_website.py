@@ -139,7 +139,16 @@ def test_the_prd_says_the_website_is_the_product_and_the_person_is_asked():
 
 def test_the_flow_names_no_project_no_person_and_no_tool():
     flow = (st.REPO / "flows" / "website.json").read_text(encoding="utf-8")
-    assert re.search(r"openhora-brand|btj|telar|kyrios|chrissgon|/Users/|\.workbench-local", flow, re.I) is None
+    # generic: no home path of a person, no local work folder, and none of the terms of the maintainer's local list
+    assert re.search(r"/Users/|/home/(?!demo\b)|\.workbench-local", flow) is None
+    terms_file = st.REPO / ".private-terms"
+    if terms_file.is_file():  # git-ignored; absent on CI and on other machines, as for scripts/validate.py
+        for raw in terms_file.read_text(encoding="utf-8").splitlines():
+            term = raw.strip()
+            if not term or term.startswith(("#", "!")):
+                continue
+            pattern = re.compile(term[3:] if term.startswith("re:") else re.escape(term), re.I)
+            assert pattern.search(flow) is None, "a private term appears in the flow file"
     data = json.loads(flow)
     for task in data["tasks"]:
         assert re.search(r"(?<![\w/-])" + re.escape(task["skill"]) + r"(?![\w-]|\.md)", task["text"]) is None  # no skill named

@@ -15,7 +15,7 @@ The skills, their areas and how each one stands under the reliability model are 
 
 ## Principles
 
-The eight principles of [AGENTS.md](AGENTS.md), in one line each:
+The fourteen principles of [AGENTS.md](AGENTS.md), in one line each (when two pull apart, AGENTS.md gives the order that decides):
 
 1. **Harness-agnostic core.** Skills, agents, shared files, contracts, templates and providers name no AI tool, its folders or its tool names.
 2. **Open-closed adapters.** Everything specific to one AI tool lives in `adapters/<harness>/`; adding a harness never edits the core.
@@ -25,6 +25,12 @@ The eight principles of [AGENTS.md](AGENTS.md), in one line each:
 6. **English only.** Every file in this repository is written in English.
 7. **Parallel by default.** Independent work (eval runs, checks, research, agents with separate scopes) runs at the same time; work runs in sequence only when one step needs another's result, a shared resource cannot be used concurrently, or a rate limit forces it.
 8. **Shared core, projects outside.** The repository holds only the workbench: nothing that identifies a project that uses it, and none of its work data. Examples and fixtures use fictional names and `.example` hosts.
+9. **Proof decides.** A skill's standing, the model it runs on and what it may do unattended are decided by recorded evidence, never ticked by hand; evidence holds for the pair of model and adapter it was measured on.
+10. **A claim says what it rests on.** A published result names its model, adapter, measurement version, date and number of runs, is published whether it passed or not, and states a band, never a bare number the evidence cannot carry.
+11. **Hard limits live in code.** What must never happen (a side effect without the approval of its exact content, a credential inside a run) is prevented by code or by structure, never by a prompt or a test.
+12. **A change pays for what it can reach.** A change invalidates only the layer it touches and only the cases, skills, models and adapters it can affect.
+13. **A saving must exceed its loss of safety.** A cheaper test or a lighter rule is accepted only when what it saves is clearly more than the safety it gives up, and both are stated.
+14. **Adopt before building.** What exists, is solid and is open is adopted behind an adapter or a provider; the workbench builds what links the pieces: the proof, and what the proof decides.
 
 ## Layout
 
@@ -35,19 +41,26 @@ shared/references/  security.md, the one cross-cutting reference, and platforms/
 shared/scripts/     the one source of every script more than one skill carries; scripts/sync_copies.py writes the copies
 contracts/          what skills read and write in a target project: project-layout.md, state.md, environment.md, runtime.md, secrets.md, vote-data.md
 providers/          native implementations of requirement classes, resolved by providers/resolve.py: reader:email, publisher:<platform>,
-                    scheduler:job, store:runtime, integration:vcs; the interface is providers/CONTRACT.md
+                    messenger:<platform>, scheduler:job, store:runtime, integration:vcs, integration:issue-tracker, integration:documents;
+                    the interface is providers/CONTRACT.md
 templates/          capability.SKILL.md, flow.SKILL.md and agent.md, used by scripts/new-skill.sh
-packs/              installation subsets: default (every area but the optional ones), all, assistant, business, brand, planning, code
-adapters/           one folder per AI tool: claude-code and agents-dir install the skills; api runs the agent runtime with one model call and no tools
+packs/              installation subsets: default (every area but the optional ones), all, assistant, business, brand, design, planning, code, marketing
+adapters/           one folder per AI tool: claude-code and agents-dir install the skills; api runs the agent runtime with one model call and no tools;
+                    openclaw is documentation only (the runtime's MCP mode from an OpenClaw gateway), not an adapter
 evals/              the eval harness: eval_run.py (the runner), executor.py and container/ (every run executes in a container),
                     eval_status.py (status, hashes, the inventory table), eval-gate.json (models, grader, gate, measurement version), tests/
-scripts/            repository tooling: validate.py, security_scan.py, sync_copies.py, owner_table.py, new-skill.sh, install-hooks.sh,
-                    select_skills.py, doctor.py, and the agent runtime (runtime.py, runtime_vote.py, vote_job.py)
+scripts/            repository tooling: validate.py, security_scan.py, sync_copies.py, owner_table.py, architecture_tables.py, new-skill.sh,
+                    install-hooks.sh, select_skills.py, stage_skills.py, test_dirs.py, doctor.py, evidence.py, redact.py, build_demo.py and
+                    demo_fixtures.py (the interface's demo mode), and the agent runtime (runtime.py, runtime_vote.py, vote_job.py)
 runtime/            the task runtime: a request becomes tasks, each task runs one skill in the eval container, a person decides
                     through pending decisions; lab.py is the one file that imports the eval runner, ops.py the operations, cli.py the shell
+interface/          the local interface the runtime's service serves: an isometric 3D scene (City, Building, floor) with plain panels as the
+                    equivalent of every scene action, vendored libraries only, no build step, and a demo mode with fictional data and no service
+                    (interface/README.md)
 flows/              one data file per flow: the tasks and their written dependencies, read by the task runtime
+.github/            CI workflows, the code owners file, the dependency-update configuration and brand/ (the banner and social images, the mark)
 .githooks/          the versioned pre-commit hook
-docs/               area map, decisions, inventory, backlog, architecture notes and plans
+docs/               area map, decisions, inventory, backlog, and architecture notes (plans, reviews, findings, the platform pages)
 ```
 
 ## Install
