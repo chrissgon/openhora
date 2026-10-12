@@ -8,12 +8,12 @@
       "acting_mode": "supervised",
       "max_runs_per_day": 12,
       "max_usd_per_day": 5,
-      "runs_today": 2,
+      "runs_today": 3,
       "usd_today": 0.0,
       "runs_without_cost": 0,
       "usd_recorded": 0.0,
       "usd_reserved": 0.0,
-      "runs_total_today": 2,
+      "runs_total_today": 3,
       "billing": {
         "runs": [
           "subscription",
@@ -29,8 +29,10 @@
       },
       "max_parallel": 1,
       "max_parallel_ceiling": 4,
-      "holders": [],
-      "slots_held": 0,
+      "holders": [
+        12
+      ],
+      "slots_held": 1,
       "queued": 0,
       "held": 0,
       "wider": [
@@ -104,12 +106,12 @@
       "acting_mode": "milestones",
       "max_runs_per_day": 8,
       "max_usd_per_day": 4,
-      "runs_today": 0,
+      "runs_today": 2,
       "usd_today": 0.0,
       "runs_without_cost": 0,
       "usd_recorded": 0.0,
       "usd_reserved": 0.0,
-      "runs_total_today": 0,
+      "runs_total_today": 2,
       "billing": {
         "runs": [
           "subscription",
@@ -125,8 +127,10 @@
       },
       "max_parallel": 1,
       "max_parallel_ceiling": 4,
-      "holders": [],
-      "slots_held": 0,
+      "holders": [
+        8
+      ],
+      "slots_held": 1,
       "queued": 0,
       "held": 0,
       "wider": [

@@ -4,8 +4,8 @@
 
 import { F } from "./fixtures.js";
 import { FLOWS, SPRING } from "./content.js";
-import { configHash, itemRow, iso, runDir, runRow, taskRow } from "./world-state.js";
-import { CLI, progress, requestsOf } from "./world-reads.js";
+import { MAX_RUNNING, configHash, itemRow, iso, runDir, runRow, taskRow } from "./world-state.js";
+import { CLI, holdsSlot, progress, requestsOf } from "./world-reads.js";
 import { MODES, canonical, fill, notFound, notInDemo, refused, sha256Hex, usage } from "./util.js";
 
 const WORDS = F.writes;
@@ -80,20 +80,34 @@ export function settle(ctx, P) {
   return ready;
 }
 
-/** The dispatcher of the runtime, as far as the demo goes: when no task runs, the next ready one starts. Returns its id or null. */
+/**
+ * The dispatcher of the runtime, as far as the demo goes (runtime/parallel.py): the ready tasks, oldest first, each start when its floor has a free slot (`maxParallel` of its agent),
+ * the project runs fewer than MAX_RUNNING tasks and no running task has the same skill (the same skill writes the same files). A task that waits is recorded with the word the
+ * runtime gives (`P.held`), which `status` lists. A router run (`P.routing`) takes no slot and stops nothing. Returns the numbers of the tasks it started.
+ */
 export function dispatch(ctx, P) {
-  if (P.tasks.some((t) => t.parent_id !== null && t.state === "running") || P.routing) return null;
-  const next = P.tasks.filter((t) => t.parent_id !== null && t.state === "ready").sort((a, b) => a.id - b.id).find((t) => {
+  const started = [];
+  P.held = {};
+  const ready = P.tasks.filter((t) => t.parent_id !== null && t.state === "ready").sort((a, b) => a.id - b.id);
+  for (const t of ready) {
     const agent = agentOf(P, t.agent);
-    return !agent || (agent.enabled && agent.mode !== "stopped");
-  });
-  if (!next) return null;
-  next.state = "running";
-  next.updated_at = iso(ctx);
-  P.runs.push(runRow(ctx, { id: P.next.run++, task_id: next.id, skill: next.skill, run_dir: runDir(P, P.next.run - 1) }));
-  const agent = agentOf(P, next.agent);
-  if (agent) agent.runs += 1;
-  return next.id;
+    if (agent && !(agent.enabled && agent.mode !== "stopped")) continue;
+    const running = P.tasks.filter((x) => x.parent_id !== null && x.state === "running");
+    let why = null;
+    if (running.length >= MAX_RUNNING) why = "project at max_running";
+    else if (agent && P.tasks.filter((x) => x.id !== t.id && x.agent === agent.name && holdsSlot(x)).length >= agent.maxParallel) why = "agent at max_parallel";
+    else if (running.some((x) => x.skill === t.skill)) why = "artifact in use";
+    if (why) {
+      P.held[t.id] = why;
+      continue;
+    }
+    t.state = "running";
+    t.updated_at = iso(ctx);
+    P.runs.push(runRow(ctx, { id: P.next.run++, task_id: t.id, skill: t.skill, run_dir: runDir(P, P.next.run - 1) }));
+    if (agent) agent.runs += 1;
+    started.push(t.id);
+  }
+  return started;
 }
 
 // --- the plan -----------------------------------------------------------------------------------------------------------
@@ -106,7 +120,7 @@ function planTasks(P, flow) {
   }));
 }
 
-/** The router run the project holds ends (one at a time, as in the store): its run row is closed and the slot is free. */
+/** The router run the project holds ends (one router run at a time, as in the store): its run row is closed. */
 export function endRouting(ctx, P) {
   if (!P.routing) return;
   const run = P.runs.find((r) => r.id === P.routing.run_id);
@@ -125,11 +139,11 @@ export async function openPlan(ctx, P, request, flow, source) {
   const rows = tasks.map((t, i) => `| ${i + 1} | ${t.title} | ${t.skill} | ${t.depends_on.map((k) => keys[k]).join(", ") || "-"} | ${t.milestone ? "yes" : "no"} | no |`);
   const named = source === "named" ? "the flow you named" : `the planning agent's route, the flow ${flow}`;
   const body = [`Plan for request ${request.id}: ${request.title}`, `Source: ${named}; flow file flows/${flow}.json`, "", "| # | Task | Skill | After | Milestone | Web |",
-    "|---|---|---|---|---|---|", ...rows, "", `One task at a time; each run at most 1800 s, retried at most 2 times. At least ${tasks.length} runs.`,
+    "|---|---|---|---|---|---|", ...rows, "", `Up to ${MAX_RUNNING} tasks at a time; each run at most 1800 s, retried at most 2 times. At least ${tasks.length} runs.`,
     `Past runs of these skills here: ${tasks.map((t) => `${t.skill} ${P.runs.filter((r) => r.skill === t.skill).length}`).join("; ")}.`, `Plan hash: ${digest}`].join("\n");
   const payload = fill(template, {
     cycles: [], estimate: { past: tasks.map((t) => ({ mean_duration_ms: null, runs: P.runs.filter((r) => r.skill === t.skill).length, skill: t.skill })), runs_at_least: tasks.length, tasks: tasks.length },
-    flow, limits: { max_running: 3, retries: 2, timeout_seconds: 1800 }, missing: [], plan_sha256: digest, route: null, source, tasks, waits: [],
+    flow, limits: { max_running: MAX_RUNNING, retries: 2, timeout_seconds: 1800 }, missing: [], plan_sha256: digest, route: null, source, tasks, waits: [],
   });
   const item = itemRow(ctx, P, "plan", { task_id: request.id, title: `Plan: ${flow} (${tasks.length} tasks)`, body, payload });
   P.pending.push(item);

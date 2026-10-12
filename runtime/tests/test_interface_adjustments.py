@@ -131,7 +131,7 @@ const client = () => {
 const tasks = [{ key: "brand", title: "Brand identity", skill: "brand-identity", agent: "brand" }, { key: "system", title: "Design system", skill: "design-system", agent: "design", depends_on: ["brand"] },
   { key: "voice", title: "Voice", skill: "brand-voice", agent: "brand" }, { key: "later", title: "Landing page", skill: "design-brief", agent: "design" }];
 const payload = {
-  tasks, limits: { one_task_at_a_time: true, timeout_seconds: 1800, retries: 2 }, estimate: { runs_at_least: 4 }, plan_sha256: PLAN_HASH,
+  tasks, limits: { max_running: 3, timeout_seconds: 1800, retries: 2 }, estimate: { runs_at_least: 4 }, plan_sha256: PLAN_HASH,
   waits: [{ task_key: "system", task_id: 10, reason: "docs/brand/identity.md, written by task #10" }, { task_key: "system", task_id: 12, reason: "docs/brand/voice.md, written by task #12" },
     { task_key: "later", task_id: null, reason: "after request #3" }],
   missing: [{ task_key: "voice", skill: "brand-voice", path: "docs/brand/profile.md", owner: "brand-profile", sentence: "brand-voice needs docs/brand/profile.md; nothing writes it: run brand-profile first or go ahead and it will stop" }],

@@ -498,7 +498,7 @@ def test_the_bar_shows_the_newest_request_with_a_running_task_else_the_newest_op
     track = got["tracking"]
     assert track[:3] == [2, [[4, False, False], [3, False, False], [2, True, True]], "Task 3"], "the bar and Now on follow the default request"
     assert track[3:] == [3, ["Task 4"], "Task 4", "Waiting for you"], "after a choice, the steps and the Now on card are the chosen request's"
-    assert got["needed"] == [[3], []], "the running task whose start time is read follows the request shown"
+    assert got["needed"] == [[3], [3]], "PAR-5: the running tasks whose start time is read are the followed project's, whatever request is shown"
 
 
 @needs_node

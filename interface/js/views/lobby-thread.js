@@ -8,7 +8,7 @@ import { h } from "../dom.js";
 import { renderMarkdown } from "../markdown.js";
 import { replyView } from "../floor/reply.js";
 import { createBlock } from "./lobby-request.js";
-import { EMPTY_TEXT, QUEUED_WORD, metaOf, nameOf, placeBlocks, signatureOf } from "./lobby-model.js";
+import { EMPTY_TEXT, QUEUED_WORD, metaOf, nameOf, placeBlocks, routerBusy, signatureOf } from "./lobby-model.js";
 
 /** The log. options: {api, project, signal, onChanged, onCancel, onRoute(request, flow), announce}. Returns {el, update(state), focusDecision(request, decision), focusRequest(request)}. */
 export function createThread({ api, project, signal, onChanged, onCancel, onRoute, announce }) {
@@ -64,7 +64,7 @@ export function createThread({ api, project, signal, onChanged, onCancel, onRout
         const bodySig = body ? (body.pending || []).map((p) => `${p.id}:${p.status}:${p.resolution || ""}`).join(",") : "-";
         const open = (pending || []).filter((p) => p.task_id === requestId).length;
         const routeNotice = (notices && notices.get(requestId)) || null;
-        const runBusy = (requests || []).some((r) => (r.routing && r.id !== requestId) || (r.tasks || []).some((t) => t.state === "running"));      // a run holds the project: Route it is queued, and says so
+        const runBusy = routerBusy(requests, requestId);      // the router answers another request: Route it is queued, and says so (a task that runs does not queue it)
         const routingNow = Boolean(routing && routing.has(requestId)) || Boolean(request.routing);      // A-51: this page's click, or a run the service reports
         const kept = (remembered && remembered.get(requestId)) || "";
         const sig = `${signatureOf(request, pending)}|${bodySig}|${routingNow ? "r" : ""}${runBusy ? "b" : ""}|${viaMessage ? "m" : "t"}|${request.title}|${routeNotice ? `${routeNotice.title}:${routeNotice.text}` : ""}|${flows ? flows.length : "-"}|${kept}`;

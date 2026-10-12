@@ -54,7 +54,7 @@
           "id": 5,
           "key": "change",
           "title": "Change",
-          "agent": null,
+          "agent": "engineering",
           "skill": "eng-implement",
           "state": "done",
           "note": null,
@@ -92,7 +92,7 @@
           "id": 8,
           "key": "first",
           "title": "First change",
-          "agent": null,
+          "agent": "engineering",
           "skill": "eng-implement",
           "state": "running",
           "note": null,
@@ -105,7 +105,7 @@
           "id": 9,
           "key": "second",
           "title": "Second change",
-          "agent": null,
+          "agent": "engineering",
           "skill": "eng-implement",
           "state": "planned",
           "note": null,
@@ -126,6 +126,44 @@
       "on_board": false,
       "open_comments": 0,
       "tasks": [],
+      "after": null,
+      "routing": null
+    },
+    {
+      "id": 11,
+      "flow": "demo",
+      "state": "planned",
+      "title": "Look at the market again.",
+      "on_board": false,
+      "open_comments": 0,
+      "tasks": [
+        {
+          "id": 12,
+          "key": "market",
+          "title": "Market",
+          "agent": "planning",
+          "skill": "biz-market-analysis",
+          "state": "running",
+          "note": null,
+          "on_board": false,
+          "open_comments": 0,
+          "holds_slot": true,
+          "waiting_for": []
+        },
+        {
+          "id": 13,
+          "key": "profile",
+          "title": "Profile",
+          "agent": "marketing",
+          "skill": "mkt-social-copy",
+          "state": "planned",
+          "note": null,
+          "on_board": false,
+          "open_comments": 0,
+          "holds_slot": false,
+          "waiting_for": []
+        }
+      ],
       "after": null,
       "routing": null
     }

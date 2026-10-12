@@ -1,6 +1,6 @@
 // Reading what the City needs from the service: the project list, and for each accepted project its status (which holds
 // the requests with their tasks, each with its title and agent, and the open decisions, each with its agent) and its
-// agents, then the `task` body of the one running task of the followed project's open request, for the time its run
+// agents, then the `task` body of each running task of the followed project (at most six, the oldest), for the time its run
 // started. Everything is read; nothing is written. A project that answers 412 (its configuration is not accepted) is
 // kept with the service's own message and with the last status and agents read (the page keeps showing them, dimmed); a lost
 // connection throws.

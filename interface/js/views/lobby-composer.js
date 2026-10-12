@@ -1,5 +1,5 @@
 // The composer at the bottom of the Lobby's conversation: the message field, "Send" (the region's one solid button), "New request" beside it (R-44), the
-// hint, the busy line while a turn runs, the line that says a run is in progress (A-23: Send stays on; a plain line is stored and routed when the run ends, a
+// hint, the busy line while a turn runs, the line that says what runs (A-23: Send stays on; while the router answers a request a plain line is stored and routed when it ends, while tasks run it is routed at once; a
 // question about the state is answered now) and the notice when a turn was not sent or failed (R-11: the soft error style). Typing "/" opens the list of the
 // commands over the field (R-45): one row for each command the service gave, narrowing as the person types; the arrows move, Enter or Tab fills the field,
 // Escape closes the list and only the list. It holds no rule: it reports the text the person typed (Enter sends, Shift+Enter makes a new line) and draws
@@ -19,7 +19,8 @@ export function createComposer({ onSend, onNew = () => {} }) {
   const noticeText = h("span", { text: "" });
   const notice = h("div", { class: "wb-lobby-notice-card notice pui-soft pui-error wb-comp-line", role: "alert", hidden: true }, noticeTitle, noticeText);
   const runLink = h("a", { class: "pui-link pui-theme wb-lobby-run-link", href: router.cityHash(), hidden: true, text: "" });
-  const runLine = h("p", { class: "wb-lobby-run wb-comp-line", id: "wb-say-run", role: "status", hidden: true }, h("span", { text: RUN_LINE }), " ", runLink);
+  const lineText = h("span", { text: RUN_LINE });
+  const runLine = h("p", { class: "wb-lobby-run wb-comp-line", id: "wb-say-run", role: "status", hidden: true }, lineText, " ", runLink);
   const field = h("textarea", {
     class: "pui-input wb-lobby-field wb-field-input wb-comp-field", id: "wb-say", rows: "1", placeholder: "Describe what you want done", autocomplete: "off",
     role: "combobox", "aria-autocomplete": "list", "aria-controls": LIST_ID, "aria-expanded": "false",
@@ -146,12 +147,13 @@ export function createComposer({ onSend, onNew = () => {} }) {
   return {
     el,
     /**
-     * state: {sending, notice: {title, text} | null, disabled: bool (the project is not accepted), running: {text, href} | null (a run is in progress:
-     * the task it names and where to read it; the line shows, Send stays on)}.
+     * state: {sending, notice: {title, text} | null, disabled: bool (the project is not accepted), running: {text, href, line} | null (a router run or
+     * running tasks: what they are, where to read it and the sentence about the person's line; the line shows, Send stays on)}.
      */
     set({ sending: on, notice: shownNotice, disabled, running = null }) {
       runLine.hidden = !running || Boolean(disabled);
-      runLine.title = running && running.text ? `${RUN_LINE} ${running.text}` : "";      // on a phone the line is one line cut by an ellipsis: the title holds all of it
+      lineText.textContent = running && running.line ? running.line : RUN_LINE;
+      runLine.title = running && running.text ? `${lineText.textContent} ${running.text}` : "";      // on a phone the line is one line cut by an ellipsis: the title holds all of it
       runLink.hidden = !running || !running.text;
       runLink.textContent = running && running.text ? running.text : "";
       if (running && running.href) runLink.setAttribute("href", running.href);

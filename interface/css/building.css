@@ -124,6 +124,9 @@
 .wb-facts dt { color: var(--pui-text-muted); font-size: 12px; }
 .wb-facts dt, .wb-facts dd { margin: 0; min-width: 0; }
 .wb-facts-links { display: grid; gap: 2px; }
+.wb-running-list { display: grid; gap: 2px; min-width: 0; }      /* PAR-5: up to three running tasks, then "+N more" */
+.wb-running-item { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-running-more { font-size: 12px; }
 .wb-facts a { color: var(--wb-ink-theme); text-decoration: none; overflow-wrap: anywhere; }
 .wb-facts a:hover { text-decoration: underline; }
 .wb-sec { display: grid; gap: 6px; min-width: 0; outline: none; }

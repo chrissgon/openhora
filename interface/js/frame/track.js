@@ -114,20 +114,27 @@ export function createTrack({ onOpenSteps, onSelectRequest = () => {} }) {
           h("strong", { class: "wb-step-title", text: s.title }), h("span", { class: "wb-step-sub", text: s.sub })))));
   }
 
-  function nowCard(model) {
-    if (!model.now) {
-      return h("div", { class: "wb-now" },
-        h("span", { class: "wb-now-where", text: "Nothing is running" }),
-        h("strong", { class: "wb-now-title", text: model.request.title || `Request ${model.request.id}` }),
-        h("span", { class: "wb-now-sub", text: `request #${model.request.id} · ${model.request.state}` }));
-    }
-    const now = model.now;
+  function nowCard(now) {
     return h("div", { class: "wb-now" },
       h("span", { class: "wb-now-where", text: now.where }),
       h("a", { class: "wb-now-title", href: now.link, text: now.title }),
       h("div", { class: "wb-now-row" },
         h("span", { class: `pui-chip pui-soft ${now.running ? "pui-theme" : "pui-warn"} wb-chip-small`, text: now.state }),
         h("span", { class: "wb-now-sub", text: now.sub })));
+  }
+
+  /** The "Now" column: one card for each running task of the request (up to three), "+N more" for the rest; one card as before when one task runs. */
+  function nowCards(model) {
+    const cards = Array.isArray(model.nows) ? model.nows : (model.now ? [model.now] : []);
+    if (!cards.length) {
+      return h("div", { class: "wb-now" },
+        h("span", { class: "wb-now-where", text: "Nothing is running" }),
+        h("strong", { class: "wb-now-title", text: model.request.title || `Request ${model.request.id}` }),
+        h("span", { class: "wb-now-sub", text: `request #${model.request.id} · ${model.request.state}` }));
+    }
+    const more = model.nowMore > 0 ? h("span", { class: "wb-now-more", text: `+${model.nowMore} more` }) : null;
+    if (cards.length === 1 && !more) return nowCard(cards[0]);
+    return h("div", { class: "wb-nows" }, cards.map(nowCard), more);
   }
 
   function draw(model, state) {
@@ -148,13 +155,14 @@ export function createTrack({ onOpenSteps, onSelectRequest = () => {} }) {
         h("div", { class: "wb-track-head" }, selector(model, onSelectRequest), h("strong", { class: "wb-track-title", text: r.title || `Request ${r.id}` }),
           h("span", { class: "pui-badge pui-muted pui-soft wb-track-project", text: r.project }), h("span", { class: "wb-track-count", text: countText })),
         model.steps.length ? stepsList(model, 13) : h("p", { class: "wb-empty", text: `Request ${r.id} has no steps yet (${r.state}).` })),
-      nowCard(model));
+      nowCards(model));
     const current = model.now;
+    const running = Array.isArray(model.nows) ? model.nows.filter((c) => c.running).length + model.nowMore : (current && current.running ? 1 : 0);
     const open = h("button", { class: "pui-btn pui-link wb-track-open", type: "button", "aria-label": `Steps of request ${r.id}, ${countText}. Open the list` },
       h("span", { class: "wb-dots", "aria-hidden": "true" }, model.steps.map((s) => nodeIcon(s.state, 12))),
       h("span", { class: "wb-track-now-text" },
-        h("strong", { text: current ? current.title : (r.title || `Request ${r.id}`) }),
-        h("span", { class: "wb-step-sub", text: current ? current.where.replace(/^Now on |^Waiting on /, "") : r.state })));      // no state word: the dots carry it (R-8)
+        h("strong", { text: running > 1 ? `${running} tasks running` : current ? current.title : (r.title || `Request ${r.id}`) }),
+        h("span", { class: "wb-step-sub", text: running > 1 ? `request #${r.id}` : current ? current.where.replace(/^Now on |^Waiting on /, "") : r.state })));      // no state word: the dots carry it (R-8)
     open.addEventListener("click", () => onOpenSteps(`Request ${r.id}, ${r.title || ""}`, model.steps.length ? stepsList(model, 13, true) : h("p", { class: "wb-empty", text: "No steps yet." }), open));
     phone.replaceChildren(
       h("div", { class: "wb-track-head" }, selector(model, onSelectRequest), h("strong", { class: "wb-track-title", text: r.title || `Request ${r.id}` }),

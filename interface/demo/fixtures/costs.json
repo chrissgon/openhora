@@ -6,11 +6,26 @@
       "agent": null,
       "model": "m",
       "adapter": "h",
-      "runs": 6,
-      "tokens": 200,
+      "runs": 4,
+      "tokens": 100,
       "recorded_usd": 0.55,
       "recomputed_usd": null,
-      "unknown_runs": 6,
+      "unknown_runs": 4,
+      "price": {
+        "source": "https://prices.example/models",
+        "date": "2026-10-01"
+      }
+    },
+    {
+      "day": "2026-10-01",
+      "agent": "engineering",
+      "model": "m",
+      "adapter": "h",
+      "runs": 2,
+      "tokens": 100,
+      "recorded_usd": null,
+      "recomputed_usd": null,
+      "unknown_runs": 2,
       "price": {
         "source": "https://prices.example/models",
         "date": "2026-10-01"
@@ -36,11 +51,11 @@
       "agent": "planning",
       "model": "m",
       "adapter": "h",
-      "runs": 2,
+      "runs": 3,
       "tokens": 200,
       "recorded_usd": null,
       "recomputed_usd": null,
-      "unknown_runs": 2,
+      "unknown_runs": 3,
       "price": {
         "source": "https://prices.example/models",
         "date": "2026-10-01"
@@ -52,12 +67,12 @@
       "agent": "planning",
       "max_runs_per_day": 12,
       "max_usd_per_day": 5,
-      "runs_today": 2,
+      "runs_today": 3,
       "usd_today": 0.0,
       "runs_without_cost": 0,
       "usd_recorded": 0.0,
       "usd_reserved": 0.0,
-      "runs_total_today": 2
+      "runs_total_today": 3
     },
     {
       "agent": "design",
@@ -74,12 +89,12 @@
       "agent": "engineering",
       "max_runs_per_day": 8,
       "max_usd_per_day": 4,
-      "runs_today": 0,
+      "runs_today": 2,
       "usd_today": 0.0,
       "runs_without_cost": 0,
       "usd_recorded": 0.0,
       "usd_reserved": 0.0,
-      "runs_total_today": 0
+      "runs_total_today": 2
     },
     {
       "agent": "marketing",

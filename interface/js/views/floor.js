@@ -175,8 +175,7 @@ export function createFloorView(frame, env) {
     if (!view || !view.found || view.notAccepted || view.unaccepted) return;     // not accepted: the bodies read before stay, nothing is asked of a refusing project
     const wanted = new Map();
     if (view.current) wanted.set(view.current.id, view.current);
-    const running = view.tasks.find((t) => t.state === "running");
-    if (running) wanted.set(running.id, running);
+    for (const t of view.runningTasks) wanted.set(t.id, t);      // every running task of the floor has its card: its runs are read
     if (last.route.tab === "inbox") for (const t of view.tasks.slice(0, MAX_TASK_READS)) wanted.set(t.id, t);
     for (const t of wanted.values()) {
       if (force) bodies.delete(t.id);

@@ -8,7 +8,7 @@
 
 import * as format from "./format.js";
 import * as router from "./router.js";
-import { MAX_FLOORS, TURN_REASON, acceptance, floorNumber, openRequests, pickRequest, queuedFree, requestChoice, routingRequest, routingWords } from "./model.js";
+import { MAX_FLOORS, MAX_NOW, TURN_REASONS, acceptance, floorNumber, openRequests, pickRequest, queuedFree, requestChoice, routingRequest, routingWords, runningIds, runningTasks } from "./model.js";
 import { windowState } from "./scene/look.js";
 import { waitLines, waitingLabel, waitsOf } from "./waits.js";
 
@@ -56,15 +56,24 @@ export const HELD_SENTENCES = Object.freeze({
   "secret store": "The service cannot read the secret store.",
   image: "The eval image is not on this machine.",
   "dispatch off": "The service is not dispatching tasks.",
-  "job running": "Another task of this project is running; one runs at a time.",
+  "agent at max_parallel": "Every slot of this floor is held, by {tasks}; it starts when one ends.",
+  "project at max_running": "The project runs as many tasks as it allows at once; it starts when one ends.",
+  "artifact in use": "Another running task writes the same document; it starts when that one ends.",
+  "a code task of the request runs": "Another code task of this request is running; code of one request runs one task at a time.",
+  "could not start, tried again shortly": "It could not start just now; the next round tries again.",
   waiting: "The task waits for another task; its reason is on its row.",
   "no enabled agent owns the task": "No enabled agent owns this task.",
   other: "The dispatcher held this task for a reason the page does not know.",
 });
 
-/** The sentence of a held reason. */
-export function heldSentence(reason) {
-  return HELD_SENTENCES[reason] !== undefined ? HELD_SENTENCES[reason] : String(reason || "");
+/**
+ * The sentence of a held reason. `holders` are the numbers of the tasks that hold the floor's slots (the agent's `holders`); the sentence of `agent at max_parallel` names
+ * them ("by #12, #15"), and leaves the clause out when the read lists none.
+ */
+export function heldSentence(reason, holders = []) {
+  if (HELD_SENTENCES[reason] === undefined) return String(reason || "");
+  const numbers = (Array.isArray(holders) ? holders : []).filter(Number.isInteger).map((n) => `#${n}`).join(", ");
+  return HELD_SENTENCES[reason].replace(numbers ? "{tasks}" : ", by {tasks}", numbers);
 }
 
 const word = (table, key) => (table[key] !== undefined ? table[key] : (typeof key === "string" && key ? key : ""));
@@ -129,9 +138,11 @@ export function agentDecisions(status, name) {
   return (Array.isArray(status && status.pending) ? status.pending : []).filter((item) => agentOf(item) === name);
 }
 
-/** The task a floor shows as current (OPEN-16): the running one, else the newest waiting, ready, blocked or failed one. */
+/** The task a floor shows as current (OPEN-16): the oldest running one (a floor with several slots may run several), else the newest waiting, ready, blocked or failed one. */
 export function pickCurrent(tasks) {
-  for (const state of ["running", "waiting", "ready", "blocked", "failed"]) {
+  const running = tasks.filter((t) => t.state === "running");
+  if (running.length) return running.reduce((a, b) => (b.id < a.id ? b : a));
+  for (const state of ["waiting", "ready", "blocked", "failed"]) {
     const found = tasks.find((t) => t.state === state);
     if (found) return found;
   }
@@ -143,8 +154,8 @@ export function handOverTarget(tasks, current) {
   return tasks.find((t) => t.state === "failed" || t.state === "blocked") || current || null;
 }
 
-// `queuedFree` and `TURN_REASON` are model.js's (the City's window rule needs them too); the Floor's modules and the tests read them here.
-export { TURN_REASON, queuedFree };
+// `queuedFree` and `TURN_REASONS` are model.js's (the City's window rule needs them too); the Floor's modules and the tests read them here.
+export { TURN_REASONS, queuedFree };
 
 /** "working", "off", "waiting", "ready" or "idle" for an agent (the City's window rule first: a running task lights the floor; then a decision; then a task queued and not held). */
 export function stateOf(agent, status, accepted = true) {
@@ -155,12 +166,12 @@ export function stateOf(agent, status, accepted = true) {
   if (running) return "working";
   if (agent.enabled === false || agent.acting_mode === "stopped") return "off";
   if (agentDecisions(status, name).length > 0) return "waiting";
-  if (queuedFree(agent, status) > 0) return "ready";   // M-24: a task queued behind the one run at a time and not held: the owl is awake, ready
+  if (queuedFree(agent, status) > 0) return "ready";   // M-24: a task queued for a slot and not held: the owl is awake, ready
   return "idle";
 }
 
 const STATE_WORDS = { working: "Running", waiting: "Waiting for you", ready: "Queued", idle: "Idle", off: "Off, mode is stopped" };
-export const QUEUED_NOTE = "starts when the current run ends";   // what a queued floor says where a sentence fits (M-24)
+export const QUEUED_NOTE = "starts when a slot frees";   // what a queued floor says where a sentence fits (M-24)
 const DOT = { working: "theme", waiting: "warn", ready: "theme", idle: "muted", off: "border" };
 
 /** The words of an agent's state, as the floors list reads them. */
@@ -216,6 +227,17 @@ export function spendSplit(agent, usd, usdCap) {
   return { usdRecorded, usdReserved, usdRecordedShare: recordedShare, usdReservedShare: reservedShare, usdNote: split ? format.spendNote(usdRecorded, usdReserved) : "" };
 }
 
+/**
+ * The slots of a floor, from the agent's own numbers: {held, max, text: "1 of 2 slots"}. `held` is the agent's `slots_held` and `max` its `max_parallel`, as the `agents` read gave them;
+ * the page computes neither and never writes the cap. A floor with one slot (the default), or an older service that gives none, says nothing: null.
+ */
+export function slotsOf(agent) {
+  const max = agent && agent.max_parallel;
+  const held = agent && agent.slots_held;
+  if (!Number.isInteger(max) || max < 2 || !Number.isInteger(held) || held < 0) return null;
+  return { held, max, text: `${held} of ${max} slots` };
+}
+
 /** One floor's row: every fact the plate, the list row and the tooltip show. */
 export function floorRow(agent, status, context) {
   const name = agent.name || PLANNING;
@@ -227,7 +249,7 @@ export function floorRow(agent, status, context) {
   const decisions = accepted ? agentDecisions(status, name).length : 0;
   const work = orderTasks(status, context.project).filter((t) => agentOf(t) === name);
   const done = work.filter((t) => t.state === "done").length;
-  const running = work.filter((t) => t.state === "running").length;
+  const running = agentTasks(status, name).filter((t) => t.state === "running").length;      // agent-wide, as `stateOf`: a running task in another request counts (done, left and notes stay the followed request's)
   const left = work.filter((t) => t.state === "planned" || t.state === "blocked").length;       // A-12: not started and not ready
   const queued = format.count(agent.queued);
   // R-23b: the board of the room has one note for each task of the agent in the followed request, coloured by state: done, running, failed (the error tone) or still to do (a cancelled
@@ -251,23 +273,24 @@ export function floorRow(agent, status, context) {
   // R-26: the state as a soft badge: working (brand), resting and off (muted), waiting for you, held: ... and not accepted (warn)
   const plateWord = !configured ? "not accepted"
     : state === "working" ? "working" : state === "off" ? "Off, mode is stopped" : state === "waiting" ? "waiting for you" : state === "ready" ? "queued" : heldReason ? `held: ${heldReason}` : "resting";
-  const plateTone = !configured ? "pui-warn" : state === "working" ? "pui-theme" : state === "off" ? "pui-muted" : state === "ready" ? "pui-muted" : (state === "waiting" || heldReason) ? "pui-warn" : "pui-muted";   // a queued floor is muted whatever else is held (the real ready case always carries `job running`)
+  const plateTone = !configured ? "pui-warn" : state === "working" ? "pui-theme" : state === "off" ? "pui-muted" : state === "ready" ? "pui-muted" : (state === "waiting" || heldReason) ? "pui-warn" : "pui-muted";   // a queued floor is muted whatever else is held (the real ready case always carries one of the turn words)
   const lower = state === "working" ? "working" : state === "waiting" ? "waiting for you" : state === "ready" ? "queued" : state === "idle" ? "idle" : "off";
   const inUse = format.metersInUse(agent);        // A-38: a meter only for a cap in use
   const money = `${format.dollars(usd)} of ${format.dollars(usdCap)}`;
   const usage = [inUse.runs ? `${runs} of ${runsCap} runs` : "", inUse.spend ? money : ""].filter(Boolean);
   const meters = [inUse.runs ? `runs ${runs} / ${runsCap}` : "", inUse.spend ? money : ""].filter(Boolean).join(" · ");
-  const counts = [`${done} done`, running > 0 ? `${running} running` : "", queued > 0 ? `${queued} queued` : "", `${left} left`, waits ? waits.text : ""].filter(Boolean).join(", ");
+  const slots = slotsOf(agent);
+  const counts = [`${done} done`, running > 0 ? `${running} running` : "", queued > 0 ? `${queued} queued` : "", `${left} left`, waits ? waits.text : "", slots ? slots.text : ""].filter(Boolean).join(", ");
   return {
-    name, label, lobby, number: context.number, state, stateWord, accepted,
+    name, label, lobby, number: context.number, state, stateWord, accepted, slots,
     unaccepted, held: heldTasks.length, heldReason, inUse,   // R-21 extended (M-24): the window is lit while the agent works, waits or is ready (a queued task)
     window: windowState(configured && (state === "working" || state === "waiting" || state === "ready")), dot: DOT[state], decisions, queued, done, running, left, waits, notes,
     runs, runsCap, usd, usdCap, unknown, ...split, runsTotal: agent.runs_total_today === undefined ? null : format.count(agent.runs_total_today), mode, acting, pips: mode ? PIPS[mode] || 0 : 0, actingPips: acting ? PIPS[acting] || 0 : 0,
     actingDiffers: Boolean(mode && acting && mode !== acting),
     link: lobby ? router.lobbyHash(context.project) : router.floorHash(context.project, name),
     meters, counts,
-    tip: `${label}: ${mode ? `${mode}, ` : ""}${lower}${inUse.runs ? `, ${runs} of ${runsCap} runs` : inUse.spend ? `, ${money}` : ""}`,
-    linkName: `${label}, ${unaccepted ? `not accepted, ${lower}` : accepted ? lower : "waiting for the configuration to be accepted"}${heldReason ? `, held: ${heldReason}` : ""}${mode ? `, ${mode} mode` : ""}${usage.length ? `, ${usage.join(", ")}` : ""}${decisions ? `, ${format.decisions(decisions)} waiting` : ""}`,
+    tip: `${label}: ${mode ? `${mode}, ` : ""}${lower}${slots ? `, ${slots.text}` : ""}${inUse.runs ? `, ${runs} of ${runsCap} runs` : inUse.spend ? `, ${money}` : ""}`,
+    linkName: `${label}, ${unaccepted ? `not accepted, ${lower}` : accepted ? lower : "waiting for the configuration to be accepted"}${heldReason ? `, held: ${heldReason}` : ""}${mode ? `, ${mode} mode` : ""}${slots ? `, ${slots.text}` : ""}${usage.length ? `, ${usage.join(", ")}` : ""}${decisions ? `, ${format.decisions(decisions)} waiting` : ""}`,
     plateWord, plateTone, configured, modeLine: mode ? MODE_LINES[mode] || "" : "",
     // R-21: a floor whose agent waits is lit like one that works: its dot is the brand colour (the Floor's board keeps `dot`)
     plateDot: state === "waiting" ? "theme" : DOT[state],
@@ -328,25 +351,25 @@ export function requestRows(status, projectId) {
 
 /** The panel's facts: Configuration, Running now, Request, Waiting for you. */
 export function facts(project, status, accepted, kept = false, now = null) {
-  const out = { configuration: accepted ? "Accepted" : "Not accepted", accepted, running: null, request: null, waiting: 0 };
+  const out = { configuration: accepted ? "Accepted" : "Not accepted", accepted, running: null, runningList: [], runningCount: 0, runningMore: 0, request: null, waiting: 0 };
   if (kept) out.kept = true;
   if (!(accepted || kept) || !status) return out;
   const open = pickRequest(status, requestChoice(project.id));
   if (open) out.request = { id: open.id, title: open.title || "" };
   out.waiting = (status.pending || []).length;
-  let id = project.running_task;
-  if ((id === null || id === undefined) && kept) {
-    // not accepted: the project list no longer says which task runs; the last status does
-    const running = (status.requests || []).flatMap((r) => r.tasks || []).find((t) => t.state === "running");
-    id = running ? running.id : null;
+  let ids = runningIds(project);
+  if (!ids.length && kept) {
+    // not accepted: the project list no longer says which tasks run; the last status does
+    ids = runningTasks(status).map((t) => t.id);
   }
   const routed = routingRequest(status);
-  if ((id === null || id === undefined) && routed) {
+  if (!ids.length && routed) {
     // A-51: no task runs while the router works on a request; the run row is the one record of it
     out.running = { id: routed.id, title: routed.title || "", link: router.requestHash(project.id, routed.id), label: routingWords(routed, now) };
+    out.runningList = [out.running];
     return out;
   }
-  if (id !== null && id !== undefined) {
+  const where = (id) => {
     let found = null;
     for (const request of status.requests || []) {
       if (request.id === id) found = { id, title: request.title || "", link: router.lobbyHash(project.id) };
@@ -354,8 +377,12 @@ export function facts(project, status, accepted, kept = false, now = null) {
         if (t.id === id) found = { id, title: t.title || t.key || "", link: t.agent && t.agent !== PLANNING ? router.floorHash(project.id, t.agent) : router.lobbyHash(project.id) };
       }
     }
-    out.running = found || { id, title: "", link: router.buildingHash(project.id) };
-  }
+    return found || { id, title: "", link: router.buildingHash(project.id) };
+  };
+  out.runningCount = ids.length;
+  out.runningList = ids.slice(0, MAX_NOW).map(where);      // up to three, then "+N more"
+  out.runningMore = Math.max(0, ids.length - MAX_NOW);
+  out.running = out.runningList.length ? out.runningList[0] : null;
   return out;
 }
 
@@ -374,7 +401,7 @@ export function plateOf(row, selected = false) {
   return {
     name: row.name, label: row.label, dot: row.plateDot, decisions: row.decisions, word: row.plateWord, tone: row.plateTone, modeLine: row.modeLine,
     actingLine: row.actingDiffers ? `acting as ${row.acting}` : "",
-    done: row.done, running: row.running, left: row.left, queued: row.queued, waits: row.waits,
+    done: row.done, running: row.running, left: row.left, queued: row.queued, waits: row.waits, slots: row.slots,
     inUse: row.inUse, runsText: `${row.runs} / ${row.runsCap}`, runsShare: format.share(row.runs, row.runsCap),
     usdText: `${format.dollars(row.usd)} / ${format.dollars(row.usdCap)}`, usdShare: format.share(row.usd, row.usdCap),
     unknown: row.unknown, usdReserved: row.usdReserved, usdNote: row.usdNote, usdRecordedShare: row.usdRecordedShare, usdReservedShare: row.usdReservedShare, runsTotal: row.runsTotal, mode: row.mode, pips: row.pips, acting: row.actingDiffers ? row.acting : null, actingPips: row.actingPips,
@@ -445,17 +472,21 @@ export function meters(agent) {
   };
 }
 
-/** The agent tab's state row: {tone, chip, line, off}. `running` is the running task's body (for "Running for 12 min", R-8: how long, not since when), or null; `now` is a Date. */
-export function stateRow(state, decisions, runningBody, now = new Date()) {
+/**
+ * The agent tab's state row: {tone, chip, line, off}. `running` is the oldest running task's body (for "Running for 12 min", R-8: how long, not since when), or null; `now` is a Date;
+ * `slots` is the row's `slots` (slotsOf), which the line ends with when the floor has more than one.
+ */
+export function stateRow(state, decisions, runningBody, now = new Date(), slots = null) {
+  const end = slots ? ` · ${slots.text}` : "";
   if (state === "working") {
     const runs = runningBody && Array.isArray(runningBody.runs) ? runningBody.runs : [];
     const lasted = runs.length ? format.runningFor(runs[runs.length - 1].started_at, now) : "";
-    return { tone: "pui-theme pui-soft", chip: "Working", line: lasted ? `Running ${lasted}` : "Running", off: false };
+    return { tone: "pui-theme pui-soft", chip: "Working", line: `${lasted ? `Running ${lasted}` : "Running"}${end}`, off: false };
   }
-  if (state === "waiting") return { tone: "pui-warn pui-soft", chip: "Waiting for you", line: `${format.decisions(decisions)} in the Inbox`, off: false };
+  if (state === "waiting") return { tone: "pui-warn pui-soft", chip: "Waiting for you", line: `${format.decisions(decisions)} in the Inbox${end}`, off: false };
   if (state === "off") return { tone: "pui-muted pui-outline", chip: "Off", line: "Off, mode is stopped", off: true };
-  if (state === "ready") return { tone: "pui-theme pui-soft", chip: "Queued", line: `Queued, ${QUEUED_NOTE}`, off: false };
-  return { tone: "pui-muted pui-soft", chip: "Idle", line: "Waiting for the next task", off: false };
+  if (state === "ready") return { tone: "pui-theme pui-soft", chip: "Queued", line: `Queued, ${QUEUED_NOTE}${end}`, off: false };
+  return { tone: "pui-muted pui-soft", chip: "Idle", line: `Waiting for the next task${end}`, off: false };
 }
 
 /**
@@ -510,7 +541,7 @@ export function floor(snapshot, projectId, name, bodies = {}, options = {}) {
   if (!view.accepted && !view.kept) {
     const row = floorRow(stub(name), null, { accepted: false, project: projectId, number: null });
     return {
-      found: true, notAccepted: true, view, row, tasks: [], others: [], decisions: [], runs: [], current: null, currentBody: null, target: null, runningBody: null,
+      found: true, notAccepted: true, view, row, tasks: [], others: [], heldOthers: {}, decisions: [], runs: [], current: null, currents: [], runningTasks: [], currentBody: null, target: null, runningBody: null,
       header: { title: `${label} agent`, sub: `${view.name} · Waiting for the configuration to be accepted`, icon: "building-2" },
       canvasLabel: `${label} floor of ${view.name}, not accepted`,
     };
@@ -525,19 +556,33 @@ export function floor(snapshot, projectId, name, bodies = {}, options = {}) {
   const decisions = status ? agentDecisions(status, name) : [];
   const currentBody = current ? bodies[current.id] || null : null;
   const runs = currentBody && Array.isArray(currentBody.runs) ? [...currentBody.runs].reverse() : [];
-  const runningTask = tasks.find((t) => t.state === "running") || null;
+  const running = tasks.filter((t) => t.state === "running").sort((a, b) => a.id - b.id);      // the agent's running tasks, oldest first (a floor with several slots runs several)
+  const runningTask = running[0] || null;
   const subParts = [row.number === null ? null : `floor ${row.number}`, row.unaccepted ? "not accepted" : row.stateWord];     // C-6, floor.html: the project is in the crumbs and the switcher
   const holding = current && status ? heldOf(status, name).find((h) => h.task_id === current.id) : null;
+  // the cards of "Current tasks": one for each running task, else the one current task; each with its body, its runs (newest first) and, when the dispatcher holds it, why
+  const cardsFor = running.length > 1 ? running : current ? [current] : [];
+  const currents = cardsFor.map((t) => {
+    const body = bodies[t.id] || null;
+    const held = status ? heldOf(status, name).find((h) => h.task_id === t.id) : null;
+    return { task: t, body, runs: body && Array.isArray(body.runs) ? [...body.runs].reverse() : [], held: held ? heldBlockOf(held, agent) : null };
+  });
   return {
-    found: true, view, row, agent, tasks, current, others: tasks.filter((t) => !current || t.id !== current.id), decisions, runs, currentBody,
+    found: true, view, row, agent, tasks, current, currents, runningTasks: running, others: tasks.filter((t) => !cardsFor.some((c) => c.id === t.id) && (!current || t.id !== current.id)), decisions, runs, currentBody,
     unaccepted: Boolean(row.unaccepted),
     // A-62: while the configuration waits for acceptance the tab says so and shows the accept step; the command is the service's, as it gave it with the refusal (412), never built here
     acceptNext: detail && detail.error && detail.error.status === 412 && typeof detail.error.next === "string" && detail.error.next.trim() ? detail.error.next : null,
-    heldCurrent: holding ? { task_id: holding.task_id, reason: holding.reason, sentence: heldSentence(holding.reason), next: typeof holding.next === "string" && holding.next ? holding.next : null, ...(heldCommands(holding).length ? { commands: heldCommands(holding) } : {}) } : null,
+    heldCurrent: holding ? heldBlockOf(holding, agent) : null,
+    heldOthers: Object.fromEntries((status ? heldOf(status, name) : []).map((h) => [h.task_id, heldBlockOf(h, agent)])),      // why each ready task of the floor waits (a floor with several slots shows it on the other tasks too)
     target: handOverTarget(tasks, current), runningBody: runningTask ? bodies[runningTask.id] || null : null,
     header: { title: `${row.label} agent`, sub: subParts.filter((p) => p !== null).join(" · "), icon: "building-2" },     // C-6; floor.html draws the building icon for every agent
     canvasLabel: `${row.label} floor of ${view.name}, ${row.label} agent ${row.accepted && !row.unaccepted ? { working: "working", waiting: "waiting", ready: "queued", idle: "idle", off: "off" }[row.state] : "not accepted"}, ${format.decisions(decisions.length)}`,
   };
+}
+
+/** A held task as the Floor shows it: its reason's sentence (naming the holders of the floor's slots for `agent at max_parallel`), the sentence that gets past it and the commands. */
+function heldBlockOf(held, agent) {
+  return { task_id: held.task_id, reason: held.reason, sentence: heldSentence(held.reason, agent && agent.holders), next: typeof held.next === "string" && held.next ? held.next : null, ...(heldCommands(held).length ? { commands: heldCommands(held) } : {}) };
 }
 
 /** Whether `projectId` has the Floor of area agent `name`: a project that is not accepted answers for every floor (its waiting line); an unknown project has none. */
@@ -567,6 +612,7 @@ export function boardOf(view, now = new Date()) {
     lines.push([`run #${run.id} ${status}`, run.status !== "running" && ending && ending.toLowerCase() !== status.toLowerCase() ? ending : "", `attempt ${format.count(run.attempts)}`,
       typeof run.tokens === "number" ? `${run.tokens.toLocaleString("en-US")} tokens` : "", typeof run.cost_usd === "number" ? `$${run.cost_usd.toFixed(4)}` : "unknown"].filter(Boolean).join(" · "));
   }
+  if (row.slots) lines.push(row.slots.text);      // the slots of the floor: the agent's own numbers
   // the board names the task with its number and says it is the current one (C-18)
   const name = current.title || current.key || "";
   return { title: `#${current.id}${name ? ` ${name}` : ""} · current task`, lines, dot: row.state === "off" ? "border" : row.dot };

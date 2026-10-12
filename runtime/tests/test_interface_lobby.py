@@ -107,11 +107,11 @@ out.roomShape = m.roomModel({ working: false, decisions: 2, hasMessages: true, a
 out.label = m.canvasLabel("northwind-shop", m.roomModel({ working: false, decisions: 1, hasMessages: true, accepted: true, request: null }));
 
 const hash = "0123456789abcdef".repeat(4);
-const plan = { id: 22, kind: "plan", title: "Plan: x (3 tasks)", body: "stored text", payload: { plan_sha256: hash, limits: { one_task_at_a_time: true, timeout_seconds: 1800, retries: 2 }, estimate: { runs_at_least: 3 },
+const plan = { id: 22, kind: "plan", title: "Plan: x (3 tasks)", body: "stored text", payload: { plan_sha256: hash, limits: { max_running: 3, timeout_seconds: 1800, retries: 2 }, estimate: { runs_at_least: 3 },
   tasks: [{ key: "a", title: "Build the page", skill: "eng-implement", depends_on: [], milestone: false, web: false, agent: "engineering" }, { key: "b", title: "Review", skill: "eng-review", depends_on: ["a"], milestone: true, web: true },
     { key: "c", title: "Publish", skill: "mkt-publish", depends_on: ["a", "b", "zz"], milestone: true, mandatory_milestone: true, web: false }] } };
 out.planRows = rows.taskRows(plan);
-out.limits = [rows.limitsLine(plan), rows.limitsLine({ payload: { limits: { one_task_at_a_time: false, timeout_seconds: 60, retries: 1 }, estimate: { runs_at_least: 1 } } }), rows.limitsLine({ payload: {} }), rows.limitsLine({})];
+out.limits = [rows.limitsLine(plan), rows.limitsLine({ payload: { limits: { timeout_seconds: 60, retries: 1 }, estimate: { runs_at_least: 1 } } }), rows.limitsLine({ payload: {} }), rows.limitsLine({})];
 out.hash = [rows.planHash(plan), rows.planHash({ payload: { plan_sha256: "abc" } }), rows.planHash({}), rows.planText(plan)];
 out.columns = rows.COLUMNS;
 out.stacked = rows.stackedRow(rows.taskRows(plan)[0]);
@@ -169,7 +169,7 @@ def test_the_flow_select_is_the_planning_agents_own_route_then_one_option_per_fl
 @needs_node
 def test_a_refused_turn_shows_the_drawings_words_and_any_other_refusal_its_own_message_and_the_room_follows_the_state(tmp_path):
     got = run_node(tmp_path, MODEL)
-    assert got["notices"][0] == {"title": "Not sent", "text": "A run is in progress for this project. Your message was not stored."}
+    assert got["notices"][0] == {"title": "Not sent", "text": "The planning agent is answering another request of this project. Your message was not stored."}
     assert got["notices"][1] == {"title": "Not sent", "text": "nothing was stored"}
     assert got["notices"][2] == {"title": "The turn failed", "text": "The service had an internal error."}
     assert got["notices"][3]["title"] == "The turn failed"
@@ -189,7 +189,7 @@ def test_the_plan_card_builds_its_table_limits_hash_and_text_from_the_payload_al
         {"n": "1", "task": "Build the page", "skill": "eng-implement", "agent": "engineering", "after": "-", "milestone": "no", "web": "no"},
         {"n": "2", "task": "Review", "skill": "eng-review", "agent": "-", "after": "1", "milestone": "yes", "web": "yes"},
         {"n": "3", "task": "Publish", "skill": "mkt-publish", "agent": "-", "after": "1, 2", "milestone": "yes (mandatory)", "web": "no"}]
-    assert got["limits"] == ["One task at a time; each run at most 1800 s, retried at most 2 times. At least 3 runs.", "each run at most 60 s, retried at most 1 time. At least 1 run.", "", ""]
+    assert got["limits"] == ["Up to 3 tasks at a time; each run at most 1800 s, retried at most 2 times. At least 3 runs.", "each run at most 60 s, retried at most 1 time. At least 1 run.", "", ""]
     assert got["hash"] == ["0123456789abcdef" * 4, "", "", "stored text"], "a hash that is not 64 hex characters is not shown as one"
     assert got["stacked"] == {"head": "1  Build the page", "skill": "eng-implement", "agent": "engineering", "tail": "After - · Milestone no · Web no"}
     assert got["failures"] == ["A model run is already going for this project. Nothing was started; try again when it ends.", "That item is not there any more.", "hash mismatch", "The request failed."]
@@ -314,7 +314,7 @@ const hash = "ab".repeat(32);
 const out = {};
 const tasks = [{ key: "a", title: "<b>Build</b> the page", skill: "eng-implement", depends_on: [], milestone: false, web: false }];
 const item = (over = {}) => ({ id: 22, kind: "plan", title: "Plan: <i>x</i> (1 task)", body: "Source: <script>alert(1)</script>\nplan text", task_id: 14, agent: null, status: "open", created_at: "2026-10-08T08:00:00Z",
-  actions: ["approved", "rejected"], payload: { plan_sha256: hash, tasks, limits: { one_task_at_a_time: true, timeout_seconds: 1800, retries: 2 }, estimate: { runs_at_least: 1 } }, ...over });
+  actions: ["approved", "rejected"], payload: { plan_sha256: hash, tasks, limits: { max_running: 3, timeout_seconds: 1800, retries: 2 }, estimate: { runs_at_least: 1 } }, ...over });
 const calls = [];
 const api = {
   approve: async (...a) => { calls.push(["approve", ...a]); return { job: 5 }; },
@@ -788,7 +788,7 @@ globalThis.fetch = async (url, init) => {
 const out = {};
 const hash = "cd".repeat(32);
 const plan = (id, task_id, over = {}) => ({ id, kind: "plan", title: `Plan: <i>${id}</i>`, body: "text", task_id, agent: null, status: "open", created_at: "2026-10-08T08:00:00Z", actions: ["approved", "rejected"],
-  payload: { plan_sha256: hash, tasks: [{ key: "a", title: "Build", skill: "eng-implement", depends_on: [] }], limits: { one_task_at_a_time: true, timeout_seconds: 60, retries: 1 }, estimate: { runs_at_least: 1 } }, ...over });
+  payload: { plan_sha256: hash, tasks: [{ key: "a", title: "Build", skill: "eng-implement", depends_on: [] }], limits: { max_running: 3, timeout_seconds: 60, retries: 1 }, estimate: { runs_at_least: 1 } }, ...over });
 const question = { id: 12, kind: "question", title: "Which pages?", body: "Order list or detail?", task_id: 3, agent: null, status: "open", created_at: "2026-10-08T08:00:00Z", actions: ["answered"], payload: {} };
 answers.set(`GET /api/v1/projects/${P}/pending/11`, { status: 200, body: plan(11, 2) });
 answers.set(`GET /api/v1/projects/${P}/pending/12`, { status: 200, body: question });

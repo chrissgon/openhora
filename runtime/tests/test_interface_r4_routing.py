@@ -194,7 +194,7 @@ def test_the_lobby_view_draws_the_routing_run_in_its_blocks_its_composer_and_its
     got = run_view(tmp_path, VIEW)
     routed, quiet = got["routed"], got["quiet"]
     assert routed["two"] == ["Routing...", True, "Planning agent · routing request #2 · for 3 min", True], "A-51: the line says Routing... and names the run in text that wraps"
-    assert routed["one"][:2] == ["Route it", False] and routed["one"][2] == "A run is in progress: this request is routed when it ends.", \
+    assert routed["one"][:2] == ["Route it", False] and routed["one"][2] == "The planning agent is answering another request: this one is routed when it ends.", \
         "another request keeps Route it (the service queues it, A-23) and says so before the click"
     assert routed["composer"][0] is False and "Planning agent · routing request #2 · for 3 min" in routed["composer"][1], "the composer's run line names the run"
     assert routed["owl"] is True, "the planning agent's room is working"

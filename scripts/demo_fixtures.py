@@ -169,12 +169,28 @@ def seed(scratch: Path) -> dict:
         run = store.route_run_start(conn, waiting, skill="demo-asks", model="m", adapter="h", skill_version="0.1.0", billing="subscription")
         out["status-routing"] = ops.status(path)
         store.route_run_finish(conn, run["run_id"], status="ok", ending="done", attempts=1)
+        # the tasks of the code requests belong to the engineering floor, as a routed plan would have set them (a request made with a flow names no agent)
+        conn.execute("UPDATE tasks SET agent = 'engineering' WHERE parent_id IS NOT NULL AND agent IS NULL AND skill = 'demo-code'")
+        conn.commit()
         ready = conn.execute(store.NEXT_READY_TASK).fetchone()  # the oldest ready task, claimed by its id
         claimed = store.task_claim(conn, ready["id"]) if ready else {"task": None}
         running = None
         if claimed["task"]:
             running = claimed["task"]["id"]
             store.task_run_start(conn, running, skill="demo-code", model="m", adapter="h", skill_version="0.1.0", billing="subscription")
+        # A second task of another floor runs beside it (tasks of one project run in parallel): a request of the "demo" flow, whose first task is the
+        # planning agent's, claimed the same way.
+        beside = None
+        if claimed["task"]:
+            again = ops.request(path, "Look at the market again.")["request"]
+            plan2 = ops.route(path, again, "demo")
+            ops.approve(path, plan2["pending_id"], ops.pending(path, plan2["pending_id"])["payload"]["plan_sha256"])
+            for other in conn.execute("SELECT id FROM tasks WHERE parent_id IS NOT NULL AND state = 'ready' AND agent IS NOT NULL ORDER BY id").fetchall():
+                taken = store.task_claim(conn, other["id"])
+                if taken["task"]:
+                    beside = taken["task"]["id"]
+                    store.task_run_start(conn, beside, skill="demo-asks", model="m", adapter="h", skill_version="0.1.0", billing="subscription")
+                    break
         out["status-live"] = ops.status(path)
         out["task-live"] = ops.task(path, running) if running else ops.task(path, first)
         live_run = out["task-live"]["runs"][-1]["id"] if running else None

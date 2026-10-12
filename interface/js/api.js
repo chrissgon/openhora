@@ -147,7 +147,7 @@ export function tokenFile(options = {}) {
 // A function marked (job) answers 202: it returns the job {job, op, project, state, result, error, started_at,
 // ended_at}; hand job.job to pollJob. The other functions return what the operation returned.
 
-/** GET /projects: {projects: [{id, name, config: {sha256, accepted}, message?, open_pending?, running_task?}]}. */
+/** GET /projects: {projects: [{id, name, config: {sha256, accepted}, message?, open_pending?, running_task?, running_tasks?, routing_request?}]}; `running_tasks` are the numbers of the tasks that run, `running_task` the lowest. */
 export function projects(options) {
   return send("GET", "/projects", options);
 }
