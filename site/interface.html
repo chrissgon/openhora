@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Interface · openhora</title>
+<meta name="description" content="The local interface of openhora: a small low-poly city of your projects, the view onto the task runtime.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="/assets/img/openhora-favicon.svg" type="image/svg+xml">
+<link rel="preload" href="/fonts/space-grotesk-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/inter-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/vendor/perfectui/perfectui.css">
+<link rel="stylesheet" href="/assets/css/interface.css">
+<script src="/assets/js/site.js" defer></script>
+<script src="/assets/js/interface.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the content</a>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brandlink" href="/"><img src="/assets/img/openhora-mark.svg" alt="openhora" width="32" height="32"><span class="wordmark" aria-hidden="true">openhora</span></a>
+    <input class="nav-toggle-input" type="checkbox" id="nav-toggle" aria-label="Menu" aria-controls="site-nav">
+    <nav class="site-nav" id="site-nav" aria-label="Pages">
+      <a class="pui-btn btn-glow sm header-cta" href="https://github.com/chrissgon/openhora#install">Get started</a>
+      <ul><li><a href="/">Home</a></li><li><a href="/proof">Proof</a></li><li><a href="/first-steps">First steps</a></li><li><a href="/how-it-is-built">How it's built</a></li><li><a href="/interface" aria-current="page">Interface</a></li><li><a href="/glossary">Glossary</a></li></ul>
+      <a class="pui-btn pui-outline pui-surface btn-ghost repo-in-nav" href="https://github.com/chrissgon/openhora"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>Repository</a>
+    </nav>
+    <div class="header-tools">
+      <a class="pui-btn pui-outline pui-surface btn-ghost repo-link" href="https://github.com/chrissgon/openhora" aria-label="Repository"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg><span class="repo-label">Repository</span></a>
+      <button class="pui-btn pui-outline pui-surface mode-btn" type="button" data-mode-btn aria-label="Colour mode: System" data-current="system"><svg class="i-system" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="10" rx="1.5"/><path d="M7 17h6M10 13.5V17"/></svg><svg class="i-light" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="3.5"/><path d="M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.4 1.4M14.6 14.6 16 16M4 16l1.4-1.4M14.6 5.4 16 4"/></svg><svg class="i-dark" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16.5 12.2A7 7 0 0 1 7.8 3.5a7 7 0 1 0 8.7 8.7Z"/></svg></button>
+      <label class="nav-toggle" for="nav-toggle" aria-hidden="true"><span class="bars"></span><span>Menu</span></label>
+    </div>
+  </div>
+</header>
+<main id="main">
+<section class="band page-hero" aria-labelledby="page-title">
+  <div class="wrap">
+    <div class="dots fade-down" aria-hidden="true"></div>
+    <div class="hero-glow sm" aria-hidden="true"></div>
+    <div class="ph-copy">
+      <p class="ph-kicker">Interface</p>
+      <h1 id="page-title" class="ph-title">Your projects, as a small city</h1>
+      <p class="ph-lead">A person opens a local page and sees their projects as a small low-poly city: one building per project, one floor per area agent, an owl at a desk on each floor, and a card for whatever is waiting for the person. It is the view onto the task runtime, not a separate product.</p>
+      <p class="ph-lead">The real interface is a local page that the openhora runtime serves on your own machine, at 127.0.0.1 only. The tour below is a demo of it on fictional data.</p>
+    </div>
+    <span class="cross bl" aria-hidden="true"></span><span class="cross br" aria-hidden="true"></span>
+  </div>
+</section>
+<section class="band" id="tour" aria-labelledby="tour-t">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="num"><span class="big">01</span></div>
+      <div class="ttl"><h2 id="tour-t">The tour</h2><span class="aside">the real interface, in demo mode · you can take over at any time</span></div>
+    </div>
+    <div class="tour-page">
+      <div class="streak v-dusk tour-stage big"><div class="tour tour-player" id="tour-player" data-tour data-state="poster">
+      <div class="tour-chrome">
+        <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span class="tour-addr"><span class="lock" aria-hidden="true"></span>demo · fictional data</span>
+        <span class="pui-badge pui-soft pui-theme tour-badge">fictional project</span>
+      </div>
+      <div class="tour-screen">
+        <span class="tour-poster">
+          <img class="p-wide p-light" src="/assets/img/city-1280-light.webp" width="1280" height="800" alt="The City screen of the local interface, fictional data: an isometric plot with one low-poly building per project, the Runs today card, the tracking bar of the followed request and the Waiting for you card." loading="lazy" decoding="async">
+          <img class="p-wide p-dark" src="/assets/img/city-1280-dark.webp" width="1280" height="800" alt="The City screen of the local interface, fictional data: an isometric plot with one low-poly building per project, the Runs today card, the tracking bar of the followed request and the Waiting for you card." loading="lazy" decoding="async">
+          <img class="p-tall p-light" src="/assets/img/city-375-light.webp" width="375" height="812" alt="The City screen of the local interface, fictional data: an isometric plot with one low-poly building per project, the Runs today card, the tracking bar of the followed request and the Waiting for you card." loading="lazy" decoding="async">
+          <img class="p-tall p-dark" src="/assets/img/city-375-dark.webp" width="375" height="812" alt="The City screen of the local interface, fictional data: an isometric plot with one low-poly building per project, the Runs today card, the tracking bar of the followed request and the Waiting for you card." loading="lazy" decoding="async">
+        </span>
+        <iframe class="tour-frame" title="The interface in demo mode, fictional data" data-src="/demo/index.html"></iframe>
+        <div class="tour-overlay">
+          <button type="button" class="tour-start" data-tour-start><span class="tour-play" aria-hidden="true"><i class="ring r1"></i><i class="ring r2"></i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg></span><span class="tour-label"><b>Start the tour</b><small>loads the interface in demo mode · fictional data</small></span></button>
+        </div>
+        <div class="tour-state loading" role="status"><div class="box"><div class="tour-owl-wrap" aria-hidden="true"><svg class="tour-owl wb-owl" viewBox="0 0 200 200" aria-hidden="true" focusable="false"><defs><clipPath id="tour-owl-l"><circle cx="74" cy="98" r="22"/></clipPath><clipPath id="tour-owl-r"><circle cx="126" cy="98" r="22"/></clipPath></defs>
+<g stroke="#1E1B2E" stroke-width="7" stroke-linejoin="round" stroke-linecap="round">
+<path d="M44 70 Q30 40 36 22 Q60 34 74 50Z" fill="#6B4429"/><path d="M156 70 Q170 40 164 22 Q140 34 126 50Z" fill="#6B4429"/>
+<ellipse cx="80" cy="186" rx="13" ry="7" fill="#FCD34D"/><ellipse cx="120" cy="186" rx="13" ry="7" fill="#FCD34D"/>
+<path d="M100 36 C152 36 180 74 180 120 C180 164 146 186 100 186 C54 186 20 164 20 120 C20 74 48 36 100 36Z" fill="#A47551"/></g>
+<g stroke="#1E1B2E" stroke-width="6" stroke-linejoin="round">
+<path d="M30 120 Q28 158 62 174 Q48 148 50 122Z" fill="#6B4429"/><path d="M170 120 Q172 158 138 174 Q152 148 150 122Z" fill="#6B4429"/>
+<path d="M100 72 C84 52 42 54 42 96 C42 128 72 142 100 132 C128 142 158 128 158 96 C158 54 116 52 100 72Z" fill="#E6D2BC"/>
+<circle cx="74" cy="98" r="22" fill="#fff"/><circle cx="126" cy="98" r="22" fill="#fff"/></g>
+<g clip-path="url(#tour-owl-l)"><g class="owl-pupil"><circle cx="80" cy="101" r="11" fill="#1E1B2E"/><circle cx="84" cy="98" r="4" fill="#fff"/></g><rect class="owl-lid" x="50" y="70" width="50" height="20" fill="#6B4429"/></g>
+<g clip-path="url(#tour-owl-r)"><g class="owl-pupil"><circle cx="132" cy="101" r="11" fill="#1E1B2E"/><circle cx="136" cy="98" r="4" fill="#fff"/></g><rect class="owl-lid" x="102" y="70" width="50" height="20" fill="#6B4429"/></g>
+<g stroke="#1E1B2E" stroke-width="6" fill="none" stroke-linecap="round"><circle cx="74" cy="98" r="22"/><circle cx="126" cy="98" r="22"/><path class="owl-lidline" d="M53 90 H95"/><path class="owl-lidline" d="M105 90 H147"/></g>
+<path d="M92 116 Q100 112 108 116 Q103 130 100 132 Q97 130 92 116Z" fill="#FCD34D" stroke="#1E1B2E" stroke-width="5" stroke-linejoin="round"/>
+<g stroke="#6B4429" stroke-width="4" fill="none" stroke-linecap="round"><path d="M76 156 q6 6 12 0 q6 6 12 0 q6 6 12 0 q6 6 12 0"/><path d="M82 168 q6 6 12 0 q6 6 12 0 q6 6 12 0"/></g></svg></div><p>Loading the interface in demo mode…</p><span class="bar"><i></i></span></div></div>
+        <div class="tour-state error" role="alert"><div class="box"><p class="ts-h">The interface could not load.</p><p>The screenshots below show every screen. You can also run it on your own machine:</p><code class="ts-code">uv run --with keyring==25.7.0 python3 runtime/service.py --project &lt;dir&gt;</code><button type="button" class="pui-btn pui-outline pui-surface" data-tour-retry>Try again</button></div></div>
+        <p class="tour-takeover" hidden>You have the controls. The story is paused.</p>
+      </div>
+    </div></div>
+    </div>
+    <span class="cross tl" aria-hidden="true"></span><span class="cross tr" aria-hidden="true"></span>
+  </div>
+</section>
+<section class="band" aria-labelledby="screens-t">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="num"><span class="big">02</span></div>
+      <div class="ttl"><h2 id="screens-t">Five screens</h2><span class="aside">every screenshot is fictional data, except the Control room's skill list</span></div>
+    </div>
+    <div class="screens"><article class="sc " id="city" aria-labelledby="city-t">
+        <div class="sc-text">
+          <p class="sc-n">01 <span>/ 05</span></p>
+          <h3 id="city-t" tabindex="-1">City</h3>
+          <p class="sc-line">An isometric plot: one building per project, in flat low-poly faces</p>
+          <p class="sc-shows"><span>It shows</span> the KPI cards, the camera buttons, the project switcher, the colour-mode button, the “Control room” door, the tracking bar and the “Waiting for you” card.</p>
+          
+        </div>
+        <figure class="shot sc-shot">
+        <div class="shot-frame"><div class="shot-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="shot-addr">local service · 127.0.0.1</span><span class="pui-badge pui-soft pui-theme shot-tag">fictional data</span></div>
+        <div class="shot-img"><img class="s-wide s-light" src="/assets/img/city-1280-light.webp" width="1280" height="800" alt="The City of the local interface, fictional data: three project buildings, the KPI cards, the tracking bar of a running request and the Waiting for you card." loading="lazy" decoding="async"><img class="s-wide s-dark" src="/assets/img/city-1280-dark.webp" width="1280" height="800" alt="The City of the local interface, fictional data: three project buildings, the KPI cards, the tracking bar of a running request and the Waiting for you card." loading="lazy" decoding="async"><img class="s-tall s-light" src="/assets/img/city-375-light.webp" width="375" height="812" alt="The City of the local interface, fictional data: three project buildings, the KPI cards, the tracking bar of a running request and the Waiting for you card." loading="lazy" decoding="async"><img class="s-tall s-dark" src="/assets/img/city-375-dark.webp" width="375" height="812" alt="The City of the local interface, fictional data: three project buildings, the KPI cards, the tracking bar of a running request and the Waiting for you card." loading="lazy" decoding="async"></div></div>
+        <figcaption class="shot-cap"><span>Screenshot of the local interface, fictional data</span> · <a href="https://github.com/chrissgon/openhora/blob/main/interface/README.md" class="ext">interface/README.md</a></figcaption>
+      </figure>
+      </article><article class="sc flip" id="building" aria-labelledby="building-t">
+        <div class="sc-text">
+          <p class="sc-n">02 <span>/ 05</span></p>
+          <h3 id="building-t" tabindex="-1">Building</h3>
+          <p class="sc-line">A cutaway of the project's building, one floor per area agent, each floor lifted clear of the one below</p>
+          <p class="sc-shows"><span>It shows</span> a plate beside each floor with the agent's name, a state dot, a decisions badge, its mode word and its state, and two meters of the day.</p>
+          
+        </div>
+        <figure class="shot sc-shot">
+        <div class="shot-frame"><div class="shot-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="shot-addr">local service · 127.0.0.1</span><span class="pui-badge pui-soft pui-theme shot-tag">fictional data</span></div>
+        <div class="shot-img"><img class="s-wide s-light" src="/assets/img/building-1280-light.webp" width="1280" height="800" alt="A Building, fictional data: six floors with owls working, waiting and idle, the plates with state and meters, and the project panel with its requests." loading="lazy" decoding="async"><img class="s-wide s-dark" src="/assets/img/building-1280-dark.webp" width="1280" height="800" alt="A Building, fictional data: six floors with owls working, waiting and idle, the plates with state and meters, and the project panel with its requests." loading="lazy" decoding="async"><img class="s-tall s-light" src="/assets/img/building-375-light.webp" width="375" height="812" alt="A Building, fictional data: six floors with owls working, waiting and idle, the plates with state and meters, and the project panel with its requests." loading="lazy" decoding="async"><img class="s-tall s-dark" src="/assets/img/building-375-dark.webp" width="375" height="812" alt="A Building, fictional data: six floors with owls working, waiting and idle, the plates with state and meters, and the project panel with its requests." loading="lazy" decoding="async"></div></div>
+        <figcaption class="shot-cap"><span>Screenshot of the local interface, fictional data</span> · <a href="https://github.com/chrissgon/openhora/blob/main/interface/README.md" class="ext">interface/README.md</a></figcaption>
+      </figure>
+      </article><article class="sc " id="floor" aria-labelledby="floor-t">
+        <div class="sc-text">
+          <p class="sc-n">03 <span>/ 05</span></p>
+          <h3 id="floor-t" tabindex="-1">Floor</h3>
+          <p class="sc-line">One agent's room: the owl at its desk</p>
+          <p class="sc-shows"><span>It shows</span> a board of notes, an open bookcase with one binder per document, and the panel's tabs Agent, Inbox, Tasks, Desk.</p>
+          
+        </div>
+        <figure class="shot sc-shot">
+        <div class="shot-frame"><div class="shot-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="shot-addr">local service · 127.0.0.1</span><span class="pui-badge pui-soft pui-theme shot-tag">fictional data</span></div>
+        <div class="shot-img"><img class="s-wide s-light" src="/assets/img/floor-agent-1280-light.webp" width="1280" height="800" alt="A Floor, Agent tab, fictional data: the working owl at its desk, the mode, the meters of the day and the current task." loading="lazy" decoding="async"><img class="s-wide s-dark" src="/assets/img/floor-agent-1280-dark.webp" width="1280" height="800" alt="A Floor, Agent tab, fictional data: the working owl at its desk, the mode, the meters of the day and the current task." loading="lazy" decoding="async"><img class="s-tall s-light" src="/assets/img/floor-agent-375-light.webp" width="375" height="812" alt="A Floor, Agent tab, fictional data: the working owl at its desk, the mode, the meters of the day and the current task." loading="lazy" decoding="async"><img class="s-tall s-dark" src="/assets/img/floor-agent-375-dark.webp" width="375" height="812" alt="A Floor, Agent tab, fictional data: the working owl at its desk, the mode, the meters of the day and the current task." loading="lazy" decoding="async"></div></div>
+        <figcaption class="shot-cap"><span>Screenshot of the local interface, fictional data</span> · <a href="https://github.com/chrissgon/openhora/blob/main/interface/README.md" class="ext">interface/README.md</a></figcaption>
+      </figure>
+      </article><article class="sc flip" id="lobby" aria-labelledby="lobby-t">
+        <div class="sc-text">
+          <p class="sc-n">04 <span>/ 05</span></p>
+          <h3 id="lobby-t" tabindex="-1">Lobby</h3>
+          <p class="sc-line">The planning agent's room</p>
+          <p class="sc-shows"><span>It shows</span> the Conversation, Inbox, Tasks, Desk and Agent tabs, a request form, request lines and a plan card with the whole plan hash and “Approve this plan”.</p>
+          
+        </div>
+        <figure class="shot sc-shot">
+        <div class="shot-frame"><div class="shot-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="shot-addr">local service · 127.0.0.1</span><span class="pui-badge pui-soft pui-theme shot-tag">fictional data</span></div>
+        <div class="shot-img"><img class="s-wide s-light" src="/assets/img/lobby-conversation-1280-light.webp" width="1280" height="800" alt="The Lobby, Conversation tab, fictional data: a plan card with tasks, limits, the whole plan hash and Approve this plan, among the request lines." loading="lazy" decoding="async"><img class="s-wide s-dark" src="/assets/img/lobby-conversation-1280-dark.webp" width="1280" height="800" alt="The Lobby, Conversation tab, fictional data: a plan card with tasks, limits, the whole plan hash and Approve this plan, among the request lines." loading="lazy" decoding="async"><img class="s-tall s-light" src="/assets/img/lobby-conversation-375-light.webp" width="375" height="812" alt="The Lobby, Conversation tab, fictional data: a plan card with tasks, limits, the whole plan hash and Approve this plan, among the request lines." loading="lazy" decoding="async"><img class="s-tall s-dark" src="/assets/img/lobby-conversation-375-dark.webp" width="375" height="812" alt="The Lobby, Conversation tab, fictional data: a plan card with tasks, limits, the whole plan hash and Approve this plan, among the request lines." loading="lazy" decoding="async"></div></div>
+        <figcaption class="shot-cap"><span>Screenshot of the local interface, fictional data</span> · <a href="https://github.com/chrissgon/openhora/blob/main/interface/README.md" class="ext">interface/README.md</a></figcaption>
+      </figure>
+      </article><article class="sc " id="control-room" aria-labelledby="control-room-t">
+        <div class="sc-text">
+          <p class="sc-n">05 <span>/ 05</span></p>
+          <h3 id="control-room-t" tabindex="-1">Control room</h3>
+          <p class="sc-line">A server room</p>
+          <p class="sc-shows"><span>It shows</span> the Skills, Costs and Connections tabs; the Skills list shows the workbench's own skills, versions and bands at the captured commit.</p>
+          <p class="sc-real">Not fictional: the skills, versions and bands are the workbench's own at the captured commit.</p>
+        </div>
+        <figure class="shot sc-shot">
+        <div class="shot-frame"><div class="shot-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="shot-addr">local service · 127.0.0.1</span><span class="pui-badge pui-soft pui-theme shot-tag">fictional data</span></div>
+        <div class="shot-img"><img class="s-wide s-light" src="/assets/img/control-skills-1280-light.webp" width="1280" height="800" alt="The Control room, Skills tab: the workbench's own skills with version, area and the band of each model tier, at the captured commit." loading="lazy" decoding="async"><img class="s-wide s-dark" src="/assets/img/control-skills-1280-dark.webp" width="1280" height="800" alt="The Control room, Skills tab: the workbench's own skills with version, area and the band of each model tier, at the captured commit." loading="lazy" decoding="async"><img class="s-tall s-light" src="/assets/img/control-skills-375-light.webp" width="375" height="812" alt="The Control room, Skills tab: the workbench's own skills with version, area and the band of each model tier, at the captured commit." loading="lazy" decoding="async"><img class="s-tall s-dark" src="/assets/img/control-skills-375-dark.webp" width="375" height="812" alt="The Control room, Skills tab: the workbench's own skills with version, area and the band of each model tier, at the captured commit." loading="lazy" decoding="async"></div></div>
+        <figcaption class="shot-cap"><span>Screenshot of the local interface, fictional data</span> · <a href="https://github.com/chrissgon/openhora/blob/main/interface/README.md" class="ext">interface/README.md</a></figcaption>
+      </figure>
+      </article></div>
+    <span class="cross tl" aria-hidden="true"></span><span class="cross tr" aria-hidden="true"></span>
+  </div>
+</section>
+<section class="band" aria-labelledby="owl-t">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="num"><span class="big">03</span></div>
+      <div class="ttl"><h2 id="owl-t">The owl's three states</h2></div>
+    </div>
+    <div class="owl-sec"><ul class="owls"><li class="ow"><svg class="owl-fig" data-owl="waiting" viewBox="-20 -48 260 248" aria-hidden="true" focusable="false"><g class="owl-all"><path class="o-fb o-si" stroke-width="7" d="M44 70 Q30 40 36 22 Q60 34 74 50Z"/><path class="o-fb o-si" stroke-width="7" d="M156 70 Q170 40 164 22 Q140 34 126 50Z"/><ellipse class="o-fy o-si" stroke-width="7" cx="80" cy="186" rx="13" ry="7"/><ellipse class="o-fy o-si" stroke-width="7" cx="120" cy="186" rx="13" ry="7"/><g data-motion="wave"><path class="o-fb o-si" stroke-width="7" d="M168 128 Q196 112 206 66 Q208 52 198 54 Q192 40 184 52 Q174 44 172 60 Q168 90 150 112Z"/></g><path class="o-ft o-si" stroke-width="7" d="M100 36 C152 36 180 74 180 120 C180 164 146 186 100 186 C54 186 20 164 20 120 C20 74 48 36 100 36Z"/><path class="o-fb o-si" stroke-width="6" d="M30 120 Q28 158 62 174 Q48 148 50 122Z"/><path class="o-fc o-si" stroke-width="6" d="M100 72 C84 52 42 54 42 96 C42 128 72 142 100 132 C128 142 158 128 158 96 C158 54 116 52 100 72Z"/><ellipse class="o-fw o-si" stroke-width="6" cx="74" cy="98" rx="22" ry="22"/><ellipse class="o-fw o-si" stroke-width="6" cx="126" cy="98" rx="22" ry="22"/><ellipse class="o-fi" cx="80" cy="101" rx="11" ry="11"/><ellipse class="o-fi" cx="132" cy="101" rx="11" ry="11"/><ellipse class="o-fw" cx="84" cy="98" rx="4" ry="4"/><ellipse class="o-fw" cx="136" cy="98" rx="4" ry="4"/><path class="o-fb" d="M53.506 90 A22 22 0 0 1 94.494 90Z"/><path class="o-fb" d="M105.506 90 A22 22 0 0 1 146.494 90Z"/><ellipse class="o-si" stroke-width="6" fill="none" cx="74" cy="98" rx="22" ry="22"/><ellipse class="o-si" stroke-width="6" fill="none" cx="126" cy="98" rx="22" ry="22"/><path class="o-si" stroke-width="6" fill="none" d="M53 90 H95"/><path class="o-si" stroke-width="6" fill="none" d="M105 90 H147"/><path class="o-fy o-si" stroke-width="5" d="M92 116 Q100 112 108 116 Q103 130 100 132 Q97 130 92 116Z"/><path class="o-sb" stroke-width="4" fill="none" d="M76 156 q6 6 12 0 q6 6 12 0 q6 6 12 0 q6 6 12 0"/><path class="o-sb" stroke-width="4" fill="none" d="M82 168 q6 6 12 0 q6 6 12 0 q6 6 12 0"/></g></svg><p class="ow-n">Waiting</p><p class="ow-d">faces the person; one wing raised and waving. No question mark.</p></li><li class="ow"><svg class="owl-fig" data-owl="working" viewBox="-20 -48 260 248" aria-hidden="true" focusable="false"><g class="owl-all"><path class="o-fb o-si" stroke-width="7" d="M52 66 Q42 38 52 22 Q74 34 90 50Z"/><path class="o-fb o-si" stroke-width="7" d="M164 80 Q176 56 172 36 Q156 42 146 54Z"/><ellipse class="o-fy o-si" stroke-width="7" cx="96" cy="186" rx="13" ry="7"/><ellipse class="o-fy o-si" stroke-width="7" cx="132" cy="186" rx="13" ry="7"/><path class="o-ft o-si" stroke-width="7" d="M100 36 C152 36 180 74 180 120 C180 164 146 186 100 186 C54 186 20 164 20 120 C20 74 48 36 100 36Z"/><path class="o-fc o-si" stroke-width="6" d="M134 72 C118 52 76 54 76 96 C76 128 106 142 136 132 C152 140 172 128 172 100 C172 62 146 54 134 72Z"/><ellipse class="o-fw o-si" stroke-width="6" cx="106" cy="98" rx="22" ry="22"/><ellipse class="o-fw o-si" stroke-width="6" cx="155" cy="98" rx="11" ry="21"/><ellipse class="o-fi" cx="116" cy="107" rx="11" ry="11"/><ellipse class="o-fi" cx="159" cy="107" rx="6" ry="10"/><ellipse class="o-fw" cx="120" cy="104" rx="4" ry="4"/><ellipse class="o-fw" cx="161" cy="104" rx="2.6" ry="2.6"/><path class="o-fb" d="M85.506 90 A22 22 0 0 1 126.494 90Z"/><path class="o-fb" d="M144.829 90 A11 21 0 0 1 165.171 90Z"/><ellipse class="o-si" stroke-width="6" fill="none" cx="106" cy="98" rx="22" ry="22"/><ellipse class="o-si" stroke-width="6" fill="none" cx="155" cy="98" rx="11" ry="21"/><path class="o-si" stroke-width="6" fill="none" d="M85 90 H127"/><path class="o-si" stroke-width="6" fill="none" d="M146 90 H164"/><path class="o-fy o-si" stroke-width="5" d="M131 116 Q138 112 145 116 Q142 130 139 132 Q135 130 131 116Z"/><g data-motion="hand-far"><path class="o-fb o-si" stroke-width="6" d="M164 132 Q180 136 190 152 Q188 164 176 158 Q166 150 156 142Z"/></g><g data-motion="hand-near"><path class="o-fb o-si" stroke-width="6" d="M94 134 Q86 154 104 162 Q124 170 144 166 Q154 158 144 150 Q130 146 118 132Z"/></g></g></svg><p class="ow-n">Working</p><p class="ow-d">turned three-quarters to its desk; both wings on the keyboard, tapping in turn.</p></li><li class="ow"><svg class="owl-fig" data-owl="idle" viewBox="-20 -48 260 248" aria-hidden="true" focusable="false"><g class="owl-all"><g data-motion="breath"><path class="o-fb o-si" stroke-width="7" d="M44 70 Q30 40 36 22 Q60 34 74 50Z"/><path class="o-fb o-si" stroke-width="7" d="M156 70 Q170 40 164 22 Q140 34 126 50Z"/><ellipse class="o-fy o-si" stroke-width="7" cx="80" cy="186" rx="13" ry="7"/><ellipse class="o-fy o-si" stroke-width="7" cx="120" cy="186" rx="13" ry="7"/><path class="o-ft o-si" stroke-width="7" d="M100 36 C152 36 180 74 180 120 C180 164 146 186 100 186 C54 186 20 164 20 120 C20 74 48 36 100 36Z"/><path class="o-fb o-si" stroke-width="6" d="M30 120 Q28 158 62 174 Q48 148 50 122Z"/><path class="o-fb o-si" stroke-width="6" d="M170 120 Q172 158 138 174 Q152 148 150 122Z"/><path class="o-fc o-si" stroke-width="6" d="M100 72 C84 52 42 54 42 96 C42 128 72 142 100 132 C128 142 158 128 158 96 C158 54 116 52 100 72Z"/><ellipse class="o-fw o-si" stroke-width="6" cx="74" cy="98" rx="22" ry="22"/><ellipse class="o-fw o-si" stroke-width="6" cx="126" cy="98" rx="22" ry="22"/><ellipse class="o-fb" cx="74" cy="98" rx="22" ry="22"/><ellipse class="o-fb" cx="126" cy="98" rx="22" ry="22"/><path class="o-si" stroke-width="5" fill="none" d="M60 102 Q74 112 88 102"/><path class="o-si" stroke-width="5" fill="none" d="M112 102 Q126 112 140 102"/><path class="o-fb" d="M53.506 90 A22 22 0 0 1 94.494 90Z"/><path class="o-fb" d="M105.506 90 A22 22 0 0 1 146.494 90Z"/><ellipse class="o-si" stroke-width="6" fill="none" cx="74" cy="98" rx="22" ry="22"/><ellipse class="o-si" stroke-width="6" fill="none" cx="126" cy="98" rx="22" ry="22"/><path class="o-fy o-si" stroke-width="5" d="M92 116 Q100 112 108 116 Q103 130 100 132 Q97 130 92 116Z"/><path class="o-sb" stroke-width="4" fill="none" d="M76 156 q6 6 12 0 q6 6 12 0 q6 6 12 0 q6 6 12 0"/><path class="o-sb" stroke-width="4" fill="none" d="M82 168 q6 6 12 0 q6 6 12 0 q6 6 12 0"/></g><g data-motion="zz"><polygon class="o-fw o-si" stroke-width="5" points="160,28.32 177.36,28.32 177.36,32.24 165.21,40.08 177.36,40.08 177.36,44 160,44 160,40.08 172.15,32.24 160,32.24"/></g><g data-motion="zz" style="--d:.5s"><polygon class="o-fw o-si" stroke-width="5" points="176,3.84 198.32,3.84 198.32,8.88 182.7,18.96 198.32,18.96 198.32,24 176,24 176,18.96 191.62,8.88 176,8.88"/></g><g data-motion="zz" style="--d:1s"><polygon class="o-fw o-si" stroke-width="5" points="196,-33.12 228.2,-33.12 228.2,-24.84 205.66,-8.28 228.2,-8.28 228.2,0 196,0 196,-8.28 218.54,-24.84 196,-24.84"/></g></g></svg><p class="ow-n">Idle</p><p class="ow-d">standing, eyes shut, breathing slowly, three small z rising.</p></li></ul><p class="owl-not">“The owl is not a progress indicator.”</p></div>
+    <span class="cross tl" aria-hidden="true"></span><span class="cross tr" aria-hidden="true"></span>
+  </div>
+</section>
+<section class="band" aria-labelledby="pw-t">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="num"><span class="big">04</span></div>
+      <div class="ttl"><h2 id="pw-t">Who holds the power</h2><span class="aside">the page can only take power away</span></div>
+    </div>
+    <div class="pw-sec">
+      <p class="pw-claim">From the page, a person can stop an agent or lower its mode at once; widening what an agent may do is done only in the terminal.</p>
+      <div class="streak v-arcs pw-stage"><div class="power" data-power>
+      <div class="pw-ladder">
+        <p class="pw-agent"><span class="pui-badge pui-soft pui-theme">fictional</span> <span>Engineering agent · northwind-shop</span></p>
+        <ol class="pw-rungs" aria-label="The five modes, the widest first"><li class="pw-rung" data-mode="autonomous-with-policy" data-i="4"><button type="button" class="pw-btn" aria-describedby="pw-out" data-mode-pick="autonomous-with-policy"><span class="pw-pips" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span><span class="pw-m"><b>autonomous-with-policy</b><small>Like autonomous, and an effect inside an approved policy runs without asking</small></span><span class="pw-tag"></span></button></li><li class="pw-rung" data-mode="autonomous" data-i="3"><button type="button" class="pw-btn" aria-describedby="pw-out" data-mode-pick="autonomous"><span class="pw-pips" aria-hidden="true"><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span><span class="pw-m"><b>autonomous</b><small>Reviews are released when the skill is proven, effects still ask you</small></span><span class="pw-tag"></span></button></li><li class="pw-rung is-now" data-mode="milestones" data-i="2"><button type="button" class="pw-btn" aria-describedby="pw-out" data-mode-pick="milestones"><span class="pw-pips" aria-hidden="true"><i class="on"></i><i class="on"></i><i></i><i></i></span><span class="pw-m"><b>milestones</b><small>Reviews reach you at milestones, the rest are released when the skill is proven</small></span><span class="pw-tag">current</span></button></li><li class="pw-rung" data-mode="supervised" data-i="1"><button type="button" class="pw-btn" aria-describedby="pw-out" data-mode-pick="supervised"><span class="pw-pips" aria-hidden="true"><i class="on"></i><i></i><i></i><i></i></span><span class="pw-m"><b>supervised</b><small>Every review reaches you</small></span><span class="pw-tag"></span></button></li><li class="pw-rung" data-mode="stopped" data-i="0"><button type="button" class="pw-btn" aria-describedby="pw-out" data-mode-pick="stopped"><span class="pw-pips" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span class="pw-m"><b>stopped</b><small>Off, starts nothing</small></span><span class="pw-tag"></span></button></li></ol>
+        <div class="pw-buttons"><button type="button" class="pui-btn pui-outline pui-surface" data-mode-pick="stopped">Stop agent</button><button type="button" class="pui-btn pui-outline pui-surface" data-mode-pick="supervised">Supervise</button></div>
+      </div>
+      <div class="pw-out" id="pw-out" aria-live="polite">
+        <div class="pw-msg is-idle" data-pw-msg>
+          <p class="pw-h">Pick a mode</p>
+          <p class="pw-p">A move down applies at once. A move up is refused here: a wider mode is set in the terminal.</p>
+        </div>
+        <div class="pw-cmd" data-pw-cmd hidden>
+          <p class="pw-k">A wider mode is set in the terminal, not on this page:</p>
+          <div class="term "><div class="term-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="tab">terminal</span><span class="meta">on your machine</span></div><pre class="code"><span class="ln"><span class="p">$ </span><span class="a">python3 runtime/cli.py set-mode --project &lt;dir&gt; --agent engineering --mode <span data-pw-target>autonomous</span></span></span><span class="ln c"># code never accepts a move up: accept the new hash, after reading the file</span><span class="ln"><span class="p">$ </span><span class="a">python3 runtime/cli.py accept-config --project &lt;dir&gt; --sha256 &lt;hash&gt;</span></span></pre></div>
+        </div>
+        <p class="src">contracts/runtime.md · runtime/autonomy.py · runtime/cli.py set-mode · interface/js/floor-model.js</p>
+      </div>
+    </div></div>
+    </div>
+    <span class="cross tl" aria-hidden="true"></span><span class="cross tr" aria-hidden="true"></span>
+  </div>
+</section>
+<section class="band" aria-labelledby="ldp-t">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="num"><span class="big">05</span></div>
+      <div class="ttl"><h2 id="ldp-t">Light, dark, phone</h2></div>
+    </div>
+    <div class="ldp">
+      <div class="ldp-modes">
+        <p class="ldp-line">One colour-mode button cycles System, Light, Dark; the icon (monitor, sun, moon) shows which. System, the default, follows the system's scheme. Nothing is stored: a reload starts on System.</p>
+        <div class="ldp-icons" aria-hidden="true"><span><svg class="i-system" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="10" rx="1.5"/><path d="M7 17h6M10 13.5V17"/></svg><small>System</small></span><span><svg class="i-light" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="3.5"/><path d="M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.4 1.4M14.6 14.6 16 16M4 16l1.4-1.4M14.6 5.4 16 4"/></svg><small>Light</small></span><span><svg class="i-dark" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16.5 12.2A7 7 0 0 1 7.8 3.5a7 7 0 1 0 8.7 8.7Z"/></svg><small>Dark</small></span></div>
+      </div>
+      <div class="wbands" role="img" aria-label="Width bands: phone up to 899 px; in-between 900 to 1099 px; desktop from 1100 px">
+  <div class="wb ph"><b>phone</b><span>up to 899 px</span></div><div class="wb mid"><b>in-between</b><span>900 to 1099 px</span></div><div class="wb dk"><b>desktop</b><span>from 1100 px</span></div>
+</div>
+    </div>
+    <span class="cross tl" aria-hidden="true"></span><span class="cross tr" aria-hidden="true"></span>
+  </div>
+</section>
+<section class="band" aria-labelledby="open-t">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="num"><span class="big">06</span></div>
+      <div class="ttl"><h2 id="open-t">How to open it</h2><span class="aside">on your own machine</span></div>
+    </div>
+    <div class="open-row">
+      <div class="term "><div class="term-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="tab">terminal</span><span class="meta">repository root</span></div><pre class="code"><span class="ln"><span class="p">$ </span><span class="a">uv run --with keyring==25.7.0 python3 runtime/service.py --project &lt;dir&gt;</span></span><span class="ln c"># binds 127.0.0.1 only</span></pre></div>
+      <p class="src">runtime/README.md · <a class="ext" href="https://github.com/chrissgon/openhora/blob/main/runtime/README.md">open on main</a></p>
+    </div>
+    <span class="cross tl" aria-hidden="true"></span><span class="cross tr" aria-hidden="true"></span>
+  </div>
+</section>
+</main>
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="col">
+      <a class="brandlink" href="/"><img src="/assets/img/openhora-mark.svg" alt="openhora" width="32" height="32"><span class="wordmark" aria-hidden="true">openhora</span></a>
+      <ul class="pills" aria-label="Claims">
+        <li class="pui-chip pui-outline pui-surface pill">MIT licence</li><li class="pui-chip pui-outline pui-surface pill">self-hosted</li><li class="pui-chip pui-outline pui-surface pill">no telemetry</li>
+      </ul>
+    </div>
+    <nav class="col" aria-label="Pages, again">
+      <h2>Pages</h2>
+      <ul><li><a href="/">Home</a></li><li><a href="/proof">Proof</a></li><li><a href="/first-steps">First steps</a></li><li><a href="/how-it-is-built">How it's built</a></li><li><a href="/interface" aria-current="page">Interface</a></li><li><a href="/glossary">Glossary</a></li></ul>
+    </nav>
+    <div class="col">
+      <h2>Repository</h2>
+      <ul>
+        <li><a href="https://github.com/chrissgon/openhora">github.com/chrissgon/openhora</a></li>
+        <li><a href="https://github.com/chrissgon/openhora#install">README, Install</a></li>
+        <li><a href="https://github.com/chrissgon/openhora/blob/main/LICENSE">LICENSE</a></li>
+      </ul>
+    </div>
+    <div class="footer-base">
+      <span>MIT licence · self-hosted · no telemetry</span>
+      <span>Copyright (c) 2026 Christopher Goncalves</span>
+    </div>
+    <p class="footer-mark" aria-hidden="true"><span>openhora</span></p>
+  </div>
+</footer>
+</body>
+</html>
