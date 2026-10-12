@@ -504,6 +504,14 @@ describe("interface: the demo is a fresh build", () => {
   test("demo: the demo's transport is the one that answers from memory, never the service's", () => {
     assert.equal(fs.readFileSync(path.join(DEMO, "js", "transport.js"), "utf8"), fs.readFileSync(path.join(REPO, "interface", "demo", "transport.js"), "utf8"));
   });
+  test("netlify.toml: the [[headers]] table that holds the policy applies to every path (for = \"/*\")", () => {
+    const toml = fs.readFileSync(path.join(REPO, "netlify.toml"), "utf8");
+    const tables = toml.split(/^\s*\[\[headers\]\]\s*$/m).slice(1);
+    const own = tables.filter((s) => /^\s*Content-Security-Policy\s*=/m.test(s));
+    assert.equal(own.length, 1, "exactly one [[headers]] table holds the Content-Security-Policy");
+    assert.match(own[0], /^\s*for\s*=\s*"\/\*"\s*$/m);
+    assert.match(own[0], /^\s*\[headers\.values\]\s*$/m, "the policy is under [headers.values]");
+  });
   test("demo: netlify.toml publishes site/ and builds the demo into site/demo with scripts/build_demo.py; site/demo is not committed", () => {
     const toml = fs.readFileSync(path.join(REPO, "netlify.toml"), "utf8");
     assert.match(toml, /^\s*publish\s*=\s*"site"\s*$/m);
