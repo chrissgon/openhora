@@ -19,6 +19,7 @@ import { PHONE_QUERY, bindDrawer, createGrip } from "../frame/drawer.js";
 import { icon } from "../frame/icons.js";
 import * as origin from "../frame/origin.js";
 import { acceptance } from "../model.js";
+import { can as pageMay } from "../permissions.js";
 import * as router from "../router.js";
 import { NoWebGL } from "../scene/engine.js";
 import { bindSwipe } from "../swipe.js";
@@ -92,6 +93,9 @@ export function createFloorView(frame, env) {
   frame.el.append(phoneDialog);
   const phone = window.matchMedia(PHONE_QUERY);     // M-3: the phone layout (the frame owns the width)
 
+  // What the page may do in this project (js/permissions.js), read from the project's entry in the current snapshot at every draw: the tabs and the cards ask this getter
+  const may = (op, kind) => pageMay(last && last.snapshot ? (last.snapshot.projects || []).find((p) => p.id === project) : null, op, kind);
+
   // the tab components need the project and the agent, known at the first update: they are made then
   let inbox = null;
   let desk = null;
@@ -102,10 +106,10 @@ export function createFloorView(frame, env) {
     if (inbox) return;
     agentTabLive = createAgentTab({
       project, agent, api: actions, refresh: () => env.refresh(), now: () => new Date(),
-      links: { inbox: (id) => router.floorHash(project, agent, "inbox", id) }, task: (id) => api.task(project, id),
+      links: { inbox: (id) => router.floorHash(project, agent, "inbox", id) }, task: (id) => api.task(project, id), can: may,
     });
     inbox = createInbox({
-      project, now: () => new Date(), api: actions, refresh: () => { env.refresh(); readBodies(true); },
+      project, now: () => new Date(), api: actions, can: may, refresh: () => { env.refresh(); readBodies(true); },
       links: {
         floor: (a) => router.floorHash(project, a), lobby: () => router.lobbyHash(project), parent: () => router.buildingHash(project),
         open: (item, path) => (item.agent ? router.deskHash(project, item.agent, path) : `${router.lobbyHash(project, "desk")}/${encodeURIComponent(path)}`),
@@ -113,7 +117,7 @@ export function createFloorView(frame, env) {
     });
     desk = createDeskTab({ project, agent, open: (path) => { window.location.hash = router.deskHash(project, agent, path); } });
     tasksTab = createTasksTab({
-      project, now: () => new Date(), refresh: () => env.refresh(), api: actions,
+      project, now: () => new Date(), refresh: () => env.refresh(), api: actions, can: may,
       links: { request: () => router.lobbyHash(project), inbox: (id) => router.floorHash(project, agent, "inbox", id), open: (path) => router.deskHash(project, agent, path) },
     });
   }

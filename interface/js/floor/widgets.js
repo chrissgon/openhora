@@ -2,6 +2,7 @@
 // and the tab list. Everything built here is made with h(): text goes in as text, nothing takes markup.
 
 import { fill, h } from "../dom.js";
+import { lineText } from "../permissions.js";
 
 /** The busy ring (DEVIATION-15): static, hidden from a screen reader; the words carry the state. */
 export function ring(small = false) {
@@ -11,6 +12,11 @@ export function ring(small = false) {
 /** A line with the ring and its words ("Loading the floor..."), `aria-busy` set. */
 export function busyLine(text) {
   return h("div", { class: "wb-busy", "aria-busy": "true", role: "status" }, ring(), h("span", { text }));
+}
+
+/** The line under the controls a card or panel withholds (js/permissions.js): "Turned off for the page: <operations>. Use the terminal.". Null when nothing is withheld. */
+export function withheldLine(words) {
+  return words.length ? h("p", { class: "wb-card-note wb-muted", role: "note", "data-key": "withheld", text: lineText(words) }) : null;
 }
 
 /** A state chip: tone is the classes ("pui-theme pui-soft"). */

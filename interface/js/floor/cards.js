@@ -12,7 +12,11 @@
 // an environment so a test can run it with a fake document and a fake client:
 //   env = {project, now(), api: {answer, release, approve, reject, verdict, cancel, route, flows, handOver, pollJob}, requestIds: Set of request ids,
 //          links: {floor(agent), lobby(), open(item, path)}, reread(id) -> item, task(id) -> the task's body (optional: the review card reads
-//          the file-drop line from it), changed(id, outcome), gone(id)}
+//          the file-drop line from it), changed(id, outcome), gone(id), can(op, kind) (optional: whether the page may do an operation, read at every draw;
+//          js/permissions.js; without it everything is allowed)}.
+// A control the page may not use (the channel policy of the project) is not drawn, a line under the remaining controls says which operations are turned
+// off, and the same check stands in press(): a key that sends without a button (Ctrl+Enter in an answer) is refused there too. Cancelling a request is a brake and
+// is never withheld. The service still refuses what it must (409): this only stops the card drawing a control that would be refused.
 
 import { fill, h } from "../dom.js";
 import * as format from "../format.js";
@@ -24,7 +28,8 @@ import { replyView } from "./reply.js";
 import { createWaitsBlock } from "../cards/plan-waits.js";
 import { commandBlock } from "../frame/command.js";
 import { fileRefusal, handChooser, handOverStep, toBase64 } from "./hand-file.js";
-import { agoText, chip, errorText, field, isGone, jobText, notice, ring } from "./widgets.js";
+import { reader, wordOf } from "../permissions.js";
+import { agoText, chip, errorText, field, isGone, jobText, notice, ring, withheldLine } from "./widgets.js";
 
 // The buttons of each kind, in the drawn order, by the word of `actions` they send, with their "-ing" word.
 export const BUTTONS = Object.freeze({
@@ -105,8 +110,35 @@ export function createCard(item, env) {
     goAhead: new Set(),                                 // the plan's task keys ticked "Go ahead"
   };
   let inputs = {};
+  const can = reader(env);
+  let lacking = [];            // the words of the operations withheld in the last draw: the line under the controls
 
   const api = () => env.api;
+
+  /** The operation a button's word asks the policy about (cancel-request is a brake: none). */
+  function askOf(word) {
+    const kind = state.item.kind;
+    if (word === "answered") return ["answer"];
+    if (word === "released") return ["release"];
+    if (word === "rejected") return ["reject"];
+    if (word === "approved" || word === "accepted") return ["approve", kind];
+    if (word === "route" || word === "choose-flow") return ["route"];
+    return null;
+  }
+
+  /** Whether the page may send the button's word (press() asks this too, without drawing anything). */
+  function permits(word) {
+    const ask = askOf(word);
+    return ask === null || can(ask[0], ask[1]);
+  }
+
+  /** Draw-time check: false for an operation the policy withholds, and the word goes to the line under the controls. */
+  function allow(op, kind) {
+    if (can(op, kind)) return true;
+    const word = wordOf(op, kind);
+    if (!lacking.includes(word)) lacking.push(word);
+    return false;
+  }
 
   // --- the shell -------------------------------------------------------------------------------------------------------------
 
@@ -153,7 +185,10 @@ export function createCard(item, env) {
 
   function buttons(extra) {
     const row = h("div", { class: "wb-card-actions" });
-    const drawn = buttonsFor(state.item);
+    const drawn = buttonsFor(state.item).filter(([word]) => {
+      const ask = askOf(word);
+      return ask === null || allow(ask[0], ask[1]);
+    });
     drawn.forEach(([word, label, busyLabel], i) => {
       const blocked = state.item.kind === "review" && word === "released" && blockedChange(state.item);
       const mine = state.busy === word;
@@ -167,7 +202,7 @@ export function createCard(item, env) {
     });
     if (extra) row.append(extra);
     if (state.busy && isJob(state.busy)) row.append(h("span", { class: "wb-working", role: "status", text: "Working..." }));
-    return row;
+    return row.children.length ? row : null;
   }
 
   function isJob(word) {
@@ -223,7 +258,7 @@ export function createCard(item, env) {
       h("pre", { class: "wb-pre", tabindex: "0", "aria-label": "Exact content of the publish" }, it.body || ""),
       h("div", { class: "wb-card-hint", text: "Hash of this content" }), hash,
       h("p", { class: "wb-card-line", text: "Nothing is sent before you approve this exact content." }),
-      noteInput(), message(), buttons(),
+      can("reject") ? noteInput() : null, message(), buttons(),
     ];
   }
 
@@ -236,7 +271,7 @@ export function createCard(item, env) {
     const lost = isUnrecognised(it);
     return [h("h3", { class: "wb-card-title", id: titleId, tabindex: "-1", text: it.title }), text(it.body),
       lost ? replyDisclosure(it.payload.raw) : null, lost ? routeControls() : null,
-      textarea("answer", "Your answer", 3, h("small", { class: state.empty === "answer" ? "wb-hint is-error" : "wb-hint", text: state.empty === "answer" ? "Type an answer." : "Ctrl or Cmd plus Enter sends." }), state.empty === "answer"),
+      can("answer") ? textarea("answer", "Your answer", 3, h("small", { class: state.empty === "answer" ? "wb-hint is-error" : "wb-hint", text: state.empty === "answer" ? "Type an answer." : "Ctrl or Cmd plus Enter sends." }), state.empty === "answer") : null,
       message(), buttons()];
   }
 
@@ -259,9 +294,9 @@ export function createCard(item, env) {
   /** The two actions of a reply that named no route: "Choose a flow" (the list, then `route` with the flow) and "Cancel the request". */
   function routeControls() {
     const r = state.route;
-    const parts = [h("div", { class: "wb-card-actions wb-route-actions" }, routeButton("choose-flow", "Choose a flow", "Reading the flows...", "pui-theme"), routeButton("cancel-request", "Cancel the request", "Cancelling...", "pui-surface"))];
+    const parts = [h("div", { class: "wb-card-actions wb-route-actions" }, allow("route") ? routeButton("choose-flow", "Choose a flow", "Reading the flows...", "pui-theme") : null, routeButton("cancel-request", "Cancel the request", "Cancelling...", "pui-surface"))];
     if (r.open && r.flows === null) parts.push(h("div", { class: "wb-busy", role: "status", "aria-busy": "true" }, ring(true), h("span", { text: "Reading the flows..." })));
-    if (r.open && r.flows !== null) {
+    if (r.open && r.flows !== null && can("route")) {
       const select = h("select", { class: "pui-input wb-field-input", "data-key": "flow", "aria-invalid": state.empty === "flow" ? "true" : null },
         h("option", { value: "", text: r.flows.length ? "Choose a flow..." : "The project has no flow" }),
         r.flows.map((f) => h("option", { value: f.flow, text: typeof f.title === "string" && f.title ? f.title : f.flow })));
@@ -302,9 +337,9 @@ export function createCard(item, env) {
         (change.refused || []).map((r) => h("div", { class: "wb-path-row" }, h("code", { class: "wb-path", text: r.path || "the whole set" }), h("span", { class: "wb-card-hint", text: String(r.reason || "") }))),
         h("span", { class: "wb-card-line", text: "Answer the review with a comment, or cancel the request." })));
     }
-    parts.push(textarea("comment", "Comment", 3, state.empty === "comment" ? h("small", { class: "wb-hint is-error", text: "Type a comment." }) : null, state.empty === "comment"), handOver(), message());
+    parts.push(can("answer") ? textarea("comment", "Comment", 3, state.empty === "comment" ? h("small", { class: "wb-hint is-error", text: "Type a comment." }) : null, state.empty === "comment") : null, handOver(), message());
     // floor.html: "Record a verdict" is a plain line between the comment and the buttons
-    if (it.run_id !== null && it.run_id !== undefined) parts.push(verdictDisclosure(it.run_id));
+    if (it.run_id !== null && it.run_id !== undefined && allow("verdict")) parts.push(verdictDisclosure(it.run_id));
     parts.push(buttons());
     return parts;
   }
@@ -318,6 +353,7 @@ export function createCard(item, env) {
   function handOver() {
     const drop = state.drop;
     if (!drop || drop.takes === false || typeof api().handOver !== "function") return null;
+    if (!allow("hand-over")) return null;
     const input = h("input", { class: "pui-input wb-file", type: "file", "data-key": "hand-file" });
     input.disabled = Boolean(state.busy) || Boolean(state.done) || Boolean(state.handing);
     input.addEventListener("change", () => pickFile(input));
@@ -348,7 +384,7 @@ export function createCard(item, env) {
   /** Step two: the button. Sends the file held, to the review's task; a failure leaves the file held so that the button can be pressed again. */
   async function handFile() {
     const file = state.picked;
-    if (!file || state.handing || state.busy || state.done) return;
+    if (!file || state.handing || state.busy || state.done || !can("hand-over")) return;
     const it = state.item;
     state.handing = true;
     state.handed = null;
@@ -398,8 +434,9 @@ export function createCard(item, env) {
     const it = state.item;
     const payload = it.payload || {};
     const rows = planRows(payload);
-    const waits = createWaitsBlock(payload, { disabled: Boolean(state.busy) || Boolean(state.done), checked: state.goAhead });
+    const waits = createWaitsBlock(payload, { disabled: Boolean(state.busy) || Boolean(state.done), checked: state.goAhead, can });
     state.waits = waits;
+    if (waits && waits.withheld) allow("approve", "go-ahead");      // the boxes were left out: the line names it
     const hash = h("code", { class: "wb-hash", "data-hash": "plan", tabindex: "0", role: "group", "aria-label": "Plan hash" }, payload.plan_sha256 || "");   // a tab stop with a name (K-5)
     state.hashNode = hash;
     const table = h("table", { class: "pui-table wb-plan-table" },
@@ -412,7 +449,7 @@ export function createCard(item, env) {
       h("div", { class: "wb-card-hint", text: limitsLine(payload) }),
       h("div", { class: "wb-card-hint", text: "Plan hash" }), hash,
       h("details", { class: "wb-disclosure wb-verdict" }, h("summary", { class: "wb-summary", text: "Plan as text" }), h("div", { class: "wb-card-body" }, reply("plan", markdownView(it.body || "", { name: "the plan", renderedLabel: "Plan as text", plainClass: "wb-pre" })))),
-      noteInput(), message(), buttons(),
+      can("reject") ? noteInput() : null, message(), buttons(),
     ];
   }
 
@@ -447,6 +484,7 @@ export function createCard(item, env) {
     const active = document.activeElement;
     const word = active && root.contains(active) && active.getAttribute ? active.getAttribute("data-word") : null;
     inputs = {};
+    lacking = [];
     const it = state.item;
     let body;
     if (state.done) body = [doneBody()];
@@ -456,6 +494,7 @@ export function createCard(item, env) {
     else if (it.kind === "review") body = reviewBody();
     else if (it.kind === "plan") body = planBody();
     else body = unknownBody();
+    if (!state.done) body.push(withheldLine(lacking));
     if (state.done) fill(root, h("div", { class: "pui-card-content wb-card-content is-done" }, h("h3", { class: "wb-sr", id: titleId, text: it.title }), body));
     else fill(root, header(), h("div", { class: "pui-card-content wb-card-content" }, body));
     root.setAttribute("aria-busy", state.busy ? "true" : "false");
@@ -470,6 +509,7 @@ export function createCard(item, env) {
   async function press(word) {
     if (state.busy || state.done) return;
     const it = state.item;
+    if (!permits(word)) return;      // the policy withholds it: no button draws it, and no key sends it either
     state.empty = null;
     let run;
     if (it.kind === "question" && word === "choose-flow") return openFlows();
@@ -563,7 +603,7 @@ export function createCard(item, env) {
   }
 
   async function sendVerdict(word, runId) {
-    if (state.busy || state.done || (state.verdict && state.verdict.done)) return;
+    if (state.busy || state.done || (state.verdict && state.verdict.done) || !can("verdict")) return;
     state.busy = "verdict";
     render();
     try {
@@ -621,6 +661,10 @@ export function createCard(item, env) {
     },
     isBusy() {
       return Boolean(state.busy);
+    },
+    /** The policy changed (js/permissions.js): draw again with what the page may do now; typed text stays. */
+    redraw() {
+      if (!state.done) render();
     },
     outcome() {
       return state.done;

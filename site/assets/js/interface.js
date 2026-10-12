@@ -9,7 +9,7 @@
      own "Start over". Only this origin and the frame's own window are heard. */
   document.querySelectorAll("[data-tour]").forEach(function (box) {
     var $ = function (s) { return box.querySelector(s); };
-    var frame = $(".tour-frame"), takeLine = $(".tour-takeover");
+    var frame = $(".tour-frame");
     var watchdog = null, attempt = 0;
     var LOAD_LIMIT_MS = 15000;
 
@@ -33,12 +33,12 @@
       state("error");
     };
     var playing = function () {
-      clearTimeout(watchdog); takeLine.hidden = true;
+      clearTimeout(watchdog);
       state("playing");
     };
     var load = function () {
       var mine = ++attempt, url = frame.getAttribute("data-src");
-      state("loading"); takeLine.hidden = true;
+      state("loading");
       clearTimeout(watchdog);
       watchdog = setTimeout(function () { if (mine === attempt) fail(); }, LOAD_LIMIT_MS);
       fetch(url, { method: "HEAD", cache: "no-store" }).then(function (r) {
@@ -55,7 +55,7 @@
         playing();
         if (reduce) send("play");
       } else if (t === "took-over" && (now === "playing")) {
-        state("takeover"); takeLine.hidden = false;
+        state("takeover");
       } else if (t === "step" && now === "takeover") {
         playing();
       } else if (t === "ended" && now === "playing") {
