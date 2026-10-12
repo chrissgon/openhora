@@ -145,6 +145,9 @@ class Ops:
     def stop_runs(self, project=None):
         self.stopped += 1
 
+    def config(self, project):  # the channel policy of a call is read from it (MSG-3b)
+        return {"accepted": True, "channels": None}
+
 
 def registry(log=None):
     return kit.Jobs(Ops(), [{"id": "aaaaaaaaaaaa", "name": "p", "path": "/p"}], log)
