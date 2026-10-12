@@ -210,6 +210,13 @@ The public website (`site/`, published by Netlify at https://openhora.dev).
   - Done when: the section is live with those pages and its test passes.
   - Plan: a site package; it may also feed W3's `llms.txt`.
 
+- [ ] **W6. openhora.dev does not appear in search results.** Requested by the maintainer on 2026-10-11: openhora.dev must appear in Google's results.
+  - What, in the site: a `/robots.txt` that allows indexing and names the sitemap; a `/sitemap.xml` that lists the seven pages (not `/demo/` and not the 404 page); on each page a unique `<title>`, a meta description, a canonical link to `https://openhora.dev/<route>`, Open Graph and Twitter card tags with a social image (the brand's social preview), and JSON-LD for a `SoftwareSourceCode` or `SoftwareApplication` with the repository link; `/demo/` marked `noindex`.
+  - Test: a site test that checks all of the above and that every URL in the sitemap answers 200.
+  - What, the maintainer's part, outside the repository: verify the domain in Google Search Console (a DNS TXT record at the registrar), submit the sitemap, then request indexing of the Home page; optionally do the same in Bing Webmaster Tools.
+  - Done when: Search Console shows the pages indexed and a search for "openhora" finds openhora.dev.
+  - Plan: a site package, together with W3's `llms.txt`.
+
 ## Project conventions
 
 - [ ] **C1. Ask whether a project's `docs/` is versioned.** Requested by the user on 2026-09-28. Skills write everything a project produces under `docs/`: specs, ADRs and plans next to reviews, design explorations, marketing posts and their images, approvals and the workflow state. Some projects want all of it on GitHub; others want only code-related documentation there. In one public project, launch posts and their approval records were committed before the owner decided they should not be.
