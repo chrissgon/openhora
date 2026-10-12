@@ -1,8 +1,10 @@
 // The furniture of a room in the round's style (R-23, R-23b, R-42, R-49), every measure taken off `building.html`, `floor.html` and `lobby.html` in the page's
-// units (room-frame.js) and every tone from `roomTones` (palette.js): the bookcase with its binders, the task board with its notes, the agent's desk and
-// the office chair, the Lobby's door. Each function draws into a batch of page units (`pageBatch`); a layer that stands on another (a label on a binder,
-// a note on the board) is put a hair in front of it, as the page paints it over. No tray, no table of sheets, no cabinet, no lamp (the two plants are plants.js's, A-45): the
+// units (room-frame.js) and every tone from `roomTones` (palette.js): the bookcase with its binders, the task board with its notes, the agent's desk, the
+// office chair and the corner top of the L, the Lobby's door. Each function draws into a batch of page units (`pageBatch`); a layer that stands on another (a label on a binder,
+// a note on the board) is put a hair in front of it, as the page paints it over. No tray, no table of sheets, no cabinet, no lamp (the plant is plants.js's, A-45): the
 // room's three objects are its three ways in (R-23b). Nothing here knows a project or an agent.
+
+import { CORNER, S, TIP } from "./seats-layout.js";
 
 const E = 0.002;   // the distance between a layer and the one under it, in page units
 
@@ -166,6 +168,18 @@ export function desk(pb, t) {
   pb.box(t.screen, 6.12, 0.845, 3.33, 0.07, 0.5, 0.7);
   pb.side(t.screenBack, 3.395, 0.9075, 3.956, 1.27, 6.19 + E);
   pb.side(t.screenLogo, 3.64, 1.0, 3.727, 1.085, 6.19 + 2 * E);
+}
+
+/**
+ * The square top that joins the two arms of the L at its point: `CORNER` on a side, its top face at 0.7 * S and 0.1 * S thick, in the desks' top tones, with one leg
+ * in the desks' leg tones under its outer corner. It is drawn with the page batch itself (page units), not through a seat: it belongs to the L, not to a workstation.
+ */
+export function cornerTop(pb, t) {
+  const x0 = TIP[0] - CORNER;
+  const z0 = TIP[1] - CORNER;
+  const leg = 0.1 * S;
+  pb.box(t.workLeg, TIP[0] - leg, 0, TIP[1] - leg, leg, 0.6 * S, leg);
+  pb.box(t.work, x0, 0.6 * S, z0, CORNER, 0.1 * S, CORNER);
 }
 
 /** The office chair: a star base on a column, a padded seat, a back with a pad, two armrests on their posts. It faces the desk (+x). */

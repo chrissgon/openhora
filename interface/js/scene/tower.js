@@ -130,7 +130,7 @@ export function createTower(kit, lot, cx, cz) {
     id: lot.id, lot, root, group, overlay, n, floorGroups, open: 0, target: 0, interior: false,
     vis: lot.floors.map(() => 1), visTarget: lot.floors.map(() => 1),
     motions: [], roomMotions: [], markers: [], outlines: [], inner: [], parts: [], plants: null, beacon: null, tag: null, brackets: bracketing,
-    shown: lot.floors.map((f) => ({ state: f.state, window: f.window, decisions: f.decisions, notes: null, documents: null })),
+    shown: lot.floors.map((f) => ({ state: f.state, seats: JSON.stringify(f.seats || null), window: f.window, decisions: f.decisions, notes: null, documents: null })),
     cardAnchor: new THREE.Vector3(cx, 0, cz), cardRestAnchor: new THREE.Vector3(cx, 0, cz), plateAnchors: [], boardAnchors: [], doorAnchors: [], doorPlaques: [], tagAnchor: new THREE.Vector3(), marksHidden: false,
   };
   const fadeMats = [];
@@ -427,7 +427,7 @@ export function createTower(kit, lot, cx, cz) {
     roomLists[i] = lists;
     const drawn = { ...f, notes: Array.isArray(f.notes) ? f.notes : [], documents: typeof f.documents === "number" ? f.documents : 0 };   // unread: no binder yet
     tower.parts[i] = fillFloor(kit, inner, drawn, { lot: L.id, accepted: L.accepted, ...lists });
-    Object.assign(tower.shown[i], { state: f.state, window: f.window, decisions: f.decisions, notes: JSON.stringify(drawn.notes), documents: drawn.documents });
+    Object.assign(tower.shown[i], { state: f.state, seats: JSON.stringify(f.seats || null), window: f.window, decisions: f.decisions, notes: JSON.stringify(drawn.notes), documents: drawn.documents });
     refreshLists();
   }
 
@@ -457,7 +457,7 @@ export function createTower(kit, lot, cx, cz) {
       tower.inner[i] = inner;
       if (f.interactive) buildRoom(i);
     });
-    // the plants of the rooms (M-16): one instanced mesh for the tower, two for each room, scaled in and out with the opening (`apply`), never part of a room
+    // the plants of the rooms (M-16): one instanced mesh for the tower, one for each room, scaled in and out with the opening (`apply`), never part of a room
     const rooms = tower.lot.floors.map((f, i) => i).filter((i) => tower.inner[i] && tower.parts[i]);
     tower.plantRooms = rooms;
     if (rooms.length) {
@@ -499,10 +499,11 @@ export function createTower(kit, lot, cx, cz) {
       }
       if (!parts) {
         shown.state = f.state;
+        shown.seats = JSON.stringify(f.seats || null);
         shown.decisions = f.decisions;
         return;
       }
-      if (f.state !== shown.state) {
+      if (f.state !== shown.state || JSON.stringify(f.seats || null) !== shown.seats) {   // the owl takes another pose, the floor another tone, or a seat comes or goes
         buildRoom(i);
         changed = true;
         return;

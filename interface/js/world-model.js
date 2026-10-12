@@ -4,6 +4,7 @@
 
 import * as fm from "./floor-model.js";
 import * as model from "./model.js";
+import { seatsOf } from "./seats.js";
 
 /**
  * snapshot: the page's snapshot; `now` a Date; opts: {selectedId (the project whose card is marked), marked (the id of the building that keeps a
@@ -30,8 +31,10 @@ export function worldModel(snapshot, now, { selectedId = null, marked = null, fo
     const at = lot.floors.findIndex((f) => f.name === floor);
     if (at >= 0) {
       const f = lot.floors[at];
+      const state = room.state || f.state;
       lot.floors[at] = {
-        ...f, state: room.state || f.state, window: room.window || f.window, decisions: room.decisions !== undefined ? room.decisions : f.decisions,
+        // the seats follow the room's own state (the Lobby works while a turn runs): the holders are the floor's, the owl of a floor with none is by the state
+        ...f, state, seats: state !== f.state ? seatsOf(f.holders, { state, accepted: lot.accepted }) : f.seats, window: room.window || f.window, decisions: room.decisions !== undefined ? room.decisions : f.decisions,
         sheets: room.sheets || f.sheets, drawers: room.drawers !== undefined ? room.drawers : f.drawers,
         documents: room.documents !== undefined ? room.documents : f.documents,
       };
