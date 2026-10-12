@@ -9,6 +9,9 @@
         "accepted": true
       },
       "open_pending": 2,
+      "running_tasks": [
+        8
+      ],
       "running_task": 8,
       "routing_request": null
     }

@@ -9,7 +9,7 @@ The file is written by the person who sets the project up and holds no secret (c
 task runtime reads three keys the first runtime already defined, with the same meaning:
 
   "workbench"   the absolute path of the workbench checkout the runtime runs from (a reviewed revision)
-  "data_dir"    an absolute folder outside every repository, for run folders and the run lock
+  "data_dir"    an absolute folder outside every repository, for run folders and the locks
   "store_db"    the absolute path of the store database (class store:runtime)
 
 The keys are closed: the file may hold only the keys of TASK_RUNTIME_KEYS and FIRST_RUNTIME_KEYS. The second

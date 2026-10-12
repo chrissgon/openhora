@@ -224,24 +224,25 @@ def _record_decision(ctx: dict, decisions: list) -> dict:
     """One line of the state file's ## Decisions for each (skill, task id, reasons), written by code
     (state_merge.with_go_ahead): what the task did not wait for. {"written": True}, or {"written": False, "reason"}."""
     target = os.path.join(ctx["cfg"]["project"], *path_rule.STATE.split("/"))
-    try:
-        with open(target, encoding="utf-8") as f:
-            text = f.read()
-    except OSError:
-        return {"written": False, "reason": "the project has no state file"}
-    if os.path.islink(target):
-        return {"written": False, "reason": "the state file is a link"}
-    today = datetime.date.today().isoformat()
-    try:
-        for skill, task_id, reasons in decisions:
-            text = state_merge.with_go_ahead(text, date=today, skill=skill, task_id=task_id, waited=reasons)
-    except state_merge.Conflict as e:
-        return {"written": False, "reason": str(e)}
-    temporary = f"{target}.{os.getpid()}.tmp"
-    with open(temporary, "w", encoding="utf-8") as f:
-        f.write(text)
-    os.replace(temporary, target)
-    return {"written": True}
+    with core._write_lock(ctx["cfg"]):
+        try:
+            with open(target, encoding="utf-8") as f:
+                text = f.read()
+        except OSError:
+            return {"written": False, "reason": "the project has no state file"}
+        if os.path.islink(target):
+            return {"written": False, "reason": "the state file is a link"}
+        today = datetime.date.today().isoformat()
+        try:
+            for skill, task_id, reasons in decisions:
+                text = state_merge.with_go_ahead(text, date=today, skill=skill, task_id=task_id, waited=reasons)
+        except state_merge.Conflict as e:
+            return {"written": False, "reason": str(e)}
+        temporary = f"{target}.{os.getpid()}.tmp"
+        with open(temporary, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(temporary, target)
+        return {"written": True}
 
 
 def go_ahead(ctx: dict, task_id: int, drop_after: bool = False) -> dict:

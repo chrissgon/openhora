@@ -1079,11 +1079,10 @@ APPROVAL_MOVES = {"pending-execution": ("executed", "revoked"), "active": ("expi
 KIND_RESOLUTIONS = {("plan", "approved"): "planned", ("plan", "rejected"): "cancelled",
                     ("acceptance", "accepted"): "requested", ("acceptance", "rejected"): "cancelled"}
 KEY_RE = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
-# One task at a time per database: the query that finds a running task, and the one that finds the next ready task
-# (never a request), shared by task_claim_next and task_peek_next.
-RUNNING_TASK = "SELECT id FROM tasks WHERE state = 'running' ORDER BY id LIMIT 1"
 # A task with an open wait (task_waits) is never given out, whatever its state says: the store refuses, not the caller.
 OPEN_WAIT = "EXISTS (SELECT 1 FROM task_waits w WHERE w.task_id = tasks.id AND w.status = 'open')"
+# The oldest ready task (never a request) with no open wait: what a caller that picks one asks, then claims by its id
+# (task_claim).
 NEXT_READY_TASK = ("SELECT id FROM tasks WHERE state = 'ready' AND parent_id IS NOT NULL AND NOT " + OPEN_WAIT +
                    " ORDER BY id LIMIT 1")
 WAIT_KINDS = ("input", "after")
@@ -1282,23 +1281,6 @@ def _insert_plan(conn: sqlite3.Connection, request_id: int, flow: str | None, pl
     return added
 
 
-def task_claim_next(conn: sqlite3.Connection) -> dict:
-    """Give out the oldest ready task, as `running`, unless a task of this database is running already: one
-    task at a time per project. Returns {"task": the task or None, "running": the id of the task that runs
-    already, or None}."""
-    now = iso(utcnow())
-    with write(conn):
-        busy = conn.execute(RUNNING_TASK).fetchone()
-        if busy:
-            return {"task": None, "running": busy["id"]}
-        row = conn.execute(NEXT_READY_TASK).fetchone()
-        if row is None:
-            return {"task": None, "running": None}
-        conn.execute("UPDATE tasks SET state = 'running', updated_at = ? WHERE id = ? AND state = 'ready'",
-                     (now, row["id"]))
-        return {"task": _task(conn, row["id"]), "running": None}
-
-
 def task_run_start(conn: sqlite3.Connection, task_id: int, *, skill: str, model: str, adapter: str,
                    skill_version: str | None = None, skill_sha256: str | None = None, web: bool = False,
                    billing: str | None = None) -> dict:
@@ -1314,7 +1296,7 @@ def task_run_start(conn: sqlite3.Connection, task_id: int, *, skill: str, model:
     now = iso(utcnow())
     with write(conn):
         if _task(conn, task_id)["state"] != "running":
-            raise StoreError(f"task {task_id} is not running: a run starts on a task that task_claim_next gave out")
+            raise StoreError(f"task {task_id} is not running: a run starts on a task that task_claim gave out")
         run_id = conn.execute(
             "INSERT INTO task_runs (task_id, skill, skill_version, skill_sha256, model, adapter, web, started_at, billing) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -1462,21 +1444,6 @@ def task_retry(conn: sqlite3.Connection, task_id: int, waits: list | None = None
         for wait in waits or []:
             _insert_one_wait(conn, task_id, task["parent_id"], {task_id}, wait, now)
     return {"task_id": task_id, "state": state, "previous": previous}
-
-
-def task_fail_running(conn: sqlite3.Connection, note: str) -> dict:
-    """End what an interrupted run left: every task still `running` becomes `failed` with the note, and every
-    run row still `running` ends `failed` with failure `stopped`. The caller holds the project's run lock, so
-    no run is in progress. Returns {"tasks": [ids], "runs": [ids]}."""
-    note = text_arg(note, "note", NOTE_MAX, multiline=True)
-    now = iso(utcnow())
-    with write(conn):
-        tasks = [r["id"] for r in conn.execute("SELECT id FROM tasks WHERE state = 'running' ORDER BY id")]
-        runs = [r["id"] for r in conn.execute("SELECT id FROM task_runs WHERE status = 'running' ORDER BY id")]
-        conn.execute("UPDATE task_runs SET status = 'failed', failure = 'stopped', ended_at = ?, error = ? "
-                     "WHERE status = 'running'", (now, note))
-        conn.execute("UPDATE tasks SET state = 'failed', note = ?, updated_at = ? WHERE state = 'running'", (note, now))
-    return {"tasks": tasks, "runs": runs}
 
 
 def task_fail_orphans(conn: sqlite3.Connection, task_ids, run_ids, note: str) -> dict:
@@ -1843,16 +1810,6 @@ def plan_open(conn: sqlite3.Connection, request_id: int, *, title: str, body: st
             "INSERT INTO pending_decisions (task_id, kind, title, body, payload, payload_sha256, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)", (request_id, *item, now)).lastrowid
     return {"pending_id": pending_id, "request_id": request_id, "cancelled": cancelled}
-
-
-def task_peek_next(conn: sqlite3.Connection) -> dict:
-    """A read: the task task_claim_next would give out now, by the same queries, without changing anything.
-    Returns {"task": the task or None, "running": the id of the task that runs already, or None}."""
-    busy = conn.execute(RUNNING_TASK).fetchone()
-    if busy:
-        return {"task": None, "running": busy["id"]}
-    row = conn.execute(NEXT_READY_TASK).fetchone()
-    return {"task": _task(conn, row["id"]) if row else None, "running": None}
 
 
 def plan_approve(conn: sqlite3.Connection, pending_id: int, *, by: str, waits: list | None = None,
@@ -2356,22 +2313,21 @@ def messages_list(conn: sqlite3.Connection, conversation: str, *, limit: int = M
 
 def task_claim(conn: sqlite3.Connection, task_id: int) -> dict:
     """Give out one named `ready` task of a request as `running`. Other running tasks do not prevent it: what may run
-    at once is decided by the caller under its claim lock (runtime/parallel.py). Returns {"task", "running"}, where
-    running is always None (kept so that today's callers still read it). A task that does not exist, or is not a
-    `ready` task of a request, is not claimed: task is None and "reason" is `unknown` or `not-ready`; a task with an
-    open wait is not claimed either (`waiting`)."""
+    at once is decided by the caller under its claim lock (runtime/parallel.py). Returns {"task": the task}. A task that does
+    not exist, or is not a `ready` task of a request, is not claimed: task is None and "reason" is `unknown` or
+    `not-ready`; a task with an open wait is not claimed either (`waiting`)."""
     now = iso(utcnow())
     with write(conn):
         row = conn.execute("SELECT id, parent_id, state FROM tasks WHERE id = ?", (task_id,)).fetchone()
         if row is None:
-            return {"task": None, "running": None, "reason": "unknown"}
+            return {"task": None, "reason": "unknown"}
         if row["state"] != "ready" or row["parent_id"] is None:
-            return {"task": None, "running": None, "reason": "not-ready"}
+            return {"task": None, "reason": "not-ready"}
         if conn.execute("SELECT 1 FROM task_waits WHERE task_id = ? AND status = 'open'", (task_id,)).fetchone():
-            return {"task": None, "running": None, "reason": "waiting"}
+            return {"task": None, "reason": "waiting"}
         conn.execute("UPDATE tasks SET state = 'running', updated_at = ? WHERE id = ? AND state = 'ready'",
                      (now, task_id))
-        return {"task": _task(conn, task_id), "running": None}
+        return {"task": _task(conn, task_id)}
 
 
 def _tasks_add(conn: sqlite3.Connection, request_id: int, tasks, now: str, waits: list | None = None) -> dict:

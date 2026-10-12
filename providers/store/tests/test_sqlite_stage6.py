@@ -22,6 +22,12 @@ spec = importlib.util.spec_from_file_location("store_sqlite_stage6", SCRIPT)
 store = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(store)
 
+
+def claim_oldest(conn):
+    """Claim the oldest ready task, as the first claim of a database once did, with the store's own query and task_claim."""
+    row = conn.execute(store.NEXT_READY_TASK).fetchone()
+    return store.task_claim(conn, row["id"]) if row else {"task": None}
+
 HASH = "c" * 64
 PLAN = [{"key": "market", "skill": "biz-market-analysis", "title": "Market", "text": "study the market.",
          "depends_on": [], "agent": "business"},
@@ -130,14 +136,14 @@ def test_a_named_task_is_claimed_only_when_it_is_ready(conn):
     request = store.request_add(conn, title="Market and positioning", text="For Lantern Notes.",
                                 flow="market-positioning", tasks=PLAN)
     market, positioning = [t["id"] for t in request["tasks"]]
-    assert store.task_claim(conn, 999) == {"task": None, "running": None, "reason": "unknown"}
-    assert store.task_claim(conn, positioning) == {"task": None, "running": None, "reason": "not-ready"}
+    assert store.task_claim(conn, 999) == {"task": None, "reason": "unknown"}
+    assert store.task_claim(conn, positioning) == {"task": None, "reason": "not-ready"}
     assert store.task_claim(conn, request["request"])["reason"] == "not-ready"
     claimed = store.task_claim(conn, market)
-    assert claimed["running"] is None and claimed["task"]["id"] == market and claimed["task"]["state"] == "running"
+    assert "running" not in claimed and claimed["task"]["id"] == market and claimed["task"]["state"] == "running"
     assert claimed["task"]["agent"] == "business"
-    assert store.task_claim(conn, market) == {"task": None, "running": None, "reason": "not-ready"}
-    assert set(store.task_claim_next(conn)) == set(store.task_claim(conn, positioning)) - {"reason"}
+    assert store.task_claim(conn, market) == {"task": None, "reason": "not-ready"}
+    assert claim_oldest(conn) == {"task": None}  # nothing else is ready
 
 
 def test_tasks_added_to_a_planned_request_are_ready_only_without_open_dependencies(conn):
@@ -167,7 +173,7 @@ def test_tasks_added_to_a_planned_request_are_ready_only_without_open_dependenci
 def test_tasks_added_to_a_finished_request_make_it_planned_again(conn):
     request = store.request_add(conn, title="Market", text="For Lantern Notes.", flow="market-positioning",
                                 tasks=PLAN[:1])
-    finish(conn, store.task_claim_next(conn)["task"])
+    finish(conn, claim_oldest(conn)["task"])
     assert store.task_get(conn, request["request"])["state"] == "done"
     out = store.tasks_add(conn, request["request"], [{"key": "positioning", "skill": "biz-icp-positioning",
                                                       "title": "Positioning", "text": "position it.",
@@ -194,7 +200,7 @@ def test_the_runs_of_a_day_are_listed_with_the_agent_of_their_task(conn):
                                 flow="market-positioning", tasks=PLAN)
     copy = store.tasks_add(conn, request["request"], [{"key": "copy", "skill": "mkt-copy", "title": "Copy",
                                                        "text": "write it.", "agent": "marketing"}])
-    finish(conn, store.task_claim_next(conn)["task"])
+    finish(conn, claim_oldest(conn)["task"])
     finish(conn, store.task_claim(conn, copy["tasks"][0]["id"])["task"])
     runs = store.runs_since(conn, start.isoformat())
     assert [r["agent"] for r in runs] == ["business", "marketing"]

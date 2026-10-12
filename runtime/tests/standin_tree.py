@@ -24,6 +24,7 @@ import json
 import os
 import shutil
 import sys
+import threading
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -251,6 +252,35 @@ def load_runner():
     return _RUNNER[0]
 
 
+class FinishedChild:
+    """What a child process the dispatcher started looks like once it has ended: a pid, poll() and returncode."""
+
+    pid = 0
+
+    def __init__(self, code: int):
+        self.returncode = code
+
+    def poll(self):
+        return self.returncode
+
+
+def serial_spawn(runs):
+    """The seam ops_runs.spawn replaced by a run made in the calling thread, one after the other: the task runs to its end
+    inside the call and the child it returns has ended. The tests of the dispatcher that predate the parallel runs read a
+    round as 'the runs it made'; a test of the runs that overlap installs its own spawn (test_parallel_runs.py)."""
+    def spawn(cfg, project, task_id):
+        try:
+            out = runs.run_task(project, task_id)
+            code = 4 if out.get("ran") is None and not out.get("held") else 0
+        except Exception as e:  # the process would have exited with the refusal's code, or 1
+            code = getattr(e, "code", 1)
+        child = FinishedChild(code)
+        with runs.SPAWNED_LOCK:
+            runs.SPAWNED.append((project, task_id, child))
+        return child
+    return spawn
+
+
 def build(tmp_path: Path, monkeypatch, lab) -> dict:
     """The tree, a project and the patches that point the lab facade at them. Returns {"tree", "project",
     "data", "db", "adapter"} as paths. The runner executes on this machine (EXECUTOR "host"), its lock folder is
@@ -314,7 +344,13 @@ def build(tmp_path: Path, monkeypatch, lab) -> dict:
     monkeypatch.setattr(lab, "proof_inputs", lambda skill: "standin-" + skill)
     monkeypatch.setattr(lab, "measurement_problem", lambda: None)
     monkeypatch.setattr(lab, "image", lambda: {"name": "standin", "digest": STANDIN_IMAGE, "platform": "linux/arm64"})
-    return {"tree": tree, "project": project, "data": data, "db": db, "adapter": adapter}
+    runs = load("ops_runs")  # the dispatcher starts no process here: a child is a run made in the calling thread, in turn
+    real_spawn = runs.spawn
+    monkeypatch.setattr(runs, "spawn", serial_spawn(runs))
+    monkeypatch.setattr(runs, "SPAWNED", [])
+    monkeypatch.setattr(runs, "STOPPING", threading.Event())
+    monkeypatch.setattr(runs, "WAIT_STEP", 0.01)
+    return {"tree": tree, "project": project, "data": data, "db": db, "adapter": adapter, "real_spawn": real_spawn}
 
 
 def calls(adapter: Path) -> list:

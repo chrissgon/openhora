@@ -96,10 +96,11 @@ class Jobs:
         self.threads = []
         self.stopping = threading.Event()
 
-    def running(self, project: str) -> bool:
-        """True when a job of the project is running."""
+    def running(self, project: str, ignoring=()) -> bool:
+        """True when a job of the project is running; the jobs of the operations named in `ignoring` do not count."""
         with self.lock:
-            return any(j["state"] == "running" and j["project"] == project for j in self.jobs.values())
+            return any(j["state"] == "running" and j["project"] == project and j["op"] not in ignoring
+                       for j in self.jobs.values())
 
     def public(self, job: dict) -> dict:
         """A job as a shell shows it. The caller holds the lock when the job may still change."""
@@ -110,10 +111,11 @@ class Jobs:
         form as it was before the thread started). `project` is the project's id, `op` the verb of its row, `call` a
         function with no argument that makes the one call. An operation whose row says it calls a model (`model` not
         false) takes the project's model slot: Busy when another job or the dispatch loop holds it. With `queues` (the
-        row's key: the operation queues its call while a run is in progress) a held slot is not a refusal: the job
-        starts without the slot, and the operation itself finds the run lock held and queues the call. Stopping when
-        the shell is shutting down."""
-        exclusive = bool(self.ops.operations.by_name(op)["model"])
+        row's key: the operation queues its call while the router answers another request) a held slot is not a refusal:
+        the job starts without the slot, and the operation itself finds the route lock held and queues the call. A row
+        with `exclusive` false (dispatch, run-task) takes no slot. Stopping when the shell is shutting down."""
+        row = self.ops.operations.by_name(op)
+        exclusive = bool(row.get("exclusive", bool(row["model"])))
         with self.lock:
             if self.stopping.is_set():
                 raise Stopping()
@@ -183,8 +185,8 @@ class Jobs:
     def projects_list(self) -> dict:
         """{"projects": [...]}: each project with its `folder` (the absolute path the shell was given, which is the word
         a `--project` takes: the page writes the restart line with it), its configuration's hash and whether it was
-        accepted, and, when it was, the number of pending decisions, the task that runs (`running_task`) and the request a
-        router run holds (`routing_request`, from `routing` of each request of `status`; null when none). A project whose
+        accepted, and, when it was, the number of pending decisions, the tasks that run (`running_tasks`, their ids;
+        `running_task` is the oldest, kept for a page that reads one) and the request a router run holds (`routing_request`, from `routing` of each request of `status`; null when none). A project whose
         configuration is not accepted (or cannot be read) is listed with accepted false, the operation's refusal as
         `message` and no counts: never refused."""
         out = []
@@ -203,8 +205,8 @@ class Jobs:
                 entry["message"] = str(e)
             else:
                 entry["open_pending"] = len(state["pending"])
-                entry["running_task"] = next(
-                    (t["id"] for r in state["requests"] for t in r["tasks"] if t["state"] == "running"), None)
+                entry["running_tasks"] = sorted(t["id"] for r in state["requests"] for t in r["tasks"] if t["state"] == "running")
+                entry["running_task"] = entry["running_tasks"][0] if entry["running_tasks"] else None
                 entry["routing_request"] = next((r["id"] for r in state["requests"] if r.get("routing")), None)
             out.append(entry)
         return {"projects": out}

@@ -326,10 +326,12 @@ def test_say_is_called_as_the_channel_mcp_and_the_client_cannot_change_it(world)
     [(_, _, kwargs)] = world.fake.named("say")
     assert kwargs == {"text": "hello", "channel": "mcp"}
     assert "mcp" not in ops.EFFECT_CHANNELS  # the rule of the operations layer, which this shell does not restate
-    assert [r["name"] for r in operations.OPERATIONS if r.get("channel_arg")] == ["route", "approve", "set-mode", "say"]
+    assert [r["name"] for r in operations.OPERATIONS if r.get("channel_arg")] == ["route", "approve", "set-mode", "dispatch", "say"]
     assert "mcp" not in operations.by_name("approve")["channels"]
     # set-mode takes the channel (R4-C3) to refuse `accept` from any but the terminal; it has no tool and no chat command
     assert "mcp" not in operations.by_name("set-mode")["channels"] and "chat" not in operations.by_name("set-mode")["channels"]
+    # `dispatch` takes the channel to know whether the shell can wait for the runs it starts (the page cannot); the MCP mode has no tool for it
+    assert "mcp" not in operations.by_name("dispatch")["channels"]
     # `route` takes the channel only to know whether the shell drains the queue (A-23): the MCP mode does not
     assert operations.by_name("route")["queues"] is True and "queues" not in operations.by_name("approve")
 

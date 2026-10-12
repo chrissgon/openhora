@@ -4,11 +4,12 @@
 # dependencies = []
 # ///
 """The names every module of the operations layer shares, once: the checkout (ROOT), the refusal (OpsError), the
-project's context and the store call, the two locks, the runtime's own key and the data-folder names.
+project's context and the store call, the locks, the runtime's own key and the data-folder names.
 
-The operations layer is six files: runtime/ops.py (the operations and the facade every shell imports),
+The operations layer is seven files: runtime/ops.py (the operations and the facade every shell imports),
 runtime/ops_say.py (the conversation), runtime/ops_reads.py (the reads of the local interface), runtime/ops_waits.py
-(the derived waits between requests), runtime/ops_config.py (the configuration's acceptance) and this one. Every
+(the derived waits between requests), runtime/ops_config.py (the configuration's acceptance), runtime/ops_runs.py (the
+runs of tasks, the dispatcher's round and the processes it starts) and this one. Every
 module reads a name of this file as an attribute of it, at call time (`import ops_core as core`, then `core.ROOT`,
 `core.context(...)`), and never binds one at import (no module takes a name of this file with a from-import): a test
 that patches `ops_core.ROOT` then reaches every reader, and a copy bound at import would keep the real checkout. No name
@@ -25,6 +26,7 @@ import importlib.util
 import os
 import re
 import sys
+import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -41,9 +43,24 @@ STORE_CLASS = "store:runtime"
 EFFECTS_DIR = "effects"  # <data_dir>/effects/<pending id>/: the files code hands the code provider
 RUNS_DIR = "task-runs"
 CONTAINED_DIR = "contained-runs"  # <data_dir>/contained-runs/<n>/: the run folder of one contained run; no file of it ever comes back
-LOCK_NAME = "run.lock"
+LOCKS_DIR = "locks"                # <data_dir>/locks/: one file per lock, mode 0700 (the locks below)
 CONFIG_LOCK_NAME = "config.lock"   # <data_dir>/config.lock: one change of the accepted configuration at a time
 CONFIG_LOCK_WAIT = 10.0            # seconds a change waits for another to finish
+CLAIM_LOCK_WAIT = 30.0             # seconds the claim lock is waited for: admission, claim and the run row are short
+WRITE_LOCK_WAIT = 60.0             # seconds a writer of the project's files waits for the write lock (a run's return waits without a limit)
+ROUTE_LOCK_WAIT = 1.0              # seconds a router run retries the route lock before it says the planning agent is busy
+LOCK_POLL = 0.1                    # seconds between two tries of a lock that is waited for
+_DEFAULT = object()                # "the default wait" of _write_lock, so that a change of WRITE_LOCK_WAIT is read at the call
+# Two router runs of two projects in one service process share the lab's process-wide session (lab.session ends every
+# container of the process when it closes): the router's whole session is held under this guard. A task run is its own
+# process and never takes it.
+_LAB_GUARD = threading.Lock()
+# The variables a router call is injecting into this process's environment right now, {name: the value it had before, or
+# None}, under _ENV_LOCK: a child process the dispatcher starts gets the environment with these put back (ops_runs.spawn),
+# so a child never inherits a key a call put in, and does inherit one the person exported.
+ENV_INJECTED = {}
+_ENV_LOCK = threading.Lock()
+_HELD_WRITE = threading.local()    # the write lock this thread holds, by data folder: {data_dir: [descriptor, depth]}
 PREPARED_DIR = "prepared"  # <data_dir>/prepared/<run id>/: files written for one run before they enter its copy
 CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 # The recorder of uses and verdicts (scripts/evidence.py of the checkout, ROOT, when None; a test points it at a
@@ -56,7 +73,7 @@ FLOOR_KEY = "WB_RUNTIME_FLOOR_KEY"
 
 class OpsError(Exception):
     """An operation that was refused: a message for the person and an exit code (1 failed, 2 usage,
-    3 not configured)."""
+    3 not configured; 4, refused and not run, is only run-task's own exit, never an error's code)."""
 
     def __init__(self, message: str, code: int = 1, next: str | None = None):
         super().__init__(message)
@@ -65,8 +82,14 @@ class OpsError(Exception):
 
 
 class RunBusy(OpsError):
-    """The project's run lock is held: a run of a task or of the router is in progress. An OpsError (code 1) like any
-    refusal; the operations that queue their call while a run is in progress (`say`, `route`) catch it by its class."""
+    """The router is busy: another run of the router holds the project's route lock. An OpsError (code 1) like any
+    refusal; the operations that queue their call while the router answers (`say`, `route`) catch it by its class. A
+    run of a task never makes it."""
+
+
+class DispatchBusy(OpsError):
+    """A dispatch round of this project is already running (the dispatch lock is held). The local service's loop skips
+    the project without a word; the page's dispatch answers it as a refusal."""
 
 
 def _load(name: str, path: str):
@@ -256,20 +279,138 @@ def _config_lock(cfg: dict):
         os.close(lock)
 
 
-@contextlib.contextmanager
-def _run_lock(cfg: dict):
-    """The project's run lock (<data_dir>/run.lock), taken without waiting: a run of a task and a run of the router
-    never overlap in one project. Closing the file releases it."""
-    os.makedirs(cfg["data_dir"], mode=0o700, exist_ok=True)
-    lock = os.open(os.path.join(cfg["data_dir"], LOCK_NAME), os.O_WRONLY | os.O_CREAT, 0o600)
+def _locks_dir(cfg: dict) -> str:
+    """<data_dir>/locks/, made with mode 0700 when it is not there."""
+    folder = os.path.join(cfg["data_dir"], LOCKS_DIR)
+    os.makedirs(folder, mode=0o700, exist_ok=True)
+    return folder
+
+
+def _try_lock(cfg: dict, name: str):
+    """Take the lock file <data_dir>/locks/<name> without waiting: the open descriptor, or None when another holder has
+    it. It writes nothing in the file. The caller closes the descriptor to release the lock (a closed or dead process
+    releases it too, so a held lock is the proof that its holder is alive)."""
+    fd = os.open(os.path.join(_locks_dir(cfg), name), os.O_RDWR | os.O_CREAT, 0o600)
     try:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            raise RunBusy("another run of this project is in progress: one task at a time per project", 1) from None
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(fd)
+        return None
+    return fd
+
+
+@contextlib.contextmanager
+def _task_lock(cfg: dict, task_id: int):
+    """The lock of one task (task-<id>.lock), held by the process that runs it from before its claim to after its
+    finish: the proof that the task is alive. Once held, the file holds, as text, this process's group id (read only by
+    `stop-runs --all`). Refused (code 1) when another process holds it. Only `run_task` uses it."""
+    fd = _try_lock(cfg, f"task-{task_id}.lock")
+    if fd is None:
+        raise OpsError(f"task {task_id} is already being run by another process", 1)
+    try:
+        os.ftruncate(fd, 0)
+        os.write(fd, f"{os.getpgrp()}\n".encode("ascii"))
         yield
     finally:
-        os.close(lock)
+        os.close(fd)
+
+
+def _lock_pgid(cfg: dict, task_id: int):
+    """The process group id a task lock's holder wrote, or None when the file is missing or holds no number. It says
+    nothing about whether the lock is held: the caller asks `_try_lock` first."""
+    try:
+        with open(os.path.join(_locks_dir(cfg), f"task-{task_id}.lock"), encoding="ascii", errors="replace") as f:
+            text = f.read(32).strip()
+    except OSError:
+        return None
+    return int(text) if text.isdigit() and int(text) > 1 else None
+
+
+@contextlib.contextmanager
+def _route_lock(cfg: dict):
+    """The router's lock (route.lock), held for the whole run of the router and the proof that such a run is alive. One
+    router run per project: another holder is waited for about ROUTE_LOCK_WAIT seconds, then RunBusy."""
+    deadline = time.monotonic() + ROUTE_LOCK_WAIT
+    while True:
+        fd = _try_lock(cfg, "route.lock")
+        if fd is not None:
+            break
+        if time.monotonic() >= deadline:
+            raise RunBusy("the planning agent is answering another request of this project", 1)
+        time.sleep(LOCK_POLL)
+    try:
+        yield
+    finally:
+        os.close(fd)
+
+
+@contextlib.contextmanager
+def _claim_lock(cfg: dict):
+    """The claim lock (claim.lock), short: held around the admission of a task, its claim and the run row, and around
+    the router's budget and run row, so that two processes cannot pass the same cap. Waits up to CLAIM_LOCK_WAIT."""
+    deadline = time.monotonic() + CLAIM_LOCK_WAIT
+    while True:
+        fd = _try_lock(cfg, "claim.lock")
+        if fd is not None:
+            break
+        if time.monotonic() >= deadline:
+            raise OpsError(f"the project's claim lock stayed busy for {CLAIM_LOCK_WAIT:.0f} s; try again", 1)
+        time.sleep(LOCK_POLL)
+    try:
+        yield
+    finally:
+        os.close(fd)
+
+
+@contextlib.contextmanager
+def _write_lock(cfg: dict, wait=_DEFAULT):
+    """The write lock (write.lock): around every write into the project's files and every external effect. Re-entrant
+    per thread: a writer that calls another writer does not wait on itself (a thread-local table keeps the descriptor and
+    a depth per data folder). Another holder is waited for `wait` seconds (default WRITE_LOCK_WAIT, read when it is
+    called), then refused (code 1); `wait=None` waits without a limit, for a run's return, whose holders are bounded
+    (each provider call has its timeout)."""
+    if wait is _DEFAULT:
+        wait = WRITE_LOCK_WAIT
+    key = cfg["data_dir"]
+    table = getattr(_HELD_WRITE, "table", None)
+    if table is None:
+        table = _HELD_WRITE.table = {}
+    if key in table:
+        table[key][1] += 1
+        try:
+            yield
+        finally:
+            table[key][1] -= 1
+        return
+    deadline = None if wait is None else time.monotonic() + wait
+    while True:
+        fd = _try_lock(cfg, "write.lock")
+        if fd is not None:
+            break
+        if deadline is not None and time.monotonic() >= deadline:
+            raise OpsError(f"the project's files stayed busy for {wait:.0f} s; try again", 1)
+        time.sleep(0.05)
+    table[key] = [fd, 1]
+    try:
+        yield
+    finally:
+        table[key][1] -= 1
+        if table[key][1] == 0:
+            del table[key]
+            os.close(fd)
+
+
+@contextlib.contextmanager
+def _dispatch_lock(cfg: dict):
+    """The dispatch lock (dispatch.lock), taken without waiting: one dispatch round of a project at a time. A waiting
+    round holds it until its children end. DispatchBusy when another round holds it."""
+    fd = _try_lock(cfg, "dispatch.lock")
+    if fd is None:
+        raise DispatchBusy("a dispatch round of this project is already running", 1)
+    try:
+        yield
+    finally:
+        os.close(fd)
 
 
 def _midnight() -> str:

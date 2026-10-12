@@ -52,7 +52,7 @@ STALE = "This button is no longer valid. Send /pending."
 NO_CARD = "Send /pending first, so you see what you approve."
 CHANGED = "This decision changed since you saw it."
 STILL_WORKING = "Still working on the last message."
-RUN_BUSY = "A run is in progress. Send it again when it ends."
+RUN_BUSY = "The planning agent is answering another request. Send it again in a moment."
 NOT_ACCEPTED = "This project's configuration is not accepted: run accept-config in the terminal."
 EFFECT_REPLY = "An effect is approved on the page or in the terminal, with its hash:"
 

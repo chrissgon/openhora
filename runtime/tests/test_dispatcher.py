@@ -44,14 +44,23 @@ def ready(task_id, name, milestone=0):
     return {"id": task_id, "agent": name, "state": "ready", "milestone": milestone, "parent_id": 1}
 
 
+def allow(task, running, holding, agents, max_running):
+    """An admit that lets every task in: these tests are about the modes and the caps, not the slots."""
+    return True, ""
+
+
 def decide(snapshot):
-    return dispatcher.decide(snapshot, autonomy.review_action, autonomy.may_start)
+    """The decision with every task admitted, and `start` as the first task started, or None: these tests read one start."""
+    got = dispatcher.decide(snapshot, autonomy.review_action, autonomy.may_start, allow)
+    return {**got, "start": got["start"][0] if got["start"] else None}
 
 
-def test_nothing_starts_while_a_task_of_the_project_runs():
-    got = decide({"running": {"id": 3}, "ready": [ready(4, "a")], "reviews": [], "agents": {"a": agent()},
-                  "tier": {4: "strong"}, "billing": {4: "subscription"}})
-    assert got == {"release": [], "start": None, "held": [{"task_id": 3, "why": dispatcher.ONE_AT_A_TIME}]}
+def test_nothing_starts_while_the_projects_limit_is_reached():
+    running = [{"id": 3, "agent": "a", "request_id": 1, "code": False, "footprint": frozenset()}]
+    got = dispatcher.decide({"running": running, "ready": [ready(4, "a")], "reviews": [], "agents": {"a": agent()},
+                             "tier": {4: "strong"}, "billing": {4: "subscription"}, "max_running": 1},
+                            autonomy.review_action, autonomy.may_start, parallel.admit)
+    assert got == {"release": [], "start": [], "held": [{"task_id": 4, "why": parallel.PROJECT_FULL}]}
 
 
 def test_the_oldest_ready_task_whose_agent_may_start_is_the_one_started():
@@ -343,13 +352,12 @@ def test_the_dispatcher_words_equal_the_parallel_words():
         assert word in dispatcher.REASONS, word
 
 
-def test_decide_without_admit_behaves_as_today():
+def test_decide_needs_an_admit_and_the_one_at_a_time_rule_is_gone():
     snapshot = {"running": None, "ready": [ready(4, "a"), ready(5, "a")], "reviews": [], "agents": {"a": agent()},
                 "tier": {}, "billing": {4: "subscription", 5: "subscription"}}
-    assert decide(snapshot) == {"release": [], "start": 4, "held": []}
-    assert dispatcher.decide(snapshot, autonomy.review_action, autonomy.may_start, None) == decide(snapshot)
-    busy = dict(snapshot, running={"id": 3})
-    assert decide(busy)["start"] is None
+    with pytest.raises(TypeError):
+        dispatcher.decide(snapshot, autonomy.review_action, autonomy.may_start)
+    assert dispatcher.decide(snapshot, autonomy.review_action, autonomy.may_start, allow) == {"release": [], "start": [4, 5], "held": []}
 
 
 def test_two_answered_holders_never_block_each_other_forever():
@@ -359,11 +367,11 @@ def test_two_answered_holders_never_block_each_other_forever():
     assert pdecide(snap)["start"] == [4, 5]
 
 
-def test_held_of_lists_the_parallel_holds_and_skips_the_job_running_branch_for_a_list():
+def test_held_of_lists_the_parallel_holds():
     snap = psnapshot([pready(4, "a", footprint={"d/a"}), pready(5, "a", footprint={"d/b"})],
                      running=[prun(3, "c", footprint={"d/c"})])
     decided = pdecide(snap)
     got = dispatcher.held_of(snap, decided)
     assert got == [{"task_id": 5, "agent": "a", "reason": parallel.AGENT_FULL}] or got == [
         {"task_id": 4, "agent": "a", "reason": parallel.AGENT_FULL}, {"task_id": 5, "agent": "a", "reason": parallel.AGENT_FULL}]
-    assert all(h["reason"] != dispatcher.JOB_RUNNING for h in got)
+    assert all(h["reason"] in dispatcher.REASONS for h in got)

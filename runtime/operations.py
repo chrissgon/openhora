@@ -33,6 +33,9 @@ do, so that the generated tables and the shells cannot differ). A row:
   help         one line: what it does
   channel_arg  (optional) the function takes `channel=<name>` and decides what that channel may do
   chat_reply   (optional) the key of the result the conversation shows instead of the whole result
+  exclusive    (optional) whether a shell gives the operation the project's model slot (one job that calls a model at a
+               time); default `bool(model)`. False for `dispatch` and `run-task`, which start task runs beside one another
+               and beside the router's run
   job          (optional) true when the operation calls a model or a platform, so that it may take minutes: the local
                service starts it in a thread and answers at once with a job to ask for again, instead of holding the
                request open. It is the one source of "returns a job"; every row whose `model` is not False has it
@@ -40,8 +43,8 @@ do, so that the generated tables and the shells cannot differ). A row:
                answers `{"queued": true}` instead of refusing, and the local service routes it when the run ends
                (`say`, `route`); only for a channel that drains the queue (ops_say.QUEUING_CHANNELS: the page), every
                other channel is refused as before, so such a row also takes the channel (`channel_arg`). The service
-               lets such a job start while another job holds the model slot, so the operation itself finds the run
-               lock held and queues
+               lets such a job start while another job holds the model slot, so the operation itself finds the
+               router's lock held and queues
   exit_unless  (optional) [key, value]: the terminal prints the result and exits 1 unless result[key] == value (a
                result that says the model did not answer is not a failure of the operation, and is still printed)
 
@@ -128,6 +131,11 @@ OPERATIONS = (
     {"name": "run-next", "call": "run_next", "args": ({"name": "tier", "kind": "str"},),
      "channels": ("terminal",), "model": True, "job": True,
      "help": "run the next ready task: one skill, once, on the model its proof gives"},
+    {"name": "run-task", "call": "run_task",
+     "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"},
+              {"name": "tier", "kind": "str"}),
+     "channels": ("terminal",), "model": True, "job": True, "exclusive": False,
+     "help": "run one named task in this process; the dispatcher starts it, a person uses run-next"},
     {"name": "accept-config", "call": "accept_config",
      "args": ({"name": "sha256", "kind": "str", "required": True},),
      "channels": ("terminal",), "model": False,
@@ -183,7 +191,8 @@ OPERATIONS = (
      "channels": ("terminal",), "model": True, "job": True, "exit_unless": ("status", "ok"),
      "help": "run one skill of an area agent's pack in the container on the artifacts it declares; only its reply comes out"},
     {"name": "dispatch", "call": "dispatch", "args": (), "channels": ("terminal", "page"), "model": True, "job": True,
-     "help": "one round of the dispatcher: the handlers' ticks, the releases by a mode, the next ready tasks"},
+     "channel_arg": True, "exclusive": False,
+     "help": "one round of the dispatcher: the handlers' ticks, the releases by a mode, the ready tasks the rules allow, each a process of its own; the terminal waits for them, the page returns at once"},
     {"name": "poll", "call": "poll", "args": (), "channels": ("terminal",), "model": False,
      "help": "the short job: mirrors, expired approvals, the state file's generated lines, the releases"},
     {"name": "handler", "call": "handler_call",
@@ -223,8 +232,9 @@ OPERATIONS = (
      "help": "the change signal of the project's store: a number that grows on every write, and when the file was last written"},
     {"name": "commands", "call": "commands", "args": (), "channels": ("page",), "model": False,
      "help": "the commands of the conversation as rows, command, arguments and help line, in the order /help prints them (the page lists them when the person types /)"},
-    {"name": "stop-runs", "call": "stop_runs", "args": (), "channels": ("terminal",), "model": False,
-     "help": "end the runs this process started (the local service calls it before it exits)"},
+    {"name": "stop-runs", "call": "stop_runs", "args": ({"name": "every", "kind": "flag", "flag": "all"},),
+     "channels": ("terminal",), "model": False,
+     "help": "end the runs this process started (the local service calls it before it exits); with --all, every task run of the project that a live process holds"},
     {"name": "service-check", "call": "service_check", "args": ({"name": "dispatch_every", "kind": "int", "flag": "dispatch-every"},),
      "channels": ("terminal",), "model": False,
      "help": "what the local service checks at its start: the secret store, the credential, docker, the eval image and whether it dispatches (the service calls it for each project)"},

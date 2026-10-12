@@ -1,7 +1,7 @@
 """Tests of limit L15 for policy effects (WP-R.1 of the architecture-fix plan): an effect inside a standing approval is
 executed only by the operations layer, ops.execute_under_policy, and only inside the approval's bounds. A handler
 prepares the effect document and hands it over; the operation checks the approval (autonomy.covers, the policy file's
-hash now, today's count under the run lock), makes the provider's dry run and its confirmed call, and records the
+hash now, today's count under the write lock), makes the provider's dry run and its confirmed call, and records the
 action. Offline: the stand-in tree and its stand-in code provider of runtime/tests/standin_tree.py; no network, no
 push. Every name is invented.
 

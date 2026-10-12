@@ -129,7 +129,7 @@ export async function openPlan(ctx, P, request, flow, source) {
     `Past runs of these skills here: ${tasks.map((t) => `${t.skill} ${P.runs.filter((r) => r.skill === t.skill).length}`).join("; ")}.`, `Plan hash: ${digest}`].join("\n");
   const payload = fill(template, {
     cycles: [], estimate: { past: tasks.map((t) => ({ mean_duration_ms: null, runs: P.runs.filter((r) => r.skill === t.skill).length, skill: t.skill })), runs_at_least: tasks.length, tasks: tasks.length },
-    flow, limits: { one_task_at_a_time: true, retries: 2, timeout_seconds: 1800 }, missing: [], plan_sha256: digest, route: null, source, tasks, waits: [],
+    flow, limits: { max_running: 3, retries: 2, timeout_seconds: 1800 }, missing: [], plan_sha256: digest, route: null, source, tasks, waits: [],
   });
   const item = itemRow(ctx, P, "plan", { task_id: request.id, title: `Plan: ${flow} (${tasks.length} tasks)`, body, payload });
   P.pending.push(item);

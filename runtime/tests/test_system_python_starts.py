@@ -20,6 +20,7 @@ REPO = st.REPO
 # "<handlers>" for every file of runtime/handlers/ (the first test).
 STARTS = {
     "runtime/ops.py": ["scripts/evidence.py", "<handlers>"],
+    "runtime/ops_runs.py": ["runtime/cli.py"],  # the dispatcher starts `run-task` for each task it runs, one process each
     "runtime/plan.py": ["scripts/select_skills.py"],
     "runtime/isolated.py": ["<skill scripts>"],  # a manifest's checkers and the backlog reader, through run_script
     "runtime/handlers/published_posts.py": ["runtime/cli.py"],

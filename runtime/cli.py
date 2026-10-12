@@ -13,6 +13,7 @@ Usage:
   python3 runtime/cli.py reject   --project <dir> --id <pending id> [--note <text>]
   python3 runtime/cli.py deps     --project <dir>
   python3 runtime/cli.py run-next --project <dir> [--tier strong]
+  python3 runtime/cli.py run-task --project <dir> --task <task id> [--tier strong]
   python3 runtime/cli.py pending  --project <dir> [--id <pending id>]
   python3 runtime/cli.py answer   --project <dir> --id <pending id> (--text <text> | --text-file <file>) [--with-comments]
   python3 runtime/cli.py release  --project <dir> --id <pending id>
@@ -44,7 +45,7 @@ Usage:
   python3 runtime/cli.py dispatch --project <dir>
   python3 runtime/cli.py poll     --project <dir>
   python3 runtime/cli.py handler  --project <dir> --name <handler> --verb <verb> [--arg <flag>=<value>]...
-  python3 runtime/cli.py stop-runs --project <dir>
+  python3 runtime/cli.py stop-runs --project <dir> [--all]
   python3 runtime/cli.py service-check --project <dir> [--dispatch-every <seconds>]
   python3 runtime/cli.py pin      --project <dir>
   python3 runtime/cli.py say      --project <dir> (--text <line> | --text-file <file or ->)
@@ -57,12 +58,12 @@ route     plans a request that waits for its route. Without --flow: one run of t
           becomes a plan for you to approve, a question it asks is answered with answer (then route again), and
           a reply with no recognised route opens a question with one sentence and the reply whole in its payload, a
           direct turn (route none, shape direct) opens nothing and prints kind "direct" with the router's next line.
-          With --flow: the plan of that flow file, no run and no run lock. While another run of the project is in
-          progress the request is refused here (as before); only the local page queues it ({"queued": true}), and the
-          service's loop, or route-queued, routes it when the run ends.
-route-queued  answers the oldest line of the conversation, or routes the oldest request, that waited for the end of a
-          run (the local page queues them while a run holds the project): one per call, only when no run is in
-          progress. The local service calls it every few seconds; it calls a model, like route.
+          With --flow: the plan of that flow file, no run and no route lock. While the router answers another request of
+          the project the request is refused here (as before; a run of a task never makes it); only the local page queues
+          it ({"queued": true}), and the service's loop, or route-queued, routes it when that run ends.
+route-queued  answers the oldest line of the conversation, or routes the oldest request, that waited for the end of the
+          router's run (the local page queues them while the router answers another request): one per call, only when
+          the router is free. The local service calls it every few seconds; it calls a model, like route.
 approve   approves a plan (its tasks are created; pass the plan's hash, shown with it, as --sha256 to approve
           exactly what you read) or a request written on the task board.
           An effect (a pull request a skill prepared up to its confirmation gate) is approved only here, in the
@@ -73,13 +74,20 @@ approve   approves a plan (its tasks are created; pass the plan's hash, shown wi
           runtime passes none.
 reject    rejects a plan or a request written on the task board: the request is cancelled. An effect rejected
           cancels its task, and nothing is sent.
-run-next  runs the next ready task: one skill, once, in the eval container, on the model its proof gives (the
+run-next  runs the next ready task that the rules of the slots let in (runtime/parallel.py), in this process: one skill,
+          once, in the eval container, on the model its proof gives (the
           floor model only where the skill is reliable there and the proof holds; --tier strong asks for the
           reference model; nothing asks for the floor model), on a copy
           of what may enter by limits L1 to L6 (runtime/workcopy.py). What the run left comes back by the path rule
-          (runtime/path_rule.py); then the task waits for you. One task at a time per project. Start it with
+          (runtime/path_rule.py); then the task waits for you. Other tasks of the project may be running: up to
+          max_running at once, each agent up to its max_parallel, never two that write the same file. Start it with
           the secret store's library available, as the eval runner is started:
             uv run --with keyring==25.7.0 python3 runtime/cli.py run-next --project <dir>
+run-task  runs one named task in this process (--task <id>): what the dispatcher starts for every task it runs, one process
+          each. It takes the task's lock, ends what dead processes left, and admits and claims the task under the claim
+          lock; a task that was refused (not ready, waiting, a document not taken, a cap) is not run and exits 4, except
+          when the reason is one of the words of the held tasks (a slot, the project's limit, an artifact in use), which
+          exits 0 and prints it. A person uses run-next.
 pending   lists what waits for you; with --id, prints that pending decision whole: the reply, what came back,
           what was kept in the run folder.
 answer    answers a pending decision; the task becomes ready and its next run is given your answer. With
@@ -171,7 +179,7 @@ approve-policy  approves a policy file for one area agent (a standing approval).
 revoke-policy  ends a standing approval; its row leaves the state file.
 standing  whether an active standing approval covers a policy now, and why not; it executes nothing.
 execute-under-policy  the one place an effect under a standing approval is executed: it checks the effect document a
-          handler wrote against the approval's bounds, holding the run lock, makes the provider's dry run and its
+          handler wrote against the approval's bounds, holding the write lock, makes the provider's dry run and its
           confirmed call, and records the action. {"executed": false, "why"} when the approval does not cover it:
           nothing ran. A handler never confirms a provider verb itself.
 set-mode  sets one area agent's autonomy mode in docs/workbench/runtime.json (area_agents): stopped (it starts
@@ -197,9 +205,11 @@ contained-run  one run of one skill of an area agent's pack, once, in the eval c
           every pack of the configuration, 3 when no run could be made (no eval image on this machine, a platform with no
           reference): the image is never built. It calls a model.
 dispatch  one round of the dispatcher: the ticks of the handlers whose dispatch is true, the deliveries each area
-          agent's mode releases (released, never approved), and the next ready tasks, one at a time, while the agent's
-          mode and its daily caps allow (runs per day on a subscription or free credential, dollars per day on a metered one). It
-          calls a model, like run-next. The scheduler's worker job calls it.
+          agent's mode releases (released, never approved), and every ready task that the agent's mode, its daily caps
+          (runs per day on a subscription or free credential, dollars per day on a metered one), its slots, the project's
+          max_running and the files in use allow, each as a process of its own (run-task). Here it waits for them: it
+          keeps reaping and deciding until none of its children is alive, so that the scheduler's worker job, which calls
+          it, never returns while a run is alive. It calls a model, like run-next.
 poll      the short job: mirrors the task board and the documents, expires standing approvals, rewrites the state file's
           generated lines, and releases what a mode releases. It calls no model and starts no task.
 pin       writes the pin of the dispatcher's two jobs (<data_dir>/dispatch-pin.json): the path and the hash of the
@@ -212,8 +222,10 @@ say       one turn of the conversation with the planning agent (the same as one 
           store's records, with no model and no request; a line that needs the planner, typed while another
           run of the project is in progress, is refused before it is stored (only the local page queues one).
 handler   starts one verb of a handler (runtime/handlers/) that handlers in runtime.json names, and prints its result.
-stop-runs ends the runs this process started (the container and the process group of each run). The local service
-          calls it before it exits; started on its own it has no run to end.
+stop-runs ends the runs this process started (its children, the container and the process group of each run). The local
+          service calls it before it exits; started on its own it has no run to end. With --all it ends every task run of
+          the project that a live process holds, whoever started it (by the process group its task lock names; a lock
+          nobody holds is never signalled). To keep the dispatcher from starting more, stop the agent: set-mode stopped.
 service-check  what the local service checks at its start, for this project: whether this interpreter can read the
           secret store, whether the reference model's credential is set or in it, docker on the PATH, the eval image on
           this machine, and whether a service dispatches (--dispatch-every <seconds>; absent: "not a service"). It starts
@@ -225,7 +237,8 @@ accept-config  records the hash of docs/workbench/runtime.json you accept. Type 
 --text-file - reads the text from standard input.
 The project is configured in <project>/docs/workbench/runtime.json (runtime/project_config.py).
 Prints one JSON object on stdout; diagnostics on stderr.
-Exit codes: 0 ok, 1 the operation failed or was refused, 2 usage error, 3 the project is not configured.
+Exit codes: 0 ok, 1 the operation failed or was refused, 2 usage error, 3 the project is not configured, 4 refused and
+not run (run-task only).
 Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
@@ -364,6 +377,8 @@ def main(argv=None) -> int:
         return e.code
     json.dump(out, sys.stdout, ensure_ascii=False, indent=1, default=str)
     print()
+    if row["name"] == "run-task" and out.get("ran") is None and not out.get("held"):
+        return 4  # refused, not run: the dispatcher that started this process records it (ops_runs.reap)
     unless = row.get("exit_unless")  # the row says which result is not a success; the result is printed either way
     return 1 if unless and out.get(unless[0]) != unless[1] else 0
 

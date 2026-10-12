@@ -11,7 +11,7 @@ import standin_tree as st
 plan = st.load("plan")
 ROOT = str(st.REPO)
 REQUEST = {"id": 7, "title": "Two jobs", "text": "Do two jobs."}
-LIMITS = {"one_task_at_a_time": True, "timeout_seconds": 1800, "retries": 2}
+LIMITS = {"timeout_seconds": 1800, "retries": 2}  # no ceiling of tasks at once: the plan text names none
 
 
 def routed(*skills: str) -> list:

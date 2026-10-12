@@ -20,6 +20,12 @@ store = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(store)
 
 
+def claim_oldest(conn):
+    """Claim the oldest ready task, as the first claim of a database once did, with the store's own query and task_claim."""
+    row = conn.execute(store.NEXT_READY_TASK).fetchone()
+    return store.task_claim(conn, row["id"]) if row else {"task": None}
+
+
 @pytest.fixture
 def path(tmp_path):
     db = tmp_path / "state" / "tasks.sqlite"
@@ -52,7 +58,7 @@ def test_every_kind_of_write_of_the_task_runtime_raises_it(conn):
     moved("a request with its plan")
     store.cursor_set(conn, "x", "y")
     moved("a cursor")
-    task = store.task_claim_next(conn)["task"]
+    task = claim_oldest(conn)["task"]
     moved("a claim (the task runs)")
     run = store.task_run_start(conn, task["id"], skill="eng-implement", model="m", adapter="h")["run_id"]
     moved("the start of a run")
@@ -65,7 +71,7 @@ def test_every_kind_of_write_of_the_task_runtime_raises_it(conn):
 
 def test_a_transaction_that_changes_nothing_leaves_the_counter_alone(conn):
     before = store.change_counter(conn)
-    assert store.task_claim_next(conn)["task"] is None      # a dispatcher tick with nothing ready opens a write transaction
+    assert claim_oldest(conn)["task"] is None      # a dispatcher tick with nothing ready opens a write transaction
     store.tasks_list(conn)
     store.pending_list(conn)
     assert store.change_counter(conn) == before
