@@ -97,7 +97,7 @@ export function buildProject(ctx, spec) {
     const task = P.tasks.find((t) => t.id === run.task);
     P.runs.push(runRow(ctx, {
       id: P.next.run++, task_id: run.task, skill: task.skill, status: run.status, ending: run.ending, attempts: 1, started_at: iso(ctx, -run.ago - run.minutes),
-      ended_at: iso(ctx, -run.ago), tokens: run.tokens, duration_ms: run.minutes * 60000, run_dir: runDir(P, P.next.run - 1),
+      ended_at: run.status === "running" ? null : iso(ctx, -run.ago), tokens: run.tokens, duration_ms: run.status === "running" ? null : run.minutes * 60000, run_dir: runDir(P, P.next.run - 1),
     }));
   }
   for (const p of spec.pending) {

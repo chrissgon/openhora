@@ -50,3 +50,41 @@ export function pageBatch(batch, f) {
     tri: (tone, a, b, c) => batch.tri(point(a), point(b), point(c), tone),
   };
 }
+
+/**
+ * A page batch for one seat of the L: the same methods as `pageBatch`'s result (`box`, `front`, `side`, `flat`, `raw`), taking today's workstation's page
+ * units and putting them at the seat. `seat` is {turn ("none" or "swap"), q: [x, z] (the seat's centre), s (the scale), c0: [x, z] (the point today's workstation is taken about)}, as
+ * `seat(i)` of seats-layout.js gives it. A "none" seat is today's workstation scaled and moved. A "swap" seat exchanges the two floor axes: a mirror, not a rotation, so a box stays a
+ * box with its width and depth exchanged, a rectangle facing +z becomes one facing +x and the reverse, and every face keeps its tone (a face facing +z is the left face whatever drew
+ * it, so the light stays on one side). Every range stays increasing (the scale is positive). `quad` and `tri` throw: a swapped quad would reverse its winding on the kit's single-sided material.
+ */
+export function seatBatch(pb, seat) {
+  const { q, s, c0 } = seat;
+  const only = () => {
+    throw new Error("seatBatch draws boxes and rectangles only");
+  };
+  if (seat.turn === "swap") {
+    const X = (z) => q[0] + s * (z - c0[1]);      // today's z becomes x
+    const Z = (x) => q[1] + s * (x - c0[0]);      // today's x becomes z
+    return {
+      raw: pb.raw,
+      box: (tones, x, y, z, w, h, d) => pb.box(tones, X(z), s * y, Z(x), s * d, s * h, s * w),
+      front: (tone, x0, y0, x1, y1, z) => pb.side(tone, Z(x0), s * y0, Z(x1), s * y1, X(z)),
+      side: (tone, z0, y0, z1, y1, x) => pb.front(tone, X(z0), s * y0, X(z1), s * y1, Z(x)),
+      flat: (tone, x0, z0, x1, z1, y) => pb.flat(tone, X(z0), Z(x0), X(z1), Z(x1), s * y),
+      quad: only,
+      tri: only,
+    };
+  }
+  const X = (x) => q[0] + s * (x - c0[0]);
+  const Z = (z) => q[1] + s * (z - c0[1]);
+  return {
+    raw: pb.raw,
+    box: (tones, x, y, z, w, h, d) => pb.box(tones, X(x), s * y, Z(z), s * w, s * h, s * d),
+    front: (tone, x0, y0, x1, y1, z) => pb.front(tone, X(x0), s * y0, X(x1), s * y1, Z(z)),
+    side: (tone, z0, y0, z1, y1, x) => pb.side(tone, Z(z0), s * y0, Z(z1), s * y1, X(x)),
+    flat: (tone, x0, z0, x1, z1, y) => pb.flat(tone, X(x0), Z(z0), X(x1), Z(z1), s * y),
+    quad: only,
+    tri: only,
+  };
+}
