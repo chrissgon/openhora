@@ -184,7 +184,7 @@ def _http_error(method: str, error, token: str) -> ProviderError:
         said = description.lower()
         if "terminated" in said and "getupdates" in said and "webhook" not in said:  # another getUpdates request took the stream
             return ProviderError(f"Telegram answered 409: {CONFLICT_SENTENCE}", EXIT_NOT_CONFIGURED)
-        return ProviderError(f"Telegram answered 409: {WEBHOOK_SENTENCE}", EXIT_NOT_CONFIGURED)
+        return ProviderError(f"Telegram answered 409: {WEBHOOK_SENTENCE}", EXIT_NOT_CONFIGURED)  # a 409 matching neither text keeps this sentence (old behaviour)
     if status in (401, 404):
         return ProviderError(f"Telegram refused the bot token ({status}): store a valid one", EXIT_NOT_CONFIGURED)
     return ProviderError(f"Telegram {method} answered {status}" + (f": {description}" if description else ""), EXIT_SERVICE)

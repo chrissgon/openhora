@@ -131,7 +131,8 @@ class Ledger:
         self._write()
         if log:
             log(f"the ledger moved to {self.path} ({len(mine)} card(s) of the projects served here); "
-                f"the earlier file {old} can be deleted")
+                f"the earlier file {old} can be deleted; only the first project's earlier file is read, so a project whose "
+            "earlier cards sat elsewhere may get its open decisions carded once more")
 
     def _read(self) -> dict:
         try:

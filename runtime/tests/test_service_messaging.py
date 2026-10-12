@@ -31,8 +31,9 @@ service_bridge = st.load("service_bridge")
 STAND_IN = textwrap.dedent('''
     import json, os, signal, stat, subprocess, sys, time
     mode = os.environ["BRIDGE_MODE"]
+    stopped = []
     if mode == "wait":  # before the record exists, so a stop sent as soon as a test sees the record finds the handler
-        signal.signal(signal.SIGTERM, lambda *a: sys.exit(0))
+        signal.signal(signal.SIGTERM, lambda *a: stopped.append(1))
     if mode == "ignore":
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
     record = {"argv": sys.argv[1:], "executable": sys.executable, "pid": os.getpid(), "sid": os.getsid(0),
@@ -54,8 +55,8 @@ STAND_IN = textwrap.dedent('''
     if mode == "group":
         while True:
             time.sleep(1)
-    while sys.stdin.buffer.read(4096):
-        pass
+    while not stopped:  # stops from its SIGTERM handler only, so the exit is always 0 (the end of its input is ignored)
+        time.sleep(0.02)
     sys.exit(0)
 ''')
 
@@ -263,9 +264,10 @@ def test_a_child_that_exits_during_its_stop_is_not_reported_as_a_surprise(world)
     started(world)
     assert run.finish() == 0
     [line] = [line for line in run.logs if "messaging bridge" in line and "exited" in line]
-    # its input ends and SIGTERM arrives together: the bridge exits 0 on whichever it sees first, or, when the signal
-    # lands while the interpreter is already finalizing (the handlers are back to the default then), by the signal
-    assert ("code 0" in line or "code -15" in line) and "not restarted" not in line
+    # The stand-in stops from its SIGTERM handler alone, so the exit is deterministic. (The real bridge also stops on the
+    # end of its input; when both arrive together it can show -15, harmless: `stopping` is set, so the line omits
+    # "not restarted".)
+    assert "code 0" in line and "not restarted" not in line
 
 
 def test_a_sigterm_to_the_service_stops_the_child(world):
