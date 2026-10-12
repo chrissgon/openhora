@@ -1169,3 +1169,61 @@ describe("links and routes match the flows (DEV-20); GitHub links are checked by
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 });
+
+// ---------------------------------------------------------------- the social preview and the canonical links
+// Static check of the page source (no browser): every page carries the Open Graph and Twitter card tags with absolute URLs, and the image they name exists.
+describe("social preview", () => {
+  const ORIGIN = "https://openhora.dev";
+  const CANONICAL = { "index.html": "/", "proof.html": "/proof", "first-steps.html": "/first-steps", "how-it-is-built.html": "/how-it-is-built", "interface.html": "/interface", "glossary.html": "/glossary", "404.html": null };
+  const IMAGE = `${ORIGIN}/assets/img/og-openhora.png`;
+  const IMAGE_FILE = path.join(SITE, "assets", "img", "og-openhora.png");
+  const metaOf = (html) => {
+    const m = {};
+    for (const t of html.matchAll(/<meta\s+(?:property|name)="([^"]+)"\s+content="([^"]*)">/g)) m[t[1]] = t[2];
+    return m;
+  };
+  const decode = (s) => s.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+
+  test("og-openhora.png exists, is 1200x630, is under 300 KB and has no metadata chunk", () => {
+    assert.ok(fs.existsSync(IMAGE_FILE), "site/assets/img/og-openhora.png does not exist");
+    const buf = fs.readFileSync(IMAGE_FILE);
+    assert.ok(buf.length < 300 * 1024, `the image is ${buf.length} bytes, not under 300 KB`);
+    assert.equal(buf.subarray(1, 4).toString(), "PNG");
+    assert.equal(buf.readUInt32BE(16), 1200, "width");
+    assert.equal(buf.readUInt32BE(20), 630, "height");
+    const chunks = [];
+    for (let i = 8; i < buf.length; i += 12 + buf.readUInt32BE(i)) chunks.push(buf.subarray(i + 4, i + 8).toString());
+    const allowed = new Set(["IHDR", "PLTE", "IDAT", "IEND", "tRNS"]);
+    assert.deepEqual(chunks.filter((c) => !allowed.has(c)), [], "the image carries a chunk that is not pixel data");
+  });
+
+  for (const [file, route] of Object.entries(CANONICAL)) {
+    test(`${file} has the Open Graph and Twitter card tags with absolute URLs${route === null ? "" : " and a canonical link"}`, () => {
+      const html = fs.readFileSync(path.join(SITE, file), "utf8");
+      const m = metaOf(html);
+      const title = decode(html.match(/<title>(.*?)<\/title>/)[1]);
+      const description = decode(m.description);
+      assert.ok(description, "the page has a meta description");
+      assert.equal(m["og:type"], "website");
+      assert.equal(m["og:site_name"], "openhora");
+      assert.equal(decode(m["og:title"]), title);
+      assert.equal(decode(m["og:description"]), description);
+      assert.equal(m["og:image"], IMAGE);
+      assert.equal(m["og:image:width"], "1200");
+      assert.equal(m["og:image:height"], "630");
+      assert.ok(m["og:image:alt"] && m["og:image:alt"].length > 10, "og:image:alt");
+      assert.equal(m["twitter:card"], "summary_large_image");
+      assert.equal(decode(m["twitter:title"]), title);
+      assert.equal(decode(m["twitter:description"]), description);
+      assert.equal(m["twitter:image"], IMAGE);
+      const canonical = [...html.matchAll(/<link rel="canonical" href="([^"]*)">/g)].map((x) => x[1]);
+      if (route === null) {
+        assert.ok(!("og:url" in m), "the 404 page has no og:url");
+        assert.deepEqual(canonical, [], "the 404 page has no canonical link");
+      } else {
+        assert.equal(m["og:url"], ORIGIN + route);
+        assert.deepEqual(canonical, [ORIGIN + route], "exactly one canonical link, the page's absolute URL");
+      }
+    });
+  }
+});
