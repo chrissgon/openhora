@@ -28,6 +28,7 @@ import datetime
 import importlib
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -56,7 +57,6 @@ EXIT_REFUSED = 4                       # the exit code of `run-task` for a task 
 SPAWNED = []                           # [(project, task id, Popen)] this process started
 SPAWNED_LOCK = threading.RLock()       # every access holds it (re-entrant: a signal handler may arrive while it is held)
 STOPPING = threading.Event()           # set: no child starts any more (stop_runs, a signal on a waiting round)
-_REFUSED_LOCK = threading.Lock()
 
 
 def _ops():
@@ -99,6 +99,18 @@ def running_items(ctx: dict, cache: dict) -> list:
     return [item_of(row["task"], cache) for row in core._stored(ctx, ctx["store"].task_running_list)]
 
 
+def effect_items(ctx: dict) -> list:
+    """The effects that execute now, as items of `running` that admit reads: a code entry of the request, with no footprint
+    and no slot (`"effect": True`). A code task of that request waits for the effect to end (PAR-6)."""
+    return [{"id": -rid, "agent": None, "request_id": rid, "code": True, "footprint": frozenset(), "effect": True}
+            for rid in sorted(core._effects_running(ctx["cfg"]))]
+
+
+def running_and_effects(ctx: dict, cache: dict) -> list:
+    """running_items plus effect_items: what admit weighs a task against."""
+    return running_items(ctx, cache) + effect_items(ctx)
+
+
 def code_running(ctx: dict, request_id) -> bool:
     """Whether a code task of this request is `running` now."""
     return any(i["code"] and i["request_id"] == request_id for i in running_items(ctx, {}))
@@ -109,6 +121,37 @@ def code_running(ctx: dict, request_id) -> bool:
 ORPHAN_NOTE = "the run was interrupted before it ended; retry the task"
 
 
+def _drop_task_locks(ctx: dict) -> list:
+    """Delete the lock file of every task that ended `done` or `cancelled` (or that the store no longer has), under its own
+    lock: a file whose lock is held (a process still finishing the task) stays, and `_try_lock` locks again a file that was
+    deleted between its open and its lock. A task that can run again (`ready`, `running`, `waiting`, `failed`...) keeps its
+    file. Returns the task ids whose file went (PAR-6: the files were never deleted before)."""
+    cfg = ctx["cfg"]
+    try:
+        names = [n for n in os.listdir(core._locks_dir(cfg)) if re.fullmatch(r"task-\d+\.lock", n)]
+    except OSError:
+        return []
+    if not names:
+        return []
+    states = {t["id"]: t["state"] for t in core._stored(ctx, ctx["store"].tasks_list)}
+    dropped = []
+    for name in names:
+        task_id = int(name[len("task-"):-len(".lock")])
+        if states.get(task_id) not in (None, "done", "cancelled"):
+            continue
+        fd = core._try_lock(cfg, name)
+        if fd is None:
+            continue
+        try:
+            os.unlink(os.path.join(core._locks_dir(cfg), name))
+            dropped.append(task_id)
+        except OSError:
+            pass
+        finally:
+            os.close(fd)
+    return dropped
+
+
 def _recover(ctx: dict, holding_route: bool = False) -> dict:
     """End what dead processes left. A task `running` in the store whose lock (task-<id>.lock) can be taken has no live
     holder: it is an orphan, and so is every run row of the router in progress when route.lock can be taken (or when the
@@ -117,6 +160,7 @@ def _recover(ctx: dict, holding_route: bool = False) -> dict:
     derived again after."""
     cfg, store = ctx["cfg"], ctx["store"]
     held, tasks, runs = [], [], []
+    _drop_task_locks(ctx)
     try:
         for row in core._stored(ctx, store.task_running_list):
             fd = core._try_lock(cfg, f"task-{row['task']['id']}.lock")
@@ -190,7 +234,7 @@ def _start(ctx: dict, task_id: int, tier, checked: bool) -> dict:
                         "task": task_id, "documents": stopped}
         if task is not None and task["state"] == "ready" and task["parent_id"] is not None:
             cache = {}
-            running = [r for r in running_items(ctx, cache) if r["id"] != task_id]
+            running = [r for r in running_and_effects(ctx, cache) if r["id"] != task_id]
             holders = core._stored(ctx, store.task_slot_holders)
             if checked and prepared is not None and task.get("agent") in cfg["area_agents"]:
                 found = ops._agents_of_the_day(ctx, key).get(task["agent"])
@@ -242,7 +286,7 @@ def run_next(project: str, tier=None) -> dict:
              and t["id"] not in waits]
     chosen, why = None, []
     if ready:
-        running = running_items(ctx, cache)
+        running = running_and_effects(ctx, cache)
         holders = core._stored(ctx, store.task_slot_holders)
         for task in sorted(ready, key=lambda t: t["id"]):
             ok, word = parallel.admit(item_of(task, cache), running, holders, cfg["area_agents"], cfg["max_running"])
@@ -321,7 +365,7 @@ def _refused_read(ctx: dict) -> dict:
 
 def _refused_write(ctx: dict, additions: dict) -> None:
     now = time.time()
-    with _REFUSED_LOCK:
+    with core._claim_lock(ctx["cfg"]):  # read-then-write: the service and a scheduled job both write it (PAR-6)
         kept = {k: v for k, v in _refused_read(ctx).items()
                 if isinstance(v, dict) and now - float(v.get("at") or 0) <= REFUSED_FOR}
         kept.update({str(k): v for k, v in additions.items()})
@@ -342,8 +386,8 @@ def reap(project=None) -> list:
     """Drop the children of this process that ended (of one project when given) and return the entries dropped. A child
     that exited 4 (refused, not run), or whose task is still `ready` whatever its exit (it was held by a word under the
     claim lock, or crashed before its claim), is recorded in the cursor `dispatch:refused`, so that the next rounds hold
-    the task `could not start` for a while and a waiting round cannot start it again at once. The parent is the only
-    writer."""
+    the task `could not start` for a while and a waiting round cannot start it again at once. The cursor is written under the claim lock
+    by whichever process started the child (the service and a scheduled job both do), so neither loses the other's entries."""
     ended = []
     with SPAWNED_LOCK:
         keep = []
@@ -381,7 +425,7 @@ def parallel_state(ctx: dict, tasks: list, cache: dict) -> dict:
     store's rows, as the snapshot read them."""
     store = ctx["store"]
     reap(ctx["cfg"]["project"])  # a child that ended since the last reap is no longer counted as starting
-    running = running_items(ctx, cache)
+    running = running_and_effects(ctx, cache)
     holding = list(core._stored(ctx, store.task_slot_holders))
     by_id = {t["id"]: t for t in tasks}
     starting = set()

@@ -730,8 +730,18 @@ def _approve_effect(ctx: dict, item: dict, sha256) -> dict:
     if item["status"] != "open":
         raise core.OpsError(f"pending decision {pending_id} is {item['status']}, not open", 1)
     request_id = core._stored(ctx, store.task_get, item["task_id"])["parent_id"]
-    if request_id is not None and ops_runs.code_running(ctx, request_id):
-        raise core.OpsError("a code task of this request is running; approve when it ends", 1)
+    with core._effect_lock(cfg, request_id):  # from here a code task of the request is not claimed (admit reads this lock)
+        if request_id is not None:
+            with core._claim_lock(cfg):  # a claim happens under this lock: either the code task is seen here or the lock is seen there
+                if ops_runs.code_running(ctx, request_id):
+                    raise core.OpsError("a code task of this request is running; approve when it ends", 1)
+        return _execute_effect(ctx, item, sha256)
+
+
+def _execute_effect(ctx: dict, item: dict, sha256) -> dict:
+    """The rest of _approve_effect, with the request's effect lock held: the document, the approval row, the checks and the
+    execution under the write lock."""
+    store, cfg, pending_id = ctx["store"], ctx["cfg"], item["id"]
     payload = item.get("payload") or {}
     try:
         with open(payload["effect_file"], "rb") as f:

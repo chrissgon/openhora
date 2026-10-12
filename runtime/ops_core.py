@@ -289,14 +289,23 @@ def _locks_dir(cfg: dict) -> str:
 def _try_lock(cfg: dict, name: str):
     """Take the lock file <data_dir>/locks/<name> without waiting: the open descriptor, or None when another holder has
     it. It writes nothing in the file. The caller closes the descriptor to release the lock (a closed or dead process
-    releases it too, so a held lock is the proof that its holder is alive)."""
-    fd = os.open(os.path.join(_locks_dir(cfg), name), os.O_RDWR | os.O_CREAT, 0o600)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        os.close(fd)
-        return None
-    return fd
+    releases it too, so a held lock is the proof that its holder is alive). A lock file may be deleted by whoever holds it
+    (a finished task's, `ops_runs._drop_task_locks`): a lock taken on a file that is no longer at its path is let go and taken again
+    on the file that is."""
+    path = os.path.join(_locks_dir(cfg), name)
+    while True:
+        fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            os.close(fd)
+            return None
+        try:
+            if os.fstat(fd).st_ino == os.stat(path).st_ino:
+                return fd
+        except OSError:
+            pass
+        os.close(fd)  # the file was deleted (a finished task's lock) between the open and the lock: lock the new one
 
 
 @contextlib.contextmanager
@@ -423,6 +432,49 @@ def _dispatch_lock(cfg: dict):
         yield
     finally:
         os.close(fd)
+
+
+@contextlib.contextmanager
+def _effect_lock(cfg: dict, request_id):
+    """The lock of the effects of one request (effect-<request id>.lock), held while an approved effect executes (PAR-6): a
+    code task of that request is not claimed meanwhile (`_effects_running`, read by `ops_runs`), and two effects of one
+    request do not execute together. Waited for about ROUTE_LOCK_WAIT seconds (a probe of `_effects_running` holds it for a
+    moment), then refused. No request, no lock."""
+    if request_id is None:
+        yield
+        return
+    deadline = time.monotonic() + ROUTE_LOCK_WAIT
+    while True:
+        fd = _try_lock(cfg, f"effect-{request_id}.lock")
+        if fd is not None:
+            break
+        if time.monotonic() >= deadline:
+            raise OpsError("an effect of this request is already executing; approve when it ends", 1)
+        time.sleep(LOCK_POLL)
+    try:
+        yield
+    finally:
+        os.close(fd)
+
+
+def _effects_running(cfg: dict) -> frozenset:
+    """The ids of the requests with an effect executing now: the effect locks that are held (probed with `_try_lock`, which
+    writes nothing, and let go at once)."""
+    try:
+        names = os.listdir(_locks_dir(cfg))
+    except OSError:
+        return frozenset()
+    found = set()
+    for name in names:
+        match = re.fullmatch(r"effect-(\d+)\.lock", name)
+        if match is None:
+            continue
+        fd = _try_lock(cfg, name)
+        if fd is None:
+            found.add(int(match.group(1)))
+        else:
+            os.close(fd)
+    return frozenset(found)
 
 
 def _midnight() -> str:

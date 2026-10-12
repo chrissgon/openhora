@@ -979,3 +979,149 @@ def _free(cfg, task_id) -> bool:
         return False
     os.close(fd)
     return True
+
+
+# --- the review leftovers of PAR-4 (PAR-6) ------------------------------------------------------------------------------------
+
+
+def hold_effect(world, request_id: int):
+    cfg = ops_core.context(world["path"])["cfg"]
+    fd = ops_core._try_lock(cfg, f"effect-{request_id}.lock")
+    assert fd is not None
+    return fd
+
+
+def test_a_code_task_is_not_claimed_while_an_effect_of_its_request_executes(world):
+    request = planned(world, "w-code")
+    one = min(t["id"] for t in tasks_of(world, request))
+    fd = hold_effect(world, request)
+    try:
+        out = ops.run_next(world["path"])
+        assert out["ran"] is None and WORDS["code"] in out["reason"]
+        assert by_skill(world, "demo-code", request)["state"] == "ready"
+        assert ops.run_task(world["path"], one)["held"] is True
+    finally:
+        os.close(fd)
+
+
+def test_a_task_of_another_request_is_not_held_by_an_effect(world):
+    request, other = planned(world, "w-code"), planned(world, "w-writes")
+    fd = hold_effect(world, request)
+    try:
+        out = ops.run_next(world["path"])  # the code task is older but held; the other request's task is let in
+        assert out["ran"] is not None
+        assert by_skill(world, "demo-code", request)["state"] == "ready"  # still waiting for the effect
+        assert by_skill(world, "demo-writes", other)["state"] != "ready"
+    finally:
+        os.close(fd)
+
+
+def test_the_effect_approval_holds_its_requests_lock_while_it_works_and_lets_go_after(world, monkeypatch):
+    request = planned(world, "w-code")
+    one = min(t["id"] for t in tasks_of(world, request))
+    cfg = ops_core.context(world["path"])["cfg"]
+    seen = []
+
+    class Kind:
+        GATE = True
+
+        @staticmethod
+        def unconfigured(cfg):
+            seen.append(ops_core._effects_running(cfg))
+            return "stop here"
+
+    monkeypatch.setattr(ops.effects, "module_for", lambda word: Kind)
+    path = world["project"] / "effect.json"
+    path.write_text(json.dumps({"effect": "push"}), encoding="ascii")
+    pending = {"id": 5, "task_id": one, "kind": "effect", "status": "open", "payload_sha256": "a" * 64,
+               "payload": {"effect_file": str(path)}}
+    with pytest.raises(ops.OpsError, match="stop here"):
+        ops._approve_effect(ops_core.context(world["path"]), pending, "a" * 64)
+    assert seen and all(found == frozenset({request}) for found in seen)
+    assert ops_core._effects_running(cfg) == frozenset()
+
+
+def test_two_effects_of_one_request_do_not_execute_together(world):
+    request = planned(world, "w-code")
+    one = min(t["id"] for t in tasks_of(world, request))
+    fd = hold_effect(world, request)
+    pending = {"id": 5, "task_id": one, "kind": "effect", "status": "open", "payload_sha256": "a" * 64, "payload": {}}
+    try:
+        with pytest.raises(ops.OpsError, match="an effect of this request is already executing"):
+            ops._approve_effect(ops_core.context(world["path"]), pending, "a" * 64)
+    finally:
+        os.close(fd)
+
+
+def test_the_refused_cursor_is_written_under_the_claim_lock_so_two_writers_keep_each_others_entries(world):
+    ctx = ops_core.context(world["path"])
+    ops_runs._refused_write(ctx, {"3": {"reason": "refused", "at": time.time()}})
+    done = threading.Event()
+
+    def write():
+        ops_runs._refused_write(ops_core.context(world["path"]), {"4": {"reason": "crashed", "at": time.time()}})
+        done.set()
+
+    with ops_core._claim_lock(ctx["cfg"]):  # another process (the scheduler's job) is inside its claim
+        thread = threading.Thread(target=write, daemon=True)
+        thread.start()
+        assert not done.wait(0.5), "the cursor was rewritten while another process held the claim lock"
+    assert done.wait(10)
+    assert ops_runs.refused_now(ctx) == {3: "refused", 4: "crashed"}
+
+
+def lock_files(world) -> set:
+    folder = os.path.join(ops_core.context(world["path"])["cfg"]["data_dir"], "locks")
+    return {n for n in os.listdir(folder) if n.startswith("task-")} if os.path.isdir(folder) else set()
+
+
+def test_a_task_lock_file_is_removed_when_its_task_is_done_or_cancelled_and_never_while_it_is_held(world):
+    request = planned(world, "w-trio")
+    one, two, three = sorted(t["id"] for t in tasks_of(world, request))
+    ctx = ops_core.context(world["path"])
+    cfg, store, conn = ctx["cfg"], ctx["store"], ctx["conn"]
+    for task_id in (one, two, three):  # every task has run once: a lock file each
+        os.close(ops_core._try_lock(cfg, f"task-{task_id}.lock"))
+    assert lock_files(world) == {f"task-{i}.lock" for i in (one, two, three)}
+    conn.execute("UPDATE tasks SET state = 'done' WHERE id = ?", (one,))
+    conn.execute("UPDATE tasks SET state = 'cancelled' WHERE id = ?", (two,))
+    conn.commit()
+    held_fd = ops_core._try_lock(cfg, f"task-{one}.lock")  # a live process still holds the finished task's lock
+    try:
+        ops_runs._recover(ctx)
+        assert lock_files(world) == {f"task-{one}.lock", f"task-{three}.lock"}  # the cancelled one went; the held one stays
+    finally:
+        os.close(held_fd)
+    ops_runs._recover(ctx)
+    assert lock_files(world) == {f"task-{three}.lock"}  # the live task's file stays
+
+
+def test_a_task_released_by_the_person_loses_its_lock_file_at_the_next_round(world, monkeypatch):
+    Lab(monkeypatch).release.set()
+    request = planned(world, "w-pair")
+    task_id = by_skill(world, "demo-writes", request)["id"]
+    assert ops.run_task(world["path"], task_id)["ran"] is not None
+    assert f"task-{task_id}.lock" in lock_files(world)  # it waits for the person: it may run again, the file stays
+    review = [p for p in ops.pending(world["path"])["pending"] if p["kind"] == "review"][0]
+    ops.release(world["path"], review["id"])
+    assert by_skill(world, "demo-writes", request)["state"] == "done"
+    ops.dispatch(world["path"], wait=False)
+    assert f"task-{task_id}.lock" not in lock_files(world)
+
+
+def test_a_lock_taken_on_a_file_that_was_deleted_meanwhile_is_not_a_lock(world, monkeypatch):
+    cfg = ops_core.context(world["path"])["cfg"]
+    os.close(ops_core._try_lock(cfg, "task-90.lock"))
+    path = os.path.join(cfg["data_dir"], "locks", "task-90.lock")
+    real, calls = ops_core.fcntl.flock, []
+
+    def flock(fd, how):
+        if not calls:  # the holder deletes the file between our open and our lock
+            calls.append(1)
+            os.unlink(path)
+        return real(fd, how)
+
+    monkeypatch.setattr(ops_core.fcntl, "flock", flock)
+    fd = ops_core._try_lock(cfg, "task-90.lock")
+    assert fd is not None and os.fstat(fd).st_ino == os.stat(path).st_ino
+    os.close(fd)
