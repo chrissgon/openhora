@@ -186,6 +186,17 @@ The goal decided on 2026-09-28 (`docs/decisions.md`): a company run by agents, o
   - Done when: each flow added has a real request behind it, tests like `runtime/tests/test_flow_website.py`, and a row in the routing table.
   - Plan: G step 8, as projects ask (phase G, new skills and flows, each tested when built); each flow also asks the Y change of `core-orchestrator` that phase G names for a new flow.
 
+## Website
+
+The public website (`site/`, published by Netlify at https://openhora.dev).
+
+- [ ] **W3. The website has no `/llms.txt`.** Requested by the maintainer on 2026-10-11, after the launch. The site has no file that tells a model what openhora is and where its pages and reference files are.
+  - What: a `/llms.txt` at the site's root in the llmstxt.org format: an H1 with the name, a one-paragraph summary, then sections of Markdown links. It is written from the site's own pages and the repository's reference files (what openhora is, the seven differentiators, first steps, how it is built, the interface, the glossary, and the repository's `README.md`, `AGENTS.md` and `contracts/`), and every link resolves. Optionally a `/llms-full.txt` with the pages' text. Netlify serves it as `text/plain`.
+  - Test: a site test checks that the file exists, has the H1 and that every link resolves (`site/tools/check_links.py` covers the GitHub links).
+  - Kept current: when a page changes, the file changes with it, either generated from the pages by a small script or checked by a test against the page titles. Decide which when building.
+  - Done when: `/llms.txt` is live on openhora.dev with every link resolving, and the site test passes.
+  - Plan: a site package after the launch (no phase of the old plan).
+
 ## Project conventions
 
 - [ ] **C1. Ask whether a project's `docs/` is versioned.** Requested by the user on 2026-09-28. Skills write everything a project produces under `docs/`: specs, ADRs and plans next to reviews, design explorations, marketing posts and their images, approvals and the workflow state. Some projects want all of it on GitHub; others want only code-related documentation there. In one public project, launch posts and their approval records were committed before the owner decided they should not be.
