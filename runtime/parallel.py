@@ -88,8 +88,10 @@ def admit(task: dict, running: list, holding: list, agents: dict, max_running: i
     """(True, "") or (False, reason). task and each item of running: {"id", "agent", "request_id", "code", "footprint"};
     holding: {"id", "agent"} of every slot holder (the running ones included); agents: name -> normalised entry with
     "max_parallel". First failure wins: the project is full; the agent is full (skipped for a task that already holds a
-    slot and for a task with no configured agent); a code task of the same request runs; the footprint is in use."""
-    if len(running) >= max_running:
+    slot and for a task with no configured agent); a code task, or an effect that executes, of the same request runs (an
+    effect is an item with "effect": True, "code": True and no footprint); the footprint is in use."""
+    # an executing effect (item "effect": True) is not a task run: it fills no slot, only keeps a code task of its request out
+    if sum(1 for r in running if not r.get("effect")) >= max_running:
         return False, PROJECT_FULL
     held_ids = {h["id"] for h in holding}
     if task["id"] not in held_ids and task.get("agent") in agents:
