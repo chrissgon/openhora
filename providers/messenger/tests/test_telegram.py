@@ -170,6 +170,25 @@ def test_a_409_from_get_updates_tells_the_person_to_remove_the_webhook(monkeypat
     assert code == 3 and "webhook" in err and "deleteWebhook" in err and TOKEN not in err
 
 
+def test_a_getupdates_conflict_409_says_another_program_reads_the_bot_and_a_webhook_409_keeps_its_sentence(monkeypatch, capsys):
+    url = f"https://api.telegram.org/bot{TOKEN}/getUpdates"
+    body = b'{"ok":false,"error_code":409,"description":"Conflict: terminated by other getUpdates request; make sure that only one bot instance is running"}'
+    conflict = urllib.error.HTTPError(url, 409, "Conflict", {}, io.BytesIO(body))
+    code, out, err = run(monkeypatch, capsys, Opener(conflict), "receive", "--platform", "telegram", "--offset", "0", "--timeout", "1")
+    assert code == 3, "the provider has no exit 4 (providers/CONTRACT.md): the bridge's fatal path takes 3"
+    assert "another program is reading this bot's updates" in err and "second bridge" in err
+    assert "webhook" not in err and "deleteWebhook" not in err and TOKEN not in out + err and out == ""
+    hook = b'{"ok":false,"error_code":409,"description":"Conflict: can\'t use getUpdates method while webhook is active; use deleteWebhook to delete the webhook first"}'
+    hooked = urllib.error.HTTPError(url, 409, "Conflict", {}, io.BytesIO(hook))
+    code, out, err = run(monkeypatch, capsys, Opener(hooked), "receive", "--platform", "telegram", "--offset", "0", "--timeout", "1")
+    assert code == 3 and "a webhook is set for this bot" in err and "deleteWebhook" in err and "another program" not in err
+    assert TOKEN not in out + err
+    # an answer with no description keeps the earlier behaviour: the webhook sentence
+    bare = urllib.error.HTTPError(url, 409, "Conflict", {}, io.BytesIO(b"{}"))
+    code, _, err = run(monkeypatch, capsys, Opener(bare), "receive", "--platform", "telegram", "--offset", "0", "--timeout", "1")
+    assert code == 3 and "a webhook is set for this bot" in err
+
+
 def test_ack_answers_the_callback_query(monkeypatch, capsys):
     opener = Opener(True)
     code, out, _ = run(monkeypatch, capsys, opener, "ack", "--platform", "telegram", "--action-ref", "cb9")

@@ -87,6 +87,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/roles.py` | The skills the runtime names, as data: runtime/roles.json, read and checked. |
 | `runtime/router.py` | The router step of the task runtime: what code reads of one run of the router skill asked only for the route. |
 | `runtime/service.py` | The local service: the operations layer of runtime/ops.py served on this machine through an API, with a token and an origin check, and the static files of the interface/ folder of the checkout. |
+| `runtime/service_bridge.py` | The messaging bridge as a child of the local service (runtime/service.py --messaging &lt;platform&gt;): one start brings up the page and the bridge. |
 | `runtime/shell_kit.py` | What the two network-free shells of the operations layer share: the local service (runtime/service.py) and the MCP mode (runtime/mcp.py). |
 | `runtime/skill_meta.py` | What a skill declares in its frontmatter, read for the runtime: the artifact lists, the requirement classes, the side effects and the version. |
 | `runtime/state_merge.py` | The one module that decides what a run may change in the project's state file (docs/workbench/state.md), limit L10 of the platform plan. |

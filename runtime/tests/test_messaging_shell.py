@@ -11,12 +11,26 @@ import signal
 import subprocess
 import sys
 import textwrap
+import threading
+import time
+
+import pytest
 
 import standin_tree as st
 from test_service import Standin
 
 messaging = st.load("messaging")
 ops = st.load("ops")
+ledgers = st.load("messaging_ledger")
+
+
+@pytest.fixture(autouse=True)
+def state(tmp_path, monkeypatch):
+    """No test reaches the real state folder (the lock and the ledger live there); a subprocess inherits the variable."""
+    folder = tmp_path / "state"
+    monkeypatch.setenv("OPENHORA_STATE_DIR", str(folder))
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    return folder
 
 
 def run(*argv):
@@ -41,24 +55,41 @@ class Quiet:
     def capabilities(self):
         return {"max_text": 4096}
 
+    def receive(self, offset, timeout):
+        time.sleep(0.05)
+        return {"updates": [], "next_offset": offset}
+
 
 class Stand(Standin):
     def config(self, project):
         return self.answers["config"]
 
 
-def test_a_project_without_senders_for_the_platform_exits_2_naming_the_key_and_an_unaccepted_one_exits_3(tmp_path, capsys):
+def test_a_project_without_senders_or_not_accepted_is_skipped_and_the_bridge_keeps_running(tmp_path, capsys):
+    """MSG-3a: this was exit 2 (no sender) and exit 3 (not accepted) in MSG-1; now the project is skipped with one line and
+    looked at again every notice period, and the bridge stops only when asked."""
     folder = tmp_path / "project"
     folder.mkdir()
-    for config, code, words in (({"messaging": {"senders": {}}}, 2, "messaging.senders.telegram"),
-                                ({"messaging": {"senders": {"telegram": []}}}, 2, "messaging.senders.telegram"),
-                                ({}, 2, "messaging.senders.telegram"),
-                                ({"accepted": False}, 3, "accept-config")):
+    for config, words in (({"messaging": {"senders": {}}}, "messaging.senders.telegram"),
+                          ({"messaging": {"senders": {"telegram": []}}}, "messaging.senders.telegram"),
+                          ({}, "messaging.senders.telegram"),
+                          ({"accepted": False}, "accept-config")):
         fake = Stand(tmp_path / "data")
         fake.answers["config"] = {"path": "x", "sha256": "a" * 64, "accepted": True, "data_dir": str(tmp_path / "data"), **config}
-        assert messaging.serve([str(folder)], "telegram", ops_module=fake, messenger=Quiet(), out=open(tmp_path / "out", "w")) == code
-        assert words in capsys.readouterr().err
-        assert (tmp_path / "out").read_text() == ""
+        fake.answers["pending"] = {"pending": []}
+        stop, result = threading.Event(), {}
+        thread = threading.Thread(target=lambda: result.update(code=messaging.serve(
+            [str(folder)], "telegram", notice_every=0.1, ops_module=fake, messenger=Quiet(), stop=stop, poll=1,
+            out=open(tmp_path / "out", "w"))))
+        thread.start()
+        time.sleep(0.6)
+        assert thread.is_alive() and "code" not in result, "it keeps running"
+        stop.set()
+        thread.join(30)
+        assert result["code"] == 0
+        err = capsys.readouterr().err
+        assert words in err and err.count("skipping") == 1, err
+        assert (tmp_path / "out").read_text() == "" or "skipping" not in (tmp_path / "out").read_text()
 
 
 def test_sigterm_stops_the_loop_and_ends_the_runs(tmp_path):
