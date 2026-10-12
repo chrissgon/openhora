@@ -249,7 +249,7 @@ export function floorRow(agent, status, context) {
   const decisions = accepted ? agentDecisions(status, name).length : 0;
   const work = orderTasks(status, context.project).filter((t) => agentOf(t) === name);
   const done = work.filter((t) => t.state === "done").length;
-  const running = work.filter((t) => t.state === "running").length;
+  const running = agentTasks(status, name).filter((t) => t.state === "running").length;      // agent-wide, as `stateOf`: a running task in another request counts (done, left and notes stay the followed request's)
   const left = work.filter((t) => t.state === "planned" || t.state === "blocked").length;       // A-12: not started and not ready
   const queued = format.count(agent.queued);
   // R-23b: the board of the room has one note for each task of the agent in the followed request, coloured by state: done, running, failed (the error tone) or still to do (a cancelled

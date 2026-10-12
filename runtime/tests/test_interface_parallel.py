@@ -488,3 +488,22 @@ def test_the_demo_readers_and_writers_state_the_new_rule():
         assert word in reads, f"world-reads.js gives {word}"
     writes = (INTERFACE / "demo" / "world-writes.js").read_text(encoding="utf-8")
     assert "Up to ${MAX_RUNNING} tasks at a time" in writes or "Up to 3 tasks at a time" in writes
+
+
+ACROSS = COMMON + r"""
+const status2 = { requests: [
+  { id: 1, title: "A", state: "ready", tasks: [task(4, "running", "engineering"), task(5, "running", "engineering")] },
+  { id: 2, title: "B", state: "ready", tasks: [task(8, "running", "engineering"), task(9, "running", "marketing")] }], pending: [], held: [], documents: [] };
+const snap = { projects: [{ id: P, name: "n", config: { accepted: true } }], details: { [P]: { status: status2, agents: [agent("planning"), agent("engineering"), agent("marketing")] } }, tasks: {}, loaded: true };
+const view = fm.building(snap, P);
+const row = (n) => view.rows.find((r) => r.name === n);
+out.running = [row("engineering").running, row("marketing").running, row("engineering").counts, row("marketing").counts, fm.plateOf(row("marketing")).running];
+console.log(JSON.stringify(out));
+"""
+
+
+@needs_node
+def test_running_counts_every_running_task_of_the_agent_whatever_its_request(tmp_path):
+    got = run_node(tmp_path, ACROSS)
+    assert got["running"][:2] == [3, 1], "engineering runs 3 tasks over two requests, marketing one that is in another request than the followed one"
+    assert "3 running" in got["running"][2] and "1 running" in got["running"][3] and got["running"][4] == 1
