@@ -7,11 +7,13 @@ import * as api from "../api.js";
 import { fill, h } from "../dom.js";
 import * as format from "../format.js";
 import { icon } from "../frame/icons.js";
+import { fingerprint, reader } from "../permissions.js";
 import { createCard } from "./cards.js";
 import { chip } from "./widgets.js";
 
 /**
- * Create the Inbox. env: {project, links, now(), refresh() (read the screen's data again), api (the client's actions, see cards.js)}.
+ * Create the Inbox. env: {project, links, now(), refresh() (read the screen's data again), api (the client's actions, see cards.js), can(op, kind) (optional:
+ * whether the page may do an operation, js/permissions.js; the cards read it at every draw, and every card draws again when what it answers changes)}.
  * Returns {el, update({decisions, requests, bodies, resolved, selected, loading, emptyText})}; emptyText replaces the empty line's words
  * (the Lobby says so when the plan it keeps in the Conversation is the only decision that waits).
  */
@@ -26,10 +28,12 @@ export function createInbox(env) {
   let focused = null;
   let shown = "";
   let ours = null;               // {link, until}: the "Open" link this module focused
+  const can = reader(env);
+  let allowedNow = null;          // fingerprint of what the page may do, as of the last update: a change draws every card again
   let wantOpen = null;           // {path, until}: the "Open" link of a document that was just closed, to take the focus when its card is drawn
 
   const cardEnv = {
-    project: env.project, now: env.now, api: env.api, links: env.links,
+    project: env.project, now: env.now, api: env.api, links: env.links, can: (op, kind) => can(op, kind),
     get requestIds() { return requestIds; },
     reread: async (id) => {
       const fresh = await api.pendingItem(env.project, id);
@@ -166,6 +170,9 @@ export function createInbox(env) {
     el,
     update(data) {
       last = data;
+      const allowed = fingerprint(can);
+      if (allowedNow !== null && allowed !== allowedNow) for (const card of cards.values()) card.redraw();     // the policy changed (accept-config): the cards were built once
+      allowedNow = allowed;
       requestIds = new Set((data.requests || []).map((r) => r.id));
       for (const d of data.decisions) read(d.id);
       // an id that is no longer open and not just resolved is dropped

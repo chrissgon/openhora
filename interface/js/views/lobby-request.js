@@ -6,6 +6,7 @@
 import { createPlanCard } from "../cards/plan.js";
 import { failureText } from "../cards/plan-rows.js";
 import { h } from "../dom.js";
+import { withheldLine } from "../floor/widgets.js";
 import * as format from "../format.js";
 import { routingWords } from "../model.js";
 import * as router from "../router.js";
@@ -47,12 +48,13 @@ function pointer(project, item, now) {
  * onExpand(open) (told when the person opens or closes it, so a rebuilt block can be given the state back), flows (the project's flows,
  * read once, or null: with them a request that waits for its route has a flow select beside "Route it", E-20), flow (the choice to give the
  * select back to a rebuilt block), onFlow(value) (told when the person chooses) and remembered (the flow chosen in the form this session,
- * kept in memory: then there is no select and "Route it" sends that flow)}.
+ * kept in memory: then there is no select and "Route it" sends that flow), can(op, kind) (whether the page may do an operation, js/permissions.js, all allowed when
+ * left out: "Route it" is `route`, and when it is withheld a line under the request's actions says so; "Cancel request" is a brake and is never withheld)}.
  * The plan card is drawn here only when a message names the request; otherwise its card is in the Inbox and this is a line that points at it.
  * The block has an id (`wb-request-<n>`) that the route `#/p/<id>/lobby/conversation/request/<n>` scrolls to. Returns {el, focusCard(id), focusTitle()}.
  */
 export function createBlock({ api, project, request, body, open, now, signal, onChanged, onCancel, onRoute, routing, runBusy = false, announce, viaMessage = true, routeNotice = null, expanded = false, onExpand = null,
-  flows = null, flow = "", onFlow = null, remembered = "" }) {
+  flows = null, flow = "", onFlow = null, remembered = "", can = () => true, notes = null }) {
   const line = requestLine(request, open);
   const words = requestWords(request, body);
   const number = `Request #${request.id}`;
@@ -75,7 +77,8 @@ export function createBlock({ api, project, request, body, open, now, signal, on
   // select, and no `Cancel request`, because the store refuses to cancel a request a run holds
   const cancel = line.cancellable && !routing
     ? h("button", { class: "pui-btn pui-link pui-error wb-lobby-cancel-link", type: "button", text: "Cancel request", "aria-label": `Cancel request ${request.id}` }) : null;
-  const route = line.routable
+  const routeAllowed = can("route");
+  const route = line.routable && routeAllowed
     ? h("button", { class: "pui-btn pui-surface pui-outline wb-small-button wb-route-button", type: "button", text: routing ? "Routing..." : "Route it", disabled: Boolean(routing),
       "aria-label": routing ? `Request ${request.id} is being routed` : `Route request ${request.id}`, title: request.routing ? routingWords(request, now) : runBusy && !remembered ? QUEUE_REASON : null }) : null;
   // the run's words on an element that wraps, not only on the button's tooltip (a touch screen has no tooltip)
@@ -95,6 +98,7 @@ export function createBlock({ api, project, request, body, open, now, signal, on
     h("span", { class: "pui-badge pui-muted pui-soft pui-rounded-full", text: `#${request.id}` }),
     titleButton,
     line.state ? h("span", { class: `pui-chip ${line.tone} wb-chip-small`, text: line.state }) : null);
+  const lacking = line.routable && !routeAllowed ? ["route"] : [];
   const actions = chooser || route || cancel ? h("div", { class: `wb-lr-actions${chooser ? " has-flow" : ""}` }, chooser, route, cancel, runNote) : null;
   if (cancel) cancel.addEventListener("click", () => onCancel(request, cancel));
   if (route && !routing) route.addEventListener("click", () => onRoute(request, remembered || (chooser ? chooser.value : "")));
@@ -105,7 +109,8 @@ export function createBlock({ api, project, request, body, open, now, signal, on
   for (const item of items) {
     if (item.status === "open") {
       if (item.kind === "plan" && viaMessage) {
-        const card = createPlanCard({ api, project, item, now, onChanged, signal, announce });
+        const card = createPlanCard({ api, project, item, now, onChanged, signal, announce, can,
+          noteText: notes ? notes.get(item.id) || "" : "", onNote: notes ? (value) => notes.set(item.id, value) : null });
         cards.set(item.id, card);
         decisions.push(card.el);
       } else {
@@ -115,7 +120,7 @@ export function createBlock({ api, project, request, body, open, now, signal, on
       decisions.push(resolvedLine(item, now));
     }
   }
-  const box = line.final ? null : h("div", { class: "wb-request-box" }, row, actions, fullText, notice);
+  const box = line.final ? null : h("div", { class: "wb-request-box" }, row, actions, withheldLine(lacking), fullText, notice);
   const el = h("div", { class: "wb-request-block", id: `wb-request-${request.id}`, tabindex: "-1" }, box, ...decisions);
   return {
     el,

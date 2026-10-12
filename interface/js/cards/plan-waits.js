@@ -6,6 +6,7 @@
 // one place. Every sentence is the runtime's own text; nothing is decided here.
 
 import { h } from "../dom.js";
+import { reader } from "../permissions.js";
 
 let counter = 0;
 
@@ -39,11 +40,15 @@ export function hasWaits(payload) {
 
 /**
  * The block. payload: the plan decision's. options: {disabled (the card is in flight), checked (a Set of task keys the card keeps between its draws:
- * the boxes start as it holds them and write back to it)}. Returns {el, keys(): the task keys ticked, setDisabled(on)},
- * or null when the plan waits for nothing and misses nothing.
+ * the boxes start as it holds them and write back to it; can(op, kind): whether the page may do an operation, js/permissions.js, all allowed when
+ * left out: the boxes are `approve` with the kind go-ahead, and without it a task that waits for another is told as a line, with no box). Returns
+ * {el, keys(): the task keys ticked, setDisabled(on), withheld: the boxes were left out}, or null when the plan waits for nothing and misses nothing.
  */
-export function createWaitsBlock(payload, { disabled = false, checked = new Set() } = {}) {
+export function createWaitsBlock(payload, { disabled = false, checked = new Set(), can = null } = {}) {
   if (!hasWaits(payload)) return null;
+  const may = can ? (op, kind) => Boolean(can(op, kind)) : reader(null);
+  const boxesAllowed = may("approve", "go-ahead");
+  let left = false;
   counter += 1;
   const uid = `wb-waits-${counter}`;
   const boxes = [];
@@ -52,7 +57,8 @@ export function createWaitsBlock(payload, { disabled = false, checked = new Set(
   if (groups.length) {
     parts.push(h("ul", { class: "wb-waits-list", "aria-labelledby": `${uid}-title` }, groups.map((g, i) => {
       const reasons = h("span", { class: "wb-waits-reasons wb-muted", text: g.reasons.join("; ") });
-      if (!g.derived) return h("li", { class: "wb-waits-item" }, h("span", { class: "wb-waits-task", text: `${g.title} waits:` }), reasons);
+      if (g.derived && !boxesAllowed) left = true;
+      if (!g.derived || !boxesAllowed) return h("li", { class: "wb-waits-item" }, h("span", { class: "wb-waits-task", text: `${g.title} waits:` }), reasons);
       const box = h("input", { class: "wb-checkbox", type: "checkbox", id: `${uid}-box-${i}`, "data-key": `go-ahead-${g.key}`, "data-task-key": g.key });
       box.disabled = Boolean(disabled);
       box.checked = checked.has(g.key);
@@ -71,12 +77,13 @@ export function createWaitsBlock(payload, { disabled = false, checked = new Set(
   const cycles = entries(payload, "cycles");
   if (cycles.length) parts.push(h("ul", { class: "wb-waits-list is-cycles" }, cycles.map((c) => h("li", { class: "wb-waits-item", text: String(c.sentence || `${c.task_key} would wait in a circle`) }))));
   const el = h("div", { class: "wb-waits", role: "group", "aria-labelledby": `${uid}-title` }, parts,
-    h("p", { class: "wb-card-note wb-muted", text: "Tick Go ahead to start a task without waiting for what is listed; a task you leave unticked waits." }));
+    boxesAllowed ? h("p", { class: "wb-card-note wb-muted", text: "Tick Go ahead to start a task without waiting for what is listed; a task you leave unticked waits." }) : null);
   return {
     el,
     keys: () => boxes.filter((b) => b.checked).map((b) => b.getAttribute("data-task-key")),
     setDisabled(on) {
       for (const b of boxes) b.disabled = Boolean(on);
     },
+    withheld: left,
   };
 }
