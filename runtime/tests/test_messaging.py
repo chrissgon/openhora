@@ -70,6 +70,7 @@ def world(tmp_path, monkeypatch):
     folder = tmp_path / "standin"
     folder.mkdir()
     monkeypatch.setenv("STANDIN_DIR", str(folder))
+    monkeypatch.setenv("OPENHORA_STATE_DIR", str(tmp_path / "state"))  # no test reaches the real state folder
     w = World()
     w.tmp, w.root, w.standin = tmp_path, root, folder
     w.items = {}

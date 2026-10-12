@@ -40,7 +40,9 @@ Environment:
                                       store is then never read
 
 Exit codes: 0 ok, 1 failed (the service answered an error, or could not be reached), 2 usage (also a message beyond
-the capabilities), 3 not configured (no token, a token the service rejects, a webhook is set).
+the capabilities), 3 not configured (no token, a token the service rejects, a webhook is set,
+another program is reading this bot's updates: both 409 answers of getUpdates, each with its own sentence; the provider
+has no exit 4, see providers/CONTRACT.md).
 """
 from __future__ import annotations
 
@@ -74,6 +76,8 @@ MAX_POLL_SECONDS = 50
 ALLOWED_UPDATES = ["message", "callback_query"]
 WEBHOOK_SENTENCE = ("a webhook is set for this bot, so Telegram will not hand its messages to a poll: remove it "
                     "(the Bot API method deleteWebhook, called once for this bot) and run the bridge again")
+CONFLICT_SENTENCE = ("another program is reading this bot's updates (a second bridge, or another tool with the same "
+                     "token): stop it, then run the bridge again")
 TOKEN_SHAPE = re.compile(r"\d{5,}:[A-Za-z0-9_-]{10,}")
 CHAT_ID = re.compile(r"-?\d{1,20}")
 
@@ -177,7 +181,10 @@ def _http_error(method: str, error, token: str) -> ProviderError:
         description = ""
     description = redact(description, token)[:200]
     if status == 409 and method == "getUpdates":
-        return ProviderError(f"Telegram answered 409: {WEBHOOK_SENTENCE}", EXIT_NOT_CONFIGURED)
+        said = description.lower()
+        if "terminated" in said and "getupdates" in said and "webhook" not in said:  # another getUpdates request took the stream
+            return ProviderError(f"Telegram answered 409: {CONFLICT_SENTENCE}", EXIT_NOT_CONFIGURED)
+        return ProviderError(f"Telegram answered 409: {WEBHOOK_SENTENCE}", EXIT_NOT_CONFIGURED)  # a 409 matching neither text keeps this sentence (old behaviour)
     if status in (401, 404):
         return ProviderError(f"Telegram refused the bot token ({status}): store a valid one", EXIT_NOT_CONFIGURED)
     return ProviderError(f"Telegram {method} answered {status}" + (f": {description}" if description else ""), EXIT_SERVICE)

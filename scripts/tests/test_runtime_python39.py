@@ -42,7 +42,7 @@ ON_SYSTEM_PYTHON = [
     "runtime/board.py", "runtime/documents.py", "runtime/drop.py", "runtime/deps.py", "runtime/changeset.py", "runtime/effects.py", "runtime/effect_pull_request.py", "runtime/effect_commit.py", "runtime/effect_reply.py",
     "runtime/progress.py", "runtime/autonomy.py", "runtime/dispatcher.py", "runtime/chat.py", "runtime/operations.py",
     # The local service (stage 9): it serves the operations layer, so it runs where the layer runs.
-    "runtime/service.py",
+    "runtime/service.py", "runtime/service_bridge.py",
     # The MCP mode (stage 9): the same operations layer over standard input and output.
     "runtime/mcp.py",
     # The messaging bridge (MSG-1): its shell and its modules, started with the system interpreter like the other shells.

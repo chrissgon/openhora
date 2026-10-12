@@ -7,11 +7,13 @@
 an origin check, and the static files of the interface/ folder of the checkout. A shell like the terminal's: it parses
 a request, calls one operation and returns what it returned. It holds no rule of its own about the work (which words a
 decision takes, what a state leads to, what a hash must equal are the operations layer's and the store's), reads no
-project file, and imports only the operations layer and the kit it shares with the MCP mode (shell_kit.py).
+project file, and imports only the operations layer, the kit it shares with the MCP mode (shell_kit.py) and, for the
+one option that starts a child process, service_bridge.py (standard library only).
 
 Usage:
   uv run --with keyring==25.7.0 python3 runtime/service.py --project <dir> [--project <dir>]... [--port 8765]
                              [--poll-every 60] [--dispatch-every 30 | --no-dispatch] [--token-file <path>] [--lan [<ip>]]
+                             [--messaging <platform> [--notice-every 60]]
   python3 runtime/service.py --help
 
 Start it with the `uv run --with keyring==25.7.0` form: the secret store is read through that library, and a service
@@ -47,9 +49,25 @@ serves the pages and the reads all the same.
                    service when you are done. Host and Origin are then the loopback's on the loopback socket and
                    that address's on the LAN socket, and GET /token-file answers the path to the loopback socket only (rules
                    2, 3 and "Before the token")
+  --messaging <platform>
+                   off by default: after the sockets are bound and the line below is printed, start the messaging bridge
+                   (runtime/messaging.py, for the platform, with every --project given here) as a child process, so that
+                   one start brings up the page and the bridge. The child has its own session, its standard input is a pipe
+                   this service holds open (the bridge stops when it closes: --stop-on-stdin-eof), its standard output goes
+                   to /dev/null and its standard error is this service's; its environment is the one this service had at the
+                   very start of main (a key written later into this process never reaches it). When it exits, at any time,
+                   one line on standard error gives the code and its meaning (4 another bridge serves the platform, 3 the
+                   messenger is not configured or another program reads the bot, 2 usage) and the service goes on serving
+                   the page; nothing restarts it. GET /api/v1/projects then has a top-level "messaging":
+                   {"platform", "state": "running" | "stopped", "exit_code"} (null without the option). When the service stops
+                   it closes the child's input, sends SIGTERM to the child's process group, and after it ended its own runs
+                   waits up to 150 s before SIGKILL to that group. The service and the bridge each have their own model slot:
+                   only the project's file locks keep two router runs apart (contracts/runtime.md, "The messaging bridge")
+  --notice-every   seconds between two looks of the bridge at what waits for the person (passed to the bridge only; default
+                   60, at least 5); it needs --messaging
 
-It prints one JSON line, {"url", "token_file", "projects": [{"id", "name"}]} ("lan_url" too, after "url", with --lan), and never
-the token. After it, on
+It prints one JSON line, {"url", "token_file", "projects": [{"id", "name"}]} ("lan_url" too, after "url", with --lan;
+"messaging": "<platform>" last, with --messaging), and never the token. After it, on
 standard error, it says what it found at its start for each project (operation `service-check`: the secret store, the
 credential, docker, the eval image, whether it dispatches); when the secret store cannot be read, the first lines give
 the `uv run --with keyring==25.7.0` command that starts the service. The token is
@@ -151,7 +169,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 import ops  # noqa: E402  (the same folder: the operations layer)
-import shell_kit  # noqa: E402  (the same folder: what this shell shares with the MCP mode; with ops, the only modules of the runtime this one imports)
+import shell_kit  # noqa: E402  (the same folder: what this shell shares with the MCP mode)
+import service_bridge  # noqa: E402  (the same folder: the child process of --messaging; standard library only)
 from shell_kit import EXPOSED_KINDS, Busy, Stopping, project_id, status_of  # noqa: E402,F401
 
 HOST = "127.0.0.1"
@@ -169,6 +188,8 @@ LAN_WARNING = (
 DISPATCH_EVERY = 30.0                     # seconds between two rounds of `dispatch` unless --dispatch-every or --no-dispatch says otherwise
 QUEUE_EVERY = 5.0                         # seconds between two looks of `route_queued` at the lines and requests that wait for the end of a run
 MODEL_LOOPS = ("route_queued",)  # the loops that hold the project's model slot while they run (`dispatch` starts processes and holds none)
+PLATFORM = re.compile(r"[a-z0-9][a-z0-9-]*")  # --messaging names a lock and a ledger file: a lowercase word
+MIN_NOTICE_EVERY = 5
 PREFIX = "/api/v1"
 JSON_LIMIT = 1024 * 1024                  # bytes of a request body
 FILE_LIMIT = 34 * 1024 * 1024             # the file route: the base64 of 25 MiB is about 33.4 MiB
@@ -512,6 +533,11 @@ class Service(shell_kit.Jobs):
         self.token_file = token_file   # the absolute path of the token file, or None (then GET /token-file is not a route)
         self.address = None      # (host, port) the socket is bound to, set by serve()
         self.lan_ip = lan_ip     # the private address of --lan (a second socket, the same port), or None: the default
+        self.bridge = None       # the child of --messaging (service_bridge.Child), or None: the default
+
+    def messaging_state(self):
+        """The service's own field of GET /projects: the bridge child's state, or None without --messaging."""
+        return self.bridge.state() if self.bridge is not None else None
 
     def __repr__(self) -> str:
         return f"<Service port={self.port} projects={len(self.projects)}>"
@@ -719,7 +745,7 @@ def handle(service: Service, method: str, path: str, headers: dict, body: bytes,
         if route["own"] == "projects":
             if query:
                 raise Usage("this route takes no query")
-            return _json(200, service.projects_list())
+            return _json(200, {**service.projects_list(), "messaging": service.messaging_state()})
         if route["own"] == "versions":
             if query:
                 raise Usage("this route takes no query")
@@ -867,14 +893,20 @@ def check_projects(ops_module, projects, dispatch_every, log) -> None:
 
 
 def serve(projects, port=8765, poll_every=60.0, dispatch_every=DISPATCH_EVERY, token_file=None, interface_dir=None,
-          ops_module=None, stop=None, ready=None, log=None, out=None, server_class=None, lan=None) -> int:
+          ops_module=None, stop=None, ready=None, log=None, out=None, server_class=None, lan=None, messaging=None,
+          notice_every=None, environment=None, bridge_argv=None, bridge_stop_wait=service_bridge.BRIDGE_STOP_WAIT) -> int:
     """Check every project with the `config` operation, bind 127.0.0.1:<port> (and, with `lan` -- "auto" or a private
     address -- that one address on the same port, after the warning of LAN_WARNING is logged; a refused address is exit 2),
     write the token file, print the one JSON line, and serve until a signal (or `stop`, an Event, is set); then end the runs the jobs started
     (ops.stop_runs, which is waited for) and remove the token file. The `poll` loop runs every `poll_every` seconds
     (0: not at all), the `dispatch` loop every `dispatch_every` seconds (30 unless told; None or 0: not at all). After
     the JSON line it logs what each project's check found (check_projects). Returns the exit code.
-    `ready(service)` is called once the socket listens, `server_class` replaces the HTTP server (both are the tests')."""
+    `ready(service)` is called once the socket listens, `server_class` replaces the HTTP server (both are the tests').
+    `messaging` (a platform) starts the bridge child after the JSON line (service_bridge.py) with `environment`, the snapshot
+    of the environment main() took before any thread (None: the environment now), and `notice_every` for the bridge only;
+    at the top of the final block the child's stop begins (its input closed, SIGTERM to its group), and after the runs are
+    ended it is waited for up to `bridge_stop_wait` seconds, then killed. `bridge_argv` (the interpreter and script the
+    child runs instead of the bridge) and `bridge_stop_wait` are the tests' parameters, read from nothing else."""
     ops_module = ops_module or ops
     log = log or shell_kit.default_log
     out = out or sys.stdout
@@ -912,6 +944,11 @@ def serve(projects, port=8765, poll_every=60.0, dispatch_every=DISPATCH_EVERY, t
     service = Service(ops_module, [{k: p[k] for k in ("id", "name", "path")} for p in found], token,
                       server.server_address[1], interface_dir, log, token_file=os.path.abspath(target), lan_ip=lan_ip)
     service.address = tuple(server.server_address[:2])
+    child = None
+    if messaging:
+        child = service_bridge.Child(messaging, [p["path"] for p in found], environment if environment is not None else dict(os.environ),
+                                     log, notice_every=notice_every, program=bridge_argv, stop_wait=bridge_stop_wait)
+        service.bridge = child
     for one in servers:
         one.RequestHandlerClass = make_handler(service)
     try:
@@ -954,13 +991,18 @@ def serve(projects, port=8765, poll_every=60.0, dispatch_every=DISPATCH_EVERY, t
         for thread in threads:
             thread.start()
         print(json.dumps({**shown, "token_file": target,
-                          "projects": [{"id": p["id"], "name": p["name"]} for p in found]}), file=out, flush=True)
+                          "projects": [{"id": p["id"], "name": p["name"]} for p in found],
+                          **({"messaging": messaging} if messaging else {})}), file=out, flush=True)
+        if child is not None:  # after the sockets are bound and the line is printed
+            child.start()
         check_projects(ops_module, found, dispatch_every, log)
         if ready:
             ready(service)
         while not stop.wait(0.5):
             pass
     finally:
+        if child is not None:  # for any exit: the child's stop starts now, and is waited for after the runs end
+            child.begin_stop()
         stop.set()
         service.stopping.set()
         for one, thread in ((server, serving), (lan_server, serving_lan)):
@@ -971,6 +1013,8 @@ def serve(projects, port=8765, poll_every=60.0, dispatch_every=DISPATCH_EVERY, t
         left = service.end_runs(threads)
         if left:
             log(f"stopped with {left} job thread(s) still ending")
+        if child is not None:
+            child.finish_stop()
         try:
             os.unlink(target)
         except OSError:
@@ -1041,12 +1085,13 @@ def _number(text: str, flag: str, low: float, high: float) -> float:
 
 def parse(argv) -> dict:
     """The command line as {"projects", "port", "poll_every", "dispatch_every", "token_file"}. dispatch_every is
-    DISPATCH_EVERY unless --dispatch-every gives another or --no-dispatch makes it None. The key "lan" is there only when
-    --lan is given ("auto" alone, else the private address that follows it, which is checked here). Refused (Refused) for an unknown flag,
+    DISPATCH_EVERY unless --dispatch-every gives another or --no-dispatch makes it None. The keys "messaging" (the platform)
+    and "notice_every" are there only when --messaging (and --notice-every) is given, as "lan" is only when --lan is given
+     ("auto" alone, else the private address that follows it, which is checked here). Refused (Refused) for an unknown flag,
     a flag without its value, a number out of range, no project, --no-dispatch with --dispatch-every, or an address --lan
     may not take. There is no other flag for an address."""
     out = {"projects": [], "port": 8765, "poll_every": 60.0, "dispatch_every": DISPATCH_EVERY, "token_file": None}
-    flags = {"--project", "--port", "--poll-every", "--dispatch-every", "--token-file"}
+    flags = {"--project", "--port", "--poll-every", "--dispatch-every", "--token-file", "--messaging", "--notice-every"}
     args, said_every, no_dispatch = list(argv), False, False
     while args:
         flag = args.pop(0)
@@ -1061,7 +1106,15 @@ def parse(argv) -> dict:
         if not args:
             raise Refused(f"{flag} needs a value")
         value = args.pop(0)
-        if flag == "--project":
+        if flag == "--messaging":
+            if not PLATFORM.fullmatch(value):
+                raise Refused("--messaging takes a platform: a lowercase word of letters, digits and hyphens, such as telegram")
+            out["messaging"] = value
+        elif flag == "--notice-every":
+            if not (value.isascii() and value.isdigit()) or int(value) < MIN_NOTICE_EVERY:
+                raise Refused(f"--notice-every is a whole number of seconds, {MIN_NOTICE_EVERY} or more")
+            out["notice_every"] = int(value)
+        elif flag == "--project":
             out["projects"].append(value)
         elif flag == "--port":
             out["port"] = int(_number(value, flag, 0, 65535))
@@ -1075,6 +1128,8 @@ def parse(argv) -> dict:
             out["token_file"] = value
     if not out["projects"]:
         raise Refused("give at least one --project <dir>")
+    if "notice_every" in out and "messaging" not in out:
+        raise Refused("--notice-every is for the bridge: it needs --messaging <platform>")
     if no_dispatch:
         if said_every:
             raise Refused("--no-dispatch and --dispatch-every exclude each other")
@@ -1083,6 +1138,7 @@ def parse(argv) -> dict:
 
 
 def main(argv=None) -> int:
+    snapshot = dict(os.environ)  # first of all, before any thread or run: what the bridge child will get (--messaging)
     argv = sys.argv[1:] if argv is None else argv
     if not argv or "--help" in argv or "-h" in argv:
         print(__doc__.strip(), file=sys.stdout if argv else sys.stderr)
@@ -1092,11 +1148,15 @@ def main(argv=None) -> int:
     except Refused as e:
         print(f"error: {e}. See --help.", file=sys.stderr)
         return 2
-    if given.get("lan"):  # only when asked: without --lan the call is the one it always was
-        return serve(given["projects"], given["port"], given["poll_every"], given["dispatch_every"] or None,
-                     given["token_file"], lan=given["lan"])
+    extra = {}  # only what was asked for: without the option the call is the one it always was
+    if given.get("lan"):
+        extra["lan"] = given["lan"]
+    if given.get("messaging"):
+        extra.update(messaging=given["messaging"], environment=snapshot)
+        if "notice_every" in given:
+            extra["notice_every"] = given["notice_every"]
     return serve(given["projects"], given["port"], given["poll_every"], given["dispatch_every"] or None,
-                 given["token_file"])
+                 given["token_file"], **extra)
 
 
 if __name__ == "__main__":

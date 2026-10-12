@@ -37,6 +37,8 @@ STARTS = {
         "skills/mkt-social-copy/scripts/check_post.py", "skills/brand-identity/scripts/render.py",
         "skills/mkt-publish/scripts/payload.py", "<scheduler provider>", "<scheduler provider>", "runtime/cli.py"],
     "runtime/handlers/social_vote_job.py": ["skills/mkt-vote-round/scripts/vote_update.py"],
+    # the local service's messaging bridge (MSG-3a): the child process of --messaging
+    "runtime/service_bridge.py": ["runtime/messaging.py"],
 }
 # The programs a module of the runtime starts by name; the lab's own starts (docker, the adapters) go through the
 # facade, runtime/lab.py, and are the lab's.
@@ -44,7 +46,9 @@ PROGRAMS = ("git", "uv", "bash", "/usr/bin/osascript")  # osascript: the macOS n
 # A start whose argument list is built elsewhere in the module: where it is built.
 BUILT_ELSEWHERE = {"runtime/effects.py": "def provider_call", "runtime/handlers/published_posts.py": "def _cli",
                    # the ported social agent (WP-7.1): its run() and call() take a list built by the callers
-                   "runtime/handlers/social.py": "def parser_cmd", "runtime/handlers/social_vote_job.py": "def main("}
+                   "runtime/handlers/social.py": "def parser_cmd", "runtime/handlers/social_vote_job.py": "def main(",
+                   # the bridge's child (MSG-3a): Popen takes the list command() builds
+                   "runtime/service_bridge.py": "def command("}
 
 
 def system_list() -> list:
