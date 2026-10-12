@@ -1,6 +1,6 @@
 """Integration tests of the local service with the real operations layer (ADJ-R2): a project on the stand-in tree
 (standin_tree.py), the service started by `serve` on a loopback port with no dispatch (`--no-dispatch`), a stand-in router,
-and a stand-in that holds the project's run lock the way a task's run does. What a person on the page does is done
+and a stand-in that holds the project's route lock the way the router's run does. What a person on the page does is done
 with HTTP requests: a line typed while a run holds the project is queued and answered when it ends, a question about
 the state is answered by code, a request made during a run is routed after it, an image of the project is served as
 bytes. No model is called.
@@ -101,7 +101,7 @@ def wait_for(check, what):
 
 def test_a_line_typed_during_a_run_is_queued_and_the_service_answers_it_when_the_run_ends(served):
     page, tree, run = served
-    lock = ops_core._run_lock(ops.project_config.load(str(tree["project"])))
+    lock = ops_core._route_lock(ops.project_config.load(str(tree["project"])))
     with lock:                                               # a task's run holds the project
         done = page.job("/conversation", {"text": "Which market should the invented studio go after first?"})
         assert done["state"] == "done" and done["result"]["queued"] is True and done["result"]["reply"] is None
@@ -120,7 +120,7 @@ def test_a_line_typed_during_a_run_is_queued_and_the_service_answers_it_when_the
 def test_a_question_about_the_state_is_answered_at_once_during_a_run_with_no_model_and_no_request(served):
     page, tree, run = served
     ops.request(str(tree["project"]), "Find the first market.", flow="demo")
-    with ops_core._run_lock(ops.project_config.load(str(tree["project"]))):
+    with ops_core._route_lock(ops.project_config.load(str(tree["project"]))):
         done = page.job("/conversation", {"text": "Como estamos com o projeto?"})
         result = done["result"]
         assert result["queued"] is False and result["ran"] is False and result["request_id"] is None
@@ -135,11 +135,11 @@ def test_a_question_about_the_state_is_answered_at_once_during_a_run_with_no_mod
 def test_a_request_made_during_a_run_is_recorded_and_routed_when_the_run_ends(served):
     page, tree, run = served
     request = page.json("POST", "/requests", {"text": "Which market first?"})[1]["request"]
-    with ops_core._run_lock(ops.project_config.load(str(tree["project"]))):
+    with ops_core._route_lock(ops.project_config.load(str(tree["project"]))):
         done = page.job(f"/requests/{request}/route")
         assert done["state"] == "done" and done["result"]["queued"] is True and done["result"]["routed"] is False
         assert page.json("GET", "/pending")[1]["pending"] == []
-        # a flow the person names takes no run lock: it is opened at once, during the run
+        # a flow the person names takes no route lock: it is opened at once, during the run
         other = page.json("POST", "/requests", {"text": "Another."})[1]["request"]
         named = page.job(f"/requests/{other}/route", {"flow": "demo"})
         assert named["state"] == "done" and named["result"]["routed"] is True and named["result"]["source"] == "named"

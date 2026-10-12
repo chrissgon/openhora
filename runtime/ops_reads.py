@@ -101,13 +101,16 @@ def commands(project: str) -> dict:
     return {"commands": operations.chat_command_rows()}
 
 
-def stop_runs(project: str | None = None) -> dict:
-    """End every run this process started, through the lab's own stop (lab.stop_runs): the container and the process
-    group of each run are ended and the folders of a run in progress go back to its run folder. The local service
-    calls it before it exits, because a run it started in a thread has no signal handler of its own. Process-wide:
-    the project is accepted for the shape every operation has and read for nothing. Returns what lab.stop_runs
-    returns."""
-    return lab.stop_runs()
+def stop_runs(project: str | None = None, every: bool = False) -> dict:
+    """End the runs this process started: no child starts any more, the children (task runs, each a process of its own) this
+    process started are ended by their process groups, and the lab's own stop (lab.stop_runs) ends the containers and the
+    process group of each run the process holds, the folders of a run in progress going back to its run folder. The local
+    service calls it before it exits. Process-wide: the project is read for nothing. With `every` and a project (the
+    terminal's `stop-runs --project <dir> --all`), also every task run of the project that a live process holds, whoever
+    started it, by the group its task lock names; a lock nobody holds is never signalled. Stopping an agent's mode
+    (`set-mode ... stopped`) is how to keep the dispatcher from starting more. Returns what lab.stop_runs returns, with
+    "tasks" (the ids of the task runs signalled) when `every` is given."""
+    return importlib.import_module("ops_runs").stop(project, every)
 
 
 # --- stage 9: the reads of the local interface ---------------------------------------------------------------------
@@ -130,14 +133,17 @@ CONFIGURED_PROVIDER = {"integration:vcs": "code", "integration:issue-tracker": "
 def agents(project: str) -> dict:
     """The area agents of the configuration with their use of today: {"agents": [{"name", "pack", "enabled", "mode",
     "acting_mode", "max_runs_per_day", "max_usd_per_day", "runs_today", "usd_today", "runs_without_cost", "usd_recorded", "usd_reserved",
-    "runs_total_today", "billing", "caps_in_use", "queued", "held", "wider"}]}
+    "runs_total_today", "billing", "caps_in_use", "max_parallel", "max_parallel_ceiling", "slots_held", "holders", "queued",
+    "held", "wider"}]}
     in the order of the configuration. mode is the configured one; acting_mode the one the agent acts in now
     (autonomy.mode_of: an agent set to autonomous-with-policy whose approval expired acts as autonomous). The day is
     counted as the caps count it (_agents_of_the_day), by the billing each run recorded: runs_today is the runs on a
     subscription or free credential (what max_runs_per_day compares), usd_today the dollars of the runs on a metered
     credential (a run of unknown cost counts at max_cost_usd_per_run, and runs_without_cost says how many), whatever the
     model; a run older than the billing column counts by the tier rule it had. A router run counts for the planning agent.
-    queued is the number of ready tasks of the agent;
+    max_parallel is the agent's slots (autonomy.MAX_PARALLEL_CEILING, "max_parallel_ceiling", is the most a configuration
+    may give); holders are the ids of the tasks that hold one now (running, waiting for the person, or ready after the
+    person answered) and slots_held their number. queued is the number of ready tasks of the agent;
     held how many of them the last round held (status lists them with their reasons). usd_today is split into
     usd_recorded (the recorded costs of today's metered runs) and usd_reserved (max_cost_usd_per_run, else
     PER_RUN_USD, for each such run with no cost yet: what the cap counts); runs_total_today is every run of the agent
@@ -151,6 +157,7 @@ def agents(project: str) -> dict:
     rows = core._stored(ctx, ctx["store"].tasks_list)
     ready = [t for t in rows if t["state"] == "ready" and t["parent_id"] is not None]
     held = _ops()._held_listed(ctx, rows)
+    holders = core._stored(ctx, ctx["store"].task_slot_holders)
     out = []
     for name, found in day.items():
         entry, spent = found["entry"], found["spent"]
@@ -161,6 +168,9 @@ def agents(project: str) -> dict:
                     **_spend_words(found["split"]), "billing": {"runs": list(autonomy.RUNS_BILLINGS),
                                                                 "spend": list(autonomy.SPEND_BILLINGS)},
                     "caps_in_use": found["in_use"],
+                    "max_parallel": entry["max_parallel"], "max_parallel_ceiling": autonomy.MAX_PARALLEL_CEILING,
+                    "holders": [h["id"] for h in holders if h["agent"] == name],
+                    "slots_held": sum(1 for h in holders if h["agent"] == name),
                     "queued": sum(1 for t in ready if t.get("agent") == name),
                     "held": sum(1 for h in held if h["agent"] == name),
                     "wider": _wider(ctx["cfg"]["project"], name, entry["mode"])})

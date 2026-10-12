@@ -27,6 +27,10 @@
         "runs": true,
         "spend": true
       },
+      "max_parallel": 1,
+      "max_parallel_ceiling": 4,
+      "holders": [],
+      "slots_held": 0,
       "queued": 0,
       "held": 0,
       "wider": [
@@ -71,6 +75,10 @@
         "runs": true,
         "spend": true
       },
+      "max_parallel": 1,
+      "max_parallel_ceiling": 4,
+      "holders": [],
+      "slots_held": 0,
       "queued": 0,
       "held": 0,
       "wider": [
@@ -115,6 +123,10 @@
         "runs": true,
         "spend": true
       },
+      "max_parallel": 1,
+      "max_parallel_ceiling": 4,
+      "holders": [],
+      "slots_held": 0,
       "queued": 0,
       "held": 0,
       "wider": [
@@ -155,6 +167,10 @@
         "runs": true,
         "spend": true
       },
+      "max_parallel": 1,
+      "max_parallel_ceiling": 4,
+      "holders": [],
+      "slots_held": 0,
       "queued": 0,
       "held": 0,
       "wider": [

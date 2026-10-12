@@ -250,6 +250,12 @@ def ready(task_id):
     return {"id": task_id, "agent": "x", "state": "ready", "milestone": 0, "parent_id": 1}
 
 
+def decide_one(snapshot, may_start):
+    """The decision with every task admitted (these tests are about the caps), and `start` as the first task started or None."""
+    got = dispatcher.decide(snapshot, autonomy.review_action, may_start, lambda *given: (True, ""))
+    return {**got, "start": got["start"][0] if got["start"] else None}
+
+
 def test_decide_gives_each_task_the_billing_of_its_route():
     seen = []
 
@@ -259,14 +265,14 @@ def test_decide_gives_each_task_the_billing_of_its_route():
 
     snapshot = {"running": None, "ready": [ready(4)], "reviews": [], "agents": {"x": agent_snapshot()}, "tier": {4: "strong"},
                 "billing": {4: "metered"}}
-    assert dispatcher.decide(snapshot, autonomy.review_action, may_start)["start"] == 4
+    assert decide_one(snapshot, may_start)["start"] == 4
     assert seen == ["metered"]
 
 
 def test_a_metered_task_is_held_at_the_dollar_cap_whatever_its_tier_and_the_runs_cap():
     snapshot = {"running": None, "ready": [ready(4), ready(5)], "reviews": [], "agents": {"x": agent_snapshot(runs=0, usd=1.0, runs_cap=0)},
                 "tier": {4: "strong", 5: "strong"}, "billing": {4: "metered", 5: "subscription"}}
-    got = dispatcher.decide(snapshot, autonomy.review_action, autonomy.may_start)
+    got = decide_one(snapshot, autonomy.may_start)
     assert got["start"] is None
     assert got["held"] == [{"task_id": 4, "why": "cap: usd per day"}, {"task_id": 5, "why": "cap: runs per day"}]
 
@@ -274,12 +280,12 @@ def test_a_metered_task_is_held_at_the_dollar_cap_whatever_its_tier_and_the_runs
 def test_a_metered_task_under_its_dollar_cap_starts_although_the_runs_cap_is_zero():
     snapshot = {"running": None, "ready": [ready(4)], "reviews": [], "agents": {"x": agent_snapshot(runs=7, usd=0.2, runs_cap=0)},
                 "tier": {4: "strong"}, "billing": {4: "metered"}}
-    assert dispatcher.decide(snapshot, autonomy.review_action, autonomy.may_start)["start"] == 4
+    assert decide_one(snapshot, autonomy.may_start)["start"] == 4
 
 
 def test_a_task_with_no_billing_in_the_snapshot_is_held_as_unknown_and_the_reason_reaches_a_page_as_other():
     snapshot = {"running": None, "ready": [ready(4)], "reviews": [], "agents": {"x": agent_snapshot()}, "tier": {4: "strong"}, "billing": {}}
-    got = dispatcher.decide(snapshot, autonomy.review_action, autonomy.may_start)
+    got = decide_one(snapshot, autonomy.may_start)
     assert got["start"] is None and got["held"] == [{"task_id": 4, "why": "unknown billing None"}]
     assert dispatcher.held_of(snapshot, got) == [{"task_id": 4, "agent": "x", "reason": dispatcher.OTHER}]
 
@@ -523,7 +529,8 @@ def test_a_metered_run_with_plenty_left_gets_the_per_run_limit_and_a_subscriptio
     monkeypatch.setenv(API_KEY, "invented-value-never-shown")
     configure(tree, {"business": dict(AGENTS["business"], max_usd_per_day=4.0)})
     plan_single(tree)
-    ops.run_next(path)
+    first = ops.run_next(path)
+    ops.release(path, first["pending_id"])          # a delivery that waits keeps its floor's slot: the person decides it
     credentials(monkeypatch, floor_key=False)       # the harness's own login: a subscription
     plan_single(tree)
     ops.run_next(path)

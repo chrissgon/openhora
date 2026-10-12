@@ -169,7 +169,8 @@ def seed(scratch: Path) -> dict:
         run = store.route_run_start(conn, waiting, skill="demo-asks", model="m", adapter="h", skill_version="0.1.0", billing="subscription")
         out["status-routing"] = ops.status(path)
         store.route_run_finish(conn, run["run_id"], status="ok", ending="done", attempts=1)
-        claimed = store.task_claim_next(conn)
+        ready = conn.execute(store.NEXT_READY_TASK).fetchone()  # the oldest ready task, claimed by its id
+        claimed = store.task_claim(conn, ready["id"]) if ready else {"task": None}
         running = None
         if claimed["task"]:
             running = claimed["task"]["id"]

@@ -175,7 +175,7 @@ def test_a_valid_route_opens_a_plan_and_approving_it_creates_the_tasks(tree):
                                                                                   ("profile", "demo-writes", True)]
     # The gate file's limits, and (stage 6, WP-6.5) the sub-task limits the plan's approval covers: none here, since
     # no task of the plan owns the product backlog.
-    assert payload["limits"] == {"one_task_at_a_time": True, "timeout_seconds": 60, "retries": 2,
+    assert payload["limits"] == {"max_running": 3, "timeout_seconds": 60, "retries": 2,
                                  "max_subtasks": 20, "subtask_skills": []}
     listed = ops.pending(path)["pending"][0]
     assert listed["plan"] == {"tasks": [{"key": "market", "skill": "demo-asks"}, {"key": "profile", "skill": "demo-writes"}],

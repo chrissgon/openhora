@@ -7,6 +7,8 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_held_tasks.py
 """
 from __future__ import annotations
 
+import os
+
 import pytest
 
 import standin_tree as st
@@ -17,11 +19,12 @@ dispatcher = st.load("dispatcher")
 lab = st.load("lab")
 ops = st.load("ops")
 ops_reads = st.load("ops_reads")
+ops_runs = st.load("ops_runs")
 ops_core = st.load("ops_core")
 operations = st.load("operations")
 
 WORDS = ("stopped", "cap: runs per day", "cap: usd per day", "credential", "secret store", "image", "dispatch off",
-         "job running", "no enabled agent owns the task", "waiting", "other", "project at max_running",
+         "no enabled agent owns the task", "waiting", "other", "project at max_running",
          "agent at max_parallel", "a code task of the request runs", "artifact in use", "could not start, tried again shortly")
 
 
@@ -36,7 +39,7 @@ def no_service():
 
 
 def test_the_reasons_are_the_words_of_the_list():
-    assert dispatcher.NO_AGENT == "no enabled agent owns the task" and dispatcher.JOB_RUNNING == "job running"
+    assert dispatcher.NO_AGENT == "no enabled agent owns the task"
     assert set(dispatcher.REASONS) == set(WORDS)
 
 
@@ -51,13 +54,13 @@ def test_every_ready_task_a_decision_held_gets_its_reason_and_its_agent():
         {"task_id": 6, "agent": None, "reason": "no enabled agent owns the task"}]
 
 
-def test_a_task_that_runs_holds_every_ready_task_of_the_project():
-    snapshot = {"running": {"id": 3}, "ready": [ready(4, "a"), ready(5, "a")], "reviews": [], "agents": {"a": agent()},
+def test_a_task_that_runs_holds_no_ready_task_of_the_project_by_itself():
+    running = [{"id": 3, "agent": "a", "request_id": 1, "code": False, "footprint": frozenset()}]
+    snapshot = {"running": running, "ready": [ready(4, "a"), ready(5, "a")], "reviews": [], "agents": {"a": agent()},
                 "tier": {4: "strong", 5: "strong"}, "billing": {4: "subscription", 5: "subscription"}}
     decided = decide(snapshot)
-    assert decided["held"] == [{"task_id": 3, "why": dispatcher.ONE_AT_A_TIME}]  # the decision itself is unchanged
-    assert dispatcher.held_of(snapshot, decided) == [{"task_id": 4, "agent": "a", "reason": "job running"},
-                                                     {"task_id": 5, "agent": "a", "reason": "job running"}]
+    assert decided["start"] == 4 and decided["held"] == []  # the slots and the files in use are admit's, not a rule of the project
+    assert dispatcher.held_of(snapshot, decided) == []
 
 
 def test_a_task_the_round_could_not_start_is_held_with_what_stopped_it():
@@ -123,15 +126,17 @@ def test_a_missing_image_holds_the_task_and_fails_nothing(tree, monkeypatch):
     assert [t["state"] for t in store_rows(tree) if t["parent_id"]] == ["ready", "planned"]
 
 
-def test_a_task_that_runs_holds_the_next_one_with_job_running(tree):
+def test_a_task_that_runs_holds_the_next_one_of_its_floor_with_the_slot_word(tree):
     path = str(tree["project"])
     first, second = planned(tree, "single"), planned(tree, "single")
     ctx = ops_core.context(path)
     [one, two] = [t for t in ctx["store"].tasks_list(ctx["conn"]) if t["parent_id"] is not None and t["state"] == "ready"]
     ctx["store"].task_claim(ctx["conn"], one["id"])
+    alive = ops_core._try_lock(ctx["cfg"], f"task-{one['id']}.lock")  # its process is alive, so recovery leaves it running
     ops.dispatch(path)
+    os.close(alive)
     [entry] = held(tree)
-    assert (entry["task_id"], entry["reason"]) == (two["id"], "job running")
+    assert (entry["task_id"], entry["reason"]) == (two["id"], "agent at max_parallel")
 
 
 def test_a_task_no_enabled_agent_owns_is_held_with_that_sentence(tree):
@@ -238,29 +243,29 @@ def test_an_unchanged_set_of_held_tasks_writes_nothing_and_keeps_its_time(tree):
 def test_the_vocabulary_of_the_held_reasons_is_closed():
     free_text = lambda name, entries, f, spent, billing: (False, f"unknown billing {billing!r}")  # noqa: E731
     snapshot = {"running": None, "ready": [ready(4, "a")], "reviews": [], "agents": {"a": agent()}, "tier": {4: "strong"}, "billing": {4: "weird"}}
-    decided = dispatcher.decide(snapshot, autonomy.review_action, free_text)
+    decided = dispatcher.decide(snapshot, autonomy.review_action, free_text, lambda *given: (True, ""))
     assert dispatcher.held_of(snapshot, decided) == [{"task_id": 4, "agent": "a", "reason": "other"}]
     assert "other" in dispatcher.REASONS
     got = dispatcher.held_of(snapshot, decided, {4: "image"})
     assert got[0]["reason"] == "image"
-    assert all(r in dispatcher.REASONS for r in (dispatcher.NO_AGENT, dispatcher.JOB_RUNNING, dispatcher.DISPATCH_OFF))
+    assert all(r in dispatcher.REASONS for r in (dispatcher.NO_AGENT, dispatcher.DISPATCH_OFF))
 
 
 def test_a_narrowing_accepted_in_the_middle_of_a_round_stops_the_next_start(tree, monkeypatch):
     path = str(tree["project"])
     planned(tree, "chain")
     configure(tree, {"business": dict(AGENTS["business"], mode="autonomous")})
-    real = ops._claim_and_run
+    real = ops_runs.run_task
     done = []
 
-    def run_then_narrow(ctx, tier=None, task_id=None):
-        out = real(ctx, tier, task_id)
+    def run_then_narrow(project, task_id, tier=None, checked=True):
+        out = real(project, task_id, tier=tier, checked=checked)
         done.append(task_id)
         if len(done) == 1:  # the person (or the page) stops the agent while the round goes on
             assert ops.set_mode(path, "business", "stopped")["accepted"] is True
         return out
 
-    monkeypatch.setattr(ops, "_claim_and_run", run_then_narrow)
+    monkeypatch.setattr(ops_runs, "run_task", run_then_narrow)
     out = ops.dispatch(path)
     assert len(out["ran"]) == 1 and len(done) == 1
     assert "configuration" in out["stopped"] and "changed" in out["stopped"]

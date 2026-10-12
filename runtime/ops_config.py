@@ -93,20 +93,21 @@ def write_checkpoints(cfg: dict):
     if cfg["raw"].get("area_agents") is None:
         return "no area agents are configured"
     target = os.path.join(cfg["project"], *path_rule.STATE.split("/"))
-    if not os.path.isfile(target) or os.path.islink(target):
-        return "the project has no state file"
-    value = autonomy.state_checkpoints(cfg["area_agents"])
-    before = _sha256(target)
-    text, found = state_merge.with_checkpoints(_read(target), value)
-    if not found:
-        return "no line to write"
-    if _sha256(target) != before:
-        return "the state file changed while the line was being written; it is written at the next acceptance"
-    temporary = f"{target}.{os.getpid()}.tmp"
-    with open(temporary, "w", encoding="utf-8") as f:
-        f.write(text)
-    os.replace(temporary, target)
-    return {"written": True, "value": value}
+    with core._write_lock(cfg):  # inside the config lock when the acceptance calls it: config lock first, then the write lock
+        if not os.path.isfile(target) or os.path.islink(target):
+            return "the project has no state file"
+        value = autonomy.state_checkpoints(cfg["area_agents"])
+        before = _sha256(target)
+        text, found = state_merge.with_checkpoints(_read(target), value)
+        if not found:
+            return "no line to write"
+        if _sha256(target) != before:
+            return "the state file changed while the line was being written; it is written at the next acceptance"
+        temporary = f"{target}.{os.getpid()}.tmp"
+        with open(temporary, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(temporary, target)
+        return {"written": True, "value": value}
 
 
 def set_mode(project: str, agent: str, mode: str, accept: bool = False, channel=None) -> dict:

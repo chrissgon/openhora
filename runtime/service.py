@@ -29,8 +29,11 @@ serves the pages and the reads all the same.
   --poll-every     seconds between two runs of `poll` for each project (mirrors, expired approvals, releases by a mode; no
                    model); default 60; 0 turns it off
   --dispatch-every seconds between two rounds of `dispatch` for each project (the handlers' ticks, the releases by a mode,
-                   the next ready tasks: model calls); default 30; 0 turns it off. A project that has a job running is
-                   skipped. The daily caps and the modes of the area agents are what limits it
+                   the ready tasks the rules allow, each started as a process of its own: model calls); default 30; 0 turns
+                   it off. A round starts the runs and returns; the loops reap the children on every tick, and the next round
+                   reports what ended. A job that calls the router does not stop it (the router runs beside task runs); a
+                   round of the project that is still running (a waiting round of the terminal) is skipped without a word.
+                   The daily caps, the modes and the slots of the area agents are what limits it
   --no-dispatch    do not dispatch: nothing starts a task but `run-next` in the terminal; `status` then says `dispatch off`
                    for every ready task (this service's own fact: it does not know of a scheduler job that dispatches).
                    Give it when the project already has the scheduler's two jobs (contracts/runtime.md, "The
@@ -123,7 +126,7 @@ the /version of every project in one request, so that a page that shows several 
 
 A line of the conversation, or a request to route, that the page sends while a run holds the project is queued by the operation
 (runtime/ops_say.py), not refused; a third loop, `route_queued`, runs every QUEUE_EVERY seconds (not task dispatch, so
---no-dispatch leaves it on) and answers or routes the oldest entry when no run is in progress.
+--no-dispatch leaves it on) and answers or routes the oldest entry when the router is free (a run of a task never holds it).
 
 Not exposed, on purpose: accept-config (a configuration hash is accepted in the terminal only, so a page can never accept
 the change that widens what an agent may do), run-next (the dispatcher decides what runs), deps, proof, the standing
@@ -184,7 +187,7 @@ LAN_WARNING = (
 )
 DISPATCH_EVERY = 30.0                     # seconds between two rounds of `dispatch` unless --dispatch-every or --no-dispatch says otherwise
 QUEUE_EVERY = 5.0                         # seconds between two looks of `route_queued` at the lines and requests that wait for the end of a run
-MODEL_LOOPS = ("dispatch", "route_queued")  # the loops that call a model: they hold the project's model slot while they run
+MODEL_LOOPS = ("route_queued",)  # the loops that hold the project's model slot while they run (`dispatch` starts processes and holds none)
 PLATFORM = re.compile(r"[a-z0-9][a-z0-9-]*")  # --messaging names a lock and a ledger file: a lowercase word
 MIN_NOTICE_EVERY = 5
 PREFIX = "/api/v1"
@@ -542,15 +545,23 @@ class Service(shell_kit.Jobs):
 
 def dispatch_loop(service: Service, every: float, stop, op: str = "dispatch") -> None:
     """Call the operation `op` (`dispatch`, `route_queued`, or `poll` for the short job) for each project, every `every`
-    seconds until `stop` is set. A project that has a job running is skipped; for `dispatch` and `route_queued` the
-    project's model slot is held during the call, so a job that calls a model waits (a job that queues does not).
-    An error is logged (once, while it repeats) and the loop goes on."""
+    seconds until `stop` is set, and reap the children of the dispatcher on every tick of every loop (ops.reap). `dispatch`
+    is called without waiting (the runs it starts are processes of their own), holds no model slot, and is not stopped by a
+    job that runs (the router runs beside task runs); a project whose dispatch lock is held is skipped without a word.
+    `route_queued` holds the project's model slot during the call, so a job that calls a model waits (a job that queues does
+    not), and is not stopped by a dispatch job; `poll` skips a project that has a job running. An error is logged (once,
+    while it repeats) and the loop goes on."""
     last = {}
+    busy = getattr(service.ops, "DispatchBusy", ())
     while not stop.wait(every):
+        try:
+            getattr(service.ops, "reap", lambda: None)()
+        except Exception as e:  # a tick that cannot reap leaves the children for the next one
+            service.log(f"reap: {type(e).__name__}: {CONTROL.sub(' ', str(e))[:300]}")
         for project in service.projects:
             if service.stopping.is_set():
                 return
-            if service.running(project["id"]):
+            if op != "dispatch" and service.running(project["id"], ignoring=("dispatch",)):
                 continue
             if op in MODEL_LOOPS:
                 with service.lock:
@@ -558,8 +569,13 @@ def dispatch_loop(service: Service, every: float, stop, op: str = "dispatch") ->
                         continue
                     service.exclusive[project["id"]] = f"the {op} loop"
             try:
-                getattr(service.ops, op)(project["path"])
+                if op == "dispatch":
+                    service.ops.dispatch(project["path"], wait=False)
+                else:
+                    getattr(service.ops, op)(project["path"])
                 last.pop((op, project["id"]), None)
+            except busy:
+                continue
             except Exception as e:  # the loop survives whatever one round raises
                 text = f"{op} of {project['id']}: {type(e).__name__}: {CONTROL.sub(' ', str(e))[:300]}"
                 if last.get((op, project["id"])) != text:
