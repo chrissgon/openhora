@@ -126,7 +126,7 @@ def test_a_role_outside_the_closed_list_is_refused(conn):
     assert store.messages_list(conn, "project") == []
 
 
-def test_a_named_task_is_claimed_only_when_it_is_ready_and_nothing_runs(conn):
+def test_a_named_task_is_claimed_only_when_it_is_ready(conn):
     request = store.request_add(conn, title="Market and positioning", text="For Lantern Notes.",
                                 flow="market-positioning", tasks=PLAN)
     market, positioning = [t["id"] for t in request["tasks"]]
@@ -136,7 +136,7 @@ def test_a_named_task_is_claimed_only_when_it_is_ready_and_nothing_runs(conn):
     claimed = store.task_claim(conn, market)
     assert claimed["running"] is None and claimed["task"]["id"] == market and claimed["task"]["state"] == "running"
     assert claimed["task"]["agent"] == "business"
-    assert store.task_claim(conn, market) == {"task": None, "running": market}
+    assert store.task_claim(conn, market) == {"task": None, "running": None, "reason": "not-ready"}
     assert set(store.task_claim_next(conn)) == set(store.task_claim(conn, positioning)) - {"reason"}
 
 
