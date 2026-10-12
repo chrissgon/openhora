@@ -121,12 +121,12 @@ def test_a_case_gets_the_references_of_the_platforms_it_names(workbench, tmp_pat
 def test_an_installer_gets_every_reference_and_its_marker_and_never_the_shared_scripts(workbench, tmp_path):
     target = tmp_path / "home" / ".tool" / "skills"
     manifest = st.stage([str(workbench / "skills" / "core-demo")], str(target), root=str(workbench), references="all",
-                        marker=".installed-by-ai-workbench")
+                        marker=".installed-by-openhora")
     assert manifest["references"] == ["README.md", "other-only.md", "platforms/chirp.json", "platforms/chirp.md",
                                       "platforms/plain.md", "security.md", "unrelated.md", "writing.md"]
     shared = tmp_path / "home" / ".tool" / "shared"
-    assert (target / "core-demo" / ".installed-by-ai-workbench").read_text() == ""
-    assert (shared / ".installed-by-ai-workbench").is_file() and not (shared / "scripts").exists()
+    assert (target / "core-demo" / ".installed-by-openhora").read_text() == ""
+    assert (shared / ".installed-by-openhora").is_file() and not (shared / "scripts").exists()
     assert not (target / "core-demo" / "evals").exists() and not (target / "core-demo" / "scripts" / "tests").exists()
 
 

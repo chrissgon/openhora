@@ -9,6 +9,7 @@ Run: uv run --with pytest pytest skills/core-research/scripts/tests
 """
 from __future__ import annotations
 
+import datetime
 import json
 import subprocess
 import sys
@@ -263,7 +264,13 @@ def test_the_report_record_has_the_convention_shape(tmp_path):
 
 
 def test_the_report_is_written_when_the_check_passes(tmp_path):
-    (tmp_path / "brief.md").write_text(brief(), encoding="utf-8")
+    # No --today here: the script counts from the system date, so the source is dated relative to it (two
+    # months before, inside the 6-month threshold given below) and never by a fixed date that ages out.
+    today = datetime.date.today()
+    published = (today - datetime.timedelta(days=60)).isoformat()
+    sources = GOOD_SOURCES.replace("Published 2026-03-10", f"Published {published}").replace(
+        "Accessed 2026-10-02", f"Accessed {today.isoformat()}")
+    (tmp_path / "brief.md").write_text(brief(sources=sources), encoding="utf-8")
     proc, data = run(tmp_path, None, "--file=brief.md", "--recency-months", "6", "--report", "check.json")
     assert proc.returncode == 0, data
     record = json.loads((tmp_path / "check.json").read_text(encoding="utf-8"))

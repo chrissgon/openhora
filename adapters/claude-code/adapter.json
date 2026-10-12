@@ -10,17 +10,19 @@
     "agents": "generate: build.py merges ../../agents/*.md with overrides/*.yaml into build/<pack>/agents/",
     "shared": "generate: build.py links build/<pack>/shared/references to ../../shared/references, beside the skills, so that a skill's ../../shared/references/<file> resolves by the installed path"
   },
-  "install": "install.sh [--pack <name>] builds and symlinks build/<pack>/ to ~/.claude/skills/ai-workbench",
+  "install": "install.sh [--pack <name>] builds and symlinks build/<pack>/ to ~/.claude/skills/openhora",
   "generated": [
     "build/"
   ],
   "eval_runner": "run-prompt.sh",
   "runtime_runner": "run-agent.sh",
+  "login_billing": "subscription",
   "secrets": [
     {
       "name": "CLAUDE_CODE_OAUTH_TOKEN",
       "purpose": "the strong model's eval runs and gradings inside the eval container, where the CLI's login and the keychain do not exist",
       "permission": "a long-lived token of the maintainer's own account, made with the CLI's setup-token command",
+      "billing": "subscription",
       "readers": [
         "evals/eval_run.py strong_pass_env",
         "adapters/claude-code/run-prompt.sh"
@@ -32,6 +34,7 @@
       "name": "CLAUDE_CODE_WEB_API_KEY",
       "purpose": "the strong model's eval runs of the cases that use the open network (web_cases of evals/eval-gate.json), in place of the account's token, only when the gate file lists it in strong_web_pass_env; today it does not, and those runs use the account's token through the strong model's key proxy",
       "permission": "an API key of the model's provider with a low spend limit, used for evals only: a run on the open network reads pages written by others, and a leak then costs at most the key's limit",
+      "billing": "metered",
       "readers": [
         "evals/eval_run.py strong_web_pass_env",
         "adapters/claude-code/run-prompt.sh"

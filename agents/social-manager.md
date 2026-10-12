@@ -8,7 +8,7 @@ description: >
   weekly audience vote closed and its post and next round need proposing.
 metadata:
   skills: [mkt-engage, mkt-vote-round]
-  version: "0.1"
+  version: "0.1.0"
 ---
 
 # Social manager

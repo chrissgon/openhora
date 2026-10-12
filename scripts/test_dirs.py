@@ -5,8 +5,8 @@ Usage:
   python3 scripts/test_dirs.py            # every test folder
   uv run --with pytest pytest -q $(python3 scripts/test_dirs.py)
 
-A test folder is `tests/` directly under scripts/, evals/, shared/scripts/, a provider class, an adapter or a
-skill's scripts/ folder, holding at least one test_*.py. Folders named tests inside eval fixtures are not ours.
+A test folder is `tests/` directly under scripts/, evals/, runtime/, shared/scripts/, a provider class, an adapter
+or a skill's scripts/ folder, holding at least one test_*.py. Folders named tests inside eval fixtures are not ours.
 CI runs this list, so a new test folder is picked up without editing the workflow.
 """
 import glob
@@ -14,8 +14,8 @@ import os
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PATTERNS = ("scripts/tests", "evals/tests", "shared/scripts/tests", "providers/*/tests", "adapters/*/tests",
-            "skills/*/scripts/tests")
+PATTERNS = ("scripts/tests", "evals/tests", "runtime/tests", "shared/scripts/tests", "providers/*/tests",
+            "adapters/*/tests", "skills/*/scripts/tests")
 
 
 def test_dirs(root=ROOT):

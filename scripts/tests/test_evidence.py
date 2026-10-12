@@ -47,7 +47,7 @@ def tree(tmp_path):
     installed = tmp_path / "home" / "skills" / "core-demo"
     installed.mkdir(parents=True)
     (installed / "SKILL.md").write_text(SKILL)
-    (installed / ".installed-by-ai-workbench").write_text("")
+    (installed / ".installed-by-openhora").write_text("")
     project = tmp_path / "project"
     project.mkdir()
     return {"wb": wb, "skill": skill, "installed": installed, "project": project}
@@ -89,6 +89,14 @@ def test_record_start_writes_a_use_line_of_the_closed_form_and_prints_its_id(tre
                     "use": use, "week": line["week"]}
     assert re.fullmatch(r"\d{4}-W\d{2}", line["week"]) and es.field_line_problems(line, {"s-model", "f-model"}) == []
     assert start(tree) != use and len(lines(tree)) == 2  # one line per use, appended
+
+
+def test_a_copy_installed_before_the_rename_keeps_the_hash_of_its_source(tree):
+    """The legacy marker (T23) is left out of the hash as well: a copy made under the old name is still its source."""
+    (tree["installed"] / ".installed-by-openhora").unlink()
+    (tree["installed"] / ".installed-by-ai-workbench").write_text("")
+    start(tree)
+    assert lines(tree)[0]["content_sha256"] == es.content_hash(str(tree["skill"]))
 
 
 def test_a_copied_skill_folder_with_its_marker_gives_the_hash_of_its_source(tree):

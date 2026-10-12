@@ -20,6 +20,7 @@ spec = importlib.util.spec_from_file_location("eval_run", SCRIPT)
 er = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(er)
 er.EXECUTOR = "host"  # these tests drive stand-in adapters; the container executor has its own tests
+er.KIT.EXECUTOR = "host"  # the execution kit reads its own copy
 REPO = Path(er.ROOT)
 # The stand-in harness "h" discovers skills in .h/skills and keeps its settings in .h/ and h-settings.json.
 # An exhausted account answers "usage limit reached" there.
@@ -32,7 +33,9 @@ EVAL_JSON = json.dumps({"skills_dir": ".h/skills", "settings": [".h", "h-setting
 def own_lock_folder(tmp_path, monkeypatch):
     """The lock the runner processes of a machine share is each test's own, and nothing waits before a retry."""
     monkeypatch.setattr(er, "LOCK_DIR", str(tmp_path / "locks"))
+    monkeypatch.setattr(er.KIT, "LOCK_DIR", str(tmp_path / "locks"))
     monkeypatch.setattr(er, "RETRY_PAUSE", 0)
+    monkeypatch.setattr(er.KIT, "RETRY_PAUSE", 0)
 
 
 def test_no_evals_file_in_the_repository_lists_commands():
@@ -230,6 +233,7 @@ def test_preflight_takes_a_guard_of_a_declared_effect_and_a_case_tags_key_that_a
     skill = make_skill(tmp_path)
     (skill / "SKILL.md").write_text("---\nname: demo\nmetadata:\n  side_effects: [publish]\n---\n# demo\n")
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
+    monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
     tagged = [{"text": "It asks before it publishes", "tags": ["guard:publish", "guard"]}, {"text": "The id is P-1", "tags": ["format"]}]
     good = {"id": 1, "prompt": "p", "assertions": ["a"] + tagged, "tags": ["format", "guard", "guard:publish"]}
     assert er.preflight(str(skill), [good], {1: []}) == ([], [])
@@ -513,6 +517,7 @@ def test_regrade_counts_how_many_failed_verdicts_a_new_grader_passes(tmp_path, m
 
 def test_regrade_is_refused_with_run_options_or_without_a_graded_run(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
+    monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
     (tmp_path / "adapters" / "h").mkdir(parents=True)
     (tmp_path / "adapters" / "h" / "run-prompt.sh").write_text("exit 1\n")
     empty = tmp_path / "evals-workspace" / "empty"
@@ -525,6 +530,55 @@ def test_regrade_is_refused_with_run_options_or_without_a_graded_run(tmp_path, m
             er.main(argv)
         assert e.value.code == 2 and why in capsys.readouterr().err
 
+
+
+def graded_for_regrade(tmp_path, monkeypatch, capsys, **markers):
+    """One graded run of case 1 with the skill on the reference model, made by the control adapter; the markers
+    are written after it, so they act on the regrade only. Returns the event folder."""
+    control_demo(tmp_path, monkeypatch)
+    assert er.main(FULL + ["--case", "1", "--only", "with", "--tiers", "strong"]) == 0
+    capsys.readouterr()
+    for name, value in markers.items():
+        (tmp_path / "adapters" / "h" / name.replace("_", "-")).write_text(f"{value}\n")
+    return tmp_path / "evals-workspace" / "demo" / "iteration-1"
+
+
+def test_a_regrade_takes_a_place_of_the_shared_lock(tmp_path, monkeypatch, capsys):
+    iteration = graded_for_regrade(tmp_path, monkeypatch, capsys)
+    taken, real = [], er.Slots
+
+    class Recording(real):
+        def __enter__(self):
+            taken.append([(slot.kind, slot.n) for slot in self.slots])
+            return super().__enter__()
+
+    monkeypatch.setattr(er, "Slots", Recording)
+    assert er.main(["--regrade", str(iteration), "--harness", "h", "--grader", "m"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    total = er.load_status().event_config(er.load_status().load_gate(str(tmp_path)))["total_jobs"]
+    assert out["gradings"] == 1 and taken == [[("total", total)]]
+
+
+def test_a_regrade_waits_while_its_account_is_paused(tmp_path, monkeypatch, capsys):
+    iteration = graded_for_regrade(tmp_path, monkeypatch, capsys, probes_fail=1)
+    fast_pause(monkeypatch)
+    assert er.start_pause("h", "another run") is True
+    assert er.main(["--regrade", str(iteration), "--harness", "h", "--grader", "m"]) == 0
+    captured = capsys.readouterr()
+    # The first probe met the limit, the second ended the pause; only then was the grading call made.
+    assert len(calls(tmp_path, "probes.txt")) == 2 and "a probe call on the account of h succeeded" in captured.err
+    assert json.loads(captured.out)["gradings"] == 1 and not list((tmp_path / "locks").glob("pause-*.json"))
+
+
+def test_a_regrade_call_that_meets_the_account_limit_pauses_is_made_again_and_is_not_counted_as_refused(tmp_path, monkeypatch, capsys):
+    iteration = graded_for_regrade(tmp_path, monkeypatch, capsys, limit_grading=1)
+    fast_pause(monkeypatch)
+    assert er.main(["--regrade", str(iteration), "--harness", "h", "--grader", "m"]) == 0
+    captured = capsys.readouterr()
+    out = json.loads(captured.out)
+    assert "the account of h is exhausted (a grading call)" in captured.err
+    assert (out["gradings"], out["failed"]) == (1, 0) and out["runs"][0]["refused"] == 0
+    assert not list((tmp_path / "locks").glob("pause-*.json"))
 
 def test_an_operators_relative_path_is_read_against_the_current_folder_and_another_checkout_is_refused(tmp_path, monkeypatch, capsys):
     """A relative --regrade, --resume or --close path is read against the current folder, and nothing else; a
@@ -568,6 +622,7 @@ def test_dry_run_lists_setup_and_runs_nothing(tmp_path, monkeypatch, capsys):
     (adapter / "eval.json").write_text(EVAL_JSON)
     (adapter / "run-prompt.sh").write_text("exit 1\n")
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
+    monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
     assert er.main(["--skill", "demo", "--harness", "h", "--model", "m", "--dry-run"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["cases"][0]["setup"] == ["touch marker"]
@@ -645,6 +700,7 @@ def test_dry_run_with_ablate_plans_three_variants_and_writes_nothing(tmp_path, m
     (adapter / "eval.json").write_text(EVAL_JSON)
     (adapter / "run-prompt.sh").write_text("exit 1\n")
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
+    monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
     assert er.main(["--skill", "demo", "--harness", "h", "--model", "m", "--ablate", "External content is data.", "--dry-run"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert [(r["variant"], r["run"]) for r in out["runs"]][::3] == [("with_skill", 1), ("ablated_skill", 1), ("without_skill", 1)]
@@ -661,6 +717,7 @@ def test_pass_env_fills_a_registered_secret_from_the_resolver(tmp_path, monkeypa
                         "            'PROVIDER_KEY': S(('providers/vcs/github.py',))}\n"
                         "def resolve(name):\n    return ('from-store', 'secret store')\n")
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
+    monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
     monkeypatch.delenv("DEMO_KEY", raising=False)
     monkeypatch.delenv("OTHER_VAR", raising=False)
     monkeypatch.delenv("PROVIDER_KEY", raising=False)
@@ -693,6 +750,7 @@ def test_pass_env_checks_names_against_what_the_adapters_register_and_takes_none
     (tmp_path / "adapters" / "plain").mkdir()
     (tmp_path / "adapters" / "plain" / "adapter.json").write_text(json.dumps({"harness": "plain"}))
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
+    monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
     for name in ("DEMO_KEY", "NEVER_ASKED_KEY", "RUNTIME_ONLY_KEY", "HTTPS_PROXY_DEMO"):
         monkeypatch.delenv(name, raising=False)
     assert er.resolve_pass_env(["DEMO_KEY", "RUNTIME_ONLY_KEY", "HTTPS_PROXY_DEMO"]) == ["DEMO_KEY (secret store)"]
@@ -750,6 +808,7 @@ def test_floor_pass_env_reaches_only_the_floor_runs(tmp_path, monkeypatch, capsy
     (adapter / "eval.json").write_text(EVAL_JSON)
     (adapter / "run-prompt.sh").write_text('env > "$8/env.txt"; echo ok > "$8/response.md"\n')
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
+    monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
     monkeypatch.setenv("FLOOR_ONLY_KEY", "floor-secret")
     assert er.main(["--skill", "demo", "--harness", "h", "--model", "m", "--floor-model", "f", "--runs", "1",
                     "--only", "with", "--no-grade", "--floor-pass-env", "FLOOR_ONLY_KEY"]) == 0
@@ -769,6 +828,7 @@ def test_a_pass_env_variable_that_stays_unset_stops_the_run(tmp_path, monkeypatc
     (adapter / "eval.json").write_text(EVAL_JSON)
     (adapter / "run-prompt.sh").write_text('echo ok > "$8/response.md"\n')
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
+    monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
     monkeypatch.delenv("FLOOR_ONLY_KEY", raising=False)
     with pytest.raises(SystemExit) as exc:
         er.main(["--skill", "demo", "--harness", "h", "--model", "m", "--floor-model", "f", "--runs", "1",
@@ -788,6 +848,7 @@ def test_jobs_runs_model_runs_at_the_same_time_and_keeps_the_order(tmp_path, mon
     (adapter / "eval.json").write_text(EVAL_JSON)
     (adapter / "run-prompt.sh").write_text('sleep 1; echo ok > "$8/response.md"\n')
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
+    monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
     start = time.monotonic()
     assert er.main(["--skill", "demo", "--harness", "h", "--model", "m", "--runs", "2", "--jobs", "4",
                     "--only", "with", "--no-grade"]) == 0
@@ -812,6 +873,7 @@ def preflight_of(tmp_path, monkeypatch, case, setup=True):
     (skill / "scripts").mkdir(exist_ok=True)
     (skill / "scripts" / "lint_demo.py").write_text("print('ok')\n")
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
+    monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
     case = {"id": 1, "prompt": "p", "assertions": ["a"], **case}
     return er.preflight(str(skill), [case], {1: er.case_files(str(skill), case)}, setup=setup)
 
@@ -866,9 +928,11 @@ def as_in_the_container(monkeypatch):
     event of these tests is what it is, a trial with a stand-in, and writes to its scratch tree only."""
     executor = er.load_executor()
     monkeypatch.setattr(er, "EXECUTOR", "container")
+    monkeypatch.setattr(er.KIT, "EXECUTOR", "container")
     monkeypatch.setattr(executor, "ensure", lambda: {"kind": "container", "image": "wb-eval:test", "image_id": "sha256:" + "1" * 64,
                                                      "image_digest": "sha256:" + "1" * 64, "image_platform": executor.IMAGE_PLATFORM})
     monkeypatch.setattr(er, "run_group", lambda cmd, timeout, cwd=None, env=None, box=None: er._run_group(cmd, timeout, cwd, env, None))
+    monkeypatch.setattr(er.KIT, "run_group", lambda cmd, timeout, cwd=None, env=None, box=None: er._run_group(cmd, timeout, cwd, env, None))
     monkeypatch.setattr(er, "tool_versions", lambda: {"git": "git version 2.0-test"})
 
 
@@ -904,6 +968,7 @@ def write_demo(tmp_path, monkeypatch, runner, cases=None, real=True):
     (adapter / "eval.json").write_text(EVAL_JSON)
     (adapter / "run-prompt.sh").write_text(runner)
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
+    monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
     return skill
 
 
@@ -1003,6 +1068,7 @@ def test_fixture_copies_leave_out_bytecode_and_system_files(tmp_path, monkeypatc
 
 def test_repository_files_of_a_skill_come_without_its_cases_and_its_script_tests(tmp_path, monkeypatch):
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
+    monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
     other = tmp_path / "skills" / "core-other"
     for folder in ("evals", "scripts/tests", "scripts/__pycache__", "references/tests"):
         (other / folder).mkdir(parents=True)
@@ -1254,6 +1320,7 @@ def test_settings_in_looks_everywhere_but_the_repository_folder(tmp_path):
     ({"skills_dir": ".h/skills", "settings": ["a/b"]}, "eval.json: settings")])
 def test_an_adapter_names_where_its_harness_finds_skills_and_which_names_are_its_settings(tmp_path, monkeypatch, capsys, eval_object, why):
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
+    monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
     (tmp_path / "adapters" / "h").mkdir(parents=True)
     if eval_object:
         (tmp_path / "adapters" / "h" / "eval.json").write_text(json.dumps(eval_object))
@@ -1739,6 +1806,7 @@ def configure_gate(tmp_path, **changes):
 
 def test_the_configuration_supplies_models_adapters_key_and_threshold(tmp_path, monkeypatch):
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
+    monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
     configure_gate(tmp_path, floor_harness="fh", floor_pass_env=["FLOOR_KEY"], threshold=0.7)
     o = er.parse(["--skill", "demo"])
     assert (o["harness"], o["model"], o["floor"], o["floor_harness"], o["floor_pass_env"], o["threshold"], o["grader"]) == (
@@ -1747,6 +1815,7 @@ def test_the_configuration_supplies_models_adapters_key_and_threshold(tmp_path, 
 
 def test_explicit_flags_win_over_the_configuration(tmp_path, monkeypatch):
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
+    monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
     configure_gate(tmp_path, floor_harness="fh", floor_pass_env=["FLOOR_KEY"])
     o = er.parse(["--skill", "demo", "--harness", "h2", "--model", "m2", "--floor-model", "local/x", "--threshold", "0.5"])
     assert (o["harness"], o["model"], o["floor"], o["floor_harness"], o["threshold"]) == ("h2", "m2", "local/x", "fh", 0.5)
@@ -1757,6 +1826,7 @@ def test_explicit_flags_win_over_the_configuration(tmp_path, monkeypatch):
 
 def test_without_a_configuration_harness_and_model_are_required_and_there_is_no_floor(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
+    monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
     with pytest.raises(SystemExit) as e:
         er.parse(["--skill", "demo"])
     assert e.value.code == 2 and "--harness is required" in capsys.readouterr().err
@@ -1914,6 +1984,8 @@ def test_a_signal_to_the_runner_ends_every_run_it_started(tmp_path, signame, cod
               "er = importlib.util.module_from_spec(spec); spec.loader.exec_module(er)\n"
               "er.EXECUTOR = 'host'\n"
               f"er.ROOT = {str(tmp_path)!r}\n"
+              "er.KIT.EXECUTOR = 'host'\n"
+              f"er.KIT.ROOT = {str(tmp_path)!r}\n"
               "sys.exit(er.main(['--skill', 'demo', '--harness', 'h', '--model', 'm', '--runs', '1', '--only', 'with', '--no-grade']))\n")
     proc = subprocess.Popen([sys.executable, "-c", driver], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                             start_new_session=True)
@@ -2051,6 +2123,8 @@ def test_after_a_stop_the_case_folder_is_in_the_workspace_and_the_temporary_one_
               "er = importlib.util.module_from_spec(spec); spec.loader.exec_module(er)\n"
               "er.EXECUTOR = 'host'\n"
               f"er.ROOT = {str(tmp_path)!r}\n"
+              "er.KIT.EXECUTOR = 'host'\n"
+              f"er.KIT.ROOT = {str(tmp_path)!r}\n"
               "sys.exit(er.main(['--skill', 'demo', '--harness', 'h', '--model', 'm', '--runs', '1', '--only', 'without', '--no-grade']))\n")
     proc = subprocess.Popen([sys.executable, "-c", driver], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                             start_new_session=True)
@@ -2070,6 +2144,7 @@ def test_after_a_stop_the_case_folder_is_in_the_workspace_and_the_temporary_one_
 def test_a_temporary_folder_that_names_the_skill_or_sits_in_a_repository_is_not_used(tmp_path, monkeypatch):
     import tempfile
     monkeypatch.setattr(er, "ROOT", str(tmp_path / "workbench"))
+    monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path / "workbench"))
     (tmp_path / "workbench").mkdir()
     for bad in (tmp_path / "workbench" / "tmp", tmp_path / "scratch-of-eng-docs", tmp_path / "checkout" / "tmp"):
         bad.mkdir(parents=True)
@@ -2257,6 +2332,7 @@ def test_a_png_is_shown_to_the_grader_as_its_size_and_dimensions(tmp_path):
 
 def test_workbench_files_are_copied_at_their_own_path_without_eval_cases(tmp_path, monkeypatch):
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
+    monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
     (tmp_path / "scripts").mkdir()
     (tmp_path / "scripts" / "check.py").write_text("print('ok')\n")
     other = tmp_path / "skills" / "core-other"
@@ -2274,6 +2350,7 @@ def test_workbench_files_are_copied_at_their_own_path_without_eval_cases(tmp_pat
 @pytest.mark.parametrize("entry", ["../outside", "/etc/passwd", ".git", "evals-workspace/x", "skills/core-other/evals", "missing.txt", "", "."])
 def test_workbench_files_refuses_what_must_not_enter_a_case(tmp_path, monkeypatch, entry):
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
+    monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
     for folder in (".git", "evals-workspace/x", "skills/core-other/evals"):
         (tmp_path / folder).mkdir(parents=True)
     with pytest.raises(SystemExit) as e:
@@ -2400,6 +2477,7 @@ def skill_tree(skill):
 
 def test_the_runs_the_timeout_and_the_retries_come_from_the_gate_file(tmp_path, monkeypatch):
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
+    monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
     o = er.parse(["--skill", "demo", "--harness", "h", "--model", "m"])
     assert (o["runs"], o["timeout"], o["retries"]) == (3, 900, 2)  # no gate file: the defaults
     configure_gate(tmp_path, runs=5, timeout_seconds=600, retries=1)
@@ -2626,7 +2704,9 @@ def test_a_refused_key_is_not_retried_and_stops_the_event_until_it_is_resumed(tm
 
 def fast_pause(monkeypatch):
     monkeypatch.setattr(er, "PAUSE_POLL", 0.05)
+    monkeypatch.setattr(er.KIT, "PAUSE_POLL", 0.05)
     monkeypatch.setattr(er, "PROBE_SECONDS", 0)
+    monkeypatch.setattr(er.KIT, "PROBE_SECONDS", 0)
 
 
 def test_a_run_that_meets_the_account_limit_pauses_and_is_never_retried_never_a_timeout_never_scored(tmp_path, monkeypatch, capsys):
@@ -2668,9 +2748,12 @@ def test_a_pause_holds_every_call_on_the_account_until_the_time_the_operator_giv
     # Driven step by step in one thread: the pause's clock is a counter and its wait a step of the scenario
     # below, so nothing sleeps and nothing depends on the time of day or on how busy the machine is.
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
+    monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
     monkeypatch.setattr(er, "PROBE_SECONDS", 60)
+    monkeypatch.setattr(er.KIT, "PROBE_SECONDS", 60)
     clock = {"now": 1000.0}
     monkeypatch.setattr(er, "PAUSE_CLOCK", lambda: clock["now"])
+    monkeypatch.setattr(er.KIT, "PAUSE_CLOCK", lambda: clock["now"])
     assert er.start_pause("h", "case 1 with_skill run 1") is True and er.start_pause("h", "another run") is False
     assert er.wait_while_paused("other-account") is False  # another account is not held
     probes, steps = [], []
@@ -2686,6 +2769,7 @@ def test_a_pause_holds_every_call_on_the_account_until_the_time_the_operator_giv
             assert er.main(["--unpause"]) == 0  # the operator ends it now
         assert len(steps) < 20, "the pause never ended"
     monkeypatch.setattr(er, "PAUSE_SLEEP", step)
+    monkeypatch.setattr(er.KIT, "PAUSE_SLEEP", step)
     assert er.wait_while_paused("h", lambda: probes.append(clock["now"]) or False) is True
     # Probed once every PROBE_SECONDS while no time was given (at 1060 and 1120, never at the start), never
     # again once the operator gave a time, and ended by the operator's --unpause after the ninth wait.
@@ -2727,10 +2811,12 @@ def test_a_second_runner_process_waits_on_the_shared_lock(tmp_path, monkeypatch)
     import sys
     import time
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
+    monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
     driver = ("import importlib.util, sys\n"
               f"spec = importlib.util.spec_from_file_location('eval_run', {str(SCRIPT)!r})\n"
               "er = importlib.util.module_from_spec(spec); spec.loader.exec_module(er)\n"
               f"er.LOCK_DIR = {str(tmp_path / 'locks')!r}\n"
+              f"er.KIT.LOCK_DIR = {str(tmp_path / 'locks')!r}\n"
               "with er.Slot('total', 1):\n"
               f"    open({str(tmp_path / 'second-got-it')!r}, 'w').close()\n")
     with er.Slot("total", 1):
@@ -3185,6 +3271,7 @@ def dependency_case(tmp_path, monkeypatch, skill_name, text, deps):
         (tmp_path / "skills" / name).mkdir(parents=True, exist_ok=True)
         (tmp_path / "skills" / name / "SKILL.md").write_text(f"# {name}\n")
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
+    monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
     return er.dependency_problems(skill_name, str(skill), {"id": 1, "skills": deps})
 
 
@@ -3350,6 +3437,7 @@ def test_the_routing_mode_runs_given_prompts_and_says_when_the_adapter_does_not_
 ])
 def test_the_routing_mode_takes_its_own_options(tmp_path, monkeypatch, capsys, args, why):
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
+    monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
     with pytest.raises(SystemExit) as e:
         er.parse(args + ["--harness", "h", "--model", "m"])
     assert e.value.code == 2 and why in capsys.readouterr().err
@@ -3373,9 +3461,11 @@ def test_a_command_passed_the_held_key_starts_the_key_proxy_first_and_fails_as_i
     secret, key = executor.route()["secret"], "fake-floor-key-for-the-runner-tests-0004"
     started, ran = [], []
     monkeypatch.setattr(er, "EXECUTOR", "container")
+    monkeypatch.setattr(er.KIT, "EXECUTOR", "container")
     monkeypatch.setattr(executor, "keyproxy", lambda env=None, name="floor": started.append(env[secret]))
     monkeypatch.setattr(executor, "remove", lambda name, env=None: None)
     monkeypatch.setattr(er, "_run_group", lambda cmd, timeout, cwd, env, container: ran.append(cmd) or subprocess.CompletedProcess(cmd, 0, "", ""))
+    monkeypatch.setattr(er.KIT, "_run_group", lambda cmd, timeout, cwd, env, container: ran.append(cmd) or subprocess.CompletedProcess(cmd, 0, "", ""))
     box = {"root": str(tmp_path), "pass": [secret], "network": "proxy"}
     er.run_group(["true"], 10, env={secret: key}, box=box)
     assert started == [key] and len(ran) == 1 and key not in " ".join(ran[0])
@@ -3388,3 +3478,41 @@ def test_a_command_passed_the_held_key_starts_the_key_proxy_first_and_fails_as_i
     monkeypatch.setattr(executor, "keyproxy", down)
     r = er.run_group(["true"], 10, env={secret: key}, box=box)
     assert r.returncode == 1 and "key proxy did not start" in r.stderr and len(ran) == 3  # no container ran
+
+
+# --- the attempts of a run are made by evals/run_attempts.py, loaded only when a model runs ------------------
+
+ATTEMPTS_MODULE = "workbench_eval_run_attempts"
+
+
+def test_a_command_that_runs_no_model_never_loads_the_shared_module(tmp_path, monkeypatch, capsys):
+    write_demo(tmp_path, monkeypatch, SEES)
+    monkeypatch.delitem(sys.modules, ATTEMPTS_MODULE, raising=False)
+    with pytest.raises(SystemExit) as e:
+        er.main(["--help"])
+    assert e.value.code == 0
+    assert er.main(["--skill", "demo", "--check-cases"]) == 0
+    assert er.main(["--skill", "demo", "--harness", "h", "--model", "m", "--dry-run"]) == 0
+    capsys.readouterr()
+    assert ATTEMPTS_MODULE not in sys.modules
+
+
+def test_a_run_makes_its_attempts_through_the_shared_module(tmp_path, monkeypatch, capsys):
+    write_demo(tmp_path, monkeypatch, SEES)
+    real, labels = er.load_attempts, []
+
+    class Counting:
+        def run(self, lab, spec, hooks=None):
+            labels.append(spec["label"])
+            assert lab is er._RUNNER
+            return real().run(lab, spec, hooks)
+
+    monkeypatch.setattr(er, "load_attempts", lambda: Counting())
+    assert er.main(["--skill", "demo", "--harness", "h", "--model", "m", "--runs", "1", "--only", "with",
+                    "--no-grade"]) == 0
+    capsys.readouterr()
+    assert sorted(labels) == ["case 1 with_skill run 1", "case 2 with_skill run 1"]
+    assert real() is sys.modules[ATTEMPTS_MODULE]
+    for case in (1, 2):
+        run = tmp_path / "evals-workspace" / "demo" / "iteration-1" / f"eval-{case}" / "with_skill"
+        assert (run / "outputs" / "response.md").read_text().strip() == "ok" and (run / "prompt.md").is_file()

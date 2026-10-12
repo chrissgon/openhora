@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><defs><clipPath id="lmarrom"><circle cx="74" cy="98" r="22"></circle></clipPath><clipPath id="rmarrom"><circle cx="126" cy="98" r="22"></circle></clipPath></defs>
+<g stroke="#1E1B2E" stroke-width="7" stroke-linejoin="round" stroke-linecap="round">
+<path d="M44 70 Q30 40 36 22 Q60 34 74 50Z" fill="#6B4429"></path><path d="M156 70 Q170 40 164 22 Q140 34 126 50Z" fill="#6B4429"></path>
+<ellipse cx="80" cy="186" rx="13" ry="7" fill="#FCD34D"></ellipse><ellipse cx="120" cy="186" rx="13" ry="7" fill="#FCD34D"></ellipse>
+<path d="M100 36 C152 36 180 74 180 120 C180 164 146 186 100 186 C54 186 20 164 20 120 C20 74 48 36 100 36Z" fill="#A47551"></path></g>
+<g stroke="#1E1B2E" stroke-width="6" stroke-linejoin="round">
+<path d="M30 120 Q28 158 62 174 Q48 148 50 122Z" fill="#6B4429"></path><path d="M170 120 Q172 158 138 174 Q152 148 150 122Z" fill="#6B4429"></path>
+<path d="M100 72 C84 52 42 54 42 96 C42 128 72 142 100 132 C128 142 158 128 158 96 C158 54 116 52 100 72Z" fill="#E6D2BC"></path>
+<circle cx="74" cy="98" r="22" fill="#fff"></circle><circle cx="126" cy="98" r="22" fill="#fff"></circle></g>
+<circle cx="80" cy="101" r="11" fill="#1E1B2E"></circle><circle cx="132" cy="101" r="11" fill="#1E1B2E"></circle>
+<circle cx="84" cy="98" r="4" fill="#fff"></circle><circle cx="136" cy="98" r="4" fill="#fff"></circle>
+<rect x="50" y="70" width="50" height="20" fill="#6B4429" clip-path="url(#lmarrom)"></rect><rect x="102" y="70" width="50" height="20" fill="#6B4429" clip-path="url(#rmarrom)"></rect>
+<g stroke="#1E1B2E" stroke-width="6" fill="none" stroke-linecap="round"><circle cx="74" cy="98" r="22"></circle><circle cx="126" cy="98" r="22"></circle><path d="M53 90 H95"></path><path d="M105 90 H147"></path></g>
+<path d="M92 116 Q100 112 108 116 Q103 130 100 132 Q97 130 92 116Z" fill="#FCD34D" stroke="#1E1B2E" stroke-width="5" stroke-linejoin="round"></path>
+<g stroke="#6B4429" stroke-width="4" fill="none" stroke-linecap="round"><path d="M76 156 q6 6 12 0 q6 6 12 0 q6 6 12 0 q6 6 12 0"></path><path d="M82 168 q6 6 12 0 q6 6 12 0 q6 6 12 0"></path></g></svg>

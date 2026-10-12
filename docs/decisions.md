@@ -541,3 +541,61 @@ The battery of T21 is closed: every one of the 48 skills has a full test under m
   Each is a lapse of the floor model in one run that the reference model does not show; none is repaired, because a repair is a change of the skill that the reference model must pass again, and the floor model's band decides nothing (T28).
 - Cost: the battery used about 14 points of the reference model's weekly limit (35% before wave 1, 49% after the last repair) and US$6.44 of the floor model's key on the day of the battery, its rehearsal included.
 - Alternatives rejected: repairing the five floor-model findings now, which would cost a test of each changed skill on the reference model for a band that decides nothing; leaving the floor model's gaps unrun, which would have left six skills outside `reliable` on the floor model for want of runs rather than for a failure.
+
+## 2026-10-07: the architecture fixes, and eight decisions they rest on
+
+The review of 2026-10-06 (`docs/architecture/platform/review-2026-10-06.md`) found seventeen gaps between the layers and the goal of replaceable pieces; nine are fixed, one is partly fixed and seven wait for the next change of their layer (principle 12). The decisions taken to fix them:
+
+- D1. `evals/run_attempts.py` stays outside the measurement fingerprint, because retries, locks and pacing are infrastructure in the repository's taxonomy; the review's point is answered by the extraction of the execution kit, and no fingerprinted file changed.
+- D2. The store's task functions are the runtime's own persistence (finding 7, the first option): no conformance suite and no second backend are promised, and `providers/CONTRACT.md` says so.
+- D3. The runtime's wiring to named skills (router, brief, sub-task skill, code areas, packs in use) is one data file of the runtime, `runtime/roles.json`, bound to the skills by a test, not a key in every manifest.
+- D4. A skill outside the packs in use may carry a partial manifest, with only the keys it needs; a skill in a pack in use keeps the whole manifest, and the runtime refuses to run a skill without a whole one.
+- D5. Skill code the runtime runs on the host runs as an isolated subprocess with a scrubbed environment; the container is the stronger option and stays open in the review.
+- D6. The effect registry is keyed by the side-effect word the skill's manifest names in its gate; a second shape for one word adds a `kind` key later.
+- D7. The effects by kind were built with the one kind, before the second kind arrives, so that the code and its tests are fresh; it was the first package to drop if the budget ran short.
+- D8. A chat channel cannot approve an effect: an effect is approved only from the terminal, with its hash, and the channel rule is a column of the operations table.
+
+Rejected: a `role` key in every manifest (D3), running skill code in the container now (D5), and a fingerprint change for the retry rule (D1). The cost was no battery: no skill's content and no measurement file changed.
+
+## 2026-10-07: the page is a channel of its own
+
+Decision D8 (a chat channel cannot approve an effect) is extended, not changed: an effect is approved from the terminal or from the local page, both with the hash of the content the person was shown and typed or clicked; a chat channel (the conversation, a messaging app) and the MCP channel never approve an effect.
+
+- Why the page is not a chat channel. In the terminal the person types the hash; on the page the card draws the exact content and its `payload_sha256` and the click sends that hash. In both, the person reads the content on their own machine, and the operations layer compares the hash with the effect's file before it executes anything (limits L15 to L17, unchanged). A message in a chat channel passes through a service the workbench does not control, and a model's reply could be made to look like an approval; that is the surface D8 refuses.
+- How it is kept in code. `ops.approve` takes the channel from the table of operations (`channel_arg`) and refuses an effect unless the channel is in `ops.EFFECT_CHANNELS` (`terminal`, `page`); the rule still fails closed on any other channel and on none. The terminal shell passes `terminal`, the conversation passes `chat`, and the local service passes `page` itself: a request cannot name a channel. The word stays `approved`, for an effect and a plan.
+- What the page does not give. The token and the checks of `Host` and `Origin` keep another page and another machine from sending a hash; they cannot tell a click from a script that holds the token on the person's own machine. `accept-config` is not a route: a configuration is accepted in the terminal only, so a page can never accept the change that widens what an agent may do. The page offers an effect only `approved` and `rejected`; the store's third word for an effect, a comment that sends the task back (`answered`), stays an operation of the terminal.
+- Alternatives rejected: approving from the page without the hash (a click would then approve content it did not display); keeping every approval of an effect in the terminal (the stage's acceptance asks for a run from the page without it); a separate token for approvals (a second secret to paste, with the same trust in the machine).
+
+## 2026-10-08: a model client approves nothing
+
+The MCP channel (`mcp`, runtime/mcp.py) is extended from decision D8 and the 2026-10-07 entry above, and is stricter than the conversation's `chat`: on `mcp` a model client may read, request, route, answer, release a draft and say, and nothing else. No approve of any kind (a plan, an acceptance or an effect), no reject, cancel or retry, neither as a tool nor typed into `say`.
+
+- Why. A model client must not authorise runs on its own request chain: if it could approve the plan it asked for, one prompt could request, plan, approve and run without the person. Approving a plan or accepting a delivery is that authorisation, so it is made where the person is, in the terminal or on the page; an effect also needs the hash of its content there.
+- How it is kept in code. The `approve` row does not list `mcp`, so there is no tool. The row of `say` takes the channel (`channel_arg`); every shell passes its own (the terminal `terminal`, the service `page`, the MCP shell `mcp`, the conversation none, which is `chat`) and `ops.say` does a command of a line only when that command's row lists the channel that carries it, otherwise it answers `/<command> is done in the terminal or on the page`. A command that runs is still run as `chat`, so an effect stays refused by `ops.approve`. The terminal and the page keep every command they had.
+- Alternatives rejected: a table of commands a channel may type kept in the MCP shell (a second copy of the channel rule); refusing only effects (a plan approved by the client starts runs).
+
+## 2026-10-08: one kit for the local service and the MCP mode (WP-9.9)
+
+The MCP mode was written as a copy of the local service's job registry, project id, project list, status words and argument kinds because the layer map let a shell import `ops.py` only. They are now defined once in `runtime/shell_kit.py`, which the two shells import.
+
+- Why a module and not the operations layer. The registry is threads, locks and a shell's own slots, not an operation; putting it in `ops.py` (3000 lines, every operation once) would make the layer that every shell calls hold shell state, and its stand-ins in the tests would have to grow with it. A module of its own changes the layer map by two rows and no operation.
+- How it is kept in code. The layer map gives `runtime/service.py` and `runtime/mcp.py` an arrow to `runtime/shell_kit.py` and the kit none to anything in `runtime/`; `cli.py` and `chat.py` keep one arrow, to `ops.py`. The kit is handed the operations object, so a test's stand-in reaches it as before. `runtime/tests/test_shell_kit.py` fails when a shared name is defined in a second module.
+- Behaviour unchanged. The request rules of the service and the channel of the MCP mode stay in their shells.
+
+## 2026-10-09: the page may narrow autonomy, and the service dispatches by default (WP-9.14)
+
+Two decisions of the maintainer, taken while running a real project through the page.
+
+- The page may narrow autonomy and never widen it. `set-mode` to a mode lower in the order stopped < supervised < milestones < autonomous < autonomous-with-policy widens nothing, so code accepts the new hash at once (`code:narrowing` in the cursor `config:accepted-by`); a move up, and every other change of the configuration, stays unaccepted until the person types `accept-config`. Why: a page that could change a mode but left every route refusing until a terminal command ran made the page's own control useless, and the hard limit (a change that gives an agent more power is accepted by the person) is untouched. How it is kept in code: one function writes the accepted hash (`ops._record_acceptance`), the narrowing branch is the only call besides `accept_config`, and a test over every pair of modes and a test of the call graph fail on a widening accepted by code.
+- The local service dispatches by default, every 30 seconds (`--no-dispatch` turns it off), as far as the modes and the daily caps allow. It replaces the decision of 2026-10-07 that the service dispatches only when asked. A ready task that does not start has a recorded reason (`status` carries `held`), the service checks the secret store, the credential, docker and the eval image at its start and says what is missing, and every sentence that names a command gives it absolute and with the `uv run --with keyring==25.7.0` prefix when the process was started that way.
+- Alternatives rejected: accepting a narrowing by calling `accept_config` from `set_mode` (it would blur who accepted); a new table for the held tasks (a migration for a record of the last round, when a cursor holds it).
+
+## 2026-10-11: one terminal command sets a wider mode and accepts it (R4-C3)
+
+The maintainer's word, after running a real project through the page: the command the Agent tab copies for a wider mode must work in one step. Before, `set-mode` left the new hash unaccepted, the page then showed the band "not accepted yet" with an `accept-config` command, and a person who did not see that second step ran `set-mode` again.
+
+- `set-mode --accept` (terminal only) sets the mode and accepts the hash it makes in the same locked step, recorded `by: "person"` as `accept-config` records it. The one condition, checked under the configuration lock: the configuration's hash was the accepted one before the change, so the only difference accepted is the mode the command names. Any other state is refused and nothing is written; the person reads the file and runs `accept-config`. A narrowing with `--accept` is accepted by code as before (`code:narrowing`).
+- The rule it keeps (principle 11): a change that widens what an agent may do is accepted only by the person, in the terminal. `accept` is refused by the operation from every channel but `terminal` (code, before anything is read), the service's route takes `mode` only (a body with `accept` is a 400), and the conversation and the MCP mode have no `set-mode`. A page can never accept or widen anything.
+- The 2026-10-09 entry above names `ops._record_acceptance`; that function, the one writer of the accepted hash, now lives in `ops_config.py`, still private to it, and a test fails on any call to it from another module.
+- The wider-mode commands the page shows (`wider` of `agents`) carry `--accept`, so Copy gives one command that works.
+- Alternatives rejected: a confirmation field on the page's route (a page would then accept a widening); accepting whatever hash the file has at the time of the command (it would accept an edit nobody read, which is what `accept-config`'s typed hash exists to prevent).

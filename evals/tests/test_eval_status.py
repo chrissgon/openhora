@@ -3,6 +3,7 @@ and of the eval-status check in scripts/validate.py. No model is called: evidenc
 score and the bands are tested in test_bands.py."""
 import importlib.util
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -73,7 +74,7 @@ def test_the_hash_leaves_out_all_of_evals_and_the_installers_marker(root):
     (skill / "evals" / "evidence" / "lab-20300102T030405Z-0a1b2c3d.jsonl").write_text("{}\n")
     (skill / "evals" / "versions.jsonl").write_text("{}\n")
     (skill / "evals" / "result.json").write_text("{}")
-    (skill / ".installed-by-ai-workbench").write_text("")  # a copy an installer made has the hash of its source
+    (skill / ".installed-by-openhora").write_text("")  # a copy an installer made has the hash of its source
     (skill / "scripts" / ".pytest_cache").mkdir()
     (skill / "scripts" / ".pytest_cache" / "v").write_text("x")
     assert es.content_hash(str(skill)) == first
@@ -81,8 +82,36 @@ def test_the_hash_leaves_out_all_of_evals_and_the_installers_marker(root):
     (skill / "references" / "evals").mkdir(parents=True)
     (skill / "references" / "evals" / "note.md").write_text("x\n")
     second = es.content_hash(str(skill))
-    (skill / "references" / ".installed-by-ai-workbench").write_text("")
+    (skill / "references" / ".installed-by-openhora").write_text("")
     assert len({first, second, es.content_hash(str(skill))}) == 3
+
+
+def test_the_marker_names_are_the_new_one_and_the_one_before_the_rename():
+    assert es.INSTALL_MARKER == ".installed-by-openhora"
+    assert es.LEGACY_INSTALL_MARKER == ".installed-by-ai-workbench"
+    assert es.INSTALL_MARKERS == (es.INSTALL_MARKER, es.LEGACY_INSTALL_MARKER)
+
+
+@pytest.mark.parametrize("marker", [".installed-by-openhora", ".installed-by-ai-workbench"])
+def test_either_marker_at_the_top_of_a_copy_leaves_the_hash_of_its_source(root, marker):
+    """A copy installed before the rename carries the old marker and keeps its hash (the compatibility stage, T23)."""
+    skill = root / "skills" / "core-demo"
+    first = es.content_hash(str(skill))
+    (skill / marker).write_text("")
+    assert es.content_hash(str(skill)) == first
+    # Only at the top of the folder: the same name deeper in is a file a model could read.
+    (skill / "references").mkdir()
+    (skill / "references" / marker).write_text("")
+    assert es.content_hash(str(skill)) != first
+
+
+@pytest.mark.parametrize("marker", [".installed-by-openhora", ".installed-by-ai-workbench"])
+def test_content_changes_ignores_either_marker(root, marker):
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.test", "add", "-A"], cwd=root, check=True)
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-qm", "base"], cwd=root, check=True)
+    (root / "skills" / "core-demo" / marker).write_text("")
+    assert es.content_changes(str(root), "HEAD", "core-demo") == set()
 
 
 def test_the_hash_changes_when_a_file_is_added_or_renamed(root):
@@ -262,8 +291,9 @@ def test_no_evidence_is_written_while_the_gate_file_carries_no_fingerprint(root,
     assert "is not valid" in es.evidence_refusal(str(root))
 
 
-def test_the_repository_measurement_is_at_version_5_with_its_floor(root):
-    """Phase B changes what the grader is shown, so nothing measured before it counts: version 5, floor 5."""
+def test_the_repository_measurement_is_at_version_5_or_later_with_its_floor(root):
+    """Phase B changes what the grader is shown, so nothing measured before it counts: version 5 or later, and a floor
+    of 5 or later."""
     gate = es.load_gate(str(REPO))
     assert gate["measurement_version"] >= 5 and gate["measurement_floor"] >= 5
 

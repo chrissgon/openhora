@@ -1,0 +1,230 @@
+/* control.css: the Control room screen, as control-room.html draws it (R-50, R-52 to R-55): the 700 px panel with its three tabs as a segmented control filling the width, the legend
+   and the filters, the list of skills as accordions in five columns (a card per skill on a phone), the caps as rows with meters, the chart and its table in one card, the tables
+   of runs, classes and secrets, the soft notices with an icon, the Connections cards. The parts the page draws that base.css lacks are built here, scoped to the screen (R4D P-2:
+   a later package may hoist them). A package for the Control room edits this file and test_interface_r4_control.py.
+   Linked by index.html in this order: base, frame, token, city, building, floor, lobby, control, then scene.css. A later rule wins a tie, so a rule that overrides one of the same weight stays in the same file as that rule or in a file that loads after it. */
+
+.wb-frame[data-screen="control"] .wb-waiting { width: var(--wb-panel-wide); }   /* R-50: the closed card is as wide as the panel: the two stand as one column */
+.wb-frame[data-screen="control"] .wb-track { display: none; }                   /* R-50, R-55: this screen has no tracking bar: Back and the crumbs sit at the edge, a phone has no strip */
+
+/* the chart's second series is the brand colour mixed to 38 percent (R-52, E-8; the third is the muted neutral), named once */
+:root {
+  --wb-tint-series: color-mix(in srgb, var(--pui-theme) 38%, var(--wb-raised));
+}
+
+/* the in-between band (not drawn, R4D-6; the phone's layout now runs up to 899 px, M-3): the wide panel takes what the KPI column leaves, its tables scroll inside their cards */
+@media (min-width: 900px) and (max-width: 1023px) {
+  .wb-frame[data-screen="control"] .wb-panel-wide, .wb-frame[data-screen="control"] .wb-waiting { width: calc(100vw - var(--wb-kpi-w) - var(--wb-edge) * 3); }   /* R-50: the closed card is as wide as the panel in this band too */
+  .wb-filter-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .wb-filter-body > :last-child { grid-column: 1 / -1; }
+  .wb-frame[data-screen="control"] .wb-dock { right: calc(100vw - var(--wb-kpi-w) - var(--wb-edge)); }   /* the card's width + 2 edges (the frame's rule assumes a 340 px card): the dock ends at the card's left edge */
+}
+
+/* the dock (Back and the crumbs, bottom left) ends at the closed card's left edge, whose width here is the panel's: the frame's rule assumes a 340 px card and let the crumbs run under it */
+@media (min-width: 1024px) {
+  .wb-frame[data-screen="control"] .wb-dock { right: calc(var(--wb-panel-wide) + var(--wb-edge) * 2); }
+}
+
+/* where the dock is narrower than Back and the crumbs (900 to about 1050 px: the card is as wide as the panel, and the room left of it is the KPI column's), the crumbs give way with an
+   ellipsis, the current page last; they never run under the card (and below about 1070 px the project's crumb goes, next rule) */
+@media (min-width: 900px) {
+  .wb-frame[data-screen="control"] .wb-dock { grid-template-columns: minmax(0, 1fr); }
+  .wb-frame[data-screen="control"] .wb-navdock, .wb-frame[data-screen="control"] .wb-nav, .wb-frame[data-screen="control"] .wb-crumb-nav { min-width: 0; max-width: 100%; }
+  .wb-frame[data-screen="control"] .wb-crumb-nav, .wb-frame[data-screen="control"] .wb-crumbs { overflow: hidden; }
+  .wb-frame[data-screen="control"] .wb-crumb-item:not(:last-child) .wb-crumb { overflow: hidden; text-overflow: ellipsis; }
+}
+
+/* below about 1070 px the project's crumb gives way (the switcher in the top row names the project): "City / Control room" is what fits left of the card */
+@media (min-width: 900px) and (max-width: 1069px) {
+  .wb-frame[data-screen="control"] .wb-crumb-item:nth-child(2) { display: none; }
+}
+
+/* the band under the header stops short of the wide panel (the frame's own rule leaves room for the narrow one) */
+@media (min-width: 1024px) {
+  .wb-frame[data-screen="control"] .wb-notice-box { right: calc(var(--wb-panel-wide) + var(--wb-edge) * 2); }
+}
+
+/* the page: on a desktop the panel stops 6 px above the closed card (the Building's gap is 12); on the phone the panel is the sheet and has no bottom edge of its own */
+@media (min-width: 900px) {
+  .wb-frame[data-screen="control"] .wb-panel { bottom: calc(var(--wb-edge) + 60px); }
+}
+
+/* --- the panel (R-50): the head has no line under it, the tabs are a segmented control that fills the width, the content scrolls under them --------------------------------- */
+.wb-frame[data-screen="control"] .wb-panel-body { display: block; padding: 0; overflow: hidden; }
+.wb-frame[data-screen="control"] .wb-panel-head { padding-bottom: 4px; border-bottom: 0; }
+.wb-frame[data-screen="control"] .wb-panel-head .wb-tile { width: 28px; height: 28px; }
+.wb-frame[data-screen="control"] .wb-panel-head .wb-icon { width: 16px; height: 16px; }
+.wb-control-body { display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100%; min-height: 0; }
+.wb-control .wb-tablist .wb-tab { flex: 1 1 0; justify-content: center; padding: 5px 7px; font-size: 13px; }
+.wb-control-content { min-height: 0; padding: 14px 12px 16px; overflow-y: auto; scrollbar-width: thin; }
+.wb-tab-body { display: grid; gap: 12px; grid-auto-rows: max-content; }
+
+.wb-code { font-size: 1em; white-space: normal; overflow-wrap: break-word; }
+
+/* the accordion's chevron is the house form (R-39): a chevron that points right and turns down when the row opens; the icon is drawn pointing right and the span turns it */
+.wb-control .wb-acc-chev .wb-icon { width: 13px; height: 13px; rotate: 90deg; }
+
+/* a notice (R-54): the library's soft style in the error colour with an icon at its start; the title bold, one line under it for each sentence the service gave */
+.wb-icon-triangle-alert { -webkit-mask-image: url("../icons/triangle-alert.svg"); mask-image: url("../icons/triangle-alert.svg"); }
+.wb-cnotice { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; padding: 10px 12px; font-size: 13px; }
+.wb-cnotice-title { font-weight: 600; }
+.wb-cnotice-icon .wb-icon { width: 16px; height: 16px; margin-top: 2px; }
+.wb-cnotice-line { margin: 3px 0 0; font-size: 12px; }
+
+/* the dashed block: an empty list, a read in flight (with the static ring) */
+.wb-loading .wb-ring { vertical-align: -2px; }
+.wb-empty-block { padding: 16px; border: 1px dashed var(--pui-border); border-radius: calc(var(--pui-radius) * 1.5); color: var(--pui-text-muted); font-size: 13px; text-align: center; }
+
+/* --- Skills ------------------------------------------------------------------------------------------------------------------------------------------------------------------ */
+.wb-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.wb-legend-note { margin-left: 4px; font-size: 12px; }
+
+/* the filters: a row of three fields on the sunken ground on desktop, an accordion called "Filters" on a phone */
+.wb-filters, .wb-filters[open] { border-radius: calc(var(--pui-radius) * 1.5); }
+.wb-filters > summary { display: none; }
+.wb-filter-body { display: grid; grid-template-columns: 1fr 1fr 1.4fr; gap: 10px; padding: 10px 12px; border-radius: calc(var(--pui-radius) * 1.5); background-color: var(--wb-sunken); }
+.wb-filter-body > label { min-width: 0; }
+
+/* the list of skills (R-53): five columns, the chevron first; the head row is for the eye, each row names its cells for a screen reader */
+.wb-skill-list { border: var(--pui-border-width) solid var(--pui-border); border-radius: calc(var(--pui-radius) * 1.5); overflow: hidden; font-size: 13px; }
+.wb-skill-head, .wb-skill-sum { display: grid; grid-template-columns: 16px minmax(0, 1.5fr) 56px minmax(0, 0.9fr) 132px 132px; align-items: center; gap: 10px; padding: 9px 12px; }
+.wb-skill-head { background-color: var(--wb-sunken); color: var(--pui-text-muted); font-size: 12px; font-weight: 600; }
+.wb-skill-row + .wb-skill-row, .wb-skill-head + .wb-skill-row { border-top: var(--pui-border-width) solid var(--pui-border); }
+.wb-skill-row > summary, .wb-skill-card > summary { list-style: none; cursor: pointer; }
+/* the lists clip their corners (overflow hidden), so a focused summary draws its ring inside the row */
+.wb-skill-row > summary:focus-visible, .wb-filters > summary:focus-visible, .wb-chart-acc > summary:focus-visible, .wb-need > summary:focus-visible { outline: 2px solid var(--pui-theme); outline-offset: -2px; }
+.wb-skill-sum:hover { background-color: var(--wb-ground); }
+.wb-skill-ver, .wb-skill-area { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-skill-name { overflow: hidden; font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
+.wb-skill-tier { min-width: 0; white-space: nowrap; }
+.wb-band { display: inline-flex; align-items: center; gap: 6px; }
+.wb-score { font-variant-numeric: tabular-nums; }
+.wb-skill-detail { display: grid; gap: 3px; padding: 4px 12px 12px 38px; color: var(--pui-text-muted); font-size: 12px; }
+.wb-skill-detail p { margin: 0; }
+.wb-results { display: grid; gap: 10px; }
+.wb-skill-cards { display: none; }
+
+/* the phone's card of a skill (R-55): the name and "version · area", the manifest and the runs, the two tiers; opened: the two sentences */
+.wb-skill-card { border: var(--pui-border-width) solid var(--pui-border); border-radius: calc(var(--pui-radius) * 1.5); background-color: var(--wb-sunken); font-size: 13px; }
+.wb-skill-card > summary { display: grid; gap: 4px; padding: 10px 12px; }
+.wb-sc-1 { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px; }
+.wb-sc-2 { font-size: 12px; }
+.wb-sc-3 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; }
+.wb-sc-3 > span { display: grid; gap: 2px; justify-items: start; }
+.wb-skill-card .wb-skill-detail { padding: 0 12px 10px; }
+
+/* --- Costs ------------------------------------------------------------------------------------------------------------------------------------------------------------------- */
+.wb-since { max-width: 200px; }
+/* M-8: the Since field is a date. The browser's picker and its calendar icon follow the colour mode through `color-scheme`; the property inherits by itself and the library sets it on the root
+   from its mode attribute ("light dark" for System), so `color-scheme: inherit` below only states the rule. 31.5px is the height the library gives its own text field and selects at 13 px
+   (measured in the served page, `.pui-input` in a `.wb-field`); a date input is 33.5px by itself. */
+.wb-since input[type="date"] { color-scheme: inherit; height: 31.5px; }
+.wb-foot { margin: 0; font-size: 12px; }
+
+/* the caps (R-52, E-16): the agent with its runs of the day under its name, then Runs today and Spend today, each a value in 600 weight over a meter */
+.wb-caps { overflow: hidden; font-size: 13px; }
+.wb-cap-row { display: grid; grid-template-columns: minmax(0, 1fr) 190px 190px; gap: 16px; align-items: start; padding: 9px 12px; }
+.wb-caps.is-runs-only .wb-cap-row, .wb-caps.is-spend-only .wb-cap-row { grid-template-columns: minmax(0, 1fr) 190px; }
+.wb-cap-row + .wb-cap-row { border-top: var(--pui-border-width) solid var(--pui-border); }
+.wb-cap-head { background-color: var(--wb-sunken); color: var(--pui-text-muted); font-size: 12px; font-weight: 600; }
+.wb-cap-agent { display: grid; gap: 1px; min-width: 0; overflow-wrap: anywhere; }
+.wb-cap-agent .wb-muted, .wb-cap-note { font-size: 12px; }
+.wb-cap-m { display: grid; gap: 2px; min-width: 0; }
+.wb-cap-val { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+/* the chart and its table in one card (R-52) */
+.wb-chart { display: grid; gap: 10px; padding: 12px; }
+.wb-chart-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+.wb-legend-items { display: flex; flex-wrap: wrap; gap: 12px; color: var(--pui-text-muted); font-size: 12px; }
+.wb-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+.wb-swatch { width: 10px; height: 10px; border-radius: 2px; background-color: var(--wb-series); }
+.wb-series-1 { --wb-series: var(--pui-theme); }
+.wb-series-2 { --wb-series: var(--wb-tint-series); }
+.wb-series-3 { --wb-series: var(--pui-muted); }
+.wb-series-other { --wb-series: var(--pui-bg-emphasis); }
+.wb-swatch.wb-series-2, .wb-swatch.wb-series-other { border: 1px solid var(--pui-border); }
+.wb-plot, .wb-plot-labels { display: grid; grid-template-columns: repeat(var(--wb-cols, 7), minmax(0, 1fr)); gap: 14px; }
+.wb-cols-1 { --wb-cols: 1; }
+.wb-cols-2 { --wb-cols: 2; }
+.wb-cols-3 { --wb-cols: 3; }
+.wb-cols-4 { --wb-cols: 4; }
+.wb-cols-5 { --wb-cols: 5; }
+.wb-cols-6 { --wb-cols: 6; }
+.wb-cols-7 { --wb-cols: 7; }
+.wb-plot { align-items: end; height: 130px; }
+.wb-col { display: block; width: 100%; height: 100%; border-bottom: var(--pui-border-width) solid var(--pui-border); }
+.wb-seg { fill: var(--wb-series); stroke: none; }
+.wb-seg.wb-series-2, .wb-seg.wb-series-other { stroke: var(--pui-border); stroke-width: 1px; vector-effect: non-scaling-stroke; }
+.wb-plot-labels { margin-top: -6px; color: var(--pui-text-muted); font-size: 11px; text-align: center; }
+.wb-chart-acc > summary { display: flex; align-items: center; gap: 6px; color: var(--pui-text-muted); font-size: 12px; list-style: none; cursor: pointer; }
+.wb-chart-acc .wb-acc-body { padding-top: 8px; }
+
+/* the tables (Costs, Connections): a card that scrolls sideways inside itself, a head on the sunken ground, a line between rows */
+.wb-tcard { overflow-x: auto; }
+.wb-ctable { width: 100%; border-collapse: collapse; font-size: 12px; }
+.wb-ctable th { background-color: var(--wb-sunken); color: var(--pui-text-muted); font-weight: 600; text-align: left; }
+.wb-ctable th, .wb-ctable td { padding: 7px 8px; vertical-align: top; }
+.wb-ctable tbody tr + tr td { border-top: var(--pui-border-width) solid var(--pui-border); }
+.wb-ctable .wb-num { text-align: right; font-variant-numeric: tabular-nums; }
+.wb-ctable .wb-code { font-size: 11.5px; }
+.wb-ctable th, .wb-ctable td:first-child { white-space: nowrap; }
+.wb-costs-table td:not([data-label="Model"]), .wb-costs-table td[data-label="Adapter"] .wb-code { white-space: nowrap; }
+.wb-ctable td[data-label="Class"] .wb-code, .wb-ctable td[data-label="Name"] .wb-code { white-space: nowrap; overflow-wrap: normal; }
+.wb-ctable td[data-label="Provider"], .wb-ctable td[data-label="Status"] { white-space: nowrap; }
+.wb-chart-table tbody th { background-color: transparent; font-weight: 400; }     /* F2-D14: the day column has no tint of its own (control-room.html) */
+
+/* "Needed by" past four skills is a count in the theme colour that opens the list under it (R-54, E-15) */
+.wb-need > summary { color: var(--pui-theme); cursor: pointer; }
+
+/* --- Connections: the page's headings and cards ---------------------------------------------------------------------------------------------------------------------------- */
+.wb-ccards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.wb-ccard { display: grid; gap: 6px; align-content: start; padding: 12px; font-size: 13px; }
+.wb-ccard.is-wide { grid-column: 1 / -1; }
+.wb-ccard p { margin: 0; font-size: 12px; }
+.wb-ccard .wb-sec-head { padding: 0; }
+.wb-ccard-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.wb-service { gap: 14px; }
+.wb-svc { display: grid; gap: 4px; }
+.wb-svc p { margin: 0; }
+.wb-tab-body .wb-note { margin: 0; font-size: 12px; }
+
+/* the phone (R-55; up to 899 px since M-3): the content has 12 px of room, the filters fold into one line, the skills are cards, tables stack into rows */
+@media (max-width: 899px) {
+  .wb-control-content { padding: 12px; }
+  .wb-tab-body { gap: 10px; }
+  .wb-skill-list { display: none; }
+  .wb-skill-cards { display: grid; gap: 10px; }
+  .wb-filters, .wb-filters[open] { background-color: var(--wb-sunken); border-radius: var(--pui-radius); }
+  .wb-filters > summary { display: flex; align-items: center; gap: 6px; padding: 8px 10px; font-size: 13px; list-style: none; cursor: pointer; }
+  .wb-filter-body { grid-template-columns: minmax(0, 1fr); padding: 0 12px 12px; background-color: transparent; }
+  .wb-ccards { grid-template-columns: minmax(0, 1fr); }
+  .wb-since { max-width: none; }
+  .wb-plot, .wb-plot-labels { gap: 6px; }
+  /* the caps (not drawn on a phone): the head row gives way, each meter says what it counts, the agent has the row's first line */
+  .wb-cap-head { display: none; }
+  .wb-cap-row, .wb-caps.is-runs-only .wb-cap-row, .wb-caps.is-spend-only .wb-cap-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 10px; }
+  .wb-cap-agent { grid-column: 1 / -1; }
+  .wb-cap-m[data-label]::before { content: attr(data-label); color: var(--pui-text-muted); font-size: 12px; }
+  .wb-cap-m:empty { display: none; }
+  .wb-cap-m .wb-meter { position: relative; right: auto; bottom: auto; left: auto; height: 4px; margin-top: 3px; border-radius: 9999px; }   /* the frame's phone rule lays the KPI tiles' meter along the tile's foot */
+  /* tables become stacked rows: the heading row is read by a screen reader only, each cell names itself */
+  .wb-stackable thead { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); }
+  .wb-stackable, .wb-stackable tbody { display: block; }
+  .wb-stackable tr { display: grid; gap: 2px; padding: 8px 10px; border-bottom: var(--pui-border-width) solid var(--pui-border); }
+  .wb-ctable.wb-stackable :is(th, td) { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr); gap: 8px; padding: 2px 0; border: 0; text-align: left; }
+  .wb-stackable td::before { content: attr(data-label); color: var(--pui-text-muted); font-size: 12px; }
+  .wb-ctable.wb-stackable td[data-label] .wb-code { white-space: normal; overflow-wrap: anywhere; }
+  .wb-ctable.wb-stackable td[data-label] { white-space: normal; }
+  .wb-stackable td > .wb-chip-12 { justify-self: start; }
+}
+
+/* M-32, the Control room's text and fields on a phone (max-width 899px): fields, buttons and tabs 16 px, the reading text 16 px (the stacked tables' values too), labels and meta lines at least 12 px */
+@media (max-width: 899px) {
+  .wb-control .wb-tablist .wb-tab { font-size: 16px; }
+  .wb-control :is(input, select, textarea) { font-size: 16px; }
+  .wb-control :is(button, .pui-btn), .wb-filters > summary, .wb-chart-acc > summary { font-size: 16px; }
+  .wb-skill-name, .wb-skill-detail { font-size: 16px; }     /* a skill's name and its sentences are list rows: reading text; the version, area and tier lines stay meta */
+  .wb-cnotice, .wb-cnotice-line, .wb-empty-block, .wb-skill-card, .wb-caps, .wb-chart-head, .wb-ccard, .wb-ccard p, .wb-ctable.wb-stackable :is(th, td) { font-size: 16px; }
+  .wb-plot-labels { font-size: 12px; }
+  .wb-ctable .wb-code, .wb-ctable.wb-stackable td[data-label] .wb-code { font-size: 14px; }
+}

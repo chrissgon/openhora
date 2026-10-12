@@ -1,0 +1,28 @@
+{
+  "skill": "biz-market-analysis",
+  "documents": [
+    {
+      "path": "docs/business/market.md",
+      "checks": [
+        [
+          "check_refs.py",
+          "--file",
+          "{path}"
+        ],
+        [
+          "lint_market.py",
+          "--file",
+          "{path}"
+        ]
+      ],
+      "platform": "editable",
+      "bound_to_approval": false
+    }
+  ],
+  "machine_files": [],
+  "mandatory_milestone": false,
+  "asking_openings": [
+    "Nothing was searched or written yet"
+  ],
+  "gate": null
+}

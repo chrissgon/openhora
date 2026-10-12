@@ -1,0 +1,7 @@
+{
+  "skill": "product-roadmap",
+  "reply_phrases": {
+    "missing_input": ["writes the PRD"],
+    "question_intros": ["Questions ("]
+  }
+}

@@ -35,7 +35,7 @@ A class is <role>:<target> (providers/CONTRACT.md). How it maps to a folder and 
   before the rename runs a copy of the runtime that asks for `store`.
 An implementation is providers/<folder>/<name>.py; helpers next to it (auth.py) are not one.
 
-A class with a parameter. In `publisher:<platform>` the part after the colon is not a second name
+A class with a parameter. In `publisher:<platform>` and `messenger:<platform>` the part after the colon is not a second name
 of the class: it is handed to the implementation as --platform, and one implementation may serve
 several platforms. Each implementation of such a class declares the platforms it serves in one
 line at the top level of its file, `PLATFORMS = ("<platform>", ...)`, which is read here as text,
@@ -54,6 +54,9 @@ How the implementation is chosen, first match wins:
      scheduler:job is launchd on macOS and systemd on Linux.
   3. The only candidate, when exactly one implementation is left.
 Otherwise nothing resolves (exit 3): the message names the variable to set and the choices.
+From code, `call(cls, verb, args, ...)` does the whole job (resolve, interpreter, start, parse) and is the one
+function a caller of the runtime uses to run a provider's verb; see "Calling a provider from code" in
+providers/CONTRACT.md.
 A name from the environment or the caller is accepted only when it is an implementation shipped
 in the class's folder (and, for a class with a parameter, one that serves the platform asked);
 it is never used as a path.
@@ -75,7 +78,9 @@ import ast
 import json
 import os
 import re
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT_VARIABLE = "WORKBENCH_ROOT"
@@ -87,7 +92,7 @@ LISTED = ["generator:image", "generator:video", "integration:design-tool", "inte
           "integration:vcs", "publisher:<platform>", "reader:email", "scheduler:job", "search:web", "sender:email",
           "store:runtime"]
 # Roles whose folder and variables are derived from the text of the class.
-ROLES = {"integration", "search", "generator", "publisher"}
+ROLES = {"integration", "search", "generator", "publisher", "messenger"}
 # The four classes that were bare names: (folder, variable), both kept as they were, so that no provider file,
 # no test folder, no scheduled job and no project's environment has to move.
 FIXED = {"reader:email": ("mailbox", "MAILBOX_PROVIDER"), "sender:email": ("mailer", "MAILER_PROVIDER"),
@@ -95,7 +100,7 @@ FIXED = {"reader:email": ("mailbox", "MAILBOX_PROVIDER"), "sender:email": ("mail
 # The old names, still read.
 ALIASES = {"mailbox": "reader:email", "mailer": "sender:email", "scheduler": "scheduler:job", "store": "store:runtime"}
 # The roles whose part after the colon is a parameter handed to the implementation (--platform).
-PARAMETER_ROLES = {"publisher"}
+PARAMETER_ROLES = {"publisher", "messenger"}
 PLATFORMS_LINE = re.compile(r"^PLATFORMS\s*=\s*([(\[].*?[)\]])\s*(?:#.*)?$", re.M)
 # Documented defaults per platform (sys.platform prefix -> implementation).
 PLATFORM_DEFAULTS = {"scheduler:job": {"darwin": "launchd", "linux": "systemd"}}
@@ -293,6 +298,94 @@ def provider_path(cls: str, **kw) -> Path:
 def secret_resolver(root=None, env=None) -> Path:
     """The secret resolver every provider reads credentials through (contracts/secrets.md). Not a class."""
     return workbench_root(root, env) / "providers" / "secrets" / "resolver.py"
+
+
+# --- calling a provider from code -----------------------------------------------------------------------------
+
+NO_DEPENDENCIES = re.compile(r"^# dependencies = \[\]\s*$", re.M)
+HEADER_BYTES = 4096
+STDERR_TAIL = 300
+
+
+class ProviderCallError(Exception):
+    """A provider's verb did not give one JSON object. kind: "usage" (exit 2), "not-configured" (exit 3, or the
+    class does not resolve), "failed" (any other exit, no JSON, a program that could not start) or "timeout"."""
+
+    def __init__(self, kind: str, reason: str, exit_code=None, stderr_tail: str = ""):
+        super().__init__(f"{kind}: {reason}")
+        self.kind = kind
+        self.reason = reason
+        self.exit_code = exit_code
+        self.stderr_tail = stderr_tail
+
+
+def interpreter_for(path) -> list:
+    """The command that starts the provider script at `path`: this interpreter when its header declares
+    `# dependencies = []` (nothing to install), else `uv run`, which installs what the header pins."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            header = f.read(HEADER_BYTES)
+    except OSError as e:
+        raise ProviderCallError("not-configured", f"{path}: {e.strerror}") from None
+    return [sys.executable] if NO_DEPENDENCIES.search(header) else ["uv", "run"]
+
+
+def _run(argv, timeout, env):
+    return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False, env=env)
+
+
+def invoke(path, verb, args, *, config=None, timeout=600, env=None, run=None) -> dict:
+    """Start the provider script at `path` with one verb and return the one JSON object it printed. `verb` may be
+    None (the verb is then the first of `args`). `config`, when given, is written as JSON to a temporary file of
+    mode 0600, passed after the verb as `--config-file`, and removed afterwards. `env`, when given, is the whole
+    environment of the child; else it inherits the caller's. `run(argv)` replaces the process start (a stand-in
+    in tests) and returns an object with returncode, stdout and stderr. No credential is read or passed here: a
+    provider reads its own. Raises ProviderCallError."""
+    argv = interpreter_for(path) + [str(path)] + ([verb] if verb else [])
+    config_file = None
+    try:
+        if config is not None:
+            fd, config_file = tempfile.mkstemp(prefix="provider-config-", suffix=".json")
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(config, f)
+            argv += ["--config-file", config_file]
+        argv += [str(a) for a in args]
+        try:
+            done = (run or (lambda a: _run(a, timeout, env)))(argv)
+        except subprocess.TimeoutExpired:
+            raise ProviderCallError("timeout", f"the provider ran over {timeout} s") from None
+        except (OSError, subprocess.SubprocessError) as e:
+            raise ProviderCallError("failed", f"the provider could not be run: {type(e).__name__}") from None
+    finally:
+        if config_file:
+            try:
+                os.unlink(config_file)
+            except OSError:
+                pass
+    tail = " ".join((done.stderr or "").split())[-STDERR_TAIL:]
+    if done.returncode != 0:
+        kind = {2: "usage", 3: "not-configured"}.get(done.returncode, "failed")
+        raise ProviderCallError(kind, tail or f"exit {done.returncode}", done.returncode, tail)
+    try:
+        out = json.loads(done.stdout)
+    except ValueError:
+        out = None
+    if not isinstance(out, dict):
+        raise ProviderCallError("failed", "the provider did not print one JSON object", done.returncode, tail)
+    return out
+
+
+def call(cls: str, verb, args, *, root=None, implementation=None, platform=None, config=None, timeout=600,
+         env=None, run=None) -> dict:
+    """Resolve the class (see resolve: `implementation` names one, `platform` is the operating system), start the
+    provider's verb with `invoke`, and return the one JSON object it printed. A class that does not resolve is a
+    ProviderCallError of kind "not-configured"."""
+    try:
+        path = resolve(cls, root=root, env=env, platform=platform, implementation=implementation)["path"]
+    except (UnknownClass, Unresolved) as e:
+        raise ProviderCallError("not-configured", str(e)) from None
+    return invoke(path, verb, args, config=config, timeout=timeout, env=env, run=run)
 
 
 def listing(root=None, env=None, platform=None) -> dict:

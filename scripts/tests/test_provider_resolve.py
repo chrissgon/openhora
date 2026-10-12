@@ -285,3 +285,132 @@ def test_a_verbs_row_says_when_no_implementation_ships():
         reserved = row.split("|")[2].strip().startswith("No implementation ships.")
         assert shipped != reserved, cls
     assert 'A row that starts "No implementation ships" is a reserved shape' in contract
+
+
+# --- calling a provider from code (resolve.call, resolve.invoke) ---------------------------------------------------
+
+STAND_IN = '''#!/usr/bin/env python3
+# /// script
+# dependencies = []
+# ///
+import json, os, stat, sys
+args = sys.argv[1:]
+code = int(os.environ.get("STAND_IN_EXIT", "0"))
+if code:
+    print("a line\\nthe reason it ended", file=sys.stderr)
+    sys.exit(code)
+if os.environ.get("STAND_IN_RAW"):
+    print(os.environ["STAND_IN_RAW"])
+    sys.exit(0)
+config = None
+if "--config-file" in args:
+    path = args[args.index("--config-file") + 1]
+    config = {"path": path, "mode": stat.S_IMODE(os.stat(path).st_mode), "text": open(path).read()}
+print(json.dumps({"args": args, "config": config, "env": sorted(os.environ)}))
+'''
+
+
+def stand_in_workbench(tmp_path, header=None):
+    root = workbench(tmp_path, "vcs/standin.py")
+    text = STAND_IN if header is None else STAND_IN.replace("# dependencies = []", header)
+    (root / "providers" / "vcs" / "standin.py").write_text(text)
+    return root
+
+
+def test_the_interpreter_follows_the_header(tmp_path):
+    bare = tmp_path / "bare.py"
+    bare.write_text("#!/usr/bin/env python3\n# /// script\n# dependencies = []\n# ///\n")
+    pinned = tmp_path / "pinned.py"
+    pinned.write_text('# /// script\n# dependencies = ["keyring==25.7.0"]\n# ///\n')
+    assert resolve.interpreter_for(bare) == [sys.executable]
+    assert resolve.interpreter_for(pinned) == ["uv", "run"]
+    with pytest.raises(resolve.ProviderCallError) as caught:
+        resolve.interpreter_for(tmp_path / "missing.py")
+    assert caught.value.kind == "not-configured"
+
+
+def test_a_call_returns_the_one_json_object_and_passes_the_arguments(tmp_path):
+    root = stand_in_workbench(tmp_path)
+    out = resolve.call("integration:vcs", "read-file", ["--repo", "a/b"], root=root, env={"PATH": "/usr/bin:/bin"})
+    assert out["args"] == ["read-file", "--repo", "a/b"] and out["config"] is None
+    bare = resolve.call("integration:vcs", None, ["commit-files", "--dry-run"], root=root, env={})
+    assert bare["args"] == ["commit-files", "--dry-run"]  # no verb: the first argument is the verb
+
+
+def test_the_configuration_goes_in_a_private_file_removed_afterwards(tmp_path):
+    root = stand_in_workbench(tmp_path)
+    out = resolve.call("integration:vcs", "list", ["--x"], root=root, config={"provider": "standin"}, env={})
+    assert out["args"][:2] == ["list", "--config-file"] and out["args"][-1] == "--x"
+    assert out["config"]["mode"] == 0o600 and json.loads(out["config"]["text"]) == {"provider": "standin"}
+    assert not Path(out["config"]["path"]).exists()
+
+
+def test_exit_codes_are_mapped_and_the_tail_is_kept(tmp_path):
+    root = stand_in_workbench(tmp_path)
+    for code, kind in ((2, "usage"), (3, "not-configured"), (1, "failed"), (7, "failed")):
+        with pytest.raises(resolve.ProviderCallError) as caught:
+            resolve.call("integration:vcs", "v", [], root=root, env={"STAND_IN_EXIT": str(code)})
+        assert (caught.value.kind, caught.value.exit_code) == (kind, code)
+        assert caught.value.stderr_tail.endswith("the reason it ended") and len(caught.value.stderr_tail) <= 300
+
+
+@pytest.mark.parametrize("raw", ["not json", "[1, 2]", ""])
+def test_anything_but_one_json_object_is_refused(tmp_path, raw):
+    root = stand_in_workbench(tmp_path)
+    with pytest.raises(resolve.ProviderCallError) as caught:
+        resolve.call("integration:vcs", "v", [], root=root, env={"STAND_IN_RAW": raw or " "})
+    assert caught.value.kind == "failed"
+
+
+def test_a_given_environment_is_the_whole_environment_of_the_child(tmp_path, monkeypatch):
+    root = stand_in_workbench(tmp_path)
+    monkeypatch.setenv("CALLER_ONLY_VARIABLE", "x")
+    shown = resolve.call("integration:vcs", "v", [], root=root, env={"ONLY_THIS": "1"})["env"]
+    assert "ONLY_THIS" in shown and "CALLER_ONLY_VARIABLE" not in shown
+    inherited = resolve.call("integration:vcs", "v", [], root=root)["env"]
+    assert "CALLER_ONLY_VARIABLE" in inherited  # without env, the caller's environment is inherited
+
+
+def test_a_class_that_does_not_resolve_is_a_not_configured_error(tmp_path):
+    root = workbench(tmp_path)
+    with pytest.raises(resolve.ProviderCallError) as caught:
+        resolve.call("integration:vcs", "v", [], root=root, env={})
+    assert caught.value.kind == "not-configured" and caught.value.exit_code is None
+    with pytest.raises(resolve.ProviderCallError):
+        resolve.call("integration:vcs", "v", [], root=root, implementation="other", env={})
+
+
+def test_a_pinned_header_starts_with_uv_and_a_stand_in_run_replaces_the_start(tmp_path):
+    root = stand_in_workbench(tmp_path, header='# dependencies = ["keyring==25.7.0"]')
+    seen = []
+
+    def run(argv):
+        seen.append(argv)
+        return subprocess.CompletedProcess(argv, 0, '{"ok": true}', "")
+
+    assert resolve.call("integration:vcs", "v", ["--a"], root=root, env={}, run=run) == {"ok": True}
+    assert seen[0][:2] == ["uv", "run"] and seen[0][2].endswith("standin.py") and seen[0][3:] == ["v", "--a"]
+
+
+def test_a_start_over_the_timeout_is_a_timeout_error(tmp_path):
+    root = stand_in_workbench(tmp_path)
+    (root / "providers" / "vcs" / "standin.py").write_text("# dependencies = []\nimport time\ntime.sleep(5)\n")
+    with pytest.raises(resolve.ProviderCallError) as caught:
+        resolve.call("integration:vcs", "v", [], root=root, timeout=1, env={})
+    assert caught.value.kind == "timeout"
+
+
+def test_the_command_line_still_resolves_a_class(tmp_path):
+    root = stand_in_workbench(tmp_path)
+    done = cli(["--class", "integration:vcs", "--root", str(root)])
+    assert done.returncode == 0 and done.stdout.strip().endswith("standin.py")
+
+
+def test_messenger_is_a_class_with_a_platform_parameter_and_telegram_serves_telegram():
+    assert resolve.variables("messenger:telegram") == ["MESSENGER_TELEGRAM_PROVIDER", "MESSENGER_PROVIDER"]
+    assert resolve.folder("messenger:telegram") == "messenger" and resolve.platform_of("messenger:telegram") == "telegram"
+    assert resolve.served_platforms("messenger:<platform>", "telegram", env={}) == ["telegram"]
+    got = resolve.resolve("messenger:telegram", env={})
+    assert got["implementation"] == "telegram" and got["path"] == str(REPO / "providers" / "messenger" / "telegram.py")
+    with pytest.raises(resolve.Unresolved):
+        resolve.resolve("messenger:whatsapp", env={})

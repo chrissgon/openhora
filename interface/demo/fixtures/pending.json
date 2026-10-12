@@ -1,0 +1,53 @@
+{
+  "pending": [
+    {
+      "id": 1,
+      "kind": "plan",
+      "title": "Plan: demo (2 tasks)",
+      "task_id": 1,
+      "created_at": "2026-10-01T09:00:00Z",
+      "agent": null,
+      "actions": [
+        "approved",
+        "rejected"
+      ],
+      "plan": {
+        "tasks": [
+          {
+            "key": "market",
+            "skill": "biz-market-analysis"
+          },
+          {
+            "key": "profile",
+            "skill": "mkt-social-copy"
+          }
+        ],
+        "plan_sha256": "042896dc1966b8a6214e5383aba5b8b931cfa049d17aafa37eb8a77c859b95da"
+      }
+    },
+    {
+      "id": 6,
+      "kind": "effect",
+      "title": "Pull request: Carry the providers",
+      "task_id": 6,
+      "created_at": "2026-10-01T09:00:00Z",
+      "agent": null,
+      "actions": [
+        "approved",
+        "rejected"
+      ]
+    },
+    {
+      "id": 7,
+      "kind": "acceptance",
+      "title": "Accept the deliveries",
+      "task_id": 7,
+      "created_at": "2026-10-01T09:00:00Z",
+      "agent": null,
+      "actions": [
+        "accepted",
+        "rejected"
+      ]
+    }
+  ]
+}

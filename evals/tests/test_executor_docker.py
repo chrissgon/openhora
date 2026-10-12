@@ -242,6 +242,7 @@ def test_a_without_skill_container_has_no_path_that_holds_the_skill_or_the_share
     started as a model run's is, with the one adapter script mounted."""
     wb, skill, dep = demo_workbench(tmp_path)
     monkeypatch.setattr(er, "ROOT", str(wb))
+    monkeypatch.setattr(er.KIT, "ROOT", str(wb))
     staged, _ = er.stage_run(str(root / "case"), {"skills_dir": ".tool/skills", "settings": [".tool"]}, None, [str(dep)], {"id": 1})
     assert staged == [".tool/skills/core-dep"]
     search = ("find / \\( -name 'core-demo' -o -path '*shared/references*' -o -name security.md -o -name check.py \\) "
@@ -262,6 +263,7 @@ def test_a_run_reads_the_staged_skill_and_never_its_cases_its_tests_or_an_uncite
     """What the runner stages (eval_run.stage_run, as a real run calls it) is all a container holds of a skill."""
     wb, skill, dep = demo_workbench(tmp_path)
     monkeypatch.setattr(er, "ROOT", str(wb))
+    monkeypatch.setattr(er.KIT, "ROOT", str(wb))
     staged, manifest = er.stage_run(str(root / "case"), {"skills_dir": ".tool/skills", "settings": [".tool"]}, str(skill), [str(dep)], {"id": 1})
     assert sorted(staged) == [".tool/shared", ".tool/skills/core-demo", ".tool/skills/core-dep"]
     r = inside(root, "cat .tool/skills/core-demo/SKILL.md | head -1; cat .tool/skills/core-demo/../../shared/references/security.md; "
@@ -381,8 +383,10 @@ def test_the_grading_path_with_a_stub_grader_runs_in_the_container_and_a_stub_ru
         "strong_pass_env": [], "grader": "m", "threshold": 0.8, "strong_tolerance": 0.05, "measurement_version": 5,
         "measurement_floor": 5, "runs": 1}))
     monkeypatch.setattr(er, "ROOT", str(wb))
+    monkeypatch.setattr(er.KIT, "ROOT", str(wb))
     monkeypatch.setattr(er, "GRADING_TEMPLATE", str(wb / "evals" / "grading-prompt.md"))
     monkeypatch.setattr(er, "LOCK_DIR", str(tmp_path / "locks"))
+    monkeypatch.setattr(er.KIT, "LOCK_DIR", str(tmp_path / "locks"))
     before = sorted(str(p) for p in (wb / "skills").rglob("*"))
     assert er.main(["--skill", "core-demo"]) == 0
     out = json.loads(capsys.readouterr().out)

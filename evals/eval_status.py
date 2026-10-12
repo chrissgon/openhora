@@ -20,7 +20,7 @@ nothing writes one any more, nothing reads one, and no evidence is converted fro
 Content hash: sha256 over the files of the skill folder (sorted relative paths and their bytes), leaving out
 all of evals/ (the cases, the evidence, the version file, the old record), everything under scripts/tests/,
 caches (__pycache__, .pytest_cache, *.pyc, .DS_Store) and the marker file an installer writes into a copied
-skill folder (.installed-by-ai-workbench). A change to SKILL.md, a reference, an asset or a script changes it;
+skill folder (.installed-by-openhora, and the name before the rename, .installed-by-ai-workbench). A change to SKILL.md, a reference, an asset or a script changes it;
 a case, an evidence file, a test and files outside the folder do not: none of them is read by a model that
 uses the skill, and none is copied into an eval run. Each case has a hash of its own (`hash --skill <name>`
 prints both): over the whole case object as it stands in the case file and the bytes of its fixture files,
@@ -241,7 +241,9 @@ TESTS_REL = "scripts/tests"  # the tests of a skill's scripts: outside the conte
 EVALS_REL = "evals"  # the cases, the evidence, the version file and the old record: outside the content hash
 EVIDENCE_REL = os.path.join("evals", "evidence")
 CACHE_DIRS = ("__pycache__", ".pytest_cache")
-INSTALL_MARKER = ".installed-by-ai-workbench"  # what an installer writes into a skill folder it copied
+INSTALL_MARKER = ".installed-by-openhora"  # what an installer writes into a skill folder it copied
+LEGACY_INSTALL_MARKER = ".installed-by-ai-workbench"  # T23: what an installer wrote before the rename; a copy made then keeps its hash
+INSTALL_MARKERS = (INSTALL_MARKER, LEGACY_INSTALL_MARKER)
 BEGIN, END = "<!-- eval-status:begin -->", "<!-- eval-status:end -->"
 INVENTORY_REL = os.path.join("docs", "inventory.md")
 GATE_REL = os.path.join("evals", "eval-gate.json")
@@ -422,7 +424,7 @@ def content_hash(skill_dir):
             rel = os.path.relpath(os.path.join(dp, fn), skill_dir).replace(os.sep, "/")
             if rel.startswith(TESTS_REL + "/"):
                 continue
-            if fn == ".DS_Store" or fn.endswith(".pyc") or (top and fn == INSTALL_MARKER):
+            if fn == ".DS_Store" or fn.endswith(".pyc") or (top and fn in INSTALL_MARKERS):
                 continue
             files.append(rel)
     h = hashlib.sha256()
@@ -1433,7 +1435,7 @@ def content_changes(root, base, name):
     for path in found:
         rel = path[len(folder) + 1:]
         name_ = rel.rsplit("/", 1)[-1]
-        if (rel.startswith(EVALS_REL + "/") or rel.startswith(TESTS_REL + "/") or rel == INSTALL_MARKER
+        if (rel.startswith(EVALS_REL + "/") or rel.startswith(TESTS_REL + "/") or rel in INSTALL_MARKERS
                 or name_ == ".DS_Store" or name_.endswith(".pyc") or any(p in CACHE_DIRS for p in rel.split("/"))):
             continue
         out.add(rel)

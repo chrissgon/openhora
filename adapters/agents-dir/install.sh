@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install ai-workbench skills into the cross-tool skills directory.
+# Install openhora skills into the cross-tool skills directory.
 #
 # Usage: bash adapters/agents-dir/install.sh [--pack <name>] [--project <dir>] [--copy] [--dry-run] [--uninstall]
 #
@@ -13,8 +13,9 @@
 # reported and changes nothing (exit 0). Installing a pack removes what an earlier pack installed
 # and this one does not select, a dangling link to a renamed or removed skill included.
 # Replaces or removes only what it made (its symlinks, or copies holding its marker file; the
-# shared folder holds the marker in both modes); a folder of the same name that is not its own is
-# skipped and reported, and the run exits 1. Exit 2 on a usage error.
+# shared folder holds the marker in both modes). The marker it wrote before the rename,
+# .installed-by-ai-workbench, still counts as its own (removed with T23). A folder of the same
+# name that is not its own is skipped and reported, and the run exits 1. Exit 2 on a usage error.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
@@ -29,7 +30,7 @@ while [[ $# -gt 0 ]]; do
     --copy) COPY=1; shift ;;
     --dry-run) DRY=1; shift ;;
     --uninstall) UNINSTALL=1; shift ;;
-    --help|-h) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --help|-h) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Error: unknown option '$1'. See --help." >&2; exit 2 ;;
   esac
 done
@@ -70,10 +71,12 @@ fi
 # Only what this script made is replaced or removed: a symlink into this checkout's skills, or a
 # folder holding the marker file. Anything else with the same name is the user's; it is skipped and
 # reported, never deleted.
-MARK=".installed-by-ai-workbench"
+MARK=".installed-by-openhora"
+LEGACY_MARK=".installed-by-ai-workbench"  # T23: what this installer wrote before the rename
+marked() { [[ -f "$1/$MARK" || -f "$1/$LEGACY_MARK" ]]; }
 ours() {
   if [[ -L "$1" ]]; then [[ "$(readlink -- "$1")" == "$SKILLS/"* ]]; return; fi
-  [[ -d "$1" && -f "$1/$MARK" ]]
+  [[ -d "$1" ]] && marked "$1"
 }
 remove_ours() {
   if [[ -L "$1" ]]; then rm -f -- "$1"; elif [[ -d "$1" ]]; then rm -rf -- "${1:?}"; fi
@@ -113,7 +116,7 @@ done
 # (a link into the checkout, or a copy with --copy). A `shared` this installer did not make is the
 # user's or another tool's: it is left alone and reported.
 shared_state="absent"
-if [[ -e "$SHARED" || -L "$SHARED" ]] && { [[ -L "$SHARED" ]] || [[ ! -f "$SHARED/$MARK" ]]; }; then
+if [[ -e "$SHARED" || -L "$SHARED" ]] && { [[ -L "$SHARED" ]] || ! marked "$SHARED"; }; then
   echo "Skipped $SHARED: it exists and this installer did not create it, so the shared references were not installed. Move it away and run again." >&2
   skipped+=("shared")
   shared_state="skipped"

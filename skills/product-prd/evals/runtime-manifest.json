@@ -1,0 +1,33 @@
+{
+  "skill": "product-prd",
+  "documents": [
+    {
+      "path": "docs/product/prd.md",
+      "checks": [
+        [
+          "lint_prd.py",
+          "--file",
+          "{path}"
+        ]
+      ],
+      "platform": "read_only",
+      "bound_to_approval": false
+    }
+  ],
+  "machine_files": [
+    "docs/product/prd.lint.json",
+    "docs/product/prd.lint-before.json"
+  ],
+  "mandatory_milestone": false,
+  "asking_openings": [],
+  "gate": null,
+  "reply_phrases": {
+    "missing_input": [
+      "writes its specification"
+    ],
+    "question_intros": [
+      "Open questions for you",
+      "Questions for you"
+    ]
+  }
+}

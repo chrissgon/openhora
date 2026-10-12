@@ -32,7 +32,7 @@ from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
-KEYRING_SERVICE = "ai-workbench"
+KEYRING_SERVICE = "openhora"
 LINKEDIN_KEYRING_USERNAME = "publisher-linkedin"
 LINKEDIN_AUTHORIZE_URL = "https://www.linkedin.com/oauth/v2/authorization"
 LINKEDIN_TOKEN_URL = "https://www.linkedin.com/oauth/v2/accessToken"
@@ -202,7 +202,7 @@ def wait_for_code(expected_state: str) -> str:
             else:
                 outcome["code"] = query["code"][0]
                 status, text = 200, "Authorization received. You can close this tab and return to the terminal."
-            body = f"<!doctype html><title>ai-workbench</title><p>{text}</p>".encode()
+            body = f"<!doctype html><title>openhora</title><p>{text}</p>".encode()
             self.send_response(status)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))

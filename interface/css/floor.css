@@ -1,0 +1,373 @@
+/* floor.css: the Floor screen and the parts it hands to the Lobby: the Floor's panel and tabs, the Agent tab, the decision cards, the Inbox and its timeline, the Tasks tab, the Desk and the plan
+   card. The Lobby shows these modules inside its own panel, so a change here reaches it. The shared component parts (the tabs, the accordion, the fields, the viewer, Markdown, the command
+   block, the notices) are in base.css. A package for the Floor edits this file and test_interface_r4_floor.py. Drawn as floor.html of round 4 draws it (R-31 to R-40); tokens only.
+   Linked by index.html in this order: base, frame, token, city, building, floor, lobby, control, then scene.css. A later rule wins a tie, so a rule that overrides one of the same weight stays in the same file as that rule or in a file that loads after it. */
+
+.wb-mode-wrap { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.wb-mode-plate { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; font-size: 12px; line-height: 1.3; white-space: nowrap; }
+.wb-acting-plate { font-size: 11px; }
+.wb-card-button { justify-content: center; }
+
+.wb-chip-11 { padding: 0 6px; font-size: 11px; }
+
+/* the Floor's panel (R-33): the head with no line under it, the tabs as a segmented control, one tab's content; the viewer replaces the whole panel */
+.wb-panel-floor { grid-template-rows: minmax(0, 1fr); }
+.wb-panel-floor > * { min-height: 0; }
+.wb-floor-normal { display: grid; grid-template-rows: auto auto minmax(0, 1fr); height: 100%; min-height: 0; }
+.wb-floor-head { padding-bottom: 4px; border-bottom: 0; }
+.wb-floor-head > .wb-kpi-tile { display: inline-grid; }     /* the frame hides the KPI tiles' icons on a phone; the head keeps its own */
+
+.wb-panel-floor .wb-tabbar .wb-tab { padding: 5px 9px; }     /* floor.html: four tabs and a count in the panel's width */
+.wb-tabpanel { padding: 0; gap: 0; }
+.wb-agent-tab, .wb-desk-tab, .wb-inbox, .wb-tasks-tab { --wb-tab-gap: 14px; display: grid; gap: var(--wb-tab-gap); align-content: start; padding: 14px 12px 28px; }
+/* A-61, M-19: the Agent tab's body (the meters, the runs total, the current task, the others, the hand-over box) keeps the tab's own gap between its sections; a section's heading keeps the smaller gap to its rows */
+.wb-agent-body { display: grid; gap: var(--wb-tab-gap, 14px); }
+.wb-agent-body > :empty { display: none; }
+.wb-cards { display: grid; gap: 12px; }
+.wb-floor-unknown { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
+.wb-floor-unknown .wb-panel-body { gap: 8px; padding: 16px; }
+.wb-floor-unknown p { margin: 0; }
+.wb-unknown-title { font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
+
+.wb-busy { display: flex; align-items: center; gap: 8px; padding: 16px; color: var(--pui-text-muted); font-size: 13px; }
+.wb-empty-line { margin: 0; color: var(--pui-text-muted); font-size: 13px; }
+.wb-section { display: grid; gap: 6px; }
+
+/* the Agent tab: the state line, the mode and its two buttons, the meters, the current task, the others, "Hand a file over" */
+.wb-state-box { padding: 10px 12px; border-radius: var(--pui-radius); background-color: var(--wb-sunken); }
+.wb-state-row, .wb-mode-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.wb-state-line { font-size: 13px; }
+.wb-mode-row { padding: 0 4px; font-size: 13px; }
+.wb-mode-row:empty { display: none; }
+.wb-mode-line { font-size: 13px; }
+.wb-mode-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.wb-set-mode { justify-content: center; }
+.wb-select { text-overflow: ellipsis; }
+
+/* a notice on this screen: the standing line is plain muted text; a result and an error are the soft style (R-11): a tint of the state's colour, no line round it */
+p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font-size: 12px; }
+.wb-notice-card { overflow-wrap: anywhere; }
+.notice.wb-notice-card { display: grid; gap: 6px; padding: 8px 12px; font-size: 13px; }
+.wb-result-box:empty, .wb-form-error:empty, .wb-hand-result:empty { display: none; }
+
+/* R-35: a wider mode is chosen in a select with Copy beside it; the chosen mode's command under them; under the command the soft warn notice */
+.wb-wider-modes:empty { display: none; }
+.wb-wider-box { display: grid; gap: 8px; }
+.wb-wider-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 8px; }
+.wb-wider-label { grid-column: 1 / -1; padding-left: 4px; font-size: 13px; }
+.wb-accept-step { align-content: start; }     /* A-62: the step that accepts the configuration, in the select's place */
+.wb-wider-code { display: block; font-size: 12px; overflow-wrap: anywhere; }
+.wb-wider-box .wb-copy-status { padding-left: 4px; font-size: 12px; }
+.wb-wider-box .wb-copy-status:empty { display: none; }
+.wb-wider-note { display: flex; align-items: flex-start; gap: 8px; margin: 0; font-size: 13px; }
+.wb-wider-note > .wb-icon { margin-top: 2px; }
+.wb-runs-total { margin: 0; padding: 0 4px; font-size: 12px; }
+.wb-held-detail { margin: 0; font-size: 12px; }
+.wb-held { display: grid; gap: 6px; }
+.wb-held-line { margin: 0; color: var(--wb-ink-warn); font-size: 13px; font-weight: 600; }
+.wb-service-card { display: grid; gap: 8px; }
+.wb-service-row { display: grid; gap: 4px; min-width: 0; }
+
+/* R-36: the meters are rows: the name at the left, the figure at the right, the track across the full width, the note under it; `Queued` is a last row with no track */
+.wb-meters { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0; border: var(--pui-border-width) solid var(--pui-border); border-radius: var(--pui-radius); }
+.wb-meter-cell { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; align-content: start; gap: 6px 12px; min-width: 0; padding: 10px 12px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.wb-meter-cell + .wb-meter-cell { border-top: var(--pui-border-width) solid var(--pui-border); }
+.wb-meter-label { font-size: 13px; }
+.wb-meter-value { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.wb-meter-cell > .wb-meter { grid-column: 1 / -1; height: 6px; margin: 0; }
+.wb-meter-cell > .wb-note { grid-column: 1 / -1; font-size: 11px; }
+.wb-meter-track { margin-top: 2px; }
+
+/* the current task (a card on the raised surface): its number and title with the state chip, the skill and the time, then the run on the sunken ground */
+.wb-current, .wb-other { display: grid; gap: 8px; padding: 12px; }
+.wb-other { border: var(--pui-border-width) solid var(--pui-border); border-radius: var(--pui-radius); }
+.wb-cur-head, .wb-current-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px; font-size: 14px; }
+.wb-cur-sub, .wb-current-sub { font-size: 12px; overflow-wrap: anywhere; }
+.wb-run { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 0; padding: 10px 12px; border-radius: var(--pui-radius); background-color: var(--wb-sunken); font-size: 12px; }
+.wb-run dt, .wb-run dd { margin: 0; }
+.wb-run dd { overflow-wrap: anywhere; }
+.wb-current-actions { display: grid; gap: 6px; }
+
+/* "Hand a file over": a dashed box. `Choose a file` opens the file input, which stays out of sight; the chosen name stands beside the button, `Hand over to task #n` under them */
+.wb-hand { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px 10px; padding: 12px; border: 1px dashed var(--pui-muted); border-radius: var(--pui-radius); }
+.wb-hand > * { grid-column: 1 / -1; min-width: 0; }
+.wb-hand > .wb-hand-row, .wb-hand > .wb-hand-steps, .wb-hand-step { display: contents; }
+.wb-hand-row > .wb-hand-choose { grid-column: 1; justify-self: start; }
+.wb-hand-name { grid-column: 2; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.wb-hand-send { grid-column: 1 / -1; justify-content: center; }
+.wb-hand > .wb-hint { font-size: 12px; }
+.wb-hand > .wb-file { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); opacity: 0; }
+.wb-hand-steps:empty { display: none; }
+.wb-hand-chosen { font-family: var(--wb-font-mono); overflow-wrap: anywhere; }
+.wb-hand-button { font-size: 12px; }
+.wb-drop-line { margin: 0; padding: 6px 8px; border-radius: var(--pui-radius); background-color: var(--wb-sunken); color: var(--wb-ink-warn); font-size: 12px; overflow-wrap: anywhere; }
+.wb-raw-reply .wb-pre { margin: 0 0 8px; }
+
+/* decision cards (cards.md): the card is the sunken ground; its head has the kind, the meta and, on a card that renders Markdown, `Plain text` (R-34) */
+.wb-card { border: 1px solid transparent; background-color: var(--wb-sunken); }
+.wb-card-head { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: var(--pui-border-width) solid var(--pui-border); }
+.wb-card-head > .wb-card-kind { flex: none; }
+.wb-card-plain { flex: none; margin-left: auto; padding: 2px 8px; font-size: 12px; }
+.wb-card-plain[aria-pressed="true"] { background-color: var(--wb-tint-selected); }
+.wb-card-meta a:focus-visible { outline-offset: -2px; }     /* the head clips its meta: the link's ring is drawn inside it */
+.wb-card-meta { min-width: 0; overflow: hidden; color: var(--pui-text-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }     /* F2-D1: the head is one row, as floor.html draws it: the meta is cut with an ellipsis, its title holds the date */
+.wb-card-content { display: grid; gap: 10px; padding: 12px; }
+.wb-card-title { margin: 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.wb-card-title:focus-visible { outline: 2px solid var(--pui-theme); outline-offset: 2px; }
+.wb-card-body { font-size: 13px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.wb-card-hint { color: var(--pui-text-muted); font-size: 12px; overflow-wrap: anywhere; }
+.wb-card-line { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.wb-pre { margin: 0; padding: 10px 12px; border: var(--pui-border-width) solid var(--pui-border); border-radius: var(--pui-radius); font-family: var(--wb-font-mono); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap; }
+.wb-hash { display: block; padding: 8px 10px; border: 1px dashed var(--pui-muted); border-radius: var(--pui-radius); font-family: var(--wb-font-mono); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; user-select: all; }
+.wb-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.wb-card-actions.is-end { justify-content: flex-end; }
+.wb-working { color: var(--pui-text-muted); font-size: 12px; }
+.wb-paths { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.wb-path-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.wb-path { flex: 1 1 12rem; font-size: 12px; overflow-wrap: anywhere; }
+.wb-ret { display: grid; gap: 4px; font-size: 12px; }
+.wb-ret .wb-path-row { gap: 6px; }
+.wb-ret .wb-path { flex: 0 1 auto; }
+.wb-blocked { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--pui-error); border-radius: var(--pui-radius); background-color: var(--wb-raised); font-size: 12px; }
+.wb-blocked-title { color: var(--wb-ink-error); font-size: 13px; }
+/* F2-D3, F2-D4: a disclosure inside a card is a plain muted line with the native triangle (floor.html, lobby.html), never a bordered box with a chevron; scoped here (P-2) */
+.wb-disclosure { padding: 0; border: 0; border-radius: 0; background: none; }
+.wb-disclosure > summary { display: list-item; padding: 2px 0; color: var(--pui-text-muted); list-style-position: inside; cursor: pointer; }
+.wb-disclosure > summary:hover { color: var(--pui-text); }
+.wb-disclosure[open] > summary { margin-bottom: 6px; }
+.wb-verdict[open] > .wb-verdicts { padding-top: 0; }
+.wb-summary { font-size: 13px; cursor: pointer; }
+.wb-verdicts { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 8px; }
+.wb-verdict-button { padding: 4px 10px; gap: 6px; }
+.wb-plan-table { font-size: 12px; }
+.wb-plan-table th, .wb-plan-table td { padding: 4px; }
+.wb-skill { font-family: var(--wb-font-mono); font-size: 11px; overflow-wrap: normal; word-break: normal; }
+
+/* the done card: the card after the person's action; the result stands on its own line under the chip and the title, full width: a sentence is prose, only an id is mono (A-26) */
+.wb-card-content.is-done { padding: 0; }     /* F2-D6: the done line is the card (floor.html): its own padding is the only inset */
+.wb-resolved { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border-radius: var(--pui-radius); background-color: var(--wb-sunken); font-size: 12px; }
+.wb-resolved > .wb-muted { flex: none; white-space: nowrap; }
+.wb-resolved > .wb-card-done-title { flex: 1 1 8em; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.wb-card-done { margin: 0; flex-wrap: wrap; }
+.wb-card-result { display: grid; gap: 4px; flex: 1 1 100%; flex-basis: 100%; min-width: 0; font-size: 12px; overflow-wrap: anywhere; }
+.wb-card-result > .wb-card-line { margin: 0; }
+.wb-card-result > .mono { overflow-wrap: anywhere; }
+.wb-done-line { flex: 1 1 100%; }
+.wb-busy-card { padding: 12px; font-size: 13px; }
+.wb-request-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
+.wb-cancel-link { margin-left: auto; padding: 0; color: var(--wb-ink-error); text-decoration: none; }
+.wb-cancel-link:hover { text-decoration: underline; }
+.wb-cancel-dialog { width: min(28rem, calc(100vw - 32px)); }
+
+/* R-38: the resolved decisions are a vertical timeline, newest first: the icon is the outcome, a line joins the icons, each item is an accordion that opens on the date and on what the person said */
+.wb-resolved-tl, .wb-resolved-list { display: grid; gap: 8px; }
+.wb-tl { display: grid; gap: 0; margin: 0; padding: 0 4px; list-style: none; }
+.wb-tl-item { position: relative; display: grid; grid-template-columns: 24px minmax(0, 1fr); column-gap: 10px; align-items: start; padding-bottom: 6px; }
+.wb-tl-item:not(:last-child)::before { content: ""; position: absolute; top: 26px; bottom: -2px; left: 11.5px; width: 1px; background-color: var(--pui-border); }
+.wb-tl-icon { width: 24px; height: 24px; margin-top: 4px; }
+.wb-tl-icon.pui-success { color: var(--wb-ink-success, var(--pui-success)); }
+.wb-tl-icon.pui-muted { color: var(--pui-text-muted); }
+.wb-resolved-item { min-width: 0; }
+.wb-tl-acc > summary { display: grid; grid-template-columns: minmax(0, 1fr) 16px; align-items: center; gap: 8px; padding: 4px 6px; border-radius: var(--pui-radius); list-style: none; cursor: pointer; }
+.wb-tl-acc > summary::-webkit-details-marker { display: none; }
+.wb-tl-acc > summary:hover { background-color: var(--wb-ground); }
+.wb-tl-acc[open] > summary .wb-task-mark { rotate: 180deg; }
+.wb-tl-text { display: grid; min-width: 0; }
+.wb-tl-title, .wb-resolved-title { font-size: 13px; font-weight: 400; overflow-wrap: anywhere; }
+.wb-tl-sub { font-size: 12px; }
+.wb-tl-body { display: grid; gap: 6px; padding: 4px 6px 8px; font-size: 12px; }
+.wb-tl-body > p { margin: 0; }
+.wb-res-said { display: grid; gap: 2px; margin: 0; padding: 8px 12px; border-left: 2px solid var(--pui-border); border-radius: 0 var(--pui-radius) var(--pui-radius) 0; background-color: var(--wb-sunken); font-size: 13px; }
+.wb-res-said p { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.wb-resolved-body { font-size: 12px; }
+
+/* the Desk (R-40): a list of two-line rows in the panel's width: the path (with `bound`, or the Lobby's agent badge at the right); then the owner skill, the size and kind, and the time on one muted line */
+.wb-desk-box:empty { display: none; }
+.wb-desk-list { display: grid; margin: 0; padding: 0; overflow: hidden; list-style: none; }
+.wb-desk-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: start; padding: 9px 12px; border-top: var(--pui-border-width) solid var(--pui-border); cursor: pointer; }
+.wb-desk-row:first-child { border-top: 0; }
+.wb-desk-row:hover { background-color: var(--wb-ground); }
+.wb-desk-tags { display: inline-flex; align-items: center; gap: 6px; }
+.wb-desk-meta { grid-column: 1 / -1; font-size: 12px; }
+.wb-path-button { display: inline; min-height: 0; padding: 0; font-family: var(--wb-font-mono); font-size: 12px; text-align: left; white-space: normal; overflow-wrap: break-word; }
+.wb-desk-row .wb-path-btn { color: var(--wb-ink-theme); }
+.wb-desk-owner { font-size: 12px; overflow-wrap: normal; }
+.wb-desk-agent { font-size: 11px; overflow-wrap: normal; }   /* the Lobby's desk lists every document: the agent of each, a badge */
+.wb-desk-kind { font-size: 12px; }
+.wb-nowrap { white-space: nowrap; }
+
+.wb-desk-states { display: grid; gap: 8px; }
+.wb-desk-states:empty { display: none; }
+.wb-state-block { padding: 10px 12px; border: 1px solid var(--pui-border); border-radius: var(--pui-radius); background-color: var(--wb-sunken); font-size: 13px; }
+.wb-state-block.is-sunken { border-color: transparent; }
+.wb-state-block.is-dashed { border-style: dashed; background-color: transparent; }
+.wb-state-block.is-error { display: grid; gap: 6px; border-color: transparent; background-color: color-mix(in oklab, var(--pui-error) 15%, var(--wb-raised)); }
+
+/* the wall board's label over the room's board of notes (R-32): the dot and the title, then the skill and the state, then the run; not a click target */
+.wb-wallboard { display: grid; gap: 2px; width: max-content; max-width: 330px; padding: 8px 12px; border: 1px solid var(--pui-border); border-radius: calc(var(--pui-radius) * 1.2); background-color: var(--wb-raised); box-shadow: var(--wb-elev); font-size: 12px; line-height: 1.25; white-space: normal; }
+.wb-fp-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.wb-fp-name { font-size: 13px; font-weight: 600; }
+.wb-wb-line { color: var(--pui-text-muted); font-size: 11px; overflow-wrap: anywhere; }
+
+@media (max-width: 899px) {
+  .wb-card-actions .pui-btn { flex: 1 1 100%; min-height: 44px; }
+  .wb-verdicts .pui-btn { flex: 1; min-height: 44px; }
+  .wb-mode-controls > .pui-btn { min-height: 44px; }
+  .wb-hand-send, .wb-hand-choose { min-height: 44px; }
+  .wb-desk-row { min-height: 44px; }
+  .wb-plan-table thead { display: none; }
+  .wb-plan-table tr { display: grid; gap: 2px; padding: 8px 0; border-bottom: var(--pui-border-width) solid var(--pui-border); }
+  .wb-plan-table td { display: flex; gap: 8px; padding: 0; }
+  .wb-plan-table td::before { content: attr(data-label); min-width: 5rem; color: var(--pui-text-muted); }
+}
+
+/* a decision card (cards.md): the shell and the plan card */
+.wb-card-note { margin: 0; color: var(--pui-text-muted); font-size: 12px; overflow-wrap: anywhere; }
+.wb-card-label { color: var(--pui-text-muted); font-size: 12px; }
+.wb-card-error { font-size: 13px; }
+.wb-card-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+.wb-lobby-working { color: var(--pui-text-muted); font-size: 12px; }
+
+.wb-plan-table .wb-cell-skill { font-family: var(--wb-font-mono); font-size: 11px; }
+.wb-plan-hash-block { display: grid; gap: 4px; }
+.wb-plan-hash {
+  display: block;
+  padding: 8px 10px;
+  border: 1px dashed var(--pui-muted);
+  border-radius: var(--pui-radius);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.wb-plan-text > summary { font-size: 13px; }
+.wb-plan-body { margin: 0; padding: 8px 12px; border-radius: var(--pui-radius); background-color: var(--wb-raised); font-family: var(--wb-font-mono); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.wb-plan-body { padding: 8px 12px; }
+
+.wb-plan-pre { margin: 0; font-family: var(--wb-font-mono); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.wb-plan-stack { display: none; margin: 0; padding: 0; list-style: none; }
+.wb-plan-stacked { display: grid; gap: 2px; padding: 6px 0; border-bottom: var(--pui-border-width) solid var(--pui-border); }
+.wb-plan-stacked-skill { font-size: 11px; color: var(--pui-text-muted); }
+.wb-plan-stacked-skill code { font-size: 11px; }
+
+@media (max-width: 899px) {
+  .wb-plan-wide { display: none; }
+  .wb-plan-stack { display: grid; }
+}
+
+@media (max-width: 899px) {
+  .wb-card-buttons .pui-btn { flex: 1 1 100%; min-height: 44px; }
+}
+
+
+/* --- the Tasks tab (WP-9.16) as R-39 draws it: the groups by state, each a bordered block; a task an accordion whose header is its number, title and state; the paths a done task returned, the runs of an opened row ---- */
+.wb-tasks-groups { display: grid; gap: 10px; }
+.wb-task-group { border: var(--pui-border-width) solid var(--pui-border); border-radius: var(--pui-radius); }
+.wb-task-group-head { display: flex; align-items: center; justify-content: flex-start; gap: 8px; padding: 8px 12px; list-style: none; cursor: pointer; }
+.wb-task-group-head::-webkit-details-marker { display: none; }
+.wb-task-group-head > .pui-badge { margin-left: auto; }
+.wb-task-group-name, .wb-group-name { flex: 0 1 auto; color: var(--pui-text-muted); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.wb-group-tile { width: 24px; height: 24px; }
+.wb-group-tile .wb-icon { width: 14px; height: 14px; }
+.wb-group-tile.pui-theme { color: var(--wb-ink-theme); }
+.wb-group-tile.pui-warn { color: var(--wb-ink-warn); }
+.wb-group-tile.pui-success { color: var(--wb-ink-success, var(--pui-success)); }
+.wb-group-tile.pui-error { color: var(--wb-ink-error); }
+.wb-group-tile.pui-muted { color: var(--pui-text-muted); }
+.wb-group-tile.is-none { opacity: 0.45; }
+.wb-task-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.wb-task { display: grid; padding: 0; border-top: var(--pui-border-width) solid var(--pui-border); }
+.wb-task-toggle, .wb-task-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto 16px; align-items: center; justify-content: stretch; gap: 8px; min-height: 0; padding: 10px 12px; border-radius: 0; font-size: 13px; font-weight: 400; text-align: left; white-space: normal; }
+.wb-task-acc { min-width: 0; }
+.wb-task-toggle:hover { background-color: var(--wb-ground); }
+.wb-task-num, .wb-task-n { color: var(--pui-text-muted); font-variant-numeric: tabular-nums; }
+.wb-task-title { min-width: 0; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-task-mark { display: inline-flex; color: var(--pui-text-muted); transition: rotate 0.15s; }
+.wb-task-toggle[aria-expanded="true"] .wb-task-mark { rotate: 180deg; }
+.wb-task-body { display: grid; gap: 6px; padding: 0 12px 12px; }
+.wb-task-body[hidden] { display: none; }
+.wb-task-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; font-size: 12px; overflow-wrap: anywhere; }
+.wb-task-skill { font-size: 12px; overflow-wrap: anywhere; }
+.wb-task-request { min-width: 0; overflow-wrap: anywhere; }
+.wb-task-age { white-space: nowrap; }
+.wb-task-failure { margin: 0; color: var(--wb-ink-error); font-size: 12px; overflow-wrap: anywhere; }
+.wb-task-note { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+.wb-task-paths { padding-top: 2px; }
+.wb-task-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.wb-task-retry { align-self: start; }
+.wb-task-detail { display: grid; gap: 8px; padding-top: 6px; }
+.wb-task-detail[hidden] { display: none; }
+.wb-runs-head { padding: 0; }
+/* A-72: the earlier attempts of a task behind a closed disclosure, in muted text; opened, each attempt is a run block */
+.wb-earlier-toggle { display: inline-flex; align-items: center; gap: 4px; justify-self: start; padding: 0; font-size: 12px; background: none; }
+.wb-earlier-mark { display: inline-flex; transition: transform 0.15s ease; }
+.wb-earlier-toggle[aria-expanded="true"] .wb-earlier-mark { transform: rotate(180deg); }
+.wb-earlier-list { display: grid; gap: 8px; }
+.wb-earlier-list .wb-run dd { color: var(--pui-text-muted); }     /* M-28: an earlier attempt reads as history; the status chip keeps its own colour */
+.wb-earlier-list[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) { .wb-task-mark, .wb-earlier-mark { transition: none; } }
+
+@media (max-width: 899px) {
+  .wb-task-group-head, .wb-task-toggle, .wb-task-retry, .wb-earlier-toggle { min-height: 44px; }
+  .wb-task-inbox, .wb-task-request a, .wb-task-paths a { display: inline-flex; align-items: center; min-height: 44px; }
+}
+
+/* ADJ-I2: waits, queued lines, the card extras, the image viewer, add a project (A-22 to A-33) */
+.wb-task-waits { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+.wb-task-actions > .wb-task-effect { flex: 1 1 12em; min-width: 0; font-size: 12px; overflow-wrap: anywhere; }
+.wb-task-actions > .wb-task-note { flex: 1 1 12em; min-width: 0; margin: 0; overflow-wrap: anywhere; }
+
+.wb-waits { display: grid; gap: 6px; padding: 10px 12px; border: var(--pui-border-width) solid var(--pui-warn); border-radius: var(--pui-radius); background-color: var(--wb-sunken); font-size: 12px; }
+.wb-waits-title { font-size: 13px; }
+.wb-waits-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.wb-waits-item { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.wb-waits-label { display: flex; align-items: center; gap: 8px; min-width: 0; cursor: pointer; }
+.wb-waits-task { min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+.wb-waits-reasons { min-width: 0; overflow-wrap: anywhere; }
+.wb-waits-list.is-missing .wb-waits-item, .wb-waits-list.is-cycles .wb-waits-item { color: var(--wb-ink-warn); }
+
+.wb-route-controls { display: grid; gap: 8px; }
+.wb-route-actions { flex-wrap: wrap; }
+.wb-card-hand { display: grid; }
+
+/* README Floor (b) 6: on a phone the crumbs drop "City" (`northwind-shop / Engineering`) so they fit beside Back and the door */
+@media (max-width: 899px) {
+  .wb-frame[data-screen="floor"] .wb-bottom-bar .wb-crumb-item:first-child, .wb-frame[data-screen="floor"] .wb-bottom-bar .wb-crumb-item:nth-child(2) > .wb-crumb-sep { display: none; }
+}
+
+/* the phone: the head wraps so that nothing of it is cut (`Plain text` takes a row of its own), and the board's label is not drawn (floor.html draws none at 375 px: the tracking bar and the tiles float where it would hang) */
+@media (max-width: 899px) {
+  .wb-card-plain { flex: 1 1 100%; justify-content: center; margin-left: 0; }
+  .wb-card-head { flex-wrap: wrap; }
+  .wb-card-meta { overflow: visible; text-overflow: clip; white-space: normal; }
+  .wb-wallboard { display: none; }
+}
+
+/* A-77: a swipe between tabs on a phone slides the panel in from the side it came from, briefly; nothing under reduced motion (swipe.js adds the class only without it) */
+@keyframes wb-swipe-in-next { from { opacity: 0.4; transform: translateX(28px); } to { opacity: 1; transform: none; } }
+@keyframes wb-swipe-in-prev { from { opacity: 0.4; transform: translateX(-28px); } to { opacity: 1; transform: none; } }
+.is-swipe-next { animation: wb-swipe-in-next 0.2s ease-out; }
+.is-swipe-prev { animation: wb-swipe-in-prev 0.2s ease-out; }
+@media (prefers-reduced-motion: reduce) { .is-swipe-next, .is-swipe-prev { animation: none; } }
+
+/* M-32, the phone's text and fields (max-width 899px, the frame's PHONE_QUERY): every field and button is 16 px, the reading text of the Floor's panel and of the cards it hands the Lobby is 16 px
+   (code in a card 14 px, it wraps), chips, meta lines and table heads are at least 12 px. A rule here beats the one of the same name above because it comes later in the file. */
+@media (max-width: 899px) {
+  .wb-panel :is(input, textarea, select) { font-size: 16px; }
+  .wb-panel :is(button, .pui-btn) { font-size: 16px; }
+  .wb-panel .wb-md { font-size: 16px; }
+  .wb-panel .wb-md :is(h3, h4) { font-size: 16px; }
+  .wb-panel .wb-md h2 { font-size: 17px; }
+  .wb-panel .wb-md h1 { font-size: 19px; }
+  .wb-panel .wb-md pre, .wb-panel .wb-md.is-plain, .wb-panel .wb-md table { font-size: 14px; }     /* a card's plain text is not larger than its code */
+  .wb-busy, .wb-empty-line, .wb-state-line, .wb-mode-row, .wb-mode-line, .notice.wb-notice-card, .wb-wider-label, .wb-wider-note, .wb-held-line, .wb-held-detail,
+  .wb-meter-cell, .wb-meter-label, .wb-meter-value, .wb-cur-head, .wb-current-head, .wb-card-title, .wb-card-body, .wb-card-line, .wb-card-error, .wb-card-note,
+  .wb-summary, .wb-plan-text > summary, .wb-blocked, .wb-blocked-title, .wb-busy-card, .wb-request-line, .wb-tl-title, .wb-resolved-title, .wb-tl-body, .wb-resolved-body,
+  .wb-res-said, .wb-state-block, .wb-resolved, .wb-card-result, .wb-ret, .wb-path, .wb-path-button, .wb-task-toggle, .wb-task-head, .wb-task-title, .wb-task-failure,
+  .wb-task-note, .wb-task-waits, .wb-waits, .wb-waits-title, .wb-waits-reasons, .wb-runs-total, .wb-drop-line, .wb-hand-name, .wb-plan-table, .wb-plan-stacked { font-size: 16px; }
+  .wb-pre, .wb-hash, .wb-plan-hash, .wb-plan-body, .wb-plan-pre, .wb-wider-code { font-size: 14px; }
+  .wb-mode-plate, .wb-chip-11, .wb-acting-plate, .wb-skill, .wb-desk-agent, .wb-wb-line, .wb-plan-table .wb-cell-skill, .wb-plan-stacked-skill, .wb-plan-stacked-skill code,
+  .wb-task-group-name, .wb-group-name, .wb-meter-cell > .wb-note { font-size: 12px; }
+}

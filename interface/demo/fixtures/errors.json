@@ -1,0 +1,19 @@
+{
+  "refused": {
+    "error": "refused",
+    "message": "the operation refused"
+  },
+  "not_configured": {
+    "error": "not_configured",
+    "message": "the configuration is not accepted",
+    "next": "python3 runtime/cli.py accept-config --sha256 0"
+  },
+  "not_found": {
+    "error": "not_found",
+    "message": "no such route, project or file"
+  },
+  "usage": {
+    "error": "usage",
+    "message": "the request is malformed"
+  }
+}

@@ -66,3 +66,27 @@ def test_the_command_line_warns_and_still_prints_the_selection():
     assert "warning: no skill is named 'no-such-skill-x'" in r.stderr
     r = subprocess.run([sys.executable, str(SCRIPT), "--pack", "../default"], capture_output=True, text=True, timeout=60)
     assert r.returncode == 2
+
+
+# --- the area packs of the repository (A-36 part 1) -------------------------------------------------------------------------------
+
+AREA_PACKS = ("business", "brand", "design", "marketing", "planning", "code")
+
+
+def _repo_pack(name):
+    r = subprocess.run([sys.executable, str(SCRIPT), "--pack", name, "--lines"], capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0 and r.stderr == "", f"pack {name}: {r.stderr}"
+    return r.stdout.split()
+
+
+def test_the_design_pack_holds_the_design_chain_and_no_skill_is_in_two_area_packs():
+    """`design-ux-flows` stops without `docs/product/prd.md`, and `design-execute` and `design-handoff` follow the brief: all three are in the design agent's scope, so that `plan.agent_of`
+    finds an owner for each. A skill is in one pack only."""
+    design = _repo_pack("design")
+    assert {"product-prd", "product-feature-spec", "design-ux-flows", "design-system", "design-brief", "design-execute", "design-handoff"} <= set(design)
+    seen = {}
+    for pack in AREA_PACKS:
+        for skill in _repo_pack(pack):
+            assert skill not in seen, f"{skill} is in the packs {seen[skill]} and {pack}: exactly one enabled agent must own it"
+            seen[skill] = pack
+    assert {seen[s] for s in ("product-prd", "design-execute", "design-handoff")} == {"design"}

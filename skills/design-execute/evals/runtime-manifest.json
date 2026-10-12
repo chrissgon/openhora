@@ -1,0 +1,25 @@
+{
+  "skill": "design-execute",
+  "documents": [
+    {
+      "path": "docs/design/results/<artifact>.md",
+      "checks": [],
+      "platform": "read_only",
+      "bound_to_approval": false
+    }
+  ],
+  "machine_files": [
+    "docs/design/results/<artifact>/"
+  ],
+  "mandatory_milestone": false,
+  "asking_openings": [],
+  "gate": {
+    "effect": "create",
+    "payload_file": "<tmp>/payload.md"
+  },
+  "reply_phrases": {
+    "gate_questions": [
+      "Proceed? (yes/no)"
+    ]
+  }
+}

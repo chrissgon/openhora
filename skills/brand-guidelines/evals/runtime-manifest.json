@@ -1,0 +1,10 @@
+{
+  "skill": "brand-guidelines",
+  "documents": [
+    {"path": "docs/brand/guidelines.md", "checks": [["check_guide.py", "--guide", "{path}", "--brand-dir", "docs/brand"]], "platform": "editable", "bound_to_approval": false}
+  ],
+  "machine_files": [],
+  "mandatory_milestone": false,
+  "asking_openings": [],
+  "gate": null
+}

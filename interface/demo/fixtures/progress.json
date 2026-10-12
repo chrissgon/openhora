@@ -1,0 +1,107 @@
+{
+  "progress": {
+    "requests": [
+      {
+        "id": 4,
+        "title": "Carry the providers",
+        "state": "planned",
+        "total": 2,
+        "done": 1,
+        "running": 0,
+        "waiting": 1,
+        "blocked": 0,
+        "failed": 0,
+        "next": []
+      },
+      {
+        "id": 7,
+        "title": "Two deliveries",
+        "state": "planned",
+        "total": 2,
+        "done": 0,
+        "running": 1,
+        "waiting": 0,
+        "blocked": 0,
+        "failed": 0,
+        "next": []
+      },
+      {
+        "id": 10,
+        "title": "Name the app.",
+        "state": "requested",
+        "total": 0,
+        "done": 0,
+        "running": 0,
+        "waiting": 0,
+        "blocked": 0,
+        "failed": 0,
+        "next": []
+      }
+    ],
+    "waiting_for_you": [
+      {
+        "pending_id": 6,
+        "kind": "effect",
+        "task_id": 6,
+        "title": "Pull request: Carry the providers",
+        "age_hours": 0
+      },
+      {
+        "pending_id": 7,
+        "kind": "acceptance",
+        "task_id": 7,
+        "title": "Accept the deliveries",
+        "age_hours": 0
+      }
+    ],
+    "stuck": []
+  },
+  "summary": {
+    "from": "2026-10-01",
+    "to": "2026-10-01",
+    "tasks_done": 3,
+    "deliveries": [
+      {
+        "task_id": 2,
+        "title": "Market",
+        "skill": "biz-market-analysis",
+        "released_by": "user"
+      },
+      {
+        "task_id": 3,
+        "title": "Profile",
+        "skill": "mkt-social-copy",
+        "released_by": "user"
+      },
+      {
+        "task_id": 5,
+        "title": "Change",
+        "skill": "eng-implement",
+        "released_by": "user"
+      }
+    ],
+    "runs": {
+      "total": 6,
+      "ok": 6,
+      "failed": 0,
+      "by_model": {
+        "m": 6
+      },
+      "by_failure": {}
+    },
+    "cost_usd": {
+      "known": 0,
+      "runs_without_cost": 6
+    },
+    "decisions": {
+      "answered": 1,
+      "released_by_you": 3,
+      "released_by_mode": 0,
+      "approved": 1,
+      "rejected": 0
+    },
+    "effects_executed": 0,
+    "undated": 3
+  },
+  "text": "Request 4 \"Carry the providers\": planned, 1 of 2 done, 1 waiting for you, next: none\nRequest 7 \"Two deliveries\": planned, 0 of 2 done, 0 waiting for you, next: none\nRequest 10 \"Name the app.\": requested, 0 of 0 done, 0 waiting for you, next: none\nWaiting for you: #6 effect \"Pull request: Carry the providers\" (task 6), 0 h; #7 acceptance \"Accept the deliveries\" (task 7), 0 h\nStuck: none\nFrom 2026-10-01 to 2026-10-01: 3 tasks done, 6 runs (6 ok, 0 failed), cost known 0 USD, 6 runs without cost\nDeliveries: task 2 \"Market\" released by user; task 3 \"Profile\" released by user; task 5 \"Change\" released by user\nDecisions: 1 answered, 3 released by you, 0 released by mode, 1 approved, 0 rejected. Effects executed: 0. Undated: 3"
+}

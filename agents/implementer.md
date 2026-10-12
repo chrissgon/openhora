@@ -8,7 +8,7 @@ description: >
   the main conversation should keep working on something else in the meantime.
 metadata:
   skills: [eng-implement, eng-unit-tests]
-  version: "0.1"
+  version: "0.1.0"
 ---
 
 # Implementer

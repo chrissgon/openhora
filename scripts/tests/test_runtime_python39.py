@@ -35,8 +35,43 @@ ON_SYSTEM_PYTHON = [
     # The field recorder: the runtime calls `record --start` before it starts an agent (the reliability model,
     # section 7), and it loads the status script for the form of a field line and the content hash.
     "scripts/evidence.py", "evals/eval_status.py",
+    # The task runtime: its shell runs on the system interpreter, and a scheduler will start its dispatcher.
+    "runtime/lab.py", "runtime/ops.py", "runtime/ops_core.py", "runtime/ops_say.py", "runtime/ops_reads.py", "runtime/ops_waits.py", "runtime/ops_config.py", "runtime/cli.py", "runtime/flow_files.py", "runtime/skill_meta.py",
+    "runtime/path_rule.py", "runtime/state_merge.py", "runtime/endings.py", "runtime/project_config.py",
+    "runtime/manifest.py", "runtime/workcopy.py", "runtime/proof.py", "runtime/router.py", "runtime/plan.py",
+    "runtime/board.py", "runtime/documents.py", "runtime/drop.py", "runtime/deps.py", "runtime/changeset.py", "runtime/effects.py", "runtime/effect_pull_request.py", "runtime/effect_commit.py", "runtime/effect_reply.py",
+    "runtime/progress.py", "runtime/autonomy.py", "runtime/dispatcher.py", "runtime/chat.py", "runtime/operations.py",
+    # The local service (stage 9): it serves the operations layer, so it runs where the layer runs.
+    "runtime/service.py",
+    # The MCP mode (stage 9): the same operations layer over standard input and output.
+    "runtime/mcp.py",
+    # The messaging bridge (MSG-1): its shell and its modules, started with the system interpreter like the other shells.
+    "runtime/messaging.py", "runtime/messaging_bridge.py", "runtime/messaging_cards.py", "runtime/messaging_inbound.py",
+    "runtime/messaging_ledger.py", "runtime/messaging_provider.py",
+    # What the two shells share (stage 9, WP-9.9): the job registry, the status words, the project list.
+    "runtime/shell_kit.py",
+    # The cost of a run recomputed from its token counts (stage 9): the operations layer imports it.
+    "runtime/costs.py",
+    # How the credential of a run is billed, read from the adapters' manifests (ADJ-R3): the operations layer imports it.
+    "runtime/billing.py",
+    # The roles of the runtime as data, and the isolated runner of skill code (WP-R.5).
+    "runtime/roles.py", "runtime/isolated.py",
+    # The handlers the dispatcher's worker ticks (stage 6): the weekly routine of the published posts (WP-6.9).
+    "runtime/handlers/published_posts.py",
+    # The ported social agent (stage 7, WP-7.1): the scheduler will start the tick, and the vote step and its job.
+    "runtime/handlers/social.py", "runtime/handlers/social_vote.py", "runtime/handlers/social_vote_job.py",
+    # The resolver of a pack: runtime/plan.py starts it with its own interpreter (stage 3; listed in stage 6, WP-6.7).
+    "scripts/select_skills.py",
+    # The product backlog's parser: the task runtime runs it as an isolated subprocess to propose sub-tasks (stage 6,
+    # WP-6.5; runtime/isolated.py).
+    "skills/eng-implement/scripts/task.py",
+    # The task board's local implementation: the task runtime calls it with its own interpreter (stage 3).
+    "providers/issue-tracker/local.py",
+    # The documents' local implementation, called the same way (stage 3).
+    "providers/documents/local.py",
 ]
-RUNTIME = ("scripts/runtime.py", "scripts/runtime_vote.py", "scripts/vote_job.py")  # the scheduler starts these
+RUNTIME = ("scripts/runtime.py", "scripts/runtime_vote.py", "scripts/vote_job.py",
+           "runtime/handlers/social.py", "runtime/handlers/social_vote_job.py")  # the scheduler starts these
 SYSTEM_PYTHON = (3, 9)
 REQUIRES = re.compile(r'^# requires-python = "([^"]+)"$', re.M)
 IMPORT = ("import importlib.util, sys; sys.path.insert(0, sys.argv[2]); "

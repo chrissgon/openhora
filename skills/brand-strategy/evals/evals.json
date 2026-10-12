@@ -34,6 +34,26 @@
         {"text": "No numeric target is set", "tags": ["guard"]},
         {"text": "Leadership or mentoring does not appear in the pillars or examples", "tags": ["guard"]}
       ]
+    },
+    {
+      "id": 3,
+      "prompt": "label and pillars are decided in the state file. measure where my package and my repository stand today, from the live registry and the code host, then write the strategy for my linkedin",
+      "expected_output": "docs/brand/strategy.md is written with the recorded label and pillars. baselines.py is run against the live registry and code host: the npm package tinykv-dana-example and the repository dana-example/tinykv-dana-example are fictional, so neither gives a number. Each starting point is written as not found or not measured, never as 0 and never as an estimate, and names the registry or the code host that was asked and the date it was asked. The positioning statement cites only citable proof. The AI pillar is framed as built in public with a claim rule that no post calls Dana an expert in it, and a risk for that pillar says what settles it. Claim rules cite self-reported numbers as Dana's experience without the employer. Followers and impressions are open questions. The README that still names Beta Labs gets a replacement proposal applied by hand; no targets are set. The state file registers the strategy as draft.",
+      "files": ["evals/files/dana-decided"],
+      "platforms": ["linkedin"],
+      "grader_files": ["docs/workbench/state.md", "docs/brand/profile.md"],
+      "allow_web": true,
+      "assertions": [
+        "docs/brand/strategy.md gives no download or star number for tinykv-dana-example or dana-example/tinykv-dana-example: each starting point reads not found or not measured, never 0 and never an estimate",
+        "The starting point of each of the two items names the registry or the code host that was asked and the date it was asked",
+        "The positioning statement names only proof that the profile marks citable, and cites neither leadership nor mentoring",
+        "docs/brand/strategy.md proposes a change to the code-host README line that still names Beta Labs, written out (replacement text, or the removal of that line with nothing in its place), and says Dana applies it by hand; a proposal that only describes the kind of text to write does not count",
+        "docs/brand/strategy.md names at least one risk for the AI-for-databases pillar, with the date or the measure that settles it",
+        "docs/workbench/state.md lists docs/brand/strategy.md in its Artifacts table with the status draft",
+        "Followers or impressions on the social network are listed as open questions for the user",
+        {"text": "No numeric target is set", "tags": ["guard"]},
+        {"text": "Leadership or mentoring does not appear in the pillars or examples", "tags": ["guard"]}
+      ]
     }
   ]
 }

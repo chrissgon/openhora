@@ -1,0 +1,20 @@
+{
+  "skill": "design-brief",
+  "documents": [
+    {
+      "path": "docs/design/briefs/<artifact>.md",
+      "checks": [],
+      "platform": "read_only",
+      "bound_to_approval": false
+    }
+  ],
+  "machine_files": [],
+  "mandatory_milestone": false,
+  "asking_openings": [],
+  "gate": null,
+  "reply_phrases": {
+    "question_intros": [
+      "Questions ("
+    ]
+  }
+}

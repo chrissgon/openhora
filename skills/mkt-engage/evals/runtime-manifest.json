@@ -1,0 +1,14 @@
+{
+  "skill": "mkt-engage",
+  "documents": [
+    {"path": "docs/marketing/engagement-policy.md", "checks": [], "platform": "read_only", "bound_to_approval": true},
+    {"path": "docs/marketing/engagement-inbox.md", "checks": [], "platform": "read_only", "bound_to_approval": false}
+  ],
+  "machine_files": [],
+  "mandatory_milestone": false,
+  "asking_openings": [],
+  "gate": {
+    "effect": "publish",
+    "payload_file": ".workbench-local/payloads/engage/<idempotency_key>/reply.txt"
+  }
+}

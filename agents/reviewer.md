@@ -7,7 +7,7 @@ description: >
   cases) needs a second pair of eyes without filling the main conversation with the diff.
 metadata:
   skills: [eng-code-review]
-  version: "0.1"
+  version: "0.1.0"
 ---
 
 # Reviewer

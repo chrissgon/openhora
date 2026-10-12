@@ -56,7 +56,7 @@ from pathlib import Path
 DEFAULT_API_BASE = "https://gmail.googleapis.com"
 DEFAULT_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
-KEYRING_SERVICE = "ai-workbench"
+KEYRING_SERVICE = "openhora"
 KEYRING_USERNAME = "mailbox-gmail"
 HTTP_TIMEOUT_SECONDS = 60
 TEXT_LIMIT_BYTES = 100_000

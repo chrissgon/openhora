@@ -583,6 +583,14 @@ def callback(uri: str, **params) -> int:
         return exc.code
 
 
+def test_the_callback_page_is_titled_openhora(auth):
+    server = auth.CallbackServer("s")
+    with urllib.request.urlopen(f"{server.redirect_uri}/?{urllib.parse.urlencode({'state': 's', 'code': 'c'})}", timeout=10) as r:
+        page = r.read().decode()
+    assert "<title>openhora</title>" in page and "ai-workbench" not in page
+    assert server.wait(5) == "c"
+
+
 def test_callback_refuses_a_wrong_state(auth):
     server = auth.CallbackServer("expected-state")
     assert server.redirect_uri.startswith("http://127.0.0.1:")
@@ -622,8 +630,8 @@ def test_full_authorization_stores_the_record_only_in_the_store(auth, fake, monk
     assert auth.main(["--provider", "gmail"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["stored"] is True and out["account"] == ACCOUNT and out["scope"] == SCOPE
-    assert out["secret_store"] == {"service": "ai-workbench", "username": "mailbox-gmail"}
-    record = json.loads(auth.fake_store.values[("ai-workbench", "mailbox-gmail")])
+    assert out["secret_store"] == {"service": "openhora", "username": "mailbox-gmail"}
+    record = json.loads(auth.fake_store.values[("openhora", "mailbox-gmail")])
     assert record["refresh_token"] == FAKE_REFRESH and record["account"] == ACCOUNT and record["scope"] == SCOPE
     assert record["obtained_at"].endswith("Z")
     exchange = urllib.parse.parse_qs(next(r for r in fake.requests if r["method"] == "POST")["body"].decode())
@@ -648,7 +656,7 @@ def test_auth_check_without_a_record_is_not_configured(auth, capsys, monkeypatch
     monkeypatch.delenv("GMAIL_REFRESH_TOKEN")
     assert auth.main(["--provider", "gmail", "--check"]) == 3
     assert json.loads(capsys.readouterr().out) == {"provider": "gmail", "found": False, "stored": False}
-    auth.fake_store.values[("ai-workbench", "mailbox-gmail")] = "not json"
+    auth.fake_store.values[("openhora", "mailbox-gmail")] = "not json"
     assert auth.main(["--provider", "gmail", "--check"]) == 3
 
 
@@ -657,7 +665,7 @@ def test_stored_record_is_read_by_the_provider(env, fake, monkeypatch):
     module = load(SCRIPT, "gmail_under_test_store")
     record = json.dumps({"refresh_token": FAKE_REFRESH, "scope": SCOPE, "account": ACCOUNT, "obtained_at": "x"})
     resolver = module.secret_resolver()
-    store = FakeStore({("ai-workbench", "mailbox-gmail"): record})
+    store = FakeStore({("openhora", "mailbox-gmail"): record})
     real_resolve = resolver.resolve
     monkeypatch.setattr(resolver, "resolve", lambda name, **kw: real_resolve(
         name, allow_store=True, environ={"GMAIL_CLIENT_ID": FAKE_CLIENT_ID, "GMAIL_CLIENT_SECRET": FAKE_CLIENT_SECRET},

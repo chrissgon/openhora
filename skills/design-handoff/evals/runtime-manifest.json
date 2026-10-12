@@ -1,0 +1,22 @@
+{
+  "skill": "design-handoff",
+  "documents": [
+    {
+      "path": "docs/design/handoff/<screen>.md",
+      "checks": [],
+      "platform": "read_only",
+      "bound_to_approval": false
+    }
+  ],
+  "machine_files": [
+    "docs/design/handoff/<screen>/export/"
+  ],
+  "mandatory_milestone": false,
+  "asking_openings": [],
+  "gate": null,
+  "reply_phrases": {
+    "question_intros": [
+      "Questions ("
+    ]
+  }
+}

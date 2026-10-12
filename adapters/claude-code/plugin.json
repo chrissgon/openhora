@@ -1,5 +1,5 @@
 {
-  "name": "ai-workbench",
+  "name": "openhora",
   "version": "0.1.0",
   "description": "Harness-agnostic agents, skills and workflows to build a digital solution end to end.",
   "author": { "name": "Christopher Goncalves" },

@@ -1,0 +1,24 @@
+{
+  "flow": "code-change",
+  "title": "A code change, to its pull request",
+  "tasks": [
+    {
+      "key": "implement",
+      "skill": "eng-implement",
+      "title": "Implement the change",
+      "text": "implement the change this request describes, in the files it names, and make the check it names pass. Propose the commit and do not make it.",
+      "depends_on": [],
+      "milestone": false
+    },
+    {
+      "key": "pull-request",
+      "skill": "ops-pull-request",
+      "title": "Prepare the pull request",
+      "text": "the change is on the current branch, as one commit over its base. Prepare its pull request into the base branch and stop at the confirmation gate: show the payload and ask.",
+      "depends_on": [
+        "implement"
+      ],
+      "milestone": true
+    }
+  ]
+}

@@ -3,7 +3,22 @@
 # requires-python = ">=3.10"
 # dependencies = ["keyring==25.7.0"]
 # ///
-"""VCS provider for GitHub: Dependabot alerts, reading one file, and committing files to a branch.
+"""VCS provider for GitHub: Dependabot alerts, reading one file, committing files to a branch, opening a pull request.
+
+Sources for open-pr (read 2026-10-06, from the OpenAPI description the alerts cite below,
+github/rest-api-description, api.github.com.2026-03-10.json, operation pulls/create, documented at
+https://docs.github.com/rest/pulls/pulls#create-a-pull-request; the permission from github/docs,
+src/github-apps/data/fpt-2026-03-10/fine-grained-pat-permissions.json):
+- POST /repos/{owner}/{repo}/pulls. Body fields this verb sends: title, head, base, body (head and base are
+  required; title is required unless issue is given; head_repo, maintainer_can_modify, draft and issue are
+  not sent). head is "the name of the branch where your changes are implemented"; base "should be an
+  existing branch on the current repository".
+- Success: 201 with a pull-request object (and a Location header); its required fields number (integer) and
+  html_url (the page's address) are the two read.
+- Failure: 422 "Validation failed, or the endpoint has been spammed" (a validation-error object: message,
+  documentation_url, errors[{resource, field, code, message}]), the answer for a pull request that already
+  exists for the head or a branch that does not exist; 403 forbidden.
+- Fine-grained token permission: repository "Pull requests", write ("Read and write").
 
 Sources for read-file (read 2026-09-30):
 - Get repository content, https://docs.github.com/en/rest/repos/contents?apiVersion=2026-03-10#get-repository-content
@@ -90,8 +105,11 @@ from pathlib import Path
 GITHUB_API_VERSION = "2026-03-10"
 ACCEPT = "application/vnd.github+json"
 DEFAULT_API_BASE = "https://api.github.com"
-KEYRING_SERVICE = "ai-workbench"
+KEYRING_SERVICE = "openhora"
 KEYRING_USERNAME = "github"
+# open-pr reads a token of its own (store username "github-pr"); the everyday token only when it is found nowhere.
+PR_TOKEN_NAME = "VCS_GITHUB_PR_TOKEN"
+PR_KEYRING_USERNAME = "github-pr"
 HTTP_TIMEOUT_SECONDS = 30
 LOCK_TIMEOUT_SECONDS = 10
 PER_PAGE = 100
@@ -140,28 +158,54 @@ verbs:
                  resolves; without one the request is anonymous (public repositories only).
   commit-files   Side effect. Commit files to a branch with git and push it:
                  --repo <owner>/<name> --branch <b> --message-file <f>
-                 --file <repo-path>=<local-file> (repeat; at most {MAX_FILES} files,
-                 {MAX_FILE_BYTES // (1024 * 1024)} MB each) --allow <glob> (repeat; every repo path must
+                 --file <repo-path>=<local-file> (repeat; {MAX_FILE_BYTES // (1024 * 1024)} MB each)
+                 --delete <repo-path> (repeat; a path the commit removes; at most
+                 {MAX_FILES} files and deletions together, at least one of either)
+                 --mode <repo-path>=<644|755> (repeat; only for a --file path; without it
+                 a new file is 644 and an existing file keeps its mode)
+                 --from-branch <base> (when --branch does not exist on the remote, it is
+                 started from <base>; without it a missing branch is an error)
+                 --allow <glob> (repeat; every repo path, deleted ones too, must
                  match one; '*' never crosses '/', and '*', '?' and '[...]' never match a
                  leading '.' of a part: name a dotfile with a part that starts with '.')
                  --idempotency-key <k>, and --confirmed
                  (or --dry-run). It clones the branch shallowly over SSH
                  ({SSH_REMOTE.format(repo="<owner>/<name>")}) into a private folder, writes the files,
                  stages them by name, commits with the message file, and pushes to the
-                 branch. The commit is signed by your git configuration (commit.gpgsign,
-                 gpg.format, user.signingkey); an unsigned commit is never pushed (exit 3).
+                 branch. Deletions are made first (never through a symlink, never of a
+                 folder; a path the branch does not hold is skipped), then the files are
+                 written, then the modes applied. The commit is signed by your git
+                 configuration (commit.gpgsign, gpg.format, user.signingkey); an unsigned
+                 commit is never pushed (exit 3).
                  A push rejected because the branch moved is retried once from a fresh
                  clone; a second rejection exits 1. The dry run clones and writes but
                  never commits or pushes; it prints the diff (stat, and the text capped at
-                 {DIFF_MAX_BYTES // 1024} kB) and every file's sha256: that is what a gate shows.
-                 Prints {{commit, branch, files: [{{path, sha256}}], pushed, replayed}};
+                 {DIFF_MAX_BYTES // 1024} kB), every file's sha256, the deletes, the modes,
+                 from_branch and branch_exists: that is what a gate shows.
+                 Before the push, every blob, mode and deletion of the commit is checked
+                 against what was given. Prints {{commit, branch, files: [{{path, sha256}}],
+                 deletes, pushed, replayed}};
                  "unchanged": true (and pushed false) when the branch already holds
                  exactly these files.
+  open-pr        Side effect. Open one pull request: --repo <owner>/<name> --head <branch>
+                 --base <branch> --title-file <f> (UTF-8, one line) --body-file <f>
+                 (UTF-8, at most {MESSAGE_MAX_BYTES // 1024} kB) --idempotency-key <k>, and --confirmed (or
+                 --dry-run). One POST /repos/<owner>/<name>/pulls with title, head, base
+                 and body; the title and the body are sent as data. The dry run prints
+                 the exact request, the sha256 of the title and of the body, the key and
+                 existing_status; it reads no credential and calls nothing. Prints
+                 {{idempotency_key, repo, head, base, number, url, replayed}}. A key already
+                 opened replays without a request; a refusal by GitHub (4xx: the branch
+                 does not exist, a pull request for the head exists) releases the key; a
+                 timeout or a server error keeps it pending until resolve settles it.
+                 It never merges, approves, comments on or edits a pull request.
   resolve        Settle a key left pending by a timeout or a crash, after looking at
                  GitHub: --idempotency-key <k> and --confirmed, with, for a dismissal,
                  --dismissed (it was dismissed) or --not-dismissed (it was not; the key
-                 may be used again), and for a commit, --commit <sha> (it reached the
+                 may be used again), for a commit, --commit <sha> (it reached the
                  branch as this commit) or --not-committed (it did not; the key may be
+                 used again), and for a pull request, --pull-request <number> (it was
+                 opened with this number) or --not-opened (it was not; the key may be
                  used again).
   --check        One authenticated GET: /rate_limit (token present and valid), or,
                  with --repo, the first alert of that repository (token can read its
@@ -185,6 +229,10 @@ credentials (never from files or flags):
     separate token, exported as VCS_GITHUB_TOKEN only for the dismissal.
   - "Contents: Read-only" lets read-file read a private repository; a public one needs no
     permission. commit-files uses no token at all (git over SSH).
+  - "Pull requests: Read and write" is needed for open-pr. Keep it in a separate token of
+    its own: open-pr reads VCS_GITHUB_PR_TOKEN first (the environment, then the secret store,
+    username "{PR_KEYRING_USERNAME}"), and VCS_GITHUB_TOKEN only when that name is found nowhere.
+    It says on stderr which name it used, never the value. No other verb reads it.
   The token is never printed, not even partially.
 
 other environment variables:
@@ -228,6 +276,9 @@ examples:
       --message-file msg.txt --file data/queue.json=out/queue.json \\
       --allow data/queue.json --allow 'assets/images/*' --idempotency-key site-12-queue --dry-run
   uv run providers/vcs/github.py resolve --idempotency-key site-12-queue --not-committed --confirmed
+  uv run providers/vcs/github.py open-pr --repo example-org/site --head wb/request-7 --base main \\
+      --title-file title.txt --body-file body.md --idempotency-key site-request-7-pr --dry-run
+  uv run providers/vcs/github.py resolve --idempotency-key site-request-7-pr --pull-request 31 --confirmed
 """
 
 
@@ -320,6 +371,29 @@ def load_token(test_mode: bool, required: bool = True) -> tuple[str, str]:
     if any(ch.isspace() or not ch.isprintable() for ch in token):
         raise ProviderError("the GitHub token contains whitespace or control characters", EXIT_NOT_CONFIGURED)
     return token, source
+
+
+def load_pr_token(test_mode: bool) -> tuple[str, str, str]:
+    """Return (token, name, source) for open-pr: VCS_GITHUB_PR_TOKEN through the resolver (the environment, then
+    the secret store; tests never read the store), and only when that name is found nowhere the everyday token of
+    load_token. The name used and where it was found go to stderr; the value never does."""
+    resolver = secret_resolver()
+    try:
+        found = resolver.resolve(PR_TOKEN_NAME, allow_store=not test_mode)
+    except resolver.NotRegistered:  # an older resolver.py next to a scheduled job's copy of this script
+        found = None
+    if found and found[0]:
+        token, source = found
+        name = PR_TOKEN_NAME
+        if any(ch.isspace() or not ch.isprintable() for ch in token):
+            raise ProviderError(f"{PR_TOKEN_NAME} contains whitespace or control characters", EXIT_NOT_CONFIGURED)
+    else:
+        log(f"{PR_TOKEN_NAME} is not set nor stored (username {PR_KEYRING_USERNAME!r}); open-pr falls back to "
+            "VCS_GITHUB_TOKEN")
+        token, source = load_token(test_mode)
+        name = "VCS_GITHUB_TOKEN"
+    log(f"open-pr uses {name}, found in the {source}")
+    return token, name, source
 
 
 LEDGER_NAME = "vcs-github.json"
@@ -456,6 +530,14 @@ def alert_web_url(repo: str, number: int) -> str:
 
 
 def pending_message(key: str, entry: dict) -> str:
+    if entry.get("kind") == "pull-request":
+        return (
+            f"idempotency key {key!r} has a pending pull request from {entry.get('started_at', 'an unknown time')} "
+            f"whose outcome is unknown (a timeout, a server error or a crash); nothing was sent this time. Look at "
+            f"https://github.com/{entry.get('repo')}/pulls for {entry.get('head')} into {entry.get('base')}, then run "
+            f"github.py resolve --idempotency-key {key} with --pull-request <number> if it was opened or --not-opened "
+            "if it was not, and --confirmed"
+        )
     if entry.get("kind") == "commit":
         attempted = entry.get("attempted_commit")
         tried = f" (the commit it tried to push was {attempted})" if attempted else ""
@@ -479,7 +561,7 @@ def pending_message(key: str, entry: dict) -> str:
 
 
 def headers(token: str | None, json_body: bool = False) -> dict:
-    out = {"Accept": ACCEPT, "X-GitHub-Api-Version": GITHUB_API_VERSION, "User-Agent": "ai-workbench-vcs-github"}
+    out = {"Accept": ACCEPT, "X-GitHub-Api-Version": GITHUB_API_VERSION, "User-Agent": "openhora-vcs-github"}
     if json_body:
         out["Content-Type"] = "application/json"
     if token is not None:
@@ -720,9 +802,9 @@ def cmd_dismiss(args) -> int:
 
     def settled(existing: dict) -> int:
         """The key is already in the ledger: replay a dismissal of this alert, refuse anything else."""
-        if existing.get("kind") == "commit":
-            raise ProviderError(f"idempotency key {key!r} was used for a commit; use a new key for this alert",
-                                EXIT_USAGE)
+        if existing.get("kind") in ("commit", "pull-request"):
+            raise ProviderError(f"idempotency key {key!r} was used for a {existing['kind']}; use a new key for this "
+                                "alert", EXIT_USAGE)
         if (existing.get("repo"), existing.get("number")) != (repo, number):
             raise ProviderError(f"idempotency key {key!r} was used for {existing.get('repo')}#{existing.get('number')}; "
                                 "use a new key for this alert", EXIT_USAGE)
@@ -769,6 +851,139 @@ def cmd_dismiss(args) -> int:
     return EXIT_OK
 
 
+# --- open-pr -------------------------------------------------------------------
+
+
+PR_TARGET_KEYS = ("kind", "repo", "head", "base", "title_sha256", "body_sha256")
+
+
+def pull_request_web_url(repo: str | None, number: int | None) -> str:
+    return f"https://github.com/{repo}/pull/{number}"
+
+
+def read_text_file(flag: str, value: str | None, verb: str, what: str) -> str:
+    """A UTF-8 file named by a flag, read whole; a usage error when it is missing, not UTF-8 or empty."""
+    if not value:
+        raise ProviderError(f"{verb} needs {flag} <f>: {what}", EXIT_USAGE)
+    path = Path(value).expanduser()
+    if not path.is_file():
+        raise ProviderError(f"{flag} not found: {one_line(value, 200)}", EXIT_USAGE)
+    raw = path.read_bytes()
+    if len(raw) > MESSAGE_MAX_BYTES:
+        raise ProviderError(f"{flag} is over {MESSAGE_MAX_BYTES // 1024} kB", EXIT_USAGE)
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        raise ProviderError(f"{flag} is not UTF-8", EXIT_USAGE)
+    if not text.strip():
+        raise ProviderError(f"{flag} is empty", EXIT_USAGE)
+    return text
+
+
+def validate_open_pr_args(args) -> dict:
+    """Check every flag and read both files before a credential is read or a request is made."""
+    repo = check_repo(args.repo)
+    head = check_ref(args.head, "--head")
+    base = check_ref(args.base, "--base")
+    if head == base:
+        raise ProviderError("--head and --base must be different branches", EXIT_USAGE)
+    title = read_text_file("--title-file", args.title_file, "open-pr", "the pull request's title, one line").strip()
+    if "\n" in title or "\r" in title:
+        raise ProviderError("--title-file must hold one line", EXIT_USAGE)
+    body = read_text_file("--body-file", args.body_file, "open-pr", "the pull request's description")
+    if not (args.idempotency_key or "").strip():
+        raise ProviderError("open-pr needs --idempotency-key <k>: one key per pull request, reused on retries",
+                            EXIT_USAGE)
+    return {"repo": repo, "head": head, "base": base, "title": title, "body": body,
+            "title_sha256": sha256_hex(title.encode("utf-8")), "body_sha256": sha256_hex(body.encode("utf-8"))}
+
+
+def open_pr_target(spec: dict) -> dict:
+    return {"kind": "pull-request", "repo": spec["repo"], "head": spec["head"], "base": spec["base"],
+            "title_sha256": spec["title_sha256"], "body_sha256": spec["body_sha256"]}
+
+
+def opened_result(key: str, entry: dict, replayed: bool) -> dict:
+    return {"idempotency_key": key, "repo": entry.get("repo"), "head": entry.get("head"), "base": entry.get("base"),
+            "number": entry.get("number"), "url": entry.get("url"), "replayed": replayed}
+
+
+def cmd_open_pr(args) -> int:
+    spec = validate_open_pr_args(args)
+    if not args.dry_run and not args.confirmed:
+        raise ProviderError(
+            "refusing to open a pull request without --confirmed; the calling skill must pass its confirmation "
+            "gate first (use --dry-run to preview)", EXIT_USAGE)
+    base, test_mode = api_base()
+    key = args.idempotency_key.strip()
+    url = f"{base}/repos/{spec['repo']}/pulls"
+    # The title and the body were written by a model: they are sent as data and never interpreted.
+    body = {"title": spec["title"], "head": spec["head"], "base": spec["base"], "body": spec["body"]}
+    target = open_pr_target(spec)
+
+    if args.dry_run:
+        # A dry run does nothing: no credential is read and no request is sent.
+        shown = headers(None, json_body=True)
+        shown["Authorization"] = "Bearer <redacted>"
+        existing = ledger_read()["entries"].get(key)
+        out = {"dry_run": True, "requests": [{"method": "POST", "url": url, "headers": shown, "body": body}],
+               "title_sha256": spec["title_sha256"], "body_sha256": spec["body_sha256"], "idempotency_key": key,
+               "existing_status": existing.get("status") if existing else None}
+        print(json.dumps(out, indent=2, ensure_ascii=False))
+        return EXIT_OK
+
+    def settled(existing: dict) -> int:
+        """The key is already in the ledger: replay this pull request, refuse anything else."""
+        if existing.get("kind") != "pull-request":
+            used = "a commit" if existing.get("kind") == "commit" else "an alert dismissal"
+            raise ProviderError(f"idempotency key {key!r} was used for {used}; use a new key", EXIT_USAGE)
+        if any(existing.get(k) != target[k] for k in PR_TARGET_KEYS):
+            raise ProviderError(f"idempotency key {key!r} was used for another pull request (repository, branches, "
+                                "title or body); use a new key for this one", EXIT_USAGE)
+        if existing.get("status") == "opened":
+            log(f"idempotency key {key!r} already opened this pull request; nothing sent")
+            print(json.dumps(opened_result(key, existing, True), indent=2))
+            return EXIT_OK
+        raise ProviderError(pending_message(key, existing), EXIT_SERVICE)
+
+    # The ledger first: a replay sends nothing, so it needs no token.
+    existing = ledger_read()["entries"].get(key)
+    if existing:
+        return settled(existing)
+    token, _, _ = load_pr_token(test_mode)
+    existing = ledger_claim(key, target)  # under the lock: another run may have claimed it meanwhile
+    if existing:
+        return settled(existing)
+
+    try:
+        status, _, raw = http("POST", url, headers(token, json_body=True), json.dumps(body).encode())
+    except ProviderError as exc:
+        # A 4xx answer means GitHub refused it and opened nothing; anything else is an unknown outcome.
+        if exc.status is not None and 400 <= exc.status < 500:
+            ledger_update(key, None)
+        else:
+            ledger_update(key, {**target, "status": "pending", "started_at": now_iso(), "error": str(exc)})
+        raise
+    except BaseException:
+        ledger_update(key, {**target, "status": "pending", "started_at": now_iso(), "error": "interrupted"})
+        raise
+    try:
+        pull = json.loads(raw)
+    except ValueError:
+        pull = None
+    number = pull.get("number") if isinstance(pull, dict) else None
+    page = pull.get("html_url") if isinstance(pull, dict) else None
+    if (status != 201 or not isinstance(number, int) or isinstance(number, bool) or number < 1
+            or not isinstance(page, str)):
+        error = f"unexpected create response: status {status}, no pull request number and address"
+        ledger_update(key, {**target, "status": "pending", "started_at": now_iso(), "error": error})
+        raise ProviderError(error + "; the key stays pending until resolve settles it")
+    entry = {**target, "status": "opened", "number": number, "url": page, "recorded_at": now_iso()}
+    ledger_update(key, entry)
+    print(json.dumps(opened_result(key, entry, False), indent=2))
+    return EXIT_OK
+
+
 # --- resolve -------------------------------------------------------------------
 
 
@@ -778,13 +993,20 @@ def cmd_resolve(args) -> int:
         raise ProviderError("resolve needs --idempotency-key <k>", EXIT_USAGE)
     outcomes = [flag for flag, given in (("--dismissed", args.dismissed), ("--not-dismissed", args.not_dismissed),
                                          ("--commit", args.commit is not None),
-                                         ("--not-committed", args.not_committed)) if given]
+                                         ("--not-committed", args.not_committed),
+                                         ("--pull-request", args.pull_request is not None),
+                                         ("--not-opened", args.not_opened)) if given]
     if len(outcomes) != 1:
         raise ProviderError("resolve needs exactly one of --dismissed or --not-dismissed (a dismissal), "
-                            "or --commit <sha> or --not-committed (a commit)", EXIT_USAGE)
-    commit_outcome = outcomes[0] in ("--commit", "--not-committed")
+                            "--commit <sha> or --not-committed (a commit), or --pull-request <number> or "
+                            "--not-opened (a pull request)", EXIT_USAGE)
+    kinds = {"--commit": "commit", "--not-committed": "commit", "--pull-request": "pull-request",
+             "--not-opened": "pull-request"}
+    outcome_kind = kinds.get(outcomes[0], "dismissal")
     if args.commit is not None and not COMMIT_SHA_RE.fullmatch(args.commit):
         raise ProviderError("--commit must be the full commit sha (40 or 64 lower-case hex characters)", EXIT_USAGE)
+    if args.pull_request is not None and args.pull_request < 1:
+        raise ProviderError("--pull-request must be the pull request's number, a positive integer", EXIT_USAGE)
     if not args.confirmed:
         raise ProviderError("refusing to resolve without --confirmed; the user decides what happened", EXIT_USAGE)
     with ledger_locked() as data:
@@ -792,16 +1014,30 @@ def cmd_resolve(args) -> int:
         if not entry or entry.get("status") != "pending":
             state = entry.get("status") if entry else "absent"
             raise ProviderError(f"idempotency key {key!r} is {state}, not pending; nothing to resolve", EXIT_USAGE)
-        is_commit = entry.get("kind") == "commit"
-        if is_commit != commit_outcome:
-            wanted = "--commit <sha> or --not-committed" if is_commit else "--dismissed or --not-dismissed"
-            raise ProviderError(f"idempotency key {key!r} holds a {'commit' if is_commit else 'dismissal'}; "
-                                f"resolve it with {wanted}", EXIT_USAGE)
-        if is_commit:
+        held = entry.get("kind") if entry.get("kind") in ("commit", "pull-request") else "dismissal"
+        if held != outcome_kind:
+            wanted = {"commit": "--commit <sha> or --not-committed", "pull-request": "--pull-request <number> or "
+                      "--not-opened", "dismissal": "--dismissed or --not-dismissed"}[held]
+            raise ProviderError(f"idempotency key {key!r} holds a {held}; resolve it with {wanted}", EXIT_USAGE)
+        if held == "pull-request":
+            if args.pull_request is not None:
+                data["entries"][key] = {**{k: entry[k] for k in PR_TARGET_KEYS if k in entry}, "status": "opened",
+                                        "number": args.pull_request,
+                                        "url": pull_request_web_url(entry.get("repo"), args.pull_request),
+                                        "recorded_at": now_iso(), "resolved": True}
+            else:
+                del data["entries"][key]
+            ledger_save(data)
+            out = {"idempotency_key": key, "status": "opened" if args.pull_request is not None else "released",
+                   "repo": entry.get("repo"), "head": entry.get("head"), "base": entry.get("base"),
+                   "number": args.pull_request}
+            print(json.dumps(out, indent=2))
+            return EXIT_OK
+        if held == "commit":
             if args.commit:
-                data["entries"][key] = {**{k: entry.get(k) for k in COMMIT_TARGET_KEYS}, "status": "committed",
-                                        "commit": args.commit, "pushed": True, "recorded_at": now_iso(),
-                                        "resolved": True}
+                recorded = {k: entry[k] for k in COMMIT_TARGET_KEYS if k in entry}
+                data["entries"][key] = {**recorded, "status": "committed", "commit": args.commit, "pushed": True,
+                                        "recorded_at": now_iso(), "resolved": True}
             else:
                 del data["entries"][key]
             ledger_save(data)
@@ -998,7 +1234,7 @@ def secret_names() -> set:
     aliases. git, ssh and the user's hooks need none of them: the push goes over the user's own SSH key."""
     global SECRET_NAMES
     if SECRET_NAMES is None:
-        names = {"VCS_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"}
+        names = {"VCS_GITHUB_TOKEN", PR_TOKEN_NAME, "GITHUB_TOKEN", "GH_TOKEN"}
         try:
             for secret in secret_resolver().REGISTRY.values():
                 names.add(secret.name)
@@ -1078,26 +1314,48 @@ def work_root() -> Path:
     return Path(cache) / "ai-workbench" / "vcs-github-work"
 
 
+def remote_has_branch(repo: str, branch: str, remote: str, cwd: Path) -> bool:
+    """Ask the remote whether branch exists (git ls-remote --exit-code --heads). Exit 2 is "no such branch";
+    any other failure is an error, an SSH failure first (nothing was sent, so the key is released)."""
+    ref = f"refs/heads/{branch}"
+    code, out, err = run_git(["ls-remote", "--exit-code", "--heads", "--", remote, ref], cwd,
+                             git_timeout(GIT_CLONE_TIMEOUT_SECONDS))
+    if code == 2:
+        return False
+    if code != 0:
+        raise ssh_failure(err) or ProviderError(f"git ls-remote of {repo} failed: {one_line(err, 300)}")
+    # ls-remote matches a pattern against the end of each ref: only the exact name counts.
+    return any(line.split("\t", 1)[-1] == ref for line in out.decode("utf-8", "replace").splitlines())
+
+
 @contextlib.contextmanager
-def private_clone(repo: str, branch: str, remote: str):
-    """Yield (scratch folder, working tree) of a fresh shallow clone of branch; both are removed afterwards."""
+def private_clone(repo: str, branch: str, remote: str, from_branch: str | None = None):
+    """Yield (scratch folder, working tree, whether branch existed) of a fresh shallow clone of branch; both
+    folders are removed afterwards. With from_branch, a branch the remote lacks is started from from_branch:
+    the clone is of from_branch and the branch is created in it before anything is written."""
     root = work_root()
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
     scratch = Path(tempfile.mkdtemp(prefix="clone-", dir=root))  # 0700
     try:
         work = scratch / "repo"
-        code, _, err = run_git(["clone", "--quiet", "--depth", "1", "--branch", branch, "--single-branch",
+        exists = True if from_branch is None else remote_has_branch(repo, branch, remote, scratch)
+        source = branch if exists else from_branch
+        flag = "--branch" if exists else "--from-branch"
+        code, _, err = run_git(["clone", "--quiet", "--depth", "1", "--branch", source, "--single-branch",
                                 "--no-tags", "--", remote, str(work)], scratch, git_timeout(GIT_CLONE_TIMEOUT_SECONDS))
         if code != 0:
-            raise ssh_failure(err) or ProviderError(f"git clone of {repo} branch {branch} failed: {one_line(err, 300)}")
+            raise ssh_failure(err) or ProviderError(f"git clone of {repo} branch {source} failed: {one_line(err, 300)}")
         # "clone --branch" also takes a tag, and leaves HEAD detached on it; the push would then create a
         # branch with the tag's name. Only a clone that is on the branch asked for goes on.
         code, head, _ = run_git(["symbolic-ref", "--quiet", "HEAD"], work, git_timeout(GIT_LOCAL_TIMEOUT_SECONDS))
-        if code != 0 or head.decode("utf-8", "replace").strip() != f"refs/heads/{branch}":
-            raise ProviderError(f"--branch {branch} is not a branch of {repo} (a tag of that name exists); "
+        if code != 0 or head.decode("utf-8", "replace").strip() != f"refs/heads/{source}":
+            raise ProviderError(f"{flag} {source} is not a branch of {repo} (a tag of that name exists); "
                                 "commit-files commits to an existing branch only. Nothing was written",
                                 EXIT_USAGE)
-        yield scratch, work
+        if not exists:  # the new branch starts at the base's head; no checkout, so no hook runs
+            git_ok(["update-ref", f"refs/heads/{branch}", "HEAD"], work, "update-ref")
+            git_ok(["symbolic-ref", "HEAD", f"refs/heads/{branch}"], work, "symbolic-ref")
+        yield scratch, work, exists
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
 
@@ -1120,6 +1378,34 @@ def write_files(work: Path, files: list[dict]) -> None:
         fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o644)
         with os.fdopen(fd, "wb") as fh:
             fh.write(item["data"])
+
+
+def delete_files(work: Path, deletes: list[str]) -> list[str]:
+    """Remove each path from the working tree and the index, never through a symlink the repository holds.
+    A path the branch does not hold is skipped. Return the paths that were removed."""
+    removed = []
+    for path in deletes:
+        parts = path.split("/")
+        target = work
+        absent = False
+        for part in parts[:-1]:
+            target = target / part
+            if target.is_symlink():
+                raise ProviderError(f"--delete {path}: '{part}' in the repository is a symlink; refusing to delete "
+                                    "through it. Nothing was pushed")
+            if not target.is_dir():
+                absent = True  # a missing folder, or a file where a folder would be: the path is not held
+                break
+        target = work / path
+        if absent or not (target.exists() or target.is_symlink()):
+            continue
+        if target.is_symlink() or target.is_dir():
+            raise ProviderError(f"--delete {path} in the repository is a symlink or a folder; refusing to remove it. "
+                                "Nothing was pushed")
+        removed.append(path)
+    if removed:
+        git_ok(["rm", "--quiet", "--ignore-unmatch", "--", *removed], work, "rm")
+    return removed
 
 
 def commit_signature(work: Path) -> str | None:
@@ -1157,12 +1443,33 @@ def make_commit(work: Path, message_file: Path, paths: list[str]) -> tuple[str, 
     return sha, signature
 
 
-def check_blobs(work: Path, files: list[dict], where: str) -> None:
-    """Refuse when what git holds for a path at HEAD is not the bytes that were given.
+def tree_entry(work: Path, path: str) -> str | None:
+    """The mode git holds for path at HEAD (100644, 100755, 120000, 040000...), or None when HEAD lacks it."""
+    out = git_ok(["ls-tree", "-z", "HEAD", "--", path], work, "ls-tree").decode("utf-8", "replace")
+    for record in out.split("\0"):
+        meta, sep, name = record.partition("\t")
+        if sep and name == path:
+            return meta.split(" ", 1)[0]
+    return None
+
+
+def check_blobs(work: Path, files: list[dict], where: str, modes: dict | None = None,
+                deletes: list[str] = ()) -> None:
+    """Refuse when what git holds for a path at HEAD is not the bytes that were given, a --mode path does not
+    have that mode, or a deleted path is still there.
 
     The commit is made by the user's own git: their hooks run, and the repository's attributes apply (a
     line-ending or filter rule in .gitattributes). Either can change a file between the bytes the person
     approved and the blob that would be pushed, so the blobs are hashed and compared before the push."""
+    for path, mode in sorted((modes or {}).items()):
+        held = tree_entry(work, path)
+        if held != f"100{mode}":
+            raise ProviderError(f"{path} in {where} has mode {held or 'none'}, not the {mode} that was given: a git "
+                                "hook or the repository changed it. Nothing was pushed")
+    for path in deletes:
+        if tree_entry(work, path) is not None:
+            raise ProviderError(f"{path} is still in {where} although it was given as a deletion: a git hook added "
+                                "it back. Nothing was pushed")
     for item in files:
         code, blob, err = run_git(["cat-file", "blob", f"HEAD:{item['path']}"], work,
                                   git_timeout(GIT_LOCAL_TIMEOUT_SECONDS))
@@ -1212,7 +1519,9 @@ def push(work: Path, branch: str) -> None:
 # --- commit-files ------------------------------------------------------------------
 
 
-COMMIT_TARGET_KEYS = ("kind", "repo", "branch", "files", "message_sha256")
+# The last three join a target only when the call uses them; an entry recorded without one compares as "not used".
+COMMIT_TARGET_KEYS = ("kind", "repo", "branch", "files", "message_sha256", "deletes", "modes", "from_branch")
+MODES = ("644", "755")
 
 
 def sha256_hex(data: bytes) -> str:
@@ -1226,12 +1535,14 @@ def validate_commit_args(args) -> dict:
     globs = [check_glob(g) for g in (args.allow or [])]
     if not globs:
         raise ProviderError("commit-files needs at least one --allow <glob>: the paths it may write", EXIT_USAGE)
-    if not args.file:
-        raise ProviderError("commit-files needs at least one --file <repo-path>=<local-file>", EXIT_USAGE)
-    if len(args.file) > MAX_FILES:
-        raise ProviderError(f"commit-files takes at most {MAX_FILES} files", EXIT_USAGE)
+    file_args, delete_args, mode_args = args.file or [], args.delete or [], args.mode or []
+    if not file_args and not delete_args:
+        raise ProviderError("commit-files needs at least one --file <repo-path>=<local-file> or one "
+                            "--delete <repo-path>", EXIT_USAGE)
+    if len(file_args) + len(delete_args) > MAX_FILES:
+        raise ProviderError(f"commit-files takes at most {MAX_FILES} files and deletions together", EXIT_USAGE)
     files, seen = [], set()
-    for value in args.file:
+    for value in file_args:
         repo_path, sep, local = value.partition("=")
         if not sep or not local:
             raise ProviderError(f"--file {one_line(repr(value), 120)} must be <repo-path>=<local-file>", EXIT_USAGE)
@@ -1253,6 +1564,29 @@ def validate_commit_args(args) -> dict:
             raise ProviderError(f"--file {repo_path}: the local file is over {MAX_FILE_BYTES // (1024 * 1024)} MB",
                                 EXIT_USAGE)
         files.append({"path": repo_path, "data": data, "sha256": sha256_hex(data)})
+    deletes = []
+    for value in delete_args:
+        repo_path = check_path(value, "--delete")
+        if not path_allowed(repo_path, globs):
+            raise ProviderError(f"--delete {repo_path} is outside the allowed paths ({', '.join(globs)}); "
+                                "nothing was cloned", EXIT_USAGE)
+        if repo_path in seen:
+            raise ProviderError(f"--delete {repo_path} is given twice, or also as a --file", EXIT_USAGE)
+        seen.add(repo_path)
+        deletes.append(repo_path)
+    file_paths = {f["path"] for f in files}
+    modes = {}
+    for value in mode_args:
+        repo_path, sep, mode = value.partition("=")
+        if not sep or repo_path not in file_paths:
+            raise ProviderError(f"--mode {one_line(repr(value), 120)} must be <repo-path>=<mode> for a --file path "
+                                "of this call", EXIT_USAGE)
+        if repo_path in modes:
+            raise ProviderError(f"--mode {repo_path} is given twice", EXIT_USAGE)
+        if mode not in MODES:
+            raise ProviderError(f"--mode {repo_path}: the mode must be one of {', '.join(MODES)}", EXIT_USAGE)
+        modes[repo_path] = mode
+    from_branch = check_ref(args.from_branch, "--from-branch") if args.from_branch is not None else None
     if not args.message_file:
         raise ProviderError("commit-files needs --message-file <f>: the commit message", EXIT_USAGE)
     message_path = Path(args.message_file).expanduser()
@@ -1271,21 +1605,34 @@ def validate_commit_args(args) -> dict:
         raise ProviderError("commit-files needs --idempotency-key <k>: one key per change set, reused on retries",
                             EXIT_USAGE)
     return {"repo": repo, "branch": branch, "files": files, "message": message, "message_text": text,
-            "message_sha256": sha256_hex(message)}
+            "message_sha256": sha256_hex(message), "deletes": deletes, "modes": modes, "from_branch": from_branch}
 
 
 def commit_target(spec: dict) -> dict:
-    return {"kind": "commit", "repo": spec["repo"], "branch": spec["branch"],
-            "files": [{"path": f["path"], "sha256": f["sha256"]} for f in spec["files"]],
-            "message_sha256": spec["message_sha256"]}
+    target = {"kind": "commit", "repo": spec["repo"], "branch": spec["branch"],
+              "files": [{"path": f["path"], "sha256": f["sha256"]} for f in spec["files"]],
+              "message_sha256": spec["message_sha256"]}
+    # Only what the call uses, so that a key recorded before these flags existed replays as before.
+    if spec["deletes"]:
+        target["deletes"] = sorted(spec["deletes"])
+    if spec["modes"]:
+        target["modes"] = [{"path": p, "mode": m} for p, m in sorted(spec["modes"].items())]
+    if spec["from_branch"]:
+        target["from_branch"] = spec["from_branch"]
+    return target
 
 
 def prepare(scratch: Path, work: Path, spec: dict) -> tuple[str, bool, Path]:
-    """Write and stage the files; return (base commit, whether anything changed, message file)."""
+    """Remove the deleted paths, write and stage the files, apply the modes; return (base commit, whether
+    anything changed, message file)."""
     base = git_ok(["rev-parse", "HEAD"], work, "rev-parse").decode().strip()
+    delete_files(work, spec["deletes"])
     write_files(work, spec["files"])
     paths = [f["path"] for f in spec["files"]]
-    git_ok(["add", "--", *paths], work, "add")
+    if paths:
+        git_ok(["add", "--", *paths], work, "add")
+    for path, mode in sorted(spec["modes"].items()):
+        git_ok(["update-index", "--chmod=" + ("+x" if mode == "755" else "-x"), "--", path], work, "update-index")
     code, _, err = run_git(["diff", "--cached", "--quiet", "--"], work, git_timeout(GIT_LOCAL_TIMEOUT_SECONDS))
     if code not in (0, 1):
         raise ProviderError(f"git diff failed: {one_line(err, 300)}")
@@ -1295,7 +1642,7 @@ def prepare(scratch: Path, work: Path, spec: dict) -> tuple[str, bool, Path]:
 
 
 def dry_run_commit(spec: dict, remote: str, key: str) -> dict:
-    with private_clone(spec["repo"], spec["branch"], remote) as (scratch, work):
+    with private_clone(spec["repo"], spec["branch"], remote, spec["from_branch"]) as (scratch, work, exists):
         base, changed, _ = prepare(scratch, work, spec)
         diff_args = ["diff", "--cached", "--no-color", "--no-ext-diff", "--no-textconv"]
         stat = git_ok([*diff_args, "--stat", "--"], work, "diff").decode("utf-8", "replace")
@@ -1308,19 +1655,22 @@ def dry_run_commit(spec: dict, remote: str, key: str) -> dict:
         "diff_stat": stat, "diff": text[:DIFF_MAX_BYTES].decode("utf-8", "replace"),
         "diff_truncated": len(text) > DIFF_MAX_BYTES, "idempotency_key": key,
         "existing_status": existing.get("status") if existing else None,
+        "deletes": sorted(spec["deletes"]), "modes": [{"path": p, "mode": m} for p, m in sorted(spec["modes"].items())],
+        "from_branch": spec["from_branch"], "branch_exists": exists,
     }
 
 
 def commit_once(spec: dict, remote: str, progress: dict) -> dict:
-    paths = [f["path"] for f in spec["files"]]
-    with private_clone(spec["repo"], spec["branch"], remote) as (scratch, work):
+    paths = [f["path"] for f in spec["files"]] + spec["deletes"]
+    with private_clone(spec["repo"], spec["branch"], remote, spec["from_branch"]) as (scratch, work, _):
         base, changed, message_file = prepare(scratch, work, spec)
         if not changed:
-            check_blobs(work, spec["files"], f"{spec['branch']} as it is")
+            check_blobs(work, spec["files"], f"{spec['branch']} as it is", spec["modes"], spec["deletes"])
             log(f"{spec['branch']} already holds exactly these files; nothing to commit")
             return {"commit": base, "unchanged": True, "pushed": False, "signature": None}
         sha, signature = make_commit(work, message_file, paths)
-        check_blobs(work, spec["files"], "the commit")  # before the push: what goes out is what was approved
+        # before the push: what goes out is what was approved
+        check_blobs(work, spec["files"], "the commit", spec["modes"], spec["deletes"])
         progress.update(pushing=True, attempted_commit=sha)
         push(work, spec["branch"])
         return {"commit": sha, "unchanged": False, "pushed": True, "signature": signature}
@@ -1342,7 +1692,8 @@ def commit_with_retry(spec: dict, remote: str, progress: dict) -> dict:
 def commit_result(key: str, entry: dict, replayed: bool, attempts: int | None = None) -> dict:
     out = {"idempotency_key": key, "repo": entry.get("repo"), "branch": entry.get("branch"),
            "commit": entry.get("commit"), "files": entry.get("files"), "pushed": entry.get("pushed", True),
-           "unchanged": entry.get("unchanged", False), "signature": entry.get("signature"), "replayed": replayed}
+           "unchanged": entry.get("unchanged", False), "signature": entry.get("signature"),
+           "deletes": entry.get("deletes", []), "replayed": replayed}
     if attempts is not None:
         out["attempts"] = attempts
     return out
@@ -1366,10 +1717,11 @@ def cmd_commit_files(args) -> int:
     existing = ledger_claim(key, target)
     if existing:
         if existing.get("kind") != "commit":
-            raise ProviderError(f"idempotency key {key!r} was used for an alert dismissal; use a new key", EXIT_USAGE)
-        if any(existing.get(k) != target[k] for k in COMMIT_TARGET_KEYS):
+            used = "a pull request" if existing.get("kind") == "pull-request" else "an alert dismissal"
+            raise ProviderError(f"idempotency key {key!r} was used for {used}; use a new key", EXIT_USAGE)
+        if any(existing.get(k) != target.get(k) for k in COMMIT_TARGET_KEYS):
             raise ProviderError(f"idempotency key {key!r} was used for another change set (repository, branch, "
-                                "files or message); use a new key for this one", EXIT_USAGE)
+                                "files, deletions, modes, base or message); use a new key for this one", EXIT_USAGE)
         if existing.get("status") == "committed":
             log(f"idempotency key {key!r} already committed this change set; nothing pushed")
             print(json.dumps(commit_result(key, existing, True), indent=2))
@@ -1431,11 +1783,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="github.py",
         description="VCS provider for GitHub: lists a repository's Dependabot alerts and dismisses one (REST API), "
-        "reads one file (REST API), and commits files to a branch (git over SSH, signed by your git configuration).",
+        "reads one file (REST API), commits files to a branch (git over SSH, signed by your git configuration), "
+        "and opens a pull request (REST API).",
         epilog=HELP_EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("verb", nargs="?", choices=["alerts", "dismiss-alert", "read-file", "commit-files", "resolve"],
+    parser.add_argument("verb", nargs="?", choices=["alerts", "dismiss-alert", "read-file", "commit-files", "open-pr",
+                                                 "resolve"],
                         help="the action to run")
     parser.add_argument("--check", action="store_true", help="one authenticated GET; no side effects, no secret printed")
     parser.add_argument("--repo", help="<owner>/<name>")
@@ -1451,19 +1805,33 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--message-file", help="commit-files: UTF-8 file with the commit message")
     parser.add_argument("--file", action="append", metavar="REPO_PATH=LOCAL_FILE",
                         help="commit-files: a file to write; repeat for several")
+    parser.add_argument("--delete", action="append", metavar="REPO_PATH",
+                        help="commit-files: a path the commit removes; repeat for several")
+    parser.add_argument("--mode", action="append", metavar="REPO_PATH=644|755",
+                        help="commit-files: the mode of a --file path in the commit; repeat for several")
+    parser.add_argument("--from-branch", metavar="BASE",
+                        help="commit-files: when --branch does not exist on the remote, start it from this branch")
     parser.add_argument("--allow", action="append", metavar="GLOB",
                         help="commit-files: a pattern every repo path must match; repeat for several")
+    parser.add_argument("--head", help="open-pr: the branch whose changes the pull request proposes")
+    parser.add_argument("--base", help="open-pr: the branch the changes are pulled into")
+    parser.add_argument("--title-file", help="open-pr: UTF-8 file with the title, one line")
+    parser.add_argument("--body-file", help="open-pr: UTF-8 file with the description")
     parser.add_argument("--idempotency-key",
-                        help="dismiss-alert, commit-files and resolve: at most one dismissal or pushed commit per key")
+                        help="dismiss-alert, commit-files, open-pr and resolve: at most one dismissal, pushed commit "
+                        "or pull request per key")
     parser.add_argument("--dismissed", action="store_true", help="resolve: the pending dismissal happened")
     parser.add_argument("--not-dismissed", action="store_true", help="resolve: the pending dismissal did not happen")
     parser.add_argument("--commit", help="resolve: the pending commit reached the branch as this commit sha")
     parser.add_argument("--not-committed", action="store_true", help="resolve: the pending commit did not reach the branch")
+    parser.add_argument("--pull-request", type=int, help="resolve: the pending pull request was opened with this number")
+    parser.add_argument("--not-opened", action="store_true", help="resolve: the pending pull request was not opened")
     parser.add_argument("--dry-run", action="store_true",
-                        help="dismiss-alert: print the exact request; commit-files: clone and print the diff; "
+                        help="dismiss-alert and open-pr: print the exact request; commit-files: clone and print the diff; "
                         "nothing is changed")
     parser.add_argument("--confirmed", action="store_true",
-                        help="required to dismiss, commit or resolve; set by the calling skill's gate")
+                        help="required to dismiss, commit, open a pull request or resolve; set by the calling "
+                        "skill's gate")
     return parser
 
 
@@ -1485,10 +1853,12 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_read_file(args)
         if args.verb == "commit-files":
             return cmd_commit_files(args)
+        if args.verb == "open-pr":
+            return cmd_open_pr(args)
         if args.verb == "resolve":
             return cmd_resolve(args)
-        raise ProviderError("give a verb (alerts, dismiss-alert, read-file, commit-files, resolve) or --check; "
-                            "see --help", EXIT_USAGE)
+        raise ProviderError("give a verb (alerts, dismiss-alert, read-file, commit-files, open-pr, resolve) or "
+                            "--check; see --help", EXIT_USAGE)
     except ProviderError as exc:
         log(f"error: {exc}")
         return exc.code

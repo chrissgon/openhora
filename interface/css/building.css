@@ -1,0 +1,209 @@
+/* building.css: the Building screen: a floor's plate and the phone's floor card, the corner card, the work-order tag, the Building's panel (Project state, Requests, Documents,
+   Floors) and the floor steps. A package for the Building edits this file and test_interface_r4_building.py.
+   Linked by index.html in this order: base, frame, token, city, building, floor, lobby, control, then scene.css. A later rule wins a tie, so a rule that overrides one of the same weight stays in the same file as that rule or in a file that loads after it. */
+
+/* no WebGL on the Building (building.html "No WebGL"): one line in a dashed box in the middle of what the KPI column and the panel leave; the panel has everything */
+@media (min-width: 1100px) {
+  .wb-frame[data-screen="building"].no-scene .wb-scene-fallback {
+    top: 42%;
+    left: calc(var(--wb-kpi-w) + var(--wb-edge) + (100% - var(--wb-kpi-w) - var(--wb-panel-narrow) - 2 * var(--wb-edge)) / 2);
+    width: min(600px, calc(100% - var(--wb-kpi-w) - var(--wb-panel-narrow) - 4 * var(--wb-edge)));
+    max-width: none;
+    padding: 24px;
+    border: 1px dashed var(--pui-border);
+    border-radius: calc(var(--pui-radius) * 1.5);
+    font-size: 12px;
+  }
+}
+
+/* the mode plate: the mode word and its pips (DEVIATION-10: 5 px squares, 1 px radius, 1 px border, 2 px gap) */
+.wb-pips { display: inline-flex; gap: 2px; }
+.wb-pip { box-sizing: border-box; width: var(--wb-pip); height: var(--wb-pip); border: 1px solid currentColor; border-radius: 1px; }
+.wb-pip.is-on { background-color: currentColor; }
+
+.wb-chip-12 { padding: 0 8px; font-size: 12px; }
+
+/* a floor's plate (R-25, R-26; building.html): beside its floor, one size: the name row and the two meters of the day side by side; the name row alone (`is-short`) with more
+   than eight floors, or (`is-tiny`, put on by the scene's stacking) when the column would not fit. It stands 28 px farther from the building than the scene's column puts it,
+   where the page draws it, so the decision mark has room between them (`PLATE_SHIFT` of views/building.js is that margin). The state is a soft badge. A pointer or the focus on the floor's room, its plate or its row marks the three (R-28:
+   `is-hover`, the brand outline and a faint tint of the brand). */
+.wb-plate {
+  position: absolute;
+  top: 0;
+  left: 0;
+  translate: var(--wb-x, 0px) var(--wb-y, 0px);
+  transform: translate(0, -50%);
+  display: grid;
+  gap: 6px;
+  width: var(--wb-plate-w);
+  margin-left: 28px;
+  padding: 8px 12px;
+  border: 1px solid var(--pui-border);
+  border-radius: calc(var(--pui-radius) * 1.2);
+  background-color: var(--wb-raised);
+  box-shadow: var(--wb-elev);
+  font-size: 12px;
+  line-height: 1.25;
+  pointer-events: auto;
+  cursor: pointer;
+  transition: border-color 0.12s, background-color 0.12s;
+}
+.wb-plate.is-culled { visibility: hidden; }
+.wb-plate.is-hover { border-color: var(--pui-theme); background-color: color-mix(in oklab, var(--pui-theme) 8%, var(--wb-raised)); }
+.wb-plate.is-off .wb-plate-name, .wb-fl-row.is-off .wb-fl-name, .wb-floor-card.is-off .wb-fc-name { color: var(--pui-text-muted); }
+.wb-plate-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.wb-plate-name { font-size: 13px; font-weight: 600; }
+/* F1-D6: building.html keeps the mode word whole and cuts the state badge ("waiting f..."): the mode is a word of at most nine ems and a longer one (autonomous-with-policy) is cut with an
+   ellipsis (its whole text is the title) so that it never pushes the state out; the state is what gives way when the row is full, down to three and a half ems, and is itself cut by an ellipsis */
+.wb-plate-mode { flex: 0 0 auto; min-width: 0; max-width: 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--pui-text-muted); }
+.wb-plate-state { display: flex; justify-content: flex-end; flex: 0 1 auto; min-width: 3.5em; margin-left: auto; }
+.wb-st { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.wb-plate-meters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.wb-plate-meter { display: grid; gap: 1px; font-variant-numeric: tabular-nums; }
+.wb-plate-meter strong { font-weight: 600; }
+
+/* the plate at its shortest: the name row alone */
+.wb-plate.is-short, .wb-plate.is-tiny { gap: 0; padding: 6px 12px; }
+.wb-plate.is-short .wb-plate-meters, .wb-plate.is-tiny .wb-plate-meters { display: none; }
+
+/* the phone's floor card (R-26): the name row (dot, name, decisions badge, state badge) and one line of the mode word, the runs and the spend */
+.wb-floor-card {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--pui-border);
+  border-radius: calc(var(--pui-radius) * 1.5);
+  background-color: var(--wb-raised);
+  box-shadow: var(--wb-elev);
+  color: inherit;
+  font-size: 12px;
+  line-height: 1.25;
+  text-decoration: none;
+}
+.wb-fc-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.wb-fc-name { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.wb-fc-state { display: flex; justify-content: flex-end; flex: 1 1 0; min-width: 0; margin-left: auto; }
+.wb-fc-runs { color: var(--pui-text-muted); font-size: 12px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+/* in the corner of the scene: over the canvas at the top right of the free rectangle, never over a panel */
+.wb-corner-card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  translate: var(--wb-x, 0px) var(--wb-y, 0px);
+  transform: translate(-100%, 0);
+  width: var(--wb-card-w);
+  pointer-events: none;
+}
+.wb-corner-card.wb-floor-card { display: grid; }
+.wb-corner-card.is-bottom { transform: translate(0, -100%); }   /* a phone's card hangs from its point: its bottom left corner is the position */
+
+/* R-29: the work-order tag is a badge in the brand colour at the left corner of its floor, outside the drawing: the anchor is its right edge */
+.wb-label.wb-tag { transform: translate(calc(-100% - 20px), -50%); font-variant-numeric: tabular-nums; box-shadow: var(--wb-elev); }
+.wb-label-board {
+  display: grid;
+  gap: 2px;
+  width: max-content;
+  max-width: 24rem;
+  padding: 6px 10px;
+  border: 1px solid var(--pui-border);
+  border-radius: calc(var(--pui-radius) * 1.5);
+  background-color: var(--wb-raised);
+  box-shadow: var(--wb-elev);
+  font-size: 12px;
+  line-height: 1.25;
+  white-space: normal;
+}
+.wb-label-board .wb-label-sub { font-size: 11px; overflow-wrap: anywhere; white-space: normal; }
+
+/* the Building's panel (R-27): the head with Project state as an icon button, the facts, Requests (n), Documents (n) and Floors, some space after the last row */
+.wb-state-btn { flex: none; width: 32px; min-height: 32px; margin-left: auto; padding: 0; }
+.wb-bpanel > .wb-panel-body { grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 14px 12px 28px; overflow-x: hidden; scrollbar-width: thin; }   /* A-50 / M-11: one column as wide as the panel; the panel never scrolls sideways */
+.wb-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 16px; align-items: baseline; margin: 0; padding: 0 4px; font-size: 13px; }
+.wb-facts dt { color: var(--pui-text-muted); font-size: 12px; }
+.wb-facts dt, .wb-facts dd { margin: 0; min-width: 0; }
+.wb-facts-links { display: grid; gap: 2px; }
+.wb-facts a { color: var(--wb-ink-theme); text-decoration: none; overflow-wrap: anywhere; }
+.wb-facts a:hover { text-decoration: underline; }
+.wb-sec { display: grid; gap: 6px; min-width: 0; outline: none; }
+.wb-sec[hidden] { display: none; }
+.wb-sec-head { margin: 0; padding: 0 4px; font-size: 12px; font-weight: 600; }
+.wb-sec-empty { margin: 0; padding: 0 4px; font-size: 12px; }
+.wb-rq-list, .wb-fl-list { display: grid; gap: 2px; min-width: 0; margin: 0; padding: 0; list-style: none; }
+.wb-rq { display: grid; grid-template-columns: minmax(0, 1fr) auto; min-width: 0; align-items: start; padding-right: 6px; border-radius: var(--pui-radius); }
+.wb-rq:hover { background-color: var(--wb-ground); }
+.wb-rq.is-selected { background-color: var(--pui-bg-emphasis); }
+.wb-rq-main { display: grid; grid-template-columns: auto minmax(0, auto) auto minmax(0, 1fr); grid-template-areas: "n title chip ." "n sub sub sub"; align-items: center; gap: 2px 8px; min-width: 0; overflow: hidden; padding: 8px 4px 8px 8px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.wb-rq-n { grid-area: n; align-self: start; flex: none; min-width: max-content; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wb-rq-title { grid-area: title; min-width: 0; overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+/* A-50 / M-11: the title is the one part that shrinks (a column of `minmax(0, auto)` ending in an ellipsis); the number, the state badge and the chevron keep their size */
+.wb-rq-state { grid-area: chip; justify-self: start; flex: none; min-width: max-content; white-space: nowrap; }
+.wb-rq-sub { grid-area: sub; min-width: 0; overflow: hidden; color: var(--pui-text-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.wb-rq-cancel { grid-column: 1 / -1; justify-self: start; min-height: 0; margin: -2px 0 6px 44px; padding: 2px 0; font-size: 12px; }
+.wb-rq-open { flex: none; min-width: 28px; min-height: 28px; margin-top: 8px; padding: 6px; }
+.wb-docs { grid-template-columns: minmax(0, 1fr); }
+.wb-docs-link { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: var(--pui-radius); color: inherit; text-decoration: none; }
+.wb-docs-link:hover { background-color: var(--wb-ground); }
+.wb-docs-link > .wb-icon:first-child { color: var(--wb-ink-theme); }
+.wb-fl-item { padding: 0; }
+.wb-fl-row { display: grid; grid-template-columns: auto minmax(0, auto) minmax(0, 1fr) 14px; grid-template-areas: "dot title state chev" ". chips chips chev"; align-items: center; gap: 3px 8px; padding: 7px 8px; border: 1px solid transparent; border-radius: var(--pui-radius); color: inherit; text-decoration: none; transition: border-color 0.12s, background-color 0.12s; }
+.wb-fl-row:hover { background-color: var(--wb-ground); }
+.wb-fl-row.is-hover { border-color: var(--pui-theme); background-color: color-mix(in oklab, var(--pui-theme) 8%, var(--wb-raised)); }
+.wb-fl-row > .wb-dot { grid-area: dot; }
+.wb-fl-title { grid-area: title; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.wb-fl-name { font-weight: 600; }
+.wb-fl-state { grid-area: state; display: flex; justify-content: flex-end; min-width: 0; }
+.wb-fl-chips { grid-area: chips; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 12px; }
+.wb-fl-mode { color: var(--pui-text-muted); font-size: 12px; }
+.wb-fl-chev { grid-area: chev; display: inline-flex; margin-left: auto; color: var(--pui-text-muted); }
+.wb-docs-link > .wb-fl-chev { margin-left: auto; }
+.wb-acting { font-size: 11px; }
+
+@media (prefers-reduced-motion: reduce) { .wb-plate, .wb-fl-row { transition: none; } }
+.wb-floor-steps { position: absolute; right: 10px; bottom: 10px; z-index: 2; display: none; gap: 4px; justify-items: center; }
+.wb-floor-step { padding: 10px; background-color: var(--wb-raised); box-shadow: var(--wb-elev); }
+.wb-floor-step.is-above .wb-icon { rotate: 180deg; }
+.wb-floor-counter { color: var(--pui-text-muted); font-size: 11px; }
+
+@media (max-width: 899px) {
+  .wb-floor-steps { bottom: 0; display: grid; translate: 0 calc(0px - var(--wb-y, 10px)); }   /* level with the camera buttons, above the cards and the sheet */
+  .wb-floor-steps[hidden] { display: none; }
+  :root { --wb-card-w: 300px; }   /* the floor card: 300 px at 375 px (building.html draws 280; the name is 16 px, M-32), clear of the floor steps at the right */
+  .wb-bpanel > .wb-panel-body { padding: 12px 12px 28px; }
+  .wb-fl-row, .wb-rq-main { min-height: 44px; }
+  /* M-32: on a phone the reading text is 16 px: the panel's facts, request titles and detail lines, the documents line, floor names, the section heads, the empty lines, the cancel
+     button and the floor card's name; chips, badges, counters and the mode word are meta and stand at 12 px, never below. A scene label of the Floor (the board's) is 12 */
+  .wb-facts, .wb-facts dt { font-size: 16px; }
+  .wb-rq-title, .wb-rq-n, .wb-rq-sub, .wb-docs-link, .wb-fl-name, .wb-sec-head, .wb-sec-empty { font-size: 16px; }
+  .wb-rq-cancel { min-height: 32px; font-size: 16px; }
+  .wb-fl-mode, .wb-fl-chips, .wb-st, .wb-acting, .wb-floor-counter, .wb-fc-runs, .wb-label-board .wb-label-sub { font-size: 12px; }
+  .wb-fc-name { font-size: 16px; }   /* the card's line of mode, runs and spend is a meta line: at 12 px the card is two lines and the room above the sheet keeps its height */
+}
+
+.wb-chip-waiting { font-weight: 400; }
+
+/* the Lobby's door label (A-59, M-17): text alone, laid out at 106 by 60 px and mapped onto the plate of the door by the matrix labels.js writes (`--wb-a` to `--wb-d`; `FIT_SIZE`), so it
+   is the plate's own size and slant and follows it with the camera; the plate in the scene is its ground, so it has no background, border or shadow */
+.wb-label-fit {
+  width: 106px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform-origin: 0 0;
+  transform: matrix(var(--wb-a, 1), var(--wb-b, 0), var(--wb-c, 0), var(--wb-d, 1), 0, 0);
+  color: var(--pui-text);
+  font-size: 23px;   /* two lines in the box: "Control" over "room"; the matrix scales them to the plate, about 12 px high on the screen at the Lobby's camera at 1280 */
+  font-weight: 600;
+  line-height: 1.1;
+  text-align: center;
+  white-space: normal;   /* two lines, not one: one line would be a smaller type on the same plate; a word is never broken, and what a wider fallback font pushes out of the plate is clipped */
+  overflow-wrap: normal;
+  overflow: hidden;
+  background: none;
+  border: 0;
+  box-shadow: none;
+  pointer-events: none;
+}
+.wb-label-fit .wb-door-tag { pointer-events: none; }

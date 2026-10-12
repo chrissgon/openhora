@@ -33,12 +33,12 @@ def compute(pack: str, root: Path = ROOT) -> dict:
 
 
 def listed(names: list[str], root: Path) -> int:
-    """The characters of the lines `- ai-workbench:<name>: <description>`, read independently of the script."""
+    """The characters of the lines `- openhora:<name>: <description>`, read independently of the script."""
     total = 0
     for name in names:
         fm, _ = split_frontmatter(str(root / "skills" / name / "SKILL.md"))
         description = str(load_yaml(fm)["description"]).strip()
-        total += len(f"- ai-workbench:{name}: {description}\n")
+        total += len(f"- openhora:{name}: {description}\n")
     return total
 
 
@@ -102,7 +102,7 @@ def files(folder: Path) -> list[str]:
 
 
 def backups(folder: Path) -> list[Path]:
-    return sorted(folder.glob("*.ai-workbench-*.bak"))
+    return sorted(folder.glob("*.openhora-*.bak"))
 
 
 def test_the_fixture_budget_is_exact(wb):
@@ -152,7 +152,7 @@ def test_write_merges_keeps_every_key_backs_up_and_uninstall_puts_it_back(wb, tm
     assert out["written"] is True and out["file"] == str(settings)
     [backup] = backups(folder)
     assert out["backup"] == str(backup) and backup.read_text(encoding="utf-8") == original
-    assert (tmp_path / "cc" / "skills" / "ai-workbench").is_symlink(), "the plugin is installed as well"
+    assert (tmp_path / "cc" / "skills" / "openhora").is_symlink(), "the plugin is installed as well"
     assert files(tmp_path / "home") == [], "the project scope never writes into the home"
 
     r = install(wb, "--uninstall")

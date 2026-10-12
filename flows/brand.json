@@ -1,0 +1,57 @@
+{
+  "flow": "brand",
+  "title": "Brand of a product or company",
+  "tasks": [
+    {
+      "key": "strategy",
+      "skill": "brand-strategy",
+      "title": "Brand strategy",
+      "text": "write the brand strategy for this request (docs/brand/strategy.md): what the brand stands for, who it speaks to and what it may claim.",
+      "depends_on": [],
+      "milestone": true
+    },
+    {
+      "key": "name",
+      "skill": "brand-name",
+      "title": "Name",
+      "text": "the brand strategy is done (docs/brand/strategy.md). Find or check the name for this request, where it is free and who else uses it, and write docs/brand/name.md.",
+      "depends_on": [
+        "strategy"
+      ],
+      "milestone": true
+    },
+    {
+      "key": "identity",
+      "skill": "brand-identity",
+      "title": "Visual identity",
+      "text": "the brand strategy is done (docs/brand/strategy.md). Define the visual identity, build its first piece and write docs/brand/identity.md.",
+      "depends_on": [
+        "strategy"
+      ],
+      "milestone": true
+    },
+    {
+      "key": "voice",
+      "skill": "brand-voice",
+      "title": "Voice",
+      "text": "the brand strategy is done (docs/brand/strategy.md). Write how the brand speaks: docs/brand/voice.md. This skill reads docs/brand/profile.md, which no task of this flow writes: for a product or company brand the person writes it by hand, with at least three samples of the brand's own writing marked as theirs (the skill that writes a profile is for a person's brand, not for this).",
+      "depends_on": [
+        "strategy"
+      ],
+      "milestone": false
+    },
+    {
+      "key": "guidelines",
+      "skill": "brand-guidelines",
+      "title": "Brand guide",
+      "text": "the strategy, the name, the identity and the voice are done (docs/brand/). Compile them into one guide: docs/brand/guidelines.md.",
+      "depends_on": [
+        "strategy",
+        "name",
+        "identity",
+        "voice"
+      ],
+      "milestone": true
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "skill": "brand-strategy",
+  "documents": [
+    {"path": "docs/brand/strategy.md", "checks": [], "platform": "editable", "bound_to_approval": false}
+  ],
+  "machine_files": [],
+  "mandatory_milestone": false,
+  "asking_openings": ["Nothing was written"],
+  "gate": null,
+  "reply_phrases": {
+    "missing_input": ["writes them"]
+  }
+}

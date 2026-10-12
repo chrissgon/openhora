@@ -1,0 +1,3 @@
+# The planning agent's scope: the router skill and the brief (runtime/manifest.py, PACKS_IN_USE).
+core-orchestrator
+core-clarify

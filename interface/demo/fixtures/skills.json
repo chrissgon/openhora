@@ -1,0 +1,1404 @@
+{
+  "skills": [
+    {
+      "name": "biz-icp-positioning",
+      "version": "1.0.0",
+      "area": "business",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.85,
+          "mean": 1.0,
+          "runs": 9
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.79,
+          "mean": 0.96,
+          "runs": 9
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "biz-market-analysis",
+      "version": "1.0.0",
+      "area": "business",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.87,
+          "mean": 0.97,
+          "runs": 18
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.74,
+          "mean": 0.87,
+          "runs": 18
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "brand-guidelines",
+      "version": "1.0.0",
+      "area": "brand",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.79,
+          "mean": 1.0,
+          "runs": 6
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.79,
+          "mean": 1.0,
+          "runs": 6
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "brand-identity",
+      "version": "1.0.0",
+      "area": "brand",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.85,
+          "mean": 1.0,
+          "runs": 9
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.82,
+          "mean": 0.98,
+          "runs": 9
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "brand-name",
+      "version": "1.0.0",
+      "area": "brand",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.8,
+          "mean": 0.97,
+          "runs": 9
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.75,
+          "mean": 0.94,
+          "runs": 9
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "brand-profile",
+      "version": "1.0.0",
+      "area": "brand",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.76,
+          "mean": 0.98,
+          "runs": 6
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.76,
+          "mean": 0.98,
+          "runs": 6
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "brand-strategy",
+      "version": "1.1.0",
+      "area": "brand",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.79,
+          "mean": 0.96,
+          "runs": 9
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.77,
+          "mean": 0.95,
+          "runs": 9
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "brand-voice",
+      "version": "1.0.0",
+      "area": "brand",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.79,
+          "mean": 1.0,
+          "runs": 6
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.79,
+          "mean": 1.0,
+          "runs": 6
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "core-agents-md",
+      "version": "1.0.0",
+      "area": "core",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.75,
+          "mean": 0.93,
+          "runs": 9
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.75,
+          "mean": 0.93,
+          "runs": 9
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "core-clarify",
+      "version": "1.0.0",
+      "area": "core",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.85,
+          "mean": 1.0,
+          "runs": 9
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.85,
+          "mean": 1.0,
+          "runs": 9
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "core-critique",
+      "version": "2.1.0",
+      "area": "core",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.88,
+          "mean": 1.0,
+          "runs": 12
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.75,
+          "mean": 0.91,
+          "runs": 12
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "core-orchestrator",
+      "version": "2.2.0",
+      "area": "core",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.92,
+          "mean": 0.98,
+          "runs": 30
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.93,
+          "mean": 0.99,
+          "runs": 30
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "core-project-init",
+      "version": "1.0.0",
+      "area": "core",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.9,
+          "mean": 1.0,
+          "runs": 15
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.9,
+          "mean": 1.0,
+          "runs": 15
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "core-research",
+      "version": "1.1.0",
+      "area": "core",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.85,
+          "mean": 0.97,
+          "runs": 15
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.85,
+          "mean": 0.97,
+          "runs": 15
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "core-security-audit",
+      "version": "1.0.0",
+      "area": "core",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.88,
+          "mean": 1.0,
+          "runs": 12
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.88,
+          "mean": 1.0,
+          "runs": 12
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "core-skill-creator",
+      "version": "3.1.0",
+      "area": "core",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.72,
+          "mean": 0.87,
+          "runs": 15
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "watch",
+          "cause": "case(s) 2, 3, 4 changed after the newest full test and wait for their runs (case 2 had 3 run(s) of mean 0.944; case 3 had 3 run(s) of mean 0.667; case 4 had 3 run(s) of mean 1.000)",
+          "score": 0.83,
+          "mean": 0.96,
+          "runs": 15
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "design-brief",
+      "version": "1.1.0",
+      "area": "design",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.85,
+          "mean": 1.0,
+          "runs": 9
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.81,
+          "mean": 0.98,
+          "runs": 9
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "design-execute",
+      "version": "2.0.0",
+      "area": "design",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.88,
+          "mean": 0.99,
+          "runs": 15
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.9,
+          "mean": 1.0,
+          "runs": 15
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "design-handoff",
+      "version": "1.0.0",
+      "area": "design",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.79,
+          "mean": 1.0,
+          "runs": 6
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.79,
+          "mean": 1.0,
+          "runs": 6
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "design-system",
+      "version": "2.0.0",
+      "area": "design",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.83,
+          "mean": 0.97,
+          "runs": 12
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.8,
+          "mean": 0.94,
+          "runs": 12
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "design-ux-flows",
+      "version": "1.0.0",
+      "area": "design",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.71,
+          "mean": 0.94,
+          "runs": 6
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.5 failed in the current set",
+          "score": 0.57,
+          "mean": 0.83,
+          "runs": 6
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "eng-architecture",
+      "version": "1.2.0",
+      "area": "engineering",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.88,
+          "mean": 1.0,
+          "runs": 12
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.85,
+          "mean": 0.98,
+          "runs": 12
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "eng-code-review",
+      "version": "1.1.0",
+      "area": "engineering",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.88,
+          "mean": 1.0,
+          "runs": 12
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.88,
+          "mean": 1.0,
+          "runs": 12
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "eng-codebase-map",
+      "version": "1.1.0",
+      "area": "engineering",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.85,
+          "mean": 1.0,
+          "runs": 9
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "needs a test",
+          "cause": "guard assertion(s) 1.5 failed in the current set",
+          "score": 0.81,
+          "mean": 0.98,
+          "runs": 9
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "eng-docs",
+      "version": "1.0.0",
+      "area": "engineering",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.8,
+          "mean": 0.94,
+          "runs": 12
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "watch",
+          "cause": "the pessimistic score 0.68 is under 0.70",
+          "score": 0.68,
+          "mean": 0.85,
+          "runs": 12
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "eng-impact-analysis",
+      "version": "1.0.0",
+      "area": "engineering",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.85,
+          "mean": 1.0,
+          "runs": 9
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.85,
+          "mean": 1.0,
+          "runs": 9
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "eng-implement",
+      "version": "1.0.0",
+      "area": "engineering",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.85,
+          "mean": 0.98,
+          "runs": 12
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.81,
+          "mean": 0.96,
+          "runs": 12
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "eng-integration-tests",
+      "version": "1.0.0",
+      "area": "engineering",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.85,
+          "mean": 1.0,
+          "runs": 9
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.71,
+          "mean": 0.91,
+          "runs": 9
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "eng-refactor",
+      "version": "1.0.0",
+      "area": "engineering",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.85,
+          "mean": 1.0,
+          "runs": 9
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.85,
+          "mean": 1.0,
+          "runs": 9
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "eng-root-cause",
+      "version": "1.0.0",
+      "area": "engineering",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.85,
+          "mean": 0.98,
+          "runs": 12
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.88,
+          "mean": 1.0,
+          "runs": 12
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "eng-security-review",
+      "version": "2.0.0",
+      "area": "engineering",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.9,
+          "mean": 1.0,
+          "runs": 15
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.9,
+          "mean": 1.0,
+          "runs": 15
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "eng-tradeoffs",
+      "version": "1.0.0",
+      "area": "engineering",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.85,
+          "mean": 1.0,
+          "runs": 9
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.85,
+          "mean": 1.0,
+          "runs": 9
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "eng-unit-tests",
+      "version": "1.0.0",
+      "area": "engineering",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.85,
+          "mean": 1.0,
+          "runs": 9
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.85,
+          "mean": 1.0,
+          "runs": 9
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "flow-fix-bug",
+      "version": "1.2.0",
+      "area": "core",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.9,
+          "mean": 0.98,
+          "runs": 21
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.93,
+          "mean": 1.0,
+          "runs": 21
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "mkt-content-plan",
+      "version": "1.0.0",
+      "area": "marketing",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.79,
+          "mean": 1.0,
+          "runs": 6
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.79,
+          "mean": 1.0,
+          "runs": 6
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "mkt-engage",
+      "version": "1.2.0",
+      "area": "marketing",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.9,
+          "mean": 1.0,
+          "runs": 15
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.84,
+          "mean": 0.96,
+          "runs": 15
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "mkt-messaging",
+      "version": "1.0.0",
+      "area": "marketing",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.85,
+          "mean": 1.0,
+          "runs": 9
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.74,
+          "mean": 0.93,
+          "runs": 9
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "mkt-publish",
+      "version": "1.0.0",
+      "area": "marketing",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.88,
+          "mean": 1.0,
+          "runs": 12
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.88,
+          "mean": 1.0,
+          "runs": 12
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "mkt-social-copy",
+      "version": "1.0.0",
+      "area": "marketing",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.77,
+          "mean": 0.92,
+          "runs": 12
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "needs a test",
+          "cause": "guard assertion(s) 2.3 failed in the current set",
+          "score": 0.7,
+          "mean": 0.87,
+          "runs": 12
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "mkt-vote-round",
+      "version": "1.0.0",
+      "area": "marketing",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.78,
+          "mean": 0.96,
+          "runs": 9
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.82,
+          "mean": 0.98,
+          "runs": 9
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "ops-branch-sync",
+      "version": "1.0.0",
+      "area": "delivery",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.9,
+          "mean": 1.0,
+          "runs": 15
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.89,
+          "mean": 1.0,
+          "runs": 15
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "ops-ci-pipeline",
+      "version": "2.0.0",
+      "area": "delivery",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.88,
+          "mean": 1.0,
+          "runs": 12
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.88,
+          "mean": 1.0,
+          "runs": 12
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "ops-pull-request",
+      "version": "1.0.0",
+      "area": "delivery",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.92,
+          "mean": 1.0,
+          "runs": 18
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.88,
+          "mean": 0.98,
+          "runs": 18
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "ops-repo-baseline",
+      "version": "1.0.0",
+      "area": "delivery",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.83,
+          "mean": 0.97,
+          "runs": 12
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.88,
+          "mean": 1.0,
+          "runs": 12
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "product-backlog",
+      "version": "1.0.0",
+      "area": "product",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.9,
+          "mean": 1.0,
+          "runs": 15
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.9,
+          "mean": 1.0,
+          "runs": 15
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "product-feature-spec",
+      "version": "1.0.0",
+      "area": "product",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.85,
+          "mean": 1.0,
+          "runs": 9
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.81,
+          "mean": 0.98,
+          "runs": 9
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "product-prd",
+      "version": "1.0.0",
+      "area": "product",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.85,
+          "mean": 1.0,
+          "runs": 9
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.85,
+          "mean": 1.0,
+          "runs": 9
+        }
+      ],
+      "runs_here": 0
+    },
+    {
+      "name": "product-roadmap",
+      "version": "1.0.0",
+      "area": "product",
+      "manifest": true,
+      "proof": [
+        {
+          "tier": "strong",
+          "model": "reference-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.85,
+          "mean": 1.0,
+          "runs": 9
+        },
+        {
+          "tier": "floor",
+          "model": "floor-model",
+          "adapter": "adapter",
+          "band": "reliable",
+          "cause": null,
+          "score": 0.85,
+          "mean": 1.0,
+          "runs": 9
+        }
+      ],
+      "runs_here": 0
+    }
+  ],
+  "checks": {
+    "measurement": "ok",
+    "image": "ok"
+  },
+  "snapshot": {
+    "commit": "6ffd720ce5fd",
+    "source": "docs/inventory.md"
+  }
+}

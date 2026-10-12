@@ -1,0 +1,6 @@
+{
+  "skill": "core-agents-md",
+  "reply_phrases": {
+    "question_intros": ["Decisions needed"]
+  }
+}

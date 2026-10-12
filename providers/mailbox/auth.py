@@ -199,7 +199,7 @@ class CallbackServer:
                 else:
                     owner.outcome["code"] = query["code"][0]
                     status, text = 200, "Authorization received. You can close this tab and return to the terminal."
-                body = f"<!doctype html><title>ai-workbench</title><p>{text}</p>".encode()
+                body = f"<!doctype html><title>openhora</title><p>{text}</p>".encode()
                 self.send_response(status)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))

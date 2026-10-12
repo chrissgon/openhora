@@ -1,0 +1,6 @@
+{
+  "skill": "eng-security-review",
+  "reply_phrases": {
+    "gate_questions": ["alerts? (yes/no)"]
+  }
+}

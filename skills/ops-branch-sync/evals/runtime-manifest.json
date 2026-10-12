@@ -1,0 +1,6 @@
+{
+  "skill": "ops-branch-sync",
+  "reply_phrases": {
+    "gate_questions": ["Push? (yes/no)"]
+  }
+}

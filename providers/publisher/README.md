@@ -18,7 +18,7 @@ Publishes one post as the authenticated member through the versioned Posts API (
    export LINKEDIN_CLIENT_SECRET=...
    ```
 
-5. Run `uv run providers/publisher/auth.py --provider linkedin` and approve in the browser. The access token and its expiry go to the OS secret store (service `ai-workbench`, username `publisher-linkedin`), never to disk in plain text.
+5. Run `uv run providers/publisher/auth.py --provider linkedin` and approve in the browser. The access token and its expiry go to the OS secret store (service `openhora`, username `publisher-linkedin`), never to disk in plain text. A record authorised before the rename is still read through the fallback to the old service, so authorising again is not required (`contracts/secrets.md`).
 6. Verify: `uv run providers/publisher/linkedin.py --check`.
 
 Access tokens last 60 days and self-serve apps get no refresh token. `--check` warns under 7 days; rerun step 5 before expiry.
@@ -37,6 +37,8 @@ uv run providers/publisher/linkedin.py comment --platform linkedin \
     (--dry-run | --confirmed)
 uv run providers/publisher/linkedin.py resolve --idempotency-key <k> \
     (--post-id <urn> | --comment-id <urn> | --not-published) --confirmed
+uv run providers/publisher/linkedin.py posts --platform linkedin \
+    --since <ISO-8601 with an offset>
 ```
 
 `--post-id`, `--comment-id` and `--parent-comment-id` are the generic names of the publisher class (`providers/CONTRACT.md`, "Identifiers of a class with a parameter"): a caller passes the value it was given and never builds one. On this platform a post id is a post URN and a comment id is a comment URN; their shapes are below and in `shared/references/platforms/linkedin.md`. The names in use before 2026-10-02, `--post-urn`, `--comment-urn` and `--parent-comment`, are accepted as aliases.
@@ -58,6 +60,19 @@ The dry run reads no token and sends nothing, so the author URN is shown as a pl
 `comment` posts one comment as the member on a post, or a reply to a comment. The post is given by `--on-key` (the post's publish idempotency key; its ledger entry must be `published`, otherwise the command exits 2) or by `--post-id` (`urn:li:share:<digits>`, `urn:li:ugcPost:<digits>` or `urn:li:activity:<digits>`). `--parent-comment-id urn:li:comment:(urn:li:activity:<digits>,<digits>)` makes it a reply: the request goes to the parent comment and the body carries `parentComment`. Both URNs go into the request path, so their shape is checked strictly and they are URL-encoded. It needs `--confirmed` or `--dry-run`, and prints `comment_urn`, `post_urn`, `parent_comment`, `idempotency_key`, `replayed` and the token expiry fields.
 
 A comment's text is sent as written: the Comments API carries a comment as text plus `attributes` (mentions), not in the little text format, so nothing is escaped. No comment length limit is documented on the Comments API page, so none is enforced; an empty text is refused. LinkedIn limits comment creation per member per minute (`429 Comment create throttled`); the command then exits 1 and the key stays `pending`: a 429 does not say whether the comment was taken, so check the post's comments and run `resolve` before the same command runs again.
+
+### The posts verb
+
+`posts` lists the published posts the ledger records, for a caller that needs them without the network (the task runtime's weekly routine of published posts, `runtime/handlers/published_posts.py`). It is read-only: it reads the ledger and nothing else, reads no token, sends no request, takes no lock and writes nothing, so it needs neither `--confirmed` nor `--dry-run`. A post is an entry whose status is `published` (an entry written before the ledger's version 2 has no status and counts as published when it holds a post URN) and whose kind is not `comment`, so a first comment and a reply are never listed. `--since` must state its offset (`+00:00`, `Z`, ...); a time without one is refused with exit 2. It prints:
+
+```json
+{"platform": "linkedin", "since": "<--since as given>", "ledger": "<the ledger read>",
+ "posts": [{"idempotency_key": "<k>", "post_url": "https://www.linkedin.com/feed/update/<post urn>/",
+            "published_at": "<the entry's created_at>"}],
+ "undated": ["<k>"]}
+```
+
+`posts` holds the posts whose `created_at` is at or after `--since`, oldest first. `published_at` is the entry's `created_at`, written when LinkedIn answered the post with 201; for a key settled by `resolve --post-id` it is the time `resolve` ran, which can be later than the post. A published post without a readable `created_at` (an entry written before version 2) is listed by key under `undated`, whatever `--since`: no time is derived for it, and the caller decides what to do (the weekly routine stops and lists nothing).
 
 ### At most once per key
 
@@ -92,4 +107,4 @@ Sources, accessed 2026-09-29: [Comments API](https://learn.microsoft.com/en-us/l
 uv run --with pytest==9.1.1 pytest providers/publisher/tests
 ```
 
-The tests use a local fake server and a fake token; they need no network and no credentials.
+The tests use a local fake server and a fake token; they need no network and no credentials. The tests of `posts` (`tests/test_publisher_posts_verb.py`) read a ledger the test writes, with invented keys and post ids.

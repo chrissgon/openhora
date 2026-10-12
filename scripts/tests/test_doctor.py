@@ -5,6 +5,7 @@ Run: uv run --with pytest pytest scripts/tests
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -162,3 +163,18 @@ def test_a_class_the_resolver_does_not_know_is_reported_as_unknown_without_a_tra
         "teleporter": "unknown", "reader:rss": "unknown", "store:runtime": "provider", "mailbox": "provider"}
     assert report["missing"] == 2
     assert doctor.main(["--strict"]) == 1
+
+
+def test_the_secrets_report_names_the_store_service_that_answered(monkeypatch):
+    """The compatibility stage of the rename (T23): a secret stored under the old service is found and says so."""
+    import types
+    held = {("ai-workbench", "github"): "zz-not-a-real-value-41", ("openhora", "notion"): "zz-not-a-real-value-41"}
+    fake = types.ModuleType("keyring")
+    fake.get_password = lambda service, username: held.get((service, username))
+    monkeypatch.setitem(sys.modules, "keyring", fake)
+    for name in ("VCS_GITHUB_TOKEN", "GITHUB_TOKEN", "NOTION_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    rows = {row["name"]: row for row in doctor.secrets_report({})}
+    assert rows["VCS_GITHUB_TOKEN"]["found"] and rows["VCS_GITHUB_TOKEN"]["service"] == "ai-workbench (legacy)"
+    assert rows["NOTION_TOKEN"]["found"] and rows["NOTION_TOKEN"]["service"] == "openhora"
+    assert "zz-not-a-real-value-41" not in json.dumps(list(rows.values()))

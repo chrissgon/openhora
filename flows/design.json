@@ -1,0 +1,89 @@
+{
+  "flow": "design",
+  "title": "Design",
+  "tasks": [
+    {
+      "key": "spec",
+      "skill": "product-feature-spec",
+      "title": "Feature specification",
+      "text": "write the feature specification for this request. The feature's name, and so the file docs/product/specs/<feature>.md, come from the request: what it is and is not, each screen and what is in it, the actions a person can take, and the requirements with numbers (responsiveness, animation, accessibility, performance).",
+      "depends_on": [],
+      "milestone": true
+    },
+    {
+      "key": "flows",
+      "skill": "design-ux-flows",
+      "title": "UX flows",
+      "text": "the feature specification is done (docs/product/specs/). Define the information architecture, the screen inventory with the regions and states of each screen, and the user flows with their failure branches and the keyboard path: write docs/design/flows.md.",
+      "depends_on": [
+        "spec"
+      ],
+      "milestone": true
+    },
+    {
+      "key": "system",
+      "skill": "design-system",
+      "title": "Design system",
+      "text": "the UX flows are done (docs/design/flows.md). Define the visual foundations the screens are built from (colours with light and dark values, type, spacing, radii, elevation, grid and the components), with the component library and the brand identity the request names, and write the design system document in docs/design/, where the briefs will read it.",
+      "depends_on": [
+        "flows"
+      ],
+      "milestone": true
+    },
+    {
+      "key": "brief-city",
+      "skill": "design-brief",
+      "title": "Brief: City screen",
+      "text": "the design system and the UX flows are done (the design system document and docs/design/flows.md, both under docs/design/). Write the design brief of the City screen, which the request and the flows document describe (the scene of the buildings, one per project, with the open-decisions badge, the running sign, the summary cards and the list of what waits for the person): docs/design/briefs/city.md.",
+      "depends_on": [
+        "system",
+        "flows"
+      ],
+      "milestone": false
+    },
+    {
+      "key": "brief-building",
+      "skill": "design-brief",
+      "title": "Brief: Building screen",
+      "text": "the design system and the UX flows are done (the design system document and docs/design/flows.md, both under docs/design/). Write the design brief of the Building screen, which the request and the flows document describe (one building in cross-section, one floor per agent, with its mode, its lights and its use of the day): docs/design/briefs/building.md.",
+      "depends_on": [
+        "system",
+        "flows"
+      ],
+      "milestone": false
+    },
+    {
+      "key": "brief-floor",
+      "skill": "design-brief",
+      "title": "Brief: Floor screen",
+      "text": "the design system and the UX flows are done (the design system document and docs/design/flows.md, both under docs/design/). Write the design brief of the Floor screen, which the request and the flows document describe (the inside of one floor: the agent at its desk, the project's documents and the inbox of pending decisions): docs/design/briefs/floor.md.",
+      "depends_on": [
+        "system",
+        "flows"
+      ],
+      "milestone": false
+    },
+    {
+      "key": "brief-lobby",
+      "skill": "design-brief",
+      "title": "Brief: Lobby screen",
+      "text": "the design system and the UX flows are done (the design system document and docs/design/flows.md, both under docs/design/). Write the design brief of the Lobby screen, which the request and the flows document describe (the planning floor: the conversation, the plans and the door to the control room): docs/design/briefs/lobby.md.",
+      "depends_on": [
+        "system",
+        "flows"
+      ],
+      "milestone": false
+    },
+    {
+      "key": "brief-control-room",
+      "skill": "design-brief",
+      "title": "Brief: Control room screen",
+      "text": "the design system and the UX flows are done (the design system document and docs/design/flows.md, both under docs/design/). Write the design brief of the Control room screen, which the request and the flows document describe (the skills and their bands, the costs and the connections): docs/design/briefs/control-room.md.",
+      "depends_on": [
+        "system",
+        "flows"
+      ],
+      "milestone": false
+    }
+  ]
+}

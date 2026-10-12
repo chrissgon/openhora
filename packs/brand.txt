@@ -1,0 +1,7 @@
+# The brand area's flow skills: the scope of the task runtime's brand area agent (runtime/manifest.py, PACKS_IN_USE).
+# brand-profile is left out: it is a person's profile, not a step of the brand flow.
+brand-strategy
+brand-name
+brand-identity
+brand-voice
+brand-guidelines

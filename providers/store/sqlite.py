@@ -7,8 +7,23 @@
 
 Tables: cursors (where a trigger source left off), events (triggers to handle, deduplicated and
 claimed atomically), runs (one row per agent run), inbox (what waits for the user) and actions
-(outward actions the runtime executed, for daily limits and audit). The runtime calls this script
-through its CLI, so another implementation of the `store:runtime` class can replace it (STORE_PROVIDER).
+(outward actions the runtime executed, for daily limits and audit). The first runtime (scripts/runtime.py) calls
+this script through its CLI, so another implementation of the `store:runtime` class can replace it (STORE_PROVIDER).
+
+Since schema version 2 the file also holds the tables of the task runtime (runtime/): tasks (a request and the
+tasks of its plan), task_runs (one row per run of a skill on a task) and pending_decisions (what a task waits
+for the person to decide). Those three are read and written through the functions of the section "the task
+runtime" below, which runtime/ops.py imports: one function call is one transaction. They have no CLI verb;
+`export` prints them. Schema version 4 adds a task's item on the task board (three columns of tasks), the
+records of documents mirrored to a platform (document_records) and the comments saved from a platform
+(platform_comments), under the same rule. Schema version 5 adds the approvals table (approvals): what the person
+approved, of the three scopes of contracts/environment.md, a record that only grows. Schema version 6 adds the
+messages of the conversation with the planning agent (conversation_messages), and the functions the dispatcher needs
+(a named task claimed, tasks added to a plan, the runs of a period, the actions counted in process). Schema version 7
+adds triggers that refuse to delete a task, a task run or a pending decision (limit L13, as for the approvals). Schema
+version 8 adds the derived waits between requests: the `after_request` column of a request and the task_waits table (a
+planned task waits for another task, or for a whole request, with the reason shown to the person), under the same rule.
+Schema version 9 adds the `billing` column of task_runs: how the credential a run used is billed (or `unknown`), which the daily caps count by.
 
 Concurrency: the database runs in WAL mode (readers never block the writer) with a 10-second busy
 timeout, and every write is one BEGIN IMMEDIATE transaction, so several agents and overlapping
@@ -35,7 +50,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 9
 BUSY_TIMEOUT_SECONDS = 10
 PATH_ENV = "STORE_SQLITE_PATH"
 
@@ -47,6 +62,8 @@ TITLE_MAX = 1024          # inbox titles
 REF_MAX = 512             # external ids, targets, idempotency keys
 LABEL_MAX = 128           # source, name, kind, agent, trigger, by
 PATH_MAX = 4096           # --out-dir, --db
+TEXT_MAX = 64 * 1024      # the text of a request or a task, an answer
+BODY_MAX = 1024 * 1024    # the body of a pending decision: a model's whole reply
 INT_MIN, INT_MAX = -2 ** 63, 2 ** 63 - 1  # SQLite's INTEGER; a Python int past it cannot be stored or compared
 
 LIMITS = {"event-next": (1, 1, 100), "runs": (20, 1, 1000), "inbox-list": (100, 1, 1000),
@@ -133,6 +150,187 @@ MIGRATIONS = {
             result TEXT NOT NULL,
             created_at TEXT NOT NULL)""",
         "CREATE INDEX actions_by_kind_time ON actions (kind, created_at)",
+    ]),
+    2: ("tasks, task_runs and pending_decisions of the task runtime", [
+        """CREATE TABLE tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            parent_id INTEGER REFERENCES tasks (id),
+            flow TEXT,
+            key TEXT,
+            skill TEXT,
+            agent TEXT,
+            title TEXT NOT NULL,
+            text TEXT NOT NULL,
+            state TEXT NOT NULL DEFAULT 'requested'
+                CHECK (state IN ('requested', 'planned', 'ready', 'running', 'waiting', 'blocked', 'done',
+                                 'failed', 'cancelled')),
+            depends_on TEXT NOT NULL DEFAULT '[]',
+            milestone INTEGER NOT NULL DEFAULT 0 CHECK (milestone IN (0, 1)),
+            note TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL)""",
+        "CREATE INDEX tasks_by_state ON tasks (state, id)",
+        "CREATE INDEX tasks_by_parent ON tasks (parent_id, id)",
+        """CREATE TABLE task_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id INTEGER NOT NULL REFERENCES tasks (id),
+            skill TEXT NOT NULL,
+            skill_version TEXT,
+            skill_sha256 TEXT,
+            model TEXT NOT NULL,
+            adapter TEXT NOT NULL,
+            web INTEGER NOT NULL DEFAULT 0 CHECK (web IN (0, 1)),
+            status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'ok', 'failed')),
+            failure TEXT CHECK (failure IS NULL OR failure IN ('timeout', 'refused', 'auth', 'adapter',
+                                                                'early_end', 'settings', 'stopped', 'internal')),
+            ending TEXT CHECK (ending IS NULL OR ending IN ('done', 'question', 'draft_with_questions', 'gate',
+                                                              'blocked', 'unclassified')),
+            attempts INTEGER NOT NULL DEFAULT 0,
+            started_at TEXT NOT NULL,
+            ended_at TEXT,
+            cost_usd REAL,
+            tokens INTEGER,
+            duration_ms INTEGER,
+            skill_loaded INTEGER CHECK (skill_loaded IS NULL OR skill_loaded IN (0, 1)),
+            image_digest TEXT,
+            run_dir TEXT,
+            error TEXT)""",
+        "CREATE INDEX task_runs_by_task ON task_runs (task_id, id)",
+        """CREATE TABLE pending_decisions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id INTEGER NOT NULL REFERENCES tasks (id),
+            run_id INTEGER REFERENCES task_runs (id),
+            kind TEXT NOT NULL
+                CHECK (kind IN ('plan', 'question', 'review', 'effect', 'acceptance', 'your_document')),
+            title TEXT NOT NULL,
+            body TEXT NOT NULL,
+            payload TEXT NOT NULL DEFAULT '{}',
+            payload_sha256 TEXT,
+            status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved', 'cancelled')),
+            resolution TEXT,
+            answer TEXT,
+            created_at TEXT NOT NULL,
+            resolved_at TEXT,
+            resolved_by TEXT)""",
+        "CREATE INDEX pending_decisions_by_status ON pending_decisions (status, id)",
+        "CREATE INDEX pending_decisions_by_task ON pending_decisions (task_id, id)",
+    ]),
+    3: ("the number of values the lab replaced in what a task run left", [
+        "ALTER TABLE task_runs ADD COLUMN redactions INTEGER",
+    ]),
+    4: ("a task's item on the task board, the records of mirrored documents and saved platform comments", [
+        "ALTER TABLE tasks ADD COLUMN remote_id TEXT",
+        "ALTER TABLE tasks ADD COLUMN remote_version TEXT",
+        "ALTER TABLE tasks ADD COLUMN remote_written_sha256 TEXT",
+        """CREATE TABLE document_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            path TEXT NOT NULL UNIQUE,
+            provider TEXT NOT NULL,
+            remote_id TEXT,
+            written_sha256 TEXT,
+            remote_version TEXT,
+            read_sha256 TEXT,
+            status TEXT NOT NULL DEFAULT 'mirrored' CHECK (status IN ('mirrored', 'read_only', 'rejected')),
+            note TEXT,
+            updated_at TEXT NOT NULL)""",
+        """CREATE TABLE platform_comments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            provider TEXT NOT NULL,
+            remote_id TEXT NOT NULL,
+            subject TEXT NOT NULL CHECK (subject IN ('task', 'document')),
+            task_id INTEGER REFERENCES tasks (id),
+            document_path TEXT,
+            author TEXT,
+            text TEXT NOT NULL,
+            created_at TEXT,
+            saved_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'used', 'dismissed')),
+            used_by_pending INTEGER REFERENCES pending_decisions (id),
+            UNIQUE (provider, remote_id))""",
+        "CREATE INDEX platform_comments_by_status ON platform_comments (status, id)",
+    ]),
+    5: ("the approvals table: what the person approved, a record that only grows", [
+        """CREATE TABLE approvals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scope TEXT NOT NULL CHECK (scope IN ('action', 'plan', 'standing')),
+            what TEXT NOT NULL,
+            payload_sha256 TEXT,
+            policy_sha256 TEXT,
+            bounds TEXT,
+            task_id INTEGER REFERENCES tasks (id),
+            pending_id INTEGER REFERENCES pending_decisions (id),
+            approved_at TEXT NOT NULL,
+            approved_by TEXT NOT NULL,
+            expires_at TEXT,
+            status TEXT NOT NULL
+                CHECK (status IN ('pending-execution', 'executed', 'active', 'expired', 'revoked')),
+            executed_at TEXT)""",
+        "CREATE INDEX approvals_by_pending ON approvals (pending_id, id)",
+        "CREATE INDEX approvals_by_status ON approvals (status, id)",
+        # Limit L13 in the database itself: no row is deleted, only status and executed_at change, and a status
+        # moves only forward (pending-execution to executed or revoked; active to expired or revoked).
+        """CREATE TRIGGER approvals_never_deleted BEFORE DELETE ON approvals
+            BEGIN SELECT RAISE(ABORT, 'an approval is never deleted'); END""",
+        """CREATE TRIGGER approvals_only_status_moves BEFORE UPDATE ON approvals
+            WHEN NEW.id IS NOT OLD.id OR NEW.scope IS NOT OLD.scope OR NEW.what IS NOT OLD.what
+              OR NEW.payload_sha256 IS NOT OLD.payload_sha256 OR NEW.policy_sha256 IS NOT OLD.policy_sha256
+              OR NEW.bounds IS NOT OLD.bounds OR NEW.task_id IS NOT OLD.task_id OR NEW.pending_id IS NOT OLD.pending_id
+              OR NEW.approved_at IS NOT OLD.approved_at OR NEW.approved_by IS NOT OLD.approved_by
+              OR NEW.expires_at IS NOT OLD.expires_at
+              OR (NEW.status IS NOT OLD.status AND NOT (
+                    (OLD.status = 'pending-execution' AND NEW.status IN ('executed', 'revoked'))
+                 OR (OLD.status = 'active' AND NEW.status IN ('expired', 'revoked'))))
+            BEGIN SELECT RAISE(ABORT, 'an approval only moves forward: its status, never its content'); END""",
+    ]),
+    6: ("the messages of the conversation with the planning agent", [
+        """CREATE TABLE conversation_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            conversation TEXT NOT NULL,
+            role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+            text TEXT NOT NULL,
+            task_id INTEGER REFERENCES tasks (id),
+            run_id INTEGER REFERENCES task_runs (id),
+            created_at TEXT NOT NULL)""",
+        "CREATE INDEX conversation_messages_by_conversation ON conversation_messages (conversation, id)",
+    ]),
+    # Limit L13 for the task runtime's own records: a task, a run and a pending decision are never deleted (a state,
+    # a status or a resolution moves; the row stays), as migration 5 does for the approvals.
+    7: ("tasks, task runs and pending decisions are never deleted", [
+        """CREATE TRIGGER tasks_never_deleted BEFORE DELETE ON tasks
+            BEGIN SELECT RAISE(ABORT, 'a task is never deleted'); END""",
+        """CREATE TRIGGER task_runs_never_deleted BEFORE DELETE ON task_runs
+            BEGIN SELECT RAISE(ABORT, 'a task run is never deleted'); END""",
+        """CREATE TRIGGER pending_decisions_never_deleted BEFORE DELETE ON pending_decisions
+            BEGIN SELECT RAISE(ABORT, 'a pending decision is never deleted'); END""",
+    ]),
+    8: ("derived waits between requests: a request's after_request and the task_waits table", [
+        "ALTER TABLE tasks ADD COLUMN after_request INTEGER REFERENCES tasks (id)",
+        # One row per wait of a planned task: kind `input` (a path another request's task writes: awaited_id is that
+        # task) or `after` (the person's override: awaited_id is the request). A wait is open until its awaited row is
+        # done or cancelled or the runtime derives it no longer (cleared), or the person goes ahead (dropped): a dropped
+        # row is the person's decision about that path and that awaited task, and the runtime derives it no more.
+        """CREATE TABLE task_waits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id INTEGER NOT NULL REFERENCES tasks (id),
+            awaited_id INTEGER NOT NULL REFERENCES tasks (id),
+            kind TEXT NOT NULL CHECK (kind IN ('input', 'after')),
+            path TEXT,
+            reason TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'cleared', 'dropped')),
+            created_at TEXT NOT NULL,
+            ended_at TEXT,
+            ended_by TEXT)""",
+        "CREATE INDEX task_waits_by_task ON task_waits (task_id, status)",
+        "CREATE INDEX task_waits_by_awaited ON task_waits (awaited_id, status)",
+        # Limit L13, as for the other records of the task runtime: a wait is never deleted, it ends.
+        """CREATE TRIGGER task_waits_never_deleted BEFORE DELETE ON task_waits
+            BEGIN SELECT RAISE(ABORT, 'a task wait is never deleted'); END""",
+    ]),
+    # ADJ-R3 (row A-38): the billing of the credential a run used, written when the run starts. The daily caps count by it
+    # (subscription and free: runs; metered and unknown: dollars). 'unknown' is a run whose route no manifest could bill; a run
+    # older than the column has none (NULL): history only, counted by the tier rule it had.
+    9: ("the billing of the credential a task run used", [
+        "ALTER TABLE task_runs ADD COLUMN billing TEXT CHECK (billing IS NULL OR billing IN ('subscription', 'metered', 'free', 'unknown'))",
     ]),
 }
 
@@ -392,17 +590,37 @@ def connect(path: Path) -> sqlite3.Connection:
     return conn
 
 
+CHANGE_COUNTER_MAX = 2 ** 31 - 1   # the header's user-version field is a signed 32-bit integer
+
+
 @contextmanager
 def write(conn: sqlite3.Connection):
     """One write transaction. BEGIN IMMEDIATE takes the write lock up front, so a read inside
-    the transaction cannot be overtaken by another writer before its update."""
+    the transaction cannot be overtaken by another writer before its update.
+
+    The change counter: a transaction that changed at least one row raises the number kept in the database file's
+    header (`PRAGMA user_version`, which nothing else here uses), in the same transaction, so that a reader learns
+    with one cheap read that something was written (change_counter). One that changed nothing, such as a
+    dispatcher tick with no task ready, and one that is rolled back leave it alone. After the largest value it
+    starts again at 1: a reader compares two numbers for difference only."""
     conn.execute("BEGIN IMMEDIATE")
+    changes = conn.total_changes
     try:
         yield
+        if conn.total_changes != changes:
+            raised = change_counter(conn) + 1
+            # A pragma takes no parameter; the value is an integer computed here, never text from outside.
+            conn.execute(f"PRAGMA user_version = {raised if raised <= CHANGE_COUNTER_MAX else 1}")
     except BaseException:
         conn.execute("ROLLBACK")
         raise
     conn.execute("COMMIT")
+
+
+def change_counter(conn: sqlite3.Connection) -> int:
+    """The number of write transactions that changed a row, kept in the database file's header (0 for a database
+    that never had one). One read of the header, no table."""
+    return conn.execute("PRAGMA user_version").fetchone()[0]
 
 
 def enable_wal(conn: sqlite3.Connection) -> str:
@@ -493,8 +711,8 @@ def cmd_check(args) -> int:
     })
 
 
-def cmd_init(args) -> int:
-    path = db_path(args)
+def _init(path: Path) -> dict:
+    """Create the schema or migrate it to SCHEMA_VERSION. Returns what the init verb prints."""
     # exist_ok: several inits started at once all see the folder missing; only one of them creates it.
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)  # the umask of main() makes parents 0700 too
     created = not path.exists()
@@ -518,8 +736,12 @@ def cmd_init(args) -> int:
                          (version, iso(utcnow()), description))
             applied.append(version)
     private_files(path)
-    return emit({"db": str(path), "created": created, "schema_version": SCHEMA_VERSION,
-                 "migrated_from": current, "applied": applied, "journal_mode": journal})
+    return {"db": str(path), "created": created, "schema_version": SCHEMA_VERSION,
+            "migrated_from": current, "applied": applied, "journal_mode": journal}
+
+
+def cmd_init(args) -> int:
+    return emit(_init(db_path(args)))
 
 
 def cmd_cursor_get(args) -> int:
@@ -738,7 +960,12 @@ def cmd_action_add(args) -> int:
     target = text_arg(args.target, "--target", REF_MAX)
     digest = sha_arg(args.payload_sha256)
     result = json_file(args.result_file, "--result-file")
-    conn = open_ready(args)
+    return emit(_action_write(open_ready(args), kind, key, target, digest, result))
+
+
+def _action_write(conn: sqlite3.Connection, kind: str, key: str, target: str, digest: str, result: str) -> dict:
+    """Record one outward action, idempotent by its key: the work of the verb action-add and of action_add(), on
+    checked values. Returns {"id", "created", "created_at"}."""
     with write(conn):
         created = conn.execute(
             "INSERT INTO actions (kind, idempotency_key, target, payload_sha256, result, created_at) "
@@ -749,7 +976,7 @@ def cmd_action_add(args) -> int:
     if not created and (row["kind"], row["target"], row["payload_sha256"]) != (kind, target, digest):
         raise StoreError(f"idempotency key {key!r} is already recorded for a different action "
                          f"(action {row['id']}: {row['kind']} on {row['target']})")
-    return emit({"id": row["id"], "created": created, "created_at": row["created_at"]})
+    return {"id": row["id"], "created": created, "created_at": row["created_at"]}
 
 
 def cmd_actions(args) -> int:
@@ -766,10 +993,13 @@ def cmd_actions(args) -> int:
 def cmd_action_count(args) -> int:
     kind = text_arg(args.kind, "--kind", LABEL_MAX)
     since = since_arg(args.since)
-    conn = open_ready(args)
-    count = conn.execute("SELECT COUNT(*) FROM actions WHERE kind = ? AND created_at >= ?",
-                         (kind, since)).fetchone()[0]
-    return emit({"kind": kind, "since": since, "count": count})
+    return emit({"kind": kind, "since": since, "count": _action_count(open_ready(args), kind, since)})
+
+
+def _action_count(conn: sqlite3.Connection, kind: str, since: str) -> int:
+    """How many actions of one kind were recorded at or after since: the work of the verb action-count and of
+    action_count(), on checked values."""
+    return conn.execute("SELECT COUNT(*) FROM actions WHERE kind = ? AND created_at >= ?", (kind, since)).fetchone()[0]
 
 
 EXPORT_QUERIES = (
@@ -781,6 +1011,19 @@ EXPORT_QUERIES = (
     ("inbox", "SELECT * FROM inbox WHERE ?1 IS NULL OR created_at >= ?1 OR resolved_at >= ?1 OR done_at >= ?1 "
      "ORDER BY id", ("payload",), ()),
     ("actions", "SELECT * FROM actions WHERE ?1 IS NULL OR created_at >= ?1 ORDER BY id", ("result",), ()),
+    ("tasks", "SELECT * FROM tasks WHERE ?1 IS NULL OR created_at >= ?1 OR updated_at >= ?1 ORDER BY id",
+     ("depends_on",), ()),
+    ("task_runs", "SELECT * FROM task_runs WHERE ?1 IS NULL OR started_at >= ?1 OR ended_at >= ?1 ORDER BY id",
+     (), ()),
+    ("pending_decisions", "SELECT * FROM pending_decisions WHERE ?1 IS NULL OR created_at >= ?1 "
+     "OR resolved_at >= ?1 ORDER BY id", ("payload",), ()),
+    ("document_records", "SELECT * FROM document_records WHERE ?1 IS NULL OR updated_at >= ?1 ORDER BY id", (), ()),
+    ("platform_comments", "SELECT * FROM platform_comments WHERE ?1 IS NULL OR saved_at >= ?1 ORDER BY id", (), ()),
+    ("approvals", "SELECT * FROM approvals WHERE ?1 IS NULL OR approved_at >= ?1 OR executed_at >= ?1 ORDER BY id",
+     ("bounds",), ()),
+    ("conversation_messages", "SELECT * FROM conversation_messages WHERE ?1 IS NULL OR created_at >= ?1 ORDER BY id",
+     (), ()),
+    ("task_waits", "SELECT * FROM task_waits WHERE ?1 IS NULL OR created_at >= ?1 OR ended_at >= ?1 ORDER BY id", (), ()),
 )
 
 
@@ -796,6 +1039,1467 @@ def cmd_export(args) -> int:
     finally:
         conn.execute("COMMIT")
     return emit(out)
+
+
+# --- the task runtime: functions, one transaction each -------------------------------
+#
+# The tables of migration 2 (tasks, task_runs, pending_decisions) are read and written through the functions
+# below, imported in process by runtime/ops.py. They are the contract: one call is one BEGIN IMMEDIATE
+# transaction, so a step that ends a run, opens a pending decision and moves its task is all or nothing.
+# None of them has a CLI verb (export reads the tables). Text a model or another person wrote (a reply, a
+# question, an answer) is stored as given and never interpreted. Every function takes the connection that
+# open_db() returns and raises StoreError.
+
+TASK_STATES = ("requested", "planned", "ready", "running", "waiting", "blocked", "done", "failed", "cancelled")
+TASK_FINAL_STATES = ("done", "cancelled")  # nothing leaves them; failed and blocked go back to ready (task_retry)
+PENDING_KINDS = ("plan", "question", "review", "effect", "acceptance", "your_document")
+PENDING_STATUSES = ("open", "resolved", "cancelled")
+RUN_FAILURES = ("timeout", "refused", "auth", "adapter", "early_end", "settings", "stopped", "internal")
+RUN_ENDINGS = ("done", "question", "draft_with_questions", "gate", "blocked", "unclassified")
+RUN_BILLINGS = ("subscription", "metered", "free", "unknown")
+
+
+def _billing_arg(value):
+    """The billing a run is started with: None, or one of RUN_BILLINGS (migration 9 checks the column the same way)."""
+    if value is not None and value not in RUN_BILLINGS:
+        raise StoreError(f"billing must be one of {', '.join(RUN_BILLINGS)}", EXIT_USAGE)
+    return value
+# What a resolution does to the task that waited: the resolutions of later kinds are added with their stage.
+RESOLUTIONS = {"answered": "ready", "released": "done"}
+RELEASABLE_KINDS = ("review",)
+# The resolutions of an effect that pending_resolve writes: the comment sends the task back, a rejection cancels it.
+# Its approval is effect_done's alone ("approved", after code executed the effect: the task is done).
+EFFECT_RESOLUTIONS = {"answered": "ready", "rejected": "cancelled"}
+APPROVAL_SCOPES = ("action", "plan", "standing")
+APPROVAL_STATUSES = ("pending-execution", "executed", "active", "expired", "revoked")
+# Limit L13: a status only moves forward, along these pairs; no approval is ever deleted.
+APPROVAL_MOVES = {"pending-execution": ("executed", "revoked"), "active": ("expired", "revoked")}
+# The resolutions of a plan and of an acceptance, by kind and word, with the state the request is left in. Only
+# plan_approve, plan_reject and acceptance_resolve write them: each does more than move a state.
+KIND_RESOLUTIONS = {("plan", "approved"): "planned", ("plan", "rejected"): "cancelled",
+                    ("acceptance", "accepted"): "requested", ("acceptance", "rejected"): "cancelled"}
+KEY_RE = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
+# One task at a time per database: the query that finds a running task, and the one that finds the next ready task
+# (never a request), shared by task_claim_next and task_peek_next.
+RUNNING_TASK = "SELECT id FROM tasks WHERE state = 'running' ORDER BY id LIMIT 1"
+# A task with an open wait (task_waits) is never given out, whatever its state says: the store refuses, not the caller.
+OPEN_WAIT = "EXISTS (SELECT 1 FROM task_waits w WHERE w.task_id = tasks.id AND w.status = 'open')"
+NEXT_READY_TASK = ("SELECT id FROM tasks WHERE state = 'ready' AND parent_id IS NOT NULL AND NOT " + OPEN_WAIT +
+                   " ORDER BY id LIMIT 1")
+WAIT_KINDS = ("input", "after")
+WAIT_STATUSES = ("open", "cleared", "dropped")
+DOCUMENT_FIELDS = ("remote_id", "written_sha256", "remote_version", "read_sha256", "status", "note")
+DOCUMENT_UPDATES = {
+    "remote_id": "UPDATE document_records SET remote_id = ? WHERE path = ?",
+    "written_sha256": "UPDATE document_records SET written_sha256 = ? WHERE path = ?",
+    "remote_version": "UPDATE document_records SET remote_version = ? WHERE path = ?",
+    "read_sha256": "UPDATE document_records SET read_sha256 = ? WHERE path = ?",
+    "status": "UPDATE document_records SET status = ? WHERE path = ?",
+    "note": "UPDATE document_records SET note = ? WHERE path = ?",
+}
+DOCUMENT_STATUSES = ("mirrored", "read_only", "rejected")
+COMMENT_SUBJECTS = ("task", "document")
+COMMENT_STATUSES = ("open", "used", "dismissed")
+ACCEPTANCE_WHATS = ("subtasks", "deliveries")  # payload["what"] of an acceptance a stage-6 operation opens
+REROUTE_STATES = ("planned", "done")  # a request one of whose deliveries is routed again after its brief (stage 6)
+
+
+def open_db(path) -> sqlite3.Connection:
+    """A connection to an existing database at the current schema version: what every function below takes."""
+    return open_ready(argparse.Namespace(db=str(path)))
+
+
+def init_db(path) -> dict:
+    """Create the schema or migrate it, as the init verb does, without printing. Returns what init prints.
+    The database and a new folder are private to the user, as in main(); the caller's umask is put back."""
+    previous = os.umask(0o077)
+    try:
+        return _init(db_path(argparse.Namespace(db=str(path))))
+    finally:
+        os.umask(previous)
+
+
+def _task(conn: sqlite3.Connection, task_id: int) -> dict:
+    row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    if row is None:
+        raise StoreError(f"no task {task_id}")
+    return row_dict(row, ("depends_on",))
+
+
+def _refresh(conn: sqlite3.Connection, now: str) -> tuple[list, list]:
+    """Inside a transaction: a request whose tasks are all done becomes done, a wait ends (cleared) when its
+    awaited row is done or cancelled, or when the task that waited is (a cancelled task waits for nothing), a planned task whose dependencies are all done and that has no open wait becomes ready.
+    Returns (ids made ready, ids of the requests completed)."""
+    ready, completed = [], []
+    for row in conn.execute("SELECT id FROM tasks WHERE state = 'planned' AND parent_id IS NULL ORDER BY id").fetchall():
+        states = [r["state"] for r in conn.execute("SELECT state FROM tasks WHERE parent_id = ?", (row["id"],))]
+        if states and all(state == "done" for state in states):
+            conn.execute("UPDATE tasks SET state = 'done', updated_at = ? WHERE id = ?", (now, row["id"]))
+            completed.append(row["id"])
+    conn.execute("UPDATE task_waits SET status = 'cleared', ended_at = ?, ended_by = 'runtime' WHERE status = 'open' "
+                 "AND (awaited_id IN (SELECT id FROM tasks WHERE state IN ('done', 'cancelled')) "
+                 "OR task_id IN (SELECT id FROM tasks WHERE state IN ('done', 'cancelled')))", (now,))
+    for row in conn.execute("SELECT id, depends_on FROM tasks WHERE state = 'planned' AND parent_id IS NOT NULL "
+                            "AND NOT " + OPEN_WAIT + " ORDER BY id").fetchall():
+        needed = json.loads(row["depends_on"])
+        done = sum(1 for dep in needed if conn.execute("SELECT 1 FROM tasks WHERE id = ? AND state = 'done'",
+                                                         (dep,)).fetchone())
+        if done == len(needed):
+            conn.execute("UPDATE tasks SET state = 'ready', updated_at = ? WHERE id = ?", (now, row["id"]))
+            ready.append(row["id"])
+    return ready, completed
+
+
+def request_add(conn: sqlite3.Connection, *, title: str, text: str, flow: str | None = None,
+                tasks: list | None = None, after: int | None = None, waits: list | None = None) -> dict:
+    """Record a request and, when its plan is given, the tasks of the plan, in one transaction.
+
+    Without tasks the request stays `requested` (the router has not answered yet). With tasks, a list of
+    {"key", "skill", "title", "text", "depends_on": [keys], "milestone": bool} in the flow file's order, the
+    request becomes `planned`, every task is added `planned`, and the tasks with no dependency and no open wait
+    become `ready`. A dependency names the key of a task earlier in the list, so the plan has no cycle.
+    after is the request this one waits for (the person's override, kept on the request); waits are the waits the
+    plan's tasks begin with, as _insert_waits reads them, so that no task is ever ready for a moment before its wait
+    exists.
+    Returns {"request": id, "state", "tasks": [{"id", "key", "skill", "state"}]}."""
+    title = text_arg(title, "title", TITLE_MAX)
+    text = text_arg(text, "text", TEXT_MAX, multiline=True)
+    flow = text_arg(flow, "flow", LABEL_MAX, required=False)
+    plan = _plan_items(tasks or [])
+    if plan and not flow:
+        raise StoreError("a plan names its flow", EXIT_USAGE)
+    now = iso(utcnow())
+    with write(conn):
+        after = _check_after(conn, None, after)
+        request_id = conn.execute(
+            "INSERT INTO tasks (flow, title, text, state, after_request, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)", (flow, title, text, "planned" if plan else "requested", after, now,
+                                             now)).lastrowid
+        ids = _insert_plan(conn, request_id, flow, plan, now)
+        _insert_waits(conn, request_id, dict(zip([p["key"] for p in plan], ids)), waits or [], now)
+        _refresh(conn, now)
+        rows = conn.execute("SELECT id, key, skill, state FROM tasks WHERE parent_id = ? ORDER BY id",
+                            (request_id,)).fetchall()
+        state = conn.execute("SELECT state FROM tasks WHERE id = ?", (request_id,)).fetchone()["state"]
+    return {"request": request_id, "state": state, "tasks": [row_dict(r) for r in rows]}
+
+
+def _check_after(conn: sqlite3.Connection, request_id: int | None, after) -> int | None:
+    """Inside a transaction: after is None, or the id of a request other than request_id (a task is not one)."""
+    if after is None:
+        return None
+    if isinstance(after, bool) or not isinstance(after, int):
+        raise StoreError("after is the id of a request", EXIT_USAGE)
+    row = conn.execute("SELECT parent_id FROM tasks WHERE id = ?", (after,)).fetchone()
+    if row is None or row["parent_id"] is not None:
+        raise StoreError(f"after names {after}, which is not a request of this project", EXIT_USAGE)
+    if after == request_id:
+        raise StoreError("a request does not wait for itself", EXIT_USAGE)
+    return after
+
+
+def _insert_waits(conn: sqlite3.Connection, request_id: int, ids: dict, waits: list, now: str,
+                  go_ahead=()) -> None:
+    """Inside a transaction: the waits a plan's tasks begin with. ids maps the plan's keys to their task ids; a wait is
+    {"key", "kind": input|after, "awaited_id", "path", "reason"}, the awaited row an existing task (input) or request
+    (after) of another request. A key in go_ahead is the person's decision about the waits shown for it: its input waits
+    are written as already dropped (they are not derived again; a new writer or path is another wait). A key with no
+    input wait to drop is refused."""
+    for key in go_ahead:
+        if key not in ids:
+            raise StoreError(f"go ahead names {key!r}, which is not a task of the plan", EXIT_USAGE)
+        if not any(w.get("key") == key and w.get("kind") == "input" for w in waits):
+            raise StoreError(f"go ahead names {key!r}, which waits for no task to derive", EXIT_USAGE)
+    for wait in waits:
+        key = wait.get("key")
+        if key not in ids:
+            raise StoreError("a wait names a task of the plan and is an input or an after", EXIT_USAGE)
+        _insert_one_wait(conn, ids[key], request_id, set(ids.values()), wait, now,
+                         dropped=wait.get("kind") == "input" and key in go_ahead)
+
+
+def _insert_one_wait(conn: sqlite3.Connection, task_id: int, request_id: int, own: set, wait: dict, now: str,
+                     dropped: bool = False) -> None:
+    """Inside a transaction: one wait of a task, {"kind": input|after, "awaited_id", "path", "reason"}, the awaited row a
+    task (input) or a request (after) outside the task's own request and outside `own`."""
+    kind = wait.get("kind")
+    if kind not in ("input", "after"):
+        raise StoreError("a wait is an input or an after", EXIT_USAGE)
+    awaited = conn.execute("SELECT id, parent_id FROM tasks WHERE id = ?", (wait.get("awaited_id"),)).fetchone()
+    if awaited is None or awaited["id"] in own or (awaited["parent_id"] or awaited["id"]) == request_id \
+            or (kind == "after") != (awaited["parent_id"] is None):
+        raise StoreError(f"task {task_id}: a wait names a task, or for after a request, of another request", EXIT_USAGE)
+    path = _rel_path(wait["path"]) if kind == "input" else None
+    reason = text_arg(wait.get("reason"), "reason", NOTE_MAX)
+    conn.execute("INSERT INTO task_waits (task_id, awaited_id, kind, path, reason, status, created_at, ended_at, "
+                 "ended_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                 (task_id, awaited["id"], kind, path, reason, "dropped" if dropped else "open", now,
+                  now if dropped else None, "user" if dropped else None))
+
+
+def _plan_items(tasks, *, empty_text: bool = False, known=()) -> list:
+    """The tasks of a plan, checked: a list of {"key", "skill", "title", "text", "depends_on": [keys], "milestone"
+    [, "agent"]}, each dependency the key of a task earlier in the list or one of known (the keys a request already
+    has, for tasks_add). empty_text allows a task with no text of its own (a plan of one skill, whose prompt is the
+    plain request), stored as "". agent, when given, is the area agent that owns the task (stage 6)."""
+    if not isinstance(tasks, list):
+        raise StoreError("a plan's tasks are a list", EXIT_USAGE)
+    plan = []
+    for item in tasks:
+        if not isinstance(item, dict):
+            raise StoreError("a task of a plan is an object", EXIT_USAGE)
+        key = text_arg(item.get("key"), "key", LABEL_MAX)
+        if not KEY_RE.fullmatch(key) or key in [p["key"] for p in plan] or key in known:
+            raise StoreError(f"task key {key!r} must be lowercase words joined by hyphens, once per plan", EXIT_USAGE)
+        depends = item.get("depends_on") or []
+        if not isinstance(depends, list) or any(d not in [p["key"] for p in plan] and d not in known for d in depends):
+            raise StoreError(f"task {key!r}: depends_on names the keys of tasks earlier in the plan", EXIT_USAGE)
+        text = item.get("text")
+        if empty_text and isinstance(text, str) and not text.strip():
+            text = ""
+        else:
+            text = text_arg(text, "text", TEXT_MAX, multiline=True)
+        plan.append({"key": key, "skill": text_arg(item.get("skill"), "skill", LABEL_MAX),
+                     "title": text_arg(item.get("title"), "title", TITLE_MAX), "text": text,
+                     "depends_on": list(depends), "milestone": 1 if item.get("milestone") else 0,
+                     "agent": text_arg(item.get("agent"), "agent", LABEL_MAX, required=False)})
+    return plan
+
+
+def _insert_plan(conn: sqlite3.Connection, request_id: int, flow: str | None, plan: list, now: str,
+                 known: dict | None = None) -> list:
+    """Inside a transaction: add the checked tasks of a plan under a request, every one `planned`. known maps the keys
+    of the request's existing tasks to their ids (tasks_add). Returns the new ids, in order."""
+    ids = dict(known or {})
+    added = []
+    for item in plan:
+        ids[item["key"]] = conn.execute(
+            "INSERT INTO tasks (parent_id, flow, key, skill, agent, title, text, state, depends_on, milestone, "
+            "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'planned', ?, ?, ?, ?)",
+            (request_id, flow, item["key"], item["skill"], item["agent"], item["title"], item["text"],
+             json.dumps([ids[d] for d in item["depends_on"]]), item["milestone"], now, now)).lastrowid
+        added.append(ids[item["key"]])
+    return added
+
+
+def task_claim_next(conn: sqlite3.Connection) -> dict:
+    """Give out the oldest ready task, as `running`, unless a task of this database is running already: one
+    task at a time per project. Returns {"task": the task or None, "running": the id of the task that runs
+    already, or None}."""
+    now = iso(utcnow())
+    with write(conn):
+        busy = conn.execute(RUNNING_TASK).fetchone()
+        if busy:
+            return {"task": None, "running": busy["id"]}
+        row = conn.execute(NEXT_READY_TASK).fetchone()
+        if row is None:
+            return {"task": None, "running": None}
+        conn.execute("UPDATE tasks SET state = 'running', updated_at = ? WHERE id = ? AND state = 'ready'",
+                     (now, row["id"]))
+        return {"task": _task(conn, row["id"]), "running": None}
+
+
+def task_run_start(conn: sqlite3.Connection, task_id: int, *, skill: str, model: str, adapter: str,
+                   skill_version: str | None = None, skill_sha256: str | None = None, web: bool = False,
+                   billing: str | None = None) -> dict:
+    """Record the start of a run of a task that is `running`. billing is how the credential the run uses is billed
+    (RUN_BILLINGS; None when the runtime cannot tell): the daily caps count by it. Returns {"run_id", "task_id", "started_at"}."""
+    billing = _billing_arg(billing)
+    skill = text_arg(skill, "skill", LABEL_MAX)
+    model = text_arg(model, "model", REF_MAX)
+    adapter = text_arg(adapter, "adapter", LABEL_MAX)
+    skill_version = text_arg(skill_version, "skill_version", LABEL_MAX, required=False)
+    if skill_sha256 is not None and not SHA256_RE.fullmatch(skill_sha256):
+        raise StoreError("skill_sha256 must be 64 hexadecimal characters", EXIT_USAGE)
+    now = iso(utcnow())
+    with write(conn):
+        if _task(conn, task_id)["state"] != "running":
+            raise StoreError(f"task {task_id} is not running: a run starts on a task that task_claim_next gave out")
+        run_id = conn.execute(
+            "INSERT INTO task_runs (task_id, skill, skill_version, skill_sha256, model, adapter, web, started_at, billing) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (task_id, skill, skill_version, skill_sha256, model, adapter, 1 if web else 0, now, billing)).lastrowid
+    return {"run_id": run_id, "task_id": task_id, "started_at": now}
+
+
+def task_run_finish(conn: sqlite3.Connection, run_id: int, *, status: str, task_state: str,
+                    failure: str | None = None, ending: str | None = None, attempts: int = 0,
+                    cost_usd: float | None = None, tokens: int | None = None, duration_ms: int | None = None,
+                    skill_loaded: bool | None = None, image_digest: str | None = None, run_dir: str | None = None,
+                    error: str | None = None, task_note: str | None = None, pending: dict | None = None,
+                    redactions: int | None = None) -> dict:
+    """End a run and move its task, in one transaction; with `pending`, also open the pending decision the task
+    then waits on. redactions is the number of passed values the lab replaced in what the run left, None when
+    the lab did not report it. task_state is `waiting` (pending is required: a waiting task always points to a pending
+    decision), `failed` or `blocked` (pending is refused). pending is {"kind", "title", "body"[, "payload":
+    object][, "payload_sha256"]}. Returns {"run_id", "task_id", "task_state", "pending_id" or None}."""
+    if status not in ("ok", "failed") or (status == "failed") != (failure is not None):
+        raise StoreError("status is ok, or failed with the kind of failure", EXIT_USAGE)
+    if failure is not None and failure not in RUN_FAILURES:
+        raise StoreError(f"failure must be one of {', '.join(RUN_FAILURES)}", EXIT_USAGE)
+    if ending is not None and ending not in RUN_ENDINGS:
+        raise StoreError(f"ending must be one of {', '.join(RUN_ENDINGS)}", EXIT_USAGE)
+    if task_state not in ("waiting", "failed", "blocked") or (task_state == "waiting") != (pending is not None):
+        raise StoreError("task_state is waiting with a pending decision, or failed or blocked without one", EXIT_USAGE)
+    error = text_arg(error, "error", NOTE_MAX, multiline=True, required=False)
+    task_note = text_arg(task_note, "task_note", NOTE_MAX, multiline=True, required=False)
+    run_dir = text_arg(run_dir, "run_dir", PATH_MAX, required=False)
+    image_digest = text_arg(image_digest, "image_digest", REF_MAX, required=False)
+    item = None if pending is None else _pending_item(pending)
+    loaded = None if skill_loaded is None else (1 if skill_loaded else 0)
+    if redactions is not None and (isinstance(redactions, bool) or not isinstance(redactions, int) or redactions < 0):
+        raise StoreError("redactions is a count: a whole number, 0 or more", EXIT_USAGE)
+    now = iso(utcnow())
+    with write(conn):
+        row = conn.execute("SELECT task_id, status FROM task_runs WHERE id = ?", (run_id,)).fetchone()
+        if row is None:
+            raise StoreError(f"no task run {run_id}")
+        if row["status"] != "running":
+            raise StoreError(f"task run {run_id} already ended with status {row['status']}")
+        task_id = row["task_id"]
+        conn.execute(
+            "UPDATE task_runs SET status = ?, failure = ?, ending = ?, attempts = ?, ended_at = ?, cost_usd = ?, "
+            "tokens = ?, duration_ms = ?, skill_loaded = ?, image_digest = ?, run_dir = ?, error = ?, redactions = ? "
+            "WHERE id = ?",
+            (status, failure, ending, int(attempts), now, cost_usd, tokens, duration_ms, loaded, image_digest,
+             run_dir, error, redactions, run_id))
+        moved = conn.execute("UPDATE tasks SET state = ?, note = ?, updated_at = ? WHERE id = ? AND state = 'running'",
+                             (task_state, task_note, now, task_id)).rowcount
+        if not moved:
+            raise StoreError(f"task {task_id} is not running: the run's result is not recorded")
+        pending_id = None
+        if item is not None:
+            pending_id = conn.execute(
+                "INSERT INTO pending_decisions (task_id, run_id, kind, title, body, payload, payload_sha256, "
+                "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (task_id, run_id, *item, now)).lastrowid
+    return {"run_id": run_id, "task_id": task_id, "task_state": task_state, "pending_id": pending_id}
+
+
+def _pending_item(pending: dict) -> tuple:
+    """A pending decision to insert, checked: (kind, title, body, payload as JSON, payload_sha256)."""
+    if not isinstance(pending, dict) or pending.get("kind") not in PENDING_KINDS:
+        raise StoreError(f"a pending decision's kind is one of {', '.join(PENDING_KINDS)}", EXIT_USAGE)
+    digest = pending.get("payload_sha256")
+    if digest is not None and not SHA256_RE.fullmatch(digest):
+        raise StoreError("payload_sha256 must be 64 hexadecimal characters", EXIT_USAGE)
+    body = pending.get("body")
+    if not isinstance(body, str) or len(body.encode("utf-8")) > BODY_MAX:
+        raise StoreError(f"a pending decision's body is text of at most {BODY_MAX} bytes", EXIT_USAGE)
+    payload = pending.get("payload") or {}
+    if not isinstance(payload, dict):
+        raise StoreError("a pending decision's payload is an object", EXIT_USAGE)
+    return (pending["kind"], text_arg(pending.get("title"), "title", TITLE_MAX), body,
+            json.dumps(payload, ensure_ascii=True, sort_keys=True), digest)
+
+
+def pending_resolve(conn: sqlite3.Connection, pending_id: int, *, resolution: str, by: str,
+                    answer: str | None = None) -> dict:
+    """Record the person's decision on an open pending decision and move the task that waited, in one
+    transaction. `answered` (with the answer's text) makes the task ready again: its next run gets the answer.
+    `released` (a review only) makes it done; then the tasks that depended on it become ready, and a request
+    whose tasks are all done becomes done. A `plan` or an `acceptance` is never resolved here (plan_approve,
+    plan_reject, acceptance_resolve). A question asked on a request (by the router, before any task exists) is
+    only answered, and the request stays `requested`: a request is never given out to run. An `effect` is
+    `answered` (the task is ready again, its next run gets the comment) or `rejected` (the task is cancelled); both
+    revoke a `pending-execution` approval of it in the same transaction; it is approved through effect_done only.
+    Returns {"pending_id", "task_id", "task_state", "ready": [ids], "completed": [request ids]}."""
+    if resolution not in RESOLUTIONS and resolution not in EFFECT_RESOLUTIONS:
+        raise StoreError(f"resolution must be one of {', '.join(sorted({*RESOLUTIONS, *EFFECT_RESOLUTIONS}))}",
+                         EXIT_USAGE)
+    by = text_arg(by, "by", LABEL_MAX)
+    answer = text_arg(answer, "answer", TEXT_MAX, multiline=True, required=resolution == "answered")
+    now = iso(utcnow())
+    with write(conn):
+        row = conn.execute("SELECT task_id, kind, status FROM pending_decisions WHERE id = ?", (pending_id,)).fetchone()
+        if row is None:
+            raise StoreError(f"no pending decision {pending_id}")
+        if row["status"] != "open":
+            raise StoreError(f"pending decision {pending_id} is {row['status']}, not open")
+        if row["kind"] in {kind for kind, _ in KIND_RESOLUTIONS}:
+            raise StoreError(f"pending decision {pending_id} is a {row['kind']}: it is approved or rejected, "
+                             "not answered or released")
+        if row["kind"] == "effect":
+            if resolution not in EFFECT_RESOLUTIONS:
+                raise StoreError(f"pending decision {pending_id} is an effect: it is answered or rejected here, and "
+                                 "approved only through effect_done, after code executed it")
+        elif resolution not in RESOLUTIONS:
+            raise StoreError(f"pending decision {pending_id} is a {row['kind']}: only an effect is rejected here")
+        if resolution == "released" and row["kind"] not in RELEASABLE_KINDS:
+            raise StoreError(f"pending decision {pending_id} is a {row['kind']}: it is answered, not released")
+        task = _task(conn, row["task_id"])
+        if task["parent_id"] is None:
+            if resolution != "answered" or task["state"] != "requested":
+                raise StoreError(f"pending decision {pending_id} is on request {task['id']} ({task['state']}): "
+                                 "it is only answered, while the request waits for its plan")
+            conn.execute("UPDATE pending_decisions SET status = 'resolved', resolution = ?, answer = ?, "
+                         "resolved_at = ?, resolved_by = ? WHERE id = ?", (resolution, answer, now, by, pending_id))
+            return {"pending_id": pending_id, "task_id": task["id"], "task_state": "requested", "ready": [],
+                    "completed": []}
+        conn.execute("UPDATE pending_decisions SET status = 'resolved', resolution = ?, answer = ?, resolved_at = ?, "
+                     "resolved_by = ? WHERE id = ?", (resolution, answer, now, by, pending_id))
+        state = (EFFECT_RESOLUTIONS if row["kind"] == "effect" else RESOLUTIONS)[resolution]
+        moved = conn.execute("UPDATE tasks SET state = ?, updated_at = ? WHERE id = ? AND state = 'waiting'",
+                             (state, now, row["task_id"])).rowcount
+        if not moved:
+            raise StoreError(f"task {row['task_id']} is not waiting: the decision is not recorded")
+        _revoke_pending_execution(conn, pending_id, now)
+        ready, completed = _refresh(conn, now)
+    return {"pending_id": pending_id, "task_id": row["task_id"], "task_state": state, "ready": ready,
+            "completed": completed}
+
+
+def task_retry(conn: sqlite3.Connection, task_id: int, waits: list | None = None) -> dict:
+    """Make a failed or blocked task ready again, or, when the runtime derived waits for it (each {"kind", "awaited_id",
+    "path", "reason"}), planned with those waits, in the same transaction. Returns {"task_id", "state", "previous"}."""
+    now = iso(utcnow())
+    with write(conn):
+        task = _task(conn, task_id)
+        previous = task["state"]
+        if previous not in ("failed", "blocked"):
+            raise StoreError(f"task {task_id} is {previous}: only a failed or a blocked task is retried")
+        state = "planned" if waits else "ready"
+        conn.execute("UPDATE tasks SET state = ?, note = NULL, updated_at = ? WHERE id = ?", (state, now, task_id))
+        for wait in waits or []:
+            _insert_one_wait(conn, task_id, task["parent_id"], {task_id}, wait, now)
+    return {"task_id": task_id, "state": state, "previous": previous}
+
+
+def task_fail_running(conn: sqlite3.Connection, note: str) -> dict:
+    """End what an interrupted run left: every task still `running` becomes `failed` with the note, and every
+    run row still `running` ends `failed` with failure `stopped`. The caller holds the project's run lock, so
+    no run is in progress. Returns {"tasks": [ids], "runs": [ids]}."""
+    note = text_arg(note, "note", NOTE_MAX, multiline=True)
+    now = iso(utcnow())
+    with write(conn):
+        tasks = [r["id"] for r in conn.execute("SELECT id FROM tasks WHERE state = 'running' ORDER BY id")]
+        runs = [r["id"] for r in conn.execute("SELECT id FROM task_runs WHERE status = 'running' ORDER BY id")]
+        conn.execute("UPDATE task_runs SET status = 'failed', failure = 'stopped', ended_at = ?, error = ? "
+                     "WHERE status = 'running'", (now, note))
+        conn.execute("UPDATE tasks SET state = 'failed', note = ?, updated_at = ? WHERE state = 'running'", (note, now))
+    return {"tasks": tasks, "runs": runs}
+
+
+def request_cancel(conn: sqlite3.Connection, request_id: int, *, by: str) -> dict:
+    """Cancel a request: the request and each of its tasks that is not done or cancelled become `cancelled`,
+    and their open pending decisions too. Refused while one of its tasks is running. Returns {"request",
+    "cancelled": [task ids], "pending": [pending ids]}."""
+    by = text_arg(by, "by", LABEL_MAX)
+    now = iso(utcnow())
+    with write(conn):
+        return _cancel_request(conn, request_id, by, now)
+
+
+def _cancel_request(conn: sqlite3.Connection, request_id: int, by: str, now: str) -> dict:
+    """Inside a transaction: request_cancel's work."""
+    root = _task(conn, request_id)
+    if root["parent_id"] is not None:
+        raise StoreError(f"task {request_id} is not a request: cancel the request it belongs to")
+    rows = conn.execute("SELECT id, state FROM tasks WHERE id = ? OR parent_id = ? ORDER BY id",
+                        (request_id, request_id)).fetchall()
+    if any(r["state"] == "running" for r in rows) or conn.execute(
+            "SELECT 1 FROM task_runs WHERE task_id = ? AND status = 'running'", (request_id,)).fetchone():
+        raise StoreError(f"a task of request {request_id} is running: wait for its run to end")
+    ids = [r["id"] for r in rows if r["state"] not in TASK_FINAL_STATES]
+    pending = []
+    for task_id in ids:
+        conn.execute("UPDATE tasks SET state = 'cancelled', updated_at = ? WHERE id = ?", (now, task_id))
+        for p in conn.execute("SELECT id FROM pending_decisions WHERE task_id = ? AND status = 'open'",
+                              (task_id,)).fetchall():
+            conn.execute("UPDATE pending_decisions SET status = 'cancelled', resolved_at = ?, resolved_by = ? "
+                         "WHERE id = ?", (now, by, p["id"]))
+            _revoke_pending_execution(conn, p["id"], now)
+            pending.append(p["id"])
+    _refresh(conn, now)  # what waited for a cancelled task or request no longer does
+    return {"request": request_id, "cancelled": ids, "pending": pending}
+
+
+# --- migration 4: the task board, the plan, mirrored documents, saved comments -------------------------------
+
+
+def _request(conn: sqlite3.Connection, request_id: int) -> dict:
+    task = _task(conn, request_id)
+    if task["parent_id"] is not None:
+        raise StoreError(f"task {request_id} is not a request")
+    return task
+
+
+def _open_pending(conn: sqlite3.Connection, task_id: int, kinds=None) -> list:
+    rows = conn.execute("SELECT id, kind FROM pending_decisions WHERE task_id = ? AND status = 'open' ORDER BY id",
+                        (task_id,)).fetchall()
+    return [row_dict(r) for r in rows if kinds is None or r["kind"] in kinds]
+
+
+def _open_of_kind(conn: sqlite3.Connection, pending_id: int, kind: str) -> dict:
+    row = conn.execute("SELECT * FROM pending_decisions WHERE id = ?", (pending_id,)).fetchone()
+    if row is None:
+        raise StoreError(f"no pending decision {pending_id}")
+    item = row_dict(row, ("payload",))
+    if item["kind"] != kind:
+        raise StoreError(f"pending decision {pending_id} is a {item['kind']}, not a {kind}")
+    if item["status"] != "open":
+        raise StoreError(f"pending decision {pending_id} is {item['status']}, not open")
+    return item
+
+
+def _resolve(conn: sqlite3.Connection, pending_id: int, resolution: str, by: str, now: str, answer=None) -> None:
+    conn.execute("UPDATE pending_decisions SET status = 'resolved', resolution = ?, answer = ?, resolved_at = ?, "
+                 "resolved_by = ? WHERE id = ?", (resolution, answer, now, by, pending_id))
+
+
+def _rel_path(path: str) -> str:
+    path = text_arg(path, "path", PATH_MAX)
+    parts = path.split("/")
+    if path.startswith(("/", "~")) or "\\" in path or any(p in ("", ".", "..") for p in parts):
+        raise StoreError(f"path {path!r} must be a relative path inside the project", EXIT_USAGE)
+    return path
+
+
+def _sha_or_none(value, flag: str):
+    if value is not None and not SHA256_RE.fullmatch(str(value)):
+        raise StoreError(f"{flag} must be 64 hexadecimal characters", EXIT_USAGE)
+    return value
+
+
+def task_remote_set(conn: sqlite3.Connection, task_id: int, *, remote_id: str, remote_version: str | None,
+                    written_sha256: str | None) -> dict:
+    """Record the task's item on the task board: its id there, the version the board reported and the hash of
+    what the runtime last wrote to it. Returns the task."""
+    remote_id = text_arg(remote_id, "remote_id", REF_MAX)
+    remote_version = text_arg(remote_version, "remote_version", REF_MAX, required=False)
+    written_sha256 = _sha_or_none(written_sha256, "written_sha256")
+    now = iso(utcnow())
+    with write(conn):
+        _task(conn, task_id)
+        conn.execute("UPDATE tasks SET remote_id = ?, remote_version = ?, remote_written_sha256 = ?, updated_at = ? "
+                     "WHERE id = ?", (remote_id, remote_version, written_sha256, now, task_id))
+        return _task(conn, task_id)
+
+
+def task_edit(conn: sqlite3.Connection, task_id: int, *, by: str, title: str | None = None,
+              text: str | None = None) -> dict:
+    """A person's edit of a task's title or text (on the task board). Refused on a task that is running, done or
+    cancelled, and for an empty value or one over its cap. Returns the task."""
+    text_arg(by, "by", LABEL_MAX)
+    if title is None and text is None:
+        raise StoreError("an edit changes the title, the text or both", EXIT_USAGE)
+    title = text_arg(title, "title", TITLE_MAX, required=False)
+    text = text_arg(text, "text", TEXT_MAX, multiline=True, required=False)
+    now = iso(utcnow())
+    with write(conn):
+        state = _task(conn, task_id)["state"]
+        if state in ("running", "done", "cancelled"):
+            raise StoreError(f"task {task_id} is {state}: its title and text are not edited now")
+        conn.execute("UPDATE tasks SET title = COALESCE(?, title), text = COALESCE(?, text), updated_at = ? "
+                     "WHERE id = ?", (title, text, now, task_id))
+        return _task(conn, task_id)
+
+
+def request_from_board(conn: sqlite3.Connection, *, title: str, text: str, remote_id: str,
+                       remote_version: str | None, by: str, after: int | None = None) -> dict:
+    """An item a person wrote on the task board becomes a request in `requested`, with its item recorded and an
+    open pending decision of kind `acceptance` on it, in one transaction. A second call with the same remote_id
+    creates nothing and returns the existing request. after is the request the item's own words say it runs after
+    ("after #n", runtime/board.py). Returns {"request", "pending_id", "existing"}."""
+    title = text_arg(title, "title", TITLE_MAX)
+    text = text_arg(text, "text", TEXT_MAX, multiline=True)
+    remote_id = text_arg(remote_id, "remote_id", REF_MAX)
+    remote_version = text_arg(remote_version, "remote_version", REF_MAX, required=False)
+    by = text_arg(by, "by", LABEL_MAX)
+    now = iso(utcnow())
+    with write(conn):
+        row = conn.execute("SELECT id FROM tasks WHERE parent_id IS NULL AND remote_id = ? ORDER BY id LIMIT 1",
+                           (remote_id,)).fetchone()
+        if row is not None:
+            found = _open_pending(conn, row["id"], ("acceptance",))
+            return {"request": row["id"], "pending_id": found[0]["id"] if found else None, "existing": True}
+        request_id = conn.execute(
+            "INSERT INTO tasks (title, text, state, remote_id, remote_version, after_request, created_at, updated_at) "
+            "VALUES (?, ?, 'requested', ?, ?, ?, ?, ?)",
+            (title, text, remote_id, remote_version, _check_after(conn, None, after), now, now)).lastrowid
+        payload = json.dumps({"source": "board", "remote_id": remote_id, "by": by}, ensure_ascii=True, sort_keys=True)
+        pending_id = conn.execute(
+            "INSERT INTO pending_decisions (task_id, kind, title, body, payload, created_at) "
+            "VALUES (?, 'acceptance', ?, ?, ?, ?)",
+            (request_id, f"Accept a request written on the task board: {title}"[:TITLE_MAX], text, payload,
+             now)).lastrowid
+    return {"request": request_id, "pending_id": pending_id, "existing": False}
+
+
+def acceptance_resolve(conn: sqlite3.Connection, pending_id: int, *, resolution: str, by: str,
+                       note: str | None = None, waits: list | None = None) -> dict:
+    """The person's decision on an `acceptance`, by its payload's `what` (stage 6):
+
+    no `what`   (a request written on the task board, stage 3) `accepted` leaves the request `requested` (it is
+                routed next); `rejected` cancels it, with what is open under it
+    subtasks    `accepted` adds the tasks of payload["tasks"] to the request as tasks_add adds them, in the same
+                transaction; `rejected` adds nothing
+    deliveries  the resolution and the note are recorded and nothing else changes
+
+    note is kept as the decision's answer; waits are the waits the accepted sub-tasks begin with (tasks_add). Returns
+    {"pending_id", "task_id", "task_state"}, and "added" (the rows of
+    the added tasks) for accepted sub-tasks."""
+    if ("acceptance", resolution) not in KIND_RESOLUTIONS:
+        raise StoreError("an acceptance is accepted or rejected", EXIT_USAGE)
+    by = text_arg(by, "by", LABEL_MAX)
+    note = text_arg(note, "note", NOTE_MAX, multiline=True, required=False)
+    now = iso(utcnow())
+    with write(conn):
+        item = _open_of_kind(conn, pending_id, "acceptance")
+        what = (item["payload"] or {}).get("what")
+        if what is not None:
+            if what not in ACCEPTANCE_WHATS:
+                raise StoreError(f"pending decision {pending_id} accepts {what!r}, not one of "
+                                 f"{', '.join(ACCEPTANCE_WHATS)}")
+            _resolve(conn, pending_id, resolution, by, now, note)
+            out = {"pending_id": pending_id, "task_id": item["task_id"]}
+            if what == "subtasks" and resolution == "accepted":
+                out["added"] = _tasks_add(conn, item["task_id"], item["payload"].get("tasks"), now, waits)["tasks"]
+            out["task_state"] = _task(conn, item["task_id"])["state"]
+            return out
+        _resolve(conn, pending_id, resolution, by, now, note)
+        task = _task(conn, item["task_id"])
+        if resolution == "rejected" and task["parent_id"] is None:
+            _cancel_request(conn, task["id"], by, now)
+        elif resolution == "rejected":
+            conn.execute("UPDATE tasks SET state = 'cancelled', updated_at = ? WHERE id = ? AND state NOT IN "
+                         "('done', 'cancelled')", (now, task["id"]))
+            _refresh(conn, now)
+        state = _task(conn, item["task_id"])["state"]
+    return {"pending_id": pending_id, "task_id": item["task_id"], "task_state": state}
+
+
+def route_run_start(conn: sqlite3.Connection, request_id: int, *, skill: str, model: str, adapter: str,
+                    skill_version: str | None = None, skill_sha256: str | None = None, web: bool = False,
+                    reroute: bool = False, billing: str | None = None) -> dict:
+    """A run of the router on a request: a row of task_runs whose task is the request. Refused unless the request
+    is `requested` with no open pending decision, no task of the database is running and no run row is running.
+    With reroute (stage 6: one delivery of an approved plan routed again after its brief), the request is `planned`
+    or `done` instead, and an open pending decision on it does not refuse the run.
+    billing is recorded as task_run_start records it. Returns {"run_id", "request_id", "started_at"}."""
+    billing = _billing_arg(billing)
+    skill = text_arg(skill, "skill", LABEL_MAX)
+    model = text_arg(model, "model", REF_MAX)
+    adapter = text_arg(adapter, "adapter", LABEL_MAX)
+    skill_version = text_arg(skill_version, "skill_version", LABEL_MAX, required=False)
+    skill_sha256 = _sha_or_none(skill_sha256, "skill_sha256")
+    now = iso(utcnow())
+    with write(conn):
+        request = _request(conn, request_id)
+        if reroute:
+            if request["state"] not in REROUTE_STATES:
+                raise StoreError(f"request {request_id} is {request['state']}: only a planned or done request has a "
+                                 "delivery routed again")
+        elif request["state"] != "requested":
+            raise StoreError(f"request {request_id} is {request['state']}: only a request waiting for its plan is routed")
+        open_items = [] if reroute else _open_pending(conn, request_id)
+        if open_items:
+            raise StoreError(f"request {request_id} has an open {open_items[0]['kind']} (pending decision "
+                             f"{open_items[0]['id']}): decide it first")
+        busy = conn.execute(RUNNING_TASK).fetchone()
+        if busy or conn.execute("SELECT 1 FROM task_runs WHERE status = 'running'").fetchone():
+            raise StoreError("a run is in progress: one run at a time per project")
+        run_id = conn.execute(
+            "INSERT INTO task_runs (task_id, skill, skill_version, skill_sha256, model, adapter, web, started_at, billing) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (request_id, skill, skill_version, skill_sha256, model, adapter, 1 if web else 0, now, billing)).lastrowid
+    return {"run_id": run_id, "request_id": request_id, "started_at": now}
+
+
+def route_run_finish(conn: sqlite3.Connection, run_id: int, *, status: str, failure: str | None = None,
+                     ending: str | None = None, attempts: int = 0, cost_usd: float | None = None,
+                     tokens: int | None = None, duration_ms: int | None = None, skill_loaded: bool | None = None,
+                     image_digest: str | None = None, run_dir: str | None = None, error: str | None = None,
+                     pending: dict | None = None, redactions: int | None = None) -> dict:
+    """End a run of the router and, with `pending` (kind `plan` or `question`), open it on the request, all or
+    nothing. The request stays `requested`. A run made with reroute opens an `acceptance` instead (payload["what"]
+    `subtasks` or `deliveries`), on its `planned` or `done` request, whose state does not change. Returns {"run_id",
+    "request_id", "pending_id" or None}."""
+    if status not in ("ok", "failed") or (status == "failed") != (failure is not None):
+        raise StoreError("status is ok, or failed with the kind of failure", EXIT_USAGE)
+    if failure is not None and failure not in RUN_FAILURES:
+        raise StoreError(f"failure must be one of {', '.join(RUN_FAILURES)}", EXIT_USAGE)
+    if ending is not None and ending not in RUN_ENDINGS:
+        raise StoreError(f"ending must be one of {', '.join(RUN_ENDINGS)}", EXIT_USAGE)
+    if pending is not None and (not isinstance(pending, dict) or pending.get("kind") not in ("plan", "question", "acceptance")):
+        raise StoreError("a router run opens a plan, a question or an acceptance", EXIT_USAGE)
+    if pending is not None and pending["kind"] == "acceptance" and \
+            (pending.get("payload") or {}).get("what") not in ACCEPTANCE_WHATS:
+        raise StoreError(f"an acceptance a router run opens says what it accepts: {', '.join(ACCEPTANCE_WHATS)}", EXIT_USAGE)
+    if pending is not None and status != "ok":
+        raise StoreError("a failed run opens no pending decision", EXIT_USAGE)
+    item = None if pending is None else _pending_item(pending)
+    error = text_arg(error, "error", NOTE_MAX, multiline=True, required=False)
+    run_dir = text_arg(run_dir, "run_dir", PATH_MAX, required=False)
+    image_digest = text_arg(image_digest, "image_digest", REF_MAX, required=False)
+    loaded = None if skill_loaded is None else (1 if skill_loaded else 0)
+    if redactions is not None and (isinstance(redactions, bool) or not isinstance(redactions, int) or redactions < 0):
+        raise StoreError("redactions is a count: a whole number, 0 or more", EXIT_USAGE)
+    now = iso(utcnow())
+    with write(conn):
+        row = conn.execute("SELECT task_id, status FROM task_runs WHERE id = ?", (run_id,)).fetchone()
+        if row is None:
+            raise StoreError(f"no task run {run_id}")
+        if row["status"] != "running":
+            raise StoreError(f"task run {run_id} already ended with status {row['status']}")
+        request = _request(conn, row["task_id"])
+        conn.execute(
+            "UPDATE task_runs SET status = ?, failure = ?, ending = ?, attempts = ?, ended_at = ?, cost_usd = ?, "
+            "tokens = ?, duration_ms = ?, skill_loaded = ?, image_digest = ?, run_dir = ?, error = ?, redactions = ? "
+            "WHERE id = ?",
+            (status, failure, ending, int(attempts), now, cost_usd, tokens, duration_ms, loaded, image_digest,
+             run_dir, error, redactions, run_id))
+        pending_id = None
+        if item is not None:
+            wanted = REROUTE_STATES if item[0] == "acceptance" else ("requested",)
+            if request["state"] not in wanted:
+                raise StoreError(f"request {request['id']} is {request['state']}: the router's result is not recorded")
+            pending_id = conn.execute(
+                "INSERT INTO pending_decisions (task_id, run_id, kind, title, body, payload, payload_sha256, "
+                "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (request["id"], run_id, *item, now)).lastrowid
+    return {"run_id": run_id, "request_id": request["id"], "pending_id": pending_id}
+
+
+def plan_open(conn: sqlite3.Connection, request_id: int, *, title: str, body: str, payload: dict) -> dict:
+    """Open a `plan` pending decision on a request without a run (the person named the flow). In the same
+    transaction an open `question` of the request is cancelled. Refused when a plan or an acceptance is open on the
+    request, or the request is not `requested`. Returns {"pending_id", "request_id", "cancelled": [pending ids]}."""
+    item = _pending_item({"kind": "plan", "title": title, "body": body, "payload": payload})
+    now = iso(utcnow())
+    with write(conn):
+        request = _request(conn, request_id)
+        if request["state"] != "requested":
+            raise StoreError(f"request {request_id} is {request['state']}: only a request waiting for its plan is planned")
+        blocking = _open_pending(conn, request_id, ("plan", "acceptance"))
+        if blocking:
+            raise StoreError(f"request {request_id} has an open {blocking[0]['kind']} (pending decision "
+                             f"{blocking[0]['id']}): decide it first")
+        if conn.execute("SELECT 1 FROM task_runs WHERE task_id = ? AND status = 'running'", (request_id,)).fetchone():
+            raise StoreError(f"the router is running on request {request_id}: wait for its run to end")
+        cancelled = [p["id"] for p in _open_pending(conn, request_id, ("question",))]
+        for pid in cancelled:
+            conn.execute("UPDATE pending_decisions SET status = 'cancelled', resolved_at = ?, resolved_by = ? "
+                         "WHERE id = ?", (now, "plan", pid))
+        pending_id = conn.execute(
+            "INSERT INTO pending_decisions (task_id, kind, title, body, payload, payload_sha256, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)", (request_id, *item, now)).lastrowid
+    return {"pending_id": pending_id, "request_id": request_id, "cancelled": cancelled}
+
+
+def task_peek_next(conn: sqlite3.Connection) -> dict:
+    """A read: the task task_claim_next would give out now, by the same queries, without changing anything.
+    Returns {"task": the task or None, "running": the id of the task that runs already, or None}."""
+    busy = conn.execute(RUNNING_TASK).fetchone()
+    if busy:
+        return {"task": None, "running": busy["id"]}
+    row = conn.execute(NEXT_READY_TASK).fetchone()
+    return {"task": _task(conn, row["id"]) if row else None, "running": None}
+
+
+def plan_approve(conn: sqlite3.Connection, pending_id: int, *, by: str, waits: list | None = None,
+                 go_ahead=()) -> dict:
+    """Approve a `plan`: the tasks of its payload["tasks"] are created as request_add creates a plan's tasks, the
+    request takes the payload's flow (None for a plan of one skill) and becomes `planned`, and the tasks with no
+    dependency and no open wait become `ready`. waits are the waits the tasks begin with (request_add reads them
+    alike); the keys in go_ahead are the person's decision that no derived wait holds them.
+    Returns {"request", "tasks": [{"id", "key", "skill", "state"}], "ready": [ids]}."""
+    by = text_arg(by, "by", LABEL_MAX)
+    now = iso(utcnow())
+    with write(conn):
+        item = _open_of_kind(conn, pending_id, "plan")
+        request = _request(conn, item["task_id"])
+        if request["state"] != "requested":
+            raise StoreError(f"request {request['id']} is {request['state']}: its plan is not approved now")
+        payload = item["payload"] or {}
+        flow = text_arg(payload.get("flow"), "flow", LABEL_MAX, required=False)
+        plan = _plan_items(payload.get("tasks"), empty_text=True)
+        if not plan or (flow is None and len(plan) != 1):
+            raise StoreError("a plan holds at least one task, and a plan of several tasks names its flow", EXIT_USAGE)
+        _resolve(conn, pending_id, "approved", by, now)
+        conn.execute("UPDATE tasks SET flow = ?, state = 'planned', updated_at = ? WHERE id = ?",
+                     (flow, now, request["id"]))
+        ids = _insert_plan(conn, request["id"], flow, plan, now)
+        _insert_waits(conn, request["id"], dict(zip([p["key"] for p in plan], ids)), waits or [], now, tuple(go_ahead))
+        ready, _completed = _refresh(conn, now)
+        rows = conn.execute("SELECT id, key, skill, state FROM tasks WHERE parent_id = ? ORDER BY id",
+                            (request["id"],)).fetchall()
+    return {"request": request["id"], "tasks": [row_dict(r) for r in rows], "ready": ready}
+
+
+def plan_reject(conn: sqlite3.Connection, pending_id: int, *, by: str, note: str | None = None) -> dict:
+    """Reject a `plan`: it is resolved `rejected` (the note kept as its answer) and the request is cancelled as
+    request_cancel cancels it. Returns {"pending_id", "request", "cancelled", "pending"}."""
+    by = text_arg(by, "by", LABEL_MAX)
+    note = text_arg(note, "note", NOTE_MAX, multiline=True, required=False)
+    now = iso(utcnow())
+    with write(conn):
+        item = _open_of_kind(conn, pending_id, "plan")
+        _resolve(conn, pending_id, "rejected", by, now, note)
+        out = _cancel_request(conn, item["task_id"], by, now)
+    return {"pending_id": pending_id, **out}
+
+
+def request_after_set(conn: sqlite3.Connection, request_id: int, after: int | None) -> dict:
+    """Set, or with None clear, the request this one waits for (the override "after request #n"): the column
+    `after_request` of a request. The waits themselves are derived from it by the runtime (waits_sync). Refused for a
+    task, for a request that is not named, and for a request that is done or cancelled. Returns the request."""
+    now = iso(utcnow())
+    with write(conn):
+        request = _request(conn, request_id)
+        if request["state"] in TASK_FINAL_STATES:
+            raise StoreError(f"request {request_id} is {request['state']}: it waits for nothing now")
+        target = _check_after(conn, request_id, after)
+        conn.execute("UPDATE tasks SET after_request = ?, updated_at = ? WHERE id = ?", (target, now, request_id))
+        return _task(conn, request_id)
+
+
+def waits_go_ahead(conn: sqlite3.Connection, task_id: int, *, by: str, after: bool = False) -> dict:
+    """The person's go-ahead on a task that is waiting: its open `input` waits end as `dropped` (the plan's go-ahead, on a
+    task already created). A dropped wait is the decision about that path and that awaited task: the runtime derives it
+    no more, and a new writer or another path is a new wait. With after, the one `after` wait of the task is what ends
+    (the override is the person's own, so only they drop it, and only for this task). Refused for a task that is not
+    planned or ready, and for one with no open wait of that kind. The store then refreshes: a task with no open wait left
+    becomes ready. Returns {"task_id", "dropped": [wait ids], "paths", "reasons", "state", "ready": [ids]}."""
+    by = text_arg(by, "by", LABEL_MAX)
+    kind = "after" if after else "input"
+    now = iso(utcnow())
+    with write(conn):
+        task = _task(conn, task_id)
+        if task["parent_id"] is None or task["state"] not in ("planned", "ready"):
+            raise StoreError(f"task {task_id} is {task['state'] if task['parent_id'] is not None else 'a request'}: "
+                             "go ahead is said on a planned or ready task that waits")
+        held = conn.execute("SELECT id, path, reason FROM task_waits WHERE task_id = ? AND status = 'open' "
+                            "AND kind = ? ORDER BY id", (task_id, kind)).fetchall()
+        if not held:
+            raise StoreError(f"task {task_id} waits for no request it was told to follow" if after else
+                             f"task {task_id} waits for no task to derive: go ahead drops a derived wait, and an "
+                             "`after` request is the person's own (drop it with the after option)")
+        for w in held:
+            conn.execute("UPDATE task_waits SET status = 'dropped', ended_at = ?, ended_by = ? WHERE id = ?",
+                         (now, by, w["id"]))
+        ready, _completed = _refresh(conn, now)
+        state = _task(conn, task_id)["state"]
+    return {"task_id": task_id, "dropped": [w["id"] for w in held], "paths": [w["path"] for w in held],
+            "reasons": [w["reason"] for w in held], "state": state, "ready": ready}
+
+
+def waits_list(conn: sqlite3.Connection, *, task_id: int | None = None, status: str = "open") -> list:
+    """The waits of one status (or "all"), oldest first; with task_id, those of one task. Each row is
+    task_waits' columns and "request_id", the request of the awaited row (the awaited row itself for an `after`)."""
+    if status not in (*WAIT_STATUSES, "all"):
+        raise StoreError(f"status must be one of {', '.join(WAIT_STATUSES)} or all", EXIT_USAGE)
+    rows = conn.execute(
+        "SELECT w.*, COALESCE(a.parent_id, a.id) AS request_id FROM task_waits w JOIN tasks a ON a.id = w.awaited_id "
+        "WHERE (?1 = 'all' OR w.status = ?1) AND (?2 IS NULL OR w.task_id = ?2) ORDER BY w.id", (status, task_id))
+    return [row_dict(r) for r in rows]
+
+
+def waits_sync(conn: sqlite3.Connection, desired: list, evaluated: list, *, by: str = "runtime") -> dict:
+    """Bring the open waits of the evaluated tasks to the desired ones, in one transaction. desired is
+    [{"task_id", "awaited_id", "kind": input|after, "path", "reason"}] as the runtime derived them (runtime/plan.py,
+    derive); evaluated is the ids of every task it derived for. Of the evaluated tasks only the planned and the ready
+    ones are touched. An open wait that is no longer desired is cleared; a desired one that is not open is opened,
+    unless the person dropped that very wait (same task, awaited task and path); a ready task that gained a wait goes back to
+    `planned`; then the store refreshes what became free. Returns {"opened": [wait ids], "cleared": [wait ids],
+    "demoted": [task ids], "ready": [task ids]}."""
+    by = text_arg(by, "by", LABEL_MAX)
+    now = iso(utcnow())
+    for d in desired:
+        if not isinstance(d, dict) or d.get("kind") not in ("input", "after") or \
+                any(isinstance(d.get(k), bool) or not isinstance(d.get(k), int) for k in ("task_id", "awaited_id")):
+            raise StoreError("a desired wait is {task_id, awaited_id, kind input or after, path, reason}", EXIT_USAGE)
+    with write(conn):
+        live = {}
+        for task_id in dict.fromkeys(evaluated):
+            row = conn.execute("SELECT state, parent_id FROM tasks WHERE id = ?", (task_id,)).fetchone()
+            if row is not None and row["parent_id"] is not None and row["state"] in ("planned", "ready"):
+                live[task_id] = row["state"]
+        dropped = {(r["task_id"], r["awaited_id"], r["kind"], r["path"])
+                   for r in conn.execute("SELECT task_id, awaited_id, kind, path FROM task_waits WHERE status = 'dropped'")}
+        wanted = {}
+        for d in desired:
+            key = (d["task_id"], d["awaited_id"], d["kind"], d.get("path"))
+            if d["task_id"] in live and key not in dropped:  # the person went ahead on this very wait
+                wanted[key] = d
+        kept, cleared, opened, gained = set(), [], [], []
+        for r in conn.execute("SELECT id, task_id, awaited_id, kind, path FROM task_waits WHERE status = 'open' "
+                              "ORDER BY id").fetchall():
+            if r["task_id"] not in live:
+                continue
+            key = (r["task_id"], r["awaited_id"], r["kind"], r["path"])
+            if key in wanted and key not in kept:
+                kept.add(key)
+                continue
+            conn.execute("UPDATE task_waits SET status = 'cleared', ended_at = ?, ended_by = ? WHERE id = ?",
+                         (now, by, r["id"]))
+            cleared.append(r["id"])
+        for key, d in wanted.items():
+            if key in kept:
+                continue
+            awaited = conn.execute("SELECT parent_id FROM tasks WHERE id = ?", (d["awaited_id"],)).fetchone()
+            if awaited is None or d["awaited_id"] == d["task_id"] or (d["kind"] == "after") != (awaited["parent_id"] is None):
+                raise StoreError(f"task {d['task_id']}: a wait names another task, or for after a request", EXIT_USAGE)
+            path = _rel_path(d["path"]) if d["kind"] == "input" else None
+            opened.append(conn.execute(
+                "INSERT INTO task_waits (task_id, awaited_id, kind, path, reason, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (d["task_id"], d["awaited_id"], d["kind"], path, text_arg(d.get("reason"), "reason", NOTE_MAX),
+                 now)).lastrowid)
+            gained.append(d["task_id"])
+        demoted = [t for t in dict.fromkeys(gained) if live[t] == "ready" and conn.execute(
+            "UPDATE tasks SET state = 'planned', updated_at = ? WHERE id = ? AND state = 'ready'", (now, t)).rowcount]
+        ready, _completed = _refresh(conn, now)
+    return {"opened": opened, "cleared": cleared, "demoted": demoted, "ready": ready}
+
+
+def document_get(conn: sqlite3.Connection, path: str):
+    """The record of a mirrored document by its path relative to the project, or None."""
+    row = conn.execute("SELECT * FROM document_records WHERE path = ?", (_rel_path(path),)).fetchone()
+    return row_dict(row) if row else None
+
+
+def documents_list(conn: sqlite3.Connection) -> list:
+    """Every document record, by path."""
+    return [row_dict(r) for r in conn.execute("SELECT * FROM document_records ORDER BY path")]
+
+
+def document_put(conn: sqlite3.Connection, path: str, *, provider: str, **fields) -> dict:
+    """Create or update the record of a path: only the fields given change (of remote_id, written_sha256,
+    remote_version, read_sha256, status, note), updated_at always. Returns the record."""
+    path = _rel_path(path)
+    provider = text_arg(provider, "provider", LABEL_MAX)
+    unknown = sorted(set(fields) - set(DOCUMENT_FIELDS))
+    if unknown:
+        raise StoreError(f"a document record has no field {', '.join(unknown)}", EXIT_USAGE)
+    for key in ("written_sha256", "read_sha256"):
+        if key in fields:
+            _sha_or_none(fields[key], key)
+    for key in ("remote_id", "remote_version"):
+        if key in fields:
+            text_arg(fields[key], key, REF_MAX, required=False)
+    if "status" in fields and fields["status"] not in DOCUMENT_STATUSES:
+        raise StoreError(f"a document's status is one of {', '.join(DOCUMENT_STATUSES)}", EXIT_USAGE)
+    if "note" in fields:
+        text_arg(fields["note"], "note", NOTE_MAX, multiline=True, required=False)
+    now = iso(utcnow())
+    with write(conn):
+        if conn.execute("SELECT 1 FROM document_records WHERE path = ?", (path,)).fetchone() is None:
+            conn.execute("INSERT INTO document_records (path, provider, updated_at) VALUES (?, ?, ?)",
+                         (path, provider, now))
+        conn.execute("UPDATE document_records SET provider = ?, updated_at = ? WHERE path = ?", (provider, now, path))
+        for key in DOCUMENT_FIELDS:
+            if key in fields:
+                conn.execute(DOCUMENT_UPDATES[key], (fields[key], path))
+        return row_dict(conn.execute("SELECT * FROM document_records WHERE path = ?", (path,)).fetchone())
+
+
+def comments_save(conn: sqlite3.Connection, comments, *, provider: str, subject: str, task_id: int | None = None,
+                  document_path: str | None = None) -> dict:
+    """Save open comments read from a platform before a page or an item is replaced: each {"id", "author",
+    "created_at", "text"} not stored yet (by provider and id) is inserted `open`. A comment of a task names the
+    task; one of a document names its path. Returns {"saved": n}."""
+    provider = text_arg(provider, "provider", LABEL_MAX)
+    if subject not in COMMENT_SUBJECTS:
+        raise StoreError(f"a comment's subject is one of {', '.join(COMMENT_SUBJECTS)}", EXIT_USAGE)
+    if (subject == "task") != (task_id is not None) or (subject == "document") != (document_path is not None):
+        raise StoreError("a comment of a task names the task; one of a document names its path", EXIT_USAGE)
+    document_path = _rel_path(document_path) if document_path is not None else None
+    if not isinstance(comments, list):
+        raise StoreError("comments are a list", EXIT_USAGE)
+    items = []
+    for c in comments:
+        if not isinstance(c, dict):
+            raise StoreError("a comment is an object", EXIT_USAGE)
+        items.append((text_arg(c.get("id"), "id", REF_MAX), text_arg(c.get("author"), "author", LABEL_MAX, required=False),
+                      text_arg(c.get("created_at"), "created_at", LABEL_MAX, required=False),
+                      text_arg(c.get("text"), "text", TEXT_MAX, multiline=True)))
+    now = iso(utcnow())
+    saved = 0
+    with write(conn):
+        if task_id is not None:
+            _task(conn, task_id)
+        for remote_id, author, created_at, text in items:
+            saved += conn.execute(
+                "INSERT OR IGNORE INTO platform_comments (provider, remote_id, subject, task_id, document_path, author, "
+                "text, created_at, saved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (provider, remote_id, subject, task_id, document_path, author, text, created_at, now)).rowcount
+    return {"saved": saved}
+
+
+def comments_list(conn: sqlite3.Connection, *, status: str = "open", task_id: int | None = None,
+                  document_path: str | None = None) -> list:
+    """Saved comments of one status (or "all"), oldest first; with task_id or document_path, those of it."""
+    if status not in (*COMMENT_STATUSES, "all"):
+        raise StoreError(f"status must be one of {', '.join(COMMENT_STATUSES)} or all", EXIT_USAGE)
+    rows = conn.execute("SELECT * FROM platform_comments WHERE (?1 = 'all' OR status = ?1) AND (?2 IS NULL OR task_id = ?2) "
+                        "AND (?3 IS NULL OR document_path = ?3) ORDER BY id", (status, task_id, document_path)).fetchall()
+    return [row_dict(r) for r in rows]
+
+
+def comments_use(conn: sqlite3.Connection, ids, *, pending_id: int) -> dict:
+    """Mark open comments `used` by one pending decision (their text entered the person's answer), all or none.
+    Returns {"used": [ids], "pending_id"}."""
+    if not isinstance(ids, list) or not ids or not all(isinstance(i, int) and not isinstance(i, bool) for i in ids):
+        raise StoreError("ids are a non-empty list of comment ids", EXIT_USAGE)
+    with write(conn):
+        if conn.execute("SELECT 1 FROM pending_decisions WHERE id = ?", (pending_id,)).fetchone() is None:
+            raise StoreError(f"no pending decision {pending_id}")
+        for comment_id in ids:
+            row = conn.execute("SELECT status FROM platform_comments WHERE id = ?", (comment_id,)).fetchone()
+            if row is None or row["status"] != "open":
+                raise StoreError(f"comment {comment_id} is {'missing' if row is None else row['status']}, not open")
+            conn.execute("UPDATE platform_comments SET status = 'used', used_by_pending = ? WHERE id = ?",
+                         (pending_id, comment_id))
+    return {"used": list(ids), "pending_id": pending_id}
+
+
+# --- migration 5: the approvals table (limits L13, L17) ----------------------------------------------------------
+#
+# An approval of the scope `action` binds one open `effect` by the hash of its exact content and waits for code to
+# execute it (`pending-execution`, then `executed` through effect_done); `plan` binds one hash of a batch (first
+# written in stage 10); `standing` is a policy with bounds and an expiry (`active`, first written in stage 6). A
+# row is never deleted, its content never changes, and its status only moves forward (APPROVAL_MOVES; the
+# migration's triggers refuse anything else at the database too).
+
+
+def _approval(conn: sqlite3.Connection, approval_id: int) -> dict:
+    row = conn.execute("SELECT * FROM approvals WHERE id = ?", (approval_id,)).fetchone()
+    if row is None:
+        raise StoreError(f"no approval {approval_id}")
+    return row_dict(row, ("bounds",))
+
+
+def _approval_move(conn: sqlite3.Connection, approval_id: int, status: str, now: str) -> dict:
+    """Inside a transaction: move one approval's status forward, or refuse (limit L13)."""
+    item = _approval(conn, approval_id)
+    if status not in APPROVAL_MOVES.get(item["status"], ()):
+        raise StoreError(f"approval {approval_id} is {item['status']}: it cannot become {status} (an approval only "
+                         "moves forward, and is never deleted)")
+    if status == "executed":
+        conn.execute("UPDATE approvals SET status = ?, executed_at = ? WHERE id = ?", (status, now, approval_id))
+    else:
+        conn.execute("UPDATE approvals SET status = ? WHERE id = ?", (status, approval_id))
+    return _approval(conn, approval_id)
+
+
+def _revoke_pending_execution(conn: sqlite3.Connection, pending_id: int, now: str) -> None:
+    """Inside a transaction: revoke the approvals still waiting to be executed for one pending decision."""
+    for row in conn.execute("SELECT id FROM approvals WHERE pending_id = ? AND status = 'pending-execution' ORDER BY id",
+                            (pending_id,)).fetchall():
+        _approval_move(conn, row["id"], "revoked", now)
+
+
+def approval_add(conn: sqlite3.Connection, *, scope: str, what: str, by: str, payload_sha256: str | None = None,
+                 policy_sha256: str | None = None, bounds: dict | None = None, task_id: int | None = None,
+                 pending_id: int | None = None, expires_at: str | None = None) -> dict:
+    """Record an approval, in one transaction. Returns the row, with "existing": true or false.
+
+    action    payload_sha256 and pending_id are required; the pending decision must be open, of kind `effect`, with
+              the same payload_sha256; the row is `pending-execution` and its task is the pending decision's. When a
+              `pending-execution` row already exists for that pending decision and hash, that row is returned and
+              nothing is inserted (approving twice is one approval)
+    plan      payload_sha256 is required; `pending-execution`
+    standing  bounds (a JSON object) and expires_at (ISO-8601) are required; policy_sha256 is the hash of the bounds
+              file; `active`"""
+    if scope not in APPROVAL_SCOPES:
+        raise StoreError(f"scope must be one of {', '.join(APPROVAL_SCOPES)}", EXIT_USAGE)
+    what = text_arg(what, "what", TITLE_MAX)
+    by = text_arg(by, "by", LABEL_MAX)
+    _sha_or_none(payload_sha256, "payload_sha256")
+    _sha_or_none(policy_sha256, "policy_sha256")
+    if scope in ("action", "plan") and payload_sha256 is None:
+        raise StoreError(f"an approval of scope {scope} needs payload_sha256", EXIT_USAGE)
+    if scope == "action" and pending_id is None:
+        raise StoreError("an approval of scope action needs pending_id", EXIT_USAGE)
+    if scope == "standing":
+        if not isinstance(bounds, dict) or expires_at is None:
+            raise StoreError("an approval of scope standing needs bounds (an object) and expires_at", EXIT_USAGE)
+    elif bounds is not None:
+        raise StoreError(f"an approval of scope {scope} has no bounds", EXIT_USAGE)
+    expires = since_arg(expires_at, "expires_at") if expires_at is not None else None
+    bounds_text = json.dumps(bounds, ensure_ascii=True, sort_keys=True) if bounds is not None else None
+    now = iso(utcnow())
+    with write(conn):
+        if scope == "action":
+            item = conn.execute("SELECT task_id, kind, status, payload_sha256 FROM pending_decisions WHERE id = ?",
+                                (pending_id,)).fetchone()
+            if item is None:
+                raise StoreError(f"no pending decision {pending_id}")
+            if item["kind"] != "effect" or item["status"] != "open":
+                raise StoreError(f"pending decision {pending_id} is a {item['status']} {item['kind']}: an action is "
+                                 "approved only on an open effect")
+            if item["payload_sha256"] != payload_sha256:
+                raise StoreError(f"pending decision {pending_id} has the hash {item['payload_sha256']}, not "
+                                 f"{payload_sha256}: nothing was approved")
+            if task_id is not None and task_id != item["task_id"]:
+                raise StoreError(f"pending decision {pending_id} belongs to task {item['task_id']}, not {task_id}")
+            task_id = item["task_id"]
+            found = conn.execute("SELECT id FROM approvals WHERE pending_id = ? AND payload_sha256 = ? "
+                                 "AND status = 'pending-execution' ORDER BY id LIMIT 1",
+                                 (pending_id, payload_sha256)).fetchone()
+            if found is not None:
+                return {**_approval(conn, found["id"]), "existing": True}
+        elif pending_id is not None:
+            _open_of_kind(conn, pending_id, "plan" if scope == "plan" else "effect")
+        if task_id is not None:
+            _task(conn, task_id)
+        status = "active" if scope == "standing" else "pending-execution"
+        approval_id = conn.execute(
+            "INSERT INTO approvals (scope, what, payload_sha256, policy_sha256, bounds, task_id, pending_id, "
+            "approved_at, approved_by, expires_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (scope, what, payload_sha256, policy_sha256, bounds_text, task_id, pending_id, now, by, expires,
+             status)).lastrowid
+        return {**_approval(conn, approval_id), "existing": False}
+
+
+def approval_standing_add(conn: sqlite3.Connection, *, what: str, by: str, policy_sha256: str, bounds: dict,
+                          expires_at: str) -> dict:
+    """A standing approval of one policy for one agent, in one transaction (stage 6): every `active` standing row
+    whose bounds name the same "policy" and "agent" becomes `revoked`, and the new row is added `active`, as
+    approval_add adds one. bounds must name both. Returns the new row, with "revoked": [the ids revoked]."""
+    _sha_or_none(policy_sha256, "policy_sha256")
+    if policy_sha256 is None:
+        raise StoreError("a standing approval of a policy needs policy_sha256", EXIT_USAGE)
+    if not isinstance(bounds, dict) or not isinstance(bounds.get("policy"), str) or not isinstance(bounds.get("agent"), str):
+        raise StoreError("the bounds of a standing approval name its policy and its agent", EXIT_USAGE)
+    what = text_arg(what, "what", TITLE_MAX)
+    by = text_arg(by, "by", LABEL_MAX)
+    expires = since_arg(expires_at, "expires_at")
+    if expires is None:
+        raise StoreError("a standing approval has an expiry", EXIT_USAGE)
+    now = iso(utcnow())
+    with write(conn):
+        revoked = []
+        for row in conn.execute("SELECT id, bounds FROM approvals WHERE scope = 'standing' AND status = 'active' "
+                                "ORDER BY id").fetchall():
+            earlier = json.loads(row["bounds"] or "{}")
+            if (earlier.get("policy"), earlier.get("agent")) == (bounds["policy"], bounds["agent"]):
+                _approval_move(conn, row["id"], "revoked", now)
+                revoked.append(row["id"])
+        approval_id = conn.execute(
+            "INSERT INTO approvals (scope, what, policy_sha256, bounds, approved_at, approved_by, expires_at, status) "
+            "VALUES ('standing', ?, ?, ?, ?, ?, ?, 'active')",
+            (what, policy_sha256, json.dumps(bounds, ensure_ascii=True, sort_keys=True), now, by, expires)).lastrowid
+        return {**_approval(conn, approval_id), "revoked": revoked}
+
+
+def approval_get(conn: sqlite3.Connection, approval_id: int) -> dict:
+    """One approval, with bounds as an object."""
+    return _approval(conn, approval_id)
+
+
+def approvals_list(conn: sqlite3.Connection, *, status: str | None = None, scope: str | None = None,
+                   task_id: int | None = None) -> list:
+    """Approvals, oldest first, filtered by status, scope and task when given."""
+    if status is not None and status not in APPROVAL_STATUSES:
+        raise StoreError(f"status must be one of {', '.join(APPROVAL_STATUSES)}", EXIT_USAGE)
+    if scope is not None and scope not in APPROVAL_SCOPES:
+        raise StoreError(f"scope must be one of {', '.join(APPROVAL_SCOPES)}", EXIT_USAGE)
+    rows = conn.execute("SELECT * FROM approvals WHERE (?1 IS NULL OR status = ?1) AND (?2 IS NULL OR scope = ?2) "
+                        "AND (?3 IS NULL OR task_id = ?3) ORDER BY id", (status, scope, task_id)).fetchall()
+    return [row_dict(r, ("bounds",)) for r in rows]
+
+
+def approvals_expire(conn: sqlite3.Connection, now: str) -> int:
+    """Turn every `active` approval whose expires_at is before now (ISO-8601) into `expired`, in one transaction;
+    returns how many. Stage 6's poll calls it; nothing in stage 4 does."""
+    now = since_arg(now, "now")
+    with write(conn):
+        ids = [r["id"] for r in conn.execute("SELECT id FROM approvals WHERE status = 'active' AND expires_at < ? "
+                                             "ORDER BY id", (now,)).fetchall()]
+        for approval_id in ids:
+            _approval_move(conn, approval_id, "expired", now)
+    return len(ids)
+
+
+def approval_revoke(conn: sqlite3.Connection, approval_id: int, *, by: str) -> dict:
+    """Revoke an approval that is `pending-execution` or `active`, in one transaction; anything else is refused.
+    The table keeps no column for who revoked: by is checked and returned. Returns the row, with "revoked_by"."""
+    by = text_arg(by, "by", LABEL_MAX)
+    now = iso(utcnow())
+    with write(conn):
+        return {**_approval_move(conn, approval_id, "revoked", now), "revoked_by": by}
+
+
+def effect_done(conn: sqlite3.Connection, pending_id: int, approval_id: int, *, by: str, result: dict) -> dict:
+    """After code executed an effect, all or nothing: the pending decision is resolved `approved`, with result kept
+    under "result" of its payload; the approval is `executed`, with executed_at; the task goes from `waiting` to
+    `done`; the tasks that depended on it become ready and a request whose tasks are all done completes, as for the
+    resolution `released`. Refused for a pending decision that is not an open effect, and for an approval that is
+    not `pending-execution` or belongs to another pending decision. Returns {"pending_id", "approval_id", "task_id",
+    "task_state", "ready", "completed"}."""
+    by = text_arg(by, "by", LABEL_MAX)
+    if not isinstance(result, dict):
+        raise StoreError("the result of an effect is an object", EXIT_USAGE)
+    now = iso(utcnow())
+    with write(conn):
+        item = _open_of_kind(conn, pending_id, "effect")
+        approval = _approval(conn, approval_id)
+        if approval["pending_id"] != pending_id or approval["scope"] != "action":
+            raise StoreError(f"approval {approval_id} is not the approval of pending decision {pending_id}")
+        if approval["payload_sha256"] != item["payload_sha256"]:
+            raise StoreError(f"approval {approval_id} approved another hash than pending decision {pending_id}'s")
+        _approval_move(conn, approval_id, "executed", now)
+        payload = dict(item["payload"] or {}, result=result)
+        conn.execute("UPDATE pending_decisions SET status = 'resolved', resolution = 'approved', payload = ?, "
+                     "resolved_at = ?, resolved_by = ? WHERE id = ?",
+                     (json.dumps(payload, ensure_ascii=True, sort_keys=True), now, by, pending_id))
+        moved = conn.execute("UPDATE tasks SET state = 'done', updated_at = ? WHERE id = ? AND state = 'waiting'",
+                             (now, item["task_id"])).rowcount
+        if not moved:
+            raise StoreError(f"task {item['task_id']} is not waiting: the effect's result is not recorded")
+        ready, completed = _refresh(conn, now)
+    return {"pending_id": pending_id, "approval_id": approval_id, "task_id": item["task_id"], "task_state": "done",
+            "ready": ready, "completed": completed}
+
+
+# --- migration 6: the conversation's messages; what the dispatcher and the planning agent need ---------------------
+#
+# conversation_messages keeps the conversation with the planning agent as given (a text is never interpreted). The
+# functions after it let the dispatcher claim one named task, let a plan grow by sub-tasks after its approval, and
+# count a period's runs and a day's actions in process (action_add and action_count do the verbs' work, through the
+# same internal code).
+
+MESSAGE_ROLES = ("user", "assistant")
+MESSAGES_LIMIT = (50, 1, 500)  # default, min, max
+
+
+def message_add(conn: sqlite3.Connection, *, conversation: str, role: str, text: str, task_id: int | None = None,
+                run_id: int | None = None) -> dict:
+    """Record one message of a conversation, stored as given. role is `user` or `assistant`. Returns {"id",
+    "conversation", "role", "created_at"}."""
+    if role not in MESSAGE_ROLES:
+        raise StoreError(f"role must be one of {', '.join(MESSAGE_ROLES)}", EXIT_USAGE)
+    conversation = text_arg(conversation, "conversation", LABEL_MAX)
+    text = text_arg(text, "text", TEXT_MAX, multiline=True)
+    now = iso(utcnow())
+    with write(conn):
+        if task_id is not None:
+            _task(conn, task_id)
+        if run_id is not None and conn.execute("SELECT 1 FROM task_runs WHERE id = ?", (run_id,)).fetchone() is None:
+            raise StoreError(f"no task run {run_id}")
+        message_id = conn.execute(
+            "INSERT INTO conversation_messages (conversation, role, text, task_id, run_id, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)", (conversation, role, text, task_id, run_id, now)).lastrowid
+    return {"id": message_id, "conversation": conversation, "role": role, "created_at": now}
+
+
+def messages_list(conn: sqlite3.Connection, conversation: str, *, limit: int = MESSAGES_LIMIT[0],
+                  after_id: int | None = None) -> list:
+    """The newest `limit` messages of a conversation whose id is above after_id, returned oldest first."""
+    conversation = text_arg(conversation, "conversation", LABEL_MAX)
+    _default, low, high = MESSAGES_LIMIT
+    if isinstance(limit, bool) or not isinstance(limit, int) or not low <= limit <= high:
+        raise StoreError(f"limit must be between {low} and {high}", EXIT_USAGE)
+    rows = conn.execute("SELECT * FROM conversation_messages WHERE conversation = ? AND (? IS NULL OR id > ?) "
+                        "ORDER BY id DESC LIMIT ?", (conversation, after_id, after_id, limit)).fetchall()
+    return [row_dict(r) for r in reversed(rows)]
+
+
+def task_claim(conn: sqlite3.Connection, task_id: int) -> dict:
+    """Give out one named task as `running`, in the form of task_claim_next: {"task", "running"}. While a task of the
+    database runs, task is None and running is that task's id. A task that does not exist, or is not a `ready` task
+    of a request, is not claimed: task and running are None and "reason" is `unknown` or `not-ready`; a task with an open
+    wait is not claimed either (`waiting`)."""
+    now = iso(utcnow())
+    with write(conn):
+        busy = conn.execute(RUNNING_TASK).fetchone()
+        if busy:
+            return {"task": None, "running": busy["id"]}
+        row = conn.execute("SELECT id, parent_id, state FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        if row is None:
+            return {"task": None, "running": None, "reason": "unknown"}
+        if row["state"] != "ready" or row["parent_id"] is None:
+            return {"task": None, "running": None, "reason": "not-ready"}
+        if conn.execute("SELECT 1 FROM task_waits WHERE task_id = ? AND status = 'open'", (task_id,)).fetchone():
+            return {"task": None, "running": None, "reason": "waiting"}
+        conn.execute("UPDATE tasks SET state = 'running', updated_at = ? WHERE id = ? AND state = 'ready'",
+                     (now, task_id))
+        return {"task": _task(conn, task_id), "running": None}
+
+
+def _tasks_add(conn: sqlite3.Connection, request_id: int, tasks, now: str, waits: list | None = None) -> dict:
+    """Inside a transaction: tasks_add's work."""
+    request = _request(conn, request_id)
+    if request["state"] not in ("planned", "done"):
+        raise StoreError(f"request {request_id} is {request['state']}: tasks are added to a planned or a done request")
+    known = {r["key"]: r["id"] for r in conn.execute("SELECT id, key FROM tasks WHERE parent_id = ? ORDER BY id",
+                                                       (request_id,)).fetchall() if r["key"] is not None}
+    if isinstance(tasks, list):
+        taken = [item.get("key") for item in tasks if isinstance(item, dict) and item.get("key") in known]
+        if taken:
+            raise StoreError(f"request {request_id} already has a task {taken[0]!r}: nothing was added", EXIT_USAGE)
+    plan = _plan_items(tasks, known=tuple(known))
+    if not plan:
+        raise StoreError("tasks_add adds at least one task", EXIT_USAGE)
+    added = _insert_plan(conn, request_id, request["flow"], plan, now, known)
+    _insert_waits(conn, request_id, dict(zip([p["key"] for p in plan], added)), waits or [], now)
+    conn.execute("UPDATE tasks SET state = 'planned', updated_at = ? WHERE id = ?", (now, request_id))
+    _refresh(conn, now)
+    rows = [conn.execute("SELECT id, key, skill, agent, state FROM tasks WHERE id = ?", (task_id,)).fetchone()
+            for task_id in added]
+    return {"request": request_id, "tasks": [row_dict(r) for r in rows]}
+
+
+def tasks_add(conn: sqlite3.Connection, request_id: int, tasks, waits: list | None = None) -> dict:
+    """Add tasks to a request that is `planned` or `done` (a done request gets work again and is `planned`). Each item
+    is {"key", "skill", "title", "text", "depends_on": [keys], "milestone"[, "agent"]}; a dependency names a task the
+    request already has, or one earlier in this call. A key the request already has, or an unknown dependency, adds
+    nothing. A new task whose dependencies are all done (or that has none) and that has no open wait (waits, as
+    request_add reads them) is `ready`, else `planned`. Returns
+    {"request", "tasks": [{"id", "key", "skill", "agent", "state"}]}."""
+    now = iso(utcnow())
+    with write(conn):
+        return _tasks_add(conn, request_id, tasks, now, waits)
+
+
+RUNS_SINCE = ("SELECT r.id, r.task_id, COALESCE(t.parent_id, t.id) AS request_id, t.agent, r.skill, r.model, "
+              "r.adapter, r.status, r.failure, r.attempts, r.tokens, r.cost_usd, r.billing, r.started_at, r.ended_at FROM task_runs r "
+              "JOIN tasks t ON t.id = r.task_id WHERE r.started_at >= ? AND (? IS NULL OR t.agent = ?) ORDER BY r.id")
+
+
+def runs_since(conn: sqlite3.Connection, since: str, *, agent: str | None = None) -> list:
+    """The runs started at or after since (ISO-8601), oldest first, each with the agent of its task and its request:
+    {"id", "task_id", "request_id", "agent", "skill", "model", "adapter", "status", "failure", "attempts" (the attempts that
+    began: 0 when none did), "tokens" (None when not reported), "cost_usd", "billing" (None for a run older than migration 9), "started_at", "ended_at"}. A run
+    of the router belongs to its request, whose agent is None. With agent, only the runs of that agent's tasks."""
+    since = since_arg(since, "since")
+    agent = text_arg(agent, "agent", LABEL_MAX, required=False)
+    return [row_dict(r) for r in conn.execute(RUNS_SINCE, (since, agent, agent)).fetchall()]
+
+
+def action_add(conn: sqlite3.Connection, *, kind: str, idempotency_key: str, target: str, payload_sha256: str,
+               result) -> dict:
+    """The verb action-add, in process: the same checks and the same internal code. result is an object, or its
+    JSON text. Returns {"id", "created", "created_at"}."""
+    kind = text_arg(kind, "kind", LABEL_MAX)
+    key = text_arg(idempotency_key, "idempotency_key", REF_MAX)
+    target = text_arg(target, "target", REF_MAX)
+    digest = sha_arg(payload_sha256)
+    if isinstance(result, str):
+        try:
+            json.loads(result, parse_constant=reject_constant)
+        except ValueError as exc:
+            raise StoreError(f"result: not JSON ({exc})", EXIT_USAGE) from None
+        text = result
+    else:
+        try:
+            text = json.dumps(result, ensure_ascii=True, sort_keys=True, allow_nan=False)
+        except (TypeError, ValueError) as exc:
+            raise StoreError(f"result: not JSON ({exc})", EXIT_USAGE) from None
+    if len(text.encode("utf-8")) > PAYLOAD_MAX:
+        raise StoreError(f"result is over the cap of {PAYLOAD_MAX} bytes", EXIT_USAGE)
+    return _action_write(conn, kind, key, target, digest, text)
+
+
+def action_count(conn: sqlite3.Connection, *, kind: str, since: str) -> int:
+    """The verb action-count, in process: how many actions of a kind were recorded at or after since (ISO-8601)."""
+    kind = text_arg(kind, "kind", LABEL_MAX)
+    since = since_arg(since, "since")
+    if since is None:
+        raise StoreError("since is required", EXIT_USAGE)
+    return _action_count(conn, kind, since)
+
+
+def acceptance_open(conn: sqlite3.Connection, *, task_id: int, what: str, title: str, body: str, payload: dict) -> dict:
+    """Open a pending decision of kind `acceptance` on a request that is not cancelled, with payload["what"] set to
+    what (`subtasks` or `deliveries`). The request's state does not change. Returns {"pending_id", "task_id"}."""
+    if what not in ACCEPTANCE_WHATS:
+        raise StoreError(f"what must be one of {', '.join(ACCEPTANCE_WHATS)}", EXIT_USAGE)
+    if not isinstance(payload, dict):
+        raise StoreError("an acceptance's payload is an object", EXIT_USAGE)
+    item = _pending_item({"kind": "acceptance", "title": title, "body": body, "payload": dict(payload, what=what)})
+    now = iso(utcnow())
+    with write(conn):
+        request = _request(conn, task_id)
+        if request["state"] == "cancelled":
+            raise StoreError(f"request {task_id} is cancelled: nothing is accepted on it")
+        pending_id = conn.execute(
+            "INSERT INTO pending_decisions (task_id, kind, title, body, payload, payload_sha256, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)", (task_id, *item, now)).lastrowid
+    return {"pending_id": pending_id, "task_id": task_id}
+
+
+def task_runs_of_skill(conn: sqlite3.Connection, skill: str) -> list:
+    """Every run of one skill in this database, oldest first: what a plan's estimate counts."""
+    skill = text_arg(skill, "skill", LABEL_MAX)
+    return [row_dict(r) for r in conn.execute("SELECT * FROM task_runs WHERE skill = ? ORDER BY id", (skill,))]
+
+
+def cursor_get(conn: sqlite3.Connection, name: str) -> str | None:
+    """The value of a cursor, or None when there is no such cursor: the cursor-get verb, in process."""
+    name = text_arg(name, "name", LABEL_MAX)
+    with write(conn):
+        row = conn.execute("SELECT value FROM cursors WHERE name = ?", (name,)).fetchone()
+    return row["value"] if row else None
+
+
+def cursor_peek(conn: sqlite3.Connection, name: str) -> str | None:
+    """The value of a cursor as cursor_get reads it, with one plain SELECT and no transaction of its own: it takes no write
+    lock, so it never queues behind a writer and works on a store opened read-only. For a reader that asks every second."""
+    name = text_arg(name, "name", LABEL_MAX)
+    row = conn.execute("SELECT value FROM cursors WHERE name = ?", (name,)).fetchone()
+    return row["value"] if row else None
+
+
+def cursor_set(conn: sqlite3.Connection, name: str, value: str) -> dict:
+    """Insert or replace a cursor: the cursor-set verb, in process, with the same limits. Returns {"name",
+    "value", "updated_at"}."""
+    name = text_arg(name, "name", LABEL_MAX)
+    value = text_arg(value, "value", VALUE_MAX)
+    now = iso(utcnow())
+    with write(conn):
+        conn.execute("INSERT INTO cursors (name, value, updated_at) VALUES (?, ?, ?) "
+                     "ON CONFLICT (name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+                     (name, value, now))
+    return {"name": name, "value": value, "updated_at": now}
+
+
+def task_get(conn: sqlite3.Connection, task_id: int) -> dict:
+    """One task, with depends_on as a list of task ids."""
+    return _task(conn, task_id)
+
+
+def tasks_list(conn: sqlite3.Connection, request: int | None = None) -> list:
+    """Every task, oldest first; with request, that request and its tasks."""
+    rows = conn.execute("SELECT * FROM tasks WHERE (?1 IS NULL OR id = ?1 OR parent_id = ?1) ORDER BY id",
+                        (request,)).fetchall()
+    return [row_dict(r, ("depends_on",)) for r in rows]
+
+
+def task_run_get(conn: sqlite3.Connection, run_id: int) -> dict:
+    """One row of task_runs; StoreError when there is none."""
+    row = conn.execute("SELECT * FROM task_runs WHERE id = ?", (run_id,)).fetchone()
+    if row is None:
+        raise StoreError(f"no task run {run_id}")
+    return row_dict(row)
+
+
+def task_runs_list(conn: sqlite3.Connection, task_id: int) -> list:
+    """The runs of one task, oldest first."""
+    return [row_dict(r) for r in conn.execute("SELECT * FROM task_runs WHERE task_id = ? ORDER BY id", (task_id,))]
+
+
+def task_runs_running(conn: sqlite3.Connection) -> list:
+    """The runs whose status is `running`, as {"id", "task_id", "skill", "started_at"}, oldest first: one query, whatever the
+    number of tasks. One run at a time per project, so the list holds at most one; a router run is the one whose task is a request."""
+    return [row_dict(r) for r in conn.execute(
+        "SELECT id, task_id, skill, started_at FROM task_runs WHERE status = 'running' ORDER BY id")]
+
+
+def pending_get(conn: sqlite3.Connection, pending_id: int) -> dict:
+    """One pending decision, with its payload as an object."""
+    row = conn.execute("SELECT * FROM pending_decisions WHERE id = ?", (pending_id,)).fetchone()
+    if row is None:
+        raise StoreError(f"no pending decision {pending_id}")
+    return row_dict(row, ("payload",))
+
+
+def pending_list(conn: sqlite3.Connection, status: str = "open", task_id: int | None = None) -> list:
+    """Pending decisions of one status (or "all"), oldest first; with task_id, those of one task."""
+    if status not in (*PENDING_STATUSES, "all"):
+        raise StoreError(f"status must be one of {', '.join(PENDING_STATUSES)} or all", EXIT_USAGE)
+    rows = conn.execute("SELECT * FROM pending_decisions WHERE (?1 = 'all' OR status = ?1) "
+                        "AND (?2 IS NULL OR task_id = ?2) ORDER BY id", (status, task_id)).fetchall()
+    return [row_dict(r, ("payload",)) for r in rows]
 
 
 # --- entry point ------------------------------------------------------------------

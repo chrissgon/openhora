@@ -11,7 +11,7 @@ bash adapters/agents-dir/install.sh --project .    # project-level: ./.agents/sk
 ## Limitations
 
 - Agents (`agents/`) are not installed by this adapter: agent formats differ per tool. Add a dedicated adapter when a tool's subagent format is needed.
-- The shared references are installed beside the skills, in `<skills folder>/../shared/references` (a link, or a copy with `--copy`), so a skill's `../../shared/references/<file>` resolves by the installed path. The `shared` folder holds the installer's marker file; a `shared` folder the installer did not make is left alone and reported, and the run exits 1.
+- The shared references are installed beside the skills, in `<skills folder>/../shared/references` (a link, or a copy with `--copy`), so a skill's `../../shared/references/<file>` resolves by the installed path. The `shared` folder holds the installer's marker file (`.installed-by-openhora`; a copy or a `shared` folder that holds the marker the installer wrote before the rename, `.installed-by-ai-workbench`, still counts as its own and is replaced with the new one; removed with the next change of reference model, T23); a `shared` folder the installer did not make is left alone and reported, and the run exits 1.
 - One pack is installed at a time: installing a pack removes what an earlier pack installed and this one does not select (a dangling link to a renamed skill included), and `--uninstall` removes everything the installer made, whatever pack installed it.
 
 ## Evals
@@ -26,7 +26,7 @@ The floor model of the eval gate is `openrouter/deepseek/deepseek-v4.1-flash` si
 
 ```bash
 # OPENROUTER_API_KEY from the environment settings, or stored once in the OS secret store:
-#   uv run --with keyring==25.7.0 keyring set ai-workbench openrouter
+#   uv run --with keyring==25.7.0 keyring set openhora openrouter
 # --pass-env reads it from there when it is not exported (contracts/secrets.md): this adapter registers
 # the key in the "secrets" list of its adapter.json; the name to pass stays in evals/eval-gate.json.
 python3 evals/eval_run.py --skill <name>
@@ -36,6 +36,8 @@ python3 evals/eval_run.py --skill <name> --harness claude-code --model <strong-i
 ```
 
 `--floor-pass-env` names the key for the floor model's runs only; the strong model's runs and the grader never see it. The strong model and the grader run through the claude-code adapter on the user's own account (decided 2026-09-28).
+
+Both keys this adapter registers, `OPENROUTER_API_KEY` and `DEEPSEEK_API_KEY`, are declared `"billing": "metered"` in `adapter.json`: a runtime run on the floor model with either is counted against the project's dollars per day, and the cost `timing.json` carries is kept as the run's cost (`contracts/secrets.md`, "How a credential is billed"). A floor model on the person's own machine (below) needs no key; an adapter for it declares `"login_billing": "free"`, which this one does not yet, so the runtime has no billing to count such a run by and its dispatcher does not start it (it never guesses a cap).
 
 **Where the key lives during a run: in the key proxy, never in the run (since 2026-10-03).** Twice in phase D the floor model ran `env` inside the container and printed its own key into its transcript; the runner redacted it from everything stored, but the value had reached the model's context. Now the eval executor starts the key proxy (`evals/container/keyproxy/`), a container of its own on the eval network beside the egress proxy, with the key in its environment, and a floor run container gets `OPENROUTER_API_KEY=held-by-the-eval-key-proxy` (a placeholder) and `OPENROUTER_BASE_URL=http://wb-eval-keys-<definition hash>:8890/api/v1`. When the model id is `openrouter/<vendor>/<model>` and `OPENROUTER_BASE_URL` is set, `run-prompt.sh` writes `provider.openrouter.options.baseURL` into the throwaway home's `opencode.json`; OpenCode 1.18.32 passes it to its OpenRouter SDK, which then calls `<baseURL>/chat/completions` with the placeholder as its bearer token (both read in the binary the image ships). The key proxy drops that header, adds the real one, pins the provider of each chat completion to the one the route names (`deepinfra`, chosen because the account's data policy excludes DeepSeek's own endpoint), with fallbacks off, so that every floor run is served by one provider, and forwards the call over HTTPS, through the egress proxy, to `openrouter.ai` and its `/api/v1/` path only; it streams the answer back as it arrives and logs no header. A model can still spend the key through the proxy, so the credit limit on the key stays the cap; it can no longer read it. A custom runner (`RUN_PROMPT_CMD`) gets the same two variables and must use the base URL itself. `DEEPSEEK_API_KEY` (a floor model id `deepseek/<model>`) is not held by the proxy and still travels into the run.
 
@@ -53,7 +55,7 @@ Learned in a cloud session on 2026-09-28 (`opencode-ai@1.18.32`):
 
 ## Floor model on your own machine (Ollama)
 
-Not wired to the eval container yet: evals now run in a container whose network reaches only the hosted providers, so a model served on the person's machine is not reachable from a run until the executor gains a route to it (backlog T12). What follows describes the adapter's side, which is unchanged.
+Not wired to the eval container yet: evals now run in a container whose network reaches only the hosted providers, so a model served on the person's machine is not reachable from a run until the executor gains a route to it (backlog N14, split from T12, which is archived). What follows describes the adapter's side, which is unchanged.
 
 A model id `ollama/<name>` runs a model served by Ollama on this machine (`http://127.0.0.1:11434`, or `RUN_PROMPT_OLLAMA_URL`). The adapter writes the provider entry into the run's throwaway home; nothing is added to the case folder and no key is needed.
 

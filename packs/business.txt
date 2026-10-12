@@ -1,0 +1,2 @@
+# The business area: the scope of the task runtime's business area agent (runtime/manifest.py, PACKS_IN_USE).
+area:business

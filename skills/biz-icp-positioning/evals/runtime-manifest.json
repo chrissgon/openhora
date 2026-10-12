@@ -1,0 +1,11 @@
+{
+  "skill": "biz-icp-positioning",
+  "documents": [
+    {"path": "docs/business/icp.md", "checks": [["check_refs.py", "--file", "{path}"], ["lint_icp.py", "--file", "{path}", "--kind", "icp"]], "platform": "editable", "bound_to_approval": false},
+    {"path": "docs/business/positioning.md", "checks": [["check_refs.py", "--file", "{path}"], ["lint_icp.py", "--file", "{path}", "--kind", "positioning"]], "platform": "read_only", "bound_to_approval": false}
+  ],
+  "machine_files": [],
+  "mandatory_milestone": false,
+  "asking_openings": ["Nothing was written yet"],
+  "gate": null
+}

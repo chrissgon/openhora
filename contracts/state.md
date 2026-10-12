@@ -32,16 +32,16 @@ Keep it small. It is a table of contents with status, not a journal.
 - 2026-09-22: No brand phase; internal tool. (user)
 - 2026-09-22: Pricing is usage-based; see docs/business/pricing.md. (biz-pricing, approved by user)
 
+## Open questions
+
+- [ ] Who owns customer support after launch? (raised by flow-fix-bug, phase 9, pull request)
+
 ## Approvals
 
 | Scope | What | Payload hash | Approved | Expires | Status |
 |-------|------|--------------|----------|---------|--------|
 | action | LinkedIn post "Launching X" with image-01.png at 2026-09-23 09:00 | sha256:9f2c…(64 hex) | 2026-09-22 | after execution | pending-execution |
 | standing | open pull requests on feature/* branches | — | 2026-09-22 | 2026-12-31 | active |
-
-## Open questions
-
-- [ ] Who owns customer support after launch? (raised by flow-fix-bug, phase 9, pull request)
 ```
 
 ## Rules
@@ -52,8 +52,8 @@ Keep it small. It is a table of contents with status, not a journal.
 - A pre-existing document is registered as `<slot> (at <real path>)` with owner `existing`. Skills that list the slot as an input read the real path. It is never moved or edited by registration.
 - A flow resumes from the first phase whose artifacts are not `approved` or `skipped`.
 - Decisions record what was decided, by whom, and where the reasoning lives. One line each.
-- Open questions are checkboxes; a flow surfaces unchecked ones at every checkpoint.
+- Open questions are checkboxes; a flow surfaces unchecked ones at every checkpoint. A draft artifact marks its own open questions `OPEN-<n>` in its text (the writing standard of `AGENTS.md`); in this file the line stays a checkbox, which may carry that mark (`- [ ] OPEN-1 ...`). The task runtime's merge of the state file (`runtime/state_merge.py`) reads a new open question in either form, with or without the checkbox, and writes it as a checkbox.
 - `Docs in git` records which workbench folders under `docs/` go into git, a decision the user takes once per project: `all` (every workbench folder is committed), `code` (only `docs/product/`, `docs/design/`, `docs/engineering/`, `docs/ai/` and `docs/delivery/`; `docs/workbench/`, `docs/business/`, `docs/brand/`, `docs/marketing/` and `docs/security/` are work data, listed in `.gitignore`), `none` (no workbench folder is committed) or `undecided` (not taken yet; an open question asks it). `core-project-init` writes the line, and the same value in the workbench section of the project's `AGENTS.md`, at setup and when the user later states the decision. It is read by `ops-pull-request` before any commit under `docs/` (while it is `undecided` or missing, the skill asks and stops), by `ops-branch-sync` before it lets its approval row reach a commit, and by `flow-fix-bug` through `ops-pull-request`. A state file without the line counts as `undecided`.
 - `Autonomy.Checkpoints` is set by the user once per project: `every-phase` stops after each phase; `milestones` stops only at phases marked as milestones in the flow's phase table; `end` runs every phase and presents one consolidated summary. Confirmation gates and blocking open questions stop the flow in every mode.
-- Approvals follow the scopes and rules in `contracts/environment.md`. A skill checks this table before asking; an `action` or `plan` approval matches only when the approved payload file still hashes to its `Payload hash`, and a `standing` approval (`—`) matches when the action is inside its bounds and before its expiry. The table stores the hash, never the payload. Status moves `pending-execution` → `executed` (with timestamp) or `active` → `expired`.
+- Approvals follow the scopes and rules in `contracts/environment.md`. A skill checks this table before asking; an `action` or `plan` approval matches only when the approved payload file still hashes to its `Payload hash`, and a `standing` approval (`—`) matches when the action is inside its bounds and before its expiry. The table stores the hash, never the payload. Status moves `pending-execution` → `executed` (with timestamp) or `revoked`, and `active` → `expired` or `revoked`. A row of the task runtime's approvals is a copy code generates from the store's approvals table (`contracts/environment.md`, "Two records of approvals"); the row of a revoked standing approval leaves the file.
 - Never store secrets, tokens or personal data here.

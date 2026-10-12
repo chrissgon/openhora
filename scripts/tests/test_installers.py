@@ -26,7 +26,10 @@ BASH = shutil.which("bash")
 # The shell macOS ships is bash 3.2, where an empty array under `set -u` is an error; where it exists
 # beside another bash, both are exercised.
 SHELLS = sorted({s for s in (BASH, "/bin/bash") if s and os.path.exists(s)})
-MARK = ".installed-by-ai-workbench"
+MARK = ".installed-by-openhora"
+LEGACY_MARK = ".installed-by-ai-workbench"  # T23: what the installer wrote before the rename
+LINK = "openhora"
+LEGACY_LINK = "ai-workbench"  # T23: the plugin link of the installer before the rename
 SECURITY = "shared/references/security.md"
 
 
@@ -149,11 +152,11 @@ def test_plugin_uninstall_keeps_a_link_it_did_not_make(tmp_path):
     skills_dir.mkdir()
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
-    (skills_dir / "ai-workbench").symlink_to(elsewhere)
+    (skills_dir / LINK).symlink_to(elsewhere)
     env = {**os.environ, "HOME": str(tmp_path / "home"), "CLAUDE_SKILLS_DIR": str(skills_dir)}
     r = subprocess.run([BASH, str(plugin_installer), "--uninstall"], env=env, capture_output=True, text=True, timeout=60)
     assert r.returncode == 1 and "not created by this installer" in r.stderr
-    assert os.readlink(skills_dir / "ai-workbench") == str(elsewhere)
+    assert os.readlink(skills_dir / LINK) == str(elsewhere)
 
 
 # --- the shared references, beside the skills after each kind of install ---------------------------
@@ -197,7 +200,7 @@ def test_plugin_install_puts_the_shared_references_in_the_build(workbench, tmp_p
     r = plugin(workbench, tmp_path)
     assert r.returncode == 0, r.stderr
     out = json.loads(r.stdout)
-    link = tmp_path / "cc" / "skills" / "ai-workbench"
+    link = tmp_path / "cc" / "skills" / LINK
     build = workbench / "adapters/claude-code/build/default"
     assert out["linked"] == str(link) and os.readlink(link) == str(build)
     assert out["fallback"].endswith(f"--plugin-dir {build}")
@@ -207,7 +210,115 @@ def test_plugin_install_puts_the_shared_references_in_the_build(workbench, tmp_p
     assert (link / "agents" / "helper.md").is_file()
     manifest = json.loads((link / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
     # With an `agents` path the CLI refused the whole folder as an invalid manifest; agents/ is found by default.
-    assert manifest["name"] == "ai-workbench" and "agents" not in manifest
+    assert manifest["name"] == "openhora" and "agents" not in manifest
+
+
+# --- the compatibility stage of the rename: the old plugin link and the old marker (T23) ------------
+
+def legacy_link(workbench, tmp_path, target=None) -> Path:
+    """The link the installer made before the rename: under the old name, into this checkout's build folder."""
+    skills = tmp_path / "cc" / "skills"
+    skills.mkdir(parents=True, exist_ok=True)
+    link = skills / LEGACY_LINK
+    link.symlink_to(target or workbench / "adapters/claude-code/build/default")
+    return link
+
+
+def test_plugin_install_removes_the_old_link_into_its_own_build_and_says_so(workbench, tmp_path):
+    old = legacy_link(workbench, tmp_path)
+    r = plugin(workbench, tmp_path)
+    assert r.returncode == 0, r.stderr
+    out = json.loads(r.stdout)
+    link = tmp_path / "cc" / "skills" / LINK
+    assert out["linked"] == str(link) and out["legacy_removed"] == str(old)
+    assert link.is_symlink() and not old.is_symlink() and not old.exists()
+    assert "Removed the old plugin link" in r.stderr and LEGACY_LINK in r.stderr, "the person is told that the old link went"
+    assert "openhora@skills-dir" in out["next"]
+    again = plugin(workbench, tmp_path)
+    assert again.returncode == 0 and "legacy_removed" not in json.loads(again.stdout), "nothing to remove the second time"
+
+
+def test_plugin_install_leaves_an_old_link_that_points_elsewhere_or_is_a_folder(workbench, tmp_path):
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    old = legacy_link(workbench, tmp_path, target=elsewhere)
+    r = plugin(workbench, tmp_path)
+    assert r.returncode == 0, r.stderr
+    assert "legacy_removed" not in json.loads(r.stdout) and os.readlink(old) == str(elsewhere)
+    old.unlink()
+    old.mkdir()
+    (old / "notes.md").write_text("mine\n", encoding="utf-8")
+    assert plugin(workbench, tmp_path).returncode == 0 and entries(old) == ["notes.md"]
+
+
+def test_plugin_dry_run_reports_the_old_link_it_would_remove_and_removes_nothing(workbench, tmp_path):
+    old = legacy_link(workbench, tmp_path)
+    r = plugin(workbench, tmp_path, "--dry-run")
+    assert r.returncode == 0, r.stderr
+    last = json.loads(r.stdout.splitlines()[-1])
+    assert last["would_remove_legacy"] == str(old) and old.is_symlink()
+    assert not (tmp_path / "cc" / "skills" / LINK).exists()
+    u = json.loads(plugin(workbench, tmp_path, "--uninstall", "--dry-run").stdout)
+    assert u["would_remove_legacy"] == str(old) and old.is_symlink()
+
+
+def test_plugin_uninstall_removes_either_link_or_both(workbench, tmp_path):
+    skills = tmp_path / "cc" / "skills"
+    # only the old one (installed before the rename, never reinstalled)
+    old = legacy_link(workbench, tmp_path)
+    r = plugin(workbench, tmp_path, "--uninstall")
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout) == {"removed": None, "legacy_removed": str(old)} and not old.is_symlink()
+    # only the new one
+    assert plugin(workbench, tmp_path).returncode == 0
+    assert json.loads(plugin(workbench, tmp_path, "--uninstall").stdout) == {"removed": str(skills / LINK)}
+    # both
+    assert plugin(workbench, tmp_path).returncode == 0
+    old = legacy_link(workbench, tmp_path)
+    out = json.loads(plugin(workbench, tmp_path, "--uninstall").stdout)
+    assert out == {"removed": str(skills / LINK), "legacy_removed": str(old)}
+    assert entries(skills) == [] and not (workbench / "adapters/claude-code/build").exists()
+
+
+def test_plugin_uninstall_keeps_an_old_link_it_did_not_make(workbench, tmp_path):
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    old = legacy_link(workbench, tmp_path, target=elsewhere)
+    assert plugin(workbench, tmp_path).returncode == 0
+    r = plugin(workbench, tmp_path, "--uninstall")
+    assert r.returncode == 0, r.stderr
+    assert os.readlink(old) == str(elsewhere) and not (tmp_path / "cc" / "skills" / LINK).exists()
+
+
+def test_the_listing_budget_backup_prefix_is_the_new_name(workbench, tmp_path):
+    settings = tmp_path / "proj" / ".claude" / "settings.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text(json.dumps({"env": {"KEEP": "1"}}), encoding="utf-8")
+    r = plugin(workbench, tmp_path, "--listing-budget", "write", "--project", str(tmp_path / "proj"))
+    assert r.returncode == 0, r.stderr
+    backups = sorted(p.name for p in settings.parent.glob("settings.json.*.bak"))
+    assert len(backups) == 1 and backups[0].startswith("settings.json.openhora-") and "ai-workbench" not in backups[0]
+
+
+@pytest.mark.parametrize("mode", [[], ["--copy"]])
+def test_agents_dir_install_replaces_and_removes_copies_made_under_the_old_marker(workbench, tmp_path, mode):
+    skills = tmp_path / "proj" / ".agents" / "skills"
+    assert agents_dir(workbench, tmp_path, "--copy").returncode == 0
+    # make every copy and the shared folder look like the installer of before the rename made them
+    for folder in [*skills.iterdir(), skills.parent / "shared"]:
+        (folder / MARK).rename(folder / LEGACY_MARK)
+    r = agents_dir(workbench, tmp_path, *mode)
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout)["skipped"] == [], "a copy under the old marker is still the installer's own"
+    if mode:
+        assert all((f / MARK).is_file() and not (f / LEGACY_MARK).exists() for f in [*skills.iterdir(), skills.parent / "shared"])
+    # and an uninstall removes whatever carries either marker
+    assert agents_dir(workbench, tmp_path, "--copy").returncode == 0
+    (skills / "eng-alpha" / MARK).rename(skills / "eng-alpha" / LEGACY_MARK)
+    (skills.parent / "shared" / MARK).rename(skills.parent / "shared" / LEGACY_MARK)
+    r = agents_dir(workbench, tmp_path, "--uninstall")
+    assert r.returncode == 0, r.stderr
+    assert entries(skills) == [] and not (skills.parent / "shared").exists()
 
 
 # --- a pack change and an uninstall remove what an earlier pack installed --------------------------
@@ -242,7 +353,7 @@ def test_agents_dir_pack_change_and_uninstall_leave_nothing_behind(workbench, tm
 
 def test_plugin_pack_change_and_uninstall_remove_the_old_builds(workbench, tmp_path):
     builds = workbench / "adapters/claude-code/build"
-    link = tmp_path / "cc" / "skills" / "ai-workbench"
+    link = tmp_path / "cc" / "skills" / LINK
     assert plugin(workbench, tmp_path).returncode == 0
     assert entries(builds) == ["default"]
     r = plugin(workbench, tmp_path, "--pack", "engonly")
@@ -262,7 +373,7 @@ def test_plugin_pack_change_and_uninstall_remove_the_old_builds(workbench, tmp_p
 
 
 def test_plugin_install_refuses_a_target_it_did_not_make_and_builds_nothing(workbench, tmp_path):
-    link = tmp_path / "cc" / "skills" / "ai-workbench"
+    link = tmp_path / "cc" / "skills" / LINK
     link.mkdir(parents=True)
     (link / "notes.md").write_text("mine\n", encoding="utf-8")
     r = plugin(workbench, tmp_path)
@@ -330,7 +441,7 @@ def test_the_json_the_installers_print_is_valid_for_a_path_with_a_quote_and_a_sp
         assert r.returncode == 0, r.stderr
         assert json.loads(r.stdout)["target"] == str(odd / ".agents" / "skills")
     skills_dir = str(odd / "cc skills")
-    link = str(Path(skills_dir) / "ai-workbench")
+    link = str(Path(skills_dir) / LINK)
     script = workbench / "adapters/claude-code/install.sh"
     lines = run(script, "--dry-run", home=home, CLAUDE_SKILLS_DIR=skills_dir).stdout.splitlines()
     assert json.loads(lines[0])["skills"] == 3 and json.loads(lines[1])["would_link"] == link

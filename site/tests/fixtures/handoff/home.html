@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>openhora</title>
+<meta name="description" content="openhora is an open, self-hosted workbench of skills, agents and workflows that let an AI build a digital solution.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="assets/img/openhora-favicon.svg" type="image/svg+xml">
+<link rel="preload" href="assets/fonts/space-grotesk-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/inter-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/vendor/perfectui/perfectui.css">
+<link rel="stylesheet" href="assets/css/home.css">
+<script src="assets/js/site.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main" data-proposed>Skip to the content</a>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brandlink" href="index.html"><img src="assets/img/openhora-mark.svg" alt="openhora" width="32" height="32"><span class="wordmark" aria-hidden="true">openhora</span></a>
+    <input class="nav-toggle-input" type="checkbox" id="nav-toggle" aria-label="Menu" aria-controls="site-nav" data-proposed>
+    <nav class="site-nav" id="site-nav" aria-label="Pages">
+      
+      <ul><li><a href="index.html" aria-current="page">Home</a></li><li><a href="proof.html">Proof</a></li><li><a href="first-steps.html">First steps</a></li><li><a href="how-its-built.html">How openhora is built</a></li><li><a href="interface.html">Interface</a></li><li><a href="glossary.html">Glossary</a></li></ul>
+      <a class="pui-btn pui-outline pui-surface btn-ghost repo-in-nav" href="https://github.com/chrissgon/openhora" data-proposed><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>Repository</a>
+    </nav>
+    <div class="header-tools">
+      <a class="pui-btn pui-outline pui-surface btn-ghost repo-link" href="https://github.com/chrissgon/openhora" aria-label="Repository" data-proposed><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg><span class="repo-label">Repository</span></a>
+      <button class="pui-btn pui-outline pui-surface mode-btn" type="button" data-mode-btn aria-label="Colour mode: System" data-current="system" data-proposed><svg class="i-system" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="10" rx="1.5"/><path d="M7 17h6M10 13.5V17"/></svg><svg class="i-light" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="3.5"/><path d="M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.4 1.4M14.6 14.6 16 16M4 16l1.4-1.4M14.6 5.4 16 4"/></svg><svg class="i-dark" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16.5 12.2A7 7 0 0 1 7.8 3.5a7 7 0 1 0 8.7 8.7Z"/></svg></button>
+      <label class="nav-toggle" for="nav-toggle" aria-hidden="true"><span class="bars"></span><span data-proposed>Menu</span></label>
+    </div>
+  </div>
+</header>
+<main id="main">
+
+<section class="band hero" aria-labelledby="hero-title">
+  <div class="wrap">
+    <div class="dots" aria-hidden="true"></div>
+    <div class="hero-glow" aria-hidden="true"></div>
+    <div class="hero-copy">
+      <h1 class="hl" id="hero-title"><span class="hl-kicker"><span class="brand">openhora</span> — the <span class="nw">end-to-end,</span> <span class="nw">security-focused</span> AI workbench</span> <span class="hl-main">You can leave working <span class="hl-watch">unattended,</span></span> <span class="hl-tail">because <span class="hl-proof">proof</span> decides what&nbsp;runs</span></h1>
+      <p class="lead"><b>48 skills</b> with recorded bands; <b>MIT</b>; <b class="nw">self-hosted</b></p>
+      <div class="cta-row">
+        <a class="pui-btn btn-glow btn-lg" href="https://github.com/chrissgon/openhora#install">Get started</a>
+        <a class="pui-btn pui-outline pui-surface btn-lg" href="https://github.com/chrissgon/openhora"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>View on GitHub</a>
+      </div>
+    </div>
+    <figure class="hero-dial">
+      <div class="dial-box">
+        <svg class="dial" viewBox="0 0 600 600" role="img" aria-labelledby="dial-t" xmlns="http://www.w3.org/2000/svg">
+  <title id="dial-t" data-proposed>One tick per skill. Outer ring, reference model claude-sonnet-5-5: 48 reliable, 0 watch, 0 needs a test. Inner ring, floor model openrouter/deepseek/deepseek-v4.1-flash: 43 reliable, 2 watch, 3 needs a test. Snapshot 2026-10-10.</title>
+  <defs>
+    <path id="arc-out" d="M 18 300 A 282 282 0 1 1 582 300"/>
+    <path id="arc-in" d="M 124 300 A 176 176 0 1 1 476 300"/>
+  </defs>
+  <circle class="ring r0" cx="300" cy="300" r="120"/><circle class="ring r1" cx="300" cy="300" r="140"/><circle class="ring r2" cx="300" cy="300" r="160"/><circle class="ring r2" cx="300" cy="300" r="220"/>
+  <circle class="rim" cx="300" cy="300" r="268"/>
+  <circle class="rim" cx="300" cy="300" r="232"/>
+  <circle class="rim faint" cx="300" cy="300" r="160"/>
+  <circle class="hm" cx="300.0" cy="74.0" r="3"/><circle class="hm" cx="413.0" cy="104.3" r="1.6"/><circle class="hm" cx="495.7" cy="187.0" r="1.6"/><circle class="hm" cx="526.0" cy="300.0" r="3"/><circle class="hm" cx="495.7" cy="413.0" r="1.6"/><circle class="hm" cx="413.0" cy="495.7" r="1.6"/><circle class="hm" cx="300.0" cy="526.0" r="3"/><circle class="hm" cx="187.0" cy="495.7" r="1.6"/><circle class="hm" cx="104.3" cy="413.0" r="1.6"/><circle class="hm" cx="74.0" cy="300.0" r="3"/><circle class="hm" cx="104.3" cy="187.0" r="1.6"/><circle class="hm" cx="187.0" cy="104.3" r="1.6"/>
+  <g class="ring-ref"><line class="tk ok" style="--i:0" x1="300.0" y1="60.0" x2="300.0" y2="38.0"/><line class="tk ok" style="--i:1" x1="331.3" y1="62.1" x2="334.2" y2="40.2"/><line class="tk ok" style="--i:2" x1="362.1" y1="68.2" x2="367.8" y2="46.9"/><line class="tk ok" style="--i:3" x1="391.8" y1="78.3" x2="400.3" y2="57.9"/><line class="tk ok" style="--i:4" x1="420.0" y1="92.2" x2="431.0" y2="73.1"/><line class="tk ok" style="--i:5" x1="446.1" y1="109.6" x2="459.5" y2="92.1"/><line class="tk ok" style="--i:6" x1="469.7" y1="130.3" x2="485.3" y2="114.7"/><line class="tk ok" style="--i:7" x1="490.4" y1="153.9" x2="507.9" y2="140.5"/><line class="tk ok" style="--i:8" x1="507.8" y1="180.0" x2="526.9" y2="169.0"/><line class="tk ok" style="--i:9" x1="521.7" y1="208.2" x2="542.1" y2="199.7"/><line class="tk ok" style="--i:10" x1="531.8" y1="237.9" x2="553.1" y2="232.2"/><line class="tk ok" style="--i:11" x1="537.9" y1="268.7" x2="559.8" y2="265.8"/><line class="tk ok" style="--i:12" x1="540.0" y1="300.0" x2="562.0" y2="300.0"/><line class="tk ok" style="--i:13" x1="537.9" y1="331.3" x2="559.8" y2="334.2"/><line class="tk ok" style="--i:14" x1="531.8" y1="362.1" x2="553.1" y2="367.8"/><line class="tk ok" style="--i:15" x1="521.7" y1="391.8" x2="542.1" y2="400.3"/><line class="tk ok" style="--i:16" x1="507.8" y1="420.0" x2="526.9" y2="431.0"/><line class="tk ok" style="--i:17" x1="490.4" y1="446.1" x2="507.9" y2="459.5"/><line class="tk ok" style="--i:18" x1="469.7" y1="469.7" x2="485.3" y2="485.3"/><line class="tk ok" style="--i:19" x1="446.1" y1="490.4" x2="459.5" y2="507.9"/><line class="tk ok" style="--i:20" x1="420.0" y1="507.8" x2="431.0" y2="526.9"/><line class="tk ok" style="--i:21" x1="391.8" y1="521.7" x2="400.3" y2="542.1"/><line class="tk ok" style="--i:22" x1="362.1" y1="531.8" x2="367.8" y2="553.1"/><line class="tk ok" style="--i:23" x1="331.3" y1="537.9" x2="334.2" y2="559.8"/><line class="tk ok" style="--i:24" x1="300.0" y1="540.0" x2="300.0" y2="562.0"/><line class="tk ok" style="--i:25" x1="268.7" y1="537.9" x2="265.8" y2="559.8"/><line class="tk ok" style="--i:26" x1="237.9" y1="531.8" x2="232.2" y2="553.1"/><line class="tk ok" style="--i:27" x1="208.2" y1="521.7" x2="199.7" y2="542.1"/><line class="tk ok" style="--i:28" x1="180.0" y1="507.8" x2="169.0" y2="526.9"/><line class="tk ok" style="--i:29" x1="153.9" y1="490.4" x2="140.5" y2="507.9"/><line class="tk ok" style="--i:30" x1="130.3" y1="469.7" x2="114.7" y2="485.3"/><line class="tk ok" style="--i:31" x1="109.6" y1="446.1" x2="92.1" y2="459.5"/><line class="tk ok" style="--i:32" x1="92.2" y1="420.0" x2="73.1" y2="431.0"/><line class="tk ok" style="--i:33" x1="78.3" y1="391.8" x2="57.9" y2="400.3"/><line class="tk ok" style="--i:34" x1="68.2" y1="362.1" x2="46.9" y2="367.8"/><line class="tk ok" style="--i:35" x1="62.1" y1="331.3" x2="40.2" y2="334.2"/><line class="tk ok" style="--i:36" x1="60.0" y1="300.0" x2="38.0" y2="300.0"/><line class="tk ok" style="--i:37" x1="62.1" y1="268.7" x2="40.2" y2="265.8"/><line class="tk ok" style="--i:38" x1="68.2" y1="237.9" x2="46.9" y2="232.2"/><line class="tk ok" style="--i:39" x1="78.3" y1="208.2" x2="57.9" y2="199.7"/><line class="tk ok" style="--i:40" x1="92.2" y1="180.0" x2="73.1" y2="169.0"/><line class="tk ok" style="--i:41" x1="109.6" y1="153.9" x2="92.1" y2="140.5"/><line class="tk ok" style="--i:42" x1="130.3" y1="130.3" x2="114.7" y2="114.7"/><line class="tk ok" style="--i:43" x1="153.9" y1="109.6" x2="140.5" y2="92.1"/><line class="tk ok" style="--i:44" x1="180.0" y1="92.2" x2="169.0" y2="73.1"/><line class="tk ok" style="--i:45" x1="208.2" y1="78.3" x2="199.7" y2="57.9"/><line class="tk ok" style="--i:46" x1="237.9" y1="68.2" x2="232.2" y2="46.9"/><line class="tk ok" style="--i:47" x1="268.7" y1="62.1" x2="265.8" y2="40.2"/></g>
+  <g class="ring-floor"><line class="tk ok" style="--i:0" x1="300.0" y1="104.0" x2="300.0" y2="84.0"/><line class="tk ok" style="--i:1" x1="325.6" y1="105.7" x2="328.2" y2="85.8"/><line class="tk ok" style="--i:2" x1="350.7" y1="110.7" x2="355.9" y2="91.4"/><line class="tk ok" style="--i:3" x1="375.0" y1="118.9" x2="382.7" y2="100.4"/><line class="tk ok" style="--i:4" x1="398.0" y1="130.3" x2="408.0" y2="112.9"/><line class="tk ok" style="--i:5" x1="419.3" y1="144.5" x2="431.5" y2="128.6"/><line class="tk ok" style="--i:6" x1="438.6" y1="161.4" x2="452.7" y2="147.3"/><line class="tk ok" style="--i:7" x1="455.5" y1="180.7" x2="471.4" y2="168.5"/><line class="tk ok" style="--i:8" x1="469.7" y1="202.0" x2="487.1" y2="192.0"/><line class="tk ok" style="--i:9" x1="481.1" y1="225.0" x2="499.6" y2="217.3"/><line class="tk ok" style="--i:10" x1="489.3" y1="249.3" x2="508.6" y2="244.1"/><line class="tk ok" style="--i:11" x1="494.3" y1="274.4" x2="514.2" y2="271.8"/><line class="tk ok" style="--i:12" x1="496.0" y1="300.0" x2="516.0" y2="300.0"/><line class="tk ok" style="--i:13" x1="494.3" y1="325.6" x2="514.2" y2="328.2"/><line class="tk ok" style="--i:14" x1="489.3" y1="350.7" x2="508.6" y2="355.9"/><line class="tk ok" style="--i:15" x1="481.1" y1="375.0" x2="499.6" y2="382.7"/><line class="tk ok" style="--i:16" x1="469.7" y1="398.0" x2="487.1" y2="408.0"/><line class="tk ok" style="--i:17" x1="455.5" y1="419.3" x2="471.4" y2="431.5"/><line class="tk ok" style="--i:18" x1="438.6" y1="438.6" x2="452.7" y2="452.7"/><line class="tk ok" style="--i:19" x1="419.3" y1="455.5" x2="431.5" y2="471.4"/><line class="tk ok" style="--i:20" x1="398.0" y1="469.7" x2="408.0" y2="487.1"/><line class="tk ok" style="--i:21" x1="375.0" y1="481.1" x2="382.7" y2="499.6"/><line class="tk ok" style="--i:22" x1="350.7" y1="489.3" x2="355.9" y2="508.6"/><line class="tk ok" style="--i:23" x1="325.6" y1="494.3" x2="328.2" y2="514.2"/><line class="tk ok" style="--i:24" x1="300.0" y1="496.0" x2="300.0" y2="516.0"/><line class="tk ok" style="--i:25" x1="274.4" y1="494.3" x2="271.8" y2="514.2"/><line class="tk ok" style="--i:26" x1="249.3" y1="489.3" x2="244.1" y2="508.6"/><line class="tk ok" style="--i:27" x1="225.0" y1="481.1" x2="217.3" y2="499.6"/><line class="tk ok" style="--i:28" x1="202.0" y1="469.7" x2="192.0" y2="487.1"/><line class="tk ok" style="--i:29" x1="180.7" y1="455.5" x2="168.5" y2="471.4"/><line class="tk ok" style="--i:30" x1="161.4" y1="438.6" x2="147.3" y2="452.7"/><line class="tk ok" style="--i:31" x1="144.5" y1="419.3" x2="128.6" y2="431.5"/><line class="tk ok" style="--i:32" x1="130.3" y1="398.0" x2="112.9" y2="408.0"/><line class="tk ok" style="--i:33" x1="118.9" y1="375.0" x2="100.4" y2="382.7"/><line class="tk ok" style="--i:34" x1="110.7" y1="350.7" x2="91.4" y2="355.9"/><line class="tk ok" style="--i:35" x1="105.7" y1="325.6" x2="85.8" y2="328.2"/><line class="tk ok" style="--i:36" x1="104.0" y1="300.0" x2="84.0" y2="300.0"/><line class="tk ok" style="--i:37" x1="105.7" y1="274.4" x2="85.8" y2="271.8"/><line class="tk ok" style="--i:38" x1="110.7" y1="249.3" x2="91.4" y2="244.1"/><line class="tk ok" style="--i:39" x1="118.9" y1="225.0" x2="100.4" y2="217.3"/><line class="tk ok" style="--i:40" x1="130.3" y1="202.0" x2="112.9" y2="192.0"/><line class="tk ok" style="--i:41" x1="144.5" y1="180.7" x2="128.6" y2="168.5"/><line class="tk ok" style="--i:42" x1="161.4" y1="161.4" x2="147.3" y2="147.3"/><line class="tk w" style="--i:43" x1="180.7" y1="144.5" x2="168.5" y2="128.6"/><line class="tk w" style="--i:44" x1="202.0" y1="130.3" x2="192.0" y2="112.9"/><line class="tk e" style="--i:45" x1="225.0" y1="118.9" x2="217.3" y2="100.4"/><line class="tk e" style="--i:46" x1="249.3" y1="110.7" x2="244.1" y2="91.4"/><line class="tk e" style="--i:47" x1="274.4" y1="105.7" x2="271.8" y2="85.8"/></g>
+  <text aria-hidden="true" class="arc-label"><textPath href="#arc-out" startOffset="50%" text-anchor="middle">reference model · claude-sonnet-5-5</textPath></text>
+  <text aria-hidden="true" class="arc-label in"><textPath href="#arc-in" startOffset="50%" text-anchor="middle">floor model · openrouter/deepseek/deepseek-v4.1-flash</textPath></text>
+</svg>
+        <svg class="dial-owl wb-owl" viewBox="0 0 200 200" role="img" aria-label="openhora"><defs><clipPath id="owl-l"><circle cx="74" cy="98" r="22"/></clipPath><clipPath id="owl-r"><circle cx="126" cy="98" r="22"/></clipPath></defs>
+<g stroke="#1E1B2E" stroke-width="7" stroke-linejoin="round" stroke-linecap="round">
+<path d="M44 70 Q30 40 36 22 Q60 34 74 50Z" fill="#6B4429"/><path d="M156 70 Q170 40 164 22 Q140 34 126 50Z" fill="#6B4429"/>
+<ellipse cx="80" cy="186" rx="13" ry="7" fill="#FCD34D"/><ellipse cx="120" cy="186" rx="13" ry="7" fill="#FCD34D"/>
+<path d="M100 36 C152 36 180 74 180 120 C180 164 146 186 100 186 C54 186 20 164 20 120 C20 74 48 36 100 36Z" fill="#A47551"/></g>
+<g stroke="#1E1B2E" stroke-width="6" stroke-linejoin="round">
+<path d="M30 120 Q28 158 62 174 Q48 148 50 122Z" fill="#6B4429"/><path d="M170 120 Q172 158 138 174 Q152 148 150 122Z" fill="#6B4429"/>
+<path d="M100 72 C84 52 42 54 42 96 C42 128 72 142 100 132 C128 142 158 128 158 96 C158 54 116 52 100 72Z" fill="#E6D2BC"/>
+<circle cx="74" cy="98" r="22" fill="#fff"/><circle cx="126" cy="98" r="22" fill="#fff"/></g>
+<g clip-path="url(#owl-l)"><g class="owl-pupil"><circle cx="80" cy="101" r="11" fill="#1E1B2E"/><circle cx="84" cy="98" r="4" fill="#fff"/></g><rect class="owl-lid" x="50" y="70" width="50" height="20" fill="#6B4429"/></g>
+<g clip-path="url(#owl-r)"><g class="owl-pupil"><circle cx="132" cy="101" r="11" fill="#1E1B2E"/><circle cx="136" cy="98" r="4" fill="#fff"/></g><rect class="owl-lid" x="102" y="70" width="50" height="20" fill="#6B4429"/></g>
+<g stroke="#1E1B2E" stroke-width="6" fill="none" stroke-linecap="round"><circle cx="74" cy="98" r="22"/><circle cx="126" cy="98" r="22"/><path class="owl-lidline" d="M53 90 H95"/><path class="owl-lidline" d="M105 90 H147"/></g>
+<path d="M92 116 Q100 112 108 116 Q103 130 100 132 Q97 130 92 116Z" fill="#FCD34D" stroke="#1E1B2E" stroke-width="5" stroke-linejoin="round"/>
+<g stroke="#6B4429" stroke-width="4" fill="none" stroke-linecap="round"><path d="M76 156 q6 6 12 0 q6 6 12 0 q6 6 12 0 q6 6 12 0"/><path d="M82 168 q6 6 12 0 q6 6 12 0 q6 6 12 0"/></g></svg>
+      </div>
+      <figcaption class="dial-key">
+        <span class="kr"><span class="kn" data-proposed>outer</span><span class="band-word ok">reliable 48</span><span class="band-word warn">watch 0</span><span class="band-word err">needs a test 0</span></span>
+        <span class="kr"><span class="kn" data-proposed>inner</span><span class="band-word ok">reliable 43</span><span class="band-word warn">watch 2</span><span class="band-word err">needs a test 3</span></span>
+        <span class="kr muted" data-proposed>one tick per skill · of 48 skills · snapshot 2026-10-10</span>
+      </figcaption>
+    </figure>
+    <p class="hero-strip">MIT licence · self-hosted · no telemetry</p>
+    <span class="cross bl" aria-hidden="true"></span><span class="cross br" aria-hidden="true"></span>
+  </div>
+</section>
+
+<section class="band" aria-labelledby="what-title" data-observe>
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="num"><span class="big">01</span></div>
+      <div class="ttl"><h2 id="what-title" data-proposed>What it is</h2><span class="aside" data-proposed>one sentence, then the chain</span></div>
+    </div>
+    <div class="define">
+      <div class="side" aria-hidden="true"></div>
+      <div class="body">
+        <p class="definition">openhora is an open, self-hosted workbench of skills, agents and workflows that let an AI build a digital solution, in which <mark>recorded evidence, not a person's tick,</mark> decides which model runs a skill and what may run unattended.</p>
+      </div>
+    </div>
+    <div class="chain-wrap">
+      <div class="chain-head"><h3 data-proposed>The end-to-end chain</h3><span class="label plain" data-proposed>11 links, in order</span></div>
+      <div class="metro" data-metro><svg class="metro-line" aria-hidden="true"><path class="ml-ties"/><path class="ml-base"/><path class="ml-glow"/><path class="ml-lit"/><circle class="ml-head" r="5"/></svg><ol class="metro-stns"><li class="stn" style="--i:0;--r:1;--c:1;--rm:1;--cm:1;--r3:1;--c3:1" data-stn><span class="stn-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M8 13h8M8 16h5"/></svg></span><span class="n">01</span><span class="name">skills</span><span class="fact">48 skills</span><a class="path" href="https://github.com/chrissgon/openhora/tree/main/skills">skills/</a><span class="stn-wm" aria-hidden="true">01</span><span class="port pl" aria-hidden="true"></span><span class="port pr" aria-hidden="true"></span><span class="port pt" aria-hidden="true"></span><span class="port pb" aria-hidden="true"></span><i class="cn tl"></i><i class="cn tr"></i><i class="cn bl"></i><i class="cn br"></i></li><li class="stn" style="--i:1;--r:1;--c:2;--rm:1;--cm:2;--r3:1;--c3:2" data-stn><span class="stn-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5" stroke-dasharray="2 2"/></svg></span><span class="n">02</span><span class="name">areas</span><span class="fact">9 areas + 1 optional</span><a class="path" href="https://github.com/chrissgon/openhora/blob/main/docs/area-map.md">docs/area-map.md</a><span class="stn-wm" aria-hidden="true">02</span><span class="port pl" aria-hidden="true"></span><span class="port pr" aria-hidden="true"></span><span class="port pt" aria-hidden="true"></span><span class="port pb" aria-hidden="true"></span><i class="cn tl"></i><i class="cn tr"></i><i class="cn bl"></i><i class="cn br"></i></li><li class="stn" style="--i:2;--r:1;--c:3;--rm:2;--cm:2;--r3:1;--c3:3" data-stn><span class="stn-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3.5h8l4 4v13H6z"/><path d="M14 3.5v4h4M9 12h6M9 15.5h6M9 19h3"/></svg></span><span class="n">03</span><span class="name">artifacts</span><span class="fact">one owner each</span><a class="path" href="https://github.com/chrissgon/openhora/blob/main/contracts/project-layout.md">contracts/project-layout.md</a><span class="stn-wm" aria-hidden="true">03</span><span class="port pl" aria-hidden="true"></span><span class="port pr" aria-hidden="true"></span><span class="port pt" aria-hidden="true"></span><span class="port pb" aria-hidden="true"></span><i class="cn tl"></i><i class="cn tr"></i><i class="cn bl"></i><i class="cn br"></i></li><li class="stn" style="--i:3;--r:1;--c:4;--rm:2;--cm:1;--r3:2;--c3:3" data-stn><span class="stn-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c.6-3.6 3.4-6 7-6s6.4 2.4 7 6"/><path d="M18.5 4.5l1.5-1.5M20.5 7.5H22"/></svg></span><span class="n">04</span><span class="name">agents</span><span class="fact">4 agents</span><a class="path" href="https://github.com/chrissgon/openhora/tree/main/agents">agents/</a><span class="stn-wm" aria-hidden="true">04</span><span class="port pl" aria-hidden="true"></span><span class="port pr" aria-hidden="true"></span><span class="port pt" aria-hidden="true"></span><span class="port pb" aria-hidden="true"></span><i class="cn tl"></i><i class="cn tr"></i><i class="cn bl"></i><i class="cn br"></i></li><li class="stn" style="--i:4;--r:2;--c:4;--rm:3;--cm:1;--r3:2;--c3:2" data-stn><span class="stn-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5.5" cy="6" r="2"/><circle cx="5.5" cy="18" r="2"/><circle cx="18.5" cy="12" r="2"/><path d="M7.5 6h3a3 3 0 0 1 3 3v0a3 3 0 0 0 3 3M7.5 18h3a3 3 0 0 0 3-3"/></svg></span><span class="n">05</span><span class="name">flows</span><span class="fact">4 flow data files</span><a class="path" href="https://github.com/chrissgon/openhora/tree/main/flows">flows/</a><span class="stn-wm" aria-hidden="true">05</span><span class="port pl" aria-hidden="true"></span><span class="port pr" aria-hidden="true"></span><span class="port pt" aria-hidden="true"></span><span class="port pb" aria-hidden="true"></span><i class="cn tl"></i><i class="cn tr"></i><i class="cn bl"></i><i class="cn br"></i></li><li class="stn" style="--i:5;--r:2;--c:3;--rm:3;--cm:2;--r3:2;--c3:1" data-stn><span class="stn-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3.5v4M15 3.5v4M6.5 7.5h11v3a5.5 5.5 0 0 1-11 0z"/><path d="M12 16v4.5"/></svg></span><span class="n">06</span><span class="name">adapters</span><span class="fact">3 adapters</span><a class="path" href="https://github.com/chrissgon/openhora/tree/main/adapters">adapters/</a><span class="stn-wm" aria-hidden="true">06</span><span class="port pl" aria-hidden="true"></span><span class="port pr" aria-hidden="true"></span><span class="port pt" aria-hidden="true"></span><span class="port pb" aria-hidden="true"></span><i class="cn tl"></i><i class="cn tr"></i><i class="cn bl"></i><i class="cn br"></i></li><li class="stn" style="--i:6;--r:2;--c:2;--rm:4;--cm:2;--r3:3;--c3:1" data-stn><span class="stn-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/></svg></span><span class="n">07</span><span class="name">providers</span><span class="fact">6 classes shipped</span><a class="path" href="https://github.com/chrissgon/openhora/tree/main/providers">providers/</a><span class="stn-wm" aria-hidden="true">07</span><span class="port pl" aria-hidden="true"></span><span class="port pr" aria-hidden="true"></span><span class="port pt" aria-hidden="true"></span><span class="port pb" aria-hidden="true"></span><i class="cn tl"></i><i class="cn tr"></i><i class="cn bl"></i><i class="cn br"></i></li><li class="stn" style="--i:7;--r:2;--c:1;--rm:4;--cm:1;--r3:3;--c3:2" data-stn><span class="stn-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/></svg></span><span class="n">08</span><span class="name">packs</span><span class="fact">9 packs</span><a class="path" href="https://github.com/chrissgon/openhora/tree/main/packs">packs/</a><span class="stn-wm" aria-hidden="true">08</span><span class="port pl" aria-hidden="true"></span><span class="port pr" aria-hidden="true"></span><span class="port pt" aria-hidden="true"></span><span class="port pb" aria-hidden="true"></span><i class="cn tl"></i><i class="cn tr"></i><i class="cn bl"></i><i class="cn br"></i></li><li class="stn" style="--i:8;--r:3;--c:1;--rm:5;--cm:1;--r3:3;--c3:3" data-stn><span class="stn-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 3.5h5M10.5 3.5v6l-5 8.5a1.6 1.6 0 0 0 1.4 2.5h10.2a1.6 1.6 0 0 0 1.4-2.5l-5-8.5v-6"/><path d="M7.5 15h9"/></svg></span><span class="n">09</span><span class="name">the lab</span><span class="fact">2,005 run lines</span><a class="path" href="https://github.com/chrissgon/openhora/tree/main/evals">evals/</a><span class="stn-wm" aria-hidden="true">09</span><span class="port pl" aria-hidden="true"></span><span class="port pr" aria-hidden="true"></span><span class="port pt" aria-hidden="true"></span><span class="port pb" aria-hidden="true"></span><i class="cn tl"></i><i class="cn tr"></i><i class="cn bl"></i><i class="cn br"></i></li><li class="stn" style="--i:9;--r:3;--c:2;--rm:5;--cm:2;--r3:4;--c3:3" data-stn><span class="stn-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M7.5 10l3 2.5-3 2.5M12.5 15.5h4"/></svg></span><span class="n">10</span><span class="name">the runtime</span><span class="fact">20 limits in code</span><a class="path" href="https://github.com/chrissgon/openhora/tree/main/runtime">runtime/</a><span class="stn-wm" aria-hidden="true">10</span><span class="port pl" aria-hidden="true"></span><span class="port pr" aria-hidden="true"></span><span class="port pt" aria-hidden="true"></span><span class="port pb" aria-hidden="true"></span><i class="cn tl"></i><i class="cn tr"></i><i class="cn bl"></i><i class="cn br"></i></li><li class="stn" style="--i:10;--r:3;--c:3;--rm:6;--cm:2;--r3:4;--c3:2" data-stn><span class="stn-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="13" rx="2"/><path d="M8 20.5h8M3 8.5h18"/><path d="M8.5 14.5l2-2.5 2 1.5 3-3.5"/></svg></span><span class="n">11</span><span class="name">the interface</span><span class="fact">5 screens</span><a class="path" href="https://github.com/chrissgon/openhora/tree/main/interface">interface/</a><span class="stn-wm" aria-hidden="true">11</span><span class="port pl" aria-hidden="true"></span><span class="port pr" aria-hidden="true"></span><span class="port pt" aria-hidden="true"></span><span class="port pb" aria-hidden="true"></span><i class="cn tl"></i><i class="cn tr"></i><i class="cn bl"></i><i class="cn br"></i></li><li class="stn stn-next" style="--i:11;--r:3;--c:4;--rm:6;--cm:1;--r3:4;--c3:1" data-stn-next><span class="stn-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke-dasharray="2.5 3"/><path d="M12 8v8M8 12h8"/></svg></span><span class="n" data-proposed>next</span><span class="name" data-proposed>Not built yet</span><span class="fact">38 planned skills and flows (28 capabilities, 10 flows)</span><a class="path" href="https://github.com/chrissgon/openhora/blob/main/docs/inventory.md">docs/inventory.md</a><span class="stn-wm" aria-hidden="true">38</span><span class="port pl" aria-hidden="true"></span><span class="port pr" aria-hidden="true"></span><span class="port pt" aria-hidden="true"></span><span class="port pb" aria-hidden="true"></span><i class="cn tl"></i><i class="cn tr"></i><i class="cn bl"></i><i class="cn br"></i></li></ol></div>
+    </div>
+    <div class="ledger">
+      <div class="built">
+        <h3><span class="rule" aria-hidden="true"></span><span data-proposed>Built</span></h3>
+        <ul>
+          <li><b>48</b><span>skills (47 capabilities, 1 flow)</span></li>
+          <li><b>4</b><span>agents</span></li>
+          <li><b>3</b><span>adapters</span></li>
+          <li><b>4</b><span>flow data files</span></li>
+          <li><b>9</b><span>packs</span></li>
+        </ul>
+      </div>
+      <div class="not">
+        <h3><span class="rule" aria-hidden="true"></span><span data-proposed>Not built yet</span></h3>
+        <ul>
+          <li><b>38</b><span>planned skills and flows (28 capabilities, 10 flows)</span></li>
+          <li><b>—</b><span>the AI area and the Assistant area have no skill</span></li>
+          <li><b>—</b><span>field evidence: 0 uses, 0 verdicts for every skill</span></li>
+        </ul>
+        <p class="quote"><q>Today only part of the chain is built.</q> <span class="mono">what-is-openhora.md</span></p>
+      </div>
+    </div>
+    <span class="cross tl" aria-hidden="true"></span><span class="cross tr" aria-hidden="true"></span>
+  </div>
+</section>
+
+<section class="band" aria-labelledby="approve-title" data-observe>
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="num"><span class="big">02</span></div>
+      <div class="ttl"><h2 id="approve-title">Approve this exact content</h2><span class="aside" data-proposed>try it: change one letter of the post</span></div>
+    </div>
+    <div class="approve">
+      <div class="approve-copy">
+        <p class="approve-claim">Anything that changes the outside world (a post, a pull request, a commit) is shown to the person as exact content with its hash, and runs only after the person approves that hash.</p>
+        <ol class="approve-steps">
+          <li><span class="sn">1</span><span><q>The approval binds a hash of the payload.</q></span></li>
+          <li><span class="sn">2</span><span><q>Before executing under an action or plan approval, it hashes the file again and executes only when the hash equals the approval's; a missing file or a different hash means showing the payload and asking again.</q></span></li>
+        </ol>
+        <p class="src">contracts/environment.md · <a class="ext" href="https://github.com/chrissgon/openhora/blob/main/contracts/environment.md">open on main</a></p>
+        <p class="approve-note" data-proposed>The hash is computed in your browser with SHA-256. Nothing is sent anywhere.</p>
+      </div>
+      <div class="approve-stage streak v-rays">
+        <div class="effect" data-approve data-approved-hash="">
+          <div class="effect-top"><span class="pui-badge pui-soft pui-theme effect-tag" data-proposed>Effect</span><span class="effect-meta" data-proposed>fictional data · northwind-shop</span></div>
+          <h3 class="effect-title">Publish the sale post</h3>
+          <label class="effect-label" for="effect-text">Exact content of the publish (what will be sent):</label>
+          <textarea id="effect-text" class="effect-text" rows="3" spellcheck="false" data-original="Spring sale: every notebook is 20% off until Sunday.
+northwind-shop.example/sale">Spring sale: every notebook is 20% off until Sunday.
+northwind-shop.example/sale</textarea>
+          <p class="effect-label" id="hash-label">Hash of this content</p>
+          <p class="effect-hash" aria-labelledby="hash-label"><code data-hash>27bd85ad8d9ac9561a849f4dd09c73d57bbdbdd82b4553a730a545b7f45943f2</code></p>
+          <p class="effect-sent">Nothing is sent before you approve this exact content.</p>
+          <div class="effect-record" data-record hidden>
+            <p class="rec-status" data-status role="status" aria-live="polite"></p>
+            <p class="rec-row"><span class="rec-k" data-proposed>approved hash</span><code data-approved>—</code></p>
+          </div>
+          <div class="effect-actions">
+            <button type="button" class="pui-btn btn-glow btn-lg" data-approve-btn disabled>Approve this exact content</button>
+            <button type="button" class="pui-btn pui-outline pui-surface btn-lg" data-reset-btn hidden data-proposed>Restore the approved text</button>
+          </div>
+          <noscript><p class="effect-nojs" data-proposed>With scripts off, the hash above is the one computed for this text; editing it needs scripts.</p></noscript>
+        </div>
+      </div>
+    </div>
+    <span class="cross tl" aria-hidden="true"></span><span class="cross tr" aria-hidden="true"></span>
+  </div>
+</section>
+
+<section class="band" aria-labelledby="proof-title" data-observe>
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="num"><span class="big">03</span></div>
+      <div class="ttl"><h2 id="proof-title" data-proposed>Published bands</h2><a class="aside ext" href="https://github.com/chrissgon/openhora/blob/main/docs/inventory.md" data-proposed>docs/inventory.md, Evaluation status</a></div>
+    </div>
+    <div class="proof-grid">
+      <div class="figure-cell">
+        <div class="glow" aria-hidden="true"></div>
+        <p class="fig-model"><span data-proposed>Reference model</span><strong>claude-sonnet-5-5</strong></p>
+        <div class="figure" role="img" aria-label="Reference model claude-sonnet-5-5: 48 reliable, 0 watch, 0 needs a test, of 48 skills, snapshot 2026-10-10" data-proposed>
+          <span class="num" data-count="48" aria-hidden="true">48</span>
+          <span class="of" aria-hidden="true"><span class="band-word ok">reliable</span><span>of 48 skills · 2026-10-10</span></span>
+        </div>
+        <div class="cells" aria-hidden="true"><i style="--i:0"></i><i style="--i:1"></i><i style="--i:2"></i><i style="--i:3"></i><i style="--i:4"></i><i style="--i:5"></i><i style="--i:6"></i><i style="--i:7"></i><i style="--i:8"></i><i style="--i:9"></i><i style="--i:10"></i><i style="--i:11"></i><i style="--i:12"></i><i style="--i:13"></i><i style="--i:14"></i><i style="--i:15"></i><i style="--i:16"></i><i style="--i:17"></i><i style="--i:18"></i><i style="--i:19"></i><i style="--i:20"></i><i style="--i:21"></i><i style="--i:22"></i><i style="--i:23"></i><i style="--i:24"></i><i style="--i:25"></i><i style="--i:26"></i><i style="--i:27"></i><i style="--i:28"></i><i style="--i:29"></i><i style="--i:30"></i><i style="--i:31"></i><i style="--i:32"></i><i style="--i:33"></i><i style="--i:34"></i><i style="--i:35"></i><i style="--i:36"></i><i style="--i:37"></i><i style="--i:38"></i><i style="--i:39"></i><i style="--i:40"></i><i style="--i:41"></i><i style="--i:42"></i><i style="--i:43"></i><i style="--i:44"></i><i style="--i:45"></i><i style="--i:46"></i><i style="--i:47"></i></div>
+        <p class="legend" aria-hidden="true"><span class="band-word ok">reliable 48</span><span class="band-word warn">watch 0</span><span class="band-word err">needs a test 0</span></p>
+      </div>
+      <div class="figure-cell">
+        <p class="fig-model"><span data-proposed>Floor model</span><strong>openrouter/deepseek/deepseek-v4.1-flash</strong></p>
+        <div class="figure small" role="img" aria-label="Floor model openrouter/deepseek/deepseek-v4.1-flash: 43 reliable, 2 watch, 3 needs a test, of 48 skills, snapshot 2026-10-10" data-proposed>
+          <span class="num" data-count="43" aria-hidden="true">43</span>
+          <span class="of" aria-hidden="true"><span class="band-word ok">reliable</span><span>of 48 skills · 2026-10-10</span></span>
+        </div>
+        <div class="cells" aria-hidden="true"><i style="--i:0"></i><i style="--i:1"></i><i style="--i:2"></i><i style="--i:3"></i><i style="--i:4"></i><i style="--i:5"></i><i style="--i:6"></i><i style="--i:7"></i><i style="--i:8"></i><i style="--i:9"></i><i style="--i:10"></i><i style="--i:11"></i><i style="--i:12"></i><i style="--i:13"></i><i style="--i:14"></i><i style="--i:15"></i><i style="--i:16"></i><i style="--i:17"></i><i style="--i:18"></i><i style="--i:19"></i><i style="--i:20"></i><i style="--i:21"></i><i style="--i:22"></i><i style="--i:23"></i><i style="--i:24"></i><i style="--i:25"></i><i style="--i:26"></i><i style="--i:27"></i><i style="--i:28"></i><i style="--i:29"></i><i style="--i:30"></i><i style="--i:31"></i><i style="--i:32"></i><i style="--i:33"></i><i style="--i:34"></i><i style="--i:35"></i><i style="--i:36"></i><i style="--i:37"></i><i style="--i:38"></i><i style="--i:39"></i><i style="--i:40"></i><i style="--i:41"></i><i style="--i:42"></i><i class="w" style="--i:43"></i><i class="w" style="--i:44"></i><i class="e" style="--i:45"></i><i class="e" style="--i:46"></i><i class="e" style="--i:47"></i></div>
+        <p class="legend" aria-hidden="true"><span class="band-word ok">reliable 43</span><span class="band-word warn">watch 2</span><span class="band-word err">needs a test 3</span></p>
+        <ul class="floor-list" aria-label="Floor model rows that are not reliable" data-proposed>
+          <li><span class="band-word warn">watch</span><span>core-skill-creator, eng-docs</span></li>
+          <li><span class="band-word err">needs a test</span><span>design-ux-flows, eng-codebase-map, mkt-social-copy</span></li>
+        </ul>
+      </div>
+    </div>
+    <dl class="meta-row">
+      <div><dt data-proposed>counted over</dt><dd>48 skills</dd></div>
+      <div><dt data-proposed>snapshot</dt><dd>2026-10-10</dd></div>
+      <div><dt data-proposed>last full tests</dt><dd>2026-10-04</dd></div>
+      <div><dt data-proposed>current-set runs</dt><dd>549 per model</dd></div>
+    </dl>
+    <div class="reproduce">
+      <div>
+        <h3 data-proposed>The command that reproduces it</h3>
+        <div class="streak"><div class="stack"><div class="term main"><div class="term-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="tab">terminal</span><span class="meta">repository root</span></div><pre class="code"><span class="ln type" style="--steps:37;--dur:1.1s;--delay:.4s"><span class="p">$ </span><span class="a">python3 evals/eval_status.py status</span></span><span class="ln reveal-line" style="--i:0">{</span><span class="ln reveal-line" style="--i:1">  <span class="k">"skills"</span>: [</span><span class="ln reveal-line" style="--i:2">    {</span><span class="ln reveal-line" style="--i:3">      <span class="k">"skill"</span>: "biz-icp-positioning",</span><span class="ln reveal-line" style="--i:4">      <span class="k">"version"</span>: "1.0.0",</span><span class="ln reveal-line" style="--i:5">      <span class="k">"band"</span>: "reliable",</span><span class="ln reveal-line gap" style="--i:6">…</span><span class="ln reveal-line" style="--i:7">  <span class="k">"counts"</span>: {</span><span class="ln reveal-line" style="--i:8">    <span class="k">"needs a test"</span>: 0,</span><span class="ln reveal-line" style="--i:9">    <span class="k">"watch"</span>: 0,</span><span class="ln reveal-line hl" style="--i:10">    <span class="k">"reliable"</span>: 48</span><span class="ln reveal-line" style="--i:11">  },</span><span class="ln reveal-line" style="--i:12"><span class="cursor" aria-hidden="true"></span></span></pre></div><div class="term float"><div class="term-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="tab">status · floor model</span><span class="meta">excerpt</span></div><pre class="code"><span class="ln"><span class="k">"skill"</span>: "mkt-social-copy",</span><span class="ln gap">…</span><span class="ln"><span class="k">"openrouter/deepseek/deepseek-v4.1-flash"</span>: {</span><span class="ln">  <span class="k">"band"</span>: "needs a test",</span><span class="ln">  <span class="k">"cause"</span>: "guard assertion(s) 2.3 failed in the current set",</span></pre></div></div></div>
+        <p class="hero-cap" data-proposed>Real output of the command, excerpt; the skipped lines are marked …</p>
+      </div>
+      <div>
+        <h3 data-proposed>What it rests on</h3>
+        <p class="limit"><span class="tag" data-proposed>Limit</span><span>Bands are computed from lab evidence (<code>skills/&lt;name&gt;/evals/evidence/lab-*.jsonl</code>); field evidence is 0 uses and 0 verdicts for every skill.</span></p>
+        <p class="linkrow"><a class="ext" href="https://github.com/chrissgon/openhora/blob/main/docs/inventory.md">docs/inventory.md</a><a class="ext" href="https://github.com/chrissgon/openhora/blob/main/evals/eval-gate.json">evals/eval-gate.json</a></p>
+      </div>
+    </div>
+    <span class="cross tl" aria-hidden="true"></span><span class="cross tr" aria-hidden="true"></span>
+  </div>
+</section>
+
+<section class="band" aria-labelledby="claims-title">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="num"><span class="big">04</span></div>
+      <div class="ttl"><h2 id="claims-title" data-proposed>Seven claims, each beside its proof</h2><span class="aside" data-proposed>Pick a claim to open the artifact that verifies it</span></div>
+    </div>
+    <fieldset class="claims" style="border:0;margin:0;padding:0;min-width:0">
+      <legend class="sr-only" data-proposed>Pick a claim</legend>
+      <div class="claim">
+      <input type="radio" name="claim" id="claim-1" value="1" checked aria-controls="art-1">
+      <label class="claim-row" for="claim-1">
+        <span class="idx">01</span>
+        <span><h3>Proof decides the model and the autonomy</h3><p>In openhora, recorded test evidence, not a person's opinion, decides which model runs a skill and what may happen without a person.</p><a class="go" href="proof.html#proof-decides-the-model-and-the-autonomy" data-proposed>How to verify it &rarr;</a></span>
+        <span class="state" aria-hidden="true" data-proposed>open</span>
+      </label>
+      <div class="art" id="art-1">
+      <div class="art-head"><span class="label"><b>01</b> <span data-proposed>Artifact on main</span></span><a class="mono" href="proof.html#proof-decides-the-model-and-the-autonomy" data-proposed>Proof section &rarr;</a></div>
+      <div class="stack-v streak v-steep"><div class="term "><div class="term-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="tab">terminal</span><span class="meta">repository root</span></div><pre class="code"><span class="ln typeline" style="--steps:37"><span class="p">$ </span><span class="a">python3 evals/eval_status.py status</span></span></pre></div><p class="note anim">Prints, for each of the 48 skills, a band (<code>reliable</code>, <code>watch</code>, <code>needs a test</code>), the cause and the command that clears it. It reads only the committed evidence files, no model call.</p><div class="term "><div class="term-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="tab">evals/eval-gate.json</span><span class="meta">lines 2 to 13</span></div><pre class="code numbered"><span class="ln"><span class="n">2</span><span>  <span class="k">"strong_model"</span>: "claude-sonnet-5-5",</span></span><span class="ln"><span class="n">4</span><span>  <span class="k">"floor_model"</span>: "openrouter/deepseek/deepseek-v4.1-flash",</span></span><span class="ln"><span class="n">8</span><span>  <span class="k">"grader"</span>: "claude-sonnet-5-5",</span></span><span class="ln hl"><span class="n">9</span><span>  <span class="k">"threshold"</span>: 0.8,</span></span><span class="ln hl"><span class="n">10</span><span>  <span class="k">"strong_tolerance"</span>: 0.05,</span></span><span class="ln"><span class="n">13</span><span>  <span class="k">"runs"</span>: 3,</span></span></pre></div><div class="result-card anim" role="group" aria-label="Reference model claude-sonnet-5-5: 48 of 48 skills reliable, snapshot 2026-10-10" data-proposed><span class="rc-fig" aria-hidden="true">48<small>/48</small></span><span class="rc-body" aria-hidden="true"><span class="band-word ok">reliable</span><span class="rc-meta">claude-sonnet-5-5 · reference model · snapshot 2026-10-10</span></span></div></div>
+      <p class="linkrow"><a class="ext" href="https://github.com/chrissgon/openhora/blob/main/evals/eval-gate.json">evals/eval-gate.json</a><a class="ext" href="https://github.com/chrissgon/openhora/blob/main/docs/inventory.md">docs/inventory.md</a></p>
+    </div>
+    </div>
+<div class="claim">
+      <input type="radio" name="claim" id="claim-2" value="2" aria-controls="art-2">
+      <label class="claim-row" for="claim-2">
+        <span class="idx">02</span>
+        <span><h3>Approval of the exact content before any side effect</h3><p>Anything that changes the outside world (a post, a pull request, a commit) is shown to the person as exact content with its hash, and runs only after the person approves that hash.</p><a class="go" href="proof.html#approval-of-the-exact-content-before-any-side-effect" data-proposed>How to verify it &rarr;</a></span>
+        <span class="state" aria-hidden="true" data-proposed>open</span>
+      </label>
+      <div class="art" id="art-2">
+      <div class="art-head"><span class="label"><b>02</b> <span data-proposed>Artifact on main</span></span><a class="mono" href="proof.html#approval-of-the-exact-content-before-any-side-effect" data-proposed>Proof section &rarr;</a></div>
+      <div class="stack-v streak v-arcs"><div class="term "><div class="term-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="tab">post.txt</span><span class="meta">fictional data</span></div><pre class="code"><span class="ln">Spring sale: every notebook is 20% off until Sunday.</span><span class="ln">northwind-shop.example/sale</span></pre></div><div class="term "><div class="term-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="tab">terminal</span><span class="meta">repository root</span></div><pre class="code"><span class="ln typeline" style="--steps:26"><span class="p">$ </span><span class="a">shasum -a 256 post.txt</span></span><span class="ln out" style="--i:0">2008f947e69db6e5d3a4242c1783fc8ff0492a6c987a108133edb21ff83ecff8  post.txt</span><span class="ln out" style="--i:1"><span class="p">$ </span><span class="a">python3 runtime/cli.py approve</span> --project &lt;dir&gt; --id &lt;pending id&gt; --sha256 2008f947e69d…</span></pre></div><div class="hashcheck anim" role="group" aria-label="Hash check" data-proposed>
+          <div class="row"><span data-proposed>approved</span><span class="hash">2008f947e69db6e5d3a4242c1783fc8ff0492a6c987a108133edb21ff83ecff8</span></div>
+          <div class="row"><span data-proposed>hashed again</span><span class="hash scan">2008f947e69db6e5d3a4242c1783fc8ff0492a6c987a108133edb21ff83ecff8</span></div>
+          <p class="verdict"><span class="tick"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7"/></svg></span><span><q>executes only when the hash equals the approval's</q> <span class="src">contracts/environment.md</span></span></p>
+        </div></div>
+      <p class="linkrow"><a class="ext" href="https://github.com/chrissgon/openhora/blob/main/contracts/environment.md">contracts/environment.md</a><a class="ext" href="https://github.com/chrissgon/openhora/blob/main/contracts/runtime.md">contracts/runtime.md (L6, L14 to L17, R1 to R4)</a></p>
+    </div>
+    </div>
+<div class="claim">
+      <input type="radio" name="claim" id="claim-3" value="3" aria-controls="art-3">
+      <label class="claim-row" for="claim-3">
+        <span class="idx">03</span>
+        <span><h3>A harness-agnostic core, with adapters</h3><p>The skills do not belong to one AI tool. Everything specific to a tool lives in an adapter folder; adding a tool does not edit the core.</p><a class="go" href="proof.html#a-harness-agnostic-core-with-adapters" data-proposed>How to verify it &rarr;</a></span>
+        <span class="state" aria-hidden="true" data-proposed>open</span>
+      </label>
+      <div class="art" id="art-3">
+      <div class="art-head"><span class="label"><b>03</b> <span data-proposed>Artifact on main</span></span><a class="mono" href="proof.html#a-harness-agnostic-core-with-adapters" data-proposed>Proof section &rarr;</a></div>
+      <div class="stack-v streak v-dusk"><div class="term "><div class="term-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="tab">terminal</span><span class="meta">repository root</span></div><pre class="code"><span class="ln typeline" style="--steps:14"><span class="p">$ </span><span class="a">ls adapters/</span></span><span class="ln out" style="--i:0">agents-dir</span><span class="ln out" style="--i:1">api</span><span class="ln out" style="--i:2">claude-code</span><span class="ln out" style="--i:4"><span class="p">$ </span><span class="a">python3 scripts/validate.py</span></span><span class="ln out c" style="--i:5"># fails if a core file names a harness</span></pre></div></div>
+      <p class="linkrow"><a class="ext" href="https://github.com/chrissgon/openhora/blob/main/AGENTS.md">AGENTS.md</a><a class="ext" href="https://github.com/chrissgon/openhora/tree/main/adapters">adapters/</a></p>
+    </div>
+    </div>
+<div class="claim">
+      <input type="radio" name="claim" id="claim-4" value="4" aria-controls="art-4">
+      <label class="claim-row" for="claim-4">
+        <span class="idx">04</span>
+        <span><h3>Artifacts over invocation</h3><p>What a step produces is a file in your project that the next step, another skill and a person can read.</p><a class="go" href="proof.html#artifacts-over-invocation" data-proposed>How to verify it &rarr;</a></span>
+        <span class="state" aria-hidden="true" data-proposed>open</span>
+      </label>
+      <div class="art" id="art-4">
+      <div class="art-head"><span class="label"><b>04</b> <span data-proposed>Artifact on main</span></span><a class="mono" href="proof.html#artifacts-over-invocation" data-proposed>Proof section &rarr;</a></div>
+      <div class="stack-v streak v-rays"><div class="term "><div class="term-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="tab">skills/design-execute/SKILL.md</span><span class="meta">frontmatter, lines 15 to 21</span></div><pre class="code numbered"><span class="ln"><span class="n">15</span><span><span class="k">metadata</span>:</span></span><span class="ln"><span class="n">16</span><span>  area: design</span></span><span class="ln"><span class="n">17</span><span>  kind: capability</span></span><span class="ln hl"><span class="n">18</span><span>  <span class="k">inputs</span>: [docs/design/briefs/&lt;artifact&gt;.md, docs/workbench/state.md]</span></span><span class="ln hl"><span class="n">19</span><span>  <span class="k">outputs</span>: [docs/design/results/&lt;artifact&gt;.md, docs/design/results/&lt;artifact&gt;/, docs/design/results/&lt;artifact&gt;.lint.json]</span></span><span class="ln hl"><span class="n">20</span><span>  <span class="k">updates</span>: [docs/workbench/state.md]</span></span><span class="ln"><span class="n">21</span><span>  requires: [integration:design-tool, generator:image]</span></span></pre></div><p class="note anim">Each artifact has exactly one owning skill; the validator fails on an artifact with two owners or a cycle.</p></div>
+      <p class="linkrow"><a class="ext" href="https://github.com/chrissgon/openhora/blob/main/contracts/project-layout.md">contracts/project-layout.md</a><a class="ext" href="https://github.com/chrissgon/openhora/blob/main/skills/design-execute/SKILL.md">skills/design-execute/SKILL.md</a></p>
+    </div>
+    </div>
+<div class="claim">
+      <input type="radio" name="claim" id="claim-5" value="5" aria-controls="art-5">
+      <label class="claim-row" for="claim-5">
+        <span class="idx">05</span>
+        <span><h3>Open, self-hosted, no telemetry</h3><p>MIT licence; runs on your own machine; sends nothing to openhora.</p><a class="go" href="proof.html#open-self-hosted-no-telemetry" data-proposed>How to verify it &rarr;</a></span>
+        <span class="state" aria-hidden="true" data-proposed>open</span>
+      </label>
+      <div class="art" id="art-5">
+      <div class="art-head"><span class="label"><b>05</b> <span data-proposed>Artifact on main</span></span><a class="mono" href="proof.html#open-self-hosted-no-telemetry" data-proposed>Proof section &rarr;</a></div>
+      <div class="stack-v streak "><div class="term "><div class="term-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="tab">LICENSE</span><span class="meta">lines 1 to 3</span></div><pre class="code numbered"><span class="ln"><span class="n">1</span><span>MIT License</span></span><span class="ln"><span class="n">2</span><span></span></span><span class="ln hl"><span class="n">3</span><span>Copyright (c) 2026 Christopher Goncalves</span></span></pre></div><div class="term "><div class="term-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="tab">README.md</span><span class="meta">line 10</span></div><pre class="code numbered"><span class="ln"><span class="n">10</span><span>MIT licence · self-hosted · no telemetry</span></span></pre></div><div class="term "><div class="term-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="tab">terminal</span><span class="meta">binds 127.0.0.1 only</span></div><pre class="code"><span class="ln typeline" style="--steps:60"><span class="p">$ </span><span class="a">uv run --with keyring==25.7.0 python3 runtime/service.py --project &lt;dir&gt;</span></span></pre></div></div>
+      <p class="linkrow"><a class="ext" href="https://github.com/chrissgon/openhora/blob/main/LICENSE">LICENSE</a><a class="ext" href="https://github.com/chrissgon/openhora/blob/main/AGENTS.md">AGENTS.md</a><a class="ext" href="https://github.com/chrissgon/openhora/blob/main/interface/README.md">interface/README.md</a></p>
+    </div>
+    </div>
+<div class="claim">
+      <input type="radio" name="claim" id="claim-6" value="6" aria-controls="art-6">
+      <label class="claim-row" for="claim-6">
+        <span class="idx">06</span>
+        <span><h3>Results are published whether they pass or not</h3><p>The evidence for each skill is committed in the repository, including the results that did not pass.</p><a class="go" href="proof.html#results-are-published-whether-they-pass-or-not" data-proposed>How to verify it &rarr;</a></span>
+        <span class="state" aria-hidden="true" data-proposed>open</span>
+      </label>
+      <div class="art" id="art-6">
+      <div class="art-head"><span class="label"><b>06</b> <span data-proposed>Artifact on main</span></span><a class="mono" href="proof.html#results-are-published-whether-they-pass-or-not" data-proposed>Proof section &rarr;</a></div>
+      <div class="stack-v streak v-steep"><div class="term "><div class="term-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="tab">terminal</span><span class="meta">repository root</span></div><pre class="code"><span class="ln typeline" style="--steps:46"><span class="p">$ </span><span class="a">ls skills/*/evals/evidence/lab-*.jsonl | wc -l</span></span><span class="ln out" style="--i:0">      86</span></pre></div><p class="note anim">86 files, 2,005 run lines at the snapshot of 2026-10-10.</p>
+        <p class="label anim" data-proposed>Floor model · 2026-10-10 · not reliable</p>
+        <ul class="floor-list anim" aria-label="Floor model, openrouter/deepseek/deepseek-v4.1-flash, 2026-10-10" data-proposed>
+          <li><span class="band-word warn">watch</span><span>core-skill-creator</span></li>
+          <li><span class="band-word warn">watch</span><span>eng-docs</span></li>
+          <li><span class="band-word err">needs a test</span><span>design-ux-flows</span></li>
+          <li><span class="band-word err">needs a test</span><span>eng-codebase-map</span></li>
+          <li><span class="band-word err">needs a test</span><span>mkt-social-copy</span></li>
+        </ul></div>
+      <p class="linkrow"><a class="ext" href="https://github.com/chrissgon/openhora/blob/main/docs/inventory.md">docs/inventory.md</a><a class="ext" href="https://github.com/chrissgon/openhora/tree/main/skills">skills/</a></p>
+    </div>
+    </div>
+<div class="claim">
+      <input type="radio" name="claim" id="claim-7" value="7" aria-controls="art-7">
+      <label class="claim-row" for="claim-7">
+        <span class="idx">07</span>
+        <span><h3>The person can always take power away</h3><p>From the page, a person can stop an agent or lower its mode at once; widening what an agent may do is done only in the terminal.</p><a class="go" href="proof.html#the-person-can-always-take-power-away" data-proposed>How to verify it &rarr;</a></span>
+        <span class="state" aria-hidden="true" data-proposed>open</span>
+      </label>
+      <div class="art" id="art-7">
+      <div class="art-head"><span class="label"><b>07</b> <span data-proposed>Artifact on main</span></span><a class="mono" href="proof.html#the-person-can-always-take-power-away" data-proposed>Proof section &rarr;</a></div>
+      <div class="stack-v streak v-arcs"><div class="ladder anim" role="group" aria-label="Autonomy modes, lowest first: stopped, supervised, milestones, autonomous, autonomous-with-policy" data-proposed>
+          <ol>
+            <li><span>autonomous-with-policy</span></li>
+            <li><span>autonomous</span></li>
+            <li class="now"><span>milestones</span><small data-proposed>default</small></li>
+            <li><span>supervised</span></li>
+            <li class="to"><span>stopped</span></li>
+          </ol>
+          <div class="ways">
+            <div class="way down"><b><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5v11M3.5 9 8 13.5 12.5 9"/></svg><span data-proposed>Lower</span></b><span data-proposed>page or terminal, at once</span></div>
+            <div class="way up"><b><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13.5v-11M3.5 7 8 2.5 12.5 7"/></svg><span data-proposed>Widen</span></b><span data-proposed>terminal only: accept-config</span></div>
+          </div>
+        </div><div class="term "><div class="term-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="tab">contracts/runtime.md</span><span class="meta">line 144</span></div><pre class="code"><span class="ln">stopped &lt; supervised &lt; milestones &lt; autonomous &lt; autonomous-with-policy</span></pre></div><p class="note anim">A change that can only take power away is accepted at once from any channel; widening is not. <q>a page can never accept the change that widens what an agent may do</q></p></div>
+      <p class="linkrow"><a class="ext" href="https://github.com/chrissgon/openhora/blob/main/contracts/runtime.md">contracts/runtime.md</a><a class="ext" href="https://github.com/chrissgon/openhora/blob/main/interface/README.md">interface/README.md</a><a class="ext" href="https://github.com/chrissgon/openhora/blob/main/runtime/README.md">runtime/README.md</a></p>
+    </div>
+    </div>
+    </fieldset>
+    <span class="cross tl" aria-hidden="true"></span><span class="cross tr" aria-hidden="true"></span>
+  </div>
+</section>
+
+<section class="band" aria-labelledby="tour-title">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="num"><span class="big">05</span></div>
+      <div class="ttl"><h2 id="tour-title" data-proposed>The interface, live</h2><a class="aside" href="interface.html" data-proposed>Interface page &rarr;</a></div>
+    </div>
+    <div class="tour-home">
+      <p class="tour-idea">A person opens a local page and sees their projects as a small low-poly city: one building per project, one floor per area agent, an owl at a desk on each floor, and a card for whatever is waiting for the person. <span class="muted">It is the view onto the task runtime, not a separate product.</span></p>
+      <div class="tour-stage streak v-dusk">
+        <div class="tour tour-teaser">
+      <div class="tour-chrome">
+        <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span class="tour-addr"><span class="lock" aria-hidden="true"></span>local service · 127.0.0.1</span>
+        <span class="pui-badge pui-soft pui-theme tour-badge" data-proposed>Replay · fictional project</span>
+      </div>
+      <div class="tour-screen">
+        <span class="tour-poster">
+          <img class="p-wide p-light" src="assets/img/city-1280-light.webp" width="1280" height="800" alt="The City screen of the local interface, fictional data: an isometric plot with one low-poly building per project, the Runs today card, the tracking bar of the followed request and the Waiting for you card." loading="lazy" decoding="async">
+          <img class="p-wide p-dark" src="assets/img/city-1280-dark.webp" width="1280" height="800" alt="The City screen of the local interface, fictional data: an isometric plot with one low-poly building per project, the Runs today card, the tracking bar of the followed request and the Waiting for you card." loading="lazy" decoding="async">
+          <img class="p-tall p-light" src="assets/img/city-375-light.webp" width="375" height="812" alt="The City screen of the local interface, fictional data: an isometric plot with one low-poly building per project, the Runs today card, the tracking bar of the followed request and the Waiting for you card." loading="lazy" decoding="async">
+          <img class="p-tall p-dark" src="assets/img/city-375-dark.webp" width="375" height="812" alt="The City screen of the local interface, fictional data: an isometric plot with one low-poly building per project, the Runs today card, the tracking bar of the followed request and the Waiting for you card." loading="lazy" decoding="async">
+        </span>
+        <div class="tour-overlay">
+          <a class="tour-start" href="interface.html#tour"><span class="tour-play" aria-hidden="true"><i class="ring r1"></i><i class="ring r2"></i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg></span><span class="tour-label"><b data-proposed>Start the tour</b><small data-proposed>the real interface · demo mode · fictional data</small></span></a>
+        </div>
+      </div>
+    </div>
+      </div>
+      <ul class="tour-screens" aria-label="The five screens" data-proposed>
+        <li><a href="interface.html#city"><b>City</b><span>all projects</span></a></li>
+        <li><a href="interface.html#building"><b>Building</b><span>one floor per area agent</span></a></li>
+        <li><a href="interface.html#floor"><b>Floor</b><span>one agent's room</span></a></li>
+        <li><a href="interface.html#lobby"><b>Lobby</b><span>the planning agent's room</span></a></li>
+        <li><a href="interface.html#control-room"><b>Control room</b><span>skills, costs and connections</span></a></li>
+      </ul>
+    </div>
+    <span class="cross tl" aria-hidden="true"></span><span class="cross tr" aria-hidden="true"></span>
+  </div>
+</section>
+
+<section class="band closing" aria-labelledby="closing-title">
+  <div class="wrap">
+    <div class="dots fade-radial" aria-hidden="true"></div>
+    <div class="glow" aria-hidden="true"></div>
+    <h2 id="closing-title" class="sr-only" data-proposed>The repository</h2>
+    <div class="owl"><span class="owl-ring r2" aria-hidden="true"></span><span class="owl-ring" aria-hidden="true"></span><img src="assets/img/openhora-mark.svg" alt="openhora" width="132" height="132"></div>
+    <a class="star-link" href="https://github.com/chrissgon/openhora"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="m10 2.2 2.4 4.9 5.4.8-3.9 3.8.9 5.4L10 14.6l-4.8 2.5.9-5.4-3.9-3.8 5.4-.8Z"/></svg>Star on GitHub</a>
+    <p class="repo">github.com/chrissgon/openhora</p>
+    <span class="cross tl" aria-hidden="true"></span><span class="cross tr" aria-hidden="true"></span>
+  </div>
+</section>
+
+</main>
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="col">
+      <a class="brandlink" href="index.html"><img src="assets/img/openhora-mark.svg" alt="openhora" width="32" height="32"><span class="wordmark" aria-hidden="true">openhora</span></a>
+      <ul class="pills" aria-label="Claims" data-proposed>
+        <li class="pui-chip pui-outline pui-surface pill">MIT licence</li><li class="pui-chip pui-outline pui-surface pill">self-hosted</li><li class="pui-chip pui-outline pui-surface pill">no telemetry</li>
+      </ul>
+    </div>
+    <nav class="col" aria-label="Pages, again" data-proposed>
+      <h2 data-proposed>Pages</h2>
+      <ul><li><a href="index.html" aria-current="page">Home</a></li><li><a href="proof.html">Proof</a></li><li><a href="first-steps.html">First steps</a></li><li><a href="how-its-built.html">How openhora is built</a></li><li><a href="interface.html">Interface</a></li><li><a href="glossary.html">Glossary</a></li></ul>
+    </nav>
+    <div class="col">
+      <h2 data-proposed>Repository</h2>
+      <ul>
+        <li><a href="https://github.com/chrissgon/openhora">github.com/chrissgon/openhora</a></li>
+        <li><a href="https://github.com/chrissgon/openhora#install">README, Install</a></li>
+        <li><a href="https://github.com/chrissgon/openhora/blob/main/LICENSE">LICENSE</a></li>
+      </ul>
+    </div>
+    <div class="footer-base">
+      <span>MIT licence · self-hosted · no telemetry</span>
+      <span>Copyright (c) 2026 Christopher Goncalves</span>
+    </div>
+    <p class="footer-mark" aria-hidden="true"><span>openhora</span></p>
+  </div>
+</footer>
+</body>
+</html>

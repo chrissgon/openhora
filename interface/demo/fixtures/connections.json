@@ -1,0 +1,92 @@
+{
+  "classes": [
+    {
+      "class": "integration:design-tool",
+      "provider": null,
+      "found": false,
+      "note": "no provider is shipped for integration:design-tool (providers/design-tool/ has none); a provider added there is selected with INTEGRATION_DESIGN_TOOL_PROVIDER",
+      "skills": [
+        "design-execute"
+      ]
+    },
+    {
+      "class": "integration:vcs",
+      "provider": "github",
+      "found": true,
+      "note": "chosen by configuration",
+      "skills": [
+        "ops-pull-request"
+      ]
+    }
+  ],
+  "secrets": [
+    {
+      "name": "GMAIL_CLIENT_ID",
+      "found": false,
+      "where": null
+    },
+    {
+      "name": "GMAIL_CLIENT_SECRET",
+      "found": false,
+      "where": null
+    },
+    {
+      "name": "GMAIL_REFRESH_TOKEN",
+      "found": false,
+      "where": null
+    },
+    {
+      "name": "LINKEDIN_ACCESS_TOKEN",
+      "found": false,
+      "where": null
+    },
+    {
+      "name": "LINKEDIN_CLIENT_ID",
+      "found": false,
+      "where": null
+    },
+    {
+      "name": "LINKEDIN_CLIENT_SECRET",
+      "found": false,
+      "where": null
+    },
+    {
+      "name": "MESSENGER_TELEGRAM_BOT_TOKEN",
+      "found": false,
+      "where": null
+    },
+    {
+      "name": "NOTION_TOKEN",
+      "found": false,
+      "where": null
+    },
+    {
+      "name": "VCS_GITHUB_PR_TOKEN",
+      "found": false,
+      "where": null
+    },
+    {
+      "name": "VCS_GITHUB_TOKEN",
+      "found": false,
+      "where": null
+    },
+    {
+      "name": "WB_RUNTIME_FLOOR_KEY",
+      "found": false,
+      "where": null
+    }
+  ],
+  "secrets_note": null,
+  "image": {
+    "name": "standin",
+    "present": true,
+    "evidence": true
+  },
+  "platform": {
+    "machine": "arm64",
+    "evidence": null,
+    "here": "linux/arm64",
+    "same": null
+  },
+  "service": null
+}

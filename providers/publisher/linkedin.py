@@ -68,7 +68,7 @@ from pathlib import Path
 LINKEDIN_VERSION = "202609"
 RESTLI_PROTOCOL_VERSION = "2.0.0"
 DEFAULT_API_BASE = "https://api.linkedin.com"
-KEYRING_SERVICE = "ai-workbench"
+KEYRING_SERVICE = "openhora"
 KEYRING_USERNAME = "publisher-linkedin"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif"}
 EXPIRY_WARNING_DAYS = 7
@@ -132,6 +132,15 @@ verbs:
             --not-published (it was not; the key may be used again). Needs
             --confirmed; with --dry-run it prints what it would record and
             changes nothing.
+  posts     List the published posts the ledger records: --since <ISO-8601
+            with an offset> (a time without one is refused). Read-only: it
+            reads the ledger and nothing else, no token and no request, and
+            writes nothing. A post is an entry whose status is published and
+            whose kind is not comment; published_at is the ledger's created_at
+            (the time the platform accepted the post). A published post with
+            no readable created_at (an entry written before the ledger's
+            version 2) is listed by key under "undated", whatever --since,
+            and no time is derived for it.
 
 identifiers:
   --post-id, --comment-id and --parent-comment-id are the generic names of
@@ -189,11 +198,14 @@ output:
   or first_comment_error.
   comment: comment_urn, post_urn, parent_comment, idempotency_key, replayed,
   token_expires_at, token_expires_in_days.
+  posts: {{"platform", "since", "ledger", "posts": [{{"idempotency_key",
+  "post_url", "published_at"}}, ...] (at or after --since, oldest first),
+  "undated": [<key>, ...]}}.
   Diagnostics on stderr. Tokens are never printed.
 
 exit codes: 0 success, 1 provider or service error, 2 usage error (also --check
 with a verb, and a flag the verb does not read: --media with comment, --on-key
-with publish), 3 not configured.
+with publish, --since with any verb but posts), 3 not configured.
 
 LinkedIn API version pinned: {LINKEDIN_VERSION}. Access tokens last 60 days and
 there is no refresh token for self-serve apps: rerun auth.py before expiry.
@@ -212,6 +224,8 @@ examples:
       --parent-comment-id 'urn:li:comment:(urn:li:activity:123,456)' --dry-run
   uv run providers/publisher/linkedin.py resolve --idempotency-key launch-2026-10 \\
       --not-published --confirmed
+  uv run providers/publisher/linkedin.py posts --platform linkedin \\
+      --since 2026-10-01T00:00:00+00:00
 """
 
 
@@ -1225,6 +1239,51 @@ def comment_dry_run(base: str, post_urn: str | None, parent: str | None, text: s
     return EXIT_OK
 
 
+# --- posts -------------------------------------------------------------------
+
+
+def parse_iso_with_offset(value: str, flag: str) -> datetime:
+    """An ISO-8601 time that states its offset (or Z); a time without one is a usage error, never read as local."""
+    raw = value.strip()
+    try:
+        parsed = datetime.fromisoformat(raw[:-1] + "+00:00" if raw.endswith(("Z", "z")) else raw)
+    except ValueError:
+        raise ProviderError(f"{flag} is not ISO-8601: {value}", EXIT_USAGE) from None
+    if parsed.tzinfo is None:
+        raise ProviderError(f"{flag} has no offset: {value}; give one (for example +00:00 or Z)", EXIT_USAGE)
+    return parsed
+
+
+def cmd_posts(args) -> int:
+    """The published posts of the ledger. Reads the ledger only (no token, no request, no write): a post is an
+    entry whose status is published and whose kind is not comment, and its time is the ledger's created_at, the
+    time the platform accepted it. A published post without a readable created_at is listed by key under
+    "undated", whatever --since: no time is derived for it."""
+    since = parse_iso_with_offset(args.since, "--since")
+    listed, undated = [], []
+    for key, entry in sorted(ledger_read()["entries"].items()):
+        if not isinstance(entry, dict) or entry_status(entry) != "published" or entry_kind(entry) != "post":
+            continue
+        urn = entry.get("post_urn")
+        if not isinstance(urn, str) or not urn:
+            raise ProviderError(f"the ledger's published post {key!r} holds no post id; nothing was listed",
+                                EXIT_SERVICE)
+        created = entry.get("created_at")
+        try:
+            at = parse_iso_with_offset(created, "created_at") if isinstance(created, str) else None
+        except ProviderError:
+            at = None
+        if at is None:
+            undated.append(key)
+            continue
+        if at >= since:
+            listed.append((at, key, {"idempotency_key": key, "post_url": post_url(urn), "published_at": created}))
+    listed.sort(key=lambda item: (item[0], item[1]))
+    print(json.dumps({"platform": args.platform, "since": args.since, "ledger": str(ledger_path()),
+                      "posts": [item[2] for item in listed], "undated": undated}, indent=2, ensure_ascii=False))
+    return EXIT_OK
+
+
 # --- check -------------------------------------------------------------------
 
 
@@ -1263,7 +1322,7 @@ FLAG_NAMES = {
     "media": "--media", "at": "--at", "idempotency_key": "--idempotency-key", "post_urn": "--post-id",
     "on_key": "--on-key", "parent_comment": "--parent-comment-id", "comments_endpoint": "--comments-endpoint",
     "legacy_v2": "--legacy-v2", "comment_urn": "--comment-id", "not_published": "--not-published",
-    "ledger": "--ledger", "dry_run": "--dry-run", "confirmed": "--confirmed",
+    "ledger": "--ledger", "dry_run": "--dry-run", "confirmed": "--confirmed", "since": "--since",
 }
 VERB_FLAGS = {
     "publish": {"platform", "text_file", "first_comment_file", "media", "at", "idempotency_key", "comments_endpoint",
@@ -1272,6 +1331,7 @@ VERB_FLAGS = {
                 "comments_endpoint", "legacy_v2", "ledger", "dry_run", "confirmed"},
     "resolve": {"platform", "idempotency_key", "post_urn", "comment_urn", "not_published", "ledger", "dry_run",
                 "confirmed"},
+    "posts": {"platform", "since", "ledger"},  # read-only: no --dry-run or --confirmed to give
     None: {"platform"},  # --check
 }
 
@@ -1292,11 +1352,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="linkedin.py",
         description="Publisher provider for LinkedIn: publishes a post, and comments on posts, as the "
-        "authenticated member through the versioned Posts and Comments APIs.",
+        "authenticated member through the versioned Posts and Comments APIs, and lists the published posts its "
+        "ledger records.",
         epilog=HELP_EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("verb", nargs="?", choices=["publish", "comment", "resolve"], help="the action to run")
+    parser.add_argument("verb", nargs="?", choices=["publish", "comment", "resolve", "posts"],
+                        help="the action to run")
     parser.add_argument("--check", action="store_true", help="verify the token and print the member; no side effects")
     parser.add_argument("--platform", help="must be linkedin")
     parser.add_argument("--text-file", help="UTF-8 file with the post or comment text")
@@ -1332,6 +1394,8 @@ def build_parser() -> argparse.ArgumentParser:
                         "it would record) and do nothing else")
     parser.add_argument("--confirmed", action="store_true", help="required to publish or comment; set by the calling "
                         "skill's gate")
+    parser.add_argument("--since", help="with posts: list the posts published at or after this ISO-8601 time, "
+                        "which must state its offset")
     return parser
 
 
@@ -1361,7 +1425,13 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_comment(args)
         if args.verb == "resolve":
             return cmd_resolve(args)
-        raise ProviderError("give a verb (publish, comment, resolve) or --check; see --help", EXIT_USAGE)
+        if args.verb == "posts":
+            if not args.platform or not args.since:
+                raise ProviderError("posts needs --platform linkedin and --since <ISO-8601 with an offset>",
+                                    EXIT_USAGE)
+            check_platform(args)
+            return cmd_posts(args)
+        raise ProviderError("give a verb (publish, comment, resolve, posts) or --check; see --help", EXIT_USAGE)
     except ProviderError as exc:
         log(f"error: {exc}")
         return exc.code

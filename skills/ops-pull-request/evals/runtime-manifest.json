@@ -1,0 +1,13 @@
+{
+  "skill": "ops-pull-request",
+  "documents": [],
+  "machine_files": [],
+  "mandatory_milestone": false,
+  "asking_openings": [
+    "Nothing was pushed or created yet. This is what will be sent"
+  ],
+  "gate": {
+    "effect": "create",
+    "payload_file": "<tmp>/payload.md"
+  }
+}

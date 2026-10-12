@@ -42,7 +42,101 @@ def test_environment_wins_then_aliases_then_store():
         == ("b", "environment (GITHUB_TOKEN)")
     assert store.asked == []
     assert res.resolve("VCS_GITHUB_TOKEN", environ={}, store=store) == ("from-store", "secret store")
-    assert store.asked == [("ai-workbench", "github")]
+    assert store.asked == [("openhora", "github")]
+
+
+class ServiceStore:
+    """A secret store that keeps its values per (service, username), as the real one does, and records each question."""
+
+    def __init__(self, values=None, fail_for=()):
+        self.values, self.fail_for, self.asked = values or {}, set(fail_for), []
+
+    def get_password(self, service, username):
+        self.asked.append((service, username))
+        if service in self.fail_for:
+            raise RuntimeError("locked")
+        return self.values.get((service, username))
+
+
+def test_the_service_is_openhora_and_the_legacy_service_is_the_old_name():
+    assert res.SERVICE == "openhora" and res.LEGACY_SERVICE == "ai-workbench"
+
+
+def test_a_secret_found_under_the_new_service_is_read_from_it_alone():
+    store = ServiceStore({("openhora", "github"): "new-value"})
+    assert res.resolve("VCS_GITHUB_TOKEN", environ={}, store=store) == ("new-value", "secret store")
+    assert store.asked == [("openhora", "github")], "the old service is not asked when the new one answers"
+    assert res.resolve_detail("VCS_GITHUB_TOKEN", environ={}, store=store) == ("new-value", "secret store", "openhora")
+
+
+def test_a_secret_found_only_under_the_old_service_is_read_and_says_legacy():
+    store = ServiceStore({("ai-workbench", "github"): "old-value"})
+    assert res.resolve("VCS_GITHUB_TOKEN", environ={}, store=store) == ("old-value", "secret store")
+    assert store.asked == [("openhora", "github"), ("ai-workbench", "github")]
+    got = res.resolve_detail("VCS_GITHUB_TOKEN", environ={}, store=store)
+    assert got == ("old-value", "secret store", "ai-workbench (legacy)")
+
+
+def test_the_new_service_wins_when_both_hold_the_secret():
+    store = ServiceStore({("openhora", "github"): "new-value", ("ai-workbench", "github"): "old-value"})
+    assert res.resolve("VCS_GITHUB_TOKEN", environ={}, store=store)[0] == "new-value"
+    assert ("ai-workbench", "github") not in store.asked
+
+
+def test_a_value_that_is_blank_under_the_new_service_falls_to_the_old_one():
+    store = ServiceStore({("openhora", "github"): "   ", ("ai-workbench", "github"): "old-value"})
+    assert res.resolve_detail("VCS_GITHUB_TOKEN", environ={}, store=store)[2] == "ai-workbench (legacy)"
+
+
+def test_a_locked_new_service_still_lets_the_old_one_answer_and_a_locked_store_is_not_found():
+    store = ServiceStore({("ai-workbench", "github"): "old-value"}, fail_for={"openhora"})
+    assert res.resolve("VCS_GITHUB_TOKEN", environ={}, store=store)[0] == "old-value"
+    locked = ServiceStore({("ai-workbench", "github"): "old-value"}, fail_for={"openhora", "ai-workbench"})
+    assert res.resolve("VCS_GITHUB_TOKEN", environ={}, store=locked) is None
+    assert res.resolve_detail("VCS_GITHUB_TOKEN", environ={}, store=ServiceStore()) is None
+
+
+def test_the_environment_answer_has_no_service():
+    store = ServiceStore({("openhora", "github"): "new-value"})
+    assert res.resolve_detail("VCS_GITHUB_TOKEN", environ={"VCS_GITHUB_TOKEN": "env"}, store=store) \
+        == ("env", "environment (VCS_GITHUB_TOKEN)", None)
+    assert store.asked == []
+
+
+def test_report_says_which_service_answered_and_never_carries_a_value():
+    store = ServiceStore({("ai-workbench", "github"): SENTINEL, ("openhora", "notion"): SENTINEL})
+    rows = {r["name"]: r for r in res.report(environ={"GMAIL_CLIENT_ID": SENTINEL}, store=store)}
+    assert rows["VCS_GITHUB_TOKEN"]["found"] and rows["VCS_GITHUB_TOKEN"]["service"] == "ai-workbench (legacy)"
+    assert rows["NOTION_TOKEN"]["found"] and rows["NOTION_TOKEN"]["service"] == "openhora"
+    assert rows["GMAIL_CLIENT_ID"]["found"] and rows["GMAIL_CLIENT_ID"]["service"] is None
+    assert rows["LINKEDIN_CLIENT_ID"]["found"] is False and rows["LINKEDIN_CLIENT_ID"]["service"] is None
+    assert SENTINEL not in json.dumps(list(rows.values()))
+
+
+def test_cli_check_and_list_name_the_legacy_service(monkeypatch, capsys):
+    store = ServiceStore({("ai-workbench", "github"): SENTINEL, ("openhora", "notion"): SENTINEL})
+    monkeypatch.setattr(res, "_keyring", lambda: store)
+    monkeypatch.setattr(res, "REGISTRY", dict(res.REGISTRY))
+    for name in res.REGISTRY:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    assert res.main(["--check", "VCS_GITHUB_TOKEN"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out == {"name": "VCS_GITHUB_TOKEN", "found": True, "source": "secret store", "service": "ai-workbench (legacy)"}
+    assert res.main(["--check", "NOTION_TOKEN"]) == 0
+    assert json.loads(capsys.readouterr().out)["service"] == "openhora"
+    assert res.main(["--list", "--json"]) == 0
+    listed = {r["name"]: r for r in json.loads(capsys.readouterr().out)}
+    assert listed["VCS_GITHUB_TOKEN"]["service"] == "ai-workbench (legacy)" and listed["NOTION_TOKEN"]["service"] == "openhora"
+    assert res.main(["--list"]) == 0
+    text = capsys.readouterr().out
+    assert "ai-workbench (legacy)" in text and SENTINEL not in text
+
+
+def test_the_command_that_stores_a_secret_names_the_new_service_only():
+    assert res.how_to_set(res.REGISTRY["NOTION_TOKEN"]).endswith("keyring set openhora notion")
+    assert "ai-workbench" not in res.how_to_set(res.REGISTRY["VCS_GITHUB_TOKEN"])
+    assert "keyring set openhora <username>" in res.__doc__ and "keyring set ai-workbench" not in res.__doc__
 
 
 def test_store_is_skipped_when_not_allowed_or_unavailable():
@@ -192,3 +286,16 @@ def test_cli_registry_flag_merges_before_list_and_check(tmp_path):
     assert run("--registry").returncode == 2
     assert run("--registry", str(manifest)).returncode == 2
     assert run("--registry", str(tmp_path / "absent.json"), "--list").returncode == 2
+
+
+def test_the_pull_request_token_has_a_row_of_its_own_and_the_everyday_token_lost_that_permission():
+    """WP-4.11 of the platform plan: open-pr reads VCS_GITHUB_PR_TOKEN (store username github-pr), and the
+    everyday token's row no longer names the pull-request permission."""
+    everyday, own = res.REGISTRY["VCS_GITHUB_TOKEN"], res.REGISTRY["VCS_GITHUB_PR_TOKEN"]
+    assert own.store_username == "github-pr" and own.aliases == () and everyday.store_username == "github"
+    assert "Pull requests: Read and write" in own.permission and "Pull requests" not in everyday.permission
+    assert "pull request" not in everyday.purpose and own.purpose == "open a pull request (open-pr); nothing else"
+    assert own.readers == ("providers/vcs/github.py", "runtime/effects.py")
+    store = FakeStore({"github": "everyday", "github-pr": "own"})
+    assert res.resolve("VCS_GITHUB_PR_TOKEN", environ={"VCS_GITHUB_TOKEN": "x", "GITHUB_TOKEN": "y"}, store=store) \
+        == ("own", "secret store")

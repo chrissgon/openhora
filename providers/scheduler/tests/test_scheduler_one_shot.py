@@ -527,7 +527,7 @@ def test_notifications_are_kept_up_to_a_mebibyte(s):
     data = path.read_bytes()
     assert len(data) <= MIB
     lines = [json.loads(line) for line in data.decode().splitlines()]  # whole lines only
-    assert lines[-1]["title"] == "ai-workbench: post-1 done" and lines[0]["title"] == "old"
+    assert lines[-1]["title"] == "openhora: post-1 done" and lines[0]["title"] == "old"
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
 

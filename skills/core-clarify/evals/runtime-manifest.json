@@ -1,0 +1,10 @@
+{
+  "skill": "core-clarify",
+  "documents": [
+    {"path": "docs/workbench/briefs/<topic>.md", "checks": [["clarify.py", "brief", "--file", "{path}"]], "platform": "read_only", "bound_to_approval": false}
+  ],
+  "machine_files": [],
+  "mandatory_milestone": false,
+  "asking_openings": [],
+  "gate": null
+}

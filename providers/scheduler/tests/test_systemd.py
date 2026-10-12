@@ -157,6 +157,9 @@ def test_one_shot_dry_run_prints_digest_and_units_and_writes_nothing(env, tmp_pa
     assert f"OnCalendar={at.strftime('%Y-%m-%d %H:%M:%S')} UTC" in timer
     assert "Persistent=true" in timer and "AccuracySec=1s" in timer and "WantedBy=timers.target" in timer
     assert f"Unit={UNIT.format('job-1')}.service" in timer
+    assert "Description=openhora scheduler timer for job job-1" in timer
+    assert "# Written by the openhora scheduler for job job-1; cancel it with the provider, do not edit." in timer
+    assert "Description=openhora scheduler job job-1" in out["units"]["service"].splitlines()
     assert not any(line.startswith(("OnActiveSec", "OnUnitActiveSec")) for line in timer)
     assert out["unit_paths"]["timer"] == str(unit_file(env, "timer"))
     assert not Path(env["SCHEDULER_HOME"]).exists() and not Path(env["SCHEDULER_UNITS_DIR"]).exists()
@@ -351,7 +354,7 @@ def test_notifications_are_recorded_privately(env, tmp_path):
     assert run(env, "run", "--id", "job-1").returncode == 0
     log = Path(env["SCHEDULER_HOME"]) / "notifications.jsonl"
     (line,) = [json.loads(x) for x in log.read_text().splitlines()]
-    assert line["title"] == "ai-workbench: job-1 done" and line["message"] == "https://example.test/post"
+    assert line["title"] == "openhora: job-1 done" and line["message"] == "https://example.test/post"
     assert mode(log) == 0o600
 
 

@@ -29,20 +29,20 @@ validate = load("validate")
 
 
 def test_test_folders_are_discovered_and_fixture_folders_are_not(tmp_path):
-    for folder in ("scripts/tests", "evals/tests", "providers/demo/tests", "adapters/demo/tests",
+    for folder in ("scripts/tests", "evals/tests", "runtime/tests", "providers/demo/tests", "adapters/demo/tests",
                    "skills/core-demo/scripts/tests", "skills/core-demo/evals/files/app/tests", "providers/empty/tests",
                    "shared/scripts/tests", "shared/references/tests"):
         (tmp_path / folder).mkdir(parents=True)
         if "empty" not in folder:
             (tmp_path / folder / "test_x.py").write_text("def test_x():\n    assert True\n")
-    assert test_dirs.test_dirs(str(tmp_path)) == ["scripts/tests", "evals/tests", "shared/scripts/tests",
+    assert test_dirs.test_dirs(str(tmp_path)) == ["scripts/tests", "evals/tests", "runtime/tests", "shared/scripts/tests",
                                                   "providers/demo/tests", "adapters/demo/tests",
                                                   "skills/core-demo/scripts/tests"]
 
 
 def test_every_test_folder_of_this_repository_is_in_the_list_ci_runs():
     found = set(test_dirs.test_dirs())
-    assert {"scripts/tests", "evals/tests", "shared/scripts/tests"} <= found
+    assert {"scripts/tests", "evals/tests", "runtime/tests", "shared/scripts/tests"} <= found
     workflow = (REPO / ".github" / "workflows" / "checks.yml").read_text()
     assert "$(python3 scripts/test_dirs.py)" in workflow
 
@@ -107,6 +107,10 @@ HOOK_CASES = [
     ("agents/reviewer.md", "scripts/tests"), ("scripts/validate.py", "scripts/tests"),
     ("providers/resolve.py", "scripts/tests"), ("providers/store/sqlite.py", "providers/store/tests"),
     ("evals/eval_run.py", "evals/tests"), ("adapters/api/run_agent.py", "adapters/api/tests"),
+    ("runtime/lab.py", "runtime/tests"), ("runtime/tests/test_lab_facade.py", "runtime/tests"),
+    ("flows/market-positioning.json", "runtime/tests"), ("interface/index.html", "runtime/tests"),
+    ("interface/js/app.js", "runtime/tests"),
+    ("skills/demo/evals/runtime-manifest.json", "runtime/tests"),
     ("skills/core-demo/scripts/tool.py", "skills/core-demo/scripts/tests"),
     ("shared/scripts/rank.py", "shared/scripts/tests"), ("shared/scripts/copies.json", "shared/scripts/tests"),
     ("shared/scripts/tests/test_shared_rank.py", "shared/scripts/tests"),
@@ -131,7 +135,7 @@ def test_the_hook_maps_each_folder_to_the_tests_that_cover_it(tmp_path):
 def tree(tmp_path, cited):
     """A repository with the real runner and one skill whose case ships `shipped.md` and cites `cited`."""
     (tmp_path / "evals").mkdir()
-    for name in ("eval_run.py", "eval_status.py", "grading-prompt.md"):
+    for name in ("eval_run.py", "execution.py", "eval_status.py", "grading-prompt.md"):
         shutil.copy(REPO / "evals" / name, tmp_path / "evals" / name)
     skill = tmp_path / "skills" / "core-demo"
     (skill / "evals" / "files").mkdir(parents=True)

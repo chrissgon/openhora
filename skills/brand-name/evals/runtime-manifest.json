@@ -1,0 +1,10 @@
+{
+  "skill": "brand-name",
+  "documents": [
+    {"path": "docs/brand/name.md", "checks": [], "platform": "read_only", "bound_to_approval": false}
+  ],
+  "machine_files": [],
+  "mandatory_milestone": false,
+  "asking_openings": ["Nothing was written"],
+  "gate": null
+}

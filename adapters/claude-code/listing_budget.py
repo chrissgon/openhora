@@ -10,7 +10,7 @@ Claude Code lists the installed skills to the model within a character budget, i
 lists a skill past the budget by name only. The budget is the variable SLASH_COMMAND_TOOL_CHAR_BUDGET (the one
 run-prompt.sh raises for eval runs); a settings file sets it for every session through its "env" object.
 
-compute  the budget of a pack: each skill counted as the line `- ai-workbench:<name>: <description>`, plus a
+compute  the budget of a pack: each skill counted as the line `- openhora:<name>: <description>`, plus a
          margin of a quarter of that (at least 10000) for what the harness lists before the pack, rounded up to
          the next 1000.
 apply    print (the default) prints the line to add and the file it goes in, and writes nothing. write merges
@@ -102,7 +102,7 @@ def as_number(value, path):
 
 def write_json(path, data):
     folder = os.path.dirname(path)
-    fd, tmp = tempfile.mkstemp(prefix=".ai-workbench-", dir=folder)
+    fd, tmp = tempfile.mkstemp(prefix=".openhora-", dir=folder)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
         f.write("\n")
@@ -115,7 +115,7 @@ def write_json(path, data):
 
 def backup(path):
     stamp = datetime.datetime.now().strftime("%Y%m%dT%H%M%S%f")
-    dest = f"{path}.ai-workbench-{stamp}.bak"
+    dest = f"{path}.openhora-{stamp}.bak"
     shutil.copy2(path, dest)
     return dest
 

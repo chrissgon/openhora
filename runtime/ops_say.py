@@ -1,0 +1,578 @@
+#!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.9"
+# dependencies = []
+# ///
+"""The conversation with the planning agent: one turn of it (`say`) and the memory a plain line carries to the router.
+
+A sibling of runtime/ops.py, which exposes `say` and `chat_memory` under their names; no shell imports this file. The
+names every module of the layer shares are read as `core.<name>` (runtime/ops_core.py); an operation or a helper that
+stays in runtime/ops.py is reached at call time through `_ops()`, never imported at module level, so that the two
+files do not import each other.
+
+A line typed while a run of the project is in progress is not refused: it is stored with its reply pending (the
+queue below) and `route_queued` answers it when the run lock is free; a plain line that asks about the state is
+answered at once, by code, from the store's records; a reply of the router that is a direct turn (route `none`,
+shape `direct`) is answered the same way, with the router's `Next` line; a reply that names no route opens a
+question with a sentence and two actions. The reasons and the shapes are in contracts/runtime.md, "The conversation".
+
+Standard library only. Runs on Python 3.9.
+"""
+from __future__ import annotations
+
+import contextlib
+import datetime
+import fcntl
+import importlib
+import json
+import os
+import re
+import time
+import unicodedata
+
+import ops_core as core
+import autonomy
+import lab
+import operations
+import plan
+import router
+import skill_meta
+
+
+def _ops():
+    """runtime/ops.py, found at call time: the operations `say` calls and the helpers of the route stay there."""
+    return importlib.import_module("ops")
+
+
+# --- stage 6: the conversation with the planning agent ----------------------------------------------------------------
+
+CONVERSATION = "project"  # one conversation per project until the local interface (stage 9)
+MEMORY_TURNS = 6
+MEMORY_CHARS = 4000
+MEMORY_CUT = 600
+MEMORY_HEAD = "Earlier in this conversation, oldest first:"
+MEMORY_TAIL = "The request now:"
+PLAN_NEXT = "Approve with " + operations.chat_line("approve", pending_id="{pending}")
+ASK_NEXT = "Answer with a plain line, or start again with " + operations.chat_line("new", text="<text>")
+NOT_NAMED = "The planning agent did not name a flow or a skill for request {request}"
+NOT_NAMED_ACTIONS = ["choose-flow", "cancel"]    # the words of the payload's `actions`: the page draws one button for each
+NOT_NAMED_NEXT = ("Cancel it with " + operations.chat_line("cancel", request_id="{request}") + ", name a flow in the "
+                  "terminal with: {route}, or start again with " + operations.chat_line("new", text="<text>"))
+RAW_MAX = 32 * 1024                              # bytes of the router's block kept in the payload's `raw`
+QUEUING_CHANNELS = ("page",)  # the shells that drain the queue: only the local service runs `route_queued` on a loop
+DRAIN = "queue"               # the channel the drain acts as: it may queue again (the lock can be taken meanwhile), never jump the queue
+QUEUED_REQUEST = "Recorded as request {request}. The planning agent routes it when the run ends."
+PROPOSES = "The planning agent proposes: "
+RUN_BUSY = "another run of this project is in progress: one task at a time per project"
+
+# The queue: lines of the person and requests that wait for the planning agent while a run holds the project's run
+# lock. One cursor of the store holds it (JSON, oldest first), changed under a file lock of the data folder so that
+# the service's threads and the terminal never overwrite one another.
+QUEUE = "conversation:queue"
+QUEUE_LOCK_NAME = "queue.lock"
+QUEUE_LOCK_WAIT = 5.0       # seconds a change of the queue waits for another to finish
+QUEUE_MAX = 20              # entries: the cursor holds at most 4 KiB
+QUEUE_STALE_MARGIN = 60.0   # seconds added to the run timeout before an entry that was taken is taken to be dead
+QUEUE_STALE_FALLBACK = 1800.0  # the run timeout, only when the gate file cannot be read
+STARTED = "started"         # the key of an entry a drain has taken, with the time it took it
+
+# The forms of a question about the state that are answered by code, with no model and no request: lower case, no
+# accents, no punctuation (_normal). The list is closed; a line that is none of them goes to the planning agent.
+STATE_WORDS = 12            # a longer line is a request
+TAIL = r"[a-z0-9]+(?: [a-z0-9]+){0,5}"   # what a question is about: at most six words
+# A line with a sentence mark inside it ("how are we on the roadmap, delete the old plan") is more than the form, and a
+# tail that holds a verb of work is a request that starts like a question: neither is answered as the state.
+INTERIOR_MARK = re.compile(r"[.,;:!?]")
+WORK_WORDS = frozenset((
+    "add build change create delete draft drop fix make move publish remove rename replace send set start stop update "
+    "write adicione apague atualize crie corrija escreva envie faca mude publique remova troque").split())
+STATE_QUESTIONS = (
+    r"status", r"(project )?status( of the project| do projeto)?", r"qual (e )?o status( do projeto)?",
+    r"(what is|what s|whats) (the )?(project )?status( of the project)?",
+    r"how (are we|is it|is the project) (doing|going)( (with|on|about|regarding|in) " + TAIL + ")?",
+    r"how are we( (with|on|about|regarding) " + TAIL + ")?",
+    r"como (estamos|esta|estao|esta o projeto)( (com|sobre|em relacao (a|ao|as|aos)) " + TAIL + ")?",
+    r"o que (falta|resta|ja foi feito|esta (rodando|em andamento|pendente|aguardando))",
+    r"o que (esta )?(rodando|aguarda|espera)( agora)?",
+    r"what (is|s) (running|left|next|pending|waiting|done|happening)( now)?",
+    r"what waits( for me)?", r"what (are we|am i) waiting for", r"what do you need from me",
+    r"o que (voce|vc) precisa de mim", r"(show (me )?)?(the )?(progress|status report)", r"progresso|andamento",
+)
+STATE_RE = re.compile("|".join(f"(?:{form})" for form in STATE_QUESTIONS))
+LISTED = 5                  # titles named in a sentence of a state answer
+TITLE_CUT = 80
+
+
+def chat_memory(messages: list, settled: set) -> str:
+    """The conversation's memory for the router (T23: workaround 2, the floor model's adapter takes the request as one
+    argument, so the memory travels inside it, bounded): the plain lines and the router's replies after the newest
+    reply whose request reached `planned`, `done` or `cancelled` (settled: those request ids); commands and their
+    replies and the questions about the state (answered by code) are left out. The newest MEMORY_TURNS, oldest first, each `<role>: <text>` on one line cut to MEMORY_CUT
+    characters, the whole cut to MEMORY_CHARS by dropping the oldest. Empty when there is none: the first line of an
+    exchange reaches the router plain."""
+    # T23: workaround 2, the conversation's memory as a bounded text in the request
+    start = 0
+    for n, m in enumerate(messages):
+        if m["role"] == "assistant" and m.get("task_id") in settled:
+            start = n + 1
+    kept = [m for m in messages[start:] if (m["role"] == "user" and not m["text"].startswith("/") and not state_question(m["text"])) or
+            (m["role"] == "assistant" and m.get("task_id") is not None)][-MEMORY_TURNS:]
+    lines = [f"{m['role']}: {' '.join(m['text'].split())[:MEMORY_CUT]}" for m in kept]
+    while lines and len("\n".join([MEMORY_HEAD, *lines])) > MEMORY_CHARS:
+        lines.pop(0)
+    return "\n".join([MEMORY_HEAD, *lines]) if lines else ""
+
+
+def say(project: str, text: str, channel: str | None = None) -> dict:
+    """One turn of the conversation with the planning agent (decision D12), one more shell of this layer. The person's
+    line is stored; a line that starts with "/" is one command of the table of operations (runtime/operations.py), which calls its operation once; a plain
+    line that asks about the state (STATE_QUESTIONS) is answered at once by code from the store's records (state_reply):
+    no model, no request; any other plain line answers the router's open question on the conversation's last request,
+    or else is a new request routed with the conversation's memory in front of it (one or more runs of the router: a
+    model call), refused when the planning agent may not start. A line that would route while another run of the
+    project holds the run lock is queued, not refused, when the shell that carries it drains the queue (QUEUING_CHANNELS:
+    the local service): it is stored, its reply is pending (`queued` true, `reply` None), and `route_queued` answers it
+    when the lock is free; it also waits when older entries still wait, so that the queue is first in, first out. A shell that drains nothing (the terminal, the conversation's own shell, the MCP mode) is
+    refused (RunBusy, code 1) before anything is stored, as it always was. A reply of the router that is a direct turn is answered
+    by code too, and the request the line recorded is cancelled by code. The reply is stored too. A model's reply is
+    shown, never executed.
+    `channel` is the shell that carries the line (the terminal, the local page, the MCP mode; the conversation's own
+    shell passes none and is `chat`): a command in the line is done only when its row lists that channel, so a shell
+    that may not approve, reject, retry or cancel cannot do it by typing the command here either. Returns {"reply",
+    "request_id", "pending_id", "ran", "queued"}."""
+    ctx = core.context(project)
+    said = core._text(text, "the line")
+    store = ctx["store"]
+    channel = channel or "chat"
+    if _turn_routes(said) and not asks_state(ctx, said):
+        # First in, first out: for a shell that queues, a line behind older entries waits behind them even when the run
+        # is over; a shell that drains nothing is refused while a run holds the project, as it always was.
+        if channel in QUEUING_CHANNELS and (run_busy(ctx) or _queue_read(ctx, peek=True)):
+            stored = _enqueue_line(ctx, said)
+            return {"reply": None, "request_id": None, "pending_id": None, "ran": False, "queued": True,
+                    "message_id": stored["id"]}
+        if channel not in QUEUING_CHANNELS and run_busy(ctx):
+            raise core.RunBusy(RUN_BUSY, 1)
+    stored = core._stored(ctx, store.message_add, conversation=CONVERSATION, role="user", text=said)
+    reply, request_id, pending_id, ran, run_id = _turn(project, ctx, said, channel, stored["id"])
+    core._stored(ctx, store.message_add, conversation=CONVERSATION, role="assistant", text=reply or "(no reply)",
+                 task_id=request_id, run_id=run_id)
+    return {"reply": reply, "request_id": request_id, "pending_id": pending_id, "ran": ran, "queued": False}
+
+
+def _turn(project: str, ctx: dict, said: str, channel: str, line_id: int) -> tuple:
+    """(reply, request_id, pending_id, ran, run_id) of one stored line of the person: a command, a question about the
+    state, the answer to the router's question, or a new request. `line_id` is the line's message id: the memory
+    the router is given is the messages before it."""
+    if said.startswith("/"):
+        return _say_command(project, ctx, said, channel, line_id)
+    asked = _router_question(ctx, _last_request(ctx))
+    if asked is None and state_question(said):
+        return state_reply(project), None, None, False, None
+    return _say_route(project, ctx, said, line_id, channel, answer_to=asked)
+
+
+def _turn_routes(said: str) -> bool:
+    """Whether a line makes a turn that runs the router: a plain line, or /new. A command of the table calls its own
+    operation, which takes the run lock itself when it needs it, and a line that is no command gets the help."""
+    if not said.startswith("/"):
+        return True
+    parsed = operations.parse_chat(said)
+    return parsed is not None and parsed[0] == "new"
+
+
+# --- the questions about the state, answered by code ------------------------------------------------------------------
+
+
+def _normal(text: str) -> str:
+    """Lower case, no accents, every run of other characters one space."""
+    plain = "".join(c for c in unicodedata.normalize("NFKD", text.lower()) if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9]+", " ", plain).strip()
+
+
+def state_question(said: str) -> bool:
+    """Whether a plain line is one of the forms of STATE_QUESTIONS, in English or Portuguese, and short: the whole
+    line is the form (with, for some, a tail of at most six words that names what the question is about). A line that
+    starts like one and goes on to ask for work is not: "how are we going to launch the site", a line with a sentence
+    mark inside it (only a final `?`, `.` or `!` is allowed), or a tail that holds a verb of work."""
+    if said.startswith("/"):
+        return False
+    if INTERIOR_MARK.search(said.strip().rstrip("?.! \t")):
+        return False
+    normal = _normal(said)
+    return bool(normal) and len(normal.split()) <= STATE_WORDS and STATE_RE.fullmatch(normal) is not None \
+        and not WORK_WORDS & set(normal.split())
+
+
+def asks_state(ctx: dict, said: str) -> bool:
+    """Whether a plain line is answered as a question about the state: it is one of the forms, and the router has no
+    open question on the conversation's last request (a one-word answer such as "progress" then reaches the router)."""
+    return state_question(said) and _router_question(ctx, _last_request(ctx)) is None
+
+
+def _short(text) -> str:
+    one = " ".join(str(text or "").split())
+    return one if len(one) <= TITLE_CUT else one[:TITLE_CUT - 1].rstrip() + "..."
+
+
+def _names(rows: list) -> str:
+    """'a, b, c and 2 more' for the titles of rows."""
+    titles = [_short(r["title"]) for r in rows]
+    shown = ", ".join(titles[:LISTED])
+    return shown + (f" and {len(titles) - LISTED} more" if len(titles) > LISTED else "")
+
+
+def state_reply(project: str, proposed: str | None = None) -> str:
+    """Where the project stands, in prose, written by code from `status` and `progress` (the store's records): for each
+    open request what finished, what runs, what waits for the person, what is ready or held, and what is stuck, then
+    what waits for the person across the project. No model is called and nothing is estimated: every number and name
+    is a value of the two reads. `proposed`, the router's `Next` line of a direct turn, closes it as what the planning
+    agent proposes."""
+    state, progress = _ops().status(project), _ops().progress(project)["progress"]
+    held = {h["task_id"]: h["reason"] for h in state.get("held") or []}
+    lines = []
+    open_requests = [r for r in state["requests"] if r["state"] not in ("done", "cancelled")]
+    for r in open_requests:
+        tasks = r["tasks"]
+        by = lambda *states: [t for t in tasks if t["state"] in states]  # noqa: E731
+        head = f'Request {r["id"]}, "{_short(r["title"])}": '
+        if r["state"] == "requested":
+            lines.append(head + "recorded; it waits for its route.")
+            continue
+        done = by("done")
+        text = head + f"{len(done)} of {len(tasks)} tasks done" + (f" ({_names(done)})" if done else "") + "."
+        lines.append(text)
+        for label, rows in (("Running now", by("running")), ("Waiting for you", by("waiting"))):
+            if rows:
+                lines.append(f"{label}: {_names(rows)}.")
+        for t in by("ready"):
+            lines.append(f'Ready: task {t["id"]}, "{_short(t["title"])}"' + (f" (held: {held[t['id']]})" if t["id"] in held else "") + ".")
+        for t in by("blocked", "failed"):
+            note = f': {_short(t["note"])}' if t.get("note") else ""
+            lines.append(f'Stuck: task {t["id"]}, "{_short(t["title"])}", is {t["state"]}{note}.')
+    if not open_requests:
+        finished = sum(1 for r in state["requests"] if r["state"] == "done")
+        lines.append("No request is open." + (f" {finished} finished." if finished else ""))
+    waiting = [f'{w["kind"]} "{_short(w["title"])}" (decision {w["pending_id"]})' for w in progress["waiting_for_you"]]
+    lines.append("What waits for you: " + ("; ".join(waiting) if waiting else "nothing") + ".")
+    if proposed:
+        lines += ["", PROPOSES + proposed]
+    return "\n".join(lines)
+
+
+# --- the queue: what waits for the planning agent while a run holds the project ---------------------------------------
+
+
+@contextlib.contextmanager
+def _queue_lock(cfg: dict):
+    """The queue's file lock (<data_dir>/queue.lock), held while the queue is read and written: the service's threads
+    and the terminal take it one after the other. Waits up to QUEUE_LOCK_WAIT seconds, then refuses."""
+    os.makedirs(cfg["data_dir"], mode=0o700, exist_ok=True)
+    lock = os.open(os.path.join(cfg["data_dir"], QUEUE_LOCK_NAME), os.O_WRONLY | os.O_CREAT, 0o600)
+    try:
+        deadline = time.monotonic() + QUEUE_LOCK_WAIT
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise core.OpsError("the queue is being changed by another process: try again in a moment", 1) from None
+                time.sleep(0.05)
+        yield
+    finally:
+        os.close(lock)
+
+
+def _now() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
+def _queue_read(ctx: dict, peek: bool = False) -> list:
+    """The queue, oldest first: [{"kind": "line", "id": message id} | {"kind": "route", "id": request id}], each with
+    "at" and, once a drain took it, STARTED. `peek` reads with no write lock (the conversation read)."""
+    read = ctx["store"].cursor_peek if peek else ctx["store"].cursor_get
+    try:
+        value = json.loads(core._stored(ctx, read, QUEUE) or "[]")
+    except ValueError:
+        return []
+    return [e for e in value if isinstance(e, dict) and e.get("kind") in ("line", "route") and isinstance(e.get("id"), int)]
+
+
+def _queue_write(ctx: dict, entries: list) -> None:
+    core._stored(ctx, ctx["store"].cursor_set, QUEUE, json.dumps(entries, separators=(",", ":")))
+
+
+def waiting(ctx: dict) -> bool:
+    """Whether any line or request waits in the queue."""
+    return bool(_queue_read(ctx, peek=True))
+
+
+def queued_ids(ctx: dict) -> set:
+    """The ids of the messages of the person that wait in the queue for their reply."""
+    return {e["id"] for e in _queue_read(ctx, peek=True) if e["kind"] == "line"}
+
+
+def run_busy(ctx: dict) -> bool:
+    """Whether a run of the project holds the run lock now (a task's or the router's)."""
+    try:
+        with core._run_lock(ctx["cfg"]):
+            return False
+    except core.RunBusy:
+        return True
+
+
+def _full(entries: list):
+    if len(entries) >= QUEUE_MAX:
+        raise core.OpsError(f"{QUEUE_MAX} lines or requests already wait for the end of the run: nothing was stored", 1)
+
+
+def _enqueue_line(ctx: dict, said: str) -> dict:
+    """Store the person's line and queue it; refused (nothing stored) when the queue is full."""
+    with _queue_lock(ctx["cfg"]):
+        entries = _queue_read(ctx)
+        _full(entries)
+        stored = core._stored(ctx, ctx["store"].message_add, conversation=CONVERSATION, role="user", text=said)
+        _queue_write(ctx, entries + [{"kind": "line", "id": stored["id"], "at": _now()}])
+    return stored
+
+
+def queue_route(ctx: dict, request_id: int) -> dict:
+    """Queue a request for the router (`route` while a run is in progress): recorded once, routed when the lock is free.
+    Returns what `route` answers for it: {"routed": False, "queued": True, "request", "pending_id": None}."""
+    with _queue_lock(ctx["cfg"]):
+        entries = _queue_read(ctx)
+        if not any(e["kind"] == "route" and e["id"] == request_id for e in entries):
+            _full(entries)
+            _queue_write(ctx, entries + [{"kind": "route", "id": request_id, "at": _now()}])
+    return {"routed": False, "queued": True, "request": request_id, "pending_id": None, "source": "queue"}
+
+
+def _unqueue(ctx: dict, kind: str, ident: int) -> None:
+    with _queue_lock(ctx["cfg"]):
+        _queue_write(ctx, [e for e in _queue_read(ctx) if not (e["kind"] == kind and e["id"] == ident)])
+
+
+def queue_stale() -> float:
+    """Seconds after which an entry a process took is taken to be what a dead process left, and is dropped: the run
+    timeout the gate file gives (the value the runtime uses for a run, lab.reference) plus QUEUE_STALE_MARGIN. It is the
+    one bound a router run cannot exceed, so a live run is never called dead while it holds the lock; only one entry is
+    in flight, so a dead one blocks the others for no longer."""
+    try:
+        return float(lab.reference("strong")["timeout_seconds"]) + QUEUE_STALE_MARGIN
+    except (lab.LabError, KeyError, TypeError, ValueError):
+        return QUEUE_STALE_FALLBACK + QUEUE_STALE_MARGIN
+
+
+def _take(ctx: dict):
+    """The oldest entry no process has taken, marked as taken now; None when there is none. A taken entry older than
+    queue_stale() seconds is what a process that died left: it is dropped, and the person is told when it was a line."""
+    now, stale = time.time(), queue_stale()
+    with _queue_lock(ctx["cfg"]):
+        entries = _queue_read(ctx)
+        dead = [e for e in entries if now - e.get(STARTED, now) > stale]
+        entries = [e for e in entries if e not in dead]
+        # one entry at a time, oldest first: while one is taken (by the service loop or by `route-queued`), none is
+        head = None if any(STARTED in e for e in entries) else next(iter(entries), None)
+        if head is not None:
+            head[STARTED] = now
+        if head is not None or dead:
+            _queue_write(ctx, entries)
+    for e in dead:
+        if e["kind"] == "line":
+            core._stored(ctx, ctx["store"].message_add, conversation=CONVERSATION, role="assistant",
+                         text="A queued line was not answered: the service stopped while it was routed. Send it again.")
+        else:
+            _note_request(ctx, e["id"], "the service stopped while it was routed")
+    return head
+
+
+def _note_request(ctx: dict, request_id: int, why: str) -> None:
+    """Tell the person, in the conversation and on the request, why a queued request was not routed, so that the
+    request that stays on "Route it" does not look forgotten."""
+    try:
+        core._stored(ctx, ctx["store"].message_add, conversation=CONVERSATION, role="assistant", task_id=request_id,
+                     text=f"Request {request_id} was not routed: {why}. Route it again when you want it planned.")
+    except core.OpsError:
+        pass
+
+
+def _untake(ctx: dict, head: dict) -> None:
+    with _queue_lock(ctx["cfg"]):
+        entries = _queue_read(ctx)
+        for e in entries:
+            if e["kind"] == head["kind"] and e["id"] == head["id"]:
+                e.pop(STARTED, None)
+        _queue_write(ctx, entries)
+
+
+def route_queued(project: str) -> dict:
+    """Answer the oldest queued line or route the oldest queued request, when no run of the project is in progress: one
+    per call (the local service calls it every few seconds, the oldest first). A line is answered as `say` answers it
+    (the router's memory is the messages before it), its reply stored; a request is routed as `route` routes it, its
+    plan or question left for the person. Returns {"routed": "line" | "route" | None, "queued": what still waits, ...}."""
+    ctx = core.context(project)
+    if not _queue_read(ctx, peek=True):
+        return {"routed": None, "queued": 0}
+    if run_busy(ctx):
+        return {"routed": None, "queued": len(_queue_read(ctx, peek=True)), "reason": "a run is in progress"}
+    head = _take(ctx)
+    if head is None:
+        left = len(_queue_read(ctx))
+        return {"routed": None, "queued": left, **({"reason": "another process is routing the first"} if left else {})}
+    answered, out = False, None
+    try:
+        out = _drain_line(project, ctx, head["id"]) if head["kind"] == "line" else _drain_route(project, ctx, head["id"])
+        answered = True
+    except core.RunBusy:  # the lock was taken between the check and the run: the entry waits again
+        _untake(ctx, head)
+        return {"routed": None, "queued": len(_queue_read(ctx)), "reason": "a run is in progress"}
+    except core.OpsError as e:  # the line or the request can no longer be routed (cancelled, answered elsewhere)
+        try:
+            if head["kind"] == "line":
+                core._stored(ctx, ctx["store"].message_add, conversation=CONVERSATION, role="assistant",
+                             text=f"A queued line was not answered: {e}")
+            else:
+                _note_request(ctx, head["id"], str(e))
+        finally:
+            _unqueue(ctx, head["kind"], head["id"])
+        return {"routed": None, "queued": len(_queue_read(ctx)), "dropped": {"kind": head["kind"], "id": head["id"]},
+                "reason": str(e)}
+    finally:
+        if answered:  # an entry that was answered is never left behind to be reported as "not answered" later
+            _unqueue(ctx, head["kind"], head["id"])
+    return {**out, "queued": len(_queue_read(ctx))}
+
+
+def _drain_line(project: str, ctx: dict, message_id: int) -> dict:
+    found = [m for m in core._stored(ctx, ctx["store"].messages_list, CONVERSATION, limit=500, after_id=message_id - 1)
+             if m["id"] == message_id]
+    if not found:
+        raise core.OpsError(f"message {message_id} is not in the conversation", 1)
+    reply, request_id, pending_id, ran, run_id = _turn(project, ctx, found[0]["text"], DRAIN, message_id)
+    core._stored(ctx, ctx["store"].message_add, conversation=CONVERSATION, role="assistant", text=reply or "(no reply)",
+                 task_id=request_id, run_id=run_id)
+    return {"routed": "line", "message_id": message_id, "request_id": request_id, "pending_id": pending_id, "ran": ran}
+
+
+def _drain_route(project: str, ctx: dict, request_id: int) -> dict:
+    done = _ops()._route_request(ctx, request_id)
+    return {"routed": "route", "request_id": request_id, "pending_id": done.get("pending_id"), "ran": True}
+
+
+def _last_request(ctx: dict):
+    """The request of the conversation's newest message that names one, or None."""
+    for m in reversed(core._stored(ctx, ctx["store"].messages_list, CONVERSATION, limit=500)):
+        if m.get("task_id") is not None:
+            return m["task_id"]
+    return None
+
+
+def _router_question(ctx: dict, request_id):
+    """The newest open pending decision of the request, when it is a question on the request itself (the router
+    asked); else None."""
+    if request_id is None:
+        return None
+    request = core._stored(ctx, ctx["store"].task_get, request_id)
+    if request["parent_id"] is not None or request["state"] != "requested":
+        return None
+    open_items = core._stored(ctx, ctx["store"].pending_list, "open", request_id)
+    return open_items[-1]["id"] if open_items and open_items[-1]["kind"] == "question" else None
+
+
+def _say_command(project: str, ctx: dict, said: str, channel: str, line_id: int) -> tuple:
+    """(reply, request_id, pending_id, ran, run_id) of a command line: the table of operations reads it
+    (operations.parse_chat); an operation it names is called once with the arguments it read and the channel `chat`
+    (so an effect is never approved from a line), when its row lists the channel that carries the line (`channel`):
+    a command that row does not list is refused with the place where it is done, and a line it does not read gets
+    the help."""
+    parsed = operations.parse_chat(said)
+    if parsed is None or parsed[0] == "help":
+        return operations.chat_help(), None, None, False, None
+    name, found = parsed
+    if name == "new":
+        after, found = operations.split_new(found)
+        return _say_route(project, ctx, found, line_id, channel, after=after)
+    row = operations.by_name(name)
+    if channel not in row["channels"]:
+        return f"error: /{name} is done in the terminal or on the page", None, None, False, None
+    if not operations.permitted(name, channel, ctx["cfg"]["channels"]):  # the project's policy (decision M-8), before anything runs
+        return f"error: {operations.not_enabled(name, channel)}", None, None, False, None
+    if channel == "messaging" and name == "approve":  # an acceptance approved from a line has no card to be bound to
+        return "error: use the card's button, or /approve <id> as the whole line", None, None, False, None
+    if row.get("channel_arg"):
+        found = dict(found, channel=channel if channel == "messaging" else "chat")  # a messaging app's own rule (ops_waits) narrows approve
+    try:
+        out = getattr(_ops(), row["call"])(project, **found)
+    except core.OpsError as e:
+        return f"error: {e}", None, None, False, None
+    if row.get("chat_reply"):
+        return out[row["chat_reply"]], None, None, False, None
+    return json.dumps(out, ensure_ascii=False, indent=1, default=str), None, None, False, None
+
+
+def _planning_may_start(ctx: dict) -> tuple:
+    """Whether the planning agent may run the router now (autonomy.may_start, by the billing of the credential the
+    router's route uses, with the day's runs of the router counted against it)."""
+    cfg, store = ctx["cfg"], ctx["store"]
+    agents = cfg["area_agents"]
+    meta = skill_meta.declared(os.path.join(core.ROOT, "skills", router.ROUTER_SKILL))
+    billing = _ops()._route(ctx, router.ROUTER_SKILL, meta, None, core._floor_key())["billing"]
+    now = datetime.datetime.now(datetime.timezone.utc)
+    standing_rows = core._stored(ctx, store.approvals_list, status="active", scope="standing")
+    runs = autonomy.with_billing([dict(r, agent=plan.PLANNING) if r.get("agent") is None and r.get("skill") == router.ROUTER_SKILL
+                                  else r for r in core._stored(ctx, store.runs_since, _ops()._midnight_utc())],
+                                 lab.reference("floor")["model"])
+    facts = autonomy.facts(plan.PLANNING, agents, standing_rows, now)
+    spent = autonomy.spend(runs, plan.PLANNING, cfg["raw"].get("max_cost_usd_per_run", _ops().PER_RUN_USD))
+    ok, why = autonomy.may_start(plan.PLANNING, agents, facts, spent, billing)
+    if not ok and plan.PLANNING not in agents:
+        why = "no planning agent is configured (area_agents has no entry named planning)"
+    return ok, why
+
+
+def _say_route(project: str, ctx: dict, said: str, line_id: int, channel: str, answer_to=None, after=None) -> tuple:
+    """A plain line: the answer to the router's question (then the router runs again), or a new request with the
+    memory in front of it (the messages before the line). Either way the router runs only when the planning agent may
+    start. A reply of the router that is a direct turn cancels the request by code and is answered from the store's
+    records, with the router's `Next` line; one that names no route opens the question of an unrecognised route."""
+    ok, why = _planning_may_start(ctx)
+    if not ok:
+        return f"The planning agent may not start now: {why}. Nothing was run.", None, None, False, None
+    if answer_to is not None:
+        request_id = core._stored(ctx, ctx["store"].pending_get, answer_to)["task_id"]
+        _ops().answer(project, answer_to, said)
+    else:
+        messages = [m for m in core._stored(ctx, ctx["store"].messages_list, CONVERSATION, limit=500) if m["id"] < line_id]
+        settled = {t["id"] for t in core._stored(ctx, ctx["store"].tasks_list)
+                   if t["parent_id"] is None and t["state"] in ("planned", "done", "cancelled")}
+        remembered = chat_memory(messages, settled)
+        text = f"{remembered}\n\n{MEMORY_TAIL}\n{said}" if remembered else said
+        request_id = _ops().request(project, text, title=plan.title_of(said), after=after)["request"]
+    routed = _ops().route(project, request_id, channel=channel)
+    if routed.get("queued"):  # a run began after the check: the request waits for the end of it
+        return QUEUED_REQUEST.format(request=request_id), request_id, None, False, None
+    if routed.get("kind") == "direct":
+        core._stored(ctx, ctx["store"].request_cancel, request_id, by="code:direct")
+        return state_reply(project, routed.get("next")), None, None, True, routed.get("run_id")
+    item = core._stored(ctx, ctx["store"].pending_get, routed["pending_id"]) if routed.get("pending_id") else None
+    if item is None:
+        failure = (routed.get("failure") or {}).get("reason") or "the router's run failed"
+        return f"The router could not run: {failure}", request_id, None, True, routed.get("run_id")
+    if item["kind"] == "plan":
+        payload = item["payload"]
+        lines = [item["title"]]
+        lines += [f"- {t['key']}: {t['title']} ({t['skill']})" for t in payload.get("tasks") or []]
+        estimate = payload.get("estimate") or {}
+        lines += [f"Estimate: {estimate.get('runs', estimate.get('runs_at_least'))} runs"
+                  + (f" ({estimate['formula']})" if estimate.get("formula") else ""), ""]
+        for n, u in enumerate(payload.get("unrouted") or [], 1):
+            lines += [f"Not planned {n}: {u['item']}. The router's reply:", u["reply"].rstrip("\n"), ""]
+        lines.append(PLAN_NEXT.format(pending=item["id"]))
+        reply = "\n".join(lines)
+    elif (item.get("payload") or {}).get("ending") == "unclassified":
+        command = core._command("route", project, request_id=request_id, flow="<name>")
+        reply = item["body"].rstrip("\n") + "\n\n" + NOT_NAMED_NEXT.format(request=request_id, route=command)
+    else:
+        reply = item["body"].rstrip("\n") + "\n\n" + ASK_NEXT
+    return reply, request_id, item["id"], True, routed.get("run_id")

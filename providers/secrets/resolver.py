@@ -8,7 +8,9 @@
 Every script asks for a secret by name; the resolver looks in the same places, in the same order:
   1. environment variables: the name, then its aliases (a cloud environment's settings, CI secrets,
      or an export in the shell);
-  2. the OS secret store (keyring): service "ai-workbench", the username listed below.
+  2. the OS secret store (keyring): service "openhora", the username listed below; a name not found
+     there is looked up under the service the workbench used before it was renamed, "ai-workbench"
+     (LEGACY_SERVICE), for one stage (removed with the next change of reference model, T23).
 The first non-empty value wins. Values are never printed, logged or written, not even partially.
 Adding a backend (a password manager) means adding one lookup function to BACKENDS; callers do
 not change.
@@ -23,8 +25,10 @@ Usage:
   python3 providers/secrets/resolver.py [--registry <file>]... --check <NAME>
 
   --list      every registered secret: purpose, minimum permission, readers, whether it is found
-              and where (environment or store), and how to set it; never the value
-  --check     exit 0 when <NAME> is found, 3 when not, 2 when <NAME> is not registered
+              and where (environment or store, and which store service answered: "openhora" or
+              "ai-workbench (legacy)", the name to move), and how to set it; never the value
+  --check     exit 0 when <NAME> is found, 3 when not, 2 when <NAME> is not registered; the line
+              printed carries "service" when the store answered
   --registry  a JSON file whose "secrets" list is merged into the registry first (repeatable);
               each entry has name, purpose, permission and readers, and optionally
               store_username, aliases, note and set_local
@@ -35,7 +39,7 @@ Setting a secret:
   cloud session  the environment's settings, as an environment variable named like the secret
   CI             a repository secret, mapped to an environment variable of the same name in the
                  workflow (env: NAME: ${{ secrets.NAME }})
-  local          uv run --with keyring==25.7.0 keyring set ai-workbench <username>
+  local          uv run --with keyring==25.7.0 keyring set openhora <username>
                  (typed at a hidden prompt, never on the command line), or an export in the shell
 
 Without the keyring package (plain python3), the store is reported as unavailable and only the
@@ -48,7 +52,9 @@ import os
 import sys
 from dataclasses import dataclass, field
 
-SERVICE = "ai-workbench"
+SERVICE = "openhora"
+LEGACY_SERVICE = "ai-workbench"  # T23: what the store held before the rename; read as a fallback, never written
+LEGACY_LABEL = f"{LEGACY_SERVICE} (legacy)"
 EXIT_USAGE = 2
 EXIT_NOT_FOUND = 3
 
@@ -63,6 +69,7 @@ class Secret:
     aliases: tuple[str, ...] = field(default_factory=tuple)
     note: str = ""
     set_local: str = ""  # how to store it locally when not with `keyring set`
+    billing: str = ""  # how a credential of an adapter is billed: subscription, metered or free (BILLING_WORDS); "" for the core's own
 
 
 REGISTRY: dict[str, Secret] = {s.name: s for s in (
@@ -73,7 +80,15 @@ REGISTRY: dict[str, Secret] = {s.name: s for s in (
            "file of a private repository (read-file); commit-files uses no token",
            ("providers/vcs/github.py", ".github/workflows/dependabot-alerts.yml"),
            store_username="github", aliases=("GITHUB_TOKEN",),
-           note="GITHUB_TOKEN is read last: a harness or CI may set its own, with other permissions"),
+           note="GITHUB_TOKEN is read last: a harness or CI may set its own, with other permissions; "
+                "open-pr reads it only when VCS_GITHUB_PR_TOKEN is found nowhere"),
+    Secret("VCS_GITHUB_PR_TOKEN",
+           "open a pull request (open-pr); nothing else",
+           "fine-grained token, only the repositories concerned: \"Pull requests: Read and write\" only",
+           ("providers/vcs/github.py", "runtime/effects.py"),
+           store_username="github-pr",
+           note="open-pr reads it first and names it (never its value); when it is found nowhere, open-pr "
+                "falls back to VCS_GITHUB_TOKEN"),
     Secret("LINKEDIN_ACCESS_TOKEN",
            "publish posts on LinkedIn",
            "OAuth scopes openid, profile and w_member_social (providers/publisher/auth.py)",
@@ -110,6 +125,17 @@ REGISTRY: dict[str, Secret] = {s.name: s for s in (
            "the Desktop app client's secret",
            ("providers/mailbox/auth.py", "providers/mailbox/gmail.py"),
            store_username="gmail-client-secret"),
+    Secret("NOTION_TOKEN",
+           "read and write the task board and the documents of a project on Notion",
+           "an internal integration with read content, update content, insert content and read comments, "
+           "given only the base and the parent page the project names",
+           ("providers/issue-tracker/notion.py", "providers/documents/notion.py"),
+           store_username="notion"),
+    Secret("MESSENGER_TELEGRAM_BOT_TOKEN",
+           "receive the person's messages and send the notices of the messaging bridge, as a Telegram bot",
+           "a bot created for this person with the platform's bot service, used only by this bridge",
+           ("providers/messenger/telegram.py",),
+           store_username="messenger-telegram"),
 )}
 
 
@@ -118,7 +144,8 @@ class NotRegistered(KeyError):
 
 
 ENTRY_REQUIRED = ("name", "purpose", "permission", "readers")
-ENTRY_OPTIONAL = ("store_username", "aliases", "note", "set_local")
+ENTRY_OPTIONAL = ("store_username", "aliases", "note", "set_local", "billing")
+BILLING_WORDS = ("subscription", "metered", "free")
 _NAME_OK = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
 
 
@@ -146,16 +173,21 @@ def register(entries, origin: str = "a registry") -> list[str]:
             raise ValueError(f"{origin}: {name!r} has a value of the wrong type")
         if not name or name[0].isdigit() or any(c not in _NAME_OK for c in name):
             raise ValueError(f"{origin}: {name!r} is not a variable name in capitals")
+        if entry.get("billing") not in (None, *BILLING_WORDS):
+            raise ValueError(f"{origin}: {name} has billing {entry.get('billing')!r}: one of {', '.join(BILLING_WORDS)}")
         new = Secret(name, entry["purpose"], entry["permission"], tuple(readers),
                      store_username=entry.get("store_username") or None, aliases=tuple(aliases),
-                     note=entry.get("note") or "", set_local=entry.get("set_local") or "")
+                     note=entry.get("note") or "", set_local=entry.get("set_local") or "", billing=entry.get("billing") or "")
         old = merged.get(name) or REGISTRY.get(name)
         if old is not None:
             if (old.store_username, old.aliases) != (new.store_username, new.aliases):
                 raise ValueError(f"{origin}: {name} is already registered with another store username or other aliases")
+            if old.billing and new.billing and old.billing != new.billing:
+                raise ValueError(f"{origin}: {name} is already registered with billing {old.billing}, not {new.billing}")
             new = Secret(old.name, old.purpose, old.permission,
                          old.readers + tuple(r for r in new.readers if r not in old.readers),
-                         store_username=old.store_username, aliases=old.aliases, note=old.note, set_local=old.set_local)
+                         store_username=old.store_username, aliases=old.aliases, note=old.note, set_local=old.set_local,
+                         billing=old.billing or new.billing)
         merged[name] = new
     REGISTRY.update(merged)
     return list(merged)
@@ -190,26 +222,43 @@ def _keyring():
     return keyring
 
 
-def _from_store(secret: Secret, store) -> tuple[str, str] | None:
+def _ask(store, service: str, username: str) -> str:
+    try:
+        return (store.get_password(service, username) or "").strip()
+    except Exception:  # a locked or missing backend is "not found here", never a crash
+        return ""
+
+
+def _from_store(secret: Secret, store) -> tuple[str, str, str] | None:
+    """(value, "secret store", the service that answered): SERVICE first, then LEGACY_SERVICE."""
     if not secret.store_username or store is None:
         return None
-    try:
-        value = (store.get_password(SERVICE, secret.store_username) or "").strip()
-    except Exception:  # a locked or missing backend is "not found here", never a crash
-        return None
-    return (value, "secret store") if value else None
+    value = _ask(store, SERVICE, secret.store_username)
+    if value:
+        return value, "secret store", SERVICE
+    value = _ask(store, LEGACY_SERVICE, secret.store_username)
+    return (value, "secret store", LEGACY_LABEL) if value else None
 
 
-def resolve(name: str, *, allow_store: bool = True, environ=None, store="default") -> tuple[str, str] | None:
-    """Return (value, source) for a registered secret, or None. Never prints the value."""
+def resolve_detail(name: str, *, allow_store: bool = True, environ=None, store="default") -> tuple[str, str, str | None] | None:
+    """Return (value, source, service) for a registered secret, or None. The service is None for the
+    environment, and for the store "openhora" or "ai-workbench (legacy)". Never prints the value."""
     secret = REGISTRY.get(name)
     if secret is None:
         raise NotRegistered(name)
     environ = os.environ if environ is None else environ
     found = _from_env(secret, environ)
-    if found or not allow_store:
-        return found
+    if found:
+        return found[0], found[1], None
+    if not allow_store:
+        return None
     return _from_store(secret, _keyring() if store == "default" else store)
+
+
+def resolve(name: str, *, allow_store: bool = True, environ=None, store="default") -> tuple[str, str] | None:
+    """Return (value, source) for a registered secret, or None. Never prints the value."""
+    found = resolve_detail(name, allow_store=allow_store, environ=environ, store=store)
+    return None if found is None else (found[0], found[1])
 
 
 def how_to_set(secret: Secret) -> str:
@@ -229,6 +278,7 @@ def report(environ=None, store="default") -> list[dict]:
             "name": secret.name,
             "found": bool(env_hit or store_hit),
             "source": (env_hit or store_hit or (None, None))[1],
+            "service": store_hit[2] if store_hit else None,
             "store": "unavailable" if store is None else "available",
             "purpose": secret.purpose,
             "permission": secret.permission,
@@ -262,19 +312,22 @@ def main(argv: list[str]) -> int:
             print(json.dumps(rows, indent=2))
         else:
             for r in rows:
-                state = f"found ({r['source']})" if r["found"] else "missing"
+                state = (f"found ({r['source']}" + (f", {r['service']}" if r["service"] else "") + ")") if r["found"] else "missing"
                 print(f"{r['name']:<24} {state:<34} {r['purpose']}")
                 if not r["found"]:
                     print(f"{'':<24} set it: {r['set']}")
         return 0
     if argv[0] == "--check" and len(argv) == 2:
         try:
-            found = resolve(argv[1])
+            found = resolve_detail(argv[1])
         except NotRegistered:
             print(f"error: {argv[1]!r} is not a registered secret; see --list", file=sys.stderr)
             return EXIT_USAGE
         if found:
-            print(json.dumps({"name": argv[1], "found": True, "source": found[1]}))
+            out = {"name": argv[1], "found": True, "source": found[1]}
+            if found[2]:
+                out["service"] = found[2]
+            print(json.dumps(out))
             return 0
         print(f"{argv[1]} not found: {how_to_set(REGISTRY[argv[1]])}", file=sys.stderr)
         return EXIT_NOT_FOUND

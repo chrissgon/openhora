@@ -5,11 +5,12 @@ Skills never keep state inside this repository. Everything they produce for a pr
 ```
 <target-project>/
 ├── AGENTS.md                     # project conventions; owned by core-agents-md
-├── .workbench-local/             # git-ignored work data: payloads/<date>/ (approved payloads that run later), evidence/ (recorded uses of a skill)
+├── .workbench-local/             # git-ignored work data: payloads/<date>/ (approved payloads that run later), evidence/ (recorded uses of a skill), drop/<task id>/ (files the person handed to one task of the task runtime), and the machine files a project's runtime.json names there (a dependency file)
 └── docs/
     ├── workbench/
     │   ├── state.md              # phase, artifact status, decisions, open questions (schema: state.md)
     │   ├── runtime.json          # the agent runtime's configuration, written by the person who sets it up (schema: runtime.md)
+    │   ├── policies/<policy>.json # the bounds of a standing approval of the task runtime, written by the person (approve-policy binds its hash)
     │   ├── briefs/<topic>.md     # shared-understanding briefs written by core-clarify
     │   ├── critiques/<topic>.md  # adversarial reviews written by core-critique
     │   └── research/<topic>.md   # sourced research briefs written by core-research (with <topic>.check.json)
@@ -59,6 +60,7 @@ The vocabulary is closed. A new name is added to this table in the pull request 
 | `<NNNN>` | a four-digit sequence number, zero-padded; the one name that is not lowercase |
 | `<title>` | a kebab-case title |
 | `<skill>` | the name of a skill |
+| `<policy>` | the kebab-case name of a policy; its bounds file's name |
 
 ## Slots no built skill writes
 
@@ -69,6 +71,7 @@ An input that no skill owns is listed here, or the validator reports it. `Provid
 | `docs/business/idea-validation.md` | planned: biz-validate-idea |
 | `docs/marketing/launch-plan.md` | planned: mkt-launch-plan |
 | `docs/workbench/runtime.json` | user |
+| `docs/workbench/policies/<policy>.json` | user |
 
 ## Owning skills
 

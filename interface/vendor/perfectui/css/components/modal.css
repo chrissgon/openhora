@@ -1,0 +1,1 @@
+@layer pui.tokens;@layer pui.components{.pui-modal{max-width:min(32rem, calc(100vw - var(--pui-space) * 8));max-height:calc(100dvh - var(--pui-space) * 8);color:inherit;font-size:var(--pui-font-size);background:0 0;border:none;margin:auto;padding:0;overflow:auto;&::backdrop{background-color:#00000080}}}@layer pui.utilities,pui.styles,pui.colors,pui.states;

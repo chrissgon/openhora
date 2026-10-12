@@ -14,7 +14,7 @@ Usage:
   python3 eval_run.py --close <event folder>
   python3 eval_run.py --routing --pack <name> (--skill <name> | --prompts <file>) [--tier strong|floor] [--jobs 4]
   python3 eval_run.py --unpause [--at <HH:MM or YYYY-MM-DDTHH:MM>]
-  python3 eval_run.py --regrade <run folder> [--grader <id>] [--harness <adapter>] [--jobs 4] [--timeout 900]
+  python3 eval_run.py --regrade <run folder> [--grader <id>] [--harness <adapter>] [--jobs 4] [--timeout 1800]
 
 Defaults. --harness, --model, --floor-model, --floor-harness, --floor-pass-env and --threshold default to the
 eval gate configuration, evals/eval-gate.json (strong_harness, strong_model, floor_model, floor_harness,
@@ -84,7 +84,7 @@ the grader model (see "Grading" below), and writes:
 
 Control of a test event. One invocation on one skill is a test event; its folder is
 evals-workspace/<name>/iteration-N. The number of runs of every case, variant and model ("runs", 3), the limit
-of one model run ("timeout_seconds", 900) and the retries inside the event ("retries", 2) have one home, the
+of one model run ("timeout_seconds", 1800) and the retries inside the event ("retries", 2) have one home, the
 gate file evals/eval-gate.json. --runs, --timeout and --retries override them for a trial: each run gets its
 own folder, run-<k>/, and benchmark.json averages them, but **evidence is written only by an event that used
 the configured values and real runners**. An event with another number of runs, another timeout or other
@@ -96,7 +96,7 @@ never into the skill's folder; benchmark.json says why in "scratch".
 runs that many model runs, with their gradings, at the same time in this process. Each run has its own
 folders and a throwaway home, so runs share nothing. Across processes the limit is a lock that every runner
 process of the machine shares (a folder of slot files under the temporary base): "total_jobs" of the gate
-file (10) is the number of model calls in progress at one time, whatever the number of `eval_run.py` started
+file (14) is the number of model calls in progress at one time, whatever the number of `eval_run.py` started
 side by side, and "web_jobs" ({"strong": 2, "floor": 2}) the number of runs on the open network per tier,
 whose search services limit the rate.
 --max-cost-usd <amount> is passed to the adapter as a spend limit per run: the claude-code adapter
@@ -447,154 +447,51 @@ import sys
 import tempfile
 import threading
 import time
+import types
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.normpath(os.path.join(HERE, ".."))
-STATUS_SCRIPT = os.path.join(HERE, "eval_status.py")
-EXECUTOR_SCRIPT = os.path.join(HERE, "executor.py")  # where a run's commands execute: a container
-STAGE_SCRIPT = os.path.join(HERE, "..", "scripts", "stage_skills.py")  # what a run sees of the skills: staged copies
-# "container" for every real run; the unit tests set "host" to drive stand-in adapters without docker.
-EXECUTOR = "container"  # content hash and the per-skill record
-GRADING_TEMPLATE = os.path.join(HERE, "grading-prompt.md")
-SETUP_TIMEOUT = 300  # seconds per setup command
+
+# The execution kit (evals/execution.py): the container run of one attempt, shared with the runtime's lab facade.
+# Loaded by path, once, and every name it defines is bound here, so that the code below and the tests read them as
+# they always did. A name the kit reads for itself (EXECUTOR, LOCK_DIR, PAUSE_CLOCK, ...) is replaced on the kit
+# module (sys.modules["workbench_eval_execution"]); the copy here is what this module's own code reads.
+KIT_SCRIPT = os.path.join(HERE, "execution.py")
+KIT_NAME = "workbench_eval_execution"
+KIT_BOUND = (
+    "ROOT", "STATUS_SCRIPT", "EXECUTOR_SCRIPT", "STAGE_SCRIPT", "EXECUTOR", "SETUP_TIMEOUT", "die",
+    "load_executor", "STAGE_LOCK", "load_stage", "adapter_eval", "harness_settings", "settings_in",
+    "case_platforms", "stage_run", "exclude_from_git", "MEASURE_SCRIPT", "MEASURE_LOCK", "load_measure",
+    "ATTEMPTS_SCRIPT", "ATTEMPTS_LOCK", "load_attempts", "load_status", "resolve_pass_env", "TOKEN_VARS",
+    "ENV_ALLOW", "repo_paths", "temp_base", "RUN_ROOTS", "RUN_ROOTS_LOCK", "new_run_root", "return_run",
+    "return_all_runs", "provider_refusal", "AUTH_STATUS", "AUTH_KEY_WORDS", "AUTH_WINDOW", "auth_refusal",
+    "credential_label", "contained_env", "GROUPS", "GROUPS_LOCK", "STOPPING", "STOP_GRACE", "group_alive",
+    "stop_group", "stop_all_groups", "CONTAINERS", "run_group", "_run_group", "run_failure", "run_prompt",
+    "KEPT_PREFIXES", "staged_file", "run_ending", "SKIP_DIRS", "host_may_touch", "run_files", "readable",
+    "redact_folder", "changes", "isolate_git", "file_index", "REDACT_LIMIT", "read_text", "LOCK_DIR",
+    "SLOT_POLL", "RETRY_PAUSE", "PAUSE_POLL", "PROBE_SECONDS", "PROBE_TIMEOUT", "PROBE_PROMPT", "lock_dir",
+    "Slot", "Slots", "account_limit", "pause_path", "PAUSE_CLOCK", "PAUSE_SLEEP", "read_pause", "last_probe",
+    "clock", "start_pause", "wait_while_paused", "probe_call", "RETRY_KINDS"
+)
 
 
-def die(msg, code=2):
-    print(f"Error: {msg}", file=sys.stderr)
-    sys.exit(code)
-
-
-def load_executor():
-    """evals/executor.py as a module."""
-    name = "workbench_eval_executor"
-    if name not in sys.modules:
-        spec = importlib.util.spec_from_file_location(name, EXECUTOR_SCRIPT)
+def _load_kit():
+    if KIT_NAME not in sys.modules:
+        if not os.path.isfile(KIT_SCRIPT):
+            print("Error: evals/execution.py is missing: run this script from a checkout of the workbench.", file=sys.stderr)
+            sys.exit(2)
+        spec = importlib.util.spec_from_file_location(KIT_NAME, KIT_SCRIPT)
         module = importlib.util.module_from_spec(spec)
-        sys.modules[name] = module
+        sys.modules[KIT_NAME] = module
         spec.loader.exec_module(module)
-    return sys.modules[name]
+    return sys.modules[KIT_NAME]
 
 
-STAGE_LOCK = threading.Lock()
+KIT = _load_kit()
+globals().update({_name: getattr(KIT, _name) for _name in KIT_BOUND})
+
+GRADING_TEMPLATE = os.path.join(HERE, "grading-prompt.md")
 
 
-def load_stage():
-    """scripts/stage_skills.py as a module: the one place that copies a skill for a model, shared with the installers."""
-    name = "workbench_stage_skills"
-    with STAGE_LOCK:  # runs stage from several threads: the module is whole before any of them sees it
-        if name not in sys.modules:
-            if not os.path.isfile(STAGE_SCRIPT):
-                die("scripts/stage_skills.py is missing: run this script from a checkout of the workbench.")
-            spec = importlib.util.spec_from_file_location(name, STAGE_SCRIPT)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            sys.modules[name] = module
-    return sys.modules[name]
-
-
-def adapter_eval(harness, required=True):
-    """The eval block of an adapter, which lives in its own file, adapters/<harness>/eval.json: {"skills_dir",
-    "settings", "account_limit", "refusal_markers"}. What the runner must know about a harness to stage a case folder for it and to read what
-    it left; it is data of the adapter, never code here, and its one home. "account_limit" (optional) is what the
-    harness prints when the account of its tier is exhausted; "refusal_markers" (optional) what it prints when the
-    provider declines a request on policy grounds. With required=False a missing or unreadable eval.json gives None
-    (a plan that runs nothing)."""
-    path = os.path.join(ROOT, "adapters", harness, "eval.json")
-    try:
-        with open(path, encoding="utf-8") as f:
-            cfg = json.load(f)
-    except (OSError, ValueError, AttributeError):
-        cfg = None
-    if cfg is None:
-        if required:
-            die(f"adapters/{harness}/eval.json is missing or unreadable: it names where the harness discovers skills "
-                "(\"skills_dir\") and which names carry its settings (\"settings\"). See AGENTS.md, Adding an adapter.")
-        return None
-    skills_dir, settings = cfg.get("skills_dir") if isinstance(cfg, dict) else None, (cfg.get("settings") if isinstance(cfg, dict) else None)
-    parts = skills_dir.split("/") if isinstance(skills_dir, str) else []
-    if len(parts) < 2 or any(not re.fullmatch(r"[A-Za-z0-9._-]+", p) or p in (".", "..", ".git") for p in parts):
-        die(f"adapters/{harness}/eval.json: skills_dir must be a relative folder of at least two parts, "
-            "such as .tool/skills (the shared references are staged beside it).")
-    if not isinstance(settings, list) or not all(isinstance(n, str) and n and "/" not in n and n not in (".", "..", ".git")
-                                                 for n in settings):
-        die(f"adapters/{harness}/eval.json: settings must list file or folder names, without a folder.")
-    texts = {}
-    for key, what in (("account_limit", "its account is exhausted"), ("refusal_markers", "the provider declines a request")):
-        texts[key] = cfg.get(key, [])
-        if not isinstance(texts[key], list) or not all(isinstance(m, str) and m.strip() for m in texts[key]):
-            die(f"adapters/{harness}/eval.json: {key} must list the texts the harness prints when {what}.")
-    return {"skills_dir": skills_dir, "settings": list(settings), **texts}
-
-
-def harness_settings():
-    """Every name that carries a harness's settings at project level: the "settings" lists of all eval adapters.
-    A fixture carries none of them, whichever harness runs it: one runner may read another tool's folder."""
-    names = set()
-    for manifest in sorted(glob.glob(os.path.join(ROOT, "adapters", "*", "eval.json"))):
-        cfg = adapter_eval(os.path.basename(os.path.dirname(manifest)), required=False)
-        names.update(cfg["settings"] if cfg else ())
-    return names
-
-
-def settings_in(cwd, names):
-    """The first path of a case folder, outside .git, whose name carries harness settings; None when there is none."""
-    for dp, dns, fns in os.walk(cwd):
-        if dp == cwd and ".git" in dns:
-            dns.remove(".git")
-        dns.sort()
-        for n in sorted(dns + fns):
-            if n in names:
-                return os.path.relpath(os.path.join(dp, n), cwd).replace(os.sep, "/")
-    return None
-
-
-def case_platforms(case, platform=None):
-    """The platforms whose reference a run of the case is given: the case's own "platforms" and, for a case of a
-    platform's case file (--platform), that platform."""
-    names = [n for n in case.get("platforms") or [] if isinstance(n, str)]
-    return sorted(set(names) | ({platform} if platform else set()))
-
-
-def stage_run(case_dir, eval_cfg, variant_dir, deps, case, platform=None):
-    """Stage what one run sees of the skills, into its case folder. Returns the paths staged, relative to the
-    case folder, and the manifest of scripts/stage_skills.py.
-
-    The skill under test only when the variant has it (variant_dir); the dependency skills always. The shared
-    references the skill under test cites, and the references of the platforms the case names (case_platforms),
-    only with the skill: a run without it gets no shared reference, even one that brings dependency skills."""
-    skills = ([variant_dir] if variant_dir else []) + list(deps)
-    if not skills:
-        return [], None
-    stage = load_stage()
-    skills_dir = os.path.join(case_dir, *eval_cfg["skills_dir"].split("/"))
-    manifest = stage.stage(skills, skills_dir, root=ROOT, references="cited" if variant_dir else "none",
-                           cite_from=[variant_dir] if variant_dir else [],
-                           platforms=case_platforms(case, platform) if variant_dir else [])
-    staged = [os.path.relpath(os.path.join(skills_dir, name), case_dir) for name in manifest["skills"]]
-    if manifest["shared_dir"]:
-        staged.append(os.path.relpath(manifest["shared_dir"], case_dir))
-    exclude_from_git(case_dir, staged)
-    return staged, manifest
-
-
-def exclude_from_git(case_dir, staged):
-    """Add the staged paths to the exclude list of the case's repository, so that `git status` in a run shows
-    what the run did and `git add -A` does not commit a copy of the skill. Each path exactly, never its
-    parent: a file a run writes beside them is still seen."""
-    info = os.path.join(case_dir, ".git", "info")
-    if not staged or not os.path.isdir(os.path.join(case_dir, ".git")) or not host_may_touch(case_dir, os.path.join(case_dir, ".git")):
-        return
-    os.makedirs(info, exist_ok=True)
-    path = os.path.join(info, "exclude")
-    if os.path.lexists(path) and not host_may_touch(case_dir, path):
-        return
-    with open(path, "a", encoding="utf-8") as f:
-        f.write("\n# staged by the eval runner: the skills this run is given\n")
-        f.writelines(f"/{rel.replace(os.sep, '/')}/\n" for rel in staged)
-
-
-MEASURE_SCRIPT = os.path.join(HERE, "measure.py")
-MEASURE_LOCK = threading.Lock()
 # The names this module reads from evals/measure.py, the one module that decides what a run measures (item
 # B10): the facts block, what the grader is shown of a file, the grading prompt and the reading of its answer,
 # the early-end rule, the replacement of passed values, the score and the gate's comparisons. They are not
@@ -607,36 +504,25 @@ MEASURE_NAMES = ("FILE_LIMIT", "VCS_LIMIT", "VCS_SCRIPT", "GRADING_RETRIES", "RE
                  "assertion_tags", "guard_positions", "failed_guards", "confirmed_guards")
 
 
-def load_measure():
-    """evals/measure.py as a module, loaded once and on first use: a command that measures nothing (the case
-    preflight, a plan) runs without it, as in a case folder that brings this script alone."""
-    name = "workbench_eval_measure"
-    with MEASURE_LOCK:
-        if name not in sys.modules:
-            if not os.path.isfile(MEASURE_SCRIPT):
-                die("evals/measure.py is missing: run this script from a checkout of the workbench.")
-            spec = importlib.util.spec_from_file_location(name, MEASURE_SCRIPT)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            sys.modules[name] = module
-    return sys.modules[name]
-
-
 def __getattr__(name):
     if name in MEASURE_NAMES:
         return getattr(load_measure(), name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-def load_status():
-    """evals/eval_status.py as a module: the content hash, the case hash and the forms of an evidence line are
-    defined there, once."""
-    if not os.path.isfile(STATUS_SCRIPT):
-        die("evals/eval_status.py is missing: run this script from a checkout of the workbench.")
-    spec = importlib.util.spec_from_file_location("workbench_eval_status", STATUS_SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+class _Runner:
+    """This module as run_attempts reads it: each name is looked up at the moment it is read, so a name a test
+    replaces on the module is the one the loop uses; the names of evals/measure.py come through the module's
+    own __getattr__."""
+
+    def __getattr__(self, name):
+        found = globals()
+        if name in found:
+            return found[name]
+        return __getattr__(name)
+
+
+_RUNNER = _Runner()
 
 
 def parse(argv):
@@ -806,42 +692,6 @@ def parse(argv):
     return opts
 
 
-def resolve_pass_env(names):
-    """Fill a --pass-env variable missing from the environment from the workbench's secret resolver
-    (providers/secrets/resolver.py: the OS secret store), so a key kept there reaches the runs
-    without an export. The names come from the caller (the flags, and floor_pass_env and
-    strong_pass_env of the gate file, their one home): each is checked against the secrets the
-    adapters register in the "secrets" list of their adapter.json, and no name is taken from that
-    registry. Only secrets whose registered readers include eval_run.py are filled; other names and
-    values that are not found are left alone."""
-    path = os.path.join(ROOT, "providers", "secrets", "resolver.py")
-    missing = [n for n in names if not os.environ.get(n)]
-    if not missing or not os.path.isfile(path):
-        return []
-    spec = importlib.util.spec_from_file_location("workbench_secret_resolver", path)
-    resolver = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = resolver  # dataclasses look their module up here
-    spec.loader.exec_module(resolver)
-    # The core's registry holds the providers' credentials; a model provider's key is registered by the
-    # adapter that reads it, and the resolver merges a manifest only when it is handed one.
-    for manifest in sorted(glob.glob(os.path.join(ROOT, "adapters", "*", "adapter.json"))):
-        try:
-            resolver.register_file(manifest)
-        except ValueError as e:
-            die(f"the secrets list of {os.path.relpath(manifest, ROOT)} is not valid: {e}", 2)
-    filled = []
-    for name in missing:
-        secret = resolver.REGISTRY.get(name)
-        # Only a secret registered for eval runs is filled: a provider's credential never reaches a model.
-        if secret is None or not any(r.startswith("evals/eval_run.py") for r in secret.readers):
-            continue
-        found = resolver.resolve(name)
-        if found:
-            os.environ[name] = found[0]
-            filled.append(f"{name} ({found[1]})")
-    return filled
-
-
 PLATFORM_NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
 
@@ -873,14 +723,6 @@ def platform_problems(platform):
     if not os.path.isfile(os.path.join(ROOT, "shared", "references", "platforms", platform + ".md")):
         return [f"the platform {platform!r} has no reference: shared/references/platforms/{platform}.md does not exist"]
     return []
-
-
-# Credentials in the environment would sign gh, npm or git hosts back in.
-TOKEN_VARS = {"GH_TOKEN", "GITHUB_TOKEN", "VCS_GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN",
-              "NPM_TOKEN", "NODE_AUTH_TOKEN"}
-# The only variables a model run, a setup or the grader receives from the caller, besides --pass-env.
-ENV_ALLOW = {"PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LANGUAGE", "TERM", "TMPDIR", "TZ",
-             "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "REQUESTS_CA_BUNDLE"}
 
 
 def refuse_allow_commands(data, cases):
@@ -1266,129 +1108,6 @@ def preflight(skill_dir, cases, sources, setup=True, gate=None, warnings=None, p
     return errors, unchecked
 
 
-def repo_paths():
-    """The repository's absolute path as given and with links resolved (on some systems /var is a link)."""
-    return {ROOT, os.path.realpath(ROOT)}
-
-
-def temp_base(names=()):
-    """The folder run folders are created in: the system's temporary folder, or /tmp or /var/tmp when that one
-    is inside the repository, under a folder that holds a repository, an instruction file or a skills folder,
-    or has the repository's folder name or one of names (the skill under test) in its path."""
-    words = [w.lower() for w in (os.path.basename(os.path.realpath(ROOT)), *names) if w]
-    for base in (tempfile.gettempdir(), "/tmp", "/var/tmp"):
-        real = os.path.realpath(base)
-        if not os.path.isdir(real) or not os.access(real, os.W_OK):
-            continue
-        if any(real == root or real.startswith(root + os.sep) for root in repo_paths()) or any(w in real.lower() for w in words):
-            continue
-        parent, clean = real, True
-        while clean:
-            clean = not any(os.path.exists(os.path.join(parent, marker)) for marker in (".git", "AGENTS.md", "skills"))
-            if os.path.dirname(parent) == parent:
-                break
-            parent = os.path.dirname(parent)
-        if clean:
-            return real
-    die("no temporary folder outside the repository to run the cases in: set TMPDIR to one whose parents hold no "
-        ".git, AGENTS.md or skills folder.", 1)
-
-
-# Temporary run folders in use -> where their content goes back to, so a stop returns every one of them.
-RUN_ROOTS, RUN_ROOTS_LOCK = {}, threading.Lock()
-
-
-def new_run_root(dest, out_name="outputs", names=()):
-    """A fresh folder outside the repository for one model run or grading: case/ (the working folder), out/
-    (the adapter's output) and prompt.md. return_run() moves them to dest/cwd, dest/<out_name> and dest/prompt.md."""
-    with RUN_ROOTS_LOCK:
-        if STOPPING.is_set():
-            raise RuntimeError("stopping: no new run is started")
-        root = tempfile.mkdtemp(prefix="eval-", dir=temp_base(names))
-        RUN_ROOTS[root] = (dest, out_name)
-    os.makedirs(os.path.join(root, "case"))
-    os.makedirs(os.path.join(root, "out"))
-    return root
-
-
-def return_run(root):
-    """Move a temporary run folder's content into the workspace and remove it. Safe to call twice."""
-    with RUN_ROOTS_LOCK:  # held for the move, so a stop waits for a move in progress instead of cutting it
-        entry = RUN_ROOTS.pop(root, None)
-        if entry is None:
-            return
-        dest, out_name = entry
-        os.makedirs(dest, exist_ok=True)
-        for name, final in (("case", "cwd"), ("out", out_name), ("prompt.md", "prompt.md")):
-            src, target = os.path.join(root, name), os.path.join(dest, final)
-            if not os.path.lexists(src):
-                continue
-            if os.path.isdir(target) and not os.path.islink(target):
-                shutil.rmtree(target)
-            elif os.path.lexists(target):
-                os.remove(target)
-            shutil.move(src, target)
-        shutil.rmtree(root, ignore_errors=True)
-
-
-def return_all_runs():
-    for root in list(RUN_ROOTS):
-        return_run(root)
-
-
-def provider_refusal(out_dir, markers):
-    """The provider's refusal message when the run ended because the provider declined the request, else None.
-    markers are the adapter's own words for it ("refusal_markers" in its eval.json)."""
-    for name in ("response.md", "raw.json", "error.log", "stderr.log"):
-        text = read_text(os.path.join(out_dir, name), 200000)
-        for marker in markers or ():
-            at = text.find(marker)
-            if at != -1:
-                return text[max(0, at - 80):at + 160].replace("\n", " ").strip()
-    return None
-
-
-# A provider that refuses the credential itself: an HTTP status 401, or 403, in the words a runner or an API
-# prints it ("HTTP 401", "statusCode":401, "API Error: 401", 401 Unauthorized, 401 "User not found.") or the
-# error type of a 401 ("authentication_error"). A 401 is always the credential; a 403 is only when the text
-# around it names a key, a token or a credential (another 403 is a policy or a region, and is retried).
-AUTH_STATUS = re.compile(
-    r"(?i)(?:\bHTTP(?:/[\d.]+)?\s+(40[13])\b"
-    r"|\bstatus(?:[ _-]?code)?\"?\s*[:=]\s*\"?(40[13])\b"
-    r"|\"api_error_status\"\s*:\s*(40[13])\b"
-    r"|\bAPI Error:?\s*(40[13])\b"
-    r"|(?<![\w.-])(40[13])\s+(?:Unauthorized|Forbidden|\"))"
-    r"|(\"authentication_error\")")
-AUTH_KEY_WORDS = re.compile(r"(?i)\b(?:api[ _-]?)?keys?\b|\btokens?\b|\bcredentials?\b")
-AUTH_WINDOW = 300  # characters on each side of a 403 in which the key must be named
-
-
-def auth_refusal(out_dir):
-    """"HTTP 401" or "HTTP 403" when what a failed run left shows the provider refusing its credential, else None.
-    Only the status is returned, never the provider's words: a provider may echo a part of the key."""
-    for name in ("error.log", "stderr.log", "raw.json", "response.md"):
-        text = read_text(os.path.join(out_dir, name), 400000)
-        for m in AUTH_STATUS.finditer(text):
-            code = next((g for g in m.groups()[:5] if g), None) or "401"  # "authentication_error" is the 401's type
-            if code == "401" or AUTH_KEY_WORDS.search(text[max(0, m.start() - AUTH_WINDOW):m.end() + AUTH_WINDOW]):
-                return f"HTTP {code}"
-    return None
-
-
-def credential_label(harness, names):
-    """The variables a refused run received its key in, by name, each with the secret store username its
-    adapter registers for it ("secrets" of adapters/<harness>/adapter.json); never a value."""
-    try:
-        with open(os.path.join(ROOT, "adapters", harness, "adapter.json"), encoding="utf-8") as f:
-            secrets = json.load(f).get("secrets") or []
-    except (OSError, ValueError, AttributeError):
-        secrets = []
-    store = {s.get("name"): s.get("store_username") for s in secrets if isinstance(s, dict)}
-    if not names:
-        return "no variable (the harness's own login)"
-    return ", ".join(name + (f" (secret store username {store[name]!r})" if store.get(name) else "") for name in names)
-
-
 class EventStopped(Exception):
     """A run that was not started because its event stopped: it gets no ledger line, so --resume runs it."""
 
@@ -1475,33 +1194,6 @@ def shared_passage(skill_grams, run_text, case_text):
     return " ".join(run_words[best[0]:best[1] + n]) if best else None
 
 
-def contained_env(run_dir, pass_env=()):
-    """Environment for a model run, a setup or the grader: an allowlist, git local only, gh and npm signed out."""
-    contain = os.path.join(run_dir, ".contain")
-    gh_dir = os.path.join(contain, "gh")
-    os.makedirs(gh_dir, exist_ok=True)
-    npmrc, gitconfig = os.path.join(contain, "npmrc"), os.path.join(contain, "gitconfig")
-    for path in (npmrc, gitconfig):
-        open(path, "w").close()
-    env = {k: v for k, v in os.environ.items()
-           if (k in ENV_ALLOW or k.startswith("LC_") or k in pass_env) and k not in TOKEN_VARS}
-    # Nothing tells the run where the repository is: PATH entries inside it go, an allowlisted variable that
-    # points into it goes, and TMPDIR is the base the run folders are made in. A --pass-env variable is the
-    # caller's own choice and stays as it is.
-    inside = lambda value: any(root in value for root in repo_paths())
-    if "PATH" in env and "PATH" not in pass_env:
-        env["PATH"] = os.pathsep.join(p for p in env["PATH"].split(os.pathsep) if not inside(p))
-    for k in [k for k, v in env.items() if k not in pass_env and inside(v)]:
-        del env[k]
-    if "TMPDIR" not in pass_env:
-        env["TMPDIR"] = temp_base()
-    env.update(GIT_ALLOW_PROTOCOL="file", GIT_TERMINAL_PROMPT="0", GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=gitconfig,
-               GIT_AUTHOR_NAME="eval", GIT_AUTHOR_EMAIL="eval@localhost",
-               GIT_COMMITTER_NAME="eval", GIT_COMMITTER_EMAIL="eval@localhost",
-               GH_CONFIG_DIR=gh_dir, NPM_CONFIG_USERCONFIG=npmrc)
-    return env
-
-
 def ablated_line_count(skill_dir, text):
     """Lines of SKILL.md that --ablate removes; exits when there are none."""
     with open(os.path.join(skill_dir, "SKILL.md"), encoding="utf-8") as f:
@@ -1544,182 +1236,6 @@ def next_iteration(ws, claim=True):
             continue
 
 
-# Process groups started and not yet ended, so that stopping this script stops every one of them.
-GROUPS, GROUPS_LOCK, STOPPING = set(), threading.Lock(), threading.Event()
-STOP_GRACE = 5.0  # seconds between TERM and KILL; an adapter needs about two to stop its own runner
-
-
-def group_alive(pgid):
-    try:
-        os.killpg(pgid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:  # only processes that already ended and wait to be reaped
-        return False
-    return True
-
-
-def stop_group(pgid, proc=None, grace=STOP_GRACE):
-    """End a process group: TERM, then KILL for what is still there after the grace period."""
-    try:
-        os.killpg(pgid, signal.SIGTERM)
-    except (ProcessLookupError, PermissionError):
-        return
-    deadline = time.monotonic() + grace
-    if proc is not None:
-        try:
-            proc.wait(timeout=grace)  # reaps the leader, so the check below sees only what outlived it
-        except subprocess.TimeoutExpired:
-            pass
-    while group_alive(pgid) and time.monotonic() < deadline:
-        time.sleep(0.1)
-    try:
-        os.killpg(pgid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
-        pass
-
-
-def stop_all_groups(grace=STOP_GRACE):
-    """End every group still registered; no new one starts afterwards."""
-    STOPPING.set()
-    with GROUPS_LOCK:
-        pending, containers = list(GROUPS), list(CONTAINERS)
-    for name in containers:  # first, so that the work stops; their docker clients end with them
-        try:
-            load_executor().remove(name)
-        except Exception:  # stopping goes on whatever one removal does
-            pass
-    for pgid in pending:
-        try:
-            os.killpg(pgid, signal.SIGTERM)
-        except (ProcessLookupError, PermissionError):
-            pass
-    deadline = time.monotonic() + grace
-    while any(group_alive(p) for p in pending) and time.monotonic() < deadline:
-        time.sleep(0.1)
-    for pgid in pending:
-        try:
-            os.killpg(pgid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass
-
-
-CONTAINERS = set()  # names of containers started and not yet ended; guarded by GROUPS_LOCK
-
-
-def run_group(cmd, timeout, cwd=None, env=None, box=None):
-    """subprocess.run for a command in a session of its own: its whole process group ends on a timeout
-    (subprocess.TimeoutExpired is raised) and when the command returns, so nothing it started outlives it.
-
-    box = {"root", "runner", "pass", "network"} runs the command in a container (evals/executor.py): root is
-    the run's folder, the only thing it can change; runner is the one run-prompt.sh the command starts, the
-    only file of the workbench the container sees. The container is removed by name when the command
-    returns, times out or the script is stopped, since ending the docker client does not end it. A command
-    passed the variable a key proxy holds starts that key proxy first (executor.held_route(), keyproxy()); when
-    it cannot start, the command fails as an infrastructure failure, before any container runs."""
-    container = None
-    if box is not None and EXECUTOR == "container":
-        executor = load_executor()
-        held = executor.held_route(box.get("pass") or (), env, box.get("network") or "none")
-        if held:
-            try:  # the key stays there; the run gets a placeholder and the proxy's address
-                executor.keyproxy(env=env, name=held)
-            except executor.ExecutorError as e:  # an infrastructure failure of this command, never a score
-                return subprocess.CompletedProcess(cmd, 1, "", f"Error: {e}\n")
-        cmd, container = executor.command(cmd, box["root"], cwd=cwd, env=env, runner=box.get("runner"),
-                                          pass_names=box.get("pass") or (), network=box.get("network") or "none")
-        cwd = None
-    try:
-        return _run_group(cmd, timeout, cwd, env, container)
-    finally:
-        if container:
-            load_executor().remove(container, env=env)
-            with GROUPS_LOCK:
-                CONTAINERS.discard(container)
-
-
-def _run_group(cmd, timeout, cwd, env, container):
-    with GROUPS_LOCK:
-        if STOPPING.is_set():
-            raise subprocess.TimeoutExpired(cmd, 0)
-        proc = subprocess.Popen(cmd, cwd=cwd, env=env, text=True, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE, start_new_session=True)
-        GROUPS.add(proc.pid)
-        if container:
-            CONTAINERS.add(container)
-    try:
-        try:
-            stdout, stderr = proc.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            stop_group(proc.pid, proc)
-            proc.kill()
-            proc.communicate()
-            raise
-        stop_group(proc.pid, grace=2.0)  # what the command left running in the background
-        return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
-    finally:
-        with GROUPS_LOCK:
-            GROUPS.discard(proc.pid)
-
-
-def run_failure(runner, prompt_path, cwd, model, out, env=None, timeout=900, max_cost=None, web=False,
-                start_dir=None, box=None, no_tools=False):
-    """Run the adapter once. Returns None when it exited 0, else why it failed: an infrastructure failure,
-    never a score (the adapter exits non-zero when the provider or the harness fails, not when the answer is poor).
-    The adapter is told nothing about skills: the runner staged them in <cwd> before this call."""
-    cmd = ["bash", runner, "--prompt-file", prompt_path, "--cwd", cwd, "--model", model, "--out", out]
-    if max_cost:
-        cmd += ["--max-cost-usd", max_cost]
-    if web:
-        cmd += ["--allow-web"]
-    if no_tools:  # a grading call: the model judges text and is given nothing to act with
-        cmd += ["--no-tools"]
-    try:
-        # start_dir: the adapter's shell exports the folder it starts in as OLDPWD once it changes to <cwd>.
-        r = run_group(cmd, timeout, cwd=start_dir, env=env, box=box)
-    except subprocess.TimeoutExpired:
-        with open(os.path.join(out, "error.log"), "w", encoding="utf-8") as f:
-            f.write(f"stopped after --timeout {timeout}s\n")
-        return f"timeout: stopped after {timeout}s"
-    if r.returncode != 0:
-        with open(os.path.join(out, "error.log"), "w", encoding="utf-8") as f:
-            f.write(r.stdout + "\n" + r.stderr)
-        last = [line.strip() for line in (r.stderr or r.stdout).splitlines() if line.strip()]
-        return f"adapter exit {r.returncode}" + (f": {last[-1][:200]}" if last else "")
-    return None
-
-
-def run_prompt(*args, **kwargs):
-    """True when the adapter ran the prompt; False when it failed (the reason is in <out>/error.log)."""
-    return run_failure(*args, **kwargs) is None
-
-
-# What an attempt of a run that was made again left, kept inside the run folder: never a part of the next attempt.
-KEPT_PREFIXES = ("early-end-", "failed-", "paused-", "before-resume-")
-
-
-def staged_file(rel, staged):
-    """True for a file the runner staged: one inside a path stage_run() returned (a skill's copy, the shared references)."""
-    return any(rel == s or rel.startswith(s + os.sep) for s in staged)
-
-
-def run_ending(out_dir):
-    """How the runner says a run ended, read from the adapter's raw output when it is JSON that names it:
-    {"stop_reason", "num_turns", "terminal_reason"}, the keys that are there. Kept beside the reply: an early
-    end and a turn that ran to its limit look alike in the reply alone."""
-    try:
-        with open(os.path.join(out_dir, "raw.json"), encoding="utf-8", errors="ignore") as f:
-            data = json.load(f)
-    except (OSError, ValueError):
-        return {}
-    if isinstance(data, list):  # a stream of events: the result is one of them
-        data = next((x for x in data if isinstance(x, dict) and x.get("type") == "result"), data[-1] if data else {})
-    if not isinstance(data, dict):
-        return {}
-    return {k: data[k] for k in ("stop_reason", "num_turns", "terminal_reason")
-            if isinstance(data.get(k), (str, int)) and not isinstance(data.get(k), bool)}
-
-
 def early_end_stats(counts):
     """benchmark.json "early_ends" from {tier: {"attempts", "early_ends", "by_case", "by_variant"}}: adds the rate."""
     return {tier: {"attempts": c["attempts"], "early_ends": c["early_ends"],
@@ -1746,106 +1262,10 @@ def early_end_warning(stats, max_rate):
     return " ".join(parts) or None
 
 
-# Folders of a case folder the host never looks into after a run: version control, dependencies, caches.
-# Whole folder names: ".git" as a substring would also skip ".github".
-SKIP_DIRS = {".git", "node_modules", "__pycache__", ".pytest_cache", ".venv"}
-
-
-def host_may_touch(cwd, path):
-    """True when the host may read or write path, a path of the case folder cwd, after a run: it is not a
-    symbolic link, and its real path stays inside the case folder (so no folder on the way to it is a link
-    that leaves). A run can leave a link to any file of the host; followed, its target would be read here,
-    outside the container, and sent to the grader's provider."""
-    if os.path.islink(path):
-        return False
-    base, real = os.path.realpath(cwd), os.path.realpath(path)
-    return real == base or real.startswith(base + os.sep)
-
-
-def run_files(cwd, staged=()):
-    """The files of a case folder that the host reads or writes after a run, as sorted relative paths. This is
-    the one place that decides it: the list of what a run wrote, what the grader is shown and anything the
-    harness rewrites in a case folder all take their paths from here.
-
-    Left out: every symbolic link, and everything under a folder that is one; every path whose real path
-    leaves the case folder; what is not a regular file (a named pipe would block the reader); the folders of
-    SKIP_DIRS; bytecode and system files; and what the runner staged."""
-    found = []
-    for dp, dns, fns in os.walk(cwd):  # os.walk does not descend into a link to a folder; such a link is dropped here too
-        dns[:] = sorted(d for d in dns if d not in SKIP_DIRS and host_may_touch(cwd, os.path.join(dp, d)))
-        for fn in sorted(fns):
-            path = os.path.join(dp, fn)
-            rel = os.path.relpath(path, cwd)
-            if fn.endswith(".pyc") or fn == ".DS_Store" or staged_file(rel, staged):
-                continue
-            if host_may_touch(cwd, path) and os.path.isfile(path):
-                found.append(rel)
-    return found
-
-
-def readable(cwd, rel):
-    """True when the host may read the one path rel of the case folder: a regular file run_files() would list
-    (links, special files and paths that leave the folder are not), wherever it sits."""
-    if not isinstance(rel, str) or not rel or os.path.isabs(rel) or ".." in re.split(r"[\\/]", rel):
-        return False
-    path = os.path.join(cwd, rel)
-    parts = os.path.normpath(rel).split(os.sep)
-    on_the_way = [os.path.join(cwd, *parts[:i]) for i in range(1, len(parts))]
-    return all(not os.path.islink(p) for p in on_the_way) and host_may_touch(cwd, path) and os.path.isfile(path)
-
-
-def redact_folder(folder, values, staged=()):
-    """Replace the passed variables' values in the files of a folder a run wrote to, in place. Only the paths
-    run_files() allows are read or written: never a symbolic link, never a path that leaves the folder, never
-    version control, dependency or cache folders. Returns the number of replacements."""
-    total = 0
-    for rel in run_files(folder, staged) if values and os.path.isdir(folder) else ():
-        path = os.path.join(folder, rel)
-        try:
-            if os.path.getsize(path) > REDACT_LIMIT:
-                continue
-            with open(path, "rb") as f:
-                data = f.read()
-            new, count = load_measure().replace_values(data, values)
-            if count:
-                with open(path, "wb") as f:
-                    f.write(new)
-                total += count
-        except OSError:
-            continue
-    return total
-
-
-def changes(cwd, before, staged=()):
-    """What a run did to the files of its case folder, against the index taken before it, by content:
-    {"created", "modified", "deleted", "unchanged"}, each a sorted list of relative paths. A file rewritten
-    with the same bytes is unchanged; a file that is gone, or that a link replaced, is deleted."""
-    after = file_index(cwd, staged)
-    return {"created": sorted(p for p in after if p not in before),
-            "modified": sorted(p for p in after if p in before and after[p] != before[p]),
-            "deleted": sorted(p for p in before if p not in after),
-            "unchanged": sorted(p for p in after if before.get(p) == after[p])}
-
-
 def snapshot(cwd, before, staged=()):
     """The files a run created or changed (changes()), as a sorted list."""
     delta = changes(cwd, before, staged)
     return sorted(delta["created"] + delta["modified"])
-
-
-def isolate_git(cwd, env, box=None):
-    """Give the case its own repository, so git commands in a run stay inside it.
-
-    Without one, `git add -A` or `git commit` from the case folder reaches the enclosing
-    repository (the workbench itself) and commits whatever is uncommitted there. The contained
-    environment also drops GIT_DIR and GIT_INDEX_FILE, which would point git at the workbench.
-    """
-    if os.path.isdir(os.path.join(cwd, ".git")):
-        return
-    for args in (["init", "-q"], ["add", "-A"], ["-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "fixture"]):
-        r = run_group(["git", *args], SETUP_TIMEOUT, cwd=cwd, env=env, box=box)
-        if r.returncode != 0:
-            raise subprocess.CalledProcessError(r.returncode, ["git", *args], r.stdout, r.stderr)
 
 
 def run_setup(cwd, commands, env, box=None):
@@ -1860,26 +1280,7 @@ def run_setup(cwd, commands, env, box=None):
             die(f"setup command failed in {cwd}: {command}\n{r.stderr}")
 
 
-def file_index(cwd, staged=()):
-    """{relative path: sha256 of the bytes} of the files of a case folder (run_files()): taken before a run and
-    after it, the two say what the run created, changed and deleted. A modification time would call a file
-    that was overwritten and restored "changed", and cannot see a deletion."""
-    idx = {}
-    for rel in run_files(cwd, staged):
-        h = hashlib.sha256()
-        try:
-            with open(os.path.join(cwd, rel), "rb") as f:
-                for block in iter(lambda: f.read(1 << 20), b""):
-                    h.update(block)
-        except OSError:
-            continue
-        idx[rel] = h.hexdigest()
-    return idx
-
-
 VCS_TIMEOUT = 120  # seconds
-# What a run leaves is read up to this size; a larger file is left as it is.
-REDACT_LIMIT = 50000000  # bytes
 
 
 def version_control(case_dir, env, box=None):
@@ -1894,14 +1295,6 @@ def version_control(case_dir, env, box=None):
     except subprocess.TimeoutExpired:
         return f"(not read: the commands did not end within {VCS_TIMEOUT}s)"
     return measure.cut_vcs(r.stdout)
-
-
-def read_text(path, limit=4000):
-    try:
-        with open(path, encoding="utf-8", errors="ignore") as f:
-            return f.read(limit)
-    except OSError:
-        return ""
 
 
 def shown_in(cwd, rel):
@@ -2052,6 +1445,12 @@ def regrade(o):
             load_executor().ensure()
         except Exception as e:
             die(f"the eval container is not available: {e}", 1)
+    # The account a test event's grading gets: each grading call waits while it is paused, takes a place of the
+    # shared lock, and pauses it at its limit, where the call is made again and is not counted as refused.
+    status = load_status()
+    account = {"key": o["harness"], "markers": adapter_eval(o["harness"])["account_limit"],
+               "probe": lambda: probe_call(runner, o["grader"], pass_env),
+               "control": status.event_config(status.load_gate(ROOT))}
 
     def one(run_dir):
         with open(os.path.join(run_dir, "grading.json"), encoding="utf-8") as f:
@@ -2066,7 +1465,7 @@ def regrade(o):
                 k += 1
         dest = os.path.join(run_dir, f"regrade-{k}", "grading")
         results, refused, why, _ = grading_call(runner, o["grader"], prompt, dest, len(old), pass_env, o["timeout"],
-                                                redact=load_measure().redaction_values(pass_env))
+                                                account=account, redact=load_measure().redaction_values(pass_env))
         row = {"run": os.path.relpath(run_dir, base), "verdicts": len(old), "refused": refused}
         if results is None:
             return {**row, "failed": why}
@@ -2285,214 +1684,12 @@ def main(argv):
 
 # --- control of a test event: the shared lock, the pause on the account limit, the ledger ----------------
 
-# Where the runner processes of one machine meet: the slot files of the counted locks and the pause files.
-# None: <temporary base>/wb-eval-locks. Nothing a model run sees: a container mounts its own run folder only.
-LOCK_DIR = None
-SLOT_POLL = 0.2       # seconds between two looks for a free slot
-RETRY_PAUSE = 5.0     # seconds before a run whose adapter failed is made again, times the number of the attempt
-PAUSE_POLL = 5.0      # seconds between two looks at a pause
-PROBE_SECONDS = 600   # a paused account is tried again this often, by one process at a time
-PROBE_TIMEOUT = 180
-PROBE_PROMPT = "Reply with the single word: ok\n"
-
-
-def lock_dir():
-    path = LOCK_DIR or os.path.join(temp_base(), "wb-eval-locks")
-    os.makedirs(path, exist_ok=True)
-    return path
-
-
-class Slot:
-    """One of n places of a counted lock that every runner process of the machine shares: a file per place,
-    held with an advisory lock for as long as the place is taken, so a process that dies frees its places.
-    Several `eval_run.py` started side by side (one per skill) then keep to one total, which --jobs alone,
-    a limit per process, cannot do."""
-
-    def __init__(self, kind, n):
-        self.kind, self.n, self.fd = kind, n, None
-
-    def __enter__(self):
-        import fcntl
-        folder = lock_dir()
-        while True:
-            if STOPPING.is_set():
-                raise RuntimeError("stopping: no new run is started")
-            for i in range(self.n):
-                fd = os.open(os.path.join(folder, f"{self.kind}-{i}.lock"), os.O_CREAT | os.O_RDWR, 0o600)
-                try:
-                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except OSError:
-                    os.close(fd)
-                    continue
-                self.fd = fd
-                return self
-            time.sleep(SLOT_POLL)
-
-    def __exit__(self, *exc):
-        if self.fd is not None:
-            os.close(self.fd)  # closing the file releases the place
-            self.fd = None
-        return False
-
-
-class Slots:
-    """The places one model call holds: a place of the tier's web lock when it runs on the open network, then
-    a place of the total. Always taken in that order, so two calls never wait for each other."""
-
-    def __init__(self, control, tier, web=False):
-        self.slots = ([Slot(f"web-{tier}", control["web_jobs"][tier])] if web else []) + [Slot("total", control["total_jobs"])]
-
-    def __enter__(self):
-        taken = []
-        try:
-            for slot in self.slots:
-                taken.append(slot.__enter__())
-        except BaseException:
-            for slot in taken:
-                slot.__exit__(None, None, None)
-            raise
-        return self
-
-    def __exit__(self, *exc):
-        for slot in reversed(self.slots):
-            slot.__exit__(None, None, None)
-        return False
-
-
-def account_limit(out_dir, markers):
-    """The words of an exhausted account in what a failed call left (the markers are the adapter's data:
-    "account_limit" of its eval.json), else None."""
-    for name in ("response.md", "raw.json", "error.log", "stderr.log"):
-        text = read_text(os.path.join(out_dir, name), 400000)
-        for marker in markers or ():
-            if marker and marker in text:
-                return marker
-    return None
-
-
-def pause_path(key):
-    return os.path.join(lock_dir(), "pause-" + re.sub(r"[^A-Za-z0-9_.-]", "_", key) + ".json")
-
-
-# The clock and the wait of a pause. Every look at a pause reads the time through PAUSE_CLOCK and waits through
-# PAUSE_SLEEP, so that a test drives a pause step by step, with no real waiting and no dependence on the time
-# of day.
-PAUSE_CLOCK = time.time
-PAUSE_SLEEP = time.sleep
-
-
-def read_pause(path):
-    try:
-        with open(path, encoding="utf-8") as f:
-            state = json.load(f)
-    except (OSError, ValueError):
-        return {}
-    return state if isinstance(state, dict) else {}
-
 
 def write_pause(path, state):
     tmp = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(state, f)
     os.replace(tmp, path)
-
-
-def last_probe(path, state):
-    """When the paused account was last tried: the newest of the pause's start and the time in its probe file.
-    The probe time lives in a file of its own (<pause file>.probed), so that a process that records a probe
-    never rewrites the pause file: the time an operator gives with --unpause --at cannot be lost under it."""
-    try:
-        with open(path + ".probed", encoding="utf-8") as f:
-            probed = float(f.read().strip() or 0)
-    except (OSError, ValueError):
-        probed = 0
-    return max(state.get("since") or 0, probed)
-
-
-def clock(ts):
-    return datetime.datetime.fromtimestamp(ts).astimezone().isoformat(timespec="seconds")
-
-
-def start_pause(key, what):
-    """Pause every run and grading on the account `key`: the pause is a file under the shared lock folder,
-    which every runner process of the machine reads before it starts a model call. True when this call made
-    it (another run may have met the limit first)."""
-    path = pause_path(key)
-    try:
-        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-    except FileExistsError:
-        return False
-    now = PAUSE_CLOCK()
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        json.dump({"key": key, "since": now, "until": None, "what": what}, f)
-    print(f"PAUSED {clock(now)}: the account of {key} is exhausted ({what}). Every run and grading on it waits; "
-          f"nothing is retried into the limit. It resumes when a probe call succeeds (one every {PROBE_SECONDS}s) or at "
-          "the time given with: python3 evals/eval_run.py --unpause [--at <HH:MM or YYYY-MM-DDTHH:MM>]", file=sys.stderr)
-    return True
-
-
-def wait_while_paused(key, probe=None):
-    """Block while the account `key` is paused. It ends at the time the operator gave (--unpause --at), when
-    the operator removed the pause (--unpause), or when a probe call succeeds: probe() makes one small model
-    call, by one process at a time, at most once every PROBE_SECONDS, and never once a time is given. Returns
-    True when it waited. Only start_pause and --unpause write the pause file; a probe writes its own file."""
-    import fcntl
-    path, waited = pause_path(key), False
-    while os.path.exists(path):
-        if STOPPING.is_set():
-            raise RuntimeError("stopping: no new run is started")
-        waited = True
-        state, now = read_pause(path), PAUSE_CLOCK()
-        until = state.get("until")
-        if isinstance(until, (int, float)):
-            if now >= until:
-                try:
-                    os.remove(path)
-                except OSError:
-                    pass
-                print(f"RESUMED {clock(now)}: the time given for the account of {key} has come", file=sys.stderr)
-                break
-        elif probe and now - last_probe(path, state) >= PROBE_SECONDS:
-            fd = os.open(path + ".probe", os.O_CREAT | os.O_RDWR, 0o600)
-            try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except OSError:
-                os.close(fd)
-            else:
-                try:
-                    state = read_pause(path)
-                    if state and not state.get("until") and PAUSE_CLOCK() - last_probe(path, state) >= PROBE_SECONDS:
-                        with open(path + ".probed", "w", encoding="utf-8") as f:
-                            f.write(repr(PAUSE_CLOCK()))
-                        if probe():
-                            try:
-                                os.remove(path)
-                            except OSError:
-                                pass
-                            print(f"RESUMED {clock(PAUSE_CLOCK())}: a probe call on the account of {key} succeeded", file=sys.stderr)
-                            break
-                finally:
-                    os.close(fd)
-        PAUSE_SLEEP(PAUSE_POLL)
-    return waited
-
-
-def probe_call(runner, model, pass_env):
-    """One small model call on a paused account: True when the adapter ran it."""
-    root = tempfile.mkdtemp(prefix="eval-probe-", dir=temp_base())
-    try:
-        os.makedirs(os.path.join(root, "case"))
-        os.makedirs(os.path.join(root, "out"))
-        prompt = os.path.join(root, "prompt.md")
-        with open(prompt, "w", encoding="utf-8") as f:
-            f.write(PROBE_PROMPT)
-        return run_prompt(runner, prompt, os.path.join(root, "case"), model, os.path.join(root, "out"),
-                          env=contained_env(root, pass_env), timeout=PROBE_TIMEOUT, start_dir=root,
-                          box={"root": root, "runner": runner, "pass": pass_env, "network": "proxy"})
-    except (RuntimeError, subprocess.SubprocessError, OSError):
-        return False
-    finally:
-        shutil.rmtree(root, ignore_errors=True)
 
 
 def unpause(at):
@@ -2565,7 +1762,6 @@ LEDGER_LOCK = threading.Lock()
 # first), not a failed grading (the run completed; its grading is made again) and not a case folder that
 # carries harness settings (a defect of the case).
 CAPPED_KINDS = ("timeout", "refused", "adapter", "early_end")
-RETRY_KINDS = {"timeout": "timeouts", "refused": "refusals", "adapter": "adapter_failures", "early_end": "early_ends"}
 
 
 def job_key(case_id, variant, tier, k):
@@ -2966,152 +2162,125 @@ def run(argv):
         account = {"key": harness_for[tier], "markers": eval_for[tier]["account_limit"],
                    "probe": lambda: probe_call(runner_for[tier], model, tier_env)}
 
-        def set_aside(prefix):
-            """Keep what an attempt left in a folder of its own inside the run folder, and clear the run folder
-            for the next attempt."""
-            n = 1
-            while os.path.exists(os.path.join(run_dir, f"{prefix}-{n}")):
-                n += 1
-            kept = os.path.join(run_dir, f"{prefix}-{n}")
-            os.makedirs(kept)
-            for item in os.listdir(run_dir):
-                if not item.startswith(KEPT_PREFIXES):
-                    shutil.move(os.path.join(run_dir, item), os.path.join(kept, item))
-            return kept
+        # What the hooks of one attempt find out, read once the run's attempts are made; reset on every attempt.
+        made = {"inputs": {}, "vcs": None, "case_text": ""}
 
-        if os.path.isdir(run_dir) and any(not item.startswith(KEPT_PREFIXES) for item in os.listdir(run_dir)):
-            set_aside("before-resume")  # what an earlier pass of the event left of this run
-        while True:
-            if refused_key.is_set():
+        def before_attempt():
+            if refused_key.is_set():  # refused before this run started, or while it waited for its place
                 raise EventStopped()
-            wait_while_paused(account["key"], account["probe"])
-            count["attempts"] += 1
-            # The run happens outside the repository; its folders come back to run_dir when it ends, however it ends.
-            with Slots(control, tier, web[c["id"]]):
-                if refused_key.is_set():  # refused while this run waited for its place
-                    raise EventStopped()
-                root = new_run_root(run_dir, names=(o["skill"],))
-                case_dir, changed, delta, inputs, vcs, case_text = os.path.join(root, "case"), [], None, {}, None, ""
-                carried, staged = None, []
-                try:
-                    build_tree(case_dir, sources[c["id"]], c)
-                    env = contained_env(root, tier_env)
-                    quiet = {"root": root, "network": "none"}  # setup and the fixture commit: no secret, no network
-                    isolate_git(case_dir, contained_env(root), box=quiet)
-                    run_setup(case_dir, c.get("setup") or [], contained_env(root), box=quiet)
-                    # The preflight refused such a case before any run; this is the same check on the folder that runs.
-                    carried = settings_in(case_dir, settings)
-                    why = (f"the case folder holds {carried}: a fixture or setup must not carry harness settings"
-                           if carried else None)
-                    if not why:
-                        staged, _ = stage_run(case_dir, eval_for[tier], variant_dir, deps[c["id"]], c, o.get("platform"))
-                        pp = os.path.join(root, "prompt.md")
-                        with open(pp, "w", encoding="utf-8") as f:
-                            f.write(c["prompt"])
-                        # The input files the assertions check facts against, as the run finds them: the grader
-                        # is shown this, even when the run changes them afterwards.
-                        inputs = {p: shown_in(case_dir, p) for p in c.get("grader_files") or [] if isinstance(p, str)}
-                        if v == "without_skill":  # what the case itself holds, as the run finds it: the dependency skills too
-                            case_text = c["prompt"] + "\n" + folder_text(case_dir)
-                        before = file_index(case_dir, staged)
-                        why = run_failure(runner_for[tier], pp, case_dir, model, os.path.join(root, "out"), env,
-                                          o["timeout"], o["max_cost"], web[c["id"]], start_dir=root,
-                                          box={"root": root, "runner": runner_for[tier], "pass": tier_env,
-                                               "network": "open" if web[c["id"]] else "proxy"})
-                        # The credential of the tier is in the run's environment, and a model that prints its
-                        # environment puts it in a file or in its reply. Before anything is stored, read or sent
-                        # to the grader, each passed value is replaced by a marker, by exact value.
-                        count["redactions"] += redact_folder(case_dir, values, staged) + redact_folder(os.path.join(root, "out"), values)
-                        if not why:
-                            delta = changes(case_dir, before, staged)
-                            changed = delta["created"] + delta["modified"] + delta["deleted"]
-                            if o["grade"]:  # commits, branches and pushes: read here, where the case folder still is
-                                vcs, hits = load_measure().replace_values(version_control(case_dir, contained_env(root), box=quiet), values)
-                                count["redactions"] += hits
-                finally:
-                    # Also when the run failed or was stopped: what it left goes to the workspace without the values.
-                    count["redactions"] += redact_folder(case_dir, values, staged) + redact_folder(os.path.join(root, "out"), values)
-                    return_run(root)
-            if carried:
-                return entry(None, infra(why, "settings"), [f"RUN FAILED  case {c['id']} {name} run {k} ({why})"])
-            if STOPPING.is_set():  # the script is being stopped: what the run left stays where a reader expects it
-                return entry(None, infra(why or "stopped before the run was read", "stopped"))
-            if why and account_limit(out, account["markers"]):
-                # The account is exhausted: this is no result of the run. Everything on the account waits, and
-                # this run starts again from its beginning afterwards: it is never retried into the limit, never
-                # counted as a timeout and never scored.
-                count["attempts"] -= 1
-                count["pauses"] += 1
-                start_pause(account["key"], f"case {c['id']} {name} run {k}")
+
+        def build(case_dir, root):
+            made.update(inputs={}, vcs=None, case_text="")
+            build_tree(case_dir, sources[c["id"]], c)
+
+        def after_base(case_dir, root):
+            quiet = {"root": root, "network": "none"}  # setup and the fixture commit: no secret, no network
+            run_setup(case_dir, c.get("setup") or [], contained_env(root), box=quiet)
+            # The preflight refused a case that carries harness settings before any run; the attempt checks the
+            # folder that runs again, after this.
+
+        def stage(case_dir):
+            staged, _ = stage_run(case_dir, eval_for[tier], variant_dir, deps[c["id"]], c, o.get("platform"))
+            return staged
+
+        def before_run(case_dir, root, staged):
+            # The input files the assertions check facts against, as the run finds them: the grader is shown this,
+            # even when the run changes them afterwards.
+            made["inputs"] = {p: shown_in(case_dir, p) for p in c.get("grader_files") or [] if isinstance(p, str)}
+            if v == "without_skill":  # what the case itself holds, as the run finds it: the dependency skills too
+                made["case_text"] = c["prompt"] + "\n" + folder_text(case_dir)
+
+        def after_run(case_dir, root, why, delta, staged):
+            if delta is not None and o["grade"]:  # commits, branches and pushes: read here, where the case folder still is
+                quiet = {"root": root, "network": "none"}
+                made["vcs"], hits = load_measure().replace_values(version_control(case_dir, contained_env(root), box=quiet), values)
+                count["redactions"] += hits
+
+        def judge(info):
+            if v != "without_skill":
+                return None
+            produced = (info["delta"]["created"] + info["delta"]["modified"]) if info["delta"] else []
+            count["contaminated"] = contamination(out, cwd, produced)
+            if count["contaminated"]:
+                # The run looked at the harness or reached the workbench: it is no baseline. No score, and no retry
+                # that would hide it: the iteration is incomplete until the way in is closed.
+                return count["contaminated"]
+            if not info["why"]:
+                count["passage"] = shared_passage(skill_grams, read_text(os.path.join(out, "response.md"), 200000) + "\n"
+                                                  + "\n".join(read_text(os.path.join(cwd, p), TEXT_LIMIT) for p in produced
+                                                              if readable(cwd, p) and load_measure().binary_stub(os.path.join(cwd, p)) is None),
+                                                  made["case_text"])
+            return None
+
+        # The run happens outside the repository; its folders come back to run_dir when it ends, however it ends.
+        # The attempts (the wait on a pause, the place of the shared lock, the settings check, the adapter call, the
+        # replacement of the passed values, the classification and the retries) are made by evals/run_attempts.py.
+        # The credential of the tier is in the run's environment, and a model that prints its environment puts it
+        # in a file or in its reply: before anything is stored, read or sent to the grader, each passed value is
+        # replaced by a marker, by exact value. What makes an attempt one to make again, with the skill and without
+        # it alike: a timeout, a refusal by the provider, a failure of the adapter, an early end. Each is counted.
+        # An attempt that meets the account limit is no result of the run: everything on the account waits, and
+        # the run starts again from its beginning afterwards, never retried into the limit, never counted as a
+        # timeout and never scored.
+        spec = {"dest": run_dir, "names": [o["skill"]], "label": f"case {c['id']} {name} run {k}",
+                "runner": runner_for[tier], "model": model, "account": account,
+                "refusal_markers": eval_for[tier]["refusal_markers"], "pass_env": tier_env, "values": values,
+                "settings": settings, "control": control, "tier": tier, "web": web[c["id"]], "timeout": o["timeout"],
+                "max_cost": o["max_cost"], "retries": o["retries"], "prompt": c["prompt"], "response_limit": 200000,
+                "counts": count}
+        hooks = types.SimpleNamespace(before_attempt=before_attempt, build=build, after_base=after_base, stage=stage,
+                                      before_run=before_run, after_run=after_run, judge=judge)
+        result = load_attempts().run(_RUNNER, spec, hooks)
+        why, delta, failure = result["why"], result["delta"], result["failure"]
+        inputs, vcs = made["inputs"], made["vcs"]
+        for event in result["events"]:
+            if event["kind"] == "refused":
+                count["refused"] = event["detail"]
+            if event["event"] == "paused":
                 msgs.append(f"PAUSED      case {c['id']} {name} run {k}: the account limit was met; the run starts again after the pause")
-                set_aside("paused")
-                continue
-            if v == "without_skill":
-                produced = (delta["created"] + delta["modified"]) if delta else []
-                count["contaminated"] = contamination(out, cwd, produced)
-                if count["contaminated"]:
-                    # The run looked at the harness or reached the workbench: it is no baseline. No score, and
-                    # no retry that would hide it: the iteration is incomplete until the way in is closed.
-                    return entry(None, infra("contaminated", "contaminated", evidence=count["contaminated"]),
-                                 [f"CONTAMINATED case {c['id']} {name} run {k}: {count['contaminated']}"])
-                if not why:
-                    count["passage"] = shared_passage(skill_grams, read_text(os.path.join(out, "response.md"), 200000) + "\n"
-                                                      + "\n".join(read_text(os.path.join(cwd, p), TEXT_LIMIT) for p in produced
-                                                                  if readable(cwd, p) and load_measure().binary_stub(os.path.join(cwd, p)) is None),
-                                                      case_text)
-            response = read_text(os.path.join(out, "response.md"), 200000)
-            # What makes an attempt one to make again, with the skill and without it alike: a timeout, a refusal
-            # by the provider, a failure of the adapter, an early end. Each is counted.
-            kind, detail = None, None
-            if why and why.startswith("timeout"):
-                kind = "timeout"
-            elif why and provider_refusal(out, eval_for[tier]["refusal_markers"]):
-                kind, detail = "refused", provider_refusal(out, eval_for[tier]["refusal_markers"])[:300]
-            elif why and auth_refusal(out):
-                kind, detail = "auth", auth_refusal(out)
-            elif why:
-                kind = "adapter"
+            elif event["event"] == "early_end":
+                msgs.append(f"EARLY END   case {c['id']} {name} run {k} attempt {event['attempt']} ({event['detail']}): retrying; "
+                            f"kept in {os.path.relpath(event['kept'], ROOT)}")
             else:
-                detail = load_measure().early_end(response, changed)
-                kind = "early_end" if detail else None
-            if kind is None:
-                break
-            if kind == "auth":
-                # The provider refused the credential: never retried, and the event stops, since every later run
-                # with it would meet the same refusal. The message names the variable, never its value.
-                refused_key.set()
-                reason = (f"the provider refused the key ({detail}) passed in "
-                          f"{credential_label(harness_for[tier], key_names(tier, c['id']))}")
-                note = (f"KEY REFUSED case {c['id']} {name} run {k}: {reason}. The event stops: every later run with that "
-                        "key would meet the same refusal, so the run is not retried and no new run starts. Store a valid "
-                        "key under that name, then run what is left with: python3 evals/eval_run.py --resume "
-                        f"{os.path.relpath(it_dir, ROOT)}")
-                if not refused_note:
-                    refused_note.append(note)
-                    print(note, file=sys.stderr)
-                return entry(None, infra(reason, "auth", detail=detail, attempts=count["attempts"]), [
-                    f"RUN FAILED  case {c['id']} {name} run {k} ({reason}; not retried): see "
-                    f"{os.path.relpath(os.path.join(out, 'error.log'), ROOT)}"])
-            count[RETRY_KINDS[kind]] += 1
+                msgs.append(f"RETRY       case {c['id']} {name} run {k} attempt {event['attempt']} ({event['why']}): making the run again; "
+                            f"kept in {os.path.relpath(event['kept'], ROOT)}")
+        if result["status"] == "caller":
+            return entry(None, infra("contaminated", "contaminated", evidence=count["contaminated"]),
+                         [f"CONTAMINATED case {c['id']} {name} run {k}: {count['contaminated']}"])
+        if failure and failure["kind"] == "settings":
+            why = f"the case folder holds {failure['detail']}: a fixture or setup must not carry harness settings"
+            return entry(None, infra(why, "settings"), [f"RUN FAILED  case {c['id']} {name} run {k} ({why})"])
+        if failure and failure["kind"] == "stopped":  # the script is being stopped: what the run left stays where a reader expects it
+            return entry(None, infra(why or "stopped before the run was read", "stopped"))
+        if failure and failure["kind"] == "auth":
+            detail = failure["detail"]
+            # The provider refused the credential: never retried, and the event stops, since every later run
+            # with it would meet the same refusal. The message names the variable, never its value.
+            refused_key.set()
+            reason = (f"the provider refused the key ({detail}) passed in "
+                      f"{credential_label(harness_for[tier], key_names(tier, c['id']))}")
+            note = (f"KEY REFUSED case {c['id']} {name} run {k}: {reason}. The event stops: every later run with that "
+                    "key would meet the same refusal, so the run is not retried and no new run starts. Store a valid "
+                    "key under that name, then run what is left with: python3 evals/eval_run.py --resume "
+                    f"{os.path.relpath(it_dir, ROOT)}")
+            if not refused_note:
+                refused_note.append(note)
+                print(note, file=sys.stderr)
+            return entry(None, infra(reason, "auth", detail=detail, attempts=count["attempts"]), [
+                f"RUN FAILED  case {c['id']} {name} run {k} ({reason}; not retried): see "
+                f"{os.path.relpath(os.path.join(out, 'error.log'), ROOT)}"])
+        if failure:
+            kind, detail = failure["kind"], failure["detail"]
             if kind == "refused":
                 count["refused"] = detail
-            if count["attempts"] > o["retries"]:
-                if kind == "early_end":
-                    return entry(None, infra("early_end", kind, detail=detail, attempts=count["attempts"]), [
-                        f"RUN FAILED  case {c['id']} {name} run {k} (early_end on all {count['attempts']} attempt(s): {detail})"])
-                reason = "refused: the provider declined the request" if kind == "refused" else why
-                return entry(None, infra(reason, kind, attempts=count["attempts"], **({"detail": detail} if detail else {})), [
-                    f"RUN FAILED  case {c['id']} {name} run {k} ({reason}; {count['attempts']} attempt(s)): see "
-                    f"{os.path.relpath(os.path.join(out, 'error.log'), ROOT)}"])
-            kept = set_aside("early-end" if kind == "early_end" else "failed")
             if kind == "early_end":
-                msgs.append(f"EARLY END   case {c['id']} {name} run {k} attempt {count['attempts']} ({detail}): retrying; "
-                            f"kept in {os.path.relpath(kept, ROOT)}")
-            else:
-                msgs.append(f"RETRY       case {c['id']} {name} run {k} attempt {count['attempts']} ({why}): making the run again; "
-                            f"kept in {os.path.relpath(kept, ROOT)}")
-                if kind == "adapter":  # a provider that is overloaded or limits the rate: not at once
-                    time.sleep(RETRY_PAUSE * count["attempts"])
+                return entry(None, infra("early_end", kind, detail=detail, attempts=count["attempts"]), [
+                    f"RUN FAILED  case {c['id']} {name} run {k} (early_end on all {count['attempts']} attempt(s): {detail})"])
+            reason = "refused: the provider declined the request" if kind == "refused" else why
+            return entry(None, infra(reason, kind, attempts=count["attempts"], **({"detail": detail} if detail else {})), [
+                f"RUN FAILED  case {c['id']} {name} run {k} ({reason}; {count['attempts']} attempt(s)): see "
+                f"{os.path.relpath(os.path.join(out, 'error.log'), ROOT)}"])
+        response = result["response"]
         timing = {}
         try:
             with open(os.path.join(out, "timing.json"), encoding="utf-8") as f:

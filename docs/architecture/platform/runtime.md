@@ -1,0 +1,544 @@
+# Layer 6: the runtime
+
+Part of [the platform map](README.md). Every layer page has the same eight sections, in this order.
+
+## Purpose
+
+The task runtime (`runtime/`) turns a person's request into tasks and runs each task as one proven skill, once, in the container the skill was proven in, on a fresh copy of the project that holds only what may enter it. What a run leaves comes back by one rule of paths, and the task then waits for the person on one pending decision; every effect outside the project is executed by code under an approval bound by its hash.
+
+The contract is [contracts/runtime.md](../../../contracts/runtime.md); the module list is [runtime/README.md](../../../runtime/README.md); the design and its stages are [the platform plan](../platform-plan-2026-10-05.md). This page maps them and does not repeat them.
+
+## Artifacts it owns
+
+Where: **repo** is this repository, **project** is the target project, **data** is the project's data folder (`data_dir` of the configuration, outside every repository).
+
+| Path | Where | Format | Written by | Read by | Lifecycle | Versioned | Generated |
+|---|---|---|---|---|---|---|---|
+| `runtime/*.py`, `runtime/handlers/*.py`, `runtime/README.md` | repo | Python 3.9, standard library only; the modules are the block below this table | maintainers | the shells, the scheduler's entry | changed by pull request | yes | no |
+| `runtime/secrets.json` | repo | JSON registry of one secret, `WB_RUNTIME_FLOOR_KEY` (store username `runtime-floor`) | maintainers | `ops_core.py` (`_own_key`), `ops_reads.py` (`_secret_rows`), through `providers/secrets/resolver.py` | changed by pull request | yes | no |
+| `runtime/roles.json` | repo | JSON with closed keys: the skills the runtime is wired to, the code areas and the packs in use (the values are the `roles` block of [skills-and-flows.md](skills-and-flows.md)) | maintainers | `runtime/roles.py`, through which `router.py`, `plan.py`, `workcopy.py` and `manifest.py` read their constants | changed by pull request | yes | no |
+| `runtime/tests/`, `runtime/tests/corpus/endings.jsonl` | repo | pytest; JSON lines of archived lab runs with labels | maintainers; the corpus by `corpus/build_corpus.py` | CI, the hook, `endings.py --corpus` | grows with each stage | yes | the corpus is |
+| `flows/<name>.json` | repo | flow file: `flow`, `title`, `tasks[]` (`key`, `skill`, `title`, `text`, `depends_on`, `milestone`); the flows are the `flow-files` block of [skills-and-flows.md](skills-and-flows.md) | maintainers | `runtime/flow_files.py`, `scripts/validate.py` (dependencies, inventory) | changed by pull request | yes | no |
+| `skills/<name>/evals/runtime-manifest.json` | repo | runtime manifest: `skill`, `documents[]` (`path`, `checks`, `platform`, `bound_to_approval`), `machine_files`, `mandatory_milestone`, `asking_openings`, `gate`, and the optional `reply_phrases` (`missing_input`, `question_intros`, `gate_questions`: phrases of the skill's replies the classifier reads, each in the skill's text); a whole manifest for each skill of the packs in use (`test_every_skill_of_a_pack_in_use_has_a_runtime_manifest_that_is_well_formed`); a skill outside those packs may also have a whole one, which a contained run needs, or a partial one (`skill` and any subset of the keys); a skill without a whole manifest does not run, as a task or as a contained run (`manifest.load` in `ops._run` and `ops._contained_scope`) | maintainers | `runtime/manifest.py` | outside the skill's content hash: no bump, no lab test | yes | no |
+| `packs/<name>.txt` | repo | pack patterns | maintainers | `runtime/plan.py` (an area agent's scope: the `pack` of its entry in `area_agents`), `runtime/manifest.py` (`PACKS_IN_USE`, the `packs_in_use` of `runtime/roles.json`; a pack that file does not name, such as `marketing`, only scopes an area agent) | changed by pull request | yes | no |
+| The store's task tables (`providers/store/sqlite.py`, migrations 2 and later: below) | data (`store_db`) | SQLite, WAL, mode 0600; one function call is one transaction | the operations layer only (`ops.py` and its siblings), through the store's functions | the operations layer only | grows; `approvals` never loses a row | no | no |
+| `docs/workbench/runtime.json` | project | JSON, no secret (keys below) | the person | `runtime/project_config.py`; the scheduler's entry checks its hash against the pin | accepted by its hash; every change accepted again | the project decides | no |
+| `docs/workbench/state.md` | project | the state contract ([contracts/state.md](../../../contracts/state.md)) | `core-project-init` owns it; the runtime writes into it through `runtime/state_merge.py` only | runs (it enters every copy), the engagement gate script | updated after each run, answer, approval and mode change | the project's `Docs in git` decision | its `Checkpoints` line and the runtime's approval rows are |
+| `docs/workbench/policies/<policy>.json` | project | bounds of a standing approval: `policy`, `agent`, `effects`, `targets`, `files`, `max_per_day`, `max_items_per_run` | the person | `runtime/autonomy.py` (`bounds_of`, `covers`) | bound by its hash; an edit covers nothing until approved again | the project decides | no |
+| `.workbench-local/drop/<task id>/` | project | the files the person handed to one task | `runtime/drop.py` (`hand-over`) | `runtime/workcopy.py` (enters that task's runs only) | never comes back changed | no (the folder must be ignored by git) | no |
+| `.workbench-local/evidence/` | project | field evidence: one use per run, one verdict per run | `scripts/evidence.py`, called by `ops.py` | `evidence.py export` | grows | no | no |
+| `<data_dir>/task-runs/<run id>/` | data | `prompt.md`, `cwd/` (the copy as the run left it), `outputs/` (`response.md`, `timing.json`, `raw.json`, `stderr.log`, `stream.jsonl`), attempts set aside; for a code task `changeset/` (`changeset.json`, `files/`); for a gate run its temporary folder, `payload.md` and `effect.json` | `runtime/lab.py`, `changeset.py`, `effects.py` | `pending --id`, `approve` of an effect | kept; never committed | no | yes |
+| `<data_dir>/contained-runs/<n>/` | data | the run folder of one contained run (the same layout as a task run's: `prompt.md`, `cwd/`, `outputs/`); `<n>` is claimed by creating the folder | `runtime/lab.py`, called by `ops.contained_run` | the person; no file of it ever comes back to the project | kept | no | yes |
+| `<data_dir>/prepared/<run id>/`, `<data_dir>/prepared/contained-<n>/` | data | files written for one run before they enter its copy | `runtime/workcopy.py` | `runtime/lab.py` | removed after the run | no | yes |
+| `<data_dir>/run.lock` | data | an empty file under an exclusive lock, taken without waiting | `ops_core.py` (`_run_lock`) | `ops.py`, `ops_say.py` | held while a run, a route, a sync, a dependency install, a file hand-over, an effect (approved, or executed under a standing approval) or the release of a brief is in progress; `say` takes it once and lets go at once, to refuse a turn that would route during a run | no | yes |
+| `<data_dir>/config.lock` | data | an empty file under an exclusive lock, mode 0600; a change waits up to `CONFIG_LOCK_WAIT` (10 s), then is refused | `ops_core.py` (`_config_lock`) | `ops.py` | held while `accept-config` or `set-mode` accepts or changes the configuration | no | yes |
+| `<data_dir>/proof.json` | data | the proof file: each skill's band, score and checks per model, and the hash of its inputs | `runtime/proof.py` | `runtime/proof.py` | rebuilt when the gate file, a version file, an evidence file or the skill's content changes | no | yes, a cache |
+| `<data_dir>/deps/<key>/` | data | an installed dependency folder, keyed by recipe, files and image digest | `runtime/deps.py` | `runtime/deps.py` (copied into a code run) | installed once per content and image | no | yes |
+| `<data_dir>/effects/<pending id>/` | data | the files code hands the code provider for one effect (the commit message, the title and the body) | `runtime/effect_pull_request.py` (`execute`), called by `ops._approve_effect` | the code provider | kept | no | yes |
+| `<data_dir>/documents/not-taken/`, `imported.json`, `notices.json` | data | page texts not taken; the last import of each document; the read-only pages that carry the notice | `runtime/documents.py` | `runtime/documents.py`, `ops.task_prompt` (the imported line) | grows | no | yes |
+| `<data_dir>/dispatch-pin.json` | data | the path and sha256 of the accepted `runtime.json`, mode 0600 | `cli.py pin` | `runtime/dispatcher.py` (the scheduler's entry) | written again after each accepted change | no | yes |
+| `<data_dir>/service.token` | data | the local service's token, mode 0600, new at every start (`--token-file` names another place) | `runtime/service.py` | the person, who pastes it once per browser session | removed when the service stops | no | yes |
+| `<data_dir>/uploads/<random>/<name>` | data | a file a page hands to a task, mode 0600 | `runtime/service.py` | `ops.hand_over`, which copies it into the task's drop | removed right after the hand-over | no | yes |
+
+The modules of the runtime, one row each, from the first sentence of their docstrings:
+
+<!-- generated: runtime-modules -->
+| Module | What it is (first sentence of its docstring) |
+|---|---|
+| `runtime/autonomy.py` | The five autonomy modes of an area agent, from the three facts under them, and the daily caps: the one module that compares a mode word (decision D14 of the platform plan). |
+| `runtime/billing.py` | The billing of the credential a run uses, read from the adapters' manifests: whether a run is covered by a subscription, paid by use (an API key) or free. |
+| `runtime/board.py` | The mirror of tasks to and from the project's task board (class integration:issue-tracker). |
+| `runtime/changeset.py` | The change set: how code a run changed comes back (limit L9), and why a working document never enters a commit (limit L11). |
+| `runtime/chat.py` | The conversation with the planning agent, in the terminal: one more shell of the operations layer (runtime/ops.py, say). |
+| `runtime/cli.py` | The terminal shell of the task runtime: one command per operation of runtime/ops.py, nothing else. |
+| `runtime/costs.py` | The cost of the runs, recomputed from the token counts the adapter left in a run folder and the prices the person typed into the project's configuration (model_prices, runtime/project_config.py). |
+| `runtime/deps.py` | A project's dependencies, installed by code: in the eval image, in a step with no model that sees only the dependency files, and copied into each run that needs them. |
+| `runtime/dispatcher.py` | The dispatcher of the task runtime: what may start now, and what an autonomy mode releases, decided by one pure function from a snapshot of the store. |
+| `runtime/documents.py` | The mirror of documents to and from the project's documents platform (class integration:documents). |
+| `runtime/drop.py` | The file drop: how a person hands a file to one task (a logo made elsewhere, a spreadsheet), since the runtime has no image provider. |
+| `runtime/effect_commit.py` | The effect kind of a commit of files to a branch, made by the code provider under a standing approval. |
+| `runtime/effect_pull_request.py` | The effect kind of the pull-request skill: one commit made by the code provider, then the pull request opened. |
+| `runtime/effect_reply.py` | The effect kind of a reply to a comment on one of the project's own posts, made by a publisher under a standing approval. |
+| `runtime/effects.py` | The external effects of the task runtime: what a skill with a confirmation gate showed at its gate, recovered from what the run left, and (stage 4, WP-4.8) its execution by code once the person approved its hash. |
+| `runtime/endings.py` | How a run ended, for a run that did not fail: the classifier of endings. |
+| `runtime/flow_files.py` | Flow files: flows/&lt;name&gt;.json, one data file per flow, with its tasks and their dependencies written out. |
+| `runtime/isolated.py` | Skill code the runtime runs on the host, as an isolated subprocess with a scrubbed environment. |
+| `runtime/lab.py` | The lab facade: the one file of runtime/ that talks to the lab (evals/execution.py, the execution kit). |
+| `runtime/manifest.py` | The runtime manifest of a skill: skills/&lt;name&gt;/evals/runtime-manifest.json, read and checked. |
+| `runtime/mcp.py` | The MCP mode: the operations layer of runtime/ops.py served as tools of a Model Context Protocol server over standard input and output. |
+| `runtime/messaging.py` | The messaging bridge: the operations layer of runtime/ops.py reached from a messaging app the person already uses, with no model between the app and the operations. |
+| `runtime/messaging_bridge.py` | The messaging bridge's logic (runtime/messaging.py is its shell): notices out, intents in, every operation through one call path. |
+| `runtime/messaging_cards.py` | A notice as a platform-neutral card (runtime/messaging.py): a pending decision becomes {"text", "actions", "link", "document"}, the message every messenger provider takes (providers/messenger/README.md), plus what the bridge needs to bind a tap to it. |
+| `runtime/messaging_inbound.py` | What a person sent to the messaging bridge, as an intent (runtime/messaging.py). |
+| `runtime/messaging_ledger.py` | The messaging bridge's ledger: what it sent, so that a restart sends nothing twice and a tapped button or a reply is bound to the card the person saw (runtime/messaging.py). |
+| `runtime/messaging_provider.py` | The messaging bridge's access to a messenger provider (class messenger:&lt;platform&gt;, providers/messenger/README.md): the four verbs as methods, started through providers/resolve.py, the one function that resolves a class and runs a provider's verb. |
+| `runtime/operations.py` | The table of operations: the one place that says what the operations layer (runtime/ops.py) offers to a shell. |
+| `runtime/ops.py` | The operations layer of the task runtime: every operation a person or a scheduler can perform, once. |
+| `runtime/ops_config.py` | The configuration's acceptance in the operations layer: who may accept a change of docs/workbench/runtime.json, and the two operations that change or accept it. |
+| `runtime/ops_core.py` | The names every module of the operations layer shares, once: the checkout (ROOT), the refusal (OpsError), the project's context and the store call, the two locks, the runtime's own key and the data-folder names. |
+| `runtime/ops_reads.py` | The reads of the local interface and the signals of the local service: the change signal of the store (`version`), the stop of the runs a process started, the conversation's commands as rows (`commands`), the agents with their day, the conversation's messages, the skills with their proof, the costs, the connections, the service's start check and the project's artifacts. |
+| `runtime/ops_say.py` | The conversation with the planning agent: one turn of it (`say`) and the memory a plain line carries to the router. |
+| `runtime/ops_waits.py` | The derived waits in the operations layer: which task waits for which, worked out from the artifact contract. |
+| `runtime/path_rule.py` | The path rule: how one path of what a run left goes back to the project. |
+| `runtime/plan.py` | The plan of a request: the tasks code builds from a route, which the person approves before any task exists. |
+| `runtime/progress.py` | Progress and the summary of a period, computed from the store's records: no model writes them. |
+| `runtime/project_config.py` | The project's configuration of the runtime: &lt;project&gt;/docs/workbench/runtime.json, and its hash. |
+| `runtime/proof.py` | The proof of a skill, and the choice of the model a run of it goes to. |
+| `runtime/roles.py` | The skills the runtime names, as data: runtime/roles.json, read and checked. |
+| `runtime/router.py` | The router step of the task runtime: what code reads of one run of the router skill asked only for the route. |
+| `runtime/service.py` | The local service: the operations layer of runtime/ops.py served on this machine through an API, with a token and an origin check, and the static files of the interface/ folder of the checkout. |
+| `runtime/shell_kit.py` | What the two network-free shells of the operations layer share: the local service (runtime/service.py) and the MCP mode (runtime/mcp.py). |
+| `runtime/skill_meta.py` | What a skill declares in its frontmatter, read for the runtime: the artifact lists, the requirement classes, the side effects and the version. |
+| `runtime/state_merge.py` | The one module that decides what a run may change in the project's state file (docs/workbench/state.md), limit L10 of the platform plan. |
+| `runtime/workcopy.py` | What enters a run copy, and what comes back from it: the limits of the task runtime that decide which files of a project a run sees (L1 to L6) and which files a run leaves come back (L7, L8, L12, L14). |
+| `runtime/handlers/published_posts.py` | The weekly routine that lists the published posts (backlog item PB16): the first handler of the task runtime. |
+| `runtime/handlers/social.py` | Agent runtime: find new work, run an agent on it read-only, gate its proposal, execute or queue it. |
+| `runtime/handlers/social_vote.py` | The runtime's weekly vote step (docs/architecture/weekly-vote.md), imported by runtime/handlers/social.py (ported from scripts/runtime_vote.py, which scripts/runtime.py still imports). |
+| `runtime/handlers/social_vote_job.py` | Publish the weekly vote post at its slot time, then record it in the profile repository's vote files. |
+<!-- /generated -->
+
+**The store, as built.** Migration 1 holds the first runtime's tables (`cursors`, `events`, `runs`, `inbox`, `actions`); the task runtime uses `cursors` and `actions` too. The migrations, generated from `MIGRATIONS` of `providers/store/sqlite.py`:
+
+<!-- generated: store-migrations -->
+Schema version 9: the highest migration of `MIGRATIONS`.
+
+| Migration | Description | Tables created | Columns added | Triggers |
+|---|---|---|---|---|
+| 1 | cursors, events, runs, inbox and actions | `cursors`, `events`, `runs`, `inbox`, `actions` | - | - |
+| 2 | tasks, task_runs and pending_decisions of the task runtime | `tasks`, `task_runs`, `pending_decisions` | - | - |
+| 3 | the number of values the lab replaced in what a task run left | - | `task_runs.redactions` | - |
+| 4 | a task's item on the task board, the records of mirrored documents and saved platform comments | `document_records`, `platform_comments` | `tasks.remote_id`, `tasks.remote_version`, `tasks.remote_written_sha256` | - |
+| 5 | the approvals table: what the person approved, a record that only grows | `approvals` | - | `approvals_never_deleted`, `approvals_only_status_moves` |
+| 6 | the messages of the conversation with the planning agent | `conversation_messages` | - | - |
+| 7 | tasks, task runs and pending decisions are never deleted | - | - | `tasks_never_deleted`, `task_runs_never_deleted`, `pending_decisions_never_deleted` |
+| 8 | derived waits between requests: a request's after_request and the task_waits table | `task_waits` | `tasks.after_request` | `task_waits_never_deleted` |
+| 9 | the billing of the credential a task run used | - | `task_runs.billing` | - |
+<!-- /generated -->
+
+The task runtime's tables, those that migration 2 and later create, with their columns (generated from the same source):
+
+<!-- generated: task-runtime-tables -->
+| Table | Created by migration | Columns |
+|---|---|---|
+| `tasks` | 2 | id, parent_id, flow, key, skill, agent, title, text, state, depends_on, milestone, note, created_at, updated_at, remote_id (migration 4), remote_version (migration 4), remote_written_sha256 (migration 4), after_request (migration 8) |
+| `task_runs` | 2 | id, task_id, skill, skill_version, skill_sha256, model, adapter, web, status, failure, ending, attempts, started_at, ended_at, cost_usd, tokens, duration_ms, skill_loaded, image_digest, run_dir, error, redactions (migration 3), billing (migration 9) |
+| `pending_decisions` | 2 | id, task_id, run_id, kind, title, body, payload, payload_sha256, status, resolution, answer, created_at, resolved_at, resolved_by |
+| `document_records` | 4 | id, path, provider, remote_id, written_sha256, remote_version, read_sha256, status, note, updated_at |
+| `platform_comments` | 4 | id, provider, remote_id, subject, task_id, document_path, author, text, created_at, saved_at, status, used_by_pending |
+| `approvals` | 5 | id, scope, what, payload_sha256, policy_sha256, bounds, task_id, pending_id, approved_at, approved_by, expires_at, status, executed_at |
+| `conversation_messages` | 6 | id, conversation, role, text, task_id, run_id, created_at |
+| `task_waits` | 8 | id, task_id, awaited_id, kind, path, reason, status, created_at, ended_at, ended_by |
+<!-- /generated -->
+
+The cursors the runtime writes: `config:accepted-sha256` (the accepted configuration, written only by `ops_config._record_acceptance`, which `accept_config` calls for the person and `set_mode` calls for a move down the order of the modes, or for a move up the person accepts in the same command with `set-mode --accept` from the terminal), `config:accepted-by` (`person` or `code:narrowing`), `dispatch:held` (the ready tasks the last dispatcher round did not start, JSON: `at`, `held` with each task's reason, at most `HELD_KEPT` (20) of them, `more` for the rest and `missing`, the names of the credential's variables that were not found; a round that holds the same tasks for the same reasons writes nothing, since a write moves the change counter), `board:configured` (when the board was first written), `use:<run id>` (the recorded use of a run), `verdict:<run id>` (the person's one verdict on it), and each handler's own (`routine:published-posts`; `mailbox:<agent>` and `vote:<round>` of the social handlers).
+
+**The project configuration's keys** are the generated `config-keys` block of [project.md](project.md); this page lists none. They are closed (`runtime/project_config.py`): an unknown key is refused (exit 3) with the nearest known name, and the first runtime's keys (`FIRST_RUNTIME_KEYS`, a second closed tuple that leaves with stage 7) stay valid in the same file. `handlers` has one entry per handler, which names an `agent` of `area_agents` and a boolean `dispatch` (default false): the dispatcher ticks a handler only when `dispatch` is true, its agent is enabled and its mode is not `stopped` (`ops._ticks`). The social handler still reads the first runtime's keys (`runtime/handlers/social.py`; `harness` and `model` are ignored: the model and its adapter come from the skill's proof), and `path`, the folders put first on `PATH` for what the operations start, is one of them, read by `dispatcher.bootstrap`. `max_cost_usd_per_run` is what a floor run of unknown cost counts at; `model_prices` is typed by the person from the provider's price page, and `runtime/costs.py` recomputes a run's cost from its token counts with it.
+
+## Abstractions
+
+**Task and its nine states** (the store's CHECK): `requested`, `planned`, `ready`, `running`, `waiting`, `blocked`, `done`, `failed`, `cancelled`. A `waiting` task has exactly one open pending decision; one task is `running` at a time per database.
+
+```mermaid
+stateDiagram-v2
+    [*] --> requested
+    requested --> planned: plan approved
+    requested --> cancelled
+    planned --> ready: every dependency done
+    planned --> cancelled
+    ready --> running: claimed
+    ready --> cancelled
+    running --> waiting: one pending decision
+    running --> blocked: ending blocked
+    running --> failed: failure after retries, or interrupted
+    waiting --> ready: answered
+    waiting --> done: released, or effect executed
+    waiting --> cancelled
+    blocked --> ready: retry
+    failed --> ready: retry
+    done --> [*]
+    cancelled --> [*]
+```
+
+**Effect kind.** What differs between two external effects (the form of the payload a skill shows at its gate, the effect document, what the person reads, the checks that nothing moved, the provider verbs) is one module of `runtime/` with a fixed set of names; `runtime/effects.py` keeps the rest (the recovery of the payload, the effect file and its hash, the provider call, and the one registry `KINDS`). The registry's keys are the words of the side-effect vocabulary (`SIDE_EFFECTS` of `scripts/validate.py`), and it holds three kinds: `create` maps to `runtime/effect_pull_request.py` (commit, then open a pull request), `push` to `runtime/effect_commit.py` (commit files to a branch) and `publish` to `runtime/effect_reply.py` (a reply to a comment on one of the project's own posts). Two paths read it. The gate path takes the word the skill's manifest names in its gate (`gate.effect`) and records it in the effect document as `effect`; a gate word with no row opens a review, never an effect (`_effect_or_review`), and an effect document already open whose `effect` has no row is refused when the person approves it (`ops.py`, `_approve_effect`) and opens no review, since a review opens only when a run reaches its gate. The policy path takes the `kind` of the document a handler hands to `ops.execute_under_policy` and loads the same module, which answers what the generic operation asks of it: `POLICY` (true when the kind may run under a standing approval; `create` is false and is refused with "cannot run under a policy"), `PROVIDER_CLASS`, `policy_platform(doc)` (the platform the provider is resolved with: for a class written `publisher:<platform>` the placeholder is filled with it, and none for the code provider), `policy_effect(doc)` (the `{kind, target, files, items}` that `autonomy.covers` checks) and `policy_argv(doc)` (the verb and the document's args, without the reserved flags), besides `describe(doc)` for the state file's row. Two names are optional, for a kind whose bounds name a class of targets and whose content needs a judgement: `resolve_targets(cfg, doc, resolve_call)` (the set of targets a class holds now, read from a recorded fact through a provider's read-only verb, before the run lock) and `policy_judgement(root, project, doc, run_script, policy_file, private, log=None, data_dir=None, now=None)` (the checks beyond the bounds, on the exact content, after `covers` and before any provider call; it returns the private file it wrote the judged bytes to, which the operation gives the provider in place of the document's file); `publish` implements both, `push` neither. `EFFECT_KEYS` (the keys a handler's document has and no others) and `RESERVED_FLAGS` (`--confirmed`, `--dry-run`, `--allow`, `--idempotency-key`, which only the operation adds) are in `effects.py` too. Extension rule: a new kind is a module plus a row of `effects.KINDS`; neither path of `runtime/ops.py` changes.
+
+**Request.** A task with no parent and no skill, in the person's words. With a flow named it is planned at once; without, it stays `requested` until its route becomes an approved plan. A request written on the task board waits in an `acceptance` first. The limits of a plan are constants of `runtime/plan.py`: a request lists at most `MAX_DELIVERIES` (8) deliveries, each costing one run of the router; a plan allows `SUBTASKS_PER_PLAN` (20) sub-tasks from the product backlog, whose task reads run `BACKLOG_JOBS` (8) at a time; and a request's title is at most `TITLE_CHARS` (120) characters.
+
+**The conversation.** One per project (`ops.CONVERSATION`, "project"), kept in `conversation_messages`. A plain line or `/new` is routed with a bounded memory in front of it: the newest `MEMORY_TURNS` (6) plain lines and router replies after the last request that reached `planned`, `done` or `cancelled`, each cut to `MEMORY_CUT` (600) characters and the whole cut to `MEMORY_CHARS` (4,000) by dropping the oldest (`ops.chat_memory`, a workaround marked `T23` that leaves with the next change of reference model). A line typed on the page while another run holds the project's run lock is queued, not refused (the terminal and the MCP mode drain nothing and are refused as before): it is stored with its reply pending, held in one cursor of the store (`conversation:queue`) and answered by `route_queued`, which the service calls every five seconds; a request to route made then is queued the same way, and `route` with a flow takes no lock. A short plain line that is one of a closed list of forms ("status", "como estamos", "o que falta") is answered by code from `status` and `progress`, never by the router; a router reply of the shape `direct` is answered the same way and cancels the request it came from; a reply that names no route opens a question with one sentence and the reply whole in its payload (`contracts/runtime.md`, "The conversation").
+
+**Run and attempt.** A run is one row of `task_runs`: one skill, once, in a new copy. Inside it, the lab's one function (`evals/run_attempts.py`) makes attempts: it pauses on the account limit without counting a failure, retries a timeout, an adapter failure, a refusal or an early end, and never retries a refused credential. A failed run has a failure kind from a closed list: `timeout`, `refused`, `auth`, `adapter`, `early_end`, `settings`, `stopped`, `internal`.
+
+**The six endings** of a run that did not fail (`runtime/endings.py`): `done` (a declared output written, nothing asked; or nothing changed and the declared output already there), `question` (nothing written, or only the state file, and it asks), `draft_with_questions` (a declared output written and it still asks), `gate` (the file of its confirmation gate written and it asks), `blocked` (it stopped on a missing input another skill writes), `unclassified` (no rule holds; the person reads the whole reply).
+
+**The pending-decision kinds and their resolutions.**
+
+| Kind | Opened when | Resolutions |
+|---|---|---|
+| `plan` | code built a plan from a route or a named flow | `approved`: the tasks are created; `rejected`: the request is cancelled |
+| `question` | ending `question` | `answered`: the task is `ready`; the answer is written into the state file by code |
+| `review` | ending `done`, `draft_with_questions`, `unclassified`, or a `gate` whose effect could not be opened | `released`: the task is `done`, still a draft; `answered`: the task runs again with the text |
+| `effect` | ending `gate`, with the payload recovered, parsed, agreeing with the configuration and an unblocked change set | `approved` (only with its hash, then executed by code); `answered`: sent back; `rejected`: the task is cancelled, nothing sent |
+| `acceptance` | a request written on the board; sub-tasks beyond the plan's limits (`subtasks`); a request a mode completed (`deliveries`) | `accepted`, `rejected` |
+| `your_document` | reserved: a task in which the person writes the document; the store accepts the kind and no operation opens it | none: `ops._actions` offers no word for it |
+
+A pending decision is `open`, `resolved` or `cancelled`. A release by an autonomy mode is recorded with `resolved_by` `mode:<mode>`.
+
+**Approvals and their scopes** (table `approvals`, the three scopes of [contracts/environment.md](../../../contracts/environment.md)): `action` (one exact payload by its hash: today an effect), `standing` (a policy file by its hash, with bounds and an expiry of at most 365 days), `plan` (reserved). Statuses move only forward: `pending-execution` to `executed` or `revoked`; `active` to `expired` or `revoked`. The rows in the state file's `## Approvals` are copies code generates.
+
+**The channel rule.** An effect is approved only from the terminal or the page, with its hash. `approve` in `runtime/ops.py` takes the channel the table of operations passes it (`channel_arg`) and refuses an effect for any channel outside `EFFECT_CHANNELS = ("terminal", "page")`, or for none, before it executes or sends anything: the rule fails closed. The conversation and the MCP mode are therefore never a way to approve an effect; `say` is told its channel and does a typed command only when that command's row lists it. The guards are under Business rules.
+
+**The effect and its hash.** The pull-request skill runs up to its confirmation gate and writes its payload to a temporary file whose path and sha256 its reply states; code recovers that file only when the hash matches, parses it, and writes `effect.json`, which binds the configuration's repository and base, the head the runtime names (`<branch_prefix>request-<id>`), the title and body the skill showed, and every file of the change set by its hash. The effect's hash is the sha256 of that document.
+
+**The change set.** What a code task (a skill of the engineering or delivery area) did to versioned files: the difference between the copy's base commit and its working tree, taken by git in the run's container, then classified, checked and hashed by the host. A refused path (a link, a path the code provider does not take, over its size, a credential format, a tool's settings, a protected path) blocks the whole set. The next code task of the request starts from the newest unblocked set.
+
+**The proof and the tiers.** Two tiers, `strong` (the reference model) and `floor` (the floor model), named only in `evals/eval-gate.json`. A run goes to the floor tier only when the skill is `reliable` there, the measurement files of the checkout are the recorded ones, the eval image is the evidence's, and a key for the floor model is found; otherwise to the strong tier. The person may ask for the strong tier (`run-next --tier strong`); nobody can ask for the floor tier.
+
+**The autonomy modes, from three facts.** Each area agent (an entry of `area_agents`) has one of five modes: `stopped`, `supervised`, `milestones` (default), `autonomous`, `autonomous-with-policy`. They rest on three facts: whether the agent is enabled, the checkpoints of its mode (`every-phase`, `milestones`, `end`) and whether a standing approval is in force; `mode_of` maps the facts back, so a policy mode whose approval expired acts as `autonomous`. **Daily caps** (ADJ-R3, A-38): they follow the billing of the credential a run uses, not the model's tier. The adapters' manifests state it for each credential (`subscription`, `metered` or `free`; `runtime/billing.py` reads them), the run row records it when the run starts (migration 9), and `may_start` takes the billing of the run about to start: a subscription or free run counts against `max_runs_per_day`, a metered run against `max_usd_per_day`, and a billing nobody knows starts nothing (a start by hand records `unknown`, counted as metered). A metered task is held when less than 0.05 of the dollar cap is left, and a metered run carries a spend limit, the per-run limit or what is left of the day (`autonomy.run_budget`). An absent cap is 0, and a metered run of unknown cost counts at `max_cost_usd_per_run` (default 0.5); the cost of a metered run is kept whatever its model. A run row older than the column has no billing and counts by the tier rule it had (`autonomy.history_billing`), for history only. `MODES` of `runtime/autonomy.py` is also the order of autonomy, the least first, and `narrows(old, new)` says whether a move is down it. `set_mode` accepts a move down by code at once (recorded `code:narrowing`), since it widens nothing, and never a move up: the hash stays unaccepted and `next` is the `accept-config` command. It runs under `<data_dir>/config.lock` and reads the file and the accepted hash again under it, so a stale copy of the file can never bring a widening that code then accepts; a dispatcher round likewise ends when the file or the accepted hash moved (`_configuration_moved`). The day's metered spend is split by `autonomy.spend_split` into `usd_recorded` (recorded costs) and `usd_reserved` (`max_cost_usd_per_run` for each metered run without a cost); their sum is `usd_metered`, which the dollar cap compares, `runs_counted` is what the runs cap compares, and `runs_total` counts every run of the agent. A run of the router belongs to a request, which has no agent, so the day's count gives it the agent `planning` (`plan.PLANNING`): the planning agent's caps count the router's runs, and a line that would route when it may not start is answered with the reason and runs nothing (`ops._planning_may_start`).
+
+**Derived waits.** The order between requests is derived, not typed: `runtime/plan.py` (`derive`, pure) makes a task that is not started wait for the oldest open task of another request whose skill owns an input the project does not have yet, and `runtime/ops_waits.py` reads the store and the files and applies it (`rederive`, at planning, when a task ends, at every poll and round of dispatch, and before a claim). The wait is a row of `task_waits` (migration 8) with its reason, the task stays `planned`, and the store's `task_claim_next` and `task_claim` refuse a task with an open wait, so the order does not rest on the dispatcher; `decide` holds one as `waiting` as the second lock. `request --after` and an `after #n` on the board are the person's override, `approve --go-ahead <key>` drops the derived waits of a plan's tasks, and `go-ahead --task <id>` those of a task already created, each recorded as the person's decision in the state file, and the plan says before approval which required input nothing writes (`contracts/runtime.md`, "Derived waits"). A circle between requests is never waited on, it is reported.
+
+**Held reasons.** A ready task a round did not start is held with one word of `REASONS` in `runtime/dispatcher.py`, listed in the `held-reasons` block of [shells.md](shells.md): the agent's mode or caps (`autonomy.may_start`), a check the round makes before it starts a run (`credential`, `secret store`, `image`: the task is held, not failed), the one-at-a-time rule (`job running`), a task no enabled agent owns, a service that dispatches nothing (`dispatch off`), and `other` for any text a rule function gives that is not on the list, since free text never reaches a page. `held_of` builds the list; `ops.py` keeps the last round's in the cursor `dispatch:held`, and `status` and `agents` read it.
+
+**The handler.** A routine under `runtime/handlers/` (the block below lists the files and the verbs each declares), configured under `handlers` of the configuration, started by `ops.handler_call` as a separate process with one JSON object out; a verb may take `HANDLER_TIMEOUT` (1,800 s). A handler prepares an effect (a JSON document: policy, kind, target, files, items, idempotency key, payload hash, and the provider verb's own flags) and hands it to `ops.execute_under_policy` through `cli.py execute-under-policy`. That one operation holds limit L15 for policy effects: it checks the standing approval and every bound with `autonomy.covers`, holding the run lock and counting the day's actions again; it adds `--allow` for exactly the approval's file globs and the idempotency key, makes the provider's dry run and then its confirmed call (`effects.provider_call`, which starts the verb through `resolve.invoke` of `providers/resolve.py`, the one function that calls a provider), and records the action. `published_posts.py` never passes the confirming flag, never re-reads the bounds and never records an action, and `social.py`'s auto reply follows the same rule since CONS-2a: it writes the reply and what the judgement reads into the run's folder, hands one effect document (kind `publish`, policy `engagement-policy`) to the operation, appends the engagement log entry when the operation executed and writes an inbox item with the operation's reason when it did not. The bound is the standing approval of the engagement policy, whose bounds `approve-policy` derives from the file's ```engagement-policy block (effect `publish`, the target class `comment-on-published-post`, the block's `max_replies_per_day` as the daily cap, one item a run), and the class is a fact: before the run lock the operation asks the kind to resolve it, which reads the publisher's ledger through its read-only verb `posts`, and `autonomy.covers` accepts the document's post only when it is in that set (a ledger that cannot be read, or lists no such post, covers nothing). The judgement is the skill's: after `covers` and before any provider call the kind checks the parent comment is a comment on the post and the run folder is `runs/<n>` of the data folder, reads the text once, checks it is the one the document hashed, scans it for a credential, writes those bytes to a private file (0700 folder, 0600 file, removed afterwards) that the gate reads and the publisher is given, and runs `mkt-engage`'s `policy_gate.py decide` through `runtime/isolated.py` at the operation's clock, which must answer `auto` with the document's key; the gate's `auto` is never the approval. `test_no_handler_executes_an_effect_itself` keeps the confirming flag and the record of an action out of every function of `runtime/handlers/` except the exact-content paths that `EXACT_CONTENT_PORTS` in `runtime/tests/test_runtime_rules.py` lists by function: `cmd_approve` of `social.py` (and `main`, which only declares the flag), the vote post's approval and record in `social_vote.py`, and `social_vote_job.py`, where the person approved one exact content by its hash and code checks it. CONS-2b, after the launch, hands those to the operation too and empties the table. The social files still differ from `published_posts.py` in two ways: they run skill scripts (the notification parser, the vote step's) as subprocesses on the host, the tolerated edges of `scripts/tests/test_layer_map.py` (review finding 9), where `runtime/isolated.py` is the runner the rest of the runtime uses; and `social.py` has its own loaders, `load_resolution` and `load_redact`, which look next to the script, in the checkout and under the configured `workbench`, where `published_posts.py` loads this checkout's `providers/resolve.py` and calls `resolve.call`. The `replay` verb of `social.py` judges the stored run folders again through the same operation with `--replay-log` (every check, nothing executed or recorded) for the cut-over.
+
+The handlers under `runtime/handlers/`, with the verbs each declares in `VERBS` (a dash: the file declares none):
+
+<!-- generated: handlers -->
+| Handler | File | Verbs |
+|---|---|---|
+| `published-posts` | `runtime/handlers/published_posts.py` | `tick`, `preview` |
+| `social` | `runtime/handlers/social.py` | `tick`, `pin`, `add-comment`, `status`, `inbox`, `approve`, `reject`, `replay` |
+| `social-vote` | `runtime/handlers/social_vote.py` | - |
+| `social-vote-job` | `runtime/handlers/social_vote_job.py` | - |
+<!-- /generated -->
+
+**The contained run.** `ops.contained_run` (verb `contained-run`) runs one skill once in the eval container for a caller that is not a task, such as the social handler's agent run; the contract's section "The contained run" has the full text and the table of its four restrictions. Before anything is copied it checks that the configuration is the accepted one and that the skill is a folder of `skills/` with a whole runtime manifest and is in the pack of an enabled area agent (`_contained_scope`: a check of scope, not of mode): `test_a_skill_outside_every_pack_of_the_configuration_is_refused_and_nothing_runs`, `test_a_skill_with_no_whole_runtime_manifest_is_refused`. The tier, the model and the adapter come from the skill's proof, never from the configuration; the copy holds only the artifacts the skill declares (the form of limit L3); the run is one attempt, never on the open network, in a new folder `contained-runs/<n>/`; and nothing comes back but the reply, past the credential scan, written to `<out>/response.md` beside `<out>/timing.json`. Restrictions R1 to R4 of the contract each have a test in `runtime/tests/test_contained_run.py`: `test_a_contained_social_run_sees_only_the_artifacts_its_skill_declares`, `test_no_credential_but_the_model_s_own_enters_a_contained_social_run`, `test_a_contained_social_run_is_one_attempt_within_its_time_limit_and_never_on_the_open_network` and `test_nothing_but_the_reply_leaves_a_contained_social_run`. The skill's proof stands for the run only while the task text is the measured one, which `test_the_engage_task_text_is_the_prompt_of_the_measured_runtime_cases` and `test_the_vote_task_text_is_the_prompt_of_the_measured_runtime_cases` of `runtime/tests/test_social_task_text.py` compare byte for byte.
+
+**The mirror and its records.** The board mirror keeps a task's item (`remote_id`, `remote_version`, the hash last written); the person owns the title, the text, the state and the comments, the rest is shown. The documents mirror keeps one `document_records` row per document, with the status `mirrored`, `read_only` or `rejected` and a note. A saved comment is `open`, `used` (by one pending decision) or `dismissed`.
+
+**The roles file and the isolated runner.** `runtime/roles.json` (read by `runtime/roles.py`, closed keys, each skill a folder of `skills/`, each pack a file of `packs/`) names the skills the runtime is wired to (`router`, `brief`, `subtask`), the code areas and the packs in use; `router.py`, `plan.py`, `workcopy.py` and `manifest.py` read their constants from it, and `runtime/tests/test_roles.py` binds it to the repository. A skill's script (a document's checker, the backlog's task reader) runs through `runtime/isolated.py`: `python -I -E -s <script>` in a folder the caller names, with an environment of exactly `PATH`, a fresh `HOME` (removed after), `TMPDIR`, `LANG` and `LC_ALL`; no module of the runtime loads a file of `skills/` in its own process. The container is the stronger boundary and stays open (review finding 9).
+
+**The drop.** The file drop: one folder per task in the project's `.workbench-local/drop/`, entering that task's runs only, listed in their prompt, never brought back.
+
+**What the reads carry.** The reads the interface shows are the operations of the table that list the `page` channel, and their fields are the ones a page cannot compute, so the operations layer returns them (the contract's section "The local service" has each field in full). In `status`: a request's and a task's `title` (a request's is `plan.request_title`) and `agent` (null in a project with no area agents), and `held`, the ready tasks the last round held, each with `reason`, `at` and `next`, the command that gets past the reason or null. In `agents`, per agent: `held` (how many), `wider` (for every mode above the configured one, the absolute `set-mode` command, so a page shows it and builds none), and the day's spend as `usd_recorded`, `usd_reserved`, `usd_today` (their sum), `runs_today` (the runs on a subscription or free credential), `runs_total_today` (every run of the agent), `billing` and `caps_in_use` (which of the two caps has something to count, so that a page draws only that meter). In `connections`: `platform.here` and `platform.same` (whether this machine runs the eval image as the platform the lab evidence was made on; null when unknown) and `service`, what the local service found at its start through `service-check` (null in any other process). In a refusal, `OpsError.next` is the command that gets past it. `version` is the change signal: a number the store keeps in its file's header (`change_counter` of `providers/store/sqlite.py`), raised by one in the same transaction as every write that changed a row and started again at 1 after 2,147,483,647, so two numbers are compared for difference only; the operation takes no write lock (`test_it_takes_no_write_lock_and_runs_four_statements_from_connecting_to_the_answer`). The limits of the reads are constants of `ops.py`: `COST_DAYS` (30, the default window of `costs`), `MESSAGES_PAGE` (500, the most messages one `conversation` call returns), `ARTIFACT_LIMIT` (2,000, the most files `artifacts` lists) and `ARTIFACT_MAX_BYTES` (1 MiB, the largest file `artifact` returns).
+
+## Dependencies
+
+**What it reads.**
+
+| What | How | Why |
+|---|---|---|
+| The lab (`evals/execution.py`, `evals/run_attempts.py`, the status script, the gate file) and, through it, the adapters and the container | `runtime/lab.py` only, which loads the execution kit (`evals/execution.py`) and reads the names its `__all__` lists, and of the status script the names of its `STATUS_NAMES`; the event runner, the grading and the evidence are not in the kit; the kit is loaded once, under `_LOAD_LOCK`, because the local service answers on threads (`test_the_kit_is_loaded_once_when_several_threads_ask_for_it_at_the_same_time`) | a run is the lab's run without the grading |
+| The providers | by class through `providers/resolve.py`: `store:runtime`, `integration:issue-tracker`, `integration:documents`, `integration:vcs`, `publisher:<platform>` (the handler's read-only `posts`, and the social handler's publisher), `reader:email` and `scheduler:job` (the social handler's mailbox, and the job of its vote step) | never a provider path built by hand |
+| The skills | their frontmatter (`runtime/skill_meta.py`), their runtime manifests (the reply phrases of a skill included), and a few sentences of the templates and of `AGENTS.md` that the classifier and the merge read, each bound by a test (`runtime/tests/test_skill_text_binding.py`) | what the frontmatter declares is never repeated |
+| The packs and flow files | `scripts/select_skills.py`, `runtime/flow_files.py` | the scope of an area agent; the tasks of a flow |
+| The contracts | the state file's form, the approval scopes, the secrets lookup | the runtime writes into artifacts others own |
+| The secret store | `providers/secrets/resolver.py`, with `runtime/secrets.json` | the runtime's own floor key, by name only |
+
+**Who reads it.** The shells (`runtime/cli.py`, `runtime/chat.py`, `runtime/service.py`, `runtime/mcp.py`) through `runtime/ops.py` only; `service.py` and `mcp.py` also import `runtime/shell_kit.py`, which they share and which imports nothing of the runtime (`scripts/tests/test_layer_map.py`; `test_a_shell_imports_the_kit_and_defines_none_of_what_it_owns`), and [shells.md](shells.md) describes them. The scheduler's two jobs go through `runtime/dispatcher.py`. The handlers read the store only through its provider's verbs and hand an effect to `cli.py execute-under-policy` (the exact-content paths that `EXACT_CONTENT_PORTS` lists do their own: see The handler), and import no module of `runtime/` outside `runtime/handlers/`; `social.py` imports its sibling `social_vote`, which the layer map allows.
+
+**The rules.**
+
+- No module under `runtime/` names an AI tool or a model: the model and its adapter come from the gate file (test `test_no_module_of_the_runtime_and_no_flow_file_names_an_ai_tool`).
+- `runtime/` is outside the core directories of the validator on purpose: it reads adapters through the lab, as `evals/` does, which the core may never do.
+- The facade is the only door to the lab: no other module imports anything under `evals/` (`test_no_other_module_of_the_runtime_reads_the_lab`), and the runtime has no attempt loop of its own (`test_the_runtime_has_no_loop_of_its_own`).
+- The store's functions are the runtime's own persistence, not a substitutable class (decision D2, `providers/CONTRACT.md`): one function, one transaction; the task tables have no command-line verb, and `export` prints them.
+
+## Business rules
+
+Each invariant with its guard. A test is in `runtime/tests/` unless its path is given.
+
+**The limits that live in code** ([contracts/runtime.md](../../../contracts/runtime.md), "The limits").
+
+<!-- generated: limits -->
+| # | Limit | Built by | Test named after it |
+|---|---|---|---|
+| L1 | Every run starts from a new copy, with the skills installed again from the fixed checkout | stage 2 | `runtime/tests/test_run_limits.py`, `test_limit_01_every_run_starts_from_a_new_copy_with_the_skill_staged_again` |
+| L2 | What enters: versioned files, the project's documents, the machine files the skills use, and what the person handed over through the file drop. No other file outside git. The store and the runtime's configuration never | stage 2 (the file drop: stage 3) | `runtime/tests/test_run_limits.py`, `test_limit_02_only_versioned_files_documents_and_declared_machine_files_enter_and_never_the_store_or_the_configuration` |
+| L3 | A task with the web receives only the artifacts its skill declares, and the files the person handed it (the file drop: the file is the person's own choice, and the answer to the hand-over says it will be visible to a run with the open network) | stage 2 (strict form: no allowance for web and code together) | `runtime/tests/test_run_limits.py`, `test_limit_03_a_run_with_the_web_receives_only_the_artifacts_its_skill_declares` |
+| L4 | A tool's configuration files are removed at any depth | stage 2 | `runtime/tests/test_run_limits.py`, `test_limit_04_a_tools_configuration_files_are_removed_at_any_depth` |
+| L5 | The project's `AGENTS.md` enters when the skill declares it | stage 2 | `runtime/tests/test_run_limits.py`, `test_limit_05_agents_md_enters_only_when_the_skill_declares_it_and_without_the_two_lines_the_container_cannot_serve` |
+| L6 | No credential enters the container | stage 2 (first form in stage 1) | `runtime/tests/test_run_limits.py`, `test_limit_06_no_credential_enters_the_container` |
+| L7 | The destination of each returned file comes from the path rule | stage 2 (first form in stage 1) | `runtime/tests/test_run_limits.py`, `test_limit_07_the_destination_of_each_returned_file_comes_from_the_path_rule` |
+| L8 | Only a regular file, with its real path inside the copy, comes back | stage 2 (first form in stage 1) | `runtime/tests/test_run_limits.py`, `test_limit_08_only_a_regular_file_with_its_real_path_inside_the_copy_comes_back` |
+| L9 | Code comes back as a change set; the commit is one, made by the code provider with the person's own git and signature | stage 4 | `runtime/tests/test_changeset.py`, `test_limit_09_code_comes_back_as_a_change_set_with_created_changed_and_removed_paths_and_the_executable_bit` |
+| L10 | The state file comes back through a merge made by one module | stage 2 | `runtime/tests/test_run_limits.py`, `test_limit_10_the_state_file_comes_back_through_the_merge_and_only_code_writes_what_is_the_persons` |
+| L11 | A working document never enters a commit | stage 4 | `runtime/tests/test_changeset.py`, `test_limit_11_a_working_document_never_enters_a_commit` |
+| L12 | What comes back never overwrites what changed at the origin | stage 2 (first form in stage 1) | `runtime/tests/test_run_limits.py`, `test_limit_12_what_comes_back_never_overwrites_what_changed_at_the_origin` |
+| L13 | A record only grows | stage 4 (approvals); tasks, runs and pending decisions: migration 7 of the store | `providers/store/tests/test_sqlite_approvals.py`, `test_limit_13_an_approval_is_never_deleted_and_its_status_only_moves_forward` |
+| L14 | Everything passes the credential scan before it leaves | stage 2 | `runtime/tests/test_run_limits.py`, `test_limit_14_everything_passes_the_credential_scan_before_it_leaves` |
+| L15 | An external effect is executed by code, with the exact content approved or inside an approved policy; inside a policy, by one operation (`ops.execute_under_policy`) that checks every bound and records the action | stage 4 (the exact content; a policy: stage 6; the one operation: WP-R.1; the social agent's auto reply and a class of targets resolved from a recorded fact: CONS-2a) | `runtime/tests/test_autonomy.py`, `test_limit_15_a_class_bound_covers_only_a_target_the_operation_resolved_from_a_recorded_fact`; `runtime/tests/test_effects.py`, `test_limit_15_the_effect_is_executed_by_code_with_exactly_the_approved_content` |
+| L16 | A skill with a confirmation gate runs up to the gate; what it shows there is what the person approves | stage 4 | `runtime/tests/test_effects.py`, `test_limit_16_a_skill_with_a_gate_runs_up_to_the_gate_and_what_it_showed_is_what_the_person_approves` |
+| L17 | The approval lives in the approvals table; the rows in the state file are generated copies | stage 4 | `runtime/tests/test_effects.py`, `test_limit_17_the_approval_lives_in_the_table_and_the_state_file_row_is_a_generated_copy` |
+| L18 | A document bound to an approval by hash is a machine file | stage 6 | `runtime/tests/test_run_limits.py`, `test_limit_18_a_document_bound_to_an_approval_by_hash_is_a_machine_file` |
+| L19 | The planning agent creates no task: it returns the route, and code builds the plan | stage 3 | `runtime/tests/test_run_limits.py`, `test_limit_19_the_planning_agent_creates_no_task_it_returns_the_route_and_code_builds_the_plan` |
+| L20 | The measurement files are not changed | stage 4 (for the change set: the project lists them in its protected_paths) | no test named |
+<!-- /generated -->
+
+The limit's text and the stage that built it come from the contract's table; the last column is every test named `test_limit_<nn>_...` under `runtime/tests/` and `providers/store/tests/`. The other guards of each limit are named in the contract's table. The limit with no test named after it, L20, is guarded for a change set by the project's `protected_paths` (`test_a_change_to_a_protected_path_blocks_the_change_set_and_names_the_path`) and, in this repository, by the fingerprint check of `scripts/validate.py`. L18 and L19 keep, beside the test named after them, `test_the_facts_of_later_stages_move_a_path_to_machine_or_versioned` and `test_a_valid_route_opens_a_plan_and_approving_it_creates_the_tasks`.
+
+`test_every_limit_built_so_far_has_a_test_named_after_it` checks the limits listed in `BUILT` of `runtime/tests/test_run_limits.py` (L1 to L8, L10, L12, L14, L18 and L19) and that every test the contract's table names exists.
+
+**Configuration and checkout.**
+
+- Every operation refuses a configuration whose hash is not the accepted one, and a configuration that names another checkout than the one running. Some operations run on a configuration that was not accepted, since they are how it is read, accepted or checked: `config`, `accept_config` and `service_check` call `context(check_config=False)`. `version` does not use `context` and checks the hash itself (`_accepted`): `test_config_hash.py`; `test_a_project_that_is_not_configured_or_names_another_checkout_is_refused`; `test_it_refuses_a_configuration_nobody_accepted_yet_as_every_operation_does` (`test_live_version.py`).
+- A board or documents provider other than `local` is written to only until its `expires`: `test_no_write_is_made_after_the_date_the_configuration_gives_or_under_an_unaccepted_hash`.
+
+**Runs and the copy.**
+
+- One running task per database, and one run at a time per project (the run lock): `providers/store/tests/test_sqlite_tasks.py`, `test_one_task_runs_at_a_time`; `test_one_task_at_a_time_per_project_and_an_interrupted_run_is_ended_at_the_next_one`.
+- The clean-tree rule holds for a code task only: a code run is refused while tracked files other than the state file have uncommitted changes; a document task is not held to it and makes no change set: `test_a_code_run_is_refused_while_tracked_files_of_the_project_have_uncommitted_changes`, `test_a_code_task_runs_when_the_only_uncommitted_tracked_change_is_the_state_file`, `test_a_document_task_runs_while_tracked_files_of_the_project_have_uncommitted_changes`, `test_a_document_task_never_makes_a_change_set_and_lists_a_tracked_file_it_changed_in_kept`.
+- A skill without a well-formed runtime manifest does not run: `test_a_skill_without_a_manifest_does_not_run`; `test_every_skill_of_a_pack_in_use_has_a_runtime_manifest_that_is_well_formed`.
+- The prompt names no skill: `test_the_prompt_of_a_run_names_no_skill_and_keeps_its_form`.
+- The facade never builds the eval image: `test_the_runtime_never_builds_the_eval_image_a_missing_one_is_an_error`.
+- Dependencies are installed by code, in a step that sees only the dependency files, and a failed install fails the run before any model call: `test_the_install_step_sees_only_the_dependency_files`; `test_a_failed_install_fails_the_run_before_any_model_call`.
+- A use is recorded for every run and never stops it; a verdict is the person's, one per run: `test_a_use_that_cannot_be_recorded_does_not_stop_the_run`; `test_a_verdict_is_one_of_three_words_and_no_code_path_gives_one`.
+
+**The model and the key.**
+
+- The floor tier only by proof; the person may ask for the strong tier, never for the floor: `test_proof_routing.py`, `test_the_person_can_ask_for_the_reference_model_and_never_for_the_floor_model`.
+- The key's precedence: the runtime's own key wins when stored; else the lab's key for the floor model; else the run goes to the reference model. The routing names the key by its source, never its value: `test_a_floor_run_carries_the_runtimes_own_key_and_the_environment_is_restored`, `test_without_a_key_of_its_own_a_floor_run_uses_the_labs_key_and_the_runtime_sets_nothing`, `test_without_any_key_no_run_goes_to_the_floor_model`, `test_the_key_value_never_appears_in_what_the_operation_prints_or_logs`.
+
+**Endings and pending decisions.**
+
+- The classifier never guesses, and the count of unclassified corpus runs does not grow: `test_endings_corpus.py`, `test_the_number_of_unclassified_runs_does_not_grow`; `test_no_run_that_changed_no_file_is_called_done_or_a_draft`.
+- A `waiting` task has exactly one open pending decision: `test_a_waiting_task_always_points_to_an_open_pending_decision`; `test_a_waiting_task_has_exactly_one_open_pending_decision_on_every_path_of_an_effect`.
+- A question is answered, never released: `test_a_question_is_answered_never_released_and_an_answer_needs_its_text`.
+- A mandatory milestone is one whatever the flow file says: `test_a_manifest_makes_a_task_a_milestone_whatever_the_flow_file_says`.
+
+**The state file.**
+
+- A run may add a `draft` row of the skill that ran, a decision attributed to it, and a new open question in any list form (written as `- [ ] <text>`); it never sets `approved` or `skipped`, never closes, rewords or removes a question, and never writes a line attributed to the person or another skill: `test_state_merge.py`.
+- What changed at the origin during the run wins line by line; a state file a run emptied is a conflict: `test_what_changed_at_the_origin_since_the_copy_wins_line_by_line`; `test_a_state_file_a_run_emptied_is_a_conflict_and_nothing_is_written`.
+- Only code writes the person's answer, the `Checkpoints` line and the approval rows: `test_the_persons_answer_is_written_by_code_as_a_decision_of_the_user`; `test_the_state_file_s_checkpoints_line_is_the_most_careful_of_the_enabled_agents`.
+
+**Plans and the router.**
+
+- The router's reply is a route only when it holds exactly one route line; a reply that asks is a question; `Route: none`, a name in prose or two route lines are unclassified: `test_router_step.py`.
+- A route is refused when its flow has no flow file or its skill is outside the packs of the enabled agents: `test_a_flow_route_is_valid_only_when_its_flow_file_exists`; `test_a_skill_route_is_valid_only_when_the_skill_is_in_the_pack`.
+- A flow whose skills no enabled area agent's pack holds is refused with a sentence that names the narrowest pack that holds them, never `default` or `all`: `test_a_flow_outside_the_scope_names_the_pack_the_skills_and_what_to_add`; `test_the_pack_named_is_the_narrowest_one_and_never_a_catch_all_pack`.
+- A request's title is the one given, else its first sentence when it is at most 120 characters, else its first line cut at a word: `test_without_a_title_the_first_sentence_is_the_title`; `test_a_sentence_over_the_limit_is_cut_at_a_word_with_an_ellipsis`.
+- A router run is refused while a task runs or the request has an open pending decision: `providers/store/tests/test_sqlite_platform.py`, `test_a_route_run_is_refused_while_a_task_runs_or_a_plan_is_open`.
+- A plan is approved only by its hash: `test_the_plan_hash_changes_with_any_task_and_approve_refuses_another_hash`.
+- At most 8 deliveries per request; a second route to the brief skill is not followed; sub-tasks beyond the approved plan's limits wait for an acceptance: `test_more_deliveries_than_the_limit_are_refused_before_any_run`; `test_a_second_route_to_clarify_is_not_followed`; `test_sub_tasks_beyond_the_limits_wait_for_the_person_s_acceptance`.
+
+**Autonomy, approvals and effects.**
+
+- A mode never releases a question, an unclassified reply, a draft with open questions, a gate, a `done` with no change, a blocked change set, an unproven skill or a mandatory milestone: `test_a_question_and_an_unclassified_reply_are_never_released_by_a_mode`; `test_a_mandatory_milestone_is_held_in_every_mode`; `test_a_skill_that_is_not_proven_is_held_in_every_mode`.
+- A release by a mode stays a draft and is recorded as the mode's; a set a mode completed ends in one acceptance: `test_a_release_by_a_mode_is_recorded_as_the_mode_s_and_the_delivery_stays_a_draft`; `test_a_set_released_by_a_mode_ends_with_one_acceptance_for_the_person`.
+- Only `autonomous-with-policy` makes a standing approval cover an effect, inside every bound, and an edited bounds file covers nothing: `test_only_the_policy_mode_makes_an_approval_cover`; `test_an_edited_bounds_file_covers_nothing_until_it_is_approved_again`.
+- A standing approval needs the hash shown and a future expiry; a new one revokes the earlier: `test_an_approval_needs_the_hash_shown_and_a_future_expiry`; `test_a_new_approval_of_a_policy_revokes_the_earlier_one`.
+- An effect is executed only with its exact hash, only when nothing moved since the gate, and an approval word typed as an answer is refused: `test_a_file_changed_after_the_gate_is_a_deviation_and_nothing_is_sent`; `test_a_base_that_moved_or_a_branch_that_already_exists_is_a_deviation_and_nothing_is_sent`; `test_answering_an_effect_with_only_an_approval_word_is_refused`.
+- The pull request is opened only after the commit succeeded, and a provider failure leaves the effect open with the same idempotency keys: `test_the_pull_request_is_opened_only_after_the_commit_succeeded`; `test_a_provider_failure_leaves_the_pending_decision_open_and_approving_again_uses_the_same_keys`.
+- Protected paths are checked again, with the accepted configuration, before the commit: `test_protected_paths_are_checked_again_with_the_accepted_configuration_before_the_commit`.
+- An effect is approved only from the terminal or the page, with its hash; any other channel, or none, is refused before anything is executed or sent: `test_an_effect_is_approved_in_the_terminal_and_never_from_the_conversation`; `test_an_effect_approved_with_no_channel_is_refused_and_nothing_is_executed`; `test_task_ops.py`, `test_an_effect_is_approved_from_the_terminal_and_the_page_and_from_no_other_channel`.
+- A move down the order of the modes is accepted by code and a move up never is; the accepted hash has one writer, and two changes of the configuration never overlap: `test_a_move_down_the_order_is_accepted_by_code_and_a_move_up_never_is`; `test_no_other_operation_writes_the_cursor_of_the_accepted_hash`; `test_two_set_modes_at_once_never_make_code_accept_a_widening`; `test_changes_of_the_configuration_take_a_lock_and_give_up_when_another_holds_it`.
+
+**Mirrors and the drop.**
+
+- Only tasks still open when the board is configured are mirrored: `test_a_task_already_final_when_the_board_is_configured_is_never_mirrored_and_the_count_is_said`.
+- The board takes three state moves and writes back any other; an item a person wrote waits for acceptance: `test_a_state_change_the_table_does_not_list_is_refused_and_written_back`; `test_an_item_a_person_wrote_on_the_board_waits_for_acceptance_and_cannot_be_routed_before_it`.
+- A page that changed since the runtime last wrote it is never written over: `test_a_document_both_sides_changed_is_overwritten_on_neither_side_until_the_person_takes_one`; `test_a_read_only_page_edited_after_the_last_write_is_not_overwritten_and_is_rejected`.
+- A read-only type's edit is never imported, and its page carries the notice: `test_a_read_only_page_carries_the_notice_once_and_an_editable_page_never`; `test_take_page_keeps_a_read_only_page_and_the_file_is_not_mirrored_until_it_changes_again`.
+- A person's edit is taken only when the checker passes on a scratch copy, and a task that reads a rejected document does not start: `test_the_checker_runs_on_a_scratch_copy_and_never_on_the_project`; `test_a_task_that_reads_a_rejected_document_does_not_start`.
+- The imported edit is named once to the next run of a task that reads it: `test_an_imported_edit_is_named_once_to_the_next_run_of_a_task_that_reads_it`.
+- A comment enters an answer only on the person's command: `test_a_comment_is_saved_once_and_enters_an_answer_only_on_the_persons_command`.
+- The drop refuses a link, a folder, a file over 25 MB, a bad or repeated name, a credential, a git project that does not ignore it, and a web task: `test_file_drop.py`.
+
+**The dispatcher and the caps.**
+
+- Nothing starts while a task of the project runs; the oldest ready task whose agent may start is the one started: `test_dispatcher.py`.
+- An absent cap is 0; a stopped agent or one at its cap may not start: `test_an_absent_cap_is_zero_and_never_unlimited`; `test_a_stopped_agent_and_an_agent_at_its_cap_may_not_start`.
+- A round stops at its budget (2,700 s), after a failure the next run would repeat, when the configuration changed during it, when the eval image is not on the machine, and, before a start on the reference model only, without that model's credential; a stop for the credential, the image or a moved configuration fails no task: `test_a_round_stops_at_its_budget_and_starts_no_new_run`; `test_a_round_stops_after_a_failure_the_next_run_would_repeat`; `test_a_round_without_the_reference_model_s_credential_starts_nothing_and_says_why`; `test_a_missing_image_holds_the_task_and_fails_nothing`; `test_a_narrowing_accepted_in_the_middle_of_a_round_stops_the_next_start`.
+- A ready task a round did not start has a reason, one word of the closed list `REASONS` (`other` stands for any reason outside it), and a missing credential and an unreadable secret store are told apart: `test_the_vocabulary_of_the_held_reasons_is_closed`; `test_every_ready_task_a_decision_held_gets_its_reason_and_its_agent`; `test_a_missing_credential_and_an_unreadable_secret_store_are_told_apart`.
+- The local service dispatches every 30 s unless it is started with `--no-dispatch`, and `status` then says `dispatch off` for every ready task: `test_the_service_dispatches_every_thirty_seconds_unless_told_not_to`; `test_a_service_that_dispatches_nothing_says_dispatch_off_for_every_ready_task`.
+- The poller calls no model and starts no task: `test_the_poll_calls_no_model_and_starts_no_task`.
+- The scheduler's entry refuses a configuration that is not the pinned one before it loads any code of the checkout, starts with the system interpreter, and its check names what it could not import: `test_dispatcher_entry.py`.
+- Every module runs on Python 3.9: `test_every_module_of_the_runtime_is_on_the_list_the_python_39_job_checks`; the CI job `python39`.
+
+## Entry points
+
+**The terminal shell**, `python3 runtime/cli.py <verb> --project <dir> ...`: one verb for each operation whose row lists the terminal channel (`version` lists `page` and `mcp` only and has none), one JSON object printed, exit 0 ok, 1 failed or refused, 2 usage, 3 not configured. `python3 runtime/cli.py --help` gives every flag.
+
+<!-- generated: cli-verbs -->
+| Verb | Flags it reads | Operation |
+|---|---|---|
+| `request` | `--text \| --text-file` `[--flow]` `[--title]` `[--after]` | `request` |
+| `route` | `--request` `[--flow]` | `route` |
+| `route-queued` | - | `route_queued` |
+| `status` | - | `status` |
+| `task` | `--task` | `task` |
+| `flows` | - | `flows` |
+| `config` | - | `config` |
+| `progress` | `[--since]` | `progress` |
+| `pending` | `[--id]` | `pending` |
+| `answer` | `--id` `--text \| --text-file` `[--with-comments]` | `answer` |
+| `release` | `--id` | `release` |
+| `approve` | `--id` `[--sha256]` `[--go-ahead]` | `approve` |
+| `reject` | `--id` `[--note]` | `reject` |
+| `retry` | `--task` | `retry` |
+| `go-ahead` | `--task` `[--drop-after]` | `go_ahead` |
+| `cancel` | `--request` | `cancel` |
+| `deps` | - | `deps` |
+| `run-next` | `[--tier]` | `run_next` |
+| `accept-config` | `--sha256` | `accept_config` |
+| `proof` | `[--skill]` | `proof` |
+| `verdict` | `--run` `--word` | `verdict` |
+| `sync` | `[--dry-run]` `[--take]` `[--path]` | `sync` |
+| `hand-over` | `--task` `--file` | `hand_over` |
+| `set-mode` | `--agent` `--mode` `[--accept]` | `set_mode` |
+| `approve-policy` | `--file` `--agent` `[--sha256]` `[--expires]` `[--what]` | `approve_policy` |
+| `revoke-policy` | `--id` | `revoke_policy` |
+| `standing` | `--policy` | `standing` |
+| `execute-under-policy` | `--policy` `--effect-file` `[--replay-log]` | `execute_under_policy` |
+| `contained-run` | `--skill` `--prompt-file` `--out` `[--platform]` `[--timeout-seconds]` | `contained_run` |
+| `dispatch` | - | `dispatch` |
+| `poll` | - | `poll` |
+| `handler` | `--name` `--verb` `[--arg]` | `handler_call` |
+| `pin` | - | `pin` |
+| `say` | `--text \| --text-file` | `say` |
+| `agents` | - | `agents` |
+| `conversation` | `[--conversation]` `[--after]` | `conversation` |
+| `skills` | - | `skills` |
+| `costs` | `[--since]` | `costs` |
+| `connections` | - | `connections` |
+| `artifacts` | - | `artifacts` |
+| `artifact` | `--path` | `artifact` |
+| `stop-runs` | - | `stop_runs` |
+| `service-check` | `[--dispatch-every]` | `service_check` |
+<!-- /generated -->
+
+The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-run`, `dispatch`, and `say` for a new request. The row of `release` says no model and carries `job`, yet releasing a brief routes its delivery again, which runs the router (`ops._after_release`).
+
+**The conversation**, `python3 runtime/chat.py --project <dir>`: each line is a turn of `ops.say`; a line starting with `/` is one of the commands below (the rows of the table of operations that list the chat channel, and `/help` and `/new`); any other line answers the router's question or is a new request.
+
+<!-- generated: say-commands -->
+| Command | What it does (its `help` in the table) |
+|---|---|
+| `/help` | list the commands |
+| `/status` | requests, tasks and what waits for you |
+| `/progress [since]` | where the work stands and what happened (since: 7d, <n>d or YYYY-MM-DD) |
+| `/pending [id]` | what waits for you; with an id, that decision whole |
+| `/answer <id> <text>` | answer a pending decision |
+| `/release <id>` | release a delivery (it stays a draft) |
+| `/approve <id> [sha256]` | approve a plan or an acceptance (a plan: --go-ahead <task key>, repeated, drops that task's derived waits); an effect is approved in the terminal or on the page, with its hash |
+| `/reject <id> [note]` | reject a plan, an acceptance or an effect |
+| `/retry <task id>` | make a failed or blocked task ready again |
+| `/cancel <request id>` | cancel a request |
+| `/new <text>` | start a new request, whatever is open (--after <id> before the text: run it after that request) |
+<!-- /generated -->
+
+**The operations layer is six files** (CONS-1B, ADJ-R1 for `ops_waits.py`, R4-C3 for `ops_config.py`). `runtime/ops.py` holds the operations and is the facade every shell imports; `runtime/ops_say.py` holds the conversation (`say`, `chat_memory`), `runtime/ops_reads.py` the reads of the local interface (`version`, `agents`, `skills`, `costs`, `connections`, `artifacts`, ...), `runtime/ops_config.py` the configuration's acceptance (`accept_config`, `set_mode`, the one writer of the accepted hash), and `runtime/ops_core.py` the names they all share (`ROOT`, `OpsError`, `context`, `_stored`, the two locks, the runtime's own key, the data-folder names). The rule is one home for the shared names and attribute access: every module reads a shared name as `core.<name>` at call time and never from a `from`-import of `ops_core`, so a test that patches `ops_core.ROOT` reaches every reader (a name bound at import would keep the real checkout, and the test would pass for the wrong reason); `ops_core.py` imports no other file of the layer, and a sibling reaches an operation that stays in `ops.py` at call time, so no two files import each other. `ops.py` exposes the siblings' operations under their names at its end, so the table of operations and the shells did not change. `test_runtime_rules.py` checks the three rules and keeps a size budget for `ops.py` and each sibling; the next change of the layer lowers the budget as it moves the domain out of `ops.py`.
+
+**The operations**, the table `runtime/operations.py` (`OPERATIONS`, a pure literal): one row per operation of `runtime/ops.py`, with its function, its verb, the channels that may call it, whether it calls a model and what it does. It is the port of the shells: the terminal's parser, the conversation's commands and help, and the texts that name a command derive from it, so adding an operation adds a row and a function, and adding a shell adds a file. A public function of the layer's files that is not a row (`store_module`, `context`, `task_prompt`, `code_task`, `chat_memory`) is used by other modules and tests: `test_operations_table.py` keeps the two lists equal, counting a function in the file that defines it. Each operation takes the project folder first and returns a JSON-serialisable object or raises `OpsError` with code 1, 2 or 3. A row has `name`, `call`, `args`, `channels`, `model` and `help`, and where it applies `channel_arg` (the function is told which channel called), `chat_reply` (the key of the result the conversation shows), `job` (the service and the MCP mode start it as a job) and `exit_unless` (the terminal prints the result and exits 1 unless that key has that value, as `contained-run` does for `status`); the docstring of `runtime/operations.py` defines each. Every sentence that names a terminal command (a refusal's `next`, the `wider` commands, the held reasons' commands) is built by `operations.command_line`, and the service's start command by `operations.service_line`: both are absolute from the running checkout, and both carry the `uv run --with` prefix when `started_with_uv()` says the process started through uv, which the variable `WORKBENCH_STARTED_WITH_UV` (`1` or `0`) overrides ([contracts/runtime.md](../../../contracts/runtime.md), "The commands the runtime names"): `test_a_process_started_through_uv_gets_the_prefix_and_one_started_without_it_does_not`; `test_no_sentence_of_the_operations_layer_builds_a_command_but_through_the_one_helper`. An `OpsError` carries its `code` and, for a refusal that has a command to get past it, `next`.
+
+<!-- generated: operations -->
+| Operation | Verb of `cli.py` | Channels | Calls a model | What it does |
+|---|---|---|---|---|
+| `request` | `request` | terminal, page, mcp | no | record what you want; with a flow, plan it from the flow file, else it waits for its route; with after, run it after that request |
+| `route` | `route` | terminal, page, mcp | yes, without --flow | plan a request that waits for its route: one run of the router skill, or the plan of a flow file; on the page, while a run is in progress, the request is queued |
+| `route_queued` | `route-queued` | terminal | yes | route the oldest queued line or request, when no run is in progress (the local service calls it every few seconds) |
+| `status` | `status` | terminal, chat, page, mcp, messaging | no | requests, tasks and what waits for you |
+| `task` | `task` | terminal, page, mcp, messaging | no | one task or request with its runs and its pending decisions |
+| `flows` | `flows` | terminal, page, mcp | no | the flow files of this checkout, with their titles and how many tasks each holds |
+| `config` | `config` | terminal, page | no | the configuration's path and hash, whether you accepted it, and the data folder; it never refuses |
+| `progress` | `progress` | terminal, chat, page, mcp, messaging | no | where the work stands and what happened (since: 7d, <n>d or YYYY-MM-DD) |
+| `pending` | `pending` | terminal, chat, page, mcp, messaging | no | what waits for you; with an id, that decision whole |
+| `answer` | `answer` | terminal, chat, page, mcp, messaging | no | answer a pending decision |
+| `release` | `release` | terminal, chat, page, mcp, messaging | no | release a delivery (it stays a draft) |
+| `approve` | `approve` | terminal, chat, page, messaging | no | approve a plan or an acceptance (a plan: --go-ahead <task key>, repeated, drops that task's derived waits); an effect is approved in the terminal or on the page, with its hash |
+| `reject` | `reject` | terminal, chat, page, messaging | no | reject a plan, an acceptance or an effect |
+| `retry` | `retry` | terminal, chat, page, messaging | no | make a failed or blocked task ready again |
+| `go_ahead` | `go-ahead` | terminal, page | no | go ahead on a task that waits for another request's task: its derived waits end (with drop-after, its after wait) |
+| `cancel` | `cancel` | terminal, chat, page, messaging | no | cancel a request |
+| `deps` | `deps` | terminal | no | install the dependency sets of runtime.json, by code |
+| `run_next` | `run-next` | terminal | yes | run the next ready task: one skill, once, on the model its proof gives |
+| `accept_config` | `accept-config` | terminal | no | record the hash of runtime.json you accept |
+| `proof` | `proof` | terminal | no | the model each skill in use would run on, with its bands and the two checks |
+| `verdict` | `verdict` | terminal, page | no | record your verdict on what one run delivered (worked, corrected or failed) |
+| `sync` | `sync` | terminal, page | no | mirror the tasks with the task board and the documents with the documents platform |
+| `hand_over` | `hand-over` | terminal, page | no | copy one file of yours into a task's file drop |
+| `set_mode` | `set-mode` | terminal, page | no | set one area agent's autonomy mode in runtime.json; --accept (terminal only) also accepts the hash it makes, when the file was the accepted one before |
+| `approve_policy` | `approve-policy` | terminal | no | approve a policy file for one area agent (a standing approval) |
+| `revoke_policy` | `revoke-policy` | terminal | no | end a standing approval |
+| `standing` | `standing` | terminal | no | whether an active standing approval covers a policy now; it executes nothing |
+| `execute_under_policy` | `execute-under-policy` | terminal | no | execute an effect a handler wrote, inside the bounds of a standing approval; with --replay-log, only check it |
+| `contained_run` | `contained-run` | terminal | yes | run one skill of an area agent's pack in the container on the artifacts it declares; only its reply comes out |
+| `dispatch` | `dispatch` | terminal, page | yes | one round of the dispatcher: the handlers' ticks, the releases by a mode, the next ready tasks |
+| `poll` | `poll` | terminal | no | the short job: mirrors, expired approvals, the state file's generated lines, the releases |
+| `handler_call` | `handler` | terminal | no | start one verb of a handler that runtime.json names |
+| `pin` | `pin` | terminal | no | write the pin of the dispatcher's two jobs |
+| `say` | `say` | terminal, page, mcp, messaging | yes, for a new request | one turn of the conversation with the planning agent; on the page, while a run is in progress, a line that needs the planner is queued (elsewhere refused); a question about the state is answered at once |
+| `agents` | `agents` | terminal, page, mcp, messaging | no | each area agent: its mode, its caps, what it used today and how many tasks wait for it |
+| `conversation` | `conversation` | terminal, page, mcp | no | the messages of the project's conversation above a message id, oldest first |
+| `skills` | `skills` | terminal, page, mcp, messaging | no | the skills in scope with their proof on each model, their runs here and the two checks of the proof |
+| `costs` | `costs` | terminal, page, mcp, messaging | no | the runs by day, agent, model and adapter, with the recorded cost and the cost recomputed from the prices |
+| `connections` | `connections` | terminal, page, mcp | no | which provider each requirement class resolves to, which secrets are found (never a value), the image |
+| `artifacts` | `artifacts` | terminal, page, mcp, messaging | no | the project's files under docs/ with their owner skill, size and time |
+| `artifact` | `artifact` | terminal, page, mcp, messaging | no | the text of one file under docs/ of the project, read-only |
+| `artifact_raw` | `artifact-raw` | page | no | the bytes of one image under docs/ of the project (png, jpeg, webp or svg, by its magic number), read-only; the service answers them with their media type |
+| `version` | `version` | page, mcp | no | the change signal of the project's store: a number that grows on every write, and when the file was last written |
+| `commands` | `commands` | page | no | the commands of the conversation as rows, command, arguments and help line, in the order /help prints them (the page lists them when the person types /) |
+| `stop_runs` | `stop-runs` | terminal | no | end the runs this process started (the local service calls it before it exits) |
+| `service_check` | `service-check` | terminal | no | what the local service checks at its start: the secret store, the credential, docker, the eval image and whether it dispatches (the service calls it for each project) |
+<!-- /generated -->
+
+**The dispatcher's jobs**, `/usr/bin/python3 runtime/dispatcher.py <verb> --project <dir> [--pin <file>]`, run by the scheduler from a copy kept in the job folder:
+
+<!-- generated: dispatcher-jobs -->
+| Verb | Flags | What it does (the module's docstring) | Time limit (`JOBS`) |
+|---|---|---|---|
+| `poll` | `--project <dir> [--pin <file>]` | ops.poll: the short job | 5 minutes |
+| `work` | `--project <dir> [--pin <file>]` | ops.dispatch: the worker | 240 minutes |
+| `check` | `--project <dir>` | can this interpreter run them? | - |
+| `command-file` | `--job poll\|work --project <dir> --pin <file>` | - | - |
+<!-- /generated -->
+
+`poll` mirrors, expires approvals, rewrites the state file's generated lines and makes the releases a mode makes, with no model and no task (it leaves the release of a brief, which routes its delivery again, to `dispatch`); `work` runs the handlers' ticks, the releases, then the runs one at a time while modes and caps allow, and starts no new run after 2,700 s; `check` looks for every module, the lab, the secret store, the credential, docker, uv and git; `command-file` prints a job's command file for the scheduler.
+
+**The handlers**: `python3 runtime/cli.py handler --project <dir> --name <handler> --verb <verb> [--arg k=v]` starts one verb of a handler that `runtime.json` names (the verb must be one the file declares, the table above lists them), or the file is started by hand: `python3 runtime/handlers/published_posts.py tick|preview --project <dir>` and `python3 runtime/handlers/social.py tick|pin|add-comment|status|inbox|approve|reject --project <dir>` (the usage of each is the file's docstring). `runtime/handlers/social_vote_job.py` is started by the scheduler at the vote post's slot time and never by hand.
+
+**The local service and the MCP mode** are shells too: `python3 runtime/service.py --project <dir>` and `python3 runtime/mcp.py --project <dir>`. Their flags, routes, tools and rules are on [shells.md](shells.md). The service calls the operation `service-check` for each project at its start and keeps what it found in `ops.SERVICE`, which `connections` shows as `service`.
+
+**Inspection, no model**: `python3 runtime/manifest.py --check`, `python3 runtime/flow_files.py --check`, `python3 runtime/roles.py --check`, `python3 runtime/endings.py --corpus runtime/tests/corpus/endings.jsonl`, `python3 runtime/path_rule.py <path>...`, `python3 runtime/project_config.py --project <dir>`, `python3 runtime/dispatcher.py check --project <dir>`, `python3 runtime/lab.py reference`.
+
+## Known limits and improvements
+
+| Limit or improvement | Where it is recorded |
+|---|---|
+| Closing an open question when the person's answer settles it | [stage 3 findings](../stage-3-findings-2026-10-06.md), finding 10 |
+| A bulleted request becomes one router run per bullet; the count could be shown first, or deliveries that route to one skill offered as one | [stage 3 findings](../stage-3-findings-2026-10-06.md), finding 12 |
+| The imported-edit line is built and tested, not yet seen in a live run | [stage 3 findings](../stage-3-findings-2026-10-06.md), findings 8 and 15 |
+| A sync lists comments for every mirrored item and page at every pull, so its cost grows with the store | [stage 3 findings](../stage-3-findings-2026-10-06.md), finding 7 |
+| `skill_loaded` is stored as reported and read by no rule | [backlog](../../backlog.md), R12 |
+| The board's own status property is not written | [backlog](../../backlog.md), R13 |
+| The checkout's revision is not in the dispatcher's pin (open point O11), and a scheduled job's interpreter may not read the secret store (open point O1) | [contracts/runtime.md](../../../contracts/runtime.md), "The dispatcher's two jobs" |
+| The workarounds listed under T23 leave with the next change of reference model, each marked `T23:` in the code | [backlog](../../backlog.md), T23 |
+| An effect document written before the registry of kinds names its kind `pull-request`; it is read as an unknown kind, so approving it is refused with the reason (`_approve_effect` in `ops.py`) and it opens no review | `runtime/effects.py` (`KINDS`), #225 |
+| Two glob rules: a `protected_paths` entry's `*` crosses `/` (`changeset.matches`), a policy's `files` glob's `*` does not (`autonomy.covers`) | the module docstrings of `runtime/project_config.py` and `runtime/autonomy.py` |
+| The social handlers keep two exemptions that CONS-2b, after the launch, removes: the paths that confirm and record an exact content the person approved by its hash (`EXACT_CONTENT_PORTS`: `cmd_approve`, the vote post's approval and record, the vote job) and the skill scripts they run as host subprocesses (the tolerated edges of the layer map, review finding 9: the notification parser and the vote step's scripts); a third difference, `social.py`'s own loaders, has no listed removal. The auto reply is no longer one of them (CONS-2a) | `runtime/tests/test_runtime_rules.py` (`EXACT_CONTENT_PORTS`); `scripts/tests/test_layer_map.py` (`TOLERATED`); [runtime/README.md](../../../runtime/README.md), `handlers/social.py` |
+| `runtime/ops.py` still holds the domain (the run pipeline, the approvals, the policy, the configuration, the dispatcher's operations), and `runtime/dispatcher.py` is both the decision and the scheduler's entry; the split waits for the next change of that layer, and `ops.py`'s size budget (`test_runtime_rules.py`) is lowered as code leaves it | [the review](review-2026-10-06.md), finding 10 |
+| `_effect_words` reads the side-effect vocabulary from the source text of `scripts/validate.py` with a regular expression | `scripts/tests/test_layer_map.py` (`TOLERATED`), [the review](review-2026-10-06.md), finding 11 |
+
+## Changes
+
+- 2026-10-06: first version, written from the code at the central branch's head of that day.
+- 2026-10-06: the volatile tables are generated from the code by `scripts/architecture_tables.py` (the migrations, the task-runtime tables, the limits, the verbs, the conversation's commands, the operations, the dispatcher's jobs).
+- 2026-10-07: the store's functions are the runtime's own persistence (decision D2); the known-limits rows the fixes closed are removed; the row on effect documents written before the registry of kinds is added (close-out).
+- 2026-10-08: the operations table gained the `mcp` channel on its reads and the `version` and `service-check` rows, and the cursors `config:accepted-by` and `dispatch:held` were added to the page (WP-9.7, WP-9.13 and WP-9.14, recorded late).
+- 2026-10-09: the page follows the code at the head of the central branch after WP-D.1.
+- 2026-10-09: the two generated blocks WP-D.1 placed on this page (`runtime-modules`, `handlers`) are pointed to, no number they state is repeated, and the counts left the prose (flow files, manifests, packs).
+- 2026-10-09: new Artifacts rows for `roles.json`, the contained runs, `config.lock`, `service.token` and `uploads`; the run lock's holders; the cursors `verdict:<run id>`, `mailbox:<agent>` and `vote:<round>`; the configuration keys point to the `config-keys` block of the project page.
+- 2026-10-09: new Abstractions paragraphs for the channel rule, held reasons, the contained run, the conversation and what the reads carry; the policy path's vocabulary, the narrowing under the config lock and the spend split are stated, and the planning agent's runs are counted against `planning`.
+- 2026-10-09: the handler paragraph is narrowed to `published_posts.py`, with the differences of the social handlers.
+- 2026-10-09: the dependencies, business rules and entry points gain what the code has since.
+- 2026-10-09: the unknown-effect-kind limit is corrected to a refusal at approval, the "contract lags" row is deleted because the lines of `contracts/runtime.md` it named were fixed in the same change, and rows are added for the social handlers' exemptions and review findings 10 and 11. The two known-limits rows for stage 3 findings 13 and 14 went because the findings are closed (#204, #205).
+- 2026-10-09: the effect kind paragraph follows the one registry (CONS-3): `effects.KINDS` holds `create` and `push`, keyed by the side-effect words, the policy path is generic over the kind module (`POLICY`, `policy_platform`, `policy_effect`, `policy_argv`) and `POLICY_CALLS` is gone; `EFFECT_KEYS` and `RESERVED_FLAGS` moved to `effects.py`.
+- 2026-10-09: the social agent's auto reply goes through `execute-under-policy` (CONS-2a): the effect kind `publish` (`runtime/effect_reply.py`) with two optional kind names, `resolve_targets` and `policy_judgement`; the bounds of a Markdown engagement policy are derived from its block at approval; `autonomy.covers` takes a class of targets that is covered only by what the operation resolved from the publisher's ledger (an X change of limit L15, with its own test); the gate runs through `runtime/isolated.py`; the exemption of the social handlers shrinks from three files to the exact-content functions (`EXACT_CONTENT_PORTS`); the `replay` verb of `social.py` and the argument `--replay-log` of the operation serve the cut-over.
+- 2026-10-09: the operations layer is four files (CONS-1B): the shared names are `runtime/ops_core.py`, read as attributes; the conversation is `runtime/ops_say.py` and the reads of the interface `runtime/ops_reads.py`; `ops.py` is the facade, under a size budget. The lock, key and conversation rows and the known-limit row on the size of `ops.py` follow.
+- 2026-10-09: the conversation queues a line or a request typed during a run and the service routes it when the run ends; a question about the state and a direct turn are answered by code; an unrecognised route is one sentence with two actions; the held rows carry their commands as fields; a web task takes a handed-over file; the Desk list carries each file's kind and the raw route answers an image's bytes (ADJ-R2).
+- 2026-10-09: the known limit "a file cannot be handed to a task with the web" is removed (the maintainer decided it; `WEB_TASK_TAKES_DROP` is true); the page's policy gains `img-src 'self' blob:`; only the page queues a line or a request during a run, the terminal and the MCP mode are refused as before (ADJ-R2).
+- 2026-10-09: the derived waits between requests (ADJ-R1, A-29): migration 8 (`tasks.after_request`, `task_waits`), `plan.derive`, the fifth part of the operations layer `ops_waits.py`, the held reason `waiting`, `request --after` and `approve --go-ahead`, the wait in a mirrored item's note; the brand flow's voice task says the profile is written by hand for a product brand. The `store-migrations`, `task-runtime-tables`, `runtime-modules`, `operations`, `cli-verbs`, `say-commands` and `held-reasons` blocks are regenerated.
+- 2026-10-09: `go-ahead --task <id>` (ADJ-R1): the go-ahead on a task already created, from the terminal and the page; the `operations` and `cli-verbs` blocks are regenerated.
+- 2026-10-09: the review of ADJ-R1: a skill that reads its own output waits for no task of its own skill; the Required column is `flow_files.required_inputs`, the validator's reader; a go-ahead is about the waits shown (the dropped wait, not a marker for ever), and a key with no wait is refused; `go-ahead --task <id> --drop-after`; `task_retry`, `tasks_add` and the accepted sub-tasks take their waits in the same transaction; the board reads `after #n` only as an instruction and names the awaited tasks in the note; the brand flow's title is short.
+- 2026-10-10: the daily caps follow the billing of the credential, not the model's tier (ADJ-R3, A-38): `billing` on every credential of an adapter's manifest and `login_billing` (the validator requires them), `runtime/billing.py`, migration 9 (`task_runs.billing`), `autonomy.spend_split(runs, agent, per_run_usd)` and `may_start(..., billing)`, `billing` in the dispatcher's snapshot, the cost of a metered run kept on any tier, `billing` and `caps_in_use` in `agents`, and the page's meters named "Runs today" and "Spend today", drawn only for a cap in use.
+- 2026-10-10: the conversation's commands are data (R4-C1, R-45): the operation `commands` (a row of the table with the channel `page`, in `runtime/ops_reads.py`) and the route `GET /projects/{p}/commands` answer `{"commands": [{"command", "arguments", "help"}]}`, the rows `/help` prints in its order (`operations.chat_command_rows`, built from `chat_commands`, the one source of the help); `/help`'s own help line reads `list the commands`; the `say-commands`, `operations` and `service-routes` blocks are regenerated.

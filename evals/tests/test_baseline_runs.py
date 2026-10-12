@@ -32,7 +32,9 @@ er = t.er
 def own_lock_folder(tmp_path, monkeypatch):
     """The lock the runner processes of a machine share is each test's own, and nothing waits before a retry."""
     monkeypatch.setattr(er, "LOCK_DIR", str(tmp_path / "locks"))
+    monkeypatch.setattr(er.KIT, "LOCK_DIR", str(tmp_path / "locks"))
     monkeypatch.setattr(er, "RETRY_PAUSE", 0)
+    monkeypatch.setattr(er.KIT, "RETRY_PAUSE", 0)
 
 
 def demo(tmp_path, monkeypatch, **gate):

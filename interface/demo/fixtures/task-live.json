@@ -1,0 +1,56 @@
+{
+  "task": {
+    "id": 8,
+    "parent_id": 7,
+    "flow": "code-demo",
+    "key": "first",
+    "skill": "eng-implement",
+    "agent": null,
+    "title": "First change",
+    "text": "make the first change.",
+    "state": "running",
+    "depends_on": [],
+    "milestone": 0,
+    "note": null,
+    "created_at": "2026-10-01T09:00:00Z",
+    "updated_at": "2026-10-01T09:00:00Z",
+    "remote_id": null,
+    "remote_version": null,
+    "remote_written_sha256": null,
+    "after": null,
+    "waiting_for": []
+  },
+  "drop": {
+    "web": false,
+    "takes": true,
+    "line": null
+  },
+  "runs": [
+    {
+      "id": 7,
+      "task_id": 8,
+      "skill": "eng-implement",
+      "skill_version": "0.1.0",
+      "skill_sha256": null,
+      "model": "m",
+      "adapter": "h",
+      "web": 0,
+      "status": "running",
+      "failure": null,
+      "ending": null,
+      "attempts": 0,
+      "started_at": "2026-10-01T09:00:00Z",
+      "ended_at": null,
+      "cost_usd": null,
+      "tokens": null,
+      "duration_ms": null,
+      "skill_loaded": null,
+      "image_digest": null,
+      "run_dir": null,
+      "error": null,
+      "redactions": null,
+      "billing": "subscription"
+    }
+  ],
+  "pending": []
+}

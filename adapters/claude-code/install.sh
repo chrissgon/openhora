@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
-# Install ai-workbench into Claude Code as a plugin.
+# Install openhora into Claude Code as a plugin.
 #
 # Usage: bash adapters/claude-code/install.sh [--pack <name>] [--dry-run] [--uninstall]
 #          [--listing-budget print|write|skip] [--project <dir>] [--settings-scope project|local|user]
 #
 # Builds build/<pack>/ (a plugin folder with symlinked skills, the shared references beside them
-# and generated agents), then symlinks it to ~/.claude/skills/ai-workbench (CLAUDE_SKILLS_DIR
+# and generated agents), then symlinks it to ~/.claude/skills/openhora (CLAUDE_SKILLS_DIR
 # replaces ~/.claude/skills). Claude Code loads any folder under a skills directory that contains
 # .claude-plugin/plugin.json as a plugin on the next session.
 # Default pack: default (every area except optional ones). See packs/README.md.
 # One pack is installed at a time: an install removes the builds of other packs, --uninstall
 # removes the link and every build. A pack that selects no skill is reported and changes nothing.
+# Compatibility stage of the rename (removed with T23): a link named ai-workbench under the same skills
+# directory that points into this checkout's build/ is the plugin as it was called before; an install
+# removes it (and says so) so that two plugins do not load, and --uninstall removes either link.
 # When the linked folder is not picked up, load the build for one session instead:
 #   claude --plugin-dir adapters/claude-code/build/<pack>
 # The skill listing: Claude Code lists skills within a character budget, SLASH_COMMAND_TOOL_CHAR_BUDGET,
@@ -25,7 +28,9 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
-TARGET="${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}/ai-workbench"
+SKILLS_HOME="${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}"
+TARGET="$SKILLS_HOME/openhora"
+LEGACY_TARGET="$SKILLS_HOME/ai-workbench"  # T23: the link of the installer before the rename
 BUDGET="$HERE/listing_budget.py"
 PACK="default" DRY=0 UNINSTALL=0 BUDGET_MODE="print" SCOPE="project" PROJECT=""
 need() { [[ $# -ge 2 ]] || { echo "Error: $1 needs a value. See --help." >&2; exit 2; }; }
@@ -37,7 +42,7 @@ while [[ $# -gt 0 ]]; do
     --listing-budget) need "$@"; BUDGET_MODE="$2"; shift 2 ;;
     --settings-scope) need "$@"; SCOPE="$2"; shift 2 ;;
     --project) need "$@"; PROJECT="$2"; shift 2 ;;
-    --help|-h) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --help|-h) sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Error: unknown option '$1'. See --help." >&2; exit 2 ;;
   esac
 done
@@ -61,6 +66,13 @@ PY
 }
 # Only a link into this adapter's build folder is ours to replace or remove.
 ours() { [[ -L "$TARGET" && "$(readlink -- "$TARGET")" == "$HERE/build/"* ]]; }
+legacy_ours() { [[ -L "$LEGACY_TARGET" && "$(readlink -- "$LEGACY_TARGET")" == "$HERE/build/"* ]]; }
+# Removes the old link when it is ours and says so; prints nothing on stdout.
+remove_legacy() {
+  legacy_ours || return 1
+  rm -f -- "$LEGACY_TARGET"
+  echo "Removed the old plugin link $LEGACY_TARGET: the plugin is now called openhora." >&2
+}
 budget_arg=()
 if [[ $UNINSTALL -eq 1 ]]; then
   # The settings values this installer wrote are put back first: they are its own whatever the link is.
@@ -68,15 +80,21 @@ if [[ $UNINSTALL -eq 1 ]]; then
   undo_status=0
   undone="$(python3 "$BUDGET" "${undo_args[@]}")" || undo_status=$?
   [[ -n "$undone" && "$undone" != "{}" ]] && budget_arg=("listing_budget:=$undone")
-  [[ $DRY -eq 1 ]] && { emit "would_remove=$TARGET" ${budget_arg[@]+"${budget_arg[@]}"}; exit 0; }
+  legacy_arg=()
+  if [[ $DRY -eq 1 ]]; then
+    legacy_ours && legacy_arg=("would_remove_legacy=$LEGACY_TARGET")
+    emit "would_remove=$TARGET" ${legacy_arg[@]+"${legacy_arg[@]}"} ${budget_arg[@]+"${budget_arg[@]}"}; exit 0
+  fi
+  # Either link is removed when it is ours; one that points elsewhere is left in place.
+  remove_legacy && legacy_arg=("legacy_removed=$LEGACY_TARGET")
   if ours; then
     rm -f -- "$TARGET"
     python3 "$HERE/build.py" --clean >/dev/null
-    emit "removed=$TARGET" ${budget_arg[@]+"${budget_arg[@]}"}; exit "$undo_status"
+    emit "removed=$TARGET" ${legacy_arg[@]+"${legacy_arg[@]}"} ${budget_arg[@]+"${budget_arg[@]}"}; exit "$undo_status"
   fi
   [[ -e "$TARGET" || -L "$TARGET" ]] && { echo "Error: $TARGET was not created by this installer; left in place." >&2; exit 1; }
   python3 "$HERE/build.py" --clean >/dev/null
-  emit "removed:=null" ${budget_arg[@]+"${budget_arg[@]}"}; exit "$undo_status"
+  emit "removed:=null" ${legacy_arg[@]+"${legacy_arg[@]}"} ${budget_arg[@]+"${budget_arg[@]}"}; exit "$undo_status"
 fi
 selected="$(python3 "$ROOT/scripts/select_skills.py" --pack "$PACK" --lines)" || exit 2
 if [[ -z "$selected" ]]; then
@@ -97,7 +115,9 @@ if [[ $DRY -eq 1 ]]; then
   python3 "$HERE/build.py" --pack "$PACK" --prune --dry-run
   b="$(budget)" || exit $?
   [[ -n "$b" ]] && budget_arg=("listing_budget:=$b")
-  emit "would_link=$TARGET" "to=$BUILD" ${budget_arg[@]+"${budget_arg[@]}"}; exit 0
+  legacy_arg=()
+  legacy_ours && legacy_arg=("would_remove_legacy=$LEGACY_TARGET")
+  emit "would_link=$TARGET" "to=$BUILD" ${legacy_arg[@]+"${legacy_arg[@]}"} ${budget_arg[@]+"${budget_arg[@]}"}; exit 0
 fi
 if [[ -e "$TARGET" || -L "$TARGET" ]] && ! ours; then
   echo "Error: $TARGET exists and was not created by this installer. Move it away or set CLAUDE_SKILLS_DIR." >&2; exit 1
@@ -108,6 +128,9 @@ b="$(budget)" || exit $?
 python3 "$HERE/build.py" --pack "$PACK" --prune >/dev/null
 mkdir -p "$(dirname "$TARGET")"
 ln -sfn "$BUILD" "$TARGET"
+# The plugin loaded once under its old name: take that link away now that the new one exists.
+legacy_arg=()
+remove_legacy && legacy_arg=("legacy_removed=$LEGACY_TARGET")
 emit "linked=$TARGET" "to=$BUILD" "pack=$PACK" \
-  "next=restart the session; the plugin loads as ai-workbench@skills-dir" \
-  "fallback=claude --plugin-dir $BUILD" ${budget_arg[@]+"${budget_arg[@]}"}
+  "next=restart the session; the plugin loads as openhora@skills-dir" \
+  "fallback=claude --plugin-dir $BUILD" ${legacy_arg[@]+"${legacy_arg[@]}"} ${budget_arg[@]+"${budget_arg[@]}"}

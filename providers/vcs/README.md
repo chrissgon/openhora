@@ -6,7 +6,7 @@ Implementations of the `integration:vcs` class. Interface: `providers/CONTRACT.m
 
 Reads a repository's Dependabot alerts and dismisses one, through the GitHub REST API (`X-GitHub-Api-Version: 2026-03-10`). It is the native layer for the security review of a project's dependencies (backlog S8).
 
-It also reads one file (`read-file`, REST contents API) and commits files to a branch (`commit-files`, git over SSH). A caller reads a file of a repository with the first and, after the person's approval, commits new files to it with the second.
+It also reads one file (`read-file`, REST contents API), commits files to a branch (`commit-files`, git over SSH) and opens a pull request (`open-pr`, REST API). A caller reads a file of a repository with the first and, after the person's approval, commits new files to it with the second and proposes them with the third.
 
 ### Setup (once)
 
@@ -14,7 +14,7 @@ It also reads one file (`read-file`, REST contents API) and commits files to a b
 2. Store it in the OS secret store (the token is typed at a hidden prompt, never on the command line):
 
    ```sh
-   uv run --with keyring==25.7.0 keyring set ai-workbench github
+   uv run --with keyring==25.7.0 keyring set openhora github
    ```
 
    Or export it as `VCS_GITHUB_TOKEN` for the session; the environment is read first (`VCS_GITHUB_TOKEN`, then `GITHUB_TOKEN`, which a harness or CI may set for itself with other permissions).
@@ -59,6 +59,9 @@ uv run providers/vcs/github.py commit-files --repo example-org/site --branch mai
     --allow data/state.json --allow data/queue.json --allow 'assets/images/*' \
     --idempotency-key site-12-queue --dry-run          # then the same with --confirmed after the gate
 uv run providers/vcs/github.py resolve --idempotency-key site-12-queue --not-committed --confirmed
+uv run providers/vcs/github.py commit-files --repo example-org/site --branch wb/request-7 --from-branch main \
+    --message-file msg.txt --file scripts/build.sh=out/build.sh --mode scripts/build.sh=755 \
+    --delete scripts/old-build.sh --allow 'scripts/*' --idempotency-key site-request-7 --dry-run
 ```
 
 - It uses git, not the API, so the commit is made and signed by your own git configuration (`user.name`, `user.email`, `commit.gpgsign true`, `gpg.format ssh`, `user.signingkey`), exactly like your own commits. It reads no token. An unsigned commit is never pushed (exit 3). Your git hooks run and the repository's attributes apply (a line-ending or filter rule in `.gitattributes`), and either can change a file on its way into the commit: before the push the provider hashes the blob of every path in the commit and compares it with the sha256 of the file it was given, the one a dry run prints. A difference exits 1, pushes nothing and releases the key; the same check refuses to report `unchanged` for a branch that holds other bytes.
@@ -69,16 +72,38 @@ uv run providers/vcs/github.py resolve --idempotency-key site-12-queue --not-com
 - A push rejected because the branch moved (for example the repository's own workflow committed meanwhile) is retried once after a fresh clone; a second rejection exits 1 and releases the key, so a later run may try again.
 - `--dry-run` clones and writes, then prints the diff (`diff_stat`, and `diff` capped at 20 kB with `diff_truncated`), the message, the base commit and each file's sha256. It never commits, pushes or writes the ledger. That output is what a confirmation gate shows.
 - The key is recorded as pending before the push and as committed (with the commit sha) after it. A timeout, a crash, an SSH failure during the push (the connection can die after GitHub took the commit) or a push report that is neither `[rejected]` nor `[remote rejected]` (git also marks with `!` a remote that did not report its status) leaves it pending (with the commit it tried to push); an SSH failure during the clone, before anything was sent, releases it; every new attempt is refused until `resolve --commit <sha>` or `resolve --not-committed` records what the branch on GitHub shows. The same key with the same change set replays the recorded commit without pushing; with another change set it is refused.
+- `--delete <repo-path>` (repeat) removes a path in the same commit. It is checked like a `--file` path (safe, inside an `--allow` glob, given once, never also a `--file`); files and deletions together are at most 50, and a call needs at least one of either. In the clone the deletions come first: a deleted path reached through a symlink the repository holds, or that is itself a symlink or a folder, is refused (exit 1, nothing pushed); a path the branch does not hold is skipped.
+- `--mode <repo-path>=<644|755>` (repeat) sets the mode of a `--file` path of the call in the commit; any other path, a second mode for one path or another value exits 2. Without it a new file is `644` and an existing file keeps its mode.
+- `--from-branch <base>`: the provider first asks the remote whether `--branch` exists (`git ls-remote --exit-code --heads`). If it does, nothing changes and the base is not used. If it does not, the clone is of `<base>` and the branch is created in it, at the base's head, before anything is written; a base that does not exist exits 1. Without `--from-branch`, a missing branch is an error as before.
+- Before the push, besides every blob, the provider checks that each `--mode` path has that mode in the commit and that no deleted path is still in it; otherwise it pushes nothing (exit 1).
+- The ledger records `deletes`, `modes` and `from_branch` only when the call uses them; a key recorded before these flags existed replays as before, and the same key with other deletions, modes or base is refused. The dry run also prints `deletes`, `modes`, `from_branch` and `branch_exists`.
 - When the branch already holds exactly these files, nothing is committed: `unchanged: true`, `pushed: false`.
 - git, and through it ssh and your hooks, run with the caller's environment minus two things: the `GIT_*` variables that would point git at another repository or change what is committed (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_AUTHOR_*` and the rest; only `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_SYSTEM`, `GIT_CONFIG_NOSYSTEM`, `GIT_SSH` and `GIT_SSH_COMMAND` are kept), and every secret registered in `providers/secrets/resolver.py`. So the provider can be started from a git hook without committing in the hook's repository, and no hook sees the token.
-- Output: `{idempotency_key, repo, branch, commit, files: [{path, sha256}], pushed, unchanged, signature, replayed, attempts}`.
+- Output: `{idempotency_key, repo, branch, commit, files: [{path, sha256}], deletes, pushed, unchanged, signature, replayed, attempts}`.
 - A scheduled job must reach your SSH agent (for the push, and for the signature when `user.signingkey` is a public key held by the agent). Check once from the same kind of session with a `--dry-run`.
+
+### Opening a pull request
+
+```sh
+uv run providers/vcs/github.py open-pr --repo example-org/site --head wb/request-7 --base main \
+    --title-file title.txt --body-file body.md --idempotency-key site-request-7-pr --dry-run   # then --confirmed
+uv run providers/vcs/github.py resolve --idempotency-key site-request-7-pr --pull-request 31 --confirmed
+```
+
+- One `POST /repos/{owner}/{repo}/pulls` with `title`, `head`, `base` and `body` (source: the OpenAPI description of the pinned version, operation `pulls/create`, [Create a pull request](https://docs.github.com/rest/pulls/pulls#create-a-pull-request), read 2026-10-06). The service answers 201 with the pull request; `number` and `html_url` are read. It answers 422 when a pull request already exists for the head or a branch does not exist.
+- The token needs the repository permission **Pull requests: Read and write**, and nothing else. It has a name of its own, `VCS_GITHUB_PR_TOKEN`: store it once with `uv run --with keyring==25.7.0 keyring set openhora github-pr` (a hidden prompt), or export it for the session. `open-pr` reads that name first (the environment, then the secret store) and falls back to `VCS_GITHUB_TOKEN` (then `GITHUB_TOKEN`, then the store's `github`) only when the name is found nowhere. It says on stderr which name it used and where it found it (`open-pr uses VCS_GITHUB_PR_TOKEN, found in the secret store`), never the value. No other verb reads it, and the everyday token keeps no pull-request permission.
+- `--head` and `--base` are branch names that differ; the title file holds one UTF-8 line; the body file is UTF-8, not empty, at most 64 kB. Every flag and both files are checked before a token is read or a request made. The title and the body are usually written by a model: they are sent as data, never interpreted.
+- `--dry-run` prints the exact request, the sha256 of the title and of the body, the key and `existing_status`; it reads no credential and calls nothing.
+- One pull request per idempotency key: the key is recorded as pending before the request and as opened (with the number and the page) after the 201. A key already opened replays without a request and without a token; the same key for another repository, branch, title or body is refused (exit 2). A refusal by the service (any 4xx) opened nothing and releases the key; a timeout, a lost connection or a server error keeps it pending until `resolve --pull-request <number>` or `resolve --not-opened` records what GitHub shows.
+- It opens a pull request and nothing else: it never merges, approves, comments on or edits one.
+- Output: `{idempotency_key, repo, head, base, number, url, replayed}`.
 
 ### Environment variables
 
 | Variable | Purpose |
 |----------|---------|
-| `VCS_GITHUB_TOKEN` | Optional; a token from the environment instead of the secret store (service `ai-workbench`, username `github`). Read before `GITHUB_TOKEN`. |
+| `VCS_GITHUB_TOKEN` | Optional; a token from the environment instead of the secret store (service `openhora`, username `github`). Read before `GITHUB_TOKEN`. |
+| `VCS_GITHUB_PR_TOKEN` | Optional; the token that opens a pull request, from the environment instead of the secret store (service `openhora`, username `github-pr`). Read by `open-pr` only, before the everyday token. |
 | `VCS_GITHUB_LEDGER` | Path of the idempotency ledger. Default, in a data folder: `~/Library/Application Support/ai-workbench/vcs-github.json` on macOS, `$XDG_DATA_HOME/ai-workbench/vcs-github.json` (or `~/.local/share/...`) elsewhere. It used to be `~/.cache/ai-workbench/vcs-github.json` (or under `$XDG_CACHE_HOME`), where clearing the cache lost the record: on first use, when the new file does not exist and the old one does, the provider copies the old ledger to the new place, says so on stderr and never deletes the old one. Jobs scheduled before this change run a copy of the old provider and keep writing to the old location, so they must be scheduled again after upgrading. |
 | `VCS_GITHUB_API_BASE` | Tests only: a loopback URL that replaces `https://api.github.com`. When set, the secret store is not read. |
 | `VCS_GITHUB_HTTP_TIMEOUT` | Tests only, with `VCS_GITHUB_API_BASE`: request timeout in seconds (default 30). |

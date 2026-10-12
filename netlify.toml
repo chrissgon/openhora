@@ -1,0 +1,20 @@
+# The public website (site/), deployed as static files. The base is the repository root because the build copies interface/
+# (scripts/build_demo.py); the demo of the Interface page is generated into site/demo/ at deploy time and is not committed.
+# /proof is served from proof.html and the not-found page is site/404.html: Netlify does both by itself (pretty URLs, 404.html).
+[build]
+  base = "/"
+  publish = "site"
+  command = "python3 scripts/build_demo.py --out site/demo --replace"
+
+[build.environment]
+  PYTHON_VERSION = "3.11"
+
+# Everything comes from the site's own origin: no inline script, no external font, image or request. Two allowances, both for data that
+# cannot run script: style-src-attr 'unsafe-inline' for the style attributes that set a custom property (style="--i:3"; style-src stays
+# 'self'), and data: images, which the vendored component stylesheet and the site's own stylesheet use for the marks of checkboxes and selects.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = "default-src 'none'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; font-src 'self'; img-src 'self' data:; frame-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "same-origin"

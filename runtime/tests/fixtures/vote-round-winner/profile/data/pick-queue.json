@@ -1,0 +1,10 @@
+[
+ {
+  "pillar": "Small tools",
+  "options": {
+   "A": "tinykv's test suite runs in 1.8 seconds",
+   "B": "A 40-line script replaced my monitoring agent",
+   "C": "Why tinykv's README is 60 lines"
+  }
+ }
+]

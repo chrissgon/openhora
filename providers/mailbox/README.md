@@ -19,11 +19,11 @@ The full steps are in `uv run providers/mailbox/auth.py --help`. In short:
 5. Store the client id and secret (typed at a hidden prompt, never on the command line):
 
    ```sh
-   uv run --with keyring==25.7.0 keyring set ai-workbench gmail-client-id
-   uv run --with keyring==25.7.0 keyring set ai-workbench gmail-client-secret
+   uv run --with keyring==25.7.0 keyring set openhora gmail-client-id
+   uv run --with keyring==25.7.0 keyring set openhora gmail-client-secret
    ```
 
-6. Run `uv run providers/mailbox/auth.py --provider gmail`, sign in with the Gmail account to read and approve. The refresh token, the granted scope and the account address go to the OS secret store (service `ai-workbench`, username `mailbox-gmail`) as one JSON record, never to disk.
+6. Run `uv run providers/mailbox/auth.py --provider gmail`, sign in with the Gmail account to read and approve. The refresh token, the granted scope and the account address go to the OS secret store (service `openhora`, username `mailbox-gmail`) as one JSON record, never to disk. A record authorised before the rename is still read through the fallback to the old service, so authorising again is not required (`contracts/secrets.md`).
 7. Verify: `uv run providers/mailbox/gmail.py --check` prints `{"ok": true, "account": ..., "token_source": ..., "scope": ...}`.
 
 The authorization uses PKCE (S256), a random `state` compared in constant time on the callback, `access_type=offline` and `prompt=consent`. If the consent screen shows a box for Gmail, keep it ticked: without the scope nothing is stored.

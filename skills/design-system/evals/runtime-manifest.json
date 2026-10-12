@@ -1,0 +1,31 @@
+{
+  "skill": "design-system",
+  "documents": [
+    {
+      "path": "docs/design/design-system.md",
+      "checks": [
+        [
+          "lint_design_system.py",
+          "--file",
+          "{path}",
+          "--flows",
+          "docs/design/flows.md"
+        ]
+      ],
+      "platform": "editable",
+      "bound_to_approval": false
+    }
+  ],
+  "machine_files": [],
+  "mandatory_milestone": false,
+  "asking_openings": [],
+  "gate": {
+    "effect": "create",
+    "payload_file": "<tmp>/payload.md"
+  },
+  "reply_phrases": {
+    "question_intros": [
+      "Questions ("
+    ]
+  }
+}

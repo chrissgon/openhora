@@ -228,6 +228,44 @@
           ]
         }
       ]
+    },
+    {
+      "id": 9,
+      "prompt": "We need a brand for Lumen Desk, our help-desk tool for small clinics: what it stands for, a name check, a look, a voice and one guide. Create it from nothing.\n\nFor this task: tell me which skill or flow would handle the request above, and whether it has what it needs. I only want the route: do not start it and do not do any of its work.",
+      "expected_output": "A routing block whose Route line reads `Route: flow-brand (flow, pending)`: the flow is planned, not built. Nothing is handed over and no brand work is done; at most one fallback is proposed. No file other than docs/workbench/state.md changes.",
+      "files": [
+        "evals/files/route-brand"
+      ],
+      "grader_files": [
+        "docs/workbench/state.md"
+      ],
+      "assertions": [
+        {
+          "text": "The `Route:` line names `flow-brand` and no other skill is given as the route; a skill named as what creates the state file, as installed or not installed, or as the one fallback does not count",
+          "tags": [
+            "format"
+          ]
+        },
+        {
+          "text": "The reply holds exactly one line that starts with `Route:`, and that line has the form `Route: <name> (<capability or flow>, <ready or pending>)`",
+          "tags": [
+            "format"
+          ]
+        },
+        {
+          "text": "No brand work is performed in the output: no brand name, positioning statement, palette, tone rule or strategy text is proposed",
+          "tags": [
+            "guard"
+          ]
+        },
+        {
+          "text": "No file other than docs/workbench/state.md is among the files the run produced or changed",
+          "tags": [
+            "guard"
+          ]
+        },
+        "At most one fallback is proposed: one installed skill, or doing part of the work directly with its limits stated"
+      ]
     }
   ]
 }

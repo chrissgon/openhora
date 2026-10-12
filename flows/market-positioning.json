@@ -1,0 +1,22 @@
+{
+  "flow": "market-positioning",
+  "title": "Market and positioning",
+  "tasks": [
+    {
+      "key": "market",
+      "skill": "biz-market-analysis",
+      "title": "Market analysis",
+      "text": "do the market analysis for this request and write docs/business/market.md, so that we know which offer or segment to pursue first.",
+      "depends_on": [],
+      "milestone": false
+    },
+    {
+      "key": "positioning",
+      "skill": "biz-icp-positioning",
+      "title": "Ideal customer profile and positioning",
+      "text": "the market analysis is done (docs/business/market.md). Choose who we should sell to first and how we stand out: write the ideal customer profile and the positioning.",
+      "depends_on": ["market"],
+      "milestone": true
+    }
+  ]
+}

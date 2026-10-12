@@ -47,17 +47,31 @@ A command file for the agent runtime's tick:
 
 ```json
 {
-  "argv": ["/usr/bin/python3", "/abs/ai-workbench/scripts/runtime.py", "tick",
+  "argv": ["/usr/bin/python3", "/abs/openhora/scripts/runtime.py", "tick",
            "--project", "/abs/project", "--pin", "/abs/data/tick-pin.json"],
   "cwd": "/abs/project",
-  "snapshot": ["/abs/ai-workbench/scripts/runtime.py", "/abs/ai-workbench/scripts/runtime_vote.py",
-               "/abs/ai-workbench/scripts/redact.py", "/abs/ai-workbench/providers/resolve.py",
+  "snapshot": ["/abs/openhora/scripts/runtime.py", "/abs/openhora/scripts/runtime_vote.py",
+               "/abs/openhora/scripts/redact.py", "/abs/openhora/providers/resolve.py",
                "/abs/data/tick-pin.json"],
   "timeout_minutes": 30
 }
 ```
 
 The agent is not an argument: the tick reads it from the project's `docs/workbench/runtime.json`. `argv[0]` is the system interpreter by its fixed path, whose hash does not change with a package upgrade (a bare `python3` is resolved on the approver's `PATH` and hashed wherever it was found). The job runs the copy of `runtime.py` kept in its folder, so whatever that script finds next to itself (its sibling module `runtime_vote.py`; `redact.py`, the credential formats every text is checked against before it is published; and `providers/resolve.py`; the last two it loads from its own folder first and from the configured workbench otherwise) has to be in the snapshot too or passed as an argument; a folder argument such as `--project` is not snapshotted or verified. `--pin` names the file `runtime.py pin --project <dir>` writes (in the runtime's `data_dir`): run it just before scheduling. It holds the sha256 of `runtime.json` and of the gate script, and, being in the snapshot, it is part of what the person approves; at every firing the tick refuses to run when either file differs. What the approval does not cover is listed in `contracts/runtime.md`, "What the approval of a recurring tick covers".
+
+A command file for the task runtime's worker, as `/usr/bin/python3 runtime/dispatcher.py command-file --job work --project <dir> --pin <pin>` prints it (the poller's is the same with `poll` and `"timeout_minutes": 5`):
+
+```json
+{
+  "argv": ["/usr/bin/python3", "/abs/openhora/runtime/dispatcher.py", "work",
+           "--project", "/abs/project", "--pin", "/abs/data/dispatch-pin.json"],
+  "cwd": "/abs/project",
+  "snapshot": ["/abs/openhora/runtime/dispatcher.py", "/abs/data/dispatch-pin.json"],
+  "timeout_minutes": 240
+}
+```
+
+The entry works alone from its copy: it checks `runtime.json` against the pin `runtime/cli.py pin` wrote before it loads the checkout `runtime.json` names. What the two jobs' approval covers, and how a scheduled run reaches the model's credential, is in `contracts/runtime.md`, "The dispatcher's two jobs".
 
 ### Usage
 
@@ -79,14 +93,14 @@ Command file:
   "argv": ["uv", "run", "/abs/providers/publisher/linkedin.py", "publish", "--platform", "linkedin",
            "--text-file", "/abs/post.txt", "--media", "/abs/image.png",
            "--idempotency-key", "launch-post", "--confirmed"],
-  "cwd": "/abs/ai-workbench",
+  "cwd": "/abs/openhora",
   "snapshot": ["/abs/providers/publisher/linkedin.py", "/abs/providers/secrets/resolver.py",
                "/abs/post.txt", "/abs/image.png"],
   "grace_minutes": 120
 }
 ```
 
-A provider reads its credential through `providers/secrets/resolver.py`; the job runs a copy of the provider from its own folder, so the resolver goes into the snapshot too, and the copy finds it next to itself. A job scheduled without it fails at run time with a message that names the snapshot. Jobs scheduled before 2026-09-28 hold a copy of the provider from before the resolver and run as they are.
+A provider reads its credential through `providers/secrets/resolver.py`; the job runs a copy of the provider from its own folder, so the resolver goes into the snapshot too, and the copy finds it next to itself. A job scheduled without it fails at run time with a message that names the snapshot. A job scheduled before the workbench was renamed to openhora carries a resolver that reads the OS secret store under the service `ai-workbench` only: do not delete the old entries (`keyring delete ai-workbench <username>`) until those jobs have run or have been scheduled again, after which the snapshot holds the resolver that reads `openhora` first (`contracts/secrets.md`). Jobs scheduled before 2026-09-28 hold a copy of the provider from before the resolver and run as they are.
 
 Jobs live in `~/Library/Application Support/ai-workbench/scheduler/<id>/`, agents in `~/Library/LaunchAgents/dev.ai-workbench.scheduler.<id>.plist`.
 

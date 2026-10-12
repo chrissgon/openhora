@@ -1,0 +1,927 @@
+"""Tests of the City's scene in the style of round 4 (R4-B1): the low-poly City (R-16), the brackets of the followed building (R-17), the lit window (R-18),
+the agent's shadow at the windows (R-19), the decision mark (R-20), what a floor's light means (R-21), the parser of path data (`svgpath.js`, R4D-2), the owl
+module (`owl.js`, R-41) and the City's motions (`city-motion.js`).
+
+No browser and no model: the pure modules run under Node when it is installed (the builders with the real three.js, no WebGL); what only a browser can show was
+looked at in the browser pane by the package's report.
+
+Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_interface_scene_r4.py
+"""
+from __future__ import annotations
+
+import re
+
+import pytest
+
+import standin_tree as st
+from interface_css import css_paths
+from test_interface_scene_round3 import ENGINE_PAGE_JS, PRODUCT_JS, WORLD_JS, needs_node, run_node, run_node_engine
+
+INTERFACE = st.REPO / "interface"
+JS = INTERFACE / "js"
+SCENE = JS / "scene"
+
+
+# --- the parser of path data ----------------------------------------------------------------------------------------------------------
+
+@needs_node
+def test_the_path_parser_reads_every_command_the_owl_uses_in_absolute_and_relative_form_and_refuses_an_arc(tmp_path):
+    got = run_node(tmp_path, r"""
+import { parsePath, subpaths } from "@JS@/scene/svgpath.js";
+const flat = (d) => parsePath(d).map((s) => [s.type, ...s.points.flat()]);
+const out = {};
+out.absolute = flat("M10 20 L30 40 H50 V60 C1 2 3 4 5 6 Q7 8 9 10 Z");
+out.relative = flat("m10 20 l5 5 h5 v5 c1 1 2 2 3 3 q1 1 2 0 z");
+out.implicit = flat("M0 0 10 10 20 0");                       // the pairs after a moveto are linetos
+out.smooth = flat("M0 0 C0 10 10 10 10 0 S20 -10 20 0");      // the first control of S is the reflection of the last one of C
+out.quad = flat("M0 0 Q5 10 10 0 T20 0");                      // and of T, for a quadratic
+out.chain = flat("M76 156 q6 6 12 0 q6 6 12 0");               // the owl's feathers: relative curves from the point the last one ended on
+out.numbers = flat("M-1.5-2.5L.5,.25e1");                      // signs, a leading point, a comma, an exponent
+out.closeBack = flat("M5 5 L10 5 L10 10 Z l1 1");              // a relative command after Z starts from the subpath's first point
+out.smoothRel = flat("M0 0 c0 10 10 10 10 0 s10 -10 10 0");    // relative S: the reflected first control, the others from the current point
+out.quadRel = flat("M0 0 q5 10 10 0 t10 0");                   // relative T
+out.afterZ = flat("M5 5 L10 5 L10 10 Z L20 20");               // a drawing command after Z, with no M, starts a new subpath at the start point
+out.afterZSubs = subpaths(parsePath("M5 5 L10 5 L10 10 Z L20 20 Z")).map((s) => [s.segments.length, s.closed]);
+out.subs = subpaths(parsePath("M0 0 L1 1 Z M5 5 L6 6")).map((s) => [s.segments.length, s.closed]);
+const fails = (d) => { try { parsePath(d); return null; } catch (e) { return e.message; } };
+out.arc = fails("M0 0 A5 5 0 0 1 10 10");
+out.unknown = fails("M0 0 X1 1");
+out.short = fails("M0 0 L5");
+out.stray = fails("5 5");
+console.log(JSON.stringify(out));
+""")
+    assert got["absolute"] == [["M", 10, 20], ["L", 30, 40], ["L", 50, 40], ["L", 50, 60], ["C", 1, 2, 3, 4, 5, 6], ["Q", 7, 8, 9, 10], ["Z"]]
+    assert got["relative"] == [["M", 10, 20], ["L", 15, 25], ["L", 20, 25], ["L", 20, 30], ["C", 21, 31, 22, 32, 23, 33], ["Q", 24, 34, 25, 33], ["Z"]]
+    assert got["implicit"] == [["M", 0, 0], ["L", 10, 10], ["L", 20, 0]]
+    assert got["smooth"][2] == ["C", 10, -10, 20, -10, 20, 0], "S reflects (10, 10) about (10, 0) to (10, -10)"
+    assert got["quad"][2] == ["Q", 15, -10, 20, 0], "T reflects (5, 10) about (10, 0) to (15, -10)"
+    assert got["chain"] == [["M", 76, 156], ["Q", 82, 162, 88, 156], ["Q", 94, 162, 100, 156]]
+    assert got["numbers"] == [["M", -1.5, -2.5], ["L", 0.5, 2.5]]
+    assert got["closeBack"][-1] == ["L", 6, 6], "after Z the current point is the subpath's start (5, 5)"
+    assert got["smoothRel"][2] == ["C", 10, -10, 20, -10, 20, 0], "relative s reflects the last control about the current point (10, 0)"
+    assert got["quadRel"][2] == ["Q", 15, -10, 20, 0], "relative t reflects (5, 10) about (10, 0)"
+    assert got["afterZ"] == [["M", 5, 5], ["L", 10, 5], ["L", 10, 10], ["Z"], ["M", 5, 5], ["L", 20, 20]], "a draw after Z starts a new subpath where the closed one started"
+    assert got["afterZSubs"] == [[4, True], [3, True]], "and it is its own subpath, not a tail of the closed one"
+    assert got["subs"] == [[3, True], [2, False]]
+    assert "arc" in got["arc"] and got["unknown"] and got["short"] and got["stray"], "an arc, a command the grammar lacks, a short group and a stray number all throw"
+
+
+@needs_node
+def test_a_path_becomes_shapes_standing_on_an_origin_with_y_up_and_each_axis_can_be_stretched(tmp_path):
+    got = run_node(tmp_path, r"""
+import * as THREE from "@JS@/three.js";
+import { pathToShapes, ellipseToShape, strokeTriangles } from "@JS@/scene/svgpath.js";
+const box = (shape) => { const pts = shape.getPoints(24); return [Math.min(...pts.map((p) => p.x)), Math.max(...pts.map((p) => p.x)), Math.min(...pts.map((p) => p.y)), Math.max(...pts.map((p) => p.y))].map((v) => +v.toFixed(3)); };
+const out = {};
+out.square = box(pathToShapes(THREE, "M10 10 H30 V40 H10Z", { originX: 20, originY: 40 })[0]);   // 20 by 30 on the bottom middle
+out.stretched = box(pathToShapes(THREE, "M10 10 H30 V40 H10Z", { originX: 20, originY: 40, scaleX: 0.5, scaleY: 2 })[0]);
+out.down = box(pathToShapes(THREE, "M0 0 H10 V10 H0Z", { flipY: false })[0]);
+out.two = pathToShapes(THREE, "M0 0 L1 0 L1 1Z M5 5 L6 5 L6 6Z").length;
+out.open = pathToShapes(THREE, "M0 0 L4 0 L4 4")[0].getPoints().length >= 3;          // an open subpath is closed as a fill does
+out.circle = box(ellipseToShape(THREE, 74, 98, 22, 22, { originX: 100, originY: 186 }));
+// a curve really curves: the Q control point pulls the shape out of its chord
+out.curve = box(pathToShapes(THREE, "M0 0 Q5 10 10 0Z", { flipY: false })[0])[3];
+const tri = strokeTriangles([[0, 0], [10, 0]], 2, false, 4);
+out.stroke = [tri.length % 9, Math.max(...tri.filter((_, i) => i % 3 === 1))];
+console.log(JSON.stringify(out));
+""")
+    assert got["square"] == [-10, 10, 0, 30]
+    assert got["stretched"] == [-5, 5, 0, 60]
+    assert got["down"] == [0, 10, 0, 10]
+    assert got["two"] == 2 and got["open"] is True
+    assert got["circle"][0] == -48.0 and got["circle"][1] == -4.0 and got["circle"][3] - got["circle"][2] == 44.0, "a circle of radius 22 at (74, 98), seen from the owl's feet"
+    assert 4.9 < got["curve"] < 5.1, "a quadratic's apex is half the control's height"
+    assert got["stroke"][0] == 0 and got["stroke"][1] >= 1, "a stroke is whole triangles, a width wide"
+
+
+# --- the owl ----------------------------------------------------------------------------------------------------------------------------
+
+def test_the_owl_module_holds_the_marks_six_colours_and_the_parts_the_shadow_and_the_next_package_start_from():
+    owl = (SCENE / "owl.js").read_text(encoding="utf-8")
+    assert sorted(re.findall(r"#[0-9A-Fa-f]{6}\b", owl)) == sorted(["#1E1B2E", "#6B4429", "#A47551", "#E6D2BC", "#FFFFFF", "#FCD34D"]), "the mark's palette and nothing else"
+    ids = re.findall(r'\{ id: "([a-z-]+)", kind:', owl)
+    mark = ["ear-left", "ear-right", "foot-left", "foot-right", "body", "wing-left", "wing-right", "face", "eye-left", "eye-right", "pupil-left", "pupil-right", "glint-left", "glint-right", "beak"]
+    # R-41 (R4-B2): the parts the poses add: the lids, the rings round the eyes and the brows over them, the two chains of feathers, the raised wing, the shut eyes, the shadow on the floor;
+    # then the working owl's own (turned three-quarters to its desk, with its two wings)
+    added = ["lid-left", "lid-right", "ring-left", "ring-right", "brow-left", "brow-right", "chain-top", "chain-low", "wing-wave", "shut-left", "shut-right", "closed-left", "closed-right", "shadow"]
+    working = ["w-ear-left", "w-ear-right", "w-foot-left", "w-foot-right", "w-face", "w-eye-left", "w-eye-right", "w-pupil-left", "w-pupil-right", "w-glint-left", "w-glint-right",
+               "w-lid-left", "w-lid-right", "w-ring-left", "w-ring-right", "w-brow-left", "w-brow-right", "w-beak", "w-hand-far", "w-hand-near"]
+    ready = ["r-pupil-left", "r-pupil-right", "r-glint-left", "r-glint-right", "r-lid-left", "r-lid-right"]   # M-24: the ready owl's raised pupils and its two lids, the blink
+    assert ids == mark + added + working + ready, "the mark's parts, back to front, and what the four poses add to them"
+    assert 'from "./svgpath.js"' in owl and "three.js" not in owl and "export function partShapes(THREE," in owl, "the owl takes the library as an argument, as the parser does"
+
+
+@needs_node
+def test_the_owls_parts_are_shapes_on_its_feet_and_its_outline_is_the_body_and_two_ears(tmp_path):
+    got = run_node(tmp_path, r"""
+import * as THREE from "@JS@/three.js";
+import { OWL_PARTS, OWL_PALETTE, owlOutline, owlPart, partShapes, partStroke } from "@JS@/scene/owl.js";
+const box = (shape) => { const pts = shape.getPoints(24); return [Math.min(...pts.map((p) => p.x)), Math.max(...pts.map((p) => p.x)), Math.min(...pts.map((p) => p.y)), Math.max(...pts.map((p) => p.y))].map((v) => +v.toFixed(1)); };
+const out = {};
+out.parts = OWL_PARTS.filter((p) => p.fill).map((p) => [p.id, partShapes(THREE, p).length, new THREE.ShapeGeometry(partShapes(THREE, p)).getAttribute("position").count > 0]);   // a ring, a brow and a chain are ink alone: no fill
+const outline = owlOutline(THREE);
+out.body = box(outline.body);
+out.ears = outline.ears.map(box);
+out.fitted = box(owlOutline(THREE, { scaleX: 0.01, scaleY: 0.02 }).body);
+out.stroked = [partStroke(THREE, owlPart("body")).length > 0, partStroke(THREE, owlPart("pupil-left"))];
+out.fills = OWL_PARTS.map((p) => p.fill).filter(Boolean).every((f) => Object.values(OWL_PALETTE).includes(f));
+console.log(JSON.stringify(out));
+""")
+    assert all(count == 1 and drawn for _, count, drawn in got["parts"]), "every part is one shape with triangles"
+    assert got["body"][0] == -80.0 and got["body"][1] == 80.0 and got["body"][2] == 0.0, "the body stands on the feet (y 0) and is 160 wide"
+    assert got["ears"][0][3] > 100 and got["ears"][1][3] > 100 and got["ears"][0][1] < 0 < got["ears"][1][0] or got["ears"][0][0] < got["ears"][1][0], "the ears are on both sides, above the body's top"
+    assert got["fitted"] == [-0.8, 0.8, 0.0, got["fitted"][3]], "the outline is stretched to a window by each axis"
+    assert got["stroked"][0] is True and got["stroked"][1] is None, "a part with an ink outline has stroke triangles; a pupil has none"
+    assert got["fills"] is True
+
+
+# --- the colours of the City ------------------------------------------------------------------------------------------------------------
+
+@needs_node
+def test_the_citys_tones_are_the_recipes_of_scene_css_in_light_and_in_dark_and_the_mark_is_the_same_amber_in_both(tmp_path):
+    got = run_node(tmp_path, WORLD_JS + r"""
+import { mixSrgb } from "@JS@/scene/palette.js";
+const hex = (col) => col.getHexString();
+const T2 = { ...T, bgToken: c(0xffffff), muted: c(0xf3f4f6), emphasis: c(0xe5e7eb), textMuted: c(0x676d7b), text: c(0x000000), warn: c(0xd97706), border: c(0xd1d5db) };
+const dark = { ...T2, bgToken: c(0x000000), muted: c(0x000000), emphasis: c(0x1f2937), textMuted: c(0x9ca3af), text: c(0xffffff), warn: c(0xf59e0b), border: c(0x374151) };
+const mix = (a, b, t) => mixSrgb(a, b, t);
+const light = { dark: false, T: T2, bg: c(0xffffff), mix, inDark: { warn: dark.warn, text: dark.text, bgToken: dark.bgToken } };
+const night = { dark: true, T: dark, bg: c(0x111827), mix, inDark: { warn: dark.warn, text: dark.text, bgToken: dark.bgToken } };
+const L = cityTones(light);
+const N = cityTones(night);
+const out = {};
+out.mixHalf = hex(mixSrgb(c(0x000000), c(0xffffff), 0.5));    // half way in the encoded channels, not in the linear working space: 0x808080
+out.litLight = [hex(L.glassLit), hex(mixSrgb(light.bg, T2.warn, 0.34))];
+out.litDark = [hex(N.glassLit), hex(mixSrgb(dark.text, dark.theme || T.theme, 0.36))];
+out.markSame = [L.mark.top.equals(N.mark.top), L.mark.left.equals(N.mark.left), L.mark.right.equals(N.mark.right), hex(L.mark.right) === hex(dark.warn)];
+out.roofIsBrand = [hex(L.roofFloor) === hex(T.theme), hex(N.roofFloor) === hex(T.theme), hex(L.bracket) === hex(T.theme)];
+out.lightDiffers = [L.road.equals(N.road), L.grass.equals(N.grass), L.glass.equals(N.glass), L.shell.right.equals(N.shell.right)];
+out.faces = [Object.keys(L.shell), Object.keys(L.roof), Object.keys(L.ledge), Object.keys(L.unit), Object.keys(L.mark)];
+out.crown = [L.crown.length, N.crown.length];
+console.log(JSON.stringify(out));
+""")
+    assert got["mixHalf"] == "808080", "color-mix(in srgb) is a blend of the encoded channels"
+    assert got["litLight"][0] == got["litLight"][1] and got["litDark"][0] == got["litDark"][1], "R-18: raised with the warn colour in light, the text with the brand's brown in dark"
+    assert got["markSame"] == [True, True, True, True], "R-20: the same amber in light and in dark, from the dark scheme's tokens"
+    assert got["roofIsBrand"] == [True, True, True], "the roof and the brackets are the brand colour, the token"
+    assert got["lightDiffers"] == [False, False, False, False], "light and dark are different recipes"
+    assert all(keys == ["top", "left", "right"] for keys in got["faces"]), "a solid is given its three visible faces, each a tone"
+    assert got["crown"] == [4, 4], "a crown has four tones"
+
+
+def test_palette_reads_the_dark_scheme_for_the_mark_and_mixes_in_the_encoded_space():
+    palette = (SCENE / "palette.js").read_text(encoding="utf-8")
+    assert 'probe.style.setProperty("color-scheme", "dark")' in palette, "the mark's amber is read from the dark scheme's tokens even in light"
+    assert "const mix = mixSrgb;" in palette and "convertLinearToSRGB" in palette, "a mix is the stylesheet's, in the encoded space"
+    assert "warm: dark ? mix(T.text, T.theme, 0.36) : mix(bg, T.warn, 0.34)" in palette, "R-18: the lit window's recipe"
+
+
+# --- the motions ------------------------------------------------------------------------------------------------------------------------
+
+@needs_node
+def test_the_agents_shadow_and_the_notification_follow_the_stylesheets_keyframes(tmp_path):
+    got = run_node(tmp_path, r"""
+import { AGENT_SECONDS, ALERT_SECONDS, ALERT_RISE, COME, COME_Y, LEAVE, LEAVE_UP, agentPose, agentRest, alertPose, cubicBezier, easeInOut, sample, windowOffset, windowSide } from "@JS@/scene/city-motion.js";
+const near = (a, b) => Math.abs(a - b) < 1e-6;
+const out = {};
+out.bezier = [easeInOut(0), easeInOut(1), +easeInOut(0.5).toFixed(6), easeInOut(0.25) < 0.25, easeInOut(0.75) > 0.75, cubicBezier(0, 0, 1, 1)(0.3).toFixed(3)];
+let mono = true; let last = 0; for (let i = 0; i <= 100; i++) { const v = easeInOut(i / 100); if (v < last) mono = false; last = v; } out.mono = mono;
+out.sample = [sample([[0, 0], [1, 10]], 0), +sample([[0, 0], [1, 10]], 0.5).toFixed(6), sample([[0, [0, 0]], [0.5, [2, 4]], [1, [2, 4]]], 0.25).map((v) => +v.toFixed(6))];
+// a window whose phase is 0 at t = 48 - offset
+const k = 1; const floor = 0;
+const t0 = AGENT_SECONDS - windowOffset(k, floor) + AGENT_SECONDS;      // phase 0
+const at = (percent) => agentPose(t0 + (percent / 100) * AGENT_SECONDS, k, floor);
+out.start = [at(0).opacity, at(0).scale, at(0).x === windowSide(k, floor) * COME, at(0).y === COME_Y, COME_Y];
+out.arrived = [at(7).opacity, at(7).scale, at(7).x, at(7).y];
+out.standing = [at(19.5).opacity, at(19.5).scale];
+out.leaving = [at(23).opacity > 0.3 && at(23).opacity < 0.4, at(25).opacity, at(25).scale, near(at(25).x, -windowSide(k, floor) * LEAVE), near(at(25).y, LEAVE_UP)];
+out.empty = [at(60).opacity, at(99.9).opacity];
+out.period = near(agentPose(10, 2, 1).opacity, agentPose(10 + AGENT_SECONDS, 2, 1).opacity) && near(agentPose(10, 2, 1).x, agentPose(10 + AGENT_SECONDS, 2, 1).x);
+// the four windows of a floor take their turns: each is up for about a quarter of the cycle, the windows' times do not overlap by much and none is skipped
+const seen = [0, 1, 2, 3].map((w) => { let n = 0; for (let s = 0; s < AGENT_SECONDS; s += 0.5) if (agentPose(s, w, 0).opacity > 0.3) n += 1; return n * 0.5; });
+const overlap = []; for (let s = 0; s < AGENT_SECONDS; s += 0.5) overlap.push([0, 1, 2, 3].filter((w) => agentPose(s, w, 0).opacity > 0.3).length);
+out.turns = [seen.every((v) => v > 7 && v < 13), Math.max(...overlap), Math.min(...overlap)];
+out.floorsDiffer = agentPose(5, 0, 0).opacity !== agentPose(5, 0, 1).opacity || agentPose(5, 1, 0).opacity !== agentPose(5, 1, 1).opacity;
+out.sides = [0, 1, 2, 3].map((w) => windowSide(w, 0)).concat([0, 1, 2, 3].map((w) => windowSide(w, 2)));
+out.rest = [0, 1, 2, 3].map((w) => agentRest(w).opacity);
+// the notification: rest, rise, three shakes, settle; 3.4 s
+const a = (percent) => alertPose((percent / 100) * ALERT_SECONDS);
+out.alert = [a(0), a(58), a(64), a(69), a(74), a(79), a(84), a(89), a(95), a(100)].map((p) => [+p.rise.toFixed(3), +p.roll.toFixed(3)]);
+out.alertPeriod = near(alertPose(1.234).rise, alertPose(1.234 + ALERT_SECONDS).rise) && near(alertPose(2.3).roll, alertPose(2.3 + ALERT_SECONDS).roll);
+out.alertBetween = alertPose(0.665 * ALERT_SECONDS).roll;
+out.constants = [AGENT_SECONDS, ALERT_SECONDS, ALERT_RISE];
+console.log(JSON.stringify(out));
+""")
+    assert got["bezier"][:2] == [0, 1] and got["bezier"][2] == 0.5 and got["bezier"][3] is True and got["bezier"][4] is True and got["bezier"][5] == "0.300", "ease-in-out is cubic-bezier(.42 0 .58 1)"
+    assert got["mono"] is True
+    assert got["sample"][:2] == [0, 5] and got["sample"][2][0] > 0 and got["sample"][2][1] > 0 and got["sample"][2][1] == 2 * got["sample"][2][0], "values are eased between two keyframes, element by element"
+    assert got["start"] == [0, 0.28, True, True, -0.022], "it starts small, faint, to one side and a hair low: x, y and scale arrive together (R-19; the page's --ax -13.2, --ay -7.2)"
+    assert got["arrived"] == [0.62, 1, 0, 0], "7 percent: at its window, full size, opacity .62"
+    assert got["standing"] == [0.62, 1], "it stands at the glass from 7 to 19.5 percent (about 6 s)"
+    assert got["leaving"] == [True, 0, 0.3, True, True], "it fades from 23 percent, is gone at 25 and has walked off the other way, shrunk"
+    assert got["empty"] == [0, 0], "the window stays empty for the rest of the cycle"
+    assert got["period"] is True, "a 48 s cycle"
+    assert got["turns"][0] is True and got["turns"][1] <= 2 and got["turns"][2] >= 0, "each window of a floor has about a quarter of the cycle, and few at once"
+    assert got["floorsDiffer"] is True, "the floors are shifted against one another"
+    assert got["sides"] == [-1, 1, -1, 1, 1, -1, 1, -1], "the shadow comes from alternate sides along a floor, and from the other side two floors up"
+    assert got["rest"] == [0, 0.62, 0, 0], "reduced motion: one still figure"
+    assert got["alert"] == [[0, 0], [0, 0], [0.3, 0], [0.3, -13], [0.3, 11], [0.3, -8], [0.3, 5], [0.3, 0], [0, 0], [0, 0]], "rest, rise, shake left, right, left, right, settle"
+    assert got["alertPeriod"] is True and -13 < got["alertBetween"] < 0
+    assert got["constants"] == [48, 3.4, 0.3]
+
+
+# --- the batches and the ground ---------------------------------------------------------------------------------------------------------
+
+@needs_node
+def test_a_batch_bakes_solids_into_one_mesh_with_a_colour_a_vertex_and_the_ground_is_a_handful_of_draws(tmp_path):
+    got = run_node(tmp_path, WORLD_JS + r"""
+import { buildGround, lotAt, blockKind, treesOf, hash, PITCH_X, PITCH_Z, BLOCK_W, STREET, KERB, MARGIN_X, ROWS } from "@JS@/scene/city.js";
+const kit = createKit(palette);
+const out = {};
+const group = new THREE.Group();
+const b = kit.batch();
+b.box(1, 1, 1, 0, 0, 0, palette.T.theme).flat(0, 0, 1, 1, 0, palette.T.warn).front(0, 0, 1, 1, 0, palette.T.warn).side(0, 0, 1, 1, 0, palette.T.warn);
+out.triangles = b.count();
+const mesh = b.mesh(group);
+const colour = mesh.geometry.getAttribute("color");
+out.colour = [mesh.geometry.getAttribute("position").count, colour.count, colour.itemSize, mesh.material === kit.vertexMaterial, mesh.castShadow];
+out.empty = kit.batch().mesh(group);
+const two = kit.batch(); two.box(1, 1, 1, 0, 0, 0, { top: palette.T.theme, left: palette.T.warn, right: palette.T.success });
+const m2 = two.mesh(group, { cast: false });
+const col = m2.geometry.getAttribute("color");
+out.faces = [0, 6, 12].map((i) => [col.getX(i), col.getY(i), col.getZ(i)].map((v) => +v.toFixed(3)).join(",")).length;   // top, left, right: three tones
+out.toneOfFirstFace = [col.getX(0) === Math.fround(palette.T.theme.r), col.getX(6) === Math.fround(palette.T.warn.r), col.getX(12) === Math.fround(palette.T.success.r)];
+// the ground
+const ground = buildGround(kit, 2);
+let meshes = 0; let instanced = 0; let triangles = 0;
+ground.group.traverse((n) => { if (n.isInstancedMesh) instanced += 1; else if (n.isMesh) meshes += 1; });
+out.ground = [meshes, instanced, ground.trees > 100];
+out.same = buildGround(createKit(palette), 2).trees === ground.trees;
+out.lots = [lotAt(0, 1), lotAt(0, 2).x + lotAt(1, 2).x, +(lotAt(1, 3).x - lotAt(0, 3).x).toFixed(3), PITCH_X.toFixed(3)];
+out.kinds = [blockKind(0, 0, 2), blockKind(1, 0, 2), blockKind(2, 0, 2), blockKind(0, 1, 2), blockKind(1, 1, 2), blockKind(-1, 0, 2), blockKind(0, -1, 2)];
+out.lot = treesOf("lot", 0, 0).length;
+out.hash = [hash(1, 2, 3) === hash(1, 2, 3), hash(1, 2, 3) !== hash(1, 2, 4), hash(7, 7, 7) >= 0 && hash(7, 7, 7) < 1];
+out.sizes = [BLOCK_W, STREET, KERB, MARGIN_X, ROWS];
+const lotsWorld = buildWorld(kit, model());
+let all = 0; lotsWorld.group.traverse((n) => { if (n.isMesh) all += 1; });
+out.world = all;
+console.log(JSON.stringify(out));
+""")
+    assert got["triangles"] == 6 + 2 + 2 + 2, "a solid is its three visible faces (six triangles), a flat or a plane two"
+    assert got["colour"] == [36, 36, 3, True, True], "one colour for every vertex, drawn with the kit's one vertex-colour material, casting a shadow"
+    assert got["empty"] is None
+    assert got["toneOfFirstFace"] == [True, True, True], "the top, the left face and the right face each take their own tone"
+    assert got["ground"][0] == 3 and got["ground"][1] == 6 and got["ground"][2] is True, "the ground is three batches and six instanced meshes (a crown for each of the four variants, the trunks, the shadows: M-14 made it six, after M-5's three), however many blocks"
+    assert got["same"] is True, "the same city every time"
+    assert got["lots"][0] == {"x": 0, "z": 0} and got["lots"][1] == 0 and got["lots"][2] == float(got["lots"][3]), "the lots stand one block apart, in a row centred on the origin"
+    assert got["kinds"] == ["lot", "lot", "plaza", "park", "plaza", "park", "park"], "a lot's block holds a project; the others alternate between a paved square and a park"
+    assert got["lot"] == 4, "four trees at the corners of a lot's block"
+    assert got["hash"] == [True, True, True]
+    assert got["world"] < 120, "three buildings of four floors and the whole ground: fewer than 120 meshes (the budget; before round 4 the same world was about three times that)"
+
+
+# --- the building ------------------------------------------------------------------------------------------------------------------------
+
+STATES_JS = WORLD_JS + r"""
+import { openings } from "@JS@/scene/tower.js";
+const kit = createKit(palette);
+const meshes = (root) => { const out = []; root.traverse((n) => { if (n.isMesh) out.push(n); }); return out; };
+const marksOf = (tower) => tower.overlay.children.filter((c) => c.userData.mark);
+const markIn = (tower, i) => marksOf(tower).filter((m) => m.userData.floor === i).length;
+const agentIn = (tower, i) => tower.floorGroups[i].children.filter((c) => c.children.length && c.children.every((w) => w.children[0] && w.children[0].isMesh && w.children[0].renderOrder === 2));
+"""
+
+
+@needs_node
+def test_a_lit_floor_has_the_agent_at_its_windows_and_only_a_lit_floor_that_waits_has_a_mark(tmp_path):
+    got = run_node(tmp_path, STATES_JS + r"""
+const waiting = { state: "waiting", window: "lit", decisions: 2 };
+const world = buildWorld(kit, model({ lots: [lot("a", { floors: [
+  { ...lot("x").floors[0] },                                                    // planning: idle, dark
+  { ...lot("x").floors[1], state: "working", window: "lit", decisions: 0 },     // working: lit, no mark (R-21)
+  { ...lot("x").floors[2], ...waiting },                                        // waiting: lit, a mark
+  { ...lot("x").floors[3], state: "idle", window: "grey", decisions: 1 },       // a decision on a dark floor: no mark
+] }), lot("b", { accepted: false, floors: [{ ...lot("x").floors[1], state: "off", window: "grey", decisions: 3 }] })] }));
+const a = world.towers.get("a");
+const out = {};
+out.marks = [0, 1, 2, 3].map((i) => markIn(a, i));
+out.agents = [0, 1, 2, 3].map((i) => (a.floorGroups[i].children.some((c) => c.visible && c.children.length === openings(i).front.filter((o) => o.kind === "glass").length && c.children[0].children[0] && c.children[0].children[0].renderOrder === 2) ? 1 : 0));
+const windowsOf = (i) => openings(i).front.filter((o) => o.kind === "glass").length;
+out.windows = [windowsOf(0), windowsOf(1)];
+out.motions = a.motions.length;
+out.unaccepted = [markIn(world.towers.get("b"), 0), world.towers.get("b").motions.length];
+// the motions: a mark rises and tilts, a shadow comes to its window; both still under reduced motion
+const tilt = (t) => { a.motions.forEach((m) => m.tick(t)); const g = marksOf(a).find((c) => c.userData.floor === 2); return [+g.position.y.toFixed(3), +g.quaternion.w.toFixed(4), g.quaternion.x !== 0 || g.quaternion.y !== 0 || g.quaternion.z !== 0]; };
+out.tilt = [tilt(0), tilt(0.69 * 3.4), tilt(0.95 * 3.4 + 3.4)];
+a.motions.forEach((m) => m.rest());
+const still = marksOf(a).find((c) => c.userData.floor === 2);
+out.rest = [+still.position.y.toFixed(3), still.quaternion.w];
+const holder = a.floorGroups[1].children.find((c) => c.children.length === 4);
+out.shadows = holder.children.map((w) => +w.children[0].material.opacity.toFixed(2));
+out.depth = [holder.children[0].children[0].material.depthFunc === THREE.LessDepth, holder.children[0].children[0].material.transparent, holder.children[0].children[0].castShadow];
+// the brackets are built hidden, apart from the tower, and follow the roof
+out.brackets = world.brackets.map((b) => [b.id, b.group.visible, b.tower.brackets.closed, world.group.children.includes(b.group), a.root.children.includes(b.group)]);
+console.log(JSON.stringify(out));
+""")
+    assert got["marks"] == [0, 0, 1, 0], "R-20, R-21: one mark, beside the one floor that is lit and waits; a floor that works has none, nor has a dark floor with a decision"
+    assert got["agents"] == [0, 1, 1, 0], "R-19: the agent shows at the windows of the lit floors (the working one and the waiting one), not at the dark ones"
+    assert got["windows"] == [3, 4], "four windows on an upper floor, three beside the shop's door on the ground floor"
+    assert got["unaccepted"] == [0, 0], "a project that is not accepted has no mark and no figure"
+    # the foot of the mark on floor 2 of a closed building: the slab's top (6.4) squashed to 0.64 of its height over the block (0.2), 0.15 above it
+    foot = round(0.2 + 0.64 * (6.4 - 0.2) + 0.15, 3)
+    assert got["tilt"][0][0] == foot and got["tilt"][0][2] is False, "at rest the mark stands on its foot, beside the floor"
+    assert got["tilt"][1][0] == round(foot + 0.3, 3) and got["tilt"][1][2] is True, "R-20: it rises and shakes (a turn about the view axis)"
+    assert got["tilt"][2][0] == foot, "and it settles"
+    assert got["rest"] == [foot, 1], "reduced motion: the mark is still"
+    assert got["shadows"] == [0, 0.62, 0, 0], "reduced motion: one still figure at its window"
+    assert got["depth"] == [True, True, False], "the shadow is a transparent figure drawn once where its ears cross its body, and it casts no shadow"
+    assert [b[1:] for b in got["brackets"]] == [[False, True, True, False]] * 2, "built hidden, closed, in the world beside the tower and not in it (the pointer picks the building, never its marks)"
+
+
+@needs_node
+def test_a_window_is_lit_glass_dark_glass_or_the_walls_own_tone_and_a_floor_has_the_walls_of_its_openings(tmp_path):
+    got = run_node(tmp_path, STATES_JS + r"""
+const tones = cityTones(palette);
+const world = buildWorld(kit, model({ lots: [lot("a"), lot("b", { accepted: false })] }));
+const tower = world.towers.get("a");
+const paintOf = (t, i) => { const g = t.floorGroups[i].children[0].children[1].geometry.getAttribute("color"); return [g.getX(0), g.getY(0), g.getZ(0)]; };
+const same = (rgb, col) => Math.abs(rgb[0] - col.r) < 1e-6 && Math.abs(rgb[1] - col.g) < 1e-6 && Math.abs(rgb[2] - col.b) < 1e-6;
+const out = {};
+out.lit = same(paintOf(tower, 1), tones.glassLit);                // the working floor: warm white
+out.dark = same(paintOf(tower, 2), tones.glass);                  // an upper floor at rest
+out.ground = same(paintOf(tower, 0), tones.glass);                 // M-27: the ground floor's glass is a floor's own, no shop front's tone
+out.off = [0, 1, 2, 3].every((i) => same(paintOf(world.towers.get("b"), i), tones.glassOff));   // not accepted: every window the wall's own tone
+out.parts = tower.floorGroups[1].children.filter((c) => c.children.length).length;
+out.shell = tower.floorGroups[1].children[0].children.map((m) => m.isMesh);
+out.upper = [openings(1).front.length, openings(1).right.length, openings(0).front.map((o) => o.kind), openings(0).right.length];
+const tall = (o) => +(o.top - o.bottom).toFixed(6);
+out.heights = [tall(openings(1).front[0]), tall(openings(0).front[0]), tall(openings(0).front[1])];
+// a window changes colour in place: no mesh is replaced
+const before = new Set(); tower.group.traverse((n) => { if (n.isMesh) before.add(n); });
+const next = JSON.parse(JSON.stringify(world.update ? model({ lots: [lot("a"), lot("b", { accepted: false })] }) : {}));
+next.lots[0].floors[2].window = "lit";
+world.update(next);
+const after = new Set(); tower.group.traverse((n) => { if (n.isMesh) after.add(n); });
+out.inPlace = [[...before].every((m) => after.has(m)), same(paintOf(tower, 2), tones.glassLit)];
+// the pitch of a closed floor is the room's: the shell stands on the same floors the rooms do
+out.floors = tower.floorGroups.map((g) => +g.position.y.toFixed(3));
+console.log(JSON.stringify(out));
+""")
+    assert got["lit"] is True and got["dark"] is True and got["ground"] is True and got["off"] is True
+    assert got["shell"] == [True, True], "a floor's shell is two batched meshes: the walls and the glass"
+    assert got["upper"][0] == 4 and got["upper"][1] == 3 and got["upper"][2] == ["glass", "door", "glass", "glass"] and got["upper"][3] == 3, "M-27: the ground floor has the windows of the others, the door in place of the second one in front, three windows at the side"
+    assert got["heights"][0] == 2.0 and got["heights"][1] == 2.0 and got["heights"][2] == 2.4, "windows nearly the floor's height (2.0 of 2.8) on the ground floor too (M-27), the door 2.4"
+    assert got["inPlace"] == [True, True], "a floor that becomes lit is repainted: no mesh is replaced"
+    assert got["floors"] == [0.2, 3.2, 6.2, 9.2]
+
+
+@needs_node
+def test_the_roof_is_the_brand_colour_with_a_parapet_and_two_units_and_the_ring_stays_while_a_task_runs(tmp_path):
+    got = run_node(tmp_path, STATES_JS + r"""
+const world = buildWorld(kit, model());
+const a = world.towers.get("a"); const b = world.towers.get("b");
+const roofOf = (t) => t.group.children[t.group.children.length - 2];
+const out = {};
+out.beacon = [Boolean(a.beacon), Boolean(b.beacon), a.beacons === undefined];
+out.ring = [a.beacon.ring.geometry.parameters.radius, a.beacon.material.transparent];
+const roof = a.group.children.find((c) => c.children.length >= 1 && c.children.some((m) => m.isMesh && m !== a.beacon.ring && m.geometry.getAttribute("color")));
+out.roofMeshes = roof.children.filter((m) => m.isMesh).length;       // the body's batch, the ring and its core
+out.closed = a.brackets.closed;
+// the card above the roof, the camera frames the lots and their blocks
+const subject = world.subject();
+out.subject = [subject.min.x < 0, subject.max.x > 0, subject.max.y > 8 && subject.max.y < 11];   // squashed: four floors are 12 high open, 7.9 closed
+// a roof bracket follows the roof when the building opens
+world.setFocus("a", true);
+out.opened = [a.brackets.closed, a.brackets.roof.position.y > 12];
+console.log(JSON.stringify(out));
+""")
+    assert got["beacon"][:2] == [True, False], "a ring on the roof of a running project only"
+    assert got["ring"] == [0.95, True]
+    assert got["roofMeshes"] == 3, "the roof's batch, the ring and its core"
+    assert got["closed"] is True and got["opened"][0] is False, "the brackets are drawn only while the building is closed"
+    assert got["subject"] == [True, True, True]
+
+
+# --- the label, the style sheet, the page -----------------------------------------------------------------------------------------------
+
+@needs_node
+def test_the_label_of_a_building_is_a_one_line_pill_a_quiet_one_is_a_dot_and_the_chip_says_not_accepted(tmp_path):
+    got = run_node(tmp_path, r"""
+import { find, all } from "@FAKE@";
+import { cityCard } from "@JS@/scene/labels.js";
+const text = (n) => n.textContent !== undefined ? n.textContent : "";
+const pill = cityCard({ name: "northwind-shop", sub: "task #52 running", running: true, decisions: 2, accepted: true, selected: true, quiet: false });
+const quiet = cityCard({ name: "lab", sub: "no task running", running: false, decisions: 0, accepted: true, selected: false, quiet: true });
+const off = cityCard({ name: "tinykv-docs", sub: "not accepted yet", running: false, decisions: 0, accepted: false, selected: false, quiet: false });
+console.log(JSON.stringify({
+  classes: [pill.cls(), quiet.cls(), off.cls()],
+  names: [find(pill, ".wb-pill-name") && text(find(pill, ".wb-pill-name")), text(find(pill, ".wb-pill-sub")), find(pill, ".wb-dot").cls()],
+  badge: [text(find(pill, ".pui-badge")), find(off, ".pui-chip") && text(find(off, ".pui-chip")), find(quiet, ".pui-badge")],
+  order: pill.children.map((c) => c.cls()[0] || c.cls()),
+}));
+""")
+    assert got["classes"][0].count("wb-pill") == 1 and "is-selected" in got["classes"][0] and "wb-label" in got["classes"][0]
+    assert "is-quiet" in got["classes"][1] and "is-quiet" not in got["classes"][0] and "is-quiet" not in got["classes"][2]
+    assert got["names"][0] == "northwind-shop" and got["names"][1] == "task #52 running" and "is-running" in got["names"][2]
+    assert got["badge"] == ["2", "Not accepted", None], "the count of decisions, or the chip of a project that is not accepted"
+    assert got["order"] == ["wb-dot", "wb-pill-name", "wb-pill-sub", "pui-badge"], "a dot, the name, what it does, the count: one line"
+
+
+def test_the_scenes_style_sheet_is_linked_once_after_the_pages_and_holds_no_colour_of_its_own():
+    css = (INTERFACE / "scene.css").read_text(encoding="utf-8")
+    assert not re.search(r"#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(|oklch\(|oklab\(", css), "scene.css names tokens only: no colour literal"
+    for name in (".wb-pill", ".wb-pill.is-selected", ".wb-pill.is-quiet", ".wb-pill-name", ".wb-pill-sub", ".wb-pill.is-culled"):
+        assert name in css, f"scene.css draws {name}"
+    assert "var(--pui-theme)" in css and "var(--wb-raised)" in css and "var(--pui-border)" in css
+    page = (INTERFACE / "index.html").read_text(encoding="utf-8")
+    assert page.count('href="./scene.css"') == 1 and all(page.index(f'href="./css/{path.name}"') < page.index('href="./scene.css"') for path in css_paths()), "scene.css is loaded once, after the page's stylesheets"
+    assert "<style" not in page and "style=" not in page, "no inline style: the service's policy forbids it"
+
+
+def test_the_engine_marks_a_building_with_brackets_never_an_outline_and_the_shade_lies_over_the_blocks():
+    engine = (SCENE / "engine.js").read_text(encoding="utf-8")
+    assert "b.group.visible = b.tower.brackets.closed && (b.id === hoverId || b.id === content.marked)" in engine, "R-17: pointed at or followed, and closed"
+    assert "if (hit && !hit.brackets && !hit.marks)" in engine and "if (!hit || hit.brackets || hit.marks)" in engine, "a building of the City, or an object with brackets of its own (R-28, R-31), has no outline to draw"
+    assert "SHADE_Y = 0.22" in engine and "ground.position.y = -0.06" in engine and "shade.position.y = SHADE_Y" in engine, "the shadows land over the paving, the void under the streets"
+    world = (SCENE / "world.js").read_text(encoding="utf-8")
+    assert "brackets: true" in world and "tower.brackets.group" in world
+
+
+# --- a tower made again frees what it made, a mark needs a lit floor, and an agent that is off lights nothing ---------------------------------------
+
+@needs_node
+def test_a_tower_made_again_frees_every_geometry_it_made_and_keeps_none_but_the_shared_ones(tmp_path):
+    got = run_node(tmp_path, WORLD_JS + r"""
+const made = new Set(); const gone = new Set();
+const setAttribute = THREE.BufferGeometry.prototype.setAttribute; const dispose = THREE.BufferGeometry.prototype.dispose;
+THREE.BufferGeometry.prototype.setAttribute = function (...a) { made.add(this); return setAttribute.apply(this, a); };
+THREE.BufferGeometry.prototype.dispose = function () { gone.add(this); return dispose.call(this); };
+const kit = createKit(palette);
+const world = buildWorld(kit, model({ lots: [lot("a", { floors: [
+  lot("x").floors[0], { ...lot("x").floors[1], state: "working", window: "lit" }, { ...lot("x").floors[2], state: "waiting", window: "lit", decisions: 2 }, lot("x").floors[3]] }), lot("b")] }));
+world.setFocus("a", true);   // its rooms are in: they are freed with it too
+const live = () => { const out = new Set(); world.group.traverse((n) => { if (n.geometry) out.add(n.geometry); }); return out; };
+const leaked = () => { const alive = live(); return [...made].filter((g) => !gone.has(g) && !alive.has(g) && g !== kit.unitBox && g !== kit.unitEdges).length; };
+const out = { start: leaked() };
+for (let i = 0; i < 8; i++) {   // the structure changes when a task starts or ends: the tower is made again
+  const next = JSON.parse(JSON.stringify(model({ lots: [lot("a", { runningTask: i % 2 ? 5 : null, floors: [lot("x").floors[0], { ...lot("x").floors[1], state: "working", window: "lit" }, { ...lot("x").floors[2], state: "waiting", window: "lit", decisions: 2 }, lot("x").floors[3]] }), lot("b")], focus: "a" })));
+  out["r" + i] = world.update(next).structure;
+}
+out.after = leaked();
+out.live = live().size;
+out.unitKept = [gone.has(kit.unitBox), gone.has(kit.unitEdges)];
+out.shapes = made.size;
+console.log(JSON.stringify(out));
+""")
+    assert all(got[f"r{i}"] is True for i in range(8)), "every update changed the running task, so the tower was made again each time"
+    assert got["start"] == 0 and got["after"] == 0, "no geometry of a tower that was made again stays undisposed: only the live ones and the kit's shared unit box and edges remain"
+    assert got["unitKept"] == [False, False], "the shared unit box and edges are never disposed"
+    assert got["shapes"] > 100, "the test did build many geometries"
+
+
+@needs_node
+def test_a_mark_needs_a_lit_floor_and_an_agent_that_is_off_lights_no_window_in_either_model(tmp_path):
+    got = run_node(tmp_path, STATES_JS + r"""
+import * as modelJs from "@JS@/model.js";
+import * as fm from "@JS@/floor-model.js";
+const mk = (extra) => buildWorld(kit, model({ lots: [lot("a", { floors: [lot("x").floors[0], { ...lot("x").floors[1], ...extra }] })] }));
+const out = {};
+out.dark = markIn(mk({ state: "waiting", window: "grey", decisions: 2 }).towers.get("a"), 1);          // waiting but not lit: no mark
+out.lit = markIn(mk({ state: "waiting", window: "lit", decisions: 2 }).towers.get("a"), 1);
+out.working = markIn(mk({ state: "working", window: "lit", decisions: 2 }).towers.get("a"), 1);        // working: lit, but a floor that works has no mark
+// an agent that is stopped or disabled with a decision: grey in both models (the City's and the Building's), as floor-model.stateOf says
+const project = { id: "aaaaaaaaaaaa", name: "shop", config: { accepted: true }, running_task: null, open_pending: 2 };
+const agents = [{ name: "planning", enabled: true, acting_mode: "supervised" }, { name: "design", enabled: false, acting_mode: "supervised" },
+  { name: "brand", enabled: true, acting_mode: "stopped" }, { name: "marketing", enabled: true, acting_mode: "supervised" }];
+const status = { requests: [], pending: [{ id: 1, task_id: 2, agent: "design", kind: "question", title: "q" }, { id: 2, task_id: 3, agent: "brand", kind: "question", title: "q" }, { id: 3, task_id: 4, agent: "marketing", kind: "question", title: "q" }] };
+out.city = modelJs.buildingOf(project, { status, agents }).floors.map((f) => [f.agent, f.window]);
+const view = fm.building({ projects: [project], details: { [project.id]: { status, agents: agents.map((a) => ({ ...a, mode: a.acting_mode, max_runs_per_day: 5, max_usd_per_day: 5, runs_today: 0, usd_today: 0, runs_without_cost: 0, queued: 0 })) } }, tasks: {}, loaded: true }, project.id);
+out.building = view.rows.map((r) => [r.name, r.state, r.window]);
+console.log(JSON.stringify(out));
+""")
+    assert got["dark"] == 0 and got["lit"] == 1 and got["working"] == 0, "R-21: a mark stands only beside a floor that is lit and waits"
+    assert got["city"] == [["planning", "grey"], ["design", "grey"], ["brand", "grey"], ["marketing", "lit"]], "the City's model: a disabled or stopped agent with a decision stays dark; one that is active and waits is lit"
+    assert got["building"] == [["planning", "idle", "grey"], ["design", "off", "grey"], ["brand", "off", "grey"], ["marketing", "waiting", "lit"]], "the Building's model says the same"
+
+
+# --- the trees (A-44, M-5, R4-B4) ---------------------------------------------------------------------------------------------------------------
+
+TREES_JS = WORLD_JS + r"""
+import { buildGround, treeGeometries, treeLight, TREE } from "@JS@/scene/city.js";
+import { createCamera, AZIMUTH, ELEVATION } from "@JS@/scene/rig.js";
+const camera = createCamera(THREE);
+const P = 23.8;   // the City's pixels to a camera unit at 1280 x 800
+const tones = cityTones(palette);
+const hexOf = (c) => c.getHexString();
+// the screen size of a geometry, in pixels
+const size = (geo) => { const pos = geo.getAttribute("position"); const v = new THREE.Vector3(); let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9; for (let i = 0; i < pos.count; i++) { v.fromBufferAttribute(pos, i).applyMatrix4(camera.matrixWorldInverse); x0 = Math.min(x0, v.x); x1 = Math.max(x1, v.x); y0 = Math.min(y0, v.y); y1 = Math.max(y1, v.y); } return { w: (x1 - x0) * P, h: (y1 - y0) * P, cx: (x0 + x1) / 2 * P, y0: y0 * P }; };
+"""
+
+
+@needs_node
+def test_a_crown_is_an_icosahedron_lit_in_the_world_from_the_upper_left_and_a_tree_is_never_turned(tmp_path):
+    # A-44: every instance used to be turned by a random angle after its facets were lit in the crown's own space, so some crowns read as one flat diamond and some were lit from the wrong side
+    got = run_node(tmp_path, TREES_JS + r"""
+const out = {};
+const g = treeGeometries(THREE, tones);
+const pos = g.crown.getAttribute("position");
+const col = g.crown.getAttribute("color");
+const tris = (geo) => (geo.index ? geo.index.count : geo.getAttribute("position").count) / 3;
+out.counts = [tris(g.crown), tris(g.trunk), tris(g.shadow)];
+// the sun is the upper left of the picture whatever the turn: against the camera's own axes
+const light = treeLight(THREE);
+const right = new THREE.Vector3(Math.cos(AZIMUTH), 0, -Math.sin(AZIMUTH));
+const front = new THREE.Vector3(Math.sin(AZIMUTH) * Math.cos(ELEVATION), Math.sin(ELEVATION), Math.cos(AZIMUTH) * Math.cos(ELEVATION));
+const up = new THREE.Vector3().crossVectors(front, right);
+out.light = [light.dot(right) < 0, light.dot(up) > 0, light.dot(front) > 0, +light.length().toFixed(6)];
+// the facets the camera sees, by how much light they face, and the tone each has (an index into the four tones, lightest first)
+const names = tones.crown.map(hexOf);
+const facets = [];
+for (let f = 0; f < pos.count / 3; f++) {
+  const a = new THREE.Vector3().fromBufferAttribute(pos, f * 3), b = new THREE.Vector3().fromBufferAttribute(pos, f * 3 + 1), c = new THREE.Vector3().fromBufferAttribute(pos, f * 3 + 2);
+  const n = new THREE.Vector3().crossVectors(b.clone().sub(a), c.clone().sub(a)).normalize();
+  const tone = names.indexOf(new THREE.Color(col.getX(f * 3), col.getY(f * 3), col.getZ(f * 3)).getHexString());
+  facets.push({ dot: n.dot(light), seen: n.dot(front) > 0.01, tone, outward: n.dot(a.clone().add(b).add(c).divideScalar(3).sub(new THREE.Vector3(0, TREE.trunkHeight + TREE.crownRadius * TREE.crownStretch - 0.01, 0))) > 0 });
+}
+const seen = facets.filter((f) => f.seen).sort((p, q) => q.dot - p.dot);
+out.seen = seen.length;
+out.tones = seen.map((f) => f.tone);
+out.everyTone = facets.every((f) => f.tone >= 0);
+out.outward = facets.every((f) => f.outward);
+out.hidden = facets.filter((f) => !f.seen).every((f) => f.tone === 3);
+// the sizes against the page's: a crown 20.1 by 22.6 px, a trunk 5.9 px wide, the shadow 20.4 wide and its centre left of the trunk
+const crown = size(g.crown), trunk = size(g.trunk), shadow = size(g.shadow);
+out.sizes = [crown.w, crown.h, trunk.w, shadow.w].map((v) => +v.toFixed(1));
+// the planted trees: none turned, a size each, three instanced meshes, none casting a real shadow
+const ground = buildGround(createKit(palette), 2);
+const meshes = []; ground.group.traverse((n) => { if (n.isInstancedMesh) meshes.push(n); });
+const turns = new Set(), scales = new Set();
+const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3();
+for (const mesh of meshes) for (let i = 0; i < mesh.count; i++) { mesh.getMatrixAt(i, m); m.decompose(p, q, s); turns.add([q.x, q.y, q.z, q.w].map((v) => +v.toFixed(6)).join(",")); scales.add(+s.x.toFixed(2)); }
+out.turns = [...turns];
+const at = (mesh, i) => { mesh.getMatrixAt(i, m); return new THREE.Vector3().setFromMatrixPosition(m).applyMatrix4(camera.matrixWorldInverse); };
+out.shadowLeft = +((at(meshes[1], 0).x - at(meshes[0], 0).x) * P).toFixed(1);   // the trunks, then the shadows, then a crown for each variant
+out.sizesSet = scales.size > 3;
+out.instanced = [meshes.length, meshes.map((x) => x.castShadow), meshes[0].count === meshes[1].count && meshes.slice(2).reduce((n, m) => n + m.count, 0) === meshes[0].count];
+console.log(JSON.stringify(out));
+""")
+    assert got["counts"] == [20, 6, 16], "an icosahedron of twenty facets, a trunk of the three faces the camera sees (six triangles), a flat shadow of sixteen"
+    assert got["light"][:3] == [True, True, True] and got["light"][3] == 1, "the sun is the upper left of the picture, in front: in the camera's own axes, not in a crown's"
+    assert got["outward"] is True and got["everyTone"] is True and got["hidden"] is True, "every facet faces out, is in one of the four tones, and the ones the camera does not see take the darkest"
+    seen = got["tones"]
+    assert seen == sorted(seen) and set(seen) == {0, 1, 2, 3}, "the facets the camera sees are lighter the more light they face: the tone never goes back"
+    assert seen.count(0) >= 1 and seen.count(3) >= seen.count(0) and seen.count(3) >= seen.count(1), "shared among the tones as the page shares its eight (1, 2, 2, 3): the fewest in the lightest, the most in the darkest"
+    crown_w, crown_h, trunk_w, shadow_w = got["sizes"]
+    assert abs(crown_w - 20.1) < 1.5 and abs(crown_h - 22.6) < 1.5 and 3 < trunk_w < 5 and abs(shadow_w - 20.4) < 1.5, "the page's tree at size 1: 20.1 by 22.6 px crown and 20.4 px shadow (city.html); the trunk is thinner than its 5.9 px, 3 to 5 px (M-14: the earlier look)"
+    assert -11 < got["shadowLeft"] < -8, "the shadow's centre lies about 9.5 px to the left of the trunk, as the page draws it"
+    assert got["turns"] == ["0,0,0,1"], "no tree is turned: its facets were lit once, for the one camera (a turn would light a crown from another side)"
+    assert got["sizesSet"] is True, "trees differ in size (and, since M-14, in crown, width and height)"
+    assert got["instanced"][0] == 6 and got["instanced"][1] == [False] * 6 and got["instanced"][2] is True, "six instanced meshes (the trunks, the shadows and a crown for each of the four variants: M-14), the crowns together as many as the trunks, none casting a real-time shadow (M-5)"
+
+
+@needs_node
+def test_the_ground_shadow_of_a_tree_is_the_shadow_token_at_nine_percent_in_light_and_forty_two_in_dark(tmp_path):
+    got = run_node(tmp_path, TREES_JS + r"""
+const out = {};
+for (const dark of [false, true]) {
+  const p = { ...palette, dark };
+  const ground = buildGround(createKit(p), 1);
+  const meshes = []; ground.group.traverse((n) => { if (n.isInstancedMesh) meshes.push(n); });
+  const shadow = meshes[1];
+  out[dark ? "dark" : "light"] = [shadow.material.transparent, shadow.material.opacity, shadow.material.depthWrite, hexOf(shadow.material.color) === hexOf(cityTones(p).shadow), shadow.material !== meshes[2].material];
+}
+console.log(JSON.stringify(out));
+""")
+    assert got["light"] == [True, 0.09, False, True, True] and got["dark"] == [True, 0.42, False, True, True], "scene.css's `.m-shadow`: the shadow ink at 9 percent in light and 42 in dark, transparent, writing no depth, and its own material"
+    city = (SCENE / "city.js").read_text(encoding="utf-8")
+    assert not re.search(r"#[0-9A-Fa-f]{3,8}\b|rgb\(|hsl\(|0x[0-9a-fA-F]{6}", city), "city.js writes no colour literal"
+
+
+# --- the trees vary, the trunk is thin and tapered and a bark brown (M-14, R4-B5) ----------------------------------------------------------------
+
+@needs_node
+def test_the_crown_variants_differ_each_is_lit_in_the_world_and_a_trees_pick_is_seeded(tmp_path):
+    # M-14 supersedes B4-3 (variety by size only): a few crowns, each turned or moved and lit after that, a seeded pick, a width and a height of its own
+    got = run_node(tmp_path, TREES_JS + r"""
+import { VARIANTS, treeLook } from "@JS@/scene/city.js";
+const out = {};
+const g = treeGeometries(THREE, tones);
+out.variants = [VARIANTS.length, g.crowns.length];
+const key = (geo) => Array.from(geo.getAttribute("position").array).map((v) => v.toFixed(3)).join(",");
+out.distinct = new Set(g.crowns.map(key)).size;
+out.facets = g.crowns.map((geo) => geo.getAttribute("position").count / 3);
+const light = treeLight(THREE);
+const front = new THREE.Vector3(Math.sin(AZIMUTH) * Math.cos(ELEVATION), Math.sin(ELEVATION), Math.cos(AZIMUTH) * Math.cos(ELEVATION));
+const names = tones.crown.map(hexOf);
+out.lit = g.crowns.map((geo) => {
+  const pos = geo.getAttribute("position"), col = geo.getAttribute("color");
+  const seen = [];
+  for (let f = 0; f < pos.count / 3; f++) {
+    const a = new THREE.Vector3().fromBufferAttribute(pos, f * 3), b = new THREE.Vector3().fromBufferAttribute(pos, f * 3 + 1), c = new THREE.Vector3().fromBufferAttribute(pos, f * 3 + 2);
+    const n = new THREE.Vector3().crossVectors(b.clone().sub(a), c.clone().sub(a)).normalize();
+    if (n.dot(front) > 0.01) seen.push({ dot: n.dot(light), tone: names.indexOf(new THREE.Color(col.getX(f * 3), col.getY(f * 3), col.getZ(f * 3)).getHexString()) });
+  }
+  seen.sort((p, q) => q.dot - p.dot);
+  const tonesOrder = seen.map((s) => s.tone);
+  return [tonesOrder.every((t, i) => !i || t >= tonesOrder[i - 1]), new Set(tonesOrder).size, tonesOrder[0] === 0, tonesOrder[tonesOrder.length - 1] === 3];
+});
+// the pick: the same place gives the same tree, and the trees of a city use every variant and vary in width and height
+out.same = JSON.stringify(treeLook(3, -2, 5)) === JSON.stringify(treeLook(3, -2, 5));
+const looks = []; for (let col = -6; col < 6; col++) for (let row = -5; row < 6; row++) for (const c of [-9, 0, 9]) looks.push(treeLook(col, row, c));
+out.used = [...new Set(looks.map((l) => l.variant))].sort();
+out.widths = [Math.min(...looks.map((l) => l.width)) >= TREE.width[0], Math.max(...looks.map((l) => l.width)) <= TREE.width[1], new Set(looks.map((l) => l.width.toFixed(2))).size > 10];
+out.heights = [Math.min(...looks.map((l) => l.height)) >= TREE.height[0], Math.max(...looks.map((l) => l.height)) <= TREE.height[1], new Set(looks.map((l) => l.height.toFixed(2))).size > 10];
+// the trees of the ground: each in the mesh of its variant, all of them there, none turned, and the same on every build
+const build = () => { const ground = buildGround(createKit(palette), 2); const meshes = []; ground.group.traverse((n) => { if (n.isInstancedMesh) meshes.push(n); }); return { meshes, trees: ground.trees }; };
+const a = build(), b = build();
+out.counts = [a.meshes.length, a.meshes.slice(2).reduce((n, m) => n + m.count, 0) === a.trees, a.meshes[0].count === a.trees];
+out.sameBuild = JSON.stringify(a.meshes.map((m) => m.count)) === JSON.stringify(b.meshes.map((m) => m.count)) && Array.from(a.meshes[2].instanceMatrix.array.slice(0, 64)).join() === Array.from(b.meshes[2].instanceMatrix.array.slice(0, 64)).join();
+console.log(JSON.stringify(out));
+""")
+    assert got["variants"] == [4, 4] and got["distinct"] == 4, "four crown variants, all different in their vertices"
+    assert got["facets"] == [20] * 4, "each is an icosahedron of twenty facets"
+    for ordered, tone_count, lightest, darkest in got["lit"]:
+        assert ordered and tone_count == 4 and lightest and darkest, "each variant is lit in the world after its turn: the facets the camera sees are lighter the more light they face, the lightest facing it most, in four tones"
+    assert got["same"] is True and got["used"] == [0, 1, 2, 3], "the pick is seeded by where the tree stands, and a city uses every variant"
+    assert got["widths"] == [True, True, True] and got["heights"] == [True, True, True], "width and height of each tree vary inside their bounds"
+    assert got["counts"] == [6, True, True] and got["sameBuild"] is True, "every tree is in the mesh of its variant, with a trunk and a shadow, the same on every build"
+
+
+@needs_node
+def test_the_trunk_is_thin_a_little_tapered_six_sided_and_a_bark_brown_darker_than_before_in_dark_never_yellow(tmp_path):
+    got = run_node(tmp_path, TREES_JS + r"""
+import { roomTones } from "@JS@/scene/palette.js";
+const out = {};
+const lum = (c) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+const g = treeGeometries(THREE, tones);
+const pos = g.trunk.getAttribute("position");
+// width at the foot and at the top of the trunk (the vertices at height 0 and at the top)
+const widthAt = (y) => { let r = 0; for (let i = 0; i < pos.count; i++) if (Math.abs(pos.getY(i) - y) < 1e-6) r = Math.max(r, Math.hypot(pos.getX(i), pos.getZ(i))); return r; };   // the radius at that height
+out.taper = [widthAt(0), widthAt(TREE.trunkHeight)];
+out.faces = pos.count / 3;
+out.sides = TREE.trunkSides;
+const old = (p) => p.mix(p.T.textMuted, p.T.warn, 0.25);   // the old recipe, mix(text-muted, warn 25%)
+for (const dark of [false, true]) {
+  const p = dark ? { ...palette, dark, bg: c(0x101010), T: { ...palette.T, bgToken: c(0x0a0a0a), text: c(0xffffff), textMuted: c(0x9ca3af), warn: c(0xf59e0b), error: c(0xf87171) } } : { ...palette, T: { ...palette.T, text: c(0x111111), textMuted: c(0x676d7b), warn: c(0xd97706), error: c(0xdc2626) } };   // the page's tokens in each scheme
+  const t = cityTones(p);
+  const was = old(p);
+  const hue = (c) => { const max = Math.max(c.r, c.g, c.b), min = Math.min(c.r, c.g, c.b); if (max === min) return 0; const d = max - min; const h = max === c.r ? ((c.g - c.b) / d) % 6 : max === c.g ? (c.b - c.r) / d + 2 : (c.r - c.g) / d + 4; return (h * 60 + 360) % 360; };
+  out[dark ? "dark" : "light"] = { bark: [lum(t.trunk), lum(was)].map((v) => +v.toFixed(3)), shade: lum(t.trunkShade) < lum(t.trunk), hue: +hue(t.trunk).toFixed(0), red: t.trunk.r > t.trunk.g && t.trunk.g >= t.trunk.b, ratio: +(t.trunk.g / t.trunk.r).toFixed(2), isColour: [t.trunk.isColor, t.trunkShade.isColor] };
+}
+console.log(JSON.stringify(out));
+""")
+    foot, top = got["taper"]
+    assert 0.07 < foot < 0.1 and top < foot * 0.8, "the trunk is thin (the box was 0.0875 of half-width, a square 0.175 across, and the earlier look 0.09 to 0.11 of radius on a taller crown) and narrower at the top than at the foot"
+    assert got["faces"] == 6 and got["sides"] == 6, "six sides, the three the camera sees: six triangles"
+    for scheme in ("light", "dark"):
+        r = got[scheme]
+        assert r["red"] and r["ratio"] < 0.72 and 5 <= r["hue"] <= 35 and all(r["isColour"]), f"{scheme}: a bark brown (orange hue, green well under red), not the old yellowish mix"
+        assert r["shade"] is True, f"{scheme}: the sides the sun does not reach are a step darker"
+    assert got["dark"]["bark"][0] < got["dark"]["bark"][1], "in dark the bark is darker than the old trunk"
+    palette_js = (SCENE / "palette.js").read_text(encoding="utf-8")
+    assert "mix(T.warn, T.error, 0.3)" in palette_js and "trunkShade" in palette_js, "the bark is a mix of tokens, with a shade of its own"
+
+
+# --- the decision mark at 70 percent (A-60, M-18, R4-B5) ---------------------------------------------------------------------------------------------
+
+@needs_node
+def test_the_decision_mark_is_drawn_at_seventy_percent_of_its_first_size_from_one_constant_in_the_same_place_and_colour(tmp_path):
+    got = run_node(tmp_path, WORLD_JS + r"""
+import { MARK, MARK_SCALE, MARK_HEIGHT, decisionMark } from "@JS@/scene/marks.js";
+const out = {};
+out.scale = MARK_SCALE;
+out.sizes = [MARK.cube, MARK.gap, ...MARK.bar].map((v) => +(v / MARK_SCALE).toFixed(3));   // the first build's: cube 0.32, gap 0.16, bar 0.32 x 0.96 x 0.32
+out.height = [+MARK_HEIGHT.toFixed(3), +((0.32 + 0.16 + 0.96) * 0.7).toFixed(3)];
+const kit = createKit(palette);
+const parent = new THREE.Group();
+const mark = decisionMark(kit, parent, 1, 0, 2);
+const box = new THREE.Box3().setFromObject(mark);
+out.box = [+(box.max.y - box.min.y).toFixed(3), +(box.max.x - box.min.x).toFixed(3), mark.position.toArray()];
+const mesh = mark.children[0];
+const colour = mesh.geometry.getAttribute("color");
+out.tone = new THREE.Color(colour.getX(0), colour.getY(0), colour.getZ(0)).getHexString() === cityTones(palette).mark.top.getHexString();
+// beside its floor, as before: the tower puts the mark at the same place, and its foot is on the slab
+const { world } = make({ lots: [lot("a", { floors: [{ ...lot("x").floors[0] }, { ...lot("x").floors[2], state: "waiting", window: "lit", decisions: 2 }] }), lot("b"), lot("c")] });
+const tower = world.towers.get("a");
+const marks = tower.overlay.children.filter((c) => c.userData.mark);
+out.marks = [marks.length, +marks[0].position.x.toFixed(3), +marks[0].position.z.toFixed(3)];
+console.log(JSON.stringify(out));
+""")
+    assert got["scale"] == 0.7 and got["sizes"] == [0.32, 0.16, 0.32, 0.96, 0.32], "every measure is the first build's times the one constant, 70 percent"
+    assert got["height"][0] == got["height"][1] and got["box"][0] == 1.008 and got["box"][1] == 0.224, "a mark 1.008 tall and 0.224 across (it was 1.44 and 0.32)"
+    assert got["tone"] is True, "the same amber tones"
+    assert got["marks"][0] == 1 and got["marks"][1] == 3.65 and got["marks"][2] == -2.95, "beside its floor's right back corner, where it stood"
+
+
+@needs_node
+def test_the_trees_of_a_block_never_share_a_look_and_a_look_is_seeded_by_the_trees_place_in_its_block(tmp_path):
+    # review of R4-B5: the look was seeded by `Math.round(dx * 7)`, so two trees of a block whose rounded offsets collided had the same crown, width and height
+    got = run_node(tmp_path, TREES_JS + r"""
+import { treesOf, treeLook, blockKind } from "@JS@/scene/city.js";
+const out = { blocks: 0, clashes: 0, trees: 0 };
+for (let col = -8; col < 8; col++) for (let row = -6; row < 7; row++) {
+  const trees = treesOf(blockKind(col, row, 2), col, row);
+  const looks = trees.map((t, k) => JSON.stringify(treeLook(col, row, k)));
+  out.blocks += 1; out.trees += trees.length;
+  if (new Set(looks).size !== looks.length) out.clashes += 1;
+}
+// the planted trees follow it: the same city, the look of tree k of a block
+const ground = buildGround(createKit(palette), 2);
+out.planted = ground.trees;
+console.log(JSON.stringify(out));
+""")
+    assert got["blocks"] == 16 * 13 and got["trees"] > 300 and got["clashes"] == 0, "no two trees of a block have the same crown, width and height"
+    city = (SCENE / "city.js").read_text(encoding="utf-8")
+    assert "treeLook(col, row, k)" in city and "Math.round(dx * 7)" not in city, "the look is seeded by the tree's place in its block, not by its rounded offset"
+
+
+# --- the Lobby's floor has windows like the others (M-27, A-69, R4-B7) -----------------------------------------------------------------------------
+
+@needs_node
+def test_the_ground_floor_has_the_windows_of_the_others_lit_by_the_planning_agent_and_the_owls_shadow_at_them_while_it_works(tmp_path):
+    got = run_node(tmp_path, STATES_JS + r"""
+const tones = cityTones(palette);
+const working = { ...lot("x").floors[0], state: "working", window: "lit", decisions: 0 };
+const resting = { ...lot("x").floors[0], state: "idle", window: "grey", decisions: 0 };
+const build = (ground) => buildWorld(kit, model({ lots: [lot("a", { floors: [ground, { ...lot("x").floors[1], state: "working", window: "lit" }, lot("x").floors[2], lot("x").floors[3]] }), lot("b"), lot("c")] })).towers.get("a");
+const on = build(working), off = build(resting);
+const out = {};
+// the same openings: the front's windows and the sizes, with the door where the second window is; three windows at the side
+const kinds = (i) => openings(i).front.map((o) => o.kind);
+const sizeOf = (o) => [+(o.b - o.a).toFixed(3), +(o.top - o.bottom).toFixed(3), +o.bottom.toFixed(3)];
+out.kinds = [kinds(0), kinds(1)];
+out.sides = [openings(0).right.length, openings(1).right.length, JSON.stringify(openings(0).right) === JSON.stringify(openings(1).right)];
+out.windows = openings(0).front.filter((o) => o.kind === "glass").map(sizeOf).every((s) => JSON.stringify(s) === JSON.stringify(sizeOf(openings(1).front[0])));
+out.positions = openings(0).front.filter((o) => o.kind === "glass").map((o) => +((o.a + o.b) / 2).toFixed(2));
+// the parts of the floor's shell: the same meshes (the walls, the glass) and the same glass quads as upper windows (3 at the front and 3 at the side, two triangles each)
+const shellMeshes = (t, i) => t.floorGroups[i].children[0].children.filter((m) => m.isMesh).length;
+const glassQuads = (t, i) => t.floorGroups[i].children[0].children[1].geometry.getAttribute("position").count / 6;
+out.parts = [shellMeshes(on, 0), shellMeshes(on, 2), glassQuads(on, 0), glassQuads(on, 2)];
+// the glass: warm white while the planning agent works, the project's glass at rest, as a floor's
+const paint = (t, i) => { const g = t.floorGroups[i].children[0].children[1].geometry.getAttribute("color"); return [g.getX(0), g.getY(0), g.getZ(0)]; };
+const same = (rgb, col) => Math.abs(rgb[0] - col.r) < 1e-6 && Math.abs(rgb[1] - col.g) < 1e-6 && Math.abs(rgb[2] - col.b) < 1e-6;
+out.glass = [same(paint(on, 0), tones.glassLit), same(paint(off, 0), tones.glass)];
+// the owl's shadow at the windows while it works (R-19), not at rest, one figure at each of the three windows, the motion still when reduced
+out.shadows = [agentIn(on, 0).length, agentIn(off, 0).length, agentIn(on, 0)[0] ? agentIn(on, 0)[0].children.length : 0];
+out.motions = [on.motions.length, off.motions.length];
+on.motions.forEach((m) => m.rest());
+const holder = agentIn(on, 0)[0];
+out.rest = holder ? holder.children.map((w) => +w.children[0].material.opacity.toFixed(2)) : [];
+// the state changes in place: the shadow comes when the agent starts
+const world = buildWorld(kit, model({ lots: [lot("a", { floors: [resting, lot("x").floors[1], lot("x").floors[2], lot("x").floors[3]] }), lot("b"), lot("c")] }));
+const tower = world.towers.get("a");
+out.before = agentIn(tower, 0).filter((h) => h.visible).length;
+world.update(model({ lots: [lot("a", { floors: [working, lot("x").floors[1], lot("x").floors[2], lot("x").floors[3]] }), lot("b"), lot("c")] }));
+out.after = agentIn(world.towers.get("a"), 0).filter((h) => h.visible).length;
+// the canopy and the door stay: the canopy over the door's bay, on its two posts
+out.door = [openings(0).front[1].a, openings(0).front[1].b];
+console.log(JSON.stringify(out));
+""")
+    assert got["kinds"] == [["glass", "door", "glass", "glass"], ["glass", "glass", "glass", "glass"]], "the ground floor has the front of an upper floor with the door in place of the second window (M-27 supersedes R-16's shop front)"
+    assert got["sides"] == [3, 3, True] and got["windows"] is True, "three windows at the side, as an upper floor's, and every front window the same size and height (same recess, sill, jamb, glass)"
+    assert got["positions"] == [-2.1, 0.7, 2.1], "the windows stand at the upper floor's places, the door where the second one is"
+    assert got["parts"][:2] == [2, 2] and got["parts"][2] == 6 and got["parts"][3] == 7, "the same two meshes, the walls and the glass: six panes (three in front, three at the side) against an upper floor's seven, the door taking the second window's place"
+    assert got["glass"] == [True, True], "lit by the planning agent's state exactly as a floor's: warm white while it works, the project's glass at rest"
+    assert got["shadows"][0] == 1 and got["shadows"][1] == 0 and got["shadows"][2] == 3, "the owl's shadow at the three windows while the planning agent works, none at rest (R-19)"
+    assert got["motions"][0] > got["motions"][1], "its motion is in the tower's list, the same 48 s cycle"
+    assert got["rest"] == [0, 0.62, 0], "reduced motion: one still figure at its window, as every floor's (R-19)"
+    assert got["before"] == 0 and got["after"] == 1, "when the planning agent starts the shadow comes where it stands"
+    assert got["door"] == [-1.3, -0.1], "the door stays, in the second bay, under the canopy"
+
+
+# --- the City's fit holds the labels (R4-B8, A-70) ----------------------------------------------------------------------------------------------------
+
+@needs_node
+def test_the_fit_makes_room_for_a_label_wider_than_its_building_and_leaves_a_canvas_with_room_framed_as_before(tmp_path):
+    # root cause (A-70): the fit was made on the buildings' geometry alone, and a label is as wide as its text in pixels whatever the zoom, so on a phone the first building's pill
+    # ("northwind-shop", 260 px) ran out of the free rectangle at the left edge; "Fit the scene" and "Zoom out" go back to that fit (the view cannot go under 1), so they did nothing
+    got = run_node(tmp_path, r"""
+import { fitFrustum, fitFrustumWithLabels } from "@JS@/scene/fit.js";
+const out = {};
+const bounds = { x0: -15, x1: 15, y0: -5, y1: 12 };
+const label = (x, width) => ({ x, y: 12, width, height: 30 });
+const sameFrustum = (a, b) => ["left", "right", "top", "bottom"].every((k) => Math.abs(a[k] - b[k]) < 1e-9);
+// a canvas with room: every label inside the free rectangle: the plain fit, to the last digit
+const wide = { w: 1280, h: 800 };
+const insets = { left: 220, right: 220, top: 80, bottom: 160 };
+out.roomy = sameFrustum(fitFrustumWithLabels(bounds, wide, insets, 1.04, 17.85, [label(-10, 260), label(10, 200)]), fitFrustum(bounds, wide, insets, 1.04, 17.85));
+// a phone: the first label is 260 px wide over a building at the left, and the free rectangle is 359 px wide
+const phone = { w: 375, h: 812 };
+const pins = { left: 8, right: 8, top: 120, bottom: 300, pad: 1.02 };
+const plain = fitFrustum(bounds, phone, pins, 1.02, 17.85);
+const fitted = fitFrustumWithLabels(bounds, phone, pins, 1.02, 17.85, [label(-12, 260), label(8, 10)]);
+const scale = (f) => (f.right - f.left) / phone.w;
+const rect = (f, l) => { const s = scale(f); return [l.x - (l.width / 2) * s, l.x + (l.width / 2) * s]; };
+const free = (f) => { const s = scale(f); return [f.left + pins.left * s, f.right - pins.right * s]; };
+const inside = (f, l) => { const [a, b] = rect(f, l); const [lo, hi] = free(f); return a >= lo - 1e-6 && b <= hi + 1e-6; };
+out.plainCuts = !inside(plain, label(-12, 260));
+out.fittedHolds = [inside(fitted, label(-12, 260)), inside(fitted, label(8, 10))];
+out.wider = fitted.right - fitted.left > plain.right - plain.left;
+// the fit with no label is the plain one, and the fit does not depend on how many rounds it took (it is stable when asked again with the same labels)
+out.none = sameFrustum(fitFrustumWithLabels(bounds, phone, pins, 1.02, 17.85, []), plain);
+out.stable = sameFrustum(fitted, fitFrustumWithLabels(bounds, phone, pins, 1.02, 17.85, [label(-12, 260), label(8, 10)]));
+// three labels, one at each side, on a narrower canvas, and one too wide for the canvas at all (it fits as well as it can and does not loop)
+const narrow = fitFrustumWithLabels(bounds, { w: 320, h: 640 }, { left: 8, right: 8, top: 100, bottom: 200 }, 1.02, 17.85, [label(-14, 260), label(14, 260), label(0, 400)]);
+out.narrow = Number.isFinite(narrow.left) && narrow.right > narrow.left;
+console.log(JSON.stringify(out));
+""")
+    assert got["roomy"] is True, "with room to spare the City is framed exactly as before (the desktop's framing is unchanged)"
+    assert got["plainCuts"] is True and got["fittedHolds"] == [True, True] and got["wider"] is True, "the fit on the buildings alone cuts the wide label; the fit with labels holds every label inside the free rectangle, by zooming out"
+    assert got["none"] is True and got["stable"] is True and got["narrow"] is True, "no labels: the plain fit; the same labels give the same fit; an impossible label does not loop"
+
+
+@needs_node
+def test_the_phones_city_frames_every_label_and_zoom_out_and_fit_come_back_to_that_frame(tmp_path):
+    got = run_node_engine(tmp_path, ENGINE_PAGE_JS + PRODUCT_JS + r"""
+const { createEngine } = await import("@JS@/scene/engine.js");
+const out = {};
+for (const [name, w, h] of [["phone", 375, 812], ["tablet", 768, 1024]]) {
+  const host = document.createElement("div");
+  host.clientWidth = w; host.clientHeight = h;
+  const engine = createEngine(host, { label: "City", getInsets: () => ({ left: 8, right: 8, top: 120, bottom: 300, pad: 1.02 }), onOpen() {}, onHover() {}, onUnavailable() {} });
+  engine.show("world", models.city(), "City");
+  for (let i = 0; i < 30; i++) frame(40);
+  const view = () => { const v = engine.canvas.wbStats().view; return [v.left, v.right, v.top, v.bottom].map((x) => +x.toFixed(4)); };
+  const fitted = view();
+  engine.zoomBy(1.25); for (let i = 0; i < 5; i++) frame(40);
+  const zoomed = view();
+  engine.zoomBy(1 / 1.25); for (let i = 0; i < 5; i++) frame(40);
+  const back = view();
+  engine.zoomBy(0.5); for (let i = 0; i < 5; i++) frame(40);
+  out[name] = { fitted, zoomedIn: zoomed[1] - zoomed[0] < fitted[1] - fitted[0], back: JSON.stringify(back) === JSON.stringify(fitted), pastFit: JSON.stringify(view()) === JSON.stringify(fitted) };
+}
+console.log(JSON.stringify(out));
+""")
+    for name in ("phone", "tablet"):
+        assert got[name]["zoomedIn"] is True and got[name]["back"] is True and got[name]["pastFit"] is True, f"{name}: zooming in narrows the view, zooming out comes back to the fit, and the fit is the least zoom"
+
+
+@needs_node
+def test_every_label_box_of_the_phones_city_is_inside_the_free_rectangle_in_each_state_and_when_a_label_grows(tmp_path):
+    # R4-B8, review of PR 321: the box of each label (its anchor projected by the camera, its measured size) is inside the insets; a quiet project's dot is sized by its card,
+    # so opening it makes the fit give it room and closing gives the room back, and a pill whose words grow is fitted again by the poll's update
+    got = run_node_engine(tmp_path, ENGINE_PAGE_JS + WORLD_JS + r"""
+import { all } from "@FAKE@";
+const { createEngine } = await import("@JS@/scene/engine.js");
+const widths = { card: 250, dot: 12, pill: 60 };
+const makeNode = document.createElement;
+document.createElement = (tag) => {
+  const n = makeNode(tag);
+  Object.defineProperty(n, "offsetWidth", { get: () => {
+    const c = n.cls();
+    if (!c.includes("wb-pill")) return 200;
+    return c.includes("is-quiet") && !c.includes("is-selected") ? widths.dot : (c.includes("is-quiet") ? widths.card : widths.pill);
+  }, set: () => {} });
+  return n;
+};
+const out = {};
+const inset = { left: 8, right: 8, top: 120, bottom: 300, pad: 1.02 };
+const run = (name, w, h, lots, regrow, open) => {
+  const host = document.createElement("div");
+  host.clientWidth = w; host.clientHeight = h;
+  const engine = createEngine(host, { label: "City", getInsets: () => inset, onOpen() {}, onHover() {}, onUnavailable() {} });
+  engine.show("world", model({ lots }), "City");
+  for (let i = 0; i < 30; i++) frame(40);
+  const boxes = () => all(host, ".wb-pill").map((n) => {
+    const x = parseFloat(n._style["--wb-x"]), y = parseFloat(n._style["--wb-y"]);
+    return { x0: x - n.offsetWidth / 2, x1: x + n.offsetWidth / 2, y: y, top: y - n.offsetHeight };   // the label as it is now: a dot, or its card once opened
+  });
+  const ok = (list) => list.length > 0 && list.every((b) => b.x0 >= inset.left - 0.6 && b.x1 <= w - inset.right + 0.6 && b.top >= inset.top - 0.6 && b.y <= h - inset.bottom + 0.6);
+  out[name] = { n: boxes().length, inside: ok(boxes()), boxes: boxes() };
+  if (open) {
+    const view = () => { const v = engine.canvas.wbStats().view; return [v.left, v.right, v.top, v.bottom].map((x) => +x.toFixed(4)); };
+    const fitted = view();
+    engine.highlight(open, "keyboard");   // the focus on the row of that project opens its dot into its card
+    for (let i = 0; i < 40; i++) frame(40);
+    out[name].opened = ok(boxes());
+    out[name].openedBoxes = boxes();
+    out[name].moved = JSON.stringify(view()) !== JSON.stringify(fitted);
+    engine.highlight(null, "keyboard");
+    for (let i = 0; i < 40; i++) frame(40);
+    out[name].closed = JSON.stringify(view()) === JSON.stringify(fitted);
+  }
+  if (regrow) {
+    widths.pill = 250;   // the words of a pill got longer: the labels are made again by the next poll
+    engine.show("world", model({ lots: lots.map((l) => ({ ...l, sub: "task #12 running with more words" })) }), "City");
+    for (let i = 0; i < 30; i++) frame(40);
+    out[name].relabels = engine.canvas.wbStats().relabels;
+    out[name].grown = ok(boxes());
+    out[name].grownBoxes = boxes();
+    widths.pill = 60;
+  }
+};
+const busy = (id) => lot(id, { decisions: 2, runningTask: 5 });
+const quiet = (id) => lot(id, { decisions: 0, runningTask: null });
+run("busy", 375, 812, [busy("a"), busy("b"), busy("c")], true, null);
+run("quiet", 375, 812, [busy("a"), quiet("b"), quiet("c")], false, "c");
+run("tablet", 768, 1024, [busy("a"), quiet("b"), quiet("c")], false, "b");
+console.log(JSON.stringify(out));
+""")
+    for name in ("busy", "quiet", "tablet"):
+        assert got[name]["n"] == 3 and got[name]["inside"] is True, f"{name}: the three labels' boxes are inside the free rectangle: {got[name]['boxes']}"
+    for name in ("quiet", "tablet"):
+        assert got[name]["opened"] is True, f"{name}: the card a dot opens into is inside the free rectangle: {got[name]['openedBoxes']}"
+        assert got[name]["closed"] is True, f"{name}: the room is given back when the dot closes"
+    assert got["quiet"]["moved"] is True, "on the phone the camera makes room for the opened card"
+    assert got["busy"]["relabels"] >= 1, "the new words reach the labels the way a poll's do (updateWorld: relabel, then the fit again)"
+    assert got["busy"]["grown"] is True, f"a pill that grew is inside again after the update: {got['busy']['grownBoxes']}"

@@ -6,7 +6,7 @@ description: >
   library comparisons) and the main conversation should not be filled with search results.
 metadata:
   skills: [core-research]
-  version: "0.1"
+  version: "0.1.0"
 ---
 
 # Researcher

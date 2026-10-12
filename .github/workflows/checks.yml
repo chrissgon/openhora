@@ -78,6 +78,7 @@ jobs:
           skills/mkt-engage/scripts/tests skills/mkt-publish/scripts/tests
           skills/mkt-vote-round/scripts/tests skills/brand-identity/scripts/tests
           shared/scripts/tests
+          runtime/tests
           providers/store/tests providers/scheduler/tests
 
   container:

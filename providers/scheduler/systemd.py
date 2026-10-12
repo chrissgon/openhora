@@ -599,9 +599,9 @@ def build_units(job: dict) -> dict:
     environment = " ".join(unit_quote(f"{key}={value}") for key, value in (
         ("PATH", run_path()), ("SCHEDULER_HOME", str(home())), ("SCHEDULER_UNITS_DIR", str(units_dir()))))
     service = "\n".join([
-        f"# Written by the ai-workbench scheduler for job {job['id']}; cancel it with the provider, do not edit.",
+        f"# Written by the openhora scheduler for job {job['id']}; cancel it with the provider, do not edit.",
         "[Unit]",
-        f"Description=ai-workbench scheduler job {job['id']}",
+        f"Description=openhora scheduler job {job['id']}",
         "",
         "[Service]",
         "Type=oneshot",
@@ -622,9 +622,9 @@ def build_units(job: dict) -> dict:
         # when the timer starts again at boot, so the runner can record it as done or missed.
         schedule = [f"OnCalendar={calendar_utc(parse_iso(job['at']))}", "Persistent=true"]
     timer = "\n".join([
-        f"# Written by the ai-workbench scheduler for job {job['id']}; cancel it with the provider, do not edit.",
+        f"# Written by the openhora scheduler for job {job['id']}; cancel it with the provider, do not edit.",
         "[Unit]",
-        f"Description=ai-workbench scheduler timer for job {job['id']}",
+        f"Description=openhora scheduler timer for job {job['id']}",
         "",
         "[Timer]",
         f"Unit={service_name(job['id'])}",
@@ -898,7 +898,7 @@ def finish(job: dict, status: str, **fields) -> int:
     job["finished_at"] = iso(now())
     write_job(job)
     summary = fields.get(ADDRESS_KEY) or fields.get("reason") or f"exit {fields.get('exit_code')}"
-    notify(f"ai-workbench: {job['id']} {status}", summary)
+    notify(f"openhora: {job['id']} {status}", summary)
     log(f"job {job['id']}: {status} ({summary})")
     unload(job)
     return EXIT_OK if status == "done" else EXIT_SERVICE
@@ -1153,7 +1153,7 @@ def run_recurring(job: dict) -> int:
     status = record["status"]
     summary = record.get("reason") or f"exit {record.get('exit_code')}"
     if status == "refused" or (status == "failed" and (previous or {}).get("status") != "failed"):
-        notify(f"ai-workbench: {job['id']} {status}", summary)
+        notify(f"openhora: {job['id']} {status}", summary)
     if status != "done":
         log(f"job {job['id']} firing: {status} ({summary})")
     if status == "refused":

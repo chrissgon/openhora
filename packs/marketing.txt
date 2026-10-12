@@ -1,0 +1,4 @@
+# The marketing area: the scope of the task runtime's marketing area agent, which owns the weekly routine of the
+# published posts (runtime/handlers/published_posts.py). Not in runtime/manifest.py's PACKS_IN_USE: the routine
+# runs no skill through a task.
+mkt-*

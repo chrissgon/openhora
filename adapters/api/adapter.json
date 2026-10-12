@@ -20,6 +20,7 @@
       "name": "OPENROUTER_API_KEY",
       "purpose": "run the floor model's eval runs through OpenRouter, and the runtime's model calls through the API adapter when its model is openrouter/<vendor>/<model>",
       "permission": "a key used only for evals and the runtime; a credit limit on it is recommended",
+      "billing": "metered",
       "readers": [
         "adapters/api/run_agent.py"
       ],
@@ -29,6 +30,7 @@
       "name": "ANTHROPIC_API_KEY",
       "purpose": "the runtime's model calls through the API adapter (adapters/api/) when its model is anthropic/<model>",
       "permission": "an API key with a spend limit",
+      "billing": "metered",
       "readers": [
         "adapters/api/run_agent.py"
       ],

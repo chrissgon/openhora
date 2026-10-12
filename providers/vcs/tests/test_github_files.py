@@ -844,3 +844,223 @@ def test_a_push_the_remote_refused_releases_the_key(remote, out_files):
     proc = run(commit_args(out_files, "k1", "--confirmed"), env)
     assert proc.returncode == 1 and "[remote rejected]" in proc.stderr, proc.stderr
     assert remote.head() == before and ledger(env) == {}  # a definite refusal: the key is free
+
+
+# --- WP-4.1: deletions, the executable bit, a branch started from a base -------------------------
+
+
+def mode_of(remote, path, rev="refs/heads/main"):
+    out = git(remote.env, remote.bare, "ls-tree", rev, "--", path).split()
+    return out[0] if out else None
+
+
+def refs(remote):
+    return git(remote.env, remote.bare, "for-each-ref", "--format=%(refname) %(objectname)")
+
+
+@needs_tools
+def test_delete_removes_a_file_in_the_same_signed_commit(remote, out_files):
+    env = remote.provider_env()
+    count = remote.count()
+    files = [f"data/pick-queue.json={out_files['queue']}"]
+    proc = run(commit_args(out_files, "k1", "--confirmed", "--delete", "data/posts.json", files=files), env)
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["pushed"] is True and out["signature"] == "ssh" and out["deletes"] == ["data/posts.json"]
+    assert remote.count() == count + 1  # one commit holds both
+    assert remote.changed() == ["data/pick-queue.json", "data/posts.json"]
+    assert mode_of(remote, "data/posts.json") is None and mode_of(remote, "data/pick-queue.json") == "100644"
+    assert "BEGIN SSH SIGNATURE" in git(remote.env, remote.bare, "cat-file", "commit", "refs/heads/main")
+    assert ledger(env)["k1"]["deletes"] == ["data/posts.json"]
+
+
+@needs_tools
+def test_a_delete_outside_allow_or_also_given_as_a_file_is_refused_before_cloning(remote, out_files):
+    env = remote.provider_env()
+    before = refs(remote)
+    files = [f"data/pick-queue.json={out_files['queue']}"]
+    for extra in (["--delete", "README.md"], ["--delete", "data/pick-queue.json"], ["--delete", "../x"],
+                  ["--delete", "data/posts.json", "--delete", "data/posts.json"], ["--delete", ".git/config"]):
+        proc = run(commit_args(out_files, "k1", "--confirmed", *extra, files=files), env)
+        assert proc.returncode == 2, (extra, proc.stderr)
+    assert not work_root(env).exists()  # nothing was cloned
+    assert refs(remote) == before and ledger(env) == {}
+
+
+@needs_tools
+def test_deleting_a_path_the_branch_does_not_hold_changes_nothing(remote, out_files):
+    env = remote.provider_env()
+    before = refs(remote)
+    for key, path in (("k1", "data/pick-queue.json"), ("k2", "assets/posts/none.png")):
+        proc = run(commit_args(out_files, key, "--confirmed", "--delete", path, files=[]), env)
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout)
+        assert out["unchanged"] is True and out["pushed"] is False and out["commit"] == remote.head()
+    assert refs(remote) == before
+
+
+@needs_tools
+def test_a_delete_through_a_symlink_or_of_a_folder_is_refused_and_nothing_is_pushed(remote, out_files):
+    env = remote.provider_env()
+    before = refs(remote)
+    for allow, path in (("assets/link/*", "assets/link/keep.txt"), ("assets/link", "assets/link"),
+                        ("data", "data"), ("outside", "outside")):
+        args = commit_args(out_files, "k1", "--confirmed", "--allow", allow, "--delete", path, files=[])
+        proc = run(args, env)
+        assert proc.returncode == 1, (path, proc.stderr)
+        assert "symlink" in proc.stderr and "Nothing was pushed" in proc.stderr, proc.stderr
+    assert refs(remote) == before and ledger(env) == {}
+    assert list(work_root(env).iterdir()) == []
+    assert git(remote.env, remote.bare, "show", "refs/heads/main:outside/keep.txt") == "keep\n"
+
+
+@needs_tools
+def test_mode_755_makes_a_new_file_executable_and_644_clears_the_bit(remote, out_files):
+    env = remote.provider_env()
+    files = [f"data/pick-queue.json={out_files['queue']}"]
+    first = run(commit_args(out_files, "k1", "--confirmed", "--mode", "data/pick-queue.json=755", files=files), env)
+    assert first.returncode == 0, first.stderr
+    assert mode_of(remote, "data/pick-queue.json") == "100755"
+    # Without --mode an existing file keeps its mode.
+    out_files["queue"].write_text("[]\n")
+    kept = run(commit_args(out_files, "k2", "--confirmed", files=files), env)
+    assert kept.returncode == 0, kept.stderr
+    assert mode_of(remote, "data/pick-queue.json") == "100755"
+    cleared = run(commit_args(out_files, "k3", "--confirmed", "--mode", "data/pick-queue.json=644", files=files), env)
+    assert cleared.returncode == 0, cleared.stderr
+    out = json.loads(cleared.stdout)
+    assert out["pushed"] is True and out["unchanged"] is False
+    assert mode_of(remote, "data/pick-queue.json") == "100644"
+    assert remote.changed() == ["data/pick-queue.json"]
+    assert ledger(env)["k3"]["modes"] == [{"path": "data/pick-queue.json", "mode": "644"}]
+
+
+@needs_tools
+def test_a_mode_for_a_path_that_is_not_a_file_of_the_call_is_refused(remote, out_files):
+    env = remote.provider_env()
+    before = refs(remote)
+    files = [f"data/pick-queue.json={out_files['queue']}"]
+    for extra in (["--mode", "data/posts.json=755"], ["--mode", "data/pick-queue.json=700"],
+                  ["--mode", "data/pick-queue.json"], ["--mode", "data/pick-queue.json=755",
+                                                       "--mode", "data/pick-queue.json=644"],
+                  ["--delete", "data/posts.json", "--mode", "data/posts.json=644"]):
+        proc = run(commit_args(out_files, "k1", "--confirmed", *extra, files=files), env)
+        assert proc.returncode == 2, (extra, proc.stderr)
+    assert not work_root(env).exists()
+    assert refs(remote) == before and ledger(env) == {}
+
+
+def branch_args(out_files, key, branch, *extra):
+    args = commit_args(out_files, key, *extra, files=[f"data/pick-queue.json={out_files['queue']}"])
+    args[args.index("--branch") + 1] = branch
+    return args
+
+
+@needs_tools
+def test_from_branch_creates_the_branch_from_the_base_when_the_remote_lacks_it(remote, out_files):
+    env = remote.provider_env()
+    main = remote.head()
+    proc = run(branch_args(out_files, "k1", "wb/request-1", "--from-branch", "main", "--confirmed"), env)
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    new = git(remote.env, remote.bare, "rev-parse", "refs/heads/wb/request-1").strip()
+    assert out["commit"] == new and out["branch"] == "wb/request-1" and out["pushed"] is True
+    assert git(remote.env, remote.bare, "rev-parse", "refs/heads/wb/request-1~1").strip() == main
+    assert remote.head() == main  # the base is not touched
+    assert remote.changed("refs/heads/wb/request-1") == ["data/pick-queue.json"]
+    assert ledger(env)["k1"]["from_branch"] == "main"
+    replay = run(branch_args(out_files, "k1", "wb/request-1", "--from-branch", "main", "--confirmed"), env)
+    assert replay.returncode == 0 and json.loads(replay.stdout)["replayed"] is True
+
+
+@needs_tools
+def test_from_branch_is_not_used_when_the_branch_already_exists(remote, out_files):
+    env = remote.provider_env()
+    git(remote.env, remote.bare, "branch", "feature", "refs/heads/main")
+    feature = git(remote.env, remote.bare, "rev-parse", "refs/heads/feature").strip()
+    (remote.mover / "moved.txt").write_text("main moved\n")
+    git(remote.env, remote.mover, "add", "moved.txt")
+    git(remote.env, remote.mover, "commit", "-q", "-m", "main moves on")
+    git(remote.env, remote.mover, "push", "-q", "origin", "HEAD:refs/heads/main")
+    main = remote.head()
+    dry = run(branch_args(out_files, "k1", "feature", "--from-branch", "main", "--dry-run"), env)
+    assert dry.returncode == 0 and json.loads(dry.stdout)["branch_exists"] is True
+    assert json.loads(dry.stdout)["base_commit"] == feature
+    proc = run(branch_args(out_files, "k1", "feature", "--from-branch", "main", "--confirmed"), env)
+    assert proc.returncode == 0, proc.stderr
+    assert git(remote.env, remote.bare, "rev-parse", "refs/heads/feature~1").strip() == feature
+    assert remote.head() == main
+    assert remote.changed("refs/heads/feature") == ["data/pick-queue.json"]
+
+
+@needs_tools
+def test_without_from_branch_a_missing_branch_is_still_an_error(remote, out_files):
+    env = remote.provider_env()
+    before = refs(remote)
+    proc = run(branch_args(out_files, "k1", "wb/request-2", "--confirmed"), env)
+    assert proc.returncode == 1 and "failed" in proc.stderr, proc.stderr
+    # A base that does not exist is an error too.
+    base = run(branch_args(out_files, "k2", "wb/request-2", "--from-branch", "no-such-base", "--confirmed"), env)
+    assert base.returncode == 1 and "no-such-base" in base.stderr, base.stderr
+    bad = run(branch_args(out_files, "k3", "wb/request-2", "--from-branch", "main..x", "--confirmed"), env)
+    assert bad.returncode == 2
+    assert refs(remote) == before and ledger(env) == {}
+    assert list(work_root(env).iterdir()) == []
+
+
+@needs_tools
+def test_dry_run_shows_deletes_modes_and_whether_the_branch_exists_and_pushes_nothing(remote, out_files):
+    env = remote.provider_env()
+    before = refs(remote)
+    args = branch_args(out_files, "k1", "wb/request-3", "--from-branch", "main", "--delete", "data/posts.json",
+                       "--mode", "data/pick-queue.json=755", "--dry-run")
+    proc = run(args, env)
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["dry_run"] is True and out["branch_exists"] is False and out["from_branch"] == "main"
+    assert out["deletes"] == ["data/posts.json"]
+    assert out["modes"] == [{"path": "data/pick-queue.json", "mode": "755"}]
+    assert out["base_commit"] == remote.head() and out["unchanged"] is False
+    assert "data/posts.json" in out["diff_stat"] and "new file mode 100755" in out["diff"]
+    plain = run(commit_args(out_files, "k1", "--dry-run"), env)
+    assert json.loads(plain.stdout)["branch_exists"] is True and json.loads(plain.stdout)["deletes"] == []
+    assert refs(remote) == before and ledger(env) == {}
+    assert list(work_root(env).iterdir()) == []
+
+
+@needs_tools
+def test_a_key_recorded_before_deletes_existed_still_replays(remote, out_files):
+    env = remote.provider_env()
+    files = [{"path": "data/pick-queue.json", "sha256": sha256(out_files["queue"])},
+             {"path": "assets/posts/vote-12.png", "sha256": sha256(out_files["image"])}]
+    entry = {"kind": "commit", "repo": REPO, "branch": "main", "files": files,
+             "message_sha256": sha256(out_files["message"]), "status": "committed", "commit": "c" * 40,
+             "pushed": True, "unchanged": False, "signature": "ssh", "recorded_at": "2026-10-01T00:00:00Z"}
+    path = Path(env["VCS_GITHUB_LEDGER"])
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"version": 1, "entries": {"old": entry}}))
+    count = remote.count()
+    proc = run(commit_args(out_files, "old", "--confirmed"), env)
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["replayed"] is True and out["commit"] == "c" * 40 and out["deletes"] == []
+    assert remote.count() == count
+    # The same key with a deletion added is another change set.
+    other = run(commit_args(out_files, "old", "--confirmed", "--delete", "data/posts.json"), env)
+    assert other.returncode == 2 and "new key" in other.stderr
+
+
+@needs_tools
+def test_a_key_used_with_other_deletes_is_refused(remote, out_files):
+    env = remote.provider_env()
+    files = [f"data/pick-queue.json={out_files['queue']}"]
+    first = run(commit_args(out_files, "k1", "--confirmed", "--delete", "data/posts.json", files=files), env)
+    assert first.returncode == 0, first.stderr
+    count = remote.count()
+    for extra in (["--delete", "data/pick.json"], [], ["--delete", "data/posts.json", "--from-branch", "main"],
+                  ["--delete", "data/posts.json", "--mode", "data/pick-queue.json=755"]):
+        proc = run(commit_args(out_files, "k1", "--confirmed", *extra, files=files), env)
+        assert proc.returncode == 2 and "new key" in proc.stderr, (extra, proc.stderr)
+    assert remote.count() == count
+    same = run(commit_args(out_files, "k1", "--confirmed", "--delete", "data/posts.json", files=files), env)
+    assert same.returncode == 0 and json.loads(same.stdout)["replayed"] is True

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate ai-workbench conventions.
+"""Validate openhora conventions.
 
 Usage: python3 scripts/validate.py [--strict] [--json] [--spec] [--flags]
 
@@ -26,6 +26,10 @@ Checks every skill under skills/ and every agent under agents/:
   - copies: every adopted copy listed in shared/scripts/copies.json is byte-identical to its source, and the
     manifest itself is valid (scripts/sync_copies.py --check; fix: change the source, then run
     python3 scripts/sync_copies.py). A generated copy is never edited by hand
+  - adapter-billing: every entry of the "secrets" list of adapters/<harness>/adapter.json has "billing", one of
+    subscription, metered or free (how the credential is billed: the daily caps of the runtime count runs for the
+    first and the last and dollars for metered); the optional "login_billing" of a manifest is one of the three; one
+    credential listed by two manifests has the same word in both. An error, one line per entry
   - frontmatter is read by this file's own parser on every machine, whatever library is installed
   - english-only: no tracked text file contains Portuguese-specific diacritics or words, except
     on a line carrying `validate: allow english-only -- <reason>` or a path listed in
@@ -90,6 +94,14 @@ closed it, C0.10 of the plan in force):
     its own artifact is not one);
     [contract-owner-table] the contract's generated table of owning skills equals the frontmatters
     (fix: python3 scripts/owner_table.py)
+  - the flow files (flows/<name>.json, read by runtime/flow_files.py of the tree; a tree without either is a
+    NOTE), three rules: [flow-file] each file is well formed (flow_files.problems: known keys, skills under
+    skills/, depends_on naming earlier tasks); [flow-dependencies] a task that requires without a condition
+    (a `Required` cell of exactly `yes` in its skill's ## Inputs table) a path another task's skill of the
+    flow lists in its outputs reaches that task through depends_on (dependencies are written, never
+    computed); [flow-inventory] the Phases cell of the row flow-<name> under the heading "Flows (`flow-`)" of
+    docs/inventory.md, split on the arrow and without " (optional)", lists the file's skills in order, each
+    without its first prefix (a flow file with no row is not an error)
   - [requires-role] every metadata.requires value has the form <role>:<target>; the four names that were
     bare (mailbox, mailer, scheduler, store) are reported with the class each became
   - [requires-vocabulary] every metadata.requires value that has a role is a class of the table in
@@ -127,8 +139,11 @@ They say what a skill or its cases still have to change; none reads a skill's sc
   - [routing-table] every built skill is in skills/core-orchestrator/references/routing.md, and a name in
     that table is built or marked (planned), never both
   - [test-file-names] test file names are unique across the folders scripts/test_dirs.py lists
+  - [architecture-tables] every generated block of the architecture pages (docs/architecture/platform/, between
+    `<!-- generated: <table> -->` and `<!-- /generated -->`) equals what its source gives; a stale block is a
+    snapshot behind the code, a warning and never an error (fix: python3 scripts/architecture_tables.py --write)
 A rule whose file is not in the tree being validated (the class table, the layout contract, the owner-table
-script, the manifest of copies and its script, the routing table, test_dirs.py) is
+script, the architecture-tables script or the pages, the manifest of copies and its script, the routing table, test_dirs.py) is
 skipped and says so in a NOTE line on stderr, which counts as neither an error nor a warning.
 
 Options:
@@ -1062,6 +1077,124 @@ def check_contract(skills, report, root=ROOT):
                         "run python3 scripts/owner_table.py", "contract-owner-table")
 
 
+def check_architecture_tables(report, root=ROOT):
+    """[architecture-tables]: each generated block of docs/architecture/platform/ that differs from its source, or
+    that cannot be generated, is a warning (a snapshot behind the code, never an error). Reads
+    scripts/architecture_tables.py of the tree by path; a tree without it or without the pages is a note."""
+    path = os.path.join(root, "scripts", "architecture_tables.py")
+    if not os.path.isfile(path) or not os.path.isdir(os.path.join(root, "docs", "architecture", "platform")):
+        report.note("[architecture-tables] skipped: scripts/architecture_tables.py or docs/architecture/platform/ "
+                    "is not in this tree")
+        return
+    spec = importlib.util.spec_from_file_location("architecture_tables_under_validate", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    for page, name, problem in module.stale_blocks(root):
+        report.warn(page, f"the generated block {name}: {problem}; run python3 scripts/architecture_tables.py --write",
+                    "architecture-tables")
+
+
+BILLING_WORDS = ("subscription", "metered", "free")
+
+
+def check_adapter_manifests(report, root=ROOT):
+    """[adapter-billing]: every entry of "secrets" in adapters/<harness>/adapter.json has "billing", one of BILLING_WORDS;
+    "login_billing", when a manifest has it, is one of them; a credential two manifests list has one word. Each finding is
+    an error. A manifest with no "secrets" list has nothing to declare; one that is not JSON is reported."""
+    folder = os.path.join(root, "adapters")
+    if not os.path.isdir(folder):
+        report.note("[adapter-billing] skipped: adapters/ is not in this tree")
+        return
+    seen = {}
+    for name in sorted(os.listdir(folder)):
+        path = os.path.join(folder, name, "adapter.json")
+        if not os.path.isfile(path):
+            continue
+        where = f"adapters/{name}/adapter.json"
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError) as e:
+            report.error(where, f"[adapter-billing] cannot be read as JSON ({type(e).__name__})")
+            continue
+        if not isinstance(data, dict):
+            report.error(where, "[adapter-billing] holds one JSON object")
+            continue
+        login = data.get("login_billing")
+        if "login_billing" in data and login not in BILLING_WORDS:
+            report.error(where, f"[adapter-billing] login_billing is {login!r}: one of {', '.join(BILLING_WORDS)}")
+        for entry in data.get("secrets") or []:
+            secret = entry.get("name") if isinstance(entry, dict) else None
+            word = entry.get("billing") if isinstance(entry, dict) else None
+            if word not in BILLING_WORDS:
+                report.error(where, f"[adapter-billing] the secret {secret!r} has billing {word!r}: it states how the credential "
+                                    f"is billed, subscription, metered or free")
+                continue
+            if secret in seen and seen[secret][0] != word:
+                report.error(where, f"[adapter-billing] the secret {secret} is billed {word} here and {seen[secret][0]} in "
+                                    f"adapters/{seen[secret][1]}/adapter.json: one credential has one billing")
+            seen.setdefault(secret, (word, name))
+
+
+FLOWS_HEADING = "Flows (`flow-`)"
+
+
+def check_flows(skills, report, root=ROOT):
+    """The three rules of the flow files (see the module docstring), as errors: [flow-file], [flow-dependencies],
+    [flow-inventory]. Reads runtime/flow_files.py of the tree by path; a tree without flows/ or without that
+    module is a note."""
+    module_path = os.path.join(root, "runtime", "flow_files.py")
+    folder = os.path.join(root, "flows")
+    if not os.path.isdir(folder) or not os.path.isfile(module_path):
+        report.note("[flow-file] [flow-dependencies] [flow-inventory] skipped: flows/ or runtime/flow_files.py "
+                    "is not in this tree")
+        return
+    spec = importlib.util.spec_from_file_location("flow_files_under_validate", module_path)
+    flow_files = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(flow_files)
+    info = {}
+    for s in skills:
+        md = os.path.join(root, "skills", s["name"], "SKILL.md")
+        try:
+            with open(md, encoding="utf-8") as f:
+                text = f.read()
+        except OSError:
+            text = ""
+        info[s["name"]] = {"inputs": s["inputs"], "outputs": s["outputs"], "skill_md": text}
+    rows = None
+    inventory = os.path.join(root, "docs", "inventory.md")
+    if os.path.isfile(inventory):
+        with open(inventory, encoding="utf-8") as f:
+            rows = markdown_table(f.read(), "Flow", after=FLOWS_HEADING)
+    for name in flow_files.names(root):
+        where = f"flows/{name}.json"
+        try:
+            with open(os.path.join(folder, name + ".json"), encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError) as e:
+            report.error(where, f"[flow-file] not a readable JSON file: {e}")
+            continue
+        found = flow_files.problems(data, name, root)
+        for text in found:
+            report.error(where, f"[flow-file] {text}")
+        if found:
+            continue
+        for text in flow_files.dependency_problems(data, info):
+            report.error(where, f"[flow-dependencies] {text}")
+        row = next((r for r in rows or [] if r and r[0] == f"flow-{name}"), None)
+        if row is None:
+            continue
+        cell = row[2] if len(row) > 2 else ""
+        phases = [p.strip() for p in cell.split("→")]
+        phases = [p[:-len(" (optional)")].strip() if p.endswith(" (optional)") else p for p in phases]
+        expected = [t["skill"].split("-", 1)[1] if "-" in t["skill"] else t["skill"] for t in data["tasks"]]
+        if phases != expected:
+            arrow = " → "
+            report.error("docs/inventory.md", f"[flow-inventory] the Phases of flow-{name} are "
+                         f"{arrow.join(phases)!r}; {where} plans {arrow.join(expected)!r}: write the "
+                         "file's tasks, in order, in that cell")
+
+
 def check_agent(filename, report):
     where = f"agents/{filename}"
     path = os.path.join(AGENTS, filename)
@@ -1425,6 +1558,9 @@ def main(argv):
                     check_skill_names(d, report, built)
         check_routing(report, built)
     check_contract(skills, report)
+    check_flows(skills, report)
+    check_architecture_tables(report)
+    check_adapter_manifests(report)
     if os.path.isdir(AGENTS):
         for fn in sorted(os.listdir(AGENTS)):
             if fn.endswith(".md"):

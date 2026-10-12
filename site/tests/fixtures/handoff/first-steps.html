@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>First steps · openhora</title>
+<meta name="description" content="Where to install openhora, what you need, and what to do after installing.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="assets/img/openhora-favicon.svg" type="image/svg+xml">
+<link rel="preload" href="assets/fonts/space-grotesk-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/inter-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/vendor/perfectui/perfectui.css">
+<link rel="stylesheet" href="assets/css/first-steps.css">
+<script src="assets/js/site.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main" data-proposed>Skip to the content</a>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brandlink" href="index.html"><img src="assets/img/openhora-mark.svg" alt="openhora" width="32" height="32"><span class="wordmark" aria-hidden="true">openhora</span></a>
+    <input class="nav-toggle-input" type="checkbox" id="nav-toggle" aria-label="Menu" aria-controls="site-nav" data-proposed>
+    <nav class="site-nav" id="site-nav" aria-label="Pages">
+      <a class="pui-btn btn-glow sm header-cta" href="https://github.com/chrissgon/openhora#install">Get started</a>
+      <ul><li><a href="index.html">Home</a></li><li><a href="proof.html">Proof</a></li><li><a href="first-steps.html" aria-current="page">First steps</a></li><li><a href="how-its-built.html">How openhora is built</a></li><li><a href="interface.html">Interface</a></li><li><a href="glossary.html">Glossary</a></li></ul>
+      <a class="pui-btn pui-outline pui-surface btn-ghost repo-in-nav" href="https://github.com/chrissgon/openhora" data-proposed><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>Repository</a>
+    </nav>
+    <div class="header-tools">
+      <a class="pui-btn pui-outline pui-surface btn-ghost repo-link" href="https://github.com/chrissgon/openhora" aria-label="Repository" data-proposed><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg><span class="repo-label">Repository</span></a>
+      <button class="pui-btn pui-outline pui-surface mode-btn" type="button" data-mode-btn aria-label="Colour mode: System" data-current="system" data-proposed><svg class="i-system" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="10" rx="1.5"/><path d="M7 17h6M10 13.5V17"/></svg><svg class="i-light" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="3.5"/><path d="M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.4 1.4M14.6 14.6 16 16M4 16l1.4-1.4M14.6 5.4 16 4"/></svg><svg class="i-dark" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16.5 12.2A7 7 0 0 1 7.8 3.5a7 7 0 1 0 8.7 8.7Z"/></svg></button>
+      <label class="nav-toggle" for="nav-toggle" aria-hidden="true"><span class="bars"></span><span data-proposed>Menu</span></label>
+    </div>
+  </div>
+</header>
+<main id="main">
+<section class="band page-hero" aria-labelledby="page-title">
+  <div class="wrap">
+    <div class="dots fade-down" aria-hidden="true"></div>
+    <div class="hero-glow sm" aria-hidden="true"></div>
+    <div class="ph-copy">
+      <p class="ph-kicker" data-proposed>First steps</p>
+      <h1 id="page-title" class="ph-title" data-proposed>From the README to your first request</h1>
+      
+      
+    </div>
+    <span class="cross bl" aria-hidden="true"></span><span class="cross br" aria-hidden="true"></span>
+  </div>
+</section>
+<section class="band" aria-labelledby="inst-t">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="num"><span class="big">01</span></div>
+      <div class="ttl"><h2 id="inst-t" data-proposed>Install</h2><span class="aside">the steps live in the README, on main</span></div>
+    </div>
+    <div class="fs-install">
+      <a class="fs-big" href="https://github.com/chrissgon/openhora#install">
+        <span class="fs-big-k" data-proposed>README.md · section</span>
+        <span class="fs-big-t">Install</span>
+        <span class="fs-big-u">github.com/chrissgon/openhora#install</span>
+        <span class="fs-big-arrow" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10h12M11 5l5 5-5 5"/></svg></span>
+      </a>
+    </div>
+    <span class="cross tl" aria-hidden="true"></span><span class="cross tr" aria-hidden="true"></span>
+  </div>
+</section>
+<section class="band" aria-labelledby="need-t">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="num"><span class="big">02</span></div>
+      <div class="ttl"><h2 id="need-t" data-proposed>What you need</h2></div>
+    </div>
+    <ul class="fs-need">
+      <li><span class="fs-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg></span><p class="fs-need-k" data-proposed>Skills by hand</p><p>To use skills by hand: an AI tool that reads skills, and one of the installers</p></li>
+      <li><span class="fs-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M7.5 10l3 2.5-3 2.5M12.5 15.5h4"/></svg></span><p class="fs-need-k" data-proposed>The runtime and the interface</p><p>To use the runtime and the interface: a checkout of the repository, Docker and the model's credential, <code>uv</code> for the secret-store form of the commands, and a project configuration with three absolute paths</p></li>
+      <li><span class="fs-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 4h8v5H8zM16 15h-8v5h8z"/><path d="M12 9v6"/></svg></span><p class="fs-need-k" data-proposed>Python</p><p>Runtime modules run on Python 3.9 with the standard library only.</p></li>
+    </ul>
+    <span class="cross tl" aria-hidden="true"></span><span class="cross tr" aria-hidden="true"></span>
+  </div>
+</section>
+<section class="band" aria-labelledby="after-t">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="num"><span class="big">03</span></div>
+      <div class="ttl"><h2 id="after-t" data-proposed>After installing</h2><span class="aside">three words, one definition each</span></div>
+    </div>
+    <dl class="fs-defs">
+      <div class="fs-def"><dt><a href="glossary.html#skill">skill</a></dt><dd>One folder under <code>skills/</code> with a <code>SKILL.md</code> that a model follows, plus the scripts, references and assets it loads. It does one job and reads and writes artifacts in the project. Named <code>&lt;area prefix&gt;-&lt;name&gt;</code>.</dd></div><div class="fs-def"><dt><a href="glossary.html#agent">agent</a></dt><dd>A persona with a scope and a list of skills, used to delegate work in isolation or in parallel. Four are defined under <code>agents/</code>: implementer, researcher, reviewer, social-manager. Not to be confused with an area agent.</dd></div><div class="fs-def"><dt><a href="glossary.html#flow">flow</a></dt><dd>A skill that chains capabilities by name, phase by phase, with a user checkpoint at the end of each phase, and keeps its progress in the project's state file so it can resume across sessions. One flow skill is built: <code>flow-fix-bug</code>.</dd></div>
+    </dl>
+    <div class="fs-lobby">
+      <div class="fs-lobby-t">
+        <p class="label"><b data-proposed>Your first request</b> <span data-proposed>in the Lobby</span></p>
+        <p class="fs-lobby-l">The person types a request or a command (typing <code>/</code> lists the commands); a “New request” form sits inside the conversation.</p>
+        <p class="src">interface.md, Lobby</p>
+      </div>
+      <figure class="shot fs-shot">
+        <div class="shot-frame"><div class="shot-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="shot-addr">local service · 127.0.0.1</span><span class="pui-badge pui-soft pui-theme shot-tag" data-proposed>fictional data</span></div>
+        <div class="shot-img"><img class="s-wide s-light" src="assets/img/lobby-commands-1280-light.webp" width="1280" height="800" alt="The Lobby of the local interface, fictional data: the conversation with the list of commands shown after typing a slash." loading="lazy" decoding="async"><img class="s-wide s-dark" src="assets/img/lobby-commands-1280-dark.webp" width="1280" height="800" alt="The Lobby of the local interface, fictional data: the conversation with the list of commands shown after typing a slash." loading="lazy" decoding="async"><img class="s-tall s-light" src="assets/img/lobby-commands-375-light.webp" width="375" height="812" alt="The Lobby of the local interface, fictional data: the conversation with the list of commands shown after typing a slash." loading="lazy" decoding="async"><img class="s-tall s-dark" src="assets/img/lobby-commands-375-dark.webp" width="375" height="812" alt="The Lobby of the local interface, fictional data: the conversation with the list of commands shown after typing a slash." loading="lazy" decoding="async"></div></div>
+        <figcaption class="shot-cap"><span data-proposed>Screenshot of the local interface, fictional data</span> · <a href="https://github.com/chrissgon/openhora/blob/main/docs/reference/openhora/interface-shots/README.md" class="ext">interface-shots</a></figcaption>
+      </figure>
+    </div>
+    <span class="cross tl" aria-hidden="true"></span><span class="cross tr" aria-hidden="true"></span>
+  </div>
+</section>
+<section class="band" aria-labelledby="start-t">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="num"><span class="big">04</span></div>
+      <div class="ttl"><h2 id="start-t" data-proposed>Start the service</h2><span class="aside">it opens the interface</span></div>
+    </div>
+    <div class="streak v-steep fs-start">
+      <div class="term "><div class="term-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="tab">terminal</span><span class="meta">repository root</span></div><pre class="code"><span class="ln"><span class="p">$ </span><span class="a">uv run --with keyring==25.7.0 python3 runtime/service.py --project &lt;dir&gt;</span></span></pre></div>
+    </div>
+    <p class="src fs-src">runtime/README.md · <a class="ext" href="https://github.com/chrissgon/openhora/blob/main/runtime/README.md">open on main</a></p>
+    <span class="cross tl" aria-hidden="true"></span><span class="cross tr" aria-hidden="true"></span>
+  </div>
+</section>
+</main>
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="col">
+      <a class="brandlink" href="index.html"><img src="assets/img/openhora-mark.svg" alt="openhora" width="32" height="32"><span class="wordmark" aria-hidden="true">openhora</span></a>
+      <ul class="pills" aria-label="Claims" data-proposed>
+        <li class="pui-chip pui-outline pui-surface pill">MIT licence</li><li class="pui-chip pui-outline pui-surface pill">self-hosted</li><li class="pui-chip pui-outline pui-surface pill">no telemetry</li>
+      </ul>
+    </div>
+    <nav class="col" aria-label="Pages, again" data-proposed>
+      <h2 data-proposed>Pages</h2>
+      <ul><li><a href="index.html">Home</a></li><li><a href="proof.html">Proof</a></li><li><a href="first-steps.html" aria-current="page">First steps</a></li><li><a href="how-its-built.html">How openhora is built</a></li><li><a href="interface.html">Interface</a></li><li><a href="glossary.html">Glossary</a></li></ul>
+    </nav>
+    <div class="col">
+      <h2 data-proposed>Repository</h2>
+      <ul>
+        <li><a href="https://github.com/chrissgon/openhora">github.com/chrissgon/openhora</a></li>
+        <li><a href="https://github.com/chrissgon/openhora#install">README, Install</a></li>
+        <li><a href="https://github.com/chrissgon/openhora/blob/main/LICENSE">LICENSE</a></li>
+      </ul>
+    </div>
+    <div class="footer-base">
+      <span>MIT licence · self-hosted · no telemetry</span>
+      <span>Copyright (c) 2026 Christopher Goncalves</span>
+    </div>
+    <p class="footer-mark" aria-hidden="true"><span>openhora</span></p>
+  </div>
+</footer>
+</body>
+</html>

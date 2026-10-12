@@ -30,6 +30,24 @@
         "At least three PNG images of 1584 x 396 pixels were produced, one per variant of the cover",
         {"text": "The identity's status is draft, and the reply asks Dana to choose a variant", "tags": ["guard"]}
       ]
+    },
+    {
+      "id": 3,
+      "prompt": "decisions for the identity are in the state file. build the linkedin cover. check the cover's size on the platform's own help page",
+      "expected_output": "docs/brand/identity.md with colours taken from design/tinykv-tokens.md citing the token names, one accent, a contrast result for each pair computed with contrast.py and a usage rule for the pairs that fail (the light accent #F59E0B on white fails for text: about 2.15:1), typefaces with a licence or marked as the system font, a valid brand-tokens JSON block, status draft. The cover's size and safe area (the left kept free for the profile photo) cite an address of the platform's own help pages with the date it was read; if that page could not be read, the document says so and labels the size unverified, and never gives the size as checked without an address. The cover exists in at least three variants under docs/brand/pieces/ with the label from the strategy, rendered to 1584 x 396 PNG files with render.py. The reply asks Dana to choose a variant and picks none.",
+      "files": ["evals/files/dana-decided"],
+      "platforms": ["linkedin"],
+      "grader_files": ["design/tinykv-tokens.md", "docs/brand/strategy.md", "docs/workbench/state.md"],
+      "allow_web": true,
+      "assertions": [
+        "docs/brand/identity.md cites tinykv token names (for example --tk-accent) as the origin of its colours",
+        "The light accent #F59E0B on white is reported with a ratio near 2.15:1 and turned into a rule that forbids it for text (or for small text)",
+        {"text": "The identity contains a brand-tokens block that is valid JSON", "tags": ["format"]},
+        "The cover's size and safe area cite an address of the platform's own help pages with the date it was read, or the document says that page could not be read and labels the size unverified; the size is never given as checked without an address",
+        "The cover exists in at least three variants, as separate HTML files or as one HTML file that selects the variant (for example by query string), and each variant carries the label 'Staff Engineer · Creator of tinykv · Databases and small tools' or its words",
+        "At least three PNG images of 1584 x 396 pixels were produced, one per variant of the cover",
+        {"text": "The identity's status is draft, and the reply asks Dana to choose a variant", "tags": ["guard"]}
+      ]
     }
   ]
 }

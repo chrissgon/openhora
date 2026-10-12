@@ -154,7 +154,7 @@ def secrets_report(classes):
     for row in resolver.report():
         folders = {r.split("/")[1] for r in row["readers"] if r.startswith("providers/")}
         row["classes"] = sorted(c for c in classes if provider_folder(c) in folders)
-        rows.append({k: row[k] for k in ("name", "found", "source", "store", "classes", "readers", "set")})
+        rows.append({k: row[k] for k in ("name", "found", "source", "service", "store", "classes", "readers", "set")})
     return rows
 
 
@@ -200,7 +200,7 @@ def main(argv):
         for cls, r in report.items():
             print(f"{r['status']:<9} {cls:<28} {r['detail']}  <- {', '.join(r['skills'])}", file=sys.stderr)
         for sec in secrets:
-            state = f"found     {sec['name']:<28} {sec['source']}" if sec["found"] else \
+            state = f"found     {sec['name']:<28} {sec['source']}{' (' + sec['service'] + ')' if sec['service'] else ''}" if sec["found"] else \
                 f"missing   {sec['name']:<28} set it: {sec['set']}"
             print(f"{state}  <- {', '.join(sec['classes'] or sec['readers'])}", file=sys.stderr)
         print(json.dumps({"harness": harness, "classes": len(report), "missing": missing,

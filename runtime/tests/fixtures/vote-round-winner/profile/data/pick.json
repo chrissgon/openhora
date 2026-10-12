@@ -1,0 +1,48 @@
+{
+ "open": true,
+ "round": "2026-10-12",
+ "closes": "2026-10-19",
+ "pillar": "AI for databases, built in public",
+ "options": {
+  "A": "What an LLM got wrong about my indexes",
+  "B": "Logging every failed experiment",
+  "C": "The AI pillar has no demo yet. Here is why."
+ },
+ "picks": {
+  "3f9a0c1e5b7d2468": "C"
+ },
+ "history": [
+  {
+   "round": "2026-10-05",
+   "pillar": "Database performance",
+   "options": {
+    "A": "Durability is a budget: what an fsync demo taught me",
+    "B": "Reading EXPLAIN without guessing",
+    "C": "The index that made deletes 200 times faster"
+   },
+   "counts": {
+    "A": 5,
+    "B": 2,
+    "C": 3
+   },
+   "winner": "A",
+   "post_url": null
+  },
+  {
+   "round": "2026-09-28",
+   "pillar": "Small tools",
+   "options": {
+    "A": "Why tinykv has exactly one config flag",
+    "B": "Deleting code is my favourite feature",
+    "C": "Zero dependencies, one year later"
+   },
+   "counts": {
+    "A": 1,
+    "B": 2,
+    "C": 4
+   },
+   "winner": "C",
+   "post_url": "https://www.linkedin.com/feed/update/urn:li:share:7000000000000000101/"
+  }
+ ]
+}
