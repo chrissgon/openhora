@@ -349,7 +349,10 @@ def _split_code(text: str) -> list:
             if buf:
                 out.append(("text", "".join(buf)))
                 buf = []
-            out.append(("code", text[j:close]))
+            content = text[j:close]
+            if len(content) > 2 and content[0] == " " and content[-1] == " " and content.strip():
+                content = content[1:-1]  # CommonMark: one padding space at each end is not part of the code
+            out.append(("code", content))
             i = close + run
         else:
             buf.append(text[i:j])
@@ -407,13 +410,12 @@ def _inline(text: str) -> str:
 
 def _heading(text: str) -> str:
     """A heading is bold; a code span inside it is closed out of the bold, since a code span cannot sit inside a mark."""
-    if text.startswith("**") and text.endswith("**") and len(text) > 4 and "**" not in text[2:-2]:
-        text = text[2:-2]
     out = []
     for kind, s in _split_code(text):
         if kind == "code":
             out.append(f"<code>{_esc(s)}</code>")
         elif s.strip():
+            s = re.sub(r"\*\*(?=\S)(.+?)(?<=\S)\*\*", r"\1", s)  # a heading is bold already: its **x** pairs lose the marks
             out.append("<b>" + _marks(s, ("s",)) + "</b>")
         else:
             out.append(_esc(s))

@@ -23,6 +23,7 @@ Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
 
+import re
 import hashlib
 
 CHANNEL = "messaging"
@@ -74,6 +75,17 @@ def _cut(text: str, room: int, note: str) -> str:
     return text[:keep].rstrip() + "\n" + note
 
 
+def code_span(command: str) -> str:
+    """The command as a Markdown code span, which a messenger can offer as tap-to-copy. A command that holds a backtick
+    is wrapped in a longer run of backticks with a space inside each end (CommonMark); the renderer strips that one
+    space, so the visible command is the command byte for byte."""
+    longest = max((len(r) for r in re.findall(r"`+", command)), default=0)
+    if not longest and not (command.startswith(" ") or command.endswith(" ")):
+        return f"`{command}`"
+    fence = "`" * (longest + 1)
+    return f"{fence} {command} {fence}"
+
+
 def build(project_name: str, item: dict, caps: dict, policy, notices: str = "text", page_url=None, operations=None,
           effect_command: str | None = None) -> dict:
     """The card of one open decision. Returns {"message": the neutral message without action ids (each action is
@@ -107,9 +119,7 @@ def build(project_name: str, item: dict, caps: dict, policy, notices: str = "tex
     if kind == "effect":
         footer.append(EFFECT_LINE)
         if effect_command:
-            # on its own line in single backticks, which a messenger can offer as tap-to-copy; a command that holds a
-            # backtick cannot sit in a code span and is left as it is
-            footer.append(effect_command if "`" in effect_command else f"`{effect_command}`")
+            footer.append(code_span(effect_command))
     elif refused:
         footer.append(PAGE_LINE)
     link = None

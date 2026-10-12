@@ -138,16 +138,28 @@ def test_quote_runs_are_one_blockquote_each_and_crlf_is_one_newline():
     assert render(">not a quote") == "&gt;not a quote"
 
 
-def test_an_effect_card_command_is_in_the_visible_text_byte_for_byte():
+COMMANDS = ["python3 /w/ops.py approve --project /p/northwind-shop --id 7 --sha256 " + "e" * 64,
+            "run '/p/_a_/__init__/*' \"q\" 'a b' <x> & y", "echo `hi`", "echo ``hi``", "`lead", "trail`", "a ` b `` c ``` d",
+            "'/p/a`b' --id 7", " spaced "]
+
+
+@pytest.mark.parametrize("command", COMMANDS)
+def test_a_real_effect_card_shows_its_command_byte_for_byte_in_code_on_the_last_line(command):
     sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "runtime"))
     import messaging_cards as cards  # noqa: E402
-    command = "python3 /w/runtime/ops_cli.py approve --project '/p/northwind-shop/_a_/__init__/*' --id 7 --sha256 " + "e" * 64
-    text = f"Approve it on the page or in the terminal:\n`{command}`"
+    import operations  # noqa: E402
+    caps = dict(telegram.CAPABILITIES)
+    policy = {"messaging": {"approve": True}}
+    item = {"kind": "effect", "id": 7, "title": "Pull request", "text": "Open a pull request", "actions": ["approved", "rejected"],
+            "payload_sha256": "e" * 64}
+    card = cards.build("northwind-shop", item, caps, policy, "text", None, operations=operations, effect_command=command)
+    text = card["message"]["text"]
     out = render(text)
     check(out)
-    assert out.endswith(f"<code>{html.escape(command, quote=False)}</code>")
+    last = out.rstrip().split("\n")[-1]
+    assert last.startswith("<code>") and last.endswith("</code>")
+    assert html.unescape(last[len("<code>"):-len("</code>")]) == command
     assert command in telegram.visible_text(out)
-    assert cards  # the card builder is the one that wraps it; its own test is in runtime/tests
 
 
 # --- the send path ------------------------------------------------------------------------------------------------
