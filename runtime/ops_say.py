@@ -589,9 +589,11 @@ def _say_route(project: str, ctx: dict, said: str, line_id: int, channel: str, a
         remembered = chat_memory(messages, settled)
         text = f"{remembered}\n\n{MEMORY_TAIL}\n{said}" if remembered else said
         request_id = _ops().request(project, text, title=plan.title_of(said), after=after)["request"]
+    already = any(e["kind"] == "route" and e["id"] == request_id for e in _queue_read(ctx, peek=True))
     routed = _ops().route(project, request_id, channel=channel)
     if routed.get("queued"):  # the router was taken after the check: the request waits for the end of its run
-        _retag(ctx, "route", request_id, "talk")  # a line made this request: the drain checks `talk`, not `request`
+        if not already:  # an entry that was queued before keeps the group that created it (never widened by a line)
+            _retag(ctx, "route", request_id, "talk")  # a line made this request: the drain checks `talk`, not `request`
         return QUEUED_REQUEST.format(request=request_id), request_id, None, False, None
     if routed.get("kind") == "direct":
         core._stored(ctx, ctx["store"].request_cancel, request_id, by="code:direct")

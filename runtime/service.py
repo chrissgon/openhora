@@ -673,7 +673,7 @@ def _policy_refusal(service: Service, project: dict, row: dict, route: dict, par
 
 def _permissions(service: Service, entry: dict):
     """The page's permissions of one project of GET /projects: {"channel": "page", "allowed": [...]} (operations.permissions),
-    or None when the configuration is not accepted (nothing is permitted yet) or cannot be read."""
+    or None when the configuration is not accepted now (nothing is permitted yet) or cannot be read."""
     if not (entry.get("config") or {}).get("accepted"):
         return None
     try:
