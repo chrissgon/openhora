@@ -1479,6 +1479,66 @@ def task_fail_running(conn: sqlite3.Connection, note: str) -> dict:
     return {"tasks": tasks, "runs": runs}
 
 
+def task_fail_orphans(conn: sqlite3.Connection, task_ids, run_ids, note: str) -> dict:
+    """End what dead processes left. The caller holds the lock of each task it names, so no live process can claim it
+    meanwhile, and found that no process held it. Each task of task_ids still `running` becomes `failed` with the
+    note and every run row of it still `running` ends `failed` (failure `stopped`); each run of run_ids still
+    `running` ends the same way. What is not running is skipped silently. Returns the ids actually changed:
+    {"tasks": [ids], "runs": [ids]}."""
+    note = text_arg(note, "note", NOTE_MAX, multiline=True)
+    now = iso(utcnow())
+    tasks, runs = [], set()
+    with write(conn):
+        for task_id in sorted({int(i) for i in task_ids}):
+            if conn.execute("SELECT 1 FROM tasks WHERE id = ? AND state = 'running'", (task_id,)).fetchone() is None:
+                continue
+            tasks.append(task_id)
+            runs.update(r["id"] for r in conn.execute(
+                "SELECT id FROM task_runs WHERE task_id = ? AND status = 'running'", (task_id,)))
+            conn.execute("UPDATE tasks SET state = 'failed', note = ?, updated_at = ? WHERE id = ?", (note, now, task_id))
+        runs.update(r["id"] for i in {int(i) for i in run_ids} for r in conn.execute(
+            "SELECT id FROM task_runs WHERE id = ? AND status = 'running'", (i,)))
+        for run_id in sorted(runs):
+            conn.execute("UPDATE task_runs SET status = 'failed', failure = 'stopped', ended_at = ?, error = ? "
+                         "WHERE id = ? AND status = 'running'", (now, note, run_id))
+    return {"tasks": tasks, "runs": sorted(runs)}
+
+
+# The tasks of a request that hold a slot of their agent: running, waiting for the person, or ready because the person
+# answered a decision the task's latest run opened (it is about to run again).
+SLOT_HOLDERS = (
+    "SELECT t.id, t.agent FROM tasks t WHERE t.parent_id IS NOT NULL AND ("
+    " t.state IN ('running', 'waiting')"
+    " OR (t.state = 'ready' AND EXISTS ("
+    "  SELECT 1 FROM pending_decisions p WHERE p.task_id = t.id AND p.resolution = 'answered'"
+    "   AND p.created_at >= (SELECT MAX(r.started_at) FROM task_runs r WHERE r.task_id = t.id)))) ORDER BY t.id")
+
+
+def task_slot_holders(conn: sqlite3.Connection) -> list:
+    """The tasks of a request that hold a slot of their agent, as {"id", "agent"}, ordered by id: `running`, `waiting`,
+    or `ready` after the person answered a decision that the task's latest run opened. A task that never ran, or that
+    failed after the answer and was retried, holds none."""
+    return [row_dict(r) for r in conn.execute(SLOT_HOLDERS)]
+
+
+def task_running_list(conn: sqlite3.Connection) -> list:
+    """Every task in state `running`, oldest first, as {"task": the task as task_get gives it, "run": {"id",
+    "started_at", "skill", "billing"} of its live run row (status `running`), or None when it has none yet}."""
+    out = []
+    for row in conn.execute("SELECT id FROM tasks WHERE state = 'running' ORDER BY id").fetchall():
+        run = conn.execute("SELECT id, started_at, skill, billing FROM task_runs WHERE task_id = ? AND status = 'running' "
+                           "ORDER BY id DESC LIMIT 1", (row["id"],)).fetchone()
+        out.append({"task": _task(conn, row["id"]), "run": None if run is None else row_dict(run)})
+    return out
+
+
+def task_runs_since(conn: sqlite3.Connection, low_water: int) -> list:
+    """The run rows of tasks of a request (not the router's) with id at or above low_water, ordered by id, every column."""
+    return [row_dict(r) for r in conn.execute(
+        "SELECT r.* FROM task_runs r JOIN tasks t ON t.id = r.task_id WHERE t.parent_id IS NOT NULL AND r.id >= ? "
+        "ORDER BY r.id", (int(low_water),))]
+
+
 def request_cancel(conn: sqlite3.Connection, request_id: int, *, by: str) -> dict:
     """Cancel a request: the request and each of its tasks that is not done or cancelled become `cancelled`,
     and their open pending decisions too. Refused while one of its tasks is running. Returns {"request",
@@ -1672,7 +1732,7 @@ def route_run_start(conn: sqlite3.Connection, request_id: int, *, skill: str, mo
                     skill_version: str | None = None, skill_sha256: str | None = None, web: bool = False,
                     reroute: bool = False, billing: str | None = None) -> dict:
     """A run of the router on a request: a row of task_runs whose task is the request. Refused unless the request
-    is `requested` with no open pending decision, no task of the database is running and no run row is running.
+    is `requested` with no open pending decision and no router run is running (task runs do not prevent it).
     With reroute (stage 6: one delivery of an approved plan routed again after its brief), the request is `planned`
     or `done` instead, and an open pending decision on it does not refuse the run.
     billing is recorded as task_run_start records it. Returns {"run_id", "request_id", "started_at"}."""
@@ -1695,9 +1755,9 @@ def route_run_start(conn: sqlite3.Connection, request_id: int, *, skill: str, mo
         if open_items:
             raise StoreError(f"request {request_id} has an open {open_items[0]['kind']} (pending decision "
                              f"{open_items[0]['id']}): decide it first")
-        busy = conn.execute(RUNNING_TASK).fetchone()
-        if busy or conn.execute("SELECT 1 FROM task_runs WHERE status = 'running'").fetchone():
-            raise StoreError("a run is in progress: one run at a time per project")
+        if conn.execute("SELECT 1 FROM task_runs r JOIN tasks t ON t.id = r.task_id "
+                        "WHERE r.status = 'running' AND t.parent_id IS NULL").fetchone():
+            raise StoreError("a router run is in progress: one router run at a time per project")
         run_id = conn.execute(
             "INSERT INTO task_runs (task_id, skill, skill_version, skill_sha256, model, adapter, web, started_at, billing) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -2295,15 +2355,13 @@ def messages_list(conn: sqlite3.Connection, conversation: str, *, limit: int = M
 
 
 def task_claim(conn: sqlite3.Connection, task_id: int) -> dict:
-    """Give out one named task as `running`, in the form of task_claim_next: {"task", "running"}. While a task of the
-    database runs, task is None and running is that task's id. A task that does not exist, or is not a `ready` task
-    of a request, is not claimed: task and running are None and "reason" is `unknown` or `not-ready`; a task with an open
-    wait is not claimed either (`waiting`)."""
+    """Give out one named `ready` task of a request as `running`. Other running tasks do not prevent it: what may run
+    at once is decided by the caller under its claim lock (runtime/parallel.py). Returns {"task", "running"}, where
+    running is always None (kept so that today's callers still read it). A task that does not exist, or is not a
+    `ready` task of a request, is not claimed: task is None and "reason" is `unknown` or `not-ready`; a task with an
+    open wait is not claimed either (`waiting`)."""
     now = iso(utcnow())
     with write(conn):
-        busy = conn.execute(RUNNING_TASK).fetchone()
-        if busy:
-            return {"task": None, "running": busy["id"]}
         row = conn.execute("SELECT id, parent_id, state FROM tasks WHERE id = ?", (task_id,)).fetchone()
         if row is None:
             return {"task": None, "running": None, "reason": "unknown"}
@@ -2479,8 +2537,8 @@ def task_runs_list(conn: sqlite3.Connection, task_id: int) -> list:
 
 
 def task_runs_running(conn: sqlite3.Connection) -> list:
-    """The runs whose status is `running`, as {"id", "task_id", "skill", "started_at"}, oldest first: one query, whatever the
-    number of tasks. One run at a time per project, so the list holds at most one; a router run is the one whose task is a request."""
+    """Every run row in progress; a router run is the one whose task is a request. As {"id", "task_id", "skill",
+    "started_at"}, oldest first: one query, whatever the number of tasks."""
     return [row_dict(r) for r in conn.execute(
         "SELECT id, task_id, skill, started_at FROM task_runs WHERE status = 'running' ORDER BY id")]
 
