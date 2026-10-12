@@ -70,6 +70,8 @@ def test_messaging_is_listed_on_exactly_the_rows_of_the_specification():
 def test_permitted_follows_the_groups_the_ceiling_and_the_closed_default():
     rows = {r["name"]: r for r in operations.OPERATIONS}
     for group, spec in operations.GROUPS.items():
+        if group in operations.PAGE_ONLY_GROUPS:  # an effect is approved on no messaging channel, by any group (asserted below)
+            continue
         for name in rows:
             kinds = [None] if spec["kind"] is None else [spec["kind"]]
             for kind in kinds:
@@ -184,12 +186,12 @@ def test_channels_are_checked_against_the_groups_and_the_ceiling(monkeypatch):
     assert project_config._channels(None) == {}
     assert project_config._channels({"messaging": ["read", "read", "talk"]}) == {"messaging": ["read", "talk"]}
     for bad in ({"messaging": ["everything"]}, {"messaging": "read"}, {"messaging": [1]}, {"terminal": ["read"]},
-                {"page": ["read"]}, ["read"]):
+                {"chat": ["read"]}, {"page": ["talk"]}, {"mcp": ["answer"]}, {"messaging": ["approve-effects"]}, {"page": ["go-ahead"]}, ["read"]):
         with pytest.raises(project_config.ConfigError):
             project_config._channels(bad)
     with pytest.raises(project_config.ConfigError) as unknown:
         project_config._channels({"messaging": ["everything"]})
-    assert "read" in str(unknown.value) and "reject-cancel-retry" in str(unknown.value)
+    assert "read" in str(unknown.value) and "reject-cancel" in str(unknown.value)
     row = operations.by_name("release")  # a group that goes above the channel's ceiling
     monkeypatch.setitem(row, "channels", tuple(c for c in row["channels"] if c != "messaging"))
     with pytest.raises(project_config.ConfigError) as above:

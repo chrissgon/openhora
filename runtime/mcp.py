@@ -42,6 +42,12 @@ operation that calls a model or a platform (the row's `job`) is started in a thr
 ended. A job that calls a model is refused with "busy" while another such job of the project runs.
 
 What is refused. A client of this channel may request, route, answer, release a draft and say, and read; nothing else.
+A project may narrow that further with `channels.mcp` in its runtime.json (named groups, decision M-13; it must list `read`):
+`tools/list` shows the ceiling's tools whatever the policy, and the check that enforces the policy is made at each `tools/call`,
+per project, with the policy that project accepted; a call the policy refuses is a tool result with "isError": true and the sentence
+"/<tool> is not enabled for this channel; the project's configuration (channels.mcp) turns it on" (a policy is read after
+accept-config like every key). `say` is the group `talk`, which also creates and routes requests; `request` and `route` are the group
+`request`.
 An operation whose row does not list `mcp` has no tool (the table is read, nothing is spelled here): approve, reject,
 cancel, retry, accept-config, run-next, the standing approvals and the others are done in the terminal or on the page,
 where the person is. The same holds for a command typed into the tool `say`: the tool is called as the channel `mcp`
@@ -278,6 +284,22 @@ def _fail_of(word: str, status: int, message: str) -> Fail:
     return Fail(INVALID_PARAMS if word == "usage" else SERVER_ERROR, message, word, status)
 
 
+def _refuse_by_policy(server: Server, project: dict, row: dict) -> None:
+    """The project's channel policy for this call (decisions M-8, M-13), checked at call time: `tools/list` shows the
+    ceiling's tools and this check is what enforces a narrower policy, per project. The configuration is asked first
+    (`config` never refuses): one that is not accepted is left to the operation (412); a read returns at once (a policy
+    for the MCP mode lists `read`). A refusal is the operations layer's OpsError (code 1): a tool result with the sentence."""
+    operations = server.ops.operations
+    if operations.is_read(row["name"]):
+        return
+    found = server.ops.config(project["path"])
+    if not found.get("accepted"):
+        return
+    refused = operations.refusal(row["name"], CHANNEL, found.get("channels"))
+    if refused:
+        raise server.ops.OpsError(refused, 1)
+
+
 def call_tool(server: Server, name, given) -> dict:
     """The result of one `tools/call`: the operation's result as JSON text, or a Fail."""
     if not isinstance(given, dict):
@@ -310,6 +332,7 @@ def call_tool(server: Server, name, given) -> dict:
     call = lambda: function(project["path"], **args)  # noqa: E731
     try:
         try:
+            _refuse_by_policy(server, project, row)
             if not row.get("job"):
                 return _text(call())
             try:

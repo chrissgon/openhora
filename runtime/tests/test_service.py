@@ -51,6 +51,7 @@ class Standin:
     def __init__(self, data_dir):
         self.reaped = 0
         self.calls = []
+        self.config_reads = []   # the reads of `config` (the service's start, the policy check of a route): not an operation a route performs
         self.answers = {}
         self.data_dir = str(data_dir)
         self.stopped = 0
@@ -78,7 +79,7 @@ class Standin:
 
     def config(self, project):
         with self.lock:
-            self.calls.append(("config", project, {}))
+            self.config_reads.append(project)
         if "config" in self.answers:
             return self.answers["config"]
         return {"path": project + "/docs/workbench/runtime.json", "sha256": "a" * 64, "accepted": True, "data_dir": self.data_dir}
@@ -467,6 +468,10 @@ def test_every_route_calls_exactly_one_operation_and_returns_what_it_returned(wo
     world.fake.answers.clear()
     row = operations.by_name(route["op"])
     given, expected = sample(row, route)
+    if row["name"] == "approve":  # the page reads the decision's kind before the job exists (the channel policy, MSG-3b)
+        world.fake.answers["pending"] = {"kind": "plan"}
+    if row["name"] == "commands":  # the page filters this answer by its policy: none here, so it comes back whole
+        world.fake.answers["commands"] = {"commands": [{"command": "/status", "arguments": "", "help": "h"}]}
     if row.get("channel_arg"):
         expected = {**expected, "channel": "page"}
     path = path_of(world, route)
@@ -486,8 +491,10 @@ def test_every_route_calls_exactly_one_operation_and_returns_what_it_returned(wo
         body = wait_job(world, body["job"])["result"]
     else:
         assert status == 200
-    assert world.fake.calls == [(row["call"], world.projects[0]["path"], expected)]
-    assert body == {"op": row["call"], "args": expected}
+    performed = [c for c in world.fake.calls if not (row["name"] == "approve" and c[0] == "pending")]  # the kind read, see above
+    assert performed == [(row["call"], world.projects[0]["path"], expected)]
+    assert body == ({"commands": [{"command": "/status", "arguments": "", "help": "h"}]} if row["name"] == "commands"
+                    else {"op": row["call"], "args": expected})
 
 
 def test_every_route_is_built_from_a_row_the_page_may_call_and_names_only_arguments_of_that_row():
@@ -511,6 +518,7 @@ def test_every_route_is_built_from_a_row_the_page_may_call_and_names_only_argume
 
 
 def test_a_route_is_a_job_exactly_when_its_table_row_says_so(world):
+    world.fake.answers["pending"] = {"kind": "plan"}  # the page reads the decision's kind before an approve (MSG-3b)
     jobs, plain = set(), set()
     for route in OP_ROUTES:
         row = operations.by_name(route["op"])
@@ -589,6 +597,7 @@ def test_a_second_turn_while_a_job_that_calls_a_model_runs_is_not_refused_the_op
     service starts the second one without the model slot and the operation itself finds the route lock held. A dispatch
     takes no slot at all (its rows say `exclusive` false): it starts task runs beside the router."""
     gate = threading.Event()
+    world.fake.answers["pending"] = {"kind": "plan"}  # the page reads the decision's kind before an approve (MSG-3b)
     world.fake.answers["say"] = lambda project, text, channel=None: gate.wait(WAIT) and {"reply": "ok"}
     first = call(world, "POST", api(world, "/conversation"), {"text": "one"})
     assert first[0] == 202
@@ -861,8 +870,11 @@ def test_the_read_routes_call_their_operations_with_the_query_they_take_and_refu
     for name, tail in (("agents", "/agents"), ("skills", "/skills"), ("connections", "/connections"), ("artifacts", "/artifacts"),
                        ("commands", "/commands")):
         world.fake.calls.clear()
+        if name == "commands":  # the page filters this answer by its policy (MSG-3b): none here, so it is shown whole
+            world.fake.answers["commands"] = {"commands": [{"command": "/status", "arguments": "", "help": "h"}]}
         status, _, body = call(world, "GET", api(world, tail))
-        assert status == 200 and body == {"op": name, "args": {}}, name
+        assert status == 200 and body == ({"commands": [{"command": "/status", "arguments": "", "help": "h"}]} if name == "commands"
+                                          else {"op": name, "args": {}}), name
         assert world.fake.calls == [(name, project, {})]
         world.fake.calls.clear()
         for query in ("?after=1", "?since=7d", "?path=docs/a.md", "?x=1"):
@@ -962,6 +974,7 @@ def test_the_config_operation_never_refuses_an_unaccepted_configuration_and_the_
     assert status == 200
     [entry] = body["projects"]
     assert entry["config"] == {"sha256": digest, "accepted": False}
+    assert entry["permissions"] is None, "MSG-3b: nothing is permitted to a page whose configuration is not accepted"
     assert "open_pending" not in entry and "running_task" not in entry and "running_tasks" not in entry
     assert entry["folder"] == real.path, "A-34: the folder is in the entry of a project that is not accepted too: the page cannot read it elsewhere"
     assert "accept-config" in entry["message"] and digest in entry["message"]
@@ -973,7 +986,8 @@ def test_the_config_operation_never_refuses_an_unaccepted_configuration_and_the_
     [entry] = call(real, "GET", "/api/v1/projects")[2]["projects"]
     assert entry["config"] == {"sha256": digest, "accepted": True} and entry["open_pending"] == 0 and entry["running_task"] is None and entry["running_tasks"] == []
     assert entry["routing_request"] is None   # R4-L1: the request a router run holds, null here
-    assert "message" not in entry and set(entry) == {"id", "name", "folder", "config", "open_pending", "running_task", "running_tasks", "routing_request"} \
+    assert "message" not in entry and set(entry) == {"id", "name", "folder", "config", "open_pending", "running_task", "running_tasks", "routing_request",
+                                                                  "permissions"} \
         and entry["folder"] == real.path
     # a change of the file makes it unaccepted again, and the list still answers
     with open(ops.project_config.path(real.path), "ab") as f:
