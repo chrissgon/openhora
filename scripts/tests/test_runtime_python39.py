@@ -52,6 +52,8 @@ ON_SYSTEM_PYTHON = [
     "runtime/shell_kit.py",
     # The cost of a run recomputed from its token counts (stage 9): the operations layer imports it.
     "runtime/costs.py",
+    # The rules of tasks that run at once (PAR-2): pure functions the dispatcher's caller passes in.
+    "runtime/parallel.py",
     # How the credential of a run is billed, read from the adapters' manifests (ADJ-R3): the operations layer imports it.
     "runtime/billing.py",
     # The roles of the runtime as data, and the isolated runner of skill code (WP-R.5).
