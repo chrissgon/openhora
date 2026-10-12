@@ -19,6 +19,11 @@ Reads. The bridge reads `pending` itself, outside the policy's `read` group, to 
 the card the person saw; `read` only decides what a person may ask for (/pending, `status`, and the like), and a policy
 without it also switches the notices off.
 
+Skip and re-check. A project whose configuration is not accepted, or that lists no sender for the platform, is skipped, not
+a reason to stop: the bridge says why in one log line when the project's state changes, looks again every notice period
+(`recheck`, at the start of each tick), and serves the project from its accepted file the moment it is ready. With every
+project skipped it keeps running.
+
 Notices. Each tick, per project, every open decision gets one card per listed sender, once per content (the ledger,
 runtime/messaging_ledger.py). A changed plan, or any decision whose content hash changed, gets a new card. At most 10
 cards per project and tick; the rest are announced in one line.
@@ -54,6 +59,9 @@ CHANGED = "This decision changed since you saw it."
 STILL_WORKING = "Still working on the last message."
 RUN_BUSY = "A run is in progress. Send it again when it ends."
 NOT_ACCEPTED = "This project's configuration is not accepted: run accept-config in the terminal."
+NOT_ACCEPTED_WHY = "its configuration is not accepted (run accept-config in the terminal)"
+NO_SENDER_WHY = "runtime.json messaging.senders.{platform} lists no sender"
+UNREADABLE_WHY = "its configuration cannot be read"
 EFFECT_REPLY = "An effect is approved on the page or in the terminal, with its hash:"
 
 
@@ -73,6 +81,8 @@ class Bridge(shell_kit.Jobs):
         self.chosen = {}       # sender -> project id
         self.more = {}         # project id -> the number last announced as waiting
         self.policy_noted = set()
+        self.everyone = list(self.projects)   # every project given; `self.projects` is the part that is ready to serve
+        self.skipped = {}                     # project id -> why it is skipped now (absent: served)
 
     # --- the projects and their settings ---------------------------------------------------------------------
 
@@ -85,6 +95,27 @@ class Bridge(shell_kit.Jobs):
         return {"senders": list((messaging.get("senders") or {}).get(self.platform) or []),
                 "notices": messaging.get("notices") or "text", "page_url": messaging.get("page_url"),
                 "policy": found.get("channels") or {}}
+
+    def recheck(self) -> None:
+        """Look at every project again: serve those with an accepted configuration that lists a sender for the platform,
+        skip the others. One log line when a project's state changes, none otherwise."""
+        ready = []
+        for project in self.everyone:
+            try:
+                found = self.settings(project)
+                why = NOT_ACCEPTED_WHY if found is None else (None if found["senders"] else NO_SENDER_WHY.format(platform=self.platform))
+            except self.ops.OpsError:
+                why = UNREADABLE_WHY
+            if why is None:
+                ready.append(project)
+            if self.skipped.get(project["id"]) != why:
+                if why:
+                    self.log(f"skipping {project['name']}: {why}")
+                    self.skipped[project["id"]] = why
+                else:
+                    self.log(f"{project['name']} is ready: now served")
+                    del self.skipped[project["id"]]
+        self.projects = ready
 
     def projects_for(self, sender: str) -> list:
         out = []
@@ -198,6 +229,7 @@ class Bridge(shell_kit.Jobs):
         return left
 
     def tick(self) -> None:
+        self.recheck()
         for project in self.projects:
             try:
                 left = self.notify_project(project)

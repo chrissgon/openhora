@@ -218,11 +218,14 @@ ALLOWED = (
     ("evals/**", NOT_RUNTIME),
     # layer 5, adapters: never the runtime, never the lab
     ("adapters/**", NOT_RUNTIME_OR_LAB),
-    # layer 7, the shells: the operations layer only; the two network-free shells (the local service and the MCP mode)
-    # may also import the kit they share, which is handed the operations object and imports nothing of runtime/
+    # layer 7, the shells: the operations layer only; the local service and the MCP mode (neither calls a platform)
+    # may also import the kit they share, which is handed the operations object and imports nothing of runtime/; the
+    # local service also imports service_bridge.py (standard library only), which starts the messaging bridge as a child
+    # process (--messaging) and is the one file that names runtime/messaging.py
     ("runtime/cli.py", ("runtime/ops.py",)),
     ("runtime/chat.py", ("runtime/ops.py",)),
-    ("runtime/service.py", ("runtime/ops.py", "runtime/shell_kit.py")),
+    ("runtime/service.py", ("runtime/ops.py", "runtime/shell_kit.py", "runtime/service_bridge.py")),
+    ("runtime/service_bridge.py", ("runtime/messaging.py",)),
     ("runtime/mcp.py", ("runtime/ops.py", "runtime/shell_kit.py")),
     ("runtime/shell_kit.py", ()),
     # the messaging bridge (MSG-1): a shell over ops.py and the kit, with its own modules; the modules reach the kit and the
@@ -382,8 +385,12 @@ def test_the_rules_the_diagram_states_hold_for_the_code_as_it_is():
             assert target == "runtime/ops.py", (file, target)
         if file == "runtime/messaging.py":  # the bridge's shell imports ops.py, shell_kit.py and its own modules
             assert target in ("runtime/ops.py", "runtime/shell_kit.py") or fnmatch.fnmatch(target, "runtime/messaging_*.py"), (file, target)
-        if file in ("runtime/service.py", "runtime/mcp.py"):  # a shell imports only ops.py and shell_kit.py
+        if file == "runtime/mcp.py":  # a network-free shell imports only ops.py and shell_kit.py
             assert target in ("runtime/ops.py", "runtime/shell_kit.py"), (file, target)
+        if file == "runtime/service.py":  # the same, and service_bridge.py, which starts the bridge as a child process
+            assert target in ("runtime/ops.py", "runtime/shell_kit.py", "runtime/service_bridge.py"), (file, target)
+        if file == "runtime/service_bridge.py":  # it imports nothing of the runtime and names the bridge's command only
+            assert target == "runtime/messaging.py", (file, target)
         if file == "runtime/shell_kit.py":  # the kit imports nothing of the runtime: it is handed the operations object
             assert not target.startswith("runtime/"), (file, target)
         if file.startswith("runtime/handlers/") and (file, target) not in TOLERATED:
@@ -457,6 +464,10 @@ def test_the_allowed_rules_say_what_the_diagram_says():
     assert not allowed("runtime/ops.py", "evals/eval_run.py")
     assert allowed("runtime/cli.py", "runtime/ops.py") and not allowed("runtime/cli.py", "runtime/plan.py")
     assert allowed("runtime/service.py", "runtime/ops.py") and not allowed("runtime/service.py", "providers/store/sqlite.py")
+    assert allowed("runtime/service.py", "runtime/service_bridge.py") and not allowed("runtime/service.py", "runtime/messaging.py")
+    assert allowed("runtime/service_bridge.py", "runtime/messaging.py") and not allowed("runtime/service_bridge.py", "runtime/ops.py")
+    assert not allowed("runtime/service_bridge.py", "runtime/service.py") and not allowed("runtime/service_bridge.py", "runtime/shell_kit.py")
+    assert not allowed("runtime/service_bridge.py", "providers/resolve.py")
     assert not allowed("runtime/service.py", "runtime/lab.py") and not allowed("runtime/service.py", "runtime/plan.py")
     assert allowed("runtime/mcp.py", "runtime/ops.py") and not allowed("runtime/mcp.py", "runtime/service.py")
     assert allowed("runtime/mcp.py", "runtime/shell_kit.py") and allowed("runtime/service.py", "runtime/shell_kit.py")
