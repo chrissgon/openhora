@@ -17,6 +17,7 @@ export function createThread({ api, project, signal, onChanged, onCancel, onRout
   const messages = new Map();     // id -> {el, meta, message}
   const blocks = new Map();       // request id -> {el, sig, block}
   const expanded = new Set();     // request ids whose whole text is open: a block rebuilt by a poll is given it back
+  const notes = new Map();        // plan decision id -> the reject note typed so far: a card built again (a policy change) is given it back
   const chosen = new Map();       // request id -> the flow chosen beside "Route it" (E-20): a block rebuilt by a poll is given it back
   const empty = h("p", { class: "wb-empty", text: "" });
   let stick = true;               // the thread follows its end until the person scrolls away from it; scrolling back to within 48 px of the end follows again
@@ -73,7 +74,7 @@ export function createThread({ api, project, signal, onChanged, onCancel, onRout
         if (held && held.sig === sig) return held.el;
         const block = createBlock({ api, project, request, body, open, now, signal, onChanged, onCancel, onRoute, announce, routing: routingNow, runBusy, viaMessage, routeNotice,
           expanded: expanded.has(requestId), onExpand: (open) => { if (open) expanded.add(requestId); else expanded.delete(requestId); },
-          flows, flow: chosen.get(requestId) || "", onFlow: (value) => chosen.set(requestId, value), remembered: kept, can });
+          flows, flow: chosen.get(requestId) || "", onFlow: (value) => chosen.set(requestId, value), remembered: kept, can, notes });
         blocks.set(requestId, { el: block.el, sig, block });
         return block.el;
       }

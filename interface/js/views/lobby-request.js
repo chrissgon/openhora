@@ -54,7 +54,7 @@ function pointer(project, item, now) {
  * The block has an id (`wb-request-<n>`) that the route `#/p/<id>/lobby/conversation/request/<n>` scrolls to. Returns {el, focusCard(id), focusTitle()}.
  */
 export function createBlock({ api, project, request, body, open, now, signal, onChanged, onCancel, onRoute, routing, runBusy = false, announce, viaMessage = true, routeNotice = null, expanded = false, onExpand = null,
-  flows = null, flow = "", onFlow = null, remembered = "", can = () => true }) {
+  flows = null, flow = "", onFlow = null, remembered = "", can = () => true, notes = null }) {
   const line = requestLine(request, open);
   const words = requestWords(request, body);
   const number = `Request #${request.id}`;
@@ -109,7 +109,8 @@ export function createBlock({ api, project, request, body, open, now, signal, on
   for (const item of items) {
     if (item.status === "open") {
       if (item.kind === "plan" && viaMessage) {
-        const card = createPlanCard({ api, project, item, now, onChanged, signal, announce, can });
+        const card = createPlanCard({ api, project, item, now, onChanged, signal, announce, can,
+          noteText: notes ? notes.get(item.id) || "" : "", onNote: notes ? (value) => notes.set(item.id, value) : null });
         cards.set(item.id, card);
         decisions.push(card.el);
       } else {

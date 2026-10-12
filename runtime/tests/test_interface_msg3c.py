@@ -62,6 +62,10 @@ def test_every_write_function_of_api_is_gated_or_exempt_with_a_reason():
     # the transport helpers that are not operations carry no route of their own
     assert posts == {"answer", "release", "approve", "reject", "request", "route", "cancel", "retry", "goAhead", "handOver", "verdict", "setMode", "say", "sync", "dispatch"}
     ops, exempt = keys_of("OPS"), keys_of("EXEMPT")
+    # a write that does not spell send("POST") the usual way (a method key, a verb in a variable) is found too
+    wrote = {re.match(r"\w+", chunk).group(0) for chunk in api.split("\nexport function ")[1:]
+             if re.search(r"\bPOST\b|\bPUT\b|\bDELETE\b|\bPATCH\b|\bmethod:", chunk.split("\n}\n", 1)[0])}
+    assert wrote <= ops | exempt | {"transport"}, f"api.js functions that write and are in neither list: {sorted(wrote - ops - exempt)}"
     assert not ops & exempt, "a function is gated or exempt, not both"
     assert ops | exempt == posts, f"api.js writes {sorted(posts)}; permissions.js names {sorted(ops | exempt)}"
     reasons = re.findall(r"^\s+(?:cancel|setMode|sync|dispatch): \"(.+)\",$", text("permissions.js"), re.M)
@@ -474,13 +478,14 @@ def test_the_floor_and_the_lobby_read_the_project_entry_at_every_draw_and_the_co
     floor = text("views/floor.js")
     lobby = text("views/lobby.js")
     for source in (floor, lobby):
-        assert 'import { can as pageMay } from "../permissions.js";' in source
+        assert re.search(r'import \{ can as pageMay[^}]*\} from "\.\./permissions\.js";', source)
         assert "(last.snapshot.projects || []).find((p) => p.id === project)" in source, "the getter reads the entry of the current snapshot, not a copy"
     for part in ("createAgentTab({", "createInbox({", "createTasksTab({"):
         assert re.search(re.escape(part) + r".{0,400}?can: may", floor, re.S), part
     for part in ("createThread({", "createLobbyInbox({", "createLobbyAgent({", "createTasksTab({"):
         assert re.search(re.escape(part) + r".{0,400}?can: may", lobby, re.S), part
-    assert "commandsAsked = false;      // the policy may have changed" in lobby, "the \"/\" list is read again on the reload that accept-config causes"
+    assert "allowedKey !== commandsKey" in lobby and "seq === commandsSeq" in lobby, "the \"/\" list is read again only when what the page may do changes, and a late answer is dropped"
+    assert "commandsAsked = false;      // the policy" not in lobby, "not on every reload stamp"
     inbox = text("floor/inbox.js")
     assert "card.redraw()" in inbox and "fingerprint(can)" in inbox, "the Inbox draws its cards again when what the page may do changes"
     assert "fingerprint(can)" in text("floor/task-actions.js") and "fingerprint(can)" in text("views/lobby-thread.js")
@@ -491,3 +496,77 @@ def test_the_floor_and_the_lobby_read_the_project_entry_at_every_draw_and_the_co
 def test_the_readme_says_what_the_page_withholds_and_that_the_service_still_refuses():
     readme = (INTERFACE / "README.md").read_text(encoding="utf-8")
     assert "permissions.js" in readme and "Turned off for the page" in readme and "409" in readme and "brake" in readme
+
+
+EXTRA = r"""
+import { FakeNode, settle, find, all } from "@FAKE@";
+import { createForm } from "@JS@/views/lobby-form.js";
+import { createPlanCard } from "@JS@/cards/plan.js";
+import { createThread } from "@JS@/views/lobby-thread.js";
+import { createAgentTab } from "@JS@/floor/agent-tab.js";
+import * as fm from "@JS@/floor-model.js";
+import { can as pageMay } from "@JS@/permissions.js";
+
+FakeNode.prototype.insertBefore = function (n, ref) {      // the fake document has no insertBefore, which the thread uses
+  if (n.parent) n.parent.children = n.parent.children.filter((c) => c !== n);
+  n.parent = this;
+  const at = ref ? this.children.indexOf(ref) : -1;
+  if (at < 0) this.children.push(n); else this.children.splice(at, 0, n);
+  return n;
+};
+Object.defineProperty(FakeNode.prototype, "lastElementChild", { get() { return this.children[this.children.length - 1] || null; } });
+const out = {};
+// the New request form: without route the Flow select is left out, no flow is sent, a line says so
+const created = [];
+const form = createForm({ onCreate: (v) => created.push(v) });
+const flowLabel = () => all(form.el, "label").find((l) => l.textContent.startsWith("Flow"));
+find(form.el, "select").value = "design";
+out.formOn = { hidden: flowLabel().hidden, line: find(form.el, "[data-key=withheld]") ? 1 : 0 };
+form.setRoute(false);
+find(form.el, "textarea").value = "x";
+find(form.el, "form").listeners.submit.forEach((fn) => fn({ preventDefault() {} }));
+out.formOff = { hidden: flowLabel().hidden, line: find(form.el, "[data-key=withheld]").textContent, sent: created[0] };
+form.setRoute(true);
+out.formBack = { hidden: flowLabel().hidden, line: find(form.el, "[data-key=withheld]") ? 1 : 0 };
+
+// the Lobby's plan card keeps a typed reject note when the thread builds it again
+const allowed = { v: ["approve:plan", "reject"] };
+const item = { id: 9, kind: "plan", title: "Plan", body: "", payload: { plan_sha256: "c".repeat(64), tasks: [{ key: "a", title: "A", skill: "s", depends_on: [] }], limits: { timeout_seconds: 60, retries: 1 } }, payload_sha256: "c".repeat(64), status: "open", actions: ["approved", "rejected"], agent: null, task_id: 4, run_id: null, created_at: "2026-10-12T09:00:00Z" };
+const can = (op, kind) => pageMay({ id: "p", permissions: { allowed: allowed.v } }, op, kind);
+const thread = createThread({ api: {}, project: "p", signal: undefined, onChanged: async () => {}, onCancel() {}, onRoute() {}, can });
+const state = { messages: [{ id: 1, role: "agent", text: "Plan", created_at: "2026-10-12T09:00:00Z" }], requests: [{ id: 4, title: "R", state: "planned", tasks: [] }], pending: [item], bodies: { 4: { pending: [item] } }, now: new Date("2026-10-12T12:00:00Z"), loading: false, routing: new Set(), notices: new Map(), flows: null, remembered: new Map() };
+thread.update({ ...state, messages: [{ id: 1, role: "assistant", text: "Plan for request 4", created_at: "2026-10-12T09:00:00Z", task_id: 4 }] });
+const noteField = () => all(thread.el, "input.wb-field-input")[0];
+out.noteBefore = noteField() ? 1 : 0;
+if (noteField()) { noteField().value = "not now"; noteField().listeners.input.forEach((fn) => fn()); }
+allowed.v = ["approve:plan"];
+thread.update({ ...state, messages: [{ id: 1, role: "assistant", text: "Plan for request 4", created_at: "2026-10-12T09:00:00Z", task_id: 4 }] });
+out.noteAfter = noteField() ? 1 : 0;
+allowed.v = ["approve:plan", "reject"];
+thread.update({ ...state, messages: [{ id: 1, role: "assistant", text: "Plan for request 4", created_at: "2026-10-12T09:00:00Z", task_id: 4 }] });
+out.noteBack = noteField() ? noteField().value : null;
+
+// the Agent tab: the hand-over line only when there is a task to hand a file to
+const P = "0123456789ab";
+const agent = { name: "design", pack: "x", enabled: true, mode: "supervised", acting_mode: "supervised", max_runs_per_day: 8, max_usd_per_day: 2, runs_today: 0, usd_today: 0, runs_without_cost: 0, queued: 0, held: 0, wider: [] };
+const view = (tasks) => fm.floor({ projects: [{ id: P, name: "n", config: { accepted: true } }], details: { [P]: { status: { requests: tasks.length ? [{ id: 2, title: "R", state: "planned", tasks }] : [], pending: [], held: [] }, agents: [agent] } }, tasks: {}, loaded: true }, P, "design", {});
+const tab = createAgentTab({ project: P, agent: "design", api: {}, refresh() {}, now: () => new Date(), can: (op) => op !== "hand-over" });
+tab.update(view([]));
+await settle();
+out.noTarget = all(find(tab.el, ".wb-hand"), "[data-key=withheld]").length;
+tab.update(view([{ id: 11, key: "k", title: "T", skill: "s", state: "failed", note: null, agent: "design", requestId: 2, waiting_for: [] }]));
+await settle();
+out.target = all(find(tab.el, ".wb-hand"), "[data-key=withheld]").length;
+console.log(JSON.stringify(out));
+process.exit(0);
+"""
+
+
+@needs_node
+def test_review_fixes_form_flow_plan_note_and_hand_line(tmp_path):
+    got = run_node(tmp_path, EXTRA)
+    assert got["formOn"] == {"hidden": False, "line": 0}
+    assert got["formOff"] == {"hidden": True, "line": "Turned off for the page: route. Use the terminal.", "sent": {"text": "x", "flow": "", "title": ""}}
+    assert got["formBack"] == {"hidden": False, "line": 0}
+    assert got["noteBefore"] == 1 and got["noteAfter"] == 0 and got["noteBack"] == "not now", "the typed note survives the card being built again"
+    assert got["noTarget"] == 0 and got["target"] == 1, "the line is drawn only when there is a target"

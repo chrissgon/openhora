@@ -62,7 +62,7 @@ export function createAgentTab(env) {
   const currentBox = h("div", { class: "wb-section" });
   const othersBox = h("div", { class: "wb-section" });
   const handBox = h("div", { class: "wb-hand" });
-  const handLine = h("div", { class: "wb-hand-withheld" });
+  const handLine = h("div");      // the line under the hand-over when the policy withholds it
   const body = h("div", { class: "wb-agent-body" }, waitingLine, metersBox, runsTotalLine, currentBox, othersBox, handBox);
   const widerBox = h("div", { class: "wb-wider-modes" });
   fill(el, stateBox, plateBox, formBox, standing, resultBox, widerBox, body);
@@ -384,7 +384,7 @@ export function createAgentTab(env) {
     // the policy withholds `hand-over`: the chooser is left out and the line says so (the other parts of the box stay as they are)
     const mayHand = can("hand-over");
     for (const node of [...chooser.nodes.slice(0, 4).filter((n) => n !== dropLine), handStep, hint, handResult]) node.hidden = !mayHand;
-    fill(handLine, mayHand ? null : withheldLine(["hand-over"]));
+    fill(handLine, mayHand || !target ? null : withheldLine(["hand-over"]));      // only when there is a task to hand a file to
     if (target) loadDrop(view);
     drawHandLine();
     drawStep();

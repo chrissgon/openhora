@@ -37,7 +37,7 @@ export function createComposer({ onSend, onNew = () => {} }) {
   const form = h("form", { class: "wb-composer" }, list, field, button, newButton);
   const hint = h("small", { class: "wb-lobby-hint wb-card-hint", id: "wb-say-hint", text: HINT });
   field.setAttribute("aria-describedby", "wb-say-hint");
-  const offLine = h("div", { class: "wb-composer-off" });      // the line under the controls the page's policy withholds (js/permissions.js)
+  const offLine = h("div");      // the line under the controls the page's policy withholds (js/permissions.js)
   const el = h("div", { class: "wb-composer-wrap" }, busy, runLine, notice, label, form, hint, offLine);
   let mayTalk = true;        // `say`: when it is off the field is read-only and Send is not drawn
   let offShown = "";

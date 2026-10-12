@@ -23,11 +23,11 @@ const planOpen = new Map();
 /**
  * A plan card. options: {api, project, item (a pending decision with payload and actions), now (Date), onChanged(): Promise,
  * signal, announce(text) (optional: a sentence for the live region), can(op, kind) (optional: whether the page may do an operation, js/permissions.js; all allowed
- * when left out)}. Returns {el, focus()}. `api` is the client module (`approve`, `reject`, `pollJob`), passed in so a test can stand in for it.
+ * when left out), noteText and onNote(value) (optional: the reject note typed so far, given back to a card built again, and told when it changes)}. Returns {el, focus()}. `api` is the client module (`approve`, `reject`, `pollJob`), passed in so a test can stand in for it.
  * A button the policy withholds is not drawn, the go-ahead boxes are left out when `approve` with the kind go-ahead is withheld, and a line under the remaining
  * controls says which operations are turned off; the card is built again (the thread's signature) when what the page may do changes.
  */
-export function createPlanCard({ api, project, item, now, onChanged, signal, announce, can = () => true }) {
+export function createPlanCard({ api, project, item, now, onChanged, signal, announce, can = () => true, noteText = "", onNote = null }) {
   counter += 1;
   const titleId = `wb-plan-title-${counter}`;
   const shown = planHash(item);
@@ -76,6 +76,8 @@ export function createPlanCard({ api, project, item, now, onChanged, signal, ann
 
   const noteId = `${titleId}-note`;
   const note = h("input", { class: "pui-input wb-lobby-field wb-field-input", id: noteId, type: "text", autocomplete: "off" });
+  note.value = noteText;
+  note.addEventListener("input", () => { if (onNote) onNote(note.value); });
   const noteGroup = h("label", { class: "pui-field-group wb-field", for: noteId }, h("span", { text: "Note (optional, used when you reject)" }), note);
   const error = h("div", { class: "notice pui-soft pui-error wb-card-error", role: "alert", hidden: true });
   const working = h("span", { class: "wb-lobby-working", hidden: true, text: "Working..." });

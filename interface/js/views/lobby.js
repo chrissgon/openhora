@@ -16,7 +16,7 @@ import * as origin from "../frame/origin.js";
 import { actions } from "../floor/actions.js";
 import { createTasksTab } from "../floor/tasks-tab.js";
 import { createPanel } from "../frame/panel.js";
-import { can as pageMay } from "../permissions.js";
+import { can as pageMay, fingerprint } from "../permissions.js";
 import * as router from "../router.js";
 import { afterNumber, createRequest, routeRequest, sendTurn, waitFor, worthSending } from "./lobby-actions.js";
 import { createLobbyAgent } from "./lobby-agent.js";
@@ -60,6 +60,8 @@ export function createLobbyView(frame, { project, onChanged }) {
   let readingConversation = false;
   let flowsAsked = false;
   let commandsAsked = false;
+  let commandsKey = null;             // what the page could do when the "/" list was last asked for: the service filters the list by the policy, so it is read again when this changes (accept-config), not on every reload
+  let commandsSeq = 0;                // the newest ask: an older answer that arrives late is dropped
   let commandsFailedAt = 0;           // a read that failed is tried again after RETRY_READ_MS, not on every update
   let flowsFailedAt = 0;
   let formOpen = false;               // the "New request" form stands in the place of the thread and the composer (R-44); its draft stays in its fields
@@ -518,8 +520,6 @@ export function createLobbyView(frame, { project, onChanged }) {
       if (route.request === null || route.request === undefined) requestFollowed = null;
       if (reloaded !== null && reload !== reloaded) {     // the store changed: everything shown is stale, whatever its age
         changes += 1;
-        commandsAsked = false;      // the policy may have changed (accept-config): the service filters the "/" list by it, so it is read again
-        commandsFailedAt = 0;
         invalidate();
         desk.reload();
         agent.reload();
@@ -568,14 +568,22 @@ export function createLobbyView(frame, { project, onChanged }) {
       shownPath = showing ? route.path : null;
       waiting.hidden = shown;
       form.set({ disabled: !accepted });
+      form.setRoute(may("route"));      // without `route` the Flow select is left out and a line says so
       if (formOpen && !may("request")) {      // the policy changed while the form was open: back to the conversation
         formOpen = false;
         applyForm(onConversation && !inline);
       }
       drawComposer();
+      const allowedKey = fingerprint(may);
+      if (commandsKey !== null && allowedKey !== commandsKey) {
+        commandsAsked = false;
+        commandsFailedAt = 0;
+      }
       if (accepted && !commandsAsked && Date.now() - commandsFailedAt >= RETRY_READ_MS) {
-        commandsAsked = true;      // R-45: the commands of the `chat` channel as data, read once; until they are known no list opens
-        api.commands(project, { signal }).then((got) => { composer.setCommands(got.commands); }).catch(() => { commandsAsked = false; commandsFailedAt = Date.now(); });
+        commandsAsked = true;      // R-45: the commands of the `chat` channel as data, read once (and again when what the page may do changes); until they are known no list opens
+        commandsKey = allowedKey;
+        const seq = ++commandsSeq;
+        api.commands(project, { signal }).then((got) => { if (seq === commandsSeq) composer.setCommands(got.commands); }).catch(() => { if (seq === commandsSeq) { commandsAsked = false; commandsFailedAt = Date.now(); } });
       }
       if (accepted && !flowsAsked && Date.now() - flowsFailedAt >= RETRY_READ_MS) {
         flowsAsked = true;

@@ -6,6 +6,7 @@
 // default; Back (the button, or Escape with no field focused, which the frame turns into a click on it) tells the caller, and the draft stays in the fields.
 
 import { h } from "../dom.js";
+import { withheldLine } from "../floor/widgets.js";
 import { icon } from "../frame/icons.js";
 import { AFTER_FORM_HINT, AUTO_FLOW, FORM_HINT, afterOptions, flowOptions } from "./lobby-model.js";
 
@@ -24,14 +25,18 @@ export function createForm({ onCreate, onBack = () => {} }) {
   const busy = h("div", { class: "wb-lobby-busy", role: "status", hidden: true }, h("span", { class: "wb-lobby-ring", "aria-hidden": "true" }), h("span", { text: "Creating the request..." }));
   const back = h("button", { class: "pui-btn pui-surface pui-outline wb-small-button wb-newreq-back", type: "button" }, icon("chevron-left", 16), h("span", { text: "Back to the conversation" }));
   back.addEventListener("click", () => onBack());
+  const flowField = h("label", { class: "pui-field-group wb-field", for: flowId }, h("span", { text: "Flow" }), flow);
+  const routeLine = h("div");      // the line under the form when the page may not route (js/permissions.js)
+  let mayRoute = true;
   const body = h("form", { class: "wb-form-body" },
     h("label", { class: "pui-field-group wb-field", for: textId }, h("span", { text: "What do you want done?" }), text),
-    h("label", { class: "pui-field-group wb-field", for: flowId }, h("span", { text: "Flow" }), flow),
+    flowField,
     h("label", { class: "pui-field-group wb-field", for: titleId }, h("span", { text: "Title (optional)" }), title),
     h("label", { class: "pui-field-group wb-field", for: afterId }, h("span", { text: "After request (optional)" }), after),
     h("small", { class: "wb-card-hint wb-hint", id: `${afterId}-hint`, text: AFTER_FORM_HINT }),
     error, busy,
     h("small", { class: "wb-card-hint wb-form-hint", text: FORM_HINT }),
+    routeLine,
     h("div", { class: "wb-newreq-buttons" }, create));
   const el = h("div", { class: "wb-newreq wb-new-request", hidden: true }, h("div", { class: "wb-newreq-head" }, back), h("strong", { class: "wb-newreq-title", text: "New request" }), body);
   let creating = false;
@@ -41,7 +46,7 @@ export function createForm({ onCreate, onBack = () => {} }) {
   body.addEventListener("submit", (event) => {
     event.preventDefault();
     if (creating) return;
-    onCreate({ text: text.value, flow: flow.value, title: title.value, ...(after.value ? { after: after.value } : {}) });
+    onCreate({ text: text.value, flow: mayRoute ? flow.value : "", title: title.value, ...(after.value ? { after: after.value } : {}) });
   });
 
   return {
@@ -61,6 +66,13 @@ export function createForm({ onCreate, onBack = () => {} }) {
       const keep = after.value;
       after.replaceChildren(...options.map((o) => h("option", { value: o.value, text: o.label })));
       after.value = options.some((o) => o.value === keep) ? keep : "";
+    },
+    /** Whether the page may route (the policy): when it may not, the Flow select is left out, no flow is sent and the line says so. */
+    setRoute(on) {
+      if (mayRoute === Boolean(on)) return;
+      mayRoute = Boolean(on);
+      flowField.hidden = !mayRoute;
+      routeLine.replaceChildren(...(mayRoute ? [] : [withheldLine(["route"])]));
     },
     /** Merge a state into the form's: {creating, error, disabled}; a key left out keeps its value. */
     set(partial) {
