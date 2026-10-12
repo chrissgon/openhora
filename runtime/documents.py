@@ -120,18 +120,20 @@ def result() -> dict:
 
 
 def _entries(root: str) -> list:
-    """Every documents[] entry of every runtime manifest of <root>/skills, with its skill and its machine files."""
+    """Every documents[] entry of every runtime manifest of <root>/skills, with its skill and its machine files. A
+    manifest is read by the in-use rule (manifest.in_use, as the classifier of endings reads it): a skill outside the
+    packs in use may hold a partial one, which gives no entry; a malformed manifest still raises."""
     out = []
     folder = os.path.join(root, "skills")
     for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
         if not os.path.isfile(manifest.path(root, name)):
             continue
         try:
-            data = manifest.load(root, name)
+            data = manifest.load(root, name, whole=manifest.in_use(root, name))
         except manifest.ManifestError as e:
             raise DocumentsError("failed", str(e)) from None
-        for doc in data["documents"]:
-            out.append({**doc, "skill": name, "machine_files": list(data["machine_files"])})
+        for doc in data.get("documents", []):
+            out.append({**doc, "skill": name, "machine_files": list(data.get("machine_files", []))})
     return out
 
 
