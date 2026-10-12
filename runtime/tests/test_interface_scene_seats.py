@@ -203,7 +203,7 @@ const out = {};
 
 
 @needs_node
-def test_no_seat_for_a_floor_that_is_off_or_not_accepted(tmp_path):
+def test_a_floor_that_is_off_or_not_accepted_keeps_its_desks_and_no_owl(tmp_path):
     got = run_model_node(tmp_path, SEATS_ONLY + r"""
 const tasks = [t(1, "running")];
 out.off = seatsOf(tasks, { state: "off", accepted: true });
@@ -211,7 +211,8 @@ out.refused = seatsOf(tasks, { state: "working", accepted: false });
 out.offIdle = seatsOf([], { state: "off", accepted: true });
 console.log(JSON.stringify(out));
 """)
-    assert got == {"off": [], "refused": [], "offIdle": []}, "an off agent and a project that is not accepted have an empty room: no seat, no desk, no owl"
+    bare = [{"seat": 0, "pose": None, "taskId": None}]
+    assert got == {"off": bare, "refused": bare, "offIdle": bare}, "an off agent and a project that is not accepted keep their desks (one with no max_parallel) and show no owl (PAR-7c, 11.1)"
 
 
 @needs_node
@@ -369,7 +370,13 @@ const lists = [[], [0], [0, 1], [0, 1, 2], [0, 1, 2, 3]];
 out.owls = lists.map((l) => roomOf(l.map((i) => seat(i, pose[i]))).parts.owls.length);
 out.vertices = lists.map((l) => stillVertices(roomOf(l.map((i) => seat(i, pose[i]))).parent));
 out.none = roomOf([]).parts.agent === null;
-out.off = roomOf([seat(0, "working")], { state: "off", accepted: false }).parts.owls.length;
+out.off = roomOf([seat(0, null)], { state: "off", accepted: false }).parts.owls.length;
+out.offDesks = [1, 2, 3].map((n) => stillVertices(roomOf(Array.from({ length: n }, (_, i) => seat(i, null)), { state: "off", accepted: false }).parent));
+out.offAgent = roomOf([seat(0, null), seat(1, null), seat(2, null)], { state: "off" }).parts.agent === null;
+const asleep = roomOf([seat(0, "idle"), seat(1, "idle"), seat(2, "idle")]);
+const bare = roomOf([seat(0, null), seat(1, null), seat(2, null)]);
+out.sameDesks = stillVertices(asleep.parent) === stillVertices(bare.parent);
+out.disposed = (() => { bare.parts.dispose(); return true; })();
 console.log(JSON.stringify(out));
 """)
     assert got["owls"] == [0, 1, 2, 3, 4], "one owl for each seat"
@@ -379,7 +386,9 @@ console.log(JSON.stringify(out));
     assert v[3] - v[2] == desk and v[4] - v[3] == desk, "seats 2 and 3 add exactly one desk each, nothing more"
     assert v[2] - v[1] > desk, "seat 1 adds its desk and the corner top that joins the arms"
     assert got["none"] is True, "no seat: no owl, no group"
-    assert got["off"] == 0, "a project that is not accepted draws no desk whatever the row carries"
+    assert got["off"] == 0 and got["offAgent"] is True, "a floor that is off or not accepted draws no owl, and no owls group"
+    assert got["offDesks"][0] > 0 and got["offDesks"][1] > got["offDesks"][0] and got["offDesks"][2] > got["offDesks"][1], "but its desks stay, one for each seat the row carries"
+    assert got["sameDesks"] is True and got["disposed"] is True, "three desks without owls are the same furniture as three desks with sleeping owls, and the room frees"
 
 
 @needs_node
@@ -556,3 +565,59 @@ console.log(JSON.stringify(out));
     assert got["one"][0] is None and got["one"][1] == 2 and "1 of 1 slots" not in got["one"][2] and not [t for t in got["one"][2] if "slots" in t], "a floor with the default one slot says nothing"
     assert got["tiny"] == 0, "the plate at its shortest is the name row alone"
     assert got["full"] == ["4 of 4 slots", "4 of 4 slots"]
+
+
+# --- PAR-7c: a floor shows all its seats --------------------------------------------------------------------------------------------------------
+
+@needs_node
+def test_a_floor_shows_a_place_for_every_slot_with_the_free_ones_asleep(tmp_path):
+    got = run_model_node(tmp_path, SEATS_ONLY + r"""
+const pose = (seats) => seats.map((s) => [s.seat, s.pose, s.taskId]);
+out.idle3 = pose(seatsOf([], { state: "idle", accepted: true, maxParallel: 3 }));
+out.run3 = pose(seatsOf([t(4, "running")], { state: "working", accepted: true, maxParallel: 3 }));
+out.wait2 = pose(seatsOf([t(4, "waiting")], { state: "waiting", accepted: true, maxParallel: 2 }));
+out.off4 = pose(seatsOf([], { state: "off", accepted: true, maxParallel: 4 }));
+out.refused4 = pose(seatsOf([], { state: "idle", accepted: false, maxParallel: 4 }));
+out.absent = pose(seatsOf([], { state: "idle", accepted: true }));
+out.bad = [pose(seatsOf([], { state: "idle", accepted: true, maxParallel: "3" })), pose(seatsOf([], { state: "idle", accepted: true, maxParallel: 2.5 })), pose(seatsOf([], { state: "idle", accepted: true, maxParallel: 0 }))];
+out.excess = pose(seatsOf([t(1, "running"), t(2, "waiting"), t(3, "ready")], { state: "working", accepted: true, maxParallel: 2 }));
+out.ready3 = pose(seatsOf([], { state: "ready", accepted: true, maxParallel: 3 }));
+out.cap = pose(seatsOf([], { state: "idle", accepted: true, maxParallel: 9 }));
+console.log(JSON.stringify(out));
+""")
+    assert got["idle3"] == [[0, "idle", None], [1, "idle", None], [2, "idle", None]], "max_parallel 3, nothing held: three owls asleep"
+    assert got["run3"] == [[0, "working", 4], [1, "idle", None], [2, "idle", None]], "one running task wakes seat 0 only"
+    assert got["wait2"] == [[0, "waiting", 4], [1, "idle", None]], "a waiting holder stands, the free place sleeps"
+    assert got["off4"] == [[0, None, None], [1, None, None], [2, None, None], [3, None, None]] and got["refused4"] == got["off4"], "a stopped agent or a project not accepted keeps max_parallel desks and no owl (11.1)"
+    assert got["absent"] == [[0, "idle", None]], "no max_parallel: one place"
+    assert all(b == [[0, "idle", None]] for b in got["bad"]), "a max_parallel that is not a whole number of at least 1 means one place"
+    assert got["excess"] == [[0, "working", 1], [1, "waiting", 2], [2, "ready", 3]], "more holders than places: all drawn, none idle"
+    assert got["ready3"] == [[0, "ready", None], [1, "idle", None], [2, "idle", None]], "a queued floor: seat 0 awake, the others asleep"
+    assert [s[0] for s in got["cap"]] == [0, 1, 2, 3], "never more places than the L has"
+
+
+@needs_node
+def test_the_row_passes_the_agents_max_parallel_to_the_seats(tmp_path):
+    got = run_model_node(tmp_path, MODEL_COMMON + r"""
+import { worldModel } from "@JS@/world-model.js";
+const snap = snapshot([task(4, "done", "engineering", { holds_slot: false })], [agent("planning"), agent("engineering", { max_parallel: 3, slots_held: 0, holders: [] })], {});
+const row = fm.building(snap, P).rows.find((r) => r.name === "engineering");
+out.eng = row.seats.map((s) => [s.seat, s.pose]);
+out.planning = fm.building(snap, P).rows.find((r) => r.name === "planning").seats.length;
+console.log(JSON.stringify(out));
+""")
+    assert got["eng"] == [[0, "idle"], [1, "idle"], [2, "idle"]], "a floor of three slots with nothing running: three owls asleep"
+    assert got["planning"] == 1, "an agent with one slot: one place"
+
+
+@needs_node
+def test_a_floor_going_from_off_to_idle_gains_owls_without_a_reload(tmp_path):
+    got = run_model_node(tmp_path, SEATS_ONLY + r"""
+const pose = (seats) => seats.map((s) => s.pose);
+out.off = pose(seatsOf([], { state: "off", accepted: true, maxParallel: 3 }));
+out.idle = pose(seatsOf([], { state: "idle", accepted: true, maxParallel: 3 }));
+out.json = [JSON.stringify(seatsOf([], { state: "off", accepted: true, maxParallel: 3 })) !== JSON.stringify(seatsOf([], { state: "idle", accepted: true, maxParallel: 3 }))];
+console.log(JSON.stringify(out));
+""")
+    assert got["off"] == [None, None, None] and got["idle"] == ["idle", "idle", "idle"] and got["json"] == [True], \
+        "the seats differ, so the tower (which compares them) makes the room again and the owls appear"

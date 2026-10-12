@@ -262,7 +262,7 @@ export function floorRow(agent, status, context) {
   // the room's workstations (PAR-7): one for each task of the agent, of every request, that holds a slot (`agentTasks`, not `work`, which is the followed request's); a project not
   // accepted (`configured`) has none, whatever data it kept
   const holders = agentTasks(status, name).filter((t) => t.holds_slot).map(({ id, state: taskState }) => ({ id, state: taskState, holds_slot: true }));
-  const seats = seatsOf(holders, { state, accepted: configured });
+  const seats = seatsOf(holders, { state, accepted: configured, maxParallel: agent.max_parallel });
   const heldTasks = accepted ? heldOf(status, name) : [];
   const heldReason = heldTasks.length ? heldTasks[0].reason : null;
   const runs = format.count(agent.runs_today);
@@ -287,7 +287,7 @@ export function floorRow(agent, status, context) {
   const slots = slotsOf(agent);
   const counts = [`${done} done`, running > 0 ? `${running} running` : "", queued > 0 ? `${queued} queued` : "", `${left} left`, waits ? waits.text : "", slots ? slots.text : ""].filter(Boolean).join(", ");
   return {
-    name, label, lobby, number: context.number, state, stateWord, accepted, slots, holders, seats,
+    name, label, lobby, number: context.number, state, stateWord, accepted, slots, holders, seats, maxParallel: agent.max_parallel,
     unaccepted, held: heldTasks.length, heldReason, inUse,   // R-21 extended (M-24): the window is lit while the agent works, waits or is ready (a queued task)
     window: windowState(configured && (state === "working" || state === "waiting" || state === "ready")), dot: DOT[state], decisions, queued, done, running, left, waits, notes,
     runs, runsCap, usd, usdCap, unknown, ...split, runsTotal: agent.runs_total_today === undefined ? null : format.count(agent.runs_total_today), mode, acting, pips: mode ? PIPS[mode] || 0 : 0, actingPips: acting ? PIPS[acting] || 0 : 0,
@@ -440,7 +440,7 @@ export function buildingScene(view, documents, { ready = true } = {}) {
     floors: view.rows.slice(0, MAX_FLOORS).map((row) => {
       const docs = agentDocuments(documents, row.name, view.none);
       return {
-        name: row.name, label: row.label, state: row.state, window: row.window, decisions: row.decisions, lobby: row.lobby, notes: row.notes, holders: row.holders, seats: row.seats,
+        name: row.name, label: row.label, state: row.state, window: row.window, decisions: row.decisions, lobby: row.lobby, notes: row.notes, holders: row.holders, seats: row.seats, maxParallel: row.maxParallel,
         // `null` while the documents are unread: the world keeps what the floor shows (an empty table on a first build) and changes it when they arrive
         sheets: documents === null ? null : docs.slice(0, 6).map((d) => ({ path: d.path, tip: d.path })), drawers: documents === null ? null : drawersOf(docs.length),
         documents: documents === null ? null : docs.length,   // R-23: one binder for each, sixteen to a bookcase
