@@ -225,6 +225,11 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `no enabled agent owns the task` | `NO_AGENT` |
 | `waiting` | `WAITING` |
 | `other` | `OTHER` |
+| `project at max_running` | `PROJECT_FULL` |
+| `agent at max_parallel` | `AGENT_FULL` |
+| `a code task of the request runs` | `CODE_IN_REQUEST` |
+| `artifact in use` | `IN_USE` |
+| `could not start, tried again shortly` | `RETRY_SOON` |
 <!-- /generated -->
 
 ## Entry points

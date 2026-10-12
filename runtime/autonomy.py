@@ -72,7 +72,9 @@ DEFAULT_MODE = "milestones"
 CHECKPOINTS = {"stopped": "every-phase", "supervised": "every-phase", "milestones": "milestones", "autonomous": "end",
                "autonomous-with-policy": "end"}
 CAREFUL_ORDER = ("every-phase", "milestones", "end")  # the most careful first
-AGENT_KEYS = ("pack", "enabled", "mode", "max_runs_per_day", "max_usd_per_day")
+AGENT_KEYS = ("pack", "enabled", "mode", "max_runs_per_day", "max_usd_per_day", "max_parallel")
+# the release's cap of tasks holding a slot on one floor (the maintainer, 2026-10-12): the one constant; the interface reads it from the agents read and never writes the number; raising it needs the scene to give a floor more seats (SPEC-PAR-7)
+MAX_PARALLEL_CEILING = 4
 POLICY_MODE = "autonomous-with-policy"
 # How the credential a run uses is billed (adapters/<harness>/adapter.json, contracts/secrets.md), and so which daily cap the run
 # counts against: a subscription covers its runs and a local model costs nothing, so those count runs; a key paid by use
@@ -123,8 +125,8 @@ def narrows(old: str, new: str) -> bool:
 
 def agents(raw) -> dict:
     """The checked "area_agents" of a configuration: {name: {"pack", "enabled", "mode", "max_runs_per_day",
-    "max_usd_per_day"}}. Absent: {}. Defaults: enabled true, mode milestones, both caps 0 (an absent cap is 0, never
-    "no limit"). An unknown key, a mode outside MODES, a cap that is not a number of 0 or more: ValueError naming the
+    "max_usd_per_day", "max_parallel"}}. Absent: {}. Defaults: enabled true, mode milestones, both caps 0 (an absent cap
+    is 0, never "no limit"), max_parallel 1 (the slots of the floor: an integer from 1 to MAX_PARALLEL_CEILING). An unknown key, a mode outside MODES, a cap that is not a number of 0 or more: ValueError naming the
     agent and the key."""
     if raw is None:
         return {}
@@ -156,6 +158,10 @@ def agents(raw) -> dict:
                 what = "a whole number" if kind is int else "a number"
                 raise ValueError(f"area agent {name}: {key} is {what}, 0 or more")
             checked[key] = value
+        slots = entry.get("max_parallel", 1)
+        if isinstance(slots, bool) or not isinstance(slots, int) or not 1 <= slots <= MAX_PARALLEL_CEILING:
+            raise ValueError(f"area_agents.{name}.max_parallel must be an integer from 1 to {MAX_PARALLEL_CEILING}")
+        checked["max_parallel"] = slots
         out[name] = checked
     return out
 
