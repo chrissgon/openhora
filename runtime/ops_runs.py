@@ -122,13 +122,13 @@ ORPHAN_NOTE = "the run was interrupted before it ended; retry the task"
 
 
 def _drop_task_locks(ctx: dict) -> list:
-    """Delete the lock file of every task that ended `done` or `cancelled` (or that the store no longer has), under its own
+    """Delete the lock file of every task or request that ended `done` or `cancelled` (or that the store no longer has; an `effect-<request id>.lock` goes with its request), under its own
     lock: a file whose lock is held (a process still finishing the task) stays, and `_try_lock` locks again a file that was
     deleted between its open and its lock. A task that can run again (`ready`, `running`, `waiting`, `failed`...) keeps its
     file. Returns the task ids whose file went (PAR-6: the files were never deleted before)."""
     cfg = ctx["cfg"]
     try:
-        names = [n for n in os.listdir(core._locks_dir(cfg)) if re.fullmatch(r"task-\d+\.lock", n)]
+        names = [n for n in os.listdir(core._locks_dir(cfg)) if re.fullmatch(r"(task|effect)-\d+\.lock", n)]
     except OSError:
         return []
     if not names:
@@ -136,13 +136,14 @@ def _drop_task_locks(ctx: dict) -> list:
     states = {t["id"]: t["state"] for t in core._stored(ctx, ctx["store"].tasks_list)}
     dropped = []
     for name in names:
-        task_id = int(name[len("task-"):-len(".lock")])
+        task_id = int(name[name.index("-") + 1:-len(".lock")])  # a task's id, or a request's for an effect lock
         if states.get(task_id) not in (None, "done", "cancelled"):
             continue
         fd = core._try_lock(cfg, name)
         if fd is None:
             continue
         try:
+            # INVARIANT: the unlink is the holder's last action before it closes the descriptor (`_try_lock` relies on it)
             os.unlink(os.path.join(core._locks_dir(cfg), name))
             dropped.append(task_id)
         except OSError:
@@ -408,9 +409,16 @@ def reap(project=None) -> list:
                 "reason": {EXIT_REFUSED: "refused", 0: "held"}.get(code, "crashed"), "at": time.time()}
         except core.OpsError:
             continue
-    for ctx, additions in by_project.values():
-        _refused_write(ctx, additions)
-    return ended
+    returned = ended
+    for where, (ctx, additions) in by_project.items():
+        try:
+            _refused_write(ctx, additions)
+        except core.OpsError:  # the claim lock stayed busy: keep the entries for the next reap, never lose a refusal
+            back = [e for e in ended if e[0] == where and e[1] in additions]
+            with SPAWNED_LOCK:
+                SPAWNED.extend(back)
+            returned = [e for e in returned if e not in back]
+    return returned
 
 
 def alive(project=None) -> list:

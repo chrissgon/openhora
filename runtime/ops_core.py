@@ -286,17 +286,19 @@ def _locks_dir(cfg: dict) -> str:
     return folder
 
 
-def _try_lock(cfg: dict, name: str):
+def _try_lock(cfg: dict, name: str, shared: bool = False):
     """Take the lock file <data_dir>/locks/<name> without waiting: the open descriptor, or None when another holder has
     it. It writes nothing in the file. The caller closes the descriptor to release the lock (a closed or dead process
     releases it too, so a held lock is the proof that its holder is alive). A lock file may be deleted by whoever holds it
     (a finished task's, `ops_runs._drop_task_locks`): a lock taken on a file that is no longer at its path is let go and taken again
-    on the file that is."""
+    on the file that is. shared: take it LOCK_SH (a probe: any number of probes hold it together, none of them blocks another;
+    only an exclusive holder makes it fail). INVARIANT: whoever deletes a lock file does it as its last action while it
+    still holds the lock, just before it closes the descriptor; the inode check below depends on it."""
     path = os.path.join(_locks_dir(cfg), name)
     while True:
         fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(fd, (fcntl.LOCK_SH if shared else fcntl.LOCK_EX) | fcntl.LOCK_NB)
         except OSError:
             os.close(fd)
             return None
@@ -469,7 +471,7 @@ def _effects_running(cfg: dict) -> frozenset:
         match = re.fullmatch(r"effect-(\d+)\.lock", name)
         if match is None:
             continue
-        fd = _try_lock(cfg, name)
+        fd = _try_lock(cfg, name, shared=True)  # shared: two probes never see each other as an executing effect
         if fd is None:
             found.add(int(match.group(1)))
         else:

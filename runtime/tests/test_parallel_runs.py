@@ -1125,3 +1125,74 @@ def test_a_lock_taken_on_a_file_that_was_deleted_meanwhile_is_not_a_lock(world, 
     fd = ops_core._try_lock(cfg, "task-90.lock")
     assert fd is not None and os.fstat(fd).st_ino == os.stat(path).st_ino
     os.close(fd)
+
+
+# --- the review of PAR-6 ------------------------------------------------------------------------------------------------------
+
+
+def test_two_probes_of_the_effect_locks_never_see_each_other_but_see_a_held_approval(world):
+    request = planned(world, "w-code")
+    cfg = ops_core.context(world["path"])["cfg"]
+    os.close(ops_core._try_lock(cfg, f"effect-{request}.lock"))
+    probe = ops_core._try_lock(cfg, f"effect-{request}.lock", shared=True)  # another probe in the middle of its look
+    try:
+        assert ops_core._effects_running(cfg) == frozenset()
+    finally:
+        os.close(probe)
+    held = ops_core._try_lock(cfg, f"effect-{request}.lock")
+    try:
+        assert ops_core._effects_running(cfg) == frozenset({request})
+    finally:
+        os.close(held)
+
+
+def test_a_reap_that_cannot_write_the_cursor_keeps_its_entries_and_does_not_raise(world, monkeypatch):
+    request = planned(world, "w-code")
+    task_id = min(t["id"] for t in tasks_of(world, request))
+    child = st.FinishedChild(4)
+    with ops_runs.SPAWNED_LOCK:
+        ops_runs.SPAWNED.append((world["path"], task_id, child))
+
+    def busy(ctx, additions):
+        raise ops_core.OpsError("the project's claim lock stayed busy for 30 s; try again", 1)
+
+    real = ops_runs._refused_write
+    monkeypatch.setattr(ops_runs, "_refused_write", busy)
+    assert ops_runs.reap(world["path"]) == []
+    assert [e[1] for e in ops_runs.SPAWNED] == [task_id]  # kept for the next reap
+    monkeypatch.setattr(ops_runs, "_refused_write", real)
+    assert [e[1] for e in ops_runs.reap(world["path"])] == [task_id]
+    assert ops_runs.refused_now(ops_core.context(world["path"])) == {task_id: "refused"}
+
+
+def test_the_effect_lock_file_of_a_finished_request_is_deleted(world):
+    request = planned(world, "w-code")
+    ctx = ops_core.context(world["path"])
+    cfg, conn = ctx["cfg"], ctx["conn"]
+    os.close(ops_core._try_lock(cfg, f"effect-{request}.lock"))
+    path = os.path.join(cfg["data_dir"], "locks", f"effect-{request}.lock")
+    ops_runs._recover(ctx)
+    assert os.path.exists(path)  # the request is still open
+    conn.execute("UPDATE tasks SET state = 'done' WHERE id = ?", (request,))
+    conn.commit()
+    held = ops_core._try_lock(cfg, f"effect-{request}.lock")
+    ops_runs._recover(ctx)
+    assert os.path.exists(path)  # an effect is executing: never deleted under it
+    os.close(held)
+    ops_runs._recover(ctx)
+    assert not os.path.exists(path)
+
+
+def test_a_second_queued_approval_of_an_effect_that_is_no_longer_open_does_not_execute(world, monkeypatch):
+    request = planned(world, "w-code")
+    one = min(t["id"] for t in tasks_of(world, request))
+    ctx = ops_core.context(world["path"])
+    store, conn = ctx["store"], ctx["conn"]
+    seen = []
+    monkeypatch.setattr(ops.effects, "module_for", lambda word: seen.append(word))
+    pending = {"id": 5, "task_id": one, "kind": "effect", "status": "open", "payload_sha256": "a" * 64, "payload": {}}
+    # the first approval resolved the decision while this one waited for the effect lock: the store says it is not open
+    monkeypatch.setattr(store, "pending_get", lambda c, pid: {**pending, "status": "approved"})
+    with pytest.raises(ops.OpsError, match="approved, not open: nothing was executed"):
+        ops._approve_effect(ctx, pending, "a" * 64)
+    assert seen == []

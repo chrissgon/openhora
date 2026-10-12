@@ -730,7 +730,14 @@ def _approve_effect(ctx: dict, item: dict, sha256) -> dict:
     if item["status"] != "open":
         raise core.OpsError(f"pending decision {pending_id} is {item['status']}, not open", 1)
     request_id = core._stored(ctx, store.task_get, item["task_id"])["parent_id"]
-    with core._effect_lock(cfg, request_id):  # from here a code task of the request is not claimed (admit reads this lock)
+    with core._effect_lock(cfg, request_id):
+        try:  # a second queued approval of the same effect must not execute it again: read the decision now, under the lock
+            fresh = core._stored(ctx, store.pending_get, pending_id)
+        except core.OpsError:
+            fresh = item
+        if fresh["status"] != "open":
+            raise core.OpsError(f"pending decision {pending_id} is {fresh['status']}, not open: nothing was executed", 1)
+        # from here a code task of the request is not claimed (admit reads this lock)
         if request_id is not None:
             with core._claim_lock(cfg):  # a claim happens under this lock: either the code task is seen here or the lock is seen there
                 if ops_runs.code_running(ctx, request_id):
