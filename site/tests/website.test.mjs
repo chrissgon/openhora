@@ -88,6 +88,8 @@ const TEXT_EDITS = {
     // M-41 (decided by the person, 2026-10-11): the tour frame has no Pause, Take over or Replay and no bottom bar; the visitor uses the demo itself.
     { op: "remove", ref: "M-41: the frame's controls and its bottom bar hint are removed",
       match: ["Pause", "Take over", "Replay", "Replay \u00b7 fictional project \u00b7 autopilot"] },
+    // M-43 (decided by the person, 2026-10-11): no message appears under the tour when the visitor takes over the demo.
+    { op: "remove", ref: "M-43: the take-over message under the tour is removed", match: ["You have the controls. The story is paused."] },
     // M-40 (decided by the person, 2026-10-11): the owls are drawn inline, so the crops' alt text goes, and the Off state goes with its aside.
     { op: "remove", ref: "M-40: the aside of the owl section names the Off state, which is removed", match: ["off means no owl"] },
     ...[["waiting", "faces the person; one wing raised and waving. No question mark.", "Waiting"],
@@ -468,11 +470,10 @@ describe("interface: the tour frame", () => {
     const [x, y] = await page.eval(at("#app"));
     await page.mouseClick(x, y);
     assert.ok(await page.waitFor(`${TOUR}.dataset.state === "takeover"`), "a visitor's click inside the demo did not put the frame in the takeover state");
-    assert.equal(await page.eval(`${TOUR}.querySelector(".tour-takeover").hidden`), false, "the takeover line is hidden in the takeover state");
+    assert.equal(await page.eval(`!!${TOUR}.querySelector(".tour-takeover") || /story is paused|You have the controls/i.test(${TOUR}.textContent)`), false, "a take-over message appears after a click inside the demo");
     const [sx, sy] = await page.eval(at(".wb-demo-ribbon button:last-child"));
     await page.mouseClick(sx, sy);
     assert.ok(await page.waitFor(`${TOUR}.dataset.state === "playing"`), "the demo's own Start over did not put the frame back to playing");
-    assert.equal(await page.eval(`${TOUR}.querySelector(".tour-takeover").hidden`), true, "the takeover line stays after the demo restarted");
   });
 
   test("tour: a demo that cannot be fetched ends in the could-not-load state, with Try again", async () => {
@@ -1167,4 +1168,62 @@ describe("links and routes match the flows (DEV-20); GitHub links are checked by
       assert.ok(!/^OK/m.test(ok.o), "--only-missing lists no OK line");
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
+});
+
+// ---------------------------------------------------------------- the social preview and the canonical links
+// Static check of the page source (no browser): every page carries the Open Graph and Twitter card tags with absolute URLs, and the image they name exists.
+describe("social preview", () => {
+  const ORIGIN = "https://openhora.dev";
+  const CANONICAL = { "index.html": "/", "proof.html": "/proof", "first-steps.html": "/first-steps", "how-it-is-built.html": "/how-it-is-built", "interface.html": "/interface", "glossary.html": "/glossary", "404.html": null };
+  const IMAGE = `${ORIGIN}/assets/img/og-openhora.png`;
+  const IMAGE_FILE = path.join(SITE, "assets", "img", "og-openhora.png");
+  const metaOf = (html) => {
+    const m = {};
+    for (const t of html.matchAll(/<meta\s+(?:property|name)="([^"]+)"\s+content="([^"]*)">/g)) m[t[1]] = t[2];
+    return m;
+  };
+  const decode = (s) => s.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+
+  test("og-openhora.png exists, is 1200x630, is under 300 KB and has no metadata chunk", () => {
+    assert.ok(fs.existsSync(IMAGE_FILE), "site/assets/img/og-openhora.png does not exist");
+    const buf = fs.readFileSync(IMAGE_FILE);
+    assert.ok(buf.length < 300 * 1024, `the image is ${buf.length} bytes, not under 300 KB`);
+    assert.equal(buf.subarray(1, 4).toString(), "PNG");
+    assert.equal(buf.readUInt32BE(16), 1200, "width");
+    assert.equal(buf.readUInt32BE(20), 630, "height");
+    const chunks = [];
+    for (let i = 8; i < buf.length; i += 12 + buf.readUInt32BE(i)) chunks.push(buf.subarray(i + 4, i + 8).toString());
+    const allowed = new Set(["IHDR", "PLTE", "IDAT", "IEND", "tRNS"]);
+    assert.deepEqual(chunks.filter((c) => !allowed.has(c)), [], "the image carries a chunk that is not pixel data");
+  });
+
+  for (const [file, route] of Object.entries(CANONICAL)) {
+    test(`${file} has the Open Graph and Twitter card tags with absolute URLs${route === null ? "" : " and a canonical link"}`, () => {
+      const html = fs.readFileSync(path.join(SITE, file), "utf8");
+      const m = metaOf(html);
+      const title = decode(html.match(/<title>(.*?)<\/title>/)[1]);
+      const description = decode(m.description);
+      assert.ok(description, "the page has a meta description");
+      assert.equal(m["og:type"], "website");
+      assert.equal(m["og:site_name"], "openhora");
+      assert.equal(decode(m["og:title"]), title);
+      assert.equal(decode(m["og:description"]), description);
+      assert.equal(m["og:image"], IMAGE);
+      assert.equal(m["og:image:width"], "1200");
+      assert.equal(m["og:image:height"], "630");
+      assert.ok(m["og:image:alt"] && m["og:image:alt"].length > 10, "og:image:alt");
+      assert.equal(m["twitter:card"], "summary_large_image");
+      assert.equal(decode(m["twitter:title"]), title);
+      assert.equal(decode(m["twitter:description"]), description);
+      assert.equal(m["twitter:image"], IMAGE);
+      const canonical = [...html.matchAll(/<link rel="canonical" href="([^"]*)">/g)].map((x) => x[1]);
+      if (route === null) {
+        assert.ok(!("og:url" in m), "the 404 page has no og:url");
+        assert.deepEqual(canonical, [], "the 404 page has no canonical link");
+      } else {
+        assert.equal(m["og:url"], ORIGIN + route);
+        assert.deepEqual(canonical, [ORIGIN + route], "exactly one canonical link, the page's absolute URL");
+      }
+    });
+  }
 });

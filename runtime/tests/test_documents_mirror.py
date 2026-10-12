@@ -480,3 +480,44 @@ def test_the_checker_runs_on_a_scratch_copy_and_never_on_the_project(tree):
     assert ran_in[0] != str(tree["project"]) and not ran_in[0].startswith(str(tree["project"]))
     assert not Path(ran_in[0]).exists()  # the scratch folder is removed
     assert not list(tree["project"].rglob("checker-was-here"))
+
+
+def test_a_partial_manifest_of_a_skill_outside_the_packs_in_use_gives_no_entry_and_fails_nothing(tree, monkeypatch):
+    root = str(tree["tree"])
+    st.skill(tree["tree"], "demo-partial", "docs/workbench/state.md", "docs/business/partial.md")
+    partial = {"skill": "demo-partial", "reply_phrases": {"missing_input": ["Nothing to read yet"]}}
+    (tree["tree"] / "skills" / "demo-partial" / "evals" / "runtime-manifest.json").write_text(json.dumps(partial), encoding="utf-8")
+    in_use = sorted(p.name for p in (tree["tree"] / "skills").iterdir() if p.name != "demo-partial")
+    monkeypatch.setitem(docs.manifest._IN_USE, root, in_use)  # the packs in use hold every stand-in skill but this one
+    entries = docs._entries(root)
+    assert [e["skill"] for e in entries].count("demo-asks") == 1 and MARKET in [e["path"] for e in entries]
+    assert "demo-partial" not in {e["skill"] for e in entries}
+    assert docs.entry_for(root, MARKET)["skill"] == "demo-asks"
+    assert docs.entry_for(root, "docs/business/partial.md") is None
+    (tree["project"] / "docs" / "business").mkdir(parents=True, exist_ok=True)
+    for rel in (MARKET, "docs/business/partial.md"):
+        (tree["project"] / rel).write_text("# Text\n", encoding="utf-8")
+    ctx = {"cfg": {"project": str(tree["project"])}, "root": root}
+    assert docs.mirrored_paths(ctx) == [MARKET]
+
+
+def test_a_malformed_manifest_of_a_skill_in_use_still_fails_the_mirror(tree, monkeypatch):
+    root = str(tree["tree"])
+    monkeypatch.setitem(docs.manifest._IN_USE, root, sorted(p.name for p in (tree["tree"] / "skills").iterdir()))
+    path = tree["tree"] / "skills" / "demo-writes" / "evals" / "runtime-manifest.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    del data["documents"]  # whole for a skill in use: a missing key is a problem
+    path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(docs.DocumentsError) as raised:
+        docs._entries(root)
+    assert "missing key `documents`" in str(raised.value)
+    data["documents"], data["unknown_key"] = [], 1  # a key that is not in the manifest's vocabulary is a problem too
+    path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(docs.DocumentsError) as raised:
+        docs._entries(root)
+    assert "unknown key `unknown_key`" in str(raised.value)
+
+
+def test_the_manifests_of_the_real_checkout_never_break_the_mirror():
+    entries = docs._entries(str(st.REPO))  # a new partial manifest of a skill outside the packs in use must not fail it
+    assert entries and all("path" in e and "machine_files" in e for e in entries)
