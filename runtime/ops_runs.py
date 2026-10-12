@@ -446,7 +446,7 @@ def stop_children(only_mine: bool = True, cfg=None, grace: float = STOP_GRACE) -
                 _kill_group(proc.pid, signal.SIGKILL)
         return signalled
     folder = os.path.join(cfg["data_dir"], core.LOCKS_DIR)
-    holders = set()
+    holders = {}
     for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
         if not (name.startswith("task-") and name.endswith(".lock") and name[5:-5].isdigit()):
             continue
@@ -457,7 +457,7 @@ def stop_children(only_mine: bool = True, cfg=None, grace: float = STOP_GRACE) -
             continue
         owner = core._lock_owner(cfg, task_id)
         if owner is not None and _signal_owner(owner, signal.SIGTERM):
-            holders.add(task_id)
+            holders[task_id] = owner
             signalled.append(task_id)
 
     def still_held(task_id: int) -> bool:
@@ -470,10 +470,10 @@ def stop_children(only_mine: bool = True, cfg=None, grace: float = STOP_GRACE) -
     deadline = time.monotonic() + grace
     while time.monotonic() < deadline and any(still_held(t) for t in holders):
         time.sleep(0.05)
-    for task_id in sorted(holders):
-        owner = core._lock_owner(cfg, task_id)  # read again just before: KILL only a lock that is still held, by its holder
-        if still_held(task_id) and owner is not None:
-            _signal_owner(owner, signal.SIGKILL)
+    for task_id, termed in sorted(holders.items()):
+        # read again just before: KILL only a lock that is still held by the very process that got the TERM
+        if still_held(task_id) and core._lock_owner(cfg, task_id) == termed:
+            _signal_owner(termed, signal.SIGKILL)
     return signalled
 
 

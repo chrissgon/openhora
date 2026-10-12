@@ -949,3 +949,33 @@ def test_a_task_started_and_not_yet_claimed_is_counted_as_running_and_not_decide
     child.returncode = 0  # it ended: the snapshot reaps before it counts
     snapshot = ops._snapshot(ctx, ops_core._floor_key())
     assert snapshot["running"] == [] and sorted(t["id"] for t in snapshot["ready"]) == [one, two]
+
+
+def test_a_lock_that_changed_hands_during_the_grace_is_not_killed(world):
+    cfg = ops_core.context(world["path"])["cfg"]
+    first = holder_process(cfg, 17, on_term="release")  # lets the lock go on TERM, but stays alive
+    second = []
+    try:
+        def take_over():
+            until(lambda: first.poll() is None and ops_core._lock_owner(cfg, 17) is not None, 5, "owner")
+            until(lambda: _free(cfg, 17), 10, "the first holder to let go")
+            second.append(holder_process(cfg, 17))  # another process takes the task's lock
+        thread = threading.Thread(target=take_over, daemon=True)
+        thread.start()
+        assert ops_runs.stop_children(only_mine=False, cfg=cfg, grace=4.0) == [17]
+        thread.join(15)
+        assert second and second[0].poll() is None  # the new holder never got a TERM, and no KILL either
+        assert first.poll() is None
+    finally:
+        for process in [first, *second]:
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+
+
+def _free(cfg, task_id) -> bool:
+    fd = ops_core._try_lock(cfg, f"task-{task_id}.lock")
+    if fd is None:
+        return False
+    os.close(fd)
+    return True

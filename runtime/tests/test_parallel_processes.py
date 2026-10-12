@@ -49,6 +49,11 @@ def real(tmp_path, monkeypatch):
         {"key": "c", "skill": "biz-icp-positioning", "title": "C", "text": "do c.", "agent": "business"},
         {"key": "d", "skill": "brand-voice", "title": "D", "text": "do d.", "agent": "brand", "depends_on": ["b"]}])
     ids = {t["key"]: t["id"] for t in made["tasks"]}
+    for name in model_variables():  # nothing a child inherits can reach a model, whatever the admission does
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("PATH", os.pathsep.join(p for p in os.environ.get("PATH", "").split(os.pathsep)
+                                               if p and not os.path.exists(os.path.join(p, "docker"))))
+    assert_cannot_reach_a_model(os.environ)
     monkeypatch.setattr(ops, "_credential_stop", lambda: None)
     monkeypatch.setattr(ops, "_image_stop", lambda: None)
     monkeypatch.setattr(ops_runs, "SPAWNED", [])
@@ -59,6 +64,20 @@ def real(tmp_path, monkeypatch):
         if proc.poll() is None:
             proc.kill()
             proc.wait()
+
+
+def model_variables() -> list:
+    """Every variable the lab passes to a model's provider, for both tiers, and the runtime's own key."""
+    lab = st.load("lab")
+    names = {"WB_RUNTIME_FLOOR_KEY"}
+    for tier in ("strong", "floor"):
+        names |= set(lab.reference(tier)["pass_env"])
+    return sorted(names)
+
+
+def assert_cannot_reach_a_model(env) -> None:
+    assert not [n for n in model_variables() if n in env], "a variable of a model's provider is in the environment"
+    assert not any(os.path.exists(os.path.join(p, "docker")) for p in env.get("PATH", "").split(os.pathsep) if p), "docker is on PATH"
 
 
 def until(condition, timeout: float, what: str):
@@ -88,6 +107,7 @@ def alive(pid: int) -> bool:
 
 def test_real_children_hold_their_task_locks_with_their_pids_and_a_waiting_round_returns_after_they_exit(real):
     ids = real["ids"]
+    assert_cannot_reach_a_model(os.environ)  # the children inherit it
     blocker = ops_core._try_lock(real["cfg"], "claim.lock")  # the children wait for the claim lock: they never claim
     result = {}
     try:
@@ -136,8 +156,9 @@ print("DONE " + json.dumps(out["stopped"]), flush=True)
 
 def test_a_waiting_round_that_gets_sigint_leaves_no_child_behind(real):
     blocker = ops_core._try_lock(real["cfg"], "claim.lock")
+    assert_cannot_reach_a_model(os.environ)  # the round's process, and so its children, inherit this environment
     process = subprocess.Popen([sys.executable, "-c", ROUND % {"runtime": os.path.join(REPO, "runtime"), "project": real["path"]}],
-                               stdout=subprocess.PIPE, text=True)
+                               stdout=subprocess.PIPE, text=True, env=dict(os.environ))
     pids = []
     try:
         deadline = time.monotonic() + 90
@@ -154,13 +175,13 @@ def test_a_waiting_round_that_gets_sigint_leaves_no_child_behind(real):
         for pid in pids:
             until(lambda pid=pid: not alive(pid), 30, f"child {pid} to be gone")
     finally:
-        os.close(blocker)
-        if process.poll() is None:
+        if process.poll() is None:  # the round and every child first, the claim lock last: a child that gets it would claim
             process.kill()
             process.wait()
         for pid in pids:
             if alive(pid):
                 os.kill(pid, signal.SIGKILL)
+        os.close(blocker)
 
 
 # --- c: a refusal ------------------------------------------------------------------------------------------------------------------
@@ -168,6 +189,7 @@ def test_a_waiting_round_that_gets_sigint_leaves_no_child_behind(real):
 
 def test_run_task_on_a_planned_task_exits_4_and_a_held_child_is_held_retry_soon_by_the_next_round(real, monkeypatch):
     ids, cli = real["ids"], os.path.join(REPO, "runtime", "cli.py")
+    assert_cannot_reach_a_model(os.environ)  # the CLI process and the child of the round inherit it
     done = subprocess.run([sys.executable, cli, "run-task", "--project", real["path"], "--task", str(ids["d"])],
                           capture_output=True, text=True, timeout=90)
     assert done.returncode == 4 and json.loads(done.stdout)["ran"] is None  # d depends on b: planned, not ready
@@ -224,5 +246,6 @@ def test_a_real_child_does_not_see_a_key_a_router_call_injected(real, monkeypatc
     finally:
         if proc.poll() is None:
             proc.kill()
+    assert_cannot_reach_a_model(seen)  # what the child got
     assert seen["EXPORTED_BY_THE_PERSON"] == "kept" and "INJECTED_BY_A_ROUTER_CALL" not in seen
     assert os.environ["INJECTED_BY_A_ROUTER_CALL"] == "secret"  # the parent's own environment is untouched
