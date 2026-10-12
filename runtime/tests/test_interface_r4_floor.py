@@ -792,13 +792,15 @@ def test_the_agent_tab_says_how_a_stopped_agent_comes_back_runs_one_step_and_sho
     assert "cli.py" not in source and "accept-config" not in source and "--accept" not in source, "the page builds no command: it shows what the service sent"
 
 
-# --- the ready floor: a task queued behind the one run at a time (M-24, A-65, R4-B6) -----------------------------------------------------------------
+# --- the ready floor: a task queued for a slot (M-24, A-65, R4-B6) -----------------------------------------------------------------
+
+TURN_WORDS = ["agent at max_parallel", "project at max_running", "artifact in use", "a code task of the request runs", "could not start, tried again shortly"]
 
 READY_JS = r"""
 import * as fm from "@JS@/floor-model.js";
 import * as model from "@JS@/model.js";
 import { roomModel } from "@JS@/views/lobby-model.js";
-import { stateRow, queuedFree, HELD_SENTENCES, QUEUED_NOTE, TURN_REASON } from "@JS@/floor-model.js";
+import { stateRow, queuedFree, HELD_SENTENCES, QUEUED_NOTE, TURN_REASONS } from "@JS@/floor-model.js";
 
 const P = "0123456789ab";
 const agent = (name, extra = {}) => ({ name, pack: "x", enabled: true, mode: "supervised", acting_mode: "supervised", max_runs_per_day: 8, max_usd_per_day: 2, runs_today: 0, usd_today: 0, runs_without_cost: 0, queued: 0, held: 0, ...extra });
@@ -824,7 +826,7 @@ out.none = stateOf(rowOf([agent("design")], [task(1, "planned", "design")]), "de
 // queued while another floor runs: this one is ready, the other works
 const two = rowOf([agent("design", { queued: 1 }), agent("engineering")], [task(1, "ready", "design"), task(2, "running", "engineering")]);
 out.whileOtherRuns = [stateOf(two, "design"), stateOf(two, "engineering")];
-// held for each reason of the dispatcher's list: a hold keeps the idle look and its reason; a task that only waits for its turn (`job running`) is queued
+// held for each reason of the dispatcher's list: a hold keeps the idle look and its reason; a task that only waits for its turn (a turn word) is queued
 out.reasons = {};
 for (const reason of Object.keys(HELD_SENTENCES)) out.reasons[reason] = stateOf(rowOf([agent("design", { queued: 1, held: 1 })], [task(1, "ready", "design")], { held: [held(1, "design", reason)] }), "design");
 // two queued, one of them held: the other is free, so it is ready; both held: idle
@@ -842,7 +844,7 @@ console.log(JSON.stringify(out));
     assert got["alone"] == "ready" and got["none"] == "idle", "M-24: a task queued and not held makes the floor ready; nothing queued is idle"
     assert got["whileOtherRuns"] == ["ready", "working"], "queued while another floor runs: ready, and the other floor works"
     for reason, state in got["reasons"].items():
-        assert state == ("ready" if reason == "job running" else "idle"), f"a task held for {reason!r} keeps the idle look and its reason; one that only waits for its turn is queued"
+        assert state == ("ready" if reason in TURN_WORDS else "idle"), f"a task held for {reason!r} keeps the idle look and its reason; one that only waits for its turn is queued"
     assert got["oneFree"] == "ready" and got["bothHeld"] == "idle", "two queued and one held: the other is free; both held: idle"
     assert got["countOnly"] == ["idle", 2], "with no list of holds the agent's own count is read"
     assert got["waiting"] == "waiting" and got["running"] == "working" and got["stopped"] == "off", "waiting for the person, working and off all outrank ready"
@@ -859,13 +861,13 @@ out.window = [row.window, idle.window];
 out.plate = [row.plateWord, row.plateTone, row.cardWord, row.stateWord, row.dot, row.plateDot, idle.plateWord];
 out.tip = [row.tip, row.linkName];
 out.stateRow = [stateRow("ready", 0, null), stateRow("idle", 0, null).chip];
-out.note = [QUEUED_NOTE, TURN_REASON];
+out.note = [QUEUED_NOTE, TURN_REASONS];
 // the City's window rule (model.js) lights it too, not an idle floor, not a stopped one
 const city = model.buildingOf({ id: P, name: "shop", config: { accepted: true } }, { status: r.status, agents: [agent("design", { queued: 1 }), agent("brand"), agent("business", { queued: 1, mode: "stopped", acting_mode: "stopped" })] });
 out.city = city.floors.map((f) => [f.agent, f.window]);
 // the City's window with the agent's task held for a reason of its own: dark; held only for its turn: lit
 const heldCity = (reason) => model.buildingOf({ id: P, name: "shop", config: { accepted: true } }, { status: { ...r.status, held: [held(1, "design", reason)] }, agents: [agent("design", { queued: 1, held: 1 })] }).floors[0].window;
-out.cityHeld = [heldCity("dispatch off"), heldCity("job running")];
+out.cityHeld = [heldCity("dispatch off"), heldCity("agent at max_parallel")];
 // the Floor's room and the scene's floor
 out.scene = fm.buildingScene(fm.building(r.snapshot, P), null).floors.map((f) => [f.name, f.state, f.window]);
 // the Lobby's room: the planning agent with a task queued and not held
@@ -876,46 +878,46 @@ console.log(JSON.stringify(out));
     assert got["window"] == ["lit", "grey"], "R-21 extended: a queued floor's window is lit, an idle one's is dark"
     assert got["plate"][:4] == ["queued", "pui-muted", "Queued", "Queued"] and got["plate"][4:6] == ["theme", "theme"] and got["plate"][6] == "resting", "the plate says queued (a floor with nothing queued still says resting); its dot is the brand colour"
     assert ", queued" in got["tip"][0] and ", queued" in got["tip"][1], "the floor's tooltip and its link's name say queued"
-    assert got["stateRow"][0] == {"tone": "pui-theme pui-soft", "chip": "Queued", "line": "Queued, starts when the current run ends", "off": False} and got["stateRow"][1] == "Idle", "the Agent tab's state line: the chip, and the sentence"
-    assert got["note"] == ["starts when the current run ends", "job running"]
+    assert got["stateRow"][0] == {"tone": "pui-theme pui-soft", "chip": "Queued", "line": "Queued, starts when a slot frees", "off": False} and got["stateRow"][1] == "Idle", "the Agent tab's state line: the chip, and the sentence"
+    assert got["note"] == ["starts when a slot frees", TURN_WORDS]
     assert got["city"] == [["design", "lit"], ["brand", "grey"], ["business", "grey"]], "the City's window rule lights a queued agent, not an idle or a stopped one"
     assert got["cityHeld"] == ["grey", "lit"], "a task held for a reason of its own leaves the window dark; one that only waits for its turn lights it"
     assert got["scene"][0][1:] == ["ready", "lit"] or any(s[1:] == ["ready", "lit"] for s in got["scene"]), "the scene's floor carries the state and the lit window"
-    assert got["lobby"][0] == ["ready", "lit", "Planning agent · queued · starts when the current run ends"], "the Lobby's room: ready, lit, and the tooltip's sentence"
+    assert got["lobby"][0] == ["ready", "lit", "Planning agent · queued · starts when a slot frees"], "the Lobby's room: ready, lit, and the tooltip's sentence"
     assert got["lobby"][1][0] == "idle" and got["lobby"][2][0] == "waiting" and got["lobby"][3][0] == "working" and got["lobby"][4][0] == "off", "idle, waiting, working and off outrank or leave ready as before"
 
 
 @needs_node
 def test_a_queued_floor_is_muted_whatever_holds_it_and_what_the_page_can_tell_keeps_a_task_from_starting_is_not_queued(tmp_path):
-    # review of R4-B6: the real ready case always carries the dispatcher's `job running` (it reports that for every ready task while a run is in progress); the page also knows a daily
+    # review of R4-B6: the real ready case always carries the dispatcher's a turn word (it reports that for every ready task while a run is in progress); the page also knows a daily
     # cap (from the agents it reads) and an open wait (from the status rows) itself, and the planner that is stopped or disabled is off
     got = run_node(tmp_path, READY_JS + r"""
 import { queuedFree as fromModel } from "@JS@/model.js";
 const out = {};
-// the plate's tone: a queued floor held only by `job running` is muted, not the amber of a hold; a task held for another reason keeps the amber
-const turn = rowOf([agent("design", { queued: 1, held: 1 })], [task(1, "ready", "design")], { held: [held(1, "design", "job running")] }).rows.find((x) => x.name === "design");
+// the plate's tone: a queued floor held only by a turn word is muted, not the amber of a hold; a task held for another reason keeps the amber
+const turn = rowOf([agent("design", { queued: 1, held: 1 })], [task(1, "ready", "design")], { held: [held(1, "design", "agent at max_parallel")] }).rows.find((x) => x.name === "design");
 const own = rowOf([agent("design", { queued: 1, held: 1 })], [task(1, "ready", "design")], { held: [held(1, "design", "dispatch off")] }).rows.find((x) => x.name === "design");
 out.tone = [turn.state, turn.plateWord, turn.plateTone, turn.heldReason, own.state, own.plateWord, own.plateTone];
 // a daily cap in use: runs, spend; a cap not in use (caps_in_use false) does not count
-const capped = (extra) => stateOf(rowOf([agent("design", { queued: 1, held: 1, max_runs_per_day: 4, runs_today: 4, max_usd_per_day: 2, usd_today: 0, ...extra })], [task(1, "ready", "design")], { held: [held(1, "design", "job running")] }), "design");
+const capped = (extra) => stateOf(rowOf([agent("design", { queued: 1, held: 1, max_runs_per_day: 4, runs_today: 4, max_usd_per_day: 2, usd_today: 0, ...extra })], [task(1, "ready", "design")], { held: [held(1, "design", "agent at max_parallel")] }), "design");
 out.caps = [capped({}), capped({ runs_today: 3 }), capped({ runs_today: 0, usd_today: 2 }), capped({ runs_today: 0, usd_today: 1.5 }), capped({ caps_in_use: { runs: false, spend: true } }), capped({ runs_today: 0, usd_today: 2, caps_in_use: { runs: true, spend: false } })];
 // an open wait: a ready task that waits for another task is not free; one that does not is
 const waitTask = (id) => ({ ...task(id, "ready", "design"), waiting_for: [{ task_id: 9, request_id: 1, reason: "needs docs/a.md" }] });
-const waits = (tasks, queuedCount) => stateOf(rowOf([agent("design", { queued: queuedCount, held: queuedCount })], tasks, { held: tasks.map((t) => held(t.id, "design", "job running")) }), "design");
+const waits = (tasks, queuedCount) => stateOf(rowOf([agent("design", { queued: queuedCount, held: queuedCount })], tasks, { held: tasks.map((t) => held(t.id, "design", "agent at max_parallel")) }), "design");
 out.waits = [waits([waitTask(1)], 1), waits([waitTask(1), task(2, "ready", "design")], 2)];
-out.same = fromModel === fm.queuedFree && fm.TURN_REASON === "job running";
+out.same = fromModel === fm.queuedFree && fm.TURN_REASONS.includes("agent at max_parallel");
 // the Lobby's planner: stopped or disabled is off, whatever is queued (the view's predicate)
 out.cityCap = model.buildingOf({ id: P, name: "shop", config: { accepted: true } }, { status: { requests: [], pending: [], held: [] }, agents: [agent("design", { queued: 1, max_runs_per_day: 2, runs_today: 2 })] }).floors[0].window;
 console.log(JSON.stringify(out));
 """)
-    assert got["tone"] == ["ready", "queued", "pui-muted", "job running", "idle", "held: dispatch off", "pui-warn"], "a queued floor held only by `job running` is muted; a hold of another kind is amber and keeps the idle look"
+    assert got["tone"] == ["ready", "queued", "pui-muted", "agent at max_parallel", "idle", "held: dispatch off", "pui-warn"], "a queued floor held only by a turn word is muted; a hold of another kind is amber and keeps the idle look"
     assert got["caps"] == ["idle", "ready", "idle", "ready", "ready", "ready"], "an agent at a daily cap in use (runs or spend) is not queued; a cap not in use does not count"
     assert got["waits"] == ["idle", "ready"], "a ready task with an open wait is not queued; one without is"
     assert got["same"] is True and got["cityCap"] == "grey", "one definition (model.js), read by the floors and by the City's window rule, which leaves a capped agent's window dark"
     lobby = (JS / "views" / "lobby.js").read_text(encoding="utf-8")
     assert 'planner.enabled !== false && planner.acting_mode !== "stopped" && fm.queuedFree(planner, status) > 0' in lobby, "the Lobby's planner that is stopped or disabled is off, not ready"
     readme = (INTERFACE / "README.md").read_text(encoding="utf-8")
-    assert "during a run the dispatcher reports only" in readme, "the limit is written down"
+    assert "model.TURN_REASONS" in readme and "job running" not in readme, "PAR-5: the five turn words are written down; the old limit (one word during a run) is gone"
 
 
 # --- R4-A4c (A-67, M-25): a long reply opens in place; no inner scroll on a card's body --------------------------------------------------------------------------------

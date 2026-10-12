@@ -25,7 +25,7 @@ import { createForm } from "./lobby-form.js";
 import { createLobbyInbox } from "./lobby-inbox.js";
 import {
   NOT_ACCEPTED_TEXT, QUEUED_NOTICE, cancelCount, canvasLabel, hasQueued, inboxParts, isNamed, lobbyDecisions, mergeMessages, noticeFor, notRoutedNotice, placeBlocks,
-  RESOLVED_LINES, TABS, inboxBodies, pollInterval, readAfter, roomModel, runningTask, signatureOf, tabOf, wantedBodies,
+  RESOLVED_LINES, TABS, inboxBodies, pollInterval, readAfter, roomModel, runNote, signatureOf, tabOf, wantedBodies,
 } from "./lobby-model.js";
 import { createCancelDialog } from "./lobby-request.js";
 import { mountLobbyScene } from "./lobby-scene.js";
@@ -256,7 +256,7 @@ export function createLobbyView(frame, { project, onChanged }) {
     }
   }
 
-  /** A task of the planning agent is queued behind the one run at a time and is not held (M-24): its owl is ready. */
+  /** A task of the planning agent is queued for a slot and is not held (M-24): its owl is ready. */
   function queuedPlanner(status) {
     const detail = last.snapshot && last.snapshot.details[project];
     const planner = detail && Array.isArray(detail.agents) ? detail.agents.find((a) => a.name === "planning") : null;
@@ -277,14 +277,10 @@ export function createLobbyView(frame, { project, onChanged }) {
     scene.update(worldModel(last.snapshot, last.now, { selectedId: project, focus: project, floor: "planning", room: words, ready: Boolean(status) }), canvasLabel(last.projectName, room));
   }
 
-  /** A run is in progress (the status says a task runs): the composer says so in place, with the task it names (A-23). Send stays on. */
+  /** What runs: the router's run on a request, else the running tasks (the model words it: `runNote`). The composer is busy only while its own turn is sent; this note never blocks it. */
   function runningNote() {
     const status = last.snapshot && last.snapshot.details[project] && last.snapshot.details[project].status;
-    const task = accepted ? runningTask(status) : null;
-    const routed = accepted && !task ? model.routingRequest(status) : null;      // A-51: the router's run holds a request and no task runs
-    if (routed) return { text: model.routingWords(routed, last.now), href: router.requestHash(project, routed.id) };
-    if (!task) return null;
-    return { text: `Task #${task.id}${task.title ? ` ${task.title}` : ""}`, href: router.agentHash(project, task.agent) };
+    return accepted ? runNote(status, last.now, project) : null;
   }
 
   function drawComposer() {
@@ -417,7 +413,7 @@ export function createLobbyView(frame, { project, onChanged }) {
     routing.delete(id);
     if (done && done.state === "failed") problem = (done.error && done.error.message) || "The job failed.";
     const result = done && done.result ? done.result : null;
-    if (!problem && result && result.queued === true) {        // A-23: a run holds the project; the service routes the request when it ends
+    if (!problem && result && result.queued === true) {        // A-23: the router answers another request; the service routes this one when it ends
       routeNotices.set(id, QUEUED_NOTICE);
       redraw();
       drawRoom();

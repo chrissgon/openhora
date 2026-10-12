@@ -274,7 +274,12 @@ export function createBuildingView(frame, env) {
   // R-27 (C-2): the panel keeps Configuration and Running now; the request followed and the decisions count are the selected row and the KPI card
   function drawFacts(view) {
     const f = view.facts;
-    const running = f.running ? h("a", { href: f.running.link, text: f.running.label || `task #${f.running.id}${f.running.title ? ` · ${f.running.title}` : ""}` }) : h("span", { class: "wb-muted", text: "Nothing is running" });
+    // up to three running tasks, each a link to its floor, then "+N more"
+    const word = (r) => r.label || `task #${r.id}${r.title ? ` · ${r.title}` : ""}`;
+    const list = Array.isArray(f.runningList) ? f.runningList : (f.running ? [f.running] : []);
+    const running = list.length
+      ? h("span", { class: "wb-running-list" }, list.map((r) => h("a", { class: "wb-running-item", href: r.link, text: word(r) })), f.runningMore > 0 ? h("span", { class: "wb-muted wb-running-more", text: `+${f.runningMore} more` }) : null)
+      : h("span", { class: "wb-muted", text: "Nothing is running" });
     fill(factsBox,
       factRow("Configuration", chip(f.configuration, f.accepted ? "pui-success pui-soft" : "pui-warn pui-soft")),
       f.accepted || f.kept ? factRow("Running now", running, true) : null);

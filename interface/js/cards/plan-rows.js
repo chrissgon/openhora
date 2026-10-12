@@ -39,7 +39,7 @@ export function taskRows(item) {
 
 export const COLUMNS = Object.freeze(["#", "Task", "Skill", "Agent", "After", "Milestone", "Web"]);
 
-/** "One task at a time; each run at most 1800 s, retried at most 2 times. At least 4 runs." (each part only when stored). */
+/** "Up to 3 tasks at a time; each run at most 1800 s, retried at most 2 times. At least 4 runs." (each part only when stored). */
 export function limitsLine(item) {
   const payload = payloadOf(item);
   const limits = payload.limits && typeof payload.limits === "object" ? payload.limits : {};
@@ -47,7 +47,7 @@ export function limitsLine(item) {
   const run = [];
   if (Number.isFinite(limits.timeout_seconds)) run.push(`each run at most ${limits.timeout_seconds} s`);
   if (Number.isFinite(limits.retries)) run.push(`retried at most ${limits.retries} time${limits.retries === 1 ? "" : "s"}`);
-  const first = [limits.one_task_at_a_time ? "One task at a time" : "", run.join(", ")].filter(Boolean).join("; ");
+  const first = [Number.isInteger(limits.max_running) && limits.max_running > 0 ? `Up to ${limits.max_running} task${limits.max_running === 1 ? "" : "s"} at a time` : "", run.join(", ")].filter(Boolean).join("; ");
   if (first) parts.push(`${first}.`);
   const estimate = payload.estimate && typeof payload.estimate === "object" ? payload.estimate : {};
   if (Number.isFinite(estimate.runs_at_least)) parts.push(`At least ${estimate.runs_at_least} run${estimate.runs_at_least === 1 ? "" : "s"}.`);

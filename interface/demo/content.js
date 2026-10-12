@@ -30,7 +30,7 @@ export const PROJECTS = [
     agents: [
       { name: "planning", pack: "planning", mode: "supervised", maxRuns: 12, maxUsd: 5, runs: 2, usd: 0 },
       { name: "design", pack: "design", mode: "supervised", maxRuns: 6, maxUsd: 3, runs: 1, usd: 0 },
-      { name: "engineering", pack: "engineering", mode: "milestones", maxRuns: 8, maxUsd: 4, runs: 1, usd: 0 },
+      { name: "engineering", pack: "engineering", mode: "milestones", maxRuns: 8, maxUsd: 4, runs: 1, usd: 0, maxParallel: 2 },
       { name: "marketing", pack: "marketing", mode: "supervised", maxRuns: 6, maxUsd: 2, runs: 0, usd: 0.35 },
     ],
     requests: [

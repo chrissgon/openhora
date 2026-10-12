@@ -225,25 +225,31 @@ export function createAgentTab(env) {
       code, widerNote(WIDER_BELOW_NOTE), status));
   }
 
+  /** One card of "Current task(s)": the task, its skill and time, what it waits for, its actions, why it is held and its runs. */
+  function currentCard(view, card) {
+    const task = card.task;
+    const sub = currentSub(task, card.body, view.decisions, env.now());
+    return h("div", { class: "pui-card wb-current" },
+      h("div", { class: "wb-cur-head wb-current-head" }, h("strong", { text: `#${task.id} ${task.title || task.key || ""}`.trim() }), chip(taskWord(task.state), stateTone(task.state))),
+      h("span", { class: "wb-muted wb-cur-sub wb-current-sub" }, h("span", { class: "mono", text: sub.skill }), sub.when ? ` · ${sub.when}` : ""),
+      waitLines(task).map((line) => h("p", { class: "wb-task-waits wb-muted", text: line })),
+      taskActions(task, view),
+      card.held ? heldBlock(card.held) : null,
+      runsSection(card.runs, { key: `current-${task.id}`, isOpen: earlierOpen.has(task.id), onToggle: () => {
+        if (earlierOpen.has(task.id)) earlierOpen.delete(task.id);
+        else earlierOpen.add(task.id);
+        if (lastView) drawCurrent(lastView);
+      } }));
+  }
+
   function drawCurrent(view) {
-    const task = view.current;
-    if (!task) {
+    const cards = view.currents || [];
+    if (!cards.length) {
       fill(currentBox, view.tasks.length ? null : h("p", { class: "wb-empty-line", text: "This agent has no task yet." }));
       return;
     }
-    const sub = currentSub(task, view.currentBody, view.decisions, env.now());
-    redraw(currentBox, () => fill(currentBox, h("span", { class: "wb-sec-head", text: "Current task" }),
-      h("div", { class: "pui-card wb-current" },
-        h("div", { class: "wb-cur-head wb-current-head" }, h("strong", { text: `#${task.id} ${task.title || task.key || ""}`.trim() }), chip(taskWord(task.state), stateTone(task.state))),
-        h("span", { class: "wb-muted wb-cur-sub wb-current-sub" }, h("span", { class: "mono", text: sub.skill }), sub.when ? ` · ${sub.when}` : ""),
-        waitLines(task).map((line) => h("p", { class: "wb-task-waits wb-muted", text: line })),
-        taskActions(task, view),
-        view.heldCurrent ? heldBlock(view.heldCurrent) : null,
-        runsSection(view.runs, { key: `current-${task.id}`, isOpen: earlierOpen.has(task.id), onToggle: () => {
-          if (earlierOpen.has(task.id)) earlierOpen.delete(task.id);
-          else earlierOpen.add(task.id);
-          if (lastView) drawCurrent(lastView);
-        } }))));
+    // several running tasks (a floor with several slots): one card for each, the oldest first, under "Current tasks"
+    redraw(currentBox, () => fill(currentBox, h("span", { class: "wb-sec-head", text: cards.length > 1 ? "Current tasks" : "Current task" }), cards.map((card) => currentCard(view, card))));
   }
 
   // The actions of a task (task-actions.js): the same nodes as a Tasks-tab row, for the current task and for each of the others.
@@ -271,6 +277,7 @@ export function createAgentTab(env) {
           h("div", { class: "wb-cur-head" }, h("strong", { class: "wb-other-title", text: `#${t.id} ${t.title || t.key || ""}`.trim() }), chip(taskWord(t.state), stateTone(t.state))),
           nodes.length ? h("div", { class: "wb-task-actions" }, nodes) : null,
           waitLines(t).map((line) => h("p", { class: "wb-task-waits wb-muted", text: line })),
+          view.heldOthers && view.heldOthers[t.id] ? heldBlock(view.heldOthers[t.id]) : null,
           taskActionsUse.failure(t.id));
       })));
   }
@@ -404,7 +411,7 @@ export function createAgentTab(env) {
         swap("state", "unaccepted", () => fill(stateBox));
         return;
       }
-      const row = stateRow(view.row.state, view.decisions.length, view.runningBody, env.now());
+      const row = stateRow(view.row.state, view.decisions.length, view.runningBody, env.now(), view.row.slots);
       swap("state", row, () => drawState(row, view));
       const waiting = view.unaccepted ? { command: view.acceptNext } : null;     // A-62
       swap("plate", [view.agent.mode, view.agent.acting_mode, Boolean(waiting)], () => drawPlate(view.agent, Boolean(waiting)));
@@ -416,9 +423,9 @@ export function createAgentTab(env) {
       swap("wider", [view.agent.wider || null, waiting], () => drawWider(view.agent.wider, waiting));
       widerBox.hidden = widerEmpty;
       const pendingIds = view.decisions.map((d) => [d.id, d.task_id]);
-      const sub = view.current ? currentSub(view.current, view.currentBody, view.decisions, env.now()) : null;     // "for 12 min" moves with the clock: it is part of what is drawn
-      swap("current", [view.current, view.runs, view.current ? earlierOpen.has(view.current.id) : false, view.tasks.length, view.heldCurrent, pendingIds, sub, taskActionsUse.signature(), locked], () => drawCurrent(view));
-      swap("others", [view.others.map((t) => [t.id, t.title, t.state, t.note, t.waiting_for]), pendingIds, taskActionsUse.signature(), locked], () => drawOthers(view));
+      const cards = (view.currents || []).map((c) => [c.task, c.runs, earlierOpen.has(c.task.id), c.held, currentSub(c.task, c.body, view.decisions, env.now())]);     // "for 12 min" moves with the clock: it is part of what is drawn
+      swap("current", [cards, view.tasks.length, pendingIds, taskActionsUse.signature(), locked], () => drawCurrent(view));
+      swap("others", [view.others.map((t) => [t.id, t.title, t.state, t.note, t.waiting_for]), view.heldOthers || {}, pendingIds, taskActionsUse.signature(), locked], () => drawOthers(view));
       swap("hand", [view.target ? view.target.id : null, locked, Boolean(view.currentBody)], () => drawHand(view));
     },
   };

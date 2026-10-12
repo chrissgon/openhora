@@ -256,7 +256,7 @@ const status = {
     task(2, "done", "marketing"), task(3, "ready", "marketing"), task(4, "ready", "business"), task(5, "running", "engineering"), task(6, "ready", "engineering"),
     task(7, "ready", "design"), task(8, "done", "brand"), task(9, "planned", "brand"), task(10, "blocked", "brand"), task(11, "done", "brand"), task(12, "running", "brand"), task(13, "ready", "brand")] }],
   pending: [],
-  held: [held(3, "marketing", "dispatch off", RUNNEXT), held(4, "business", "cap: runs per day"), held(6, "engineering", "job running"), held(7, "design", "stopped"), held(13, "brand", "secret store", "uv run service")],
+  held: [held(3, "marketing", "dispatch off", RUNNEXT), held(4, "business", "cap: runs per day"), held(6, "engineering", "agent at max_parallel"), held(7, "design", "stopped"), held(13, "brand", "secret store", "uv run service")],
 };
 const agents = [agent("marketing", { queued: 1, held: 1 }), agent("business", { queued: 1, held: 1 }), agent("engineering", { queued: 1, held: 1 }),
   agent("design", { mode: "stopped", acting_mode: "stopped", queued: 1, held: 1 }), agent("brand", { queued: 1, held: 1 })];
@@ -280,7 +280,7 @@ const floor = fm.floor(snapshot, P, "marketing", {});
 out.current = floor.current.id;
 out.heldCurrent = floor.heldCurrent;
 out.heldStopped = fm.floor(snapshot, P, "business", {}).heldCurrent;
-out.sentences = ["stopped", "cap: runs per day", "cap: usd per day", "credential", "secret store", "image", "dispatch off", "job running", "no enabled agent owns the task", "other", "a new word"].map(fm.heldSentence);
+out.sentences = ["stopped", "cap: runs per day", "cap: usd per day", "credential", "secret store", "image", "dispatch off", "agent at max_parallel", "no enabled agent owns the task", "other", "a new word"].map(fm.heldSentence);
 
 // the chips, in order, each only when non-zero
 // R-25: a plate has no count chips; the row of the floors list has them under its name row
@@ -742,7 +742,7 @@ out.credential = { text: held.textContent.slice(0, 120), codes: all(held, ".wb-c
 tab.update(view(agent({ wider: [] }), [{ task_id: 4, agent: "engineering", reason: "credential", at: "y", next: "Store it: KEY_A: uv run --with keyring==25.7.0 keyring set openhora user-a.", commands: [] }]));
 out.inline = { codes: all(find(tab.el, ".wb-held"), ".wb-command-code").length };
 // the other reasons: a command in `next` is drawn as one command
-tab.update(view(agent({ wider: [] }), [{ task_id: 4, agent: "engineering", reason: "job running", at: "z", next: "python3 /ck/runtime/cli.py run-next --project /work/shop", commands: [] }]));
+tab.update(view(agent({ wider: [] }), [{ task_id: 4, agent: "engineering", reason: "agent at max_parallel", at: "z", next: "python3 /ck/runtime/cli.py run-next --project /work/shop", commands: [] }]));
 out.single = { codes: all(find(tab.el, ".wb-held"), ".wb-command-code").map((c) => c.textContent) };
 console.log(JSON.stringify(out));
 """

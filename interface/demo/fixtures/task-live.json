@@ -5,7 +5,7 @@
     "flow": "code-demo",
     "key": "first",
     "skill": "eng-implement",
-    "agent": null,
+    "agent": "engineering",
     "title": "First change",
     "text": "make the first change.",
     "state": "running",

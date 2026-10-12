@@ -92,7 +92,7 @@ def test_the_composer_says_a_run_is_in_progress_a_queued_line_shows_the_word_and
     assert got["idle"] == {"hidden": True}
     r = got["running"]
     assert r["hidden"] is False and r["role"] == "status" and r["send"] is False, "A-23: the line shows in place and Send stays on"
-    assert r["text"].startswith("A run is in progress: your line will be routed when it ends; a question about the state is answered now.")
+    assert r["text"].startswith("The planning agent is answering another request: your line is routed when it ends; a question about the state is answered now."), "PAR-5: the line the composer shows when it is given none is the router-busy one"
     assert r["link"] == ["Task #12 Build the page", "#/p/x/floor/engineering", False]
     assert got["notAccepted"] == {"hidden": True, "send": True}, "a project that is not accepted says that, not a run"
     assert got["after"] == {"hidden": True}
@@ -111,7 +111,7 @@ def test_the_composer_says_a_run_is_in_progress_a_queued_line_shows_the_word_and
     assert got["afterNumber"] == [{"value": 3}, {"value": 4}, {}, {"invalid": True}, {"invalid": True}, {"invalid": True}, {"value": 5}, {"invalid": True}, {"invalid": True}], \
         "an empty field is no after; a word, zero, a negative, a decimal or a huge number is refused"
     assert got["createCalls"] == [["request", "p1", "x", 3, None], ["route", "p1", 9, None], ["request", "p1", "y", None, "T"], ["route", "p1", 9, "design"]]
-    assert got["queuedNotice"] == {"tone": "info", "title": "Recorded", "text": "A run is in progress. The request is recorded and will be routed when the run ends."}
+    assert got["queuedNotice"] == {"tone": "info", "title": "Recorded", "text": "The planning agent is answering another request. This request is recorded and will be routed when it ends."}
 
 # --- moved from test_interface_cards_fields.py -----------------------------------------------------------------------------------
 
@@ -379,7 +379,7 @@ out.final = [byClass(final.el, "wb-request-box").length, byClass(final.el, "wb-l
 // the plan card (R-47): blocks at every width, no table, Go ahead a checkbox under Before it starts, one solid button
 const hash = "ab".repeat(32);
 const item = { id: 41, kind: "plan", title: "Plan: Autumn catalogue (3 tasks)", body: "text", task_id: 9, agent: null, status: "open", created_at: "2026-10-08T08:00:00Z", actions: ["approved", "rejected"],
-  payload: { plan_sha256: hash, limits: { one_task_at_a_time: true, timeout_seconds: 1800, retries: 2 }, estimate: { runs_at_least: 3 },
+  payload: { plan_sha256: hash, limits: { max_running: 3, timeout_seconds: 1800, retries: 2 }, estimate: { runs_at_least: 3 },
     waits: [{ task_key: "layout", task_id: 2, reason: "docs/brand/voice.md, written by task 1" }],
     tasks: [{ key: "voice", title: "Write the voice", skill: "brand-voice", agent: "brand", depends_on: [] }, { key: "layout", title: "Lay out", skill: "catalogue-layout", agent: "design", depends_on: ["voice"], milestone: true },
       { key: "accept", title: "Accept", skill: "accept-request", depends_on: ["layout"], milestone: true, mandatory_milestone: true }] } };

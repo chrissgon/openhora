@@ -52,12 +52,12 @@ export function buttonsFor(item) {
   return (BUTTONS[item.kind] || []).filter(([word]) => words.includes(word));
 }
 
-/** The limits line of a plan, in the words of plan.build: the first clause only when one task runs at a time. */
+/** The limits line of a plan, in the words of plan.build: the first clause only when the plan states how many tasks run at a time (`max_running`). */
 export function limitsLine(payload) {
   const limits = (payload && payload.limits) || {};
   const runs = payload && payload.estimate ? payload.estimate.runs_at_least : undefined;
   const parts = [];
-  if (limits.one_task_at_a_time === true) parts.push("One task at a time;");
+  if (Number.isInteger(limits.max_running) && limits.max_running > 0) parts.push(`Up to ${limits.max_running} task${limits.max_running === 1 ? "" : "s"} at a time;`);
   parts.push(`${parts.length ? "each" : "Each"} run at most ${limits.timeout_seconds} s, retried at most ${limits.retries} times.`);
   if (runs !== undefined) parts.push(`At least ${runs} runs.`);
   return parts.join(" ");
