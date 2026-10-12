@@ -20,3 +20,6 @@ __pycache__/
 
 # A maintainer's own names, projects and accounts, one per line; read by scripts/validate.py (private-term)
 .private-terms
+
+# The site's demo is built at deploy time by scripts/build_demo.py (netlify.toml)
+site/demo/
