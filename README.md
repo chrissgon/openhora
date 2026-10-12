@@ -57,6 +57,9 @@ runtime/            the task runtime: a request becomes tasks, each task runs on
 interface/          the local interface the runtime's service serves: an isometric 3D scene (City, Building, floor) with plain panels as the
                     equivalent of every scene action, vendored libraries only, no build step, and a demo mode with fictional data and no service
                     (interface/README.md)
+site/               the public website: static pages, its own styles and fonts, its tests and tools (site/README.md); its Interface page embeds
+                    the demo, which is built into site/demo/ at deploy time by scripts/build_demo.py and is not committed
+netlify.toml        how Netlify publishes site/ (the build command and the response headers, the content security policy among them)
 flows/              one data file per flow: the tasks and their written dependencies, read by the task runtime
 .github/            CI workflows, the code owners file, the dependency-update configuration and brand/ (the banner and social images, the mark)
 .githooks/          the versioned pre-commit hook

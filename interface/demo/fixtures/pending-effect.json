@@ -4,7 +4,7 @@
   "run_id": 5,
   "kind": "effect",
   "title": "Pull request: Carry the providers",
-  "body": "Code opens this pull request after your approval, and nothing else:\n\nRepository: example-org/northwind-shop\nBase ← head: main ← wb/request-4\nCommit: one commit, made by the code provider with your own git and signature, over bad107baecd4e2ad615b7b65f41130e62df85cd8\nTitle: Carry the providers\nBody:\nWhat changes, and why.\n\nFiles:\n- src/app.py sha256 dba0082ec68e72d47fa926dcc91fb9b00961ceb4342554a0c2aa567144a5a6d3\n\nHash of this effect: dfd5922f5aa9441e95d21ed58bb9f2209a004912a1232e89f75f725bd37f3d4a\nApprove exactly this: python3 runtime/cli.py approve --project <project> --id <this pending decision's id> --sha256 dfd5922f5aa9441e95d21ed58bb9f2209a004912a1232e89f75f725bd37f3d4a\nOr answer with what to change, or reject it: nothing is sent until you approve.\n",
+  "body": "Code opens this pull request after your approval, and nothing else:\n\nRepository: example-org/northwind-shop\nBase ← head: main ← wb/request-4\nCommit: one commit, made by the code provider with your own git and signature, over 0db7b5a11fa95c9e49dfb4863565019985471b74\nTitle: Carry the providers\nBody:\nWhat changes, and why.\n\nFiles:\n- src/app.py sha256 dba0082ec68e72d47fa926dcc91fb9b00961ceb4342554a0c2aa567144a5a6d3\n\nHash of this effect: dfd5922f5aa9441e95d21ed58bb9f2209a004912a1232e89f75f725bd37f3d4a\nApprove exactly this: python3 runtime/cli.py approve --project <project> --id <this pending decision's id> --sha256 dfd5922f5aa9441e95d21ed58bb9f2209a004912a1232e89f75f725bd37f3d4a\nOr answer with what to change, or reject it: nothing is sent until you approve.\n",
   "payload": {
     "body_cut": false,
     "body_masked": 0,
