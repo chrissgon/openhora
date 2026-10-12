@@ -69,11 +69,11 @@ The closed key lists the configuration is checked against (names only, never a v
 | Keys of | Constant | Names |
 |---|---|---|
 | the top level of `runtime.json`, required | `REQUIRED` of `runtime/project_config.py` | `workbench`, `data_dir`, `store_db` |
-| the top level, read by the task runtime | `TASK_RUNTIME_KEYS` of `runtime/project_config.py` | `workbench`, `data_dir`, `store_db`, `area_agents`, `handlers`, `task_board`, `documents`, `protected_paths`, `code`, `dependencies`, `max_cost_usd_per_run`, `model_prices`, `messaging`, `channels` |
+| the top level, read by the task runtime | `TASK_RUNTIME_KEYS` of `runtime/project_config.py` | `workbench`, `data_dir`, `store_db`, `area_agents`, `handlers`, `task_board`, `documents`, `protected_paths`, `code`, `dependencies`, `max_cost_usd_per_run`, `model_prices`, `messaging`, `channels`, `max_running` |
 | the top level, read by the first runtime | `FIRST_RUNTIME_KEYS` of `runtime/project_config.py` | `agent`, `harness`, `model`, `mailbox`, `publisher`, `store`, `scheduler`, `notification_query`, `first_lookback_minutes`, `max_events_per_tick`, `daily_cost_cap_usd`, `timeout_seconds`, `notify`, `path`, `vote` |
 | the `code` object | `CODE_KEYS` of `runtime/project_config.py` | `provider`, `repo`, `base`, `branch_prefix` |
 | an entry of `model_prices`, which is keyed by model id | `PRICE_KEYS` of `runtime/project_config.py` | `input_usd_per_mtok`, `output_usd_per_mtok`, `cache_read_usd_per_mtok`, `cache_write_usd_per_mtok`, `source`, `date` |
-| an entry of `area_agents` | `AGENT_KEYS` of `runtime/autonomy.py` | `pack`, `enabled`, `mode`, `max_runs_per_day`, `max_usd_per_day` |
+| an entry of `area_agents` | `AGENT_KEYS` of `runtime/autonomy.py` | `pack`, `enabled`, `mode`, `max_runs_per_day`, `max_usd_per_day`, `max_parallel` |
 | a standing-approval policy: a `.json` file under `docs/`, checked whole | `BOUNDS_KEYS` of `runtime/autonomy.py` | `policy`, `agent`, `effects`, `targets`, `files`, `max_per_day`, `max_items_per_run` |
 | an entry of `dependencies` | `ENTRY_KEYS` of `runtime/deps.py` | `recipe`, `file` |
 | the closed table of recipes: the names an entry's `recipe` may take | `RECIPES` of `runtime/deps.py` | `node-npm`, `python-requirements` |

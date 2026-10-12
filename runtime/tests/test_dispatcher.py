@@ -249,3 +249,121 @@ def test_a_round_without_the_reference_model_s_credential_starts_nothing_and_say
     assert out["ran"] == [] and st.calls(tree["adapter"]) == []
     assert "EXAMPLE_REFERENCE_KEY" in out["stopped"] and "secret store" in out["stopped"] and "Python" in out["stopped"]
     assert [t["state"] for t in store_rows(tree) if t["parent_id"]] == ["ready", "planned"]  # no task failed
+
+
+# --- the parallel path (PAR-2): decide(..., admit) -----------------------------------------------------------------
+
+
+parallel = st.load("parallel")
+
+
+def pready(task_id, name, request_id=1, code=False, footprint=()):
+    return {"id": task_id, "agent": name, "state": "ready", "milestone": 0, "parent_id": request_id,
+            "code": code, "footprint": sorted(footprint)}
+
+
+def prun(task_id, name, request_id=1, code=False, footprint=()):
+    return {"id": task_id, "agent": name, "request_id": request_id, "code": code, "footprint": sorted(footprint)}
+
+
+def pagent(max_parallel=1, **kw):
+    got = agent(**kw)
+    got["entry"] = dict(got["entry"], max_parallel=max_parallel)
+    return got
+
+
+def psnapshot(ready_tasks, running=(), holding=None, refused=None, agents=None, max_running=3, per_run_usd=0.5):
+    names = {t["agent"] for t in list(ready_tasks) + list(running) if t["agent"]}
+    return {"running": list(running), "ready": list(ready_tasks), "reviews": [], "agents": agents or {n: pagent() for n in names},
+            "tier": {}, "billing": {t["id"]: "subscription" for t in ready_tasks}, "waits": {},
+            "holding": [{"id": r["id"], "agent": r["agent"]} for r in running] if holding is None else holding,
+            "refused": refused or {}, "max_running": max_running, "per_run_usd": per_run_usd}
+
+
+def pdecide(snapshot):
+    return dispatcher.decide(snapshot, autonomy.review_action, autonomy.may_start, parallel.admit)
+
+
+def test_two_ready_tasks_of_two_agents_with_disjoint_footprints_both_start():
+    got = pdecide(psnapshot([pready(4, "a", footprint={"docs/a.md"}), pready(5, "b", footprint={"docs/b.md"})]))
+    assert got == {"release": [], "start": [4, 5], "held": []}
+
+
+def test_a_second_task_of_a_full_agent_is_held():
+    got = pdecide(psnapshot([pready(4, "a", footprint={"docs/a.md"}), pready(5, "a", footprint={"docs/b.md"})]))
+    assert got["start"] == [4] and got["held"] == [{"task_id": 5, "why": parallel.AGENT_FULL}]
+    wide = psnapshot([pready(4, "a", footprint={"docs/a.md"}), pready(5, "a", footprint={"docs/b.md"})], agents={"a": pagent(2)})
+    assert pdecide(wide)["start"] == [4, 5]
+
+
+def test_a_waiting_task_holds_its_agents_slot():
+    snap = psnapshot([pready(5, "a", footprint={"docs/b.md"})], holding=[{"id": 3, "agent": "a"}])
+    assert pdecide(snap) == {"release": [], "start": [], "held": [{"task_id": 5, "why": parallel.AGENT_FULL}]}
+
+
+def test_a_task_whose_footprint_overlaps_a_running_one_is_held():
+    snap = psnapshot([pready(5, "b", request_id=2, footprint={"docs/plans/<task>.md"})],
+                     running=[prun(3, "a", footprint={"docs/plans/<task>.md"})])
+    assert pdecide(snap)["held"] == [{"task_id": 5, "why": parallel.IN_USE}]
+
+
+def test_two_code_tasks_of_one_request_never_start_together():
+    snap = psnapshot([pready(4, "a", code=True, footprint={"x/a"}), pready(5, "b", code=True, footprint={"x/b"})])
+    got = pdecide(snap)
+    assert got["start"] == [4] and got["held"] == [{"task_id": 5, "why": parallel.CODE_IN_REQUEST}]
+
+
+def test_the_project_ceiling_holds_the_rest():
+    snap = psnapshot([pready(4, "a", footprint={"d/a"}), pready(5, "b", footprint={"d/b"}), pready(6, "c", footprint={"d/c"})],
+                     max_running=2)
+    got = pdecide(snap)
+    assert got["start"] == [4, 5] and got["held"] == [{"task_id": 6, "why": parallel.PROJECT_FULL}]
+
+
+def test_the_daily_cap_counts_the_starts_of_the_same_round():
+    snap = psnapshot([pready(4, "a", footprint={"d/a"}), pready(5, "a", footprint={"d/b"})],
+                     agents={"a": pagent(2, runs=4, cap=5)})
+    got = pdecide(snap)
+    assert got["start"] == [4] and got["held"] == [{"task_id": 5, "why": "cap: runs per day"}]
+    metered = psnapshot([pready(4, "a", footprint={"d/a"}), pready(5, "a", footprint={"d/b"})],
+                        agents={"a": pagent(2, usd=0.6, usd_cap=1.0)}, per_run_usd=0.5)
+    metered["billing"] = {4: "metered", 5: "metered"}
+    got = pdecide(metered)
+    assert got["start"] == [4] and got["held"] == [{"task_id": 5, "why": "cap: usd per day"}]
+
+
+def test_a_recently_refused_task_is_held_retry_soon():
+    snap = psnapshot([pready(4, "a", footprint={"d/a"}), pready(5, "b", footprint={"d/b"})], refused={"4": "refused"})
+    got = pdecide(snap)
+    assert got["start"] == [5] and got["held"] == [{"task_id": 4, "why": parallel.RETRY_SOON}]
+
+
+def test_the_dispatcher_words_equal_the_parallel_words():
+    for word in (parallel.PROJECT_FULL, parallel.AGENT_FULL, parallel.CODE_IN_REQUEST, parallel.IN_USE, parallel.RETRY_SOON):
+        assert word in dispatcher.REASONS, word
+
+
+def test_decide_without_admit_behaves_as_today():
+    snapshot = {"running": None, "ready": [ready(4, "a"), ready(5, "a")], "reviews": [], "agents": {"a": agent()},
+                "tier": {}, "billing": {4: "subscription", 5: "subscription"}}
+    assert decide(snapshot) == {"release": [], "start": 4, "held": []}
+    assert dispatcher.decide(snapshot, autonomy.review_action, autonomy.may_start, None) == decide(snapshot)
+    busy = dict(snapshot, running={"id": 3})
+    assert decide(busy)["start"] is None
+
+
+def test_two_answered_holders_never_block_each_other_forever():
+    # tasks 4 and 5 both wait for their agent's one slot as answered holders: each already holds it, so neither is refused
+    snap = psnapshot([pready(4, "a", footprint={"d/a"}), pready(5, "a", footprint={"d/b"})],
+                     holding=[{"id": 4, "agent": "a"}, {"id": 5, "agent": "a"}])
+    assert pdecide(snap)["start"] == [4, 5]
+
+
+def test_held_of_lists_the_parallel_holds_and_skips_the_job_running_branch_for_a_list():
+    snap = psnapshot([pready(4, "a", footprint={"d/a"}), pready(5, "a", footprint={"d/b"})],
+                     running=[prun(3, "c", footprint={"d/c"})])
+    decided = pdecide(snap)
+    got = dispatcher.held_of(snap, decided)
+    assert got == [{"task_id": 5, "agent": "a", "reason": parallel.AGENT_FULL}] or got == [
+        {"task_id": 4, "agent": "a", "reason": parallel.AGENT_FULL}, {"task_id": 5, "agent": "a", "reason": parallel.AGENT_FULL}]
+    assert all(h["reason"] != dispatcher.JOB_RUNNING for h in got)
