@@ -88,6 +88,8 @@ const TEXT_EDITS = {
     // M-41 (decided by the person, 2026-10-11): the tour frame has no Pause, Take over or Replay and no bottom bar; the visitor uses the demo itself.
     { op: "remove", ref: "M-41: the frame's controls and its bottom bar hint are removed",
       match: ["Pause", "Take over", "Replay", "Replay \u00b7 fictional project \u00b7 autopilot"] },
+    // M-43 (decided by the person, 2026-10-11): no message appears under the tour when the visitor takes over the demo.
+    { op: "remove", ref: "M-43: the take-over message under the tour is removed", match: ["You have the controls. The story is paused."] },
     // M-40 (decided by the person, 2026-10-11): the owls are drawn inline, so the crops' alt text goes, and the Off state goes with its aside.
     { op: "remove", ref: "M-40: the aside of the owl section names the Off state, which is removed", match: ["off means no owl"] },
     ...[["waiting", "faces the person; one wing raised and waving. No question mark.", "Waiting"],
@@ -468,11 +470,10 @@ describe("interface: the tour frame", () => {
     const [x, y] = await page.eval(at("#app"));
     await page.mouseClick(x, y);
     assert.ok(await page.waitFor(`${TOUR}.dataset.state === "takeover"`), "a visitor's click inside the demo did not put the frame in the takeover state");
-    assert.equal(await page.eval(`${TOUR}.querySelector(".tour-takeover").hidden`), false, "the takeover line is hidden in the takeover state");
+    assert.equal(await page.eval(`!!${TOUR}.querySelector(".tour-takeover") || /story is paused|You have the controls/i.test(${TOUR}.textContent)`), false, "a take-over message appears after a click inside the demo");
     const [sx, sy] = await page.eval(at(".wb-demo-ribbon button:last-child"));
     await page.mouseClick(sx, sy);
     assert.ok(await page.waitFor(`${TOUR}.dataset.state === "playing"`), "the demo's own Start over did not put the frame back to playing");
-    assert.equal(await page.eval(`${TOUR}.querySelector(".tour-takeover").hidden`), true, "the takeover line stays after the demo restarted");
   });
 
   test("tour: a demo that cannot be fetched ends in the could-not-load state, with Try again", async () => {
