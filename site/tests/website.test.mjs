@@ -68,11 +68,14 @@ const MODES = ["light", "dark"];
 const NAV_LABEL = "How it's built";
 const NAV_EDIT = { op: "replace", ref: "M-42: the navigation link \"How openhora is built\" reads \"How it's built\" in the header and the footer", count: 2,
   match: ["First steps", "How openhora is built", "Interface"], with: ["First steps", NAV_LABEL, "Interface"] };
+// The hand-off's link to its screenshots' notes points at a document that is not in the repository; the site links the interface's own description instead.
+const SHOTS_EDIT = (count) => ({ op: "replace", ref: "The link text \"interface-shots\" reads \"interface/README.md\": it links interface/README.md, which is in the repository", count,
+  match: ["interface-shots"], with: ["interface/README.md"] });
 const TEXT_EDITS = {
   home: [NAV_EDIT,
     { op: "replace", ref: "The Replay control is gone: the teaser's badge reads \"fictional project\"", match: ["Replay · fictional project"], with: ["fictional project"] }],
-  proof: [NAV_EDIT], "first-steps": [NAV_EDIT], "how-its-built": [NAV_EDIT], glossary: [NAV_EDIT], "404": [NAV_EDIT],
-  interface: [NAV_EDIT,
+  proof: [NAV_EDIT, SHOTS_EDIT(1)], "first-steps": [NAV_EDIT, SHOTS_EDIT(1)], "how-its-built": [NAV_EDIT], glossary: [NAV_EDIT], "404": [NAV_EDIT],
+  interface: [NAV_EDIT, SHOTS_EDIT(5),
     { op: "insertAfter", ref: "DEV-7: the sentence that the interface runs on the person's machine and that the tour is a demo on fictional data",
       match: ["A person opens a local page and sees their projects as a small low-poly city: one building per project, one floor per area agent, an owl at a desk on each floor, and a card for whatever is waiting for the person. It is the view onto the task runtime, not a separate product."],
       with: ["The real interface is a local page that the openhora runtime serves on your own machine, at 127.0.0.1 only. The tour below is a demo of it on fictional data."] },
@@ -1130,6 +1133,12 @@ describe("links and routes match the flows (DEV-20); GitHub links are checked by
 
   const CHECK = path.join(SITE, "tools", "check_links.py");
   const run = (args, cwd = SITE) => new Promise((resolve) => { const c = spawn("python3", [CHECK, ...args], { cwd }); let o = "", e = ""; c.stdout.on("data", (d) => (o += d)); c.stderr.on("data", (d) => (e += d)); c.on("close", (code) => resolve({ code, o, e })); });
+
+  test("every GitHub link of the pages names a path that this checkout has (tools/check_links.py reports none missing)", async () => {
+    const r = await run(["--only-missing"]);
+    assert.equal(r.code, 0, r.o + r.e);
+    assert.match(r.o, /SUMMARY\tchecked=\d+\tmissing=0/);
+  });
 
   test("tools/check_links.py: --help works, and it lists the missing /blob/main and /tree/main targets of a fixture, offline", async () => {
     assert.ok(fs.existsSync(CHECK), "site/tools/check_links.py does not exist");
