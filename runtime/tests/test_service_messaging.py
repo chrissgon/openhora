@@ -263,7 +263,9 @@ def test_a_child_that_exits_during_its_stop_is_not_reported_as_a_surprise(world)
     started(world)
     assert run.finish() == 0
     [line] = [line for line in run.logs if "messaging bridge" in line and "exited" in line]
-    assert "code 0" in line and "not restarted" not in line
+    # its input ends and SIGTERM arrives together: the bridge exits 0 on whichever it sees first, or, when the signal
+    # lands while the interpreter is already finalizing (the handlers are back to the default then), by the signal
+    assert ("code 0" in line or "code -15" in line) and "not restarted" not in line
 
 
 def test_a_sigterm_to_the_service_stops_the_child(world):
