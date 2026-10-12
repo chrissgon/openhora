@@ -48,8 +48,9 @@ REPORTED_CURSOR = "dispatch:reported"  # the store's cursor: {"low": run id, "se
 REFUSED_FOR = 120.0                    # seconds a task a child could not start is held `could not start`
 CHILDREN_DIR = "children"              # <data_dir>/task-runs/children/: the output files of the children
 CHILDREN_KEPT_DAYS = 14                # days the output files of the children are kept
+WAIT_RECHECK = 30.0                    # seconds after which a waiting round decides again although no child ended
 WAIT_STEP = 0.5                        # seconds between two looks at the children of a waiting round
-STOP_GRACE = 10.0                      # seconds the children get after TERM before KILL
+STOP_GRACE = 30.0                      # seconds the children get after TERM before KILL: their own clean-up (containers) takes a few
 EXIT_REFUSED = 4                       # the exit code of `run-task` for a task that was refused and not run
 
 SPAWNED = []                           # [(project, task id, Popen)] this process started
@@ -189,7 +190,7 @@ def _start(ctx: dict, task_id: int, tier, checked: bool) -> dict:
                         "task": task_id, "documents": stopped}
         if task is not None and task["state"] == "ready" and task["parent_id"] is not None:
             cache = {}
-            running = running_items(ctx, cache)
+            running = [r for r in running_items(ctx, cache) if r["id"] != task_id]
             holders = core._stored(ctx, store.task_slot_holders)
             if checked and prepared is not None and task.get("agent") in cfg["area_agents"]:
                 found = ops._agents_of_the_day(ctx, key).get(task["agent"])
@@ -339,9 +340,10 @@ def refused_now(ctx: dict) -> dict:
 
 def reap(project=None) -> list:
     """Drop the children of this process that ended (of one project when given) and return the entries dropped. A child
-    that exited 4 (refused, not run) or that failed while its task is still `ready` (it crashed before its claim) is
-    recorded in the cursor `dispatch:refused`, so that the next rounds hold the task `could not start` for a while. The
-    parent is the only writer."""
+    that exited 4 (refused, not run), or whose task is still `ready` whatever its exit (it was held by a word under the
+    claim lock, or crashed before its claim), is recorded in the cursor `dispatch:refused`, so that the next rounds hold
+    the task `could not start` for a while and a waiting round cannot start it again at once. The parent is the only
+    writer."""
     ended = []
     with SPAWNED_LOCK:
         keep = []
@@ -354,14 +356,12 @@ def reap(project=None) -> list:
     by_project = {}
     for where, task_id, proc in ended:
         code = proc.returncode
-        if code == 0:
-            continue
         try:
             ctx = core.context(where)
             if code != EXIT_REFUSED and core._stored(ctx, ctx["store"].task_get, task_id)["state"] != "ready":
                 continue
             by_project.setdefault(where, (ctx, {}))[1][task_id] = {
-                "reason": "refused" if code == EXIT_REFUSED else "crashed", "at": time.time()}
+                "reason": {EXIT_REFUSED: "refused", 0: "held"}.get(code, "crashed"), "at": time.time()}
         except core.OpsError:
             continue
     for ctx, additions in by_project.values():
@@ -380,16 +380,19 @@ def parallel_state(ctx: dict, tasks: list, cache: dict) -> dict:
     and not yet claimed (still `ready`), the slot holders, and the tasks refused or crashed lately. `tasks` are the
     store's rows, as the snapshot read them."""
     store = ctx["store"]
+    reap(ctx["cfg"]["project"])  # a child that ended since the last reap is no longer counted as starting
     running = running_items(ctx, cache)
     holding = list(core._stored(ctx, store.task_slot_holders))
     by_id = {t["id"]: t for t in tasks}
+    starting = set()
     for _where, task_id, _proc in alive(ctx["cfg"]["project"]):
         task = by_id.get(task_id)
         if task is not None and task["state"] == "ready":
+            starting.add(task_id)
             running.append(item_of(task, cache))
             if not any(h["id"] == task_id for h in holding):
                 holding.append({"id": task_id, "agent": task.get("agent")})
-    return {"running": running, "holding": holding, "refused": refused_now(ctx)}
+    return {"running": running, "holding": holding, "refused": refused_now(ctx), "starting": starting}
 
 
 # --- stopping ---------------------------------------------------------------------------------------------------------------
@@ -401,6 +404,22 @@ def _kill_group(pgid: int, sig: int) -> bool:
         return False
     try:
         os.killpg(pgid, sig)
+    except (ProcessLookupError, PermissionError):
+        return False
+    return True
+
+
+def _signal_owner(owner, sig: int) -> bool:
+    """Signal the holder of a task lock, (pid, pgid) as it wrote them: its whole group only when it leads it (a child of
+    the dispatcher does; a `run-next` started from a shell shares the shell's group, which is never signalled), else its
+    pid alone. Never this process's own pid or group."""
+    pid, pgid = owner
+    if pid == os.getpid():
+        return False
+    if pid == pgid:
+        return _kill_group(pgid, sig)
+    try:
+        os.kill(pid, sig)
     except (ProcessLookupError, PermissionError):
         return False
     return True
@@ -427,7 +446,7 @@ def stop_children(only_mine: bool = True, cfg=None, grace: float = STOP_GRACE) -
                 _kill_group(proc.pid, signal.SIGKILL)
         return signalled
     folder = os.path.join(cfg["data_dir"], core.LOCKS_DIR)
-    holders = {}
+    holders = set()
     for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
         if not (name.startswith("task-") and name.endswith(".lock") and name[5:-5].isdigit()):
             continue
@@ -436,9 +455,9 @@ def stop_children(only_mine: bool = True, cfg=None, grace: float = STOP_GRACE) -
         if fd is not None:  # nobody holds it: its pgid is stale and is never signalled
             os.close(fd)
             continue
-        pgid = core._lock_pgid(cfg, task_id)
-        if pgid is not None and _kill_group(pgid, signal.SIGTERM):
-            holders[task_id] = pgid
+        owner = core._lock_owner(cfg, task_id)
+        if owner is not None and _signal_owner(owner, signal.SIGTERM):
+            holders.add(task_id)
             signalled.append(task_id)
 
     def still_held(task_id: int) -> bool:
@@ -451,9 +470,10 @@ def stop_children(only_mine: bool = True, cfg=None, grace: float = STOP_GRACE) -
     deadline = time.monotonic() + grace
     while time.monotonic() < deadline and any(still_held(t) for t in holders):
         time.sleep(0.05)
-    for task_id, pgid in holders.items():
-        if still_held(task_id):
-            _kill_group(pgid, signal.SIGKILL)
+    for task_id in sorted(holders):
+        owner = core._lock_owner(cfg, task_id)  # read again just before: KILL only a lock that is still held, by its holder
+        if still_held(task_id) and owner is not None:
+            _signal_owner(owner, signal.SIGKILL)
     return signalled
 
 
@@ -552,7 +572,8 @@ def _round(ctx: dict, project: str, budget: float, wait: bool, out: dict) -> dic
                 if started or alive_then:
                     continue  # the children ended before they were looked at: report them and decide again
                 break
-            while all(p.poll() is None for p in running):
+            recheck = time.monotonic() + WAIT_RECHECK  # decide again now and then, whether or not a child ended
+            while all(p.poll() is None for p in running) and time.monotonic() < recheck:
                 time.sleep(WAIT_STEP)
         return out
     except BaseException:

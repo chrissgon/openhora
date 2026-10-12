@@ -302,28 +302,40 @@ def _try_lock(cfg: dict, name: str):
 @contextlib.contextmanager
 def _task_lock(cfg: dict, task_id: int):
     """The lock of one task (task-<id>.lock), held by the process that runs it from before its claim to after its
-    finish: the proof that the task is alive. Once held, the file holds, as text, this process's group id (read only by
-    `stop-runs --all`). Refused (code 1) when another process holds it. Only `run_task` uses it."""
+    finish: the proof that the task is alive. Once held, the file holds, as text, "<pid> <pgid>" of this process (read only
+    by `stop-runs --all`, which signals the group only when the process leads it); it is emptied before the lock is let
+    go, so that nobody reads a stale owner. Refused (code 1) when another process holds it. Only `run_task` uses it."""
     fd = _try_lock(cfg, f"task-{task_id}.lock")
     if fd is None:
         raise OpsError(f"task {task_id} is already being run by another process", 1)
     try:
         os.ftruncate(fd, 0)
-        os.write(fd, f"{os.getpgrp()}\n".encode("ascii"))
+        os.write(fd, f"{os.getpid()} {os.getpgrp()}\n".encode("ascii"))
         yield
     finally:
-        os.close(fd)
+        try:
+            os.ftruncate(fd, 0)
+        finally:
+            os.close(fd)
+
+
+def _lock_owner(cfg: dict, task_id: int):
+    """(pid, pgid) a task lock's holder wrote, or None when the file is missing, empty or unreadable. It says nothing
+    about whether the lock is held: the caller asks `_try_lock` first."""
+    try:
+        with open(os.path.join(_locks_dir(cfg), f"task-{task_id}.lock"), encoding="ascii", errors="replace") as f:
+            words = f.read(64).split()
+    except OSError:
+        return None
+    if len(words) != 2 or not all(w.isdigit() and int(w) > 1 for w in words):
+        return None
+    return int(words[0]), int(words[1])
 
 
 def _lock_pgid(cfg: dict, task_id: int):
-    """The process group id a task lock's holder wrote, or None when the file is missing or holds no number. It says
-    nothing about whether the lock is held: the caller asks `_try_lock` first."""
-    try:
-        with open(os.path.join(_locks_dir(cfg), f"task-{task_id}.lock"), encoding="ascii", errors="replace") as f:
-            text = f.read(32).strip()
-    except OSError:
-        return None
-    return int(text) if text.isdigit() and int(text) > 1 else None
+    """The process group id of the holder of a task lock (see _lock_owner), or None."""
+    owner = _lock_owner(cfg, task_id)
+    return owner[1] if owner else None
 
 
 @contextlib.contextmanager

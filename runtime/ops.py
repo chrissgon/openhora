@@ -2213,10 +2213,12 @@ def _snapshot(ctx: dict, key: dict) -> dict:
         return proofs[skill]
 
     cache = {}
-    out = {**ops_runs.parallel_state(ctx, tasks, cache),
+    parallel_part = ops_runs.parallel_state(ctx, tasks, cache)
+    starting = parallel_part.pop("starting")  # started and not yet claimed: counted as running, not decided again
+    out = {**parallel_part,
            "ready": [{**t, "code": ops_runs.skill_facts(t.get("skill"), cache)[1],
                       "footprint": ops_runs.skill_facts(t.get("skill"), cache)[0]}
-                     for t in tasks if t["state"] == "ready" and t["parent_id"] is not None],
+                     for t in tasks if t["state"] == "ready" and t["parent_id"] is not None and t["id"] not in starting],
            "reviews": [], "agents": _agents_of_the_day(ctx, key), "tier": {}, "billing": {},
            "max_running": cfg["max_running"], "per_run_usd": cfg["raw"].get("max_cost_usd_per_run", PER_RUN_USD)}
     for item in core._stored(ctx, store.pending_list):

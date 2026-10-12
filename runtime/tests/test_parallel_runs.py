@@ -505,7 +505,7 @@ def test_recovery_never_fails_a_task_whose_lock_is_held_and_writes_no_owner_line
 def test_the_task_lock_holds_the_group_of_its_process_and_refuses_a_second_holder(world):
     cfg = ops_core.context(world["path"])["cfg"]
     with ops_core._task_lock(cfg, 7):
-        assert ops_core._lock_pgid(cfg, 7) == os.getpgrp()
+        assert ops_core._lock_pgid(cfg, 7) == os.getpgrp() and ops_core._lock_owner(cfg, 7)[0] == os.getpid()
         with pytest.raises(ops.OpsError, match="task 7 is already being run by another process"):
             with ops_core._task_lock(cfg, 7):
                 pass
@@ -715,13 +715,20 @@ def test_an_effect_is_refused_while_a_code_task_of_its_request_runs(world):
 # --- stopping ---------------------------------------------------------------------------------------------------------------------
 
 
-def holder_process(cfg, task_id: int):
-    """A process of its own in a session of its own that holds a task's lock and sleeps: [process, its group id]."""
-    code = ("import sys, os, time; sys.path.insert(0, %r); import ops_core as core; "
+def holder_process(cfg, task_id: int, leader: bool = True, on_term: str = "die"):
+    """A process that holds a task's lock and sleeps, with "<pid> <pgid>" in the file as a task run writes it. leader: it
+    has a session (and a group) of its own, as a dispatcher's child; otherwise it shares the test's group, as a `run-next`
+    started from a shell does. on_term: "die" (the default), "ignore" (SIGTERM does nothing), "release" (SIGTERM closes the
+    lock and the process goes on sleeping)."""
+    code = ("import sys, os, time, signal; sys.path.insert(0, %r); import ops_core as core; "
             "cfg = {'data_dir': %r}; fd = core._try_lock(cfg, 'task-%d.lock'); "
-            "os.ftruncate(fd, 0); os.write(fd, (str(os.getpgrp()) + '\\n').encode()); print('held', flush=True); time.sleep(60)"
-            % (str(st.RUNTIME), cfg["data_dir"], task_id))
-    process = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, start_new_session=True)
+            "os.ftruncate(fd, 0); os.write(fd, ('%%d %%d\\n' %% (os.getpid(), os.getpgrp())).encode()); "
+            "mode = %r\n"
+            "if mode == 'ignore': signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+            "if mode == 'release': signal.signal(signal.SIGTERM, lambda *a: os.close(fd))\n"
+            "print('held', flush=True); time.sleep(60)"
+            % (str(st.RUNTIME), cfg["data_dir"], task_id, on_term))
+    process = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, start_new_session=leader)
     assert process.stdout.readline().strip() == b"held"
     return process
 
@@ -740,10 +747,47 @@ def test_stop_runs_ends_only_this_processs_children_and_all_ends_every_live_run(
         assert out["tasks"] == [12]
         until(lambda: foreign.poll() is not None, 15, "the foreign run to end")
     finally:
+        lab.LAB.STOPPING.clear()  # stop_runs leaves the lab's stopping flag set: later tests of this worker must not see it
         for process in (mine, foreign):
             if process.poll() is None:
                 process.kill()
             process.wait()
+
+
+def test_stop_all_signals_the_pid_alone_when_the_holder_shares_its_starters_group(world):
+    cfg = ops_core.context(world["path"])["cfg"]
+    shared = holder_process(cfg, 14, leader=False)  # as a `run-next` from a shell: it is in the group of whoever started it
+    try:
+        assert os.getpgid(shared.pid) == os.getpgrp()
+        assert ops_runs.stop_children(only_mine=False, cfg=cfg, grace=5) == [14]
+        until(lambda: shared.poll() is not None, 15, "the holder to end")  # and this process, in that group, is still here
+    finally:
+        if shared.poll() is None:
+            shared.kill()
+        shared.wait()
+
+
+def test_kill_follows_term_only_while_the_lock_is_still_held(world):
+    cfg = ops_core.context(world["path"])["cfg"]
+    stubborn = holder_process(cfg, 15, on_term="ignore")  # holds the lock and ignores TERM
+    letting_go = holder_process(cfg, 16, on_term="release")  # lets the lock go on TERM and carries on (its clean-up)
+    try:
+        assert sorted(ops_runs.stop_children(only_mine=False, cfg=cfg, grace=1.0)) == [15, 16]
+        until(lambda: stubborn.poll() is not None, 15, "the holder that kept its lock to be killed")
+        assert letting_go.poll() is None  # its lock was free: no KILL may interrupt what it does
+    finally:
+        for process in (stubborn, letting_go):
+            if process.poll() is None:
+                process.kill()
+            process.wait()
+
+
+def test_the_task_lock_is_emptied_when_it_is_released(world):
+    cfg = ops_core.context(world["path"])["cfg"]
+    with ops_core._task_lock(cfg, 8):
+        assert ops_core._lock_owner(cfg, 8) == (os.getpid(), os.getpgrp())
+    assert ops_core._lock_owner(cfg, 8) is None
+    assert os.path.getsize(os.path.join(cfg["data_dir"], "locks", "task-8.lock")) == 0
 
 
 def test_stop_never_signals_a_pgid_whose_lock_is_free(world):
@@ -865,3 +909,43 @@ def test_the_service_lists_the_ids_of_the_running_tasks(world, monkeypatch):
     assert len(listed["running_tasks"]) == 2 and listed["running_task"] == min(listed["running_tasks"])
     held_lab.release.set()
     finish(children)
+
+
+# --- a round cannot start the same task again and again ---------------------------------------------------------------------
+
+
+def test_a_child_that_leaves_its_task_ready_is_started_once_in_a_round(world, monkeypatch):
+    """The child's admission under the claim lock can disagree with the parent's decision (a held word): it exits 0 and the
+    task stays ready. The record of the refusal makes the waiting round hold it, instead of starting it in a tight loop."""
+    request = planned(world, "w-pair")
+    market = by_skill(world, "demo-asks", request)["id"]
+    started = []
+
+    def idle(cfg, project, task_id):
+        started.append(task_id)
+        child = Gone(0)
+        with ops_runs.SPAWNED_LOCK:
+            ops_runs.SPAWNED.append((project, task_id, child))
+        return child
+
+    monkeypatch.setattr(ops_runs, "spawn", idle)
+    configure(world, business={"max_parallel": 2})
+    out = ops.dispatch(world["path"], wait=True)
+    assert started.count(market) == 1 and out["stopped"] is not None
+    assert held(world)[market] == WORDS["soon"]
+
+
+def test_a_task_started_and_not_yet_claimed_is_counted_as_running_and_not_decided_again(world):
+    configure(world, business={"max_parallel": 2})
+    request = planned(world, "w-writes")  # two tasks that write the same file
+    one, two = sorted(t["id"] for t in tasks_of(world, request))
+    child = Gone(None)  # a child that is alive and has not claimed yet
+    with ops_runs.SPAWNED_LOCK:
+        ops_runs.SPAWNED.append((world["path"], one, child))
+    ctx = ops_core.context(world["path"])
+    snapshot = ops._snapshot(ctx, ops_core._floor_key())
+    assert [t["id"] for t in snapshot["ready"]] == [two] and [r["id"] for r in snapshot["running"]] == [one]
+    assert held(world) == {} or held(world).get(one) is None  # never held against its own footprint
+    child.returncode = 0  # it ended: the snapshot reaps before it counts
+    snapshot = ops._snapshot(ctx, ops_core._floor_key())
+    assert snapshot["running"] == [] and sorted(t["id"] for t in snapshot["ready"]) == [one, two]

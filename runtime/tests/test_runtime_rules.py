@@ -157,7 +157,7 @@ def test_the_python_39_job_runs_the_tests_of_the_runtime_and_of_the_store():
 # --- the operations layer is seven files (CONS-1B, ADJ-R1, R4-C3, PAR-4): runtime/ops.py and its siblings ops_say.py, ops_reads.py, ops_waits.py, ops_config.py, ops_runs.py, ops_core.py ----------
 
 SHARED_NAMES = ("ROOT", "context", "_stored", "OpsError", "_try_lock", "_task_lock", "_route_lock", "_claim_lock",
-                "_write_lock", "_dispatch_lock", "_lock_pgid", "_LAB_GUARD", "_config_lock")
+                "_write_lock", "_dispatch_lock", "_lock_owner", "_lock_pgid", "_LAB_GUARD", "_config_lock")
 
 
 def ops_modules() -> list:
