@@ -88,7 +88,8 @@ REL = "docs/workbench/runtime.json"
 REQUIRED = ("workbench", "data_dir", "store_db")
 # The top-level keys of the task runtime: the three required ones and every key this module checks or passes on.
 TASK_RUNTIME_KEYS = ("workbench", "data_dir", "store_db", "area_agents", "handlers", "task_board", "documents",
-                     "protected_paths", "code", "dependencies", "max_cost_usd_per_run", "model_prices", "messaging", "channels")
+                     "protected_paths", "code", "dependencies", "max_cost_usd_per_run", "model_prices", "messaging", "channels",
+                     "max_running")
 # The top-level keys scripts/runtime.py, scripts/runtime_vote.py and scripts/vote_job.py read from the same file
 # (the first runtime). Leaves with stage 7.
 FIRST_RUNTIME_KEYS = ("agent", "harness", "model", "mailbox", "publisher", "store", "scheduler", "notification_query",
@@ -158,7 +159,21 @@ def load(project: str) -> dict:
     out["model_prices"] = _model_prices(raw.get("model_prices"))
     out["messaging"] = _messaging(raw.get("messaging"))
     out["channels"] = _channels(raw.get("channels"))
+    out["max_running"] = _max_running(raw)
     return out
+
+
+MAX_RUNNING_DEFAULT, MAX_RUNNING_CEILING = 3, 14  # the ceiling is the lab's total_jobs, the machine-wide limit of model calls
+
+
+def _max_running(raw: dict) -> int:
+    """The key "max_running": the most task runs of the project at one time, an integer from 1 to 14; absent means 3."""
+    if "max_running" not in raw:
+        return MAX_RUNNING_DEFAULT
+    value = raw["max_running"]
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= MAX_RUNNING_CEILING:
+        raise ConfigError(f"runtime.json max_running must be an integer from 1 to {MAX_RUNNING_CEILING}")
+    return value
 
 
 POLICY_CHANNELS = ("messaging",)  # the channels a policy narrows today (the others are wired by a later package)

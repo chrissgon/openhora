@@ -6,23 +6,29 @@
 """The dispatcher of the task runtime: what may start now, and what an autonomy mode releases, decided by one pure
 function from a snapshot of the store.
 
-decide(snapshot, review_action, may_start) -> {"release": [pending ids], "start": task id or None, "held": [...]}
+decide(snapshot, review_action, may_start, admit=None) -> {"release": [pending ids], "start": task id or None, "held": [...]}
+                with admit (runtime/parallel.py admit) "start" is a list of task ids, in the order they start
 held_of(snapshot, decided, blocked=None) -> [{"task_id", "agent", "reason"}]: every ready task a round did not start,
                 with the reason, in the words of REASONS (the record `status` shows, runtime/ops.py)
 
-  snapshot      {"running": <task or None>, "ready": [tasks, oldest first], "reviews": [{"pending", "task", "agent",
+  snapshot      {"running": <task or None; with admit, a list of {"id", "agent", "request_id", "code", "footprint"}>, "ready": [tasks, oldest first], "reviews": [{"pending", "task", "agent",
                 "proven", "mandatory"}], "agents": {"<name>": {"facts", "spent", "entry"}}, "tier": {"<task id>":
                 "strong" or "floor"}, "billing": {"<task id>": the billing of the credential the task's route would
                 use, "subscription", "metered" or "free", or None when no manifest says}, "waits": {"<task id>": [open
                 waits]}}, built by runtime/ops.py (dispatch, poll) from the store, the proof and the runtime manifests
   review_action runtime/autonomy.py's review_action(task, pending, facts, proven, mandatory): "release" or "hold"
   may_start     runtime/autonomy.py's may_start(name, agents, facts, spent, billing): (True, "") or (False, why)
+  admit         runtime/parallel.py's admit(task, running, holding, agents, max_running): (True, "") or (False, why);
+                with it the snapshot also carries "holding" [{"id", "agent"}], "refused" {task id: reason},
+                "max_running" and "per_run_usd", and every ready task carries "code" and "footprint"
 
-Rules: (1) release holds every review the agent's mode releases; (2) while a task of the project runs, nothing
-starts (one task at a time per project); (3) otherwise the ready tasks are walked oldest first: a task with an open
-wait (a derived dependency on another request's task, runtime/plan.py) is held and never starts, a task no enabled
-area agent owns is held, a task whose agent may not start is held with the reason, and the first that may start is
-started; (4) nothing else, and no state is changed here: runtime/ops.py applies the decision. The store keeps a
+Rules: (1) release holds every review the agent's mode releases; (2) without admit, while a task of the project runs,
+nothing starts (one task at a time per project); with admit there is no such rule: the slots, the project's ceiling,
+the code task of a request and the footprints are admit's; (3) the ready tasks are walked oldest first: a task with an
+open wait (a derived dependency on another request's task, runtime/plan.py) is held and never starts, a task no enabled
+area agent owns is held, a task a child could not start a moment ago (`refused`) is held, a task whose agent may not
+start is held with the reason, and without admit the first that may start is the one started, with admit every task
+that may start is, each one counted as a run of its agent's day before the next is asked; (4) nothing else, and no state is changed here: runtime/ops.py applies the decision. The store keeps a
 waiting task `planned` and gives it to no one, so a waiting task is not in `ready` in practice; rule (3) is the
 second lock, and the word a person reads ("waiting for task #n") is the wait's own reason.
 
@@ -66,16 +72,23 @@ NO_AGENT = "no enabled agent owns the task"
 WAITING = "waiting"                  # the task has an open wait: it is a dependency like depends_on (the reason is the wait's)
 JOB_RUNNING = "job running"          # a task of the project runs: the one-at-a-time rule holds every ready task
 DISPATCH_OFF = "dispatch off"        # the service dispatches nothing (runtime/ops.py, service_check)
+# The five words of runtime/parallel.py, copied by value (this file imports no sibling; a test holds them equal).
+PROJECT_FULL = "project at max_running"
+AGENT_FULL = "agent at max_parallel"
+CODE_IN_REQUEST = "a code task of the request runs"
+IN_USE = "artifact in use"
+RETRY_SOON = "could not start, tried again shortly"
 # The words a held ready task carries (contracts/runtime.md, "The local service"): the three of runtime/autonomy.py
 # (may_start), those of this file, those of a round's checks before a start (runtime/ops.py) and the service's.
 OTHER = "other"                      # any reason a rule function gives that is not in the list: free text never reaches a page
 REASONS = ("stopped", "cap: runs per day", "cap: usd per day", "credential", "secret store", "image", DISPATCH_OFF,
-           JOB_RUNNING, NO_AGENT, WAITING, OTHER)
+           JOB_RUNNING, NO_AGENT, WAITING, OTHER, PROJECT_FULL, AGENT_FULL, CODE_IN_REQUEST, IN_USE, RETRY_SOON)
 
 
-def decide(snapshot: dict, review_action, may_start) -> dict:
+def decide(snapshot: dict, review_action, may_start, admit=None) -> dict:
     """What a round does now: the reviews a mode releases, the task that starts (or None) and the tasks held, each
-    with why. Pure: it reads the snapshot and calls the two rule functions, nothing else."""
+    with why. Pure: it reads the snapshot and calls the rule functions, nothing else. With admit=None it is the
+    one-task-at-a-time decision of before; with admit it returns the list of tasks to start."""
     agents = snapshot.get("agents") or {}
     entries = {name: a.get("entry") for name, a in agents.items()}
     release = []
@@ -85,6 +98,8 @@ def decide(snapshot: dict, review_action, may_start) -> dict:
         if review_action(review["task"], review["pending"], facts, bool(review.get("proven")),
                          bool(review.get("mandatory"))) == "release":
             release.append(review["pending"]["id"])
+    if admit is not None:
+        return _decide_parallel(snapshot, release, agents, entries, may_start, admit)
     running = snapshot.get("running")
     if running is not None:
         return {"release": release, "start": None, "held": [{"task_id": running["id"], "why": ONE_AT_A_TIME}]}
@@ -110,13 +125,60 @@ def decide(snapshot: dict, review_action, may_start) -> dict:
     return {"release": release, "start": start, "held": held}
 
 
+def _decide_parallel(snapshot: dict, release: list, agents: dict, entries: dict, may_start, admit) -> dict:
+    """The walk of decide with admit: the ready tasks oldest first, each started task counted as running, as a holder
+    of its agent's slot and as one more run of its agent's day before the next task is asked."""
+    taken = list(snapshot.get("running") or [])
+    holding = list(snapshot.get("holding") or [])
+    refused = snapshot.get("refused") or {}
+    billings = snapshot.get("billing") or {}
+    waits = snapshot.get("waits") or {}
+    max_running, per_run = snapshot.get("max_running"), float(snapshot.get("per_run_usd") or 0.0)
+    spent = {name: dict(a["spent"]) for name, a in agents.items() if "spent" in a}
+    held, start = [], []
+    for task in snapshot.get("ready") or []:
+        tid = task["id"]
+        if waits.get(tid, waits.get(str(tid))):
+            held.append({"task_id": tid, "why": WAITING})
+            continue
+        name = task.get("agent")
+        if name is None or name not in agents:
+            held.append({"task_id": tid, "why": NO_AGENT})
+            continue
+        if tid in refused or str(tid) in refused:
+            held.append({"task_id": tid, "why": RETRY_SOON})
+            continue
+        billing = billings.get(tid, billings.get(str(tid)))
+        ok, why = may_start(name, entries, agents[name]["facts"], spent[name], billing)
+        if not ok:
+            held.append({"task_id": tid, "why": why})
+            continue
+        # a ready task names its request as parent_id; admit reads request_id, as the running items do
+        item = {"id": tid, "agent": name, "request_id": task.get("request_id", task.get("parent_id")),
+                "code": bool(task.get("code")), "footprint": task.get("footprint") or ()}
+        ok, why = admit(item, taken, holding, entries, max_running)
+        if not ok:
+            held.append({"task_id": tid, "why": why})
+            continue
+        start.append(tid)
+        taken.append(item)
+        if not any(h["id"] == tid for h in holding):
+            holding.append({"id": tid, "agent": name})
+        if billing in ("subscription", "free"):
+            spent[name]["runs_counted"] = spent[name].get("runs_counted", 0) + 1
+        else:
+            spent[name]["usd_metered"] = spent[name].get("usd_metered", 0.0) + per_run
+    return {"release": release, "start": start, "held": held}
+
+
 def held_of(snapshot: dict, decided: dict, blocked=None) -> list:
     """The ready tasks a round held, as [{"task_id", "agent", "reason"}] in the order of the snapshot's ready tasks.
-    Pure. While a task of the project runs every ready task is held with JOB_RUNNING (decide itself lists only the
-    running one); otherwise a task decide held has its reason (stopped, a cap, NO_AGENT). blocked is {task id: reason}
+    Pure. While a single task of the project runs (the one-at-a-time path) every ready task is held with JOB_RUNNING (decide
+    itself lists only the running one); with a list of running tasks (admit given) that rule is skipped; otherwise a task decide held has its reason (stopped, a cap, NO_AGENT). blocked is {task id: reason}
     for a task decide chose to start that a check made before the start stopped (credential, secret store, image)."""
     ready = snapshot.get("ready") or []
-    if snapshot.get("running") is not None:
+    running = snapshot.get("running")
+    if running is not None and not isinstance(running, list):
         why = {task["id"]: JOB_RUNNING for task in ready}
     else:
         why = {h["task_id"]: h["why"] for h in decided.get("held") or []}
