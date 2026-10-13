@@ -14,12 +14,12 @@
     {
       "id": "b2", "label": "weekly list", "preset": "list",
       "line": "Then do three things each week: review, adjust, and celebrate.",
-      "params": {"title": "Every week", "item1": "Review", "item2": "Adjust", "item3": "Celebrate", "icon": "check"}
+      "params": {"item1": "Review", "item2": "Adjust", "item3": "Celebrate", "icon": "check"}
     },
     {
       "id": "b3", "label": "the result", "preset": "number",
       "line": "That habit saved me 340 dollars in one month.",
-      "params": {"value": 340, "prefix": "$", "label": "saved in one month"}
+      "params": {"value": "340", "label": "dollars saved in one month"}
     },
     {
       "id": "b4", "label": "the quote", "preset": "quote",
@@ -34,7 +34,7 @@
     {
       "id": "b6", "label": "chart in picture", "preset": "pip",
       "line": "Look at the chart while I walk you through it.",
-      "params": {"image": "chart", "position": "top-right", "label": "Weekly savings"}
+      "params": {"image": "chart", "position": "top", "label": "Weekly savings"}
     }
   ]
 }

@@ -76,7 +76,7 @@ class ContractEquality(unittest.TestCase):
     def test_every_param_type_is_known(self):
         for spec in C["presets"].values():
             for p in spec["params"].values():
-                self.assertIn(p["type"], {"text", "icon", "color", "image", "choice", "number"})
+                self.assertIn(p["type"], {"text", "icon", "color", "image", "choice", "figure"})
 
     def test_text_templates_never_use_innerhtml(self):
         for path in TEMPLATES:
@@ -87,14 +87,14 @@ class ComposeArgv(unittest.TestCase):
     def edl(self):
         return {"fps": 30, "size": [1080, 1920], "out_duration": 10.0, "out_frames": 300,
                 "layouts": [{"preset": "pip", "asset": "chart", "start_frame": 30, "end_frame": 120,
-                             "params": {"position": "top-right"}}], "overlays": []}
+                             "params": {"position": "top"}}], "overlays": []}
 
     def test_compose_is_a_list_with_expected_pieces(self):
         argv = render.compose_argv(C, self.edl(), "/w/cut.mov", "/w/frames", "/w/mask.png", {"chart": "/w/a.png"},
                                    True, {"beat", "caption"}, "/w/out.mp4")
         self.assertIsInstance(argv, list)
         graph = argv[argv.index("-filter_complex") + 1]
-        for piece in ("alphamerge", "enable='between(t,1.0000,4.0000)'", "out_color_matrix=bt709", "overlay=635:285"):
+        for piece in ("alphamerge", "enable='between(t,1.0000,4.0000)'", "out_color_matrix=bt709", "overlay=350:285"):
             self.assertIn(piece, graph)
         self.assertIn("+faststart", argv)
         self.assertIn("-fs", argv)

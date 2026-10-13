@@ -79,15 +79,14 @@ def validate_param(contract, spec, name, value):
         if not isinstance(value, str) or not SLOT_ID.match(value):
             raise ParamError("bad_slot", name)
         return value
-    if kind == "number":
-        # bool is an int in Python; refuse it explicitly
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise ParamError("bad_number", name)
-        if value != value or value in (float("inf"), float("-inf")):
-            raise ParamError("bad_number", name)
-        if value < spec["min"] or value > spec["max"]:
-            raise ParamError("number_out_of_range", name)
-        return round(float(value), spec.get("decimals", 0))
+    if kind == "figure":
+        # a figure as the post writes it: digits with . or , inside (the shipped number preset's `value`)
+        if not isinstance(value, str):
+            raise ParamError("bad_figure", name)
+        value = clean_text(value, spec["max"], name)
+        if not re.fullmatch(spec["pattern"], value):
+            raise ParamError("bad_figure", name)
+        return value
     raise ParamError("unknown_type", name)
 
 

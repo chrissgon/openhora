@@ -21,6 +21,7 @@ import zlib
 
 import cdp
 import edl as E
+import from_post
 import lint
 import media
 import presets as P
@@ -80,24 +81,61 @@ def load_theme(contract, color_flags, font_flags):
     return colors, fonts, serve
 
 
+def image_facts(data):
+    """('png'|'jpg', width, height) from the header bytes, or None when it is neither a PNG nor a JPEG."""
+    if data[:8] == b"\x89PNG\r\n\x1a\n" and data[12:16] == b"IHDR" and len(data) >= 24:
+        w, h = struct.unpack(">II", data[16:24])
+        return "png", w, h
+    if data[:3] == b"\xff\xd8\xff":
+        i = 2
+        while i + 9 < len(data):
+            if data[i] != 0xFF:
+                return None
+            marker = data[i + 1]
+            if marker == 0xFF:          # fill byte
+                i += 1
+                continue
+            if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7:
+                i += 2
+                continue
+            length = struct.unpack(">H", data[i + 2:i + 4])[0]
+            if marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                h, w = struct.unpack(">HH", data[i + 5:i + 9])
+                return "jpg", w, h
+            i += 2 + length
+    return None
+
+
+ASSET_MIME = {"png": "image/png", "jpg": "image/jpeg"}
+
+
 def load_assets(contract, asset_flags):
-    """PNG assets by slot id; type and dimensions checked from the header bytes."""
-    serve, names = {}, {}
+    """PNG or JPEG assets by slot id; type and dimensions checked from the header bytes.
+
+    Returns (serve table, file path by slot, URL path by slot)."""
+    serve, names, urls = {}, {}, {}
     for item in asset_flags or []:
         slot, _, path = item.partition("=")
         if not P.SLOT_ID.match(slot):
             raise RenderError("bad slot id")
-        with open(path, "rb") as fh:
-            data = fh.read(64 * 1024 * 1024 + 1)
-        if len(data) > 64 * 1024 * 1024 or data[:8] != b"\x89PNG\r\n\x1a\n" or data[12:16] != b"IHDR":
-            raise RenderError("asset must be a PNG (checked by bytes): %s" % slot)
-        w, h = struct.unpack(">II", data[16:24])
+        if slot in names:
+            raise RenderError("asset given twice: %s" % slot)
+        try:
+            with open(path, "rb") as fh:
+                data = fh.read(64 * 1024 * 1024 + 1)
+        except OSError:
+            raise RenderError("asset file cannot be read: %s" % slot)
+        facts = image_facts(data) if len(data) <= 64 * 1024 * 1024 else None
+        if facts is None:
+            raise RenderError("asset must be a PNG or a JPEG, at most 64 MiB (checked by bytes): %s" % slot)
+        kind, w, h = facts
         lim = contract["limits"]["assets_max_side"]
         if w > lim or h > lim or w < 1 or h < 1:
             raise RenderError("asset dimensions out of bounds: %s" % slot)
-        serve["/assets/%s.png" % slot] = (data, "image/png")
+        urls[slot] = "/assets/%s.%s" % (slot, kind)
+        serve[urls[slot]] = (data, ASSET_MIME[kind])
         names[slot] = path
-    return serve, names
+    return serve, names, urls
 
 
 def load_templates(contract):
@@ -119,8 +157,8 @@ def load_templates(contract):
 
 def pip_geometry(contract, position):
     f, size = contract["frame"], contract["pip"]["size"]
-    x = f["safe"]["left"] if position.endswith("left") else f["width"] - f["safe"]["right"] - size
-    y = f["safe"]["top"] if position.startswith("top") else f["safe"]["bottom"] - size
+    x = (f["width"] - size) // 2
+    y = f["safe"]["top"] if position == "top" else f["safe"]["bottom"] - size
     return {"x": x, "y": y, "size": size}
 
 
@@ -262,7 +300,7 @@ def compose_argv(contract, edl, cut_path, frames_dir, mask_path, asset_paths, ha
 # ---------------------------------------------------------------- frame loop
 
 def render_frames(contract, edl, serve, setup_colors, setup_fonts, browser, jobs_n, frames_dir, workdir,
-                  fast_png, dedupe, time_limit):
+                  fast_png, dedupe, time_limit, asset_urls=None):
     w, h = edl["size"]
     fps = edl["fps"]
     tracks, jobs = build_jobs(contract, edl)
@@ -291,7 +329,7 @@ def render_frames(contract, edl, serve, setup_colors, setup_fonts, browser, jobs
             if spec.get("page_images"):
                 for e in edl["layouts"] + edl["overlays"]:
                     if e["preset"] == preset:
-                        images[e["asset"]] = cdp.ORIGIN + "/assets/%s.png" % e["asset"]
+                        images[e["asset"]] = cdp.ORIGIN + (asset_urls or {}).get(e["asset"], "/assets/%s.png" % e["asset"])
             return {"colors": setup_colors, "fonts": {r: {k: v for k, v in f.items() if k in ("url", "weight", "fallback")}
                                                       for r, f in setup_fonts.items()}, "images": images}
 
@@ -371,12 +409,29 @@ def render(args):
     os.makedirs(out_dir, exist_ok=True)
     timings = {}
 
+    # the post file first: a post that check_script.py refuses costs nothing --------------
+    post_report, beat_files = None, {}
+    if args.post:
+        try:
+            beat_files = from_post.parse_asset_flags(args.asset)
+            script, post_report = from_post.build_script(args.post, set(beat_files), args.repo_root)
+        except from_post.PostError as exc:
+            raise RenderError(str(exc))
+        with open(os.path.join(out_dir, "script.from_post.json"), "w", encoding="utf-8") as fh:
+            json.dump(script, fh, indent=1, ensure_ascii=False)
+        print(from_post.format_report(post_report), file=sys.stderr)
+    else:
+        script = E.load_json(args.script)
+
     # inputs ------------------------------------------------------------
     facts_in = media.probe(args.source)
     log("source: %dx%d %.2ffps %.2fs audio=%s" % (facts_in["width"], facts_in["height"], facts_in["fps"],
                                                   facts_in["duration"], facts_in["has_audio"]))
     colors, fonts, font_serve = load_theme(contract, args.color, args.font)
-    asset_serve, asset_files = load_assets(contract, args.asset)
+    asset_flags = args.asset
+    if args.post:
+        asset_flags = ["%s=%s" % (from_post.slot_id(n), p) for n, p in sorted(beat_files.items())]
+    asset_serve, asset_files, asset_urls = load_assets(contract, asset_flags)
     tpl_serve, tpl_hashes = load_templates(contract)
     serve = {}
     serve.update(tpl_serve)
@@ -396,7 +451,7 @@ def render(args):
     # edit list ---------------------------------------------------------
     t0 = time.time()
     transcript = E.load_json(args.transcript)
-    edl = E.build_edl(transcript, E.load_json(args.script), contract, silences, args.gap, args.margin, args.threshold)
+    edl = E.build_edl(transcript, script, contract, silences, args.gap, args.margin, args.threshold)
     for slot in {e["asset"] for e in edl["layouts"] + edl["overlays"] if "asset" in e}:
         if slot not in asset_files:
             raise RenderError("slot has no uploaded file: %s" % slot)
@@ -425,7 +480,7 @@ def render(args):
         shutil.rmtree(frames_dir)
     browser = cdp.find_browser(args.browser)
     layers, ffacts = render_frames(contract, edl, serve, colors, fonts, browser, args.jobs, frames_dir, out_dir,
-                                   args.fast_png, not args.no_dedupe, args.time_limit)
+                                   args.fast_png, not args.no_dedupe, args.time_limit, asset_urls)
     timings["frames"] = time.time() - t0
     log("frames: %.2fs" % timings["frames"])
 
@@ -460,15 +515,23 @@ def render(args):
         "seconds_per_frame_job": round(timings["frames"] / max(1, ffacts["frame_jobs"]), 4),
         "templates": tpl_hashes, "fonts": {r: f.get("file", "system default") for r, f in fonts.items()},
         "colors": colors,
+        "unmatched_beats": edl["unmatched"],
     }
+    if post_report is not None:
+        summary["post"] = {"file": os.path.basename(args.post), "beats": post_report}
     return summary
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Render a short vertical video from a recording, a transcript and a script.")
-    ap.add_argument("--source", required=True, help="the recording (MP4/MOV)")
+    ap = argparse.ArgumentParser(description="Render a short vertical video from a recording, a transcript and a script "
+                                             "(a post file with a ```script block, or the prototype's script.json).")
+    ap.add_argument("--video", "--source", dest="source", required=True, help="the recording (MP4/MOV)")
     ap.add_argument("--transcript", required=True, help="transcript.json: words with start/end and segment")
-    ap.add_argument("--script", required=True, help="script.json: beats with spoken line, preset, params")
+    what = ap.add_mutually_exclusive_group(required=True)
+    what.add_argument("--post", help="a post file whose ```script block follows the shipped format "
+                                     "(refused when check_script.py does not pass it)")
+    what.add_argument("--script", help="script.json: beats with spoken line, preset, params (the demo path)")
+    ap.add_argument("--repo-root", help="the repository that holds check_script.py and the preset vocabulary")
     ap.add_argument("--out", required=True, help="output MP4")
     ap.add_argument("--workdir", required=True, help="scratch folder for the edit list, the cut and the frames")
     ap.add_argument("--presets", default=P.DEFAULT_CONTRACT)
@@ -476,7 +539,9 @@ def main(argv=None):
     ap.add_argument("--jobs", type=int, default=2, help="pages rendering frame ranges at the same time (default 2)")
     ap.add_argument("--color", action="append", metavar="TOKEN=#RRGGBB", help="theme colour token (repeatable)")
     ap.add_argument("--font", action="append", metavar="ROLE=FILE[:WEIGHT]", help="font file for display, text or mono (repeatable)")
-    ap.add_argument("--asset", action="append", metavar="SLOT=FILE.png", help="PNG for an asset slot (repeatable)")
+    ap.add_argument("--asset", action="append", metavar="BEAT=FILE",
+                    help="PNG or JPEG for a cutaway or pip beat: with --post the key is the beat number, with --script "
+                         "the slot id (repeatable)")
     ap.add_argument("--silences", help="JSON list of {start,end}; cuts are confirmed by it")
     ap.add_argument("--silence-detect", action="store_true", help="run ffmpeg silencedetect on the source to confirm cuts")
     ap.add_argument("--gap", type=float, default=0.5)
@@ -491,7 +556,7 @@ def main(argv=None):
     args = ap.parse_args(argv)
     try:
         summary = render(args)
-    except (RenderError, E.EdlError, P.ParamError, media.MediaError, cdp.CDPError, cdp.RenderBlocked) as exc:
+    except (RenderError, from_post.PostError, E.EdlError, P.ParamError, media.MediaError, cdp.CDPError, cdp.RenderBlocked) as exc:
         print("error: %s" % exc, file=sys.stderr)
         return 2
     print(json.dumps(summary, indent=1))

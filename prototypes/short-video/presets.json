@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "note": "Prototype preset contract. Plan: amendments A1 and A2 of docs/architecture/short-video-posts-2026-10-12.md.",
+  "note": "Prototype preset contract, reconciled with shared/references/video-presets.json: the parameters a post file can set are the shipped ones (list: items, no title; number: a figure and a label; pip: top or bottom). The prototype adds only looks no post sets: keyword position, cutaway transition. The image parameters hold an asset slot id.",
   "frame": {"width": 1080, "height": 1920, "fps": 30, "safe": {"left": 65, "right": 65, "top": 285, "bottom": 1248}},
   "palette": ["bg", "text", "muted", "accent", "chip_fill", "chip_text", "chip_border"],
   "font_roles": ["display", "text", "mono"],
@@ -40,7 +40,6 @@
       "max_duration": 8.0,
       "tail": 0.5,
       "params": {
-        "title": {"type": "text", "max": 30},
         "item1": {"type": "text", "max": 30, "required": true},
         "item2": {"type": "text", "max": 30},
         "item3": {"type": "text", "max": 30},
@@ -58,10 +57,8 @@
       "max_duration": 6.0,
       "tail": 0.6,
       "params": {
-        "value": {"type": "number", "min": 0, "max": 999999999, "decimals": 0, "required": true},
-        "prefix": {"type": "text", "max": 3},
-        "suffix": {"type": "text", "max": 6},
-        "label": {"type": "text", "max": 40},
+        "value": {"type": "figure", "max": 10, "pattern": "[0-9][0-9.,]*", "required": true},
+        "label": {"type": "text", "max": 40, "required": true},
         "color": {"type": "color", "default": "accent"}
       }
     },
@@ -103,7 +100,7 @@
       "tail": 0.2,
       "params": {
         "image": {"type": "image", "required": true},
-        "position": {"type": "choice", "values": ["top-right", "top-left", "bottom-right", "bottom-left"], "default": "top-right"},
+        "position": {"type": "choice", "values": ["top", "bottom"], "default": "top"},
         "label": {"type": "text", "max": 40}
       }
     }

@@ -5,7 +5,8 @@ Everything here is invented: the source is a synthetic vertical test pattern wit
 in the gaps between sentences, the transcript is generated from fictional sentences and their timings,
 the asset is a drawn image. Nothing is downloaded and no real recording is involved.
 
-  python3 demo/make_demo.py --out-dir <scratch> --out <mp4>          # build inputs, render
+  python3 demo/make_demo.py --out-dir <scratch> --out <mp4>          # build inputs, render with demo/script.json
+  python3 demo/make_demo.py --out-dir <scratch> --out <mp4> --post   # the same, through demo/post.md (the shipped format)
   python3 demo/make_demo.py --out-dir <scratch> --inputs-only        # only build the inputs
   python3 demo/make_demo.py --rewrite-transcript                     # regenerate demo/transcript.json
 
@@ -107,6 +108,7 @@ def main(argv=None):
     ap.add_argument("--out-dir", help="scratch folder for source.mp4, asset.png, silences and the render work")
     ap.add_argument("--out", help="output MP4")
     ap.add_argument("--inputs-only", action="store_true")
+    ap.add_argument("--post", action="store_true", help="render from demo/post.md (beats 7 and 8 take the asset) instead of script.json")
     ap.add_argument("--rewrite-transcript", action="store_true")
     args = ap.parse_args(argv)
 
@@ -134,8 +136,11 @@ def main(argv=None):
         return 0
     if not args.out:
         ap.error("--out is required unless --inputs-only")
-    rargs = ["--source", source, "--transcript", tr_path, "--script", os.path.join(HERE, "script.json"),
-             "--asset", "dashboard=" + asset, "--asset", "chart=" + asset,
+    if args.post:
+        what = ["--post", os.path.join(HERE, "post.md"), "--asset", "7=" + asset, "--asset", "8=" + asset]
+    else:
+        what = ["--script", os.path.join(HERE, "script.json"), "--asset", "dashboard=" + asset, "--asset", "chart=" + asset]
+    rargs = ["--source", source, "--transcript", tr_path] + what + [
              "--out", args.out, "--workdir", os.path.join(args.out_dir, "work"), "--silence-detect"] + extra
     return render.main(rargs)
 
