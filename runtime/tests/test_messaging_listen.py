@@ -35,11 +35,13 @@ FAST = dict(ready_seconds=30, send_seconds=10, backoff=(0.02, 0.05), stdin_wait=
 
 
 def alive(pid: int) -> bool:
+    """Running. A zombie is dead: a container's init may not reap an orphan at once, and `kill -0` still finds it."""
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    return True
+    state = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+    return bool(state) and not state.startswith("Z")
 
 
 def lines(path):
@@ -400,7 +402,7 @@ def test_a_provider_that_ignores_stdin_and_sigterm_is_killed_by_group_with_what_
     assert wait_for(r.messenger.session.is_ready) and wait_for(lambda: lines(r.folder / "grandchildren.jsonl"))
     pids = r.processes()
     r.messenger.close_session()
-    assert all(not alive(p) for p in pids), pids
+    assert wait_for(lambda: all(not alive(p) for p in pids), 10), pids
 
 
 def test_a_provider_that_exits_on_its_own_leaves_nothing_of_its_group_behind(tmp_path, monkeypatch, rig):
