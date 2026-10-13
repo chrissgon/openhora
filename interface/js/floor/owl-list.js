@@ -15,7 +15,9 @@ export function createOwlList({ hashOf, highlight }) {
   let shown = "";
 
   function row(target) {
-    const link = h("a", { class: "wb-owl-link", href: hashOf(target), "data-key": target.id, text: target.tip });
+    // a free place says which one it is (link purpose): "Free slot 2 of 3 · asleep"; the tooltip in the scene stays "Free slot · asleep"
+    const name = target.listTip || target.tip;
+    const link = h("a", { class: "wb-owl-link", href: hashOf(target), "data-key": target.id, "aria-label": name, text: name });
     link.addEventListener("focus", () => highlight(target.id, "keyboard"));
     link.addEventListener("blur", () => highlight(null, "keyboard"));
     link.addEventListener("pointerenter", () => highlight(target.id));

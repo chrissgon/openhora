@@ -219,7 +219,7 @@ export function fillFloor(kit, parent, f, ctx) {
   // each owl is a pick target of its own with its own brackets round it alone (PAR-7e); one group also holds every owl, with one set of brackets round them all, for a caller that gives the
   // world no words for the owls (it then picks the group, so that one pick still opens the floor)
   let agent = null;
-  let agentMarks = null;
+  let agentMarks = null;      // the brackets round all the owls: made when a caller asks for them (the world gives them to a hit only when it has no words for the owls), not before
   const pad = 0.84 * layout.S;
   const bracketsAround = (xs, zs) => {
     const marks = holder();
@@ -231,7 +231,6 @@ export function fillFloor(kit, parent, f, ctx) {
     agent = new THREE.Group();
     room.add(agent);
     for (const o of owls) agent.add(o.group);
-    agentMarks = bracketsAround(owls.map((o) => o.x), owls.map((o) => o.z));
     for (const o of owls) o.marks = bracketsAround([o.x], [o.z]);
   }
 
@@ -248,7 +247,7 @@ export function fillFloor(kit, parent, f, ctx) {
   return {
     agent, board, shelf, door: doorGroup, pose: owls.length ? owls[0].pose : null, motion: owls.length ? owls[0].owl.motion : null,
     owls: owls.map(({ seat, pose, group, marks }) => ({ seat, pose, group, marks })),
-    marks: { room: roomMarks, agent: agentMarks, board: boardMarks, shelf: shelfMarks, door: doorMarks },
+    marks: { room: roomMarks, get agent() { if (!agentMarks && owls.length) agentMarks = bracketsAround(owls.map((o) => o.x), owls.map((o) => o.z)); return agentMarks; }, board: boardMarks, shelf: shelfMarks, door: doorMarks },
     get notesShown() { return state.shown; },
     /** How many binders the bookcase shows (M-7: one bookcase, sixteen at most). */
     get binders() { return bindersShown(state.documents); },

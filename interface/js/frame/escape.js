@@ -24,7 +24,11 @@ export function escapeStep({ route, field = false, dialog = false, menu = false,
   if (dialog) return { step: "dialog" };
   const room = route.screen === "floor" || route.screen === "lobby";
   if (room && route.path) return { step: "document", hash: closeHash(route, origin) };   // the same hash as the viewer's "Close"
-  if (room && route.pending !== null && route.pending !== undefined) return { step: "document", hash: route.screen === "lobby" ? router.lobbyHash(route.project, "inbox") : router.floorHash(route.project, route.agent, "inbox") };
+  if (room && route.pending !== null && route.pending !== undefined) {
+    // the number after a tab is a decision in the Inbox (and the Conversation), a task in the Tasks tab (an owl's click, PAR-7e): Escape goes back to that tab's own list
+    const tab = route.tab === "tasks" ? "tasks" : "inbox";
+    return { step: "document", hash: route.screen === "lobby" ? router.lobbyHash(route.project, tab) : router.floorHash(route.project, route.agent, tab) };
+  }
   if (menu) return { step: "menu" };
   if (room && form) return { step: "form" };
   if (selection) return { step: "selection" };

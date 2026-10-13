@@ -23,6 +23,7 @@ const WORDS = { working: "working", waiting: "waiting for you", ready: `queued Â
  */
 export function owlTargets({ seats, tasks = [], decisions = [], floorTip = "", asks = false }) {
   const out = [];
+  const places = Math.max(Array.isArray(seats) ? seats.length : 0, 1);
   for (const s of Array.isArray(seats) ? seats : []) {
     if (!s || !s.pose) continue;
     if (s.taskId !== null && s.taskId !== undefined) {
@@ -36,7 +37,7 @@ export function owlTargets({ seats, tasks = [], decisions = [], floorTip = "", a
         route: decision ? { tab: "inbox", id: decision.id } : { tab: "tasks", id: s.taskId },
       });
     } else if (s.pose === "idle") {
-      out.push({ seat: s.seat, id: owlId(s.seat), kind: "free", taskId: null, tip: FREE_TIP, route: { tab: "agent" } });
+      out.push({ seat: s.seat, id: owlId(s.seat), kind: "free", taskId: null, tip: FREE_TIP, listTip: `Free slot ${s.seat + 1} of ${places} Â· asleep`, route: { tab: "agent" } });
     } else {
       out.push({ seat: s.seat, id: asks ? "tray" : "agent", kind: "floor", taskId: null, tip: agentTip(floorTip, asks), route: { tab: asks ? "inbox" : "agent" } });
     }

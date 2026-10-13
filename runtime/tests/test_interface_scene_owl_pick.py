@@ -249,7 +249,7 @@ console.log(JSON.stringify(out));
     assert got["links"] == [
         ["#4 Task 4 · working", f"{base}/tasks/4"],
         ["#6 Task 6 · waiting for you · open the Inbox", f"{base}/inbox/31"],
-        ["Free slot · asleep", f"{base}/agent"],
+        ["Free slot 3 of 3 · asleep", f"{base}/agent"],
     ], "one focusable link for each owl, in seat order, with the tooltip's words and the click's destination"
     assert got["list"] == ["Owls of this floor", False]
     assert got["lit"] == [["owl:1", "keyboard"], [None, "keyboard"], ["owl:2", "pointer"], [None, "pointer"]], \
@@ -317,3 +317,57 @@ console.log(JSON.stringify(out));
 """)
     assert got["ready"] == ["idle", "lit", "lit", "lit"], "an idle floor whose holder is ready has an awake owl: lit in the Floor, the Building and the City"
     assert got["asleep"][1:] == ["grey", "grey", "grey"] and got["off"][1:] == ["grey", "grey", "grey"] and got["noHolder"][1:] == ["grey", "grey", "grey"]
+
+
+@needs_node
+def test_free_places_are_told_apart_in_the_list_and_not_in_the_tooltip(tmp_path):
+    got = run_model_node(tmp_path, SNAP + r"""
+import { createOwlList } from "@JS@/floor/owl-list.js";
+const owls = owlsOf(make([], 3));
+out.tips = owls.map((o) => o.tip);
+out.list = owls.map((o) => o.listTip);
+console.log(JSON.stringify(out));
+""")
+    assert got["tips"] == ["Free slot · asleep"] * 3, "the tooltip in the scene stays as the table says"
+    assert got["list"] == ["Free slot 1 of 3 · asleep", "Free slot 2 of 3 · asleep", "Free slot 3 of 3 · asleep"], "the list's links differ (link purpose)"
+
+
+@needs_node
+def test_escape_on_a_task_goes_back_to_the_tasks_list_and_on_a_decision_to_the_inbox(tmp_path):
+    got = run_model_node(tmp_path, r"""
+import * as router from "@JS@/router.js";
+import { escapeStep } from "@JS@/frame/escape.js";
+const P = "0123456789ab";
+const go = (h) => escapeStep({ route: router.parse(h) }).hash;
+console.log(JSON.stringify([go(`#/p/${P}/floor/engineering/tasks/4`), go(`#/p/${P}/floor/engineering/inbox/31`), go(`#/p/${P}/lobby/tasks/4`), go(`#/p/${P}/lobby/inbox/5`), go(`#/p/${P}/lobby/conversation/5`)]));
+""")
+    p = "#/p/0123456789ab"
+    assert got == [f"{p}/floor/engineering/tasks", f"{p}/floor/engineering/inbox", f"{p}/lobby/tasks", f"{p}/lobby/inbox", f"{p}/lobby/inbox"]
+
+
+@needs_node
+def test_a_stopped_floor_with_a_holder_stays_dark_everywhere(tmp_path):
+    got = run_model_node(tmp_path, SNAP + r"""
+const snap = make([eng(4, "ready", true)], 2, { agentExtra: { enabled: false } });
+const row = fm.building(snap, P).rows.find((r) => r.name === "engineering");
+const city = model.buildingOf(snap.projects[0], snap.details[P]).floors.find((f) => f.agent === "engineering");
+const world = worldModel(snap, NOW, { focus: P, floor: "engineering", room: { tips: {}, board: null, door: false } }).lots[0].floors.find((f) => f.name === "engineering");
+console.log(JSON.stringify([row.state, row.window, city.window, world.window]));
+""")
+    assert got == ["off", "grey", "grey", "grey"], "a stopped agent's ready holder lights nothing"
+
+
+@needs_node
+def test_the_brackets_round_all_the_owls_are_made_only_when_asked_for(tmp_path):
+    got = run_node(tmp_path, WORLD_OWLS + r"""
+const { world } = build(seatsOf3, owls3);
+const count = () => { let n = 0; world.towers.get("a").parts.forEach((p) => { if (p) p.owls.forEach(() => n++); }); return n; };
+const parts = world.towers.get("a").parts.find((p) => p && p.owls.length);
+let holders = 0; parts.agent.parent.children.forEach((c) => { if (c.userData && c.userData.brackets) holders++; });
+out.before = holders;
+parts.marks.agent;
+let after = 0; parts.agent.parent.children.forEach((c) => { if (c.userData && c.userData.brackets) after++; });
+out.after = after;
+console.log(JSON.stringify(out));
+""")
+    assert got["after"] == got["before"] + 1, "the group's brackets are built on the first ask, never for a world that gives each owl its words"
