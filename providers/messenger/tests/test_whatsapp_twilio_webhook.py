@@ -10,6 +10,7 @@ import http.client
 import os
 import socket
 import threading
+import time
 
 import pytest
 
@@ -204,20 +205,35 @@ def test_posts_are_503_until_the_listener_is_ready_and_nothing_is_marked_seen(tm
     assert hook.store.is_seen(sid(1)) is False
 
 
-def test_slow_requests_are_bounded_by_the_total_deadline_and_the_handler_count(tmp_path):
-    r = kit.Rig(tmp_path, deadline=0.5, limit=2).start()
+def test_a_request_that_stalls_is_cut_at_the_total_deadline(tmp_path):
+    r = kit.Rig(tmp_path, deadline=0.6).start()
+    try:
+        sock = socket.create_connection(("127.0.0.1", r.port), timeout=5)    # a body that never arrives
+        sock.sendall(f"POST /{PATH} HTTP/1.1\r\nHost: x\r\nContent-Length: 100\r\n\r\nabc".encode())
+        start = time.monotonic()
+        sock.settimeout(4)
+        assert sock.recv(100) == b"", "the stalled body ends with a closed connection and no answer"
+        assert time.monotonic() - start < 3
+        sock.close()
+    finally:
+        r.stop()
+
+
+def test_concurrent_handlers_are_bounded_and_the_next_request_gets_503(tmp_path):
+    r = kit.Rig(tmp_path, limit=2).start()
     try:
         held = []
         for _ in range(2):
-            s = socket.create_connection(("127.0.0.1", r.port))
-            s.sendall(b"POST /" + PATH.encode() + b" HTTP/1.0\r\nContent-Length: 10\r\n\r\nab")
+            s = socket.create_connection(("127.0.0.1", r.port), timeout=5)
+            s.sendall(b"POST /")                     # incomplete: the handler waits for the rest
             held.append(s)
-        assert kit.wait_for(lambda: r.listener.server.slots._value == 0, 3)
-        status = r.request("POST", "/" + PATH, b"a=b", {"Content-Length": "3"})[0]
-        assert status == 503
-        assert kit.wait_for(lambda: r.listener.server.slots._value == 2, 5)         # the deadline cut the slow ones
+        assert kit.wait_for(lambda: r.listener.server.slots._value == 0, 5)
+        third = socket.create_connection(("127.0.0.1", r.port), timeout=5)
+        assert third.recv(100).startswith(b"HTTP/1.0 503")
+        third.close()
         for s in held:
             s.close()
+        assert kit.wait_for(lambda: r.request("GET", "/none")[0] == 404, 5), "the slots come back"
     finally:
         r.stop()
 
