@@ -69,6 +69,8 @@ ON_SYSTEM_PYTHON = [
     "skills/eng-implement/scripts/task.py",
     # The task board's local implementation: the task runtime calls it with its own interpreter (stage 3).
     "providers/issue-tracker/local.py",
+    # The WhatsApp provider: standard library only, so the resolver starts it with the caller's interpreter (MSG-7).
+    "providers/messenger/whatsapp.py",
     # The documents' local implementation, called the same way (stage 3).
     "providers/documents/local.py",
 ]

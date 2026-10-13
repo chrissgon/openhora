@@ -20,6 +20,8 @@ script.json (optional) is {"1": step, "2": step, "default": step}: the step for 
   noise          true: print() to stdout before the protocol starts (the dup of fd 1 must keep it out of the protocol)
   stderr         text written to stderr before anything else
   die            an exit code: exit at once, before the ready event
+  paused         a reason: write an error event of kind "paused" with it and exit 3 at once, before the ready event
+  paused_after_ready  a reason: after ready and the emitted lines, write that event and exit 3 (a session lost while connected)
 A send to the chat "crash-1" makes the first start deliver it (it is recorded) and exit 1 without answering, "exit-3" writes the error event and exits 3,
 "exit-2" does the same with 2, "silent" is never answered, "fail-usage" and "fail-failed" are answered ok:false,
 "no-id" is answered ok:true without a message_id. Records, one JSON object per line, in STANDIN_DIR: starts.jsonl (pid, pgid,
@@ -92,6 +94,9 @@ def listen(platform) -> int:
         print(step["stderr"], file=sys.stderr, flush=True)
     if step.get("die") is not None:
         return step["die"]
+    if step.get("paused") is not None:
+        write({"event": "error", "kind": "paused", "reason": step["paused"]})
+        return 3
     if step.get("ignore_term"):
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
     if step.get("grandchild"):
@@ -103,6 +108,9 @@ def listen(platform) -> int:
         write({"event": "ready"})
     for item in step.get("emit", []):
         emit(item)
+    if step.get("paused_after_ready") is not None:
+        write({"event": "error", "kind": "paused", "reason": step["paused_after_ready"]})
+        return 3
     sends = 0
     for raw in sys.stdin.buffer:
         append("requests.jsonl", json.loads(raw))

@@ -66,6 +66,10 @@ The secrets the core reads. Each cell is the text of the same field in `REGISTRY
 
 `keyring set` stands for the command of the "Local machine" row above, with the store username of the row.
 
+## Credential files that are not resolver secrets
+
+The WhatsApp provider (`providers/messenger/whatsapp.py`) has no token in the registry: its credential is a file, the session of a linked device, `session.db`, in the `whatsapp/` folder of the per-user state folder (`$OPENHORA_STATE_DIR`, else `$XDG_STATE_HOME/openhora`, else `~/.local/state/openhora`). The file is 0600 and the folder 0700, checked before every use; SQLite's `-wal`, `-shm` and `-journal` files beside it are made under umask 077. It is made by the program's `pair` command and read only by that program. Whoever holds the file holds a linked device of the account (it can read and send as that number), so it is never copied, never put in a project, a repository, a backup or a log (the README of the messenger providers says how to exclude it from backups), and it is revoked from the phone (Linked devices). It is not read through `providers/secrets/resolver.py` and appears in no table above.
+
 ## Why
 
 Decided on 2026-09-28 (backlog S13): the first calls to real services showed each provider resolving its credential its own way, a cloud session's own `GITHUB_TOKEN` shadowing the maintainer's token (fixed with `VCS_GITHUB_TOKEN`), and a model provider's key living only in one shell and lost to later sessions. The lookup order (environment, then the OS secret store) is the one the providers already used; a password manager waits for a real case (backlog S16).
