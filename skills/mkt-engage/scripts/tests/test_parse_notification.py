@@ -137,3 +137,29 @@ def test_the_old_call_forms_values_are_the_data_files():
     old = module.OLD_CALL_DATA
     assert old["platform"] == data["platform"] and old["hosts"] == data["hosts"]
     assert old["comment"] == data["comment"] and old["identifiers"] == data["identifiers"]
+
+
+@pytest.mark.parametrize("platform", ["instagram", "tiktok"])
+@pytest.mark.parametrize("message", [
+    {"link": "https://www.example.com/post?comment=1", "commenter": "Ana Lima", "text": "Great video"},
+    {"subject": "New comment", "from": "no-reply@example.com", "text": "x", "links": [{"href": "https://www.example.com/c/1"}]},
+    {},
+], ids=["pasted", "mailbox", "empty"])
+def test_a_video_platform_with_a_data_file_and_no_parser_is_refused_without_a_crash(platform, message):
+    """The data files of these platforms carry no comment-link patterns, and this script has no parser for their
+    links (comments on these platforms are out of scope): exit 2, the reason on stderr, nothing on stdout."""
+    data_file = REPO / "shared/references/platforms" / f"{platform}.json"
+    assert data_file.is_file()
+    r = subprocess.run([sys.executable, str(PARSER), "--platform", platform, "--platform-file", str(data_file)],
+                       input=json.dumps(message), capture_output=True, text=True, timeout=60)
+    assert r.returncode == 2 and r.stdout == ""
+    assert "no parser for the links" in r.stderr and repr(platform) in r.stderr
+    assert "Traceback" not in r.stderr
+    # the flag is case-insensitive, as for the platform that has a parser
+    code, out, err = run(message, "--platform", platform.upper(), "--platform-file", data_file)
+    assert code == 2 and out is None and "no parser for the links" in err
+
+
+def test_the_data_file_of_one_video_platform_is_not_the_other_ones():
+    code, _, err = run(pasted(), "--platform", "instagram", "--platform-file", REPO / "shared/references/platforms/tiktok.json")
+    assert code == 2 and "not the data file of 'instagram'" in err

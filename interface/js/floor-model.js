@@ -289,7 +289,8 @@ export function floorRow(agent, status, context) {
   return {
     name, label, lobby, number: context.number, state, stateWord, accepted, slots, holders, seats, maxParallel: agent.max_parallel,
     unaccepted, held: heldTasks.length, heldReason, inUse,   // R-21 extended (M-24): the window is lit while the agent works, waits or is ready (a queued task)
-    window: windowState(configured && (state === "working" || state === "waiting" || state === "ready")), dot: DOT[state], decisions, queued, done, running, left, waits, notes,
+    // 12.1: an awake owl lights the floor
+    window: windowState(configured && (state === "working" || state === "waiting" || state === "ready" || seats.some((s) => s.pose === "working" || s.pose === "waiting" || s.pose === "ready"))), dot: DOT[state], decisions, queued, done, running, left, waits, notes,
     runs, runsCap, usd, usdCap, unknown, ...split, runsTotal: agent.runs_total_today === undefined ? null : format.count(agent.runs_total_today), mode, acting, pips: mode ? PIPS[mode] || 0 : 0, actingPips: acting ? PIPS[acting] || 0 : 0,
     actingDiffers: Boolean(mode && acting && mode !== acting),
     link: lobby ? router.lobbyHash(context.project) : router.floorHash(context.project, name),

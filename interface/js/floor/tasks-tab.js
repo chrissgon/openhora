@@ -35,8 +35,8 @@ function keepFocus(container, render) {
  * Create the tab. env: {project, now() (a Date), refresh() (read the page's data again), api: {retry, goAhead} (floor/actions.js),
  * can(op, kind) (optional: whether the page may do an operation, js/permissions.js; Retry and the go-aheads are drawn only when it allows `retry` and `go-ahead`; all allowed when left out),
  * links: {request(requestId), inbox(pendingId or null), open(path)} (hashes built with the router)}.
- * Returns {el, update({tasks, requests, pending, loading})}: tasks are floor-model.agentTasks(...) rows, requests and pending
- * the status's, loading true before the first read.
+ * Returns {el, update({tasks, requests, pending, loading, selected}), forget()}: tasks are floor-model.agentTasks(...) rows, requests and pending
+ * the status's, loading true before the first read, `selected` the task the route names (it is opened once, with the focus on its row; `forget` lets the next route open it again).
  */
 export function createTasksTab(env) {
   const el = h("div", { class: "wb-tasks-tab" });
@@ -52,6 +52,8 @@ export function createTasksTab(env) {
   let shown = "";
   let reloaded = null;             // the page's reload stamp last seen; null until one is given
   let changes = 0;                 // how many times it moved: a read that began before the last move is not fresh when it ends
+  let applied = null;              // the task the route named that was opened already (an owl's click, PAR-7e): the person closing it is not undone by the next poll
+  let focusTask = null;            // the task whose row takes the focus once it is drawn
 
   // --- reading ---------------------------------------------------------------------------------------------------------------
   const fresh = (cached, task) => cached.state === task.state && cached.at !== 0;     // at 0: the store changed since it was read
@@ -166,7 +168,7 @@ export function createTasksTab(env) {
     return details;
   }
 
-  function draw() {
+  function drawNow() {
     if (last.loading) {
       if (shown !== "loading") {
         shown = "loading";
@@ -190,6 +192,27 @@ export function createTasksTab(env) {
     if (el.children[0] !== groupsBox) fill(el, groupsBox);
   }
 
+  function draw() {
+    drawNow();
+    if (focusTask === null) return;
+    const toggle = [...groupsBox.querySelectorAll("[data-key]")].find((n) => n.getAttribute("data-key") === `toggle-${focusTask}`);
+    focusTask = null;
+    if (toggle && toggle.focus) toggle.focus();
+  }
+
+  /** Open the row of the task the route names once, with its group open, and take the focus to it: the destination of a click on an owl. */
+  function select(id) {
+    if (!Number.isInteger(id) || id === applied) return;
+    const task = last.tasks.find((t) => t.id === id);
+    if (!task) return;
+    applied = id;
+    const group = groupTasks(last.tasks).find((g) => g.tasks.some((t) => t.id === id));
+    if (group) opened.set(group.id, true);
+    expanded.add(id);
+    ensure(task);
+    focusTask = id;
+  }
+
   return {
     el,
     /** data: {tasks, requests, pending, loading, reload, unaccepted}; reload is the page's stamp, which moves when the store changed; unaccepted: nothing is read (the bodies held stay). */
@@ -202,8 +225,13 @@ export function createTasksTab(env) {
         reloaded = data.reload;
       }
       last = { tasks: data.tasks || [], requests: data.requests || [], pending: data.pending || [], loading: Boolean(data.loading) };
+      if (!last.loading) select(data.selected);
       if (!data.unaccepted) read();
       draw();
+    },
+    /** The tab was left: the next route that names a task opens it again. */
+    forget() {
+      applied = null;
     },
   };
 }

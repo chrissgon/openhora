@@ -136,6 +136,11 @@ REGISTRY: dict[str, Secret] = {s.name: s for s in (
            "a bot created for this person with the platform's bot service, used only by this bridge",
            ("providers/messenger/telegram.py",),
            store_username="messenger-telegram"),
+    Secret("MESSENGER_DISCORD_BOT_TOKEN",
+           "receive the person's messages and button taps and send the notices of the messaging bridge, as a Discord bot",
+           "a bot of an application created for this person, used only by this bridge; no server permissions needed",
+           ("providers/messenger/discord.py",),
+           store_username="messenger-discord"),
 )}
 
 

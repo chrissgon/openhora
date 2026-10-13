@@ -46,7 +46,7 @@
         "web": false
       },
       {
-        "agent": "marketing",
+        "agent": "content",
         "depends_on": [
           "market"
         ],

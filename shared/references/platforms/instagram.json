@@ -1,0 +1,54 @@
+{
+ "platform": "instagram",
+ "hosts": ["www.instagram.com"],
+ "post": {
+  "shape": "video_with_caption",
+  "formats": ["reel", "carousel", "static"],
+  "requires_text": null,
+  "max_characters": 2200,
+  "max_hashtags": 30,
+  "max_mentions": 20,
+  "unit": "characters",
+  "scheduling": false,
+  "first_comment": null,
+  "url": null,
+  "options": {
+   "media_type": {"type": "choice", "values": ["REELS"], "default": "REELS", "when_unset": "default", "set_by": "code"},
+   "share_to_feed": {"type": "boolean", "values": [true, false], "default": true, "when_unset": "default", "set_by": "code", "decided_by": "maintainer", "decided_on": "2026-10-13"},
+   "thumb_offset": {"type": "integer", "unit": "ms", "min": 0, "max": null, "default": null, "when_unset": "omit", "set_by": "person"}
+  }
+ },
+ "media": {
+  "max_count": 1,
+  "max_bytes": 300000000,
+  "types": [
+   {"name": "mp4", "extensions": [".mp4"], "magic_hex": ["66747970"], "magic_offset": 4},
+   {"name": "mov", "extensions": [".mov"], "magic_hex": ["6674797071742020"], "magic_offset": 4}
+  ]
+ },
+ "video": {
+  "containers": ["mp4", "mov"],
+  "codecs": ["h264", "h265"],
+  "audio_codecs": ["aac"],
+  "fps_min": 23,
+  "fps_max": 60,
+  "max_width": 1920,
+  "min_side": null,
+  "max_side": null,
+  "min_seconds": 3,
+  "max_seconds": 900,
+  "max_bytes": 300000000,
+  "aspect": {"recommended": "9:16", "min": "0.01:1", "max": "10:1"},
+  "faststart": true
+ },
+ "limits": {
+  "posts_per_24h": [100, 50],
+  "approximate": false,
+  "pending_shares_per_24h": null,
+  "unaudited_users_per_24h": null
+ },
+ "reply": null,
+ "comment": null,
+ "identifiers": null,
+ "notification_email": null
+}

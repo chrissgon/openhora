@@ -12,6 +12,7 @@ import { createAgentTab } from "../floor/agent-tab.js";
 import { actions } from "../floor/actions.js";
 import { createDeskTab } from "../floor/desk-tab.js";
 import { createInbox } from "../floor/inbox.js";
+import { createOwlList } from "../floor/owl-list.js";
 import { createTasksTab } from "../floor/tasks-tab.js";
 import { createViewer } from "../floor/viewer.js";
 import { busyLine, createTabs, focusOpenLink } from "../floor/widgets.js";
@@ -21,6 +22,7 @@ import * as origin from "../frame/origin.js";
 import { acceptance } from "../model.js";
 import { can as pageMay } from "../permissions.js";
 import * as router from "../router.js";
+import { openOwl } from "../owl-words.js";
 import { NoWebGL } from "../scene/engine.js";
 import { bindSwipe } from "../swipe.js";
 import { worldModel } from "../world-model.js";
@@ -85,7 +87,13 @@ export function createFloorView(frame, env) {
   const grip = createGrip();
   const panel = h("section", { class: "pui-card wb-panel wb-drawer wb-panel-floor", role: "region", "aria-labelledby": "wb-floor-title", id: "wb-panel", tabindex: "-1" }, grip, normal, unknown, viewerHost);
   const drawer = bindDrawer(panel, { screen: "floor", grip });
-  frame.main.append(panel);
+  // the owls of the room, each selected on its own (PAR-7e): what the world last gave for them, and their twin list for the keyboard
+  let owls = [];
+  const owlList = createOwlList({
+    hashOf: (target) => router.floorHash(project, agent, target.route.tab, target.route.id),
+    highlight: (id, source) => { if (engine) engine.highlight(id, source); },
+  });
+  frame.main.append(panel, owlList.el);
   const phoneDialog = h("dialog", { class: "pui-modal wb-viewer-dialog", "aria-label": "Document" });
   phoneDialog.addEventListener("close", () => {
     if (viewerPath !== null && last && last.route.path) closeViewer();
@@ -130,6 +138,7 @@ export function createFloorView(frame, env) {
     else if (id === "tray") window.location.hash = router.floorHash(project, agent, "inbox");
     else if (id === "desk") window.location.hash = router.floorHash(project, agent, "desk");
     else if (id === "agent") window.location.hash = router.floorHash(project, agent, "agent");
+    else if (openOwl(owls, id, (tab, n) => { window.location.hash = router.floorHash(project, agent, tab, n); })) return;      // an owl of a task, or of a free place: its task, its decision or the Agent tab
     else if (String(id).startsWith("sheet:")) window.location.hash = router.deskHash(project, agent, String(id).slice(6));
   }
 
@@ -281,6 +290,7 @@ export function createFloorView(frame, env) {
       leftInbox = true;
     }
     if (tab === "inbox") leftInbox = false;
+    if (tab !== "tasks") tasksTab.forget();      // an owl's click names a task (PAR-7e): the next click on the same owl opens it again
 
     // A-16: while the configuration is not accepted the cards and the tasks' buttons are inert (they would only be refused)
     for (const part of [inbox, tasksTab]) {
@@ -296,7 +306,7 @@ export function createFloorView(frame, env) {
       inbox.update({ decisions: model.decisions, requests: snapshot.details[project].status.requests || [], resolved: fm.resolvedLines(bodiesPlain(), ids, last.now), selected: route.pending, loading: false });
     } else if (tab === "tasks") {
       const status = snapshot.details[project].status;
-      tasksTab.update({ tasks: model.tasks, requests: status.requests || [], pending: status.pending || [], loading: false, reload: last.reload, unaccepted: model.unaccepted });
+      tasksTab.update({ tasks: model.tasks, requests: status.requests || [], pending: status.pending || [], loading: false, reload: last.reload, unaccepted: model.unaccepted, selected: route.pending });
     } else {
       desk.update({ documents: documentsRows, truncated: Boolean(documents && documents.truncated), loading: documents === null && !documentsError, error: documentsError, elsewhere: documents ? documents.rows.length - documentsRows.length : 0 });
     }
@@ -314,8 +324,11 @@ export function createFloorView(frame, env) {
 
   // The scene is the world with this agent's floor as the target: the building stays open, the other floors are gone, the camera is on the room.
   function showScene(room, label, onFloor) {
-    if (!engine || !last) return;
+    if (!last) return;
     const world = worldModel(last.snapshot, last.now, { selectedId: project, focus: project, floor: onFloor ? agent : null, room, documents: documents ? documents.rows : null, ready: true });
+    owls = world.room && Array.isArray(world.room.owls) ? world.room.owls : [];
+    owlList.update(owls);
+    if (!engine) return;
     const key = JSON.stringify([world, label]);
     if (key === shownScene) return;
     shownScene = key;
@@ -385,12 +398,17 @@ export function createFloorView(frame, env) {
       // the scene is the frame's: the Building takes it over (the floors come back), or the frame takes it down
       drawer.destroy();   // before the panel leaves the page: the frame hears that nothing covers the scene
       panel.remove();
+      owlList.el.remove();
       phoneDialog.remove();
       frame.sceneUnavailable(false);
     },
     /** For the page's checks: the engine's counters, or null without WebGL. */
     stats() {
       return engine ? engine.stats() : null;
+    },
+    /** What a click on an object of the room opens (also what a test presses). */
+    open(id) {
+      sceneOpen(id);
     },
   };
 }

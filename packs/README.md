@@ -11,7 +11,8 @@ packs/brand.txt       the five skills of the brand flow (flows/brand.json): the 
 packs/design.txt      the design chain: the four skills of the design flow (flows/design.json) and the PRD and the two steps after the brief (`product-prd`, `design-execute`, `design-handoff`): the scope of the task runtime's design area agent
 packs/planning.txt    the router skill and the brief (`core-orchestrator`, `core-clarify`): the scope of the task runtime's planning agent
 packs/code.txt        the two skills of the code-change flow (flows/code-change.json): the scope of the task runtime's engineering area agent
-packs/marketing.txt   the marketing area's skills: the scope of the task runtime's marketing area agent (the weekly routine of the published posts)
+packs/marketing.txt   the two skills the marketing area agent's handlers run (`mkt-engage`, `mkt-vote-round`) and the weekly routine of the published posts: the scope of the task runtime's marketing area agent; not in the packs in use
+packs/content.txt     the three skills that write content through a task (`mkt-content-plan`, `mkt-social-copy`, `mkt-messaging`): the scope of the task runtime's content area agent; `mkt-publish` is in no pack, it stays a code path of the runtime
 ```
 
 ## Format

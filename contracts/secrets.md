@@ -62,8 +62,13 @@ The secrets the core reads. Each cell is the text of the same field in `REGISTRY
 | `GMAIL_CLIENT_SECRET` | none | that Google OAuth client's secret, used by the authorization and every token refresh | the Desktop app client's secret | `providers/mailbox/auth.py`, `providers/mailbox/gmail.py` | `gmail-client-secret` | `keyring set` | none |
 | `NOTION_TOKEN` | none | read and write the task board and the documents of a project on Notion | an internal integration with read content, update content, insert content and read comments, given only the base and the parent page the project names | `providers/issue-tracker/notion.py`, `providers/documents/notion.py` | `notion` | `keyring set` | none |
 | `MESSENGER_TELEGRAM_BOT_TOKEN` | none | receive the person's messages and send the notices of the messaging bridge, as a Telegram bot | a bot created for this person with the platform's bot service, used only by this bridge | `providers/messenger/telegram.py` | `messenger-telegram` | `keyring set` | none |
+| `MESSENGER_DISCORD_BOT_TOKEN` | none | receive the person's messages and button taps and send the notices of the messaging bridge, as a Discord bot | a bot of an application created for this person, used only by this bridge; no server permissions needed | `providers/messenger/discord.py` | `messenger-discord` | `keyring set` | none |
 
 `keyring set` stands for the command of the "Local machine" row above, with the store username of the row.
+
+## Credential files that are not resolver secrets
+
+The WhatsApp provider (`providers/messenger/whatsapp.py`) has no token in the registry: its credential is a file, the session of a linked device, `session.db`, in the `whatsapp/` folder of the per-user state folder (`$OPENHORA_STATE_DIR`, else `$XDG_STATE_HOME/openhora`, else `~/.local/state/openhora`). The file is 0600 and the folder 0700, checked before every use; SQLite's `-wal`, `-shm` and `-journal` files beside it are made under umask 077. It is made by the program's `pair` command and read only by that program. Whoever holds the file holds a linked device of the account (it can read and send as that number), so it is never copied, never put in a project, a repository, a backup or a log (the README of the messenger providers says how to exclude it from backups), and it is revoked from the phone (Linked devices). It is not read through `providers/secrets/resolver.py` and appears in no table above.
 
 ## Why
 

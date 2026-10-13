@@ -42,6 +42,7 @@ The flow files, one row each, with their tasks in order. A flow file is not a fl
 | `code-change` | A code change, to its pull request | `implement` (`eng-implement`), `pull-request` (`ops-pull-request`) |
 | `design` | Design | `spec` (`product-feature-spec`), `flows` (`design-ux-flows`), `system` (`design-system`), `brief-city` (`design-brief`), `brief-building` (`design-brief`), `brief-floor` (`design-brief`), `brief-lobby` (`design-brief`), `brief-control-room` (`design-brief`) |
 | `market-positioning` | Market and positioning | `market` (`biz-market-analysis`), `positioning` (`biz-icp-positioning`) |
+| `short-video` | Script and caption of a short video post | `script` (`mkt-social-copy`) |
 | `website` | Website | `prd` (`product-prd`), `spec` (`product-feature-spec`), `flows` (`design-ux-flows`), `system` (`design-system`), `brief` (`design-brief`), `execute` (`design-execute`), `handoff` (`design-handoff`), `implement` (`eng-implement`) |
 <!-- /generated -->
 
@@ -216,7 +217,7 @@ The roles the runtime is wired to, from `runtime/roles.json`:
 | `brief` | `core-clarify` |
 | `subtask` | `eng-implement` |
 | `code_areas` | `engineering`, `delivery` |
-| `packs_in_use` | `business`, `brand`, `design`, `planning`, `code` |
+| `packs_in_use` | `business`, `brand`, `design`, `planning`, `code`, `content` |
 <!-- /generated -->
 
 **Who reads it.** A harness, through an adapter's installer, which copies or links the skills of one pack (and `shared/references/` beside them); the lab, which stages one skill into a run folder without its `evals/` and `scripts/tests/` and grades the run; the runtime, through its lab facade for a run and directly for the frontmatter (`runtime/skill_meta.py`), the roles file (`runtime/roles.py`), the runtime manifests (`runtime/manifest.py`, which imports `scripts/select_skills.py` to resolve a pack), the packs (`runtime/plan.py` runs `scripts/select_skills.py` as a subprocess), the flow files and a few sentences of a skill's text that its classifier and merge read, each bound by a test (`runtime/tests/test_skill_text_binding.py`); the router, which reads the frontmatter of the skill it routes to and its own copies of the class and owner tables.

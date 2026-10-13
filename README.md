@@ -44,7 +44,7 @@ providers/          native implementations of requirement classes, resolved by p
                     messenger:<platform>, scheduler:job, store:runtime, integration:vcs, integration:issue-tracker, integration:documents;
                     the interface is providers/CONTRACT.md
 templates/          capability.SKILL.md, flow.SKILL.md and agent.md, used by scripts/new-skill.sh
-packs/              installation subsets: default (every area but the optional ones), all, assistant, business, brand, design, planning, code, marketing
+packs/              installation subsets: default (every area but the optional ones), all, assistant, business, brand, design, planning, code, marketing, content
 adapters/           one folder per AI tool: claude-code and agents-dir install the skills; api runs the agent runtime with one model call and no tools;
                     openclaw is documentation only (the runtime's MCP mode from an OpenClaw gateway), not an adapter
 evals/              the eval harness: eval_run.py (the runner), executor.py and container/ (every run executes in a container),

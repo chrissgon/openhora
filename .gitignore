@@ -23,3 +23,8 @@ __pycache__/
 
 # The site's demo is built at deploy time by scripts/build_demo.py (netlify.toml)
 site/demo/
+
+# The WhatsApp program is built by providers/messenger/whatsapp.py into the state folder, never here; a `go build` or
+# `go test -c` run by hand in its source folder must not be committed
+/providers/messenger/whatsapp/whatsapp
+/providers/messenger/whatsapp/whatsapp.test

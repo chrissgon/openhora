@@ -4,6 +4,8 @@
 
 import * as fm from "./floor-model.js";
 import * as model from "./model.js";
+import { owlTargets } from "./owl-words.js";
+import { asking } from "./scene/room-words.js";
 import { seatsOf } from "./seats.js";
 
 /**
@@ -24,6 +26,7 @@ export function worldModel(snapshot, now, { selectedId = null, marked = null, fo
     };
   }).filter((lot) => lot.floors.length > 0);
   const there = focus && lots.some((l) => l.id === focus) ? focus : null;
+  let roomOut = there && floor ? room : null;
   // The words of a room may carry its own state (the Lobby is working while a turn runs), its decisions, its documents' count (and the sheets and drawers older code reads): they replace the
   // snapshot's for that one floor.
   if (there && floor && room) {
@@ -34,14 +37,25 @@ export function worldModel(snapshot, now, { selectedId = null, marked = null, fo
       const state = room.state || f.state;
       lot.floors[at] = {
         // the seats follow the room's own state (the Lobby works while a turn runs): the holders are the floor's, the owl of a floor with none is by the state
-        ...f, state, seats: state !== f.state ? seatsOf(f.holders, { state, accepted: lot.accepted, maxParallel: f.maxParallel }) : f.seats, window: room.window || f.window, decisions: room.decisions !== undefined ? room.decisions : f.decisions,
+        ...f, state, seats: state !== f.state ? seatsOf(f.holders, { state, accepted: lot.accepted, maxParallel: f.maxParallel }) : f.seats, window: room.window === "lit" || f.window === "lit" ? "lit" : room.window || f.window, decisions: room.decisions !== undefined ? room.decisions : f.decisions,
         sheets: room.sheets || f.sheets, drawers: room.drawers !== undefined ? room.drawers : f.drawers,
         documents: room.documents !== undefined ? room.documents : f.documents,
+      };
+      // each owl of the room is selected on its own (PAR-7e): its words and its destination, from the seats just settled, the agent's tasks and its open decisions
+      const detail = snapshot.details[there];
+      const status = detail && detail.status ? detail.status : null;
+      const shown = lot.floors[at];
+      roomOut = {
+        ...room,
+        owls: owlTargets({
+          seats: shown.seats, tasks: status ? fm.agentTasks(status, floor) : [], decisions: status ? fm.agentDecisions(status, floor) : [],
+          floorTip: room.tips && room.tips.agent, asks: asking(shown),
+        }),
       };
     }
   }
   return {
     ready, selectedId, marked: marked && lots.some((l) => l.id === marked) && !there ? marked : null, outlined: there && floor ? `floor:${floor}` : null,
-    focus: there, floor: there ? floor : null, frame: there ? frame : null, room: there && floor ? room : null, lots, label: city.canvasLabel,
+    focus: there, floor: there ? floor : null, frame: there ? frame : null, room: roomOut, lots, label: city.canvasLabel,
   };
 }
