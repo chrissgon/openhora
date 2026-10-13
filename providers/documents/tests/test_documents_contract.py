@@ -6,6 +6,7 @@ Run: uv run --with pytest==9.1.1 pytest providers/documents/tests
 """
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import os
@@ -81,6 +82,19 @@ def test_a_document_that_was_written_is_read_back_as_the_harness_expects(documen
     got = documents.read(out["id"])
     assert got["markdown"] == documents.harness.expected(TEXT) and got["version"] == out["version"]
     assert got["comments"] == []
+
+
+def test_a_write_says_the_hash_of_the_text_a_read_prints_after_it_dry_run_included(documents):
+    # The mirror tells its own write from a person's edit with it, when the read back lagged or the answer was lost.
+    expected = hashlib.sha256(documents.harness.expected(TEXT).encode("utf-8")).hexdigest()
+    code, planned, err = documents.write(TEXT, mode="--dry-run")
+    assert code == 0 and planned["would"]["expected_sha256"] == expected, err
+    code, out, err = documents.write(TEXT)
+    assert code == 0 and out["expected_sha256"] == expected, err
+    read = documents.read(out["id"])["markdown"]
+    assert hashlib.sha256(read.encode("utf-8")).hexdigest() == expected
+    code, out, err = documents.write(TEXT, ident=out["id"], notice="Read-only here.")
+    assert code == 0 and out["expected_sha256"] == expected, err  # the notice is never part of what is read
 
 
 def test_a_write_replaces_the_whole_document(documents):
