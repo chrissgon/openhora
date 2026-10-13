@@ -27,7 +27,7 @@ Read by: `mkt-social-copy`, at the step that writes the script.
 
 The texts of a parameter with several items are written on one line, separated by a vertical bar with a space on each side: `Review | Adjust | Celebrate`. An item holds no vertical bar.
 
-A parameter of type `image` or `clip` written as `image|clip` takes either: the description says which ("a screenshot", "a short screen recording").
+A parameter of type `image or clip` takes either: the description says which ("a screenshot", "a short screen recording").
 
 A script has at most 12 beats and a spoken line of at most 240 characters.
 

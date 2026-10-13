@@ -3,7 +3,7 @@
 
 Usage:
   python3 check_script.py --content docs/marketing/content/2027-10-13-slug.md \
-      --presets <skills folder>/../../shared/references/video-presets.json
+      --presets <skills folder>/../../shared/references/video-presets.json [--format reel] [--max-items 10]
 
 The content file carries the script of a short video in one fenced block named script: beats, each a run of
 `key: value` lines that starts with `beat: <n>` (numbered 1, 2, 3 ...), and beats separated by a blank line.
@@ -19,6 +19,8 @@ description of what to show, never as a path or a link. A beat holds no time of 
 
 What it checks, against the vocabulary file (the one source of the presets):
   - exactly one script block; beat numbers in order; at most the vocabulary's number of beats;
+  - with --format carousel or static, a beat holds only `beat` and `line` (no preset, no on-screen, no asset), a
+    static post has one beat, and with --max-items a carousel has at most that many;
   - every beat has a `line`; the preset is in the vocabulary; only the parameters the preset declares are
     written; required ones are present; the main parameter is written as `on-screen`, never under its own name;
   - every value fits its type and bounds: text (length, number of items, pattern), icon, colour token and
@@ -46,6 +48,8 @@ REFUSED_CATEGORIES = {"Cc", "Cf", "Zl", "Zp"}
 TIME_FIELDS = {"start", "end", "at", "time", "times", "timing", "timestamp", "duration", "delay", "in", "out",
                "from", "to", "seconds", "ms", "offset", "length", "when"}
 RESERVED = {"beat", "line", "on-screen", "preset"}
+FORMATS = ("reel", "video", "carousel", "static")
+IMAGE_FORMATS = ("carousel", "static")
 
 # A time written inside a text: m:ss, a range of seconds, a duration in brackets.
 TIMESTAMP = re.compile(r"\b\d{1,2}:\d{2}(?::\d{2})?\b")
@@ -55,7 +59,15 @@ TIME_BRACKET = re.compile(r"[\[(]\s*\d+(?:\.\d+)?\s*(?:s|sec|secs|seconds?|ms)\s
 TIME_WORDS = re.compile(r"\b(?:\d+(?:\.\d+)?\s*-?\s*)?(?:ms|secs?|seconds?|minutes?|mins?|hours?|hrs?|frames?|fps)\b"
                         r"|\btimestamps?\b", re.I)
 # A path, a link or a file name in a slot description.
-PATHLIKE = re.compile(r"[\\/~]|\.\.|\b[A-Za-z]:\\|\.(?:png|jpe?g|webp|gif|svg|heic|mp4|mov|m4v|pdf)\b", re.I)
+FILE_EXTENSIONS = ("png", "jpg", "jpeg", "webp", "gif", "svg", "bmp", "tif", "tiff", "heic", "heif", "mp4", "mov", "m4v",
+                   "mkv", "webm", "avi", "pdf", "csv", "tsv", "xlsx", "xls", "ods", "docx", "doc", "pptx", "ppt", "key",
+                   "numbers", "pages", "txt", "md", "json", "xml", "yaml", "yml", "zip", "gz", "tar", "html", "htm")
+# A backslash, a home or parent folder, a drive letter, a path that starts with / or ./, three or more segments, a
+# segment with a dot extension, a file name with a known extension, or a camera-style name. A single / between words
+# ("dashboard/chart", "and/or") is not path-like.
+PATHLIKE = re.compile(r"[\\~]|\.\.|\b[A-Za-z]:\\|(?:^|\s)\.?/|\S+/\S+/\S+|[\w-]+\.\w{1,5}/|/[\w-]*\.\w{1,5}\b"
+                      r"|\.(?:" + "|".join(FILE_EXTENSIONS) + r")\b"
+                      r"|\b(?:IMG|DSC|DSCN|MVI|PXL|VID|MOV)[_-]?\d{3,}|\bScreen(?:shot|\s?Recording)\s+\d{4}", re.I)
 LINKLIKE = re.compile(r"\b(?:https?|ftp|file|data|blob|javascript):|\bwww\.|\b[\w-]+\.(?:com|dev|io|org|net|app|br|ly|co|ai|me|"
                       r"example|test|local)\b", re.I)
 
@@ -201,7 +213,7 @@ def parse(block: str):
     return beats, problems
 
 
-def check(block: str, vocab: dict):
+def check(block: str, vocab: dict, fmt=None, max_items=None):
     beats, problems = parse(block)
     out_beats, slots = [], []
     limits = vocab["limits"]
@@ -209,6 +221,10 @@ def check(block: str, vocab: dict):
         problems.append({"beat": None, "field": "beat", "code": "no_beats"})
     if len(beats) > limits["beats_max"]:
         problems.append({"beat": None, "field": "beat", "code": "too_many_beats"})
+    if fmt == "static" and len(beats) > 1:
+        problems.append({"beat": None, "field": "beat", "code": "static_has_one_beat"})
+    if fmt in IMAGE_FORMATS and max_items is not None and len(beats) > max_items:
+        problems.append({"beat": None, "field": "beat", "code": "too_many_items"})
 
     for b in beats:
         n, fields = b["n"], b["fields"]
@@ -228,6 +244,12 @@ def check(block: str, vocab: dict):
                 plain_text(fields["line"], limits["line_max"])
             except Problem as e:
                 bad("line", e.code)
+        if fmt in IMAGE_FORMATS:
+            for key in fields:
+                if key not in ("line",):
+                    bad(key, "not_in_image_format")
+            out_beats.append({"beat": n, "preset": None, "on_screen": None})
+            continue
         preset_name = fields.get("preset")
         spec = None
         if preset_name is not None:
@@ -293,6 +315,10 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--content", required=True, help="the post file that holds the ```script block")
     p.add_argument("--presets", required=True, help="video-presets.json, the preset vocabulary")
+    p.add_argument("--format", choices=FORMATS, default=None,
+                   help="the post's format; carousel and static beats hold only `beat` and `line`, a static post one beat")
+    p.add_argument("--max-items", type=int, default=None,
+                   help="the most beats (images) a carousel may have, from the reference's Items: line")
     a = p.parse_args(argv)
     try:
         vocab = load_vocabulary(a.presets)
@@ -300,7 +326,7 @@ def main(argv=None) -> int:
     except (OSError, ValueError) as e:  # a missing file, bytes that are not UTF-8, no or a broken block
         print(f"error: {e}", file=sys.stderr)
         return 2
-    beats, slots, problems = check(block, vocab)
+    beats, slots, problems = check(block, vocab, a.format, a.max_items)
     json.dump({"ok": not problems, "beats": beats, "slots": slots, "problems": problems}, sys.stdout,
               ensure_ascii=False, indent=1)
     print()

@@ -180,10 +180,37 @@ def test_a_colour_is_a_palette_token_never_a_free_value(run):
     ("the demo from 0:12", "time_value"),
     ("a 30-second screen recording", "time_value"),
     ("the clip, first five seconds", "time_value"),
+    ("/Users/me/chart", "slot_path"),
+    ("./chart", "slot_path"),
+    ("exports/2027/chart", "slot_path"),
+    ("exports/chart.csv", "slot_path"),
+    ("chart.v2/final", "slot_path"),
+    ("sales.xlsx", "slot_path"),
+    ("the export, monthly.csv", "slot_path"),
+    ("budget.xls", "slot_path"),
+    ("notes.docx", "slot_path"),
+    ("recording.mkv", "slot_path"),
+    ("clip.webm", "slot_path"),
+    ("photo.heic", "slot_path"),
+    ("a photo, picture.HEIF", "slot_path"),
+    ("data.json", "slot_path"),
+    ("backup.zip", "slot_path"),
+    ("IMG_4021", "slot_path"),
+    ("DSC_00123 from my phone", "slot_path"),
+    ("PXL-20271105", "slot_path"),
+    ("Screenshot 2027-11-05 at the desk", "slot_path"),
 ])
 def test_a_slot_description_holds_words_only(run, description, code):
     r, out = run(GOOD.replace("asset: a screenshot of the budgeting dashboard", f"asset: {description}", 1))
     assert r.returncode == 1 and any(p["field"] == "asset" and p["code"] == code for p in out["problems"]), out
+
+
+@pytest.mark.parametrize("description", ["the dashboard/chart split view", "a bill and/or a receipt",
+                                         "a screenshot of the dashboard", "a short screen recording of the review",
+                                         "a photo of my notebook, open on the budget page"])
+def test_a_slot_description_in_plain_words_passes_even_with_one_slash(run, description):
+    r, out = run(GOOD.replace("asset: a screenshot of the budgeting dashboard", f"asset: {description}", 1))
+    assert r.returncode == 0, out
 
 
 @pytest.mark.parametrize("field", ["start", "end", "at", "time", "duration", "delay", "timestamp", "in", "out"])
@@ -260,6 +287,51 @@ def test_the_number_of_beats_and_the_length_of_a_line_are_bounded(run):
     assert (None, "beat", "too_many_beats") in codes(out)
     r, out = run("beat: 1\nline: " + "w" * 241 + "\n")
     assert (1, "line", "text_too_long") in codes(out)
+
+
+CAROUSEL = "beat: 1\nline: Slide one text.\n\nbeat: 2\nline: Slide two text.\n"
+
+
+def run_with(path_run, text, *flags, tmp_path):
+    path = tmp_path / "post.md"
+    path.write_text(content(text), encoding="utf-8")
+    r = subprocess.run([sys.executable, str(SCRIPT), "--content", str(path), "--presets", str(PRESETS), *flags],
+                       capture_output=True, text=True, timeout=60)
+    return r, (json.loads(r.stdout) if r.stdout.strip() else None)
+
+
+def test_image_formats_hold_only_a_line_per_beat(run, tmp_path):
+    for fmt in ("carousel", "static"):
+        r, out = run_with(run, "beat: 1\nline: Only slide.\n", "--format", fmt, tmp_path=tmp_path)
+        assert r.returncode == 0 and out["ok"] is True, out
+    r, out = run_with(run, CAROUSEL, "--format", "carousel", tmp_path=tmp_path)
+    assert r.returncode == 0 and [b["preset"] for b in out["beats"]] == [None, None]
+    for extra, field in (("preset: keyword", "preset"), ("on-screen: Hi", "on-screen"), ("asset: a chart", "asset"),
+                         ("icon: coin", "icon"), ("start: 3", "start")):
+        r, out = run_with(run, f"beat: 1\nline: A slide.\n{extra}\n", "--format", "carousel", tmp_path=tmp_path)
+        assert (1, field, "not_in_image_format") in codes(out) and r.returncode == 1, extra
+    r, out = run_with(run, "beat: 1\npreset: keyword\nline: x\non-screen: y\n", "--format", "static", tmp_path=tmp_path)
+    assert (1, "preset", "not_in_image_format") in codes(out)
+
+
+def test_a_static_post_has_one_beat_and_a_carousel_respects_max_items(run, tmp_path):
+    r, out = run_with(run, CAROUSEL, "--format", "static", tmp_path=tmp_path)
+    assert (None, "beat", "static_has_one_beat") in codes(out)
+    r, out = run_with(run, CAROUSEL, "--format", "carousel", "--max-items", "2", tmp_path=tmp_path)
+    assert r.returncode == 0
+    r, out = run_with(run, CAROUSEL, "--format", "carousel", "--max-items", "1", tmp_path=tmp_path)
+    assert (None, "beat", "too_many_items") in codes(out)
+
+
+def test_video_formats_and_no_format_check_as_before(run, tmp_path):
+    for flags in ((), ("--format", "reel"), ("--format", "video")):
+        r, out = run_with(run, GOOD, *flags, tmp_path=tmp_path)
+        assert r.returncode == 0 and out["ok"] is True, flags
+    r, out = run_with(run, GOOD, "--format", "reel", "--max-items", "1", tmp_path=tmp_path)
+    assert r.returncode == 0  # the limit is for a carousel
+    r = subprocess.run([sys.executable, str(SCRIPT), "--content", str(tmp_path / "post.md"), "--presets", str(PRESETS),
+                        "--format", "story"], capture_output=True, text=True, timeout=60)
+    assert r.returncode == 2 and "Traceback" not in r.stderr
 
 
 def test_a_missing_or_broken_block_or_file_is_a_usage_error(run, tmp_path):
