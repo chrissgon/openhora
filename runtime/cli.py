@@ -35,6 +35,9 @@ Usage:
   python3 runtime/cli.py verdict  --project <dir> --run <run id> --word worked|corrected|failed
   python3 runtime/cli.py sync     --project <dir> [--dry-run] [--take page|project --path <relative path>]
   python3 runtime/cli.py hand-over --project <dir> --task <task id> --file <path>
+  python3 runtime/cli.py media-in --project <dir> --file <path> [--recording <id>] [--slot <slot id>]
+  python3 runtime/cli.py media-list --project <dir> [--recording <id>]
+  python3 runtime/cli.py media-purge --project <dir> [--recording <id>]
   python3 runtime/cli.py progress --project <dir> [--since 7d | <n>d | YYYY-MM-DD]
   python3 runtime/cli.py approve-policy --project <dir> --file <docs/...> --agent <name> [--sha256 <hash> --expires <YYYY-MM-DD>] [--what <text>]
   python3 runtime/cli.py revoke-policy --project <dir> --id <approval id>
@@ -163,6 +166,18 @@ hand-over copies one file of yours into the task's file drop, <project>/.workben
           file holding what looks like a credential, and a git project that does not ignore .workbench-local/. A task
           whose skill uses the web takes the file too (the maintainer's decision: the file is the person's own choice)
           and the answer carries "web": true and the line "this file will be visible to a run with the open network".
+media-in  takes a recording from disk into the media store, <data_dir>/media/ (outside the project): the same function the page's
+          upload uses. The type is read from the file's bytes (an MP4 or MOV; a HEIC photo is refused), the size is bounded
+          (1 GiB), a recording lasts at most 300 s, has exactly one video stream and at most one audio stream (data and metadata
+          streams are ignored) and is not HDR. It is hashed (sha256) as it is stored. Without --recording a recording id is
+          issued and printed; with one, the file is attached to that recording, which has no file yet. With --slot (an id issued
+          by code for the recording) the file is that slot's asset: an image (PNG, JPEG, WebP) or a clip (MP4, MOV, at most 60 s).
+          It needs ffprobe (ffmpeg) on the PATH. A link, a folder and a file that is not media are refused. It starts no task.
+media-list  the recordings of the media store with their status, their raw file's facts (never a path), their post files and slots,
+          the dates the retention reads, and the store's use of its limits.
+media-purge  applies the retention now, in code, with no model: what is due goes (a raw recording 7 days after its post was published
+          or cancelled, a render 30 days after publication, an abandoned post 30 days after its last change), with the edit task's
+          run folders. With --recording, that recording whatever its age. A dispatcher round does the same at its start.
 deps      installs the dependency sets of runtime.json ("dependencies") by code, with no model: in the eval
           image, in a step that sees only the dependency files, on the open network; the result is cached under
           the data folder by the files and the image, and a run whose copy holds versioned files gets a copy of it.

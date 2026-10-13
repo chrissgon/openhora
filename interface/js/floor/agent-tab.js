@@ -16,6 +16,7 @@ import { icon } from "../frame/icons.js";
 import { trackNode } from "../scene/plates.js";
 import { runsSection } from "./run-block.js";
 import { fileRefusal, handChooser, handOverStep, toBase64 } from "./hand-file.js";
+import { MEDIA_LABEL, isMediaFile, mediaHintText, pickRefusal, progressBar, storedLine, uploadRecording } from "./media-upload.js";
 import { createTaskActions } from "./task-actions.js";
 import { busyLine, chip, errorText, notice, ring, withheldLine } from "./widgets.js";
 import { reader } from "../permissions.js";
@@ -290,11 +291,12 @@ export function createAgentTab(env) {
   // --- hand a file over ------------------------------------------------------------------------------------------------------------
   const fileInput = h("input", { class: "pui-input wb-file", type: "file", "data-key": "file" });
   const hint = h("span", { class: "wb-hint wb-muted wb-cur-sub", text: "At most 25 MiB." });
+  const mediaHint = h("span", { class: "wb-media-hint wb-muted wb-cur-sub", text: mediaHintText() });      // a video is attached on the Mac, through the media route
   const handResult = h("div", { class: "wb-hand-result" });
   const dropLine = h("p", { class: "wb-drop-line", role: "note", hidden: true, text: "" });     // the line of a web task, above the chooser: seen before a file is chosen
   const chooser = handChooser({ input: fileInput, line: dropLine, hint });
   const handStep = h("div", { class: "wb-hand-steps" });     // the second step: the chosen file's name and the button (C-17)
-  fill(handBox, chooser.nodes.slice(0, 4), handStep, hint, handResult, handLine);
+  fill(handBox, chooser.nodes.slice(0, 4), handStep, hint, mediaHint, handResult, handLine);
   const drops = new Map();       // task id -> the `drop` of its body ({web, takes, line}), or null: read once, as the review card does
   let target = null;
   let picked = null;       // the file chosen, held until the button sends it (C-17); choosing sends nothing
@@ -302,13 +304,13 @@ export function createAgentTab(env) {
   let sending = false;
 
   function drawStep() {
-    fill(handStep, picked ? handOverStep(picked, pickedFor, sendFile, { disabled: sending || locked }) : null);
+    fill(handStep, picked ? handOverStep(picked, pickedFor, sendFile, { disabled: sending || locked, label: isMediaFile(picked) ? MEDIA_LABEL : undefined }) : null);
   }
 
   fileInput.addEventListener("change", () => {
     const file = fileInput.files && fileInput.files[0];
     if (!file || !target || sending) return;
-    const refusal = fileRefusal(file.name, file.size);
+    const refusal = pickRefusal(file, fileRefusal, { may: can("media-in") });
     if (refusal) {
       picked = null;
       pickedFor = null;
@@ -326,15 +328,23 @@ export function createAgentTab(env) {
   async function sendFile() {
     const file = picked;
     const to = pickedFor;
-    if (!file || to === null || sending || !can("hand-over")) return;
+    const media = isMediaFile(file);
+    if (!file || to === null || sending || !can(media ? "media-in" : "hand-over")) return;
     sending = true;
     fileInput.disabled = true;
     drawStep();
-    fill(handResult, busyLine("Sending..."));
+    const bar = media ? progressBar() : null;
+    fill(handResult, busyLine(media ? "Uploading..." : "Sending..."), bar ? bar.node : null);
     try {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      const result = await env.api.handOver(env.project, to, file.name, toBase64(bytes));
-      fill(handResult, h("p", { class: "wb-card-line", role: "status", text: `Handed over: ${result.path} (${result.bytes} bytes)` }));
+      let line;
+      if (media) {      // a video, or a file over 25 MiB: its own bytes to the media route with a progress bar, never base64 (the Mac only)
+        line = storedLine(await uploadRecording(env.api, env.project, file, { bar }));
+      } else {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const result = await env.api.handOver(env.project, to, file.name, toBase64(bytes));
+        line = `Handed over: ${result.path} (${result.bytes} bytes)`;
+      }
+      fill(handResult, h("p", { class: "wb-card-line", role: "status", text: line }));
       picked = null;
       pickedFor = null;
       fileInput.value = "";
@@ -383,7 +393,7 @@ export function createAgentTab(env) {
     hint.textContent = target ? `To task #${target.id}. At most 25 MiB.` : "This agent has no task to hand a file to.";
     // the policy withholds `hand-over`: the chooser is left out and the line says so (the other parts of the box stay as they are)
     const mayHand = can("hand-over");
-    for (const node of [...chooser.nodes.slice(0, 4).filter((n) => n !== dropLine), handStep, hint, handResult]) node.hidden = !mayHand;
+    for (const node of [...chooser.nodes.slice(0, 4).filter((n) => n !== dropLine), handStep, hint, mediaHint, handResult]) node.hidden = !mayHand;
     fill(handLine, mayHand || !target ? null : withheldLine(["hand-over"]));      // only when there is a task to hand a file to
     if (target) loadDrop(view);
     drawHandLine();

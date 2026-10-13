@@ -72,6 +72,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/lab.py` | The lab facade: the one file of runtime/ that talks to the lab (evals/execution.py, the execution kit). |
 | `runtime/manifest.py` | The runtime manifest of a skill: skills/&lt;name&gt;/evals/runtime-manifest.json, read and checked. |
 | `runtime/mcp.py` | The MCP mode: the operations layer of runtime/ops.py served as tools of a Model Context Protocol server over standard input and output. |
+| `runtime/media.py` | The media store: where a person's recording (and the images and clips of a post's slots) lives, how it gets in, and when it is deleted. |
 | `runtime/messaging.py` | The messaging bridge: the operations layer of runtime/ops.py reached from a messaging app the person already uses, with no model between the app and the operations. |
 | `runtime/messaging_bridge.py` | The messaging bridge's logic (runtime/messaging.py is its shell): notices out, intents in, every operation through one call path. |
 | `runtime/messaging_cards.py` | A notice as a platform-neutral card (runtime/messaging.py): a pending decision becomes {"text", "actions", "link", "document"}, the message every messenger provider takes (providers/messenger/README.md), plus what the bridge needs to bind a tap to it. |
@@ -82,6 +83,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/ops.py` | The operations layer of the task runtime: every operation a person or a scheduler can perform, once. |
 | `runtime/ops_config.py` | The configuration's acceptance in the operations layer: who may accept a change of docs/workbench/runtime.json, and the two operations that change or accept it. |
 | `runtime/ops_core.py` | The names every module of the operations layer shares, once: the checkout (ROOT), the refusal (OpsError), the project's context and the store call, the locks, the runtime's own key and the data-folder names. |
+| `runtime/ops_media.py` | The operations of the media store (runtime/media.py): `media-in`, `media-list` and `media-purge`, and the two helpers the shells and the dispatcher's round call: `media_receive` (the local service's streaming route: a body that is a stream, not a JSON argument) and `purge_round`. |
 | `runtime/ops_reads.py` | The reads of the local interface and the signals of the local service: the change signal of the store (`version`), the stop of the runs a process started, the conversation's commands as rows (`commands`), the agents with their day, the conversation's messages, the skills with their proof, the costs, the connections, the service's start check and the project's artifacts. |
 | `runtime/ops_runs.py` | The runs of tasks: one task run (`run_task`), the person's verb that picks one (`run_next`), the dispatcher's round (`dispatch`), and the processes the round starts. |
 | `runtime/ops_say.py` | The conversation with the planning agent: one turn of it (`say`) and the memory a plain line carries to the router. |
@@ -415,6 +417,9 @@ The limit's text and the stage that built it come from the contract's table; the
 | `artifact` | `--path` | `artifact` |
 | `stop-runs` | `[--all]` | `stop_runs` |
 | `service-check` | `[--dispatch-every]` | `service_check` |
+| `media-in` | `[--recording]` `--file` `[--slot]` | `media_in` |
+| `media-list` | `[--recording]` | `media_list` |
+| `media-purge` | `[--recording]` | `media_purge` |
 <!-- /generated -->
 
 The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-run`, `dispatch`, and `say` for a new request. The row of `release` says no model and carries `job`, yet releasing a brief routes its delivery again, which runs the router (`ops._after_release`).
@@ -491,6 +496,9 @@ The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-
 | `commands` | `commands` | page | no | the commands of the conversation as rows, command, arguments and help line, in the order /help prints them (the page lists them when the person types /) |
 | `stop_runs` | `stop-runs` | terminal | no | end the runs this process started (the local service calls it before it exits); with --all, every task run of the project that a live process holds |
 | `service_check` | `service-check` | terminal | no | what the local service checks at its start: the secret store, the credential, docker, the eval image and whether it dispatches (the service calls it for each project) |
+| `media_in` | `media-in` | terminal, page | no | take a recording (or, with a slot, the image or clip of an asset slot) from disk into the media store: type read from the bytes, hashed, bounded; without a recording id one is issued |
+| `media_list` | `media-list` | terminal, page | no | the recordings of the media store with their status, file facts, slots and retention dates, and the store's use of its limits |
+| `media_purge` | `media-purge` | terminal | no | apply the retention to the media store now, in code: what is due goes, with the edit task's run folders; with a recording id, that recording whatever its age |
 <!-- /generated -->
 
 **The dispatcher's jobs**, `/usr/bin/python3 runtime/dispatcher.py <verb> --project <dir> [--pin <file>]`, run by the scheduler from a copy kept in the job folder:

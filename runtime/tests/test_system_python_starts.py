@@ -48,7 +48,9 @@ BUILT_ELSEWHERE = {"runtime/effects.py": "def provider_call", "runtime/handlers/
                    # the ported social agent (WP-7.1): its run() and call() take a list built by the callers
                    "runtime/handlers/social.py": "def parser_cmd", "runtime/handlers/social_vote_job.py": "def main(",
                    # the bridge's child (MSG-3a): Popen takes the list command() builds
-                   "runtime/service_bridge.py": "def command("}
+                   "runtime/service_bridge.py": "def command(",
+                   # the media store reads a video's streams with ffprobe, found on the PATH (the renderer's tool); the list is built in probe()
+                   "runtime/media.py": "argv = [tool,"}
 
 
 def system_list() -> list:

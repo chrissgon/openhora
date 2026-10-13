@@ -30,3 +30,9 @@ export async function transport(url, init = {}) {
   const answer = await world.handle(method, path, new URLSearchParams(text), body);
   return json(answer.status, answer.body);
 }
+
+/** The upload variant of the real transport: the demo takes no file in, and says so as the service would refuse it. */
+export async function transportUpload(url, init = {}, onProgress) {
+  if (init.signal && init.signal.aborted) throw new DOMException("aborted", "AbortError");
+  return json(409, { error: "refused", message: "This demonstration takes no recording." });
+}

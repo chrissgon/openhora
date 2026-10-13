@@ -137,6 +137,11 @@ Operations of stage 9 (the local service, runtime/service.py, is one more shell 
   say, route                       while the router answers another request (it holds the route lock) a line, or a request to
                                    route, is queued (runtime/ops_say.py) instead of refused; route_queued answers the oldest
 
+Operations of the media store (runtime/ops_media.py; the page's streaming intake is the service's route POST /projects/<id>/media):
+  media_in(project, recording, file, slot)   a recording (or an asset slot's image or clip) from disk into <data_dir>/media/
+  media_list(project[, recording])   the store's recordings, their facts and retention dates, and its use of its limits
+  media_purge(project[, recording])  the retention (D7) now, in code; a dispatcher round runs it too (media_purge_round)
+
 Code comes back as a change set (runtime/changeset.py, limits L9 and L11): a run of a code task (its skill is of a
 code area, code_task) whose copy holds versioned files starts only when the project's tracked files have no
 uncommitted change, from the project's files plus the newest unblocked change set of its request; what it did to
@@ -2683,6 +2688,9 @@ from ops_config import accept_config, set_mode  # noqa: E402,F401
 from ops_reads import agents, artifact, artifact_raw, artifacts, connections, conversation, costs, service_check, skills  # noqa: E402,F401
 from ops_reads import commands, stop_runs, version  # noqa: E402,F401
 from ops_reads import ARTIFACT_MAX_BYTES  # noqa: E402,F401
+# The media store (runtime/ops_media.py, runtime/media.py): the operations media-in, media-list and media-purge, the local
+# service's streaming intake and the dispatcher round's retention.
+from ops_media import media_in, media_list, media_purge, media_receive, purge_round as media_purge_round  # noqa: E402,F401
 
 
 if __name__ == "__main__":

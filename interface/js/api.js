@@ -9,7 +9,7 @@
 // hands the request to transport.js (the page's single network call).
 
 import { getToken } from "./token.js";
-import { transport } from "./transport.js";
+import { transport, transportUpload } from "./transport.js";
 
 const PREFIX = "/api/v1";
 const TOKEN_FILE = "/token-file";   // the one path outside PREFIX: it needs no token, so the page can show where the token file is before it has one
@@ -17,7 +17,7 @@ const TOKEN_FILE = "/token-file";   // the one path outside PREFIX: it needs no 
 // The words the service gives an error (runtime/service.py WORDS), by status, for a body that carries none.
 const WORD_OF_STATUS = {
   400: "usage", 401: "token", 403: "host", 404: "not_found", 405: "method", 409: "refused", 411: "length",
-  412: "not_configured", 413: "too_large", 415: "content_type", 500: "internal", 503: "stopping",
+  412: "not_configured", 413: "too_large", 415: "content_type", 500: "internal", 503: "stopping", 507: "no_space",
 };
 
 /** An answer the service refused, or a request that did not get one (status 0, word "network"). */
@@ -90,13 +90,19 @@ async function send(method, path, options = {}) {
     // Origin of a POST as `null`, which the service refuses. Same-origin keeps the real Origin and sends a referrer to this service alone.
     referrerPolicy: "same-origin", signal: options.signal,
   };
-  if (method === "POST") {
+  if (method === "POST" && options.blob) {
+    // the media route (rule 5's exception): the file's own bytes, never base64, with a progress report; the Content-Length is the browser's
+    headers["Content-Type"] = "application/octet-stream";
+    Object.assign(headers, options.headers || {});
+    init.body = options.blob;
+  } else if (method === "POST") {
     headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(options.body || {});
   }
+  const move = options.progress ? (u, i) => transportUpload(u, i, options.progress) : (u, i) => transport(u, i);
   let response;
   try {
-    response = await transport(url, init);
+    response = await move(url, init);
   } catch (e) {
     if (e && e.name === "AbortError") throw e;
     throw new ApiError(0, "network", "The service could not be reached. Is it still running?");
@@ -239,6 +245,23 @@ export function goAhead(p, id, { dropAfter, signal } = {}) {
 /** POST /projects/{p}/tasks/{id}/files: hand a file to a task, {name, content_base64}. */
 export function handOver(p, id, name, contentBase64, options = {}) {
   return send("POST", `/projects/${enc(p)}/tasks/${enc(id)}/files`, { body: { name, content_base64: contentBase64 }, signal: options.signal });
+}
+
+/**
+ * POST /projects/{p}/media: stream a recording (or, with `slot`, the file of an asset slot of `recording`) to the media store. The body is the
+ * file's own bytes (application/octet-stream), so it is never held whole in memory; `onProgress(sent, total)` reports the upload. The service
+ * answers on the loopback socket only. Returns {recording, kind, slot, name, bytes, sha256, type, facts}.
+ */
+export function uploadMedia(p, file, { recording, slot, onProgress, signal } = {}) {
+  const headers = { "X-File-Name": encodeURIComponent(file.name) };
+  if (recording) headers["X-Recording-Id"] = recording;
+  if (slot) headers["X-Slot-Id"] = slot;
+  return send("POST", `/projects/${enc(p)}/media`, { blob: file, headers, progress: typeof onProgress === "function" ? onProgress : () => {}, signal });
+}
+
+/** GET /projects/{p}/media: {recordings: [...], usage, retention, limits}; with `recording`, that one. */
+export function mediaList(p, { recording, signal } = {}) {
+  return send("GET", `/projects/${enc(p)}/media`, { query: { recording }, signal });
 }
 
 /** POST /projects/{p}/runs/{id}/verdict: {word}. */

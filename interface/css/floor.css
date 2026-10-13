@@ -96,6 +96,8 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
 .wb-hand-name { grid-column: 2; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .wb-hand-send { grid-column: 1 / -1; justify-content: center; }
 .wb-hand > .wb-hint { font-size: 12px; }
+.wb-hand > .wb-media-hint { font-size: 12px; }     /* what a video needs: it is attached on the Mac, through the media route */
+.wb-media-progress { width: 100%; height: 10px; accent-color: var(--pui-accent, currentColor); }     /* the upload's progress: a native progress element, drawn once and moved */
 .wb-hand > .wb-file { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); opacity: 0; }
 .wb-hand-steps:empty { display: none; }
 .wb-hand-chosen { font-family: var(--wb-font-mono); overflow-wrap: anywhere; }

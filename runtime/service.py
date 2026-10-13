@@ -96,6 +96,15 @@ The rules of a request, in this order, each a refusal unless the request satisfi
      of a 25 MiB file), else 415 "content_type", 411 "length" or 413 "too_large". Its body is one JSON object whose keys
      are the arguments of the operation's row in the table (runtime/operations.py), by name; an unknown key, a repeated
      key, a wrong type or a missing required one is 400 "usage". No query string is read except a route's own.
+     THE ONE EXCEPTION: POST /projects/<id>/media, the streaming intake of a recording or of an asset slot's file
+     (runtime/media.py). It needs Content-Type application/octet-stream (else 415 "content_type") and a Content-Length
+     (else 411 "length"), and its body is raw bytes, never JSON and never base64, never whole in memory: the operation
+     bounds the Content-Length before it reads one byte (413 "too_large"), reads the type from the bytes (415
+     "media_type"), refuses a full disk (507 "no_space") and another upload at once (409 "refused"), and writes the body
+     to disk in chunks (`media_receive`). Its arguments are headers, each once: X-Recording-Id and X-Slot-Id (both
+     issued by code) and X-File-Name (percent-encoded UTF-8, a label only). It is answered on the loopback socket only:
+     a request that arrived on the LAN socket of --lan, or whose Host is not a loopback one, gets the 404 of a service
+     with no such route (a recording must not cross the network as plain HTTP). Every other POST still needs JSON.
   6. An unknown path is 404 "not_found", a known path with another method 405 "method", an unknown project id 404.
   7. One route calls one operation and returns what it returned, unchanged, with 200. OpsError code 1 is 409
      "refused", 2 is 400 "usage", 3 is 412 "not_configured"; anything else is 500 "internal" (the traceback on stderr
@@ -159,6 +168,7 @@ import base64
 import binascii
 import hmac
 import http.server
+import io
 import ipaddress
 import json
 import os
@@ -207,9 +217,16 @@ UPLOADS = "uploads"                       # <data_dir>/uploads/<random>/<name>, 
 TOKEN_NAME = "service.token"
 TOKEN_FILE_ROUTE = "/token-file"          # the one path outside /api/ that answers data; it needs no token and never holds one
 PATH_LIMIT = 2048
+OCTET = "application/octet-stream"        # the Content-Type of the media route, the one POST that is not JSON (rule 5)
+MEDIA_STATUS = {"usage": (400, "usage"), "length": (411, "length"), "too_large": (413, "too_large"),
+                "type": (415, "media_type"), "no_space": (507, "no_space"), "not_found": (404, "not_found"),
+                "refused": (409, "refused")}   # the family of a refusal of the media store (OpsError.kind) -> status and word
+DRAIN_BYTES = 16 * 1024 * 1024            # an early refusal of an upload reads at most this much of the unread body before it closes
+DRAIN_SECONDS = 2.0
 QUERY_VALUE_LIMIT = 512                   # bytes of one query value on a route that names a project file (artifact?path=)
 STATIC_LIMIT = 16 * 1024 * 1024
-ONCE = ("host", "origin", "authorization", "content-type", "content-length", "transfer-encoding")
+ONCE = ("host", "origin", "authorization", "content-type", "content-length", "transfer-encoding",
+        "x-recording-id", "x-slot-id", "x-file-name")
 # Three directives. `default-src 'self'` and `frame-ancestors 'none'` are the rule since the first page. `img-src 'self'
 # blob:` is there for one reason: the raw bytes of an image sit behind the bearer header, so the page fetches them itself
 # and shows them from a `blob:` URL it built; `blob:` can only name bytes the page made, nothing from another origin.
@@ -232,6 +249,8 @@ WORDS = {
     "content_type": "a POST needs Content-Type: application/json",
     "length": "a POST needs a Content-Length, and no Transfer-Encoding",
     "too_large": "the request body is larger than this route takes",
+    "media_type": "the bytes are not a type this route takes (an MP4 or MOV video; for an asset slot also a PNG, JPEG or WebP image)",
+    "no_space": "the disk has not enough free space for this file",
     "method": "this path does not take that method",
     "not_found": "no such route, project or file",
     "usage": "the request is malformed",
@@ -256,10 +275,10 @@ class Usage(Exception):
 
 
 def _route(method, pattern, op=None, *, bind=None, take=None, hidden=(), own=None, upload=False, query_max=None,
-           raw=False):
+           raw=False, stream=False):
     return {"method": method, "pattern": pattern, "op": op, "bind": dict(bind or {}), "take": take,
             "hidden": tuple(hidden), "own": own, "upload": upload, "limit": FILE_LIMIT if upload else JSON_LIMIT,
-            "query_max": query_max, "raw": raw}
+            "query_max": query_max, "raw": raw, "stream": stream}
 
 
 ROUTES = (
@@ -279,6 +298,8 @@ ROUTES = (
     _route("POST", "/projects/{p}/tasks/{id}/retry", "retry", bind={"task_id": "id"}),
     _route("POST", "/projects/{p}/tasks/{id}/go-ahead", "go-ahead", bind={"task_id": "id"}),
     _route("POST", "/projects/{p}/tasks/{id}/files", "hand-over", bind={"task_id": "id"}, hidden=("file",), upload=True),
+    _route("POST", "/projects/{p}/media", "media-in", take=(), hidden=("file",), stream=True),
+    _route("GET", "/projects/{p}/media", "media-list", take=("recording",)),
     _route("POST", "/projects/{p}/runs/{id}/verdict", "verdict", bind={"run_id": "id"}),
     _route("POST", "/projects/{p}/agents/{name}/mode", "set-mode", bind={"agent": "name"}, take=("mode",)),
     _route("GET", "/projects/{p}/progress", "progress"),
@@ -400,14 +421,17 @@ def check_request(method: str, path: str, headers: dict, port: int, token: str, 
     if method not in ("GET", "POST"):
         return 405, "method"
     if method == "POST":
-        if str(h.get("content-type", "")).partition(";")[0].strip().lower() != "application/json":
+        found = match("POST", bare)
+        wanted = OCTET if found and found[0]["stream"] else "application/json"   # rule 5 and its one exception
+        if str(h.get("content-type", "")).partition(";")[0].strip().lower() != wanted:
             return 415, "content_type"
         length = h.get("content-length")
         if length is None:
             return 411, "length"
         if not (length.isascii() and length.isdigit()):
             return 400, "usage"
-        found = match("POST", bare)
+        if found and found[0]["stream"]:
+            return None   # the operation bounds the length before it reads the body (runtime/media.py)
         if int(length) > (found[0]["limit"] if found else JSON_LIMIT):
             return 413, "too_large"
     return None
@@ -433,7 +457,7 @@ def _error(status: int, word: str, message: str | None = None, next: str | None 
 
 
 def _ops_error(error) -> tuple:
-    status, word = status_of(error)
+    status, word = MEDIA_STATUS.get(getattr(error, "kind", None)) or status_of(error)
     return _error(status, word, str(error) if word != "internal" else None,
                   getattr(error, "next", None) if word != "internal" else None)
 
@@ -800,6 +824,8 @@ def handle(service: Service, method: str, path: str, headers: dict, body: bytes,
     if found is None:
         return _error(405, "method") if known_path(bare) else _error(404, "not_found")
     route, params = found
+    if route["stream"]:   # a caller with the body in memory (a test): the same function the socket's handler gives its stream to
+        return handle_stream(service, method, path, headers, io.BytesIO(body), lan)
     if len(body) > route["limit"]:
         return _error(413, "too_large")
     try:
@@ -818,6 +844,42 @@ def handle(service: Service, method: str, path: str, headers: dict, body: bytes,
                 raise Usage("this route takes no query")
             return _job_get(service, params)
         return _operation(service, route, params, query, body)
+    except Usage as e:
+        return _error(400, "usage", str(e))
+    except service.ops.OpsError as e:
+        return _ops_error(e)
+    except Exception:  # whatever else: the traceback stays on stderr, the body names nothing
+        service.log("internal error:\n" + traceback.format_exc())
+        return _error(500, "internal")
+
+
+def handle_stream(service: Service, method: str, path: str, headers: dict, stream, lan: bool = False) -> tuple:
+    """POST /projects/<id>/media: the one route whose body is not JSON (rule 5's exception). Called after check_request passed
+    (Host, Origin, token, octet-stream, a Content-Length). `stream` has read(n); nothing of the body is read here: the
+    operation bounds the Content-Length first. It answers on the loopback socket only: a request that came in on the LAN
+    socket, or names a Host that is not a loopback one, gets the 404 of a service with no such route. The channel policy
+    of the page (group `media`) is asked before the body is read."""
+    h = {str(k).lower(): v for k, v in headers.items()}
+    bare, _, query = path.partition("?")
+    found = match(method, bare)
+    if found is None or not found[0]["stream"]:
+        return _error(404, "not_found")
+    route, params = found
+    if lan or str(h.get("host")).lower() not in allowed_hosts(service.port):
+        return _error(404, "not_found")
+    project = service.by_id.get(params.get("p"))
+    if project is None:
+        return _error(404, "not_found", "no such project")
+    try:
+        if query:
+            raise Usage("this route takes no query")
+        row = service.ops.operations.by_name(route["op"])
+        if "page" not in row["channels"]:
+            return _error(404, "not_found")
+        _policy_refusal(service, project, row, route, params, {}, False)
+        return _json(200, service.ops.media_receive(
+            project["path"], stream, int(h["content-length"]), recording=h.get("x-recording-id"), slot=h.get("x-slot-id"),
+            name=h.get("x-file-name")))
     except Usage as e:
         return _error(400, "usage", str(e))
     except service.ops.OpsError as e:
@@ -887,6 +949,7 @@ def make_handler(service: Service):
         def _serve(self):
             started = time.monotonic()
             method, path = self.command, self.path
+            streamed = False
             headers = headers_of(self.headers.items())
             if headers is None:
                 answer = _error(400, "usage", "a header that must appear once was repeated")
@@ -894,8 +957,12 @@ def make_handler(service: Service):
                 lan = _on_lan(self.connection) if service.lan_ip else False  # without --lan the old path, untouched
                 refused = check_request(method, path, headers, service.port, service.token, service.lan_ip,
                                         lan if service.lan_ip else None)
+                found = match(method, path.partition("?")[0]) if method == "POST" else None
+                streamed = bool(found and found[0]["stream"])   # its body is read by the operation, in chunks, never whole here
                 if refused:
                     answer = _error(*refused)
+                elif streamed:
+                    answer = handle_stream(service, method, path, headers, self.rfile, lan)
                 else:
                     length = int(headers["content-length"]) if method == "POST" else 0
                     try:
@@ -908,9 +975,26 @@ def make_handler(service: Service):
                         answer = handle(service, method, path, headers, raw, lan=lan)
             try:
                 self._send(*answer)
+                if streamed and answer[0] != 200:
+                    self._drain()
             except (BrokenPipeError, ConnectionResetError):
                 pass
             service.log(request_line(method, path, answer[0], time.monotonic() - started))
+
+        def _drain(self):
+            """An upload refused before its body was read: the answer is sent, then a bounded part of the unread body is read
+            and dropped, so that closing the socket does not reset the connection under the answer the client has not read."""
+            try:
+                self.connection.shutdown(socket.SHUT_WR)
+                self.connection.settimeout(DRAIN_SECONDS)
+                left = DRAIN_BYTES
+                while left > 0:
+                    piece = self.rfile.read1(min(65536, left)) if hasattr(self.rfile, "read1") else self.rfile.read(min(65536, left))
+                    if not piece:
+                        break
+                    left -= len(piece)
+            except OSError:
+                pass
 
         do_GET = do_POST = do_HEAD = do_PUT = do_DELETE = do_PATCH = do_OPTIONS = _serve
 
