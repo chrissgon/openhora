@@ -15,6 +15,9 @@ so it changes when a person edits the document, and only then; a comment does no
 whatever the version). A write replaces the whole document (atomically), never merges, and leaves the side file as
 it is.
 
+A write prints `expected_sha256` too, in its dry run as well: the sha256 of the text `read` prints after it (the
+Markdown without the notice), so a caller can tell its own write from a person's edit when the answer was lost.
+
 A notice (write --notice, the verb notice) is the file's first line, "> [notice] <text>", and one empty line: it
 stays above the document, a write with --notice writes it first, and read leaves it out of markdown and prints it as
 notice (null when the file has none). The notice is written by the runtime, never by a person; the version, the
@@ -259,6 +262,7 @@ def cmd_write(args: dict) -> int:
     notice = notice_text(args["--notice"], "--notice") if args.get("--notice") is not None else None
     if notice is not None:
         data = with_notice(notice, data)  # one notice, first, whatever the document held before
+    expected = hashlib.sha256(split_notice(data)[1].decode("utf-8", errors="replace").encode("utf-8")).hexdigest()
     with Lock(folder):
         keys = read_keys(folder)
         if ident is None:
@@ -266,13 +270,15 @@ def cmd_write(args: dict) -> int:
         created = read_bytes(file_of(folder, ident)) is None
         if mode == "dry":
             return emit({"dry_run": True, "would": {"verb": "write", "id": ident, "create": created,
-                                                     "bytes": len(data), "path": path}})
+                                                     "bytes": len(data), "path": path,
+                                                     "expected_sha256": expected}})
         if given is None and key not in keys:
             keys[key] = ident
             write_file(os.path.join(folder, KEYS_FILE), (json.dumps(keys, indent=1, sort_keys=True) + "\n").encode("utf-8"))
         write_file(file_of(folder, ident), data)
         version = version_of(folder, ident)
-    return emit({"id": ident, "version": version, "created": created, "url": "file://" + file_of(folder, ident)})
+    return emit({"id": ident, "version": version, "created": created, "url": "file://" + file_of(folder, ident),
+                 "expected_sha256": expected})
 
 
 def cmd_notice(args: dict) -> int:

@@ -26,8 +26,12 @@ rejected) with a note.
                        last write, after its open comments are saved; a page that changed since the runtime last
                        wrote it is never written over, read_only or not (pull's rules settle it). The hashes kept are
                        those of what the platform returns, so a difference the conversion makes is never taken for an
-                       edit. A read_only page carries NOTICE as its first block: written with the page, or added once
-                       (the provider's `notice`) to a page that has none; it is never part of what is read.
+                       edit; and a page that differs from the one last read but reads as the text of the runtime's own
+                       last write (the provider's `expected_sha256`, kept in <data_dir>/documents/own-writes.json
+                       before the write is sent and again when it answers) is that write, not an edit: the read back
+                       lagged behind the write, or the answer was lost after the page was replaced. A read_only page
+                       carries NOTICE as its first block: written with the page, or added once (the provider's
+                       `notice`) to a page that has none; it is never part of what is read.
   blocked(ctx, meta)   the rejected records among a skill's declared inputs, outputs and updates: a run does not
                        start on a document the person edited and the agents would not read (decision D11).
   imported_since(cfg, since)  the documents imported (a person's edit, recorded in <data_dir>/documents/imported.json
@@ -71,6 +75,7 @@ OUTPUT_CHARS = 2000
 NOT_TAKEN = os.path.join("documents", "not-taken")
 IMPORTED = os.path.join("documents", "imported.json")  # {rel: {"sha256", "at"}}: the last import of each document
 NOTICES = os.path.join("documents", "notices.json")  # {rel: page id}: the read_only pages known to carry NOTICE
+OWN_WRITES = os.path.join("documents", "own-writes.json")  # {rel: {"written", "expected"}}: the runtime's last write of each
 BOTH_CHANGED = "both changed"
 READ_ONLY_CHANGED = ("the page changed since the last write; the type is read-only on the platform, so the edit cannot "
                      "be imported: `take page` keeps the page as it is and marks the file as not mirrored until the "
@@ -286,6 +291,16 @@ def _notices(cfg: dict) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def _save_json(cfg: dict, name: str, data: dict) -> None:
+    """Replace the small record <data_dir>/<name> (one of the files above) by data, atomically."""
+    path = os.path.join(cfg["data_dir"], name)
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    temporary = f"{path}.{os.getpid()}.tmp"
+    with open(temporary, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=1, sort_keys=True)
+    os.replace(temporary, path)
+
+
 def _notice_seen(cfg: dict, rel: str, ident) -> None:
     """Record that the page ident of rel carries NOTICE (ident None: that it does not)."""
     data = _notices(cfg)
@@ -295,12 +310,28 @@ def _notice_seen(cfg: dict, rel: str, ident) -> None:
         data.pop(rel, None)
     else:
         data[rel] = ident
-    path = os.path.join(cfg["data_dir"], NOTICES)
-    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
-    temporary = f"{path}.{os.getpid()}.tmp"
-    with open(temporary, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=1, sort_keys=True)
-    os.replace(temporary, path)
+    _save_json(cfg, NOTICES, data)
+
+
+def _own_writes(cfg: dict) -> dict:
+    """{rel: {"written", "expected"}} of the runtime's last write of each document; {} when there is none or it cannot
+    be read. "written" is the hash of the file sent; "expected" is the hash of the text the page reads as after that
+    write (the provider's `expected_sha256`), None while the write has not answered."""
+    try:
+        with open(os.path.join(cfg["data_dir"], OWN_WRITES), encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _own_write(cfg: dict, rel: str, written: str, expected) -> None:
+    """Record, before a write is sent (expected None) and again when it answers, what the runtime wrote to rel, so that
+    a page found different from the one last read is not taken for a person's edit when it is this write's own text
+    (a read back that lags behind the write, an answer lost after the page was replaced): see _own_write_of."""
+    data = _own_writes(cfg)
+    data[rel] = {"written": written, "expected": expected}
+    _save_json(cfg, OWN_WRITES, data)
 
 
 def _ensure_notice(ctx: dict, rel: str, record: dict, out: dict, dry_run: bool) -> None:
@@ -322,9 +353,52 @@ def _ensure_notice(ctx: dict, rel: str, record: dict, out: dict, dry_run: bool) 
         out["notices"].append(rel)
 
 
+def _read_as(ctx: dict, rel: str, record: dict, data: bytes):
+    """The hash of the text the page reads as after a write of data, which the provider says in a dry run (nothing is
+    sent), or None when it does not say."""
+    fd, markdown_file = tempfile.mkstemp(prefix="document-", suffix=".md")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        got = call(ctx["cfg"], ctx["root"], "write", [
+            "--id", record["remote_id"], "--path", rel, "--markdown-file", markdown_file,
+            "--idempotency-key", _key(ctx["cfg"], rel, _sha(data)), "--dry-run"])
+    finally:
+        try:
+            os.unlink(markdown_file)
+        except OSError:
+            pass
+    expected = (got.get("would") or {}).get("expected_sha256")
+    return expected if isinstance(expected, str) and len(expected) == 64 else None
+
+
+def _own_write_of(ctx: dict, record: dict, digest: str):
+    """The runtime's last write of the document ({"written", "expected"}) when a page whose text hashes to `digest` is
+    that write's own text, else None. The write's answer gave the hash the page reads as; when the answer was lost
+    ("expected" None) and the project's file is still what was sent, the provider is asked once for it."""
+    cfg, rel = ctx["cfg"], record["path"]
+    own = _own_writes(cfg).get(rel)
+    if not isinstance(own, dict) or not isinstance(own.get("written"), str):
+        return None
+    expected = own.get("expected")
+    if expected is None:
+        data = _read_project(cfg["project"], rel)
+        if data is None or _sha(data) != own["written"] or not record.get("remote_id"):
+            return None
+        try:
+            expected = _read_as(ctx, rel, record, data)
+        except DocumentsError:
+            return None
+        if expected is None:
+            return None
+        _own_write(cfg, rel, own["written"], expected)
+    return {"written": own["written"], "expected": expected} if digest == expected else None
+
+
 def _settle(ctx: dict, record: dict, entry, page: dict, out: dict) -> str:
     """Steps 3 to 7 of pull for a page that was read: what the page holds against what the runtime last read.
-    Returns what happened: "unchanged", "not_taken", "conflict", "rejected" or "imported"."""
+    Returns what happened: "unchanged" (also a page that is the runtime's own last write), "not_taken", "conflict",
+    "rejected" or "imported"."""
     rel, markdown, version = record["path"], page.get("markdown") or "", page.get("version")
     digest = _sha(markdown)
     if record.get("read_sha256") is None or digest == record["read_sha256"]:
@@ -333,6 +407,13 @@ def _settle(ctx: dict, record: dict, entry, page: dict, out: dict) -> str:
         if record.get("status") == "rejected" and record.get("read_sha256") is not None:
             fields.update(status=STATUS_OF[entry["platform"]] if entry else "read_only", note=None)
         _put(ctx, rel, **fields)
+        return "unchanged"
+    own = _own_write_of(ctx, record, digest)
+    if own is not None:
+        # The page differs from the one last read and is the text of the runtime's own last write: the read back lagged
+        # behind the write, or the write's answer was lost after it replaced the page. Not a person's edit.
+        _put(ctx, rel, read_sha256=digest, written_sha256=own["written"], remote_version=version,
+             status=STATUS_OF[entry["platform"]] if entry else "read_only", note=None)
         return "unchanged"
     if entry is None or entry["platform"] == "read_only":
         # Never imported, and never written over while it differs (WP-3.21): the person settles it with take.
@@ -383,14 +464,9 @@ def _imports(cfg: dict) -> dict:
 
 
 def _record_import(cfg: dict, rel: str, digest: str) -> None:
-    path = os.path.join(cfg["data_dir"], IMPORTED)
-    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
     data = _imports(cfg)
     data[rel] = {"sha256": digest, "at": _now()}
-    temporary = f"{path}.{os.getpid()}.tmp"
-    with open(temporary, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=1, sort_keys=True)
-    os.replace(temporary, path)
+    _save_json(cfg, IMPORTED, data)
 
 
 def imported_since(cfg: dict, since) -> list:
@@ -475,8 +551,11 @@ def push(ctx: dict, rels, dry_run: bool = False) -> dict:
                 # guard (a version is rounded to the minute, N1); a page that changed is never written over.
                 page = _read_page(ctx, record, out)
                 if record.get("read_sha256") is not None and _sha(page.get("markdown") or "") != record["read_sha256"]:
-                    _settle(ctx, record, entry, page, out)
-                    continue
+                    if _settle(ctx, record, entry, page, out) != "unchanged":
+                        continue
+                    record = store.document_get(conn, rel) or {}  # the page was the runtime's own write: go on
+                    if record.get("written_sha256") == digest:
+                        continue
             fd, markdown_file = tempfile.mkstemp(prefix="document-", suffix=".md")
             try:
                 with os.fdopen(fd, "wb") as f:
@@ -484,6 +563,8 @@ def push(ctx: dict, rels, dry_run: bool = False) -> dict:
                 args = (["--id", record["remote_id"]] if record.get("remote_id") else []) + [
                     "--path", rel, "--markdown-file", markdown_file, "--idempotency-key", _key(cfg, rel, digest)] + (
                     ["--notice", NOTICE] if read_only else []) + ["--dry-run" if dry_run else "--confirmed"]
+                if not dry_run:
+                    _own_write(cfg, rel, digest, None)  # before it is sent: its answer may be lost after the page is replaced
                 written = call(cfg, root, "write", args)
             finally:
                 try:
@@ -495,6 +576,8 @@ def push(ctx: dict, rels, dry_run: bool = False) -> dict:
                 continue
             if not isinstance(written.get("id"), str) or not written["id"]:
                 raise DocumentsError("failed", "the provider's write printed no id")
+            expected = written.get("expected_sha256")
+            _own_write(cfg, rel, digest, expected if isinstance(expected, str) and len(expected) == 64 else None)
             if read_only:
                 _notice_seen(cfg, rel, written["id"])
             try:

@@ -7,8 +7,12 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_documents_mirror.py
 """
 from __future__ import annotations
 
+import importlib.util
 import json
+import os
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -516,6 +520,156 @@ def test_a_malformed_manifest_of_a_skill_in_use_still_fails_the_mirror(tree, mon
     with pytest.raises(docs.DocumentsError) as raised:
         docs._entries(root)
     assert "unknown key `unknown_key`" in str(raised.value)
+
+
+NOTION = st.REPO / "providers" / "documents" / "notion.py"
+FAKE_NOTION = st.REPO / "providers" / "documents" / "tests" / "fake_notion.py"
+
+
+class Platform:
+    """The Notion provider against its stand-in service (providers/documents/tests/fake_notion.py), in place of the local
+    folder: every verb of the mirror runs notion.py as a child process. Two faults a platform can show, off by default:
+    lost_answer (the next write is carried out and its answer is lost, as a timeout after the effect would be) and
+    stale_read (the next read after a write answers the page as it was before that write, as a listing that lags
+    behind its writes would)."""
+
+    def __init__(self, tmp_path):
+        spec = importlib.util.spec_from_file_location("fake_notion_for_the_mirror", FAKE_NOTION)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.fake = module.shared()
+        self.blocks = module._blocks
+        self.config = tmp_path / "notion-documents.json"
+        self.config.write_text(json.dumps({"provider": "notion", "parent": self.fake.create_root(), "expires": "2099-12-31"}),
+                               encoding="utf-8")
+        self.env = {**os.environ, "NOTION_TOKEN": self.fake.token, "INTEGRATION_DOCUMENTS_NOTION_API_BASE": self.fake.base,
+                    "INTEGRATION_DOCUMENTS_NOTION_LEDGER": str(tmp_path / "ledger" / "documents-notion.json")}
+        self.lost_answer = self.stale_read = False
+        self.last_read, self.stale = {}, {}
+
+    def call(self, verb, args):
+        done = subprocess.run([sys.executable, str(NOTION), verb, "--config-file", str(self.config), *args],
+                              capture_output=True, text=True, timeout=120, env=self.env)
+        if done.returncode != 0:
+            raise docs.DocumentsError("failed", (done.stderr or f"exit {done.returncode}").strip())
+        return json.loads(done.stdout)
+
+    def mirror_call(self, cfg, root, verb, args, timeout=docs.TIMEOUT):
+        ident = args[args.index("--id") + 1] if "--id" in args else None
+        if verb == "read" and ident in self.stale:
+            return self.stale.pop(ident)
+        out = self.call(verb, args)
+        if verb == "read":
+            self.last_read[ident] = out
+        if verb == "write" and "--confirmed" in args:
+            if self.stale_read and ident in self.last_read:
+                self.stale[ident] = self.last_read[ident]
+            if self.lost_answer:
+                raise docs.DocumentsError("failed", "the provider ran over 180 s")
+        return out
+
+    def text(self, ident):
+        return self.call("read", ["--id", ident])["markdown"]
+
+    def person_edits(self, ident, old, new):
+        text = self.text(ident)
+        assert old in text, (old, text)
+        self.fake.person_replaces_body(ident, self.blocks.to_blocks(text.replace(old, new, 1)))
+
+
+@pytest.fixture
+def platform(tree, tmp_path, monkeypatch):
+    got = Platform(tmp_path)
+    monkeypatch.setattr(docs, "call", lambda *a, **k: (tree["calls"].append(a[2]), got.mirror_call(*a, **k))[1])
+    return got
+
+
+def rewritten(tree, text="A profile written by a later run."):
+    project_file(tree, ICP).write_text(f"# ICP\n\n{text}\n\n| A | B |\n|---|---|\n| 1 | 2 |\n", encoding="utf-8")
+
+
+def settled(tree, project):
+    """Two syncs after a write: nothing is rejected, imported or written, and the record is as a quiet page's."""
+    for _ in range(2):
+        out = ops.sync(project)["documents"]
+        assert out["rejected"] == [] and out["imported"] == [] and out["conflicts"] == [] and out["pushed"] == [], out
+    assert record(tree, ICP)["status"] == "read_only" and record(tree, ICP)["note"] is None
+
+
+def test_a_read_only_page_the_runtime_updated_is_not_taken_for_an_edit(tree, platform):
+    project = profiled(tree)
+    rewritten(tree)
+    assert ops.sync(project)["documents"]["pushed"] == [ICP]
+    settled(tree, project)
+
+
+def test_a_read_back_that_lags_behind_the_runtimes_own_write_is_not_taken_for_an_edit(tree, platform):
+    project = profiled(tree)
+    platform.stale_read = True
+    rewritten(tree)
+    assert ops.sync(project)["documents"]["pushed"] == [ICP]
+    platform.stale_read = False
+    settled(tree, project)
+
+
+def test_a_write_whose_answer_was_lost_is_not_taken_for_an_edit_either(tree, platform):
+    project = profiled(tree)
+    platform.lost_answer = True
+    rewritten(tree)
+    failed = ops.sync(project)["documents"]
+    assert failed["pushed"] == [] and [f["path"] for f in failed["failed"]] == [ICP]
+    platform.lost_answer = False
+    out = ops.sync(project)["documents"]  # the page holds what the runtime wrote; nothing else changed it
+    assert out["rejected"] == [] and out["imported"] == [] and out["conflicts"] == []
+    assert out["notices"] == []
+    settled(tree, project)
+    assert record(tree, ICP)["written_sha256"] == docs._sha(project_file(tree, ICP).read_bytes())
+
+
+def test_an_editable_page_the_runtime_updated_is_not_imported_back_as_an_edit(tree, platform):
+    delivered(tree)
+    project = project_of(tree)
+    platform.stale_read = True
+    project_file(tree).write_text("# Market analysis\n\nUpdated by a later run.\n\n- Owner: demo-asks\n- Status: draft\n",
+                                  encoding="utf-8")
+    assert ops.sync(project)["documents"]["pushed"] == [MARKET]
+    platform.stale_read = False
+    for _ in range(2):
+        out = ops.sync(project)["documents"]
+        assert out["rejected"] == [] and out["imported"] == [] and out["conflicts"] == [] and out["pushed"] == [], out
+    assert record(tree)["status"] == "mirrored"
+
+
+def test_a_persons_edit_of_a_page_whose_write_answer_was_lost_is_still_rejected(tree, platform):
+    project = profiled(tree)
+    platform.lost_answer = True
+    rewritten(tree)
+    assert [f["path"] for f in ops.sync(project)["documents"]["failed"]] == [ICP]
+    platform.lost_answer = False
+    platform.person_edits(record(tree, ICP)["remote_id"], "A profile written by a later run.", "The person's own words.")
+    out = ops.sync(project)["documents"]  # the page is neither what the runtime last read nor what it wrote
+    assert out["rejected"] == [{"path": ICP, "note": docs.READ_ONLY_CHANGED}] and out["imported"] == []
+    assert record(tree, ICP)["status"] == "rejected"
+    kept = list((tree["data"] / "documents" / "not-taken" / "docs" / "business").glob("icp.md.*.md"))
+    assert len(kept) == 1 and "The person's own words." in kept[0].read_text(encoding="utf-8")
+
+
+def test_a_persons_edit_after_the_runtimes_own_write_is_still_rejected_on_a_read_only_page(tree, platform):
+    project = profiled(tree)
+    platform.stale_read = True
+    rewritten(tree)
+    assert ops.sync(project)["documents"]["pushed"] == [ICP]
+    platform.stale_read = False
+    settled(tree, project)
+    ident = record(tree, ICP)["remote_id"]
+    platform.person_edits(ident, "A profile written by a later run.", "A profile the person rewrote.")
+    out = ops.sync(project)["documents"]
+    assert out["rejected"] == [{"path": ICP, "note": docs.READ_ONLY_CHANGED}] and out["imported"] == []
+    kept = list((tree["data"] / "documents" / "not-taken" / "docs" / "business").glob("icp.md.*.md"))
+    assert len(kept) == 1 and "the person rewrote" in kept[0].read_text(encoding="utf-8")
+    assert record(tree, ICP)["status"] == "rejected"
+    assert ops.sync(project, take="project", path=ICP)["documents"]["pushed"] == [ICP]  # the person settles it
+    settled(tree, project)
 
 
 def test_the_manifests_of_the_real_checkout_never_break_the_mirror():
