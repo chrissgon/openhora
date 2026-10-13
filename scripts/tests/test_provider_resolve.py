@@ -414,3 +414,73 @@ def test_messenger_is_a_class_with_a_platform_parameter_and_telegram_serves_tele
     assert got["implementation"] == "telegram" and got["path"] == str(REPO / "providers" / "messenger" / "telegram.py")
     with pytest.raises(resolve.Unresolved):
         resolve.resolve("messenger:whatsapp", env={})
+
+
+# --- starting a long-lived verb (resolve.start) ----------------------------------------------------------------
+
+LONG_LIVED = '''# /// script
+# dependencies = []
+# ///
+import json, os, sys
+sys.stdout.buffer.write((json.dumps({"args": sys.argv[1:], "pgid": os.getpgid(0), "sid": os.getsid(0)}) + "\\n").encode())
+sys.stdout.buffer.flush()
+sys.stderr.write("diagnostic\\n")
+sys.stderr.flush()
+sys.stdin.buffer.read()
+'''
+
+
+def test_start_runs_the_verb_in_its_own_session_with_three_binary_pipes_and_the_given_arguments(tmp_path):
+    import os
+    root = stand_in_workbench(tmp_path)
+    (root / "providers" / "vcs" / "standin.py").write_text(LONG_LIVED)
+    proc = resolve.start("integration:vcs", "listen", ["--platform", "chirp"], root=root, env={"PATH": "/usr/bin:/bin"})
+    try:
+        said = json.loads(proc.stdout.readline())
+        assert said["args"] == ["listen", "--platform", "chirp"]
+        assert said["sid"] == proc.pid == said["pgid"] != os.getpgid(0)   # a session of its own: the group is the child's
+        assert isinstance(said, dict) and proc.stdin.write(b"") == 0   # binary pipes
+    finally:
+        proc.stdin.close()
+        assert proc.wait(10) == 0
+        assert proc.stderr.read() == b"diagnostic\n"   # stderr is a pipe the caller reads, not inherited
+        proc.stdout.close()
+        proc.stderr.close()
+
+
+def test_start_picks_the_interpreter_as_call_does_and_passes_the_pipes_and_the_session(tmp_path, monkeypatch):
+    seen = []
+
+    class Fake:
+        pid = 1
+
+    def popen(argv, **kw):
+        seen.append((argv, kw))
+        return Fake()
+
+    monkeypatch.setattr(resolve.subprocess, "Popen", popen)
+    bare = stand_in_workbench(tmp_path / "a")
+    resolve.start("integration:vcs", "listen", ["--x", 3], root=bare, env={"K": "v"})
+    pinned = stand_in_workbench(tmp_path / "b", header='# dependencies = ["keyring==25.7.0"]')
+    resolve.start("integration:vcs", "listen", [], root=pinned, env={})
+    (argv, kw), (argv2, _) = seen
+    assert argv[0] == sys.executable and argv[1].endswith("standin.py") and argv[2:] == ["listen", "--x", "3"]
+    assert argv2[:2] == ["uv", "run"] and argv2[2].endswith("standin.py") and argv2[3:] == ["listen"]
+    assert argv[0] == resolve.interpreter_for(argv[1])[0]
+    assert kw["stdin"] == kw["stdout"] == kw["stderr"] == subprocess.PIPE
+    assert kw["text"] is False and kw["start_new_session"] is True and kw["close_fds"] is True and kw["env"] == {"K": "v"}
+
+
+def test_start_names_a_class_that_does_not_resolve_and_a_program_that_cannot_start(tmp_path, monkeypatch):
+    root = stand_in_workbench(tmp_path)
+    with pytest.raises(resolve.ProviderCallError) as caught:
+        resolve.start("integration:vcs", "listen", [], root=root, implementation="other", env={})
+    assert caught.value.kind == "not-configured"
+
+    def refuse(argv, **kw):
+        raise PermissionError(13, "denied")
+
+    monkeypatch.setattr(resolve.subprocess, "Popen", refuse)
+    with pytest.raises(resolve.ProviderCallError) as caught:
+        resolve.start("integration:vcs", "listen", [], root=root, env={})
+    assert caught.value.kind == "failed" and "PermissionError" in caught.value.reason

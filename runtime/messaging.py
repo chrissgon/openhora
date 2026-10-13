@@ -147,6 +147,7 @@ def serve(argv_projects, platform: str, notice_every: float = DEFAULT_NOTICE_EVE
     print(json.dumps({"platform": platform, "projects": [{"id": p["id"], "name": p["name"]} for p in found]}), file=out, flush=True)
     code = 0
     try:
+        getattr(messenger, "open_session", lambda log: None)(log)   # a provider that listens is started here, once
         server.serve_loop(stop, notice_every, poll)
     except Stop:
         pass
@@ -158,6 +159,7 @@ def serve(argv_projects, platform: str, notice_every: float = DEFAULT_NOTICE_EVE
         left = server.end_runs()
         if left:
             log(f"stopped with {left} job thread(s) still ending")
+        getattr(messenger, "close_session", lambda: None)()   # after the jobs: their replies still need the provider
     return code
 
 
