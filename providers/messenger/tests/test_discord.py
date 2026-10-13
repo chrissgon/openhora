@@ -662,6 +662,26 @@ def test_an_unreachable_gateway_is_retried_by_the_provider_with_error_events_and
     rig.end()
 
 
+def test_a_connection_that_is_accepted_and_dropped_backs_off_instead_of_looping(monkeypatch):
+    transport = Transport(*[Conn(hello(), discord.Closed(None)) for _ in range(4)], Conn(hello(), ready()))
+    rig = Rig(monkeypatch, transport)
+    wait_for(lambda: rig.sink.events("ready"))
+    assert [p for p in rig.pauses if p in (1.0, 2.0, 4.0, 8.0)] == [1.0, 2.0, 4.0, 8.0]
+    assert len([e for e in rig.sink.events("error") if "before it was ready" in e["reason"]]) == 4
+    rig.end()
+
+
+def test_ready_and_resumed_reset_the_backoff(monkeypatch):
+    transport = Transport(Conn(hello(), discord.Closed(None)), Conn(hello(), discord.Closed(None)),
+                          Conn(hello(), ready(), discord.Closed(None)),                       # READY: reset
+                          Conn(hello(), {"op": 0, "t": "RESUMED", "s": 9, "d": {}}, discord.Closed(None)),   # RESUMED: reset
+                          Conn(hello(), discord.Closed(None)), Conn(hello(), ready()))
+    rig = Rig(monkeypatch, transport)
+    wait_for(lambda: len(rig.sink.events("ready")) == 2 or len(transport.conns) == 0)
+    assert [p for p in rig.pauses if p in (1.0, 2.0, 4.0, 8.0)] == [1.0, 2.0, 1.0]
+    rig.end()
+
+
 def test_the_identify_budget_stops_the_provider_below_fifty_with_exit_3_and_a_sentence(monkeypatch):
     opener = Router()
     opener.on("GET", r"^/gateway/bot$", gateway_info(remaining=49))
@@ -808,16 +828,43 @@ def test_a_429_waits_retry_after_once_and_asks_again(monkeypatch):
     rig.end()
 
 
-def test_a_second_429_fails_the_request_and_a_long_wait_is_cut_to_thirty_seconds(monkeypatch):
+def test_a_second_429_fails_the_request(monkeypatch):
+    opener = router()
+    opener.routes = [r for r in opener.routes if "messages" not in r[1].pattern]
+    opener.on("POST", r"^/channels/7001/messages$", http_error(429, {"message": "slow", "retry_after": 2.0}))
+    rig, conn = started(monkeypatch, ready(), opener=opener)
+    rig.request(1)
+    answer = rig.answer(1)
+    assert answer["ok"] is False and answer["kind"] == "failed" and "429" in answer["reason"]
+    assert 2.0 in rig.pauses
+    assert len(opener.calls("POST", "^/channels/7001/messages$")) == 2          # waited for once, not again
+    rig.end()
+
+
+def test_a_retry_after_over_thirty_seconds_fails_at_once_without_waiting(monkeypatch):
     opener = router()
     opener.routes = [r for r in opener.routes if "messages" not in r[1].pattern]
     opener.on("POST", r"^/channels/7001/messages$", http_error(429, {"message": "slow", "retry_after": 600.0}))
     rig, conn = started(monkeypatch, ready(), opener=opener)
     rig.request(1)
     answer = rig.answer(1)
-    assert answer["ok"] is False and answer["kind"] == "failed" and "429" in answer["reason"]
-    assert 30.0 in rig.pauses and 600.0 not in rig.pauses
-    assert len(opener.calls("POST", "^/channels/7001/messages$")) == 2          # waited for once, not again
+    assert answer["ok"] is False and "429" in answer["reason"]
+    assert not any(p >= 1 for p in rig.pauses)
+    assert len(opener.calls("POST", "^/channels/7001/messages$")) == 1
+    rig.end()
+
+
+def test_one_request_has_one_wait_budget_for_the_channel_call_and_the_post(monkeypatch):
+    opener = router()
+    opener.routes = [r for r in opener.routes if "channels" not in r[1].pattern or "gateway" in r[1].pattern]
+    opener.on("POST", r"^/users/@me/channels$", http_error(429, {"retry_after": 20.0}), {"id": "7001"})
+    opener.on("POST", r"^/channels/7001/messages$", http_error(429, {"retry_after": 20.0}), {"id": "8001"})
+    opener.on("POST", r"/callback$", None)
+    rig, conn = started(monkeypatch, ready(), opener=opener)
+    rig.request(1)
+    answer = rig.answer(1)
+    assert answer["ok"] is False and "429" in answer["reason"]          # 20 s spent, the second 20 s does not fit in 30
+    assert [p for p in rig.pauses if p >= 1] == [20.0]
     rig.end()
 
 
@@ -860,6 +907,17 @@ def test_a_403_answers_the_request_with_the_dm_sentence_and_the_bridge_keeps_goi
     rig.end()
 
 
+def test_a_403_with_another_code_gets_a_generic_sentence(monkeypatch):
+    opener = router()
+    opener.routes = [r for r in opener.routes if "messages" not in r[1].pattern]
+    opener.on("POST", r"^/channels/7001/messages$", http_error(403, {"message": "Missing Access", "code": 50001}))
+    rig, conn = started(monkeypatch, ready(), opener=opener)
+    rig.request(1)
+    reason = rig.answer(1)["reason"]
+    assert "50001" in reason and "share a server" not in reason
+    rig.end()
+
+
 def test_a_403_on_opening_the_dm_channel_is_the_same_answer(monkeypatch):
     opener = router()
     opener.routes = [r for r in opener.routes if "channels$" not in r[1].pattern or "messages" in r[1].pattern]
@@ -874,7 +932,8 @@ def test_a_403_on_opening_the_dm_channel_is_the_same_answer(monkeypatch):
     {"text": ""}, {"text": "x" * 1901}, {"text": "x", "actions": [{"id": "a", "label": "b"}] * 6},
     {"text": "x", "actions": [{"id": "i" * 101, "label": "b"}]}, {"text": "x", "actions": [{"id": "", "label": "b"}]},
     {"text": "x", "actions": [{"id": "a"}]}, {"text": "x", "link": {"label": "L", "url": "javascript:alert(1)"}},
-    {"text": "x", "link": {"label": "", "url": "https://n.example"}}, {"text": "x", "document": {"name": "n", "text": ""}},
+    {"text": "x", "link": {"label": "", "url": "https://n.example"}},
+    {"text": "x", "link": {"label": "L", "url": "https://n.example/" + "p" * 500}}, {"text": "x", "document": {"name": "n", "text": ""}},
     {"text": "x", "document": "nope"}, {"text": "x", "reply_to": "abc"}, "not an object",
 ])
 def test_a_request_that_does_not_fit_is_answered_usage_and_nothing_is_posted(monkeypatch, message):
@@ -990,6 +1049,28 @@ def test_a_fence_that_never_closes_is_shown_as_text_so_it_cannot_swallow_the_res
     assert out == "\\`\\`\\`\nnever closed \\<@1>"
 
 
+@pytest.mark.parametrize("text", [
+    "```\ncode\n```x\n[a](http://e.com)\n```",                      # a closer with text after it
+    "```\nfoo ``` [a](http://e.com)\n```",                           # a ``` in the middle of a line closes the block
+    "```py\nx\n```python\n[a](http://e.com) <@1> ||s||\n```",
+    "```\n[a](http://e.com)\n``` trailing\n```",
+    "text ``` [a](http://e.com) <@1> ||s||",                           # a stray fence mark inside a line
+    "`ok` and ``` stray `[a](http://e.com)`",
+])
+def test_a_fence_is_code_only_when_discord_would_read_it_the_same_way(text):
+    out = render(text)
+    assert "[a](" not in out.replace("]\\(", "") or "[a](" not in out
+    assert "http://e.com" in out
+    assert not LIVE_OPENER.search(out)
+    assert not re.search(r"(?<!\\)\|\|", out)
+    assert "```" not in out.replace("\\`", "")                          # no live fence mark is left for Discord to read
+
+
+def test_a_clean_fence_still_keeps_its_content():
+    text = "before [a](http://e.com)\n```py\n[a](http://e.com) <@1> ||s||\n```\nafter <@2>"
+    assert render(text) == "before a (http://e.com)\n```py\n[a](http://e.com) <@1> ||s||\n```\nafter \\<@2>"
+
+
 def test_table_lines_are_fenced_and_not_read():
     table = "| a | b |\n|---|---|\n| <@1> | [x](https://x.example) |"
     out = render("before\n" + table + "\nafter [t](https://x.example)")
@@ -998,8 +1079,10 @@ def test_table_lines_are_fenced_and_not_read():
 
 
 def test_a_table_cell_cannot_close_the_fence_it_sits_in():
-    out = render("| ``` |")
-    assert out.count("```") == 2
+    out = render("| ``` |\n| ```x [a](http://e.com) |")
+    assert out.count("```") == 2 + 0 and "\u200b" in out           # a real zero-width space, not six characters
+    assert "\\u200b" not in out
+    assert "\u200b" not in SCRIPT.read_text(encoding="utf-8")         # and none in the source either
 
 
 EFFECT_COMMANDS = ["python3 /w/ops.py approve --project /p/northwind-shop --id 7 --sha256 " + "e" * 64,
@@ -1024,16 +1107,33 @@ def test_a_real_effect_card_keeps_its_command_byte_for_byte(command):
     assert "the repo (https://x.example)" in out
 
 
-def test_a_text_that_renders_over_2000_characters_is_sent_raw_and_always_fits():
+LIVE_OPENER = re.compile(r"(?<!\\)(?:\\\\)*<(?=@|#|t:|:|a:|/|id:)")
+
+
+def test_a_text_that_renders_over_2000_characters_is_still_safe_and_cut_with_a_closing_line():
     worst = "<@1>" * 475                                 # 1900 characters; every opener grows by one
     assert len(worst) == 1900 and len(render(worst)) == 2375
-    assert discord.rendered_for_send(worst) == worst
-    table = "| a |\n" * 300
-    full_card = ("[a](https://x.example)\n" * 40 + "<t:1:R> ||x||\n" * 40)[:1900]
-    for text in (worst, table[:1900], full_card, ("<@1> | x\n| row\n" * 200)[:1900], "x" * 1900, ("||" * 950)):
-        sent = discord.rendered_for_send(text)
-        assert len(sent) <= 2000 and sent in (text, render(text))
-    assert discord.rendered_for_send("<@1> short") == "\\<@1> short"
+    sent = discord.rendered_for_send(worst)
+    assert len(sent) <= 2000 and sent.endswith("\n(continues on the page)")
+    assert not LIVE_OPENER.search(sent) and "\\<@1>" in sent
+    links = "[a](https://x.example/1) " * 70 + "<t:1:R> ||x||\n" * 10
+    sent = discord.rendered_for_send(links[:1900])
+    assert "](" not in sent.replace("]\\(", "") and len(sent) <= 2000
+
+
+def test_the_fallback_drops_the_table_fences_before_it_cuts(monkeypatch):
+    table = "| a |\n" * 280 + "[l](https://x.example) <@1>"
+    monkeypatch.setattr(discord, "DISCORD_TEXT_LIMIT", 1710)
+    assert len(render(table)) > 1710 and len(render(table, fence_tables=False)) <= 1710
+    sent = discord.rendered_for_send(table)
+    assert "```" not in sent and "[l](" not in sent and "\\<@1>" in sent and not sent.endswith("(continues on the page)")
+
+
+def test_a_full_card_of_every_kind_always_fits_and_is_safe():
+    for text in (("<@1> | x\n| row\n" * 200)[:1900], ("[a](https://x.example)\n" * 40 + "<t:1:R> ||x||\n" * 40)[:1900],
+                 "x" * 1900, "||" * 950, "| a |\n" * 300 + "<@1>"):
+        sent = discord.rendered_for_send(text[:1900])
+        assert len(sent) <= 2000 and not LIVE_OPENER.search(sent.replace("```", ""))
 
 
 def test_random_text_is_safe_outside_code_and_never_longer_than_discord_takes():
@@ -1205,6 +1305,7 @@ def test_the_websockets_transport_with_a_fake_library_sets_the_logger_and_maps_a
     assert e.value.code is None and TOKEN not in str(e.value)
     conn.close(4000)
     assert ws.closed == [4000]
+    assert "ping_interval" in calls and calls["ping_interval"] is None        # Discord has its own heartbeat
 
     class Closing(Exception):
         rcvd = Rcvd()

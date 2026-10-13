@@ -15,39 +15,69 @@ SCRIPT = HERE / "discord.py"
 LOCK = HERE / "discord.py.lock"
 
 
-def header_pins() -> dict:
-    header = SCRIPT.read_text(encoding="utf-8").split('"""', 1)[0]
-    deps = re.search(r"^# dependencies = \[(.*)\]$", header, re.M).group(1)
+def header_of(text: str) -> str:
+    return text.split('"""', 1)[0]
+
+
+def header_pins(script_text: str) -> dict:
+    deps = re.search(r"^# dependencies = \[(.*)\]$", header_of(script_text), re.M).group(1)
     return dict(re.findall(r'"([A-Za-z0-9_.-]+)==([^"]+)"', deps))
 
 
-def lock_packages() -> dict:
-    text = LOCK.read_text(encoding="utf-8")
-    blocks = text.split("[[package]]\n")[1:]
+def lock_packages(lock_text: str) -> dict:
+    blocks = lock_text.split("[[package]]\n")[1:]
     return {re.search(r'^name = "([^"]+)"', b, re.M).group(1): b for b in blocks}
 
 
-def test_the_lock_exists_next_to_the_script():
-    assert LOCK.is_file(), "run: uv lock --script providers/messenger/discord.py"
-
-
-def test_the_lock_names_the_same_versions_as_the_header_and_the_same_python():
-    pins = header_pins()
-    assert set(pins) == {"keyring", "websockets"}
-    packages = lock_packages()
+def problems(script_text: str, lock_text) -> list:
+    """What is wrong with the lock for this script: empty when it is good."""
+    if lock_text is None:
+        return ["discord.py.lock is missing: run uv lock --script providers/messenger/discord.py"]
+    found = []
+    pins = header_pins(script_text)
+    packages = lock_packages(lock_text)
     for name, version in pins.items():
-        assert re.search(rf'^version = "{re.escape(version)}"$', packages[name], re.M), \
-            f"discord.py.lock does not lock {name}=={version}: run uv lock --script providers/messenger/discord.py"
-    text = LOCK.read_text(encoding="utf-8")
-    header = SCRIPT.read_text(encoding="utf-8").split('"""', 1)[0]
-    assert re.search(r'^# requires-python = "(.*)"$', header, re.M).group(1) in text
-    for name, version in pins.items():
-        assert f'{{ name = "{name}", specifier = "=={version}" }}' in text
+        if name not in packages or not re.search(rf'^version = "{re.escape(version)}"$', packages[name], re.M):
+            found.append(f"the lock does not lock {name}=={version}")
+        if f'{{ name = "{name}", specifier = "=={version}" }}' not in lock_text:
+            found.append(f"the lock's manifest does not require {name}=={version}")
+    python = re.search(r'^# requires-python = "(.*)"$', header_of(script_text), re.M).group(1)
+    if f'requires-python = "{python}"' not in lock_text:
+        found.append("the lock names another requires-python")
+    for name, block in packages.items():
+        if 'source = { registry = "https://pypi.org/simple" }' not in block:
+            found.append(f"{name} does not come from the default registry")
+        if not re.search(r'hash = "sha256:[0-9a-f]{64}"', block):
+            found.append(f"{name} has no hash")
+    if "websockets" in packages and len(re.findall(r'hash = "sha256:[0-9a-f]{64}"', packages["websockets"])) < 10:
+        found.append("websockets has too few hashes")
+    return found
 
 
-def test_every_locked_package_has_hashes_and_comes_from_the_default_registry():
-    for name, block in lock_packages().items():
-        assert 'source = { registry = "https://pypi.org/simple" }' in block, name
-        hashes = re.findall(r'hash = "sha256:[0-9a-f]{64}"', block)
-        assert hashes, f"{name} has no hash in the lock"
-    assert len(re.findall(r'hash = "sha256:[0-9a-f]{64}"', lock_packages()["websockets"])) >= 10
+def current():
+    return SCRIPT.read_text(encoding="utf-8"), (LOCK.read_text(encoding="utf-8") if LOCK.is_file() else None)
+
+
+def test_the_lock_exists_names_the_header_versions_and_hashes_every_package():
+    script, lock = current()
+    assert set(header_pins(script)) == {"keyring", "websockets"}
+    assert problems(script, lock) == []
+
+
+def test_a_missing_lock_is_flagged():
+    script, _ = current()
+    assert problems(script, None)
+
+
+def test_a_lock_for_another_version_than_the_header_is_flagged():
+    script, lock = current()
+    version = header_pins(script)["websockets"]
+    assert problems(script.replace(f"websockets=={version}", "websockets==99.0"), lock)
+    assert problems(script, lock.replace(f'name = "websockets"\nversion = "{version}"', 'name = "websockets"\nversion = "99.0"'))
+
+
+def test_a_lock_with_a_removed_hash_or_another_registry_is_flagged():
+    script, lock = current()
+    assert problems(script, re.sub(r'hash = "sha256:[0-9a-f]{64}"', 'size = 1', lock, count=1000))
+    assert problems(script, lock.replace("https://pypi.org/simple", "https://mirror.example/simple"))
+    assert problems(script, lock.replace('requires-python = ">=3.10"', 'requires-python = ">=3.11"'))

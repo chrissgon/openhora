@@ -95,6 +95,7 @@ CAPABILITIES = {"max_text": 1900, "buttons": True, "max_buttons": 5, "max_button
                 "max_list_rows": 0, "url_buttons": True, "reply_context": True, "documents": True, "listen": True}
 DISCORD_TEXT_LIMIT = 2000
 CUSTOM_ID_LIMIT = 100
+LINK_URL_LIMIT = 512
 DOCUMENT_LIMIT = 1_000_000
 INTENTS = 1 << 12                 # DIRECT_MESSAGES, and nothing else
 SUPPRESS_EMBEDS = 1 << 2
@@ -313,31 +314,42 @@ def _safe_text(text: str) -> str:
     return SPOILER.sub("\\\\|", text)
 
 
+def _as_text(line: str) -> str:
+    """The line with no code in it at all: every backtick escaped, then made safe."""
+    return _safe_text(line.replace("`", "\\`"))
+
+
 def _safe_line(line: str) -> str:
-    return "".join(s if kind == "code" else _safe_text(s) for kind, s in _split_code(line))
+    parts = _split_code(line)
+    if any(kind == "text" and "```" in s for kind, s in parts):
+        return _as_text(line)  # a stray fence mark: Discord may open a block here, so nothing on the line counts as code
+    return "".join(s if kind == "code" else _safe_text(s) for kind, s in parts)
 
 
-def render_discord(text: str) -> str:
-    """The text made safe for Discord (see the comment above). CRLF and CR are one newline. A fenced block (a fence that
-    never closes is escaped to ordinary text) and a run of table lines, which is put in a fenced block, are not read."""
+def render_discord(text: str, fence_tables: bool = True) -> str:
+    """The text made safe for Discord (see the comment above). CRLF and CR are one newline. A fenced block is read as
+    code only when Discord would read it the same way: its opener and its closer are lines of their own and no line
+    inside holds ``` (Discord closes a block at a ``` anywhere); any other would-be block is text, backticks escaped. A
+    fence that never closes is text too. A run of table lines is put in a fenced block when `fence_tables`."""
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     out, i = [], 0
     while i < len(lines):
         line = lines[i]
         if FENCE_OPEN.fullmatch(line):
             end = next((j for j in range(i + 1, len(lines)) if FENCE_CLOSE.fullmatch(lines[j])), -1)
-            if end != -1:
+            if end != -1 and not any("```" in lines[j] for j in range(i + 1, end)):
                 out.extend(lines[i:end + 1])
                 i = end + 1
                 continue
-            out.append(line.replace("`", "\\`"))  # a fence that never closes would swallow the rest: show it as text
-            i += 1
+            stop = end + 1 if end != -1 else i + 1  # a doubtful block is text, whole; an unclosed fence is text, its line only
+            out.extend(_as_text(l) for l in lines[i:stop])
+            i = stop
             continue
-        if line.lstrip().startswith("|"):
+        if fence_tables and line.lstrip().startswith("|"):
             j = i
             while j < len(lines) and lines[j].lstrip().startswith("|"):
                 j += 1
-            body = "\n".join(lines[i:j]).replace("```", "``\\u200b`")
+            body = "\n".join(lines[i:j]).replace("```", "``\u200b`")  # a zero-width space keeps a cell from closing the fence
             out.append("```\n" + body + "\n```")
             i = j
             continue
@@ -346,10 +358,19 @@ def render_discord(text: str) -> str:
     return "\n".join(out)
 
 
+CONTINUES = "\n(continues on the page)"
+
+
 def rendered_for_send(text: str) -> str:
-    """The rendered text, or the raw text when rendering made it longer than Discord takes."""
+    """The rendered text. When that is over 2000 characters, the same text without the fenced tables (which add
+    characters), and when that is still over, cut with a closing line. Never raw text: links and openers stay safe."""
     rendered = render_discord(text)
-    return rendered if len(rendered) <= DISCORD_TEXT_LIMIT else text
+    if len(rendered) <= DISCORD_TEXT_LIMIT:
+        return rendered
+    rendered = render_discord(text, fence_tables=False)
+    if len(rendered) <= DISCORD_TEXT_LIMIT:
+        return rendered
+    return rendered[:DISCORD_TEXT_LIMIT - len(CONTINUES)].rstrip("\\") + CONTINUES
 
 
 # --- the message ----------------------------------------------------------------------------------------------------
@@ -376,8 +397,9 @@ def check_message(message) -> dict:
     link = message.get("link")
     if link is not None:
         if not isinstance(link, dict) or not isinstance(link.get("label"), str) or not link["label"] \
-                or not isinstance(link.get("url"), str) or not re.fullmatch(r"https?://[^\s]+", link["url"]):
-            raise ProviderError("a link is {\"label\": text, \"url\": an http:// or https:// URL}", EXIT_USAGE, "usage")
+                or not isinstance(link.get("url"), str) or not re.fullmatch(r"https?://[^\s]+", link["url"]) \
+                or len(link["url"]) > LINK_URL_LIMIT:
+            raise ProviderError("a link is {\"label\": text, \"url\": an http:// or https:// URL of at most 512 characters}", EXIT_USAGE, "usage")
     document = message.get("document")
     if document is not None and (not isinstance(document, dict) or not isinstance(document.get("name"), str)
                                  or not isinstance(document.get("text"), str) or not document["text"]
@@ -572,6 +594,8 @@ class Gateway:
                 return []
             self.ready_sent = True
             return [("event", {"event": "ready"})]
+        if name == "RESUMED":
+            return [("good",)]
         if name == "MESSAGE_CREATE":
             update = message_update(data)
             return [("event", {"event": "update", "update": update})] if update else []
@@ -645,7 +669,7 @@ class WebsocketsTransport:
             raise ConnectFailed("the websockets library is not installed: run this script with uv run") from None
         logging.getLogger("websockets").setLevel(logging.WARNING)  # DEBUG would log the Identify frame, with the token
         try:
-            return _WebsocketsConnection(connect(url, open_timeout=15, close_timeout=2, max_size=16 * 1024 * 1024))
+            return _WebsocketsConnection(connect(url, open_timeout=15, close_timeout=2, max_size=16 * 1024 * 1024, ping_interval=None))
         except Exception as e:
             raise ConnectFailed(f"could not open the Gateway connection ({type(e).__name__})") from None
 
@@ -716,7 +740,7 @@ class Listener:
         self.gateway = Gateway(token, clock, rng)
         self.requests = queue.Queue()
         self.channels = {}
-        self.conn = None
+        self.healthy = False
 
     # shared helpers
     def _pause(self, seconds: float) -> bool:
@@ -787,13 +811,15 @@ class Listener:
             if not isinstance(chat, str) or not SNOWFLAKE.fullmatch(chat):
                 raise ProviderError("chat is a Discord user id: whole digits", EXIT_USAGE, "usage")
             message = check_message(request.get("message"))
-            message_id = self.send(chat, message)
+            message_id = self.send(chat, message, [RATE_LIMIT_WAIT])
         except HttpError as e:
             if e.status == 401:
                 self.answer(rid, False, kind="not-configured", reason=redact(e, self.token))
                 self.fatal(EXIT_NOT_CONFIGURED, "not-configured", str(e))
             elif e.status == 403:
-                self.answer(rid, False, kind="failed", reason=FORBIDDEN_SENTENCE)
+                self.answer(rid, False, kind="failed", reason=FORBIDDEN_SENTENCE if e.discord_code == 50007 else
+                            "Discord refused the request (403" + (f", code {e.discord_code}" if e.discord_code else "")
+                            + "): check what the bot may do")
             else:
                 self.answer(rid, False, kind="failed", reason=redact(e, self.token))
         except ProviderError as e:
@@ -801,21 +827,26 @@ class Listener:
         else:
             self.answer(rid, True, message_id=message_id)
 
-    def waiting_once(self, call):
-        """call(); a 429 is waited for once (at most 30 seconds, interruptible), then asked again."""
+    def waiting_once(self, call, budget):
+        """call(); a 429 is waited for once, out of the request's budget (a one-item list of seconds shared by every
+        call of one request, 30 in all; a wait that does not fit fails at once), then asked again."""
         try:
             return call()
         except HttpError as e:
             if e.status != 429:
                 raise
-            if self.pause(min(e.retry_after if e.retry_after is not None else 1.0, RATE_LIMIT_WAIT)):
+            wait = e.retry_after if e.retry_after is not None else 1.0
+            if wait > budget[0]:
+                raise
+            budget[0] -= wait
+            if self.pause(wait):
                 raise ProviderError("stopping") from None
             return call()
 
-    def send(self, chat: str, message: dict) -> str:
+    def send(self, chat: str, message: dict, budget) -> str:
         channel = self.channels.get(chat)
         if channel is None:
-            opened = self.waiting_once(lambda: self.api.request("POST", "/users/@me/channels", {"recipient_id": chat}))
+            opened = self.waiting_once(lambda: self.api.request("POST", "/users/@me/channels", {"recipient_id": chat}), budget)
             channel = opened.get("id") if isinstance(opened, dict) else None
             if not isinstance(channel, str) or not SNOWFLAKE.fullmatch(channel):
                 raise ProviderError("Discord did not open a direct message channel")
@@ -829,7 +860,7 @@ class Listener:
         else:
             call = lambda: self.api.request("POST", path, payload)
         try:
-            sent = self.waiting_once(call)
+            sent = self.waiting_once(call, budget)
         except HttpError as e:
             if e.status == 404:
                 self.channels.pop(chat, None)
@@ -844,8 +875,15 @@ class Listener:
         resume = False
         while not self.stop.is_set():
             try:
+                self.healthy = False
                 plan = self.connection(resume)
-                failures = 0
+                if self.healthy:   # READY or RESUMED came: the connection did its job before it ended
+                    failures = 0
+                elif not self.stop.is_set() and not plan.fatal:  # accepted and dropped: no tight loop on it
+                    wait = CONNECT_BACKOFF[min(failures, len(CONNECT_BACKOFF) - 1)]
+                    failures += 1
+                    self.error_event("failed", f"the Gateway connection ended before it was ready; trying again in {int(wait)} s")
+                    plan = Plan(resume=plan.resume, wait=max(plan.wait, wait))
             except ProviderError as e:
                 if getattr(e, "status", None) == 401:
                     self.fatal(EXIT_NOT_CONFIGURED, "not-configured", str(e))
@@ -890,12 +928,8 @@ class Listener:
         if not isinstance(url, str) or not gateway_url_ok(url):
             return Plan(fatal=(EXIT_SERVICE, "failed", "the Gateway URL is not a wss:// URL on a discord.gg host; not connecting"))
         conn = self.transport.connect(url.rstrip("/") + GATEWAY_QUERY)
-        self.conn = conn
         gw.begin(resume)
-        try:
-            return self.pump(conn)
-        finally:
-            self.conn = None
+        return self.pump(conn)
 
     def pump(self, conn) -> Plan:
         gw = self.gateway
@@ -924,7 +958,11 @@ class Listener:
             kind = effect[0]
             if kind == "send":
                 conn.send(json.dumps(effect[1]))
+            elif kind == "good":
+                self.healthy = True
             elif kind == "event":
+                if effect[1].get("event") == "ready":
+                    self.healthy = True
                 self.out.write(effect[1])
             elif kind == "callback":
                 try:
