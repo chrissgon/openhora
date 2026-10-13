@@ -40,8 +40,11 @@ def alive(pid: int) -> bool:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    state = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
-    return bool(state) and not state.startswith("Z")
+    found = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True)
+    if found.returncode == 1 and not found.stdout.strip():   # ps: no such process
+        return False
+    assert found.returncode == 0, "ps itself failed, so a missing process proves nothing"
+    return not found.stdout.strip().startswith("Z")
 
 
 def lines(path):
@@ -296,6 +299,11 @@ def test_without_an_error_event_fatal_uses_the_stderr_tail_then_the_exit_code(tm
     r = rig(script={"default": {"die": 3, "stderr": "the session is gone"}})
     r.run()
     assert wait_for(lambda: r.error) and "the session is gone" in str(r.error[0])
+    r.finish()
+    fake = "ghp_" + "a1B2c3D4" * 5   # not a real credential: the format only
+    r = rig(script={"default": {"die": 3, "stderr": f"login failed with {fake} and then {fake[:10]}"}})
+    r.run()
+    assert wait_for(lambda: r.error) and fake not in str(r.error[0]) and "login failed" in str(r.error[0])
     r.finish()
     r = rig(script={"default": {"die": 3}})
     r.run()

@@ -140,6 +140,19 @@ class Messenger:
 
 
 
+_REDACT = []
+
+
+def redact_module():
+    """scripts/redact.py of this checkout (the credential formats the scan and the skills share), loaded by path."""
+    if not _REDACT:
+        spec = importlib.util.spec_from_file_location("workbench_messaging_redact", os.path.join(ROOT, "scripts", "redact.py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _REDACT.append(module)
+    return _REDACT[0]
+
+
 def line_of(value: dict) -> bytes:
     """One protocol line: ASCII JSON and a newline (what the bridge writes; the provider writes the same way)."""
     return json.dumps(value, ensure_ascii=True).encode("ascii") + b"\n"
@@ -171,6 +184,7 @@ class Run:
         self.reason = None            # the reason of the last error event it wrote
         self.tail = ""                # the last STDERR_TAIL characters it wrote to stderr
         self.threads = []
+        self.stale = False            # set once the run has ended: a reader still stuck on its pipe feeds nothing
 
     @property
     def ready(self) -> bool:
@@ -251,10 +265,10 @@ class ListenSession:
         entry = [threading.Event(), None]
         with self.waiting_lock:
             self.waiting[number] = entry
-        if run.exited:   # exit_loop sets the code before it fails the waiting requests, so one of the two sees this request
+        if run.exited or self.closing.is_set():   # exit_loop and close() set their flag before they fail the waiting requests, so one of them sees this request
             with self.waiting_lock:
                 self.waiting.pop(number, None)
-            raise MessengerError("failed", "the messenger provider exited")
+            raise MessengerError("failed", "the messenger provider exited or is stopping")
         run.out.put((number, line))
         if not entry[0].wait(self.send_seconds):
             with self.waiting_lock:
@@ -266,20 +280,22 @@ class ListenSession:
         raise MessengerError(answer.get("kind", "failed"), answer.get("reason", "the send failed"))
 
     def close(self) -> None:
-        """Stop: close the provider's stdin, wait stdin_wait, SIGTERM to its group, wait term_wait, SIGKILL, by group only."""
+        """Stop: close the provider's stdin, wait stdin_wait, SIGTERM to its group, wait term_wait, SIGKILL, by group only.
+        The worst case is stdin_wait + term_wait + 2 s after the kill + 2 s for the supervisor: 19 s with the defaults, so
+        the jobs' 120 s and this fit the service's 150 s (runtime/service_bridge.py)."""
         with self.cv:
             self.closing.set()
             run = self.run
             self.cv.notify_all()
         if run is not None and not run.exited:
             run.out.put(None)
-            for sig, wait in ((None, self.stdin_wait), (signal.SIGTERM, self.term_wait), (signal.SIGKILL, 5.0)):
+            for sig, wait in ((None, self.stdin_wait), (signal.SIGTERM, self.term_wait), (signal.SIGKILL, 2.0)):
                 if sig is not None:
                     self.signal_group(run, sig)
                 if self.wait_exit(run, wait):
                     break
         if self.thread is not None:
-            self.thread.join(self.join_wait + 5.0)
+            self.thread.join(2.0)
         self.fail_waiting("the messenger provider was stopped")
 
     # --- the process -------------------------------------------------------------------------------------------
@@ -375,7 +391,9 @@ class ListenSession:
 
     def stop_bridge(self, reason: str) -> None:
         with self.cv:
-            self.fatal = " ".join(str(reason).split())[:STDERR_TAIL] or "the messenger provider stopped"
+            # the reason is shown to the person: whatever the provider wrote, credential formats and long key-like runs are masked
+            text = redact_module().mask_secret_line(" ".join(str(reason).split()), limit=STDERR_TAIL)
+            self.fatal = text or "the messenger provider stopped"
             self.cv.notify_all()
         self.wake()
 
@@ -398,9 +416,10 @@ class ListenSession:
                     self.signal_group(run, signal.SIGKILL)
                     killed = True
                 self.cv.wait(0.5 if run.ready_at is not None or killed else max(0.01, min(left, 0.5)))
-        if run.exited:
+        if run.exited and not self.closing.is_set():   # while closing there is no time for joins (see close)
             for thread in run.threads:
                 thread.join(self.join_wait)
+            run.stale = True
             if not any(t.is_alive() for t in run.threads):
                 for stream in (run.proc.stdout, run.proc.stderr):
                     stream.close()
@@ -470,6 +489,8 @@ class ListenSession:
 
     def take(self, run: Run, raw: bytes) -> None:
         """One line from the provider. Logged by class, never by content."""
+        if run.stale:
+            return
         try:
             found = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, ValueError, RecursionError):
