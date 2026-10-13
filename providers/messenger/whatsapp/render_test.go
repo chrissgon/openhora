@@ -1,6 +1,11 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -181,5 +186,63 @@ func TestRenderRewritesLinksWhoseTargetHasBalancedParentheses(t *testing.T) {
 	want := "see Go (https://example.com/wiki/Go_(language)) and x (https://example.com/a_(b)_c) end"
 	if got := renderWhatsApp(in); got != want {
 		t.Fatalf("%q", got)
+	}
+}
+
+// expandCorpus turns a corpus input into text: a string as it is, a list as its parts joined, a part being text or
+// {"repeat": [text, n]}.
+func expandCorpus(t *testing.T, v interface{}) string {
+	t.Helper()
+	switch x := v.(type) {
+	case string:
+		return x
+	case []interface{}:
+		var b strings.Builder
+		for _, p := range x {
+			b.WriteString(expandCorpus(t, p))
+		}
+		return b.String()
+	case map[string]interface{}:
+		r := x["repeat"].([]interface{})
+		return strings.Repeat(r[0].(string), int(r[1].(float64)))
+	}
+	t.Fatalf("a corpus part of an unknown shape: %v", v)
+	return ""
+}
+
+// The corpus is shared with the Python renderer of whatsapp-cloud.py: both must give these outputs for these inputs.
+func TestRenderAgreesWithTheSharedCorpus(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "tests", "whatsapp_render_corpus.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Cases []struct {
+			Name string      `json:"name"`
+			In   interface{} `json:"in"`
+			Want interface{} `json:"want"`
+		} `json:"cases"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Cases) < 50 {
+		t.Fatalf("the corpus holds %d cases", len(doc.Cases))
+	}
+	for _, c := range doc.Cases {
+		got := renderWhatsApp(expandCorpus(t, c.In))
+		switch want := c.Want.(type) {
+		case string:
+			if got != want {
+				t.Errorf("%s: got %q, want %q", c.Name, got, want)
+			}
+		case map[string]interface{}:
+			sum := sha256.Sum256([]byte(got))
+			if hex.EncodeToString(sum[:]) != want["sha256"] || float64(utf8.RuneCountInString(got)) != want["runes"] {
+				t.Errorf("%s: the long output differs (%d runes)", c.Name, utf8.RuneCountInString(got))
+			}
+		default:
+			t.Fatalf("%s: a want of an unknown shape", c.Name)
+		}
 	}
 }
