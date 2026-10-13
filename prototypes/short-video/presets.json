@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "note": "Prototype preset contract. Plan: amendments A1 and A2 of docs/architecture/short-video-posts-2026-10-12.md.",
+  "frame": {"width": 1080, "height": 1920, "fps": 30, "safe": {"left": 65, "right": 65, "top": 285, "bottom": 1248}},
+  "palette": ["bg", "text", "muted", "accent", "chip_fill", "chip_text", "chip_border"],
+  "font_roles": ["display", "text", "mono"],
+  "icons": ["check", "star", "bolt", "arrow-up", "heart", "flag", "clock", "coin"],
+  "pip": {"size": 380},
+  "limits": {"label_max": 40, "overlays_max": 40, "assets_max_side": 8192},
+  "presets": {
+    "caption": {
+      "kind": "caption",
+      "track": "caption",
+      "template": "caption.html",
+      "params": {
+        "position": {"type": "choice", "values": ["bottom", "center"], "default": "bottom"}
+      }
+    },
+    "keyword": {
+      "kind": "overlay",
+      "track": "beat",
+      "template": "keyword.html",
+      "anchor": "match_text",
+      "min_duration": 1.0,
+      "max_duration": 1.8,
+      "tail": 0.3,
+      "params": {
+        "text": {"type": "text", "max": 24, "required": true},
+        "icon": {"type": "icon"},
+        "color": {"type": "color", "default": "accent"},
+        "position": {"type": "choice", "values": ["top", "center", "bottom"], "default": "center"}
+      }
+    },
+    "list": {
+      "kind": "overlay",
+      "track": "beat",
+      "template": "list.html",
+      "anchor": "window",
+      "min_duration": 2.0,
+      "max_duration": 8.0,
+      "tail": 0.5,
+      "params": {
+        "title": {"type": "text", "max": 30},
+        "item1": {"type": "text", "max": 30, "required": true},
+        "item2": {"type": "text", "max": 30},
+        "item3": {"type": "text", "max": 30},
+        "item4": {"type": "text", "max": 30},
+        "icon": {"type": "icon", "default": "check"},
+        "color": {"type": "color", "default": "accent"}
+      }
+    },
+    "number": {
+      "kind": "overlay",
+      "track": "beat",
+      "template": "number.html",
+      "anchor": "window",
+      "min_duration": 2.0,
+      "max_duration": 6.0,
+      "tail": 0.6,
+      "params": {
+        "value": {"type": "number", "min": 0, "max": 999999999, "decimals": 0, "required": true},
+        "prefix": {"type": "text", "max": 3},
+        "suffix": {"type": "text", "max": 6},
+        "label": {"type": "text", "max": 40},
+        "color": {"type": "color", "default": "accent"}
+      }
+    },
+    "quote": {
+      "kind": "overlay",
+      "track": "beat",
+      "template": "quote.html",
+      "anchor": "window",
+      "min_duration": 2.0,
+      "max_duration": 7.0,
+      "tail": 0.5,
+      "params": {
+        "text": {"type": "text", "max": 120, "required": true},
+        "author": {"type": "text", "max": 40},
+        "color": {"type": "color", "default": "accent"}
+      }
+    },
+    "cutaway": {
+      "kind": "layout",
+      "track": "beat",
+      "template": "cutaway.html",
+      "page_images": true,
+      "anchor": "window",
+      "min_duration": 1.5,
+      "tail": 0.2,
+      "params": {
+        "image": {"type": "image", "required": true},
+        "fit": {"type": "choice", "values": ["cover", "contain"], "default": "cover"},
+        "transition": {"type": "choice", "values": ["cut", "slide", "zoom"], "default": "slide"},
+        "label": {"type": "text", "max": 40}
+      }
+    },
+    "pip": {
+      "kind": "layout",
+      "track": "beat",
+      "template": "pip.html",
+      "anchor": "window",
+      "min_duration": 1.5,
+      "tail": 0.2,
+      "params": {
+        "image": {"type": "image", "required": true},
+        "position": {"type": "choice", "values": ["top-right", "top-left", "bottom-right", "bottom-left"], "default": "top-right"},
+        "label": {"type": "text", "max": 40}
+      }
+    }
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "format": "reel",
+  "caption": {"position": "bottom"},
+  "assets": {
+    "dashboard": "a screenshot of the budgeting dashboard",
+    "chart": "a bar chart of weekly savings"
+  },
+  "beats": [
+    {
+      "id": "b1", "label": "key rule", "preset": "keyword",
+      "line": "name every dollar",
+      "params": {"text": "Name every dollar", "icon": "coin", "color": "accent", "position": "center"}
+    },
+    {
+      "id": "b2", "label": "weekly list", "preset": "list",
+      "line": "Then do three things each week: review, adjust, and celebrate.",
+      "params": {"title": "Every week", "item1": "Review", "item2": "Adjust", "item3": "Celebrate", "icon": "check"}
+    },
+    {
+      "id": "b3", "label": "the result", "preset": "number",
+      "line": "That habit saved me 340 dollars in one month.",
+      "params": {"value": 340, "prefix": "$", "label": "saved in one month"}
+    },
+    {
+      "id": "b4", "label": "the quote", "preset": "quote",
+      "line": "A wise friend told me, small steps beat big plans.",
+      "params": {"text": "Small steps beat big plans.", "author": "A wise friend"}
+    },
+    {
+      "id": "b5", "label": "dashboard cutaway", "preset": "cutaway",
+      "line": "Here is what my dashboard looked like.",
+      "params": {"image": "dashboard", "fit": "cover", "transition": "slide", "label": "My dashboard"}
+    },
+    {
+      "id": "b6", "label": "chart in picture", "preset": "pip",
+      "line": "Look at the chart while I walk you through it.",
+      "params": {"image": "chart", "position": "top-right", "label": "Weekly savings"}
+    }
+  ]
+}

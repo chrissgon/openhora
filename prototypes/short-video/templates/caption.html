@@ -1,0 +1,51 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="pv-preset" content="caption">
+<meta name="pv-params" content="position">
+<style>
+:root { --c-bg:#0B0F14; --c-text:#FFFFFF; --c-muted:#A8B0BC; --c-accent:#FFC93C; --c-chip_fill:#1B1F2A; --c-chip_text:#FFE08A; --c-chip_border:#FFC93C;
+        --font-display:system-ui,sans-serif; --font-text:system-ui,sans-serif; --font-mono:ui-monospace,monospace;
+        --weight-display:800; --weight-text:500; --weight-mono:500; }
+html, body { margin:0; padding:0; background:transparent; width:1080px; height:1920px; overflow:hidden; }
+#stage { position:absolute; left:65px; width:950px; display:flex; justify-content:center; }
+#line { display:flex; flex-wrap:wrap; justify-content:center; gap:4px 20px;
+        font-family:var(--font-display); font-weight:var(--weight-display); font-size:80px; line-height:1.12;
+        text-align:center; color:var(--c-text);
+        text-shadow:0 5px 0 rgba(0,0,0,.6), 0 0 22px rgba(0,0,0,.65), 3px 3px 0 rgba(0,0,0,.5), -3px 3px 0 rgba(0,0,0,.5); }
+.w { display:inline-block; transform-origin:50% 85%; }
+</style>
+</head>
+<body>
+<div id="stage"><div id="line"></div></div>
+<script>
+'use strict';
+// Pure function of (t, data). t is seconds since this chunk started; data.words times are relative to it.
+window.renderAt = function (t, data) {
+  const stage = document.getElementById('stage');
+  const line = document.getElementById('line');
+  stage.style.bottom = '';
+  stage.style.top = '';
+  if (data.anchor === 'center') { stage.style.top = (data.center_px - 150) + 'px'; stage.style.height = '300px'; stage.style.alignItems = 'center'; }
+  else { stage.style.bottom = data.bottom_px + 'px'; }
+  line.replaceChildren();
+  let active = -1;
+  data.words.forEach(function (w, i) { if (w.start <= t) active = i; });
+  data.words.forEach(function (w, i) {
+    const s = document.createElement('span');
+    s.className = 'w';
+    s.textContent = w.text;
+    if (i === active) {
+      const k = Math.max(0, 1 - (t - w.start) / 0.14);
+      s.style.color = 'var(--c-accent)';
+      s.style.transform = 'scale(' + (1 + 0.22 * k).toFixed(4) + ')';
+    } else if (i > active) {
+      s.style.opacity = '0.62';
+    }
+    line.appendChild(s);
+  });
+};
+</script>
+</body>
+</html>
