@@ -9,7 +9,7 @@
 // label, state, window, decisions, lobby, notes: ["done" | "run" | "left"], documents, tip, interactive, plate}], selected, tag: {floor, text}|null}]}.
 // `focus` is the building that is open; `floor` the floor of it the route is on (the Floor, the Lobby), with `room` the words of that room
 // ({tips: {agent, doorTip}, board, door}); `frame` the one floor a phone shows; `marked` the id of the building that keeps its brackets in the City.
-// What the pointer meets in a room (R-31): the owl (`agent`, or `tray` when it asks something: the Inbox), the board of notes (`tasks`) and the bookcase (`desk`), and in the
+// What the pointer meets in a room (R-31): each owl (PAR-7e: `owl:<seat>` for an owl of a task or of a free place, from `room.owls`; the owl the floor's state draws is `agent`, or `tray` when it asks something: the Inbox), the board of notes (`tasks`) and the bookcase (`desk`), and in the
 // Lobby the door (`lobby-door`); in the Building the floor (`floor:<name>`, R-28) and the Lobby's door (`door`). A hit's `marks` are the corner brackets the engine shows for it.
 
 import { lotAt, buildGround } from "./city.js";
@@ -130,7 +130,13 @@ export function buildWorld(kit, model) {
             // R-31: the room's ways in are what the pointer picks, and the room as a whole is not
             const words = roomTips(f, room);
             const asks = asking(f);
-            if (parts.agent) hits.push({ object: parts.agent, id: asks ? "tray" : "agent", tip: asks ? words.tray : words.agent, marks: parts.marks.agent, anchor: topOf(THREE, parts.agent) });
+            if (Array.isArray(room.owls)) {
+              // PAR-7e: each owl is picked, bracketed and worded on its own (an owl of a task, a free place, or the one the floor's state draws: `room.owls` says which)
+              for (const o of parts.owls || []) {
+                const target = room.owls.find((t) => t.seat === o.seat);
+                if (target && o.marks) hits.push({ object: o.group, id: target.id, tip: target.tip, marks: o.marks, anchor: topOf(THREE, o.group) });
+              }
+            } else if (parts.agent) hits.push({ object: parts.agent, id: asks ? "tray" : "agent", tip: asks ? words.tray : words.agent, marks: parts.marks.agent, anchor: topOf(THREE, parts.agent) });
             hits.push({ object: parts.board, id: "tasks", tip: words.tasks, marks: parts.marks.board, anchor: topOf(THREE, parts.board) });
             hits.push({ object: parts.shelf, id: "desk", tip: words.desk, marks: parts.marks.shelf, anchor: topOf(THREE, parts.shelf) });
             if (parts.door) hits.push({ object: parts.door, id: "lobby-door", tip: words.door, marks: parts.marks.door, anchor: topOf(THREE, parts.door) });
@@ -180,6 +186,7 @@ export function buildWorld(kit, model) {
           tips.set("tasks", words.tasks);
           tips.set("desk", words.desk);
           tips.set("lobby-door", words.door);
+          for (const owl of Array.isArray(room.owls) ? room.owls : []) tips.set(owl.id, owl.tip);   // PAR-7e: the words of each owl, so that a poll refreshes them
           if (room.board) labels.push({ id: "board-label", kind: "board", rank: 0, title: room.board.title, lines: room.board.lines, dot: room.board.dot, decisions: 0, running: false, anchor: tower.boardAnchors[index], make: boardNode });
           if (room.door) labels.push({ id: "door-label", kind: "door", rank: 5, text: "Control room", decisions: 0, running: false, anchor: tower.doorAnchors[index], fit: tower.doorPlaques[index], shown: () => tower.open > 0.9 && tower.vis[index] > 0.999,   // the label ignores a floor's own scale, so it waits until the floor has its full size
            make: doorNode });

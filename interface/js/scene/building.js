@@ -116,7 +116,7 @@ function windows(pb, glassPb, tones, glass, openings) {
 
 /**
  * Draw the room of floor `f` into `parent` (a group at the floor's origin). f: {name, state, window, decisions, lobby, notes: ["done" | "run" | "left"], documents, seats: [{seat, pose, taskId}]}.
- * ctx: {lot, accepted, motions}. Returns the parts a screen points at: {agent (a group of every owl, or null), owls: [{seat, pose, group}], pose (the pose of seat 0, or null), board, shelf, door (or null), marks: {room, agent, board, shelf, door}}
+ * ctx: {lot, accepted, motions}. Returns the parts a screen points at: {agent (a group of every owl, or null), owls: [{seat, pose, group, marks (the brackets round that owl alone)}], pose (the pose of seat 0, or null), board, shelf, door (or null), marks: {room, agent, board, shelf, door}}
  * and the setters that change the room in place: setWindow(state), setNotes(list), setDocuments(n); `dispose()` frees the geometry and the materials the room made.
  */
 export function fillFloor(kit, parent, f, ctx) {
@@ -216,19 +216,22 @@ export function fillFloor(kit, parent, f, ctx) {
     ctx.motions.push(owl.motion);
     owls.push({ seat: s.seat, pose: s.pose, group: owl.group, x: px, z: pz, owl });
   }
-  // one group holds every owl, so that one pick opens the floor, and one set of brackets goes round them all
+  // each owl is a pick target of its own with its own brackets round it alone (PAR-7e); one group also holds every owl, with one set of brackets round them all, for a caller that gives the
+  // world no words for the owls (it then picks the group, so that one pick still opens the floor)
   let agent = null;
-  let agentMarks = null;
+  let agentMarks = null;      // the brackets round all the owls: made when a caller asks for them (the world gives them to a hit only when it has no words for the owls), not before
+  const pad = 0.84 * layout.S;
+  const bracketsAround = (xs, zs) => {
+    const marks = holder();
+    room.add(marks);
+    marks.add(boxBrackets(kit, make, { x0: Math.min(...xs) - pad, x1: Math.max(...xs) + pad, z0: Math.min(...zs) - pad, z1: Math.max(...zs) + pad, y0: 0, y1: 1.82 * layout.S, arm: 0.45, drop: 0.475, tone: tones.bracket }));
+    return marks;
+  };
   if (owls.length) {
     agent = new THREE.Group();
     room.add(agent);
     for (const o of owls) agent.add(o.group);
-    agentMarks = holder();
-    room.add(agentMarks);
-    const pad = 0.84 * layout.S;
-    const xs = owls.map((o) => o.x);
-    const zs = owls.map((o) => o.z);
-    agentMarks.add(boxBrackets(kit, make, { x0: Math.min(...xs) - pad, x1: Math.max(...xs) + pad, z0: Math.min(...zs) - pad, z1: Math.max(...zs) + pad, y0: 0, y1: 1.82 * layout.S, arm: 0.45, drop: 0.475, tone: tones.bracket }));
+    for (const o of owls) o.marks = bracketsAround([o.x], [o.z]);
   }
 
   // the room's own brackets (R-28): round its base and at the top of its walls
@@ -243,8 +246,8 @@ export function fillFloor(kit, parent, f, ctx) {
   };
   return {
     agent, board, shelf, door: doorGroup, pose: owls.length ? owls[0].pose : null, motion: owls.length ? owls[0].owl.motion : null,
-    owls: owls.map(({ seat, pose, group }) => ({ seat, pose, group })),
-    marks: { room: roomMarks, agent: agentMarks, board: boardMarks, shelf: shelfMarks, door: doorMarks },
+    owls: owls.map(({ seat, pose, group, marks }) => ({ seat, pose, group, marks })),
+    marks: { room: roomMarks, get agent() { if (!agentMarks && owls.length) agentMarks = bracketsAround(owls.map((o) => o.x), owls.map((o) => o.z)); return agentMarks; }, board: boardMarks, shelf: shelfMarks, door: doorMarks },
     get notesShown() { return state.shown; },
     /** How many binders the bookcase shows (M-7: one bookcase, sixteen at most). */
     get binders() { return bindersShown(state.documents); },

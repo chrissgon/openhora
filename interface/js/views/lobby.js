@@ -11,10 +11,12 @@ import * as api from "../api.js";
 import { failureText } from "../cards/plan-rows.js";
 import { h } from "../dom.js";
 import * as fm from "../floor-model.js";
+import { createOwlList } from "../floor/owl-list.js";
 import { focusOpenLink } from "../floor/widgets.js";
 import * as origin from "../frame/origin.js";
 import { actions } from "../floor/actions.js";
 import { createTasksTab } from "../floor/tasks-tab.js";
+import { openOwl } from "../owl-words.js";
 import { createPanel } from "../frame/panel.js";
 import { can as pageMay, fingerprint } from "../permissions.js";
 import * as router from "../router.js";
@@ -127,7 +129,13 @@ export function createLobbyView(frame, { project, onChanged }) {
     go: (id) => { window.location.hash = router.lobbyHash(project, id); },
   });
   panel.el.append(footer);
-  frame.main.append(panel.el, cancelDialog.el);
+  // the owls of the room, each selected on its own (PAR-7e): what the world last gave for them, and their twin list for the keyboard
+  let owls = [];
+  const owlList = createOwlList({
+    hashOf: (target) => router.lobbyHash(project, target.route.tab, target.route.id),
+    highlight: (id, source) => scene.highlight(id, source),
+  });
+  frame.main.append(panel.el, owlList.el, cancelDialog.el);
   // "Close" and a phone's dialog go to the one hash the frame's key handler also uses: the tab the document was opened from (frame/origin.js)
   const viewer = createLobbyViewer({ frame, panel: panel.el, project, listed: (path) => desk.listed(path), onClose: () => { origin.close(last.route || router.parse(window.location.hash)); } });
   const panelHead = panel.el.querySelector(".wb-panel-head");
@@ -281,7 +289,10 @@ export function createLobbyView(frame, { project, onChanged }) {
       tips: room.tips, board: room.board, door: true, doorTip: room.tips.door, state: room.state, window: room.window, decisions: room.decisions,
       sheets: room.sheets, drawers: room.drawers, documents: room.documents,
     };
-    scene.update(worldModel(last.snapshot, last.now, { selectedId: project, focus: project, floor: "planning", room: words, ready: Boolean(status) }), canvasLabel(last.projectName, room));
+    const world = worldModel(last.snapshot, last.now, { selectedId: project, focus: project, floor: "planning", room: words, ready: Boolean(status) });
+    owls = world.room && Array.isArray(world.room.owls) ? world.room.owls : [];
+    owlList.update(owls);
+    scene.update(world, canvasLabel(last.projectName, room));
   }
 
   /** What runs: the router's run on a request, else the running tasks (the model words it: `runNote`). The composer is busy only while its own turn is sent; this note never blocks it. */
@@ -301,6 +312,7 @@ export function createLobbyView(frame, { project, onChanged }) {
     else if (id === "tray") window.location.hash = router.lobbyHash(project, "inbox");
     else if (id === "desk") window.location.hash = router.lobbyHash(project, "desk");
     else if (id === "agent") window.location.hash = router.lobbyHash(project, "agent");
+    else if (openOwl(owls, id, (tab, n) => { window.location.hash = router.lobbyHash(project, tab, n); })) return;      // an owl of a task, or of a free place: its task, its decision or the Agent tab
     else if (String(id).startsWith("sheet:")) window.location.hash = router.lobbyDeskHash(project, String(id).slice(6));
   }
 
@@ -314,8 +326,9 @@ export function createLobbyView(frame, { project, onChanged }) {
     const model = agent.update({ snapshot, tab });
     desk.update({ tab, ready: Boolean(snapshot.loaded && accepted) });
     if (tab === "tasks" && (accepted || frozen)) {
-      tasks.update({ tasks: model ? model.tasks : [], requests: status ? status.requests || [] : [], pending: status ? status.pending || [] : [], loading: !snapshot.loaded || !model, reload: reloaded, unaccepted: frozen });
+      tasks.update({ tasks: model ? model.tasks : [], requests: status ? status.requests || [] : [], pending: status ? status.pending || [] : [], loading: !snapshot.loaded || !model, reload: reloaded, unaccepted: frozen, selected: route.pending });
     }
+    if (tab !== "tasks") tasks.forget();      // an owl's click names a task (PAR-7e): the next click on the same owl opens it again
     if (tab !== "inbox" && !leftInbox && !inbox.busy()) {      // a card whose job still runs keeps its state until it ends
       inbox.reset();
       leftInbox = true;
@@ -607,6 +620,7 @@ export function createLobbyView(frame, { project, onChanged }) {
       desk.dispose();
       agent.dispose();
       scene.dispose();
+      owlList.el.remove();
       panel.drawer.destroy();   // before the panel leaves the page: the frame hears that nothing covers the scene
       panel.el.remove();
       cancelDialog.el.remove();
