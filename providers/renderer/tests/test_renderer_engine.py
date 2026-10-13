@@ -385,8 +385,44 @@ def test_fonts_come_only_from_the_allow_list_and_are_hash_checked(tmp_path, monk
     assert _frames.fonts_dir().endswith(os.path.join("renderer", "assets", "fonts"))      # outside test mode the folder is not redirectable
 
 
-def test_the_shipped_allow_list_is_empty_until_the_maintainer_chooses_a_font():
-    assert _frames.font_allowlist() == {}
+def test_the_shipped_allow_list_is_the_one_pinned_set_with_its_licences_and_its_weaker_provenance_stated():
+    folder = os.path.join(str(K.RENDERER), "assets", "fonts")
+    allow = _frames.font_allowlist()
+    assert set(allow) == {"inter-800", "inter-500", "jetbrains-mono-500"}
+    assert {k: allow[k]["weight"] for k in allow} == {"inter-800": 800, "inter-500": 500, "jetbrains-mono-500": 500}
+    for row in allow.values():
+        data = open(os.path.join(folder, row["file"]), "rb").read()
+        assert hashlib.sha256(data).hexdigest() == row["sha256"] and data[:4] == b"wOF2"
+        assert row["licence"] == "OFL-1.1" and "Latin subset" in row["source"] and "not recorded" in row["source"]
+        licence = open(os.path.join(folder, row["licence_file"]), encoding="utf-8").read()
+        assert "SIL OPEN FONT LICENSE Version 1.1" in licence and licence.startswith("Copyright")
+    note = json.load(open(os.path.join(folder, "allowlist.json")))["note"]
+    assert "WEAKER PROVENANCE" in note and "Fontsource" in note and "not the upstream releases" in note
+    for name in os.listdir(folder):                                     # what the repository holds names no project of anyone's
+        text = open(os.path.join(folder, name), "rb").read().decode("latin-1").lower()
+        assert "chrissgon" not in text and "posts" not in name.lower(), name
+
+
+@needs_browser
+def test_the_allow_listed_fonts_load_in_the_browser_and_a_render_can_name_them(tmp_path):
+    allow = _frames.font_allowlist()
+    serve, used = _frames.load_fonts({"display": {"id": "inter-800", "weight": 800}, "text": {"id": "inter-500", "weight": 500}, "mono": {"id": "jetbrains-mono-500", "weight": 500}},
+                                     allow, DATA["limits"]["font_max_bytes"])
+    assert used == {"display": "inter-800", "text": "inter-500", "mono": "jetbrains-mono-500"}
+    serve["/t/x.html"] = (page_html("window.renderAt=()=>{}"), "text/html")
+    cfg = {"colors": {}, "images": {}, "fonts": {role: {"url": _cdp.ORIGIN + path, "weight": w, "fallback": "serif"}
+                                                 for role, w in (("display", 800), ("text", 500), ("mono", 500)) for path in serve if path.startswith("/fonts/%s." % role)}}
+    with _cdp.Chrome(K.BROWSER, serve, str(tmp_path / "w")) as ch:
+        pg = ch.new_page(200, 200)
+        pg.open("/t/x.html", cfg)                                       # setup awaits every font and checks each family: it raises when one is missing
+        assert pg.evaluate("document.fonts.check('800 20px pv-display') && document.fonts.check('500 20px pv-mono')") is True
+    edl_fonts = {"display": {"id": "inter-800", "weight": 800}, "text": {"id": "inter-500", "weight": 500}, "mono": {"id": "jetbrains-mono-500", "weight": 500}}
+    doc = K.build_transcript()
+    analysis = {"facts": {"duration": doc["duration"], "sha256": "d" * 64, "width": 1080, "height": 1920, "has_audio": True}, "silences": None}
+    import _edl
+    edl, notes = _edl.build_base(doc, analysis, DATA, allow, font_flags={r: (f["id"], f["weight"]) for r, f in edl_fonts.items()})
+    assert edl["theme"]["fonts"] == edl_fonts and notes == []
+    _edl.check_edl(edl, DATA, VOCAB, allow)
 
 
 def test_images_are_checked_by_their_bytes_dimensions_and_hash(tmp_path):

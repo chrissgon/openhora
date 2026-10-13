@@ -19,7 +19,7 @@ beats come from the post file's script block.
 | `renderer-presets.json` | What the renderer decides about `shared/references/video-presets.json` (frame, zones, cuts, zoom, timing, limits). The vocabulary itself is read by flag. |
 | `edl.schema.json` | The renderer-neutral edit list and beats. |
 | `browser-pin.json`, `Dockerfile`, `.dockerignore`, `_fetch_browser.py` | The image's definition and the pins it is built from. |
-| `assets/fonts/allowlist.json` | The fonts a render may use. Empty: no font is chosen yet (decision D6), so every render uses the image's free fallback font and says so. |
+| `assets/fonts/` | The fonts a render may use (decision D6): Inter 500 and 800 and JetBrains Mono 500 as woff2, their SIL OFL 1.1 texts and `allowlist.json` (sha256, licence, source). The provenance is the weaker one the file says: Fontsource's Latin subsets, package version not recorded. A font not listed is never used; the render says which font each role used (`fonts`). |
 
 ## The container (decision D22)
 
@@ -147,11 +147,11 @@ skip with a reason where those are absent; the host side runs against a fake doc
 - **The image has never been built or run**: no build or pull was made. Its package list (the libraries the headless shell links against)
   is from knowledge; the build fails by design at the `ldd` line when one is missing.
 - **Chrome with `--no-sandbox` inside the container, and `--disable-dev-shm-usage`, are untested in Docker.**
-- Render time in the container, the quality of the presets on a real recording (condition C2), the push-in's jitter, and the font (D6).
+- Render time in the container, the quality of the presets on a real recording (condition C2), and the push-in's jitter.
 - **Assets are only header-checked here** (PNG or JPEG by bytes, bounded, never animated). The renderer treats every asset as untrusted
   and the browser decodes it, so P4 and P4b must normalise assets (re-encode to a metadata-free PNG at frame size) before they reach it.
 - Clips (video assets) are not supported: an asset is a PNG or JPEG; the intake normalises everything else. Transitions other than the
-  cutaway's slide are not offered. A brand font is used only from the allow-list, which is empty.
+  cutaway's slide are not offered. A font is used only from the allow-list (Latin subsets of three Inter and JetBrains Mono files).
 
 ## Limits that match the plan
 
