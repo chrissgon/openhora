@@ -474,7 +474,7 @@ Two parts, so that the presets are not frozen before the quality check.
   - A read operation `media-raw` in `runtime/ops_reads.py`, **loopback socket only** (as the upload route):
     - it **streams** from an open file descriptor. The existing `artifact_raw` (`ops_reads.py:765-790`) returns the whole file in a dict, which is not acceptable for a video;
     - it allows **one read at a time**;
-    - it serves only names that match `render-*.mp4` under `<data_dir>/media/<post>/`. The raw recording is never served (the earlier "unless the person asks" is dropped);
+    - it serves only names that match `render-*.mp4` under `<data_dir>/media/<post>/`. The raw recording is never served;
     - the type by bytes; size at most the platform's `max_bytes`;
     - **for an approval card it takes the pending decision's id**: it opens the file, **hashes the open descriptor** against the `video_sha256` bound in the effect document, and streams from **that same descriptor**. A mismatch is refused. A page-side `crypto.subtle` digest check is optional, because the route is loopback only.
   - `interface/js/floor/viewer.js`: a `video` kind (`<video controls>` from a `blob:` URL fetched with the bearer header, revoked on close), size, duration and the sha256 under it.
@@ -520,7 +520,7 @@ Two parts, so that the presets are not frozen before the quality check.
     - removes the job's `files/` folder, and keeps `job.json` with every snapshot hash (the record of what was sent stays; only the bytes go);
     - the row in `providers/CONTRACT.md:117` and the parity test (`providers/scheduler/tests/test_scheduler_parity.py`) are extended.
   - `archive_finished` (`launchd.py:551`, and its twin in `systemd.py`) drops `files/` when it moves a folder to `.history/`, and keeps every snapshot hash in `job.json`.
-  - **A runtime round runs `purge`** on finished jobs, polling `list`, in a dispatcher round with no model. The earlier alternative (a README-only cleanup) is removed: the cleanup is code.
+  - **A runtime round runs `purge`** on finished jobs, polling `list`, in a dispatcher round with no model. The cleanup is code, not a line in a README.
 - **Class:** runtime and provider. **No lab test.**
 - **Tests (offline):**
   - `test_limit_15...` extended: a scheduled post is scheduled only with the approved hash;
