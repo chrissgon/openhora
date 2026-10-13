@@ -187,7 +187,11 @@ func cutRendered(s string) string {
 	if kept == 0 {
 		first := lines[0]
 		room := renderLimit - noteRunes
-		cut := len(string([]rune(first)[:room]))
+		r := []rune(first)
+		if len(r) > room {
+			r = r[:room]
+		}
+		cut := len(string(r))
 		cut = beforeSpan(first, cut)
 		return strings.TrimRight(first[:cut], " \t") + note
 	}

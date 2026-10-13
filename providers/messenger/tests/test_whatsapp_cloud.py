@@ -212,12 +212,16 @@ def test_setup_keeps_the_path_unless_asked_and_keeps_earlier_values_and_says_so_
     [], ["--phone-number-id", PHONE_ID], ["--phone-number-id", "abc", "--template", "t", "--template-language", "pt_BR"],
     ["--phone-number-id", PHONE_ID, "--template", "Bad Name", "--template-language", "pt_BR"],
     ["--phone-number-id", PHONE_ID, "--template", "t", "--template-language", "portuguese"],
-    ["--phone-number-id", PHONE_ID, "--template", "t", "--template-language", "pt_BR", "--port", "0"],
-    ["--phone-number-id", PHONE_ID, "--template", "t", "--template-language", "pt_BR", "--port", "70000"],
 ])
 def test_setup_refuses_missing_or_malformed_values_with_exit_2_and_writes_nothing(home, capsys, argv):
     assert run_setup(*argv) == 2
     assert not (home / "whatsapp-cloud" / "settings.json").exists() and "--phone-number-id" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("port", ["0", "70000", "-5"])
+def test_a_bad_port_is_refused_by_name(home, capsys, port):
+    assert run_setup("--phone-number-id", PHONE_ID, "--template", "t", "--template-language", "pt_BR", "--port", port) == 2
+    assert "--port" in capsys.readouterr().err and not (home / "whatsapp-cloud" / "settings.json").exists()
 
 
 def test_the_hostname_is_read_from_tailscale_status_when_it_can_be():

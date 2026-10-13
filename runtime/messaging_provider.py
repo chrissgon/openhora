@@ -46,7 +46,7 @@ STDIN_WAIT, TERM_WAIT = 10.0, 5.0  # the stop: after stdin ends, then after SIGT
 UPDATE_QUEUE = 1000
 STDERR_TAIL = 300
 ERROR_KINDS = ("usage", "not-configured", "failed", "paused")
-ANSWER_KINDS = ("usage", "not-configured", "failed", "deferred")   # the kinds of a send that did not go out; "deferred" is not an error: the platform cannot take it yet and the bridge keeps the card
+ANSWER_KINDS = ("usage", "not-configured", "failed", "deferred")   # "paused" is an error-event kind only: a send answer cannot be paused today; the kinds of a send that did not go out; "deferred" is not an error: the platform cannot take it yet and the bridge keeps the card
 PAUSED_WAIT = 300.0                # a provider that exits 3 after an error event of kind "paused" (its session is gone) is asked again after this
 PAUSED_REPEAT = 86400.0            # the line that says it is paused is written again this often while it stays paused
 

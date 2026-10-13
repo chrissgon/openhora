@@ -24,7 +24,7 @@ script.json (optional) is {"1": step, "2": step, "default": step}: the step for 
   paused_after_ready  a reason: after ready and the emitted lines, write that event and exit 3 (a session lost while connected)
 A send to the chat "crash-1" makes the first start deliver it (it is recorded) and exit 1 without answering, "exit-3" writes the error event and exits 3,
 "exit-2" does the same with 2, "silent" is never answered, "fail-usage", "fail-failed" and "fail-deferred" are answered ok:false
-(the kind is the rest of the chat's name), "defer-once" is answered ok:false, kind "deferred", the first time it is sent to
+(the kind is the rest of the chat's name), "defer-first-<n>" is answered the same way for its first n sends, "defer-once" is answered ok:false, kind "deferred", the first time it is sent to
 (then runs after_send "1" as a send does) and as any chat after, "no-id" is answered ok:true without a message_id. Records, one JSON object per line, in STANDIN_DIR: starts.jsonl (pid, pgid,
 the arguments), requests.jsonl (every line it read), sent.jsonl (chat and message of each send it answered). No network.
 """
@@ -114,6 +114,7 @@ def listen(platform) -> int:
         return 3
     sends = 0
     deferred = set()
+    counts = {}
     for raw in sys.stdin.buffer:
         append("requests.jsonl", json.loads(raw))
         request = json.loads(raw)
@@ -133,6 +134,13 @@ def listen(platform) -> int:
             deferred.add(chat)
             sends += 1
             write({"id": request["id"], "ok": False, "kind": "deferred", "reason": "outside the window; a reminder was sent"})
+            for item in step.get("after_send", {}).get(str(sends), []):
+                emit(item)
+            continue
+        if chat.startswith("defer-first-") and counts.get(chat, 0) < int(chat[len("defer-first-"):]):
+            counts[chat] = counts.get(chat, 0) + 1
+            sends += 1
+            write({"id": request["id"], "ok": False, "kind": "deferred", "reason": "outside the window"})
             for item in step.get("after_send", {}).get(str(sends), []):
                 emit(item)
             continue

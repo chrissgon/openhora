@@ -85,7 +85,7 @@ class Bridge(shell_kit.Jobs):
         self.messenger, self.ledger, self.platform = messenger, ledger, platform
         self.clock = clock or shell_kit.now
         self.chosen = {}       # sender -> project id
-        self.more = {}         # project id -> the number last announced as waiting
+        self.more = {}         # (project id, chat) -> the number last announced as waiting to that chat (set once the line went out)
         self.policy_noted = set()
         self.everyone = list(self.projects)   # every project given; `self.projects` is the part that is ready to serve
         self.skipped = {}                     # project id -> why it is skipped now (absent: served)
@@ -150,14 +150,19 @@ class Bridge(shell_kit.Jobs):
 
     # --- sending ---------------------------------------------------------------------------------------------
 
-    def reply(self, chat: str, text: str) -> None:
+    def reply(self, chat: str, text: str):
+        """Send a reply. True when every piece went out, False when a send failed (logged), None when the platform deferred it
+        (it cannot take a message yet: not an error, not logged, and the caller may try again)."""
         caps = self.messenger.capabilities()
         for piece in cards.split(text or "(no reply)", caps["max_text"]):
             try:
                 self.messenger.send(chat, {"text": piece, "actions": [], "link": None, "document": None})
             except provider.MessengerError as e:
+                if e.kind == "deferred":
+                    return None
                 self.log(f"a reply could not be sent ({e.kind})")
-                return
+                return False
+        return True
 
     def allow(self, project: dict, op: str, kind=None) -> dict:
         """The project's accepted settings when the policy permits the operation (for this kind of decision), else
@@ -258,11 +263,12 @@ class Bridge(shell_kit.Jobs):
             except self.ops.OpsError as e:
                 self.log(f"a project could not be read for notices ({e.__class__.__name__})")
                 continue
-            if left != self.more.get(project["id"], 0):
-                self.more[project["id"]] = left
-                if left and settings:
-                    for chat in settings["senders"]:
-                        self.reply(chat, cards.MORE_LINE.format(n=left))
+            for chat in (settings["senders"] if settings else []):
+                key = (project["id"], chat)
+                if not left:
+                    self.more.pop(key, None)
+                elif self.more.get(key) != left and self.reply(chat, cards.MORE_LINE.format(n=left)) is not None:
+                    self.more[key] = left      # a deferred line is not recorded: it is tried again at the next notice period
 
     # --- updates in ------------------------------------------------------------------------------------------
 

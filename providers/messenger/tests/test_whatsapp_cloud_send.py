@@ -503,3 +503,42 @@ def test_the_secrets_never_reach_the_protocol_or_the_logs_on_any_error_path(rig,
         assert secret not in everything
     assert wc.redact(f"x {TOKEN} y", [TOKEN]) == "x <secret> y"
     assert wc.redact("call 5511900000000 error 131047") == "call <digits> error 131047"
+
+
+def test_button_titles_are_stripped_never_empty_and_different_from_one_another():
+    acts = lambda *labels: [{"id": str(i), "label": l} for i, l in enumerate(labels)]
+    same = wc.button_titles(acts("Approve this long label A", "Approve this long label B", "Approve this long label C"))
+    assert same == ["Approve this long la", "Approve this long 2", "Approve this long 3"] and all(0 < len(t) <= 20 for t in same)
+    assert wc.button_titles(acts("Yes", "yes", "YES")) == ["Yes", "yes 2", "YES 3"]
+    assert wc.button_titles(acts(" " * 20 + "late", "ok")) == ["late", "ok"]       # spaces are collapsed before the cut
+    assert wc.button_titles(acts(chr(0xA0) * 3, "ok")) == ["Option 1", "ok"]
+    assert wc.button_titles(acts("  padded   words  ")) == ["padded words"]
+    sender_body = wc.buttons_body(PERSON, "x", acts("Same", "Same"))
+    assert [b["reply"]["title"] for b in sender_body["interactive"]["action"]["buttons"]] == ["Same", "Same 2"]
+
+
+def test_the_webhook_answers_503_until_the_token_check_has_passed_and_marks_nothing_seen(tmp_path):
+    release = threading.Event()
+    r = Rig(tmp_path / "n", opener=Opener([("GET", lambda c: release.wait(10) and None)])).start(ready=False)
+    try:
+        assert kit.wait_for(lambda: r.listener.port, 5)
+        assert r.post(envelope([text_message()]))[0] == 503
+        assert r.out.updates() == [] and r.store.seen == {}
+        release.set()
+        assert kit.wait_for(lambda: r.out.events("ready"), 5)
+        assert r.post(envelope([text_message()]))[0] == 200 and len(r.out.updates()) == 1
+    finally:
+        release.set()
+        r.stop()
+
+
+def test_the_state_is_pruned_once_a_day_while_running(tmp_path):
+    r = Rig(tmp_path / "pr", prune_every=0.2).start()
+    try:
+        r.store.mark_seen("wamid.OLD")
+        r.store.remember("BR.old000000000000", "551100000009")
+        r.clock.now += 40 * DAY                       # forty days later, nothing renewed it
+        assert kit.wait_for(lambda: "wamid.OLD" not in r.store.seen and not r.store.identities, 5)
+        assert json.load(open(r.folder + "/" + wc.SEEN)) == {} and json.load(open(r.folder + "/" + wc.IDENTITIES)) == {}
+    finally:
+        r.stop()

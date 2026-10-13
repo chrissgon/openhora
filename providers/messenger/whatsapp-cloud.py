@@ -109,6 +109,7 @@ CLOCK_SKEW = 300                                # a message timestamp this far a
 TEXT_LIMIT, BODY_LIMIT, TITLE_LIMIT, ID_LIMIT = 4096, 1024, 20, 256
 BUTTONS_LINE = "Choose an action for the card above."
 DOCUMENT_LIMIT = 1_000_000
+PRUNE_EVERY = 86400.0                           # seconds between two prunings of the state while running
 LOG_EVERY = 60.0                                # a diagnostic of one class is written at most this often
 CODE_WINDOW, CODE_RATE, CODE_RATE_2 = 131047, 130429, 131056
 CODE_TOKEN = (190, 0)                           # the token expired or is refused (0 is an authentication exception)
@@ -674,11 +675,27 @@ def text_body(to: str, text: str, reply_to=None) -> dict:
     return body
 
 
+def button_titles(actions: list) -> list:
+    """The titles of the buttons: cut to 20 characters, stripped, never empty (a blank one becomes "Option n") and different from
+    one another (a repeat gets " 2", " 3" ... inside the 20)."""
+    titles, taken = [], set()
+    for n, action in enumerate(actions, 1):
+        base = " ".join(action["label"].split())[:TITLE_LIMIT].strip() or f"Option {n}"
+        title, k = base, 1
+        while title.casefold() in taken:
+            k += 1
+            tail = f" {k}"
+            title = base[:TITLE_LIMIT - len(tail)].rstrip() + tail
+        taken.add(title.casefold())
+        titles.append(title)
+    return titles
+
+
 def buttons_body(to: str, text: str, actions: list, reply_to=None) -> dict:
     body = {"messaging_product": "whatsapp", "recipient_type": "individual", "to": to, "type": "interactive",
             "interactive": {"type": "button", "body": {"text": text},
-                            "action": {"buttons": [{"type": "reply", "reply": {"id": a["id"], "title": a["label"][:TITLE_LIMIT]}}
-                                                   for a in actions]}}}
+                            "action": {"buttons": [{"type": "reply", "reply": {"id": a["id"], "title": t}}
+                                                   for a, t in zip(actions, button_titles(actions))]}}}
     if reply_to:
         body["context"] = {"message_id": reply_to}
     return body
@@ -743,6 +760,7 @@ class Sender:
     def __init__(self, graph: Graph, store: Store, settings: dict, log, clock=time.time):
         self.graph, self.store, self.settings, self.log, self.clock = graph, store, settings, log, clock
         self.sent = collections.OrderedDict()
+        self.aliases = collections.OrderedDict()     # id of a buttons message -> id of the text it follows (the card's answered id)
         self.sent_lock = threading.Lock()
 
     def remember_sent(self, wamid: str, chat: str, when: float) -> None:
@@ -750,6 +768,11 @@ class Sender:
             self.sent[wamid] = (chat, when)
             while len(self.sent) > SENT_MAX:
                 self.sent.popitem(last=False)
+
+    def alias_of(self, wamid):
+        """The card's answered id for a reply to its buttons message, else the id itself: a reply to either binds to the card."""
+        with self.sent_lock:
+            return self.aliases.get(wamid, wamid)
 
     def sent_info(self, wamid: str):
         with self.sent_lock:
@@ -838,7 +861,13 @@ class Sender:
                               document_name(document["name"]), first))))
         for what, step in follow:
             try:
-                self.remember_sent(step(), chat, now)
+                got = step()
+                self.remember_sent(got, chat, now)
+                if what == "buttons":
+                    with self.sent_lock:
+                        self.aliases[got] = first
+                        while len(self.aliases) > SENT_MAX:
+                            self.aliases.popitem(last=False)
             except GraphError as e:
                 if e.kind == "not-configured":
                     raise
@@ -885,10 +914,13 @@ class Webhook:
     """What the server does with a call: the handshake, the signature, the payload. `emit(update)` takes an update; `late`
     takes the id of a message this process sent that Meta reports as failed for a closed window."""
 
-    def __init__(self, settings: dict, secrets: dict, store: Store, emit, late=None, sent_info=None, note=None, clock=time.time):
+    def __init__(self, settings: dict, secrets: dict, store: Store, emit, late=None, sent_info=None, note=None, clock=time.time,
+                 alias=None):
         self.settings, self.secrets, self.store, self.emit = settings, secrets, store, emit
         self.late, self.sent_info, self.clock = late or (lambda wamid: None), sent_info or (lambda wamid: None), clock
         self.note = note or (lambda key, text=None: None)
+        self.alias = alias or (lambda wamid: wamid)
+        self.accepting = True      # a Listener switches it off until the token check has passed
         self.path = "/" + settings["webhook_path"]
 
     # GET: the handshake
@@ -908,6 +940,8 @@ class Webhook:
 
     # POST: a signed payload
     def post(self, body: bytes, header) -> int:
+        if not self.accepting:
+            return 503           # not ready: nothing is marked seen, so Meta's retry is handled after the token check
         if not signature_ok(self.secrets[SECRET_APP], body, header):
             self.note("signature", "webhook: a call with a missing or wrong signature was refused")
             return 401
@@ -918,7 +952,7 @@ class Webhook:
             return 200
         try:
             self.process(payload)
-        except Exception as e:  # Meta retries on a 500; what was emitted is deduplicated by id
+        except Exception as e:  # Meta retries on a 500; what was emitted is deduplicated by id (in memory as well as on disk)
             self.note("processing", f"webhook: processing failed ({type(e).__name__})")
             return 500
         return 200
@@ -933,10 +967,7 @@ class Webhook:
                     self.status(as_dict(status))
                 for message in as_list(value.get("messages")):
                     self.message(as_dict(message))
-        try:
-            self.store.flush()
-        except OSError as e:
-            self.note("persist", f"webhook: the state could not be written ({e.__class__.__name__})")
+        self.store.flush()      # a failure is an OSError: the caller answers 500 and Meta retries (the retry is deduplicated in memory)
 
     def status(self, status: dict) -> None:
         if status.get("status") != "failed":
@@ -990,7 +1021,7 @@ class Webhook:
         if chat is None:
             return
         context = as_dict(message.get("context")).get("id")
-        reply_to = context if isinstance(context, str) and context and kind != "button" else None
+        reply_to = self.alias(context) if isinstance(context, str) and context and kind != "button" else None
         self.store.note_inbound(chat, self.when(message))        # before the update: the bridge's reply must find the window open
         self.emit({"update_id": wamid, "sender": chat, "chat": chat, "private": True, "text": text, "action": action,
                    "action_ref": None, "reply_to": reply_to}, uid)
@@ -1049,12 +1080,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def target(self):
         """(path matches, query) of the request line."""
-        try:
-            parts = urllib.parse.urlsplit(self.path)
-        except ValueError:
-            return False, ""
+        path, _, query = self.path.partition("?")      # the raw request target, before any parsing or decoding
         want = self.server.hook.path.encode("utf-8")
-        return hmac.compare_digest(parts.path.encode("utf-8", "surrogateescape"), want), parts.query
+        return hmac.compare_digest(path.encode("utf-8", "surrogateescape"), want), query
 
     def other_method(self):
         found, _ = self.target()
@@ -1163,9 +1191,9 @@ class Listener:
     """One listen process: the webhook server, the sender thread and the stdin reader share this object."""
 
     def __init__(self, settings: dict, secrets: dict, store: Store, *, out, stdin, graph=None, clock=time.time, rate_wait=RATE_WAIT,
-                 deadline=REQUEST_DEADLINE, limit=MAX_HANDLERS, log=None):
+                 deadline=REQUEST_DEADLINE, limit=MAX_HANDLERS, log=None, prune_every=PRUNE_EVERY):
         self.settings, self.secrets, self.store, self.out, self.stdin, self.clock = settings, secrets, store, out, stdin, clock
-        self.rate_wait, self.deadline, self.limit = rate_wait, deadline, limit
+        self.rate_wait, self.deadline, self.limit, self.prune_every = rate_wait, deadline, limit, prune_every
         self.known = tuple(secrets.values())
         self.log = log or (lambda text: print(redact(text, self.known), file=sys.stderr, flush=True))
         self.note = Notes(self.log)
@@ -1197,7 +1225,9 @@ class Listener:
 
     def start_server(self) -> None:
         hook = Webhook(self.settings, self.secrets, self.store, self.emit, late=lambda wamid: self.requests.put(("late", wamid)),
-                       sent_info=self.sender.sent_info, note=self.note, clock=self.clock)
+                       sent_info=self.sender.sent_info, note=self.note, clock=self.clock, alias=self.sender.alias_of)
+        hook.accepting = False
+        self.hook = hook
         try:
             self.server = Server(self.settings["port"], hook, self.deadline, self.limit)
         except OSError as e:
@@ -1221,7 +1251,17 @@ class Listener:
         if self.stop.is_set():
             return
         threading.Thread(target=self.work, daemon=True).start()
+        threading.Thread(target=self.prune_daily, daemon=True).start()
+        self.hook.accepting = True
         self.out.write({"event": "ready"})
+
+    def prune_daily(self) -> None:
+        """Identities (30 days), windows and seen ids (8 days) are pruned at the start and once a day while running."""
+        while not self.stop.wait(self.prune_every):
+            try:
+                self.store.prune()
+            except OSError as e:
+                self.log(f"the state could not be pruned ({e.__class__.__name__})")
 
     # stdin
     def read_stdin(self) -> None:
@@ -1388,6 +1428,9 @@ def funnel_command(settings: dict) -> str:
 
 
 def cmd_setup(args) -> int:
+    if args.port is not None and not 1 <= args.port <= 65535:
+        say("--port is a number from 1 to 65535")
+        return EXIT_USAGE
     folder = own_folder()
     path = os.path.join(folder, SETTINGS)
     current = read_json(path, {})

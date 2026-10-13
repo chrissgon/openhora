@@ -673,3 +673,17 @@ def test_a_deferred_card_goes_out_as_soon_as_the_person_writes_without_waiting_f
     assert r.bridge.ledger.sent(r.projects[0]["id"], 1, bridge.cards.content_sha256(r.items[1]), "defer-once")
     assert len([x for x in r.log if "kept for later" in x]) == 1
     r.finish()
+
+
+def test_the_line_about_more_waiting_is_not_lost_when_its_chat_is_deferred_and_goes_out_after_the_person_writes(tmp_path, monkeypatch, rig):
+    chat = "defer-first-11"      # the ten cards and the line are all deferred; the twelfth request is taken
+    hello = {"event": "update", "update": {"sender": chat, "chat": chat, "private": True, "text": "hello", "action": None, "reply_to": None}}
+    r = rig(sender=chat, script={"default": {"after_send": {"1": [hello]}}})
+    for number in range(1, 13):
+        r.items[number] = decision("question", number, title=f"Q{number}")
+    r.run(notice_every=600)
+    more = "And 2 more waiting. Send /pending to list them."
+    assert wait_for(lambda: more in r.texts()), r.log
+    assert r.texts().count(more) == 1 and len([t for t in r.texts() if "question #" in t]) == 10
+    assert not any("could not be sent" in line for line in r.log), "a deferral is not logged as a failure"
+    r.finish()

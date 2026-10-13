@@ -408,3 +408,39 @@ def test_a_failed_status_with_131047_for_a_sent_wamid_is_queued_for_the_sender_w
     r.post(envelope(statuses=[{"id": "wamid.MINE", "status": "delivered"}]))
     time.sleep(0.2)
     assert len(r.opener.of_type("template")) == 1
+
+
+def test_the_path_is_matched_on_the_raw_request_target_before_any_decoding(rig):
+    r = rig()
+    good = f"hub.mode=subscribe&hub.verify_token={VERIFY}&hub.challenge=7"
+    assert r.request("GET", f"/{PATH}?{good}")[0] == 200
+    assert r.request("GET", f"/{PATH}?")[0] == 403
+    encoded = "/%30" + PATH[1:]                  # the same path, percent-encoded: not the path
+    assert r.request("GET", f"{encoded}?{good}")[0] == 404 and r.request("POST", encoded, b"{}", {"Content-Length": "2"})[0] == 404
+    assert r.request("GET", f"/{PATH}%3F{good}")[0] == 404
+    assert r.request("GET", f"/{PATH};x?{good}")[0] == 404
+
+
+def test_a_failure_to_persist_is_a_500_so_meta_retries_and_the_retry_does_not_repeat_the_update(rig, monkeypatch):
+    r = rig()
+    real = r.store.save
+    monkeypatch.setattr(r.store, "save", lambda *a: (_ for _ in ()).throw(OSError("disk full")))
+    assert hello(r)[0] == 500 and len(r.out.updates()) == 1
+    monkeypatch.setattr(r.store, "save", real)
+    assert hello(r)[0] == 200 and len(r.out.updates()) == 1, "deduplicated in memory, and now written"
+    assert list(kit_state(r.folder, wc.SEEN)) == ["wamid.A1"]
+
+
+def test_a_reply_to_the_buttons_message_binds_to_the_card_and_a_late_failure_on_it_closes_the_window(rig):
+    r = rig()
+    hello(r)
+    card = r.ask(1, PERSON, kit.card("Detailed plan. " * 100))       # text, then the buttons as a reply to it
+    buttons = "wamid.OUT3"                                            # the token check was call 1, the text 2, the buttons 3
+    assert card["message_id"] == "wamid.OUT2" and r.listener.sender.sent_info(buttons) is not None
+    r.post(envelope([text_message("wamid.R1", body="blue", context=buttons)]))
+    r.post(envelope([button_reply("wamid.R2", context=buttons)]))
+    r.post(envelope([text_message("wamid.R3", body="other", context="wamid.UNRELATED")]))
+    assert [u["reply_to"] for u in r.out.updates()[1:]] == ["wamid.OUT2", "wamid.OUT2", "wamid.UNRELATED"]
+    r.clock.now += 5
+    r.post(envelope(statuses=[{"id": buttons, "status": "failed", "errors": [{"code": 131047}]}]))
+    assert kit.wait_for(lambda: r.opener.of_type("template"), 5)
