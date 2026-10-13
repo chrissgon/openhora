@@ -45,15 +45,19 @@ with the pin before any container starts. The image is run by its id, which must
 
 The text of the audio is never printed: the container's output is discarded, whisper's logs are off (-np), the verbs
 print counts, never words, and an error shows the last 300 characters of the container's stderr, which holds the tools'
-error lines only. Credentials: none are read, passed or needed (the docker client's own sign-in is used by `build` alone,
+error lines only. The provider keeps at most 64 KiB of that stderr (the rest is read and dropped); when it went over that
+or is a traceback, a closed code is printed instead of text, and so is an exception the provider did not expect (never its
+text or a traceback). Credentials: none are read, passed or needed (the docker client's own sign-in is used by `build` alone,
 to pull the base image, and is the person's).
 
 The daemon must be local: the provider refuses a DOCKER_HOST (or a docker context) that is not a unix socket, because
 with a remote daemon the audio would leave the computer. The models folder must be 0700 and this user's (checked at
 every check and every run). The model's hash is compared and the file is then mounted by path: between the two a process
 that can already write the person's own state folder could swap the file; the folder's mode is what narrows that window.
-The container's one writable mount is a work folder under <state>/transcriber/work (0700); after the run the provider
-refuses a folder that holds more than a few regular files or more than MAX_OUT_BYTES. A SIGKILL of the provider can leave
+The container's one writable mount is a work folder under <state>/transcriber/work (0700). Before the run the provider
+refuses a disk with less than input bytes x 2 + 256 MiB free; the mount has no size cap while the container runs (a disk
+that fills during the run is the residual risk, bounded by --timeout), and after the run the provider refuses a folder that
+holds more than a few regular files or more than MAX_OUT_BYTES. A SIGKILL of the provider can leave
 a .transcribe-* folder there and a labelled container; `reap` (and the start of the next `transcribe`) removes them.
 
 State, under the state folder (OPENHORA_STATE_DIR, else an absolute XDG_STATE_HOME + /openhora, else
@@ -79,6 +83,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import uuid
 
@@ -123,6 +128,10 @@ WORK_FOLDER, WORK_PREFIX = "work", ".transcribe-"
 WHISPER_MARGIN = 15                                  # seconds the container's own bound is shorter than --timeout
 MAX_TRANSCRIPT_BYTES = 5 * 1024 * 1024               # the run copy's scan limit (the short-video plan, P4)
 STDERR_TAIL = 300
+STDERR_CAP = 64 * 1024                               # the most of the container's stderr the provider keeps; the rest is drained and dropped
+FREE_FACTOR = 2                                      # free space the work folder's disk needs before a run: input bytes x this ...
+FREE_MARGIN = 256 * 1024 * 1024                      # ... plus this (MAX_OUT_BYTES, the transcript's temp file and some room)
+TRACEBACK_MARKERS = ("Traceback (most recent call last)", '\n  File "')
 # The only variables the docker client is given: where it finds its daemon and its own configuration. No variable of
 # the host reaches the container either way: the run passes no -e and no --env-file.
 DOCKER_CLIENT_ENV = ("PATH", "HOME", "USER", "TMPDIR", "LANG", "LC_ALL", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME",
@@ -587,9 +596,57 @@ class Stopped(Exception):
     """This process was asked to stop (SIGTERM or SIGINT) while the container ran."""
 
 
+class StderrCap:
+    """Read a pipe to its end on a thread and keep only the last `cap` bytes: what is over the cap is read and dropped, so a
+    container that spams stderr can neither fill the provider's memory nor block on a full pipe. `total` counts everything."""
+
+    def __init__(self, stream, cap=STDERR_CAP):
+        self.stream, self.cap, self.kept, self.total = stream, cap, bytearray(), 0
+        self.thread = threading.Thread(target=self.pump, daemon=True)
+        self.thread.start()
+
+    def pump(self):
+        try:
+            fd = self.stream.fileno()
+            while True:
+                chunk = os.read(fd, 65536)
+                if not chunk:
+                    return
+                self.total += len(chunk)
+                self.kept += chunk
+                if len(self.kept) > self.cap:
+                    del self.kept[:len(self.kept) - self.cap]
+        except (OSError, ValueError):   # the pipe was closed under the thread
+            return
+
+    @property
+    def truncated(self):
+        return self.total > self.cap
+
+    def finish(self, wait=5):
+        self.thread.join(wait)
+        try:
+            self.stream.close()
+        except OSError:
+            pass
+        return self.kept.decode("utf-8", errors="replace"), self.truncated
+
+
+def stderr_summary(stderr, truncated):
+    """What a failed container's stderr contributes to the error line. A closed code, not text, when the text cannot be
+    trusted to hold the tools' error lines only: it went over STDERR_CAP (a program spamming it), or it is a traceback (which
+    quotes source lines and values, and so could quote the input's text)."""
+    if truncated:
+        return f"its error output went over {STDERR_CAP // 1024} KiB and is withheld (code stderr-overflow)"
+    if any(marker in "\n" + stderr for marker in TRACEBACK_MARKERS):
+        return "its error output is a traceback and is withheld (code stderr-traceback)"
+    return tail(stderr)
+
+
 def run_container(argv, name, timeout):
-    """Run the container: (returncode, stderr). The container is removed by name when the timeout passes, when this
-    process is stopped and when anything else goes wrong; on a normal end `--rm` has already removed it."""
+    """Run the container: (returncode, stderr, truncated). `stderr` is at most STDERR_CAP bytes, the last ones, and
+    `truncated` says more was written. The container is removed by name when the timeout passes, when this process is
+    stopped and when anything else goes wrong; on a normal end `--rm` has already removed it."""
     def stop(signum, frame):
         raise Stopped()
 
@@ -600,20 +657,22 @@ def run_container(argv, name, timeout):
         except ValueError:  # not the main thread: the finally below still covers a timeout and an error
             pass
     proc = None
+    reader = None
     finished = False
     try:
         try:
             proc = subprocess.Popen([docker_binary()] + argv[1:], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                    stderr=subprocess.PIPE, text=True, errors="replace", env=docker_environment(),
-                                    start_new_session=True)
+                                    stderr=subprocess.PIPE, env=docker_environment(), start_new_session=True)
         except OSError as e:
             raise Refusal("not-configured", f"docker could not be started ({e.strerror or e.__class__.__name__})") from None
+        reader = StderrCap(proc.stderr)
         try:
-            _, stderr = proc.communicate(timeout=timeout)
+            proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
             raise Refusal("failed", f"the transcription ran over {timeout} s: the container was removed") from None
         finished = True
-        return proc.returncode, stderr or ""
+        stderr, truncated = reader.finish()
+        return proc.returncode, stderr, truncated
     except Stopped:
         raise Refusal("failed", "stopped: the container was removed") from None
     finally:
@@ -626,6 +685,8 @@ def run_container(argv, name, timeout):
                 except OSError:
                     pass
                 proc.wait()
+            if reader is not None:
+                reader.finish(wait=2)
             remove_container(name)
         for sig, handler in previous:
             signal.signal(sig, handler)
@@ -661,6 +722,26 @@ def read_seconds(path, what):
     if value != value or value < 0 or value > 10 ** 6:
         raise Refusal("failed", f"the container reported an impossible {what}")
     return value
+
+
+def free_bytes(path):
+    """Bytes a user process can still write on the disk that holds `path` (root's reserve is not counted)."""
+    found = os.statvfs(path)
+    return found.f_bavail * found.f_frsize
+
+
+def check_free_space(path, input_bytes):
+    """Refuse a run when the disk of the read-write work mount has less than input bytes x FREE_FACTOR + FREE_MARGIN free.
+    Only the start is checked: while the container runs the mount has no size cap (README, "The container"), so a disk that
+    fills during the run is a residual risk, bounded by --timeout and cleaned up afterwards. Raises Refusal("failed")."""
+    need = input_bytes * FREE_FACTOR + FREE_MARGIN
+    try:
+        free = free_bytes(path)
+    except OSError as e:
+        raise Refusal("failed", f"the free space of the work folder cannot be read ({e.strerror or e.__class__.__name__})") from None
+    if free < need:
+        raise Refusal("failed", f"the disk of the work folder has {free // (1024 * 1024)} MiB free and a run of this input "
+                                f"needs {-(-need // (1024 * 1024))} MiB: free some space, nothing was started")
 
 
 def check_out_folder(folder):
@@ -959,14 +1040,16 @@ def cmd_transcribe(args):
         reap_folders()
     except Refusal:
         pass
-    work = tempfile.mkdtemp(prefix=WORK_PREFIX, dir=own_folders()[3])  # 0700
+    work_parent = own_folders()[3]
+    check_free_space(work_parent, os.path.getsize(in_path))   # after the reap above, which may have freed some
+    work = tempfile.mkdtemp(prefix=WORK_PREFIX, dir=work_parent)  # 0700
     try:
         clean_path(work, "the work folder")
         argv = container_argv(name, image["id"], in_path, model_path, work, threads=threads, language=args.language,
                               mode=mode, preset=preset, max_seconds=max_seconds, memory_mb=memory_mb, cpus=threads,
                               run_seconds=run_seconds, deadline=deadline)
         began = time.monotonic()
-        code, stderr = run_container(argv, name, timeout)
+        code, stderr, truncated = run_container(argv, name, timeout)
         wall = time.monotonic() - began
         if code == 20:
             raise Refusal("usage", f"the input is longer than --max-seconds ({max_seconds})")
@@ -975,7 +1058,7 @@ def cmd_transcribe(args):
         if code == 124:
             raise Refusal("failed", f"a tool in the container ran over its own limit of {run_seconds} s")
         if code != 0:
-            raise Refusal("failed", f"the container ended with exit {code}: {tail(stderr)}")
+            raise Refusal("failed", f"the container ended with exit {code}: {stderr_summary(stderr, truncated)}")
         check_out_folder(work)
         try:
             raw_bytes = read_regular(os.path.join(work, "transcript.json"), MAX_WHISPER_JSON, "transcript.json")
@@ -1059,6 +1142,9 @@ def main(argv=None):
     except Refusal as e:
         say(f"error: {e.reason}")
         return KINDS[e.kind]
+    except Exception as e:   # a closed code, never the exception's text or a traceback: either could quote the input's words
+        say(f"error: unexpected failure (code internal-{e.__class__.__name__}); its detail is not printed")
+        return EXIT_FAILED
     print(json.dumps(result, indent=1, ensure_ascii=False))
     return EXIT_OK
 
