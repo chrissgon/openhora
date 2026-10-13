@@ -282,6 +282,9 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `artifact` | `--path` | `artifact` |
 | `stop-runs` | `[--all]` | `stop_runs` |
 | `service-check` | `[--dispatch-every]` | `service_check` |
+| `media-in` | `[--recording]` `--file` `[--slot]` | `media_in` |
+| `media-list` | `[--recording]` | `media_list` |
+| `media-purge` | `[--recording]` `[--include-scheduled]` | `media_purge` |
 <!-- /generated -->
 
 Every verb also takes `--project <dir>`. The parser is built from `terminal_verbs()` of the table, so a row that does not list `terminal` (`version`) has no verb. The verbs that call a model: `route` (without `--flow`), `run-next`, `dispatch`, `contained-run`, and `say` for a new request or an answer to the router.
@@ -350,6 +353,8 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | POST | `/projects/{p}/tasks/{id}/retry` | `retry` | `task_id` from `{id}` | every other argument | - | - |
 | POST | `/projects/{p}/tasks/{id}/go-ahead` | `go-ahead` | `task_id` from `{id}` | every other argument | - | - |
 | POST | `/projects/{p}/tasks/{id}/files` | `hand-over` | `task_id` from `{id}` | every other argument | `file` | file upload |
+| POST | `/projects/{p}/media` | `media-in` | - | none | `file` | streamed octet-stream body |
+| GET | `/projects/{p}/media` | `media-list` | - | `recording` | - | - |
 | POST | `/projects/{p}/runs/{id}/verdict` | `verdict` | `run_id` from `{id}` | every other argument | - | - |
 | POST | `/projects/{p}/agents/{name}/mode` | `set-mode` | `agent` from `{name}` | `mode` | - | - |
 | GET | `/projects/{p}/progress` | `progress` | - | every other argument | - | - |

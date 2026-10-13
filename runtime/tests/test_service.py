@@ -181,8 +181,8 @@ def path_of(world, route):
     return "/api/v1" + route["pattern"].replace("{p}", world.projects[0]["id"]).replace("{id}", ID["id"]).replace("{name}", ID["name"])
 
 
-OP_ROUTES = [r for r in service.ROUTES if r["op"] and not r["upload"]]
-VIEW_READS = ("agents", "conversation", "skills", "costs", "connections", "artifacts", "artifact", "artifact-raw", "version", "commands")  # the reads of the views
+OP_ROUTES = [r for r in service.ROUTES if r["op"] and not r["upload"] and not r["stream"]]  # the media route is streamed: test_media_route.py
+VIEW_READS = ("agents", "conversation", "skills", "costs", "connections", "artifacts", "artifact", "artifact-raw", "version", "commands", "media-list")  # the reads of the views
 READ_OPS = ("status", "pending", "flows", "task", "progress") + VIEW_READS
 
 

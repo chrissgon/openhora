@@ -39,11 +39,11 @@ export function handChooser({ input, line, hint }) {
 
 /**
  * The second step of a hand-over: the chosen file's name and the button "Hand over to task #n" that sends it, or null while no file is chosen.
- * `onSend` is called by the button; `disabled` is true while a send runs or the control is locked.
+ * `onSend` is called by the button; `disabled` is true while a send runs or the control is locked; `label` replaces the button's words (a video is
+ * uploaded to the media store, not handed to the task: media-upload.js).
  */
-export function handOverStep(file, taskId, onSend, { disabled = false } = {}) {
+export function handOverStep(file, taskId, onSend, { disabled = false, label = `Hand over to task #${taskId}` } = {}) {
   if (!file) return null;
-  const label = `Hand over to task #${taskId}`;
   const button = h("button", { class: "pui-btn pui-surface pui-outline wb-hand-send wb-hand-button", type: "button", "aria-label": label, disabled, text: label });
   button.addEventListener("click", onSend);
   return h("div", { class: "wb-hand-step" }, h("span", { class: "mono wb-hand-name wb-hand-chosen", text: file.name }), button);

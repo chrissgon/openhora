@@ -242,6 +242,18 @@ OPERATIONS = (
     {"name": "service-check", "call": "service_check", "args": ({"name": "dispatch_every", "kind": "int", "flag": "dispatch-every"},),
      "channels": ("terminal",), "model": False,
      "help": "what the local service checks at its start: the secret store, the credential, docker, the eval image and whether it dispatches (the service calls it for each project)"},
+    {"name": "media-in", "call": "media_in",
+     "args": ({"name": "recording", "kind": "str"}, {"name": "file", "kind": "str", "required": True},
+              {"name": "slot", "kind": "str"}),
+     "channels": ("terminal", "page"), "model": False,
+     "help": "take a recording (or, with a slot, the image or clip of an asset slot) from disk into the media store: type read from the bytes, hashed, bounded; without a recording id one is issued"},
+    {"name": "media-list", "call": "media_list", "args": ({"name": "recording", "kind": "str"},),
+     "channels": ("terminal", "page"), "model": False,
+     "help": "the recordings of the media store with their status, file facts, slots and retention dates, and the store's use of its limits"},
+    {"name": "media-purge", "call": "media_purge",
+     "args": ({"name": "recording", "kind": "str"}, {"name": "include_scheduled", "kind": "flag", "flag": "include-scheduled"}),
+     "channels": ("terminal",), "model": False,
+     "help": "apply the retention to the media store now, in code: what is due goes, with the edit task's run folders; with a recording id, that recording whatever its age (a scheduled one, whose post has not gone out, only with --include-scheduled)"},
 )
 
 # What the conversation answers itself, with no operation: the help, and a new request whatever is open.
@@ -258,7 +270,7 @@ CHAT_OWN = (
 # covers the ceiling's share of it. Pure literals, like the table.
 GROUPS = {
     "read": {"operations": ("status", "progress", "pending", "task", "agents", "costs", "skills", "artifacts", "artifact",
-                            "flows", "conversation", "connections", "version", "config", "commands", "artifact-raw"),
+                            "flows", "conversation", "connections", "version", "config", "commands", "artifact-raw", "media-list"),
              "kind": None},
     "talk": {"operations": ("say",), "kind": None},
     "answer": {"operations": ("answer",), "kind": None},
@@ -273,6 +285,7 @@ GROUPS = {
     "set-mode": {"operations": ("set-mode",), "kind": None},
     "dispatch": {"operations": ("dispatch",), "kind": None},
     "documents": {"operations": ("sync", "hand-over"), "kind": None},
+    "media": {"operations": ("media-in",), "kind": None},
     "verdict": {"operations": ("verdict",), "kind": None},
 }
 # The policy of a channel that has no entry in the project's configuration. A channel absent from this table keeps its

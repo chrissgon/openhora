@@ -578,6 +578,16 @@ def _reported(ctx: dict) -> list:
     return out
 
 
+def _purge_media(project: str) -> dict:
+    """The media store's retention (decision D7), run by code at the start of a round, with no model: {"media_purged": [...]}
+    when something was removed, else {}. A failure of the store never stops the round."""
+    try:
+        done = _ops().media_purge_round(project)
+    except (core.OpsError, OSError):
+        return {}
+    return {"media_purged": done["removed"]} if done["removed"] or done["stray"] else {}
+
+
 def dispatch(project: str, budget_seconds=None, wait: bool = True) -> dict:
     """One round of the dispatcher (see ops.dispatch). Returns {"handlers", "released", "started", "ran", "held",
     "stopped"}; "started" lists the children this round started, "ran" the runs that ended since the last report."""
@@ -585,12 +595,13 @@ def dispatch(project: str, budget_seconds=None, wait: bool = True) -> dict:
     ctx = core.context(project)
     cfg = ctx["cfg"]
     with core._dispatch_lock(cfg):
+        purged = _purge_media(project)
         if not cfg["area_agents"]:
             rows = core._stored(ctx, ctx["store"].tasks_list)
             ops._record_held(ctx, [{"task_id": t["id"], "agent": t.get("agent"), "reason": dispatcher.NO_AGENT}
                                    for t in rows if t["state"] == "ready" and t["parent_id"] is not None], [])
-            return {"stopped": "no area agent is configured"}
-        out = {"handlers": ops._ticks(ctx, project), "released": [], "started": [], "ran": [], "held": [], "stopped": None}
+            return {"stopped": "no area agent is configured", **purged}
+        out = {"handlers": ops._ticks(ctx, project), "released": [], "started": [], "ran": [], "held": [], "stopped": None, **purged}
         if wait:
             STOPPING.clear()
         return _round(ctx, project, ops.DISPATCH_BUDGET if budget_seconds is None else budget_seconds, wait, out)

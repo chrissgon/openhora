@@ -549,7 +549,7 @@ def test_the_control_room_imports_the_client_only_as_a_namespace_and_escape_leav
 KNOWN_GLOBALS = frozenset("""
 Array Boolean Date Error Event Map Number Object Promise RangeError RegExp Set String Symbol TypeError Uint8Array Float32Array Float64Array
 Uint16Array Uint32Array Int32Array ArrayBuffer WeakMap WeakSet BigInt Intl JSON Math Reflect Proxy
-AbortController CustomEvent Response KeyboardEvent MouseEvent MutationObserver ResizeObserver IntersectionObserver URL URLSearchParams Image TextEncoder TextDecoder
+AbortController CustomEvent XMLHttpRequest Response KeyboardEvent MouseEvent MutationObserver ResizeObserver IntersectionObserver URL URLSearchParams Image TextEncoder TextDecoder
 fetch setTimeout clearTimeout setInterval clearInterval requestAnimationFrame cancelAnimationFrame requestIdleCallback queueMicrotask structuredClone
 parseInt parseFloat isNaN isFinite encodeURIComponent decodeURIComponent atob btoa getComputedStyle matchMedia
 if for while switch catch function async return typeof await new import super delete void yield do else DOMException

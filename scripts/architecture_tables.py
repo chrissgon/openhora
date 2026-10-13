@@ -466,7 +466,7 @@ def _routes(root):
                     raise SourceError(f"{where}: a _route call needs a method, a pattern and, if any, an operation as text")
                 route = {"method": args[0], "pattern": args[1], "op": args[2] if len(args) > 2 else None,
                          "bind": {}, "take": None, "hidden": (), "own": None, "upload": False, "query_max": None,
-                         "raw": False}
+                         "raw": False, "stream": False}
                 for kw in call.keywords:
                     if kw.arg not in route:
                         raise SourceError(f"{where}: unknown argument {kw.arg!r} of a _route call")
@@ -490,8 +490,8 @@ def service_routes(root):
             continue
         bound = ", ".join(f"{_code(arg)} from {_code('{' + part + '}')}" for arg, part in r["bind"].items())
         take = "every other argument" if r["take"] is None else ("none" if not r["take"] else _names(r["take"]))
-        special = [text for on, text in ((r["upload"], "file upload"), (r["query_max"] is not None, "query value capped"),
-                                      (r["raw"], "answers bytes")) if on]
+        special = [text for on, text in ((r["upload"], "file upload"), (r["stream"], "streamed octet-stream body"),
+                                      (r["query_max"] is not None, "query value capped"), (r["raw"], "answers bytes")) if on]
         rows.append([r["method"], _code(r["pattern"]), _code(r["op"]), bound or NONE, take, _names(r["hidden"]),
                      ", ".join(special) or NONE])
     return _table(["Method", "Path", "Operation", "Bound from the path", "Body or query may carry",
