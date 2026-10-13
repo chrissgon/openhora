@@ -43,7 +43,7 @@ HOST_ONLY = ("_docker.py", "_browser.py")      # underscore modules that only th
 # The limits of one container.
 PIDS_LIMIT = 512
 TMP_SIZE_MB = 256
-DEFAULT_SCRATCH_MB, DEFAULT_MEMORY_MB, DEFAULT_CPUS = 2048, 6144, 4
+DEFAULT_SCRATCH_MB, DEFAULT_MEMORY_MB, DEFAULT_CPUS = 2048, 6144, 8     # the CPU quota is what a render waits for: 8 against 4 took the compose of a 4K recording from 49 s to 21 s
 MIN_MEMORY_MB, MAX_MEMORY_MB, MAX_SCRATCH_MB = 3072, 32768, 8192
 MEMORY_MARGIN_MB = 2048                  # what the browser and ffmpeg need beside the memory-backed scratch: scratch <= memory - this
 MAX_STDERR = 64 * 1024                   # the most of a container's stderr the host reads; the rest is read and thrown away

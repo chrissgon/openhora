@@ -406,7 +406,9 @@ def compose_argv(ffmpeg: str, plan: dict) -> list:
     argv = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-nostdin", *inputs, "-filter_complex", ";".join(g), "-map", "[vout]"]
     if has_audio:
         argv += ["-map", "[aout]", "-c:a", "aac", "-b:a", "160k", "-ar", "48000"]
-    argv += ["-c:v", "libx264", "-preset", "medium", "-crf", "18", "-profile:v", "high", "-pix_fmt", "yuv420p",
+    # -threads is pinned: x264's output depends on its thread count, and the automatic count follows the number of cores the machine
+    # shows, so the same render would differ in bytes from one machine to another. Four is the same bytes under any CPU limit.
+    argv += ["-c:v", "libx264", "-threads", "4", "-preset", "medium", "-crf", "18", "-profile:v", "high", "-pix_fmt", "yuv420p",
              "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
              "-r", str(fps), "-fps_mode", "cfr", "-frames:v", str(plan["out_frames"]), "-shortest",
              "-map_metadata", "-1", "-map_chapters", "-1", "-fflags", "+bitexact", "-flags:v", "+bitexact", "-flags:a", "+bitexact",

@@ -49,7 +49,7 @@ Verbs (every verb prints one JSON object on stdout; diagnostics on stderr, the f
   pin-templates --confirmed
         Maintainer tool: rewrite templates/pins.json after a reviewed template change.
 
-Container limits, for analyse, base, align, check, render and cover: --memory-mb (default 6144, at least 3072), --cpus (default 4,
+Container limits, for analyse, base, align, check, render and cover: --memory-mb (default 6144, at least 3072), --cpus (default 8,
 never more than the daemon has), --scratch-mb (default 2048, memory-backed, and at most the memory less 2048: a larger one is refused,
 never an out-of-memory kill), --timeout (seconds).
 

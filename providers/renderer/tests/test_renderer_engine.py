@@ -312,6 +312,42 @@ def test_no_card_and_no_caption_ever_touches_the_face_box_and_each_stays_in_its_
 
 
 @needs_browser
+@pytest.mark.parametrize("words", [["understands,", "but", "you"], ["was", "extraordinarily"], ["this", "unforgettable,", "story"], ["Planning", "a", "extraordinarily", "long"]])
+def test_the_gaps_between_caption_words_do_not_depend_on_which_word_is_lit(words, tmp_path):
+    """The word being said used to be scaled up by 12 percent, which ate the gap to its neighbours down to nothing for a long word
+    ("wasextraordinarily"). Measured in the browser with the real fonts: once the caption has settled (past its own 0.14 s entry), every
+    gap between two neighbouring words is the same at every moment, whichever word is lit, and no word moves sideways when it lights."""
+    face = {"x": 238, "y": 326, "w": 756, "h": 941}
+    z = zones_data(face)
+    allow = _frames.font_allowlist()
+    serve, _ = _frames.load_fonts({"display": {"id": "inter-800", "weight": 800}, "text": {"id": "inter-500", "weight": 500}, "mono": {"id": "jetbrains-mono-500", "weight": 500}},
+                                  allow, DATA["limits"]["font_max_bytes"])
+    templates, _ = _frames.load_templates([DATA["caption"]["template"]])
+    serve.update(templates)
+    cfg = {"colors": DATA["theme"]["colors"], "images": {}, "fonts": {role: {"url": _cdp.ORIGIN + path, "weight": w, "fallback": "serif"}
+                                                                     for role, w in (("display", 800), ("text", 500), ("mono", 500)) for path in serve if path.startswith("/fonts/%s." % role)}}
+    probe = "[...document.querySelectorAll('.w')].map(e => { const b = e.getBoundingClientRect(); return [b.left, b.right]; })"
+    data = {"duration": 4, "anchor": "bottom", "zones": z, "margin": DATA["zones"]["caption_margin"],
+            "words": [{"text": w, "start": 0.5 * i, "end": 0.5 * i + 0.4} for i, w in enumerate(words)]}
+    with _cdp.Chrome(K.BROWSER, serve, str(tmp_path / "w")) as ch:
+        pg = ch.new_page(1080, 1920)
+        pg.open("/t/" + DATA["caption"]["template"], cfg)
+        seen = []
+        for t in [0.2, 0.3] + [0.5 * i + d for i in range(len(words)) for d in (0.0, 0.04, 0.09, 0.18, 0.3)]:
+            if t < 0.2:
+                continue
+            pg.frame(t, data)
+            seen.append((t, pg.evaluate(probe)))
+    first = seen[0][1]
+    for t, boxes in seen:
+        gaps = [b[0] - a[1] for a, b in zip(boxes, boxes[1:])]
+        assert min(gaps) > 20, (words, t, gaps)                                            # a visible space, at every moment
+        assert max(gaps) - min(gaps) < 1.0, (words, t, gaps)                               # the same space between every pair
+        for a, b in zip(first, boxes):                                                     # no word moves sideways when another or itself lights up
+            assert abs(a[0] - b[0]) < 0.01 and abs(a[1] - b[1]) < 0.01, (words, t, first, boxes)
+
+
+@needs_browser
 def test_a_card_drawn_over_the_face_fails_the_frame_loop(tmp_path):
     folder = tmp_path / "t"
     shutil.copytree(os.path.join(str(K.RENDERER), "templates"), folder)

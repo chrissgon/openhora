@@ -14,7 +14,7 @@ html, body { margin:0; padding:0; background:transparent; width:1080px; height:1
 #line { display:flex; flex-wrap:nowrap; justify-content:center; align-items:center; gap:0 0.4em; white-space:nowrap;
         font-family:var(--font-display); font-weight:var(--weight-display); line-height:1.1; letter-spacing:-0.01em;
         text-align:center; color:var(--c-text); transform-origin:50% 50%; }
-.w { display:inline-block; transform-origin:50% 60%;
+.w { display:inline-block;
      -webkit-text-stroke:0.14em rgba(0,0,0,.92); paint-order:stroke fill; stroke-linejoin:round;
      text-shadow:0 0.05em 0.22em rgba(0,0,0,.65), 0 0.08em 0 rgba(0,0,0,.55); }
 </style>
@@ -24,7 +24,7 @@ html, body { margin:0; padding:0; background:transparent; width:1080px; height:1
 <script>
 'use strict';
 // One to three words at a time, on one line, as big as fits, in the band the face box leaves below it (data.zones.caption = [top, bottom]):
-// at the top of the band (`bottom` position) or centred in it (`center`). The word being said is highlighted and pops (ease-out-back) over a
+// at the top of the band (`bottom` position) or centred in it (`center`). The word being said is highlighted and pops up (ease-out-back, vertical only, so the gaps between words never change) over a
 // dark stroke and shadow that keep it legible on any picture. A pure function of (t, data): t is seconds since this chunk started, and the
 // times of data.words are relative to it. The driver measures every word (data-zone) and fails the render when one touches the face box.
 function easeOutBack(x, c1) { const c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); }
@@ -47,7 +47,8 @@ window.renderAt = function (t, data) {
     s.textContent = w.text;
     if (i === active) {
       s.style.color = 'var(--c-accent)';
-      s.style.transform = 'scale(' + (1 + 0.12 * easeOutBack(clamp((t - w.start) / 0.18), 2.2)).toFixed(4) + ')';
+      // lifted, never scaled: a scale changes the width a word covers and eats the gap to its neighbours, a lift changes nothing sideways
+      s.style.transform = 'translateY(' + (-0.075 * easeOutBack(clamp((t - w.start) / 0.18), 2.2)).toFixed(4) + 'em)';
     }
     line.appendChild(s);
   });

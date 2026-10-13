@@ -1,7 +1,7 @@
 {
  "note": "sha256 of each template. A template whose hash differs is refused. Rewritten by `ffmpeg.py pin-templates --confirmed` after a reviewed change.",
  "templates": {
-  "caption.html": "5b9b02fcdf0a9fd2dab8267d6c734c3705b51bfad9d606690036f9c2a1c1a3dd",
+  "caption.html": "12073fd5e467fc9439ee7f45dbb6e5c6e1466d13a5f697d5986e40f47da592aa",
   "cutaway.html": "e93e356119decf19925c0dd6c006db7c6db1094007352a069ab6c27cf840b97e",
   "keyword.html": "71efd9c9ad18f5cc6209cf507eea03b4c52df51aed2710438f4245f4d44447c4",
   "list.html": "c859d746969f9732d371b62661ccc9aa6e2aef8689b7bd1955f368c7dff5fa0f",

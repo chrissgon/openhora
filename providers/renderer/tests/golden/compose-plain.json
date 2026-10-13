@@ -47,6 +47,8 @@
  "48000",
  "-c:v",
  "libx264",
+ "-threads",
+ "4",
  "-preset",
  "medium",
  "-crf",

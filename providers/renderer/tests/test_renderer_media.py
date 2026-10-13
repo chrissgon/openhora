@@ -43,6 +43,15 @@ def test_a_resolved_plan_gives_exactly_this_argv(name, make):
     assert argv == json.load(open(path))
 
 
+def test_the_encoder_thread_count_is_pinned_so_the_bytes_do_not_depend_on_the_machine():
+    """x264's output depends on its thread count, and its automatic count follows the cores the machine shows: a pinned count is what
+    makes the same render the same bytes on another machine (measured: identical under a 4 and an 8 CPU limit)."""
+    for make in (plain_plan, pip_plan):
+        argv = _media.compose_argv("ffmpeg", make())
+        i = argv.index("libx264")
+        assert argv[i + 1:i + 3] == ["-threads", "4"] and argv.count("-threads") == 1
+
+
 def test_the_recording_is_always_read_as_mov_with_a_file_whitelist_and_the_render_is_capped():
     for make in (plain_plan, pip_plan):
         argv = _media.compose_argv("ffmpeg", make())
