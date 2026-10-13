@@ -130,20 +130,39 @@ def normalise_words(words: list, segments: list, duration: float) -> tuple:
     return out, report
 
 
+PHANTOM = 0.8              # a word that silence covers for this share of its span has no energy: it protects nothing
+WORD_GUARD = 0.02          # a protected span is the word widened by this on each side
+
+
 def plausible_seconds(text: str) -> float:
     """How long a spoken word takes at most when nothing stretches it."""
     return 0.25 + 0.07 * sum(1 for c in text if c.isalpha())
 
 
-def protected_spans(words: list) -> list:
-    """The part of each live word a silence may not cut. A word whose span is far longer than the word takes (the
-    transcriber lets a word run on over the pause after it) is protected only for the time the word plausibly takes,
-    so that the silence inside the stretched span can still be cut."""
+def coverage(a: float, b: float, silences) -> float:
+    """The share of [a, b] that lies inside a silence."""
+    if b <= a or not silences:
+        return 0.0
+    covered = sum(max(0.0, min(b, e) - max(a, s)) for s, e in silences)
+    return min(1.0, covered / (b - a))
+
+
+def real_words(words: list, silences=None) -> list:
+    """The words that have energy: those that silence does not cover (a transcriber puts words into a quiet stretch at the start of
+    a recording, and spreads others over a pause: they are phantoms and protect nothing)."""
+    return [w for w in words if coverage(w["start"], w["end"], silences) < PHANTOM]
+
+
+def protected_spans(words: list, silences=None) -> list:
+    """The part of each real word a silence may not cut, widened by WORD_GUARD. A word whose span is far longer than the word takes (the
+    transcriber lets a word run on over the pause after it) is protected only for the time it plausibly takes, so that the silence
+    inside the stretched span can still be cut."""
     spans = []
-    for w in words:
+    for w in real_words(words, silences):
         dur = w["end"] - w["start"]
         plausible = plausible_seconds(w["text"])
-        spans.append((w["start"], min(w["end"], w["start"] + plausible)) if dur > 1.5 * plausible + 0.2 else (w["start"], w["end"]))
+        end = min(w["end"], w["start"] + plausible) if dur > 1.5 * plausible + 0.2 else w["end"]
+        spans.append((w["start"] - WORD_GUARD, end + WORD_GUARD))
     return spans
 
 
@@ -171,13 +190,13 @@ def _merge(intervals):
     return out
 
 
-def trim_wordless(cuts: list, words: list, fps: int, margin: float, long_cut: float, wordless_max: float) -> list:
+def trim_wordless(cuts: list, words: list, fps: int, pad_head: float, pad_tail: float, long_cut: float, wordless_max: float) -> list:
     """Make a long cut take the wordless sound at its edges. `cuts` is [(from_frame, to_frame, forced)], sorted.
 
     After a cut of at least `long_cut` seconds, a kept range that starts with more than `wordless_max` seconds of sound before its
-    first transcribed word (a breath, a head turning back to the camera) starts instead at that word's start less `margin`.
+    first transcribed word (a breath, a head turning back to the camera) starts instead at that word's start less `pad_head`.
     Symmetrically, before such a cut, a range that ends with more than `wordless_max` seconds after its last word ends at that
-    word's end plus `margin`. A word that runs across the range's edge keeps the edge where it is."""
+    word's end plus `pad_tail`. A word that runs across the range's edge keeps the edge where it is."""
     out = [list(c) for c in cuts]
     long_frames = long_cut * fps
     for c in out:
@@ -188,7 +207,7 @@ def trim_wordless(cuts: list, words: list, fps: int, margin: float, long_cut: fl
         if first is not None and first["start"] >= after and first["start"] - after > wordless_max:
             nxt = next((o for o in out if o[0] >= c[1]), None)
             if nxt is None or first["start"] < nxt[0] / fps:
-                c[1] = max(c[1], int(math.floor((first["start"] - margin) * fps + 1e-6)))
+                c[1] = max(c[1], int(math.floor((first["start"] - pad_head) * fps + 1e-6)))
         before = c[0] / fps                      # the kept range that ends here
         last = None
         for w in words:
@@ -197,38 +216,42 @@ def trim_wordless(cuts: list, words: list, fps: int, margin: float, long_cut: fl
         if last is not None and last["end"] <= before and before - last["end"] > wordless_max:
             prev = [o for o in out if o[1] <= c[0]]
             if not prev or last["end"] > prev[-1][1] / fps:
-                c[0] = min(c[0], int(math.ceil((last["end"] + margin) * fps - 1e-6)))
+                c[0] = min(c[0], int(math.ceil((last["end"] + pad_tail) * fps - 1e-6)))
     return [tuple(c) for c in out if c[1] > c[0]]
 
 
-def kept_ranges(words: list, duration: float, fps: int, silences=None, margin: float = 0.08, min_cut: float = 0.12,
-                min_kept: float = 0.4, gap: float = 0.5, forced=(), long_cut: float = 2.0, wordless_max: float = 0.3) -> list:
+def kept_ranges(words: list, duration: float, fps: int, silences=None, pad_head: float = 0.10, pad_tail: float = 0.14, min_cut: float = 0.12,
+                min_kept: float = 0.4, gap: float = 0.5, forced=(), long_cut: float = 2.0, wordless_max: float = 0.3,
+                wordless_keep: float = 1.5) -> list:
     """Kept [from_frame, to_frame) ranges of the recording on the grid of `fps`.
 
-    Silence is the cut signal. Every silence interval silencedetect found is cut, less `margin` seconds on each side (none
-    at the very start and end of the recording), except where a word is: the words only protect speech (a stretched word
-    is protected for the time it plausibly takes, see protected_spans). With `silences=None` (no audio to ask) the gaps
+    Silence is the cut signal. Every silence interval silencedetect found is cut, less `pad_tail` seconds after its start (the tail
+    of the word before it) and `pad_head` before its end (the attack of the word after it), none at the very start and end of the
+    recording, except where a word is: the words only protect speech (see protected_spans: a word silence covers, or a stretched one,
+    protects little or nothing). With `silences=None` (no audio to ask) the gaps
     between words longer than `gap` are cut instead. `forced` is a list of (start, end) seconds cut whatever is in them
     (the takes the person confirmed as retakes). A cut shorter than `min_cut` is not made; a cut of `long_cut` seconds or more also
-    takes the wordless sound of more than `wordless_max` seconds at its edges (trim_wordless). A kept range shorter than
-    `min_kept` that holds no word is cut, and one that holds a word is joined to its neighbour across the shorter
-    cut (the cut is given up) so that nothing flickers; a range between two forced cuts stays as it is."""
+    takes the wordless sound of more than `wordless_max` seconds at its edges (trim_wordless). A kept range that holds no real word and
+    is shorter than `wordless_keep` seconds is not speech (the speaker moving, a cough, a breath): it is cut. One that holds a word
+    and is shorter than `min_kept` is joined to its neighbour across the shorter cut (the cut is given up) so that nothing flickers;
+    a range between two forced cuts stays as it is."""
     if not words:
         raise Refusal("no_words")
     total = int(math.floor(duration * fps + 1e-6))
-    protect = protected_spans(words)
+    protect = protected_spans(words, silences)
+    real = real_words(words, silences) or words
     if silences is None:
-        regions = [(0.0, words[0]["start"] - margin)]
+        regions = [(0.0, words[0]["start"] - pad_head)]
         for a, b in zip(words, words[1:]):
             if b["start"] - a["end"] > gap:
-                regions.append((a["end"] + margin, b["start"] - margin))
-        regions.append((words[-1]["end"] + margin, duration))
+                regions.append((a["end"] + pad_tail, b["start"] - pad_head))
+        regions.append((words[-1]["end"] + pad_tail, duration))
         base = [r for r in regions if r[1] > r[0]]
     else:
         base = []
         for s, e in silences:
-            lo = 0.0 if s <= 0.001 else s + margin
-            hi = duration if e >= duration - 0.05 else e - margin
+            lo = 0.0 if s <= 0.001 else s + pad_tail
+            hi = duration if e >= duration - 0.05 else e - pad_head
             if hi > lo:
                 base.append((lo, hi))
     cuts = []
@@ -249,11 +272,12 @@ def kept_ranges(words: list, duration: float, fps: int, silences=None, margin: f
         else:
             merged.append((a, b, f))
     if long_cut and long_cut > 0:
-        merged = trim_wordless(merged, words, fps, margin, long_cut, wordless_max)
+        merged = trim_wordless(merged, real, fps, pad_head, pad_tail, long_cut, wordless_max)
     min_frames = int(math.ceil(min_kept * fps - 1e-6))
+    keep_frames = int(math.ceil(wordless_keep * fps - 1e-6))
 
     def has_word(a, b):
-        return any(w["start"] < b / fps and w["end"] > a / fps for w in words)
+        return any(w["start"] < b / fps and w["end"] > a / fps for w in real)
 
     changed = True
     while changed:
@@ -261,11 +285,12 @@ def kept_ranges(words: list, duration: float, fps: int, silences=None, margin: f
         bounds = [0] + [x for c in merged for x in c[:2]] + [total]
         ranges = [(bounds[i], bounds[i + 1]) for i in range(0, len(bounds), 2) if bounds[i + 1] > bounds[i]]
         for r_a, r_b in ranges:
-            if r_b - r_a >= min_frames:
+            speech = has_word(r_a, r_b)
+            if (speech and r_b - r_a >= min_frames) or (not speech and r_b - r_a >= keep_frames):
                 continue
             before = next((k for k, c in enumerate(merged) if c[1] == r_a), None)
             after = next((k for k, c in enumerate(merged) if c[0] == r_b), None)
-            if not has_word(r_a, r_b):
+            if not speech:
                 new = [c for c in merged if c[1] != r_a and c[0] != r_b]
                 lo = merged[before][0] if before is not None else r_a
                 hi = merged[after][1] if after is not None else r_b

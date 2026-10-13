@@ -11,32 +11,31 @@
         --weight-display:800; --weight-text:500; --weight-mono:500; }
 html, body { margin:0; padding:0; background:transparent; width:1080px; height:1920px; overflow:hidden; }
 #pos { position:absolute; left:65px; width:950px; display:flex; justify-content:center; align-items:center; }
-#card { display:flex; flex-direction:column; align-items:center; gap:18px; padding:34px 60px 40px; border-radius:30px; border:6px solid var(--c-accent);
+#card { display:flex; flex-direction:row; align-items:center; gap:0.3em; padding:0.22em 0.55em 0.26em; border-radius:0.36em; border:0.07em solid var(--c-accent);
         background:var(--c-chip_fill); font-family:var(--font-display); font-weight:var(--weight-display); color:var(--c-text);
-        text-align:center; line-height:1.05; letter-spacing:-0.02em; box-shadow:0 14px 0 rgba(0,0,0,.35); }
-#bar { height:10px; border-radius:5px; background:var(--c-accent); }
+        text-align:center; line-height:1.05; letter-spacing:-0.02em; white-space:nowrap; box-shadow:0 0.12em 0 rgba(0,0,0,.35); transform-origin:50% 50%; }
 </style>
 </head>
 <body>
 <div id="pos"><div id="card"></div></div>
 <script>
 'use strict';
-// A card is drawn inside the band the face box leaves above it (data.zones.card = [top, bottom]); it shrinks to fit that
-// band, and the driver fails the render when a drawn card touches the face box. Pure function of (t, data).
+// A card is drawn inside the band the face box leaves above it (data.zones.card = [top, bottom]): the largest type whose card fits the
+// band's height and the frame's width, so a short band gives small type and never a card over the face. The card pops in (ease-out-back)
+// and shrinks out. The driver measures every element marked data-zone and fails the render when one touches the face box.
+// Pure function of (t, data): every style it relies on is set here, so a frame never depends on the one before.
 function col(v) { return v.charAt(0) === '#' ? v : 'var(--c-' + v + ')'; }
 function easeOutCubic(x) { return 1 - Math.pow(1 - x, 3); }
-function easeOutBack(x) { const c1 = 1.9, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); }
+function easeOutBack(x, c1) { const c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); }
+function easeInCubic(x) { return x * x * x; }
 function clamp(x) { return Math.max(0, Math.min(1, x)); }
-// Sets the card's transform: the shift and the motion scale of this frame, times the scale that makes it fit its band.
-function place(card, data, shiftY, motion) {
+const FIT = 0.86;      // the share of the band a card fills at rest: the pop's overshoot (about 8 percent) then stays inside the band
+function band(data) {
   const z = data.zones.card;
   const pos = document.getElementById('pos');
   pos.style.top = z[0] + 'px';
   pos.style.height = (z[1] - z[0]) + 'px';
-  card.dataset.zone = 'card';
-  card.style.transform = 'none';
-  const fit = Math.min(1, 0.82 * (z[1] - z[0]) / card.offsetHeight, 940 / card.offsetWidth);
-  card.style.transform = 'translateY(' + Math.round(shiftY) + 'px) scale(' + (fit * motion).toFixed(4) + ')';
+  return z[1] - z[0];
 }
 const ICONS = {
   'check': [['path', { d: 'M4 12.5l5 5L20 6.5', fill: 'none', 'stroke-width': 3 }]],
@@ -68,26 +67,26 @@ function icon(name, size, color) {
 }
 window.renderAt = function (t, data) {
   const P = data.params;
+  const bandH = band(data);
   const card = document.getElementById('card');
   card.replaceChildren();
+  card.dataset.zone = 'card';
   const color = col(P.color || 'accent');
   card.style.borderColor = color;
-  if (P.icon) card.appendChild(icon(P.icon, 96, color));
+  card.style.transform = 'none';
+  if (P.icon) card.appendChild(icon(P.icon, '0.9em', color));
   const label = document.createElement('div');
   label.textContent = P.text;
-  const n = P.text.length;
-  label.style.fontSize = (n <= 8 ? 150 : n <= 14 ? 118 : 88) + 'px';
   card.appendChild(label);
-  const bar = document.createElement('div');
-  bar.id = 'bar';
-  bar.style.background = color;
-  bar.style.width = Math.round(220 * clamp((t - 0.12) / 0.3)) + 'px';
-  card.appendChild(bar);
-  const tin = clamp(t / 0.3);
-  const tout = clamp((data.duration - t) / 0.2);
-  const emphasis = 1 + 0.04 * Math.sin(Math.PI * clamp((t - 0.4) / 0.6));
-  place(card, data, 0, (0.45 + 0.55 * easeOutBack(tin)) * (0.92 + 0.08 * tout) * emphasis);
-  card.style.opacity = String(Math.min(clamp(t / 0.12), tout).toFixed(3));
+  let fs = Math.min(140, bandH * 0.56);
+  card.style.fontSize = fs + 'px';
+  while ((card.offsetWidth > 930 || card.offsetHeight > bandH * FIT) && fs > 34) { fs = fs * 0.94; card.style.fontSize = fs.toFixed(1) + 'px'; }
+  const tin = clamp(t / 0.38);
+  const tout = clamp((data.duration - t) / 0.22);
+  const grow = 0.5 + 0.5 * easeOutBack(tin, 2.0);
+  const shrink = 0.86 + 0.14 * (1 - easeInCubic(1 - tout));
+  card.style.transform = 'scale(' + (grow * shrink).toFixed(4) + ')';
+  card.style.opacity = Math.min(clamp(t / 0.1), tout).toFixed(3);
 };
 </script>
 </body>

@@ -322,7 +322,7 @@ def test_an_audio_stream_that_starts_late_stays_in_step_with_the_picture_and_the
 def test_the_graph_starts_both_streams_at_zero_before_it_cuts():
     graph = _media.compose_argv("ffmpeg", {"src": "/in/recording", "fps": 30, "size": [1080, 1920], "has_audio": True, "src_matrix": "bt709", "kept": [[10, 70]],
                                            "layers": [], "frames_dir": "frames", "pips": [], "pip_size": 380, "out_frames": 60, "max_bytes": 1000,
-                                           "out_name": "o.mp4", "zoom": {"mode": "none", "factor": 1.1, "push_in": 0.0},
+                                           "out_name": "o.mp4", "zoom": {"mode": "none", "factor": 1.1, "push_in": 0.0, "anchor_y": 0.25}, "anchor": (540.0, 760.0),
                                            "face": {"cx": 540, "cy": 900, "w": 600, "h": 560}, "fade": 0.015})
     graph = graph[graph.index("-filter_complex") + 1]
     assert "fps=30:start_time=0" in graph and "aresample=async=1:first_pts=0,atrim=" in graph

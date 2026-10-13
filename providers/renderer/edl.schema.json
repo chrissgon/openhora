@@ -203,7 +203,8 @@
           "required": [
             "mode",
             "factor",
-            "push_in"
+            "push_in",
+            "anchor_y"
           ],
           "properties": {
             "mode": {
@@ -211,14 +212,18 @@
                 "alternate",
                 "none"
               ],
-              "description": "alternate: every second kept range is drawn at `factor`, centred on the face box."
+              "description": "alternate: every second kept range is drawn at `factor`, about the fixed point."
             },
             "factor": {
               "type": "number"
             },
             "push_in": {
               "type": "number",
-              "description": "A slow extra zoom over each range, as a fraction; 0 for none."
+              "description": "A slow extra zoom over each range of 5 s or more, as a fraction (at most 0.03); 0 for none."
+            },
+            "anchor_y": {
+              "type": "number",
+              "description": "The zoom's fixed point: this fraction of the face box's height down from its top, at the face's horizontal centre."
             }
           }
         },

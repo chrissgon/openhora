@@ -11,38 +11,42 @@
         --weight-display:800; --weight-text:500; --weight-mono:500; }
 html, body { margin:0; padding:0; background:transparent; width:1080px; height:1920px; overflow:hidden; }
 #pos { position:absolute; left:65px; width:950px; display:flex; justify-content:center; align-items:center; }
-#card { display:flex; flex-direction:column; gap:14px; padding:24px 56px 48px; border-radius:30px; border:6px solid var(--c-accent);
-        background:var(--c-chip_fill); color:var(--c-text); box-shadow:0 14px 0 rgba(0,0,0,.35); width:880px; }
-#mark { font-family:var(--font-display); font-weight:var(--weight-display); font-size:260px; line-height:0.8; height:130px; color:var(--c-accent); }
+#card { display:flex; flex-direction:row; align-items:center; gap:0.3em; padding:0.2em 0.5em 0.24em 0.3em; border-radius:0.3em; border:0.06em solid var(--c-accent);
+        background:var(--c-chip_fill); color:var(--c-text); box-shadow:0 0.1em 0 rgba(0,0,0,.35); max-width:930px; transform-origin:50% 50%; }
+#body { display:flex; flex-direction:column; gap:0.12em; }
+#mark { font-family:var(--font-display); font-weight:var(--weight-display); font-size:2.2em; line-height:0.8; align-self:flex-start; color:var(--c-accent); }
 #q { font-family:var(--font-display); font-weight:var(--weight-display); line-height:1.12; letter-spacing:-0.02em; }
-#by { font-family:var(--font-mono); font-weight:var(--weight-mono); font-size:36px; letter-spacing:0.03em; color:var(--c-chip_text); margin-top:10px; }
+#by { font-family:var(--font-mono); font-weight:var(--weight-mono); font-size:0.42em; letter-spacing:0.03em; color:var(--c-chip_text); }
 </style>
 </head>
 <body>
 <div id="pos"><div id="card"></div></div>
 <script>
 'use strict';
-// A card is drawn inside the band the face box leaves above it (data.zones.card = [top, bottom]); it shrinks to fit that
-// band, and the driver fails the render when a drawn card touches the face box. Pure function of (t, data).
+// A card is drawn inside the band the face box leaves above it (data.zones.card = [top, bottom]): the largest type whose card fits the
+// band's height and the frame's width, so a short band gives small type and never a card over the face. The card pops in (ease-out-back)
+// and shrinks out. The driver measures every element marked data-zone and fails the render when one touches the face box.
+// Pure function of (t, data): every style it relies on is set here, so a frame never depends on the one before.
 function col(v) { return v.charAt(0) === '#' ? v : 'var(--c-' + v + ')'; }
 function easeOutCubic(x) { return 1 - Math.pow(1 - x, 3); }
-function easeOutBack(x) { const c1 = 1.9, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); }
+function easeOutBack(x, c1) { const c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); }
+function easeInCubic(x) { return x * x * x; }
 function clamp(x) { return Math.max(0, Math.min(1, x)); }
-// Sets the card's transform: the shift and the motion scale of this frame, times the scale that makes it fit its band.
-function place(card, data, shiftY, motion) {
+const FIT = 0.86;      // the share of the band a card fills at rest: the pop's overshoot (about 8 percent) then stays inside the band
+function band(data) {
   const z = data.zones.card;
   const pos = document.getElementById('pos');
   pos.style.top = z[0] + 'px';
   pos.style.height = (z[1] - z[0]) + 'px';
-  card.dataset.zone = 'card';
-  card.style.transform = 'none';
-  const fit = Math.min(1, 0.82 * (z[1] - z[0]) / card.offsetHeight, 940 / card.offsetWidth);
-  card.style.transform = 'translateY(' + Math.round(shiftY) + 'px) scale(' + (fit * motion).toFixed(4) + ')';
+  return z[1] - z[0];
 }
 window.renderAt = function (t, data) {
   const P = data.params;
+  const bandH = band(data);
   const card = document.getElementById('card');
   card.replaceChildren();
+  card.dataset.zone = 'card';
+  card.style.transform = 'none';
   const color = col(P.color || 'accent');
   card.style.borderColor = color;
   const mark = document.createElement('div');
@@ -50,23 +54,27 @@ window.renderAt = function (t, data) {
   mark.textContent = '\u201C';
   mark.style.color = color;
   card.appendChild(mark);
+  const body = document.createElement('div');
+  body.id = 'body';
   const q = document.createElement('div');
   q.id = 'q';
   q.textContent = P.text;
-  const n = P.text.length;
-  q.style.fontSize = (n <= 40 ? 88 : n <= 80 ? 70 : 58) + 'px';
-  card.appendChild(q);
+  body.appendChild(q);
   if (P.author) {
     const by = document.createElement('div');
     by.id = 'by';
     by.textContent = '\u2014 ' + P.author;
     by.style.opacity = easeOutCubic(clamp((t - 0.5) / 0.3)).toFixed(3);
-    card.appendChild(by);
+    body.appendChild(by);
   }
-  const tin = easeOutCubic(clamp(t / 0.4));
+  card.appendChild(body);
+  let fs = Math.min(70, bandH * 0.4);
+  card.style.fontSize = fs + 'px';
+  while (card.offsetHeight > bandH * FIT && fs > 18) { fs = fs * 0.95; card.style.fontSize = fs.toFixed(1) + 'px'; }
   const tout = clamp((data.duration - t) / 0.3);
-  place(card, data, (1 - tin) * 24, 1);
-  card.style.opacity = Math.min(tin, tout).toFixed(3);
+  const shrink = 0.9 + 0.1 * (1 - easeInCubic(1 - tout));
+  card.style.opacity = Math.min(clamp(t / 0.15), tout).toFixed(3);
+  card.style.transform = 'scale(' + ((0.6 + 0.4 * easeOutBack(clamp(t / 0.4), 2.0)) * shrink).toFixed(4) + ')';
 };
 </script>
 </body>

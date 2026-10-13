@@ -131,9 +131,9 @@ def verb_base(args) -> dict:
         font_id, _, weight = spec.partition(":")
         font_flags[role] = (font_id, int(weight) if weight.isdigit() else data["theme"]["default_font_weight"].get(role, 500))
     face = _edl.parse_face_box(args.face_box) if args.face_box else None
-    edl, notes = _edl.build_base(transcript, analysis, data, allow, args.fps, args.gap, args.margin, args.caption_position,
+    edl, notes = _edl.build_base(transcript, analysis, data, allow, args.fps, args.gap, args.pad_head, args.pad_tail, args.caption_position,
                                  colors, font_flags, face, args.zoom, args.zoom_factor, args.push_in, set(args.confirm or []),
-                                 args.long_cut, args.wordless_max)
+                                 args.long_cut, args.wordless_max, args.zoom_anchor_y)
     write_json(args.out, edl)
     return {"ok": True, "out": os.path.abspath(args.out), "fps": edl["fps"], "kept_ranges": len(edl["kept"]),
             "out_seconds": round(edl["out_frames"] / edl["fps"], 3), "source_seconds": edl["source"]["duration"],
@@ -297,14 +297,16 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--out", required=True)
     sp.add_argument("--fps", type=int)
     sp.add_argument("--gap", type=float, help="no audio: cut word gaps longer than this (seconds)")
-    sp.add_argument("--margin", type=float, help="seconds of silence kept on each side of a cut")
+    sp.add_argument("--pad-head", type=float, help="seconds of speech kept before the first word after a silence (default 0.10)")
+    sp.add_argument("--pad-tail", type=float, help="seconds of speech kept after the last word before a silence (default 0.14)")
     sp.add_argument("--long-cut", type=float, help="a cut this long (seconds) also takes the wordless sound at its edges")
     sp.add_argument("--wordless-max", type=float, help="seconds of sound with no word that a long cut does not leave at an edge")
     sp.add_argument("--caption-position", default="bottom")
     sp.add_argument("--face-box", help="X,Y,W,H in frame pixels (1080x1920): where the speaker's face is; given once per recording")
     sp.add_argument("--zoom", choices=("alternate", "none"))
     sp.add_argument("--zoom-factor", type=float)
-    sp.add_argument("--push-in", type=float, default=0.0, help="slow extra zoom over each range, as a fraction (0 for none)")
+    sp.add_argument("--push-in", type=float, help="slow extra zoom over each range of 5 s or more, as a fraction up to 0.03 (default 0.02, 0 for none)")
+    sp.add_argument("--zoom-anchor-y", type=float, help="the zoom's fixed point: this fraction of the face box's height down from its top (default 0.25)")
     sp.add_argument("--confirm", action="append", metavar="RETAKE-ID", help="cut this proposed retake (repeatable)")
     sp.add_argument("--color", action="append", metavar="TOKEN=#RRGGBB")
     sp.add_argument("--font", action="append", metavar="ROLE=ID[:WEIGHT]")

@@ -99,12 +99,15 @@ one, an external service) replaces this one behind the same verbs and the same e
 
 ## What the edit does
 
-- **Cuts.** Silence is the signal (`silencedetect`, -35 dB, 0.25 s), minus a margin (0.08 s) on each side; words only protect speech (a
-  word stretched far past what it takes to say is protected only for that time, so a silence inside its span is still cut). **A long
-  cut takes the wordless sound at its edges:** after a cut of 2 s or more (`--long-cut`), a range that begins with more than 0.3 s
-  (`--wordless-max`) of sound before its first word (a breath, a head turning back to the camera) begins at that word less the margin;
-  symmetrically a range before such a cut ends at its last word plus the margin. No kept
-  range is shorter than 0.4 s: one with no word is cut, one with a word is joined to its neighbour. Without audio, word gaps over 0.5 s decide.
+- **Cuts.** Silence is the signal (`silencedetect`, -35 dB, 0.25 s): every silence is cut, less 0.14 s after its start (the tail of the
+  word before it, `--pad-tail`) and 0.10 s before its end (the attack of the word after it, `--pad-head`). Words only protect speech,
+  and only the words that have energy: a word that silence covers for 80 percent of its span is a phantom (a transcriber puts words
+  into the quiet start of a recording) and protects nothing; a word stretched far past what it takes to say is protected only for that
+  time, so a silence inside its span is still cut. No range with a word is kept shorter than 0.4 s (it is joined to its neighbour), and
+  a range with no real word that is shorter than 1.5 s (`wordless_keep`: a cough, the speaker moving) is cut. **A long cut takes the
+  wordless sound at its edges:** after a cut of 2 s or more (`--long-cut`), a range that begins with more than 0.3 s (`--wordless-max`)
+  of sound before its first word (a breath, a head turning back to the camera) begins at that word less `--pad-head`; symmetrically a
+  range before such a cut ends at its last word plus `--pad-tail`. Without audio, word gaps over 0.5 s decide.
 - **Audio and picture start together.** The streams' `start_time` is read: the picture is started at zero (`fps=...:start_time=0`) and the
   sound is padded to zero (`aresample=async=1:first_pts=0`) before either is cut, so an audio stream that starts after the video stays in
   step. The renderer's clock is the container's; the transcript's times are taken to be on it (a transcriber that cuts the audio out of a
@@ -119,13 +122,16 @@ one, an external service) replaces this one behind the same verbs and the same e
   NFKC, casefold and punctuation normalised, best window per beat, figures excluded from scoring, a tie goes to the last occurrence, an
   order check, a threshold (0.6 until calibrated in C2). `--anchor <beat>=<from>-<to>` places a beat the aligner could not.
 - **Face box and zones.** The person gives the face box once per recording (`--face-box x,y,w,h`; a default is used otherwise). Cards sit in
-  the band above it, captions in the band below; every drawn card and caption is measured after each frame and the render fails when one
-  touches the face box. **The box is the zoomed one:** a zoomed range is cropped around the face, so the face grows and moves; the
-  bands of a card or caption are computed from the union of the face's box over every range it lives through (factor and push-in
-  included), and `base` refuses a face box that leaves too little room at the largest zoom.
-- **Zoom.** Every second kept range is drawn at 1.10 centred on the face box (`--zoom none` turns it off); an optional slow push-in
-  (`--push-in 0.04`, per-frame `zoompan`: not yet looked at for jitter).
-- **Captions** come in chunks of one to three words, big, with the current word highlighted and popped. **Sound** fades 15 ms at each end
+  the band above it (from y 110 down to the face less 18 px), captions in the band below it (from the face plus 18 px down to y 1620); the
+  type is the largest that fits the band (a short band gives small type, never a card over the face). Every drawn card, chip and caption
+  word is measured after each frame and the render fails when one touches the face box. **The box is the zoomed one:** a zoomed range
+  is a punch-in about a fixed point (the face's horizontal centre, a quarter of its height down from its top, `--zoom-anchor-y`), so the
+  face's box grows about that point; the bands of a card or caption are computed from the union of the face's box over every range it
+  lives through (factor and push-in included), and `base` refuses a face box that leaves less than 80 px above or 120 px below at the
+  largest zoom.
+- **Zoom.** Every second kept range is drawn at 1.10 (`--zoom none` turns it off) about the anchor, from a picture cut at twice the output
+  size so a zoom never upscales; a range of 5 s or more also pushes in by 2 percent (`--push-in`, at most 3 percent).
+- **Captions** come in chunks of one to three words on one line, as big as fits, with the current word highlighted and popped over a dark stroke. **Sound** fades 15 ms at each end
   of every range (a dip, not an overlap: sound and picture stay in step).
 - **Output.** 1080x1920 at 30 fps whatever the input (a 4K 60 fps HEVC iPhone clip is scaled down and its frame rate halved; a landscape
   clip is cropped to the centre), H.264 high with AAC, bt709 limited range, metadata (a location) stripped, `-fs` capped, faststart.

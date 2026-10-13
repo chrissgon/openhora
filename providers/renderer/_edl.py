@@ -64,11 +64,6 @@ def zones(data: dict, face: dict) -> dict:
     return {"card": [z["card_top"], face["y"] - z["gap"]], "caption": [face["y"] + face["h"] + z["gap"], z["caption_bottom"]]}
 
 
-def zoom_levels(zoom: dict, k: int):
-    """(start zoom, push-in) of kept range number k."""
-    return (zoom["factor"] if zoom["mode"] == "alternate" and k % 2 == 1 else 1.0), zoom["push_in"]
-
-
 def union(boxes: list) -> dict:
     left, top = min(b["x"] for b in boxes), min(b["y"] for b in boxes)
     right, bottom = max(b["x"] + b["w"] for b in boxes), max(b["y"] + b["h"] for b in boxes)
@@ -78,7 +73,7 @@ def union(boxes: list) -> dict:
 def check_face(data: dict, face, field: str = "face_box", zoom=None) -> dict:
     """A face box {x, y, w, h} in frame pixels, inside the frame, that leaves room above it for a card and below it for a
     caption. With `zoom` (the edit list's zoom block) the room is measured on the box at its largest, when a range is drawn at
-    the zoom factor with the whole push-in: the zoom moves the face as well as growing it."""
+    the zoom factor with the whole push-in: the picture grows about the zoom's fixed point, so the face's box grows and moves."""
     closed(face, {"x", "y", "w", "h"}, field)
     if not all(_int(face[k]) for k in "xywh") or face["w"] < 100 or face["h"] < 100 or face["x"] < 0 or face["y"] < 0 \
             or face["x"] + face["w"] > data["frame"]["width"] or face["y"] + face["h"] > data["frame"]["height"]:
@@ -86,8 +81,10 @@ def check_face(data: dict, face, field: str = "face_box", zoom=None) -> dict:
     worst = face
     if zoom is not None:
         w, h = data["frame"]["width"], data["frame"]["height"]
+        anchor = _media.anchor_point(face, zoom["anchor_y"])
         top = zoom["factor"] if zoom["mode"] == "alternate" else 1.0
-        worst = union([face, _media.zoomed_box(face, 1.0, zoom["push_in"], w, h), _media.zoomed_box(face, top, zoom["push_in"], w, h)])
+        most = top * (1.0 + zoom["push_in"])
+        worst = union([face, _media.zoomed_box(face, top, most, anchor, w, h)])
     z = zones(data, worst)
     if z["card"][1] - z["card"][0] < data["zones"]["card_min_height"] or z["caption"][1] - z["caption"][0] < data["zones"]["caption_min_height"]:
         raise Refusal("face_box_leaves_no_room", field)
@@ -97,10 +94,11 @@ def check_face(data: dict, face, field: str = "face_box", zoom=None) -> dict:
 def range_faces(edl: dict, data: dict) -> list:
     """For each kept range: (first output frame, last output frame + 1, the face box as it lands in that range)."""
     w, h = data["frame"]["width"], data["frame"]["height"]
+    anchor = _media.anchor_point(edl["face_box"], edl["zoom"]["anchor_y"])
     rows, pos = [], 0
     for k, (a, b) in enumerate(edl["kept"]):
-        z0, push = zoom_levels(edl["zoom"], k)
-        rows.append((pos, pos + b - a, _media.zoomed_box(edl["face_box"], z0, push, w, h)))
+        z0, z1 = _media.zoom_levels(edl["zoom"], k, b - a, edl["fps"])
+        rows.append((pos, pos + b - a, _media.zoomed_box(edl["face_box"], z0, z1, anchor, w, h)))
         pos += b - a
     return rows
 
@@ -122,9 +120,9 @@ def parse_face_box(text: str) -> dict:
 
 # ---------------------------------------------------------------- the base list
 
-def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None, gap=None, margin=None,
+def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None, gap=None, pad_head=None, pad_tail=None,
                caption_position="bottom", colors=None, font_flags=None, face_box=None, zoom_mode=None, zoom_factor=None,
-               push_in=0.0, confirm=(), long_cut=None, wordless_max=None) -> tuple:
+               push_in=None, confirm=(), long_cut=None, wordless_max=None, anchor_y=None) -> tuple:
     """The code-generated base edit list from a transcript and an analysis. No model.
 
     Silence is the cut signal (`analysis["silences"]`; `None` when the recording has no audio, then the word gaps
@@ -132,8 +130,8 @@ def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None
     `confirm` names the proposals the person confirmed (by id), and only those are cut. A cut of `long_cut` seconds or more
     also takes the wordless sound of more than `wordless_max` seconds at its edges. `face_box` is {x, y, w, h} in
     frame pixels (the person gives it once per recording; a default is used otherwise). `zoom_mode` is `alternate` (every
-    second kept range is drawn at `zoom_factor`, centred on the face box) or `none`; `push_in` is a slow extra zoom over
-    each kept range (0 for none).
+    second kept range is drawn at `zoom_factor`, about a fixed point: the face's centre, `anchor_y` of the box's height down
+    from its top) or `none`; `push_in` is a slow extra zoom over each kept range of 5 s or more (0 for none).
 
     `fonts` maps an allow-listed font id to its row. `colors` is {token: #RRGGBB}; `font_flags` is {role: (id, weight)};
     a font id that is not allow-listed falls back to `default`, and the fallback is returned in the second value
@@ -143,7 +141,8 @@ def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None
     if not _int(fps) or not frame["fps_min"] <= fps <= frame["fps_max"]:
         raise Refusal("bad_fps", "fps")
     gap = cuts["gap"] if gap is None else gap
-    margin = cuts["margin"] if margin is None else margin
+    pad_head = cuts["pad_head"] if pad_head is None else pad_head
+    pad_tail = cuts["pad_tail"] if pad_tail is None else pad_tail
     facts = analysis.get("facts") if isinstance(analysis, dict) else None
     if not isinstance(facts, dict) or not _num(facts.get("duration")) or not SHA256.fullmatch(str(facts.get("sha256"))):
         raise Refusal("analysis_schema", "analysis")
@@ -183,7 +182,7 @@ def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None
         lo = first["start"] - 0.03
         if before:
             lo = max(lo, before[-1]["end"] + 0.02)
-        hi = keep["start"] - margin
+        hi = keep["start"] - pad_head
         if hi > lo:
             forced.append((lo, hi))
         for w in live:
@@ -198,7 +197,8 @@ def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None
     wordless_max = cuts["wordless_max"] if wordless_max is None else wordless_max
     if not _num(long_cut) or not _num(wordless_max) or long_cut < 0 or wordless_max < 0:
         raise Refusal("bad_cut_setting", "cuts")
-    kept = kept_ranges(kept_words, duration, fps, sil, margin, cuts["min_cut"], cuts["min_kept"], gap, forced, long_cut, wordless_max)
+    kept = kept_ranges(kept_words, duration, fps, sil, pad_head, pad_tail, cuts["min_cut"], cuts["min_kept"], gap, forced, long_cut, wordless_max,
+                       cuts["wordless_keep"])
     if not kept:
         raise Refusal("nothing_kept", "transcript")
     if len(kept) > limits["kept_ranges_max"]:
@@ -227,7 +227,8 @@ def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None
             notes.append({"role": role, "asked": font_id, "used": "default", "reason": "not in the font allow-list"})
     mode = zoom_cfg["default_mode"] if zoom_mode is None else zoom_mode
     factor = zoom_cfg["factor"] if zoom_factor is None else zoom_factor
-    zoom = {"mode": mode, "factor": factor, "push_in": push_in}
+    zoom = {"mode": mode, "factor": factor, "push_in": zoom_cfg["push_in"] if push_in is None else push_in,
+            "anchor_y": zoom_cfg["anchor_y"] if anchor_y is None else anchor_y}
     check_zoom(data, zoom)
     face = check_face(data, dict(data["face_box_default"] if face_box is None else face_box), "face_box", zoom)
     edl = {"schema_version": SCHEMA_VERSION, "fps": fps, "size": [frame["width"], frame["height"]],
@@ -242,13 +243,15 @@ def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None
 
 def check_zoom(data: dict, zoom, field: str = "zoom") -> None:
     cfg = data["zoom"]
-    closed(zoom, {"mode", "factor", "push_in"}, field)
+    closed(zoom, {"mode", "factor", "push_in", "anchor_y"}, field)
     if zoom["mode"] not in cfg["modes"]:
         raise Refusal("bad_choice", field + ".mode")
     if not _num(zoom["factor"]) or not 1.0 <= zoom["factor"] <= cfg["factor_max"]:
         raise Refusal("bad_zoom", field + ".factor")
     if not _num(zoom["push_in"]) or not 0 <= zoom["push_in"] <= cfg["push_in_max"]:
         raise Refusal("bad_zoom", field + ".push_in")
+    if not _num(zoom["anchor_y"]) or not 0 <= zoom["anchor_y"] <= 1:
+        raise Refusal("bad_zoom", field + ".anchor_y")
 
 
 # ---------------------------------------------------------------- checks

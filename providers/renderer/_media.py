@@ -269,50 +269,43 @@ def _even(x: float) -> int:
     return n + (n % 2)
 
 
-def zoomed_box(face: dict, z0: float, push: float, w: int, h: int) -> dict:
-    """Where the face box {x, y, w, h} lands in the output frame when a kept range is drawn at zoom `z0`, and with a slow push-in
-    of `push` (the zoom then ends at z0 + push): the bounding box of the box at the start and at the end of the range, outward
-    to whole pixels. It mirrors zoom_chain: a static zoom is scale then a crop centred on the face and clamped to the frame; a
-    push-in is zoompan with the same centre, clamped the same way."""
-    cx, cy = face["x"] + face["w"] / 2.0, face["y"] + face["h"] / 2.0
-    boxes = []
-    for z in ((z0, z0 + push) if push > 0 else (z0,)):
-        if push > 0:
-            x0 = min(max(int(cx) - w / z / 2, 0), w - w / z)
-            y0 = min(max(int(cy) - h / z / 2, 0), h - h / z)
-            sx = sy = z
-        elif z <= 1.0:
-            x0 = y0 = 0
-            sx = sy = 1.0
-        else:
-            sw, sh = _even(w * z), _even(h * z)
-            x0 = int(min(max(int(cx) * sw / w - w / 2, 0), sw - w)) / (sw / w)
-            y0 = int(min(max(int(cy) * sh / h - h / 2, 0), sh - h)) / (sh / h)
-            sx, sy = sw / w, sh / h
-        boxes.append(((face["x"] - x0) * sx, (face["y"] - y0) * sy, (face["x"] + face["w"] - x0) * sx, (face["y"] + face["h"] - y0) * sy))
-    left, top = min(b[0] for b in boxes), min(b[1] for b in boxes)
-    right, bottom = max(b[2] for b in boxes), max(b[3] for b in boxes)
-    left, top = max(0, int(math.floor(left))), max(0, int(math.floor(top)))
-    right, bottom = min(w, int(math.ceil(right))), min(h, int(math.ceil(bottom)))
+PUSH_MIN_SECONDS = 5.0     # only a range this long gets the slow push-in
+BASE = 2                   # the picture is cut at twice the output size, so a zoom never upscales (and a slow zoom does not jitter)
+
+
+def anchor_point(face: dict, anchor_y: float) -> tuple:
+    """The fixed point of a zoom, in output pixels: the face's horizontal centre, `anchor_y` of the box's height from its top."""
+    return face["x"] + face["w"] / 2.0, face["y"] + anchor_y * face["h"]
+
+
+def zoom_levels(zoom: dict, k: int, frames: int, fps: int) -> tuple:
+    """(zoom at the first frame, zoom at the last frame) of kept range number k: `alternate` draws every second range at `factor`;
+    a range of PUSH_MIN_SECONDS or more also pushes in by `push_in` over its length."""
+    z0 = zoom["factor"] if zoom["mode"] == "alternate" and k % 2 == 1 else 1.0
+    z1 = z0 * (1.0 + zoom["push_in"]) if zoom["push_in"] > 0 and frames / float(fps) >= PUSH_MIN_SECONDS else z0
+    return z0, z1
+
+
+def zoomed_box(face: dict, z0: float, z1: float, anchor: tuple, w: int, h: int) -> dict:
+    """Where the face box {x, y, w, h} lands in the output frame while a range is zoomed from z0 to z1 about the fixed point
+    `anchor`: the picture grows about that point, so every point p lands at anchor + (p - anchor) * z. The bounding box of the box at
+    the start and at the end of the range, outward to whole pixels, inside the frame."""
+    ax, ay = anchor
+    boxes = [(ax + (face["x"] - ax) * z, ay + (face["y"] - ay) * z, ax + (face["x"] + face["w"] - ax) * z, ay + (face["y"] + face["h"] - ay) * z)
+             for z in {z0, z1}]
+    left, top = max(0, int(math.floor(min(b[0] for b in boxes)))), max(0, int(math.floor(min(b[1] for b in boxes))))
+    right, bottom = min(w, int(math.ceil(max(b[2] for b in boxes)))), min(h, int(math.ceil(max(b[3] for b in boxes))))
     return {"x": left, "y": top, "w": right - left, "h": bottom - top}
 
 
-def zoom_chain(zoom: dict, face: dict, k: int, frames: int, fps: int, w: int, h: int) -> str:
-    """The filters that zoom kept range number k, as a string that starts with a comma (or is empty). `alternate` draws
-    every second range at `factor` centred on the face box (scale, then a static crop: no jitter); `push_in` is a slow
-    extra zoom over the range (zoompan, per frame). Both stay inside the frame."""
-    z0 = zoom["factor"] if zoom["mode"] == "alternate" and k % 2 == 1 else 1.0
-    push = zoom["push_in"]
-    cx, cy = face["cx"], face["cy"]
-    if push > 0:
-        return (",zoompan=z='%.4f+%.4f*on/%d':x='min(max(%d-iw/zoom/2,0),iw-iw/zoom)':y='min(max(%d-ih/zoom/2,0),ih-ih/zoom)':d=1:s=%dx%d:fps=%s"
-                % (z0, push, max(1, frames), cx, cy, w, h, fps))
-    if z0 <= 1.0:
-        return ""
-    sw, sh = _even(w * z0), _even(h * z0)
-    x = int(min(max(cx * sw / w - w / 2, 0), sw - w))
-    y = int(min(max(cy * sh / h - h / 2, 0), sh - h))
-    return ",scale=%d:%d,crop=%d:%d:%d:%d,setsar=1" % (sw, sh, w, h, x, y)
+def zoom_filter(z0: float, z1: float, frames: int, anchor: tuple, w: int, h: int, fps) -> str:
+    """The filter from the picture cut at BASE times the output size to the output for one kept range: a plain scale at 100%, else
+    a zoompan about the fixed point `anchor` (output pixels): the point stays where it is while the picture grows about it."""
+    if abs(z0 - 1.0) < 1e-6 and abs(z1 - 1.0) < 1e-6:
+        return "scale=%d:%d:flags=lanczos" % (w, h)
+    ax, ay = anchor[0] * BASE, anchor[1] * BASE
+    z = "%.5f" % z0 if abs(z1 - z0) < 1e-6 else "%.5f+%.6f*on" % (z0, (z1 - z0) / max(1, frames - 1))
+    return "zoompan=z='%s':x='%.2f*(1-1/zoom)':y='%.2f*(1-1/zoom)':d=1:s=%dx%d:fps=%s" % (z, ax, ay, w, h, fps)
 
 
 def bubble_crop(face: dict, w: int, h: int) -> tuple:
@@ -358,9 +351,8 @@ def compose_argv(ffmpeg: str, plan: dict) -> list:
         mask_in = nxt
         nxt += 1
 
-    g = ["[0:v:0]fps=%s:start_time=0,scale=%d:%d:force_original_aspect_ratio=increase:in_color_matrix=%s:out_color_matrix=bt709:out_range=tv,"
-         "crop=%d:%d,setsar=1,format=yuv420p[sv]" % (fps, w, h, plan["src_matrix"], w, h)]
-    vlabels = []
+    g = ["[0:v:0]fps=%s:start_time=0,scale=%d:%d:force_original_aspect_ratio=increase:in_color_matrix=%s:out_color_matrix=bt709:out_range=tv:flags=lanczos,"
+         "crop=%d:%d,setsar=1,format=yuv420p[sv]" % (fps, w * BASE, h * BASE, plan["src_matrix"], w * BASE, h * BASE)]
     if n > 1:
         g.append("[sv]split=%d%s" % (n, "".join("[s%d]" % k for k in range(n))))
         src_v = ["[s%d]" % k for k in range(n)]
@@ -369,7 +361,9 @@ def compose_argv(ffmpeg: str, plan: dict) -> list:
     cat_in = []
     zoom, face, fade = plan["zoom"], plan["face"], plan["fade"]
     for k, (a, b) in enumerate(kept):
-        g.append("%strim=start_frame=%d:end_frame=%d,setpts=PTS-STARTPTS%s[v%d]" % (src_v[k], a, b, zoom_chain(zoom, face, k, b - a, fps, w, h), k))
+        z0, z1 = zoom_levels(zoom, k, b - a, fps)
+        g.append("%strim=start_frame=%d:end_frame=%d,setpts=PTS-STARTPTS,%s,setsar=1,format=yuv420p[v%d]"
+                 % (src_v[k], a, b, zoom_filter(z0, z1, b - a, plan["anchor"], w, h, fps), k))
         cat_in.append("[v%d]" % k)
         if has_audio:
             # a few milliseconds of fade at each end of a range, so that a cut never clicks; the length stays, so sound and

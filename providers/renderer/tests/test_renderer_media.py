@@ -21,12 +21,12 @@ INSTAGRAM = json.loads(K.INSTAGRAM.read_text())
 def plain_plan():
     return {"src": "/in/recording", "fps": 30, "size": [1080, 1920], "has_audio": True, "src_matrix": "bt709", "kept": [[25, 94], [121, 226], [249, 306]],
             "layers": ["beat", "caption"], "frames_dir": "frames", "pips": [], "pip_size": 380, "out_frames": 231, "max_bytes": 300000000,
-            "out_name": "out.mp4", "zoom": {"mode": "alternate", "factor": 1.1, "push_in": 0.0}, "face": FACE, "fade": 0.015}
+            "out_name": "out.mp4", "zoom": {"mode": "alternate", "factor": 1.1, "push_in": 0.02, "anchor_y": 0.25}, "face": FACE, "anchor": (540.0, 760.0), "fade": 0.015}
 
 
 def pip_plan():
     p = plain_plan()
-    p.update(has_audio=False, src_matrix="auto", layers=["caption"], zoom={"mode": "none", "factor": 1.1, "push_in": 0.04},
+    p.update(has_audio=False, src_matrix="auto", layers=["caption"], zoom={"mode": "alternate", "factor": 1.25, "push_in": 0.03, "anchor_y": 0.25},
              pips=[{"asset": "assets/beat8.png", "kind": "png", "start_frame": 60, "end_frame": 120, "x": 350, "y": 285},
                    {"asset": "assets/beat9.jpg", "kind": "jpg", "start_frame": 150, "end_frame": 200, "x": 350, "y": 868}])
     return p

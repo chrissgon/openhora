@@ -138,19 +138,20 @@ def test_the_host_stores_a_render_only_after_a_fresh_container_has_verified_it(w
 CENTRE = {"x": 240, "y": 620, "w": 600, "h": 560}
 
 
-def test_the_zoomed_face_box_follows_the_zoom_and_stays_inside_the_frame():
-    assert _media.zoomed_box(CENTRE, 1.0, 0.0, 1080, 1920) == CENTRE
-    box = _media.zoomed_box(CENTRE, 1.1, 0.0, 1080, 1920)
+def test_the_zoomed_face_box_grows_about_the_anchor_and_stays_inside_the_frame():
+    anchor = _media.anchor_point(CENTRE, 0.25)
+    assert _media.zoomed_box(CENTRE, 1.0, 1.0, anchor, 1080, 1920) == CENTRE
+    box = _media.zoomed_box(CENTRE, 1.1, 1.1, anchor, 1080, 1920)
     assert box["w"] == pytest.approx(600 * 1.1, abs=3) and box["h"] == pytest.approx(560 * 1.1, abs=3)
-    assert box["x"] + box["w"] // 2 == pytest.approx(540, abs=3) and box["y"] + box["h"] // 2 == pytest.approx(960, abs=3) and box["y"] + box["h"] > CENTRE["y"] + CENTRE["h"]   # the crop re-centres the face: the zoom moves it as well as grows it
-    big = _media.zoomed_box(CENTRE, 1.25, 0.08, 1080, 1920)
-    assert big["w"] > box["w"] and big["h"] > box["h"] and big["h"] == pytest.approx(560 * 1.33, abs=4)
-    for z, push in ((1.1, 0), (1.25, 0), (1.25, 0.08), (1.0, 0.08)):
-        b = _media.zoomed_box(CENTRE, z, push, 1080, 1920)
+    assert box["y"] < CENTRE["y"] + 10 and box["y"] + box["h"] > CENTRE["y"] + CENTRE["h"]        # the anchor is high on the face: the box grows mostly downwards
+    big = _media.zoomed_box(CENTRE, 1.25, 1.25 * 1.03, anchor, 1080, 1920)
+    assert big["w"] > box["w"] and big["h"] > box["h"] and big["h"] == pytest.approx(560 * 1.25 * 1.03, abs=4)
+    for z0, z1 in ((1.1, 1.1), (1.25, 1.25), (1.25, 1.2875), (1.0, 1.03)):
+        b = _media.zoomed_box(CENTRE, z0, z1, anchor, 1080, 1920)
         assert 0 <= b["x"] and b["x"] + b["w"] <= 1080 and 0 <= b["y"] and b["y"] + b["h"] <= 1920
-    edge = {"x": 0, "y": 100, "w": 300, "h": 300}                          # a face at the edge: the crop is clamped, the box is not pushed out
-    b = _media.zoomed_box(edge, 1.25, 0.0, 1080, 1920)
-    assert b["x"] == 0 and b["w"] == pytest.approx(375, abs=3)
+    edge = {"x": 0, "y": 100, "w": 300, "h": 300}                          # a face at the edge: the box is cut at the frame's edge, not pushed out
+    b = _media.zoomed_box(edge, 1.25, 1.25, _media.anchor_point(edge, 0.25), 1080, 1920)
+    assert b["x"] == 0
 
 
 def zoom_edl(factor, push, mode="alternate"):
@@ -161,17 +162,18 @@ def zoom_edl(factor, push, mode="alternate"):
 
 
 def test_a_face_box_that_leaves_room_unzoomed_but_not_zoomed_is_refused():
-    face = {"x": 240, "y": 560, "w": 600, "h": 700}
+    face = {"x": 240, "y": 500, "w": 600, "h": 850}
     _edl.check_face(DATA, face)                                            # fits as it is
-    assert refused(_edl.check_face, DATA, face, "face_box", {"mode": "alternate", "factor": 1.25, "push_in": 0.08}).code == "face_box_leaves_no_room"
-    _edl.check_face(DATA, face, "face_box", {"mode": "none", "factor": 1.25, "push_in": 0.0})
+    zoomed = {"mode": "alternate", "factor": 1.25, "push_in": 0.03, "anchor_y": 0.25}
+    assert refused(_edl.check_face, DATA, face, "face_box", zoomed).code == "face_box_leaves_no_room"
+    _edl.check_face(DATA, face, "face_box", {"mode": "none", "factor": 1.25, "push_in": 0.0, "anchor_y": 0.25})
     doc = K.build_transcript()
     analysis = {"facts": {"duration": doc["duration"], "sha256": "d" * 64, "width": 1080, "height": 1920, "has_audio": True}, "silences": None}
-    assert refused(_edl.build_base, doc, analysis, DATA, {}, face_box=face, zoom_factor=1.25, push_in=0.08).code == "face_box_leaves_no_room"
-    _edl.check_face(DATA, CENTRE, "face_box", {"mode": "alternate", "factor": 1.25, "push_in": 0.08})     # the default box fits the largest zoom
+    assert refused(_edl.build_base, doc, analysis, DATA, {}, face_box=face, zoom_factor=1.25, push_in=0.03).code == "face_box_leaves_no_room"
+    _edl.check_face(DATA, CENTRE, "face_box", zoomed)                      # the default box fits the largest zoom
 
 
-@pytest.mark.parametrize("factor, push", [(1.1, 0.0), (1.25, 0.0), (1.25, 0.08)])
+@pytest.mark.parametrize("factor, push", [(1.1, 0.0), (1.25, 0.0), (1.25, 0.03)])
 def test_a_card_or_caption_spans_the_face_of_every_range_it_lives_through(factor, push):
     edl = zoom_edl(factor, push)
     _edl.check_edl(edl, DATA, VOCAB, {})
@@ -190,7 +192,7 @@ def test_a_card_or_caption_spans_the_face_of_every_range_it_lives_through(factor
 
 
 @needs_all
-@pytest.mark.parametrize("factor, push", [(1.25, 0.08), (1.1, 0.0)])
+@pytest.mark.parametrize("factor, push", [(1.25, 0.03), (1.1, 0.02)])
 def test_no_card_and_no_caption_touches_the_zoomed_face_through_a_whole_render_of_frames(tmp_path, factor, push):
     edl = zoom_edl(factor, push)
     words = {w["index"]: w for w in edl["words"]}

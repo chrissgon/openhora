@@ -28,8 +28,8 @@ Verbs (every verb prints one JSON object on stdout; diagnostics on stderr, the f
   reap                     remove containers and job folders a killed run left behind (every run does it at its start too).
   analyse --in VIDEO [--out F] [--noise-db -35] [--min-silence 0.25]
         ffprobe facts, the recording's sha256 and silencedetect intervals.
-  base --transcript T --analysis A --out EDL [--fps 30] [--margin 0.08] [--long-cut 2] [--wordless-max 0.3] [--caption-position bottom|center]
-       [--face-box X,Y,W,H] [--zoom alternate|none] [--zoom-factor 1.1] [--push-in 0] [--confirm RETAKE-ID]...
+  base --transcript T --analysis A --out EDL [--fps 30] [--pad-head 0.10] [--pad-tail 0.14] [--long-cut 2] [--wordless-max 0.3] [--caption-position bottom|center]
+       [--face-box X,Y,W,H] [--zoom alternate|none] [--zoom-factor 1.1] [--push-in 0.02] [--zoom-anchor-y 0.25] [--confirm RETAKE-ID]...
        [--color TOKEN=#RRGGBB]... [--font ROLE=ID[:WEIGHT]]...
         The code-generated base edit list. Silence is the cut signal (the words only protect speech) and no range is kept shorter
         than 0.4 s; captions come in chunks of one to three words; every second range is drawn zoomed on the face box. Retakes found
@@ -302,8 +302,9 @@ def verb_analyse(args) -> dict:
 def verb_base(args) -> dict:
     with Job(args, 120, "base") as job:
         inner = ["base", "--transcript", job.stage("transcript.json", args.transcript), "--analysis", job.stage("analysis.json", args.analysis),
-                 "--out", D.MOUNT_OUT + "/edl.json", "--caption-position", args.caption_position, "--push-in", str(args.push_in)]
-        inner += opt("--fps", args.fps) + opt("--gap", args.gap) + opt("--margin", args.margin) + opt("--face-box", args.face_box)
+                 "--out", D.MOUNT_OUT + "/edl.json", "--caption-position", args.caption_position]
+        inner += opt("--push-in", args.push_in) + opt("--zoom-anchor-y", args.zoom_anchor_y)
+        inner += opt("--fps", args.fps) + opt("--gap", args.gap) + opt("--pad-head", args.pad_head) + opt("--pad-tail", args.pad_tail) + opt("--face-box", args.face_box)
         inner += opt("--long-cut", args.long_cut) + opt("--wordless-max", args.wordless_max)
         inner += opt("--zoom", args.zoom) + opt("--zoom-factor", args.zoom_factor)
         for flag, values in (("--confirm", args.confirm), ("--color", args.color), ("--font", args.font)):
@@ -429,14 +430,16 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--out", required=True)
     sp.add_argument("--fps", type=int)
     sp.add_argument("--gap", type=float, help="no audio: cut word gaps longer than this (seconds)")
-    sp.add_argument("--margin", type=float, help="seconds of silence kept on each side of a cut")
+    sp.add_argument("--pad-head", type=float, help="seconds of speech kept before the first word after a silence (default 0.10)")
+    sp.add_argument("--pad-tail", type=float, help="seconds of speech kept after the last word before a silence (default 0.14)")
     sp.add_argument("--long-cut", type=float, help="a cut this long (seconds) also takes the wordless sound at its edges (default 2)")
     sp.add_argument("--wordless-max", type=float, help="seconds of sound with no word that a long cut does not leave at an edge (default 0.3)")
     sp.add_argument("--caption-position", default="bottom")
     sp.add_argument("--face-box", help="X,Y,W,H in frame pixels (1080x1920): where the speaker's face is; given once per recording")
     sp.add_argument("--zoom", choices=("alternate", "none"))
     sp.add_argument("--zoom-factor", type=float)
-    sp.add_argument("--push-in", type=float, default=0.0, help="slow extra zoom over each range, as a fraction (0 for none)")
+    sp.add_argument("--push-in", type=float, help="slow extra zoom over each range of 5 s or more, as a fraction up to 0.03 (default 0.02, 0 for none)")
+    sp.add_argument("--zoom-anchor-y", type=float, help="the zoom's fixed point: this fraction of the face box's height down from its top (default 0.25)")
     sp.add_argument("--confirm", action="append", metavar="RETAKE-ID", help="cut this proposed retake (repeatable)")
     sp.add_argument("--color", action="append", metavar="TOKEN=#RRGGBB")
     sp.add_argument("--font", action="append", metavar="ROLE=ID[:WEIGHT]")

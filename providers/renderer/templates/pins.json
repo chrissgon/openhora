@@ -1,12 +1,12 @@
 {
  "note": "sha256 of each template. A template whose hash differs is refused. Rewritten by `ffmpeg.py pin-templates --confirmed` after a reviewed change.",
  "templates": {
-  "caption.html": "2de657f5b33ea20b6331a64b730a2ec909624668f6c9b8683943c76ca6e0144f",
+  "caption.html": "5b9b02fcdf0a9fd2dab8267d6c734c3705b51bfad9d606690036f9c2a1c1a3dd",
   "cutaway.html": "e93e356119decf19925c0dd6c006db7c6db1094007352a069ab6c27cf840b97e",
-  "keyword.html": "3c08d53471ba6759480739995acca7ed9d12e6f7a26fdb6ca3465dfa0f94373f",
-  "list.html": "256ec99064f8a0d5358876407095028f4d0803f220d2ce39595970a3c1ebedbd",
-  "number.html": "da659986aa62474ba24f2b52f06e07fe176ac5137b1d3cf761ca4369c8e9b7dc",
+  "keyword.html": "71efd9c9ad18f5cc6209cf507eea03b4c52df51aed2710438f4245f4d44447c4",
+  "list.html": "c859d746969f9732d371b62661ccc9aa6e2aef8689b7bd1955f368c7dff5fa0f",
+  "number.html": "7c8f593524d000e21bf23d1a90236b7dd396f849cced19e45d19740147a32e0f",
   "pip.html": "4163ba3f8d7f9ddb1fd89d5904bb406f33367c176b964b7d64c838e337244f34",
-  "quote.html": "6ebcbcea6d869c437997d5724b42e4889297bdac24803fd022886c349d08e26a"
+  "quote.html": "b31930150eccca9f366babf85d0079eb02ee5a17299fba4808353d79a43ee1fa"
  }
 }

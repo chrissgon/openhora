@@ -124,13 +124,13 @@
   }
  },
  "zones": {
-  "card_top": 170,
-  "gap": 24,
-  "caption_bottom": 1560,
-  "caption_margin": 40,
-  "card_min_height": 300,
-  "caption_min_height": 200,
-  "note": "The face box splits the frame: cards (keyword, list, number, quote) live in the band above it, from card_top to the face box less gap; captions live in the band below it, from the face box plus gap to caption_bottom. The render fails when a drawn card or caption touches the face box."
+  "card_top": 110,
+  "gap": 18,
+  "caption_bottom": 1620,
+  "caption_margin": 14,
+  "card_min_height": 80,
+  "caption_min_height": 120,
+  "note": "The face box splits the frame: cards (keyword, list, number, quote) live in the band above it, from card_top down to the face box (as the zoom leaves it) less gap; captions live in the band below it, from the face box plus gap down to caption_bottom. The render fails when a drawn card or caption touches the face box."
  },
  "face_box_default": {
   "x": 240,
@@ -146,17 +146,21 @@
   "default_mode": "alternate",
   "factor": 1.1,
   "factor_max": 1.25,
-  "push_in_max": 0.08,
+  "push_in": 0.02,
+  "push_in_max": 0.03,
+  "anchor_y": 0.25,
   "audio_fade_seconds": 0.015
  },
  "cuts": {
-  "margin": 0.08,
   "min_cut": 0.12,
   "min_kept": 0.4,
   "gap": 0.5,
   "noise_db": -35,
   "min_silence": 0.25,
   "long_cut": 2.0,
-  "wordless_max": 0.3
+  "wordless_max": 0.3,
+  "pad_head": 0.1,
+  "pad_tail": 0.14,
+  "wordless_keep": 1.5
  }
 }

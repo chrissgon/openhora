@@ -140,7 +140,7 @@ def test_the_face_box_must_be_inside_the_frame_and_leave_room_for_cards_and_capt
     assert _edl.check_face(DATA, dict(ok)) == ok
     for bad, code in (({"x": -1, "y": 620, "w": 600, "h": 560}, "bad_face_box"), ({"x": 900, "y": 620, "w": 600, "h": 560}, "bad_face_box"),
                       ({"x": 240, "y": 620, "w": 50, "h": 560}, "bad_face_box"), ({"x": 240, "y": 620, "w": 600.5, "h": 560}, "bad_face_box"),
-                      ({"x": 240, "y": 250, "w": 600, "h": 560}, "face_box_leaves_no_room"),      # no band above for a card
+                      ({"x": 240, "y": 200, "w": 600, "h": 560}, "face_box_leaves_no_room"),      # no band above for a card
                       ({"x": 240, "y": 1000, "w": 600, "h": 700}, "face_box_leaves_no_room")):     # no band below for captions
         assert refused(_edl.check_face, DATA, bad).code == code, bad
     assert refused(_edl.check_face, DATA, {"x": 1, "y": 2, "w": 3}).code in ("missing_key", "unknown_key")
@@ -170,33 +170,54 @@ def test_a_drawn_box_that_touches_the_face_box_is_found():
 # ---------------------------------------------------------------- the zoom
 
 def test_the_zoom_settings_are_bounded():
-    for zoom in ({"mode": "alternate", "factor": 1.1, "push_in": 0.0}, {"mode": "none", "factor": 1.0, "push_in": 0.04}):
+    for zoom in ({"mode": "alternate", "factor": 1.1, "push_in": 0.0, "anchor_y": 0.25}, {"mode": "none", "factor": 1.0, "push_in": 0.03, "anchor_y": 0.0}):
         _edl.check_zoom(DATA, zoom)
-    for zoom, code in (({"mode": "wobble", "factor": 1.1, "push_in": 0}, "bad_choice"), ({"mode": "alternate", "factor": 1.5, "push_in": 0}, "bad_zoom"),
-                       ({"mode": "alternate", "factor": 0.9, "push_in": 0}, "bad_zoom"), ({"mode": "alternate", "factor": 1.1, "push_in": 0.5}, "bad_zoom"),
-                       ({"mode": "alternate", "factor": True, "push_in": 0}, "bad_zoom"), ({"mode": "alternate", "factor": 1.1}, "missing_key")):
+    for zoom, code in (({"mode": "wobble", "factor": 1.1, "push_in": 0, "anchor_y": 0.25}, "bad_choice"), ({"mode": "alternate", "factor": 1.5, "push_in": 0, "anchor_y": 0.25}, "bad_zoom"),
+                       ({"mode": "alternate", "factor": 0.9, "push_in": 0, "anchor_y": 0.25}, "bad_zoom"), ({"mode": "alternate", "factor": 1.1, "push_in": 0.05, "anchor_y": 0.25}, "bad_zoom"),
+                       ({"mode": "alternate", "factor": True, "push_in": 0, "anchor_y": 0.25}, "bad_zoom"), ({"mode": "alternate", "factor": 1.1, "push_in": 0}, "missing_key"),
+                       ({"mode": "alternate", "factor": 1.1, "push_in": 0, "anchor_y": 1.5}, "bad_zoom")):
         assert refused(_edl.check_zoom, DATA, zoom).code == code, zoom
 
 
 FACE = {"cx": 540, "cy": 900, "w": 600, "h": 560}
+ANCHOR = (540.0, 620 + 0.25 * 560)          # the face's centre, a quarter of its height down from its top: (540, 760)
+BOX = {"x": 240, "y": 620, "w": 600, "h": 560}
+
+
+def test_the_zoom_is_about_a_fixed_point_on_a_picture_twice_the_output_size():
+    assert _media.anchor_point(BOX, 0.25) == ANCHOR
+    zoom = {"mode": "alternate", "factor": 1.1, "push_in": 0.02, "anchor_y": 0.25}
+    assert _media.zoom_levels(zoom, 0, 300, 30) == (1.0, 1.0 * 1.02)                  # an even range is unzoomed, and a long one still pushes in
+    assert _media.zoom_levels(zoom, 1, 300, 30)[0] == 1.1 and _media.zoom_levels(zoom, 1, 300, 30)[1] == pytest.approx(1.1 * 1.02)
+    assert _media.zoom_levels(zoom, 1, 60, 30) == (1.1, 1.1)                           # a range under 5 s does not push
+    assert _media.zoom_levels({**zoom, "mode": "none", "push_in": 0.0}, 1, 300, 30) == (1.0, 1.0)
+    assert _media.zoom_filter(1.0, 1.0, 100, ANCHOR, 1080, 1920, 30) == "scale=1080:1920:flags=lanczos"
+    still = _media.zoom_filter(1.1, 1.1, 100, ANCHOR, 1080, 1920, 30)
+    assert still == "zoompan=z='1.10000':x='1080.00*(1-1/zoom)':y='1520.00*(1-1/zoom)':d=1:s=1080x1920:fps=30"      # the anchor, doubled: the picture is cut at 2x
+    push = _media.zoom_filter(1.0, 1.02, 100, ANCHOR, 1080, 1920, 30)
+    assert push.startswith("zoompan=z='1.00000+0.000202*on'") and "d=1:s=1080x1920:fps=30" in push
 
 
 def test_every_second_range_is_zoomed_on_the_face_and_stays_inside_the_frame():
-    zoom = {"mode": "alternate", "factor": 1.1, "push_in": 0.0}
-    assert _media.zoom_chain(zoom, FACE, 0, 60, 30, 1080, 1920) == ""
-    chain = _media.zoom_chain(zoom, FACE, 1, 60, 30, 1080, 1920)
-    assert chain.startswith(",scale=1188:2112,crop=1080:1920:")
-    x, y = (int(v) for v in chain.split("crop=1080:1920:")[1].split(",")[0].split(":"))
-    assert 0 <= x <= 1188 - 1080 and 0 <= y <= 2112 - 1920
-    edge = {"cx": 0, "cy": 0, "w": 200, "h": 200}                         # a face box in the corner never pushes the crop out
-    x, y = (int(v) for v in _media.zoom_chain(zoom, edge, 1, 60, 30, 1080, 1920).split("crop=1080:1920:")[1].split(",")[0].split(":"))
-    assert (x, y) == (0, 0)
-    assert _media.zoom_chain({"mode": "none", "factor": 1.1, "push_in": 0.0}, FACE, 1, 60, 30, 1080, 1920) == ""
+    plan_ = plan()
+    graph = _media.compose_argv("ffmpeg", plan_)
+    graph = graph[graph.index("-filter_complex") + 1]
+    assert "scale=2160:3840" in graph and "crop=2160:3840" in graph                    # the picture is cut at twice the output size
+    ranges = [part for part in graph.split(";") if "trim=start_frame" in part]
+    assert len(ranges) == 3 and "zoompan" not in ranges[0] and ranges[0].count("scale=1080:1920:flags=lanczos") == 1 and "zoompan=z='1.10000'" in ranges[1] and "zoompan" not in ranges[2]
 
 
-def test_a_push_in_is_a_slow_per_frame_zoom_and_the_bubble_is_cut_around_the_face():
-    chain = _media.zoom_chain({"mode": "alternate", "factor": 1.1, "push_in": 0.04}, FACE, 1, 60, 30, 1080, 1920)
-    assert chain.startswith(",zoompan=z='1.1000+0.0400*on/60'") and ":d=1:s=1080x1920:fps=30" in chain
+def test_the_zoomed_box_is_the_face_box_grown_about_the_anchor():
+    assert _media.zoomed_box(BOX, 1.0, 1.0, ANCHOR, 1080, 1920) == BOX
+    box = _media.zoomed_box(BOX, 1.1, 1.1, ANCHOR, 1080, 1920)
+    assert box == {"x": 210, "y": 606, "w": 660, "h": 616}                           # 240 -> 540 + (240-540)*1.1, 620 -> 760 + (620-760)*1.1
+    grown = _media.zoomed_box(BOX, 1.1, 1.1 * 1.02, ANCHOR, 1080, 1920)
+    assert grown["w"] > box["w"] and grown["h"] > box["h"] and grown["y"] <= box["y"]
+    corner = _media.zoomed_box({"x": 0, "y": 0, "w": 300, "h": 300}, 1.25, 1.25, (150.0, 75.0), 1080, 1920)
+    assert corner["x"] == 0 and corner["y"] == 0
+
+
+def test_the_bubble_is_cut_around_the_face():
     side, x, y = _media.bubble_crop(FACE, 1080, 1920)
     assert side == 720 and 0 <= x <= 1080 - side and 0 <= y <= 1920 - side and abs((x + side / 2) - 540) <= 1
 
@@ -204,7 +225,7 @@ def test_a_push_in_is_a_slow_per_frame_zoom_and_the_bubble_is_cut_around_the_fac
 def plan(**over):
     base = {"src": "/in/recording", "fps": 30, "size": [1080, 1920], "has_audio": True, "src_matrix": "bt709", "kept": [[0, 60], [90, 150], [180, 240]],
             "layers": ["caption"], "frames_dir": "frames", "pips": [], "pip_size": 380, "out_frames": 180, "max_bytes": 300000000, "out_name": "out.mp4",
-            "zoom": {"mode": "alternate", "factor": 1.1, "push_in": 0.0}, "face": FACE, "fade": 0.015}
+            "zoom": {"mode": "alternate", "factor": 1.1, "push_in": 0.0, "anchor_y": 0.25}, "face": FACE, "anchor": ANCHOR, "fade": 0.015}
     base.update(over)
     return base
 

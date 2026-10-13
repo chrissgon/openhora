@@ -10,52 +10,53 @@
         --font-display:system-ui,sans-serif; --font-text:system-ui,sans-serif; --font-mono:ui-monospace,monospace;
         --weight-display:800; --weight-text:500; --weight-mono:500; }
 html, body { margin:0; padding:0; background:transparent; width:1080px; height:1920px; overflow:hidden; }
-#stage { position:absolute; left:65px; width:950px; display:flex; justify-content:center; }
-#line { display:flex; flex-wrap:wrap; justify-content:center; gap:6px 38px;
-        font-family:var(--font-display); font-weight:var(--weight-display); font-size:112px; line-height:1.1; letter-spacing:-0.01em;
-        text-align:center; color:var(--c-text);
-        text-shadow:0 6px 0 rgba(0,0,0,.65), 0 0 28px rgba(0,0,0,.75), 4px 4px 0 rgba(0,0,0,.55), -4px 4px 0 rgba(0,0,0,.55), 0 0 6px rgba(0,0,0,.9); }
-.w { display:inline-block; transform-origin:50% 85%; }
+#stage { position:absolute; left:30px; width:1020px; display:flex; justify-content:center; box-sizing:border-box; }
+#line { display:flex; flex-wrap:nowrap; justify-content:center; align-items:center; gap:0 0.4em; white-space:nowrap;
+        font-family:var(--font-display); font-weight:var(--weight-display); line-height:1.1; letter-spacing:-0.01em;
+        text-align:center; color:var(--c-text); transform-origin:50% 50%; }
+.w { display:inline-block; transform-origin:50% 60%;
+     -webkit-text-stroke:0.14em rgba(0,0,0,.92); paint-order:stroke fill; stroke-linejoin:round;
+     text-shadow:0 0.05em 0.22em rgba(0,0,0,.65), 0 0.08em 0 rgba(0,0,0,.55); }
 </style>
 </head>
 <body>
 <div id="stage"><div id="line"></div></div>
 <script>
 'use strict';
-// One to three words at a time, big, in the band the face box leaves below it (data.zones.caption = [top, bottom]); the word
-// being said is highlighted and pops (ease-out-back). A pure function of (t, data): t is seconds since this chunk started,
-// and the times of data.words are relative to it. The chunk shrinks to fit its band.
-function easeOutBack(x) { const c1 = 1.9, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); }
+// One to three words at a time, on one line, as big as fits, in the band the face box leaves below it (data.zones.caption = [top, bottom]):
+// at the top of the band (`bottom` position) or centred in it (`center`). The word being said is highlighted and pops (ease-out-back) over a
+// dark stroke and shadow that keep it legible on any picture. A pure function of (t, data): t is seconds since this chunk started, and the
+// times of data.words are relative to it. The driver measures every word (data-zone) and fails the render when one touches the face box.
+function easeOutBack(x, c1) { const c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); }
 function clamp(x) { return Math.max(0, Math.min(1, x)); }
 window.renderAt = function (t, data) {
   const stage = document.getElementById('stage');
   const line = document.getElementById('line');
+  const z = data.zones.caption;
+  stage.style.top = z[0] + 'px';
+  stage.style.height = (z[1] - z[0]) + 'px';
+  stage.style.alignItems = data.anchor === 'center' ? 'center' : 'flex-start';
+  stage.style.paddingTop = data.anchor === 'center' ? '0px' : data.margin + 'px';
   line.replaceChildren();
   let active = -1;
   data.words.forEach(function (w, i) { if (w.start <= t) active = i; });
   data.words.forEach(function (w, i) {
     const s = document.createElement('span');
     s.className = 'w';
+    s.dataset.zone = 'caption';
     s.textContent = w.text;
     if (i === active) {
       s.style.color = 'var(--c-accent)';
-      s.style.transform = 'scale(' + (1 + 0.16 * easeOutBack(clamp((t - w.start) / 0.14))).toFixed(4) + ')';
-    } else if (i > active) {
-      s.style.opacity = '0.7';
+      s.style.transform = 'scale(' + (1 + 0.12 * easeOutBack(clamp((t - w.start) / 0.18), 2.2)).toFixed(4) + ')';
     }
     line.appendChild(s);
   });
-  const z = data.zones.caption;
-  stage.dataset.zone = 'caption';
-  stage.style.top = '0px';
-  stage.style.transform = 'none';
-  const h = stage.offsetHeight;
-  const room = (data.anchor === 'center' ? z[1] : z[1] - data.margin) - z[0] - 8;     // the band, less the margin the chunk keeps from its bottom edge
-  const fit = Math.min(1, room / h);
-  const bottom = data.anchor === 'center' ? (z[0] + z[1]) / 2 + h * fit / 2 : z[1] - data.margin;
-  stage.style.top = Math.round(bottom - h) + 'px';
-  stage.style.transformOrigin = '50% 100%';
-  stage.style.transform = 'scale(' + fit.toFixed(4) + ')';
+  line.style.transform = 'none';
+  let fs = Math.min(132, (z[1] - z[0]) * 0.62);
+  line.style.fontSize = fs + 'px';
+  while ((line.offsetWidth > 960 || line.offsetHeight + data.margin > (z[1] - z[0]) * 0.86) && fs > 28) { fs = fs * 0.94; line.style.fontSize = fs.toFixed(1) + 'px'; }
+  line.style.transform = 'scale(' + (0.88 + 0.12 * easeOutBack(clamp(t / 0.14), 1.7)).toFixed(4) + ')';
+  line.style.opacity = clamp(t / 0.06).toFixed(3);
 };
 </script>
 </body>

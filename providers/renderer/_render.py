@@ -81,6 +81,7 @@ def compose_plan(data, edl, timeline, assets, platform, src, frames_rel="frames"
         layers.append("caption")
     face = edl["face_box"]
     return {"zoom": edl["zoom"], "face": {"cx": face["x"] + face["w"] // 2, "cy": face["y"] + face["h"] // 2, "w": face["w"], "h": face["h"]},
+            "anchor": _media.anchor_point(face, edl["zoom"]["anchor_y"]),
             "fade": data["zoom"]["audio_fade_seconds"], "src": src, "fps": edl["fps"], "size": edl["size"], "has_audio": edl["source"]["has_audio"], "src_matrix": edl["source"]["color_matrix"],
             "kept": edl["kept"], "layers": layers, "frames_dir": frames_rel, "pips": pips, "pip_size": data["pip"]["size"],
             "out_frames": edl["out_frames"], "max_bytes": _media.byte_limit(platform), "out_name": "out.mp4"}
