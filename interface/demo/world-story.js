@@ -74,7 +74,7 @@ const OPS = {
     release(ctx, P, review.id);
   },
 
-  /** The marketing task stops at its gate: an effect, with the hash of its exact content. */
+  /** The content task stops at its gate: an effect, with the hash of its exact content. */
   async "open-effect"(ctx, P) {
     const req = request(P);
     const task = taskOf(P, req, "sale-post");
@@ -101,7 +101,7 @@ const OPS = {
     const item = itemRow(ctx, P, "effect", { task_id: task.id, run_id: run.id, title: SPRING.effect.title, body, payload, payload_sha256: digest, agent: task.agent });
     P.pending.push(item);
     P.effectDocs[item.id] = doc;
-    upsertDoc(ctx, P, { path: "docs/marketing/sale-post.md", owner: "mkt-social-copy", agent: "marketing", kind: "markdown", text: SPRING.effect.doc });
+    upsertDoc(ctx, P, { path: "docs/marketing/sale-post.md", owner: "mkt-social-copy", agent: "content", kind: "markdown", text: SPRING.effect.doc });
   },
 
   /** The effect is approved with its own hash; the request waits for the person's acceptance. */

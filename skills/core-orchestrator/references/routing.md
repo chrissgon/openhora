@@ -92,6 +92,7 @@ Match the intent column, not the example words. Skills marked (planned) are not 
 | Plan a launch | mkt-launch-plan (planned) |
 | Content calendar | mkt-content-plan |
 | Write a social post (text only, nothing published) | mkt-social-copy |
+| A script and a caption for a short video post (a Reel, a TikTok, a Short): the text only, nothing recorded, edited or published | mkt-social-copy |
 | Publish or schedule a post that is already written and illustrated | mkt-publish |
 | Reply to comments on the person's own posts; write an engagement policy or set up automatic replies | mkt-engage |
 | An audience vote closed: write the post on the winning topic and propose the next round | mkt-vote-round |

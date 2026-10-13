@@ -1,4 +1,7 @@
-# The marketing area: the scope of the task runtime's marketing area agent, which owns the weekly routine of the
-# published posts (runtime/handlers/published_posts.py). Not in runtime/manifest.py's PACKS_IN_USE: the routine
-# runs no skill through a task.
-mkt-*
+# The marketing area agent's routines: the skills the agent's handlers run (runtime/handlers/social.py: mkt-engage;
+# runtime/handlers/social_vote.py: mkt-vote-round) and the weekly routine of the published posts
+# (runtime/handlers/published_posts.py). Not in runtime/roles.json's packs_in_use: the routines run no skill through a
+# task. The skills that write content through a task are in packs/content.txt. mkt-publish is in no pack: it stays a
+# code path of the runtime (docs/backlog.md, R16).
+mkt-engage
+mkt-vote-round

@@ -1,0 +1,7 @@
+# The content area: the scope of the task runtime's content area agent, which runs the skills that write a person's or a
+# brand's posts and messaging through a task: the calendar, the post text (and, for a short video, its script) and the
+# messaging of a page. Marketing's own agent keeps the routines (mkt-engage, mkt-vote-round); mkt-publish stays a code
+# path of the runtime, in no pack. No skill is in two packs of agents enabled together (runtime/plan.py, agent_of).
+mkt-content-plan
+mkt-social-copy
+mkt-messaging

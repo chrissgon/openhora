@@ -145,8 +145,8 @@
       ]
     },
     {
-      "name": "marketing",
-      "pack": "marketing",
+      "name": "content",
+      "pack": "content",
       "enabled": true,
       "mode": "supervised",
       "acting_mode": "supervised",
@@ -180,15 +180,15 @@
       "wider": [
         {
           "mode": "milestones",
-          "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent marketing --mode milestones --accept"
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent content --mode milestones --accept"
         },
         {
           "mode": "autonomous",
-          "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent marketing --mode autonomous --accept"
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent content --mode autonomous --accept"
         },
         {
           "mode": "autonomous-with-policy",
-          "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent marketing --mode autonomous-with-policy --accept"
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent content --mode autonomous-with-policy --accept"
         }
       ]
     }
