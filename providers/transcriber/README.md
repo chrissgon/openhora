@@ -1,6 +1,6 @@
 # Transcriber providers
 
-An implementation of the class `transcriber:speech`: speech to text, with a start and an end for every word, on this machine. The first and only implementation, `whispercpp.py`, runs [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (`whisper-cli`) inside a container. The audio never leaves the computer, no model of any provider sees it, and no credential is involved.
+An implementation of the class `transcriber:speech`: speech to text, with a start and an end for every word, on this machine. The first and only implementation, `whispercpp.py`, runs [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (`whisper-cli`) inside a container. The audio never leaves the computer **as long as the docker daemon is local**: the provider refuses a `DOCKER_HOST` or a docker context that is not a unix socket. No model of any provider sees the audio, and no credential is involved.
 
 `transcriber:speech` is a class the runtime uses, not one a skill may require: on purpose it is not in `contracts/environment.md` (decision D11 of the short-video plan; it goes there the day a skill needs it). The interface of every provider is `providers/CONTRACT.md`; the verbs of this class are in its "Verbs per class" table; `providers/resolve.py` finds the script (`TRANSCRIBER_SPEECH_PROVIDER`, then `TRANSCRIBER_PROVIDER`; with one implementation, none is needed).
 
@@ -14,7 +14,7 @@ The file is `whispercpp.py`, not `whisper_cpp.py`: `providers/resolve.py` takes 
 
 | File | What it is |
 |------|------------|
-| `whispercpp.py` | The provider (standard library only, Python 3.9). Verbs: `--check`, `models`, `build`, `transcribe`. |
+| `whispercpp.py` | The provider (standard library only, Python 3.9). Verbs: `--check`, `models`, `build`, `reap`, `transcribe`. |
 | `Dockerfile`, `transcribe.sh`, `.dockerignore` | The image's definition. Their hash (`definition_hash`) is the image's tag and a label of it. |
 | `models.json` | The pinned models: file, sha256, size, source URL, the DTW preset, the container's memory limit. |
 | `transcript.schema.json` | The format of the transcript the `transcribe` verb writes. |
@@ -49,7 +49,7 @@ The check hashes the file and compares it with the sha256 pinned in `models.json
 python3 providers/transcriber/whispercpp.py transcribe --in recording.mp4 --model small --language pt --out transcript.json
 ```
 
-`--in` is any audio or video file ffmpeg opens; the container converts it to 16 kHz mono. `--language` is a code (`pt`, `en`) or `auto`. `--out` is written once, mode 0600, through a temporary file and a rename. The verb prints counts (words, segments, duration, wall time), never the text. `--max-seconds` (default 300, at most 3600) is the longest audio accepted: a longer input exits 2 before whisper starts. `--timeout` (default 1800 s) kills the container. `--threads` (default: the CPUs up to 4) also sets the container's CPU limit; `--memory-mb` overrides the model's limit.
+`--in` is any audio or video file ffmpeg opens; the container converts it to 16 kHz mono. `--language` is a code (`pt`, `en`) or `auto`. `--out` is written once, mode 0600, through a temporary file and a rename. The verb prints counts (words, segments, duration, wall time), never the text. `--max-seconds` (default 300, at most 3600) is the longest audio accepted: a longer input exits 2 before whisper starts. `--timeout` (default 1800 s) kills the container. `--threads` (default: the CPUs up to 4) also sets the container's CPU limit, and both are lowered to the daemon's CPU count (`docker info --format {{.NCPU}}`, read once per run), because docker refuses a limit above it; `--memory-mb` overrides the model's limit. `reap` removes what a killed run left behind (below).
 
 ### Timestamps
 
@@ -70,18 +70,22 @@ Every limit is in code (`container_argv`) and has a test named after it in `test
 | Limit | How |
 |-------|-----|
 | No network | `--network none` |
-| Nothing writable but one folder | `--read-only`; `/tmp` (64 MiB) and `/scratch` (256 MiB) are memory-backed, `noexec`, gone with the container; one output folder, created beside `--out` (0700) and removed afterwards, is mounted read-write |
+| Nothing writable but one folder | `--read-only`; `/tmp` (64 MiB) and `/scratch` (256 MiB) are memory-backed, `noexec`, gone with the container; one work folder, `<state>/transcriber/work/.transcribe-*` (0700, removed afterwards), is mounted read-write |
+| The output is not trusted | after the run the provider refuses a work folder with more than 8 entries, anything that is not a regular file, or more than 80 MiB; each file it reads is opened with `O_NOFOLLOW\|O_NONBLOCK`, checked with `fstat` to be a regular file and read up to a limit, so a link or a FIFO the container left is never followed or waited on (the writable mount cannot be capped while the container runs: a full disk is the residual risk) |
 | Input and model read-only | `-v <input>:/in/input:ro`, `-v <model>:/models/model.bin:ro` |
 | The model is the pinned one | its sha256 is computed and compared with `models.json` before any container starts (a model that is a link, missing, unpinned or different is refused) |
 | No privileges | `--cap-drop ALL`, `--security-opt no-new-privileges`, a non-root user (`10001`; on Linux, the caller's ids) |
 | No environment | no `-e`, no `--env-file`; the docker client itself gets only `PATH`, `HOME`, `DOCKER_*` and a few locale variables |
-| Bounded | `--pids-limit 256`, `--memory` with `--memory-swap` equal, `--cpus`, the audio's length (`--max-seconds`, checked inside by ffprobe and again by ffmpeg's `-t`) |
+| A local daemon | `DOCKER_HOST` (or, when it is unset, the current docker context) must be a `unix://` socket, or the provider refuses with exit 3 |
+| Safe mount paths | a `:` or a control character in the input, the models folder, the model path or the work folder is refused with exit 2 before docker is called |
+| Bounded | `--pids-limit 256`, `--memory` with `--memory-swap` equal, `--cpus`, the audio's length (`--max-seconds`, checked inside by ffprobe and again by ffmpeg's `-t`), and each tool inside by `timeout` a little under `--timeout` (exit 124) |
 | Never fetched at run time | `--pull never`; the image is run by the **id** recorded at build time, so an image rebuilt or retagged by hand is refused |
-| A timeout kills it | `--timeout`: the container is removed by name (`docker rm -f`), also when the provider receives SIGTERM or SIGINT |
+| A timeout kills it | `--timeout`: the docker client is killed first, then the container is removed by name (`docker rm -f`), also when the provider receives SIGTERM or SIGINT |
+| Leftovers are found again | every container carries the labels `org.openhora.transcriber=1` and `org.openhora.transcriber.deadline=<epoch>`. A SIGKILL, a crash or a power cut of the provider can leave the container and a `.transcribe-*` work folder (0700); `reap`, and the start of each `transcribe`, remove containers past their deadline and work folders older than the longest timeout (`--check` changes nothing) |
 | Nothing of the speech in a log | whisper's stdout goes to `/dev/null`, its logs are off (`-np`), ffmpeg runs at `-loglevel error`, and a failure shows the last 300 characters of stderr |
 | ffmpeg opens only a file | `-protocol_whitelist file,pipe`, so a playlist inside a video cannot reach another host or file |
 
-What this does not claim: the model hash is compared on the host and the file is then mounted by path, so a process that can rewrite the person's own state folder in between could swap it (that process can already read everything else there); the image is only as trustworthy as the pinned base image, the Debian snapshot and the whisper.cpp commit, which `Dockerfile` pins and the build checks; and a container shares the host's kernel.
+What this does not claim: the model hash is compared on the host and the file is then mounted by path, so a process that can rewrite the person's own state folder in between could swap it (that process can already read everything else there; the models folder must be `0700` and this user's, which both `--check --model` and `transcribe` enforce); the image is only as trustworthy as the pinned base image, the Debian snapshot and the whisper.cpp commit, which `Dockerfile` pins and the build checks; and a container shares the host's kernel.
 
 ## Pinned
 

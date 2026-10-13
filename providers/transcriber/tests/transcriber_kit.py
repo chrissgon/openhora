@@ -89,6 +89,14 @@ if verb == "version":
     if scenario.get("daemon_down"):
         sys.stderr.write("Cannot connect to the Docker daemon\\n"); sys.exit(1)
     print("27.0.0"); sys.exit(0)
+if verb == "info":
+    print(scenario.get("ncpu", 8)); sys.exit(0)
+if verb == "context":
+    print(scenario.get("host", "unix:///var/run/docker.sock")); sys.exit(0)
+if verb == "ps":
+    for line in scenario.get("ps", []):
+        print(line)
+    sys.exit(0)
 if verb == "image" and argv[1] == "inspect":
     image = scenario.get("images", {{}}).get(argv[2])
     if image is None:
@@ -109,11 +117,22 @@ if verb == "build":
 if verb == "run":
     run = scenario.get("run", {{}})
     out = [a.split(":")[0] for a in argv if a.endswith(":/out:rw")][0]
+    if run.get("pid_file"):
+        open(run["pid_file"], "w").write(str(os.getpid()))
     if run.get("sleep"):
         time.sleep(run["sleep"])
     for name, content in run.get("write", {{}}).items():
-        with open(os.path.join(out, name), "w") as f:
-            f.write(content)
+        path = os.path.join(out, name)
+        if content == "@symlink":
+            os.symlink("/etc/hostname", path)
+        elif content == "@fifo":
+            os.mkfifo(path)
+        else:
+            with open(path, "w") as f:
+                f.write(content)
+    if run.get("big"):
+        with open(os.path.join(out, "big.bin"), "wb") as f:
+            f.truncate(run["big"])
     if run.get("stderr"):
         sys.stderr.write(run["stderr"])
     if run.get("stderr_hex"):

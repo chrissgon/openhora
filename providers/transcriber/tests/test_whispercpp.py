@@ -65,22 +65,23 @@ def option(argv, flag):
 def test_the_exact_docker_command(provider):
     argv = provider.container_argv("openhora-whisper-x", ID, "/data/in.mp4", "/models/ggml-small.bin", "/data/work", threads=4,
                                    language="pt", mode="dtw", preset="small", max_seconds=180, memory_mb=2048, cpus=4,
-                                   platform="darwin")
+                                   run_seconds=900, deadline=1800000000, platform="darwin")
     assert argv == [
         "docker", "run", "--rm", "--init", "--pull", "never", "--name", "openhora-whisper-x",
+        "--label", "org.openhora.transcriber=1", "--label", "org.openhora.transcriber.deadline=1800000000",
         "--network", "none", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
         "--pids-limit", "256", "--memory", "2048m", "--memory-swap", "2048m", "--cpus", "4",
         "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=64m",
         "--tmpfs", "/scratch:rw,noexec,nosuid,nodev,size=256m,mode=1777",
         "-v", "/data/in.mp4:/in/input:ro", "-v", "/models/ggml-small.bin:/models/model.bin:ro", "-v", "/data/work:/out:rw",
-        ID, "4", "pt", "dtw", "small", "180"]
+        ID, "4", "pt", "dtw", "small", "180", "900"]
 
 
 def test_on_linux_the_container_runs_as_the_callers_ids(provider):
     argv = provider.container_argv("n", ID, "/i", "/m", "/o", threads=1, language="en", mode="word", preset=None,
-                                   max_seconds=10, memory_mb=1024, cpus=1, platform="linux")
+                                   max_seconds=10, memory_mb=1024, cpus=1, run_seconds=5, deadline=1, platform="linux")
     assert option(argv, "--user") == f"{os.getuid()}:{os.getgid()}"
-    assert argv[-5:] == ["1", "en", "word", "-", "10"]
+    assert argv[-6:] == ["1", "en", "word", "-", "10", "5"]
 
 
 def test_the_run_the_provider_starts_has_no_network_no_environment_and_three_mounts(world, capsys):
@@ -255,7 +256,8 @@ def test_a_run_writes_the_transcript_with_its_facts_and_prints_no_words(world, c
     assert facts["language_requested"] == "en" and facts["wall_seconds"] >= 0 and facts["input_duration"] == 5.9
     assert doc["duration"] == 5.88 and facts["words_without_timing"] == 0 and facts["dropped_annotations"] == 1
     assert (world.out.stat().st_mode & 0o777) == 0o600
-    assert sorted(p.name for p in world.out.parent.iterdir()) == ["transcript.json"]   # the work folder and the temp file are gone
+    assert sorted(p.name for p in world.out.parent.iterdir()) == ["transcript.json"]   # the temp file is gone
+    assert list((world.state / "transcriber" / "work").iterdir()) == []                 # and so is the work folder
 
 
 def test_the_dtw_mode_passes_its_flags_and_the_models_preset(world, capsys):
@@ -263,7 +265,7 @@ def test_the_dtw_mode_passes_its_flags_and_the_models_preset(world, capsys):
     will_write(world, kit.speech(dtw=True))
     assert transcribe(world, mode="dtw") == 0
     (argv,) = world.fake.runs()
-    assert argv[-4:] == ["en", "dtw", "small", "300"]
+    assert argv[-5:] == ["en", "dtw", "small", "300", "1785"]
     doc = json.loads(world.out.read_text(encoding="utf-8"))
     assert doc["facts"]["flags"][-3:] == ["-nfa", "-dtw", "small"]
     assert doc["words"][0]["start"] == 0.33 and doc["words"][0]["end"] == 0.75   # ends where the next word begins
@@ -280,7 +282,7 @@ def test_a_timeout_removes_the_container_by_name(world, monkeypatch, capsys):
     (run,) = world.fake.runs()
     removals = [c["argv"] for c in world.fake.calls() if c["argv"][:2] == ["rm", "-f"]]
     assert removals == [["rm", "-f", option(run, "--name")]]
-    assert not world.out.exists() and sorted(p.name for p in world.out.parent.iterdir()) == []   # no work folder left
+    assert not world.out.exists() and list((world.state / "transcriber" / "work").iterdir()) == []   # no work folder left
 
 
 def test_stopping_the_provider_removes_the_container(world):
@@ -649,6 +651,256 @@ def test_transcriber_speech_resolves_to_the_provider():
     got = resolve.resolve("transcriber:speech", root=kit.REPO, env={})
     assert got["implementation"] == "whispercpp" and got["path"] == str(PROVIDER_FILE)
     assert resolve.interpreter_for(got["path"]) == [sys.executable]   # no dependency: it runs on the caller's interpreter
+
+
+# --- what the container leaves in /out is not trusted ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", ["transcript.json", "input_duration.txt", "audio_duration.txt"])
+@pytest.mark.parametrize("kind", ["@symlink", "@fifo"])
+def test_a_link_or_a_fifo_the_container_leaves_is_refused_not_followed_or_waited_on(world, capsys, name, kind):
+    built(world)
+    will_write(world, kit.speech())
+    run = json.loads((world.fake.folder / "scenario.json").read_text())["run"]
+    run["write"][name] = kind
+    world.fake.update(run=run)
+    began = time.monotonic()
+    assert transcribe(world) == 1
+    assert time.monotonic() - began < 20   # a plain open of a FIFO would never return
+    assert "not a regular file" in capsys.readouterr().err and not world.out.exists()
+
+
+def test_read_regular_opens_without_following_or_blocking(provider, tmp_path):
+    good = tmp_path / "a.txt"
+    good.write_bytes(b"12.5\n")
+    assert provider.read_regular(str(good), 64, "a.txt") == b"12.5\n"
+    link = tmp_path / "link.txt"
+    link.symlink_to(good)
+    fifo = tmp_path / "pipe.txt"
+    os.mkfifo(fifo)
+    big = tmp_path / "big.txt"
+    big.write_bytes(b"x" * 100)
+    for path, reason in ((link, "link"), (fifo, "not a regular file"), (big, "larger than the limit"), (tmp_path / "none", "wrote no")):
+        with pytest.raises(provider.Refusal) as caught:
+            provider.read_regular(str(path), 64, path.name)
+        assert reason in caught.value.reason and caught.value.kind == "failed"
+
+
+def test_an_oversize_or_crowded_output_folder_is_refused(world, capsys):
+    built(world)
+    will_write(world, kit.speech(), big=90 * 1024 * 1024)
+    assert transcribe(world) == 1 and "more in its output folder" in capsys.readouterr().err and not world.out.exists()
+    will_write(world, kit.speech())
+    run = json.loads((world.fake.folder / "scenario.json").read_text())["run"]
+    run["write"].update({f"extra{i}.txt": "x" for i in range(10)})
+    world.fake.update(run=run)
+    assert transcribe(world) == 1 and "more in its output folder" in capsys.readouterr().err
+    assert list((world.state / "transcriber" / "work").iterdir()) == []
+
+
+def test_no_transcript_names_the_language_hint_and_whispers_json_may_hold_a_raw_tab(world, capsys):
+    built(world)
+    world.fake.update(run={"exit": 0, "write": {"input_duration.txt": "5", "audio_duration.txt": "5"}})
+    assert transcribe(world, language="xx") == 1
+    assert "language hint (xx)" in capsys.readouterr().err
+    raw = json.dumps(kit.speech(), ensure_ascii=False).replace('"text": " Hello"', '"text": " Hel\tlo"')
+    assert "\t" in raw
+    world.fake.update(run={"exit": 0, "write": {"transcript.json": raw, "input_duration.txt": "5", "audio_duration.txt": "5"}})
+    assert transcribe(world) == 0
+    assert json.loads(world.out.read_text(encoding="utf-8"))["words"][0]["text"] == "Hel\tlo"
+
+
+def test_a_tool_that_ran_over_its_own_limit_inside_the_container_is_reported(world, capsys):
+    built(world)
+    will_write(world, kit.speech(), exit_code=124)
+    assert transcribe(world) == 1 and "own limit of 1785 s" in capsys.readouterr().err
+
+
+def test_the_script_bounds_every_tool_with_timeout():
+    text = (kit.PROVIDER_DIR / "transcribe.sh").read_text(encoding="utf-8")
+    assert '[ "$#" -eq 6 ]' in text and 'run_seconds=$6' in text
+    for tool in ("ffprobe", "ffmpeg", '"$@"'):
+        assert re.search(r'timeout -k 5 "\$run_seconds" ' + re.escape(tool), text), tool
+    assert text.count("timeout -k 5") == 4   # two ffprobe, ffmpeg, whisper-cli
+
+
+# --- the CPUs, the daemon, the folders, the paths ----------------------------------------------------------------------
+
+
+def test_threads_and_cpus_are_clamped_to_the_daemons_cpus_read_once(world, capsys):
+    built(world)
+    will_write(world, kit.speech())
+    world.fake.update(ncpu=2)
+    assert transcribe(world, "--threads", "6") == 0
+    (argv,) = world.fake.runs()
+    assert option(argv, "--cpus") == "2" and argv[-6] == "2"   # the threads argument of the entry script
+    assert "using 2" in capsys.readouterr().err
+    assert world.fake.verbs().count("info") == 1
+    doc = json.loads(world.out.read_text(encoding="utf-8"))
+    assert doc["facts"]["threads"] == 2 and doc["facts"]["docker_ncpu"] == 2 and "-t" in doc["facts"]["flags"]
+    assert doc["facts"]["flags"][doc["facts"]["flags"].index("-t") + 1] == "2"
+
+
+@pytest.mark.parametrize("host", ["tcp://203.0.113.9:2375", "ssh://user@build.example", "http://127.0.0.1:2375"])
+def test_a_daemon_that_is_not_a_unix_socket_is_refused(world, monkeypatch, capsys, host):
+    built(world)
+    will_write(world, kit.speech())
+    monkeypatch.setenv("DOCKER_HOST", host)
+    assert transcribe(world) == 3 and world.provider.main(["--check"]) == 3
+    assert "not local" in capsys.readouterr().err and world.fake.runs() == []
+    monkeypatch.setenv("DOCKER_HOST", "unix:///var/run/docker.sock")
+    assert world.provider.main(["--check"]) == 0
+
+
+def test_a_remote_docker_context_is_refused_too(world, capsys):
+    built(world)
+    world.fake.update(host="ssh://user@build.example")
+    assert world.provider.main(["--check"]) == 3 and "not local" in capsys.readouterr().err
+    world.fake.update(host="")
+    assert world.provider.main(["--check"]) == 3 and "cannot tell" in capsys.readouterr().err
+
+
+def test_the_models_folder_must_be_private_to_this_user(world, capsys):
+    built(world)
+    will_write(world, kit.speech())
+    world.models.chmod(0o755)
+    assert transcribe(world) == 3 and "open to other users" in capsys.readouterr().err and world.fake.runs() == []
+    assert world.provider.main(["--check", "--model", "demo", "--models-dir", str(world.models)]) == 3
+    world.models.chmod(0o700)
+    assert transcribe(world) == 0
+
+
+@pytest.mark.parametrize("bad", ["a:b", "tab\there", "new\nline", "bell\x07"])
+def test_a_colon_or_control_character_in_a_mounted_path_is_refused(world, tmp_path, capsys, bad):
+    built(world)
+    will_write(world, kit.speech())
+    odd_in = tmp_path / f"in{bad}.mp4"
+    odd_in.write_bytes(b"x")
+    odd_dir = tmp_path / f"dir{bad}"
+    odd_dir.mkdir()
+    base = ["--model", "demo", "--language", "en"]
+    assert world.provider.main(["transcribe", "--in", str(odd_in), *base, "--out", str(world.out), "--models-dir", str(world.models)]) == 2
+    assert world.provider.main(["transcribe", "--in", str(world.input), *base, "--out", str(odd_dir / "t.json"),
+                                "--models-dir", str(world.models)]) == 2
+    assert world.provider.main(["transcribe", "--in", str(world.input), *base, "--out", str(world.out),
+                                "--models-dir", str(odd_dir)]) == 2
+    assert "':' or a control character" in capsys.readouterr().err and world.fake.runs() == []
+
+
+# --- leftovers: the label, the order of the kill, reap -------------------------------------------------------------------
+
+
+def test_the_container_carries_the_label_and_a_deadline_after_the_timeout(world):
+    built(world)
+    will_write(world, kit.speech())
+    before = time.time()
+    assert transcribe(world, "--timeout", "100") == 0
+    (argv,) = world.fake.runs()
+    labels = [argv[i + 1] for i, a in enumerate(argv) if a == "--label"]
+    assert labels[0] == "org.openhora.transcriber=1"
+    deadline = int(labels[1].split("=", 1)[1])
+    assert before + 100 <= deadline <= time.time() + 100 + 61
+
+
+def test_a_timeout_kills_the_docker_client_before_it_removes_the_container(world, monkeypatch):
+    built(world)
+    pid_file = world.tmp / "client.pid"
+    will_write(world, kit.speech(), sleep=30, pid_file=str(pid_file))
+    monkeypatch.setattr(world.provider, "MIN_TIMEOUT", 1)
+    seen = []
+
+    def remove(name):
+        pid = int(pid_file.read_text())
+        try:
+            os.kill(pid, 0)
+            seen.append("client alive")
+        except ProcessLookupError:
+            seen.append("client gone")
+
+    monkeypatch.setattr(world.provider, "remove_container", remove)
+    assert transcribe(world, "--timeout", "1") == 1
+    assert seen == ["client gone"]
+
+
+def test_reap_removes_only_labelled_containers_past_their_deadline(world, capsys):
+    now = int(time.time())
+    world.fake.update(ps=[f"aaaaaa111111 {now - 10}", f"bbbbbb222222 {now + 3600}", "cccccc333333 ", "not-an-id 5"])
+    assert world.provider.main(["reap"]) == 0
+    out = stdout_json(capsys)
+    assert out["containers_removed"] == ["aaaaaa111111", "cccccc333333"]
+    removed = [c["argv"] for c in world.fake.calls() if c["argv"][:2] == ["rm", "-f"]]
+    assert removed == [["rm", "-f", "aaaaaa111111"], ["rm", "-f", "cccccc333333"]]
+    ps = [c["argv"] for c in world.fake.calls() if c["argv"][0] == "ps"]
+    assert ps and "label=org.openhora.transcriber=1" in ps[0]
+
+
+def test_reap_removes_old_work_folders_and_keeps_young_ones(world, capsys):
+    root = world.state / "transcriber" / "work"
+    root.mkdir(parents=True, mode=0o700)
+    old, young = root / ".transcribe-old", root / ".transcribe-young"
+    for folder in (old, young):
+        folder.mkdir(mode=0o700)
+        (folder / "transcript.json").write_text("x")
+    other = root / "keep-me"
+    other.mkdir()
+    long_ago = time.time() - world.provider.MAX_TIMEOUT - 3600
+    os.utime(old, (long_ago, long_ago))
+    os.utime(other, (long_ago, long_ago))
+    assert world.provider.main(["reap"]) == 0
+    assert stdout_json(capsys)["folders_removed"] == 1
+    assert not old.exists() and young.exists() and other.exists()
+
+
+def test_a_run_reaps_what_an_earlier_one_left(world):
+    built(world)
+    will_write(world, kit.speech())
+    world.fake.update(ps=["dddddd444444 1"])
+    assert transcribe(world) == 0
+    assert ["rm", "-f", "dddddd444444"] in [c["argv"] for c in world.fake.calls()]
+
+
+# --- Portuguese through the parser -------------------------------------------------------------------------------------
+
+
+def pt_words(provider, tokens):
+    seg = kit.segment("".join(t["text"] for t in tokens), 0, 9000, tokens)
+    return parse(provider, kit.document([seg], language="pt"))[2]
+
+
+def tk(text, start, end):
+    return kit.token(text, start, end)
+
+
+def test_portuguese_accents_hyphens_numbers_currency_dashes_and_ellipses(provider):
+    words = pt_words(provider, [
+        tk(" N", 0, 100), tk("\u00e3o", 100, 300),                                  # a split accented word
+        tk(" tenho", 300, 600), tk(" guarda", 700, 1000), tk("-", 1000, 1050), tk("chuva", 1050, 1400), tk("...", 1400, 1500),
+        tk(" custa", 1600, 1900), tk(" R", 1900, 2000), tk("$", 2000, 2050), tk(" 1", 2100, 2200), tk(",", 2200, 2250),
+        tk("5", 2250, 2400), tk(" mil", 2400, 2700), tk(" \u2014", 2700, 2750), tk(" a\u00ed", 2800, 3100),
+        tk(" (", 3200, 3250), tk("ou", 3250, 3400), tk(" seja", 3400, 3700), tk(")", 3700, 3750), tk(" tamb\u00e9m", 3800, 4300)])
+    assert [w["text"] for w in words] == ["N\u00e3o", "tenho", "guarda-chuva...", "custa", "R$", "1,5", "mil\u2014", "a\u00ed",
+                                          "(ou", "seja)", "tamb\u00e9m"]
+    by_text = {w["text"]: w for w in words}
+    assert (by_text["1,5"]["start"], by_text["1,5"]["end"]) == (2.1, 2.4)
+    assert (by_text["guarda-chuva..."]["start"], by_text["guarda-chuva..."]["end"]) == (0.7, 1.5)
+
+
+def test_a_spoken_aside_in_parentheses_stays_words_but_a_known_note_is_dropped(provider):
+    words = pt_words(provider, [
+        tk(" (", 0, 50), tk("ou", 50, 200), tk(" seja", 200, 500), tk(")", 500, 550),
+        tk(" (", 600, 650), tk("risos", 650, 900), tk(")", 900, 950),
+        tk(" (", 1000, 1050), tk("applause", 1050, 1300), tk(")", 1300, 1350),
+        tk(" *", 1400, 1450), tk("music", 1450, 1600), tk("*", 1600, 1650),
+        tk(" fim", 1700, 2000)])
+    assert [w["text"] for w in words] == ["(ou", "seja)", "fim"]
+
+
+def test_square_bracket_notes_of_one_or_more_words_are_dropped(provider):
+    seg = kit.segment(" [Music] ok [ Silence ] fim", 0, 3000, [
+        tk(" [", 0, 50), tk("Music", 50, 300), tk("]", 300, 350), tk(" ok", 400, 600),
+        tk(" [", 700, 750), tk(" Silence", 750, 1200), tk(" ]", 1200, 1250), tk(" fim", 1300, 1600)])
+    _, _, words, counts = parse(provider, kit.document([seg]))
+    assert [w["text"] for w in words] == ["ok", "fim"] and counts["dropped_annotations"] == 2
 
 
 # --- live: skipped where the image or the model is absent -------------------------------------------------------------

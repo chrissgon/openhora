@@ -17,6 +17,10 @@ Verbs (JSON on stdout, diagnostics on stderr, input by flags, no prompt):
   build (--confirmed | --dry-run)     build the image from providers/transcriber/Dockerfile (the one step that uses the
                                       network, at the person's word: it pulls the pinned base image and clones the pinned
                                       whisper.cpp tag). Prints the image id; records it in <state>/transcriber/image.json.
+  reap                                remove what a run that was killed (SIGKILL, a crash, a power cut) can leave behind:
+                                      containers with the label org.openhora.transcriber=1 past their deadline, and
+                                      .transcribe-* work folders older than the longest timeout. `transcribe` does the same
+                                      at its start; --check changes nothing.
   transcribe --in <audio-or-video> --model <name> --language <code|auto> --out <transcript.json>
              [--timestamps word|ml1|dtw] [--timeout <s>] [--threads <n>] [--max-seconds <s>] [--memory-mb <n>]
              [--dry-run]              run the container and write the transcript (transcript.schema.json) to --out.
@@ -44,14 +48,23 @@ print counts, never words, and an error shows the last 300 characters of the con
 error lines only. Credentials: none are read, passed or needed (the docker client's own sign-in is used by `build` alone,
 to pull the base image, and is the person's).
 
+The daemon must be local: the provider refuses a DOCKER_HOST (or a docker context) that is not a unix socket, because
+with a remote daemon the audio would leave the computer. The models folder must be 0700 and this user's (checked at
+every check and every run). The model's hash is compared and the file is then mounted by path: between the two a process
+that can already write the person's own state folder could swap the file; the folder's mode is what narrows that window.
+The container's one writable mount is a work folder under <state>/transcriber/work (0700); after the run the provider
+refuses a folder that holds more than a few regular files or more than MAX_OUT_BYTES. A SIGKILL of the provider can leave
+a .transcribe-* folder there and a labelled container; `reap` (and the start of the next `transcribe`) removes them.
+
 State, under the state folder (OPENHORA_STATE_DIR, else an absolute XDG_STATE_HOME + /openhora, else
 ~/.local/state/openhora; the rule of providers/messenger/whatsapp.py): transcriber/models/<file> (the model files, put
 there by hand: README.md gives the commands) and transcriber/image.json (what `build` recorded). --models-dir <path>
 names another models folder.
 
 Exit codes (providers/CONTRACT.md): 0 ok; 1 failed (the container failed or timed out, a model file differs from its pin,
-whisper's output is not what was expected); 2 usage (also: an input longer than --max-seconds); 3 not configured (docker
-absent or stopped, the image not built, stale or replaced, a model missing or not pinned).
+whisper's output is not what was expected); 2 usage (also: an input longer than --max-seconds, a ':' or a control character in a
+mounted path); 3 not configured (docker absent, stopped or remote, the image not built, stale or replaced, a model missing,
+not pinned or in a folder open to other users).
 """
 from __future__ import annotations
 
@@ -86,7 +99,7 @@ STATE_ENV = "OPENHORA_STATE_DIR"
 STATE_FOLDER, MODELS_FOLDER, BUILD_RECORD = "transcriber", "models", "image.json"
 
 # The verbs, in the order the command line lists them (scripts/architecture_tables.py reads this line as text).
-VERBS = ("models", "build", "transcribe")
+VERBS = ("models", "build", "reap", "transcribe")
 TIMESTAMPS = ("word", "ml1", "dtw")
 LANGUAGE = re.compile(r"[a-z]{2,3}|auto")
 MODEL_NAME = re.compile(r"[a-z0-9][a-z0-9.-]*")
@@ -101,6 +114,12 @@ MAX_THREADS = 32
 BUILD_TIMEOUT = 3600
 PROBE_TIMEOUT = 60
 MAX_WHISPER_JSON = 64 * 1024 * 1024
+MAX_OUT_BYTES = 80 * 1024 * 1024                     # everything the container may leave in /out
+MAX_OUT_ENTRIES = 8
+MAX_NOTE_FILE = 64                                   # bytes of input_duration.txt / audio_duration.txt
+LABEL_RUN, LABEL_DEADLINE = "org.openhora.transcriber", "org.openhora.transcriber.deadline"
+WORK_FOLDER, WORK_PREFIX = "work", ".transcribe-"
+WHISPER_MARGIN = 15                                  # seconds the container's own bound is shorter than --timeout
 MAX_TRANSCRIPT_BYTES = 5 * 1024 * 1024               # the run copy's scan limit (the short-video plan, P4)
 STDERR_TAIL = 300
 # The only variables the docker client is given: where it finds its daemon and its own configuration. No variable of
@@ -231,9 +250,30 @@ def model_state(entry, folder, hashed=True):
     return path, "ok" if sha256_file(path) == entry["sha256"] else "mismatch"
 
 
+def require_private_folder(path, what):
+    """The folder exists, is a real directory (not a link), is this user's and is closed to the group and others.
+    Unlike private_dir it makes nothing. Raises Refusal("not-configured")."""
+    try:
+        found = os.lstat(path)
+    except FileNotFoundError:
+        raise Refusal("not-configured", f"the {what} {path} does not exist") from None
+    except OSError as e:
+        raise Refusal("not-configured", f"the {what} {path} cannot be read ({e.strerror or e.__class__.__name__})") from None
+    if not stat.S_ISDIR(found.st_mode):
+        raise Refusal("not-configured", f"the {what} {path} is not a real directory (a link or a file)")
+    if found.st_uid != os.getuid():
+        raise Refusal("not-configured", f"the {what} {path} is not owned by this user")
+    if found.st_mode & 0o077:
+        raise Refusal("not-configured", f"the {what} {path} is open to other users (mode {stat.S_IMODE(found.st_mode):04o}); "
+                                        "run chmod 700 on it")
+
+
 def verified_model(name, folder):
-    """The model's entry and path after its sha256 was computed and compared with the pin. Raises Refusal."""
+    """The model's entry and path after its sha256 was computed and compared with the pin. The folder must be 0700 and
+    this user's. Raises Refusal."""
     entry = model_entry(name)
+    if entry.get("sha256"):
+        require_private_folder(folder, "models folder")
     path, status = model_state(entry, folder)
     if status == "unpinned":
         raise Refusal("not-configured", f"model {name} has no pinned sha256 in models.json yet; pin it before using it")
@@ -272,11 +312,40 @@ def docker(args, timeout=PROBE_TIMEOUT):
         raise Refusal("not-configured", f"docker could not be started ({e.strerror or e.__class__.__name__})") from None
 
 
+def require_local_daemon():
+    """The docker client must talk to a daemon on this machine, through a unix socket: with a remote one (DOCKER_HOST=tcp://,
+    ssh://, or a remote docker context) the audio, the model and the transcript would cross a network. Raises Refusal."""
+    host = os.environ.get("DOCKER_HOST")
+    if not host:
+        done = docker(["context", "inspect", "--format", "{{.Endpoints.docker.Host}}"])
+        host = done.stdout.strip() if done.returncode == 0 else ""
+        if not host:
+            raise Refusal("not-configured", "cannot tell which docker daemon the client uses (docker context inspect "
+                                            "failed); the transcriber only uses a local one")
+    if not host.startswith("unix://"):
+        raise Refusal("not-configured", f"the docker daemon is not local ({host.split('@')[-1][:60]}): the transcriber "
+                                        "refuses it, because the audio would leave this computer. Use a local daemon "
+                                        "(unset DOCKER_HOST, or a context with a unix socket).")
+
+
 def require_docker():
     done = docker(["version", "--format", "{{.Server.Version}}"])
     if done.returncode != 0:
         raise Refusal("not-configured", "the docker daemon is not answering: start it. " + tail(done.stderr, 160))
+    require_local_daemon()
     return done.stdout.strip()
+
+
+def daemon_cpus():
+    """The CPUs the daemon has (`docker info`, read once per run): a container cannot be given more."""
+    done = docker(["info", "--format", "{{.NCPU}}"])
+    try:
+        n = int(done.stdout.strip())
+    except ValueError:
+        n = 0
+    if done.returncode != 0 or n < 1:
+        raise Refusal("failed", "docker info did not say how many CPUs the daemon has")
+    return n
 
 
 def inspect_image(reference):
@@ -318,6 +387,57 @@ def check_image():
                                         f"remove it with `docker image rm {tag}` and run `{build}`")
     return {"tag": tag, "id": image["id"], "definition": wanted,
             "whisper_cpp_tag": image["labels"].get(LABEL_TAG), "whisper_cpp_commit": image["labels"].get(LABEL_COMMIT)}
+
+
+# --- leftovers of a run that was killed ---------------------------------------------------------------------------------
+
+
+def work_root():
+    return os.path.join(own_dir(), WORK_FOLDER)
+
+
+def reap_containers(now=None):
+    """Remove the containers this provider started and that are past their deadline (or carry none). A live run's
+    container has a deadline in the future and is left alone. Returns the ids removed."""
+    now = time.time() if now is None else now
+    done = docker(["ps", "-a", "--filter", f"label={LABEL_RUN}=1", "--format", '{{.ID}} {{.Label "%s"}}' % LABEL_DEADLINE])
+    if done.returncode != 0:
+        raise Refusal("failed", "docker ps failed: " + tail(done.stderr, 160))
+    removed = []
+    for line in done.stdout.splitlines():
+        parts = line.split()
+        if not parts or not re.fullmatch(r"[0-9a-f]{6,64}", parts[0]):
+            continue
+        deadline = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+        if deadline < now:
+            gone = docker(["rm", "-f", parts[0]], timeout=60)
+            if gone.returncode == 0:
+                removed.append(parts[0])
+    return removed
+
+
+def reap_folders(now=None):
+    """Remove .transcribe-* work folders older than the longest timeout (a run that is still going is younger)."""
+    now = time.time() if now is None else now
+    root, removed = work_root(), 0
+    try:
+        entries = list(os.scandir(root))
+    except OSError:
+        return 0
+    for entry in entries:
+        try:
+            if entry.name.startswith(WORK_PREFIX) and entry.is_dir(follow_symlinks=False) \
+                    and entry.stat(follow_symlinks=False).st_mtime < now - (MAX_TIMEOUT + 600):
+                shutil.rmtree(entry.path, ignore_errors=True)
+                removed += 1
+        except OSError:
+            continue
+    return removed
+
+
+def cmd_reap(args):
+    require_docker()
+    return {"ok": True, "containers_removed": reap_containers(), "folders_removed": reap_folders()}
 
 
 # --- check, models, build ----------------------------------------------------------------------------------------------
@@ -412,10 +532,11 @@ def whisper_flags(mode, preset, language, threads):
 
 
 def container_argv(name, image_id, in_path, model_path, out_dir, *, threads, language, mode, preset, max_seconds,
-                   memory_mb, cpus, platform=None):
+                   memory_mb, cpus, run_seconds, deadline, platform=None):
     """The exact `docker run` command (a list; the first word is `docker`). Every limit of the container is here."""
     platform = sys.platform if platform is None else platform
     argv = ["docker", "run", "--rm", "--init", "--pull", "never", "--name", name,
+            "--label", f"{LABEL_RUN}=1", "--label", f"{LABEL_DEADLINE}={deadline}",
             "--network", "none", "--read-only",
             "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
             "--pids-limit", str(PIDS_LIMIT),
@@ -425,7 +546,7 @@ def container_argv(name, image_id, in_path, model_path, out_dir, *, threads, lan
     if platform.startswith("linux"):  # a bind mount keeps numeric owners there; elsewhere the runtime maps them
         argv += ["--user", f"{os.getuid()}:{os.getgid()}"]
     argv += ["-v", f"{in_path}:{MOUNT_INPUT}:ro", "-v", f"{model_path}:{MOUNT_MODEL}:ro", "-v", f"{out_dir}:{MOUNT_OUT}:rw",
-             image_id, str(threads), language, mode, preset or "-", str(max_seconds)]
+             image_id, str(threads), language, mode, preset or "-", str(max_seconds), str(run_seconds)]
     return argv
 
 
@@ -471,29 +592,45 @@ def run_container(argv, name, timeout):
     except Stopped:
         raise Refusal("failed", "stopped: the container was removed") from None
     finally:
+        for sig, _ in previous:   # the cleanup below is not interrupted by a second signal
+            signal.signal(sig, signal.SIG_IGN)
         if not finished:
-            remove_container(name)
-            if proc is not None and proc.poll() is None:
+            if proc is not None and proc.poll() is None:   # the client first: it must not outlive the container
                 try:
                     os.killpg(proc.pid, signal.SIGKILL)
                 except OSError:
                     pass
                 proc.wait()
+            remove_container(name)
         for sig, handler in previous:
             signal.signal(sig, handler)
 
 
-def read_text(path, limit=64):
+def read_regular(path, limit, what):
+    """The bytes of a regular file the container wrote, at most `limit`. The container controls /out, so the file is
+    opened without following a link and without blocking (a FIFO would hang a plain open), and refused unless fstat says
+    it is a regular file no larger than `limit`. Raises Refusal("failed")."""
     try:
-        with open(path, encoding="utf-8") as f:
-            return f.read(limit).strip()
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        raise Refusal("failed", f"the container ended well but wrote no {what}") from None
     except OSError:
-        return ""
+        raise Refusal("failed", f"{what} is a link or cannot be opened: it is not read") from None
+    try:
+        found = os.fstat(fd)
+        if not stat.S_ISREG(found.st_mode):
+            raise Refusal("failed", f"{what} is not a regular file: it is not read")
+        if found.st_size > limit:
+            raise Refusal("failed", f"{what} is larger than the limit of {limit} bytes")
+        with os.fdopen(fd, "rb", closefd=False) as f:
+            return f.read(limit + 1)[:limit]
+    finally:
+        os.close(fd)
 
 
 def read_seconds(path, what):
     try:
-        value = float(read_text(path))
+        value = float(read_regular(path, MAX_NOTE_FILE, what).decode("ascii", errors="replace").strip())
     except ValueError:
         raise Refusal("failed", f"the container did not report {what}") from None
     if value != value or value < 0 or value > 10 ** 6:
@@ -501,14 +638,40 @@ def read_seconds(path, what):
     return value
 
 
+def check_out_folder(folder):
+    """What the container left in /out: a few regular files, none a link or a device, all together within MAX_OUT_BYTES.
+    The mount is writable, so the provider looks after the run, before it reads anything. Raises Refusal("failed")."""
+    total, count = 0, 0
+    for entry in os.scandir(folder):
+        found = entry.stat(follow_symlinks=False)
+        count += 1
+        if not stat.S_ISREG(found.st_mode):
+            raise Refusal("failed", "the container left something in its output folder that is not a regular file")
+        total += found.st_size
+    if count > MAX_OUT_ENTRIES or total > MAX_OUT_BYTES:
+        raise Refusal("failed", "the container left more in its output folder than a transcription can produce")
+
+
 def is_special(text):
     """A whisper control token ([_BEG_], [_TT_150], <|en|>): it is not a word."""
     return bool(re.fullmatch(r"\[_[A-Za-z0-9_]*\]", text) or re.fullmatch(r"<\|[^|]*\|>", text))
 
 
+# Notes whisper writes for what is not speech. In square brackets any single word is a note ([BLANK_AUDIO], [Music]); in
+# round brackets or between asterisks only these are, so that a spoken aside such as "(ou seja)" stays words.
+KNOWN_NOTES = {"blank_audio", "blank audio", "music", "applause", "laughter", "laughs", "silence", "noise", "inaudible",
+               "cough", "coughs", "sigh", "sighs", "crosstalk", "música", "musica", "aplausos", "risos", "silêncio",
+               "silencio", "ruído", "ruido", "tosse"}
+
+
 def is_annotation(text):
-    """A non-speech note whisper writes ([BLANK_AUDIO], [Music], (applause), *music*): kept in the segment's text, not a word."""
-    return bool(re.fullmatch(r"\[[^\]]*\]|\([^)]*\)|\*[^*]*\*|♪+", text.strip()))
+    """A single-word non-speech note: [BLANK_AUDIO] or any [word], (applause) or *music* from KNOWN_NOTES, ♪. Kept in the
+    segment's text, not a word."""
+    t = text.strip()
+    if re.fullmatch(r"♪+|\[[^\[\]]*\]", t):
+        return True
+    found = re.fullmatch(r"[(*]\s*([^()*]*?)\s*[)*]", t)
+    return bool(found) and found.group(1).lower() in KNOWN_NOTES
 
 
 def seconds_from_ms(ms):
@@ -520,7 +683,6 @@ def number(value):
 
 
 JOINING_DASHES = set("-\u2013\u2014\u2026.")
-NOTE_CLOSER = {"[": "]", "(": ")"}
 NOTE_MAX_WORDS = 6
 
 
@@ -549,16 +711,17 @@ def tokens_to_words(tokens):
 
 def without_notes(words):
     """Drop the non-speech notes whisper writes: a word that is one ([BLANK_AUDIO], (applause), ♪), or a run of up to six
-    words from one that opens a bracket to one that closes it ([ Silence ]). Returns the words kept and the number of notes."""
+    words that starts with "[" and ends with the word that holds "]" ([ Silence ]). Only square brackets open a run: a
+    spoken "(ou seja)" is words. Returns the words kept and the number of notes."""
     kept, dropped, i = [], 0, 0
     while i < len(words):
         text = words[i]["text"]
         if is_annotation(text):
             dropped, i = dropped + 1, i + 1
             continue
-        closer = NOTE_CLOSER.get(text[:1])
-        end = next((j for j in range(i + 1, min(i + NOTE_MAX_WORDS, len(words)))
-                    if closer and closer in words[j]["text"]), None) if closer and closer not in text else None
+        end = None
+        if text.startswith("[") and "]" not in text:
+            end = next((j for j in range(i + 1, min(i + NOTE_MAX_WORDS, len(words))) if "]" in words[j]["text"]), None)
         if end is not None:
             dropped, i = dropped + 1, end + 1
             continue
@@ -700,6 +863,15 @@ def build_transcript(raw, mode, *, requested, duration, facts):
     return doc
 
 
+def clean_path(path, what):
+    """A path that goes into a `docker -v` argument must hold no ':' (it separates the mount's parts) and no control
+    character. Raises Refusal("usage")."""
+    if ":" in path or any(ord(c) < 32 or ord(c) == 127 for c in path):
+        raise Refusal("usage", f"{what} holds a ':' or a control character, which a docker mount cannot carry safely: "
+                               "rename or move it")
+    return path
+
+
 def positive_int(value, low, high, what):
     if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
         raise Refusal("usage", f"{what} must be a whole number from {low} to {high}")
@@ -707,7 +879,7 @@ def positive_int(value, low, high, what):
 
 
 def default_threads():
-    return max(1, min(4, os.cpu_count() or 1))
+    return max(1, min(4, os.cpu_count() or 1))   # the daemon's own CPU count then caps it (cmd_transcribe)
 
 
 def cmd_transcribe(args):
@@ -726,10 +898,12 @@ def cmd_transcribe(args):
     in_path = os.path.realpath(args.input) if args.input else ""
     if not in_path or not os.path.isfile(in_path) or os.path.getsize(in_path) == 0:
         raise Refusal("usage", "--in must be a file that exists and is not empty")
+    clean_path(in_path, "--in")
     if not args.out or not args.out.endswith(".json"):
         raise Refusal("usage", "--out must be a path that ends in .json")
     out_path = os.path.abspath(args.out)
     out_parent = os.path.dirname(out_path)
+    clean_path(out_parent, "the folder of --out")
     if not os.path.isdir(out_parent):
         raise Refusal("usage", f"the folder of --out does not exist: {out_parent}")
     if os.path.islink(out_path) or (os.path.exists(out_path) and not os.path.isfile(out_path)):
@@ -737,21 +911,36 @@ def cmd_transcribe(args):
     preset = entry.get("dtw_preset") if mode == "dtw" else None
     if mode == "dtw" and not preset:
         raise Refusal("usage", f"model {entry['name']} has no DTW preset in models.json")
+    folder = clean_path(models_folder(args.models_dir), "the models folder")
     name = f"openhora-whisper-{uuid.uuid4().hex[:16]}"
-    folder = models_folder(args.models_dir)
-    if args.dry_run:
-        argv = container_argv(name, "<image id>", in_path, os.path.join(folder, entry["file"]), "<temporary output folder>",
+    run_seconds = max(5, timeout - WHISPER_MARGIN)     # the container bounds its own tools a little under --timeout
+    deadline = int(time.time()) + timeout + 60
+    if args.dry_run:   # no docker call at all: the CPU clamp (docker info) is not shown here
+        argv = container_argv(name, "<image id>", in_path, os.path.join(folder, entry["file"]), "<work folder>",
                               threads=threads, language=args.language, mode=mode, preset=preset, max_seconds=max_seconds,
-                              memory_mb=memory_mb, cpus=threads)
+                              memory_mb=memory_mb, cpus=threads, run_seconds=run_seconds, deadline=deadline)
         return {"dry_run": True, "command": argv, "model_sha256_pinned": entry["sha256"], "timeout_seconds": timeout}
 
     require_docker()
+    ncpu = daemon_cpus()                                  # read once; a container cannot be given more CPUs than this
+    if threads > ncpu:
+        say(f"note: --threads {threads} is more than the daemon's {ncpu} CPUs; using {ncpu}")
+        threads = ncpu
     _, model_path = verified_model(args.model, folder)     # the hash is compared before any container exists
+    clean_path(model_path, "the model path")
     image = check_image()
-    work = tempfile.mkdtemp(prefix=".transcribe-", dir=out_parent)  # 0700, beside --out; removed below
     try:
+        reap_containers()    # best effort: what an earlier run that was killed left behind
+        reap_folders()
+    except Refusal:
+        pass
+    root = private_dir(os.path.join(private_dir(state_dir(), "state folder"), STATE_FOLDER), "transcriber folder")
+    work = tempfile.mkdtemp(prefix=WORK_PREFIX, dir=private_dir(os.path.join(root, WORK_FOLDER), "work folder"))  # 0700
+    try:
+        clean_path(work, "the work folder")
         argv = container_argv(name, image["id"], in_path, model_path, work, threads=threads, language=args.language,
-                              mode=mode, preset=preset, max_seconds=max_seconds, memory_mb=memory_mb, cpus=threads)
+                              mode=mode, preset=preset, max_seconds=max_seconds, memory_mb=memory_mb, cpus=threads,
+                              run_seconds=run_seconds, deadline=deadline)
         began = time.monotonic()
         code, stderr = run_container(argv, name, timeout)
         wall = time.monotonic() - began
@@ -759,19 +948,20 @@ def cmd_transcribe(args):
             raise Refusal("usage", f"the input is longer than --max-seconds ({max_seconds})")
         if code == 21:
             raise Refusal("usage", "the input's duration cannot be read: it is not a media file whisper's tools open")
+        if code == 124:
+            raise Refusal("failed", f"a tool in the container ran over its own limit of {run_seconds} s")
         if code != 0:
             raise Refusal("failed", f"the container ended with exit {code}: {tail(stderr)}")
-        produced = os.path.join(work, "transcript.json")
+        check_out_folder(work)
         try:
-            size = os.lstat(produced).st_size
-        except OSError:
-            raise Refusal("failed", "the container ended well but wrote no transcript.json") from None
-        if size > MAX_WHISPER_JSON:
-            raise Refusal("failed", "whisper's output is larger than the limit")
-        with open(produced, "rb") as f:
-            text = f.read().decode("utf-8", errors="replace")
+            raw_bytes = read_regular(os.path.join(work, "transcript.json"), MAX_WHISPER_JSON, "transcript.json")
+        except Refusal as e:
+            if "wrote no" in e.reason:
+                raise Refusal("failed", f"{e.reason}; if the language hint ({args.language}) is one whisper does not know, "
+                                        "try --language auto") from None
+            raise
         try:
-            raw = json.loads(text)
+            raw = json.loads(raw_bytes.decode("utf-8", errors="replace"), strict=False)
         except ValueError:
             raise Refusal("failed", "whisper's output is not JSON") from None
         flags = whisper_flags(mode, preset, args.language, threads)
@@ -779,11 +969,11 @@ def cmd_transcribe(args):
                  "whisper_cpp_commit": image["whisper_cpp_commit"], "image_id": image["id"],
                  "image_definition": image["definition"],
                  "model": {"name": entry["name"], "file": entry["file"], "sha256": entry["sha256"]},
-                 "timestamps": mode, "flags": flags, "threads": threads, "cpus": threads, "memory_mb": memory_mb,
-                 "max_seconds": max_seconds, "input_bytes": os.path.getsize(in_path),
-                 "input_duration": round(read_seconds(os.path.join(work, "input_duration.txt"), "the input's duration"), 3),
+                 "timestamps": mode, "flags": flags, "threads": threads, "cpus": threads, "docker_ncpu": ncpu,
+                 "memory_mb": memory_mb, "max_seconds": max_seconds, "input_bytes": os.path.getsize(in_path),
+                 "input_duration": round(read_seconds(os.path.join(work, "input_duration.txt"), "input_duration.txt"), 3),
                  "wall_seconds": round(wall, 2), "created_at": utc_now()}
-        duration = read_seconds(os.path.join(work, "audio_duration.txt"), "the audio's duration")
+        duration = read_seconds(os.path.join(work, "audio_duration.txt"), "audio_duration.txt")
         doc = build_transcript(raw, mode, requested=args.language, duration=duration, facts=facts)
         doc["facts"]["total_seconds"] = round(time.monotonic() - started, 2)
         blob = json.dumps(doc, ensure_ascii=False, indent=1) + "\n"
@@ -812,6 +1002,7 @@ def build_parser():
     sub = p.add_subparsers(dest="verb")
     m = sub.add_parser("models", help="the pinned models and whether their files are present")
     m.add_argument("--models-dir", default=argparse.SUPPRESS)
+    sub.add_parser("reap", help="remove containers and work folders a killed run left behind")
     b = sub.add_parser("build", help="build the image (needs --confirmed)")
     b.add_argument("--confirmed", action="store_true")
     b.add_argument("--dry-run", action="store_true")
@@ -839,7 +1030,8 @@ def main(argv=None):
         if args.check:
             result = cmd_check(args)
         else:
-            result = {"models": cmd_models, "build": cmd_build, "transcribe": cmd_transcribe}[args.verb](args)
+            result = {"models": cmd_models, "build": cmd_build, "reap": cmd_reap,
+                      "transcribe": cmd_transcribe}[args.verb](args)
     except Refusal as e:
         say(f"error: {e.reason}")
         return KINDS[e.kind]
