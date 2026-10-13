@@ -36,7 +36,7 @@ export function owlTargets({ seats, tasks = [], decisions = [], floorTip = "", a
         tip: `#${s.taskId}${name ? ` ${name}` : ""}${words ? ` · ${words}` : ""}`,
         route: decision ? { tab: "inbox", id: decision.id } : { tab: "tasks", id: s.taskId },
       });
-    } else if (s.pose === "idle") {
+    } else if (s.pose === "idle" && s.seat !== 0) {      // seat 0 with no holder is the floor's own owl, whatever its pose: never a free slot
       out.push({ seat: s.seat, id: owlId(s.seat), kind: "free", taskId: null, tip: FREE_TIP, listTip: `Free slot ${s.seat + 1} of ${places} · asleep`, route: { tab: "agent" } });
     } else {
       out.push({ seat: s.seat, id: asks ? "tray" : "agent", kind: "floor", taskId: null, tip: agentTip(floorTip, asks), route: { tab: asks ? "inbox" : "agent" } });

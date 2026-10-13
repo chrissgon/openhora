@@ -68,14 +68,18 @@ out.asks = brief(owlsOf(make([eng(12, "blocked", false)], 2, { pending: [decisio
 out.queued = brief(owlsOf(make([eng(13, "ready", false)], 2, { agentExtra: { queued: 1 } }), "engineering", { tips: { agent: "Engineering · queued · starts when a slot frees" } }));
 // nothing at all: the one place of a one-slot floor is free
 out.rest = brief(owlsOf(make([], 1)));
+out.rest3 = brief(owlsOf(make([], 3)));
 // the Lobby while the router runs: its one owl types with the floor's words, a click goes to the Agent tab
 out.lobby = brief(owlsOf(make([], 1), "planning", { state: "working", window: "lit" }));
+out.lobbyIdle = brief(owlsOf(make([], 1), "planning"));
 console.log(JSON.stringify(out));
 """)
     assert got["asks"] == [[0, "tray", "Engineering · working · open the Inbox", "inbox", None], [1, "owl:1", "Free slot · asleep", "agent", None]], \
         "the owl the floor's state draws (no holder, a decision open) keeps the floor's tooltip and opens the Inbox as it did"
     assert got["queued"][0] == [0, "agent", "Engineering · queued · starts when a slot frees", "agent", None] and got["queued"][1][2] == "Free slot · asleep"
-    assert got["rest"] == [[0, "owl:0", "Free slot · asleep", "agent", None]], "a floor at rest: its owl is a free slot"
+    assert got["rest"] == [[0, "agent", "Engineering · working", "agent", None]], "a floor at rest with one place: seat 0 is the floor's owl, never a free slot"
+    assert got["rest3"] == [[0, "agent", "Engineering · working", "agent", None], [1, "owl:1", "Free slot · asleep", "agent", None], [2, "owl:2", "Free slot · asleep", "agent", None]], "three places, no holder: seat 0 the floor's words, the others free slots"
+    assert got["lobbyIdle"] == [[0, "agent", "Planning agent · working", "agent", None]], "the Lobby has no slots: its owl, asleep too, is never a free slot"
     assert got["lobby"] == [[0, "agent", "Planning agent · working", "agent", None]], "the Lobby's routing owl keeps the Lobby's tooltip and the Agent tab"
 
 
@@ -328,8 +332,8 @@ out.tips = owls.map((o) => o.tip);
 out.list = owls.map((o) => o.listTip);
 console.log(JSON.stringify(out));
 """)
-    assert got["tips"] == ["Free slot · asleep"] * 3, "the tooltip in the scene stays as the table says"
-    assert got["list"] == ["Free slot 1 of 3 · asleep", "Free slot 2 of 3 · asleep", "Free slot 3 of 3 · asleep"], "the list's links differ (link purpose)"
+    assert got["tips"] == ["Engineering · working", "Free slot · asleep", "Free slot · asleep"], "seat 0 is the floor's owl; the free slots' tooltip in the scene stays as the table says"
+    assert got["list"][1:] == ["Free slot 2 of 3 · asleep", "Free slot 3 of 3 · asleep"], "the list's links differ (link purpose)"
 
 
 @needs_node
