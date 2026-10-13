@@ -134,7 +134,13 @@ func (l *listener) serveRequests(in io.Reader, done chan<- struct{}) {
 	go func() {
 		defer wg.Done()
 		for req := range requests {
+			if l.ctx.Err() != nil {
+				continue // the program is stopping: queued requests fail with it (the bridge fails what it was waiting for)
+			}
 			answer := Handle(l.ctx, l.sender, req)
+			if l.ctx.Err() != nil {
+				continue
+			}
 			l.write(answer)
 		}
 	}()
@@ -158,9 +164,11 @@ func (l *listener) serveRequests(in io.Reader, done chan<- struct{}) {
 			requests <- req
 		}
 	}
+	// The end of the input ends the program at once: done closes here, the caller cancels the context (which fails an
+	// in-flight send) and the 3 s bound of the disconnect applies. The worker is waited for only after that.
+	close(done)
 	close(requests)
 	wg.Wait()
-	close(done)
 }
 
 func cmdListen(args []string, stdin io.Reader, stderr io.Writer) int {

@@ -25,7 +25,7 @@ type Update struct {
 // Resolver turns a LID address into the phone-number address of the same account: ok is false when it cannot.
 type Resolver func(ctx context.Context, lid types.JID) (types.JID, bool)
 
-var digitsRe = regexp.MustCompile(`^[0-9]{5,20}$`)
+var digitsRe = regexp.MustCompile(phonePattern)
 
 // Why an incoming message is not an update. Only the last of them is worth a diagnostic line.
 const (

@@ -17,17 +17,19 @@ import (
 )
 
 const (
-	sendTimeout   = 50 * time.Second // the bridge waits 60 s for an answer
-	maxDocument   = 900_000          // bytes of a document's text: it travels inside one protocol line
-	maxDocName    = 100
-	chatPattern   = `^[1-9][0-9]{5,14}$`
+	sendTimeout = 50 * time.Second // the bridge waits 60 s for an answer
+	maxDocument = 900_000          // bytes of a document's text: it travels inside one protocol line
+	maxDocName  = 100
+	// phonePattern is the one shape of a phone number in digits (country code, no plus sign, 6 to 15 digits) that the
+	// inbound filter, the send validation and the pair command all use.
+	phonePattern  = `^[1-9][0-9]{5,14}$`
 	kindUsage     = "usage"
 	kindFailed    = "failed"
 	sentenceChat  = "chat must be a phone number as digits with the country code and no plus sign"
 	sentenceMedia = "whatsapp has no buttons and no link buttons: the message must carry no actions and no link"
 )
 
-var chatRe = regexp.MustCompile(chatPattern)
+var chatRe = regexp.MustCompile(phonePattern)
 
 // Neutral is the platform-neutral message of providers/messenger/README.md.
 type Neutral struct {

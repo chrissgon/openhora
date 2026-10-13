@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"os/signal"
 	"regexp"
 	"sync"
@@ -55,7 +54,7 @@ func cmdStatus(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
-var phoneRe = regexp.MustCompile(`^[1-9][0-9]{6,14}$`)
+var phoneRe = regexp.MustCompile(phonePattern)
 
 const pairSteps = `
 Pairing code: %s
@@ -247,5 +246,3 @@ func cmdWhoami(args []string, stdout, stderr io.Writer) int {
 	}
 	return exitOK
 }
-
-var _ = os.Stdout

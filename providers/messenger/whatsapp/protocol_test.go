@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -101,4 +102,38 @@ func TestReadLineIsBinarySafe(t *testing.T) {
 func readFile(name string) (string, error) {
 	b, err := os.ReadFile(name)
 	return string(b), err
+}
+
+func TestTheLibraryLogLineNamesNoPersonAndNoNumber(t *testing.T) {
+	var buf bytes.Buffer
+	l := &stderrLogger{mod: "client", out: &buf, mu: &sync.Mutex{}}
+	l.Errorf("Failed to send to 5511900000000@s.whatsapp.net: no LID for 5511900000000 (%s)", "1234567890123@lid")
+	l.Warnf("group 120363000000000000@g.us and 5511900000000:7@s.whatsapp.net")
+	l.Infof("never written 5511900000000")
+	out := buf.String()
+	for _, bad := range []string{"5511900000000", "1234567890123", "120363000000000000", "@s.whatsapp.net", "@lid", "@g.us"} {
+		if strings.Contains(out, bad) {
+			t.Fatalf("%q in %q", bad, out)
+		}
+	}
+	if !strings.Contains(out, "Failed to send to") || strings.Contains(out, "never written") {
+		t.Fatalf("%q", out)
+	}
+	l.Sub("x").Warnf("12345 stays")
+	if !strings.Contains(buf.String(), "12345 stays") {
+		t.Fatal("short numbers are not phone numbers")
+	}
+}
+
+func TestOneShapeOfPhoneDigitsEverywhere(t *testing.T) {
+	for _, ok := range []string{"5511900000000", "123456", "123456789012345"} {
+		if !phoneRe.MatchString(ok) || !digitsRe.MatchString(ok) || !chatRe.MatchString(ok) {
+			t.Errorf("%s", ok)
+		}
+	}
+	for _, bad := range []string{"12345", "1234567890123456", "0123456", "+123456"} {
+		if phoneRe.MatchString(bad) || digitsRe.MatchString(bad) || chatRe.MatchString(bad) {
+			t.Errorf("%s", bad)
+		}
+	}
 }

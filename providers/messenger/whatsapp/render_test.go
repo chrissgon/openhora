@@ -126,3 +126,60 @@ func TestSourceHasNoInvisibleCharacter(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderCutsAtALineBoundaryAndNeverInsideACodeSpan(t *testing.T) {
+	span := "`/approve-effect 12 --path /srv/northwind-shop --hash " + strings.Repeat("a", 64) + "`"
+	var lines []string
+	for i := 0; i < 400; i++ {
+		lines = append(lines, "line "+strings.Repeat("w", 8))
+	}
+	text := strings.Join(lines, "\n") + "\n" + span
+	got := renderWhatsApp(text)
+	if utf8.RuneCountInString(got) > renderLimit || !strings.HasSuffix(got, "\n"+cutNote) {
+		t.Fatalf("not cut right")
+	}
+	body := strings.TrimSuffix(got, "\n"+cutNote)
+	for _, l := range strings.Split(body, "\n") {
+		if l != "line wwwwwwww" {
+			t.Fatalf("a line was cut in the middle: %q", l)
+		}
+	}
+	// a span near the limit is kept whole or dropped whole
+	pad := strings.Repeat("x", renderLimit-30)
+	got = renderWhatsApp(pad + "\n" + span)
+	if strings.Contains(got, "`") && !strings.Contains(got, span) {
+		t.Fatalf("a code span was cut: %q", got[len(got)-80:])
+	}
+	// a single line over the limit is cut before a span it would split
+	one := strings.Repeat("y", renderLimit-60) + " " + span + " tail"
+	got = renderWhatsApp(one)
+	if strings.Contains(got, "`") && !strings.Contains(got, span) {
+		t.Fatalf("a span in a long line was split")
+	}
+	if utf8.RuneCountInString(got) > renderLimit {
+		t.Fatal("over the limit")
+	}
+}
+
+func TestRenderClosesAFenceItCutsInside(t *testing.T) {
+	var body []string
+	for i := 0; i < 600; i++ {
+		body = append(body, "code line "+strings.Repeat("c", 10))
+	}
+	text := "intro\n```\n" + strings.Join(body, "\n") + "\n```\nafter"
+	got := renderWhatsApp(text)
+	if utf8.RuneCountInString(got) > renderLimit || !strings.HasSuffix(got, "\n```\n"+cutNote) {
+		t.Fatalf("fence not closed before the note: %q", got[len(got)-60:])
+	}
+	if strings.Count(got, "```")%2 != 0 {
+		t.Fatal("unbalanced fences")
+	}
+}
+
+func TestRenderRewritesLinksWhoseTargetHasBalancedParentheses(t *testing.T) {
+	in := "see [Go](https://example.com/wiki/Go_(language)) and [x](https://example.com/a_(b)_c) end"
+	want := "see Go (https://example.com/wiki/Go_(language)) and x (https://example.com/a_(b)_c) end"
+	if got := renderWhatsApp(in); got != want {
+		t.Fatalf("%q", got)
+	}
+}

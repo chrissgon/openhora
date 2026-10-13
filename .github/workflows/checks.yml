@@ -106,8 +106,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: go vet and go test, modules read-only
+      - name: go mod verify, go vet and go test, modules read-only
         working-directory: providers/messenger/whatsapp
         env:
           GOFLAGS: -mod=readonly
-        run: go vet ./... && go test -count=1 ./...
+        run: go mod verify && go vet ./... && go test -count=1 ./...

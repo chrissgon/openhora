@@ -165,12 +165,17 @@ func TestRequestsAreAnsweredInOrderAndTheInputEndingEndsTheServing(t *testing.T)
 		long + "\n" +
 		`{"id": 2, "op": "send", "chat": "bad", "message": {"text": "two"}}` + "\n" +
 		`{"id": 3, "op": "send", "chat": "5511900000000", "message": {"text": "three"}}` + "\n"
-	done := make(chan struct{})
-	go l.serveRequests(strings.NewReader(input), done)
+	done, returned := make(chan struct{}), make(chan struct{})
+	go func() { l.serveRequests(strings.NewReader(input), done); close(returned) }()
 	select {
-	case <-done:
+	case <-returned:
 	case <-time.After(5 * time.Second):
 		t.Fatal("did not end at the end of its input")
+	}
+	select {
+	case <-done:
+	default:
+		t.Fatal("done was not closed")
 	}
 	lines := out.lines()
 	if len(lines) != 3 || lines[0]["id"] != float64(1) || lines[0]["ok"] != true || lines[1]["id"] != float64(2) ||
@@ -193,5 +198,47 @@ func TestServingStopsAtTheEndOfInputEvenWithARequestInFlight(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("did not end")
+	}
+}
+
+type blockingSender struct {
+	started chan struct{}
+	fakeSender
+}
+
+func (b *blockingSender) SendText(ctx context.Context, to types.JID, text string) (string, error) {
+	close(b.started)
+	<-ctx.Done()
+	return "", ctx.Err()
+}
+
+func TestTheEndOfInputSignalsDoneAtOnceEvenWhileASendIsInFlight(t *testing.T) {
+	b := &blockingSender{started: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	out := &lockedBuffer{}
+	l := newListener(ctx, NewWriter(out), b, noResolver)
+	pr, pw := io.Pipe()
+	done := make(chan struct{})
+	returned := make(chan struct{})
+	go func() { l.serveRequests(pr, done); close(returned) }()
+	pw.Write([]byte(`{"id": 1, "op": "send", "chat": "5511900000000", "message": {"text": "x"}}` + "\n"))
+	<-b.started
+	for i := 2; i < 10; i++ { // more queued behind the one in flight
+		pw.Write([]byte(`{"id": ` + string(rune('0'+i)) + `, "op": "send", "chat": "5511900000000", "message": {"text": "y"}}` + "\n"))
+	}
+	pw.Close()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("done waited for the send worker")
+	}
+	cancel() // what cmdListen does next: the in-flight send fails, the queued ones are skipped
+	select {
+	case <-returned:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the worker did not stop after the cancel")
+	}
+	if n := len(out.lines()); n != 0 {
+		t.Fatalf("%d answers were written while stopping", n)
 	}
 }

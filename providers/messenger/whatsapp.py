@@ -68,7 +68,7 @@ GO_DIR = os.path.join(HERE, "whatsapp")
 STATE_ENV = "OPENHORA_STATE_DIR"
 LOCK = "messaging-{platform}.lock"
 FOLDER, BIN_FOLDER, BINARY, SESSION, BUILD_FILE = "whatsapp", "bin", "whatsapp-bridge", "session.db", "build.json"
-PHONE = re.compile(r"[1-9][0-9]{6,14}")
+PHONE = re.compile(r"[1-9][0-9]{5,14}")   # the same shape as phonePattern in the Go program
 # Removed from the environment of every Go command: they would switch off, or point elsewhere, the checks of the modules.
 GO_ENV_REMOVED = ("GOSUMDB", "GONOSUMDB", "GONOSUMCHECK", "GOPRIVATE", "GONOPROXY", "GOINSECURE", "GOFLAGS")
 GO_ENV_SET = {"GOENV": "off", "GOFLAGS": "-mod=readonly", "GOWORK": "off", "CGO_ENABLED": "0"}
@@ -234,6 +234,7 @@ def cmd_build(args):
         return EXIT_NOT_CONFIGURED
     env = go_environment()
     try:
+        before = sources_digest()
         version = run_go(go, ["version"], env, GO_DIR, 600)
         if version.returncode != 0:
             say("Go could not report its version (the toolchain download may have failed): " + tail(version.stderr))
@@ -251,6 +252,14 @@ def cmd_build(args):
     if built.returncode != 0:
         remove(temporary)
         say("go build failed: " + tail(built.stderr))
+        return EXIT_SERVICE
+    try:
+        changed = sources_digest() != before
+    except OSError:
+        changed = True
+    if changed:
+        remove(temporary)
+        say("the sources changed while Go was building; nothing was installed or recorded. Run build again")
         return EXIT_SERVICE
     try:
         os.chmod(temporary, 0o700)
@@ -372,6 +381,9 @@ def cmd_status(args):
 
 
 def cmd_whoami(args):
+    if not sys.stdout.isatty():
+        say("whoami prints phone numbers and so writes only to a terminal; run it in one, not into a pipe, a file or a log")
+        return EXIT_USAGE
     if not 1 <= args.seconds <= 600:
         say("--seconds is a number from 1 to 600")
         return EXIT_USAGE

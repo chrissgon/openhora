@@ -61,6 +61,11 @@ def install_program(state, body="#!/bin/sh\nexit 0\n", sources=None):
     return program
 
 
+def terminal(monkeypatch):
+    """Make the captured standard output look like a terminal (whoami writes only to one)."""
+    monkeypatch.setattr(type(sys.stdout), "isatty", lambda self: True)
+
+
 def run_main(argv, capsys):
     code = wa.main(argv)
     out = capsys.readouterr()
@@ -434,6 +439,7 @@ def test_pair_refuses_a_phone_that_is_not_digits_with_the_country_code(home, mon
 
 
 def test_pair_status_and_whoami_need_a_current_build(home, monkeypatch, capsys):
+    terminal(monkeypatch)
     call = Called()
     monkeypatch.setattr(wa.subprocess, "call", call)
     for argv in (["pair", "--phone", "5511900000000"], ["status"], ["whoami"]):
@@ -450,6 +456,7 @@ def test_status_runs_the_programs_status_with_the_session(home, monkeypatch, cap
 
 
 def test_whoami_passes_the_seconds_and_holds_the_platform_lock_while_it_runs(home, monkeypatch, capsys):
+    terminal(monkeypatch)
     program = install_program(home)
     held = {}
 
@@ -474,6 +481,7 @@ def test_whoami_passes_the_seconds_and_holds_the_platform_lock_while_it_runs(hom
 
 
 def test_whoami_refuses_while_a_bridge_holds_the_lock(home, monkeypatch, capsys):
+    terminal(monkeypatch)
     install_program(home)
     call = Called()
     monkeypatch.setattr(wa.subprocess, "call", call)
@@ -488,6 +496,7 @@ def test_whoami_refuses_while_a_bridge_holds_the_lock(home, monkeypatch, capsys)
 
 @pytest.mark.parametrize("seconds", ["0", "601", "-5"])
 def test_whoami_seconds_are_bounded(home, monkeypatch, capsys, seconds):
+    terminal(monkeypatch)
     install_program(home)
     call = Called()
     monkeypatch.setattr(wa.subprocess, "call", call)
@@ -519,3 +528,34 @@ def test_the_provider_script_never_names_a_go_sum_bypass():
     # the names appear only in the list of what is removed and in the documentation
     assert 'GO_ENV_REMOVED = ("GOSUMDB", "GONOSUMDB", "GONOSUMCHECK", "GOPRIVATE", "GONOPROXY", "GOINSECURE", "GOFLAGS")' in code
     assert "-insecure" not in text and "GOFLAGS=-mod=mod" not in text
+
+
+def test_whoami_refuses_when_its_output_is_not_a_terminal(home, monkeypatch, capsys):
+    install_program(home)
+    call = Called()
+    monkeypatch.setattr(wa.subprocess, "call", call)
+    code, out, err = run_main(["whoami"], capsys)   # captured output is not a terminal
+    assert code == 2 and out == "" and call.argv is None and "terminal" in err
+
+
+def test_build_refuses_to_record_when_the_sources_changed_while_it_ran(home, monkeypatch, capsys):
+    monkeypatch.setattr(wa.shutil, "which", lambda name: "/opt/go/bin/go")
+    fake = FakeGo()
+
+    def touching(argv, **kw):
+        done = fake(argv, **kw)
+        if argv[1] == "build":
+            main = Path(wa.GO_DIR) / "main.go"
+            main.write_text(main.read_text() + "\n// changed during the build\n")
+        return done
+    monkeypatch.setattr(wa.subprocess, "run", touching)
+    code, _, err = run_main(["build"], capsys)
+    assert code == 1 and "changed while Go was building" in err
+    assert not (home / "whatsapp" / "build.json").exists() and not (home / "whatsapp" / "bin" / "whatsapp-bridge").exists()
+    assert not list((home / "whatsapp" / "bin").iterdir())
+
+
+def test_the_phone_shape_is_the_go_programs_shape():
+    go = (GO_SOURCE / "send.go").read_text()
+    shape = re.search(r"phonePattern\s*= `\^(.+)\$`", go).group(1)
+    assert wa.PHONE.pattern == shape

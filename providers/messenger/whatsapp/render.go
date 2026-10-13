@@ -23,7 +23,7 @@ const (
 
 var (
 	headingRe = regexp.MustCompile(`^ {0,3}#{1,6}[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$`)
-	linkRe    = regexp.MustCompile(`!?\[([^\[\]]*)\]\([ \t]*<?([^()\s<>]+)>?(?:[ \t]+"[^"]*")?[ \t]*\)`)
+	linkRe    = regexp.MustCompile(`!?\[([^\[\]]*)\]\([ \t]*<?((?:[^()\s<>]|\([^()\s<>]*\))+)>?(?:[ \t]+"[^"]*")?[ \t]*\)`)
 	boldRe    = regexp.MustCompile(`\*\*([^\s*](?:[^\n]*?[^\s*])??)\*\*`)
 	strikeRe  = regexp.MustCompile(`~~([^\s~](?:[^\n]*?[^\s~])??)~~`)
 )
@@ -151,12 +151,72 @@ func closingRun(line string, from, n int) int {
 	return -1
 }
 
-// cutRendered keeps the rendered text within the limit of runes, ending with the note that the rest is on the page.
+// cutRendered keeps the rendered text within the limit of runes, ending with the note that the rest is on the page. It cuts
+// at a line boundary, so a code span (one line) is never cut; a fenced block that would be cut is closed, so the rest of the
+// message does not turn into code. Only a single line longer than the limit is cut inside the line, and then before any
+// code span that the cut would have split.
 func cutRendered(s string) string {
 	if utf8.RuneCountInString(s) <= renderLimit {
 		return s
 	}
 	note := "\n" + cutNote
-	keep := []rune(s)[:renderLimit-utf8.RuneCountInString(note)]
-	return strings.TrimRight(string(keep), " \t\n") + note
+	closer := "\n```"
+	noteRunes, closerRunes := utf8.RuneCountInString(note), utf8.RuneCountInString(closer)
+	lines := strings.Split(s, "\n")
+	used, kept, inFence, keptFence := 0, 0, false, false
+	for i, line := range lines {
+		add := utf8.RuneCountInString(line)
+		if i > 0 {
+			add++
+		}
+		fence := inFence
+		if inFence && strings.TrimSpace(line) == "```" {
+			fence = false
+		} else if !inFence && opensFence(line) {
+			fence = true
+		}
+		need := used + add + noteRunes
+		if fence {
+			need += closerRunes
+		}
+		if need > renderLimit {
+			break
+		}
+		used, kept, inFence, keptFence = used+add, i+1, fence, fence
+	}
+	if kept == 0 {
+		first := lines[0]
+		room := renderLimit - noteRunes
+		cut := len(string([]rune(first)[:room]))
+		cut = beforeSpan(first, cut)
+		return strings.TrimRight(first[:cut], " \t") + note
+	}
+	out := strings.Join(lines[:kept], "\n")
+	if keptFence {
+		out += closer
+	}
+	return out + note
+}
+
+// beforeSpan moves a cut position (a byte index) back to the start of the code span that contains it, if any.
+func beforeSpan(line string, cut int) int {
+	for i := 0; i < len(line); {
+		if line[i] != '`' {
+			i++
+			continue
+		}
+		n := 0
+		for i+n < len(line) && line[i+n] == '`' {
+			n++
+		}
+		if end := closingRun(line, i+n, n); end >= 0 {
+			if i < cut && cut < end {
+				return i
+			}
+			i = end
+			continue
+		}
+		i += n
+	}
+	return cut
 }
