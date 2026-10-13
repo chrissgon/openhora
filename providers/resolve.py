@@ -388,6 +388,26 @@ def call(cls: str, verb, args, *, root=None, implementation=None, platform=None,
     return invoke(path, verb, args, config=config, timeout=timeout, env=env, run=run)
 
 
+def start(cls: str, verb: str, args, *, root=None, implementation=None, platform=None, env=None):
+    """Start a provider's long-lived verb and return the running `subprocess.Popen` (a messenger's `listen`,
+    providers/messenger/README.md). The class is resolved and the interpreter chosen exactly as `call` does. The child
+    has binary standard input, output and error pipes (the caller owns all three), its own session (so a signal to its
+    process group reaches what it started and nothing else), and no file descriptor of this process. `env`, when given,
+    is the whole environment of the child. Nothing is read or written here and no credential is passed: a provider reads
+    its own. Raises ProviderCallError: "not-configured" when the class does not resolve, "failed" when it cannot start.
+    `platform` is the operating system (see resolve), not the messenger's platform: that one goes in `args`."""
+    try:
+        path = resolve(cls, root=root, env=env, platform=platform, implementation=implementation)["path"]
+    except (UnknownClass, Unresolved) as e:
+        raise ProviderCallError("not-configured", str(e)) from None
+    argv = interpreter_for(path) + [str(path), verb] + [str(a) for a in args]
+    try:
+        return subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=False,
+                                start_new_session=True, close_fds=True, env=env)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise ProviderCallError("failed", f"the provider could not be run: {type(e).__name__}") from None
+
+
 def listing(root=None, env=None, platform=None) -> dict:
     rows = []
     for cls in LISTED:

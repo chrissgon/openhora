@@ -35,7 +35,7 @@ same store (`providers/store/sqlite.py`): the tables of this one are migrations 
 | `messaging_cards.py` | A pending decision as a platform-neutral card (header, body, actions, link, document), fitted to the platform's capabilities; pure |
 | `messaging_inbound.py` | An update of a messenger provider as an intent (a tap, `/approve`, a reply, free text); pure |
 | `messaging_ledger.py` | What the bridge sent, `messaging-<platform>.json` in the per-user state folder (`~/.local/state/openhora/`, 0700 and checked), mode 0600, no text of a project; the state folder's checks and the one lock per platform (`messaging-<platform>.lock`, exit 4 for a second bridge); the one-time migration from the data folder |
-| `messaging_provider.py` | The verbs of a `messenger:<platform>` provider, through `providers/resolve.py` |
+| `messaging_provider.py` | The verbs of a `messenger:<platform>` provider, through `providers/resolve.py`; for a provider that listens, the long-lived session (`ListenSession`) |
 | `flow_files.py` | Reads and checks a flow file, `flows/<name>.json`: the tasks of a flow and their written dependencies |
 | `skill_meta.py` | What a skill declares in its frontmatter, read for the runtime |
 | `path_rule.py` | The path rule: the class of one path a run left (state, machine, document, versioned, ignored, other) |

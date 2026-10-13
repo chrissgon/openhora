@@ -21,6 +21,35 @@ JSON on stdout, diagnostics on stderr, input by flags or files, never a prompt, 
 
 `send` has no `--confirmed` and no idempotency key, which `providers/CONTRACT.md` asks of other verbs that send: the bridge is the only caller, sends only to a chat of the project's accepted `messaging.senders` list, and keeps its own record (the ledger of `runtime/messaging_ledger.py`) of what it sent.
 
+## The listen mode
+
+Some platforms cannot be served one process per verb: a gateway that must stay connected (it delivers button taps only on its open connection, and limits how often a client may connect), or a client that holds one live session that both receives and sends. A provider of such a platform declares `"listen": true` in `capabilities` (absent means false; Telegram leaves it out) and implements a fifth subcommand, `listen --platform <p>`. The bridge starts it once (`providers/resolve.py` `start`) and keeps it; it still reads `capabilities` first, through the ordinary one-shot verb. `receive`, `send` and `ack` are never called on it: `receive`'s offsets do not apply (the provider resumes on its own after a restart), and there is no `ack`.
+
+The process runs until its standard input ends or it receives SIGTERM, and it must exit **within 5 seconds of the end of its standard input**: it runs in a session of its own, so the kill of the bridge never reaches it, and the end of its stdin is what stops it. Protocol: JSON lines on binary standard input and output, one object per line, UTF-8, written with `json.dumps(..., ensure_ascii=True)` and a newline, flushed after every line, at most 1 MiB per line (a longer line is dropped by the reader).
+
+| The bridge writes (stdin) | |
+|---|---|
+| `{"id": <int>, "op": "send", "chat": <str>, "message": <the neutral message>}` | ids count up across restarts; the provider answers each |
+
+| The provider writes (stdout) | |
+|---|---|
+| `{"event": "ready"}` | once connected; the bridge sends nothing before it, and accepts it again after a reconnect the provider made itself. Not within 180 s of the start counts as a crash |
+| `{"event": "update", "update": {...}}` | the shape of one element of `receive`'s `updates`; `private` is true, `sender` and `chat` are non-empty strings, `text`, `action` and `reply_to` are a string or null. A tapped button is acknowledged **by the provider, at once, before it emits the update**, which carries `action_ref: null` (the bridge writes nothing back for a tap). An update that is not valid is dropped and logged by class |
+| `{"id": <int>, "ok": true, "message_id": <str>}` | the answer to a send |
+| `{"id": <int>, "ok": false, "kind": "usage" \| "not-configured" \| "failed", "reason": <str>}` | a send that failed; the reason is redacted |
+| `{"event": "error", "kind": "usage" \| "not-configured" \| "failed", "reason": <str>}` | a connection problem it is retrying itself, or, before exit 2 or 3, the reason the bridge shows |
+
+Nothing else is ever written to stdout. Diagnostics go to stderr, never a token, a message text or a sender id; the bridge keeps only the last 300 characters of stderr and uses them only when no error event gave a reason; that tail, like an error event's reason, may be shown to the person after the repository's credential redaction (`scripts/redact.py`), so write nothing there you would not want shown. Exit codes as for every verb: 3 not configured (no token or session, a credential refused), 2 usage, 1 anything else. Exit 2 or 3 stops the bridge with the reason of the last error event; any other exit is started again after a backoff (1, 2, 4 ... up to 300 s, and at most 200 starts per 24 hours for each bridge process, after which the bridge stops: a platform may reset a credential that connects too often).
+
+Rules for an implementation:
+
+- At the start, duplicate fd 1 for the protocol and point fd 1 at stderr (`os.dup2(2, 1)`), so that a library's `print` cannot corrupt a line. Flush after every line. Never call `setsid`: the bridge already started the process in its own session and stops it by that group.
+- Interactive pairing (a QR code, a pairing code) is a separate verb the person runs in a terminal, never inside `listen`. `listen` without a session, or after a logout, writes the error event with a sentence that names the pairing command and exits 3.
+- **Delivery is at least once.** A send in flight when the provider dies fails; the card is sent again after the next `ready`, and the first copy, if it was delivered, has buttons the ledger has no record of, which answer the stale-button sentence.
+- Stdout carries the protocol and nothing else, in either direction; a provider treats a line from the bridge that it cannot parse as a usage error of that request.
+
+The stand-in used by the tests is `runtime/tests/fixtures/messenger_listen_standin.py`.
+
 ## Adding a platform
 
 Add one file, `providers/messenger/<impl>.py`, that declares `PLATFORMS` and implements the four subcommands as above, and register its credential in `providers/secrets/resolver.py` and `contracts/secrets.md`. Nothing in the bridge changes: the platform's name goes in `runtime.json` (`messaging.senders.<platform>`) and on the bridge's `--platform` flag. Tests are offline, in `providers/messenger/tests/`, with the network patched out.

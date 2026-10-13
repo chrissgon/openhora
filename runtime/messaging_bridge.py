@@ -415,23 +415,51 @@ class Bridge(shell_kit.Jobs):
 
     # --- the loop --------------------------------------------------------------------------------------------
 
+    def handle_safely(self, update: dict) -> None:
+        try:
+            self.handle(update)
+        except Fatal:
+            raise
+        except Exception:  # one update never ends the bridge; the class says what failed, never the content
+            self.log("an update failed: " + traceback.format_exc().strip().splitlines()[-1].split(":")[0])
+
     def poll_once(self, timeout: int) -> int:
         """One receive and the handling of what it returned. Returns the number of updates handled."""
         found = self.messenger.receive(self.ledger.offset, timeout)
         for update in found["updates"]:
-            try:
-                self.handle(update)
-            except Fatal:
-                raise
-            except Exception:  # one update never ends the bridge; the class says what failed, never the content
-                self.log("an update failed: " + traceback.format_exc().strip().splitlines()[-1].split(":")[0])
+            self.handle_safely(update)
         try:
             self.ledger.set_offset(found["next_offset"])
         except OSError as e:
             self.log(f"the ledger could not be written ({e.__class__.__name__})")
         return len(found["updates"])
 
+    def listen_loop(self, stop: threading.Event, notice_every: float, session, poll: int = POLL_SECONDS) -> None:
+        """The loop for a provider that listens: updates arrive from the session, never by receive, and the ledger's offset
+        is not touched. Notices wait until the provider is ready (a card is never sent to one that is not) and are looked
+        at again at once when it becomes ready, so a card that failed to go out is sent after a restart."""
+        due, seen = 0.0, 0
+        while not stop.is_set():
+            if session.fatal:
+                raise Fatal(session.fatal)
+            if session.generation != seen:
+                seen, due = session.generation, 0.0
+            now = time.monotonic()
+            if now >= due and session.is_ready():
+                try:
+                    self.tick()
+                except provider.MessengerError as e:
+                    self.log(f"a notice could not be sent ({e.kind})")
+                due = time.monotonic() + notice_every
+            wait = min(poll, 1.0, max(0.0, due - time.monotonic())) if session.is_ready() else min(poll, 1.0)
+            update = session.next_update(max(wait, 0.05))
+            if update is not None:
+                self.handle_safely(update)
+
     def serve_loop(self, stop: threading.Event, notice_every: float, poll: int = POLL_SECONDS) -> None:
+        session = getattr(self.messenger, "session", None)
+        if session is not None:
+            return self.listen_loop(stop, notice_every, session, poll)
         due = 0.0
         while not stop.is_set():
             now = time.monotonic()
