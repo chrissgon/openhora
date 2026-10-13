@@ -18,23 +18,3 @@ def _loopback_site(tmp_path_factory):
 @pytest.fixture(autouse=True)
 def _loopback_only(monkeypatch, _loopback_site):
     loopback_only.guard(monkeypatch, _loopback_site)
-
-
-@pytest.fixture(autouse=True)
-def _no_real_secret_store_or_state(monkeypatch, tmp_path):
-    """No test of this suite can reach the OS secret store, even where the keyring library is installed, nor the person's state
-    folder: the null keyring backend (for this process and any child it starts) and a temporary OPENHORA_STATE_DIR. A test that
-    needs another state folder sets its own after this fixture."""
-    monkeypatch.setenv("PYTHON_KEYRING_BACKEND", "keyring.backends.null.Keyring")
-    monkeypatch.setenv("OPENHORA_STATE_DIR", str(tmp_path / "isolated-state"))
-    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
-    try:
-        import keyring
-        from keyring.backends import null
-        previous = keyring.get_keyring()
-        keyring.set_keyring(null.Keyring())
-    except Exception:  # no keyring library here: nothing to isolate
-        yield
-        return
-    yield
-    keyring.set_keyring(previous)
