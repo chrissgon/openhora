@@ -445,6 +445,18 @@ def test_whatsapp_cloud_is_a_platform_of_its_own_served_by_a_file_with_a_hyphen_
     assert "whatsapp-cloud" not in resolve.served_platforms("messenger:<platform>", "whatsapp", env={})
 
 
+def test_whatsapp_twilio_is_a_third_whatsapp_platform_and_the_shared_module_is_no_implementation():   # MSG-9
+    assert resolve.variables("messenger:whatsapp-twilio") == ["MESSENGER_WHATSAPP_TWILIO_PROVIDER", "MESSENGER_PROVIDER"]
+    got = resolve.resolve("messenger:whatsapp-twilio", env={})
+    assert got["implementation"] == "whatsapp-twilio" and got["path"] == str(REPO / "providers" / "messenger" / "whatsapp-twilio.py")
+    assert resolve.served_platforms("messenger:<platform>", "whatsapp-twilio", env={}) == ["whatsapp-twilio"]
+    assert resolve.resolve("messenger:whatsapp-cloud", env={})["implementation"] == "whatsapp-cloud"   # none shadows another
+    for other in ("whatsapp", "whatsapp-cloud", "telegram"):
+        assert "whatsapp-twilio" not in resolve.served_platforms("messenger:<platform>", other, env={})
+    # a file whose name has an underscore is a module the providers load, never an implementation (providers/resolve.py)
+    assert "whatsapp_meta" not in resolve.implementations("messenger:<platform>", env={})
+
+
 # --- starting a long-lived verb (resolve.start) ----------------------------------------------------------------
 
 LONG_LIVED = '''# /// script
