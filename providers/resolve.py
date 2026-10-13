@@ -321,13 +321,17 @@ class ProviderCallError(Exception):
 
 def interpreter_for(path) -> list:
     """The command that starts the provider script at `path`: this interpreter when its header declares
-    `# dependencies = []` (nothing to install), else `uv run`, which installs what the header pins."""
+    `# dependencies = []` (nothing to install), else `uv run`, which installs what the header pins. When a lockfile
+    `<script>.lock` sits next to the script (`uv lock --script`), `uv run --locked`: uv installs only the locked,
+    hash-checked files, and refuses to start when the header and the lock disagree instead of resolving anew."""
     try:
         with open(path, encoding="utf-8") as f:
             header = f.read(HEADER_BYTES)
     except OSError as e:
         raise ProviderCallError("not-configured", f"{path}: {e.strerror}") from None
-    return [sys.executable] if NO_DEPENDENCIES.search(header) else ["uv", "run"]
+    if NO_DEPENDENCIES.search(header):
+        return [sys.executable]
+    return ["uv", "run", "--locked"] if os.path.isfile(f"{path}.lock") else ["uv", "run"]
 
 
 def _run(argv, timeout, env):
