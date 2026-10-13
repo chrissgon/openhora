@@ -22,8 +22,11 @@ Verbs (JSON on stdout, diagnostics on stderr, input by flags or files, no prompt
   --check --platform telegram         verify the token with getMe; exit 0 ready, 3 not configured
 
 The message file is the neutral message {"text", "actions": [{"id", "label"}], "link": {"label", "url"} | null,
-"document": {"name", "text"} | null}. The text is sent as plain text: no parse mode is ever set, so nothing a project
-wrote is read as markup. An action becomes a row of the inline keyboard whose button carries the action id as
+"document": {"name", "text"} | null}. The text is Markdown, as the agents write it. It is sent in Telegram's HTML parse
+mode after render_html: everything is escaped first, so nothing a project wrote can open a tag, and only a small
+subset of marks is turned into the tags b, s, code, pre and blockquote (see render_html). Link previews are off on
+every message. When Telegram answers 400 "can't parse entities", the same message is sent once more as plain text,
+with the same keyboard. An action becomes a row of the inline keyboard whose button carries the action id as
 `callback_data`; a link becomes a last row with a URL button. A document is sent after the message, as a reply to it,
 so that the message id this verb prints is the one of the message a person replies to. The verb refuses (exit 2) a
 message beyond the capabilities it prints: the bridge reads them first and never sends one.
@@ -32,7 +35,8 @@ The bot's token is the secret MESSENGER_TELEGRAM_BOT_TOKEN, read only through pr
 environment, else the OS secret store, username messenger-telegram). Telegram carries the token in the request path,
 so every error is built from the exception's class, the HTTP status and the service's own description, with the
 token and anything shaped like one removed; the token is in no argument, no log, no stdout and no traceback. No
-redirect is followed. A request has a timeout. A verb never retries.
+redirect is followed. A request has a timeout. A verb never retries a call; the one exception is the plain resend of a text Telegram refused to parse, a second
+call made on purpose.
 
 Environment:
   MESSENGER_TELEGRAM_BOT_TOKEN        the bot's token (never printed)
@@ -47,6 +51,8 @@ has no exit 4, see providers/CONTRACT.md).
 from __future__ import annotations
 
 import argparse
+import html
+import html.parser
 import importlib.util
 import json
 import os
@@ -86,6 +92,14 @@ class ProviderError(Exception):
     def __init__(self, message: str, code: int = EXIT_SERVICE):
         super().__init__(message)
         self.code = code
+
+
+class HttpError(ProviderError):
+    """A ProviderError that keeps the HTTP status and the service's description (already redacted and cut)."""
+
+    def __init__(self, message: str, code: int, status: int, description: str):
+        super().__init__(message, code)
+        self.status, self.description = status, description
 
 
 def redact(text, token: str = "") -> str:
@@ -183,11 +197,12 @@ def _http_error(method: str, error, token: str) -> ProviderError:
     if status == 409 and method == "getUpdates":
         said = description.lower()
         if "terminated" in said and "getupdates" in said and "webhook" not in said:  # another getUpdates request took the stream
-            return ProviderError(f"Telegram answered 409: {CONFLICT_SENTENCE}", EXIT_NOT_CONFIGURED)
-        return ProviderError(f"Telegram answered 409: {WEBHOOK_SENTENCE}", EXIT_NOT_CONFIGURED)  # a 409 matching neither text keeps this sentence (old behaviour)
+            return HttpError(f"Telegram answered 409: {CONFLICT_SENTENCE}", EXIT_NOT_CONFIGURED, status, description)
+        return HttpError(f"Telegram answered 409: {WEBHOOK_SENTENCE}", EXIT_NOT_CONFIGURED, status, description)  # a 409 matching neither text keeps this sentence (old behaviour)
     if status in (401, 404):
-        return ProviderError(f"Telegram refused the bot token ({status}): store a valid one", EXIT_NOT_CONFIGURED)
-    return ProviderError(f"Telegram {method} answered {status}" + (f": {description}" if description else ""), EXIT_SERVICE)
+        return HttpError(f"Telegram refused the bot token ({status}): store a valid one", EXIT_NOT_CONFIGURED, status, description)
+    return HttpError(f"Telegram {method} answered {status}" + (f": {description}" if description else ""), EXIT_SERVICE,
+                     status, description)
 
 
 def _text(value) -> str | None:
@@ -288,15 +303,207 @@ def multipart(fields: dict, name: str, text: str) -> tuple:
     return b"".join(parts), f"multipart/form-data; boundary={boundary}"
 
 
+# --- Markdown to Telegram's HTML parse mode ---------------------------------------------------------------------------
+# The project's text is never trusted: every character that reaches the output passes html.escape, and the only tags
+# are the ones this code writes: b, s, code, pre, blockquote. Single-mark italics (*x*, _x_) are not rendered: paths,
+# globs, dunders and snake_case are common in the agents' text, and a command built with shlex.quote leaves _ and *.
+FENCE_OPEN = re.compile(r"\s*```[\w+.-]*\s*")
+FENCE_CLOSE = re.compile(r"\s*```\s*")
+HEADING = re.compile(r"(#{1,6})[ \t]+(\S.*)")
+BULLET = re.compile(r"(\s*)[-*] (.*)")
+LINK = re.compile(r"\[([^\[\]\n]+)\]\(([^()\s]+)\)")
+MARKS = {"**": "b", "~~": "s"}
+ALLOWED_TAGS = ("b", "s", "code", "pre", "blockquote")
+
+
+def _esc(text: str) -> str:
+    return html.escape(text, quote=False)
+
+
+def _split_code(text: str) -> list:
+    """The line as [("text", s) | ("code", s)]: a run of n backticks opens a span that the next run of exactly n closes."""
+    out, buf, i, n = [], [], 0, len(text)
+    while i < n:
+        if text[i] != "`":
+            buf.append(text[i])
+            i += 1
+            continue
+        j = i
+        while j < n and text[j] == "`":
+            j += 1
+        run = j - i
+        k = j
+        close = -1
+        while k < n:
+            if text[k] != "`":
+                k += 1
+                continue
+            m = k
+            while m < n and text[m] == "`":
+                m += 1
+            if m - k == run:
+                close = k
+                break
+            k = m
+        if close > j:
+            if buf:
+                out.append(("text", "".join(buf)))
+                buf = []
+            content = text[j:close]
+            if len(content) > 2 and content[0] == " " and content[-1] == " " and content.strip():
+                content = content[1:-1]  # CommonMark: one padding space at each end is not part of the code
+            out.append(("code", content))
+            i = close + run
+        else:
+            buf.append(text[i:j])
+            i = j
+    if buf:
+        out.append(("text", "".join(buf)))
+    return out
+
+
+def _opens(text: str, i: int) -> bool:
+    before = text[i - 1] if i else " "
+    after = text[i + 2] if i + 2 < len(text) else " "
+    return (before.isspace() or before == "(") and not after.isspace()
+
+
+def _closer(text: str, mark: str, start: int) -> int:
+    """The index of the mark that closes one opened before `start`, or -1: content before it ends in a non-space and
+    it is followed by the end of the line, a space or punctuation."""
+    k = text.find(mark, start + 1)
+    while k != -1:
+        after = text[k + 2] if k + 2 < len(text) else " "
+        if k > start and not text[k - 1].isspace() and not (after.isalnum() or after == "_"):
+            return k
+        k = text.find(mark, k + 1)
+    return -1
+
+
+def _marks(text: str, allow: tuple) -> str:
+    """Bold, strike and links on text that holds no code span. One pass; a mark with no closer, or that would cross
+    another, stays literal."""
+    out, i = [], 0
+    while i < len(text):
+        two = text[i:i + 2]
+        tag = MARKS.get(two)
+        if tag and tag in allow and _opens(text, i):
+            k = _closer(text, two, i + 2)
+            if k != -1:
+                out.append(f"<{tag}>" + _marks(text[i + 2:k], tuple(t for t in allow if t != tag)) + f"</{tag}>")
+                i = k + 2
+                continue
+        if text[i] == "[":
+            found = LINK.match(text, i)
+            if found:
+                out.append(_esc(f"{found.group(1)} ({found.group(2)})"))
+                i = found.end()
+                continue
+        out.append(_esc(text[i]))
+        i += 1
+    return "".join(out)
+
+
+def _inline(text: str) -> str:
+    return "".join(f"<code>{_esc(s)}</code>" if kind == "code" else _marks(s, ("b", "s")) for kind, s in _split_code(text))
+
+
+def _heading(text: str) -> str:
+    """A heading is bold; a code span inside it is closed out of the bold, since a code span cannot sit inside a mark."""
+    out = []
+    for kind, s in _split_code(text):
+        if kind == "code":
+            out.append(f"<code>{_esc(s)}</code>")
+        elif s.strip():
+            s = re.sub(r"\*\*(?=\S)(.+?)(?<=\S)\*\*", r"\1", s)  # a heading is bold already: its **x** pairs lose the marks
+            out.append("<b>" + _marks(s, ("s",)) + "</b>")
+        else:
+            out.append(_esc(s))
+    return "".join(out)
+
+
+def _line(line: str) -> str:
+    found = HEADING.fullmatch(line)
+    if found:
+        return _heading(found.group(2))
+    found = BULLET.fullmatch(line)
+    if found:
+        return found.group(1) + "• " + _inline(found.group(2))
+    return _inline(line)
+
+
+def _quoted(line: str):
+    """The text of a `> ` line, or None when the line is not a quote line with something in it."""
+    if line.startswith("> ") and line[2:].strip():
+        return line[2:]
+    return None
+
+
+def render_html(markdown: str) -> str:
+    """Telegram HTML for a Markdown message. CRLF and CR are one newline. Fenced blocks (a fence that never closes is
+    ordinary text), runs of table lines and runs of `> ` lines are found on the raw text; a fence and a table become
+    <pre> with their content escaped and not read; everything else is escaped as it is written out. Headings are bold,
+    `- ` and `* ` bullets become a dot (the indent stays), **x** is bold, ~~x~~ strike, `x` code, and [t](u) is the
+    text `t (u)`: a link is never an <a>. The output is never longer, once its tags are removed, than the input."""
+    lines = markdown.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    out, i = [], 0
+    while i < len(lines):
+        line = lines[i]
+        if FENCE_OPEN.fullmatch(line):
+            end = next((j for j in range(i + 1, len(lines)) if FENCE_CLOSE.fullmatch(lines[j])), -1)
+            if end != -1:
+                out.append("<pre>" + _esc("\n".join(lines[i + 1:end])) + "</pre>")
+                i = end + 1
+                continue
+        if line.lstrip().startswith("|"):
+            j = i
+            while j < len(lines) and lines[j].lstrip().startswith("|"):
+                j += 1
+            out.append("<pre>" + _esc("\n".join(lines[i:j])) + "</pre>")
+            i = j
+            continue
+        if _quoted(line) is not None:
+            j, run = i, []
+            while j < len(lines) and _quoted(lines[j]) is not None:
+                run.append(_line(_quoted(lines[j])))
+                j += 1
+            out.append("<blockquote>" + "\n".join(run) + "</blockquote>")
+            i = j
+            continue
+        out.append(_line(line))
+        i += 1
+    return "\n".join(out)
+
+
+def visible_text(rendered: str) -> str:
+    """What a person sees of rendered HTML: the tags removed and the entities read."""
+    return html.unescape(re.sub(r"<[^>]*>", "", rendered))
+
+
+def _is_parse_refusal(error) -> bool:
+    return isinstance(error, HttpError) and error.status == 400 and "can't parse entities" in error.description.lower()
+
+
 def send(chat: str, message: dict, token: str, base: str) -> dict:
     if not CHAT_ID.fullmatch(chat):
         raise ProviderError("--chat is a Telegram chat id: whole digits, with a leading minus for a group", EXIT_USAGE)
     message = check_message(message)
-    fields = {"chat_id": int(chat), "text": message["text"]}  # no parse_mode: the text is plain text
+    fields = {"chat_id": int(chat), "text": message["text"], "link_preview_options": {"is_disabled": True}}
     markup = keyboard(message)
     if markup:
         fields["reply_markup"] = markup
-    sent = call("sendMessage", fields, token, base, SEND_TIMEOUT_SECONDS)
+    rendered = render_html(message["text"])
+    if visible_text(rendered).strip():  # a text with nothing to show once rendered (an empty fence) goes out plain
+        formatted = dict(fields, text=rendered, parse_mode="HTML")
+        try:
+            sent = call("sendMessage", formatted, token, base, SEND_TIMEOUT_SECONDS)
+        except ProviderError as e:
+            if not _is_parse_refusal(e):
+                raise
+            print("Telegram refused the formatted text; sent as plain text", file=sys.stderr)
+            sent = call("sendMessage", fields, token, base, SEND_TIMEOUT_SECONDS)
+    else:
+        sent = call("sendMessage", fields, token, base, SEND_TIMEOUT_SECONDS)
     if not isinstance(sent, dict) or not isinstance(sent.get("message_id"), int):
         raise ProviderError("Telegram sendMessage: the result had no message id", EXIT_SERVICE)
     document = message.get("document")

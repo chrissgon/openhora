@@ -103,7 +103,7 @@ def test_receive_maps_a_message_and_a_callback_query_and_skips_the_rest(monkeypa
     assert timeout > 20
 
 
-def test_send_builds_the_inline_keyboard_and_a_url_button_as_plain_text(monkeypatch, capsys, tmp_path):
+def test_send_builds_the_inline_keyboard_and_a_url_button_and_escapes_the_text(monkeypatch, capsys, tmp_path):
     opener = Opener({"message_id": 77})
     path = message_file(tmp_path, text="<b>not markup</b> *x*", actions=[{"id": "7:approve", "label": "Approve"},
                                                                          {"id": "7:reject", "label": "Reject"}],
@@ -112,8 +112,9 @@ def test_send_builds_the_inline_keyboard_and_a_url_button_as_plain_text(monkeypa
     assert code == 0 and json.loads(out) == {"message_id": "77"}
     url, body, _, _ = opener.requests[0]
     sent = json.loads(body)
-    assert url.endswith("/sendMessage") and sent["chat_id"] == 4242 and "parse_mode" not in sent
-    assert sent["text"] == "<b>not markup</b> *x*"
+    assert url.endswith("/sendMessage") and sent["chat_id"] == 4242 and sent["parse_mode"] == "HTML"
+    assert sent["link_preview_options"] == {"is_disabled": True}
+    assert sent["text"] == "&lt;b&gt;not markup&lt;/b&gt; *x*"
     assert sent["reply_markup"] == {"inline_keyboard": [[{"text": "Approve", "callback_data": "7:approve"}],
                                                         [{"text": "Reject", "callback_data": "7:reject"}],
                                                         [{"text": "Open the page", "url": "https://page.example/x"}]]}
@@ -207,7 +208,7 @@ def test_no_token_is_exit_3_and_another_platform_is_exit_2(monkeypatch, capsys):
 
 def test_the_platforms_line_is_the_one_the_resolver_reads_and_the_token_is_never_an_argument():
     text = SCRIPT.read_text()
-    assert 'PLATFORMS = ("telegram",)' in text and '"parse_mode"' not in text
+    assert 'PLATFORMS = ("telegram",)' in text and 'parse_mode="HTML"' in text
     assert "--token" not in text
 
 
