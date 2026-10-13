@@ -167,7 +167,7 @@ def test_no_kept_range_is_shorter_than_four_tenths_of_a_second():
     w = words([(1.0, 1.1), (3.0, 3.5)])
     kept = T.kept_ranges(w, 4.0, FPS, silences=[(0.0, 1.0), (1.1, 2.9), (3.6, 4.0)])
     assert all((b - a) / FPS >= 0.4 - 1e-9 for a, b in kept) and len(kept) == 2
-    assert kept[0][0] == 0                                               # the short word joined its neighbour across the shorter cut
+    assert kept[0][0] < 27                                               # the short range took the frames it lacked from the shorter cut
     # a range with no word in it is cut, never joined
     kept = T.kept_ranges(words([(1.0, 1.5)]), 4.0, FPS, silences=[(0.0, 0.9), (1.6, 3.8)])
     assert all((b - a) / FPS >= 0.4 - 1e-9 for a, b in kept)
@@ -369,3 +369,24 @@ def test_a_soft_first_word_that_silence_covers_still_sets_where_a_range_after_a_
     assert [w["text"] for w in T.real_words(words, sil)] == ["end.", "example,", "we"]      # "Por" is a phantom to the cut planner ...
     kept = T.kept_ranges(words, 110.0, FPS, sil)
     assert kept[1][0] / FPS == pytest.approx(105.66 - 0.10, abs=0.04)                      # ... and still keeps its attack
+
+
+def test_a_range_a_few_frames_short_takes_them_from_the_shorter_cut_and_no_long_cut_is_given_up():
+    words = [lw(0, "x", 20.0, 20.05)]
+    kept = T.kept_ranges(words, 40.0, FPS, [(0.0, 19.99), (20.06, 40.0)], long_cut=0)      # two cuts of about 20 s around a 0.3 s range
+    assert len(kept) == 1 and kept[0][1] - kept[0][0] == 12                                 # 0.4 s: the missing frames came from a cut, which stays
+    assert kept[0][0] / FPS > 19.0 and kept[0][1] / FPS < 21.0
+
+
+def test_the_first_word_after_a_long_cut_is_not_cut_by_the_next_cut():
+    words = [lw(0, "end.", 88.5, 89.3), lw(1, "Por", 105.66, 105.83), lw(2, "example,", 105.83, 106.34), lw(3, "we", 106.34, 106.62)]
+    sil = [(0.0, 88.4), (89.45, 104.735), (105.255, 105.539), (105.577, 106.001), (106.9, 110.0)]       # the soft word sits in a silence the detector found
+    kept = T.kept_ranges(words, 110.0, FPS, sil)
+    assert kept[1][0] / FPS == pytest.approx(105.66 - 0.10, abs=0.04) and kept[1][1] / FPS > 106.5
+
+
+def test_touching_silences_are_one_silence():
+    words = [lw(0, "a", 3.0, 3.4)]
+    one = T.kept_ranges(words, 6.0, FPS, [(0.0, 1.5), (1.5, 2.0), (4.0, 6.0)])
+    split = T.kept_ranges(words, 6.0, FPS, [(0.0, 2.0), (4.0, 6.0)])
+    assert one == split and one[0][0] / FPS == pytest.approx(1.9, abs=0.04)

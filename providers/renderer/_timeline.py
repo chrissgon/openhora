@@ -205,9 +205,13 @@ def trim_wordless(cuts: list, words: list, fps: int, pad_head: float, pad_tail: 
         after = c[1] / fps                       # the kept range that starts here
         first = next((w for w in words if w["end"] > after), None)
         if first is not None and first["start"] >= after and first["start"] - after > wordless_max:
-            nxt = next((o for o in out if o[0] >= c[1]), None)
-            if nxt is None or first["start"] < nxt[0] / fps:
-                c[1] = max(c[1], int(math.floor((first["start"] - pad_head) * fps + 1e-6)))
+            new_end = int(math.floor((first["start"] - pad_head) * fps + 1e-6))
+            if new_end > c[1]:
+                c[1] = new_end
+                guard = int(math.ceil((first["end"] + WORD_GUARD) * fps - 1e-6))      # the word is not cut by the next cut either
+                for o in out:
+                    if o is not c and o[0] >= c[0] and o[0] < guard:
+                        o[0] = min(o[1], guard)
         before = c[0] / fps                      # the kept range that ends here
         last = None
         for w in words:
@@ -233,7 +237,8 @@ def kept_ranges(words: list, duration: float, fps: int, silences=None, pad_head:
     (the takes the person confirmed as retakes). A cut shorter than `min_cut` is not made; a cut of `long_cut` seconds or more also
     takes the wordless sound of more than `wordless_max` seconds at its edges (trim_wordless). A kept range that holds no transcribed word and
     is shorter than `wordless_keep` seconds is not speech (the speaker moving, a cough, a breath): it is cut. One that holds a word
-    and is shorter than `min_kept` is joined to its neighbour across the shorter cut (the cut is given up) so that nothing flickers;
+    and is shorter than `min_kept` takes the missing frames from the shorter neighbouring cut (a cut left shorter than `min_cut` is given
+    up and the range joined across it), so that nothing flickers;
     a range between two forced cuts stays as it is."""
     if not words:
         raise Refusal("no_words")
@@ -248,7 +253,13 @@ def kept_ranges(words: list, duration: float, fps: int, silences=None, pad_head:
         base = [r for r in regions if r[1] > r[0]]
     else:
         base = []
-        for s, e in silences:
+        joined = []
+        for s, e in sorted(silences):                 # silencedetect splits one silence in two now and then: touching intervals are one
+            if joined and s - joined[-1][1] <= 0.1:
+                joined[-1] = (joined[-1][0], max(joined[-1][1], e))
+            else:
+                joined.append((s, e))
+        for s, e in joined:
             lo = 0.0 if s <= 0.001 else s + pad_tail
             hi = duration if e >= duration - 0.05 else e - pad_head
             if hi > lo:
@@ -274,6 +285,7 @@ def kept_ranges(words: list, duration: float, fps: int, silences=None, pad_head:
         merged = trim_wordless(merged, words, fps, pad_head, pad_tail, long_cut, wordless_max)
     min_frames = int(math.ceil(min_kept * fps - 1e-6))
     keep_frames = int(math.ceil(wordless_keep * fps - 1e-6))
+    cut_frames = int(math.ceil(min_cut * fps - 1e-6))
 
     def has_word(a, b):
         return any(w["start"] < b / fps and w["end"] > a / fps for w in words)      # a transcribed word, phantom or not: only a range with none is not speech
@@ -301,7 +313,12 @@ def kept_ranges(words: list, duration: float, fps: int, silences=None, pad_head:
             if not options:
                 continue
             k = min(options, key=lambda i: merged[i][1] - merged[i][0])
-            merged.pop(k)
+            need = min_frames - (r_b - r_a)
+            c = merged[k]
+            if (c[1] - c[0]) - need >= cut_frames:          # a few frames short: the range takes them from the cut; the cut stays
+                merged[k] = (c[0], c[1] - need, c[2]) if k == before else (c[0] + need, c[1], c[2])
+            else:                                            # the cut is short: it is given up, the range is joined to its neighbour
+                merged.pop(k)
             changed = True
             break
     bounds = [0] + [x for c in merged for x in c[:2]] + [total]
