@@ -206,14 +206,17 @@ def test_a_buildings_tooltip_is_a_light_card_and_a_rooms_stays_dark():
     assert 'classList.toggle("is-card", Boolean(result.hit.brackets))' in text("js/scene/engine.js"), "only a building of the City (the hit with brackets) takes the card"
 
 
-# --- F1-D6: a long mode word never pushes the state out of the plate ----------------------------------------------------------------------------------------------
+# --- F1-D6 reversed by PAR-7d: the plate's state is never cut and the plate has no mode word ----------------------------------------------------------------------------------------------
 
-def test_the_plate_cuts_the_mode_word_and_keeps_the_state_badge():
+def test_the_plate_keeps_the_state_badge_whole_and_cuts_the_name():
     css = css_file("building")
-    mode = rule(css, ".wb-plate-mode")
     state = rule(css, ".wb-plate-state")
-    assert mode.get("text-overflow") == "ellipsis" and mode.get("overflow") == "hidden" and mode.get("max-width") == "9em" and mode.get("flex") == "0 0 auto", "a common mode word stays whole (building.html); a long one is cut at nine ems with an ellipsis"
-    assert state.get("flex") == "0 1 auto" and state.get("min-width") == "3.5em", "the state badge is what gives way when the row is full, as the page's `waiting f...`, down to a floor"
+    inner = rule(css, ".wb-plate-state .wb-st")
+    name = rule(css, ".wb-plate-name")
+    assert ".wb-plate-mode" not in css, "PAR-7d: the plate has no mode word and no rule for one"
+    assert name.get("min-width") == "0" and name.get("text-overflow") == "ellipsis", "PAR-7d: the name is what gives way when the row is full"
+    assert state.get("flex") == "0 0 auto" and "min-width" not in state, "PAR-7d: the state badge never shrinks"
+    assert inner.get("overflow") == "visible" and inner.get("max-width") == "none" and inner.get("text-overflow") == "clip", "PAR-7d: the plate's state word is whole, never cut with an ellipsis"
 
 
 # --- F1-D8: the phone's room is framed between the buttons, the card hangs from the sheet -------------------------------------------------------------------------
