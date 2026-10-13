@@ -13,18 +13,21 @@ What it does (plan C1, A1, A2):
 The edit list holds ranges, indices, preset names, validated typed parameters and slot ids.
 """
 import argparse
-import difflib
 import json
 import math
-import re
 import sys
-import unicodedata
 
+import cuts as C
+import framing as F
 import presets as P
+import retakes as RT
+import tokens as T
+import zones as Z
+from tokens import flatten_words, has_digit, norm_tokens, token_sim  # noqa: F401  (re-exported)
 
 DEL_COST = 1.0      # a beat token that was not spoken
 INS_COST = 0.3      # a spoken word that is not in the beat (ad-lib inside the line)
-SIM_FLOOR = 0.75    # token similarity below this is a plain mismatch
+SIM_FLOOR = T.SIM_FLOOR
 DEFAULT_THRESHOLD = 0.6
 
 
@@ -144,81 +147,71 @@ def src_to_out(kmap, t):
 
 # ---------------------------------------------------------------- captions
 
-def caption_chunks(words, kmap, max_words=4, max_chars=26, hold=0.25):
-    """Split each transcript segment into short chunks; times are on the output timeline."""
-    chunks = []
-    seg_words = {}
+def _range_of(kmap, t):
+    """Index of the kept range that holds source time t, or None."""
+    for k, r in enumerate(kmap):
+        if r["src_start"] - 1e-9 <= t <= r["src_end"] + 1e-9:
+            return k
+    return None
+
+
+def caption_chunks(words, kmap, max_words=3, max_chars=22, hold=0.25, pause=0.45):
+    """Short caption chunks (1 to `max_words` words) on the OUTPUT timeline.
+
+    Words that are not in the output (cut away, or the earlier take of a retake) get no caption. A chunk ends at the end
+    of a sentence, after a comma once it holds two words, at a cut, at a pause, and when the next word would make it
+    longer than `max_chars` letters.
+    """
+    items = []
     for w in words:
-        seg_words.setdefault(w["segment"], []).append(w)
-    for seg in sorted(seg_words):
-        cur, chars = [], 0
-        groups = []
-        for w in seg_words[seg]:
-            if cur and (len(cur) >= max_words or chars + 1 + len(w["text"]) > max_chars):
-                groups.append(cur)
-                cur, chars = [], 0
-            cur.append(w)
-            chars += len(w["text"]) + (1 if len(cur) > 1 else 0)
+        if w.get("dropped"):
+            continue
+        k = _range_of(kmap, (w["start"] + w["end"]) / 2.0)
+        if k is None:
+            continue
+        items.append((w, k))
+    groups, cur, chars, cur_k = [], [], 0, None
+    for w, k in items:
+        brk = False
         if cur:
+            prev = cur[-1]
+            if (k != cur_k or w["segment"] != prev["segment"] or len(cur) >= max_words
+                    or chars + 1 + len(w["text"]) > max_chars
+                    or src_to_out(kmap, w["start"]) - src_to_out(kmap, prev["end"]) > pause):
+                brk = True
+        if brk:
             groups.append(cur)
-        for k, g in enumerate(groups):
-            ow = [{"i": w["i"], "text": w["text"], "start": src_to_out(kmap, w["start"]),
-                   "end": src_to_out(kmap, w["end"])} for w in g]
-            chunks.append({"segment": seg, "word_from": g[0]["i"], "word_to": g[-1]["i"],
-                           "start": ow[0]["start"], "end": ow[-1]["end"] + hold, "words": ow,
-                           "last_in_segment": k == len(groups) - 1})
+            cur, chars = [], 0
+        cur.append(w)
+        cur_k = k
+        chars += len(w["text"]) + (1 if len(cur) > 1 else 0)
+        last = w["text"][-1:]
+        if last in ".?!" or (last in ",;:" and len(cur) >= 2):
+            groups.append(cur)
+            cur, chars = [], 0
+    if cur:
+        groups.append(cur)
+    chunks = []
+    for g in groups:
+        ow = [{"i": w["i"], "text": w["text"], "start": src_to_out(kmap, w["start"]),
+               "end": src_to_out(kmap, w["end"])} for w in g]
+        chunks.append({"segment": g[0]["segment"], "word_from": g[0]["i"], "word_to": g[-1]["i"],
+                       "start": ow[0]["start"], "end": ow[-1]["end"] + hold, "words": ow})
     # a chunk ends where the next one starts when they touch; the hold never runs into the next
     for k, c in enumerate(chunks):
         nxt = chunks[k + 1] if k + 1 < len(chunks) else None
         word_end = c["words"][-1]["end"]
         end = word_end + hold
         if nxt is not None:
-            if not c["last_in_segment"] and nxt["start"] - word_end <= 0.4:
+            if nxt["start"] - word_end <= 0.4:
                 end = nxt["start"]
             else:
                 end = min(end, nxt["start"])
-        c["end"] = min(end, kmap[-1]["out_end"])
-    for c in chunks:
-        del c["last_in_segment"]
+        c["end"] = min(max(end, word_end + 0.05), kmap[-1]["out_end"])
     return chunks
 
 
 # ---------------------------------------------------------------- alignment
-
-def norm_tokens(text):
-    """NFKC, casefold, apostrophes dropped, other punctuation to a space; returns tokens."""
-    t = unicodedata.normalize("NFKC", text).casefold()
-    t = re.sub(r"['’]", "", t)
-    t = re.sub(r"[^\w\s]|_", " ", t)
-    return t.split()
-
-
-def has_digit(tok):
-    return any(c.isdigit() for c in tok)
-
-
-_sim_cache = {}
-
-
-def token_sim(a, b):
-    if a == b:
-        return 1.0
-    key = (a, b)
-    if key not in _sim_cache:
-        r = difflib.SequenceMatcher(None, a, b).ratio()
-        _sim_cache[key] = r if (r >= SIM_FLOOR and min(len(a), len(b)) > 3) else 0.0
-    return _sim_cache[key]
-
-
-def flatten_words(words):
-    """Transcript words -> flat token list with the word index of each token."""
-    toks, widx = [], []
-    for w in words:
-        for t in norm_tokens(w["text"]):
-            toks.append(t)
-            widx.append(w["i"])
-    return toks, widx
-
 
 def align_line(line, flat, threshold=DEFAULT_THRESHOLD):
     """Best window of the transcript for one spoken line.
@@ -274,21 +267,48 @@ def expand_digit_words(words, w_from, w_to):
     return w_from, w_to
 
 
-def align_beats(words, beats, threshold=DEFAULT_THRESHOLD):
+def align_beats(words, beats, threshold=DEFAULT_THRESHOLD, anchors=None):
+    """Place each beat on a word range. `anchors` ({beat id: (word_from, word_to)}) places a beat by hand: the person's
+    choice wins over the matcher (the beat is `anchored`, score 1.0). Words flagged `dropped` are never matched."""
     flat = flatten_words(words)
+    anchors = anchors or {}
     results = []
     last_from = -1
     for b in beats:
-        r = align_line(b["line"], flat, threshold)
+        if b["id"] in anchors:
+            w_from, w_to = anchors[b["id"]]
+            r = {"score": 1.0, "word_from": w_from, "word_to": w_to, "matched": True, "anchored": True}
+        else:
+            r = align_line(b["line"], flat, threshold)
+            r["anchored"] = False
         r["beat"] = b["id"]
         r["reordered"] = False
         if r["matched"]:
-            r["word_from"], r["word_to"] = expand_digit_words(words, r["word_from"], r["word_to"])
+            if not r["anchored"]:
+                r["word_from"], r["word_to"] = expand_digit_words(words, r["word_from"], r["word_to"])
             if r["word_from"] < last_from:
                 r["reordered"] = True
             last_from = max(last_from, r["word_from"])
         results.append(r)
     return results
+
+
+def parse_anchors(items, beats, n_words):
+    """['6=173-190', 'b7=200-215'] -> {beat id: (word_from, word_to)}; refuses an unknown beat or a bad range."""
+    ids = {b["id"] for b in beats}
+    out = {}
+    for item in items or []:
+        key, _, rng = item.partition("=")
+        bid = key if key in ids else "b" + key
+        lo, _, hi = rng.partition("-")
+        if bid not in ids:
+            raise EdlError("anchor_unknown_beat:%s" % key)
+        if not (lo.isdigit() and hi.isdigit()) or int(lo) > int(hi) or int(hi) >= n_words:
+            raise EdlError("anchor_bad_range:%s" % item)
+        if bid in out:
+            raise EdlError("anchor_twice:%s" % key)
+        out[bid] = (int(lo), int(hi))
+    return out
 
 
 # ---------------------------------------------------------------- script
@@ -356,29 +376,60 @@ def beat_span(spec, words, kmap, params, w_from, w_to, fps, out_duration):
 # ---------------------------------------------------------------- build
 
 def build_edl(transcript, script, contract, silences=None, gap=0.5, margin=0.15,
-              threshold=DEFAULT_THRESHOLD, fps=None):
+              threshold=DEFAULT_THRESHOLD, fps=None, cut=None, retake_cfg=None, anchors=None, face=None,
+              frame_cfg=None):
+    """Build the edit list.
+
+    cut        dict of the silence-first cutter's numbers (cuts.plan keywords); used when `silences` is given.
+               Without it, the older word-gap cutter runs (kept_ranges: `gap`, `margin`).
+    retake_cfg dict (window, min_run, start_slack, keep: word indices of retakes to keep) or None to skip detection.
+    anchors    {beat id: (word_from, word_to)} placed by hand.
+    face       (x, y, w, h) in output pixels or None; frame_cfg: {zoom, push, push_min, anchor_y, top_margin, ...}.
+    """
     fps = fps or contract["frame"]["fps"]
     tr = check_transcript(transcript)
     words = tr["words"]
     beats = check_script(script, contract)
-    kept = kept_ranges(words, tr["duration"], fps, silences, gap, margin)
+    retakes = []
+    if retake_cfg is not None:
+        retakes = RT.detect(words, retake_cfg.get("window", RT.WINDOW), retake_cfg.get("min_run", RT.MIN_RUN),
+                            retake_cfg.get("start_slack", RT.START_SLACK))
+        retakes = [r for r in retakes if r["word_from"] not in set(retake_cfg.get("keep", ()))]
+    RT.apply(words, retakes)
+    cut_report = None
+    if silences is not None and cut is not None:
+        cut_report = C.plan(words, silences, tr["duration"], fps, retakes, **cut)
+        kept = cut_report["kept"]
+    else:
+        kept = kept_ranges(words, tr["duration"], fps, silences, gap, margin)
     kmap = build_map(kept)
     out_duration = kmap[-1]["out_end"]
     out_frames = int(round(out_duration * fps))
 
+    fc = dict(zoom=1.10, push=0.02, push_min=5.0, anchor_y=0.25, top_margin=110, bottom_margin=300, gap=18, enabled=True)
+    fc.update(frame_cfg or {})
+    framing = F.plan(kept, fc["zoom"], fc["push"], fc["push_min"]) if fc["enabled"] else F.plan(kept, 1.0, 0.0, alternate=False)
+    zones = Z.compute(face, (contract["frame"]["width"], contract["frame"]["height"]),
+                      fc["zoom"] if fc["enabled"] else 1.0, fc["push"] if fc["enabled"] else 0.0, fc["anchor_y"],
+                      fc["top_margin"], fc["bottom_margin"], fc["gap"])
+    for row, fr in zip(kmap, framing):
+        row["z0"], row["z1"] = fr["z0"], fr["z1"]
+
     caption_cfg = P.validate_params(contract, "caption", script.get("caption", {}))
     chunks = caption_chunks(words, kmap)
-    alignment = align_beats(words, beats, threshold)
+    anchors = anchors or {}
+    alignment = align_beats(words, beats, threshold, anchors)
 
     overlays, layouts, report = [], [], []
     for b, a in zip(beats, alignment):
         row = {"beat": b["id"], "preset": b["preset"], "score": a["score"], "matched": a["matched"],
-               "reordered": a["reordered"], "word_from": a["word_from"], "word_to": a["word_to"]}
+               "reordered": a["reordered"], "anchored": a["anchored"], "word_from": a["word_from"], "word_to": a["word_to"]}
         if a["matched"]:
             spec = contract["presets"][b["preset"]]
             sf, ef = beat_span(spec, words, kmap, b["params"], a["word_from"], a["word_to"], fps, out_duration)
             entry = {"id": b["id"], "preset": b["preset"], "params": b["params"], "label": b["label"],
                      "word_from": a["word_from"], "word_to": a["word_to"], "score": a["score"],
+                     "anchored": a["anchored"],
                      "start_frame": sf, "end_frame": ef,
                      "start": sf / fps, "end": ef / fps}
             slots = P.asset_slots(contract, b["preset"], b["params"])
@@ -421,43 +472,88 @@ def build_edl(transcript, script, contract, silences=None, gap=0.5, margin=0.15,
                         for l in layouts)
 
     return {
-        "version": 1, "fps": fps, "size": [contract["frame"]["width"], contract["frame"]["height"]],
+        "version": 2, "fps": fps, "size": [contract["frame"]["width"], contract["frame"]["height"]],
         "source_duration": tr["duration"], "out_duration": out_duration, "out_frames": out_frames,
         "kept": kmap, "captions": chunks, "overlays": overlays, "layouts": layouts,
         "unmatched": [r["beat"] for r in report if not r["matched"]],
         "report": report,
         "assets": script.get("assets", {}),
+        "cuts": None if cut_report is None else {k: cut_report[k] for k in ("cuts", "notes", "stats", "clipped_words", "cuts_inside_long_words")},
+        "retakes": retakes, "zones": zones,
+        "anchors": {k: list(v) for k, v in anchors.items()},
+        "framing": {"zoom": fc["zoom"], "push": fc["push"], "anchor_y": fc["anchor_y"], "enabled": fc["enabled"]},
     }
 
 
 def format_report(edl):
-    lines = ["beat  preset    score  matched  reordered  out range (s)"]
+    lines = ["beat  preset    score  matched  reordered  anchored  out range (s)"]
     for r in edl["report"]:
         rng = "%.2f-%.2f" % (r["start"], r["end"]) if "start" in r else "-"
-        lines.append("%-5s %-9s %5.2f  %-7s  %-9s  %s" % (r["beat"], r["preset"], r["score"],
-                     r["matched"], r["reordered"], rng))
+        lines.append("%-5s %-9s %5.2f  %-7s  %-9s  %-8s  %s" % (r["beat"], r["preset"], r["score"],
+                     r["matched"], r["reordered"], r.get("anchored", False), rng))
     return "\n".join(lines)
+
+
+def add_cut_args(ap):
+    """The flags of the cutter, the retake detector, the anchors and the framing (shared by edl.py and render.py)."""
+    g = ap.add_argument_group("cuts (silence is the primary signal)")
+    g.add_argument("--silence-db", type=float, default=-38.0, help="silencedetect noise floor in dB (default -38; try -35 to -40)")
+    g.add_argument("--silence-min", type=float, default=0.35, help="shortest silence in seconds (default 0.35)")
+    g.add_argument("--pad-head", type=float, default=C.PAD_HEAD, help="speech kept before the first word after a silence (default 0.10 s)")
+    g.add_argument("--pad-tail", type=float, default=C.PAD_TAIL, help="speech kept after the last word before a silence (default 0.14 s)")
+    g.add_argument("--min-cut", type=float, default=0.25, help="a cut shorter than this is not made (default 0.25 s)")
+    g.add_argument("--min-keep", type=float, default=C.MIN_KEEP, help="no kept range is shorter than this (default 0.4 s)")
+    g.add_argument("--wordless", type=float, default=C.WORDLESS, help="a kept range shorter than this with no transcribed word is cut (default 1.5 s)")
+    g.add_argument("--stretch", type=float, default=C.STRETCH, help="a word longer than this protects nothing (default 1.0 s)")
+    g = ap.add_argument_group("retakes")
+    g.add_argument("--no-retakes", action="store_true", help="do not remove earlier takes")
+    g.add_argument("--retake-window", type=float, default=RT.WINDOW, help="seconds after a sentence in which a repeat counts (default 20)")
+    g.add_argument("--retake-min-run", type=int, default=RT.MIN_RUN, help="words in a row that make a repeat (default 4)")
+    g.add_argument("--keep-retake", action="append", type=int, default=[], metavar="WORD", help="keep the earlier take that starts at this word index (repeatable)")
+    g = ap.add_argument_group("placement")
+    g.add_argument("--anchor", action="append", metavar="BEAT=FROM-TO", help="place a beat by hand on transcript words FROM..TO (word indices of the normalised transcript; repeatable)")
+    g.add_argument("--face", metavar="X,Y,W,H", help="the face box of this recording in output pixels; cards go above it, captions below, nothing overlaps it")
+    g.add_argument("--zoom", type=float, default=1.10, help="punch-in of every second kept range (default 1.10)")
+    g.add_argument("--push", type=float, default=0.02, help="slow push-in inside ranges of 5 s or more (default 0.02, at most 0.03)")
+    g.add_argument("--no-zoom", action="store_true", help="no change of framing at the cuts")
+    g.add_argument("--zoom-anchor-y", type=float, default=0.25, help="the zoom's fixed point: this fraction of the face box height from its top (0.5 = the box centre; default 0.25 keeps the head's top still)")
+    g.add_argument("--top-margin", type=int, default=110, help="top of the card band, px from the frame's top (default 110)")
+    g.add_argument("--bottom-margin", type=int, default=300, help="px kept free at the frame's bottom for the captions' zone (default 300)")
+
+
+def configs_from_args(args):
+    cut = dict(pad_head=args.pad_head, pad_tail=args.pad_tail, min_cut=args.min_cut, min_keep=args.min_keep, stretch=args.stretch, wordless=args.wordless)
+    retake_cfg = None if args.no_retakes else dict(window=args.retake_window, min_run=args.retake_min_run, keep=args.keep_retake)
+    frame_cfg = dict(zoom=args.zoom, push=args.push, anchor_y=args.zoom_anchor_y, top_margin=args.top_margin,
+                     bottom_margin=args.bottom_margin, enabled=not args.no_zoom)
+    face = Z.parse_box(args.face) if args.face else None
+    return cut, retake_cfg, frame_cfg, face
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Build the output-timeline edit list from a transcript and a script.")
     ap.add_argument("--transcript", required=True)
     ap.add_argument("--script", required=True)
-    ap.add_argument("--silences", help="JSON list of {start,end} from ffmpeg silencedetect (optional)")
+    ap.add_argument("--silences", help="JSON list of {start,end} from ffmpeg silencedetect (the cuts are made from it)")
     ap.add_argument("--presets", default=P.DEFAULT_CONTRACT)
-    ap.add_argument("--gap", type=float, default=0.5, help="cut word gaps longer than this (s)")
-    ap.add_argument("--margin", type=float, default=0.15, help="kept on each side of a word (s)")
+    ap.add_argument("--gap", type=float, default=0.5, help="legacy cutter (no silences): cut word gaps longer than this (s)")
+    ap.add_argument("--margin", type=float, default=0.15, help="legacy cutter: kept on each side of a word (s)")
     ap.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD, help="alignment score threshold")
     ap.add_argument("--out", required=True)
+    add_cut_args(ap)
     args = ap.parse_args(argv)
     contract = P.load_contract(args.presets)
     silences = None
     if args.silences:
         silences = [(s["start"], s["end"]) for s in load_json(args.silences)]
     try:
-        edl = build_edl(load_json(args.transcript), load_json(args.script), contract, silences,
-                        args.gap, args.margin, args.threshold)
-    except (EdlError, P.ParamError) as exc:
+        cut, retake_cfg, frame_cfg, face = configs_from_args(args)
+        tr = load_json(args.transcript)
+        script = load_json(args.script)
+        anchors = parse_anchors(args.anchor, check_script(script, contract), len(tr["words"]))
+        edl = build_edl(tr, script, contract, silences, args.gap, args.margin, args.threshold,
+                        cut=cut, retake_cfg=retake_cfg, anchors=anchors, face=face, frame_cfg=frame_cfg)
+    except (EdlError, P.ParamError, Z.ZoneError, ValueError) as exc:
         print("error: %s" % exc, file=sys.stderr)
         return 2
     with open(args.out, "w", encoding="utf-8") as fh:

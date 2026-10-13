@@ -198,7 +198,7 @@ class Integration(unittest.TestCase):
                 json.dump(script, fh)
             out = os.path.join(tmp, "out.mp4")
             rc = render.main(["--source", src, "--transcript", os.path.join(tmp, "t.json"), "--script", os.path.join(tmp, "s.json"),
-                              "--out", out, "--workdir", os.path.join(tmp, "w"), "--keep-frames"])
+                              "--out", out, "--workdir", os.path.join(tmp, "w"), "--keep-frames", "--no-silence-detect"])
             self.assertEqual(rc, 0)
             info = media.probe_output(out)
             self.assertEqual(info["codec"], "h264")

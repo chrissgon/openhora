@@ -20,11 +20,14 @@ import time
 import zlib
 
 import cdp
+import cuts as C
 import edl as E
 import from_post
 import lint
 import media
 import presets as P
+import retakes as RT
+import zones as Z
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_DIR = os.path.join(HERE, "templates")
@@ -162,21 +165,26 @@ def pip_geometry(contract, position):
     return {"x": x, "y": y, "size": size}
 
 
-def caption_data(contract, chunk, fps):
+def caption_data(contract, chunk, fps, zones=None):
     f = contract["frame"]
+    zones = zones or Z.compute(None, (f["width"], f["height"]), 1.0, 0.0, 0.5)
     origin = chunk["start_frame"] / fps
-    bottom_px = f["height"] - f["safe"]["bottom"]
+    top, bottom = zones["caption_zone"]
     if chunk["lift"]:
-        bottom_px = f["height"] - (f["safe"]["bottom"] - contract["pip"]["size"] - 30)
+        bottom = min(bottom, f["safe"]["bottom"] - contract["pip"]["size"] - 30)
+        top = min(top, bottom - 120)
     data = {"params": chunk["params"], "duration": (chunk["end_frame"] - chunk["start_frame"]) / fps,
             "words": [{"text": w["text"], "start": round(w["start"] - origin, 4), "end": round(w["end"] - origin, 4)}
                       for w in chunk["words"]],
-            "bottom_px": bottom_px, "anchor": chunk["params"]["position"], "center_px": f["height"] // 2}
+            "zone": {"top": top, "bottom": bottom}}
     return data
 
 
-def beat_data(contract, entry, fps):
-    data = {"params": entry["params"], "duration": (entry["end_frame"] - entry["start_frame"]) / fps}
+def beat_data(contract, entry, fps, zones=None):
+    f = contract["frame"]
+    zones = zones or Z.compute(None, (f["width"], f["height"]), 1.0, 0.0, 0.5)
+    data = {"params": entry["params"], "duration": (entry["end_frame"] - entry["start_frame"]) / fps,
+            "zone": {"top": zones["top_band"][0], "bottom": zones["top_band"][1]}}
     if entry["preset"] == "pip":
         data["geom"] = pip_geometry(contract, entry["params"]["position"])
     return data
@@ -206,20 +214,49 @@ def blank_png(w, h):
 
 # ---------------------------------------------------------------- ffmpeg argv (pure; tested)
 
-def cut_argv(source, kept, fps, size, has_audio, out):
+def _zoom_filter(w, h, z0, z1, frames, anchor, base, fps):
+    """The filter from the base picture (base x the output size) to the output: a plain scale at 100%, else a zoompan
+    about the fixed point `anchor` (output pixels): the point stays where it is while the picture grows about it."""
+    if abs(z0 - 1.0) < 1e-6 and abs(z1 - 1.0) < 1e-6:
+        return "scale=%d:%d:flags=lanczos" % (w, h)
+    ax, ay = anchor[0] * base, anchor[1] * base
+    if abs(z1 - z0) < 1e-6:
+        z = "%.5f" % z0
+    else:
+        z = "%.5f+%.6f*on" % (z0, (z1 - z0) / max(1, frames - 1))
+    return ("zoompan=z='%s':x='%.2f*(1-1/zoom)':y='%.2f*(1-1/zoom)':d=1:s=%dx%d:fps=%s" % (z, ax, ay, w, h, fps))
+
+
+def cut_argv(source, kept, fps, size, has_audio, out, framing=None, anchor=None, xfade_ms=15):
+    """The cut: trim each kept range, frame it (zoom and push per range), fade each audio edge, concat.
+
+    framing  [{z0, z1}] parallel to `kept` (framing.plan), or None for no change of framing
+    anchor   the zoom's fixed point (x, y) in output pixels
+    xfade_ms length of the audio fade at each cut: every range's audio fades in and out over it (an exact-length
+             alternative to acrossfade, which would shorten the audio by the overlap at every cut and drift from the picture)
+    """
     w, h = size
+    base = 2                      # the framing works on a picture twice the output size, so a zoom never upscales
     vparts, aparts, labels = [], [], []
     for k, (s, e) in enumerate(kept):
-        vparts.append("[0:v]trim=start=%.6f:end=%.6f,setpts=PTS-STARTPTS[v%d]" % (s, e, k))
+        fr = framing[k] if framing else {"z0": 1.0, "z1": 1.0}
+        nframes = int(round((e - s) * fps))
+        flt = ("[0:v]trim=start=%.6f:end=%.6f,setpts=PTS-STARTPTS,fps=%s,"
+               "scale=%d:%d:force_original_aspect_ratio=increase:in_color_matrix=bt709:out_color_matrix=bt709:flags=lanczos,"
+               "crop=%d:%d,%s,format=yuv420p,%s[v%d]"
+               % (s, e, fps, w * base, h * base, w * base, h * base,
+                  _zoom_filter(w, h, fr["z0"], fr["z1"], nframes, anchor or (w / 2.0, h / 2.0), base, fps), TAGS, k))
+        vparts.append(flt)
         labels.append("[v%d]" % k)
         if has_audio:
-            aparts.append("[0:a]atrim=start=%.6f:end=%.6f,asetpts=PTS-STARTPTS[a%d]" % (s, e, k))
+            d = min(xfade_ms / 1000.0, (e - s) / 4.0)
+            aparts.append("[0:a]atrim=start=%.6f:end=%.6f,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=%.4f,afade=t=out:st=%.6f:d=%.4f[a%d]"
+                          % (s, e, d, (e - s) - d, d, k))
             labels.append("[a%d]" % k)
     n = len(kept)
     cat = "".join(labels) + "concat=n=%d:v=1:a=%d[cv]%s" % (n, 1 if has_audio else 0, "[ca]" if has_audio else "")
-    post = ("[cv]fps=%s,scale=%d:%d:force_original_aspect_ratio=increase:in_color_matrix=bt709:out_color_matrix=bt709,"
-            "crop=%d:%d,format=yuv420p,%s[vout]" % (fps, w, h, w, h, TAGS))
-    graph = ";".join(vparts + aparts + [cat, post])
+    graph = ";".join(vparts + aparts + [cat])
+    graph += ";[cv]null[vout]"
     if has_audio:
         graph += ";[ca]aformat=sample_rates=48000:channel_layouts=stereo[aout]"
     argv = [media.FFMPEG, "-y", "-hide_banner", "-loglevel", "error", *media.RECORDING_IN, "-i", source,
@@ -303,6 +340,7 @@ def render_frames(contract, edl, serve, setup_colors, setup_fonts, browser, jobs
                   fast_png, dedupe, time_limit, asset_urls=None):
     w, h = edl["size"]
     fps = edl["fps"]
+    zones = edl.get("zones") or Z.compute(None, (w, h), 1.0, 0.0, 0.5)
     tracks, jobs = build_jobs(contract, edl)
     os.makedirs(frames_dir, exist_ok=True)
     blank = os.path.join(frames_dir, "blank.png")
@@ -345,9 +383,17 @@ def render_frames(contract, edl, serve, setup_colors, setup_fonts, browser, jobs
                         pg.open("/t/" + spec["template"], setup_cfg(preset))
                         pages[preset] = pg
                     pg = pages[preset]
-                    data = caption_data(contract, entry, fps) if track == "caption" else beat_data(contract, entry, fps)
+                    data = (caption_data(contract, entry, fps, zones) if track == "caption"
+                            else beat_data(contract, entry, fps, zones))
                     t = (f - entry["start_frame"]) / fps
                     sig = pg.frame(t, data)
+                    if spec["kind"] != "layout" and zones.get("face_expanded"):
+                        # the renderer refuses a rectangle that intersects the face box
+                        for rect in pg.rects():
+                            try:
+                                Z.check_rect(rect, zones, "%s (%s, frame %d)" % (preset, track, f))
+                            except Z.ZoneError as exc:
+                                raise RenderError(str(exc))
                     dest = os.path.join(frames_dir, "%s_%06d.png" % ("cap" if track == "caption" else "beat", f))
                     prev = last.get(preset)
                     if dedupe and prev and prev[0] == k and prev[1] == sig:
@@ -442,16 +488,36 @@ def render(args):
     t0 = time.time()
     if args.silences:
         silences = [(s["start"], s["end"]) for s in E.load_json(args.silences)]
-    elif args.silence_detect:
-        sil = media.close_open_silences(media.silencedetect(args.source), facts_in["duration"])
+    elif args.silence_detect and facts_in["has_audio"]:
+        sil = media.merge_silences(media.close_open_silences(
+            media.silencedetect(args.source, args.silence_db, args.silence_min), facts_in["duration"]))
         silences = [(s["start"], s["end"]) for s in sil]
-        log("silencedetect: %d intervals" % len(silences))
+        log("silencedetect (noise %g dB, min %g s): %d intervals, %.1f s of silence" % (
+            args.silence_db, args.silence_min, len(silences), sum(b - a for a, b in silences)))
     timings["analyse"] = time.time() - t0
 
     # edit list ---------------------------------------------------------
     t0 = time.time()
     transcript = E.load_json(args.transcript)
-    edl = E.build_edl(transcript, script, contract, silences, args.gap, args.margin, args.threshold)
+    cut, retake_cfg, frame_cfg, face = E.configs_from_args(args)
+    try:
+        script_beats = E.check_script(script, contract)
+        anchors = E.parse_anchors(args.anchor, script_beats, len(transcript["words"]))
+        edl = E.build_edl(transcript, script, contract, silences, args.gap, args.margin, args.threshold,
+                          cut=cut, retake_cfg=retake_cfg, anchors=anchors, face=face, frame_cfg=frame_cfg)
+    except Z.ZoneError as exc:
+        raise RenderError(str(exc))
+    edl["silence"] = {"noise_db": args.silence_db, "min_s": args.silence_min, "intervals": len(silences) if silences else 0,
+                      "source": "file" if args.silences else "silencedetect" if silences is not None else "none"}
+    if edl["cuts"] is not None:
+        edl["cuts"]["params"] = dict(cut, silence_db=args.silence_db, silence_min=args.silence_min)
+        print(C.format_report({"stats": edl["cuts"]["stats"], "notes": edl["cuts"]["notes"],
+                               "clipped_words": edl["cuts"]["clipped_words"],
+                               "cuts_inside_long_words": edl["cuts"]["cuts_inside_long_words"]}, edl["cuts"]["params"]),
+              file=sys.stderr)
+    print(RT.format_report(edl["retakes"]), file=sys.stderr)
+    log("zones: face %s, expanded %s, top band %s, caption zone %s" % (
+        edl["zones"]["face"], edl["zones"]["face_expanded"], edl["zones"]["top_band"], edl["zones"]["caption_zone"]))
     for slot in {e["asset"] for e in edl["layouts"] + edl["overlays"] if "asset" in e}:
         if slot not in asset_files:
             raise RenderError("slot has no uploaded file: %s" % slot)
@@ -469,7 +535,12 @@ def render(args):
     t0 = time.time()
     cut_path = os.path.join(out_dir, "cut.mov")
     kept = [(r["src_start"], r["src_end"]) for r in edl["kept"]]
-    media.run(cut_argv(args.source, kept, edl["fps"], edl["size"], facts_in["has_audio"], cut_path))
+    anchor = None
+    if edl["zones"]["face"] is not None and edl["framing"]["enabled"]:
+        anchor = Z.anchor_point(tuple(edl["zones"]["face"]), edl["framing"]["anchor_y"])
+    framing = [{"z0": r["z0"], "z1": r["z1"]} for r in edl["kept"]]
+    media.run(cut_argv(args.source, kept, edl["fps"], edl["size"], facts_in["has_audio"], cut_path,
+                       framing, anchor, args.xfade_ms))
     timings["cut"] = time.time() - t0
     log("cut: %.2fs" % timings["cut"])
 
@@ -516,6 +587,10 @@ def render(args):
         "templates": tpl_hashes, "fonts": {r: f.get("file", "system default") for r, f in fonts.items()},
         "colors": colors,
         "unmatched_beats": edl["unmatched"],
+        "anchors": edl["anchors"], "zones": edl["zones"], "framing": edl["framing"],
+        "retakes": [{k: r[k] for k in ("word_from", "word_to", "start", "end", "text", "run")} for r in edl["retakes"]],
+        "cuts": edl["cuts"]["stats"] if edl["cuts"] else None,
+        "kept_ranges": [[round(r["src_start"], 3), round(r["src_end"], 3)] for r in edl["kept"]],
     }
     if post_report is not None:
         summary["post"] = {"file": os.path.basename(args.post), "beats": post_report}
@@ -542,21 +617,26 @@ def main(argv=None):
     ap.add_argument("--asset", action="append", metavar="BEAT=FILE",
                     help="PNG or JPEG for a cutaway or pip beat: with --post the key is the beat number, with --script "
                          "the slot id (repeatable)")
-    ap.add_argument("--silences", help="JSON list of {start,end}; cuts are confirmed by it")
-    ap.add_argument("--silence-detect", action="store_true", help="run ffmpeg silencedetect on the source to confirm cuts")
-    ap.add_argument("--gap", type=float, default=0.5)
-    ap.add_argument("--margin", type=float, default=0.15)
+    ap.add_argument("--silences", help="JSON list of {start,end}; the cuts are made from it (instead of running silencedetect)")
+    ap.add_argument("--silence-detect", dest="silence_detect", action="store_true", default=True,
+                    help="run ffmpeg silencedetect on the recording's audio; silence is the primary signal of the cuts (default)")
+    ap.add_argument("--no-silence-detect", dest="silence_detect", action="store_false",
+                    help="no audio analysis: the older word-gap cutter (--gap, --margin)")
+    ap.add_argument("--xfade-ms", type=float, default=15.0, help="audio fade at each cut, in ms (default 15)")
+    ap.add_argument("--gap", type=float, default=0.5, help="older word-gap cutter only")
+    ap.add_argument("--margin", type=float, default=0.15, help="older word-gap cutter only")
     ap.add_argument("--threshold", type=float, default=E.DEFAULT_THRESHOLD)
     ap.add_argument("--fast-png", action="store_true", help="captureScreenshot optimizeForSpeed (bigger frames)")
     ap.add_argument("--no-dedupe", action="store_true", help="screenshot every frame even if the DOM did not change")
     ap.add_argument("--keep-frames", action="store_true")
+    E.add_cut_args(ap)
     ap.add_argument("--max-seconds", type=float, default=90.0, help="longest output accepted")
     ap.add_argument("--max-bytes", type=int, default=300_000_000)
     ap.add_argument("--time-limit", type=int, default=1800, help="browser process group is killed past this (s)")
     args = ap.parse_args(argv)
     try:
         summary = render(args)
-    except (RenderError, from_post.PostError, E.EdlError, P.ParamError, media.MediaError, cdp.CDPError, cdp.RenderBlocked) as exc:
+    except (RenderError, from_post.PostError, E.EdlError, P.ParamError, Z.ZoneError, media.MediaError, cdp.CDPError, cdp.RenderBlocked) as exc:
         print("error: %s" % exc, file=sys.stderr)
         return 2
     print(json.dumps(summary, indent=1))

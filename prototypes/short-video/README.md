@@ -23,11 +23,16 @@ cut + frames + assets          --ffmpeg-->   H.264 + AAC, 1080x1920, faststart, 
 | `from_post.py` | Reads the ```script block of a post file in the shipped format (`skills/mkt-social-copy`), by importing the real `check_script.py` and refusing a post that does not pass it, and maps each beat to the prototype's presets. Asset fallbacks are reported. `python3 from_post.py --help`. |
 | `presets.json`, `presets.py` | The preset contract, reconciled with `shared/references/video-presets.json` (typed parameters: `text`, `icon`, `color`, `image`, `choice`, plus `figure`) and its validator: colours are `#RRGGBB` or a palette token, undeclared parameters are refused, text is NFC and refused if it holds a Cc, Cf, Zl or Zp character. |
 | `templates/*.html` | Self-contained presets: `caption`, `keyword`, `list`, `number`, `quote`, `cutaway`, `pip`. Each is a pure `renderAt(t, data)`, styled by colour tokens and fonts passed as data, text only through `textContent`. |
+| `from_transcriber.py` | Reads the raw output of the `transcriber:speech` provider and repairs it in code, each repair reported: a segment with an impossible word rate (over 8 words per second, 3 or more words) is dropped; runs of zero-length words are spread evenly to the next word's start (at least 40 ms, flagged `estimated`); with `--silences`, a segment whose timing is broken (a long zero-length run, or words timed inside silence) is placed over its speech by letters (`retimed`); times are made monotonic. `python3 from_transcriber.py --help`. |
+| `cuts.py` | Silence is the primary signal: every silence of the audio is a cut candidate with a margin of speech on each side (`--pad-head`, `--pad-tail`); a word with energy is never cut, a stretched word or a word timed inside silence protects nothing; no kept range is shorter than `--min-keep` (0.4 s); kept ranges sit on the frame grid. Every number is a flag and is printed with the result. |
+| `retakes.py` | Deterministic retake detection: a sentence whose first words come again within `--retake-window` seconds (a run of `--retake-min-run` words, fuzzy, carrying at least half of the sentence) is the earlier take of a retake and is cut. Each retake is reported with its words and times; `--keep-retake <word>` undoes one, `--no-retakes` all. |
+| `framing.py`, `zones.py` | The framing at the cuts (alternating 100 percent and a punch-in about a fixed point, a slow push in long ranges) and the zones of the picture: the face box (`--face x,y,w,h`, output pixels), the band above it for cards, the zone below it for captions. The renderer refuses a drawn rectangle that intersects the face box at its most zoomed. |
+| `tokens.py` | The text normalisation shared by the aligner and the retake detector. |
 | `lint.py` | The determinism lint: no CSS animation or transition, no `Date`, `Math.random`, timers, network, media elements, markup injection, or external `src`/`url()`. |
 | `edl.py` | Kept ranges (word gaps over a threshold, leading and trailing silence, a margin, frame grid, optional `silencedetect` confirmation), caption chunks, and beat alignment by deterministic fuzzy matching. `python3 edl.py --help`. |
 | `render.py` | The whole pipeline, with timings and the output sha256. `--post <post file>` or `--script <script.json>` (the demo path). `python3 render.py --help`. |
 | `media.py` | `ffprobe`, `silencedetect`, helpers. Every ffmpeg call is an argv list; the recording input gets `-f mov -protocol_whitelist file`. |
-| `from_whisper.py` | Converts a whisper.cpp JSON to `transcript.json` (unverified, see below). |
+| `from_whisper.py` | Converts a whisper.cpp JSON to `transcript.json` (the older path; `from_transcriber.py` replaces it for the provider's output). |
 | `demo/` | A fully fictional demo: `make_demo.py` builds a synthetic vertical source (test pattern and a tone that is silent between sentences), an image asset, and renders with `transcript.json` and `script.json`, or with `--post` through `post.md` (the shipped format). |
 | `tests/` | Offline tests. `python3 -m unittest discover -s tests -p 'test_sv_proto_*.py'` (the browser and ffmpeg tests skip with a reason where those are absent). |
 
@@ -77,6 +82,17 @@ pass, printing the beat, the field and a closed code, never the text. A post who
 Words carry their index, start and end seconds and a segment (sentence) index. The older `script.json` (the demo path, `--script`)
 holds `beats` (the spoken `line`, a `preset`, its typed `params`, a short `label`) and `assets` (slot id to a description); there an
 image parameter is a slot id and the key of `--asset` is the slot id.
+
+## What the second pass added (after the first real render)
+
+`python3 media.py silences --video rec.mov --out silences.json [--db -38] [--min 0.35]` writes the silences once;
+`python3 from_transcriber.py --raw t.json --silences silences.json --out transcript.json --verbose` repairs the transcript;
+`render.py ... --silences silences.json --face X,Y,W,H --anchor 6=198-207` cuts by silence first, removes retakes, changes the
+framing at every cut, puts cards above the face and captions below it, and places a beat by hand where the matcher could not
+(`--anchor <beat>=<word_from>-<word_to>`, word indices of the normalised transcript; in the page this is "adjust overlays").
+The summary lists the kept ranges, the retakes, the anchors, the zones and the numbers used for the cuts. Captions are one to
+three words, the word being said in the accent colour and scaled; motion is eased (ease-out-back pops, staggered list items).
+The cutter's flags are in `python3 render.py --help`.
 
 ## Running it on a real recording (the maintainer's steps)
 

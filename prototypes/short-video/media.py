@@ -54,6 +54,17 @@ def silencedetect(path, noise_db=-35, min_dur=0.3):
     return out
 
 
+def merge_silences(silences, join=0.06):
+    """Merge intervals that touch or are closer than `join` seconds (silencedetect splits one silence in two at times)."""
+    out = []
+    for s in sorted(silences, key=lambda x: x["start"]):
+        if out and s["start"] - out[-1]["end"] <= join:
+            out[-1]["end"] = max(out[-1]["end"], s["end"])
+        else:
+            out.append({"start": s["start"], "end": s["end"]})
+    return out
+
+
 def close_open_silences(silences, duration):
     for s in silences:
         if s["end"] is None:
@@ -79,3 +90,28 @@ def probe_output(path):
             v.get("color_transfer"), v.get("color_range")], "audio": a[0]["codec_name"] if a else None,
             "duration": float(info["format"]["duration"]), "bytes": int(info["format"]["size"]),
             "nb_frames": v.get("nb_frames")}
+
+
+def main(argv=None):
+    """`python3 media.py silences --video rec.mov --out silences.json [--db -38] [--min 0.35]`"""
+    import argparse
+    import sys
+    ap = argparse.ArgumentParser(description="Write the silence intervals of a recording (ffmpeg silencedetect).")
+    ap.add_argument("verb", choices=["silences"])
+    ap.add_argument("--video", required=True)
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--db", type=float, default=-38.0, help="noise floor in dB (default -38)")
+    ap.add_argument("--min", type=float, default=0.35, help="shortest silence in seconds (default 0.35)")
+    args = ap.parse_args(argv)
+    info = probe(args.video)
+    sil = merge_silences(close_open_silences(silencedetect(args.video, args.db, args.min), info["duration"]))
+    with open(args.out, "w", encoding="utf-8") as fh:
+        json.dump(sil, fh)
+    print("%d silences, %.1f s of %.1f s (noise %g dB, min %g s)" % (
+        len(sil), sum(s["end"] - s["start"] for s in sil), info["duration"], args.db, args.min), file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    import sys as _sys
+    _sys.exit(main())

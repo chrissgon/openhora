@@ -88,6 +88,11 @@ window.__frame = (t, data) => {
   if (document.getAnimations().length !== 0) throw new Error('animation running after renderAt');
   return document.documentElement.outerHTML;
 };
+// Rectangles [x, y, w, h] of the elements a template marks data-zone (as drawn: transforms included), those that show.
+window.__rects = () => Array.from(document.querySelectorAll('[data-zone]')).map((e) => {
+  const r = e.getBoundingClientRect();
+  return [r.left, r.top, r.width, r.height, parseFloat(getComputedStyle(e).opacity)];
+}).filter((r) => r[2] > 0 && r[3] > 0 && r[4] > 0.02).map((r) => r.slice(0, 4));
 """
 
 
@@ -367,6 +372,10 @@ class Page:
     def frame(self, t, data):
         """Call renderAt(t, data) and assert no animation runs; returns the page's outerHTML (a state signature)."""
         return self.evaluate("window.__frame(%r, %s)" % (float(t), json.dumps(data)))
+
+    def rects(self):
+        """Rectangles [x, y, w, h] of what the template drew in its data-zone elements, after the last frame()."""
+        return self.evaluate("window.__rects()")
 
     def screenshot(self, optimize_for_speed=False):
         params = {"format": "png", "fromSurface": True, "captureBeyondViewport": False}

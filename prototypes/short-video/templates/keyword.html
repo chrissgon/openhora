@@ -9,15 +9,15 @@
         --font-display:system-ui,sans-serif; --font-text:system-ui,sans-serif; --font-mono:ui-monospace,monospace;
         --weight-display:800; --weight-text:500; --weight-mono:500; }
 html, body { margin:0; padding:0; background:transparent; width:1080px; height:1920px; overflow:hidden; }
-#pos { position:absolute; left:65px; width:950px; height:0; display:flex; justify-content:center; align-items:center; }
-#card { display:flex; flex-direction:column; align-items:center; gap:18px; padding:34px 60px 40px; border-radius:30px; border:6px solid var(--c-accent);
+#pos { position:absolute; left:65px; width:950px; display:flex; justify-content:center; align-items:center; }
+#card { display:flex; flex-direction:row; align-items:center; gap:0.3em; padding:0.22em 0.55em 0.26em; border-radius:0.36em; border:0.07em solid var(--c-accent);
         background:var(--c-chip_fill); font-family:var(--font-display); font-weight:var(--weight-display); color:var(--c-text);
-        text-align:center; line-height:1.05; letter-spacing:-0.02em; box-shadow:0 14px 0 rgba(0,0,0,.35); }
-#bar { height:10px; border-radius:5px; background:var(--c-accent); }
+        text-align:center; line-height:1.05; letter-spacing:-0.02em; white-space:nowrap; box-shadow:0 0.12em 0 rgba(0,0,0,.35);
+        transform-origin:50% 50%; }
 </style>
 </head>
 <body>
-<div id="pos"><div id="card"></div></div>
+<div id="pos"><div id="card" data-zone="overlay"></div></div>
 <script>
 'use strict';
 const ICONS = {
@@ -48,34 +48,38 @@ function icon(name, size, color) {
   });
   return svg;
 }
-function easeOutBack(x) { const c1 = 1.9, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); }
+function easeOutBack(x, c1) { const c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); }
+function easeInCubic(x) { return x * x * x; }
 function clamp(x) { return Math.max(0, Math.min(1, x)); }
 
+// A pure function of (t, data). data.zone = {top, bottom}: the band above the speaker's face; the card is sized to fit it.
 window.renderAt = function (t, data) {
   const P = data.params;
+  const z = data.zone || { top: 285, bottom: 700 };
+  const bandH = z.bottom - z.top;
   const pos = document.getElementById('pos');
   const card = document.getElementById('card');
-  const y = { top: 440, center: 700, bottom: 1000 }[P.position];
-  pos.style.top = y + 'px';
+  pos.style.top = z.top + 'px';
+  pos.style.height = bandH + 'px';
   card.replaceChildren();
   const color = col(P.color);
   card.style.borderColor = color;
-  if (P.icon) card.appendChild(icon(P.icon, 96, color));
+  card.style.transform = 'none';
+  if (P.icon) card.appendChild(icon(P.icon, '0.9em', color));
   const label = document.createElement('div');
   label.textContent = P.text;
-  const n = P.text.length;
-  label.style.fontSize = (n <= 8 ? 150 : n <= 14 ? 118 : 88) + 'px';
   card.appendChild(label);
-  const bar = document.createElement('div');
-  bar.id = 'bar';
-  bar.style.background = color;
-  bar.style.width = Math.round(220 * clamp((t - 0.12) / 0.3)) + 'px';
-  card.appendChild(bar);
-  const tin = clamp(t / 0.3);
-  const tout = clamp((data.duration - t) / 0.2);
-  const s = (0.45 + 0.55 * easeOutBack(tin)) * (0.92 + 0.08 * tout);
-  card.style.transform = 'scale(' + s.toFixed(4) + ')';
-  card.style.opacity = String(Math.min(clamp(t / 0.12), tout).toFixed(3));
+  // the largest type whose card fits the band's height and the frame's width
+  let fs = Math.min(140, bandH * 0.56);
+  card.style.fontSize = fs + 'px';
+  while ((card.offsetWidth > 930 || card.offsetHeight > bandH * 0.96) && fs > 34) { fs = fs * 0.94; card.style.fontSize = fs.toFixed(1) + 'px'; }
+  // ease-out-back pop in, ease-in shrink out
+  const tin = clamp(t / 0.38);
+  const tout = clamp((data.duration - t) / 0.22);
+  const grow = 0.5 + 0.5 * easeOutBack(tin, 2.0);
+  const shrink = 0.86 + 0.14 * (1 - easeInCubic(1 - tout));
+  card.style.transform = 'scale(' + (grow * shrink).toFixed(4) + ')';
+  card.style.opacity = Math.min(clamp(t / 0.1), tout).toFixed(3);
 };
 </script>
 </body>
