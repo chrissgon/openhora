@@ -359,3 +359,13 @@ def test_a_short_range_with_no_real_word_is_not_speech_and_is_cut_but_one_with_a
     assert [[round(a / FPS), round(b / FPS)] for a, b in kept] == [[1, 2], [8, 9]]
     loose = T.kept_ranges(words, 10.0, FPS, sil, long_cut=0, wordless_keep=1.0)
     assert len(loose) == 3                                                    # the threshold is a number that can be changed
+
+
+def test_a_soft_first_word_that_silence_covers_still_sets_where_a_range_after_a_long_cut_starts():
+    """The transcriber puts "Por" at 105.66 and silencedetect calls 105.58 to 106.00 silent (the word starts soft): the range after the
+    long cut starts at that word less the head pad, and is not cut as a range with no real word, so the first word is not clipped."""
+    words = [lw(0, "end.", 88.5, 89.3), lw(1, "Por", 105.66, 105.83), lw(2, "example,", 105.83, 106.34), lw(3, "we", 106.34, 106.62)]
+    sil = [(0.0, 88.4), (89.45, 104.735), (105.577, 106.001), (106.9, 110.0)]
+    assert [w["text"] for w in T.real_words(words, sil)] == ["end.", "example,", "we"]      # "Por" is a phantom to the cut planner ...
+    kept = T.kept_ranges(words, 110.0, FPS, sil)
+    assert kept[1][0] / FPS == pytest.approx(105.66 - 0.10, abs=0.04)                      # ... and still keeps its attack

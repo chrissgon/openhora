@@ -231,7 +231,7 @@ def kept_ranges(words: list, duration: float, fps: int, silences=None, pad_head:
     protects little or nothing). With `silences=None` (no audio to ask) the gaps
     between words longer than `gap` are cut instead. `forced` is a list of (start, end) seconds cut whatever is in them
     (the takes the person confirmed as retakes). A cut shorter than `min_cut` is not made; a cut of `long_cut` seconds or more also
-    takes the wordless sound of more than `wordless_max` seconds at its edges (trim_wordless). A kept range that holds no real word and
+    takes the wordless sound of more than `wordless_max` seconds at its edges (trim_wordless). A kept range that holds no transcribed word and
     is shorter than `wordless_keep` seconds is not speech (the speaker moving, a cough, a breath): it is cut. One that holds a word
     and is shorter than `min_kept` is joined to its neighbour across the shorter cut (the cut is given up) so that nothing flickers;
     a range between two forced cuts stays as it is."""
@@ -239,7 +239,6 @@ def kept_ranges(words: list, duration: float, fps: int, silences=None, pad_head:
         raise Refusal("no_words")
     total = int(math.floor(duration * fps + 1e-6))
     protect = protected_spans(words, silences)
-    real = real_words(words, silences) or words
     if silences is None:
         regions = [(0.0, words[0]["start"] - pad_head)]
         for a, b in zip(words, words[1:]):
@@ -272,12 +271,12 @@ def kept_ranges(words: list, duration: float, fps: int, silences=None, pad_head:
         else:
             merged.append((a, b, f))
     if long_cut and long_cut > 0:
-        merged = trim_wordless(merged, real, fps, pad_head, pad_tail, long_cut, wordless_max)
+        merged = trim_wordless(merged, words, fps, pad_head, pad_tail, long_cut, wordless_max)
     min_frames = int(math.ceil(min_kept * fps - 1e-6))
     keep_frames = int(math.ceil(wordless_keep * fps - 1e-6))
 
     def has_word(a, b):
-        return any(w["start"] < b / fps and w["end"] > a / fps for w in real)
+        return any(w["start"] < b / fps and w["end"] > a / fps for w in words)      # a transcribed word, phantom or not: only a range with none is not speech
 
     changed = True
     while changed:
