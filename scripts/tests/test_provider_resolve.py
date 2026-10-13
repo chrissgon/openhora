@@ -430,8 +430,10 @@ def test_messenger_is_a_class_with_a_platform_parameter_and_telegram_serves_tele
     assert resolve.served_platforms("messenger:<platform>", "telegram", env={}) == ["telegram"]
     got = resolve.resolve("messenger:telegram", env={})
     assert got["implementation"] == "telegram" and got["path"] == str(REPO / "providers" / "messenger" / "telegram.py")
-    with pytest.raises(resolve.Unresolved):
-        resolve.resolve("messenger:whatsapp", env={})
+    served = resolve.resolve("messenger:whatsapp", env={})   # MSG-7: whatsapp.py serves whatsapp, with the caller's interpreter
+    assert served["implementation"] == "whatsapp" and served["path"] == str(REPO / "providers" / "messenger" / "whatsapp.py")
+    with pytest.raises(resolve.Unresolved):   # a platform nobody serves still does not resolve (was whatsapp until MSG-7)
+        resolve.resolve("messenger:signal", env={})
 
 
 # --- starting a long-lived verb (resolve.start) ----------------------------------------------------------------

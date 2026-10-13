@@ -79,7 +79,7 @@ jobs:
           skills/mkt-vote-round/scripts/tests skills/brand-identity/scripts/tests
           shared/scripts/tests
           runtime/tests
-          providers/store/tests providers/scheduler/tests
+          providers/store/tests providers/scheduler/tests providers/messenger/tests/test_whatsapp.py
 
   container:
     name: container
@@ -95,3 +95,19 @@ jobs:
           python-version: "3.11"
       - name: The eval container, built and exercised (no model call)
         run: WB_EVAL_DOCKER_TESTS=1 uv run --with pytest==9.1.1 pytest -q evals/tests/test_executor_docker.py evals/tests/test_keyproxy_docker.py
+
+  # The WhatsApp program (providers/messenger/whatsapp/): vet and tests, offline once the modules are fetched. The runner's
+  # own Go downloads the toolchain go.mod names (verified by the checksum database); modules are checked against go.sum.
+  go:
+    name: go
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: go vet and go test, modules read-only
+        working-directory: providers/messenger/whatsapp
+        env:
+          GOFLAGS: -mod=readonly
+        run: go vet ./... && go test -count=1 ./...

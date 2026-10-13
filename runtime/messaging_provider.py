@@ -45,7 +45,9 @@ START_WINDOW = 86400.0
 STDIN_WAIT, TERM_WAIT = 10.0, 5.0  # the stop: after stdin ends, then after SIGTERM, before SIGKILL
 UPDATE_QUEUE = 1000
 STDERR_TAIL = 300
-ERROR_KINDS = ("usage", "not-configured", "failed")
+ERROR_KINDS = ("usage", "not-configured", "failed", "paused")
+PAUSED_WAIT = 300.0                # a provider that exits 3 after an error event of kind "paused" (its session is gone) is asked again after this
+PAUSED_REPEAT = 86400.0            # the line that says it is paused is written again this often while it stays paused
 
 
 class MessengerError(Exception):
@@ -182,6 +184,7 @@ class Run:
         self.ready_at = None
         self.code = None              # the exit code, once the process has exited
         self.reason = None            # the reason of the last error event it wrote
+        self.kind = None              # and its kind (a word of ERROR_KINDS, else "other")
         self.tail = ""                # the last STDERR_TAIL characters it wrote to stderr
         self.threads = []
         self.stale = False            # set once the run has ended: a reader still stuck on its pipe feeds nothing
@@ -207,12 +210,14 @@ class ListenSession:
 
     def __init__(self, module, platform, root, implementation, log=None, ready_seconds=READY_SECONDS, send_seconds=SEND_SECONDS,
                  backoff=BACKOFF, reset_after=RESET_AFTER, stdin_wait=STDIN_WAIT, term_wait=TERM_WAIT, max_starts=MAX_STARTS,
-                 window=START_WINDOW, clock=time.monotonic, queue_size=UPDATE_QUEUE, env=None, join_wait=5.0):
+                 window=START_WINDOW, clock=time.monotonic, queue_size=UPDATE_QUEUE, env=None, join_wait=5.0,
+                 paused_wait=PAUSED_WAIT, paused_repeat=PAUSED_REPEAT):
         self.module, self.platform, self.root, self.implementation = module, platform, root, implementation
         self.log = log or (lambda text: print(text, file=sys.stderr, flush=True))
         self.ready_seconds, self.send_seconds, self.backoff, self.reset_after = ready_seconds, send_seconds, backoff, reset_after
         self.stdin_wait, self.term_wait, self.max_starts, self.window = stdin_wait, term_wait, max_starts, window
         self.clock, self.env, self.join_wait = clock, env, join_wait
+        self.paused_wait, self.paused_repeat, self.paused_logged = paused_wait, paused_repeat, None
         self.queue_size = queue_size
         self.inbox = deque()                     # the updates, bounded by queue_size
         self.inbox_cv = threading.Condition()    # its own lock: the reader takes it for an instant and never waits on it
@@ -371,6 +376,12 @@ class ListenSession:
             if self.closing.is_set():
                 return
             code = run.code
+            if run.ready_at is not None:
+                self.paused_logged = None   # it was connected: the next pause is news again
+            if code == 3 and run.kind == "paused":
+                if not self.wait_paused(run):
+                    return
+                continue
             if code in (2, 3):
                 self.stop_bridge(run.reason or run.tail or f"the messenger provider exited with {code}")
                 return
@@ -378,6 +389,19 @@ class ListenSession:
             self.settle_delay(run)
             if not self.pause():
                 return
+
+    def wait_paused(self, run: Run) -> bool:
+        """The provider's session is gone (exit 3 after an error event of kind "paused"): not fatal. This start is not charged to
+        the ceiling, the backoff is left as it is, the reason is logged (again every paused_repeat seconds while it stays
+        paused, never more often) and the provider is asked again after paused_wait seconds. False when the session is closing."""
+        if self.starts:
+            self.starts.pop()   # the timestamp of this start: the last one allow_start added
+        now = self.clock()
+        if self.paused_logged is None or now - self.paused_logged >= self.paused_repeat:
+            self.paused_logged = now
+            reason = redact_module().mask_secret_line(" ".join(str(run.reason or "no reason given").split()), limit=STDERR_TAIL)
+            self.log(f"the messenger provider is paused and is asked again every {int(self.paused_wait)} seconds: {reason}")
+        return not self.closing.wait(self.paused_wait)
 
     def settle_delay(self, run: Run) -> None:
         """The backoff starts again from its first wait only when the provider stayed ready for reset_after."""
@@ -523,6 +547,7 @@ class ListenSession:
                 self.log("the update queue is full; the newest updates are dropped")
         elif event == "error":
             kind = found.get("kind") if found.get("kind") in ERROR_KINDS else "other"
+            run.kind = kind
             if isinstance(found.get("reason"), str):
                 run.reason = " ".join(found["reason"].split())[:STDERR_TAIL]
             self.log(f"the messenger provider reported an error ({kind})")

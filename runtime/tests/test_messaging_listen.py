@@ -507,3 +507,105 @@ def test_the_bridges_log_holds_no_token_no_text_and_no_sender_id(tmp_path, monke
     r.finish()
     joined = "\n".join(r.log)
     assert joined and planted not in joined and "private paragraph" not in joined and "crash-1" not in joined
+
+
+# --- 8. a provider whose session is gone is paused, not fatal (MSG-7) ------------------------------------------------------
+
+PAUSED_REASON = "the session is gone; link this computer again with the pair command"
+
+
+def test_paused_is_an_error_kind_and_the_run_keeps_the_last_kind_beside_the_reason():
+    assert "paused" in providers.ERROR_KINDS
+    run = providers.Run(None)
+    session = providers.ListenSession(None, "chirp", None, None, log=lambda text: None)
+    session.take(run, b'{"event": "error", "kind": "paused", "reason": "  the   session\\nis gone "}')
+    assert (run.kind, run.reason) == ("paused", "the session is gone")
+    session.take(run, b'{"event": "error", "kind": "something-new", "reason": "x"}')
+    assert run.kind == "other"
+    session.take(run, b'{"event": "error", "kind": "failed", "reason": "x"}')
+    assert run.kind == "failed"
+
+
+def test_exit_3_after_a_paused_event_waits_and_starts_again_and_the_card_goes_out_when_it_is_ready(tmp_path, monkeypatch, rig):
+    r = rig(script={"1": {"paused": PAUSED_REASON}, "2": {"paused": PAUSED_REASON}, "default": {}},
+            options={"paused_wait": 0.05})
+    r.items[1] = decision("plan", 1)
+    r.run(notice_every=0.05)
+    assert wait_for(lambda: len(r.starts()) == 3 and r.sent()), "the third start is the first that is ready"
+    assert not r.error, "a paused provider does not stop the bridge"
+    assert r.texts() and SECRET_TEXT in r.texts()[0]
+    assert len(r.requests()) == 1 and r.requests()[0]["id"] == 1, "no card was written to a start that was not ready"
+    assert len([line for line in r.log if PAUSED_REASON in line]) == 1, "the reason is logged once, not at every check"
+    r.finish()
+
+
+def test_paused_starts_are_not_charged_to_the_ceiling_and_other_exits_still_are(tmp_path, monkeypatch, rig):
+    paused = {str(n): {"paused": PAUSED_REASON} for n in range(1, 8)}
+    r = rig(script={**paused, "default": {}}, options={"max_starts": 2, "paused_wait": 0.01, "backoff": (0.01, 0.01)})
+    r.items[1] = decision("plan", 1)
+    r.run(notice_every=0.05)
+    assert wait_for(lambda: len(r.starts()) == 8 and r.sent())
+    assert not r.error, "seven paused starts under a ceiling of 2"
+    assert len(r.messenger.session.starts) == 1, "only the start that stayed is on the books"
+    r.finish()
+    r = rig(script={"default": {"die": 3}}, options={"max_starts": 2})
+    r.run()
+    assert wait_for(lambda: r.error) and isinstance(r.error[0], bridge.Fatal), "an exit 3 with no paused event stays fatal"
+    assert len(r.starts()) == 1
+    r.finish()
+
+
+def test_exit_3_after_another_kind_of_error_event_stays_fatal_even_when_paused_exists(tmp_path, monkeypatch, rig):
+    r = rig(sender="exit-3", options={"paused_wait": 0.01})
+    r.items[1] = decision("plan", 1)
+    r.run()
+    assert wait_for(lambda: r.error) and isinstance(r.error[0], bridge.Fatal) and "pairing command" in str(r.error[0])
+    assert len(r.starts()) == 1
+    r.finish()
+
+
+def test_closing_interrupts_the_wait_of_a_paused_provider(tmp_path, monkeypatch, rig):
+    r = rig(script={"default": {"paused": PAUSED_REASON}}, options={"paused_wait": 300.0})
+    r.run()
+    assert wait_for(lambda: len(r.starts()) == 1 and any(PAUSED_REASON in line for line in r.log))
+    began = time.monotonic()
+    r.finish()
+    assert time.monotonic() - began < 10, "a close does not wait out the five minutes"
+    assert len(r.starts()) == 1
+    assert wait_for(lambda: not r.messenger.session.thread.is_alive(), 5)
+
+
+def test_the_paused_line_comes_again_after_24_hours_and_not_before_and_is_masked(tmp_path, monkeypatch):
+    now, logged, waits = [0.0], [], []
+    session = providers.ListenSession(None, "chirp", None, None, log=logged.append, clock=lambda: now[0], backoff=(1.0, 4.0))
+    session.closing = type("E", (), {"wait": lambda self, t: waits.append(t) or False, "is_set": lambda self: False})()
+    secret = "ghp_" + "a1B2c3D4" * 5   # not a real credential: the format only
+    run = providers.Run(None)
+    run.reason = f"the session is gone {secret}"
+    session.starts.extend([0.0, 0.0])
+    delay = session.delay
+    assert session.wait_paused(run) is True
+    assert len(logged) == 1 and "the session is gone" in logged[0] and secret not in logged[0] and "300 seconds" in logged[0]
+    assert len(session.starts) == 1 and session.delay == delay and waits == [300.0]
+    for at in (300.0, 3600.0, 86399.0):
+        now[0] = at
+        session.wait_paused(run)
+    assert len(logged) == 1, "no repeat inside the 24 hours"
+    now[0] = 86400.0
+    session.wait_paused(run)
+    assert len(logged) == 2
+    now[0] = 86401.0
+    session.wait_paused(run)
+    assert len(logged) == 2
+
+
+def test_a_provider_that_was_connected_and_is_paused_later_is_news_again(tmp_path, monkeypatch, rig):
+    r = rig(script={"1": {"paused": PAUSED_REASON}, "2": {"paused_after_ready": PAUSED_REASON}, "3": {"paused": PAUSED_REASON}, "default": {}},
+            options={"paused_wait": 0.05})
+    r.items[1] = decision("plan", 1)
+    r.run(notice_every=0.05)
+    assert wait_for(lambda: len(r.starts()) == 4 and r.sent())
+    assert not r.error
+    # start 1: logged; start 2 had been ready, so its pause is logged again; start 3 is the same pause as 2: not logged again
+    assert len([line for line in r.log if PAUSED_REASON in line]) == 2
+    r.finish()
