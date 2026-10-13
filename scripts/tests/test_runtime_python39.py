@@ -73,6 +73,8 @@ ON_SYSTEM_PYTHON = [
     "providers/messenger/whatsapp.py",
     # The official WhatsApp API provider: standard library only, so the resolver starts it with the caller's interpreter (MSG-8).
     "providers/messenger/whatsapp-cloud.py",
+    # The transcriber: the runtime starts it with its own interpreter (stdlib only; it drives the docker client).
+    "providers/transcriber/whispercpp.py",
     # The documents' local implementation, called the same way (stage 3).
     "providers/documents/local.py",
 ]

@@ -91,8 +91,9 @@ NOT_IMPLEMENTATIONS = {"auth"}  # helpers that live next to providers (providers
 LISTED = ["generator:image", "generator:video", "integration:design-tool", "integration:issue-tracker",
           "integration:vcs", "publisher:<platform>", "reader:email", "scheduler:job", "search:web", "sender:email",
           "store:runtime"]
-# Roles whose folder and variables are derived from the text of the class.
-ROLES = {"integration", "search", "generator", "publisher", "messenger"}
+# Roles whose folder and variables are derived from the text of the class. messenger and transcriber are classes the
+# runtime uses and no skill requires, so they are not in LISTED (and not in contracts/environment.md).
+ROLES = {"integration", "search", "generator", "publisher", "messenger", "transcriber"}
 # The four classes that were bare names: (folder, variable), both kept as they were, so that no provider file,
 # no test folder, no scheduled job and no project's environment has to move.
 FIXED = {"reader:email": ("mailbox", "MAILBOX_PROVIDER"), "sender:email": ("mailer", "MAILER_PROVIDER"),

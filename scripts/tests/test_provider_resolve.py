@@ -445,6 +445,17 @@ def test_whatsapp_cloud_is_a_platform_of_its_own_served_by_a_file_with_a_hyphen_
     assert "whatsapp-cloud" not in resolve.served_platforms("messenger:<platform>", "whatsapp", env={})
 
 
+def test_transcriber_speech_is_a_runtime_only_class_served_by_whispercpp():
+    assert resolve.variables("transcriber:speech") == ["TRANSCRIBER_SPEECH_PROVIDER", "TRANSCRIBER_PROVIDER"]
+    assert resolve.folder("transcriber:speech") == "transcriber" and resolve.platform_of("transcriber:speech") is None
+    got = resolve.resolve("transcriber:speech", env={})
+    assert got["implementation"] == "whispercpp" and got["path"] == str(REPO / "providers" / "transcriber" / "whispercpp.py")
+    assert "transcriber:speech" not in resolve.LISTED   # D11: no skill requires it, so contracts/environment.md does not list it
+    assert resolve.implementations("transcriber:speech", env={}) == ["whispercpp"]
+    with pytest.raises(resolve.UnknownClass):
+        resolve.variables("transcriber")   # a class is <role>:<target>
+
+
 # --- starting a long-lived verb (resolve.start) ----------------------------------------------------------------
 
 LONG_LIVED = '''# /// script

@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "transcript.json",
+  "description": "A transcript of one recording: words with times in seconds, the segments whisper cut, the language, the audio's duration and the facts of the run. Written by providers/transcriber/whispercpp.py (the transcriber:speech class); read by the renderer and by the edit skill. A word's index is its position in words; a segment's index is its position in segments; a word's segment is the index of the segment it came from, the unit a retake is dropped by. Times are seconds from the start of the audio, rounded to the millisecond. No file path of the recording and no text of any other source is in it. The checks that a schema cannot say (the indices are the positions, start is not after end) are in check_transcript.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "language", "duration", "words", "segments", "facts"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "language": {"type": "string", "pattern": "^[a-z]{2,3}$", "description": "The language whisper transcribed (the detected one when --language auto)."},
+    "duration": {"type": "number", "minimum": 0, "description": "Seconds of audio that were transcribed."},
+    "words": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["index", "text", "start", "end", "segment"],
+        "properties": {
+          "index": {"type": "integer", "minimum": 0},
+          "text": {"type": "string", "minLength": 1, "description": "The word as spoken, with the punctuation whisper attached to it."},
+          "start": {"type": "number", "minimum": 0},
+          "end": {"type": "number", "minimum": 0},
+          "probability": {"type": "number", "minimum": 0, "maximum": 1, "description": "The mean of whisper's token probabilities; absent when whisper gave none."},
+          "segment": {"type": "integer", "minimum": 0},
+          "estimated": {"const": true, "description": "Present only when whisper gave the word no time of its own: it lies between its neighbours."}
+        }
+      }
+    },
+    "segments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["index", "start", "end", "text", "first_word", "last_word"],
+        "properties": {
+          "index": {"type": "integer", "minimum": 0},
+          "start": {"type": "number", "minimum": 0},
+          "end": {"type": "number", "minimum": 0},
+          "text": {"type": "string"},
+          "first_word": {"type": ["integer", "null"], "minimum": 0, "description": "Index of the segment's first word; null when the segment holds none (silence or a note such as [BLANK_AUDIO])."},
+          "last_word": {"type": ["integer", "null"], "minimum": 0}
+        }
+      }
+    },
+    "facts": {
+      "type": "object",
+      "description": "What produced the transcript: enough to repeat the run. Open: a field may be added; the ones listed are always present.",
+      "required": ["provider", "whisper_cpp_tag", "whisper_cpp_commit", "image_id", "model", "timestamps", "flags", "language_requested", "language_detected", "segment_unit", "input_duration", "wall_seconds", "words_without_timing", "clamped_words", "dropped_annotations"],
+      "properties": {
+        "provider": {"type": "string"},
+        "whisper_cpp_tag": {"type": "string"},
+        "whisper_cpp_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "image_id": {"type": "string", "description": "The id (digest) of the image that ran."},
+        "model": {"type": "object", "required": ["name", "file", "sha256"], "properties": {"name": {"type": "string"}, "file": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}},
+        "timestamps": {"enum": ["word", "ml1", "dtw"]},
+        "flags": {"type": "array", "items": {"type": "string"}, "description": "The whisper-cli flags."},
+        "language_requested": {"type": "string"},
+        "language_detected": {"type": "string"},
+        "segment_unit": {"enum": ["sentence", "word"], "description": "word when the run used -ml 1: then every segment is one word."},
+        "input_duration": {"type": "number", "minimum": 0},
+        "wall_seconds": {"type": "number", "minimum": 0, "description": "Seconds the container ran."},
+        "words_without_timing": {"type": "integer", "minimum": 0},
+        "clamped_words": {"type": "integer", "minimum": 0},
+        "dropped_annotations": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}
