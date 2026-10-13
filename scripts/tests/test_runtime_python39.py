@@ -73,6 +73,8 @@ ON_SYSTEM_PYTHON = [
     "providers/messenger/whatsapp.py",
     # The official WhatsApp API provider: standard library only, so the resolver starts it with the caller's interpreter (MSG-8).
     "providers/messenger/whatsapp-cloud.py",
+    # The same API through Twilio, and the module the two official WhatsApp providers share (MSG-9).
+    "providers/messenger/whatsapp-twilio.py", "providers/messenger/whatsapp_meta.py",
     # The documents' local implementation, called the same way (stage 3).
     "providers/documents/local.py",
 ]

@@ -157,6 +157,22 @@ REGISTRY: dict[str, Secret] = {s.name: s for s in (
            "a random string the person generates; it grants nothing but the handshake",
            ("providers/messenger/whatsapp-cloud.py",),
            store_username="messenger-whatsapp-cloud-verify-token"),
+    Secret("MESSENGER_WHATSAPP_TWILIO_API_KEY_SID",
+           "name the Restricted API key that sends the notices of the messaging bridge through Twilio's WhatsApp sender",
+           "the SID (SK...) of a Restricted API key made for this bridge, with only the messaging permission (and the Content "
+           "permission, if the console lists one) that Twilio's console offers; its name is copied from the console, not invented",
+           ("providers/messenger/whatsapp-twilio.py",),
+           store_username="messenger-whatsapp-twilio-api-key-sid"),
+    Secret("MESSENGER_WHATSAPP_TWILIO_API_KEY_SECRET",
+           "authenticate the sends of the messaging bridge through Twilio's Messages API, as the Restricted API key",
+           "the secret of that Restricted API key, shown once when the key is created",
+           ("providers/messenger/whatsapp-twilio.py",),
+           store_username="messenger-whatsapp-twilio-api-key-secret"),
+    Secret("MESSENGER_WHATSAPP_TWILIO_AUTH_TOKEN",
+           "check X-Twilio-Signature on every webhook call Twilio makes to the bridge's local server",
+           "the Twilio account's Auth Token; used only to compute an HMAC, never sent anywhere, never used to send",
+           ("providers/messenger/whatsapp-twilio.py",),
+           store_username="messenger-whatsapp-twilio-auth-token"),
 )}
 
 
