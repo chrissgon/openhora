@@ -15,7 +15,7 @@ map, the rendering) is in whatsapp_meta.py next to this file, loaded by path.
 
 Verbs (JSON on stdout, diagnostics on stderr, input by flags, no prompt):
   capabilities --platform whatsapp-twilio
-  setup --account-sid AC... --sender +<digits> --template-sid HX... [--public-host <host>] [--port 8787] [--new-path]
+  setup --account-sid AC... --sender +<digits> [--template-sid HX... | --no-template] [--public-host <host>] [--port 8787] [--new-path]
         [--template-button-id see-decisions] [--button-sid-1 HX... --button-sid-2 HX... --button-sid-3 HX... | --clear-buttons]
                                       write the settings, print the webhook URL, the status callback URL and the Funnel command
   whoami [--seconds 120]              print, in the terminal, the phone digits and the business-scoped user id of whoever
@@ -177,7 +177,8 @@ def check_settings(found) -> dict:
               ("port", type(port) is int and 1 <= port <= 65535),
               ("webhook_path", isinstance(path, str) and WEBHOOK_PATH.fullmatch(path)),
               ("public_url", isinstance(url, str) and PUBLIC_URL.fullmatch(url) and url.endswith("/" + str(path))),
-              ("template_sid", isinstance(found.get("template_sid"), str) and CONTENT_SID.fullmatch(found["template_sid"])),
+              ("template_sid", found.get("template_sid") is None
+               or (isinstance(found.get("template_sid"), str) and CONTENT_SID.fullmatch(found["template_sid"]))),
               ("template_button_id", isinstance(found.get("template_button_id"), str)
                and BUTTON_ID.fullmatch(found["template_button_id"])),
               ("buttons (all three Content SIDs, or none)",
@@ -187,7 +188,7 @@ def check_settings(found) -> dict:
         if not ok:
             refuse(name)
     keys = ("account_sid", "sender", "port", "webhook_path", "public_url", "template_sid", "template_button_id")
-    return {**{k: found[k] for k in keys}, "buttons": dict(buttons)}
+    return {**{k: found.get(k) for k in keys}, "buttons": dict(buttons)}
 
 
 def load_settings(folder: str) -> dict:
@@ -379,6 +380,9 @@ class Sender(meta.BaseSender):
 
     def sent_info(self, wamid: str):
         return super().sent_info(wamid) or self.sent_log.info(wamid)
+
+    def has_template(self) -> bool:
+        return bool(self.settings.get("template_sid"))
 
     def post_template(self, to: str) -> str:
         return self.api.post_message(content_fields(self.settings, to, self.settings["template_sid"]))
@@ -682,6 +686,9 @@ def cmd_setup(args) -> int:
     if args.port is not None and not 1 <= args.port <= 65535:
         say("--port is a number from 1 to 65535")
         return EXIT_USAGE
+    if args.no_template and args.template_sid:
+        say("--no-template cannot be combined with --template-sid")
+        return EXIT_USAGE
     path = os.path.join(state_dir(), FOLDER, SETTINGS)       # read only: no folder is made before every flag is valid
     current = read_json(path, {})
     given = (args.button_sid_1, args.button_sid_2, args.button_sid_3)
@@ -699,7 +706,7 @@ def cmd_setup(args) -> int:
               "sender": normalise_sender(args.sender) if args.sender else current.get("sender"),
               "port": args.port if args.port is not None else current.get("port", DEFAULT_PORT),
               "webhook_path": current.get("webhook_path"),
-              "template_sid": args.template_sid or current.get("template_sid"),
+              "template_sid": None if args.no_template else (args.template_sid or current.get("template_sid")),
               "template_button_id": args.template_button_id or current.get("template_button_id") or DEFAULT_BUTTON_ID,
               "buttons": buttons}
     if args.new_path or not (isinstance(chosen["webhook_path"], str) and WEBHOOK_PATH.fullmatch(chosen["webhook_path"])):
@@ -712,7 +719,7 @@ def cmd_setup(args) -> int:
     try:
         settings = check_settings(chosen)
     except ProviderError as e:
-        say(str(e).replace("; run setup again", "") + ": give --account-sid, --sender and --template-sid")
+        say(str(e).replace("; run setup again", "") + ": give --account-sid and --sender")
         return EXIT_USAGE
     load_secrets()                      # the three secrets must be in the store or the environment before anything is written
     path = os.path.join(own_folder(), SETTINGS)
@@ -727,8 +734,9 @@ def cmd_setup(args) -> int:
           "must have the funnel attribute (kb/1223). On macOS the App Store or Standalone app is needed.\n"
           f"Then run:\n  {funnel_command(settings)}\n"
           "Funnel exposes only that path.\n"
-          f"Outside the 24-hour window the provider sends the Content template {settings['template_sid']}; its quick reply must "
-          f"have the id {settings['template_button_id']}.\n"
+          + (f"Outside the 24-hour window the provider sends the Content template {settings['template_sid']}; its quick reply must "
+             f"have the id {settings['template_button_id']}.\n" if settings["template_sid"] else
+             "No reminder template: after 24 hours of silence the person must write first; the cards wait until then.\n")
           + ("Card buttons: on (three quick-reply templates recorded)." if on else
              "Card buttons: off, the bridge sends the actions as typed commands (give --button-sid-1/2/3 to turn them on)."))
     return EXIT_OK
@@ -798,6 +806,7 @@ def build_parser() -> argparse.ArgumentParser:
     setup.add_argument("--port", type=int)
     setup.add_argument("--new-path", action="store_true")
     setup.add_argument("--clear-buttons", action="store_true")
+    setup.add_argument("--no-template", action="store_true")
     setup.set_defaults(func=cmd_setup)
     who = sub.add_parser("whoami")
     who.add_argument("--seconds", type=int, default=120)

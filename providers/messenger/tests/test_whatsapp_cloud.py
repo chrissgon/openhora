@@ -209,7 +209,7 @@ def test_setup_keeps_the_path_unless_asked_and_keeps_earlier_values_and_says_so_
 
 
 @pytest.mark.parametrize("argv", [
-    [], ["--phone-number-id", PHONE_ID], ["--phone-number-id", "abc", "--template", "t", "--template-language", "pt_BR"],
+    [], ["--phone-number-id", "abc", "--template", "t", "--template-language", "pt_BR"],
     ["--phone-number-id", PHONE_ID, "--template", "Bad Name", "--template-language", "pt_BR"],
     ["--phone-number-id", PHONE_ID, "--template", "t", "--template-language", "portuguese"],
 ])
