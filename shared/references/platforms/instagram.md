@@ -46,7 +46,7 @@ Every fact carries the tag of its source in square brackets; the sources, with t
 
 - A post is published by an account that is a professional account, for a business or a creator [IG-overview].
 - Access: an app that serves only accounts it owns or manages needs the default (Standard) access. An app that serves accounts it does not own or manage needs Advanced access, which requires app review and business verification [IG-overview].
-- Hosting: the video must be hosted on a publicly accessible server at the time of the attempt, whatever the login used [IG-publishing, IG-media]. The one exception is a resumable upload of a local file, offered only to an app that implemented the platform's business login through Facebook, with the account linked to a Facebook Page [IG-publishing, IG-overview].
+- Hosting: the video must be hosted on a publicly accessible server at the time of the attempt, whatever the login used [IG-publishing, IG-media]. The one exception is a resumable upload of a local file, offered only to apps that implemented Facebook Login for Business [IG-publishing].
 - Scheduling: the pages read state no scheduling parameter, and tell an app that lets people schedule posts to enforce the posting limit itself [IG-publishing]. A third-party page claims one; that claim was not confirmed on a platform page. A post that must go out at a time is published at that time by a scheduled job.
 - Posts per 24 hours through the API: the rate limit section states 100 published posts in a moving 24-hour period; the carousel section of the same page states 50, and the page does not explain the difference [IG-publishing]. The live figure for an account is read from the platform's `content_publishing_limit` endpoint [IG-publishing]; a plan never picks 100 or 50.
 - A container made for a post expires after 24 hours [IG-media].
@@ -66,7 +66,7 @@ Every fact carries the tag of its source in square brackets; the sources, with t
 
 - The host is `www.instagram.com`, compared exactly [IG-oembed].
 - The platform's embed page shows a post's address as `https://www.instagram.com/p/<shortcode>/` and lists the reel shape as `https://www.instagram.com/reel/<media-shortcode>/` [IG-oembed]. A shortcode is not the identifier the API returns for a published post: the address a publisher prints comes from the platform's answer, and the data file holds no template for it.
-- The permanent address of a published post is a field of the media the API returns [IG-media-node: "Permanent URL to the media"]; an example value was not shown on that page.
+- The permanent address of a published post is a field of the media the API returns, described as "Permanent URL to the media" [IG-media-node]; an example value was not shown on that page.
 
 ## What can be read from outside
 

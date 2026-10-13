@@ -67,7 +67,7 @@ TEXT_KEYS = {"reply", "comment", "identifiers", "notification_email"}  # require
 OPTIONAL_KEYS = {"video", "limits"}
 VIDEO_KEYS = {"containers", "codecs", "audio_codecs", "fps_min", "fps_max", "max_width", "min_side", "max_side",
               "min_seconds", "max_seconds", "max_bytes", "aspect", "faststart"}
-LIMIT_KEYS = {"posts_per_24h", "pending_shares_per_24h", "unaudited_users_per_24h"}
+LIMIT_KEYS = {"posts_per_24h", "approximate", "pending_shares_per_24h", "unaudited_users_per_24h"}
 OPTION_KEYS = {"type", "values", "unit", "min", "max", "default", "when_unset", "set_by", "decided_by", "decided_on"}
 FORMATS = {"reel", "video", "carousel", "static"}
 VIDEO_FORMATS = {"reel", "video"}
@@ -138,6 +138,7 @@ def check_limits(limits: dict) -> None:
     assert set(limits) == LIMIT_KEYS
     assert isinstance(limits["posts_per_24h"], list) and limits["posts_per_24h"]
     assert all(is_int(n) and n > 0 for n in limits["posts_per_24h"])
+    assert isinstance(limits["approximate"], bool)
     assert int_or_null(limits["pending_shares_per_24h"]) and int_or_null(limits["unaudited_users_per_24h"])
 
 
@@ -447,6 +448,14 @@ def test_instagram_and_tiktok_are_video_platforms_with_a_reference_each():
         assert (PLATFORMS / f"{name}.md").is_file() and (PLATFORMS / f"{name}.json").is_file()
 
 
+def has_number(text: str, number: int) -> bool:
+    """The whole number, written plainly or with thousands separators, never a part of a longer one."""
+    for form in {str(number), f"{number:,}"}:
+        if re.search(rf"(?<![\d,.]){re.escape(form)}(?![\d]|,\d|\.\d)", text):
+            return True
+    return False
+
+
 def section(text: str, heading: str) -> str:
     m = re.search(rf"^{re.escape(heading)}\n(.*?)(?=^## |\Z)", text, re.M | re.S)
     assert m, f"no section {heading!r}"
@@ -480,18 +489,18 @@ def test_a_video_references_numbers_are_its_data_files(name):
     text, d = read(f"shared/references/platforms/{name}.md"), data(name)
     post, video, limits = d["post"], d["video"], d["limits"]
     for number in (post["max_characters"], video["max_bytes"], video["fps_min"], video["fps_max"], video["max_seconds"]):
-        assert f"{number:,}" in text or str(number) in text, number
+        assert has_number(text, number), number
     for key in ("max_hashtags", "max_mentions", "max_width", "min_side", "max_side", "min_seconds"):
         value = post.get(key, video.get(key))
         if value is not None:
-            assert str(value) in text, (key, value)
+            assert has_number(text, value), (key, value)
     for host in d["hosts"]:
         assert f"`{host}`" in text
     for figure in limits["posts_per_24h"]:
-        assert str(figure) in text
+        assert has_number(text, figure), figure
     for key in ("pending_shares_per_24h", "unaudited_users_per_24h"):
         if limits[key] is not None:
-            assert re.search(rf"\b{limits[key]}\b", text), key
+            assert has_number(text, limits[key]), key
     assert "not checked" in text or "not stated" in text, "a gap is written as one"
     for opt in post["options"].values():
         for value in opt.get("values") or []:
@@ -500,8 +509,9 @@ def test_a_video_references_numbers_are_its_data_files(name):
     assert re.search(r"^## Sources$", text, re.M), "the sources, with their addresses and dates"
     urls = re.findall(r"https://\S+\s+\(read \d{4}-\d{2}-\d{2}\)", section(text, "## Sources"))
     assert len(urls) >= 3
-    tags = set(re.findall(r"\[((?:IG|TT)-[A-Za-z-]+)(?:[,\]])", text))
+    tags = {tag.strip() for group in re.findall(r"\[((?:IG|TT)-[^\]]+)\]", text) for tag in group.split(",")}
     sourced = set(re.findall(r"^- \[([A-Za-z-]+)\]", section(text, "## Sources"), re.M))
+    assert all(re.fullmatch(r"(?:IG|TT)-[A-Za-z-]+", tag) for tag in tags), tags
     assert tags and tags <= sourced, f"a fact cites a source the list does not hold: {tags - sourced}"
 
 
@@ -514,6 +524,7 @@ def test_the_instagram_file_says_what_the_plan_found():
     assert (video["min_seconds"], video["max_seconds"], video["fps_min"], video["fps_max"], video["max_width"]) \
         == (3, 900, 23, 60, 1920)
     assert video["aspect"]["recommended"] == "9:16" and video["faststart"] is True
+    assert d["limits"]["approximate"] is False
     assert d["limits"]["posts_per_24h"] == [100, 50], "the page states both and does not reconcile them: neither is chosen"
     assert d["post"]["scheduling"] is False and d["post"]["url"] is None and d["post"]["first_comment"] is None
     options = d["post"]["options"]
@@ -540,25 +551,38 @@ def test_the_tiktok_file_says_what_the_plan_found_and_has_no_default_privacy():
     assert privacy["default"] is None and privacy["when_unset"] == "refuse" and privacy["set_by"] == "person", \
         "the person must choose the privacy status: there is no default value"
     assert set(privacy["values"]) == {"PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "SELF_ONLY"}
-    assert d["limits"] == {"posts_per_24h": [15], "pending_shares_per_24h": 5, "unaudited_users_per_24h": 5}
+    assert d["limits"] == {"posts_per_24h": [15], "approximate": True, "pending_shares_per_24h": 5, "unaudited_users_per_24h": 5}, \
+        "the page says typically around 15: never a hard cap"
     assert {k["name"] for k in d["media"]["types"]} == {"mp4", "mov", "webm"}
     assert next(k for k in d["media"]["types"] if k["name"] == "webm")["magic_hex"] == ["1a45dfa3"]
 
 
 @pytest.mark.parametrize("name", VIDEO_PLATFORMS)
-def test_the_media_signatures_match_real_files(name, tmp_path):
-    """An MP4 or MOV file's signature is at byte 4. Built by hand here, the shape every muxer writes: size, then ftyp."""
+def test_the_media_signatures_match_real_files(name):
+    """An MP4 or MOV file's signature is at byte 4. The samples are the first bytes real muxers write: size, then ftyp
+    and a brand. A reader that tries the longest signature first tells the three types apart; the MP4 prefix alone
+    also matches a MOV, which the README says."""
     kinds = {k["name"]: k for k in data(name)["media"]["types"]}
     samples = {"mp4": bytes.fromhex("00000020") + b"ftypisom" + bytes(8),
                "mov": bytes.fromhex("00000014") + b"ftypqt  " + bytes(8),
                "webm": bytes.fromhex("1a45dfa39f4286810142f781")}
-    for kind, sample in samples.items():
-        if kind not in kinds:
-            continue
-        hits = [m for m in kinds[kind]["magic_hex"]
-                if sample[kinds[kind].get("magic_offset", 0):].startswith(bytes.fromhex(m))]
-        assert hits, kind
-    for kind in kinds.values():
-        for other, sample in samples.items():
-            if other != kind["name"] and other == "webm":
-                assert not sample[kind.get("magic_offset", 0):].startswith(bytes.fromhex(kind["magic_hex"][0]))
+
+    def matches(kind, sample):
+        offset = kind.get("magic_offset", 0)
+        return any(sample[offset:].startswith(bytes.fromhex(m)) for m in kind["magic_hex"])
+
+    def detect(sample):
+        hits = [k for k in kinds.values() if matches(k, sample)]
+        return max(hits, key=lambda k: max(len(m) for m in k["magic_hex"]))["name"] if hits else None
+
+    for sample_kind, sample in samples.items():
+        if sample_kind in kinds:
+            assert matches(kinds[sample_kind], sample), sample_kind
+            assert detect(sample) == sample_kind, f"the longest signature first tells {sample_kind} from the others"
+    if {"mp4", "mov"} <= set(kinds):
+        assert matches(kinds["mp4"], samples["mov"]), "the ftyp prefix of an MP4 also matches a MOV"
+        assert not matches(kinds["mov"], samples["mp4"]), "a MOV's signature does not match an MP4"
+    for other, sample in samples.items():
+        for kind in kinds.values():
+            if "webm" in (other, kind["name"]) and other != kind["name"]:
+                assert not matches(kind, sample), (other, kind["name"])

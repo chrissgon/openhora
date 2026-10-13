@@ -24,7 +24,7 @@ Every fact carries the tag of its source in square brackets; the sources, with t
 - File size: at most 4 GB [TT-media]. The data file stores 4,000,000,000 bytes, reading GB as 10^9 bytes, the stricter reading; the page does not say which.
 - Cover: a frame chosen by its time in milliseconds (`video_cover_timestamp_ms`); the first frame when it is unset or invalid [TT-direct-ref].
 - Privacy: a Direct Post must carry a `privacy_level`, one of `PUBLIC_TO_EVERYONE`, `MUTUAL_FOLLOW_FRIENDS`, `FOLLOWER_OF_CREATOR`, `SELF_ONLY`, and the value must be one the creator's own options allow [TT-direct-ref]. The person must choose it from a dropdown; there is no default [TT-guidelines].
-- Other options of a Direct Post, each a flag the platform names: `disable_duet`, `disable_stitch`, `disable_comment`, `brand_content_toggle` (a paid partnership), `brand_organic_toggle` (the creator's own business) and `is_aigc` (AI-generated content, which adds the platform's label). The reference table marks `brand_content_toggle` as required; whether the others are required: not stated [TT-direct-ref].
+- Other options of a Direct Post, each a flag the platform names: `disable_duet`, `disable_stitch`, `disable_comment`, `brand_content_toggle` (a paid partnership), `brand_organic_toggle` (the creator's own business) and `is_aigc` (AI-generated content, which adds the platform's label). The reference table marks `brand_content_toggle` as required; whether the others are required: not stated [TT-direct-ref]. A flag the API requires and the person never chooses is not a closed option of the data file: sending it belongs to the provider that calls the API.
 
 ## A post
 

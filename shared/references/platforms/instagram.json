@@ -43,6 +43,7 @@
  },
  "limits": {
   "posts_per_24h": [100, 50],
+  "approximate": false,
   "pending_shares_per_24h": null,
   "unaudited_users_per_24h": null
  },
