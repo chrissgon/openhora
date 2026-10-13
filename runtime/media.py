@@ -715,7 +715,12 @@ def receive(data_dir: str, stream, length, *, recording=None, slot=None, name=No
     """Take one file in. With no `slot` it is a recording: with no `recording` a new recording id is issued, with one the
     file is attached to that recording (which must have no raw file yet). With a `slot` it is the asset of that slot of
     `recording`. `stream` has read(n); `length` is the declared Content-Length. Returns {"recording", "kind": "recording"|
-    "asset", "slot", "name", "bytes", "sha256", "type", "facts"}. MediaError for every refusal; nothing is left on disk then."""
+    "asset", "slot", "name", "bytes", "sha256", "type", "facts"}. MediaError for every refusal; nothing is left on disk then.
+
+    The order of the refusals is deliberate, from what needs no read to what needs the whole file: (1) the ids and the length
+    (usage, length, too_large); (2) the lock, the quota, the render cap and free space; (3) the record (not_found, or not open);
+    (4) the first bytes: a body that is not a video (or an image, for a slot) is `type` whether or not ffprobe is installed;
+    (5) only for a video, that ffprobe is installed; (6) the body, the hash, then the checks of the file."""
     kind = "asset" if slot is not None else "recording"
     if recording is not None:
         check_id(recording)
@@ -726,8 +731,6 @@ def receive(data_dir: str, stream, length, *, recording=None, slot=None, name=No
     label = clean_name(name)
     ceiling = MEDIA_MAX_BYTES if kind == "recording" else max(IMAGE_MAX_BYTES, CLIP_MAX_BYTES)
     length = _bound_length(length, ceiling)
-    if kind == "recording" and ffprobe_path() is None:
-        raise MediaError("ffprobe was not found on the PATH: install ffmpeg (brew install ffmpeg-full) to take a video in", "refused")
     root = ensure_root(data_dir)
     try:
         lock = _Lock(os.path.join(root, UPLOAD_LOCK), blocking=False)
@@ -787,8 +790,8 @@ def _receive_locked(data_dir, root, stream, length, kind, recording, slot, label
     if found[0] == "video":
         if kind == "asset" and length > CLIP_MAX_BYTES:
             raise MediaError(f"a clip is at most {CLIP_MAX_BYTES} bytes", "too_large")
-        if kind == "asset" and ffprobe_path() is None:
-            raise MediaError("ffprobe was not found on the PATH: install ffmpeg (brew install ffmpeg-full) to take a clip in", "refused")
+        if ffprobe_path() is None:   # after the type is known: a body that is not a video is refused as such whether or not ffprobe is installed
+            raise MediaError("ffprobe was not found on the PATH: install ffmpeg (brew install ffmpeg-full) to take a video in", "refused")
     # --- the destination
     issued = recording is None
     if issued:

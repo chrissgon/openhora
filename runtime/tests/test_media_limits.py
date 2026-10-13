@@ -682,3 +682,85 @@ def test_media_limit_the_demuxer_is_forced_and_embedded_references_are_off(monke
     argv = seen["argv"]
     assert argv[argv.index("-f") + 1] == "mov" and argv[argv.index("-enable_drefs") + 1] == "0"
     assert argv[argv.index("-protocol_whitelist") + 1] == "file" and argv.index("-enable_drefs") < argv.index("-i")
+
+
+# --- the order of the refusals does not depend on the machine ------------------------------------------------------------------------------
+
+
+def test_media_limit_the_order_of_refusals_holds_without_ffprobe(data, monkeypatch):
+    monkeypatch.setattr(media, "ffprobe_path", lambda: None)
+    assert refusal(data, b"this is plain text and not a video, though it is long enough").kind == "type"      # not a video: type, not 'ffprobe missing'
+    assert refusal(data, png()).kind == "type"
+    assert refusal(data, b"x" * 64, recording="0" * 16).kind == "not_found"
+    assert refusal(data, stream=Forbidden(), length=media.MEDIA_MAX_BYTES + 1).kind == "too_large"
+    assert refusal(data, stream=Forbidden(), length=None).kind == "length"
+    record = media.create(data)
+    media.mark(data, record["id"], "published")
+    assert refusal(data, b"x" * 64, recording=record["id"]).kind == "refused" and "published" in str(refusal(data, b"x" * 64, recording=record["id"]))
+    video = MOVHEAD + b"\x00" * 100
+    error = refusal(data, video)                                                      # a video, and no ffprobe to read it with
+    assert error.kind == "refused" and "ffprobe was not found" in str(error)
+    assert left_over([data][0]) == [os.path.join(data, "media", record["id"]), os.path.join(data, "media", record["id"], "record.json")]
+    # an image for a slot needs no ffprobe
+    rid, (sid,) = slot_world(data)
+    assert put(data, png(), recording=rid, slot=sid)["kind"] == "asset"
+
+
+# --- the stream check and the limits, on ffprobe's own JSON (no ffprobe, no ffmpeg needed) ------------------------------------------------------
+
+
+IPHONE = {"streams": [
+    {"codec_type": "video", "codec_name": "hevc", "width": 2160, "height": 3840, "avg_frame_rate": "60/1", "color_transfer": "bt709", "duration": "192.7"},
+    {"codec_type": "audio", "codec_name": "aac"},
+    {"codec_type": "data", "codec_tag_string": "mebx"}, {"codec_type": "data", "codec_tag_string": "mebx"}, {"codec_type": "data", "codec_tag_string": "mebx"}],
+    "format": {"duration": "192.7"}}
+
+
+class Done:
+    returncode = 0
+
+    def __init__(self, data):
+        self.stdout = __import__("json").dumps(data).encode()
+
+
+def probed(monkeypatch, tmp_path, data):
+    monkeypatch.setattr(media, "ffprobe_path", lambda: "/stub/ffprobe")
+    monkeypatch.setattr(media.subprocess, "run", lambda argv, **kw: Done(data))
+    return media.probe(str(tmp_path / "x"))
+
+
+def test_media_limit_data_streams_of_an_iphone_file_are_ignored_by_the_stream_check_on_ffprobes_json(monkeypatch, tmp_path):
+    facts = probed(monkeypatch, tmp_path, IPHONE)
+    assert (facts["videos"], facts["audios"], facts["others"], facts["width"], facts["height"], facts["fps"]) == (1, 1, 3, 2160, 3840, 60.0)
+    media.check_video(facts, limit_seconds=media.MAX_SECONDS, label="the recording")
+
+
+def test_media_limit_duration_hdr_and_stream_counts_are_refused_on_ffprobes_json(monkeypatch, tmp_path):
+    def refused(change, kind):
+        data = __import__("copy").deepcopy(IPHONE)
+        change(data)
+        facts = probed(monkeypatch, tmp_path, data)
+        with pytest.raises(media.MediaError) as caught:
+            media.check_video(facts, limit_seconds=media.MAX_SECONDS, label="the recording")
+        assert caught.value.kind == kind
+        return str(caught.value)
+
+    assert "at most 300 s" in refused(lambda d: d["format"].update(duration=str(media.MAX_SECONDS + 0.1)), "too_large")
+    assert "HDR" in refused(lambda d: d["streams"][0].update(color_transfer="arib-std-b67"), "type")
+    assert "HDR" in refused(lambda d: d["streams"][0].update(color_transfer="smpte2084"), "type")
+    assert "HDR" in refused(lambda d: d["streams"][0].update(side_data_list=[{"side_data_type": "DOVI configuration record"}]), "type")
+    assert "exactly one" in refused(lambda d: d["streams"].append({"codec_type": "video"}), "type")
+    assert "exactly one" in refused(lambda d: d["streams"].pop(0), "type")
+    assert "at most one is taken" in refused(lambda d: d["streams"].append({"codec_type": "audio"}), "type")
+    assert "pixels" in refused(lambda d: d["streams"][0].update(width=media.RECORDING_MAX_SIDE + 1), "too_large")
+    facts = probed(monkeypatch, tmp_path, {**IPHONE, "format": {"duration": str(media.MAX_SECONDS)}})
+    media.check_video(facts, limit_seconds=media.MAX_SECONDS, label="the recording")          # exactly the limit is allowed
+
+
+def test_media_limit_an_ffprobe_that_fails_or_prints_nothing_refuses_the_file_as_not_a_video(monkeypatch, tmp_path):
+    monkeypatch.setattr(media, "ffprobe_path", lambda: "/stub/ffprobe")
+    bad = type("Bad", (), {"returncode": 1, "stdout": b""})()
+    monkeypatch.setattr(media.subprocess, "run", lambda argv, **kw: bad)
+    with pytest.raises(media.MediaError) as caught:
+        media.probe(str(tmp_path / "x"))
+    assert caught.value.kind == "type"
