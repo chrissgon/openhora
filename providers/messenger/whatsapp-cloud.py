@@ -15,7 +15,7 @@ one provider.
 
 Verbs (JSON on stdout, diagnostics on stderr, input by flags, no prompt):
   capabilities --platform whatsapp-cloud
-  setup --phone-number-id <id> --template <name> --template-language <code> [--port 8787] [--new-path]
+  setup --phone-number-id <id> [--template <name> --template-language <code> | --no-template] [--port 8787] [--new-path]
                                       write the settings, print the callback URL and the Funnel command
   whoami [--seconds 120]              print, in the terminal, the phone digits and the business-scoped user id of whoever
                                       writes to the number meanwhile; refuses while a bridge runs
@@ -145,15 +145,18 @@ def check_settings(found) -> dict:
     port = found.get("port")
     checks = (("phone_number_id", isinstance(found.get("phone_number_id"), str) and PHONE_NUMBER_ID.fullmatch(found["phone_number_id"])),
               ("port", type(port) is int and 1 <= port <= 65535),
-              ("template", isinstance(found.get("template"), str) and TEMPLATE_NAME.fullmatch(found["template"])),
-              ("template_language", isinstance(found.get("template_language"), str)
-               and TEMPLATE_LANGUAGE.fullmatch(found["template_language"])),
+              ("template", found.get("template") is None or (isinstance(found.get("template"), str)
+                                                              and TEMPLATE_NAME.fullmatch(found["template"]))),
+              ("template_language", found.get("template_language") is None
+               or (isinstance(found.get("template_language"), str) and TEMPLATE_LANGUAGE.fullmatch(found["template_language"]))),
+              ("template and template_language (both, or neither)",
+               (found.get("template") is None) == (found.get("template_language") is None)),
               ("webhook_path", isinstance(found.get("webhook_path"), str) and WEBHOOK_PATH.fullmatch(found["webhook_path"])))
     for name, ok in checks:
         if not ok:
             raise ProviderError(f"settings.json has a missing or malformed {name}; run setup again", EXIT_NOT_CONFIGURED,
                                 "not-configured")
-    return {k: found[k] for k in ("phone_number_id", "port", "template", "template_language", "webhook_path")}
+    return {k: found.get(k) for k in ("phone_number_id", "port", "template", "template_language", "webhook_path")}
 
 
 def load_settings(folder: str) -> dict:
@@ -317,6 +320,9 @@ class Sender(meta.BaseSender):
     def __init__(self, graph: Graph, store: Store, settings: dict, log, clock=time.time):
         super().__init__(store, log, clock)
         self.graph, self.settings = graph, settings
+
+    def has_template(self) -> bool:
+        return bool(self.settings.get("template"))
 
     def post_template(self, to: str) -> str:
         return self.graph.post_message(template_body(to, self.settings["template"], self.settings["template_language"]))
@@ -538,20 +544,28 @@ def cmd_setup(args) -> int:
     if args.port is not None and not 1 <= args.port <= 65535:
         say("--port is a number from 1 to 65535")
         return EXIT_USAGE
+    if args.no_template and (args.template or args.template_language):
+        say("--no-template cannot be combined with --template or --template-language")
+        return EXIT_USAGE
     folder = own_folder()
     path = os.path.join(folder, SETTINGS)
     current = read_json(path, {})
+    if args.no_template:
+        template, language = None, None
+    else:
+        template = args.template or current.get("template")
+        language = args.template_language or current.get("template_language")
     chosen = {"phone_number_id": args.phone_number_id or current.get("phone_number_id"),
               "port": args.port if args.port is not None else current.get("port", DEFAULT_PORT),
-              "template": args.template or current.get("template"),
-              "template_language": args.template_language or current.get("template_language"),
+              "template": template,
+              "template_language": language,
               "webhook_path": current.get("webhook_path")}
     if args.new_path or not (isinstance(chosen["webhook_path"], str) and WEBHOOK_PATH.fullmatch(chosen["webhook_path"])):
         chosen["webhook_path"] = randomness.token_hex(16)
     try:
         settings = check_settings(chosen)
     except ProviderError as e:
-        say(str(e).replace("; run setup again", "") + ": give --phone-number-id, --template and --template-language")
+        say(str(e).replace("; run setup again", "") + ": give --phone-number-id, and --template with --template-language (or neither, for no reminder template)")
         return EXIT_USAGE
     write_private_json(path, settings)
     host = funnel_host()
@@ -563,7 +577,10 @@ def cmd_setup(args) -> int:
           "Before the command below, in the Tailscale admin console: MagicDNS and HTTPS certificates must be on, and this node "
           "must have the funnel attribute (kb/1223). On macOS the App Store or Standalone app is needed.\n"
           f"Then run:\n  {funnel_command(settings)}\n"
-          "Funnel exposes only that path. Subscribe the app to `messages` in the webhook settings.")
+          "Funnel exposes only that path. Subscribe the app to `messages` in the webhook settings.\n"
+          + (f"Outside the 24-hour window the provider sends the template {settings['template']} ({settings['template_language']})."
+             if settings["template"] else
+             "No reminder template: after 24 hours of silence the person must write first; the cards wait until then."))
     return EXIT_OK
 
 
@@ -629,6 +646,7 @@ def build_parser() -> argparse.ArgumentParser:
     setup.add_argument("--port", type=int)
     setup.add_argument("--template")
     setup.add_argument("--template-language")
+    setup.add_argument("--no-template", action="store_true")
     setup.add_argument("--new-path", action="store_true")
     setup.set_defaults(func=cmd_setup)
     who = sub.add_parser("whoami")

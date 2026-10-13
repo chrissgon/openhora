@@ -53,6 +53,7 @@ MAX_ANSWER = 1_000_000
 MAX_REQUEST_LINE = 1_048_576                    # the longest line of the listen protocol, either way
 WINDOW_SECONDS = 24 * 3600
 WINDOW_GATE = 23 * 3600 + 1800                  # a card is sent only while the last message of the person is younger than this
+NO_TEMPLATE_LOG = 24 * 3600                    # without a template, the log line for a chat repeats at most this often
 TEMPLATE_REPEAT = 7 * 24 * 3600                 # the template is sent again, at most this often, while the window stays closed
 SEEN_KEEP, IDENTITY_KEEP, WINDOW_KEEP = 8 * 86400, 30 * 86400, 30 * 86400
 SEEN_MAX, WINDOW_MAX, IDENTITY_MAX, SENT_MAX = 50000, 1000, 2000, 2000
@@ -779,6 +780,7 @@ class BaseSender:
         self.sent = collections.OrderedDict()
         self.aliases = collections.OrderedDict()     # id of a buttons message -> id of the text it follows (the card's answered id)
         self.sent_lock = threading.Lock()
+        self.noted = {}                              # chat -> when "no template" was last logged for it (once per chat per 24 hours)
 
     def remember_sent(self, wamid: str, chat: str, when: float) -> None:
         with self.sent_lock:
@@ -820,9 +822,25 @@ class BaseSender:
     def post_template(self, to: str) -> str:
         raise NotImplementedError
 
+    def has_template(self) -> bool:
+        """True when setup recorded a reminder template. A provider's sender answers from its settings."""
+        return True
+
+    def note_no_template(self, chat: str, now: float) -> None:
+        """One log line per chat per 24 hours: the card waits for the person to write."""
+        with self.sent_lock:
+            if now - self.noted.get(chat, -NO_TEMPLATE_LOG) < NO_TEMPLATE_LOG:
+                return
+            self.noted[chat] = now
+        self.log("outside the 24-hour window and no reminder template is configured; the card waits until you write")
+
     def remind(self, chat: str, to: str) -> bool:
-        """The template, when this closed window has not had it (or it is a week old). True when it went out."""
+        """The template, when this closed window has not had it (or it is a week old). True when it went out. Without a
+        template nothing is sent."""
         now = self.clock()
+        if not self.has_template():
+            self.note_no_template(chat, now)
+            return False
         if not self.store.may_remind(chat, now):
             return False
         try:
@@ -838,6 +856,8 @@ class BaseSender:
 
     def defer(self, chat: str, to: str):
         sent = self.remind(chat, to)
+        if not self.has_template():
+            raise Deferred("outside the 24-hour window; no reminder template is configured, so the card waits until the person writes")
         raise Deferred("outside the 24-hour window; a reminder was sent" if sent else
                        "outside the 24-hour window; the reminder was sent already or could not be sent")
 
