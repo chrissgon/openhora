@@ -65,6 +65,10 @@ here), or `--no-sandbox` **inside the image only**, with the container as the bo
   image writes it). Nowhere else is the sandbox off; on the host it is on and a failed start is a failure with no retry. Every render's
   result says `browser_sandbox` (`on` or `off`). Tests: `test_the_browsers_own_sandbox_is_on_everywhere_but_the_image...`,
   `test_inside_the_image_the_sandbox_is_off_and_says_so`.
+- **A browser that does not start says why.** `browser_failed` carries a `reason`: the kind of error and the first four lines of the
+  browser's own log, each redacted, control characters removed, at most 200 characters, passed back through the closed result schema.
+  The browser is started without a shell (a short interpreter step puts the pipes on fd 3 and 4 and replaces itself with the browser),
+  so the image's `/bin/sh` (dash) is not involved.
 
 ## Build it (the maintainer's commands, once)
 

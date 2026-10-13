@@ -454,3 +454,50 @@ def test_images_are_checked_by_their_bytes_dimensions_and_hash(tmp_path):
     for bad in ("../x", "Beat 1", ""):
         with pytest.raises(Refusal):
             _frames.load_assets({bad: str(good)}, {}, limits)
+
+
+# ---------------------------------------------------------------- how the browser is launched
+
+def test_the_browser_gets_its_pipes_on_fd_3_and_4_with_no_shell_in_between(tmp_path):
+    """Debian's /bin/sh (dash) rejects a redirection to an fd number above 9, which the first launcher used: the browser never started
+    in the image. The launch now puts the pipes where the browser reads them without any shell."""
+    import sys
+    fake = tmp_path / "fake-browser"
+    fake.write_text(
+        "#!%s\n"
+        "import json, os\n"
+        "buf = b''\n"
+        "while b'\\0' not in buf:\n"
+        "    buf += os.read(3, 65536)\n"
+        "msg = json.loads(buf.split(b'\\0')[0])\n"
+        "open_fds = []\n"
+        "for fd in range(5, 64):\n"
+        "    try:\n"
+        "        os.fstat(fd); open_fds.append(fd)\n"
+        "    except OSError:\n"
+        "        pass\n"
+        "os.write(4, json.dumps({'id': msg['id'], 'result': {'product': 'Fake/1', 'open': open_fds}}).encode() + b'\\0')\n"
+        "os.read(3, 1)\n" % sys.executable)
+    fake.chmod(0o755)
+    c = _cdp.Chrome(str(fake), {}, str(tmp_path / "w"), time_limit=30)
+    try:
+        info = c.start()
+    finally:
+        c.close()
+    assert info["product"] == "Fake/1" and info["open"] == []          # nothing else of ours is left open in the browser
+    assert "/bin/sh" not in read(_cdp.__file__).replace("on which /bin/sh the machine has", "")
+
+
+def test_a_browser_that_does_not_start_leaves_a_short_redacted_reason(tmp_path):
+    token = "ghp_" + "a1" * 18
+    fake = tmp_path / "fake-browser"
+    fake.write_text("#!/bin/sh\nprintf 'FATAL: no display %s\\n\\033[31mred\\033[0m\\n' '" + token + "' >&2\nfor i in 1 2 3 4 5 6; do echo \"line $i\" >&2; done\nexit 1\n")
+    fake.chmod(0o755)
+    c = _cdp.Chrome(str(fake), {}, str(tmp_path / "w"), time_limit=20)
+    with pytest.raises(_cdp.CDPError) as raised:
+        c.start()
+    c.close()
+    reason = _frames.browser_reason(raised.value, c.log_path)
+    assert reason.startswith("CDPError: FATAL: no display") and token not in reason and "<redacted" in reason
+    assert "\x1b" not in reason and len(reason) <= _frames.REASON_MAX and "line 3" not in reason     # the first lines only
+    assert _frames.browser_reason(OSError("x"), str(tmp_path / "missing.log")) == "OSError"

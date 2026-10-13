@@ -326,3 +326,16 @@ def test_the_graph_starts_both_streams_at_zero_before_it_cuts():
                                            "face": {"cx": 540, "cy": 900, "w": 600, "h": 560}, "fade": 0.015})
     graph = graph[graph.index("-filter_complex") + 1]
     assert "fps=30:start_time=0" in graph and "aresample=async=1:first_pts=0,atrim=" in graph
+
+
+@needs_all
+def test_a_browser_that_does_not_start_is_a_browser_failure_that_says_why_in_one_redacted_line(short, tmp_path):
+    fake = tmp_path / "fake-browser"
+    fake.write_text("#!/bin/sh\necho 'cannot open display :0 token=" + "ghp_" + "b2" * 18 + "' >&2\nexit 1\n")
+    fake.chmod(0o755)
+    out = tmp_path / "out"
+    rc, _, err = K.run_verb(*K.render_args(short, out, "--jobs", "1", slots=short["slots"]), env={"RENDERER_BROWSER": str(fake)}, timeout=120)
+    assert rc == 1 and err.startswith("refused: browser_failed browser"), err
+    reasons = [line for line in err.splitlines() if line.startswith("  reason: ")]
+    assert len(reasons) == 1 and "cannot open display" in reasons[0] and "ghp_" not in reasons[0] and len(reasons[0]) < 260, err
+    assert not list(out.glob("render-*"))

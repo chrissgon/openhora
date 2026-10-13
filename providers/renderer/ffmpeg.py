@@ -226,6 +226,10 @@ class Job:
             err.problems = D.sanitise(result.get("problems") or [], D.PROBLEMS, "problems")
         except Refusal:
             err.problems = []
+        try:
+            err.reason = D.sanitise(result.get("reason") or "", D.S, "reason")
+        except Refusal:
+            err.reason = ""
         raise err
 
     def collect(self, name: str, dest: str, *, max_bytes: int, mode: int = 0o600, expect_sha256=None, exclusive=False) -> str:
@@ -517,6 +521,8 @@ def main(argv=None) -> int:
             print("  beat %s %s %s" % (p.get("beat"), p.get("field"), p.get("code")), file=sys.stderr)
         if err.code == "bad_mount_path":
             return EXIT_USAGE
+        if getattr(err, "reason", ""):
+            print("  reason: %s" % err.reason, file=sys.stderr)
         emit({"ok": False, "code": err.code, "field": err.field, "problems": getattr(err, "problems", [])})
         return EXIT_NOT_CONFIGURED if isinstance(err, NotConfigured) else EXIT_FAILED
 

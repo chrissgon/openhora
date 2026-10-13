@@ -320,6 +320,16 @@ def test_a_refusal_inside_the_container_is_the_same_refusal_outside_with_the_sam
     assert rc == 1 and err.startswith("refused: container_failed") and "ghp_" not in err and "rm -rf" not in err and "ghp_" not in json.dumps(out)
 
 
+def test_the_reason_a_browser_did_not_start_crosses_the_boundary_only_as_one_short_plain_line(world, tmp_path):
+    said = {"ok": False, "code": "browser_failed", "field": "browser", "problems": [], "reason": "CDPError: cannot open display | line two"}
+    rc, out, err = run_with_files(world, tmp_path, {"result.json": {"text": json.dumps(said)}}, rc=1)
+    assert rc == 1 and err.splitlines()[0] == "refused: browser_failed browser" and "  reason: CDPError: cannot open display | line two" in err
+    for bad in ("x" * 201, "a\u202eb", "line\nbreak", 7):
+        said["reason"] = bad
+        rc, out, err = run_with_files(world, tmp_path, {"result.json": {"text": json.dumps(said)}}, rc=1)
+        assert rc == 1 and err.startswith("refused: browser_failed browser") and "reason:" not in err
+
+
 def test_a_container_that_died_without_a_result_is_named_as_killed_when_it_was_out_of_memory(world, tmp_path):
     rc, out, err = run_with_files(world, tmp_path, {}, rc=137)
     assert rc == 1 and err.startswith("refused: container_killed")

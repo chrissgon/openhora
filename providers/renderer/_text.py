@@ -19,6 +19,7 @@ class Refusal(ValueError):
         super().__init__(f"{code}:{field}" if field else code)
         self.code = code
         self.field = field
+        self.reason = ""      # an optional short, redacted line that says why (only for a failure of a process, never an input)
 
 
 def clean_text(value, max_len: int, field: str, allow_empty: bool = False) -> str:

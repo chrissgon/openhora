@@ -18,6 +18,7 @@ import os
 import queue
 import signal
 import subprocess
+import sys
 import threading
 import time
 import fcntl
@@ -123,6 +124,18 @@ def browser_version(path):
         return "unknown"
 
 
+# The browser reads its commands from fd 3 and writes its replies to fd 4 (--remote-debugging-pipe). No shell is involved:
+# a small interpreter step puts the two pipe ends there and replaces itself with the browser, so the launch does not depend
+# on which /bin/sh the machine has (the image's is dash, which rejects redirections to fd numbers above 9).
+LAUNCHER = (
+    "import os, sys\n"
+    "b, r, w = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])\n"
+    "os.dup2(r, 3); os.dup2(w, 4)\n"
+    "os.close(r); os.close(w)\n"
+    "os.execv(b, [b] + sys.argv[4:])\n"
+)
+
+
 class Chrome:
     """One browser process, one pipe. Pages are CDP sessions; all share the served-from-memory table."""
 
@@ -140,7 +153,7 @@ class Chrome:
         self._events = queue.Queue()
         self._closed = False
         self._time_limit = time_limit
-        self._log_path = log_path or os.path.join(workdir, "chrome.log")
+        self.log_path = log_path or os.path.join(workdir, "chrome.log")
         self._timer = None
         self.headless_flag = headless_flag
         self.extra_flags = list(extra_flags or [])
@@ -152,7 +165,7 @@ class Chrome:
         os.makedirs(profile, exist_ok=True)
         cmd_r, cmd_w = os.pipe()
         rep_r, rep_w = os.pipe()
-        # move our ends above 9 so the shell's redirections to 3 and 4 cannot clobber them
+        # move our ends above 9 so the launcher's dup2 onto 3 and 4 cannot clobber them
         cmd_r2 = fcntl.fcntl(cmd_r, fcntl.F_DUPFD, 10)
         rep_w2 = fcntl.fcntl(rep_w, fcntl.F_DUPFD, 10)
         os.close(cmd_r)
@@ -176,10 +189,9 @@ class Chrome:
         flags += self.extra_flags
         if self.headless_flag:
             flags.insert(0, self.headless_flag)
-        shell = 'exec "$@" 3<&%d 4>&%d %d<&- %d>&-' % (cmd_r2, rep_w2, cmd_r2, rep_w2)
-        log = open(self._log_path, "wb")
+        log = open(self.log_path, "wb")
         self.proc = subprocess.Popen(
-            ["/bin/sh", "-c", shell, "sh", self.browser] + flags,  # security-scan: allow shell-string -- the string holds only four integer fd numbers from os.pipe; the browser path and flags are argv items
+            [sys.executable, "-I", "-c", LAUNCHER, self.browser, str(cmd_r2), str(rep_w2)] + flags,
             stdin=subprocess.DEVNULL, stdout=log, stderr=log,
             pass_fds=(cmd_r2, rep_w2), start_new_session=True)
         os.close(cmd_r2)

@@ -391,7 +391,11 @@ def main(argv=None) -> int:
             print("  beat %s %s %s" % (p.get("beat"), p.get("field"), p.get("code")), file=sys.stderr)
         if os.environ.get("RENDERER_DEBUG") == "1":
             print("  detail: %s" % (getattr(err, "tail", "") or getattr(err, "detail", "")), file=sys.stderr)
-        write_result(result_path, {"ok": False, "code": err.code, "field": err.field, "problems": getattr(err, "problems", [])})
+        out = {"ok": False, "code": err.code, "field": err.field, "problems": getattr(err, "problems", [])}
+        if getattr(err, "reason", ""):
+            out["reason"] = err.reason
+            print("  reason: %s" % err.reason, file=sys.stderr)
+        write_result(result_path, out)
         return EXIT_NOT_CONFIGURED if isinstance(err, NotConfigured) else EXIT_FAILED
     except Exception:                       # anything not foreseen: a closed code, never a traceback (it could carry a word of the transcript)
         print("refused: internal", file=sys.stderr)

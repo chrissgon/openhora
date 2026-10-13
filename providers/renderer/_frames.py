@@ -17,6 +17,7 @@ import threading
 import time
 
 import _cdp
+import _redact
 from _lint import lint
 from _text import Refusal
 from _vocab import HERE, SLOT_ID, read_json
@@ -223,6 +224,31 @@ def beat_data(data: dict, entry: dict, fps: int, edl: dict) -> dict:
     return out
 
 
+REASON_LINES = 4
+REASON_MAX = 200
+
+
+def browser_reason(exc, log_path) -> str:
+    """Why the browser did not start, in one short line: the kind of error and the first lines of what the browser wrote to its own
+    log. Each line is redacted (credential formats, hidden characters), control characters become spaces, the whole is cut to
+    REASON_MAX characters. The browser reads no transcript word, so its log carries none."""
+    lines = []
+    try:
+        with open(log_path, "rb") as fh:
+            raw = fh.read(4096)
+        for line in raw.decode("utf-8", "replace").splitlines():
+            line = re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", line).strip()
+            if line:
+                lines.append(_redact.redact(line, limit=120))
+            if len(lines) >= REASON_LINES:
+                break
+    except OSError:
+        pass
+    text = type(exc).__name__ + (": " + " | ".join(lines) if lines else "")
+    text = re.sub(r"[^\x20-\x7e]", "?", text)
+    return text[:REASON_MAX]
+
+
 def face_hit(boxes: list, face: dict):
     """The zone (`card` or `caption`) of the first drawn box that touches the face box, else None. Layout presets
     (cutaway, pip) are not in a zone: they replace the picture, they do not sit over the face."""
@@ -273,9 +299,11 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
     chrome = _cdp.Chrome(browser, serve, os.path.join(workdir, "chrome"), time_limit=time_limit)
     try:
         info = chrome.start()
-    except (_cdp.CDPError, OSError):
+    except (_cdp.CDPError, OSError) as exc:
         chrome.close()
-        raise Refusal("browser_failed", "browser") from None
+        err = Refusal("browser_failed", "browser")
+        err.reason = browser_reason(exc, chrome.log_path)
+        raise err from None
     try:
         facts = {"browser": info.get("product") or chrome.send("Browser.getVersion").get("product"), "browser_pid": chrome.proc.pid,
                  "browser_sandbox": chrome.sandbox}
