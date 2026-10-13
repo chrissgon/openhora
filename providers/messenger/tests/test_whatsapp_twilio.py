@@ -555,3 +555,23 @@ def test_a_rejected_key_ends_the_process_with_exit_3_and_the_event_and_no_body_t
     assert any(o.get("kind") == "not-configured" and o.get("event") == "error" for o in objects)
     stdout, stderr = p.everything()
     assert "PLANTED_BODY_TEXT" not in stdout + stderr and KEY_SECRET not in stdout + stderr and AUTH not in stdout + stderr
+
+
+def test_setup_checks_every_flag_before_the_secrets_and_makes_no_folder_on_a_usage_error(home, capsys, monkeypatch):
+    monkeypatch.setattr(wt, "funnel_host", lambda: None)
+    assert run_setup(*GOOD) == 2 and "--public-host" in capsys.readouterr().err               # no secrets either: the usage error comes first
+    assert run_setup(*GOOD, "--public-host", "box.tail9.ts.net", "--button-sid-1", BUTTONS["1"]) == 2
+    assert run_setup("--public-host", "box.tail9.ts.net") == 2
+    assert not home.exists()
+    with pytest.raises(wt.ProviderError) as e:                                                 # all valid, no secrets: exit 3, still no folder
+        run_setup(*GOOD, "--public-host", "box.tail9.ts.net")
+    assert e.value.code == 3 and not (home / "whatsapp-twilio").exists()
+
+
+def test_the_missing_secret_error_names_the_store_username_even_where_the_redactor_hides_long_names(home, capsys, monkeypatch):
+    monkeypatch.setattr(wt, "funnel_host", lambda: HOST)
+    monkeypatch.setenv(wt.SECRET_KEY_SID, KEY_SID)
+    assert wt.main(["setup", *GOOD]) == 3
+    err = capsys.readouterr().err
+    assert "messenger-whatsapp-twilio-api-key-secret" in err and "messenger-whatsapp-twilio-auth-token" in err
+    assert "messenger-whatsapp-twilio-api-key-sid" not in err and KEY_SID not in err

@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import collections
 import hashlib
 import hmac
 import importlib.util
@@ -78,7 +79,11 @@ def _shared_module():
     spec = importlib.util.spec_from_file_location("whatsapp_meta", path)
     module = importlib.util.module_from_spec(spec)
     sys.modules["whatsapp_meta"] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop("whatsapp_meta", None)       # a half-loaded module must not be found by the next import
+        raise
     return module
 
 
@@ -112,6 +117,7 @@ TWILIO_TIMEOUT = 10.0
 SENT_KEEP = 2 * 86400
 CODE_WINDOW, CODE_RATE, CODE_CREDENTIALS, CODE_VARIABLES = 63016, 63018, 20003, 21656
 NOT_LISTEN = "whatsapp-twilio works only in listen mode"
+meta.KNOWN_LABELS.update((SECRET_KEY_SID, SECRET_KEY_SECRET, SECRET_AUTH, *KEYRING_USERNAMES.values()))   # not secrets: they tell the person what to store
 CUT_LIMIT = TEXT_LIMIT
 
 
@@ -135,7 +141,7 @@ def secret_resolver():
 
 def load_secrets(names=(SECRET_KEY_SID, SECRET_KEY_SECRET, SECRET_AUTH), resolver=None) -> dict:
     """{name: value} for each name; a ProviderError (not-configured) naming every missing or malformed one."""
-    return meta.load_secrets(names, KEYRING_USERNAMES, resolver or secret_resolver())
+    return meta.load_secrets(names, KEYRING_USERNAMES, resolver or secret_resolver(), by_username=True)
 
 
 def own_folder() -> str:
@@ -362,6 +368,7 @@ class Sender(meta.BaseSender):
         super().__init__(store, log, clock)
         self.api, self.settings, self.sent_log = api, settings, sent_log or SentLog(None, clock)
         self.variables_refused = False      # set when Twilio refused a card's variables once; later cards go the other way
+        self.cards = collections.OrderedDict()   # SID of a Content card -> (chat, text, actions): to resend it if Twilio refuses later
 
     def recipient(self, chat: str) -> str:
         return "whatsapp:+" + super().recipient(chat)
@@ -382,6 +389,34 @@ class Sender(meta.BaseSender):
     def buttons_message(self, to: str, body: str, actions: list) -> str:
         return self.api.post_message(content_fields(self.settings, to, self.card_template(len(actions)),
                                                     button_variables(body, actions)))
+
+    def late_failure(self, item) -> None:
+        """A status callback reported a failure. ("variables", sid): Twilio refused a Content card's variables after accepting it
+        (error 21656 by callback): resend that card once as the text and the fixed-body buttons message. A plain SID: error 63016."""
+        if not isinstance(item, tuple):
+            return super().late_failure(item)
+        with self.sent_lock:
+            card = self.cards.pop(item[1], None)
+        if card is None or self.sent_info(item[1]) is None:
+            return
+        chat, rendered, actions = card
+        now = self.clock()
+        if not self.store.window_open(chat, now):
+            return
+        to = self.recipient(chat)
+        self.variables_refused = True
+        self.log("Twilio refused the variables of a card in a status report (error 21656): resending it as text and a "
+                 "buttons message with a short fixed body")
+        try:
+            first = self.api.post_message(text_fields(self.settings, to, rendered))
+            self.remember_sent(first, chat, now)
+            got = self.buttons_message(to, BUTTONS_LINE, actions)
+            self.remember_sent(got, chat, now)
+            self.set_alias(got, first)
+        except TwilioError as e:
+            if e.kind == "not-configured":
+                raise
+            self.log(f"the card could not be resent ({e.status}, {e.error_code})")
 
     def send(self, chat: str, message: dict) -> str:
         """Send the card or text; the SID of the message that carries the text. Raises Deferred when the window is closed.
@@ -416,6 +451,11 @@ class Sender(meta.BaseSender):
                 self.defer(chat, to)
             raise
         self.remember_sent(first, chat, now)
+        if actions and not follow:
+            with self.sent_lock:
+                self.cards[first] = (chat, rendered, actions)
+                while len(self.cards) > SENT_MAX:
+                    self.cards.popitem(last=False)
         for what, step in follow:
             try:
                 got = step()
@@ -515,11 +555,11 @@ class Webhook(meta.HookBase):
     def status(self, fields) -> None:
         if not self.mine(fields) or fields.get("From") != self.settings["sender"]:
             return
-        if fields.get("MessageStatus") not in ("failed", "undelivered") or fields.get("ErrorCode") != str(CODE_WINDOW):
+        if fields.get("MessageStatus") not in ("failed", "undelivered") or fields.get("ErrorCode") not in (str(CODE_WINDOW), str(CODE_VARIABLES)):
             return
         sid = fields.get("MessageSid")
         if isinstance(sid, str) and self.sent_info(sid) is not None:
-            self.late(sid)
+            self.late(sid if fields.get("ErrorCode") == str(CODE_WINDOW) else ("variables", sid))
 
     def identity(self, fields):
         """(chat, business-scoped id) from `From`: `whatsapp:+<digits>`, or, for a person who uses a username, an id with no
@@ -642,9 +682,7 @@ def cmd_setup(args) -> int:
     if args.port is not None and not 1 <= args.port <= 65535:
         say("--port is a number from 1 to 65535")
         return EXIT_USAGE
-    load_secrets()                      # the three secrets must be in the store or the environment before anything is written
-    folder = own_folder()
-    path = os.path.join(folder, SETTINGS)
+    path = os.path.join(state_dir(), FOLDER, SETTINGS)       # read only: no folder is made before every flag is valid
     current = read_json(path, {})
     given = (args.button_sid_1, args.button_sid_2, args.button_sid_3)
     if args.clear_buttons:
@@ -676,6 +714,8 @@ def cmd_setup(args) -> int:
     except ProviderError as e:
         say(str(e).replace("; run setup again", "") + ": give --account-sid, --sender and --template-sid")
         return EXIT_USAGE
+    load_secrets()                      # the three secrets must be in the store or the environment before anything is written
+    path = os.path.join(own_folder(), SETTINGS)
     write_private_json(path, settings)
     on = bool(settings["buttons"])
     print(f"Settings written to {path} (mode 0600).\n"

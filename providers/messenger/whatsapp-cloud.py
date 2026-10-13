@@ -75,7 +75,11 @@ def _shared_module():
     spec = importlib.util.spec_from_file_location("whatsapp_meta", path)
     module = importlib.util.module_from_spec(spec)
     sys.modules["whatsapp_meta"] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop("whatsapp_meta", None)       # a half-loaded module must not be found by the next import
+        raise
     return module
 
 

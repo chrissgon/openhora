@@ -88,14 +88,24 @@ class Deferred(Exception):
         self.reason = reason
 
 
+KNOWN_LABELS = set()      # names that are not secrets but look like one (a store username of 40 characters); a provider adds its own
+
+
 def redact(text, secrets=()) -> str:
-    """The text with each secret, anything shaped like a token and any run of eight digits (a phone number) replaced."""
+    """The text with each secret, anything shaped like a token and any run of eight digits (a phone number) replaced. The names
+    in KNOWN_LABELS (the providers' variable names and store usernames) are kept: they tell the person what to store."""
     out = str(text)
+    labels = sorted(KNOWN_LABELS, key=len, reverse=True)
+    for i, label in enumerate(labels):
+        out = out.replace(label, f"\x00{i}\x00")
     for value in secrets:
         if value:
             out = out.replace(value, "<secret>")
     out = LONG_WORD.sub("<secret>", out)
-    return DIGIT_RUN.sub("<digits>", out)
+    out = DIGIT_RUN.sub("<digits>", out)
+    for i, label in enumerate(labels):
+        out = out.replace(f"\x00{i}\x00", label)
+    return out
 
 
 # --- secrets ----------------------------------------------------------------------------------------------------------
@@ -117,8 +127,9 @@ def secret_resolver():
     return module
 
 
-def load_secrets(names, usernames, resolver=None) -> dict:
-    """{name: value} for each name; a ProviderError (not-configured) naming every missing or malformed one."""
+def load_secrets(names, usernames, resolver=None, by_username=False) -> dict:
+    """{name: value} for each name; a ProviderError (not-configured) naming every missing or malformed one. With `by_username` the
+    sentence leads with the store username: redact() replaces a name of 40 characters or more, which some variable names are."""
     resolver = resolver or secret_resolver()
     found, missing = {}, []
     for name in names:
@@ -129,7 +140,11 @@ def load_secrets(names, usernames, resolver=None) -> dict:
         else:
             found[name] = value
     if missing:
-        hows = "; ".join(f"{n}: export it, or uv run --with keyring==25.7.0 keyring set openhora {usernames[n]}" for n in missing)
+        if by_username:
+            hows = "; ".join(f"{usernames[n]}: uv run --with keyring==25.7.0 keyring set openhora {usernames[n]}, or export {n}"
+                             for n in missing)
+        else:
+            hows = "; ".join(f"{n}: export it, or uv run --with keyring==25.7.0 keyring set openhora {usernames[n]}" for n in missing)
         raise ProviderError("missing or malformed: " + hows, EXIT_NOT_CONFIGURED, "not-configured")
     return found
 
@@ -1153,7 +1168,9 @@ def run_cli(build_parser, argv=None) -> int:
 
 
 def shared_names() -> tuple:
-    """The names a provider takes over from this module into its own namespace (its tests reach them through the provider)."""
+    """The names a provider takes over from this module into its own namespace (its tests reach them through the provider).
+    They are COPIES of the globals: a test that replaces a name to change what shared code does must patch it on `whatsapp_meta`
+    (sys.modules["whatsapp_meta"]), not on the provider, whose own functions and classes are the ones it defines itself."""
     skip = {"annotations", "SHARED"}
     return tuple(sorted(n for n, v in globals().items()
                         if not n.startswith("_") and n not in skip and not isinstance(v, type(sys))))

@@ -385,3 +385,24 @@ def test_the_end_of_stdin_stops_the_listener_with_code_0_and_the_port_closes(tmp
     r = rig_of(tmp_path)
     assert r.stop() == 0
     assert r.listener.server.socket.fileno() == -1
+
+
+def test_a_21656_status_report_for_a_card_resends_it_once_as_text_and_a_fixed_body_buttons_message(tmp_path):
+    opener = Opener()
+    r = rig_of(tmp_path, opener=opener, buttons=True)
+    try:
+        open_window(r)
+        card_sid = r.ask(1, PERSON, card("Plan ready. Approve it?"))["message_id"]
+        assert len(opener.calls) == 1 and "ContentSid" in opener.calls[0]["fields"]
+        for report in (kit.status_report(kit.sid(0x99), "21656"), kit.status_report(card_sid, "21656", account=kit.OTHER_ACCOUNT)):
+            assert r.status(report)[0] == 200
+        assert r.status(kit.status_report(card_sid, "21656"))[0] == 200
+        assert r.status(kit.status_report(card_sid, "21656", status="undelivered"))[0] == 200      # a second report: not resent
+        assert r.ask(2, PERSON, plain("after"))["ok"] is True                                       # the worker handled the reports first
+        texts = [c["fields"] for c in opener.calls[1:]]
+        assert texts[0]["Body"] == "Plan ready. Approve it?" and "ContentSid" not in texts[0]
+        assert json.loads(texts[1]["ContentVariables"])["1"] == wt.BUTTONS_LINE
+        assert len(opener.calls) == 4 and texts[2]["Body"] == "after"
+        assert any("status report" in line and "21656" in line for line in r.logs)
+    finally:
+        r.stop()
