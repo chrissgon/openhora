@@ -24,7 +24,7 @@ The file is `whispercpp.py`, not `whisper_cpp.py`: `providers/resolve.py` takes 
 
 Nothing in the repository downloads, builds or pulls anything by itself. Two things are needed, and each is a command the person starts. Docker (a daemon and the `docker` client) must be installed.
 
-**1. Build the image.** It pulls the pinned base image (`debian` by digest) and clones the pinned whisper.cpp tag from GitHub, compiles `whisper-cli` for a fixed CPU floor of this machine's architecture (below), and installs ffmpeg from a dated Debian snapshot. It takes some minutes and writes `<state>/transcriber/image.json` (the id of the image, which every later run must find unchanged).
+**1. Build the image.** It pulls the pinned base image (`debian` by digest) and clones the pinned whisper.cpp tag from GitHub, compiles `whisper-cli` for a fixed CPU floor of this machine's architecture (below), and installs ffmpeg from a dated Debian snapshot. It takes some minutes and writes `<state>/transcriber/image.json` (the id of the image, which every later run must find unchanged). Before it starts the long build it makes the provider's folders under the state folder (`transcriber/`, `models/`, `work/`) and closes any of them that is open to others (mode 0700, with a note), so a folder problem cannot cost a build.
 
 ```
 python3 providers/transcriber/whispercpp.py build --confirmed
@@ -35,7 +35,8 @@ python3 providers/transcriber/whispercpp.py build --confirmed
 **2. Put a model in the models folder** (`<state>/transcriber/models/`, or the folder `--models-dir` names). `python3 providers/transcriber/whispercpp.py models` prints the folder, and for each pinned model its file, size, source URL and whether the file is there. The files come from `https://huggingface.co/ggerganov/whisper.cpp` at the revision `models.json` pins; for example:
 
 ```
-mkdir -p -m 700 ~/.local/state/openhora/transcriber/models
+mkdir -p ~/.local/state/openhora/transcriber/models
+chmod 700 ~/.local/state/openhora ~/.local/state/openhora/transcriber ~/.local/state/openhora/transcriber/models
 curl -fL -o ~/.local/state/openhora/transcriber/models/ggml-small.bin \
   https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-small.bin
 python3 providers/transcriber/whispercpp.py --check --model small

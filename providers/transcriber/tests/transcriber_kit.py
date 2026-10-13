@@ -1,11 +1,15 @@
 """What the transcriber tests share: a fake `docker` on PATH, builders of whisper.cpp's -ojf document (fictional speech),
-and the provider module. Standard library only; nothing here starts a real container or reaches a network."""
+the provider module and the fixtures built on them (kept here because every provider suite's conftest.py is the same shared
+loopback guard). Nothing here starts a real container or reaches a network."""
 import hashlib
 import importlib.util
 import json
+import os
 import stat
 import sys
 from pathlib import Path
+
+import pytest
 
 HERE = Path(__file__).resolve().parent
 PROVIDER_DIR = HERE.parent
@@ -177,3 +181,40 @@ class Fake:
 
 def sha256_text(data):
     return hashlib.sha256(data).hexdigest()
+
+
+# --- fixtures (here and not in conftest.py: every provider suite's conftest.py is the same shared guard) ---------
+
+
+@pytest.fixture
+def provider():
+    return load_provider()
+
+
+@pytest.fixture
+def world(tmp_path, monkeypatch, provider):
+    """A fake docker first on PATH, a private state folder, a models folder with one fictional model, a models.json that
+    pins it, and an input file. Nothing outside tmp_path is read or written."""
+    fake = Fake(tmp_path / "bin")
+    monkeypatch.setenv("PATH", f"{fake.folder}{os.pathsep}{os.environ['PATH']}")
+    state = tmp_path / "state"
+    state.mkdir(mode=0o700)
+    monkeypatch.setenv("OPENHORA_STATE_DIR", str(state))
+    models = tmp_path / "models"
+    models.mkdir(mode=0o700)
+    weights = b"fictional model weights"
+    (models / "ggml-demo.bin").write_bytes(weights)
+    pins = tmp_path / "models.json"
+    pins.write_text(json.dumps({"schema_version": 1, "models": [
+        {"name": "demo", "file": "ggml-demo.bin", "sha256": hashlib.sha256(weights).hexdigest(), "size": len(weights),
+         "dtw_preset": "small", "memory_mb": 1536, "url": "https://example.invalid/ggml-demo.bin"},
+        {"name": "later", "file": "ggml-later.bin", "sha256": None, "size": 1, "dtw_preset": "medium", "memory_mb": 2048,
+         "url": "https://example.invalid/ggml-later.bin"}]}))
+    monkeypatch.setattr(provider, "MODELS_FILE", str(pins))
+    audio = tmp_path / "talk.mp4"
+    audio.write_bytes(b"\x00\x00\x00\x18ftypmp42 fictional recording")
+    ns = type("World", (), {})()
+    ns.fake, ns.state, ns.models, ns.pins, ns.input, ns.tmp, ns.provider = fake, state, models, pins, audio, tmp_path, provider
+    ns.out = tmp_path / "out" / "transcript.json"
+    ns.out.parent.mkdir()
+    return ns

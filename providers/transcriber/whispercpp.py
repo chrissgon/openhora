@@ -203,8 +203,10 @@ def own_dir():
     return os.path.join(state_dir(), STATE_FOLDER)
 
 
-def private_dir(path, what):
-    """Make `path` (0700) when missing and check it: a real directory, this user's, closed to the group and others."""
+def private_dir(path, what, repair=False):
+    """Make `path` (0700) when missing and check it: a real directory, this user's, closed to the group and others.
+    With repair, a folder of this user that is open to others (a `mkdir -p` makes its parents 0755) is closed with chmod 0700
+    and a note on stderr instead of refused: the provider owns its folders under the state folder."""
     try:
         os.makedirs(path, mode=0o700, exist_ok=True)
         found = os.lstat(path)
@@ -215,9 +217,25 @@ def private_dir(path, what):
     if found.st_uid != os.getuid():
         raise Refusal("not-configured", f"the {what} {path} is not owned by this user")
     if found.st_mode & 0o077:
-        raise Refusal("not-configured", f"the {what} {path} is open to other users (mode {stat.S_IMODE(found.st_mode):04o}); "
-                                        "run chmod 700 on it")
+        if not repair:
+            raise Refusal("not-configured", f"the {what} {path} is open to other users (mode {stat.S_IMODE(found.st_mode):04o}); "
+                                            "run chmod 700 on it")
+        try:
+            os.chmod(path, 0o700)
+        except OSError as e:
+            raise Refusal("not-configured", f"the {what} {path} is open to other users and cannot be closed "
+                                            f"({e.strerror or e.__class__.__name__})") from None
+        say(f"note: the {what} {path} was mode {stat.S_IMODE(found.st_mode):04o}; it is now 0700")
     return path
+
+
+def own_folders():
+    """(state folder, transcriber folder, models folder, work folder), each made and closed to others (0700) when this
+    provider can: the state folder is shared with the other providers, which refuse it open to others as well."""
+    state = private_dir(state_dir(), "state folder", repair=True)
+    own = private_dir(os.path.join(state, STATE_FOLDER), "transcriber folder", repair=True)
+    return (state, own, private_dir(os.path.join(own, MODELS_FOLDER), "models folder", repair=True),
+            private_dir(os.path.join(own, WORK_FOLDER), "work folder", repair=True))
 
 
 def models_folder(chosen=None):
@@ -503,6 +521,7 @@ def cmd_build(args):
     if args.dry_run:
         return dict(plan, dry_run=True)
     require_docker()
+    own_folders()   # before the long build: a folder that cannot be made or closed must not cost a build
     say(f"building {plan['image']} (whisper.cpp {tag}); this downloads the base image and the source and takes a while")
     try:
         done = subprocess.run([docker_binary(), *argv], timeout=BUILD_TIMEOUT, env=docker_environment(), check=False,
@@ -514,8 +533,7 @@ def cmd_build(args):
     image = inspect_image(plan["image"])
     if image is None or image["labels"].get(LABEL_DEFINITION) != plan["definition"]:
         raise Refusal("failed", "docker build ended well but the image is missing or does not carry this definition's hash")
-    private_dir(state_dir(), "state folder")
-    folder = private_dir(own_dir(), "transcriber folder")
+    folder = own_folders()[1]
     write_private_json(os.path.join(folder, BUILD_RECORD),
                        {"image_tag": plan["image"], "image_id": image["id"], "definition": plan["definition"],
                         "whisper_cpp_tag": tag, "whisper_cpp_commit": commit, "built_at": utc_now()})
@@ -941,8 +959,7 @@ def cmd_transcribe(args):
         reap_folders()
     except Refusal:
         pass
-    root = private_dir(os.path.join(private_dir(state_dir(), "state folder"), STATE_FOLDER), "transcriber folder")
-    work = tempfile.mkdtemp(prefix=WORK_PREFIX, dir=private_dir(os.path.join(root, WORK_FOLDER), "work folder"))  # 0700
+    work = tempfile.mkdtemp(prefix=WORK_PREFIX, dir=own_folders()[3])  # 0700
     try:
         clean_path(work, "the work folder")
         argv = container_argv(name, image["id"], in_path, model_path, work, threads=threads, language=args.language,

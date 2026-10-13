@@ -15,6 +15,7 @@ import wave
 import pytest
 
 import transcriber_kit as kit
+from transcriber_kit import provider, world  # noqa: F401  (fixtures)
 
 PROVIDER_FILE = kit.PROVIDER_DIR / "whispercpp.py"
 ID = "sha256:" + "a" * 64
@@ -196,6 +197,29 @@ def test_a_confirmed_build_runs_docker_build_and_records_the_image(world, capsys
     record = world.state / "transcriber" / p.BUILD_RECORD
     assert json.loads(record.read_text())["image_id"] == ID and (record.stat().st_mode & 0o777) == 0o600
     assert p.main(["--check"]) == 0   # and the check now passes
+
+
+def test_a_build_closes_its_own_folders_when_a_mkdir_p_left_them_open(world, capsys):
+    p = world.provider
+    tag_, commit = p.dockerfile_pins()
+    world.fake.update(build={"id": ID, "tag": tag_, "commit": commit})
+    own = world.state / "transcriber"
+    (own / "models").mkdir(parents=True)          # as `mkdir -p` makes them: the parents get the default mode
+    own.chmod(0o755)
+    (own / "models").chmod(0o755)
+    world.state.chmod(0o755)
+    assert p.main(["build", "--confirmed"]) == 0
+    assert "now 0700" in capsys.readouterr().err
+    for folder in (world.state, own, own / "models", own / "work"):
+        assert (folder.stat().st_mode & 0o777) == 0o700, folder
+    assert (own / p.BUILD_RECORD).is_file()
+
+
+def test_a_folder_that_cannot_be_used_stops_the_build_before_it_starts(world, capsys):
+    (world.state / "transcriber").write_text("a file where the folder should be")
+    assert world.provider.main(["build", "--confirmed"]) == 3
+    assert "cannot be made" in capsys.readouterr().err
+    assert "build" not in world.fake.verbs()    # no long build was started for nothing
 
 
 def test_a_failed_build_records_nothing(world, capsys):
