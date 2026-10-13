@@ -50,6 +50,9 @@
   color: var(--pui-bg);
   font-size: 12px;
   line-height: 1.3;
+  width: max-content;      /* the box is as wide as its text, and the text wraps past 320 px: a long task title never runs out of the box */
+  max-width: 320px;
+  white-space: normal;
 }
 .wb-tooltip.pui-tooltip.is-above { transform: translate(-50%, calc(-100% - 10px)); }
 /* F1-D5: the tooltip of a building in the City is the light card of city.html (the label's own look, at the pointer), over every label */

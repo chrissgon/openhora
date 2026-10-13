@@ -210,7 +210,9 @@ export function buildingOf(project, detail) {
     const active = a.enabled !== false && a.acting_mode !== "stopped";   // a stopped or disabled agent is off, whatever it asked (`floor-model.stateOf` says the same)
     // M-24: a queued task that is not held also lights the window (the agent is ready); the same count the floors make (`queuedFree` above)
     const ready = active && queuedFree(a, status) > 0;
-    const window = windowState(accepted && Boolean(a.name) && (running.has(a.name) || ((waits.has(a.name) || ready) && active)));
+    // PAR-7e 12.1: a holder of a slot that is running, waiting or ready has an awake owl, which lights the floor
+    const awake = active && rowsOf(status).some((t) => !t.request && (t.agent || "planning") === a.name && t.holds_slot && (t.state === "running" || t.state === "waiting" || t.state === "ready"));
+    const window = windowState(accepted && Boolean(a.name) && (running.has(a.name) || awake || ((waits.has(a.name) || ready) && active)));
     return { agent: a.name, window, waits: shown && (a.name ? waits.has(a.name) : decided.length > 0) };
   });
   const open = !shown ? 0 : status ? decided.length : format.count(project.open_pending);
