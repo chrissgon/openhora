@@ -123,7 +123,7 @@ const out = {};
 const plate = plateNode(p);
 out.plate = { tag: plate.tagName, classes: plate.cls(), floor: plate.attrs["data-floor"], parts: plate.children.map((c) => c.cls().join(" ")),
   row: find(plate, ".wb-plate-row").children.map((c) => c.cls().join(" ")), name: find(plate, ".wb-plate-name").textContent, badge: all(plate, ".pui-badge")[0].textContent,
-  badgeLabel: all(plate, ".pui-badge")[0].attrs["aria-label"], mode: find(plate, ".wb-plate-mode").textContent, modeTitle: find(plate, ".wb-plate-mode").attrs.title,
+  badgeLabel: all(plate, ".pui-badge")[0].attrs["aria-label"], modeNodes: all(plate, ".wb-plate-mode").length,
   state: find(plate, ".wb-plate-state .wb-st").textContent, stateClasses: find(plate, ".wb-plate-state .wb-st").cls(), stateTitle: find(plate, ".wb-plate-state .wb-st").attrs.title,
   meters: all(plate, ".wb-plate-meter").map((m) => [m.textContent, m.attrs.title, all(m, ".wb-meter").length, all(m, ".wb-meter-reserved").length]),
   noChips: all(plate, ".wb-plate-chips").length + all(plate, ".wb-plate-note").length + all(plate, ".wb-pip").length + all(plate, ".wb-mode-plate").length };
@@ -151,9 +151,9 @@ def test_the_plate_is_one_size_the_name_row_and_two_meters_side_by_side_with_the
     got = run_node(tmp_path, NODES)
     p = got["plate"]
     assert p["tag"] == "DIV" and "wb-plate" in p["classes"] and p["floor"] == "marketing" and p["parts"] == ["wb-plate-row", "wb-plate-meters"], "R-25: the name row and the meters"
-    assert p["row"] == ["wb-dot is-theme", "wb-plate-name", "pui-badge pui-warn pui-soft pui-rounded-full", "wb-plate-mode", "wb-plate-state"], "R-25: the state dot, the name, the decisions badge, the mode word, the state"
-    assert (p["name"], p["badge"], p["badgeLabel"], p["mode"], p["state"]) == ("Marketing", "1", "1 decision waiting", "milestones", "waiting for you")
-    assert p["modeTitle"] == "Reviews reach you at milestones; acting as supervised", "C-5: the mode's one line is the title (and the acting mode, which the plate has no room to draw)"
+    assert p["row"] == ["wb-dot is-theme", "wb-plate-name", "pui-badge pui-warn pui-soft pui-rounded-full", "wb-plate-state"], "R-25: the state dot, the name, the decisions badge, the state (PAR-7d: no mode word)"
+    assert (p["name"], p["badge"], p["badgeLabel"], p["state"]) == ("Marketing", "1", "1 decision waiting", "waiting for you")
+    assert p["modeNodes"] == 0, "PAR-7d: the plate draws no mode word (the floors list and the Agent tab keep it)"
     assert {"pui-badge", "pui-soft", "pui-warn", "wb-st"} <= set(p["stateClasses"]) and p["stateTitle"] == "waiting for you", "R-26: the state is a soft badge with its whole text as the tooltip"
     assert [m[0] for m in p["meters"]] == ["2 / 6 runs", "$0.03 / $2.00"], "R-25, R-5/R-6: the meters are named `runs` and `$`"
     assert p["meters"][0][1].startswith("Counted against the cap of runs per day"), "each meter's tooltip says what the cap counts"
