@@ -327,6 +327,13 @@ def test_a_failed_container_reports_the_tail_of_its_stderr(world, capsys):
     assert "matches no streams" in err and len(err) < 600 and not world.out.exists()
 
 
+def test_stderr_that_is_not_utf8_is_reported_not_fatal(world, capsys):
+    built(world)
+    will_write(world, kit.speech(), exit_code=1, stderr_hex="ff fe 6572726f72".replace(" ", ""))
+    assert transcribe(world) == 1
+    assert "error" in capsys.readouterr().err
+
+
 def test_a_run_refuses_an_image_that_was_not_built_or_was_replaced(world, capsys):
     will_write(world, kit.speech())
     assert transcribe(world) == 3 and world.fake.runs() == []

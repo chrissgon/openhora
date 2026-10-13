@@ -116,6 +116,8 @@ if verb == "run":
             f.write(content)
     if run.get("stderr"):
         sys.stderr.write(run["stderr"])
+    if run.get("stderr_hex"):
+        sys.stderr.flush(); sys.stderr.buffer.write(bytes.fromhex(run["stderr_hex"])); sys.stderr.buffer.flush()
     sys.exit(run.get("exit", 0))
 sys.stderr.write("fake docker: unexpected " + repr(argv) + "\\n"); sys.exit(125)
 '''

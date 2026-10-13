@@ -264,7 +264,7 @@ def docker_binary():
 def docker(args, timeout=PROBE_TIMEOUT):
     """Run the docker client with a clean environment; the completed process. Raises Refusal when it cannot start or hangs."""
     try:
-        return subprocess.run([docker_binary(), *args], capture_output=True, text=True, timeout=timeout,
+        return subprocess.run([docker_binary(), *args], capture_output=True, text=True, errors="replace", timeout=timeout,
                               env=docker_environment(), check=False)
     except subprocess.TimeoutExpired:
         raise Refusal("failed", f"docker {args[0]} did not answer within {timeout} s") from None
@@ -458,7 +458,8 @@ def run_container(argv, name, timeout):
     try:
         try:
             proc = subprocess.Popen([docker_binary()] + argv[1:], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                    stderr=subprocess.PIPE, text=True, env=docker_environment(), start_new_session=True)
+                                    stderr=subprocess.PIPE, text=True, errors="replace", env=docker_environment(),
+                                    start_new_session=True)
         except OSError as e:
             raise Refusal("not-configured", f"docker could not be started ({e.strerror or e.__class__.__name__})") from None
         try:
