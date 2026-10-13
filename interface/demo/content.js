@@ -31,7 +31,7 @@ export const PROJECTS = [
       { name: "planning", pack: "planning", mode: "supervised", maxRuns: 12, maxUsd: 5, runs: 2, usd: 0 },
       { name: "design", pack: "design", mode: "supervised", maxRuns: 6, maxUsd: 3, runs: 1, usd: 0, maxParallel: 3 },
       { name: "engineering", pack: "engineering", mode: "milestones", maxRuns: 8, maxUsd: 4, runs: 1, usd: 0, maxParallel: 2 },
-      { name: "marketing", pack: "marketing", mode: "supervised", maxRuns: 6, maxUsd: 2, runs: 0, usd: 0.35 },
+      { name: "content", pack: "content", mode: "supervised", maxRuns: 6, maxUsd: 2, runs: 0, usd: 0.35 },
     ],
     requests: [
       {
@@ -141,7 +141,7 @@ export const SPRING = {
   planTasks: [
     { key: "build-page", skill: "eng-implement", agent: "engineering", title: "Build the sale page", milestone: false, web: false, depends_on: [],
       text: "Build the Spring sale page: a banner, three product cards and a countdown to the sale's last day." },
-    { key: "sale-post", skill: "mkt-social-copy", agent: "marketing", title: "Publish the sale post", milestone: true, web: false, depends_on: ["build-page"],
+    { key: "sale-post", skill: "mkt-social-copy", agent: "content", title: "Publish the sale post", milestone: true, web: false, depends_on: ["build-page"],
       text: "Write one short post that announces the sale, and stop at the gate to publish it." },
   ],
   reply: "Recorded as request 4. The planning agent proposes a plan from the flow launch-page: two tasks.",

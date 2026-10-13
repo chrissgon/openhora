@@ -53,11 +53,11 @@ SKILLS = {"demo-asks": "biz-market-analysis", "demo-writes": "mkt-social-copy", 
           "demo-gate": "ops-pull-request", "demo-design": "design-execute"}
 AREA_OF = {"biz": "business", "brand": "brand", "core": "core", "design": "design", "eng": "engineering", "flow": "core",
            "mkt": "marketing", "ops": "delivery", "product": "product", "ai": "ai"}
-PACKS = {"planning": ["demo-asks"], "design": ["demo-design"], "engineering": ["demo-code", "demo-gate"], "marketing": ["demo-writes"]}
+PACKS = {"planning": ["demo-asks"], "design": ["demo-design"], "engineering": ["demo-code", "demo-gate"], "content": ["demo-writes"]}
 AGENTS = {"planning": {"pack": "planning", "mode": "supervised", "max_runs_per_day": 12, "max_usd_per_day": 5},
           "design": {"pack": "design", "mode": "supervised", "max_runs_per_day": 6, "max_usd_per_day": 3},
           "engineering": {"pack": "engineering", "mode": "milestones", "max_runs_per_day": 8, "max_usd_per_day": 4},
-          "marketing": {"pack": "marketing", "mode": "supervised", "max_runs_per_day": 6, "max_usd_per_day": 2}}
+          "content": {"pack": "content", "mode": "supervised", "max_runs_per_day": 6, "max_usd_per_day": 2}}
 PRICES = {"m": {"input_usd_per_mtok": 3.0, "output_usd_per_mtok": 15.0, "cache_read_usd_per_mtok": 0.3,
                 "cache_write_usd_per_mtok": 3.75, "source": "https://prices.example/models", "date": "2026-10-01"}}
 CODE = {"provider": "github", "repo": "example-org/web", "base": "main"}

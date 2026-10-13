@@ -18,6 +18,21 @@
     },
     {
       "day": "2026-10-01",
+      "agent": "content",
+      "model": "m",
+      "adapter": "h",
+      "runs": 1,
+      "tokens": 100,
+      "recorded_usd": null,
+      "recomputed_usd": null,
+      "unknown_runs": 1,
+      "price": {
+        "source": "https://prices.example/models",
+        "date": "2026-10-01"
+      }
+    },
+    {
+      "day": "2026-10-01",
       "agent": "engineering",
       "model": "m",
       "adapter": "h",
@@ -26,21 +41,6 @@
       "recorded_usd": null,
       "recomputed_usd": null,
       "unknown_runs": 2,
-      "price": {
-        "source": "https://prices.example/models",
-        "date": "2026-10-01"
-      }
-    },
-    {
-      "day": "2026-10-01",
-      "agent": "marketing",
-      "model": "m",
-      "adapter": "h",
-      "runs": 1,
-      "tokens": 100,
-      "recorded_usd": null,
-      "recomputed_usd": null,
-      "unknown_runs": 1,
       "price": {
         "source": "https://prices.example/models",
         "date": "2026-10-01"
@@ -97,7 +97,7 @@
       "runs_total_today": 2
     },
     {
-      "agent": "marketing",
+      "agent": "content",
       "max_runs_per_day": 6,
       "max_usd_per_day": 2,
       "runs_today": 1,
