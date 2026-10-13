@@ -1,0 +1,79 @@
+{
+ "version": 1,
+ "vocabulary": "video-presets",
+ "note": "The closed vocabulary of the animations a short video's script may ask for. Renderer-neutral: no template, timing or drawing rule is here. The prose is video-presets.md.",
+ "types": {
+  "text": {"bounds": ["max", "max_items", "pattern"], "note": "plain text; max_items above 1 means that many texts separated by ' | '"},
+  "icon": {"bounds": ["values"], "note": "one name of the list `icons`"},
+  "color": {"bounds": ["values"], "note": "one token of the list `palette`, never a free value"},
+  "image": {"bounds": [], "note": "an asset slot: a description in words of the picture to show; the person uploads a PNG, JPEG or WebP for it"},
+  "clip": {"bounds": [], "note": "an asset slot: a description in words of the clip to show; the person uploads an MP4 or MOV for it"},
+  "choice": {"bounds": ["values"], "note": "one value of the closed list the parameter defines"}
+ },
+ "icons": ["check", "star", "bolt", "arrow-up", "heart", "flag", "clock", "coin"],
+ "palette": ["bg", "text", "muted", "accent", "chip_fill", "chip_text", "chip_border"],
+ "limits": {"beats_max": 12, "line_max": 240, "slot_description_min": 3, "slot_description_max": 80},
+ "always_on": ["caption"],
+ "presets": {
+  "keyword": {
+   "kind": "overlay",
+   "summary": "one short phrase pops on screen while the person says it",
+   "main": "text",
+   "params": {
+    "text": {"type": "text", "max": 24, "required": true},
+    "icon": {"type": "icon"},
+    "color": {"type": "color"}
+   }
+  },
+  "list": {
+   "kind": "overlay",
+   "summary": "up to four short items appear one after the other",
+   "main": "items",
+   "params": {
+    "items": {"type": "text", "max": 30, "max_items": 4, "required": true},
+    "icon": {"type": "icon"},
+    "color": {"type": "color"}
+   }
+  },
+  "number": {
+   "kind": "overlay",
+   "summary": "one figure counts up with a short label under it",
+   "main": "label",
+   "params": {
+    "value": {"type": "text", "max": 10, "pattern": "[0-9][0-9.,]*", "required": true},
+    "label": {"type": "text", "max": 40, "required": true},
+    "color": {"type": "color"}
+   }
+  },
+  "quote": {
+   "kind": "overlay",
+   "summary": "a sentence someone said, with the name of who said it",
+   "main": "text",
+   "params": {
+    "text": {"type": "text", "max": 120, "required": true},
+    "author": {"type": "text", "max": 40},
+    "color": {"type": "color"}
+   }
+  },
+  "cutaway": {
+   "kind": "layout",
+   "summary": "the frame shows a picture or a clip the person uploads, the speaker's face gone, while the line is spoken",
+   "main": "label",
+   "params": {
+    "asset": {"type": ["image", "clip"], "required": true},
+    "fit": {"type": "choice", "values": ["cover", "contain"], "default": "cover"},
+    "label": {"type": "text", "max": 40}
+   }
+  },
+  "pip": {
+   "kind": "layout",
+   "summary": "a picture or a clip the person uploads sits in a bubble over the speaker, who stays on screen",
+   "main": "label",
+   "params": {
+    "asset": {"type": ["image", "clip"], "required": true},
+    "position": {"type": "choice", "values": ["top", "bottom"], "default": "top"},
+    "label": {"type": "text", "max": 40}
+   }
+  }
+ }
+}
