@@ -329,6 +329,24 @@ def test_the_interpreter_follows_the_header(tmp_path):
     assert caught.value.kind == "not-configured"
 
 
+def test_a_script_with_a_lockfile_next_to_it_starts_with_uv_run_locked(tmp_path):
+    pinned = tmp_path / "pinned.py"
+    pinned.write_text('# /// script\n# dependencies = ["websockets==16.1.1"]\n# ///\n')
+    assert resolve.interpreter_for(pinned) == ["uv", "run"]
+    (tmp_path / "pinned.py.lock").write_text("version = 1\n")
+    assert resolve.interpreter_for(pinned) == ["uv", "run", "--locked"]
+    bare = tmp_path / "bare.py"
+    bare.write_text("# /// script\n# dependencies = []\n# ///\n")
+    (tmp_path / "bare.py.lock").write_text("version = 1\n")
+    assert resolve.interpreter_for(bare) == [sys.executable]       # nothing to install, so nothing to lock
+
+
+def test_the_discord_provider_is_started_with_its_hash_lock():
+    script = REPO / "providers" / "messenger" / "discord.py"
+    assert (REPO / "providers" / "messenger" / "discord.py.lock").is_file()
+    assert resolve.interpreter_for(script) == ["uv", "run", "--locked"]
+
+
 def test_a_call_returns_the_one_json_object_and_passes_the_arguments(tmp_path):
     root = stand_in_workbench(tmp_path)
     out = resolve.call("integration:vcs", "read-file", ["--repo", "a/b"], root=root, env={"PATH": "/usr/bin:/bin"})
