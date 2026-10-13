@@ -364,7 +364,7 @@ def test_route_a_slow_sender_is_cut_at_the_uploads_deadline_and_the_lock_is_free
         if not piece:
             break
         seen += piece
-        if b"\r\n\r\n" in seen:
+        if b"took more than" in seen:      # the head and the body of the answer can arrive in two pieces
             break
     connection.close()
     assert b" 409 " in seen[:16] and b"took more than" in seen and time.monotonic() - started < 5
