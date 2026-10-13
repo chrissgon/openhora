@@ -365,6 +365,94 @@ def test_stderr_that_is_not_utf8_is_reported_not_fatal(world, capsys):
     assert "error" in capsys.readouterr().err
 
 
+def test_stderr_over_the_cap_is_drained_and_withheld_not_printed(world, capsys):
+    """A container that spams stderr: the provider reads it all (the pipe never blocks the container), keeps at most the
+    cap, and prints a closed code instead of any of it."""
+    built(world)
+    will_write(world, kit.speech(), exit_code=1, stderr="the last line, Stream map matches no streams\n", spam_kb=4096)
+    began = time.monotonic()
+    assert transcribe(world) == 1
+    err = capsys.readouterr().err
+    assert time.monotonic() - began < 30
+    assert "stderr-overflow" in err and "xxx" not in err and len(err) < 400 and not world.out.exists()
+    assert list((world.state / "transcriber" / "work").iterdir()) == []
+
+
+def test_stderr_spam_does_not_fail_a_run_that_succeeded(world):
+    built(world)
+    will_write(world, kit.speech(), spam_kb=2048)
+    assert transcribe(world) == 0 and world.out.exists()
+
+
+def test_a_traceback_in_stderr_is_withheld_not_printed(world, capsys):
+    built(world)
+    trace = ('Traceback (most recent call last):\n  File "x.py", line 3, in <module>\n    open("secret words of the talk")\n'
+             "FileNotFoundError: secret words of the talk\n")
+    will_write(world, kit.speech(), exit_code=1, stderr=trace)
+    assert transcribe(world) == 1
+    err = capsys.readouterr().err
+    assert "stderr-traceback" in err and "secret words" not in err and "FileNotFound" not in err
+
+
+def test_the_stderr_reader_keeps_the_last_bytes_up_to_its_cap(provider):
+    read_end, write_end = os.pipe()
+    stream = os.fdopen(read_end, "rb", buffering=0)
+    cap = provider.StderrCap(stream, cap=1000)
+    with os.fdopen(write_end, "wb", buffering=0) as w:
+        for i in range(300):
+            w.write(b"%04d" % i * 25)   # 100 bytes a write, 30000 in all
+        w.write(b"END")
+    text, truncated = cap.finish()
+    assert truncated and cap.total == 30003 and len(text) == 1000 and text.endswith("END")
+    assert text.startswith("0")   # a whole stretch of the tail, not the head
+    read_end2, write_end2 = os.pipe()
+    small = provider.StderrCap(os.fdopen(read_end2, "rb", buffering=0), cap=1000)
+    os.write(write_end2, b"short")
+    os.close(write_end2)
+    assert small.finish() == ("short", False)
+
+
+def test_an_unexpected_failure_is_a_closed_code_not_its_text(world, monkeypatch, capsys):
+    built(world)
+    will_write(world, kit.speech())
+
+    def explode(raw, mode):
+        raise KeyError("secret words of the talk")
+
+    monkeypatch.setattr(world.provider, "parse_whisper", explode)
+    assert transcribe(world) == 1
+    err = capsys.readouterr().err
+    assert "internal-KeyError" in err and "secret words" not in err and "Traceback" not in err
+    assert list((world.state / "transcriber" / "work").iterdir()) == []   # the work folder is removed all the same
+
+
+def test_a_disk_with_too_little_free_space_is_refused_before_any_container(world, monkeypatch, capsys):
+    built(world)
+    will_write(world, kit.speech())
+    p = world.provider
+    size = world.input.stat().st_size
+    need = size * p.FREE_FACTOR + p.FREE_MARGIN
+    seen = []
+    monkeypatch.setattr(p, "free_bytes", lambda path: seen.append(path) or need - 1)
+    assert transcribe(world) == 1
+    err = capsys.readouterr().err
+    assert "free" in err and "nothing was started" in err and not world.out.exists()
+    assert world.fake.runs() == [] and list((world.state / "transcriber" / "work").iterdir()) == []
+    assert seen == [str(world.state / "transcriber" / "work")]   # the disk of the work mount is the one measured
+    monkeypatch.setattr(p, "free_bytes", lambda path: need)   # exactly enough passes
+    assert transcribe(world) == 0 and world.out.exists()
+
+
+def test_free_space_that_cannot_be_read_is_refused(world, monkeypatch, capsys):
+    built(world)
+
+    def broken(path):
+        raise OSError(5, "Input/output error")
+
+    monkeypatch.setattr(world.provider, "free_bytes", broken)
+    assert transcribe(world) == 1 and "free space" in capsys.readouterr().err and world.fake.runs() == []
+
+
 def test_a_run_refuses_an_image_that_was_not_built_or_was_replaced(world, capsys):
     will_write(world, kit.speech())
     assert transcribe(world) == 3 and world.fake.runs() == []

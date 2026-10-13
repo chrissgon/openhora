@@ -140,6 +140,11 @@ if verb == "run":
             f.truncate(run["big"])
     if run.get("stderr"):
         sys.stderr.write(run["stderr"])
+    if run.get("spam_kb"):
+        line = ("x" * 1023 + "\\n").encode()
+        for _ in range(run["spam_kb"]):
+            sys.stderr.flush(); sys.stderr.buffer.write(line)
+        sys.stderr.buffer.flush()
     if run.get("stderr_hex"):
         sys.stderr.flush(); sys.stderr.buffer.write(bytes.fromhex(run["stderr_hex"])); sys.stderr.buffer.flush()
     sys.exit(run.get("exit", 0))
