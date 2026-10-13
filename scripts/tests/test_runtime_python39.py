@@ -71,6 +71,8 @@ ON_SYSTEM_PYTHON = [
     "providers/issue-tracker/local.py",
     # The WhatsApp provider: standard library only, so the resolver starts it with the caller's interpreter (MSG-7).
     "providers/messenger/whatsapp.py",
+    # The official WhatsApp API provider: standard library only, so the resolver starts it with the caller's interpreter (MSG-8).
+    "providers/messenger/whatsapp-cloud.py",
     # The documents' local implementation, called the same way (stage 3).
     "providers/documents/local.py",
 ]

@@ -609,3 +609,67 @@ def test_a_provider_that_was_connected_and_is_paused_later_is_news_again(tmp_pat
     # start 1: logged; start 2 had been ready, so its pause is logged again; start 3 is the same pause as 2: not logged again
     assert len([line for line in r.log if PAUSED_REASON in line]) == 2
     r.finish()
+
+
+# --- the `deferred` answer (MSG-8): not an error; the card is kept and sent after the person writes -----------------------
+
+
+def test_deferred_is_an_answer_kind_and_not_an_error_kind_and_other_words_stay_failed(tmp_path, monkeypatch, rig):
+    assert "deferred" not in providers.ERROR_KINDS and "deferred" in providers.ANSWER_KINDS
+    r = rig()
+    r.messenger.open_session(r.log.append)
+    assert wait_for(r.messenger.session.is_ready)
+    plain = {"text": "x", "actions": [], "link": None, "document": None}
+    with pytest.raises(providers.MessengerError) as caught:
+        r.messenger.send("fail-deferred", plain)
+    assert caught.value.kind == "deferred" and caught.value.reason == "refused by the stand-in"
+    assert set(providers.ANSWER_KINDS) == {"usage", "not-configured", "failed", "deferred"}, "paused is an event kind, not an answer kind"
+    r.finish()
+
+
+def test_a_deferred_card_is_not_recorded_is_tried_again_each_tick_and_logged_once(tmp_path, monkeypatch, rig):
+    r = rig(sender="fail-deferred")
+    r.items[1] = decision("plan", 1)
+    r.run(notice_every=0.05)
+    assert wait_for(lambda: len(r.requests()) >= 4), "the card is offered again at each notice period"
+    assert r.bridge.ledger.sent(r.projects[0]["id"], 1, bridge.cards.content_sha256(r.items[1]), "fail-deferred") is False
+    assert not r.error and r.messenger.session.fatal is None, "a deferral stops nothing"
+    kept = [line for line in r.log if "kept for later" in line]
+    assert len(kept) == 1 and "fail-deferred" not in kept[0] and SECRET_TEXT not in kept[0]
+    assert not any("could not be sent" in line for line in r.log)
+    r.finish()
+
+
+def test_the_deferred_line_comes_again_after_24_hours_for_the_same_card_and_chat_and_at_once_for_another(tmp_path, monkeypatch, rig):
+    r = rig()
+    item, other = decision("plan", 1), decision("plan", 2)
+    now = [1000.0]
+    monkeypatch.setattr(bridge.time, "monotonic", lambda: now[0])
+    project = r.projects[0]
+    for _ in range(3):
+        r.bridge.defer(project, item, "a")
+    assert len([x for x in r.log if "kept for later" in x]) == 1
+    now[0] += bridge.DEFERRED_LOG_EVERY - 1
+    r.bridge.defer(project, item, "a")
+    assert len([x for x in r.log if "kept for later" in x]) == 1
+    r.bridge.defer(project, other, "a")
+    r.bridge.defer(project, item, "b")
+    assert len([x for x in r.log if "kept for later" in x]) == 3
+    now[0] += 2
+    r.bridge.defer(project, item, "a")
+    assert len([x for x in r.log if "kept for later" in x]) == 4
+
+
+def test_a_deferred_card_goes_out_as_soon_as_the_person_writes_without_waiting_for_the_next_notice_period(tmp_path, monkeypatch, rig):
+    hello = {"event": "update", "update": {"sender": "defer-once", "chat": "defer-once", "private": True, "text": "hello",
+                                          "action": None, "reply_to": None}}
+    r = rig(sender="defer-once", script={"default": {"after_send": {"1": [hello]}}})
+    r.items[1] = decision("plan", 1)
+    r.run(notice_every=600)     # only the person's message can bring the second try
+    assert wait_for(lambda: any(s["message"]["actions"] for s in r.sent())), r.log
+    [card] = [s for s in r.sent() if s["message"]["actions"]]
+    assert card["chat"] == "defer-once" and SECRET_TEXT in card["message"]["text"]
+    assert [q["message"]["actions"] != [] for q in r.requests() if q["op"] == "send"][0] is True, "the card was the first request, deferred"
+    assert r.bridge.ledger.sent(r.projects[0]["id"], 1, bridge.cards.content_sha256(r.items[1]), "defer-once")
+    assert len([x for x in r.log if "kept for later" in x]) == 1
+    r.finish()

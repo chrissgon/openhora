@@ -436,6 +436,15 @@ def test_messenger_is_a_class_with_a_platform_parameter_and_telegram_serves_tele
         resolve.resolve("messenger:signal", env={})
 
 
+def test_whatsapp_cloud_is_a_platform_of_its_own_served_by_a_file_with_a_hyphen_in_its_name():   # MSG-8
+    assert resolve.variables("messenger:whatsapp-cloud") == ["MESSENGER_WHATSAPP_CLOUD_PROVIDER", "MESSENGER_PROVIDER"]
+    got = resolve.resolve("messenger:whatsapp-cloud", env={})
+    assert got["implementation"] == "whatsapp-cloud" and got["path"] == str(REPO / "providers" / "messenger" / "whatsapp-cloud.py")
+    assert resolve.served_platforms("messenger:<platform>", "whatsapp-cloud", env={}) == ["whatsapp-cloud"]
+    assert resolve.resolve("messenger:whatsapp", env={})["implementation"] == "whatsapp"      # the two do not shadow each other
+    assert "whatsapp-cloud" not in resolve.served_platforms("messenger:<platform>", "whatsapp", env={})
+
+
 # --- starting a long-lived verb (resolve.start) ----------------------------------------------------------------
 
 LONG_LIVED = '''# /// script

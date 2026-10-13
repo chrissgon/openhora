@@ -28,6 +28,11 @@ Notices. Each tick, per project, every open decision gets one card per listed se
 runtime/messaging_ledger.py). A changed plan, or any decision whose content hash changed, gets a new card. At most 10
 cards per project and tick; the rest are announced in one line.
 
+Deferred. A provider whose platform lets a business write first only inside a window (the official WhatsApp API) answers a send
+`ok: false, kind: "deferred"`. That is not an error: the card is not recorded in the ledger, so it is tried again at the next
+notice period and at once when the person writes (the chat is remembered), and the bridge logs one line for a card and a chat
+at most every 24 hours, never every tick.
+
 Approvals. A tap or /approve is bound to the card the person saw. A plan is approved with the hash the ledger recorded
 (ops.approve refuses a plan that changed). An acceptance has no hash, so the bridge compares the decision's text now with
 the hash recorded for the card and approves nothing when they differ. An effect is never approved here (decision D8):
@@ -50,6 +55,7 @@ import shell_kit
 CHANNEL = "messaging"
 CARDS_PER_TICK = 10
 POLL_SECONDS = 25
+DEFERRED_LOG_EVERY = 86400.0   # seconds between two log lines about one deferred card
 RETRY_SECONDS = 5
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DROPPED = "dropped an update from an unlisted sender"
@@ -83,6 +89,8 @@ class Bridge(shell_kit.Jobs):
         self.policy_noted = set()
         self.everyone = list(self.projects)   # every project given; `self.projects` is the part that is ready to serve
         self.skipped = {}                     # project id -> why it is skipped now (absent: served)
+        self.deferred = {}                    # (project id, pending id, chat) -> when it was last logged as deferred
+        self.deferred_chats = set()           # chats with a card kept for later: an update from one asks for a notice at once
 
     # --- the projects and their settings ---------------------------------------------------------------------
 
@@ -185,6 +193,9 @@ class Bridge(shell_kit.Jobs):
         try:
             message_id = self.messenger.send(chat, message)
         except provider.MessengerError as e:
+            if e.kind == "deferred":
+                self.defer(project, item, chat)
+                return False
             self.log(f"a card could not be sent ({e.kind})")
             if e.kind == "not-configured":
                 raise Fatal(e.reason) from None
@@ -196,6 +207,16 @@ class Bridge(shell_kit.Jobs):
         except OSError as e:  # the card went out and the process keeps the record in memory; it is not sent again
             self.log(f"the ledger could not be written ({e.__class__.__name__})")
         return True
+
+    def defer(self, project: dict, item: dict, chat: str) -> None:
+        """The platform cannot take this card now: keep it (nothing is recorded), remember the chat, and say so once a day."""
+        self.deferred_chats.add(chat)
+        key = (project["id"], item["id"], chat)
+        now = time.monotonic()
+        last = self.deferred.get(key)
+        if last is None or now - last >= DEFERRED_LOG_EVERY:
+            self.deferred[key] = now
+            self.log("a card is kept for later: the platform cannot take it yet (deferred)")
 
     # --- notices ---------------------------------------------------------------------------------------------
 
@@ -455,6 +476,9 @@ class Bridge(shell_kit.Jobs):
             update = session.next_update(max(wait, 0.05))
             if update is not None:
                 self.handle_safely(update)
+                if update.get("chat") in self.deferred_chats:   # the person wrote: a kept card can go out now
+                    self.deferred_chats.discard(update.get("chat"))
+                    due = 0.0
 
     def serve_loop(self, stop: threading.Event, notice_every: float, poll: int = POLL_SECONDS) -> None:
         session = getattr(self.messenger, "session", None)

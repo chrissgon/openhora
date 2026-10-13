@@ -23,8 +23,9 @@ script.json (optional) is {"1": step, "2": step, "default": step}: the step for 
   paused         a reason: write an error event of kind "paused" with it and exit 3 at once, before the ready event
   paused_after_ready  a reason: after ready and the emitted lines, write that event and exit 3 (a session lost while connected)
 A send to the chat "crash-1" makes the first start deliver it (it is recorded) and exit 1 without answering, "exit-3" writes the error event and exits 3,
-"exit-2" does the same with 2, "silent" is never answered, "fail-usage" and "fail-failed" are answered ok:false,
-"no-id" is answered ok:true without a message_id. Records, one JSON object per line, in STANDIN_DIR: starts.jsonl (pid, pgid,
+"exit-2" does the same with 2, "silent" is never answered, "fail-usage", "fail-failed" and "fail-deferred" are answered ok:false
+(the kind is the rest of the chat's name), "defer-once" is answered ok:false, kind "deferred", the first time it is sent to
+(then runs after_send "1" as a send does) and as any chat after, "no-id" is answered ok:true without a message_id. Records, one JSON object per line, in STANDIN_DIR: starts.jsonl (pid, pgid,
 the arguments), requests.jsonl (every line it read), sent.jsonl (chat and message of each send it answered). No network.
 """
 from __future__ import annotations
@@ -112,6 +113,7 @@ def listen(platform) -> int:
         write({"event": "error", "kind": "paused", "reason": step["paused_after_ready"]})
         return 3
     sends = 0
+    deferred = set()
     for raw in sys.stdin.buffer:
         append("requests.jsonl", json.loads(raw))
         request = json.loads(raw)
@@ -127,7 +129,14 @@ def listen(platform) -> int:
             return int(chat[-1])
         if chat == "silent":
             continue
-        if chat in ("fail-usage", "fail-failed"):
+        if chat == "defer-once" and "defer-once" not in deferred:
+            deferred.add(chat)
+            sends += 1
+            write({"id": request["id"], "ok": False, "kind": "deferred", "reason": "outside the window; a reminder was sent"})
+            for item in step.get("after_send", {}).get(str(sends), []):
+                emit(item)
+            continue
+        if chat in ("fail-usage", "fail-failed", "fail-deferred"):
             write({"id": request["id"], "ok": False, "kind": chat[5:], "reason": "refused by the stand-in"})
             continue
         if chat == "no-id":

@@ -141,6 +141,22 @@ REGISTRY: dict[str, Secret] = {s.name: s for s in (
            "a bot of an application created for this person, used only by this bridge; no server permissions needed",
            ("providers/messenger/discord.py",),
            store_username="messenger-discord"),
+    Secret("MESSENGER_WHATSAPP_CLOUD_TOKEN",
+           "send the notices of the messaging bridge through the official WhatsApp Cloud API, and check at start that the token works",
+           "a system user's permanent token with whatsapp_business_messaging, whatsapp_business_management and "
+           "business_management, for the one app and phone number the bridge uses",
+           ("providers/messenger/whatsapp-cloud.py",),
+           store_username="messenger-whatsapp-cloud"),
+    Secret("MESSENGER_WHATSAPP_CLOUD_APP_SECRET",
+           "check the signature of every webhook call Meta makes to the bridge's local server",
+           "the app's secret; used only to compute an HMAC, never sent anywhere",
+           ("providers/messenger/whatsapp-cloud.py",),
+           store_username="messenger-whatsapp-cloud-app-secret"),
+    Secret("MESSENGER_WHATSAPP_CLOUD_VERIFY_TOKEN",
+           "answer Meta's webhook handshake (the verify token typed in the app's webhook settings)",
+           "a random string the person generates; it grants nothing but the handshake",
+           ("providers/messenger/whatsapp-cloud.py",),
+           store_username="messenger-whatsapp-cloud-verify-token"),
 )}
 
 
