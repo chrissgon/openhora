@@ -29,7 +29,8 @@ rejected) with a note.
                        edit; and a page that differs from the one last read but reads as the text of the runtime's own
                        last write (the provider's `expected_sha256`, kept in <data_dir>/documents/own-writes.json
                        before the write is sent and again when it answers) is that write, not an edit: the read back
-                       lagged behind the write, or the answer was lost after the page was replaced. A read_only page
+                       lagged behind the write, or the answer was lost after the page was replaced; the entry counts only while
+                       the file is still what was sent, and an import or a take clears it. A read_only page
                        carries NOTICE as its first block: written with the page, or added once (the provider's
                        `notice`) to a page that has none; it is never part of what is read.
   blocked(ctx, meta)   the rejected records among a skill's declared inputs, outputs and updates: a run does not
@@ -296,7 +297,7 @@ def _save_json(cfg: dict, name: str, data: dict) -> None:
     path = os.path.join(cfg["data_dir"], name)
     os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
     temporary = f"{path}.{os.getpid()}.tmp"
-    with open(temporary, "w", encoding="utf-8") as f:
+    with os.fdopen(os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as f:
         json.dump(data, f, indent=1, sort_keys=True)
     os.replace(temporary, path)
 
@@ -332,6 +333,14 @@ def _own_write(cfg: dict, rel: str, written: str, expected) -> None:
     data = _own_writes(cfg)
     data[rel] = {"written": written, "expected": expected}
     _save_json(cfg, OWN_WRITES, data)
+
+
+def _own_write_clear(cfg: dict, rel: str) -> None:
+    """Forget the last write of rel: the record is settled from the page's side (an import, take page) or from the
+    project's (take project), so a page that later reads as that write's text is a person's edit, not the write."""
+    data = _own_writes(cfg)
+    if data.pop(rel, None) is not None:
+        _save_json(cfg, OWN_WRITES, data)
 
 
 def _ensure_notice(ctx: dict, rel: str, record: dict, out: dict, dry_run: bool) -> None:
@@ -374,16 +383,20 @@ def _read_as(ctx: dict, rel: str, record: dict, data: bytes):
 
 def _own_write_of(ctx: dict, record: dict, digest: str):
     """The runtime's last write of the document ({"written", "expected"}) when a page whose text hashes to `digest` is
-    that write's own text, else None. The write's answer gave the hash the page reads as; when the answer was lost
-    ("expected" None) and the project's file is still what was sent, the provider is asked once for it."""
+    that write's own text, else None. The entry counts only while the project's file is still what was sent: a file
+    that changed since was written by a later run the page does not hold yet, and an old text must not pass for the
+    runtime's. The write's answer gave the hash the page reads as; when the answer was lost ("expected" None) the
+    provider is asked once, in a dry run."""
     cfg, rel = ctx["cfg"], record["path"]
     own = _own_writes(cfg).get(rel)
     if not isinstance(own, dict) or not isinstance(own.get("written"), str):
         return None
+    data = _read_project(cfg["project"], rel)
+    if data is None or _sha(data) != own["written"]:
+        return None
     expected = own.get("expected")
     if expected is None:
-        data = _read_project(cfg["project"], rel)
-        if data is None or _sha(data) != own["written"] or not record.get("remote_id"):
+        if not record.get("remote_id"):
             return None
         try:
             expected = _read_as(ctx, rel, record, data)
@@ -441,6 +454,7 @@ def _import(ctx: dict, rel: str, markdown: str, version) -> None:
     to write and the person's edit is not sent back through the conversion. The import is recorded (IMPORTED), so
     the next run of a task that reads the document is told the content is the person's (ops.task_prompt)."""
     data = markdown.encode("utf-8")
+    _own_write_clear(ctx["cfg"], rel)
     _write_project(ctx["cfg"]["project"], rel, data)
     _put(ctx, rel, status="mirrored", note=None, written_sha256=_sha(data), read_sha256=_sha(data),
          remote_version=version)
@@ -623,6 +637,7 @@ def take(ctx: dict, rel: str, side: str) -> dict:
     entry = entry_for(ctx["root"], rel)
     if entry is None:
         raise DocumentsError("refused", f"{rel} is not mirrored: no runtime manifest lists it")
+    _own_write_clear(ctx["cfg"], rel)  # settled from one side's text: the runtime's last write no longer explains the page
     out = result()
     page = _read_page(ctx, record, out)
     markdown = page.get("markdown") or ""

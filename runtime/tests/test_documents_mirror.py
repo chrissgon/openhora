@@ -654,6 +654,60 @@ def test_a_persons_edit_of_a_page_whose_write_answer_was_lost_is_still_rejected(
     assert len(kept) == 1 and "The person's own words." in kept[0].read_text(encoding="utf-8")
 
 
+def test_a_page_reverted_to_the_runtimes_earlier_text_after_an_import_is_the_persons_edit(tree, platform):
+    delivered(tree)
+    project = project_of(tree)
+    project_file(tree).write_text("# Market analysis\n\nUpdated by a later run.\n\n- Owner: demo-asks\n- Status: draft\n",
+                                  encoding="utf-8")
+    assert ops.sync(project)["documents"]["pushed"] == [MARKET]
+    ident = record(tree)["remote_id"]
+    earlier = platform.text(ident)  # the text the runtime's last write reads as
+    platform.person_edits(ident, "Updated by a later run.", "The person's words.")
+    assert ops.sync(project)["documents"]["imported"] == [MARKET]
+    assert "The person's words." in project_file(tree).read_text(encoding="utf-8")
+    platform.person_edits(ident, "The person's words.", "Updated by a later run.")  # back to the runtime's earlier text
+    assert platform.text(ident) == earlier
+    out = ops.sync(project)["documents"]
+    assert out["imported"] == [MARKET] and out["pushed"] == [], out  # an edit of the person's, not the runtime's write
+    assert platform.text(ident) == earlier and "Updated by a later run." in project_file(tree).read_text(encoding="utf-8")
+    assert ops.sync(project)["documents"]["pushed"] == []
+
+
+def test_a_read_only_page_equal_to_the_old_write_after_take_page_is_the_persons_edit(tree, platform):
+    project = profiled(tree)
+    rewritten(tree)
+    assert ops.sync(project)["documents"]["pushed"] == [ICP]
+    ident = record(tree, ICP)["remote_id"]
+    earlier = platform.text(ident)
+    platform.person_edits(ident, "A profile written by a later run.", "The person's words.")
+    assert ops.sync(project)["documents"]["rejected"]
+    assert ops.sync(project, take="page", path=ICP)["documents"]["not_taken"] == [ICP]
+    platform.person_edits(ident, "The person's words.", "A profile written by a later run.")
+    assert platform.text(ident) == earlier
+    out = ops.sync(project)["documents"]
+    assert out["rejected"] == [{"path": ICP, "note": docs.READ_ONLY_CHANGED}] and out["pushed"] == [], out
+    assert platform.text(ident) == earlier
+
+
+def test_a_file_changed_after_the_write_does_not_let_the_old_text_pass_for_the_runtimes(tree, platform):
+    project = profiled(tree)
+    platform.stale_read = True
+    rewritten(tree)
+    assert ops.sync(project)["documents"]["pushed"] == [ICP]
+    platform.stale_read = False
+    rewritten(tree, "A third profile, written by another run before the next pull.")
+    out = ops.sync(project)["documents"]  # the page holds the second text: the entry no longer speaks for it
+    assert out["rejected"] == [{"path": ICP, "note": docs.READ_ONLY_CHANGED}] and out["pushed"] == [], out
+
+
+def test_the_small_records_of_the_mirror_are_private_to_the_runtimes_user(tree, platform):
+    project = profiled(tree)
+    rewritten(tree)
+    assert ops.sync(project)["documents"]["pushed"] == [ICP]
+    for name in ("own-writes.json", "notices.json"):
+        assert ((tree["data"] / "documents" / name).stat().st_mode & 0o777) == 0o600, name
+
+
 def test_a_persons_edit_after_the_runtimes_own_write_is_still_rejected_on_a_read_only_page(tree, platform):
     project = profiled(tree)
     platform.stale_read = True
