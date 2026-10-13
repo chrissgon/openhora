@@ -215,16 +215,24 @@ def pin_with_sha(tmp_path):
     return pin
 
 
-def test_build_is_the_persons_command_needs_the_sha256_and_downloads_nothing_itself(world):
-    rc, out, err = world.host("build")
+def test_build_is_the_persons_command_needs_the_sha256_and_downloads_nothing_itself(world, tmp_path):
+    pin = json.loads((K.RENDERER / "browser-pin.json").read_text())
+    for spec in pin["platforms"].values():
+        spec["sha256"] = None                                         # whatever the shipped pin holds, this test is about a pin with no sha256
+    (tmp_path / "unpinned.json").write_text(json.dumps(pin))
+    env = {"RENDERER_TEST": "1", "RENDERER_PIN_FILE": str(tmp_path / "unpinned.json")}
+    rc, out, err = world.host("build", env=env)
     assert rc == 2 and "--confirmed" in err and world.calls() == []
-    rc, out, err = world.host("build", "--confirmed")
+    rc, out, err = world.host("build", "--confirmed", env=env)
     assert rc == 3 and err.startswith("refused: pin_incomplete") and "pin-browser --confirmed" in err and not [c for c in world.calls() if c["argv"][:1] == ["build"]]
-    rc, out, err = world.host("build", "--dry-run")
+    rc, out, err = world.host("build", "--dry-run", env=env)
     assert rc == 0 and out["dry_run"] is True and out["chrome_sha256_pinned"] is False and out["platform"] == "linux-arm64"
     command = out["command"]
     assert command[:2] == ["docker", "build"] and "--pull" not in command and any(a.startswith("CHROME_URL=https://storage.googleapis.com/chrome-for-testing-public/") for a in command)
     assert [c for c in world.calls() if c["argv"][:1] == ["build"]] == []
+    # outside test mode the pin file named by the environment is ignored
+    rc, out, err = world.host("build", "--dry-run", env={"RENDERER_PIN_FILE": str(tmp_path / "unpinned.json")})
+    assert rc == 0 and out["chrome_sha256_pinned"] is True
 
 
 def test_a_confirmed_build_with_a_pinned_archive_records_the_image_and_passes_the_pin_as_build_arguments(world, tmp_path, monkeypatch):

@@ -28,6 +28,9 @@ class NotConfigured(Refusal):
 
 
 def load_pin(path=None) -> dict:
+    """The pin file. Another file (RENDERER_PIN_FILE) is honoured only in test mode (RENDERER_TEST=1)."""
+    if path is None and os.environ.get("RENDERER_TEST") == "1" and os.environ.get("RENDERER_PIN_FILE"):
+        path = os.environ["RENDERER_PIN_FILE"]
     pin = read_json(path or PIN_FILE)
     try:
         assert pin["version"] and pin["product"] == "chrome-headless-shell" and isinstance(pin["platforms"], dict)

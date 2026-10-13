@@ -8,7 +8,7 @@
    "url": "https://storage.googleapis.com/chrome-for-testing-public/155.0.8059.39/linux-arm64/chrome-headless-shell-linux-arm64.zip",
    "size": 124553121,
    "md5": "1b40e7a8dfd195ccc27a9608d516ff75",
-   "sha256": null,
+   "sha256": "9fb86f7c0b2734c5febc0bbb4e85f37da43553f3f8a7970949828c5713e87e94",
    "binary": "chrome-headless-shell-linux-arm64/chrome-headless-shell"
   },
   "linux64": {

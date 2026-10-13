@@ -6,6 +6,7 @@ import http.server
 import io
 import json
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -77,6 +78,7 @@ def test_the_shipped_pin_names_the_version_and_both_architectures_and_the_sha256
     pin = B.load_pin()
     assert pin["version"] == "155.0.8059.39" and set(pin["platforms"]) == {"linux-arm64", "linux64"}
     for spec in pin["platforms"].values():
+        assert spec["sha256"] is None or re.fullmatch(r"[0-9a-f]{64}", spec["sha256"])
         assert spec["url"].startswith("https://storage.googleapis.com/chrome-for-testing-public/" + pin["version"] + "/")
         assert isinstance(spec["size"], int) and len(spec["md5"]) == 32
     assert B.platform_for("aarch64") == "linux-arm64" and B.platform_for("x86_64") == "linux64"
