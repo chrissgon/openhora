@@ -244,3 +244,44 @@ def test_a_tailscale_hostname_that_is_not_a_host_is_not_used(cloud, capsys, monk
 def test_the_setup_text_never_calls_funnel_the_only_way(cloud, capsys):
     assert setup_cloud(*ON_CLOUD, "--public-url", "https://box.example") == 0
     assert re.search(r"funnel", capsys.readouterr().out, re.I) is None
+
+
+# --- review fixes ------------------------------------------------------------------------------------------------------------------
+
+
+def test_a_saved_address_is_not_replaced_by_tailscale_on_a_later_setup_twilio(twilio, capsys, monkeypatch):
+    assert setup_twilio(*ON_TWILIO, "--public-url", "https://tunnel.example") == 0
+    monkeypatch.setattr(wt, "funnel_host", lambda: tkit.HOST)
+    assert setup_twilio("--port", "8801") == 0
+    shown = capsys.readouterr().out
+    assert json.loads(twilio.read_text())["public_url"].startswith("https://tunnel.example/") and "tailscale funnel" not in shown.split("Expose:")[-1]
+    assert setup_twilio("--public-host", "other.example") == 0                  # a flag still wins
+
+
+def test_a_saved_address_is_not_replaced_by_tailscale_on_a_later_setup_cloud(cloud, capsys, monkeypatch):
+    assert setup_cloud(*ON_CLOUD, "--public-url", "https://tunnel.example:8443/x") == 0
+    monkeypatch.setattr(wc, "funnel_host", lambda: "northwind-laptop.tail1234.ts.net")
+    assert setup_cloud("--template-language", "en_US") == 0                    # no flag needed on a re-run
+    shown = capsys.readouterr().out.split("Settings written")[-1]
+    saved = json.loads(cloud.read_text())
+    assert saved["public_base"] == "https://tunnel.example:8443/x" and "tail1234" not in shown and "tailscale funnel" not in shown
+    assert wc.check_settings(saved) == saved
+
+
+def test_cloud_with_no_saved_address_and_tailscale_found_stores_its_host(cloud, monkeypatch):
+    monkeypatch.setattr(wc, "funnel_host", lambda: "northwind-laptop.tail1234.ts.net")
+    assert setup_cloud(*ON_CLOUD) == 0
+    assert json.loads(cloud.read_text())["public_base"] == "https://northwind-laptop.tail1234.ts.net"
+
+
+def test_cloud_a_malformed_stored_address_is_refused_by_check_settings():
+    good = ckit.settings(port=8787, public_base="https://box.example")
+    assert wc.check_settings(good)["public_base"] == "https://box.example"
+    with pytest.raises(wc.ProviderError):
+        wc.check_settings(ckit.settings(port=8787, public_base="http://box.example"))
+
+
+def test_the_port_is_stored_without_leading_zeros():
+    assert wc.parse_public_url("https://box.example:08443/x") == "https://box.example:8443/x"
+    assert wt.parse_public_url("https://box.example:00443") == "https://box.example:443"
+    assert wc.parse_public_url("https://box.example:000") is None

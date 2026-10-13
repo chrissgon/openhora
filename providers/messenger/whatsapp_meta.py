@@ -147,10 +147,11 @@ def load_secrets(names, usernames, resolver=None, by_username=False) -> dict:
     sentence leads with the store username: redact() replaces a name of 40 characters or more, which some variable names are.
     When the OS secret store cannot be read at all (no keyring library), the sentence says so first."""
     resolver = resolver or secret_resolver()
-    found, missing = {}, []
+    found, missing, absent = {}, [], False
     for name in names:
         hit = resolver.resolve(name)
         value = hit[0] if hit else ""
+        absent = absent or not value
         if not value or not SECRET_SHAPE.fullmatch(value):
             missing.append(name)
         else:
@@ -161,7 +162,7 @@ def load_secrets(names, usernames, resolver=None, by_username=False) -> dict:
                              for n in missing)
         else:
             hows = "; ".join(f"{n}: export it, or uv run --with keyring==25.7.0 keyring set openhora {usernames[n]}" for n in missing)
-        note = store_missing_note(resolver)
+        note = store_missing_note(resolver) if absent else ""      # a variable that is set but malformed is not a missing store
         raise ProviderError((note + ". Missing or malformed: " if note else "missing or malformed: ") + hows,
                             EXIT_NOT_CONFIGURED, "not-configured")
     return found
@@ -1206,14 +1207,15 @@ def parse_public_url(value):
     host, port, prefix = found.groups()
     if len(host) > 253 or (port is not None and not 1 <= int(port) <= 65535):
         return None
+    port = str(int(port)) if port is not None else None          # no leading zeros
     if any(part in (".", "..") for part in prefix.split("/")):
         return None
     return "https://" + host + (":" + port if port else "") + prefix
 
 
 def choose_public_base(public_url, public_host, funnel=None, saved=None):
-    """(base, used_tailscale, error). Order: --public-url, --public-host, the Tailscale hostname when `funnel()` finds one, the
-    base already saved by an earlier setup. `error` is the usage sentence (naming the flag) when the flags are wrong or there is
+    """(base, used_tailscale, error). Order: --public-url, --public-host, the base already saved by an earlier setup (so a stored
+    tunnel address is never silently replaced), the Tailscale hostname when `funnel()` finds one. `error` is the usage sentence (naming the flag) when the flags are wrong or there is
     no address at all; the caller prints it and exits 2."""
     if public_url and public_host:
         return None, False, "give --public-url or --public-host, not both"
@@ -1228,11 +1230,11 @@ def choose_public_base(public_url, public_host, funnel=None, saved=None):
         if not isinstance(public_host, str) or not PUBLIC_HOST.fullmatch(public_host) or len(public_host) > 253:
             return None, False, "--public-host is a host name of letters, digits, dots and hyphens, such as box.example (or give --public-url)"
         return "https://" + public_host, False, None
+    if saved:
+        return saved, False, None
     host = funnel() if funnel else None
     if host and PUBLIC_HOST.fullmatch(host):
         return "https://" + host, True, None
-    if saved:
-        return saved, False, None
     return None, False, NO_ADDRESS
 
 

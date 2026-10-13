@@ -144,3 +144,30 @@ def test_discord_keeps_the_old_sentence_with_a_store(monkeypatch):
     with pytest.raises(discord.ProviderError) as e:
         discord.load_token()
     assert SAY not in str(e.value) and "keyring set openhora messenger-discord" in str(e.value)
+
+
+def test_a_secret_that_is_set_but_malformed_does_not_blame_the_store(no_keyring, monkeypatch):
+    values = {**tkit.SECRETS, wt.SECRET_AUTH: "has a space"}
+    monkeypatch.setenv(wc.SECRET_TOKEN, "x")
+
+    class Stand:
+        @staticmethod
+        def resolve(name, **kw):
+            return (values[name], "environment") if name in values else None
+
+        @staticmethod
+        def store_available():
+            return False
+    with pytest.raises(wt.ProviderError) as e:
+        wt.load_secrets(resolver=Stand)
+    assert SAY not in str(e.value) and str(e.value).startswith("missing or malformed")
+    values.pop(wt.SECRET_AUTH)                               # now one is entirely absent
+    with pytest.raises(wt.ProviderError) as e:
+        wt.load_secrets(resolver=Stand)
+    assert str(e.value).startswith(SAY)
+
+
+def test_every_test_here_is_isolated_from_the_real_secret_store_and_state_folder():
+    import os
+    assert os.environ["PYTHON_KEYRING_BACKEND"] == "keyring.backends.null.Keyring"
+    assert "isolated-state" in os.environ["OPENHORA_STATE_DIR"]
