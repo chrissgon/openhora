@@ -78,7 +78,6 @@ export function plateNode(p, attrs = {}, tag = "div") {
     h("span", { class: `wb-dot is-${p.dot}` }),
     h("strong", { class: "wb-plate-name", text: p.label }),
     p.decisions > 0 ? h("span", { class: "pui-badge pui-warn pui-soft pui-rounded-full", "aria-label": `${p.decisions} decision${p.decisions === 1 ? "" : "s"} waiting`, text: String(p.decisions) }) : null,
-    p.mode ? h("span", { class: "wb-plate-mode", title: [p.modeLine, p.actingLine].filter(Boolean).join("; ") || null, text: p.mode }) : null,
     h("span", { class: "wb-plate-state" }, stateBadge(p.word, p.tone)));
   const use = p.inUse || { runs: true, spend: true };      // A-38: a meter only for a cap in use
   const spendTip = [METER_TIPS.spend, costNote(p.usdNote, p.usdReserved, p.unknown)].filter(Boolean).join(" ");
