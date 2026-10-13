@@ -128,9 +128,24 @@ def secret_resolver():
     return module
 
 
+STORE_MISSING = ("the OS secret store is not available in this Python (the keyring library is missing): run this command with "
+                 "`uv run --with keyring==25.7.0 python3 ...`, or export the variables")
+
+
+def store_missing_note(resolver) -> str:
+    """STORE_MISSING when the resolver says the OS secret store cannot be read at all (its `store_available()` is False: the
+    keyring library cannot be imported), else "". A resolver without that function (a stand-in) is taken as having a store."""
+    available = getattr(resolver, "store_available", None)
+    try:
+        return "" if available is None or available() else STORE_MISSING
+    except Exception:  # a broken check must not hide the real error
+        return ""
+
+
 def load_secrets(names, usernames, resolver=None, by_username=False) -> dict:
     """{name: value} for each name; a ProviderError (not-configured) naming every missing or malformed one. With `by_username` the
-    sentence leads with the store username: redact() replaces a name of 40 characters or more, which some variable names are."""
+    sentence leads with the store username: redact() replaces a name of 40 characters or more, which some variable names are.
+    When the OS secret store cannot be read at all (no keyring library), the sentence says so first."""
     resolver = resolver or secret_resolver()
     found, missing = {}, []
     for name in names:
@@ -146,7 +161,9 @@ def load_secrets(names, usernames, resolver=None, by_username=False) -> dict:
                              for n in missing)
         else:
             hows = "; ".join(f"{n}: export it, or uv run --with keyring==25.7.0 keyring set openhora {usernames[n]}" for n in missing)
-        raise ProviderError("missing or malformed: " + hows, EXIT_NOT_CONFIGURED, "not-configured")
+        note = store_missing_note(resolver)
+        raise ProviderError((note + ". Missing or malformed: " if note else "missing or malformed: ") + hows,
+                            EXIT_NOT_CONFIGURED, "not-configured")
     return found
 
 
@@ -1148,18 +1165,89 @@ def take_lock(state: str, platform: str):
     return fd
 
 
-def funnel_host(run=subprocess.run, which=shutil.which):
-    """The machine's Funnel hostname from `tailscale status --json` (Self.DNSName), or None."""
-    tool = which("tailscale")
+TAILSCALE_APP = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
+
+
+def funnel_host(run=subprocess.run, which=shutil.which, app_paths=(TAILSCALE_APP,)):
+    """The machine's Tailscale hostname from `tailscale status --json` (Self.DNSName), or None. Tailscale is an optional helper: the
+    command is looked for in PATH, then at the macOS app's own path; without it the person gives the address by flag."""
+    tool = which("tailscale") or next((p for p in app_paths if os.path.isfile(p) and os.access(p, os.X_OK)), None)
     if not tool:
         return None
     try:
         done = run([tool, "status", "--json"], capture_output=True, text=True, timeout=5, check=False)
         name = json.loads(done.stdout)["Self"]["DNSName"]
-    except Exception:  # best effort: a missing, stopped or newer tailscale only means the placeholder sentence
+    except Exception:  # best effort: a missing, stopped or newer tailscale only means the person gives the address
         return None
     name = name.rstrip(".") if isinstance(name, str) else ""
     return name if re.fullmatch(r"[A-Za-z0-9.-]{3,253}", name) else None
+
+
+# --- the public HTTPS address (any tunnel, proxy or server; Tailscale only when it is there to ask) ---------------------------
+
+_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+PUBLIC_HOST = re.compile(rf"{_LABEL}(?:\.{_LABEL})*")
+PUBLIC_BASE = re.compile(rf"https://({_LABEL}(?:\.{_LABEL})*)(?::([0-9]{{1,5}}))?((?:/[A-Za-z0-9._~-]+)*)/?")
+PUBLIC_URL_FORM = "https://<host>[:<port>][/<prefix>]"
+NO_ADDRESS = ("give the public HTTPS address that reaches this machine: --public-url https://<host> (any tunnel or proxy that "
+              "forwards https://<host>/<path> to http://127.0.0.1:<port>/<path>, keeping the path); --public-host <host> is the "
+              "shorthand when the address is only a host")
+
+
+def parse_public_url(value):
+    """The base HTTPS address normalised (no trailing slash), or None when it is not `https://<host>[:<port>][/<prefix>]`: https
+    only, a host of letters, digits, dots and hyphens, an optional port, an optional prefix of URL-safe characters; no query, no
+    fragment, no credentials, no space."""
+    if not isinstance(value, str) or len(value) > 512:
+        return None
+    found = PUBLIC_BASE.fullmatch(value)
+    if not found:
+        return None
+    host, port, prefix = found.groups()
+    if len(host) > 253 or (port is not None and not 1 <= int(port) <= 65535):
+        return None
+    if any(part in (".", "..") for part in prefix.split("/")):
+        return None
+    return "https://" + host + (":" + port if port else "") + prefix
+
+
+def choose_public_base(public_url, public_host, funnel=None, saved=None):
+    """(base, used_tailscale, error). Order: --public-url, --public-host, the Tailscale hostname when `funnel()` finds one, the
+    base already saved by an earlier setup. `error` is the usage sentence (naming the flag) when the flags are wrong or there is
+    no address at all; the caller prints it and exits 2."""
+    if public_url and public_host:
+        return None, False, "give --public-url or --public-host, not both"
+    if public_url:
+        base = parse_public_url(public_url)
+        if base is None:
+            return None, False, (f"--public-url is not an address of the form {PUBLIC_URL_FORM}: https only, a host of letters, "
+                                 "digits, dots and hyphens, an optional port, an optional path prefix; no query, fragment, "
+                                 "credentials or spaces")
+        return base, False, None
+    if public_host:
+        if not isinstance(public_host, str) or not PUBLIC_HOST.fullmatch(public_host) or len(public_host) > 253:
+            return None, False, "--public-host is a host name of letters, digits, dots and hyphens, such as box.example (or give --public-url)"
+        return "https://" + public_host, False, None
+    host = funnel() if funnel else None
+    if host and PUBLIC_HOST.fullmatch(host):
+        return "https://" + host, True, None
+    if saved:
+        return saved, False, None
+    return None, False, NO_ADDRESS
+
+
+def expose_lines(base: str, settings: dict, used_tailscale: bool) -> str:
+    """What `setup` prints about reaching the machine, whatever the tunnel; the Funnel command only when Tailscale was used."""
+    path, port = settings["webhook_path"], settings["port"]
+    prefix = base.split("/", 3)[3] if base.count("/") >= 3 else ""
+    kept = "(the path kept" + (f"; the proxy removes the address prefix /{prefix} before it forwards" if prefix else "") + ")"
+    text = f"Expose: {base}/{path} must reach http://{LOOPBACK}:{port}/{path} {kept}\n"
+    if used_tailscale:
+        text += ("One way, Tailscale Funnel (the hostname above came from the tailscale command on this machine): in the Tailscale "
+                 "admin console MagicDNS and HTTPS certificates must be on, and this node must have the funnel attribute "
+                 "(kb/1223); on macOS the App Store or Standalone app is needed. Then run:\n"
+                 f"  {funnel_command(settings)}\nFunnel exposes only that path.\n")
+    return text
 
 
 def funnel_command(settings: dict) -> str:

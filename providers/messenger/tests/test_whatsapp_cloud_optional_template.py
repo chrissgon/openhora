@@ -49,10 +49,11 @@ def test_one_template_flag_without_the_other_is_a_usage_error_and_writes_nothing
 
 def test_a_template_can_be_added_later_and_no_template_removes_it(home, monkeypatch):
     monkeypatch.setattr(wc, "funnel_host", lambda: None)
-    assert run_setup("--phone-number-id", PHONE_ID) == 0
-    assert run_setup("--template", "decisions_waiting", "--template-language", "pt_BR") == 0
+    url = ("--public-url", "https://northwind-shop.example")      # MSG-11: without Tailscale the address is given on every run
+    assert run_setup("--phone-number-id", PHONE_ID, *url) == 0
+    assert run_setup("--template", "decisions_waiting", "--template-language", "pt_BR", *url) == 0
     assert saved(home)["template"] == "decisions_waiting"
-    assert run_setup("--no-template") == 0
+    assert run_setup("--no-template", *url) == 0
     found = saved(home)
     assert found["template"] is None and found["template_language"] is None and found["phone_number_id"] == PHONE_ID
     assert run_setup("--no-template", "--template", "x") == 2

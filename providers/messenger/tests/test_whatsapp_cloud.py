@@ -195,17 +195,19 @@ def test_setup_writes_the_settings_0600_prints_the_callback_url_and_the_funnel_c
     assert wc.check_settings(saved) == saved
 
 
-def test_setup_keeps_the_path_unless_asked_and_keeps_earlier_values_and_says_so_without_tailscale(home, capsys, monkeypatch):
+def test_setup_keeps_the_path_unless_asked_and_keeps_earlier_values_and_needs_the_public_address_without_tailscale(home, capsys, monkeypatch):
     monkeypatch.setattr(wc, "funnel_host", lambda: None)
-    run_setup("--phone-number-id", PHONE_ID, "--template", "decisions_waiting", "--template-language", "en_US")
+    url = ["--public-url", "https://northwind-shop.example"]       # MSG-11: without Tailscale the address is given on every run
+    run_setup("--phone-number-id", PHONE_ID, "--template", "decisions_waiting", "--template-language", "en_US", *url)
     first = json.loads((home / "whatsapp-cloud" / "settings.json").read_text())
-    assert "Funnel hostname" in capsys.readouterr().out
+    assert "Expose: https://northwind-shop.example/" in capsys.readouterr().out
     assert first["port"] == 8787
-    run_setup("--template-language", "pt_BR")           # only what changes
+    run_setup("--template-language", "pt_BR", *url)           # only what changes
     second = json.loads((home / "whatsapp-cloud" / "settings.json").read_text())
     assert second["webhook_path"] == first["webhook_path"] and second["template_language"] == "pt_BR" and second["phone_number_id"] == PHONE_ID
-    run_setup("--new-path")
+    run_setup("--new-path", *url)
     assert json.loads((home / "whatsapp-cloud" / "settings.json").read_text())["webhook_path"] != first["webhook_path"]
+    assert run_setup("--template-language", "en_US") == 2 and "--public-url" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("argv", [

@@ -8,16 +8,18 @@ whatsapp-twilio (providers/messenger/README.md holds the interface every messeng
 through Twilio" holds the comparison with the other two WhatsApp platforms, the setup, the costs and the caveats). It works
 only in the listen mode.
 
-Inbound messages reach a small HTTP server on 127.0.0.1 as webhook calls from Twilio; the person exposes that one path with
-Tailscale Funnel (TLS ends on this machine). Outbound messages go to Twilio's Messages API. Standard library only. What it
+Inbound messages reach a small HTTP server on 127.0.0.1 as webhook calls from Twilio; the person exposes that one path at a public
+HTTPS address by any means (a tunnel, a reverse proxy, a server; Tailscale Funnel is one option, never required). Outbound messages go to Twilio's Messages API. Standard library only. What it
 shares with whatsapp-cloud.py (the server and its limits, the window and the template mark, the store of ids, the identity
 map, the rendering) is in whatsapp_meta.py next to this file, loaded by path.
 
 Verbs (JSON on stdout, diagnostics on stderr, input by flags, no prompt):
   capabilities --platform whatsapp-twilio
-  setup --account-sid AC... --sender +<digits> [--template-sid HX... | --no-template] [--public-host <host>] [--port 8787] [--new-path]
+  setup --account-sid AC... --sender +<digits> [--template-sid HX... | --no-template] [--port 8787] [--new-path]
+        [--public-url https://<host>[:<port>][/<prefix>] | --public-host <host>]
         [--template-button-id see-decisions] [--button-sid-1 HX... --button-sid-2 HX... --button-sid-3 HX... | --clear-buttons]
-                                      write the settings, print the webhook URL, the status callback URL and the Funnel command
+                                      write the settings, print the webhook URL, the status callback URL and what must
+                                      reach the local port
   whoami [--seconds 120]              print, in the terminal, the phone digits and the business-scoped user id of whoever
                                       writes to the number meanwhile; refuses while a bridge runs
   listen --platform whatsapp-twilio   the long-lived verb (the protocol of providers/messenger/README.md)
@@ -104,7 +106,7 @@ CONTENT_SID = re.compile(r"HX[0-9a-f]{32}")
 KEY_SID = re.compile(r"SK[0-9a-f]{32}")
 MESSAGE_SID = re.compile(r"[A-Za-z0-9]{10,64}")
 SENDER = re.compile(r"whatsapp:\+([1-9][0-9]{5,14})")
-PUBLIC_URL = re.compile(r"https://([A-Za-z0-9.-]{3,253})(?::([0-9]{1,5}))?/([0-9a-f]{32})")
+PUBLIC_URL = re.compile(r"https://([A-Za-z0-9.-]{3,253})(?::([0-9]{1,5}))?((?:/[A-Za-z0-9._~-]+)*)/([0-9a-f]{32})")
 HOST = re.compile(r"[A-Za-z0-9.-]{3,253}")
 BUTTON_ID = re.compile(r"[A-Za-z0-9_.:-]{1,128}")
 ACTION_ID = re.compile(r"[0-9]{1,12}:[a-z][a-z-]{0,30}")      # the bridge's action ids: <seq>:<op>
@@ -711,11 +713,14 @@ def cmd_setup(args) -> int:
               "buttons": buttons}
     if args.new_path or not (isinstance(chosen["webhook_path"], str) and WEBHOOK_PATH.fullmatch(chosen["webhook_path"])):
         chosen["webhook_path"] = randomness.token_hex(16)
-    host = args.public_host or funnel_host() or host_of(current.get("public_url"))
-    if not (isinstance(host, str) and HOST.fullmatch(host)):
-        say("the Funnel hostname is unknown (tailscale did not give it): pass --public-host <the hostname of `tailscale status`>")
+    saved = current.get("public_url")
+    base, used_tailscale, problem = choose_public_base(
+        args.public_url, args.public_host, funnel=funnel_host,
+        saved=saved.rsplit("/", 1)[0] if isinstance(saved, str) and parse_public_url(saved.rsplit("/", 1)[0]) else None)
+    if problem:
+        say(problem)
         return EXIT_USAGE
-    chosen["public_url"] = f"https://{host}/{chosen['webhook_path']}"
+    chosen["public_url"] = f"{base}/{chosen['webhook_path']}"
     try:
         settings = check_settings(chosen)
     except ProviderError as e:
@@ -730,10 +735,8 @@ def cmd_setup(args) -> int:
           f"(method POST):\n  {settings['public_url']}\n"
           f"Status callbacks: the provider asks for them in each message it sends, at {status_url(settings)}. Do not also set a "
           "status callback URL on the sender (every report would arrive twice).\n"
-          "Before the command below, in the Tailscale admin console: MagicDNS and HTTPS certificates must be on, and this node "
-          "must have the funnel attribute (kb/1223). On macOS the App Store or Standalone app is needed.\n"
-          f"Then run:\n  {funnel_command(settings)}\n"
-          "Funnel exposes only that path.\n"
+          + expose_lines(base, settings, used_tailscale)
+          + "If the public address changes, run setup again and update the URL in the Twilio Console.\n"
           + (f"Outside the 24-hour window the provider sends the Content template {settings['template_sid']}; its quick reply must "
              f"have the id {settings['template_button_id']}.\n" if settings["template_sid"] else
              "No reminder template: after 24 hours of silence the person must write first; the cards wait until then.\n")
@@ -800,7 +803,7 @@ def build_parser() -> argparse.ArgumentParser:
     for name, func in (("capabilities", cmd_capabilities), ("listen", cmd_listen)):
         sub.add_parser(name).set_defaults(func=func)
     setup = sub.add_parser("setup")
-    for flag in ("--account-sid", "--sender", "--public-host", "--template-sid", "--template-button-id",
+    for flag in ("--account-sid", "--sender", "--public-url", "--public-host", "--template-sid", "--template-button-id",
                  "--button-sid-1", "--button-sid-2", "--button-sid-3"):
         setup.add_argument(flag)
     setup.add_argument("--port", type=int)
