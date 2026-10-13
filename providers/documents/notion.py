@@ -16,6 +16,10 @@ was written (notion_blocks.py says what changes on the way), not the same bytes.
 service lists for the page and for each of its blocks (a comment on a block is listed under that block only): `read`
 lists them all; `comments` lists the page's own, in one listing, whatever the version.
 
+A write prints `expected_sha256` too, in its dry run as well (which makes no call): the sha256 of the text `read` prints
+after it, notion_blocks.round_trip of the Markdown given, so a caller can tell its own write from a person's edit when it
+does not hold the page `read` printed after the write (the answer was lost, or the listing lagged behind the write).
+
 A notice (write --notice, the verb notice) is the page's first block: a callout with this provider's icon (NOTICE_ICON)
 and the notice's text, written by the runtime. A write with --notice keeps a notice with the same text and adds one
 where there is none (inserted at the start, the append call's position "start"); `notice` adds it to a page that has
@@ -68,6 +72,7 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
+import hashlib
 import importlib.util
 import json
 import os
@@ -622,6 +627,7 @@ def cmd_write(args: dict) -> int:
     except (OSError, UnicodeDecodeError):
         raise ProviderError(f"the Markdown file {source} cannot be read as UTF-8 text", EXIT_USAGE) from None
     blocks = nb.to_blocks(markdown)
+    expected = hashlib.sha256(nb.round_trip(markdown).encode("utf-8")).hexdigest()  # what `read` will print after this write
     notice = notice_text(args["--notice"], "--notice") if args.get("--notice") is not None else None
     entry = ledger_entry(cfg["parent"], key) if ident is None else None
     if entry and entry.get("status") != "done":
@@ -631,7 +637,8 @@ def cmd_write(args: dict) -> int:
     create = ident is None
     if mode == "dry":
         return emit({"dry_run": True, "would": {"verb": "write", "id": ident, "create": create, "path": path,
-                                                 "blocks": len(blocks), "bytes": len(markdown.encode("utf-8"))}})
+                                                 "blocks": len(blocks), "bytes": len(markdown.encode("utf-8")),
+                                                 "expected_sha256": expected}})
     service = Service()
     if create:
         if ledger_claim(cfg["parent"], key):  # another run claimed it meanwhile
@@ -660,7 +667,8 @@ def cmd_write(args: dict) -> int:
         retrieve(service, ident)
         service.replace_body(ident, blocks, notice)
     page = retrieve(service, ident)
-    return emit({"id": ident, "version": page.get("last_edited_time"), "created": create, "url": page.get("url")})
+    return emit({"id": ident, "version": page.get("last_edited_time"), "created": create, "url": page.get("url"),
+                 "expected_sha256": expected})
 
 
 def cmd_notice(args: dict) -> int:
