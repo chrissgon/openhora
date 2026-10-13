@@ -933,11 +933,10 @@ Recorded as decision D3. Recommended: defer the publisher and keep M1's manual h
 - **Round 1 (2026-10-12): which path.** Decided path 1 with conditions C1 to C5 and milestones M1 to M3; corrections to paths 2 and 3a.
 - **Round 2 (2026-10-12): safety, security, privacy and external viability.** No blocker; 46 changes (effect opener marker, content-addressed renders and fd-bound reads, renderer input and text hardening, loopback-only media routes, upload bounds, retention of every transcript copy and a scheduler purge verb, per-project consent switch, token freshness and app-secret handling, publisher idempotency, consistency fixes, corrected platform facts).
 - **Round 3 (2026-10-12): consistency with the code, feasibility and order, test costs, the person's experience.** One blocker (no package built the media pipeline: P4b added) and fourteen majors fixed; lab bill restated to about 59 reference runs in M1 and 47 in M2 plus 15 floor runs.
-
 - **Approvals (2026-10-13).** The maintainer approved every recommended answer of section 11 (D1 to D8, D10 and D14). D9 and D17 stay open before M2.
 - **Amendment A1 (2026-10-13): animations in M1 through HTML overlay presets aligned by code from the script; not yet reviewed.** This amendment has not been through an adversarial round. It changes P3 (a preset and a label per beat), P4b (an `align` step), P5 (the HTML engine, its hard limits and tests), C2, section 4, and sections 7 to 9, and amends D5 and D18.
 
-## 14. Sources (all accessed 2026-10-12)
+## 14. Sources (accessed 2026-10-12 unless a source says 2026-10-13)
 
 - [IG-publishing] Instagram Platform, Content Publishing: https://developers.facebook.com/docs/instagram-platform/content-publishing
 - [IG-overview] Instagram Platform, Overview: https://developers.facebook.com/docs/instagram-platform/overview
