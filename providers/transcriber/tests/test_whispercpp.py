@@ -18,13 +18,16 @@ import transcriber_kit as kit
 
 PROVIDER_FILE = kit.PROVIDER_DIR / "whispercpp.py"
 ID = "sha256:" + "a" * 64
+CPU_ARM = "-DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16"
 
 
 def built(world, image_id=ID, record=True, labels=None):
     """The image as `build` leaves it: known to the fake docker, with the labels of this folder's definition, and recorded."""
     p = world.provider
     tag_, commit = p.dockerfile_pins()
-    image = {"id": image_id, "labels": labels or {p.LABEL_DEFINITION: p.definition_hash(), p.LABEL_TAG: tag_, p.LABEL_COMMIT: commit}}
+    image = {"id": image_id, "arch": "arm64",
+             "labels": labels or {p.LABEL_DEFINITION: p.definition_hash(), p.LABEL_TAG: tag_, p.LABEL_COMMIT: commit,
+                                  p.LABEL_CPU + "arm64": CPU_ARM, p.LABEL_CPU + "amd64": "-DGGML_AVX2=ON"}}
     world.fake.update(images={p.image_tag(): image})
     folder = world.state / "transcriber"
     folder.mkdir(mode=0o700, exist_ok=True)
@@ -223,7 +226,8 @@ def test_check_reads_docker_the_image_and_the_model(world, capsys, monkeypatch):
     capsys.readouterr()
     built(world)
     assert p.main(["--check"]) == 0
-    assert stdout_json(capsys)["image"]["id"] == ID
+    image = stdout_json(capsys)["image"]
+    assert image["id"] == ID and image["cpu_arch"] == "arm64" and image["cpu_flags"] == CPU_ARM
     assert p.main(["--check", "--model", "demo", "--models-dir", str(world.models)]) == 0
     assert stdout_json(capsys)["model"]["sha256"] == hashlib.sha256(b"fictional model weights").hexdigest()
     (world.models / "ggml-demo.bin").write_bytes(b"damaged")
@@ -253,6 +257,7 @@ def test_a_run_writes_the_transcript_with_its_facts_and_prints_no_words(world, c
     assert facts["image_id"] == ID and facts["model"]["name"] == "demo" and facts["timestamps"] == "word"
     assert facts["model"]["sha256"] == hashlib.sha256(b"fictional model weights").hexdigest()
     assert facts["whisper_cpp_tag"] == world.provider.dockerfile_pins()[0] and facts["flags"][:3] == ["-np", "-ng", "-ojf"]
+    assert facts["cpu_arch"] == "arm64" and facts["cpu_flags"] == CPU_ARM   # the floor this image was compiled for
     assert facts["language_requested"] == "en" and facts["wall_seconds"] >= 0 and facts["input_duration"] == 5.9
     assert doc["duration"] == 5.88 and facts["words_without_timing"] == 0 and facts["dropped_annotations"] == 1
     assert (world.out.stat().st_mode & 0o777) == 0o600
@@ -507,7 +512,7 @@ def schema_errors(value, schema, path="$"):
 def a_transcript(p):
     facts = {"provider": "whisper.cpp", "whisper_cpp_tag": "v0.0.0", "whisper_cpp_commit": "0" * 40, "image_id": ID,
              "model": {"name": "demo", "file": "ggml-demo.bin", "sha256": "1" * 64}, "timestamps": "word",
-             "flags": ["-np"], "input_duration": 5.9, "wall_seconds": 1.5}
+             "flags": ["-np"], "input_duration": 5.9, "wall_seconds": 1.5, "cpu_arch": "arm64", "cpu_flags": CPU_ARM}
     return p.build_transcript(kit.speech(), "word", requested="en", duration=5.88, facts=facts)
 
 
@@ -585,6 +590,27 @@ def test_the_dockerfile_pins_its_base_by_digest_and_whisper_by_tag_and_commit(pr
     assert re.fullmatch(r"v\d+\.\d+\.\d+", tag_) and re.fullmatch(r"[0-9a-f]{40}", commit)
     assert 'test "$(git -C /src rev-parse HEAD)" = "${WHISPER_CPP_COMMIT}"' in text   # a moved tag fails the build
     assert re.search(r"^ARG DEBIAN_SNAPSHOT=\d{8}T\d{6}Z$", text, re.M)
+
+
+def test_the_cpu_floor_is_fixed_per_architecture_and_never_native():
+    text = (kit.PROVIDER_DIR / "Dockerfile").read_text(encoding="utf-8")
+    assert "-DGGML_NATIVE=OFF" in text and "GGML_NATIVE=ON" not in text and "-mcpu=native" not in text.replace("-mcpu=native)", "")
+    arm = re.search(r'^ARG CPU_FLAGS_ARM64="([^"]+)"$', text, re.M).group(1)
+    amd = re.search(r'^ARG CPU_FLAGS_AMD64="([^"]+)"$', text, re.M).group(1)
+    assert arm == "-DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16"
+    for flag in ("SSE42", "AVX", "AVX2", "FMA", "F16C", "BMI2"):
+        assert f"-DGGML_{flag}=ON" in amd.split()
+    assert "-DGGML_AVX512=OFF" in amd.split()
+    assert "dpkg --print-architecture" in text and "${cpu_flags}" in text and "exit 1" in text   # an unpinned arch fails the build
+    labels = text.split("LABEL ", 1)[1]
+    assert "cpu-flags.arm64=\"${CPU_FLAGS_ARM64}\"" in labels and "cpu-flags.amd64=\"${CPU_FLAGS_AMD64}\"" in labels
+
+
+def test_the_image_without_cpu_flags_for_its_architecture_is_refused(world, capsys):
+    p = world.provider
+    tag_, commit = p.dockerfile_pins()
+    built(world, labels={p.LABEL_DEFINITION: p.definition_hash(), p.LABEL_TAG: tag_, p.LABEL_COMMIT: commit})
+    assert p.main(["--check"]) == 3 and "names no CPU flags" in capsys.readouterr().err
 
 
 def test_the_image_holds_no_model_no_secret_and_runs_as_a_non_root_user():

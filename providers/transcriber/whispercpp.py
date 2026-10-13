@@ -95,6 +95,7 @@ PROVIDER_NAME = "whisper.cpp"
 IMAGE_REPOSITORY = "openhora-transcriber"
 LABEL_DEFINITION = "org.openhora.definition"
 LABEL_TAG, LABEL_COMMIT = "org.openhora.whisper-cpp.tag", "org.openhora.whisper-cpp.commit"
+LABEL_CPU = "org.openhora.whisper-cpp.cpu-flags."    # + the image's architecture (arm64, amd64): the CPU floor it was built for
 STATE_ENV = "OPENHORA_STATE_DIR"
 STATE_FOLDER, MODELS_FOLDER, BUILD_RECORD = "transcriber", "models", "image.json"
 
@@ -355,7 +356,8 @@ def inspect_image(reference):
         return None
     try:
         found = json.loads(done.stdout)[0]
-        return {"id": found["Id"], "labels": (found.get("Config") or {}).get("Labels") or {}}
+        return {"id": found["Id"], "labels": (found.get("Config") or {}).get("Labels") or {},
+                "arch": found.get("Architecture")}
     except (ValueError, KeyError, IndexError, TypeError):
         raise Refusal("failed", "docker image inspect did not answer with an image record") from None
 
@@ -385,7 +387,12 @@ def check_image():
     if record is None or record.get("image_id") != image["id"]:
         raise Refusal("not-configured", f"the image {tag} is not the one `build` recorded (or nothing was recorded): "
                                         f"remove it with `docker image rm {tag}` and run `{build}`")
-    return {"tag": tag, "id": image["id"], "definition": wanted,
+    arch = image.get("arch")
+    cpu_flags = image["labels"].get(LABEL_CPU + str(arch))
+    if not cpu_flags:
+        raise Refusal("not-configured", f"the image {tag} (architecture {arch}) names no CPU flags: it was not built from "
+                                        f"this definition; run `{build}`")
+    return {"tag": tag, "id": image["id"], "definition": wanted, "cpu_arch": arch, "cpu_flags": cpu_flags,
             "whisper_cpp_tag": image["labels"].get(LABEL_TAG), "whisper_cpp_commit": image["labels"].get(LABEL_COMMIT)}
 
 
@@ -817,7 +824,7 @@ def parse_whisper(raw, mode):
 WORD_KEYS = {"index", "text", "start", "end", "segment", "probability", "estimated"}
 SEGMENT_KEYS = {"index", "start", "end", "text", "first_word", "last_word"}
 DOCUMENT_KEYS = {"schema_version", "language", "duration", "words", "segments", "facts"}
-FACT_KEYS = ("provider", "whisper_cpp_tag", "whisper_cpp_commit", "image_id", "model", "timestamps", "flags",
+FACT_KEYS = ("provider", "whisper_cpp_tag", "whisper_cpp_commit", "image_id", "cpu_arch", "cpu_flags", "model", "timestamps", "flags",
              "language_requested", "language_detected", "segment_unit", "input_duration", "wall_seconds",
              "words_without_timing", "clamped_words", "dropped_annotations")
 
@@ -967,7 +974,7 @@ def cmd_transcribe(args):
         flags = whisper_flags(mode, preset, args.language, threads)
         facts = {"provider": PROVIDER_NAME, "whisper_cpp_tag": image["whisper_cpp_tag"],
                  "whisper_cpp_commit": image["whisper_cpp_commit"], "image_id": image["id"],
-                 "image_definition": image["definition"],
+                 "image_definition": image["definition"], "cpu_arch": image["cpu_arch"], "cpu_flags": image["cpu_flags"],
                  "model": {"name": entry["name"], "file": entry["file"], "sha256": entry["sha256"]},
                  "timestamps": mode, "flags": flags, "threads": threads, "cpus": threads, "docker_ncpu": ncpu,
                  "memory_mb": memory_mb, "max_seconds": max_seconds, "input_bytes": os.path.getsize(in_path),

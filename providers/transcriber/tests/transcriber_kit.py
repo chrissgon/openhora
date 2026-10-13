@@ -101,7 +101,7 @@ if verb == "image" and argv[1] == "inspect":
     image = scenario.get("images", {{}}).get(argv[2])
     if image is None:
         sys.stderr.write("Error: No such image\\n"); sys.exit(1)
-    print(json.dumps([{{"Id": image["id"], "Config": {{"Labels": image["labels"]}}}}])); sys.exit(0)
+    print(json.dumps([{{"Id": image["id"], "Architecture": image.get("arch", "arm64"), "Config": {{"Labels": image["labels"]}}}}])); sys.exit(0)
 if verb == "rm":
     sys.exit(0)
 if verb == "build":
@@ -111,7 +111,8 @@ if verb == "build":
     tag = argv[argv.index("--tag") + 1]
     definition = [a.split("=", 1)[1] for a in argv if a.startswith("DEFINITION_HASH=")][0]
     scenario.setdefault("images", {{}})[tag] = {{"id": build["id"], "labels": {{"org.openhora.definition": definition,
-        "org.openhora.whisper-cpp.tag": build["tag"], "org.openhora.whisper-cpp.commit": build["commit"]}}}}
+        "org.openhora.whisper-cpp.tag": build["tag"], "org.openhora.whisper-cpp.commit": build["commit"],
+        "org.openhora.whisper-cpp.cpu-flags.arm64": "-DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16"}}}}
     json.dump(scenario, open(os.path.join(here, "scenario.json"), "w"))
     sys.stderr.write("fake build output\\n"); sys.exit(0)
 if verb == "run":

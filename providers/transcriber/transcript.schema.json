@@ -45,12 +45,14 @@
     "facts": {
       "type": "object",
       "description": "What produced the transcript: enough to repeat the run. Open: a field may be added; the ones listed are always present.",
-      "required": ["provider", "whisper_cpp_tag", "whisper_cpp_commit", "image_id", "model", "timestamps", "flags", "language_requested", "language_detected", "segment_unit", "input_duration", "wall_seconds", "words_without_timing", "clamped_words", "dropped_annotations"],
+      "required": ["provider", "whisper_cpp_tag", "whisper_cpp_commit", "image_id", "cpu_arch", "cpu_flags", "model", "timestamps", "flags", "language_requested", "language_detected", "segment_unit", "input_duration", "wall_seconds", "words_without_timing", "clamped_words", "dropped_annotations"],
       "properties": {
         "provider": {"type": "string"},
         "whisper_cpp_tag": {"type": "string"},
         "whisper_cpp_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
         "image_id": {"type": "string", "description": "The id (digest) of the image that ran."},
+        "cpu_arch": {"type": "string", "description": "The image's architecture (arm64 or amd64)."},
+        "cpu_flags": {"type": "string", "description": "The cmake flags the code was compiled with for that architecture (the CPU floor), from the image's label."},
         "model": {"type": "object", "required": ["name", "file", "sha256"], "properties": {"name": {"type": "string"}, "file": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}},
         "timestamps": {"enum": ["word", "ml1", "dtw"]},
         "flags": {"type": "array", "items": {"type": "string"}, "description": "The whisper-cli flags."},

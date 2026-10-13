@@ -24,13 +24,13 @@ The file is `whispercpp.py`, not `whisper_cpp.py`: `providers/resolve.py` takes 
 
 Nothing in the repository downloads, builds or pulls anything by itself. Two things are needed, and each is a command the person starts. Docker (a daemon and the `docker` client) must be installed.
 
-**1. Build the image.** It pulls the pinned base image (`debian` by digest) and clones the pinned whisper.cpp tag from GitHub, compiles `whisper-cli` for the CPU of this machine, and installs ffmpeg from a dated Debian snapshot. It takes some minutes and writes `<state>/transcriber/image.json` (the id of the image, which every later run must find unchanged).
+**1. Build the image.** It pulls the pinned base image (`debian` by digest) and clones the pinned whisper.cpp tag from GitHub, compiles `whisper-cli` for a fixed CPU floor of this machine's architecture (below), and installs ffmpeg from a dated Debian snapshot. It takes some minutes and writes `<state>/transcriber/image.json` (the id of the image, which every later run must find unchanged).
 
 ```
 python3 providers/transcriber/whispercpp.py build --confirmed
 ```
 
-`build --dry-run` prints the exact `docker build` command and runs nothing. Without `--confirmed` the verb refuses. The image is built where it runs and is not pushed anywhere; build it again on another machine, or after the `Dockerfile`, `transcribe.sh` or `.dockerignore` change (then `--check` says so).
+`build --dry-run` prints the exact `docker build` command and runs nothing. Without `--confirmed` the verb refuses. The image is one architecture (arm64 or amd64, the daemon's): build it again on the other kind of machine, or after the `Dockerfile`, `transcribe.sh` or `.dockerignore` change (then `--check` says so). It is not tied to the CPU that built it.
 
 **2. Put a model in the models folder** (`<state>/transcriber/models/`, or the folder `--models-dir` names). `python3 providers/transcriber/whispercpp.py models` prints the folder, and for each pinned model its file, size, source URL and whether the file is there. The files come from `https://huggingface.co/ggerganov/whisper.cpp` at the revision `models.json` pins; for example:
 
@@ -87,6 +87,17 @@ Every limit is in code (`container_argv`) and has a test named after it in `test
 
 What this does not claim: the model hash is compared on the host and the file is then mounted by path, so a process that can rewrite the person's own state folder in between could swap it (that process can already read everything else there; the models folder must be `0700` and this user's, which both `--check --model` and `transcribe` enforce); the image is only as trustworthy as the pinned base image, the Debian snapshot and the whisper.cpp commit, which `Dockerfile` pins and the build checks; and a container shares the host's kernel.
 
+## The CPU floor
+
+`GGML_NATIVE` is off: it makes gcc probe the build machine, which inside a virtual machine can miss a feature the code then needs (the first build failed that way on Apple Silicon, fp16 intrinsics without `+fp16`), and it ties the image to that machine. The `Dockerfile` pins a floor per architecture and picks it with `dpkg --print-architecture`; any other architecture fails the build.
+
+| Architecture | cmake flags | Runs on |
+|--------------|-------------|---------|
+| arm64 | `-DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16` (becomes `-march=armv8.2-a+dotprod+fp16`) | Apple M1 and later, Graviton 2 and later, Ampere, Raspberry Pi 5 |
+| amd64 | `-DGGML_SSE42=ON -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_BMI2=ON -DGGML_AVX512=OFF` | Intel Haswell (2013) and later, AMD Zen; the AVX2 / FMA / F16C / BMI2 set of x86-64-v3, no AVX-512 |
+
+Both strings are labels of the image (`org.openhora.whisper-cpp.cpu-flags.arm64` and `.amd64`); `--check` prints the one for the image's architecture, and every transcript's facts carry `cpu_arch` and `cpu_flags`. A CPU below the floor stops with an illegal-instruction error at the first run, not with a wrong answer. A faster floor (AVX-512, `i8mm`) is a change of these two lines and a new definition hash.
+
 ## Pinned
 
 - whisper.cpp `v1.9.5`, commit `d1be6fde11ac6e0407606b4e42fe72d34add8037` (the tag points to an annotated tag object, `d2a764c648779feb36d44363f212a29b00aad1af`). The build fails if the tag no longer points to that commit. Read from the GitHub API on 2026-10-13; to move it, change the two `ARG` lines in the `Dockerfile` in both stages.
@@ -96,4 +107,4 @@ What this does not claim: the model hash is compared on the host and the file is
 
 ## Not yet measured
 
-The Dockerfile and the container run were written from whisper.cpp's source at the pinned tag and tested against a fake `docker`; no image was built and no model ran when this provider was written. The first build and the first run are the check of: the build itself; that a non-root container user can write the bind-mounted output folder on macOS (Docker Desktop); `GGML_NATIVE` on the machine's CPU; the memory limits; and the speed of each model on CPU. The live test (`OPENHORA_TRANSCRIBER_LIVE=1`, the `tiny` model) is the quick check.
+The Dockerfile and the container run were written from whisper.cpp's source at the pinned tag and tested against a fake `docker`. The first real build (arm64, Docker 29, gcc 12) failed with `GGML_NATIVE=ON` (fp16 intrinsics without `+fp16` inside the VM), which is why the CPU floors above exist; the build with the floors has not been run when this was written. Still to check on real hardware: that build, the amd64 floor, that a non-root container user can write the bind-mounted work folder on macOS (Docker Desktop), the memory limits (estimates), and the speed of each model on CPU. The live test (`OPENHORA_TRANSCRIBER_LIVE=1`, the `tiny` model) is the quick check.

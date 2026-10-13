@@ -17,6 +17,20 @@
 # history, and a non-root user. At run time the provider starts it with no network, a read-only root file system and
 # no environment (see whispercpp.py, "The container").
 
+# The CPU the code is compiled for, by architecture, chosen at build time with `dpkg --print-architecture`. The build does
+# NOT use GGML_NATIVE: it makes gcc probe the machine it runs on (-mcpu=native), which inside a virtual machine can miss a
+# feature the code then needs (the first build failed that way on Apple Silicon: fp16 intrinsics without +fp16), and it
+# ties the image to the machine that built it. A fixed floor builds the same everywhere and runs on every CPU of its
+# architecture that has the floor's features (the CPUs named below and everything newer).
+#   arm64: Armv8.2-A with the dot-product and half-precision vector instructions (Apple M1 and later, Graviton 2 and
+#          later, Ampere, Raspberry Pi 5). GGML_CPU_ARM_ARCH becomes -march=<value>.
+#   amd64: the AVX2 / FMA / F16C / BMI2 set that x86-64-v3 CPUs have (Intel Haswell 2013 and later, AMD Zen). No AVX-512.
+# The values are labels of the image (org.openhora.whisper-cpp.cpu-flags.<arch>), and the transcript's facts name the pair
+# that matches the image's architecture. An image is one architecture: build it again on the other kind of machine. A
+# CPU below the floor fails with an illegal-instruction error at the first run, never a silent wrong answer.
+ARG CPU_FLAGS_ARM64="-DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16"
+ARG CPU_FLAGS_AMD64="-DGGML_SSE42=ON -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_BMI2=ON -DGGML_AVX512=OFF"
+
 # debian:bookworm-20261005-slim
 FROM debian@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS build
 
@@ -26,6 +40,8 @@ ARG DEBIAN_SNAPSHOT=20261006T000000Z
 # d2a764c648779feb36d44363f212a29b00aad1af); the commit below is what it points to. Read from the GitHub API.
 ARG WHISPER_CPP_TAG=v1.9.5
 ARG WHISPER_CPP_COMMIT=d1be6fde11ac6e0407606b4e42fe72d34add8037
+ARG CPU_FLAGS_ARM64
+ARG CPU_FLAGS_AMD64
 
 RUN rm -f /etc/apt/sources.list.d/debian.sources \
     && printf '%s\n' \
@@ -42,13 +58,20 @@ RUN rm -f /etc/apt/sources.list.d/debian.sources \
 RUN git clone --quiet --depth 1 --branch "${WHISPER_CPP_TAG}" https://github.com/ggml-org/whisper.cpp /src \
     && test "$(git -C /src rev-parse HEAD)" = "${WHISPER_CPP_COMMIT}"
 
-# CPU only: no GPU backend, no network download of models (WHISPER_CURL off), no tests, no server. One static
-# binary. GGML_NATIVE builds for the CPU of the machine that builds it: the image is built where it runs and is
-# never pushed, so it must be built again on another machine. OpenMP is off so that the binary needs no extra library.
-RUN cmake -S /src -B /src/build \
+# CPU only: no GPU backend, no network download of models (WHISPER_CURL off), no tests, no server. One static binary.
+# GGML_NATIVE is off and the CPU floor comes from the CPU_FLAGS_* above. OpenMP is off so that the binary needs no extra
+# library.
+RUN case "$(dpkg --print-architecture)" in \
+      arm64) cpu_flags="${CPU_FLAGS_ARM64}" ;; \
+      amd64) cpu_flags="${CPU_FLAGS_AMD64}" ;; \
+      *) echo "no CPU floor is pinned for the architecture $(dpkg --print-architecture)" >&2; exit 1 ;; \
+    esac \
+    && echo "CPU flags: ${cpu_flags}" \
+    && cmake -S /src -B /src/build \
       -DCMAKE_BUILD_TYPE=Release \
       -DBUILD_SHARED_LIBS=OFF \
-      -DGGML_NATIVE=ON \
+      -DGGML_NATIVE=OFF \
+      ${cpu_flags} \
       -DGGML_OPENMP=OFF \
       -DWHISPER_CURL=OFF \
       -DWHISPER_SDL2=OFF \
@@ -67,6 +90,8 @@ ARG WHISPER_CPP_COMMIT=d1be6fde11ac6e0407606b4e42fe72d34add8037
 # Set by `build --confirmed` to the hash of this folder's definition (Dockerfile, transcribe.sh, .dockerignore); the
 # provider compares the label with the hash it computes now, so an image older than the files is refused.
 ARG DEFINITION_HASH=unset
+ARG CPU_FLAGS_ARM64
+ARG CPU_FLAGS_AMD64
 
 RUN rm -f /etc/apt/sources.list.d/debian.sources \
     && printf '%s\n' \
@@ -91,6 +116,8 @@ LABEL org.openhora.component="transcriber" \
       org.openhora.whisper-cpp.tag="${WHISPER_CPP_TAG}" \
       org.openhora.whisper-cpp.commit="${WHISPER_CPP_COMMIT}" \
       org.openhora.debian-snapshot="${DEBIAN_SNAPSHOT}" \
+      org.openhora.whisper-cpp.cpu-flags.arm64="${CPU_FLAGS_ARM64}" \
+      org.openhora.whisper-cpp.cpu-flags.amd64="${CPU_FLAGS_AMD64}" \
       org.openhora.definition="${DEFINITION_HASH}"
 
 USER 10001:10001
