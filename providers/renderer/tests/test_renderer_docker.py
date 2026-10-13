@@ -130,7 +130,7 @@ def test_the_cpus_are_clamped_to_the_daemons_and_the_memory_and_scratch_to_their
     argv = world.runs()[0]["argv"]
     assert argv[argv.index("--cpus") + 1] == "2" and argv[argv.index("--memory") + 1] == "%dm" % D.MAX_MEMORY_MB
     assert any(t.startswith("/scratch:rw") and "size=64m" in t for t in (argv[i + 1] for i, a in enumerate(argv) if a == "--tmpfs"))
-    world.host("check", "--edl", tmp_path / "e.json", "--beats", tmp_path / "b.json", "--vocabulary", K.VOCABULARY, "--memory-mb", "10")
+    world.host("check", "--edl", tmp_path / "e.json", "--beats", tmp_path / "b.json", "--vocabulary", K.VOCABULARY, "--memory-mb", "10", "--scratch-mb", "512")
     assert world.runs()[1]["argv"][world.runs()[1]["argv"].index("--memory") + 1] == "%dm" % D.MIN_MEMORY_MB
 
 

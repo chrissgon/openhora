@@ -28,7 +28,7 @@ Verbs (every verb prints one JSON object on stdout; diagnostics on stderr, the f
   reap                     remove containers and job folders a killed run left behind (every run does it at its start too).
   analyse --in VIDEO [--out F] [--noise-db -35] [--min-silence 0.25]
         ffprobe facts, the recording's sha256 and silencedetect intervals.
-  base --transcript T --analysis A --out EDL [--fps 30] [--margin 0.08] [--caption-position bottom|center]
+  base --transcript T --analysis A --out EDL [--fps 30] [--margin 0.08] [--long-cut 2] [--wordless-max 0.3] [--caption-position bottom|center]
        [--face-box X,Y,W,H] [--zoom alternate|none] [--zoom-factor 1.1] [--push-in 0] [--confirm RETAKE-ID]...
        [--color TOKEN=#RRGGBB]... [--font ROLE=ID[:WEIGHT]]...
         The code-generated base edit list. Silence is the cut signal (the words only protect speech) and no range is kept shorter
@@ -49,8 +49,12 @@ Verbs (every verb prints one JSON object on stdout; diagnostics on stderr, the f
   pin-templates --confirmed
         Maintainer tool: rewrite templates/pins.json after a reviewed template change.
 
-Container limits, for analyse, base, align, check, render and cover: --memory-mb (default 6144), --cpus (default 4, never more than
-the daemon has), --scratch-mb (default 2048, memory-backed), --timeout (seconds).
+Container limits, for analyse, base, align, check, render and cover: --memory-mb (default 6144, at least 3072), --cpus (default 4,
+never more than the daemon has), --scratch-mb (default 2048, memory-backed, and at most the memory less 2048: a larger one is refused,
+never an out-of-memory kill), --timeout (seconds).
+
+`render` checks its own result in a second, fresh container of the same image (the render mounted read-only, no network): ffprobe
+facts against the platform's spec, the colour tags, the length and the sha256. The file is given its name only after that passes.
 
 The browser's own sandbox is off inside the image, where the container is the boundary (Dockerfile, "The browser's sandbox");
 every render says `browser_sandbox`. Output choices: 1080x1920 at 30 fps whatever the input (a 4K 60 fps HEVC iPhone clip is scaled
@@ -79,6 +83,7 @@ sys.path.insert(0, HERE)
 import _browser  # noqa: E402
 import _docker as D  # noqa: E402
 import _frames  # noqa: E402
+import _media  # noqa: E402
 import _render  # noqa: E402
 from _browser import NotConfigured  # noqa: E402
 from _text import Refusal  # noqa: E402
@@ -87,8 +92,8 @@ from _vocab import SLOT_ID, load_data  # noqa: E402
 EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
 MAX_RECORDING_BYTES = 1 << 30
 MAX_SMALL_FILE = 5 * 1024 * 1024
-CODE = re.compile(r"[a-z0-9_]{1,60}")
-FIELD = re.compile(r"[A-Za-z0-9_.\[\]:\- ]{0,80}")
+COVER_MAX_BYTES = 16 * 1024 * 1024
+CRASH_CODES = {125: "docker_run_failed", 126: "docker_run_failed", 127: "docker_run_failed", 137: "container_killed", 143: "container_killed"}
 HINTS = {
     "docker_missing": "install Docker and start it (the renderer runs in a container)",
     "docker_not_answering": "start the Docker daemon",
@@ -184,6 +189,8 @@ class Job:
         cpus = max(1, min(a.cpus, self.facts["cpus"]))
         memory = max(D.MIN_MEMORY_MB, min(D.MAX_MEMORY_MB, a.memory_mb))
         scratch = max(64, min(D.MAX_SCRATCH_MB, a.scratch_mb))
+        if scratch > memory - D.MEMORY_MARGIN_MB:       # a memory-backed scratch counts against the memory limit: refuse, never an OOM kill
+            raise Refusal("scratch_exceeds_memory", "scratch-mb")
         timeout = max(30, min(D.MAX_TIMEOUT, a.timeout if a.timeout else self.timeout))
         return cpus, memory, scratch, int(timeout)
 
@@ -195,27 +202,30 @@ class Job:
                                               job_dir=self.in_dir, out_dir=self.out_dir, recording=self.recording, memory_mb=memory,
                                               cpus=cpus, scratch_mb=scratch, deadline=deadline)
 
-    def run(self, inner_args: list) -> dict:
-        """Run the container and return the verb's result object (what the container wrote to /out/result.json, validated).
-        A refusal inside becomes the same Refusal here; a container that died without a result is a closed failure."""
+    def run(self, inner_args: list, schema: str) -> dict:
+        """Run the container and return the verb's result object, rebuilt from the closed schema `schema` (what the container wrote to
+        /out/result.json, validated: only understood fields survive). A refusal inside becomes the same Refusal here; a container
+        that died without a result is a closed failure. Nothing the container wrote to its stderr is printed."""
+        if shutil.disk_usage(self.root).free < D.MAX_OUT_BYTES + 64 * 1024 * 1024:
+            raise Refusal("no_space", "output")
         name, timeout, argv = self.argv(inner_args)
-        rc, stderr = D.run_container(argv, name, timeout + D.STOP_GRACE)
+        rc, _stderr = D.run_container(argv, name, timeout + D.STOP_GRACE)
         D.check_out_folder(self.out_dir)
         try:
             raw = D.read_regular(os.path.join(self.out_dir, "result.json"), D.MAX_RESULT_BYTES, "result.json")
             result = json.loads(raw.decode("utf-8"))
             assert isinstance(result, dict)
-        except (Refusal, ValueError, AssertionError, UnicodeDecodeError):
-            if stderr:
-                print("container: " + D.tail(stderr), file=sys.stderr)
-            raise Refusal("container_killed" if rc in (137, 143) else "container_failed", "container") from None
+        except (Refusal, ValueError, AssertionError, UnicodeDecodeError, RecursionError):
+            raise Refusal(CRASH_CODES.get(rc, "container_failed"), "container") from None
         if rc == 0 and result.get("ok", True) is not False:
-            return result
+            return D.sanitise(result, D.RESULT_SCHEMAS[schema], schema)
         code, field = str(result.get("code", "")), str(result.get("field", ""))
         err_cls = NotConfigured if rc == 3 else Refusal
-        err = err_cls(code if CODE.fullmatch(code) else "container_failed", field if FIELD.fullmatch(field) else "")
-        err.problems = [{"beat": p.get("beat"), "field": str(p.get("field"))[:40], "code": str(p.get("code"))[:40]}
-                        for p in (result.get("problems") or [])[:50] if isinstance(p, dict)]
+        err = err_cls(code if D.CODE.fullmatch(code) else "container_failed", field if D.FIELD.fullmatch(field) else "")
+        try:
+            err.problems = D.sanitise(result.get("problems") or [], D.PROBLEMS, "problems")
+        except Refusal:
+            err.problems = []
         raise err
 
     def collect(self, name: str, dest: str, *, max_bytes: int, mode: int = 0o600, expect_sha256=None, exclusive=False) -> str:
@@ -240,7 +250,7 @@ def verb_check(args) -> dict:
     image = D.check_image()
     out = {"ok": True, "docker_server": server, "image": image, "daemon": D.daemon_facts()}
     with Job(args, 120, "selfcheck") as job:
-        out["selfcheck"] = job.run(["selfcheck"])
+        out["selfcheck"] = job.run(["selfcheck"], "selfcheck")
     out["browser_sandbox"] = "off: the container is the boundary" if out["selfcheck"].get("container") else "on"
     return out
 
@@ -278,12 +288,15 @@ def verb_analyse(args) -> dict:
     with Job(args, 900, "analyse") as job:
         rec = job.mount_recording(args.input)
         result = job.run(["analyse", "--in", rec, "--out", D.MOUNT_OUT + "/analysis.json", "--noise-db", str(args.noise_db),
-                          "--min-silence", str(args.min_silence)])
+                          "--min-silence", str(args.min_silence)], "analyse")
         if args.out:
             job.collect("analysis.json", args.out, max_bytes=D.MAX_RESULT_BYTES)
             return dict(result, out=os.path.abspath(args.out))
-        doc = json.loads(D.read_regular(os.path.join(job.out_dir, "analysis.json"), D.MAX_RESULT_BYTES, "analysis.json").decode("utf-8"))
-        return dict(doc, ok=True)
+        try:
+            doc = json.loads(D.read_regular(os.path.join(job.out_dir, "analysis.json"), D.MAX_RESULT_BYTES, "analysis.json").decode("utf-8"))
+        except (ValueError, UnicodeDecodeError, RecursionError):
+            raise Refusal("container_result_invalid", "analysis.json") from None
+        return dict(D.sanitise(doc, D.RESULT_SCHEMAS["analysis_doc"], "analysis"), ok=True)
 
 
 def verb_base(args) -> dict:
@@ -291,11 +304,12 @@ def verb_base(args) -> dict:
         inner = ["base", "--transcript", job.stage("transcript.json", args.transcript), "--analysis", job.stage("analysis.json", args.analysis),
                  "--out", D.MOUNT_OUT + "/edl.json", "--caption-position", args.caption_position, "--push-in", str(args.push_in)]
         inner += opt("--fps", args.fps) + opt("--gap", args.gap) + opt("--margin", args.margin) + opt("--face-box", args.face_box)
+        inner += opt("--long-cut", args.long_cut) + opt("--wordless-max", args.wordless_max)
         inner += opt("--zoom", args.zoom) + opt("--zoom-factor", args.zoom_factor)
         for flag, values in (("--confirm", args.confirm), ("--color", args.color), ("--font", args.font)):
             for v in values or []:
                 inner += [flag, v]
-        result = job.run(inner)
+        result = job.run(inner, "base")
         job.collect("edl.json", args.out, max_bytes=D.MAX_RESULT_BYTES)
         return dict(result, out=os.path.abspath(args.out))
 
@@ -310,7 +324,7 @@ def verb_align(args) -> dict:
         for flag, values in (("--empty-slot", args.empty_slot), ("--anchor", args.anchor)):
             for v in values or []:
                 inner += [flag, v]
-        result = job.run(inner)
+        result = job.run(inner, "align")
         job.collect("beats.json", args.out, max_bytes=D.MAX_RESULT_BYTES)
         return dict(result, out=os.path.abspath(args.out))
 
@@ -321,7 +335,7 @@ def verb_check_documents(args) -> dict:
                  "--vocabulary", job.stage("vocabulary.json", args.vocabulary)]
         if args.platform_file:
             inner += ["--platform-file", job.stage("platform.json", args.platform_file)]
-        return job.run(inner)
+        return job.run(inner, "check")
 
 
 def verb_render(args) -> dict:
@@ -332,9 +346,12 @@ def verb_render(args) -> dict:
     out_dir = os.path.abspath(os.path.dirname(args.out) if args.out.endswith(".mp4") else args.out)
     data = load_data()
     try:
-        out_frames = json.loads(_frames.read_regular(args.edl, data["limits"]["json_max_bytes"], "input_unreadable", "edl").decode("utf-8"))["out_frames"]
-        limit = _render.time_limit_for(data, out_frames / 30.0, args.time_limit)
-    except (Refusal, ValueError, KeyError, TypeError, AttributeError):
+        edl_doc = json.loads(_frames.read_regular(args.edl, data["limits"]["json_max_bytes"], "input_unreadable", "edl").decode("utf-8"))
+        out_frames, fps = edl_doc["out_frames"], edl_doc["fps"]
+        platform = json.loads(_frames.read_regular(args.platform_file, MAX_SMALL_FILE, "input_unreadable", "platform").decode("utf-8"))
+        limit = _render.time_limit_for(data, out_frames / float(fps), args.time_limit)
+        byte_cap = min(D.MAX_OUT_BYTES, _media.byte_limit(platform))
+    except (Refusal, ValueError, KeyError, TypeError, AttributeError, ZeroDivisionError):
         raise Refusal("edl_unreadable", "edl") from None
     with Job(args, limit + 60, "render") as job:
         inner = ["render", "--edl", job.stage("edl.json", args.edl), "--beats", job.stage("beats.json", args.beats),
@@ -352,25 +369,33 @@ def verb_render(args) -> dict:
         if args.dry_run:
             name, timeout, argv = job.argv(inner)
             return {"ok": True, "dry_run": True, "command": argv, "image": job.image, "time_limit_seconds": limit, "out_dir": out_dir}
-        result = job.run(inner)
-        digest, path_in = str(result.get("sha256", "")), str(result.get("path", ""))
-        if not re.fullmatch(r"[0-9a-f]{64}", digest) or os.path.basename(path_in) != "render-%s.mp4" % digest[:12]:
+        result = job.run(inner, "render")
+        digest = result.get("sha256", "")
+        if not re.fullmatch(r"[0-9a-f]{64}", digest):
             raise Refusal("container_result_invalid", "render")
-        final = os.path.join(out_dir, "render-%s.mp4" % digest[:12])
+        name = "render-%s.mp4" % digest[:12]
+        # The candidate leaves the container that made it only into a private file, hashed on the way, and is checked in a
+        # fresh container before it is given its name: a render that fails its own platform's spec is never stored.
+        candidate = os.path.join(job.root, "candidate.mp4")
+        job.collect(name, candidate, max_bytes=byte_cap, mode=0o400, expect_sha256=digest)
+        with Job(args, 300, "verify") as checker:
+            verdict = checker.run(["verify", "--in", checker.mount_recording(candidate), "--platform-file", checker.stage("platform.json", args.platform_file),
+                                   "--sha256", digest, "--expect-seconds", "%.3f" % (out_frames / float(fps))], "verify")
+        final = os.path.join(out_dir, name)
         os.makedirs(out_dir, mode=0o700, exist_ok=True)
-        outcome = job.collect(os.path.basename(path_in), final, max_bytes=D.MAX_OUT_BYTES, mode=0o400, expect_sha256=digest, exclusive=True)
-        result.update(path=final, replayed=(outcome == "replayed"), image={"id": job.image["id"], "tag": job.image["tag"]})
-        result.pop("ffmpeg_argv", None)
+        outcome = D.copy_out(candidate, final, max_bytes=byte_cap, mode=0o400, expect_sha256=digest, exclusive=True)
+        result.update(path=final, bytes=verdict["output"]["bytes"], output=verdict["output"], replayed=(outcome == "replayed"), verified=True,
+                      image={"id": job.image["id"], "tag": job.image["tag"]})
         if args.cover_out:
-            job.collect("cover.png", args.cover_out, max_bytes=D.MAX_RESULT_BYTES)
+            job.collect("cover.png", args.cover_out, max_bytes=COVER_MAX_BYTES)
             result["cover"] = dict(result.get("cover") or {}, path=os.path.abspath(args.cover_out))
         return result
 
 
 def verb_cover(args) -> dict:
     with Job(args, 120, "cover") as job:
-        result = job.run(["cover", "--in", job.mount_recording(args.input), "--offset-ms", str(args.offset_ms), "--out", D.MOUNT_OUT + "/cover.png"])
-        job.collect("cover.png", args.out, max_bytes=D.MAX_RESULT_BYTES)
+        result = job.run(["cover", "--in", job.mount_recording(args.input), "--offset-ms", str(args.offset_ms), "--out", D.MOUNT_OUT + "/cover.png"], "cover")
+        job.collect("cover.png", args.out, max_bytes=COVER_MAX_BYTES)
         return dict(result, path=os.path.abspath(args.out))
 
 
@@ -405,6 +430,8 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--fps", type=int)
     sp.add_argument("--gap", type=float, help="no audio: cut word gaps longer than this (seconds)")
     sp.add_argument("--margin", type=float, help="seconds of silence kept on each side of a cut")
+    sp.add_argument("--long-cut", type=float, help="a cut this long (seconds) also takes the wordless sound at its edges (default 2)")
+    sp.add_argument("--wordless-max", type=float, help="seconds of sound with no word that a long cut does not leave at an edge (default 0.3)")
     sp.add_argument("--caption-position", default="bottom")
     sp.add_argument("--face-box", help="X,Y,W,H in frame pixels (1080x1920): where the speaker's face is; given once per recording")
     sp.add_argument("--zoom", choices=("alternate", "none"))

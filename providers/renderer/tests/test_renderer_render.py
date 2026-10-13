@@ -101,7 +101,7 @@ def test_dry_run_writes_nothing_and_prints_the_one_ffmpeg_command(short, tmp_pat
     rc, result, err = K.run_verb(*K.render_args(short, out, "--dry-run", slots=short["slots"]))
     assert rc == 0 and result["dry_run"] is True and not out.exists()
     argv = result["ffmpeg_argv"]
-    assert argv[0].endswith("ffmpeg") and "-fs" in argv and argv[argv.index("-i") - 4:argv.index("-i")] == ["-f", "mov", "-protocol_whitelist", "file"]
+    assert argv[0].endswith("ffmpeg") and "-fs" in argv and argv[argv.index("-i") - 6:argv.index("-i")] == ["-f", "mov", "-enable_drefs", "0", "-protocol_whitelist", "file"]
     assert result["frame_jobs"] > 0 and result["time_limit_seconds"] <= 1800
 
 
@@ -291,3 +291,38 @@ def test_the_face_box_zoom_and_confirmed_retakes_change_the_picture_and_the_leng
         subprocess.run([K.FFMPEG, "-y", "-loglevel", "error", "-ss", "%.3f" % second_start, "-i", sizes[name]["path"], "-frames:v", "1", "-vf", "crop=1080:400:0:0", str(png)], check=True)
         frame[name] = png.read_bytes()
     assert frame["zoom"] != frame["flat"]
+
+
+@needs_all
+def test_an_audio_stream_that_starts_late_stays_in_step_with_the_picture_and_the_words(tmp_path):
+    """The audio starts 1.0 s after the video; the first kept range starts before it. The offsets are read from the streams and the
+    sound is padded to the cut, so the tone still begins where the first word does."""
+    doc = K.build_transcript(K.SENTENCES[:2])
+    src = tmp_path / "late.mp4"
+    K.make_source(src, doc, audio_offset=1.0)
+    facts = _media.probe(K.FFPROBE, str(src))
+    assert facts["video_start"] == 0.0 and facts["audio_start"] == pytest.approx(1.0, abs=0.05)
+    (tmp_path / "post.md").write_text(CAPTION_ONLY)
+    tr = K.write_json(tmp_path / "t.json", doc)
+    assert K.run_verb("analyse", "--in", src, "--out", tmp_path / "analysis.json")[0] == 0
+    assert K.run_verb("base", "--transcript", tr, "--analysis", tmp_path / "analysis.json", "--out", tmp_path / "edl.json")[0] == 0
+    assert K.run_verb("align", "--post", tmp_path / "post.md", "--transcript", tr, "--checker", K.CHECKER, "--vocabulary", K.VOCABULARY,
+                      "--out", tmp_path / "beats.json")[0] == 0
+    rc, out, err = K.run_verb("render", "--edl", tmp_path / "edl.json", "--beats", tmp_path / "beats.json", "--in", src, "--out", tmp_path / "out",
+                              "--platform-file", K.INSTAGRAM, "--vocabulary", K.VOCABULARY)
+    assert rc == 0, err
+    edl = json.load(open(tmp_path / "edl.json"))
+    first_word = edl["words"][0]["start"]                                   # on the output timeline: where the first word is spoken
+    silences = _media.silencedetect(K.FFMPEG, out["path"], out["output"]["duration"], -35, 0.1)
+    onset = silences[0]["end"] if silences and silences[0]["start"] < 0.05 else 0.0
+    assert onset == pytest.approx(first_word, abs=0.08)                      # the tone begins with the first word
+    assert abs(out["output"]["duration"] - edl["out_frames"] / 30.0) < 0.1
+
+
+def test_the_graph_starts_both_streams_at_zero_before_it_cuts():
+    graph = _media.compose_argv("ffmpeg", {"src": "/in/recording", "fps": 30, "size": [1080, 1920], "has_audio": True, "src_matrix": "bt709", "kept": [[10, 70]],
+                                           "layers": [], "frames_dir": "frames", "pips": [], "pip_size": 380, "out_frames": 60, "max_bytes": 1000,
+                                           "out_name": "o.mp4", "zoom": {"mode": "none", "factor": 1.1, "push_in": 0.0},
+                                           "face": {"cx": 540, "cy": 900, "w": 600, "h": 560}, "fade": 0.015})
+    graph = graph[graph.index("-filter_complex") + 1]
+    assert "fps=30:start_time=0" in graph and "aresample=async=1:first_pts=0,atrim=" in graph

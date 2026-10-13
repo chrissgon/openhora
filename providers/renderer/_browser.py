@@ -65,9 +65,13 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+OFFICIAL_PREFIX = "https://storage.googleapis.com/chrome-for-testing-public/"
+
+
 def url_allowed(url: str, test_mode: bool) -> bool:
+    """Only the official Chrome for Testing bucket, as the image's own download script allows; a loopback http URL in test mode."""
     parts = urllib.parse.urlsplit(url)
-    if parts.scheme == "https" and parts.hostname:
+    if url.startswith(OFFICIAL_PREFIX):
         return True
     return test_mode and parts.scheme == "http" and parts.hostname in ("127.0.0.1", "localhost", "::1")
 

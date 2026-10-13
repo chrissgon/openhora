@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
+import threading
 import shutil
 import signal
 import stat
@@ -42,7 +44,9 @@ HOST_ONLY = ("_docker.py", "_browser.py")      # underscore modules that only th
 PIDS_LIMIT = 512
 TMP_SIZE_MB = 256
 DEFAULT_SCRATCH_MB, DEFAULT_MEMORY_MB, DEFAULT_CPUS = 2048, 6144, 4
-MIN_MEMORY_MB, MAX_MEMORY_MB, MAX_SCRATCH_MB = 1024, 32768, 8192
+MIN_MEMORY_MB, MAX_MEMORY_MB, MAX_SCRATCH_MB = 3072, 32768, 8192
+MEMORY_MARGIN_MB = 2048                  # what the browser and ffmpeg need beside the memory-backed scratch: scratch <= memory - this
+MAX_STDERR = 64 * 1024                   # the most of a container's stderr the host reads; the rest is read and thrown away
 MOUNT_RECORDING, MOUNT_JOB, MOUNT_OUT, MOUNT_SCRATCH = "/in/recording", "/job", "/out", "/scratch"
 BUILD_TIMEOUT, PROBE_TIMEOUT, STOP_GRACE = 3600, 60, 120
 MAX_TIMEOUT = 2400                       # seconds, the longest a container may run (the render limit is 1800)
@@ -349,15 +353,28 @@ def run_container(argv: list, name: str, timeout: float):
     try:
         try:
             proc = subprocess.Popen([docker_binary()] + argv[1:], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                    stderr=subprocess.PIPE, text=True, errors="replace", env=docker_environment(), start_new_session=True)
+                                    stderr=subprocess.PIPE, env=docker_environment(), start_new_session=True)
         except OSError:
             raise NotConfigured("docker_unusable", "docker") from None
+        kept = bytearray()
+
+        def drain():                     # read all of it, keep the first MAX_STDERR bytes: a flood cannot fill the host's memory
+            while True:
+                block = proc.stderr.read(8192)
+                if not block:
+                    return
+                if len(kept) < MAX_STDERR:
+                    kept.extend(block[:MAX_STDERR - len(kept)])
+
+        reader = threading.Thread(target=drain, daemon=True)
+        reader.start()
         try:
-            _, stderr = proc.communicate(timeout=timeout)
+            proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
             raise Refusal("time_limit", "container") from None
+        reader.join(5)
         finished = True
-        return proc.returncode, stderr or ""
+        return proc.returncode, bytes(kept).decode("utf-8", "replace")
     except Stopped:
         raise Refusal("stopped", "container") from None
     finally:
@@ -410,6 +427,20 @@ def check_out_folder(folder: str) -> None:
         raise Refusal("container_left_too_much", "output")
 
 
+def _same_or_collision(dest: str, digest: str) -> str:
+    existing = hashlib.sha256()
+    try:
+        fd = os.open(dest, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        raise Refusal("name_collision", "output") from None
+    with os.fdopen(fd, "rb") as fh:
+        for block in iter(lambda: fh.read(1 << 20), b""):
+            existing.update(block)
+    if existing.hexdigest() != digest:
+        raise Refusal("name_collision", "output")
+    return "replayed"
+
+
 def copy_out(src: str, dest: str, *, max_bytes: int, mode: int, expect_sha256=None, exclusive=False) -> str:
     """Copy a file the container wrote to its destination through a temporary name: opened without following links, size
     capped, hashed while copied (compared with `expect_sha256` when given). `exclusive`: the destination is created with
@@ -433,6 +464,8 @@ def copy_out(src: str, dest: str, *, max_bytes: int, mode: int, expect_sha256=No
                     raise Refusal("container_file_too_large", os.path.basename(src)[:40])
                 h.update(block)
                 fout.write(block)
+            fout.flush()
+            os.fsync(fout.fileno())              # the bytes are on disk before the name is made
         if expect_sha256 and h.hexdigest() != expect_sha256:
             raise Refusal("container_file_differs", os.path.basename(src)[:40])
         os.chmod(tmp, mode)
@@ -440,13 +473,21 @@ def copy_out(src: str, dest: str, *, max_bytes: int, mode: int, expect_sha256=No
             try:
                 os.link(tmp, dest)
             except FileExistsError:
-                existing = hashlib.sha256()
-                with open(dest, "rb") as fh:
-                    for block in iter(lambda: fh.read(1 << 20), b""):
-                        existing.update(block)
-                if existing.hexdigest() != h.hexdigest():
-                    raise Refusal("name_collision", "output") from None
-                return "replayed"
+                return _same_or_collision(dest, h.hexdigest())
+            except OSError:                    # a file system without hard links: create the name exclusively and copy into it
+                try:
+                    out_fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                except FileExistsError:
+                    return _same_or_collision(dest, h.hexdigest())
+                try:
+                    with os.fdopen(out_fd, "wb") as fout, open(tmp, "rb") as fin:
+                        shutil.copyfileobj(fin, fout, 1 << 20)
+                        fout.flush()
+                        os.fsync(fout.fileno())
+                    os.chmod(dest, mode)
+                except BaseException:
+                    os.unlink(dest)
+                    raise
             return "written"
         os.replace(tmp, dest)
         return "written"
@@ -486,3 +527,102 @@ def reap_folders(now=None) -> int:
         except OSError:
             continue
     return removed
+
+
+# ---------------------------------------------------------------- what the host prints of a container's result
+
+CODE = re.compile(r"[a-z0-9_]{1,60}")
+FIELD = re.compile(r"[A-Za-z0-9_.\[\]:\- ]{0,80}")
+SAFE_TEXT = re.compile(r"[^\x00-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069\u200b-\u200f\ufeff]{0,200}")
+S, I, N, B, FLD, COD = "str", "int", "num", "bool", "field", "code"
+
+
+def opt(schema):
+    return ("opt", schema)
+
+
+def lst(schema, limit=2000):
+    return ("list", schema, limit)
+
+
+def dct(**keys):
+    return ("dict", keys)
+
+
+def mp(schema):
+    return ("map", schema)
+
+
+def sanitise(value, schema, where="result"):
+    """`value` rebuilt from a closed schema: only the listed keys of an object survive, every leaf has the listed type (a string
+    is short and holds no control character, a number is finite, an integer is an integer), a list is bounded. Anything else is
+    refused with a closed code: the host prints what it has understood, never what the container wrote."""
+    bad = Refusal("container_result_invalid", where[:40])
+    if isinstance(schema, tuple):
+        kind = schema[0]
+        if kind == "opt":
+            return None if value is None else sanitise(value, schema[1], where)
+        if kind == "list":
+            if not isinstance(value, list) or len(value) > schema[2]:
+                raise bad
+            return [sanitise(v, schema[1], where) for v in value]
+        if kind == "dict":
+            if not isinstance(value, dict):
+                raise bad
+            return {k: sanitise(value[k], sub, "%s.%s" % (where, k)) for k, sub in schema[1].items() if k in value}
+        if kind == "map":
+            if not isinstance(value, dict) or len(value) > 2000:
+                raise bad
+            return {sanitise(k, FLD, where): sanitise(v, schema[1], where) for k, v in value.items()}
+        raise bad
+    if schema == S:
+        if not isinstance(value, str) or not SAFE_TEXT.fullmatch(value):
+            raise bad
+        return value
+    if schema == FLD:
+        if not isinstance(value, str) or not FIELD.fullmatch(value):
+            raise bad
+        return value
+    if schema == COD:
+        if not isinstance(value, str) or not CODE.fullmatch(value):
+            raise bad
+        return value
+    if schema == I:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise bad
+        return value
+    if schema == N:
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value):
+            raise bad
+        return value
+    if schema == B:
+        if not isinstance(value, bool):
+            raise bad
+        return value
+    raise bad
+
+
+FACTS = dct(video_start=N, audio_start=N, width=I, height=I, rotation=I, fps=N, duration=N, has_audio=B, codec=S, pix_fmt=opt(S), color_space=opt(S),
+            color_transfer=opt(S), color_primaries=opt(S), color_range=opt(S), bytes=I, audio_codec=opt(S), sha256=S)
+OUTPUT = dct(container=S, codec=S, profile=opt(S), pix_fmt=opt(S), width=I, height=I, fps=N, duration=N, bytes=I, audio_codec=opt(S), faststart=B,
+             color=lst(opt(S), 8), frames=opt(S))
+PROBLEMS = lst(dct(beat=opt(I), field=FLD, code=COD), 50)
+RESULT_SCHEMAS = {
+    "selfcheck": dct(ok=B, ffmpeg=S, ffprobe=S, missing=lst(S, 50), python=S, browser=S, libass=B, container=B, templates=lst(S, 50)),
+    "analyse": dct(ok=B, duration=N, sha256=S, silences=opt(I), has_audio=B),
+    "analysis_doc": dct(ok=B, schema_version=I, facts=FACTS, silences=opt(lst(dct(start=N, end=N), 20000)), noise_db=N, min_silence=N),
+    "base": dct(ok=B, fps=I, kept_ranges=I, out_seconds=N, source_seconds=N, words=I, caption_chunks=I,
+                normalisation=dct(words=I, dropped_words=I, dropped_segments=lst(dct(segment=I, words=I, seconds=N), 500), zero_length_words=I,
+                                  spread_runs=I, estimated_words=I, clamped_starts=I),
+                font_fallbacks=lst(dct(role=S, asked=S, used=S, reason=S), 20), proposals=lst(dct(id=S, kind=S, seconds=N, confirmed=B), 100),
+                face_box=dct(x=I, y=I, w=I, h=I), zoom=dct(mode=S, factor=N, push_in=N)),
+    "align": dct(ok=B, beats=I, overlays=I, layouts=I, unmatched=lst(I, 100), slots=lst(S, 100), fallbacks=lst(dct(beat=I, **{"from": S, "to": S}), 100),
+                 scores=mp(N), reordered=lst(I, 100)),
+    "check": dct(ok=B, mentions=lst(S, 500), out_seconds=N, words=I, overlays=I, layouts=I),
+    "cover": dct(ok=B, offset_ms=I, sha256=S),
+    "verify": dct(ok=B, sha256=S, output=OUTPUT),
+    "render": dct(ok=B, dry_run=B, out_seconds=N, out_frames=I, frame_jobs=I, jobs=I, time_limit_seconds=I, layers=lst(S, 4),
+                  beats_drawn=lst(dct(id=S, preset=S, start_frame=I, end_frame=I), 100), beats_dropped=lst(S, 100), unmatched_beats=lst(I, 100),
+                  mentions=lst(S, 500), fonts=mp(S), templates=mp(S), estimated_bytes=I, sha256=S, bytes=I, output=OUTPUT, seconds=mp(N),
+                  browser=opt(S), browser_sandbox=opt(S), frames_rendered=I, frames_reused=I, cover=opt(dct(offset_ms=I, sha256=S))),
+}

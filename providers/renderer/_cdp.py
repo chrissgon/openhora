@@ -25,7 +25,7 @@ import fcntl
 ORIGIN = "https://render.invalid"
 
 CSP = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
-       "img-src 'self'; font-src 'self'; connect-src 'none'")
+       "img-src 'self'; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'")
 
 # Freezes the clocks and the random source and makes timers throw (determinism contract).
 FREEZE_JS = r"""

@@ -206,17 +206,17 @@ def caption_data(data: dict, edl: dict, chunk: dict, by_index: dict, fps: int) -
     words = [by_index[i] for i in sorted(by_index) if chunk["word_from"] <= i <= chunk["word_to"]]
     return {"duration": (chunk["end_frame"] - chunk["start_frame"]) / fps, "anchor": edl["captions"]["position"],
             "words": [{"text": w["text"], "start": round(w["start"] - origin, 4), "end": round(w["end"] - origin, 4)} for w in words],
-            "zones": _edl_zones(data, edl), "margin": data["zones"]["caption_margin"]}
+            "zones": _edl_zones(data, chunk["face"]), "margin": data["zones"]["caption_margin"]}
 
 
-def _edl_zones(data: dict, edl: dict) -> dict:
+def _edl_zones(data: dict, face: dict) -> dict:
+    """The two bands the face box leaves, for the face box as it is while this card or caption is on screen (zoom included)."""
     z = data["zones"]
-    face = edl["face_box"]
     return {"card": [z["card_top"], face["y"] - z["gap"]], "caption": [face["y"] + face["h"] + z["gap"], z["caption_bottom"]]}
 
 
 def beat_data(data: dict, entry: dict, fps: int, edl: dict) -> dict:
-    out = {"params": entry["params"], "look": data["presets"][entry["preset"]]["looks"], "zones": _edl_zones(data, edl),
+    out = {"params": entry["params"], "look": data["presets"][entry["preset"]]["looks"], "zones": _edl_zones(data, entry["face"]),
            "duration": (entry["end_frame"] - entry["start_frame"]) / fps}
     if entry["preset"] == "pip":
         out["geom"] = pip_geometry(data, entry["params"].get("position", "top"))
@@ -305,7 +305,7 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
                     payload = caption_data(data, edl, entry, by_index, fps) if track == "caption" else beat_data(data, entry, fps, edl)
                     result = page.frame((f - entry["start_frame"]) / fps, payload)
                     sig = result["html"]
-                    hit = face_hit(result["boxes"], edl["face_box"])
+                    hit = face_hit(result["boxes"], entry["face"])
                     if hit:
                         raise Refusal("overlay_hits_face", hit)
                     dest = os.path.join(frames_dir, "%s_%06d.png" % ("cap" if track == "caption" else "beat", f))

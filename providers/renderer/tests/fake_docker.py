@@ -76,6 +76,12 @@ elif cmd == "run":
         time.sleep(600)
         sys.exit(0)
     if mode == "files":
+        if CFG.get("stderr"):
+            sys.stderr.write(CFG["stderr"])
+        if CFG.get("flood"):
+            chunk = "x" * 65536
+            for _ in range(CFG["flood"] // 65536):
+                sys.stderr.write(chunk)
         dest = mounts["/out"][0]
         for fname, spec in CFG.get("files", {}).items():
             path = os.path.join(dest, fname)
@@ -99,6 +105,9 @@ elif cmd == "run":
     env = {"PATH": os.environ["PATH"], "HOME": scratch, "TMPDIR": scratch}
     if CFG.get("browser"):
         env["RENDERER_BROWSER"] = CFG["browser"]
+    if "verify" in inner and CFG.get("verify_platform"):          # the fresh container sees a stricter platform file than the render's
+        host_platform = mapped[mapped.index("--platform-file") + 1]
+        json.dump(CFG["verify_platform"], open(host_platform, "w"))
     inner_py = CFG["inner"]
     done = subprocess.run([sys.executable, "-I", inner_py] + mapped, env=env, cwd=scratch, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     sys.stderr.write(done.stderr.decode("utf-8", "replace")[-300:])

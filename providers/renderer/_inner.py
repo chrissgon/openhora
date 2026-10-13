@@ -9,6 +9,7 @@ only writable mount) and /scratch (memory-backed), with no network.
   align    --post FILE --transcript T --checker SCRIPT --vocabulary V --out BEATS ...   the beats, aligned
   check    --edl EDL --beats BEATS --vocabulary V [--platform-file F]        schema, bounds, hardening, credential shapes
   render   --edl EDL --beats BEATS --in VIDEO --out DIR --platform-file F --vocabulary V ...    the video
+  verify   --in MP4 --platform-file F --sha256 H [--expect-seconds S]   a finished render against the platform's spec
   cover    --in MP4 --offset-ms N --out PNG                  one frame of a render
   selfcheck                                  the versions of what the image holds, and that each tool starts
 
@@ -131,7 +132,8 @@ def verb_base(args) -> dict:
         font_flags[role] = (font_id, int(weight) if weight.isdigit() else data["theme"]["default_font_weight"].get(role, 500))
     face = _edl.parse_face_box(args.face_box) if args.face_box else None
     edl, notes = _edl.build_base(transcript, analysis, data, allow, args.fps, args.gap, args.margin, args.caption_position,
-                                 colors, font_flags, face, args.zoom, args.zoom_factor, args.push_in, set(args.confirm or []))
+                                 colors, font_flags, face, args.zoom, args.zoom_factor, args.push_in, set(args.confirm or []),
+                                 args.long_cut, args.wordless_max)
     write_json(args.out, edl)
     return {"ok": True, "out": os.path.abspath(args.out), "fps": edl["fps"], "kept_ranges": len(edl["kept"]),
             "out_seconds": round(edl["out_frames"] / edl["fps"], 3), "source_seconds": edl["source"]["duration"],
@@ -223,6 +225,26 @@ def verb_cover(args) -> dict:
     return dict(_render.make_cover(ffmpeg, args.input, args.out, args.offset_ms, facts["duration"]), ok=True)
 
 
+def verb_verify(args) -> dict:
+    """Check a finished render, from outside the container that made it: its sha256 is the one the render reported, and ffprobe
+    finds it inside the platform file's video spec (container, codec, audio codec, size, fps range, duration, bytes, faststart),
+    tagged bt709 limited range, and as long as the edit list says."""
+    ffmpeg, ffprobe = tools(args)
+    platform = read_json(args.platform_file)
+    if _media.sha256_file(args.input) != args.sha256:
+        raise Refusal("render_differs", "render")
+    verdict = _media.check_output(ffprobe, args.input, platform)
+    failures = list(verdict["failures"])
+    facts = verdict["facts"]
+    if facts and facts.get("color") != ["bt709", "bt709", "bt709", "tv"]:
+        failures.append("color_tags")
+    if facts and args.expect_seconds is not None and abs(facts["duration"] - args.expect_seconds) > 0.3:
+        failures.append("duration_mismatch")
+    if failures:
+        raise Refusal("platform_spec", ",".join(failures))
+    return {"ok": True, "sha256": args.sha256, "output": facts}
+
+
 def verb_selfcheck(args) -> dict:
     """The versions of what this environment holds, and that each tool starts. The host's --check runs it in the container."""
     ffmpeg, ffprobe = tools(args)
@@ -276,6 +298,8 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--fps", type=int)
     sp.add_argument("--gap", type=float, help="no audio: cut word gaps longer than this (seconds)")
     sp.add_argument("--margin", type=float, help="seconds of silence kept on each side of a cut")
+    sp.add_argument("--long-cut", type=float, help="a cut this long (seconds) also takes the wordless sound at its edges")
+    sp.add_argument("--wordless-max", type=float, help="seconds of sound with no word that a long cut does not leave at an edge")
     sp.add_argument("--caption-position", default="bottom")
     sp.add_argument("--face-box", help="X,Y,W,H in frame pixels (1080x1920): where the speaker's face is; given once per recording")
     sp.add_argument("--zoom", choices=("alternate", "none"))
@@ -315,6 +339,12 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--cover-out")
     sp.add_argument("--cover-offset-ms", type=int)
     sp.add_argument("--scratch", help="where the frames and work files go (memory-backed in the container)")
+    sp = sub.add_parser("verify")
+    common(sp)
+    sp.add_argument("--in", dest="input", required=True)
+    sp.add_argument("--platform-file", required=True)
+    sp.add_argument("--sha256", required=True)
+    sp.add_argument("--expect-seconds", type=float)
     sp = sub.add_parser("cover")
     common(sp)
     sp.add_argument("--in", dest="input", required=True)
@@ -323,7 +353,7 @@ def parser() -> argparse.ArgumentParser:
     return p
 
 
-VERBS = {"selfcheck": verb_selfcheck, "analyse": verb_analyse, "base": verb_base, "align": verb_align, "check": verb_check_documents,
+VERBS = {"verify": verb_verify, "selfcheck": verb_selfcheck, "analyse": verb_analyse, "base": verb_base, "align": verb_align, "check": verb_check_documents,
          "render": verb_render, "cover": verb_cover}
 
 
@@ -361,6 +391,13 @@ def main(argv=None) -> int:
             print("  detail: %s" % (getattr(err, "tail", "") or getattr(err, "detail", "")), file=sys.stderr)
         write_result(result_path, {"ok": False, "code": err.code, "field": err.field, "problems": getattr(err, "problems", [])})
         return EXIT_NOT_CONFIGURED if isinstance(err, NotConfigured) else EXIT_FAILED
+    except Exception:                       # anything not foreseen: a closed code, never a traceback (it could carry a word of the transcript)
+        print("refused: internal", file=sys.stderr)
+        try:
+            write_result(result_path, {"ok": False, "code": "internal", "field": "", "problems": []})
+        except OSError:
+            pass
+        return EXIT_FAILED
 
 
 if __name__ == "__main__":

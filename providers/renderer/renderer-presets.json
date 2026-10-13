@@ -58,7 +58,7 @@
   "words_max": 4000,
   "word_chars_max": 40,
   "kept_ranges_max": 600,
-  "input_seconds_max": 900,
+  "input_seconds_max": 300,
   "frames_max": 27000,
   "asset_max_side": 8192,
   "asset_max_pixels": 40000000,
@@ -155,6 +155,8 @@
   "min_kept": 0.4,
   "gap": 0.5,
   "noise_db": -35,
-  "min_silence": 0.25
+  "min_silence": 0.25,
+  "long_cut": 2.0,
+  "wordless_max": 0.3
  }
 }

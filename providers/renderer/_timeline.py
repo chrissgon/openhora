@@ -29,7 +29,7 @@ def check_transcript(doc, limits: dict) -> dict:
     if not isinstance(doc, dict) or doc.get("schema_version") != 1:
         raise Refusal("transcript_schema", "schema_version")
     duration = doc.get("duration")
-    if not isinstance(duration, (int, float)) or isinstance(duration, bool) or duration <= 0:
+    if not isinstance(duration, (int, float)) or isinstance(duration, bool) or not math.isfinite(duration) or duration <= 0:
         raise Refusal("transcript_duration", "duration")
     words = doc.get("words")
     if not isinstance(words, list) or not words:
@@ -41,7 +41,7 @@ def check_transcript(doc, limits: dict) -> dict:
         if not isinstance(w, dict) or w.get("index") != pos:
             raise Refusal("word_index", "word%d" % pos)
         s, e = w.get("start"), w.get("end")
-        if any(not isinstance(x, (int, float)) or isinstance(x, bool) for x in (s, e)) or s < 0 or e < 0:
+        if any(not isinstance(x, (int, float)) or isinstance(x, bool) or not math.isfinite(x) for x in (s, e)) or s < 0 or e < 0:
             raise Refusal("word_time", "word%d" % pos)
         if s > duration + MAX_END_OVERSHOOT:
             raise Refusal("word_time", "word%d" % pos)
@@ -52,7 +52,7 @@ def check_transcript(doc, limits: dict) -> dict:
     segments = []
     for seg in doc.get("segments") or []:
         if isinstance(seg, dict) and isinstance(seg.get("index"), int) and all(
-                isinstance(seg.get(k), (int, float)) and not isinstance(seg.get(k), bool) for k in ("start", "end")):
+                isinstance(seg.get(k), (int, float)) and not isinstance(seg.get(k), bool) and math.isfinite(seg.get(k)) for k in ("start", "end")):
             segments.append({"index": seg["index"], "start": float(seg["start"]), "end": float(seg["end"])})
     return {"duration": float(duration), "words": out, "segments": segments}
 
@@ -171,15 +171,46 @@ def _merge(intervals):
     return out
 
 
+def trim_wordless(cuts: list, words: list, fps: int, margin: float, long_cut: float, wordless_max: float) -> list:
+    """Make a long cut take the wordless sound at its edges. `cuts` is [(from_frame, to_frame, forced)], sorted.
+
+    After a cut of at least `long_cut` seconds, a kept range that starts with more than `wordless_max` seconds of sound before its
+    first transcribed word (a breath, a head turning back to the camera) starts instead at that word's start less `margin`.
+    Symmetrically, before such a cut, a range that ends with more than `wordless_max` seconds after its last word ends at that
+    word's end plus `margin`. A word that runs across the range's edge keeps the edge where it is."""
+    out = [list(c) for c in cuts]
+    long_frames = long_cut * fps
+    for c in out:
+        if c[1] - c[0] < long_frames:
+            continue
+        after = c[1] / fps                       # the kept range that starts here
+        first = next((w for w in words if w["end"] > after), None)
+        if first is not None and first["start"] >= after and first["start"] - after > wordless_max:
+            nxt = next((o for o in out if o[0] >= c[1]), None)
+            if nxt is None or first["start"] < nxt[0] / fps:
+                c[1] = max(c[1], int(math.floor((first["start"] - margin) * fps + 1e-6)))
+        before = c[0] / fps                      # the kept range that ends here
+        last = None
+        for w in words:
+            if w["start"] < before:
+                last = w
+        if last is not None and last["end"] <= before and before - last["end"] > wordless_max:
+            prev = [o for o in out if o[1] <= c[0]]
+            if not prev or last["end"] > prev[-1][1] / fps:
+                c[0] = min(c[0], int(math.ceil((last["end"] + margin) * fps - 1e-6)))
+    return [tuple(c) for c in out if c[1] > c[0]]
+
+
 def kept_ranges(words: list, duration: float, fps: int, silences=None, margin: float = 0.08, min_cut: float = 0.12,
-                min_kept: float = 0.4, gap: float = 0.5, forced=()) -> list:
+                min_kept: float = 0.4, gap: float = 0.5, forced=(), long_cut: float = 2.0, wordless_max: float = 0.3) -> list:
     """Kept [from_frame, to_frame) ranges of the recording on the grid of `fps`.
 
     Silence is the cut signal. Every silence interval silencedetect found is cut, less `margin` seconds on each side (none
     at the very start and end of the recording), except where a word is: the words only protect speech (a stretched word
     is protected for the time it plausibly takes, see protected_spans). With `silences=None` (no audio to ask) the gaps
     between words longer than `gap` are cut instead. `forced` is a list of (start, end) seconds cut whatever is in them
-    (the takes the person confirmed as retakes). A cut shorter than `min_cut` is not made. A kept range shorter than
+    (the takes the person confirmed as retakes). A cut shorter than `min_cut` is not made; a cut of `long_cut` seconds or more also
+    takes the wordless sound of more than `wordless_max` seconds at its edges (trim_wordless). A kept range shorter than
     `min_kept` that holds no word is cut, and one that holds a word is joined to its neighbour across the shorter
     cut (the cut is given up) so that nothing flickers; a range between two forced cuts stays as it is."""
     if not words:
@@ -217,6 +248,8 @@ def kept_ranges(words: list, duration: float, fps: int, silences=None, margin: f
             merged[-1] = (merged[-1][0], max(merged[-1][1], b), merged[-1][2] or f)
         else:
             merged.append((a, b, f))
+    if long_cut and long_cut > 0:
+        merged = trim_wordless(merged, words, fps, margin, long_cut, wordless_max)
     min_frames = int(math.ceil(min_kept * fps - 1e-6))
 
     def has_word(a, b):

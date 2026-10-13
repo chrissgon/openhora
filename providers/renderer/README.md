@@ -1,6 +1,6 @@
 # Renderer provider (`renderer:video`)
 
-Cuts a recording by silence, draws HTML presets over it frame by frame, and composes a vertical video, in a container. It is the
+Cuts a recording by silence, draws HTML presets over it frame by frame, and composes a vertical video, in a container, and checks the finished file in a second, fresh container before it is given its name. It is the
 implementation of the class `renderer:video` (a class the runtime uses and no skill requires: decision D11 of the short-video plan).
 Interface: `providers/CONTRACT.md` ("Verbs per class"). No model is involved: the edit list is built by code from a transcript and the
 beats come from the post file's script block.
@@ -40,7 +40,11 @@ in `tests/test_renderer_docker.py` names it:
 | a local daemon only | `test_the_daemon_must_be_local` |
 | a timeout kills the client, then `docker rm -f` by name; a stop signal does the same | `test_a_container_past_its_timeout...`, `test_a_stop_signal_removes...` |
 | the output folder is looked at (links, FIFOs, too many files) and every file is read with `O_NOFOLLOW`, a size cap and a hash | `test_what_the_container_leaves_in_its_output_folder...`, `test_a_file_copied_out_is_capped_hashed...` |
-| a refusal inside is the same refusal outside, in closed words only | `test_a_refusal_inside_the_container_is_the_same_refusal_outside...` |
+| a refusal inside is the same refusal outside, in closed words only; what the host prints is rebuilt from a closed schema (only understood fields, short strings without control characters, finite numbers, an integer `beat`) | `test_a_refusal_inside_the_container_is_the_same_refusal_outside...`, `test_what_the_host_prints_is_rebuilt_from_a_closed_schema`, `test_problems_hold_an_integer_beat_and_closed_words_only` |
+| the container's stderr is read up to 64 KiB (the rest is thrown away) and never printed: a crash is a closed code, not a traceback; an error nobody foresaw inside is a result with the code `internal` | `test_the_containers_stderr_is_read_up_to_a_cap_and_never_printed`, `test_a_container_that_crashed_prints_no_traceback_only_a_closed_code`, `test_an_unforeseen_error_in_the_container_writes_a_closed_internal_result` |
+| the output is checked outside the container that made it: `render` copies the candidate into a private file (hashed on the way, capped by the platform's byte limit), runs `verify` in a fresh container (the render read-only, no network, every limit as above: ffprobe facts against the platform's spec, bt709 tags, length, sha256), and names the file only after that passes | `test_the_host_stores_a_render_only_after_a_fresh_container_has_verified_it`, `test_verify_*` |
+| the scratch is memory-backed and counts against the memory limit: it may not exceed the memory less 2048 MB (a refusal, not an OOM kill); memory is at least 3072 MB | `test_the_scratch_never_exceeds_the_memory_less_a_margin` |
+| room for the output is checked before a run; a file system without hard links still gets a named, never rewritten copy (copied, fsynced) | `test_there_must_be_room_for_the_output_before_the_container_runs`, `test_a_file_system_without_hard_links...` |
 | a killed run's leftovers are reaped | `test_reap_removes_containers_past_their_deadline...` |
 
 ### The browser's sandbox: a choice, with its price (principle 13)
@@ -51,7 +55,10 @@ here), or `--no-sandbox` **inside the image only**, with the container as the bo
 
 - **What it saves:** every limit above stays as strict as it is; no custom seccomp profile to keep right.
 - **What it gives up:** a renderer-process exploit is no longer contained by Chrome's sandbox, only by the container: no network, a
-  read-only root, no capability, a non-root user, limits, three mounts. What reaches the page is small: the pinned templates, text drawn
+  read-only root, no capability, a non-root user, limits, three mounts. **The residual risk is what those three mounts allow:** code
+  running in the container can read the recording (`/in/recording`) and everything staged in `/job` (the transcript, the post, the
+  assets), and can write `/out`, which the host then reads as untrusted (looked at, size-capped, hashed, never followed, and the render
+  verified in a fresh container before it is kept). It cannot reach the network, so nothing can leave the machine. What reaches the page is small: the pinned templates, text drawn
   with `textContent`, and image assets the person uploaded (PNG or JPEG, checked by bytes, bounded, never animated, decoded by the
   browser). A page request is answered from memory or failed, and a content-security policy is set. The recording never reaches Chrome.
 - **Never silent:** `_cdp.container_mode()` is true only when `RENDERER_IN_CONTAINER=1` **and** `/etc/openhora-renderer-image` exists (the
@@ -93,8 +100,15 @@ one, an external service) replaces this one behind the same verbs and the same e
 ## What the edit does
 
 - **Cuts.** Silence is the signal (`silencedetect`, -35 dB, 0.25 s), minus a margin (0.08 s) on each side; words only protect speech (a
-  word stretched far past what it takes to say is protected only for that time, so a silence inside its span is still cut). No kept
+  word stretched far past what it takes to say is protected only for that time, so a silence inside its span is still cut). **A long
+  cut takes the wordless sound at its edges:** after a cut of 2 s or more (`--long-cut`), a range that begins with more than 0.3 s
+  (`--wordless-max`) of sound before its first word (a breath, a head turning back to the camera) begins at that word less the margin;
+  symmetrically a range before such a cut ends at its last word plus the margin. No kept
   range is shorter than 0.4 s: one with no word is cut, one with a word is joined to its neighbour. Without audio, word gaps over 0.5 s decide.
+- **Audio and picture start together.** The streams' `start_time` is read: the picture is started at zero (`fps=...:start_time=0`) and the
+  sound is padded to zero (`aresample=async=1:first_pts=0`) before either is cut, so an audio stream that starts after the video stays in
+  step. The renderer's clock is the container's; the transcript's times are taken to be on it (a transcriber that cuts the audio out of a
+  recording must keep an audio stream's offset).
 - **A real transcript's shapes.** Words of zero length are spread evenly to the next word (at least 40 ms) and flagged `estimated`; a start
   that goes back in time is clamped; a segment of three or more words faster than 8 words a second (a repeated sentence squeezed into
   a fraction of a second) is dropped, all reported in `normalisation`. Word indices are never renumbered. Data streams of an iPhone `.mov`
@@ -106,7 +120,9 @@ one, an external service) replaces this one behind the same verbs and the same e
   order check, a threshold (0.6 until calibrated in C2). `--anchor <beat>=<from>-<to>` places a beat the aligner could not.
 - **Face box and zones.** The person gives the face box once per recording (`--face-box x,y,w,h`; a default is used otherwise). Cards sit in
   the band above it, captions in the band below; every drawn card and caption is measured after each frame and the render fails when one
-  touches the face box.
+  touches the face box. **The box is the zoomed one:** a zoomed range is cropped around the face, so the face grows and moves; the
+  bands of a card or caption are computed from the union of the face's box over every range it lives through (factor and push-in
+  included), and `base` refuses a face box that leaves too little room at the largest zoom.
 - **Zoom.** Every second kept range is drawn at 1.10 centred on the face box (`--zoom none` turns it off); an optional slow push-in
   (`--push-in 0.04`, per-frame `zoompan`: not yet looked at for jitter).
 - **Captions** come in chunks of one to three words, big, with the current word highlighted and popped. **Sound** fades 15 ms at each end
@@ -116,7 +132,7 @@ one, an external service) replaces this one behind the same verbs and the same e
 
 ## Tests
 
-`uv run --with pytest pytest providers/renderer/tests` (the whole suite takes about three and a half minutes). Browser and ffmpeg tests
+`uv run --with pytest pytest providers/renderer/tests` (the whole suite takes about five minutes). Browser and ffmpeg tests
 skip with a reason where those are absent; the host side runs against a fake docker that executes `_inner.py` with a local Chromium.
 `UPDATE_GOLDEN=1` rewrites `tests/golden/*.json` (the exact ffmpeg argv of a plan).
 
@@ -126,5 +142,12 @@ skip with a reason where those are absent; the host side runs against a fake doc
   is from knowledge; the build fails by design at the `ldd` line when one is missing.
 - **Chrome with `--no-sandbox` inside the container, and `--disable-dev-shm-usage`, are untested in Docker.**
 - Render time in the container, the quality of the presets on a real recording (condition C2), the push-in's jitter, and the font (D6).
+- **Assets are only header-checked here** (PNG or JPEG by bytes, bounded, never animated). The renderer treats every asset as untrusted
+  and the browser decodes it, so P4 and P4b must normalise assets (re-encode to a metadata-free PNG at frame size) before they reach it.
 - Clips (video assets) are not supported: an asset is a PNG or JPEG; the intake normalises everything else. Transitions other than the
   cutaway's slide are not offered. A brand font is used only from the allow-list, which is empty.
+
+## Limits that match the plan
+
+The recording length bound is 300 s (`limits.input_seconds_max`, decision D8): intake enforces it, and the renderer matches it as defence
+in depth (`analyse`, `base` and `render` refuse longer). The output length is the platform file's maximum.

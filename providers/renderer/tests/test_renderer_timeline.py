@@ -187,9 +187,9 @@ def test_ranges_are_on_the_frame_grid_ordered_and_not_empty():
 
 def test_a_sliver_left_by_a_silence_that_stops_early_is_cut_but_a_long_unconfirmed_stretch_stays():
     w = words([(1.0, 1.4)])
-    kept = T.kept_ranges(w, 4.0, FPS, silences=[(0.0, 0.8), (1.6, 3.9)])      # 0.18 s left at the end
+    kept = T.kept_ranges(w, 4.0, FPS, silences=[(0.0, 0.8), (1.6, 3.9)], long_cut=0)      # 0.18 s left at the end
     assert len(kept) == 1 and kept[0][1] / FPS == pytest.approx(1.68, abs=0.04)
-    kept = T.kept_ranges(w, 4.0, FPS, silences=[(0.0, 0.8)])                  # 2.6 s the detector did not confirm: kept
+    kept = T.kept_ranges(w, 4.0, FPS, silences=[(0.0, 0.8)], long_cut=0)                  # 2.6 s the detector did not confirm: kept
     assert kept[-1][1] == int(4.0 * FPS)
 
 
@@ -281,3 +281,60 @@ def test_captions_have_a_frame_range_each_and_nothing_is_lifted_any_more():
     tl = _edl.resolve_timeline(edl, beats_of(entry("b1", "pip", {"asset": "beat1", "position": "bottom"}, 6, 12, "layouts")), VOCAB, DATA)
     assert tl["captions"] and all("lift" not in c and c["end_frame"] > c["start_frame"] for c in tl["captions"])
     assert [c["start_frame"] for c in tl["captions"]] == sorted(c["start_frame"] for c in tl["captions"])
+
+
+# ---------------------------------------------------------------- the wordless sound at the edge of a long cut
+
+def lw(index, text, start, end):
+    return {"index": index, "text": text, "start": start, "end": end, "segment": 0, "estimated": False, "dropped": False}
+
+
+# The shape of a real recording (fictional words): a 15 s pause, then a breath and a head turning back to the camera, 1 s of sound
+# that holds no word, then the first word of the next part; and the same at the end of a part before the next long pause.
+LONG_PAUSE = [lw(0, "This", 87.0, 87.5), lw(1, "ends.", 88.5, 89.3), lw(2, "For", 105.66, 105.9), lw(3, "example", 105.95, 106.5), lw(4, "end.", 107.0, 107.4)]
+LONG_PAUSE_SILENCES = [(0.0, 86.9), (89.47, 104.63), (108.0, 110.0)]
+
+
+def seconds(kept):
+    return [[round(a / FPS, 2), round(b / FPS, 2)] for a, b in kept]
+
+
+def test_a_range_after_a_long_cut_starts_at_its_first_word_not_at_the_breath_before_it():
+    kept = T.kept_ranges(LONG_PAUSE, 110.0, FPS, LONG_PAUSE_SILENCES)
+    assert kept[1][0] / FPS == pytest.approx(105.66 - 0.08, abs=0.04)             # the sound from 104.63 to 105.66 holds no word
+    off = T.kept_ranges(LONG_PAUSE, 110.0, FPS, LONG_PAUSE_SILENCES, long_cut=0)
+    assert off[1][0] / FPS == pytest.approx(104.55, abs=0.04)                     # the rule can be turned off
+
+
+def test_a_range_before_a_long_cut_ends_at_its_last_word_when_wordless_sound_follows_it():
+    words = [lw(0, "one", 1.0, 1.4), lw(1, "end.", 2.0, 2.4), lw(2, "after", 20.0, 20.5)]
+    sil = [(0.0, 0.9), (3.5, 19.9), (21.0, 22.0)]                                 # 1.1 s of sound after "end." (a breath), then 16 s of nothing
+    kept = T.kept_ranges(words, 22.0, FPS, sil)
+    assert kept[0][1] / FPS == pytest.approx(2.4 + 0.08, abs=0.04)
+    assert T.kept_ranges(words, 22.0, FPS, sil, long_cut=0)[0][1] / FPS == pytest.approx(3.58, abs=0.04)
+
+
+def test_a_short_wordless_stretch_or_a_short_cut_is_left_alone_and_the_thresholds_are_flags():
+    near = [lw(0, "This", 87.0, 87.5), lw(1, "ends.", 88.5, 89.3), lw(2, "For", 105.0, 105.3), lw(3, "end.", 105.4, 105.8)]
+    kept = T.kept_ranges(near, 110.0, FPS, LONG_PAUSE_SILENCES)                   # 0.37 s of sound before "For": over 0.3, so it is trimmed ...
+    assert kept[1][0] / FPS == pytest.approx(104.92, abs=0.04)
+    loose = T.kept_ranges(near, 110.0, FPS, LONG_PAUSE_SILENCES, wordless_max=0.5)  # ... and not with a looser threshold
+    assert loose[1][0] / FPS == pytest.approx(104.55, abs=0.04)
+    short_cut = T.kept_ranges(LONG_PAUSE, 110.0, FPS, LONG_PAUSE_SILENCES, long_cut=20)   # the cut is 15 s, under a 20 s "long"
+    assert short_cut[1][0] / FPS == pytest.approx(104.55, abs=0.04)
+
+
+def test_a_word_that_runs_across_the_edge_of_a_range_keeps_the_edge():
+    words = [lw(0, "one", 1.0, 1.4), lw(1, "stretched", 103.0, 106.5), lw(2, "end.", 107.0, 107.4)]
+    kept = T.kept_ranges(words, 110.0, FPS, [(0.0, 0.9), (1.5, 102.0), (108.0, 110.0)])
+    assert all(r[0] / FPS <= 103.0 or r[0] / FPS >= 107.0 for r in kept)
+
+
+def test_the_cut_settings_are_flags_of_base_and_refused_when_not_numbers(tmp_path):
+    doc = K.build_transcript()
+    analysis = K.write_json(tmp_path / "a.json", {"facts": {"duration": doc["duration"], "sha256": "d" * 64, "width": 1080, "height": 1920, "has_audio": True}, "silences": None})
+    tr = K.write_json(tmp_path / "t.json", doc)
+    rc, out, err = K.run_verb("base", "--transcript", tr, "--analysis", analysis, "--out", tmp_path / "e.json", "--long-cut", "1.5", "--wordless-max", "0.2")
+    assert rc == 0, err
+    rc, out, err = K.run_verb("base", "--transcript", tr, "--analysis", analysis, "--out", tmp_path / "f.json", "--long-cut", "-1")
+    assert rc == 1 and err.startswith("refused: bad_cut_setting")

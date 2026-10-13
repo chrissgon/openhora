@@ -18,7 +18,7 @@ import subprocess
 
 from _text import Refusal
 
-RECORDING_IN = ["-f", "mov", "-protocol_whitelist", "file"]
+RECORDING_IN = ["-f", "mov", "-enable_drefs", "0", "-protocol_whitelist", "file"]   # no external data reference, no protocol but file
 TAGS = "setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv"
 VIDEO_CODECS = ("h264", "hevc")
 AUDIO_CODECS = ("aac", "alac", "mp3", "pcm_s16le", "pcm_s24le")
@@ -134,7 +134,14 @@ def probe(ffprobe: str, path: str, timeout: float = 60) -> dict:
         size = int(info["format"]["size"])
     except (KeyError, ValueError):
         raise ToolError("probe_unreadable") from None
-    return {"width": w, "height": h, "rotation": rotation, "fps": round(_fps(v.get("avg_frame_rate")) or _fps(v.get("r_frame_rate")), 3),
+    def start(stream):
+        try:
+            value = float(stream.get("start_time", 0) or 0)
+        except (TypeError, ValueError):
+            value = 0.0
+        return round(value, 4) if math.isfinite(value) else 0.0
+
+    return {"video_start": start(v), "audio_start": start(audio[0]) if audio else 0.0, "width": w, "height": h, "rotation": rotation, "fps": round(_fps(v.get("avg_frame_rate")) or _fps(v.get("r_frame_rate")), 3),
             "duration": round(duration, 3), "has_audio": bool(audio), "codec": v["codec_name"], "pix_fmt": v.get("pix_fmt"),
             "color_space": space, "color_transfer": transfer, "color_primaries": v.get("color_primaries"),
             "color_range": v.get("color_range"), "bytes": size, "audio_codec": audio[0]["codec_name"] if audio else None}
@@ -262,6 +269,34 @@ def _even(x: float) -> int:
     return n + (n % 2)
 
 
+def zoomed_box(face: dict, z0: float, push: float, w: int, h: int) -> dict:
+    """Where the face box {x, y, w, h} lands in the output frame when a kept range is drawn at zoom `z0`, and with a slow push-in
+    of `push` (the zoom then ends at z0 + push): the bounding box of the box at the start and at the end of the range, outward
+    to whole pixels. It mirrors zoom_chain: a static zoom is scale then a crop centred on the face and clamped to the frame; a
+    push-in is zoompan with the same centre, clamped the same way."""
+    cx, cy = face["x"] + face["w"] / 2.0, face["y"] + face["h"] / 2.0
+    boxes = []
+    for z in ((z0, z0 + push) if push > 0 else (z0,)):
+        if push > 0:
+            x0 = min(max(int(cx) - w / z / 2, 0), w - w / z)
+            y0 = min(max(int(cy) - h / z / 2, 0), h - h / z)
+            sx = sy = z
+        elif z <= 1.0:
+            x0 = y0 = 0
+            sx = sy = 1.0
+        else:
+            sw, sh = _even(w * z), _even(h * z)
+            x0 = int(min(max(int(cx) * sw / w - w / 2, 0), sw - w)) / (sw / w)
+            y0 = int(min(max(int(cy) * sh / h - h / 2, 0), sh - h)) / (sh / h)
+            sx, sy = sw / w, sh / h
+        boxes.append(((face["x"] - x0) * sx, (face["y"] - y0) * sy, (face["x"] + face["w"] - x0) * sx, (face["y"] + face["h"] - y0) * sy))
+    left, top = min(b[0] for b in boxes), min(b[1] for b in boxes)
+    right, bottom = max(b[2] for b in boxes), max(b[3] for b in boxes)
+    left, top = max(0, int(math.floor(left))), max(0, int(math.floor(top)))
+    right, bottom = min(w, int(math.ceil(right))), min(h, int(math.ceil(bottom)))
+    return {"x": left, "y": top, "w": right - left, "h": bottom - top}
+
+
 def zoom_chain(zoom: dict, face: dict, k: int, frames: int, fps: int, w: int, h: int) -> str:
     """The filters that zoom kept range number k, as a string that starts with a comma (or is empty). `alternate` draws
     every second range at `factor` centred on the face box (scale, then a static crop: no jitter); `push_in` is a slow
@@ -323,7 +358,7 @@ def compose_argv(ffmpeg: str, plan: dict) -> list:
         mask_in = nxt
         nxt += 1
 
-    g = ["[0:v:0]fps=%s,scale=%d:%d:force_original_aspect_ratio=increase:in_color_matrix=%s:out_color_matrix=bt709:out_range=tv,"
+    g = ["[0:v:0]fps=%s:start_time=0,scale=%d:%d:force_original_aspect_ratio=increase:in_color_matrix=%s:out_color_matrix=bt709:out_range=tv,"
          "crop=%d:%d,setsar=1,format=yuv420p[sv]" % (fps, w, h, plan["src_matrix"], w, h)]
     vlabels = []
     if n > 1:
@@ -340,7 +375,7 @@ def compose_argv(ffmpeg: str, plan: dict) -> list:
             # a few milliseconds of fade at each end of a range, so that a cut never clicks; the length stays, so sound and
             # picture stay in step
             d = min(fade, (b - a) / fps / 2)
-            g.append("[0:a:0]atrim=start=%.6f:end=%.6f,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=%.4f,afade=t=out:st=%.6f:d=%.4f[a%d]"
+            g.append("[0:a:0]aresample=async=1:first_pts=0,atrim=start=%.6f:end=%.6f,asetpts=PTS-STARTPTS,afade=t=in:st=0:d=%.4f,afade=t=out:st=%.6f:d=%.4f[a%d]"
                      % (a / fps, b / fps, d, (b - a) / fps - d, d, k))
             cat_in.append("[a%d]" % k)
     g.append("%sconcat=n=%d:v=1:a=%d[cv]%s" % ("".join(cat_in), n, 1 if has_audio else 0, "[ca]" if has_audio else ""))

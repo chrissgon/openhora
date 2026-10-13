@@ -47,11 +47,11 @@ def test_the_recording_is_always_read_as_mov_with_a_file_whitelist_and_the_rende
     for make in (plain_plan, pip_plan):
         argv = _media.compose_argv("ffmpeg", make())
         i = argv.index("-i")
-        assert argv[i - 4:i] == ["-f", "mov", "-protocol_whitelist", "file"]
+        assert argv[i - 6:i] == ["-f", "mov", "-enable_drefs", "0", "-protocol_whitelist", "file"]
         assert argv[argv.index("-fs") + 1] == "300000000"
         assert "-shell" not in argv and all(isinstance(a, str) for a in argv)
     cover = _media.cover_argv("ffmpeg", "/in/recording", 1.5, "cover.png")
-    assert cover[cover.index("-i") - 4:cover.index("-i")] == ["-f", "mov", "-protocol_whitelist", "file"]
+    assert cover[cover.index("-i") - 6:cover.index("-i")] == ["-f", "mov", "-enable_drefs", "0", "-protocol_whitelist", "file"]
 
 
 def test_no_path_is_inside_the_filter_graph_and_every_asset_is_read_with_its_forced_demuxer():

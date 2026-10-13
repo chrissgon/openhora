@@ -237,12 +237,16 @@ def speech_spans(words, join=0.3):
     return spans
 
 
-def make_source(path, transcript, size="1080x1920", rate=30, codec="libx264", timecode=False) -> None:
-    """A synthetic vertical source: a test pattern, and a tone that sounds only while the words are spoken."""
+def make_source(path, transcript, size="1080x1920", rate=30, codec="libx264", timecode=False, audio_offset=0.0) -> None:
+    """A synthetic vertical source: a test pattern, and a tone that sounds only while the words are spoken. With `audio_offset` the
+    audio stream starts that many seconds after the video (its content is shifted back, so the tone still sounds at the words'
+    times on the container's clock)."""
     d = transcript["duration"]
-    terms = ["between(t,%.3f,%.3f)*0.3*sin(2*PI*%d*t)" % (a, b, 180 + 35 * (k % 5)) for k, (a, b) in enumerate(speech_spans(transcript["words"]))]
-    argv = [FFMPEG, "-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=%s:rate=%d:duration=%.3f" % (size, rate, d),
-            "-f", "lavfi", "-i", "aevalsrc='%s':s=48000:c=stereo:d=%.3f" % ("+".join(terms), d)]
+    terms = ["between(t+%.3f,%.3f,%.3f)*0.3*sin(2*PI*%d*t)" % (audio_offset, a, b, 180 + 35 * (k % 5)) for k, (a, b) in enumerate(speech_spans(transcript["words"]))]
+    argv = [FFMPEG, "-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=%s:rate=%d:duration=%.3f" % (size, rate, d)]
+    if audio_offset:
+        argv += ["-itsoffset", "%.3f" % audio_offset]
+    argv += ["-f", "lavfi", "-i", "aevalsrc='%s':s=48000:c=stereo:d=%.3f" % ("+".join(terms), d - audio_offset)]
     argv += ["-vf", "format=yuv420p", "-c:v", codec, "-pix_fmt", "yuv420p"]
     argv += ["-preset", "ultrafast"] if codec == "libx265" else ["-preset", "veryfast", "-crf", "16"]
     if codec == "libx265":
