@@ -68,7 +68,7 @@ OPTIONAL_KEYS = {"video", "limits"}
 VIDEO_KEYS = {"containers", "codecs", "audio_codecs", "fps_min", "fps_max", "max_width", "min_side", "max_side",
               "min_seconds", "max_seconds", "max_bytes", "aspect", "faststart"}
 LIMIT_KEYS = {"posts_per_24h", "pending_shares_per_24h", "unaudited_users_per_24h"}
-OPTION_KEYS = {"type", "values", "unit", "min", "max", "default", "when_unset", "set_by", "assumed"}
+OPTION_KEYS = {"type", "values", "unit", "min", "max", "default", "when_unset", "set_by", "decided_by", "decided_on"}
 FORMATS = {"reel", "video", "carousel", "static"}
 VIDEO_FORMATS = {"reel", "video"}
 
@@ -109,7 +109,9 @@ def check_options(options: dict) -> None:
         else:
             assert is_int(option["min"]) and int_or_null(option["max"]), name
             assert option["default"] is None or is_int(option["default"]), name
-        assert option.get("assumed", True) is True, "assumed is written only when true"
+        assert ("decided_by" in option) == ("decided_on" in option), "a decision is recorded with who and when"
+        if "decided_by" in option:
+            assert option["decided_by"] == "maintainer" and re.fullmatch(r"\d{4}-\d{2}-\d{2}", option["decided_on"]), name
 
 
 def check_video(video: dict, media: dict) -> None:
@@ -220,7 +222,7 @@ def test_the_readme_names_every_key_of_a_video_post():
     keys = {"post.shape": "`shape`", "formats": "`formats`", "max_hashtags": "`max_hashtags`",
             "max_mentions": "`max_mentions`", "unit": "`unit`", "options": "`options`", "magic_offset": "`magic_offset`",
             "video": "| `video` |", "limits": "| `limits` |", "when_unset": "`when_unset`", "set_by": "`set_by`",
-            "assumed": "`assumed`"}
+            "decided_by": "`decided_by`", "decided_on": "`decided_on`"}
     for label, needle in keys.items():
         assert needle in readme, label
     for key in sorted(VIDEO_KEYS | LIMIT_KEYS | (OPTION_KEYS - {"values"})):
@@ -518,8 +520,10 @@ def test_the_instagram_file_says_what_the_plan_found():
     assert set(options) == {"media_type", "share_to_feed", "thumb_offset"}
     assert options["media_type"]["default"] == "REELS"
     assert options["thumb_offset"]["default"] is None and options["thumb_offset"]["when_unset"] == "omit"
-    assert options["share_to_feed"]["assumed"] is True, "the platform states no default: the workbench's choice is labelled"
-    assert "The workbench's choice, `true`" in text
+    feed = options["share_to_feed"]
+    assert feed["default"] is True and "assumed" not in feed, "the platform states no default: the maintainer decided it"
+    assert (feed["decided_by"], feed["decided_on"]) == ("maintainer", "2026-10-13")
+    assert "The maintainer's choice (2026-10-13): `true`" in text and "workbench's choice, `true`" not in text
     mp4 = next(k for k in d["media"]["types"] if k["name"] == "mp4")
     assert mp4["magic_hex"] == ["66747970"] and mp4["magic_offset"] == 4
 

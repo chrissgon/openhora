@@ -14,7 +14,7 @@
   "url": null,
   "options": {
    "media_type": {"type": "choice", "values": ["REELS"], "default": "REELS", "when_unset": "default", "set_by": "code"},
-   "share_to_feed": {"type": "boolean", "values": [true, false], "default": true, "when_unset": "default", "set_by": "code", "assumed": true},
+   "share_to_feed": {"type": "boolean", "values": [true, false], "default": true, "when_unset": "default", "set_by": "code", "decided_by": "maintainer", "decided_on": "2026-10-13"},
    "thumb_offset": {"type": "integer", "unit": "ms", "min": 0, "max": null, "default": null, "when_unset": "omit", "set_by": "person"}
   }
  },

@@ -2,7 +2,7 @@
 
 What Instagram is as a medium, for a professional account (Business or Creator) that publishes through the platform's API. A skill reads this file at the step that says "read the reference of the platform"; a script reads the same facts from `instagram.json`, beside this file. What belongs to the tool that publishes (tokens and how long they last, permissions, the service's endpoints, its container states and errors) is in the provider, not here.
 
-Every fact carries the tag of its source in square brackets; the sources, with their addresses and the date each was read, are at the end. `not checked` marks a value the pages read do not state, or one that was not read. "The workbench's choice" marks a value the workbench picked because the platform states none. Dates are 2026-10-13.
+Every fact carries the tag of its source in square brackets; the sources, with their addresses and the date each was read, are at the end. `not checked` marks a value the pages read do not state, or one that was not read. "The maintainer's choice" marks a value the maintainer decided because the platform states none. Dates are 2026-10-13.
 
 ## Post shape
 
@@ -24,7 +24,7 @@ Every fact carries the tag of its source in square brackets; the sources, with t
 - Audio: AAC, mono or stereo, at most 48 kHz, 128 kbps [IG-media].
 - File size: at most 300 MB [IG-media]. The data file stores 300,000,000 bytes, reading MB as 10^6 bytes, the stricter reading; the page does not say which.
 - Cover: by default the first frame. A cover frame is chosen by an offset in milliseconds into the video (`thumb_offset`, its maximum: not stated), or by a JPEG image of at most 8 MB in the sRGB colour space, ideally 9:16; an image of another ratio is cropped to its middle 9:16 rectangle. If both are given, the image wins [IG-media].
-- Feed: a reel can appear in the Feed tab as well as the Reels tab (`share_to_feed`). Setting it does not guarantee placement. The platform's default: not stated [IG-media]. The workbench's choice, `true`, is the default in the data file, marked `assumed`.
+- Feed: a reel can appear in the Feed tab as well as the Reels tab (`share_to_feed`). Setting it does not guarantee placement. The platform's default: not stated [IG-media]. The maintainer's choice (2026-10-13): `true`. It is the default in the data file, with the decision recorded beside it (`decided_by`, `decided_on`).
 
 ## Format: carousel
 
