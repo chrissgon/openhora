@@ -1,0 +1,76 @@
+{
+  "skill_name": "mkt-social-copy",
+  "platform": "instagram",
+  "evals": [
+    {
+      "id": 101,
+      "prompt": "write the post for the 2027-11-12 slot, the subscription one",
+      "expected_output": "The slot's platform, Instagram, offers more than one format and neither the calendar row nor the request names one, so the skill writes no file and asks which format, recommending the one the idea fits.",
+      "files": [
+        "evals/files/mira-brand",
+        "evals/files/mira-notes",
+        "evals/files/mira-calendar"
+      ],
+      "assertions": [
+        {
+          "text": "No file under docs/marketing/content/ is among the files the run produced, and the 2027-11-12 row of docs/marketing/calendar.md is not among the changed files",
+          "tags": [
+            "guard"
+          ]
+        },
+        {
+          "text": "The reply asks which format the post should be, naming at least two of the formats the Instagram reference lists, and gives one as its recommendation",
+          "tags": [
+            "guard"
+          ]
+        },
+        {
+          "text": "The reply contains no script and no caption for the slot",
+          "tags": [
+            "guard"
+          ]
+        }
+      ]
+    },
+    {
+      "id": 102,
+      "prompt": "write the 2027-11-12 slot as an Instagram carousel, the subscription one",
+      "expected_output": "docs/marketing/content/2027-11-12-<slug>.md has Format: carousel and a ```script block above the ```post block in which each beat is one slide: a line with the exact text the slide carries, no preset and no on-screen field. The slides use only facts of docs/notes/budget-month.md (a video streaming plan used twice, cancelled). The caption follows the voice and ends with a question. check_script.py and check_post.py passed.",
+      "files": [
+        "evals/files/mira-brand",
+        "evals/files/mira-notes",
+        "evals/files/mira-calendar"
+      ],
+      "grader_files": [
+        "docs/notes/budget-month.md"
+      ],
+      "assertions": [
+        {
+          "text": "A file docs/marketing/content/2027-11-12-*.md exists with a line `Format: carousel` and a ```script block above its ```post block",
+          "tags": [
+            "format"
+          ]
+        },
+        {
+          "text": "Every beat of the ```script block has a beat line and a line line and nothing else: no preset, no on-screen and no asset field",
+          "tags": [
+            "format"
+          ]
+        },
+        "The slides tell the story of docs/notes/budget-month.md habit 3 (a video streaming plan used twice and cancelled) and add no fact, number or tool that the notes do not have",
+        {
+          "text": "No slide and no caption names a number, a result or an event that is not in docs/notes/budget-month.md",
+          "tags": [
+            "guard"
+          ]
+        },
+        {
+          "text": "The Checks section of the content file reports the result of check_script.py and of check_post.py as ok",
+          "tags": [
+            "format"
+          ]
+        }
+      ]
+    }
+  ]
+}

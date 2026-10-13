@@ -158,3 +158,107 @@ def test_help_and_usage_errors():
     assert clean_usage_error(run(CHECK_POST))
     assert clean_usage_error(run(CHECK_POST, "--content"))
     assert clean_usage_error(run(CHECK_POST, "--content", "x.md", "--nope"))
+
+
+# --platform-file: the caption limits of a platform's data file.
+
+def platform_file(root, post, name="social.json"):
+    path = root / name
+    path.write_text(json.dumps({"platform": "social", "post": post}), encoding="utf-8")
+    return str(path)
+
+
+NO_VOICE_LIMITS = '# Voice\n\n```voice-rules\n{"max_emojis": 5}\n```\n'
+
+
+def test_the_caption_limits_come_from_the_platform_file(project):
+    (project.root / "docs/brand/voice.md").write_text(NO_VOICE_LIMITS, encoding="utf-8")
+    limits = platform_file(project.root, {"max_characters": 40, "max_hashtags": 2, "max_mentions": 1,
+                                          "first_comment": {"supported": True, "max_characters": 30}})
+    fine = content(post="Short caption.\n#a #b @dana", comment="tinykv.example/x")
+    r = project(fine, "--platform-file", limits)
+    out = json.loads(r.stdout)
+    assert r.returncode == 0, r.stdout
+    assert out["post"]["length"] == len("Short caption.\n#a #b @dana") and out["post"]["unit"] == "characters"
+    assert out["post"]["hashtags"] == 2 and out["post"]["mentions"] == ["@dana"]
+    r = project(content(post="x" * 41, comment="y" * 31), "--platform-file", limits)
+    out = json.loads(r.stdout)
+    assert r.returncode == 1 and out["problems"] == ["post: 41 characters, limit 40",
+                                                     "first comment: 31 characters, limit 30"]
+    r = project(content(post="Hi\n#a #b #c @dana @ana", comment=None), "--platform-file", limits)
+    assert json.loads(r.stdout)["problems"] == ["post: 3 hashtags, limit 2", "post: 2 mentions, limit 1"]
+
+
+def test_the_limit_is_the_limit_itself_not_one_less(project):
+    (project.root / "docs/brand/voice.md").write_text(NO_VOICE_LIMITS, encoding="utf-8")
+    limits = platform_file(project.root, {"max_characters": 10, "max_hashtags": 1, "max_mentions": 1})
+    assert project(content(post="x" * 7 + " #a", comment=None), "--platform-file", limits).returncode == 0
+    assert project(content(post="x" * 8 + " #a", comment=None), "--platform-file", limits).returncode == 1
+
+
+def test_a_null_or_missing_limit_is_not_checked(project):
+    (project.root / "docs/brand/voice.md").write_text(NO_VOICE_LIMITS, encoding="utf-8")
+    for post in ({"max_characters": None, "max_hashtags": None, "max_mentions": None, "first_comment": None},
+                 {"unit": None}, {}):
+        limits = platform_file(project.root, post)
+        r = project(content(post="x" * 5000 + "\n" + " ".join(f"#t{i}" for i in range(60)), comment="y" * 5000),
+                    "--platform-file", limits)
+        assert r.returncode == 0, r.stdout
+        assert json.loads(r.stdout)["post"]["hashtags"] == 60
+
+
+def test_the_unit_utf_16_counts_code_units_and_the_default_counts_characters(project):
+    """TikTok's limit counts UTF-16 code units: a character outside the basic plane is two of them."""
+    (project.root / "docs/brand/voice.md").write_text(NO_VOICE_LIMITS, encoding="utf-8")
+    post = "ab\U0001F600\U0001F600"  # 4 characters, 6 UTF-16 code units
+    chars = platform_file(project.root, {"max_characters": 5}, "chars.json")
+    units = platform_file(project.root, {"max_characters": 5, "unit": "utf-16"}, "units.json")
+    r = project(content(post=post, comment=None), "--platform-file", chars)
+    assert r.returncode == 0 and json.loads(r.stdout)["post"]["length"] == 4
+    r = project(content(post=post, comment=None), "--platform-file", units)
+    out = json.loads(r.stdout)
+    assert r.returncode == 1 and out["post"]["length"] == 6 and out["post"]["unit"] == "utf-16"
+    assert out["problems"] == ["post: 6 UTF-16 code units, limit 5"]
+
+
+def test_hashtags_and_mentions_are_counted_by_one_pattern():
+    assert check_post.hashtags("a #one #Two_2 #3 end # x #") == ["#one", "#Two_2", "#3"]
+    assert check_post.hashtags("see tinykv.example/x#top and a&#38;b and ##double") == []
+    assert check_post.mentions("thanks @dana.example and @ana, mail dana@tinykv.dev or @x.") == ["@dana.example", "@ana", "@x"]
+    assert check_post.mentions("no one here, 5 @ 3") == []
+
+
+def test_a_platform_without_a_first_comment_refuses_one(project):
+    (project.root / "docs/brand/voice.md").write_text(NO_VOICE_LIMITS, encoding="utf-8")
+    limits = platform_file(project.root, {"first_comment": {"supported": False}})
+    r = project(content(), "--platform-file", limits)
+    assert r.returncode == 1 and json.loads(r.stdout)["problems"] == ["first comment: the platform has none"]
+    assert project(content(comment=None), "--platform-file", limits).returncode == 0
+
+
+def test_without_the_flag_the_output_is_what_it_was(project):
+    out = json.loads(project(content()).stdout)
+    assert set(out["post"]) == {"chars", "lines", "links", "voice", "sensitive"}
+
+
+def test_a_post_file_with_a_script_block_gives_its_post_block_only():
+    text = content(extra="\n```script\nbeat: 1\nline: Hello.\n```\n")
+    assert check_post.blocks(text) == {"post": POST, "first-comment": "Write-up: tinykv.example/deletes"}
+
+
+def test_a_bad_platform_file_is_a_usage_error(project, tmp_path):
+    bad = {"not json": "{", "no post": "{}", "post is a list": '{"post": []}',
+           "limit is text": '{"post": {"max_characters": "40"}}', "negative": '{"post": {"max_hashtags": -1}}',
+           "bool": '{"post": {"max_mentions": true}}', "unit is a number": '{"post": {"unit": 16}}'}
+    for label, body in bad.items():
+        path = tmp_path / "bad.json"
+        path.write_text(body, encoding="utf-8")
+        r = project(content(), "--platform-file", str(path))
+        assert clean_usage_error(r) and ("platform data file" in r.stderr or "post." in r.stderr), label
+    assert clean_usage_error(project(content(), "--platform-file", str(tmp_path / "absent.json")))
+
+
+def test_the_real_data_files_load():
+    for data in sorted((SOURCES.parent / "references/platforms").glob("*.json")):
+        limits = check_post.load_limits(str(data))
+        assert limits["unit"] in ("characters", "utf-16")
