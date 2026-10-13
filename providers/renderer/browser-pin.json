@@ -1,0 +1,22 @@
+{
+ "version": "155.0.8059.39",
+ "note": "The only browser the renderer draws with: Chrome for Testing's headless shell, put into the container image by its build, pinned by version and by the sha256 of the archive. For each architecture: the archive's URL, its size and md5 (read on 2026-10-13 from the object metadata of the official storage bucket, https://storage.googleapis.com/storage/v1/b/chrome-for-testing-public/o/<path>) and its sha256. Chrome for Testing publishes no sha256, so it is null until the maintainer runs `ffmpeg.py pin-browser --confirmed`, which downloads the archive once, checks size and md5 against the published values and records the sha256 here; `build` refuses while it is null, and the image's build refuses an archive that differs from any of the three. The version is the Stable channel of https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json read on 2026-10-13.",
+ "product": "chrome-headless-shell",
+ "max_archive_bytes": 400000000,
+ "platforms": {
+  "linux-arm64": {
+   "url": "https://storage.googleapis.com/chrome-for-testing-public/155.0.8059.39/linux-arm64/chrome-headless-shell-linux-arm64.zip",
+   "size": 124553121,
+   "md5": "1b40e7a8dfd195ccc27a9608d516ff75",
+   "sha256": null,
+   "binary": "chrome-headless-shell-linux-arm64/chrome-headless-shell"
+  },
+  "linux64": {
+   "url": "https://storage.googleapis.com/chrome-for-testing-public/155.0.8059.39/linux64/chrome-headless-shell-linux64.zip",
+   "size": 124203329,
+   "md5": "042794dd01c0d40a7388ef8701caba43",
+   "sha256": null,
+   "binary": "chrome-headless-shell-linux64/chrome-headless-shell"
+  }
+ }
+}

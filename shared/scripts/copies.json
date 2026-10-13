@@ -73,6 +73,10 @@
     {
      "path": "skills/ops-repo-baseline/scripts/redact.py",
      "adopted": true
+    },
+    {
+     "path": "providers/renderer/_redact.py",
+     "adopted": true
     }
    ]
   },

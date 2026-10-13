@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "note": "The fonts a render may use. A font is listed with the sha256 of its file, its licence and where it came from; the file sits in this folder. No font is chosen yet (decision D6 of the short-video plan): until the maintainer adds one, every render uses the system fallback named in renderer-presets.json, and the approval card names that font.",
+  "fonts": []
+}

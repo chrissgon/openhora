@@ -1,0 +1,283 @@
+"""The transcript's shapes, the cuts, the captions and the output timeline."""
+from __future__ import annotations
+
+import copy
+
+import pytest
+
+import renderer_kit as K
+import _edl
+import _timeline as T
+from _text import Refusal
+from _vocab import load_data, load_vocabulary
+
+DATA = load_data()
+VOCAB = load_vocabulary(str(K.VOCABULARY))
+FPS = 30
+
+
+def words(spans, seg=0):
+    return [{"index": k, "text": "w%d" % k, "start": s, "end": e, "segment": seg, "estimated": False, "dropped": False} for k, (s, e) in enumerate(spans)]
+
+
+def refused(fn, *a):
+    with pytest.raises(Refusal) as e:
+        fn(*a)
+    return e.value
+
+
+# ---------------------------------------------------------------- the transcript of the transcriber
+
+def test_the_transcribers_format_is_read_and_every_word_is_hardened():
+    tr = T.check_transcript(K.build_transcript(), DATA["limits"])
+    assert tr["words"][0]["text"] == "Hey," and len(tr["segments"]) == len(K.SENTENCES)
+    bad = K.build_transcript()
+    bad["words"][2]["text"] = "ok\u202e"
+    assert refused(T.check_transcript, bad, DATA["limits"]).code == "forbidden_character"
+    for key, value, code in (("schema_version", 2, "transcript_schema"), ("duration", 0, "transcript_duration"), ("words", [], "transcript_words")):
+        doc = K.build_transcript()
+        doc[key] = value
+        assert refused(T.check_transcript, doc, DATA["limits"]).code == code
+    doc = K.build_transcript()
+    doc["words"][1]["index"] = 7
+    assert refused(T.check_transcript, doc, DATA["limits"]).code == "word_index"
+    doc = K.build_transcript()
+    del doc["words"][0]["index"]
+    doc["words"][0]["i"] = 0
+    assert refused(T.check_transcript, doc, DATA["limits"]).code == "word_index"
+
+
+def test_a_transcript_with_too_many_words_is_refused():
+    doc = K.build_transcript()
+    limits = dict(DATA["limits"], words_max=5)
+    assert refused(T.check_transcript, doc, limits).code == "too_many_words"
+
+
+# ---------------------------------------------------------------- the shapes of a real transcript
+
+def normalised(doc):
+    tr = T.check_transcript(doc, DATA["limits"])
+    return T.normalise_words(tr["words"], tr["segments"], tr["duration"])
+
+
+def test_zero_length_words_are_spread_between_their_start_and_the_next_start_and_flagged():
+    doc = K.real_shape_transcript()
+    out, report = normalised(doc)
+    run = [out[i] for i in (2, 3, 4)]
+    assert all(w["estimated"] for w in run)
+    nxt = out[5]["start"]
+    assert run[0]["start"] == pytest.approx(doc["words"][2]["start"], abs=1e-3)
+    # even slots, each at least 40 ms, in order, ending where the next word starts (or where the minimum ran past it)
+    slots = [w["end"] - w["start"] for w in run]
+    assert all(s >= 0.04 - 1e-9 for s in slots) and max(slots) - min(slots) < 1e-3
+    assert run[0]["end"] == pytest.approx(run[1]["start"]) and run[2]["end"] <= nxt + 1e-3
+    assert report["spread_runs"] >= 2 and report["zero_length_words"] >= 5
+    assert all(w["end"] > w["start"] for w in out if not w["dropped"])
+
+
+def test_a_start_that_goes_back_in_time_is_clamped():
+    doc = K.real_shape_transcript()
+    out, report = normalised(doc)
+    live = [w for w in out if not w["dropped"]]
+    assert all(b["start"] >= a["start"] for a, b in zip(live, live[1:]))
+    assert report["clamped_starts"] >= 1
+    assert out[14]["start"] == out[13]["start"] or out[14]["start"] > out[13]["start"]
+
+
+def test_a_repeated_sentence_squeezed_into_a_fraction_of_a_second_is_dropped_and_reported():
+    doc = K.real_shape_transcript()
+    out, report = normalised(doc)
+    dropped = [w for w in out if w["dropped"]]
+    assert len(dropped) == 21 and report["dropped_words"] == 21
+    assert report["dropped_segments"][0]["words"] == 21 and report["dropped_segments"][0]["seconds"] == pytest.approx(0.4)
+    assert not any(w["dropped"] for w in out[:-21])
+    assert [w["index"] for w in out] == list(range(len(doc["words"])))        # indices are never renumbered
+
+
+def test_a_normal_fast_segment_is_not_dropped_and_a_short_one_never_is():
+    doc = K.build_transcript()
+    out, report = normalised(doc)
+    assert report["dropped_words"] == 0
+    # two words in 0.01 s are under the 3-word minimum
+    tiny = K.build_transcript([(0.5, "hi there"), (0.5, "bye now friend")])
+    tiny["segments"][0]["end"] = tiny["segments"][0]["start"] + 0.01
+    out, report = normalised(tiny)
+    assert report["dropped_words"] == 0
+
+
+def test_the_base_list_of_a_real_shaped_transcript_has_no_refused_word_and_drops_the_repeat(tmp_path):
+    doc = K.real_shape_transcript()
+    analysis = {"facts": {"duration": doc["duration"] + 0.1, "sha256": "a" * 64, "width": 1080, "height": 1920, "has_audio": True}, "silences": []}
+    analysis["silences"] = [{"start": 0.0, "end": 0.7}, {"start": doc["words"][-22]["end"] + 0.2, "end": doc["duration"] + 0.1}]
+    edl, notes = _edl.build_base(doc, analysis, DATA, {})
+    assert len(edl["words"]) == len(doc["words"]) - 21
+    assert edl["normalisation"]["dropped_words"] == 21
+    assert all(w["end"] > w["start"] for w in edl["words"])
+    assert any(w.get("estimated") for w in edl["words"])
+    _edl.check_edl(edl, DATA, VOCAB, {})        # the base list passes its own check
+    assert sum(b - a for a, b in edl["kept"]) == edl["out_frames"]
+
+
+# ---------------------------------------------------------------- cuts
+
+def test_leading_and_trailing_silence_are_cut_with_a_margin():
+    kept = T.kept_ranges(words([(2.0, 2.4), (2.5, 3.0)]), 6.0, FPS)
+    assert len(kept) == 1
+    assert kept[0][0] == pytest.approx(1.92 * FPS, abs=1) and kept[0][1] == pytest.approx(3.08 * FPS, abs=1)
+
+
+def test_without_audio_a_gap_over_the_threshold_is_cut_and_a_short_gap_is_kept():
+    kept = T.kept_ranges(words([(1.0, 1.4), (1.6, 2.0), (3.5, 3.9)]), 5.0, FPS)
+    assert len(kept) == 2 and kept[0][1] / FPS == pytest.approx(2.08, abs=0.04) and kept[1][0] / FPS == pytest.approx(3.42, abs=0.04)
+
+
+def test_no_word_is_ever_cut():
+    w = words([(0.5, 0.9), (2.2, 2.6), (4.5, 4.9)])
+    for silences in (None, [(0.0, 0.45), (0.95, 2.15), (2.65, 4.45), (4.95, 6.0)], [(0.0, 6.0)]):
+        kept = T.kept_ranges(w, 6.0, FPS, silences)
+        for word in w:
+            assert any(a / FPS <= word["start"] and word["end"] <= b / FPS for a, b in kept), silences
+
+
+def test_silence_is_the_cut_signal_a_short_pause_is_cut_where_the_old_gap_rule_kept_it():
+    w = words([(1.0, 1.6), (2.0, 2.6)])
+    kept = T.kept_ranges(w, 4.0, FPS, silences=[(0.0, 0.9), (1.6, 2.0), (2.6, 4.0)])
+    assert len(kept) == 2 and kept[0][1] / FPS == pytest.approx(1.68, abs=0.04) and kept[1][0] / FPS == pytest.approx(1.92, abs=0.04)
+    assert len(T.kept_ranges(w, 4.0, FPS, silences=None)) == 1          # a 0.4 s gap is under the word-gap threshold
+
+
+def test_no_silence_found_means_no_cut_and_words_only_protect_speech():
+    w = words([(1.0, 1.4), (3.0, 3.4)])
+    assert len(T.kept_ranges(w, 4.0, FPS, silences=[])) == 1
+    kept = T.kept_ranges(w, 4.0, FPS, silences=[(1.8, 2.6)])
+    assert len(kept) == 2 and kept[0][1] / FPS == pytest.approx(1.88, abs=0.04) and kept[1][0] / FPS == pytest.approx(2.52, abs=0.04)
+    soft = words([(1.0, 1.5)])
+    assert len(T.kept_ranges(soft, 3.0, FPS, silences=[(1.2, 1.4)])) == 1   # a word is not cut for silence the detector hears inside it
+
+
+def test_a_stretched_word_is_cut_inside_its_span_where_there_is_silence():
+    w = [{"index": 0, "text": "dollars", "start": 1.0, "end": 3.2, "segment": 0, "estimated": False, "dropped": False},
+         {"index": 1, "text": "next", "start": 3.3, "end": 3.7, "segment": 0, "estimated": False, "dropped": False}]
+    assert T.protected_spans(w)[0][1] < 2.0                              # protected only for the time the word takes
+    kept = T.kept_ranges(w, 5.0, FPS, silences=[(0.0, 0.9), (1.8, 3.2), (3.8, 5.0)])
+    assert len(kept) == 2 and kept[0][1] / FPS == pytest.approx(1.88, abs=0.04) and kept[1][0] / FPS == pytest.approx(3.12, abs=0.04)
+
+
+def test_no_kept_range_is_shorter_than_four_tenths_of_a_second():
+    w = words([(1.0, 1.1), (3.0, 3.5)])
+    kept = T.kept_ranges(w, 4.0, FPS, silences=[(0.0, 0.95), (1.1, 2.9), (3.6, 4.0)])
+    assert all((b - a) / FPS >= 0.4 - 1e-9 for a, b in kept) and len(kept) == 2
+    assert kept[0][0] == 0                                               # the short word joined its neighbour across the shorter cut
+    # a range with no word in it is cut, never joined
+    kept = T.kept_ranges(words([(1.0, 1.5)]), 4.0, FPS, silences=[(0.0, 0.9), (1.6, 3.8)])
+    assert all((b - a) / FPS >= 0.4 - 1e-9 for a, b in kept)
+
+
+def test_a_forced_cut_is_made_whatever_is_in_it_and_is_never_joined_back():
+    w = words([(1.0, 1.4), (1.5, 1.9), (2.0, 2.4), (2.5, 2.9)])
+    kept = T.kept_ranges(w, 4.0, FPS, silences=[(0.0, 0.9), (3.0, 4.0)], forced=[(1.45, 2.45)])
+    assert len(kept) == 2 and kept[0][1] / FPS == pytest.approx(1.45, abs=0.04) and kept[1][0] / FPS == pytest.approx(2.45, abs=0.04)
+
+
+def test_ranges_are_on_the_frame_grid_ordered_and_not_empty():
+    kept = T.kept_ranges(words([(1.013, 1.9), (3.0071, 3.9)]), 5.0, FPS)
+    assert all(isinstance(a, int) and isinstance(b, int) and a < b for a, b in kept)
+    assert all(x[1] <= y[0] for x, y in zip(kept, kept[1:]))
+
+
+def test_a_sliver_left_by_a_silence_that_stops_early_is_cut_but_a_long_unconfirmed_stretch_stays():
+    w = words([(1.0, 1.4)])
+    kept = T.kept_ranges(w, 4.0, FPS, silences=[(0.0, 0.8), (1.6, 3.9)])      # 0.18 s left at the end
+    assert len(kept) == 1 and kept[0][1] / FPS == pytest.approx(1.68, abs=0.04)
+    kept = T.kept_ranges(w, 4.0, FPS, silences=[(0.0, 0.8)])                  # 2.6 s the detector did not confirm: kept
+    assert kept[-1][1] == int(4.0 * FPS)
+
+
+def test_the_output_timeline_maps_and_snaps():
+    kept = [[30, 60], [120, 165]]
+    assert T.out_frames_of(kept) == 75
+    assert T.src_to_out_seconds(kept, FPS, 1.5) == pytest.approx(0.5)
+    assert T.src_to_out_seconds(kept, FPS, 4.5) == pytest.approx(1.5)
+    assert T.src_to_out_seconds(kept, FPS, 3.9) == pytest.approx(1.0)       # inside a cut: the nearest kept edge
+    assert T.src_to_out_seconds(kept, FPS, 2.1) == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------- captions
+
+def test_captions_split_on_punctuation_pauses_and_limits_not_on_the_transcripts_segments():
+    live = [dict(w, dropped=False, estimated=False) for w in K.build_transcript()["words"]]
+    out_words = [{"index": w["index"], "text": w["text"], "start": w["start"], "end": w["end"]} for w in live]
+    chunks = T.caption_chunks(out_words, 4, 26, 0.6)
+    assert all(b - a < 4 for a, b in chunks)
+    assert chunks[0][0] == 0 and chunks[-1][1] == len(out_words) - 1
+    assert all(chunks[k][1] + 1 == chunks[k + 1][0] for k in range(len(chunks) - 1))
+    # in the one-word-per-segment mode every word has its own segment, and the chunks are the same
+    ml1 = K.build_transcript()
+    for w in ml1["words"]:
+        w["segment"] = w["index"]
+    assert [list(c) for c in chunks] == T.caption_chunks(out_words, 4, 26, 0.6)
+
+
+def test_chunk_times_touch_when_close_and_hold_when_far():
+    by = {0: {"start": 1.0, "end": 1.3}, 1: {"start": 1.4, "end": 1.8}, 2: {"start": 3.5, "end": 3.9}}
+    times = T.chunk_times([[0, 0], [1, 1], [2, 2]], by, 5.0, 0.25)
+    assert times[0] == (1.0, 1.4) and times[1][1] == pytest.approx(2.05) and times[2][1] == pytest.approx(4.15)
+
+
+# ---------------------------------------------------------------- the timeline the render draws
+
+def small_edl():
+    doc = K.build_transcript()
+    analysis = {"facts": {"duration": doc["duration"], "sha256": "b" * 64, "width": 1080, "height": 1920, "has_audio": True}, "silences": None}
+    edl, _ = _edl.build_base(doc, analysis, DATA, {})
+    return edl
+
+
+def entry(bid, preset, params, a, b, kind="overlays"):
+    return kind, {"id": bid, "beat": int(bid[1:]), "preset": preset, "params": params, "word_from": a, "word_to": b, "score": 1.0}
+
+
+def beats_of(*entries):
+    beats = {"schema_version": 1, "threshold": 0.6, "overlays": [], "layouts": [], "slots": [], "report": [], "unmatched": [], "fallbacks": []}
+    for kind, e in entries:
+        beats[kind].append(e)
+    return beats
+
+
+def test_a_beat_over_words_either_side_of_a_cut_is_one_continuous_range_of_output_frames():
+    edl = small_edl()
+    assert len(edl["kept"]) > 3                                   # the fixture has cuts between sentences
+    by = {w["index"]: w for w in edl["words"]}
+    a, b = 6, 14                                                  # words of two sentences, with cuts between them
+    tl = _edl.resolve_timeline(edl, beats_of(entry("b1", "list", {"items": "One | Two"}, a, b)), VOCAB, DATA)
+    (e,) = tl["beats"]
+    assert e["start_frame"] == round(by[a]["start"] * FPS)
+    assert e["end_frame"] - e["start_frame"] <= round((by[b]["end"] - by[a]["start"] + DATA["presets"]["list"]["tail"]) * FPS) + 1
+    assert e["end_frame"] <= edl["out_frames"]
+
+
+def test_overlapping_beats_end_where_the_next_starts_and_an_empty_one_is_dropped():
+    edl = small_edl()
+    beats = beats_of(entry("b1", "quote", {"text": "A long one"}, 6, 20), entry("b2", "keyword", {"text": "Next"}, 9, 12),
+                     entry("b3", "keyword", {"text": "Same"}, 9, 12))
+    tl = _edl.resolve_timeline(edl, beats, VOCAB, DATA)
+    starts = [(e["id"], e["start_frame"], e["end_frame"]) for e in tl["beats"]]
+    assert all(x[2] > x[1] for x in starts)
+    first, second = tl["beats"][0], tl["beats"][1]
+    assert first["end_frame"] <= second["start_frame"] and first.get("clipped")
+    assert set(tl["dropped"]) | {e["id"] for e in tl["beats"]} == {"b1", "b2", "b3"}
+
+
+def test_a_keyword_starts_at_the_word_that_matches_its_text():
+    edl = small_edl()
+    text = edl["words"][8]["text"].strip(".,:").lower()
+    by = {w["index"]: w for w in edl["words"]}
+    tl = _edl.resolve_timeline(edl, beats_of(entry("b1", "keyword", {"text": text}, 5, 12)), VOCAB, DATA)
+    assert tl["beats"][0]["start_frame"] >= round((by[8]["start"] - 0.05) * FPS) - 1
+
+
+def test_captions_have_a_frame_range_each_and_nothing_is_lifted_any_more():
+    edl = small_edl()
+    tl = _edl.resolve_timeline(edl, beats_of(entry("b1", "pip", {"asset": "beat1", "position": "bottom"}, 6, 12, "layouts")), VOCAB, DATA)
+    assert tl["captions"] and all("lift" not in c and c["end_frame"] > c["start_frame"] for c in tl["captions"])
+    assert [c["start_frame"] for c in tl["captions"]] == sorted(c["start_frame"] for c in tl["captions"])
