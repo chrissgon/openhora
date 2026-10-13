@@ -184,7 +184,7 @@ def test_setup_writes_the_settings_0600_prints_the_callback_url_and_the_funnel_c
     path = home / "whatsapp-cloud" / "settings.json"
     saved = json.loads(path.read_text())
     assert stat.S_IMODE(path.stat().st_mode) == 0o600 and stat.S_IMODE(path.parent.stat().st_mode) == 0o700
-    assert set(saved) == {"phone_number_id", "port", "template", "template_language", "webhook_path"}
+    assert set(saved) == {"phone_number_id", "port", "template", "template_language", "webhook_path", "public_base"}   # MSG-11: the address given to setup is kept
     assert saved["port"] == 8800 and saved["template"] == "decisions_waiting" and re.fullmatch(r"[0-9a-f]{32}", saved["webhook_path"])
     p = saved["webhook_path"]
     assert f"https://northwind-laptop.tail1234.ts.net/{p}" in shown
@@ -195,17 +195,20 @@ def test_setup_writes_the_settings_0600_prints_the_callback_url_and_the_funnel_c
     assert wc.check_settings(saved) == saved
 
 
-def test_setup_keeps_the_path_unless_asked_and_keeps_earlier_values_and_says_so_without_tailscale(home, capsys, monkeypatch):
+def test_setup_keeps_the_path_unless_asked_and_keeps_earlier_values_and_keeps_the_public_address(home, capsys, monkeypatch):
     monkeypatch.setattr(wc, "funnel_host", lambda: None)
-    run_setup("--phone-number-id", PHONE_ID, "--template", "decisions_waiting", "--template-language", "en_US")
+    url = ["--public-url", "https://northwind-shop.example"]       # MSG-11: the first run gives the address
+    run_setup("--phone-number-id", PHONE_ID, "--template", "decisions_waiting", "--template-language", "en_US", *url)
     first = json.loads((home / "whatsapp-cloud" / "settings.json").read_text())
-    assert "Funnel hostname" in capsys.readouterr().out
+    assert "Expose: https://northwind-shop.example/" in capsys.readouterr().out
     assert first["port"] == 8787
-    run_setup("--template-language", "pt_BR")           # only what changes
+    run_setup("--template-language", "pt_BR", *url)           # only what changes
     second = json.loads((home / "whatsapp-cloud" / "settings.json").read_text())
     assert second["webhook_path"] == first["webhook_path"] and second["template_language"] == "pt_BR" and second["phone_number_id"] == PHONE_ID
-    run_setup("--new-path")
+    run_setup("--new-path", *url)
     assert json.loads((home / "whatsapp-cloud" / "settings.json").read_text())["webhook_path"] != first["webhook_path"]
+    run_setup("--template-language", "en_US")                 # review fix: the saved address makes the flag unnecessary on a re-run
+    assert json.loads((home / "whatsapp-cloud" / "settings.json").read_text())["public_base"] == "https://northwind-shop.example"
 
 
 @pytest.mark.parametrize("argv", [

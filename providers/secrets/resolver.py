@@ -259,6 +259,13 @@ def _keyring():
     return keyring
 
 
+def store_available() -> bool:
+    """True when the OS secret store can be asked at all, that is when the keyring library can be imported. False means a
+    secret that is "not found" may only be one that was never looked for in the store (plain python3, no keyring library):
+    callers say so instead of "missing". Read-only: it opens no store and reads no secret."""
+    return _keyring() is not None
+
+
 def _ask(store, service: str, username: str) -> str:
     try:
         return (store.get_password(service, username) or "").strip()

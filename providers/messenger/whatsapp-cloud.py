@@ -5,18 +5,20 @@
 # ///
 """Messenger provider for the official WhatsApp Cloud API: an implementation of the class messenger:<platform> for the
 platform whatsapp-cloud (providers/messenger/README.md holds the interface every messenger implements and the section
-"WhatsApp Cloud API" holds the setup, the Funnel facts, the privacy and the costs). It works only in the listen mode.
+"WhatsApp Cloud API" holds the setup, the tunnel options, the privacy and the costs). It works only in the listen mode.
 
-Inbound messages reach a small HTTP server on 127.0.0.1 as webhook calls from Meta; the person exposes that one path with
-Tailscale Funnel (TLS ends on this machine). Outbound messages go to the Graph API. Standard library only. What it shares
+Inbound messages reach a small HTTP server on 127.0.0.1 as webhook calls from Meta; the person exposes that one path at a public
+HTTPS address by any means (a tunnel, a reverse proxy, a server; Tailscale Funnel is one option, never required). Outbound messages go to the Graph API. Standard library only. What it shares
 with whatsapp-twilio.py (the server and its limits, the window and the template mark, the store of ids, the identity map, the
 rendering) is in whatsapp_meta.py next to this file, loaded by path; the names are taken over here, so this file reads as
 one provider.
 
 Verbs (JSON on stdout, diagnostics on stderr, input by flags, no prompt):
   capabilities --platform whatsapp-cloud
-  setup --phone-number-id <id> [--template <name> --template-language <code> | --no-template] [--port 8787] [--new-path]
-                                      write the settings, print the callback URL and the Funnel command
+  setup --phone-number-id <id> [--public-url https://<host>[:<port>][/<prefix>] | --public-host <host>]
+        [--template <name> --template-language <code> | --no-template] [--port 8787] [--new-path]
+                                      write the settings, print the callback URL and what must reach the local port (without
+                                      either flag the hostname of the tailscale command is used, when that command is found)
   whoami [--seconds 120]              print, in the terminal, the phone digits and the business-scoped user id of whoever
                                       writes to the number meanwhile; refuses while a bridge runs
   listen --platform whatsapp-cloud    the long-lived verb (the protocol of providers/messenger/README.md)
@@ -29,7 +31,7 @@ Secrets (read only through providers/secrets/resolver.py, never in an argument, 
 
 State, under the state folder (OPENHORA_STATE_DIR, else an absolute XDG_STATE_HOME with /openhora, else
 ~/.local/state/openhora; the rule is written again here because a provider may not import runtime/), in whatsapp-cloud/
-(mode 0700, every file 0600): settings.json (phone_number_id, port, template, template_language, webhook_path),
+(mode 0700, every file 0600): settings.json (phone_number_id, port, template, template_language, webhook_path, public_base),
 seen.json (the ids of messages already handled, 8 days), window.json (per chat: last_inbound and template_sent_at),
 identities.json (business-scoped user id to phone digits, 30 days). The folder holds phone numbers: keep it out of backups.
 
@@ -151,12 +153,16 @@ def check_settings(found) -> dict:
                or (isinstance(found.get("template_language"), str) and TEMPLATE_LANGUAGE.fullmatch(found["template_language"]))),
               ("template and template_language (both, or neither)",
                (found.get("template") is None) == (found.get("template_language") is None)),
+              ("public_base", found.get("public_base") is None or parse_public_url(found.get("public_base")) == found.get("public_base")),
               ("webhook_path", isinstance(found.get("webhook_path"), str) and WEBHOOK_PATH.fullmatch(found["webhook_path"])))
     for name, ok in checks:
         if not ok:
             raise ProviderError(f"settings.json has a missing or malformed {name}; run setup again", EXIT_NOT_CONFIGURED,
                                 "not-configured")
-    return {k: found.get(k) for k in ("phone_number_id", "port", "template", "template_language", "webhook_path")}
+    kept = {k: found.get(k) for k in ("phone_number_id", "port", "template", "template_language", "webhook_path")}
+    if found.get("public_base") is not None:        # the address given to setup, kept so that a later setup needs no flag
+        kept["public_base"] = found["public_base"]
+    return kept
 
 
 def load_settings(folder: str) -> dict:
@@ -567,17 +573,21 @@ def cmd_setup(args) -> int:
     except ProviderError as e:
         say(str(e).replace("; run setup again", "") + ": give --phone-number-id, and --template with --template-language (or neither, for no reminder template)")
         return EXIT_USAGE
+    saved = current.get("public_base")
+    base, used_tailscale, problem = choose_public_base(args.public_url, args.public_host, funnel=funnel_host,
+                                                       saved=saved if parse_public_url(saved) == saved else None)
+    if problem:
+        say(problem)
+        return EXIT_USAGE
+    settings["public_base"] = base
     write_private_json(path, settings)
-    host = funnel_host()
-    url = f"https://{host}/{settings['webhook_path']}" if host else (
-        f"https://<your machine's Funnel hostname, shown by `tailscale status`>/{settings['webhook_path']}")
+    url = f"{base}/{settings['webhook_path']}"
     print(f"Settings written to {path} (mode 0600).\n"
           f"Callback URL for the app's webhook settings: {url}\n"
           f"Verify token: the value of {SECRET_VERIFY} (type the same string in the app's webhook settings).\n"
-          "Before the command below, in the Tailscale admin console: MagicDNS and HTTPS certificates must be on, and this node "
-          "must have the funnel attribute (kb/1223). On macOS the App Store or Standalone app is needed.\n"
-          f"Then run:\n  {funnel_command(settings)}\n"
-          "Funnel exposes only that path. Subscribe the app to `messages` in the webhook settings.\n"
+          + expose_lines(base, settings, used_tailscale)
+          + "Subscribe the app to `messages` in the webhook settings. If the public address changes, run setup again and update the "
+            "callback URL in Meta.\n"
           + (f"Outside the 24-hour window the provider sends the template {settings['template']} ({settings['template_language']})."
              if settings["template"] else
              "No reminder template: after 24 hours of silence the person must write first; the cards wait until then."))
@@ -643,6 +653,8 @@ def build_parser() -> argparse.ArgumentParser:
         sub.add_parser(name).set_defaults(func=func)
     setup = sub.add_parser("setup")
     setup.add_argument("--phone-number-id")
+    setup.add_argument("--public-url")
+    setup.add_argument("--public-host")
     setup.add_argument("--port", type=int)
     setup.add_argument("--template")
     setup.add_argument("--template-language")

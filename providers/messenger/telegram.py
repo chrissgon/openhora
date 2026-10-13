@@ -136,11 +136,26 @@ def api_base() -> tuple:
     return override.rstrip("/"), True
 
 
+def store_missing_note(resolver, test_mode: bool = False) -> str:
+    """The sentence that tells the OS secret store cannot be read in this Python (no keyring library), with its trailing space,
+    or "" (also in test mode, where the store is not asked on purpose, and for a resolver without the check)."""
+    available = getattr(resolver, "store_available", None)
+    try:
+        if test_mode or available is None or available():
+            return ""
+    except Exception:  # a broken check must not hide the real error
+        return ""
+    return ("the OS secret store is not available in this Python (the keyring library is missing): run this command with "
+            "`uv run --with keyring==25.7.0 python3 ...`, or export the variable. ")
+
+
 def load_token(test_mode: bool) -> str:
-    found = secret_resolver().resolve(SECRET, allow_store=not test_mode)
+    resolver = secret_resolver()
+    found = resolver.resolve(SECRET, allow_store=not test_mode)
     token = found[0] if found else ""
     if not token:
-        raise ProviderError(f"no Telegram bot token: export {SECRET}, or store one with "
+        raise ProviderError(store_missing_note(resolver, test_mode) +
+                            f"no Telegram bot token: export {SECRET}, or store one with "
                             f"uv run --with keyring==25.7.0 keyring set openhora {KEYRING_USERNAME}", EXIT_NOT_CONFIGURED)
     if not re.fullmatch(r"[A-Za-z0-9:_-]+", token):
         raise ProviderError("the Telegram bot token has characters a token does not have", EXIT_NOT_CONFIGURED)
