@@ -174,3 +174,38 @@ def test_the_media_rows_never_reach_the_model_clients_and_the_cli_flags_are_the_
     assert "media-list" in operations.GROUPS["read"]["operations"]
     assert not any(name.startswith("media") for name in operations.permissions("mcp", None) + operations.permissions("messaging", None))
     assert not any(row["name"].startswith("media") for row in operations.OPERATIONS if "chat" in row["channels"])
+
+
+def test_media_purge_by_id_refuses_a_scheduled_recording_unless_the_flag_is_given(tree):
+    rid, folder = ended(tree, "scheduled", 0)
+    with pytest.raises(ops.OpsError, match="--include-scheduled") as caught:
+        run(tree, "media-purge", "--recording", rid)
+    assert caught.value.code == 1 and os.path.exists(folder)
+    with pytest.raises(ops.OpsError):
+        run(tree, "media-purge", "--include-scheduled")                      # the flag goes with a recording id
+    assert run(tree, "media-purge", "--recording", rid, "--include-scheduled")["removed"][0]["recording"] == rid
+    assert not os.path.exists(folder)
+    old, old_folder = ended(tree, "scheduled", 400)
+    assert run(tree, "media-purge")["removed"] == [] and os.path.exists(old_folder), "a scheduled recording is never purged by age"
+
+
+def test_an_open_post_whose_task_still_waits_or_runs_is_not_abandoned_and_a_named_purge_still_works(tree):
+    project = str(tree["project"])
+    ids = planned(tree)
+    waiting = ids["profile"]                                     # waits for the market task: a task of the post that has not run
+    rid, folder = ended(tree, "open", 90)
+    media.bind_tasks(str(tree["data"]), rid, {"code": waiting})
+    media.update(str(tree["data"]), rid, lambda r: None, now=datetime.datetime.now(UTC) - datetime.timedelta(days=90))     # binding stamped it: age it again
+    held = run(tree, "media-purge")
+    assert held["removed"] == [] and "still going" in held["skipped"][0] and os.path.exists(folder), "by age: the post is not abandoned"
+    assert ops.dispatch(project, wait=False).get("media_purged") is None
+    done = run(tree, "media-purge", "--recording", rid)          # the person names it: it goes
+    assert done["removed"][0]["recording"] == rid and not os.path.exists(folder)
+    # a code task whose run is going keeps even a recording that was named
+    rid2, folder2 = ended(tree, "cancelled", 9)
+    ran = ops.run_next(project)
+    media.bind_tasks(str(tree["data"]), rid2, {"code": ran["ran"]})
+    conn = ops_core.context(project)
+    conn["conn"].execute("UPDATE task_runs SET status = 'running' WHERE task_id = ?", (ran["ran"],))
+    conn["conn"].commit()
+    assert run(tree, "media-purge", "--recording", rid2)["removed"] == [] and os.path.exists(folder2)

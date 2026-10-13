@@ -11,18 +11,20 @@ import re
 from test_interface_floor import INTERFACE, JS, needs_node, run_node  # noqa: F401
 
 PURE = r"""
-import { MEDIA_MAX_BYTES, MEDIA_NAME_MAX, NOT_ON_THE_MAC, MEDIA_OFF, isMediaFile, mediaRefusal, onLoopback, pickRefusal, storedLine, mediaHintText } from "@JS@/floor/media-upload.js";
+import { MEDIA_MAX_BYTES, NOT_ON_THE_MAC, MEDIA_OFF, asFileNote, isMediaFile, usesMedia, mediaRefusal, onLoopback, pickRefusal, storedLine, mediaHintText } from "@JS@/floor/media-upload.js";
 import { fileRefusal, MAX_FILE_BYTES } from "@JS@/floor/hand-file.js";
 const out = {};
 const f = (name, size, type = "") => ({ name, size, type });
 out.isMedia = [isMediaFile(f("a.mov", 10)), isMediaFile(f("b.MP4", 10)), isMediaFile(f("c.m4v", 10)), isMediaFile(f("d", 10, "video/quicktime")),
   isMediaFile(f("notes.txt", 10)), isMediaFile(f("big.bin", MAX_FILE_BYTES + 1)), isMediaFile(f("edge.bin", MAX_FILE_BYTES)), isMediaFile(null)];
+out.uses = [usesMedia(f("a.mov", 10), true), usesMedia(f("a.mov", 10), false), usesMedia(f("big.bin", 10 * MAX_FILE_BYTES), true), asFileNote(f("a.mov", 10), false), asFileNote(f("a.mov", 10), true), asFileNote(f("a.txt", 10), false)];
 out.loopback = [onLoopback("127.0.0.1"), onLoopback("localhost"), onLoopback("LOCALHOST"), onLoopback("[::1]"), onLoopback("192.168.1.20"), onLoopback("my-mac.local"), onLoopback(""), onLoopback(undefined)];
 out.refusal = [mediaRefusal(f("a.mov", 544e6), { loopback: true }), mediaRefusal(f("a.mov", 544e6), { loopback: false }),
   mediaRefusal(f("a.mov", MEDIA_MAX_BYTES + 1), { loopback: true }), mediaRefusal(f("a.mov", 0), { loopback: true }),
-  mediaRefusal(f("x".repeat(MEDIA_NAME_MAX + 1) + ".mov", 10), { loopback: true }), mediaRefusal(f("a.mov", MEDIA_MAX_BYTES), { loopback: true })];
+  mediaRefusal(f("x".repeat(500) + ".mov", 10), { loopback: true }), mediaRefusal(f("a.mov", MEDIA_MAX_BYTES), { loopback: true })];
 out.pick = [pickRefusal(f("notes.txt", MAX_FILE_BYTES + 0), fileRefusal, { loopback: false }), pickRefusal(f("a/b.txt", 10), fileRefusal, { loopback: false }),
-  pickRefusal(f("a.mov", 10), fileRefusal, { loopback: true, may: false }), pickRefusal(f("a.mov", 10), fileRefusal, { loopback: true }), pickRefusal(f("a.mov", 10), fileRefusal, { loopback: false })];
+  pickRefusal(f("a.mov", 10), fileRefusal, { loopback: true, may: false }), pickRefusal(f("a.mov", 10), fileRefusal, { loopback: true }), pickRefusal(f("a.mov", 10), fileRefusal, { loopback: false }),
+  pickRefusal(f("big.bin", MAX_FILE_BYTES + 1), fileRefusal, { loopback: true }), pickRefusal(f("big.mov", MAX_FILE_BYTES + 1), fileRefusal, { loopback: true, may: false })];
 out.hint = [mediaHintText(true), mediaHintText(false)];
 out.stored = storedLine({ recording: "0123456789abcdef", bytes: 544 * 1024 * 1024, facts: { duration: 192.7 } });
 out.words = [NOT_ON_THE_MAC, MEDIA_OFF];
@@ -33,12 +35,14 @@ console.log(JSON.stringify(out));
 @needs_node
 def test_a_video_or_a_file_over_the_hand_overs_limit_goes_to_the_media_route_and_only_on_the_mac(tmp_path):
     got = run_node(tmp_path, PURE)
-    assert got["isMedia"] == [True, True, True, True, False, True, False, False]
+    assert got["isMedia"] == [True, True, True, True, False, False, False, False], "only a video goes to the media route, whatever its size"
+    assert got["uses"][:3] == [True, False, False] and got["uses"][3].startswith("It went as an ordinary file") and got["uses"][4:] == ["", ""]
     assert got["loopback"] == [True, True, True, True, False, False, False, False]
     assert got["refusal"][0] == "" and got["refusal"][1] == got["words"][0] and "1 GiB" in got["refusal"][2]
-    assert got["refusal"][3] == "This file is empty." and "at most 120" in got["refusal"][4] and got["refusal"][5] == ""
+    assert got["refusal"][3] == "This file is empty." and got["refusal"][4] == "" and got["refusal"][5] == "", "a long file name is no reason to refuse: the service shortens a label"
     assert got["pick"][0] == "" and "letters, digits" in got["pick"][1], "a file that is not media keeps the hand-over's own rules, on any page"
-    assert got["pick"][2] == got["words"][1] and got["pick"][3] == "" and got["pick"][4] == got["words"][0]
+    assert got["pick"][2] == "" and got["pick"][3] == "" and got["pick"][4] == got["words"][0], "with media-in off a small video keeps the hand-over's rules"
+    assert got["pick"][5] == "A file handed to a task is at most 25 MiB." and got["pick"][6] == got["words"][1], "a large file that is not a video keeps the hand-over's message; a large video with the route off says why"
     assert "on the Mac" in got["hint"][0] and got["hint"][1] == got["words"][0]
     assert got["stored"] == "Recording stored: 0123456789abcdef (544.0 MiB, 192.7 s). It stays on this Mac until its post is done."
 
@@ -56,6 +60,7 @@ class FakeRequest {
   getResponseHeader(name) { return name.toLowerCase() === "content-type" ? "application/json; charset=utf-8" : null; }
   send(body) {
     this.body = body;
+    if (this.reply.network) { queueMicrotask(() => this.onerror()); return; }
     queueMicrotask(() => {
       this.upload.onprogress({ lengthComputable: true, loaded: 5, total: 10 });
       this.upload.onprogress({ lengthComputable: false, loaded: 7, total: 0 });
@@ -79,6 +84,8 @@ FakeRequest.prototype.reply = { status: 413, body: { error: "too_large", message
 try { await api.uploadMedia("0123456789ab", file); out.refused = null; } catch (e) { out.refused = [e.status, e.word, e.message]; }
 FakeRequest.prototype.reply = { status: 507, body: {} };
 try { await api.uploadMedia("0123456789ab", file); } catch (e) { out.noSpace = [e.status, e.word]; }
+FakeRequest.prototype.reply = { network: true };
+try { await api.uploadMedia("0123456789ab", file); } catch (e) { out.network = [e.status, e.word, e.message]; }
 const controller = new AbortController();
 const pending = api.uploadMedia("0123456789ab", file, { signal: controller.signal });
 out.aborted = "pending";
@@ -101,6 +108,7 @@ def test_the_client_streams_a_file_as_its_own_bytes_with_a_progress_report_and_t
     assert got["progress"] == [[5, 10], [10, 10]], "only a computable progress is reported"
     assert got["refused"] == [413, "too_large", "the body is larger"] and got["noSpace"] == [507, "no_space"]
     assert got["aborted"] == "AbortError" and got["list"] == "function"
+    assert got["network"] == [0, "network", "The upload was refused or the connection closed before the service answered."], "not 'could not be reached'"
 
 
 def test_the_upload_transport_is_the_one_other_way_out_and_the_page_has_no_other_network_call():
@@ -152,12 +160,10 @@ find(tab.el, "button.wb-hand-button").click();
 await settle();
 out.sent = { calls: calls.map((c) => c.join(" ")), progress: lastProgress, result: find(tab.el, ".wb-hand-result").textContent };
 
-// a file over 25 MiB that is not a video also goes by the media route
+// a file over 25 MiB that is not a video keeps the hand-over and its message
 calls.length = 0;
 await choose({ name: "big.bin", size: 30 * 1024 * 1024, type: "", arrayBuffer: unreadable });
-find(tab.el, "button.wb-hand-button").click();
-await settle();
-out.big = calls.map((c) => c.join(" "));
+out.big = { text: find(tab.el, ".wb-hand-result").textContent, held: all(tab.el, "button.wb-hand-button").length, calls: calls.length };
 
 // a small ordinary file keeps the base64 hand-over
 calls.length = 0;
@@ -166,6 +172,22 @@ out.small = { button: find(tab.el, "button.wb-hand-button").textContent };
 find(tab.el, "button.wb-hand-button").click();
 await settle();
 out.smallCalls = calls.map((c) => c.join(" "));
+
+// the project turns media-in off: a small video is handed over as an ordinary file, and the page says why; a large one is refused
+const noMedia = createAgentTab({ project: "p", agent: "engineering", api, refresh: () => {}, now: () => new Date(), can: (op) => op !== "media-in" });
+noMedia.update(fm.floor(snapshot, P, "engineering", {}));
+calls.length = 0;
+const offInput = find(noMedia.el, "input.wb-file");
+offInput.files = [{ name: "short.mp4", size: 3, type: "video/mp4", arrayBuffer: async () => new Uint8Array([97, 98, 99]).buffer }];
+await offInput.listeners.change[0]();
+out.off = { button: find(noMedia.el, "button.wb-hand-button").textContent };
+find(noMedia.el, "button.wb-hand-button").click();
+await settle();
+out.off.calls = calls.map((c) => c.join(" "));
+out.off.text = find(noMedia.el, ".wb-hand-result").textContent;
+offInput.files = [{ name: "long.mov", size: 40 * 1024 * 1024, type: "video/quicktime", arrayBuffer: unreadable }];
+await offInput.listeners.change[0]();
+out.off.large = find(noMedia.el, ".wb-hand-result").textContent;
 
 // a failure leaves the file held and says why
 calls.length = 0;
@@ -197,7 +219,9 @@ def test_the_hand_a_file_over_control_sends_a_video_by_the_media_route_with_prog
     assert got["sent"]["calls"] == ["uploadMedia p reel.mov"], "a video goes by the media route and handOver is not called"
     assert got["sent"]["progress"]["value"] == 25 and got["sent"]["progress"]["after"] == 100 and "Uploading" in got["sent"]["progress"]["label"]
     assert got["sent"]["result"].startswith("Recording stored: 0123456789abcdef (544.0 MiB, 192.7 s)")
-    assert got["big"] == ["uploadMedia p big.bin"]
+    assert got["big"] == {"text": "A file handed to a task is at most 25 MiB.", "held": 0, "calls": 0}
+    assert got["off"]["button"] == "Hand over to task #5" and got["off"]["calls"] == ["handOver short.mp4"]
+    assert got["off"]["text"].endswith("It went as an ordinary file because attaching a video is turned off for the page (media-in).") and got["off"]["large"] == "Attaching a video is turned off for the page (media-in). Use the terminal: media-in."
     assert got["small"]["button"] == "Hand over to task #5" and got["smallCalls"] == ["handOver notes.txt"]
     assert got["failed"]["text"] == "the body is larger than this route takes" and got["failed"]["held"] == 1
     assert "on the Mac" in got["phone"]["text"] and got["phone"]["held"] == 0 and got["phone"]["calls"] == 0
@@ -210,46 +234,37 @@ import { createCard } from "@JS@/floor/cards.js";
 
 globalThis.location = { hostname: "127.0.0.1" };
 const calls = [];
-let card = null;
 const client = {
   answer: async () => ({}), release: async () => ({}),
-  handOver: async (...args) => { calls.push(["handOver", args[2]]); return { path: "docs/inputs/logo.png", bytes: 3 }; },
-  uploadMedia: async (project, file, options) => {
-    calls.push(["uploadMedia", file.name]);
-    options.onProgress(1, 4);
-    calls.push(["progress", find(card.el, "progress.wb-media-progress").value, find(card.el, ".wb-busy").textContent]);
-    return { recording: "0123456789abcdef", bytes: 1048576, facts: {} };
-  },
+  handOver: async (...args) => { calls.push(["handOver", args[2]]); return { path: "docs/inputs/reel.mov", bytes: 3 }; },
+  uploadMedia: async () => { calls.push(["uploadMedia"]); return {}; },
 };
 const env = { project: "p", now: () => new Date("2026-10-09T12:00:00Z"), api: client, requestIds: new Set([6]), links: { floor: () => "#", lobby: () => "#/p/p/lobby", open: () => "#" }, reread: async () => null, changed() {}, gone() {}, task: async (id) => ({ task: { id }, runs: [], pending: [], drop: { web: false, takes: true, line: "" } }) };
 const review = { id: 42, kind: "review", title: "R", body: "b", payload: { returned: [], kept: [] }, payload_sha256: null, status: "open", actions: ["released", "answered"], agent: "brand", task_id: 5, run_id: 4, created_at: "2026-10-09T09:00:00Z" };
-card = createCard(review, env);
+const card = createCard(review, env);
 await settle();
 const input = () => find(card.el, "input.wb-file");
-const out = { hint: find(card.el, ".wb-card-hand .wb-hint").textContent, media: find(card.el, ".wb-card-hand .wb-media-hint").textContent };
-input().files = [{ name: "reel.mov", size: 5 * 1024 * 1024, type: "video/quicktime", arrayBuffer: async () => { throw new Error("must not be read"); } }];
+const out = { hint: find(card.el, ".wb-card-hand .wb-hint").textContent, media: all(card.el, ".wb-media-hint").length };
+input().files = [{ name: "reel.mov", size: 3, type: "video/quicktime", arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer }];
 input().listeners.change.forEach((fn) => fn());
 await settle();
 out.button = find(card.el, "button.wb-hand-button").textContent;
 find(card.el, "button.wb-hand-button").click();
 await settle();
 out.calls = calls;
-out.result = find(card.el, ".wb-card-hand .wb-card-line").textContent;
-out.gone = all(card.el, "progress.wb-media-progress").length;
-globalThis.location = { hostname: "192.168.1.20" };
-input().files = [{ name: "reel.mov", size: 5, type: "video/quicktime", arrayBuffer: async () => new ArrayBuffer(5) }];
+out.progress = all(card.el, "progress").length;
+input().files = [{ name: "reel2.mov", size: 40 * 1024 * 1024, type: "video/quicktime", arrayBuffer: async () => { throw new Error("must not be read"); } }];
 input().listeners.change.forEach((fn) => fn());
 await settle();
-out.phone = { text: find(card.el, ".wb-card-hand .wb-notice-card").textContent, button: all(card.el, "button.wb-hand-button").length, calls: calls.length };
+out.large = { text: find(card.el, ".wb-card-hand .wb-notice-card").textContent, button: all(card.el, "button.wb-hand-button").length };
 console.log(JSON.stringify(out));
 """
 
 
 @needs_node
-def test_the_review_cards_hand_a_file_over_sends_a_video_by_the_media_route_and_only_from_the_mac(tmp_path):
+def test_the_review_card_routes_no_video_to_the_media_route_a_recording_is_not_a_tasks_output(tmp_path):
     got = run_node(tmp_path, CARD)
-    assert got["hint"] == "To task #5. At most 25 MiB." and "on the Mac" in got["media"]
-    assert got["button"] == "Upload the recording"
-    assert got["calls"] == [["uploadMedia", "reel.mov"], ["progress", 25, "Uploading..."]], "no base64 hand-over; the bar shows a quarter"
-    assert got["result"].startswith("Recording stored: 0123456789abcdef (1.0 MiB") and got["gone"] == 0, "the bar goes when the upload ends"
-    assert "on the Mac" in got["phone"]["text"] and got["phone"]["button"] == 0 and got["phone"]["calls"] == 2
+    assert got["hint"] == "To task #5. At most 25 MiB." and got["media"] == 0, "the card offers the hand-over only"
+    assert got["button"] == "Hand over to task #5", "no 'Upload the recording' button that names no task"
+    assert got["calls"] == [["handOver", "reel.mov"]] and got["progress"] == 0
+    assert got["large"] == {"text": "A file handed to a task is at most 25 MiB.", "button": 0}

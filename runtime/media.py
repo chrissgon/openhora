@@ -31,9 +31,23 @@ Intake, `receive(data_dir, stream, length, ...)`, one function for the page's ro
     checked with lstat (a directory, not a link, ours, 0700), hashed (sha256) as it is written, never whole in memory;
   - it is linked to its final name (os.link: it never replaces a recording's raw file) only after the length, the hash
     and the checks of the file (ffprobe for a video, the header for an image) passed; the temporary file is deleted on
-    any failure, disconnect or timeout, and a recording folder this call made is removed with it;
+    any failure, disconnect, timeout or full disk (507), and a recording folder this call made is removed with it;
+  - the upload has a deadline, UPLOAD_MAX_SECONDS, that holds against a slow sender: every read is armed with the time left
+    (a stream's settimeout, at most STALL_SECONDS) and uses read1, which returns what has arrived instead of waiting for all
+    n bytes; when it passes the upload is refused and the upload lock is released;
+  - only an open recording takes a file (not published, cancelled, scheduled, frozen or purged); that and the slot are checked
+    again under the record lock when the record is written, so a freeze, a mark or a dropped slot during the upload is a
+    refusal (409 or 404), not an error;
+  - an asset is stored as <slot>-<sha12>.<ext>: a new file for the slot is put in place first and the old file is deleted only
+    after the record names the new one, so a failed swap loses nothing;
   - a recording must have exactly one video stream and at most one audio stream (data and metadata streams, which an iPhone
-    adds, are not counted), last at most MAX_SECONDS, and not be HDR (refused with the way to record again).
+    adds, are not counted), last at most MAX_SECONDS, and not be HDR (refused with the way to record again);
+  - the file name header is a label: it is sanitised (never a reason to refuse an upload).
+
+What intake does NOT establish: a slot's image or clip is checked by its header and, for a clip, by ffprobe; it is not decoded
+here and stays UNTRUSTED. A later package (P5) normalises it by decoding it once inside its container; nothing may open it
+with a general-purpose decoder before that. A video is read only with the demuxer forced (`-f mov`), `-protocol_whitelist file`
+and `-enable_drefs 0` (no reference to another file), by ffprobe here and by every other reader of a recording.
 
 Retention, `purge(data_dir, now, ...)` (decision D7), run by code in a dispatcher round and by `media-purge`, never by a
 task: the raw recording, the transcript, the base list, the annotation file, the assets and the edit task's run folders
@@ -48,6 +62,7 @@ Standard library only. Runs on Python 3.9.
 from __future__ import annotations
 
 import datetime
+import errno
 import fcntl
 import hashlib
 import json
@@ -77,7 +92,8 @@ SNIFF_BYTES = 4096
 FREE_MARGIN_BYTES = 256 * 1024 * 1024       # free space must exceed the length by this much
 QUOTA_BYTES = 8 * 1024 * 1024 * 1024        # the store of one project
 MAX_RENDERS = 20                            # renders kept in the store; a new upload is refused at the cap
-UPLOAD_MAX_SECONDS = 1800                   # wall time of one upload
+UPLOAD_MAX_SECONDS = 1800                   # wall time of one upload, held against a slow sender too (every read is armed with the time left)
+STALL_SECONDS = 30                          # the longest one read may wait for the next bytes
 PROBE_TIMEOUT = 60
 RECORDING_MAX_SIDE = 8192                   # pixels, width and height of a recording
 IMAGE_MAX_BYTES = 25 * 1024 * 1024          # an image for a slot
@@ -376,7 +392,7 @@ def confirm_slot(data_dir: str, rid: str, sid: str, now=None) -> dict:
 
 def _drop_asset_file(data_dir: str, rid: str, slot: dict) -> None:
     asset = slot.get("asset") if isinstance(slot, dict) else None
-    if asset and isinstance(asset.get("file"), str) and re.fullmatch(r"[0-9a-f]{12}\.[a-z0-9]{2,4}", asset["file"]):
+    if asset and isinstance(asset.get("file"), str) and re.fullmatch(r"[0-9a-f]{12}-[0-9a-f]{12}\.[a-z0-9]{2,4}", asset["file"]):
         try:
             os.unlink(os.path.join(folder_of(data_dir, rid), ASSETS, asset["file"]))
         except OSError:
@@ -558,7 +574,7 @@ def probe(path: str) -> dict:
     tool = ffprobe_path()
     if tool is None:
         raise MediaError("ffprobe was not found on the PATH: install ffmpeg (brew install ffmpeg-full) to take a video in", "refused")
-    argv = [tool, "-v", "error", "-protocol_whitelist", "file", "-f", "mov", "-print_format", "json", "-show_format",
+    argv = [tool, "-v", "error", "-protocol_whitelist", "file", "-f", "mov", "-enable_drefs", "0", "-print_format", "json", "-show_format",
             "-show_streams", "-i", path]
     try:
         done = subprocess.run(argv, capture_output=True, timeout=PROBE_TIMEOUT, check=False, stdin=subprocess.DEVNULL,
@@ -622,41 +638,59 @@ def check_video(facts: dict, *, limit_seconds: int, label: str) -> None:
 # --- the file name ------------------------------------------------------------------------------------------------------------
 
 
+FALLBACK_NAME = "file"
+
+
 def clean_name(value):
-    """The display name of a file, from the header that carries it: percent-encoded UTF-8 in ASCII, at most HEADER_NAME_MAX
-    bytes; decoded, normalised to NFC, refused when it holds a character of category Cc, Cf, Cs, Co, Cn, Zl or Zp or a path
-    separator, longer than NAME_MAX_CHARS characters or NAME_MAX_BYTES bytes, or empty. It is a label for the person, never
-    a path: the store names the file itself. None when no name was given."""
+    """The display label of a file, from the header that carries it (percent-encoded UTF-8): it is sanitised and never
+    refused, because a label is not worth a failed upload. Decoded (a byte that is not UTF-8 is dropped), normalised to NFC,
+    every character of category Cc, Cf, Cs, Co, Cn, Zl or Zp dropped, a path separator turned into `_`, trimmed, cut to
+    NAME_MAX_CHARS characters and NAME_MAX_BYTES bytes on a character boundary, and FALLBACK_NAME when nothing is left. It is
+    a label for the person, never a path: the store names the file itself. None when no name was given."""
     if value is None:
         return None
-    if not isinstance(value, str) or len(value) > HEADER_NAME_MAX or not value.isascii():
-        raise MediaError("the file name header is percent-encoded text in ASCII", "usage")
-    try:
-        text = urllib.parse.unquote(value, encoding="utf-8", errors="strict")
-    except UnicodeDecodeError:
-        raise MediaError("the file name is not valid UTF-8", "usage") from None
-    text = unicodedata.normalize("NFC", text).strip(" ")
-    if not text:
-        raise MediaError("the file name is empty", "usage")
-    if any(unicodedata.category(c) in BAD_CATEGORIES or c in "/\\" for c in text):
-        raise MediaError("the file name holds a control, format, separator or unassigned character, or a path separator", "usage")
-    if len(text) > NAME_MAX_CHARS or len(text.encode("utf-8")) > NAME_MAX_BYTES:
-        raise MediaError(f"the file name is longer than {NAME_MAX_CHARS} characters", "usage")
-    return text
+    if not isinstance(value, str):
+        return FALLBACK_NAME
+    value = value[:HEADER_NAME_MAX]
+    if not value.isascii():
+        value = urllib.parse.quote(value, safe="")
+    text = urllib.parse.unquote(value, encoding="utf-8", errors="ignore")
+    text = unicodedata.normalize("NFC", text)
+    text = "".join("_" if c in "/\\" else c for c in text if unicodedata.category(c) not in BAD_CATEGORIES).strip(" ")
+    text = text[:NAME_MAX_CHARS]
+    while len(text.encode("utf-8")) > NAME_MAX_BYTES:
+        text = text[:-1]
+    return text.strip(" ") or FALLBACK_NAME
 
 
 # --- intake ----------------------------------------------------------------------------------------------------------------------
 
 
-def _read_head(stream, length: int) -> bytes:
+def _pull(stream, n: int, deadline: float) -> bytes:
+    """One read of the body that cannot outlast the upload's deadline: the stream's timeout (a socket's) is set to the time left
+    (at most STALL_SECONDS), and `read1` is used when there is one, because `read(n)` of a buffered reader waits until n bytes
+    arrived, which a slow sender would stretch past any deadline."""
+    left = deadline - time.monotonic()
+    if left <= 0:
+        raise MediaError(f"the upload took more than {UPLOAD_MAX_SECONDS} s", "refused")
+    arm = getattr(stream, "settimeout", None)
+    if callable(arm):
+        arm(max(0.05, min(left, STALL_SECONDS)))
+    take = getattr(stream, "read1", None) or stream.read
+    try:
+        return take(n)
+    except OSError:
+        if time.monotonic() >= deadline:
+            raise MediaError(f"the upload took more than {UPLOAD_MAX_SECONDS} s", "refused") from None
+        raise MediaError("the connection stalled or closed before the body arrived", "usage") from None
+
+
+def _read_head(stream, length: int, deadline: float) -> bytes:
     """The first bytes of the body, up to SNIFF_BYTES, read until that many or the body's end."""
     want = min(length, SNIFF_BYTES)
     head = b""
     while len(head) < want:
-        try:
-            piece = stream.read(want - len(head))
-        except OSError:
-            raise MediaError("the connection stalled or closed before the body arrived", "usage") from None
+        piece = _pull(stream, want - len(head), deadline)
         if not piece:
             break
         head += piece
@@ -703,12 +737,30 @@ def receive(data_dir: str, stream, length, *, recording=None, slot=None, name=No
     except OSError as e:
         raise MediaError(f"the upload lock cannot be taken: {e.strerror}", "refused") from None
     try:
-        return _receive_locked(data_dir, root, stream, length, kind, recording, slot, label, now)
+        return _receive_locked(data_dir, root, stream, length, kind, recording, slot, label, now,
+                               time.monotonic() + UPLOAD_MAX_SECONDS)
     finally:
         lock.__exit__(None, None, None)
 
 
-def _receive_locked(data_dir, root, stream, length, kind, recording, slot, label, now) -> dict:
+def _require_open(record: dict, kind: str, slot) -> None:
+    """A file is taken in only for a recording that is open: not published, cancelled or scheduled, not frozen (an effect is
+    open), not purged; a recording takes its raw file once, an asset needs a slot the code issued. Checked before the body is
+    read and again, under the record lock, when the record is written (a freeze, a mark or a purge do not take the upload lock)."""
+    rid = record.get("id")
+    if record.get("status") != "open":
+        raise MediaError(f"recording {rid} is {record.get('status')}: it takes no more files", "refused")
+    if record.get("frozen"):
+        raise MediaError("the assets are frozen: an effect is open for this recording", "refused")
+    if (record.get("purged") or {}).get("raw"):
+        raise MediaError(f"the media of recording {rid} was purged", "refused")
+    if kind == "recording" and record.get("raw"):
+        raise MediaError(f"recording {rid} already has its file; a recording is never replaced", "refused")
+    if kind == "asset" and slot not in (record.get("slots") or {}):
+        raise MediaError(f"recording {rid} has no slot {slot}; slot ids are issued by code", "not_found")
+
+
+def _receive_locked(data_dir, root, stream, length, kind, recording, slot, label, now, deadline) -> dict:
     # --- everything that can be refused before the body is read
     used = tree_bytes(root)
     if used + length > QUOTA_BYTES:
@@ -720,15 +772,9 @@ def _receive_locked(data_dir, root, stream, length, kind, recording, slot, label
     record = None
     if recording is not None:
         record = load(data_dir, recording)
-        if kind == "recording" and record.get("raw"):
-            raise MediaError(f"recording {recording} already has its file; a recording is never replaced", "refused")
-        if kind == "asset":
-            if record.get("frozen"):
-                raise MediaError("the assets are frozen: an effect is open for this recording", "refused")
-            if slot not in record.get("slots", {}):
-                raise MediaError(f"recording {recording} has no slot {slot}; slot ids are issued by code", "not_found")
+        _require_open(record, kind, slot)
     # --- the first bytes name the type; a wrong one is refused before a file exists
-    head = _read_head(stream, length)
+    head = _read_head(stream, length, deadline)
     found = sniff(head)
     if found is None:
         raise MediaError("this is not an MP4 or MOV video" + ("" if kind == "recording" else ", or a PNG, JPEG or WebP image"), "type")
@@ -756,7 +802,7 @@ def _receive_locked(data_dir, root, stream, length, kind, recording, slot, label
             target_dir = os.path.join(folder, ASSETS)
             _private_dir(target_dir, "the assets folder")
         temporary = os.path.join(target_dir, f".incoming-{secrets.token_hex(8)}.part")
-        written = _stream_to(temporary, head, stream, length)
+        written = _stream_to(temporary, head, stream, length, deadline)
         try:
             result = _finish(data_dir, folder, target_dir, temporary, kind, recording, slot, label, found, written, now)
         finally:
@@ -771,45 +817,54 @@ def _receive_locked(data_dir, root, stream, length, kind, recording, slot, label
         raise
 
 
-def _stream_to(temporary: str, head: bytes, stream, length: int) -> dict:
+def _write(out, data: bytes) -> None:
+    out.write(data)
+
+
+def _stream_to(temporary: str, head: bytes, stream, length: int, deadline: float) -> dict:
     """Write the body to the temporary name, chunk by chunk, hashing as it goes. The file is created with O_CREAT|O_EXCL|
-    O_NOFOLLOW and mode 0600; it is deleted here when the body fails (short, stalled, too slow)."""
+    O_NOFOLLOW and mode 0600; it is deleted here when the body fails (short, stalled, too slow, the disk full)."""
     try:
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     except OSError as e:   # the name is taken (a file or a link someone placed there), or the folder cannot be written
         raise MediaError(f"the temporary file cannot be created ({e.strerror}): nothing was written", "refused") from None
     digest = hashlib.sha256()
     count = 0
-    started = time.monotonic()
     try:
         with os.fdopen(fd, "wb") as out:
             fd = None
             digest.update(head)
-            out.write(head)
+            _write(out, head)
             count = len(head)
             while count < length:
-                if time.monotonic() - started > UPLOAD_MAX_SECONDS:
-                    raise MediaError(f"the upload took more than {UPLOAD_MAX_SECONDS} s", "refused")
-                try:
-                    piece = stream.read(min(CHUNK_BYTES, length - count))
-                except OSError:
-                    raise MediaError("the connection stalled or closed before the body arrived", "usage") from None
+                piece = _pull(stream, min(CHUNK_BYTES, length - count), deadline)
                 if not piece:
                     raise MediaError("the body ended before its Content-Length", "usage")
                 digest.update(piece)
-                out.write(piece)
+                _write(out, piece)
                 count += len(piece)
             out.flush()
             os.fsync(out.fileno())
+    except OSError as e:   # a read failure is turned into a MediaError by _pull; an OSError here is the disk's
+        if fd is not None:
+            os.close(fd)
+        _unlink(temporary)
+        if e.errno in (errno.ENOSPC, getattr(errno, "EDQUOT", errno.ENOSPC)):
+            raise MediaError("the disk filled up while the file was being written", "no_space") from None
+        raise MediaError(f"the file could not be written: {e.strerror}", "refused") from None
     except BaseException:
         if fd is not None:
             os.close(fd)
-        try:
-            os.unlink(temporary)
-        except FileNotFoundError:
-            pass
+        _unlink(temporary)
         raise
     return {"bytes": count, "sha256": digest.hexdigest()}
+
+
+def _unlink(path: str) -> None:
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
 
 
 def _finish(data_dir, folder, target_dir, temporary, kind, recording, slot, label, found, written, now) -> dict:
@@ -828,36 +883,40 @@ def _finish(data_dir, folder, target_dir, temporary, kind, recording, slot, labe
             "uploaded_at": stamp(now), **{k: v for k, v in facts.items() if k in ("duration", "width", "height", "fps", "video_codec", "audio_codec")}}
     if kind == "recording":
         final_name = f"raw.{ext}"
-        info["file"] = final_name
-    else:
-        final_name = f"{slot}.{ext}"
-        info["file"] = final_name
+    else:   # named by its hash: a new file for the slot never overwrites the one the record still points to
+        final_name = f"{slot}-{written['sha256'][:12]}.{ext}"
         info["stale"] = False
+    info["file"] = final_name
     final = os.path.join(target_dir, final_name)
-    if kind == "asset":   # one file per slot: a new file replaces the old one (the folder is ours, and the old file is not a link)
-        with _Lock(os.path.join(root_of(data_dir), RECORD_LOCK), blocking=True):
-            previous = load(data_dir, recording)["slots"][slot].get("asset")
-        if previous and previous.get("file") and previous["file"] != final_name:
-            _drop_asset_file(data_dir, recording, {"asset": previous})
-        if os.path.lexists(final):
-            os.unlink(final)
+    placed = False
     try:
-        os.link(temporary, final)   # never replaces: a recording's raw file exists once
+        os.link(temporary, final)   # never replaces
+        placed = True
     except FileExistsError:
-        raise MediaError(f"recording {recording} already has its file; a recording is never replaced", "refused") from None
+        if kind == "recording":
+            raise MediaError(f"recording {recording} already has its file; a recording is never replaced", "refused") from None
+        # an asset with the same content is already there under this name: the record is pointed at it again
     except OSError as e:
         raise MediaError(f"the file cannot be put in place: {e.strerror}", "refused") from None
-    try:
+    previous = {}
+
+    def change(record):
+        _require_open(record, kind, slot)   # the record is read again under its lock: a freeze, a mark or a dropped slot since the start
         if kind == "recording":
-            update(data_dir, recording, lambda r: r.update(raw=info), now)
+            record["raw"] = info
         else:
-            update(data_dir, recording, lambda r: r["slots"][slot].update(asset=info), now)
+            previous["asset"] = record["slots"][slot].get("asset")
+            record["slots"][slot]["asset"] = info
+
+    try:
+        update(data_dir, recording, change, now)
     except BaseException:
-        try:
-            os.unlink(final)
-        except FileNotFoundError:
-            pass
+        if placed:
+            _unlink(final)
         raise
+    old = previous.get("asset")
+    if old and old.get("file") and old["file"] != final_name:   # the old file goes only after the record no longer names it
+        _drop_asset_file(data_dir, recording, {"asset": old})
     return {"recording": recording, "kind": kind, "slot": slot, "name": label, "bytes": info["bytes"], "sha256": info["sha256"],
             "type": found[1], "facts": {k: v for k, v in info.items() if k in ("duration", "width", "height", "fps", "video_codec", "audio_codec")}}
 
@@ -922,11 +981,13 @@ def _remove_tree(path: str) -> None:
     shutil.rmtree(path)
 
 
-def purge(data_dir: str, now=None, run_dirs_of=None, only=None) -> dict:
+def purge(data_dir: str, now=None, run_dirs_of=None, only=None, include_scheduled=False) -> dict:
     """Apply the retention to the store: {"removed": [{"recording", "what": "raw"|"all", "run_dirs": n}], "stray": n,
-    "skipped": [reasons]}. `run_dirs_of(record)` returns the run folders of the recording's edit task (the operations layer
-    reads them from the store) or None when a run of that task is still going, in which case the recording is left for
-    the next round. Nothing is purged while an upload runs. With `only`, one recording id is purged whatever its age. No model."""
+    "skipped": [reasons]}. `run_dirs_of(record, forced)` returns the run folders of the recording's tasks (the operations layer
+    reads them from the store; `forced` is true for a purge by id) or None when a run of them is going, or, for an open post
+    purged by age, when its task still waits: the recording is then left for the next round. Nothing is purged while an upload
+    runs. With `only`, one recording id is purged whatever its age, but a `scheduled` one only with `include_scheduled` (its post
+    is still to go out). No model."""
     now = now or now_utc()
     out = {"removed": [], "stray": 0, "skipped": []}
     root = root_of(data_dir)
@@ -948,7 +1009,10 @@ def purge(data_dir: str, now=None, run_dirs_of=None, only=None) -> dict:
                 continue
             if not what:
                 continue
-            dirs = run_dirs_of(record) if run_dirs_of else []
+            if only == rid and record.get("status") == "scheduled" and not include_scheduled:
+                raise MediaError(f"recording {rid} is scheduled: its post has not gone out; purge it with --include-scheduled "
+                                 "if you mean to lose it", "refused")
+            dirs = run_dirs_of(record, only == rid) if run_dirs_of else []
             if dirs is None:
                 out["skipped"].append(f"{rid}: a run of its edit task is still going")
                 continue

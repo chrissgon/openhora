@@ -16,7 +16,7 @@ import { icon } from "../frame/icons.js";
 import { trackNode } from "../scene/plates.js";
 import { runsSection } from "./run-block.js";
 import { fileRefusal, handChooser, handOverStep, toBase64 } from "./hand-file.js";
-import { MEDIA_LABEL, isMediaFile, mediaHintText, pickRefusal, progressBar, storedLine, uploadRecording } from "./media-upload.js";
+import { MEDIA_LABEL, asFileNote, mediaHintText, pickRefusal, progressBar, storedLine, uploadRecording, usesMedia } from "./media-upload.js";
 import { createTaskActions } from "./task-actions.js";
 import { busyLine, chip, errorText, notice, ring, withheldLine } from "./widgets.js";
 import { reader } from "../permissions.js";
@@ -304,7 +304,7 @@ export function createAgentTab(env) {
   let sending = false;
 
   function drawStep() {
-    fill(handStep, picked ? handOverStep(picked, pickedFor, sendFile, { disabled: sending || locked, label: isMediaFile(picked) ? MEDIA_LABEL : undefined }) : null);
+    fill(handStep, picked ? handOverStep(picked, pickedFor, sendFile, { disabled: sending || locked, label: usesMedia(picked, can("media-in")) ? MEDIA_LABEL : undefined }) : null);
   }
 
   fileInput.addEventListener("change", () => {
@@ -328,7 +328,7 @@ export function createAgentTab(env) {
   async function sendFile() {
     const file = picked;
     const to = pickedFor;
-    const media = isMediaFile(file);
+    const media = usesMedia(file, can("media-in"));
     if (!file || to === null || sending || !can(media ? "media-in" : "hand-over")) return;
     sending = true;
     fileInput.disabled = true;
@@ -342,7 +342,8 @@ export function createAgentTab(env) {
       } else {
         const bytes = new Uint8Array(await file.arrayBuffer());
         const result = await env.api.handOver(env.project, to, file.name, toBase64(bytes));
-        line = `Handed over: ${result.path} (${result.bytes} bytes)`;
+        const note = asFileNote(file, can("media-in"));
+        line = `Handed over: ${result.path} (${result.bytes} bytes)${note ? `. ${note}` : ""}`;
       }
       fill(handResult, h("p", { class: "wb-card-line", role: "status", text: line }));
       picked = null;

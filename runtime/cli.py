@@ -37,7 +37,7 @@ Usage:
   python3 runtime/cli.py hand-over --project <dir> --task <task id> --file <path>
   python3 runtime/cli.py media-in --project <dir> --file <path> [--recording <id>] [--slot <slot id>]
   python3 runtime/cli.py media-list --project <dir> [--recording <id>]
-  python3 runtime/cli.py media-purge --project <dir> [--recording <id>]
+  python3 runtime/cli.py media-purge --project <dir> [--recording <id> [--include-scheduled]]
   python3 runtime/cli.py progress --project <dir> [--since 7d | <n>d | YYYY-MM-DD]
   python3 runtime/cli.py approve-policy --project <dir> --file <docs/...> --agent <name> [--sha256 <hash> --expires <YYYY-MM-DD>] [--what <text>]
   python3 runtime/cli.py revoke-policy --project <dir> --id <approval id>
@@ -177,7 +177,9 @@ media-list  the recordings of the media store with their status, their raw file'
           the dates the retention reads, and the store's use of its limits.
 media-purge  applies the retention now, in code, with no model: what is due goes (a raw recording 7 days after its post was published
           or cancelled, a render 30 days after publication, an abandoned post 30 days after its last change), with the edit task's
-          run folders. With --recording, that recording whatever its age. A dispatcher round does the same at its start.
+          run folders. With --recording, that recording whatever its age, except a scheduled one (its post has not gone out), which
+          needs --include-scheduled too. A recording whose task runs, or an open post whose task still waits, is left alone unless
+          it is named. A dispatcher round does the same at its start.
 deps      installs the dependency sets of runtime.json ("dependencies") by code, with no model: in the eval
           image, in a step that sees only the dependency files, on the open network; the result is cached under
           the data folder by the files and the image, and a run whose copy holds versioned files gets a copy of it.

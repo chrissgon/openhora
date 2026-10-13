@@ -419,7 +419,7 @@ The limit's text and the stage that built it come from the contract's table; the
 | `service-check` | `[--dispatch-every]` | `service_check` |
 | `media-in` | `[--recording]` `--file` `[--slot]` | `media_in` |
 | `media-list` | `[--recording]` | `media_list` |
-| `media-purge` | `[--recording]` | `media_purge` |
+| `media-purge` | `[--recording]` `[--include-scheduled]` | `media_purge` |
 <!-- /generated -->
 
 The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-run`, `dispatch`, and `say` for a new request. The row of `release` says no model and carries `job`, yet releasing a brief routes its delivery again, which runs the router (`ops._after_release`).
@@ -498,7 +498,7 @@ The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-
 | `service_check` | `service-check` | terminal | no | what the local service checks at its start: the secret store, the credential, docker, the eval image and whether it dispatches (the service calls it for each project) |
 | `media_in` | `media-in` | terminal, page | no | take a recording (or, with a slot, the image or clip of an asset slot) from disk into the media store: type read from the bytes, hashed, bounded; without a recording id one is issued |
 | `media_list` | `media-list` | terminal, page | no | the recordings of the media store with their status, file facts, slots and retention dates, and the store's use of its limits |
-| `media_purge` | `media-purge` | terminal | no | apply the retention to the media store now, in code: what is due goes, with the edit task's run folders; with a recording id, that recording whatever its age |
+| `media_purge` | `media-purge` | terminal | no | apply the retention to the media store now, in code: what is due goes, with the edit task's run folders; with a recording id, that recording whatever its age (a scheduled one, whose post has not gone out, only with --include-scheduled) |
 <!-- /generated -->
 
 **The dispatcher's jobs**, `/usr/bin/python3 runtime/dispatcher.py <verb> --project <dir> [--pin <file>]`, run by the scheduler from a copy kept in the job folder:

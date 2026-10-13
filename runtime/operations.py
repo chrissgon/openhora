@@ -250,9 +250,10 @@ OPERATIONS = (
     {"name": "media-list", "call": "media_list", "args": ({"name": "recording", "kind": "str"},),
      "channels": ("terminal", "page"), "model": False,
      "help": "the recordings of the media store with their status, file facts, slots and retention dates, and the store's use of its limits"},
-    {"name": "media-purge", "call": "media_purge", "args": ({"name": "recording", "kind": "str"},),
+    {"name": "media-purge", "call": "media_purge",
+     "args": ({"name": "recording", "kind": "str"}, {"name": "include_scheduled", "kind": "flag", "flag": "include-scheduled"}),
      "channels": ("terminal",), "model": False,
-     "help": "apply the retention to the media store now, in code: what is due goes, with the edit task's run folders; with a recording id, that recording whatever its age"},
+     "help": "apply the retention to the media store now, in code: what is due goes, with the edit task's run folders; with a recording id, that recording whatever its age (a scheduled one, whose post has not gone out, only with --include-scheduled)"},
 )
 
 # What the conversation answers itself, with no operation: the help, and a new request whatever is open.

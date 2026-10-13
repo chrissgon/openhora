@@ -160,9 +160,9 @@ def test_route_hostile_headers_are_refused(world):
     assert service.headers_of(pairs) is None                                                  # a header that must appear once, twice
     for name in ("X-Slot-Id", "X-File-Name"):
         assert service.headers_of([(name, "a"), (name, "b")]) is None
-    for hostile in ("evil%E2%80%AEvom.mov", "a%00b", "caf\u00e9", "%FF", "a%2Fb"):
-        status, body = post(world, Forbidden(), 64, **{"X-File-Name": hostile})
-        assert (status, body["error"]) == (400, "usage"), hostile
+    for hostile in ("evil%E2%80%AEvom.mov", "a%00b", "caf\u00e9", "%FF", "a%2Fb"):      # a label is sanitised, never a reason to refuse
+        status, body = post(world, io.BytesIO(b"x" * 64), 64, **{"X-File-Name": hostile})
+        assert (status, body["error"]) == (415, "media_type"), hostile                  # past the name: the bytes are not a video
     status, body = post(world, Forbidden(), 64, **{"X-Recording-Id": "../../etc"})
     assert (status, body["error"]) == (400, "usage")
     status, body = post(world, Forbidden(), 64, **{"X-Recording-Id": "0" * 16})
@@ -238,7 +238,7 @@ def test_route_a_recording_uploads_in_chunks_over_the_loopback_socket_and_is_sto
     still = png(30, 20)
     status, asset = upload(running.port, world.pid, [still], len(still), **{"X-Recording-Id": body["recording"], "X-Slot-Id": sid})
     assert status == 200 and asset["kind"] == "asset" and asset["facts"] == {"width": 30, "height": 20}
-    assert os.path.exists(os.path.join(world.data, "media", body["recording"], "assets", f"{sid}.png"))
+    assert os.path.exists(os.path.join(world.data, "media", body["recording"], "assets", media.load(world.data, body["recording"])["slots"][sid]["asset"]["file"]))
 
 
 @needs_ffmpeg
@@ -264,7 +264,7 @@ def test_route_an_oversize_declaration_is_answered_413_over_the_socket_and_nothi
 def test_route_the_handler_streams_and_never_holds_the_body(world):
     import inspect
     source = inspect.getsource(service.make_handler)
-    assert "handle_stream(service, method, path, headers, self.rfile, lan)" in source        # the socket's file object, not bytes
+    assert "handle_stream(service, method, path, headers, SocketBody(self.rfile, self.connection), lan)" in source        # the socket, not bytes
     assert service.CSP == "default-src 'self'; img-src 'self' blob:; frame-ancestors 'none'"   # the page's policy is unchanged here (P7 adds media-src)
 
 
@@ -275,3 +275,115 @@ def test_route_the_operation_is_for_the_terminal_and_the_page_never_the_model_cl
         assert not {"mcp", "messaging", "chat"} & set(row["channels"]) and "terminal" in row["channels"], name
     assert "page" in operations.by_name("media-in")["channels"] and "page" in operations.by_name("media-list")["channels"]
     assert "page" not in operations.by_name("media-purge")["channels"]
+
+
+# --- the review round: the drain, the deadline, a malformed length, a full disk ----------------------------------------------------------
+
+
+def raw_post(port, pid, *, auth=True, origin=True, length="999999999999", token=TOKEN, extra=""):
+    connection = socket.create_connection(("127.0.0.1", port), timeout=10)
+    head = (f"POST /api/v1/projects/{pid}/media HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n"
+            + (f"Origin: http://127.0.0.1:{port}\r\n" if origin else "")
+            + (f"Authorization: Bearer {token}\r\n" if auth else "")
+            + f"Content-Type: application/octet-stream\r\nContent-Length: {length}\r\n{extra}\r\n")
+    connection.sendall(head.encode("ascii"))
+    return connection
+
+
+def until_closed(connection, limit):
+    """(seconds until the server stopped reading, the bytes it sent): the client drips one byte every 0.1 s whatever it receives, and the
+    server has stopped reading when a send fails (its socket is closed, so the unread bytes are answered with a reset). The server's
+    FIN after its answer says nothing: the drain half-closes the socket and goes on reading."""
+    started = time.monotonic()
+    seen = b""
+    while time.monotonic() - started < limit:
+        try:
+            connection.sendall(b"x")
+            connection.settimeout(0.1)
+            piece = connection.recv(65536)
+            seen += piece
+        except socket.timeout:
+            continue
+        except OSError:
+            return time.monotonic() - started, seen
+        if not piece:
+            time.sleep(0.1)
+    return None, seen
+
+
+def test_route_a_request_that_failed_the_rules_is_closed_at_once_with_no_drain(world, running):
+    for kwargs in ({"auth": False}, {"origin": False}, {"token": "wrong" * 10}):
+        connection = raw_post(running.port, world.pid, **kwargs)
+        closed, seen = until_closed(connection, 5)
+        connection.close()
+        assert closed is not None and closed < 1.5, (kwargs, closed)
+        assert seen.startswith(b"HTTP/1.") and b" 40" in seen[:14], (kwargs, seen[:30])
+
+
+def test_route_a_refusal_after_the_rules_drains_for_a_bounded_time_however_slowly_the_client_drips(world, running, monkeypatch):
+    monkeypatch.setattr(service, "DRAIN_SECONDS", 1.0)
+    connection = raw_post(running.port, world.pid, length=str(media.MEDIA_MAX_BYTES + 1))       # past the rules, then 413 before the body
+    started = time.monotonic()
+    closed, seen = until_closed(connection, 8)
+    connection.close()
+    assert b" 413 " in seen[:16] and closed is not None and 0.7 < closed < 3.5, (closed, seen[:30])      # it drained, for DRAIN_SECONDS and no longer
+
+
+def test_route_a_request_on_the_lan_socket_is_not_drained(world, running):
+    world.svc.lan_ip = LAN
+    connection = raw_post(running.port, world.pid)                                              # the loopback socket of a service with --lan: still a route
+    closed, _ = until_closed(connection, 5)
+    connection.close()
+    assert closed is not None
+
+
+def test_route_a_content_length_with_thousands_of_digits_is_400_and_never_an_internal_error(world):
+    for length in ("9" * 5000, "9" * (service.MAX_LENGTH_DIGITS + 1)):
+        assert post(world, Forbidden(), length)[0] == 400
+        assert post(world, Forbidden(), length, path=f"/api/v1/projects/{world.pid}/requests", content_type="application/json")[0] == 400
+    assert post(world, Forbidden(), "1" + "0" * 20)[0] == 400
+    assert post(world, Forbidden(), media.MEDIA_MAX_BYTES + 1)[0] == 413
+
+
+def test_route_a_slow_sender_is_cut_at_the_uploads_deadline_and_the_lock_is_free_again(world, running, monkeypatch):
+    monkeypatch.setattr(media, "UPLOAD_MAX_SECONDS", 1)
+    monkeypatch.setattr(media, "ffprobe_path", lambda: "/stub/ffprobe")
+    connection = raw_post(running.port, world.pid, length="5000000")
+    connection.sendall(b"\x00\x00\x00\x14ftypqt  \x00\x00\x00\x00qt  " + b"\x00" * 40)
+    started = time.monotonic()
+    seen = b""
+    while time.monotonic() - started < 8:                         # one byte now and then: each read1 returns, the total stays slow
+        try:
+            connection.sendall(b"x")
+            connection.settimeout(0.3)
+            piece = connection.recv(65536)
+        except socket.timeout:
+            continue
+        except OSError:
+            break
+        if not piece:
+            break
+        seen += piece
+        if b"\r\n\r\n" in seen:
+            break
+    connection.close()
+    assert b" 409 " in seen[:16] and b"took more than" in seen and time.monotonic() - started < 5
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:                            # the handler thread ends and frees the upload lock
+        try:
+            with media._Lock(os.path.join(world.data, "media", media.UPLOAD_LOCK), blocking=False):
+                break
+        except BlockingIOError:
+            time.sleep(0.05)
+    else:
+        raise AssertionError("the upload lock was not released")
+    assert left_over(world.data) == []
+
+
+def test_route_a_full_disk_while_writing_is_507_no_space(world, monkeypatch):
+    import errno
+    monkeypatch.setattr(media, "ffprobe_path", lambda: "/stub/ffprobe")
+    monkeypatch.setattr(media, "_write", lambda out, chunk: (_ for _ in ()).throw(OSError(errno.ENOSPC, "No space left on device")))
+    body = b"\x00\x00\x00\x14ftypqt  \x00\x00\x00\x00qt  " + b"\x00" * 100
+    status, answer = post(world, io.BytesIO(body), len(body))
+    assert (status, answer["error"]) == (507, "no_space") and left_over(world.data) == []

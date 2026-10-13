@@ -1,27 +1,38 @@
 // Taking a recording in through the page: what the page knows before it sends a video, and the one call that sends it with a progress report.
-// The control is the existing "Hand a file over" (hand-file.js, agent-tab.js and the review card): a file that is a video, or is larger than
-// the 25 MiB a hand-over takes, does not go as base64 in a JSON body; it goes to the media route (runtime/service.py, POST /projects/<id>/media)
-// as its own bytes with a progress bar. That route answers on the loopback socket only, so on a page opened from a phone or over --lan the
-// control says the video must be attached on the Mac. The service checks everything again (the type by the file's bytes, the size, the length).
+// The control is the existing "Hand a file over" of the Agent tab (hand-file.js, agent-tab.js): a file that is a video (its type, or .mov, .mp4,
+// .m4v) does not go as base64 in a JSON body; it goes to the media route (runtime/service.py, POST /projects/<id>/media) as its own bytes with
+// a progress bar. Any other file, large or not, keeps the hand-over and its 25 MiB limit; when the project turns `media-in` off, a small video
+// is handed over as a file and the page says why. That route answers on the loopback socket only, so on a page opened from a phone or over
+// --lan the control says the video must be attached on the Mac. The service checks everything again (the type by the file's bytes, the size,
+// the length). The review card routes no video here: a recording is not the output of a task, and no card binds one to its task yet.
 
 import { h } from "../dom.js";
 import { MAX_FILE_BYTES } from "./hand-file.js";
 
 export const MEDIA_MAX_BYTES = 1024 * 1024 * 1024;       // runtime/media.py MEDIA_MAX_BYTES
 export const MEDIA_MAX_SECONDS = 300;                    // runtime/media.py MAX_SECONDS: told to the person, checked by the service from the file
-export const MEDIA_NAME_MAX = 120;                       // runtime/media.py NAME_MAX_CHARS
 const VIDEO_NAME = /\.(mov|mp4|m4v)$/i;
 const LOOPBACK = ["127.0.0.1", "localhost", "[::1]", "::1"];
-export const MEDIA_HINT = "A video (a .mov or .mp4 up to 1 GiB and 5 minutes) is attached on the Mac that runs the service.";
+export const MEDIA_HINT = "A video (a .mov or .mp4 up to 1 GiB and 5 minutes) is attached on the Mac that runs the service; any other file is at most 25 MiB.";
 export const MEDIA_OFF = "Attaching a video is turned off for the page (media-in). Use the terminal: media-in.";
 export const MEDIA_LABEL = "Upload the recording";
 export const NOT_ON_THE_MAC = "A video is attached on the Mac that runs the service: open this page there, not from a phone or over the network.";
 
-/** Whether the file goes to the media route: a video by its type or its extension, or any file larger than a hand-over takes. */
+/** Whether the file is a video, by its type or its extension: the only kind that may go to the media route. */
 export function isMediaFile(file) {
   if (!file) return false;
   const type = typeof file.type === "string" ? file.type : "";
-  return type.startsWith("video/") || VIDEO_NAME.test(String(file.name || "")) || Number(file.size) > MAX_FILE_BYTES;
+  return type.startsWith("video/") || VIDEO_NAME.test(String(file.name || ""));
+}
+
+/** Whether the file goes to the media route now: a video, when the project allows `media-in` (`may`). With it off a small video is handed over as a file. */
+export function usesMedia(file, may = true) {
+  return isMediaFile(file) && Boolean(may);
+}
+
+/** The sentence added to a hand-over that carried a video because the media route is turned off for the page, or "". */
+export function asFileNote(file, may = true) {
+  return isMediaFile(file) && !may ? "It went as an ordinary file because attaching a video is turned off for the page (media-in)." : "";
 }
 
 /** Whether this page was opened on the machine that runs the service (the media route answers on the loopback socket only). */
@@ -34,8 +45,7 @@ export function mediaRefusal(file, { loopback = onLoopback() } = {}) {
   if (!loopback) return NOT_ON_THE_MAC;
   if (!Number.isFinite(Number(file.size)) || Number(file.size) <= 0) return "This file is empty.";
   if (Number(file.size) > MEDIA_MAX_BYTES) return "A recording is at most 1 GiB.";
-  if (String(file.name || "").length > MEDIA_NAME_MAX) return `The file name is at most ${MEDIA_NAME_MAX} characters.`;
-  return "";
+  return "";      // the service shortens a long or odd file name: a label is never a reason to refuse
 }
 
 /** The words under the chooser: what a video needs, or that this page cannot take one. */
@@ -43,10 +53,15 @@ export function mediaHintText(loopback = onLoopback()) {
   return loopback ? MEDIA_HINT : NOT_ON_THE_MAC;
 }
 
-/** The first thing the control checks when a file is chosen: a file for the media route by its rules, any other by the hand-over's. */
+/**
+ * The first thing the control checks when a file is chosen: a video by the media route's rules, any other file by the hand-over's (so a large
+ * file that is not a video says "at most 25 MiB"). With `media-in` off (`may` false) a small video keeps the hand-over's rules and a large one
+ * is refused with the reason.
+ */
 export function pickRefusal(file, refusalOfHandOver, { may = true, ...options } = {}) {
   if (!isMediaFile(file)) return refusalOfHandOver(file.name, file.size);
-  return may ? mediaRefusal(file, options) : MEDIA_OFF;
+  if (may) return mediaRefusal(file, options);
+  return Number(file.size) > MAX_FILE_BYTES ? MEDIA_OFF : refusalOfHandOver(file.name, file.size);
 }
 
 /** The progress bar: a native `progress` element (0 to 100), drawn once and moved between redraws; `set(sent, total)` moves it. */

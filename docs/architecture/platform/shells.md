@@ -284,7 +284,7 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `service-check` | `[--dispatch-every]` | `service_check` |
 | `media-in` | `[--recording]` `--file` `[--slot]` | `media_in` |
 | `media-list` | `[--recording]` | `media_list` |
-| `media-purge` | `[--recording]` | `media_purge` |
+| `media-purge` | `[--recording]` `[--include-scheduled]` | `media_purge` |
 <!-- /generated -->
 
 Every verb also takes `--project <dir>`. The parser is built from `terminal_verbs()` of the table, so a row that does not list `terminal` (`version`) has no verb. The verbs that call a model: `route` (without `--flow`), `run-next`, `dispatch`, `contained-run`, and `say` for a new request or an answer to the router.

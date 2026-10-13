@@ -82,33 +82,47 @@ def media_list(project: str, recording: str | None = None) -> dict:
         raise _refusal(e) from None
 
 
+LIVE_STATES = ("planned", "ready", "running", "waiting", "blocked")   # a task in one of these is not finished: its post is not abandoned
+
+
 def _run_dirs_of(ctx: dict):
-    """The function purge calls for a recording: the run folders of its edit task (every attempt is inside them), or None
-    while a run of that task is going."""
+    """The function purge calls for a recording: `of(record, forced)` returns the run folders of its edit and code tasks (every
+    attempt is inside them), or None when the recording must stay for now: a run of one of those tasks is going, or, for an open
+    post that the age (not the person, `forced`) would purge, one of its tasks still waits or is ready (the post is not
+    abandoned: the person has a decision to make, or a step is to run)."""
     store, cfg = ctx["store"], ctx["cfg"]
 
-    def of(record: dict):
-        task = (record.get("tasks") or {}).get("edit")
-        if not task:
-            return []
-        try:
-            runs = store.task_runs_list(ctx["conn"], task)
-        except store.StoreError:
-            return []
-        if any(r.get("status") == "running" for r in runs):
-            return None
-        return media.run_dirs_inside(cfg["data_dir"], [r.get("run_dir") for r in runs])
+    def of(record: dict, forced: bool = False):
+        folders = []
+        for name in ("edit", "code"):
+            task = (record.get("tasks") or {}).get(name)
+            if not task:
+                continue
+            try:
+                runs = store.task_runs_list(ctx["conn"], task)
+                state = store.task_get(ctx["conn"], task).get("state")
+            except store.StoreError:
+                continue
+            if any(r.get("status") == "running" for r in runs) or state == "running":
+                return None
+            if record.get("status") == "open" and not forced and state in LIVE_STATES:
+                return None
+            folders += [r.get("run_dir") for r in runs]
+        return media.run_dirs_inside(cfg["data_dir"], folders)
 
     return of
 
 
-def media_purge(project: str, recording: str | None = None) -> dict:
-    """Apply the retention now, in code. With a recording id, that recording is removed whatever its age."""
+def media_purge(project: str, recording: str | None = None, include_scheduled: bool = False) -> dict:
+    """Apply the retention now, in code. With a recording id, that recording is removed whatever its age, but a scheduled one
+    (its post has not gone out) only with include_scheduled."""
     ctx = core.context(project)
     try:
         if recording is not None:
             media.load(ctx["cfg"]["data_dir"], media.check_id(recording))
-        return media.purge(ctx["cfg"]["data_dir"], run_dirs_of=_run_dirs_of(ctx), only=recording)
+        elif include_scheduled:
+            raise media.MediaError("--include-scheduled goes with --recording", "usage")
+        return media.purge(ctx["cfg"]["data_dir"], run_dirs_of=_run_dirs_of(ctx), only=recording, include_scheduled=include_scheduled)
     except media.MediaError as e:
         raise _refusal(e) from None
 

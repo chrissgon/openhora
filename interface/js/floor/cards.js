@@ -28,7 +28,6 @@ import { replyView } from "./reply.js";
 import { createWaitsBlock } from "../cards/plan-waits.js";
 import { commandBlock } from "../frame/command.js";
 import { fileRefusal, handChooser, handOverStep, toBase64 } from "./hand-file.js";
-import { MEDIA_LABEL, isMediaFile, mediaHintText, pickRefusal, progressBar, storedLine, uploadRecording } from "./media-upload.js";
 import { reader, wordOf } from "../permissions.js";
 import { agoText, chip, errorText, field, isGone, jobText, notice, ring, withheldLine } from "./widgets.js";
 
@@ -364,11 +363,9 @@ export function createCard(item, env) {
     chooser.button.disabled = input.disabled;
     return h("div", { class: "wb-hand wb-card-hand" },
       chooser.nodes.slice(0, 4),
-      handOverStep(state.picked, state.item.task_id, () => handFile(), { disabled: Boolean(state.busy) || Boolean(state.done) || Boolean(state.handing), label: isMediaFile(state.picked) ? MEDIA_LABEL : undefined }),
+      handOverStep(state.picked, state.item.task_id, () => handFile(), { disabled: Boolean(state.busy) || Boolean(state.done) || Boolean(state.handing) }),
       hint,
-      h("span", { class: "wb-media-hint wb-muted wb-cur-sub", text: mediaHintText() }),      // a video is attached on the Mac, through the media route
-      state.handing ? h("div", { class: "wb-busy", role: "status", "aria-busy": "true" }, ring(true), h("span", { text: state.progress ? "Uploading..." : "Sending..." })) : null,
-      state.handing && state.progress ? state.progress.node : null,
+      state.handing ? h("div", { class: "wb-busy", role: "status", "aria-busy": "true" }, ring(true), h("span", { text: "Sending..." })) : null,
       state.handed ? (state.handed.error ? notice(state.handed.text, "error") : h("p", { class: "wb-card-line", role: "status", text: state.handed.text })) : null);
   }
 
@@ -376,7 +373,7 @@ export function createCard(item, env) {
   function pickFile(input) {
     const file = input.files && input.files[0];
     if (state.handing || state.busy || state.done) return;
-    const refusal = file ? pickRefusal(file, fileRefusal, { may: can("media-in") }) : "";
+    const refusal = file ? fileRefusal(file.name, file.size) : "";
     state.picked = file && !refusal ? file : null;
     state.handed = refusal ? { text: refusal, error: true } : null;
     render();
@@ -387,27 +384,20 @@ export function createCard(item, env) {
   /** Step two: the button. Sends the file held, to the review's task; a failure leaves the file held so that the button can be pressed again. */
   async function handFile() {
     const file = state.picked;
-    const media = isMediaFile(file);
-    if (!file || state.handing || state.busy || state.done || !can(media ? "media-in" : "hand-over")) return;
+    if (!file || state.handing || state.busy || state.done || !can("hand-over")) return;
     const it = state.item;
     state.handing = true;
     state.handed = null;
-    state.progress = media ? progressBar() : null;
     render();
     try {
-      if (media) {      // a video, or a file over 25 MiB: its own bytes to the media route with a progress bar, never base64 (the Mac only)
-        state.handed = { text: storedLine(await uploadRecording(api(), env.project, file, { bar: state.progress })) };
-      } else {
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        const result = await api().handOver(env.project, it.task_id, file.name, toBase64(bytes));
-        state.handed = { text: `Handed over: ${result.path} (${result.bytes} bytes)` };
-      }
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const result = await api().handOver(env.project, it.task_id, file.name, toBase64(bytes));
+      state.handed = { text: `Handed over: ${result.path} (${result.bytes} bytes)` };
       state.picked = null;
     } catch (e) {
       state.handed = { text: errorText(e), error: true };
     }
     state.handing = false;
-    state.progress = null;
     render();
     const next = root.querySelector ? root.querySelector(".wb-hand-button") || root.querySelector("input.wb-file") : null;
     if (next) next.focus();

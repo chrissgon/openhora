@@ -105,6 +105,8 @@ async function send(method, path, options = {}) {
     response = await move(url, init);
   } catch (e) {
     if (e && e.name === "AbortError") throw e;
+    // a large upload the service refused before it read the body may be closed under the browser before the answer arrives
+    if (options.blob) throw new ApiError(0, "network", "The upload was refused or the connection closed before the service answered.");
     throw new ApiError(0, "network", "The service could not be reached. Is it still running?");
   }
   // A route marked `raw` answers bytes: read them as a Blob on success; a refusal is JSON as everywhere else.

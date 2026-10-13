@@ -8,10 +8,12 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_media_limits.py
 from __future__ import annotations
 
 import datetime
+import errno
 import hashlib
 import io
 import os
 import stat
+import time
 import tracemalloc
 
 import pytest
@@ -311,17 +313,24 @@ def test_media_limit_an_unknown_recording_or_a_malformed_id_is_refused(data):
 # --- the file name ----------------------------------------------------------------------------------------------------------------
 
 
-def test_media_limit_the_file_name_header_is_hardened():
+def test_media_limit_the_file_name_header_is_sanitised_and_never_refused():
     assert media.clean_name(None) is None
     assert media.clean_name("Caf%C3%A9.mov") == "Caf\u00e9.mov"
     assert media.clean_name("Cafe%CC%81.mov") == "Caf\u00e9.mov"                        # decomposed in, NFC out
-    for hostile in ("a%00b.mov", "a%0Ab.mov", "evil%E2%80%AEvom.mov", "a%E2%80%8Bb.mov", "a%EF%BB%BFb", "a%2Fb", "a%5Cb",
-                    "%E2%80%A8x", "%ED%A0%80", "%FF", "caf\u00e9.mov", "", "%20%20", "a" * 121, "%E2%82%AC" * 100):
-        with pytest.raises(media.MediaError) as caught:
-            media.clean_name(hostile)
-        assert caught.value.kind == "usage", hostile
-    with pytest.raises(media.MediaError):
-        media.clean_name("a" * (media.HEADER_NAME_MAX + 1))
+    cases = {"a%00b.mov": "ab.mov", "a%0Ab.mov": "ab.mov", "evil%E2%80%AEvom.mov": "evilvom.mov", "a%E2%80%8Bb.mov": "ab.mov",
+             "a%EF%BB%BFb": "ab", "a%2Fb": "a_b", "a%5Cb": "a_b", "%E2%80%A8x": "x", "%ED%A0%80": media.FALLBACK_NAME,
+             "%FF": media.FALLBACK_NAME, "caf\u00e9.mov": "caf\u00e9.mov", "": media.FALLBACK_NAME, "%20%20": media.FALLBACK_NAME,
+             "a%FFb": "ab", "..%2F..%2Fetc%2Fpasswd": ".._.._etc_passwd"}
+    for hostile, label in cases.items():
+        assert media.clean_name(hostile) == label, hostile
+    assert media.clean_name("a" * 500) == "a" * media.NAME_MAX_CHARS
+    long = media.clean_name("%E2%82%AC" * 100)                                         # euro signs: 3 bytes each
+    assert long == "\u20ac" * 85 or len(long.encode("utf-8")) <= media.NAME_MAX_BYTES
+    assert len(long) <= media.NAME_MAX_CHARS and len(long.encode("utf-8")) <= media.NAME_MAX_BYTES and long.strip("\u20ac") == ""
+    cut = media.clean_name("%F0%9F%8E%A5" * 100)                                       # 4-byte characters: cut on a character boundary
+    assert cut.strip("\U0001f3a5") == "" and len(cut.encode("utf-8")) <= media.NAME_MAX_BYTES
+    assert media.clean_name("x" * (media.HEADER_NAME_MAX + 500)) == "x" * media.NAME_MAX_CHARS
+    assert media.clean_name(12) == media.FALLBACK_NAME
 
 
 # --- the images and clips of the slots -----------------------------------------------------------------------------------------------
@@ -338,9 +347,9 @@ def test_media_limit_an_image_for_a_slot_is_taken_by_its_bytes_and_stored_under_
     for payload, ext, kind in ((png(40, 30), "png", "png"), (jpeg(40, 30), "jpg", "jpeg"), (webp(40, 30), "webp", "webp")):
         done = put(data, payload, recording=rid, slot=sid, name="photo")
         assert done["kind"] == "asset" and done["type"] == kind and done["facts"] == {"width": 40, "height": 30}
-        assert os.path.exists(os.path.join(data, "media", rid, "assets", f"{sid}.{ext}"))
+        assert os.path.exists(os.path.join(data, "media", rid, "assets", media.load(data, rid)["slots"][sid]["asset"]["file"]))
     files = os.listdir(os.path.join(data, "media", rid, "assets"))
-    assert files == [f"{sid}.webp"]                                              # one file per slot: the newest replaced the others
+    assert files == [media.load(data, rid)["slots"][sid]["asset"]["file"]] and files[0].startswith(f"{sid}-") and files[0].endswith(".webp")   # one file per slot: the newest replaced the others
     assert media.load(data, rid)["slots"][sid]["asset"]["type"] == "webp"
     assert stat.S_IMODE(os.lstat(os.path.join(data, "media", rid, "assets")).st_mode) == 0o700
 
@@ -375,7 +384,7 @@ def test_media_limit_an_image_over_the_image_limit_is_refused_after_its_type_is_
 def test_media_limit_a_clip_for_a_slot_is_checked_like_a_recording(data, clips):
     rid, (sid,) = slot_world(data)
     done = put(data, clips["mp4"], recording=rid, slot=sid)
-    assert done["type"] == "mp4" and os.path.exists(os.path.join(data, "media", rid, "assets", f"{sid}.mp4"))
+    assert done["type"] == "mp4" and media.load(data, rid)["slots"][sid]["asset"]["file"].endswith(".mp4")
     assert "HDR" in str(refusal(data, clips["hdr"], recording=rid, slot=sid))
     over = refusal(data, clips["edge"], recording=rid, slot=sid)                  # 299 s: over the clip limit
     assert over.kind == "too_large" and f"at most {media.CLIP_MAX_SECONDS} s" in str(over)
@@ -470,9 +479,9 @@ def test_media_limit_purge_removes_the_edit_tasks_run_folders_with_every_attempt
     outside.mkdir()
     media.bind_tasks(data, rid, {"edit": 7})
     assert media.run_dirs_inside(data, [str(runs), str(outside), "/", None]) == [str(runs)]       # only a folder under task-runs/
-    held = media.purge(data, now, run_dirs_of=lambda record: None)
+    held = media.purge(data, now, run_dirs_of=lambda record, forced: None)
     assert held["removed"] == [] and "still going" in held["skipped"][0] and runs.exists() and os.path.exists(folder)
-    done = media.purge(data, now, run_dirs_of=lambda record: [str(runs)])
+    done = media.purge(data, now, run_dirs_of=lambda record, forced: [str(runs)])
     assert done["removed"][0]["run_dirs"] == 1 and not runs.exists() and not os.path.exists(folder)
 
 
@@ -498,3 +507,178 @@ def test_media_limit_purge_of_one_recording_by_id_ignores_its_age(data):
     other, other_folder, _ = aged(data, "open", 1)
     assert media.purge(data, now, only=rid)["removed"][0]["recording"] == rid
     assert not os.path.exists(folder) and os.path.exists(other_folder)
+
+
+# --- the review round: a slow sender, a record that changes mid-upload, a full disk ----------------------------------------------------
+
+
+class Drip:
+    """A body that arrives slowly: each read1 waits `pause` seconds and gives `size` bytes. `read` is a trap (a buffered reader's read(n)
+    waits for all n bytes), so a caller that uses it hangs the test. `armed` records the timeouts the caller set."""
+
+    def __init__(self, head, total, pause, size=1024):
+        self.head, self.total, self.pause, self.size, self.given, self.armed = head, total, pause, size, 0, []
+
+    def settimeout(self, seconds):
+        self.armed.append(seconds)
+
+    def read1(self, n):
+        time.sleep(self.pause)
+        piece = min(n, self.size, self.total - self.given)
+        start = self.given
+        self.given += piece
+        out = bytearray(piece)
+        chunk = self.head[start:start + piece]
+        out[:len(chunk)] = chunk
+        return bytes(out)
+
+    def read(self, n):
+        raise AssertionError("read(n) waits for n bytes: a slow sender would hold it past the deadline")
+
+
+MOVHEAD = b"\x00\x00\x00\x14ftypqt  \x00\x00\x00\x00qt  "
+
+
+def test_media_limit_the_upload_deadline_holds_against_a_slow_sender_and_the_lock_is_released(data, monkeypatch):
+    monkeypatch.setattr(media, "UPLOAD_MAX_SECONDS", 1)
+    monkeypatch.setattr(media, "ffprobe_path", lambda: "/stub/ffprobe")
+    stream = Drip(MOVHEAD, 10_000_000, pause=0.2)
+    started = time.monotonic()
+    error = refusal(data, stream=stream, length=10_000_000)
+    elapsed = time.monotonic() - started
+    assert error.kind == "refused" and "took more than" in str(error) and elapsed < 3, elapsed
+    assert stream.given < 10_000_000 and left_over(data) == []
+    assert stream.armed and all(0 < t <= media.STALL_SECONDS for t in stream.armed) and stream.armed[-1] < stream.armed[0], "every read is armed with the time left"
+    with media._Lock(os.path.join(data, "media", media.UPLOAD_LOCK), blocking=False):     # the upload lock was released
+        pass
+
+
+def test_media_limit_a_read_that_blocks_is_cut_at_the_time_left(data, monkeypatch):
+    monkeypatch.setattr(media, "UPLOAD_MAX_SECONDS", 1)
+    monkeypatch.setattr(media, "ffprobe_path", lambda: "/stub/ffprobe")
+
+    class Blocking:
+        armed = None
+
+        def settimeout(self, seconds):
+            self.armed = seconds
+
+        def read1(self, n):
+            time.sleep(self.armed)                         # a socket that waits for its timeout
+            raise TimeoutError("timed out")
+
+    started = time.monotonic()
+    error = refusal(data, stream=Blocking(), length=100_000)
+    assert error.kind == "refused" and "took more than" in str(error) and time.monotonic() - started < 2.5
+    assert left_over(data) == []
+
+
+@pytest.mark.parametrize("change", ["published", "cancelled", "scheduled", "frozen", "purged"])
+def test_media_limit_a_recording_that_is_not_open_takes_no_file(data, change):
+    rid, (sid,) = slot_world(data)
+    if change == "frozen":
+        media.freeze(data, rid)
+    elif change == "purged":
+        media.update(data, rid, lambda r: r.setdefault("purged", {}).update(raw="2026-11-01T00:00:00Z"))
+    else:
+        media.mark(data, rid, change)
+    assert refusal(data, png(), recording=rid, slot=sid).kind == "refused"
+    assert refusal(data, MOVHEAD + b"\x00" * 40, recording=rid).kind in ("refused", "type")
+    assert os.listdir(os.path.join(data, "media", rid, "assets")) == [] if os.path.isdir(os.path.join(data, "media", rid, "assets")) else True
+
+
+class Hook(Body):
+    """A body that runs `act` once after the first read (a record that changes while the file is on its way)."""
+
+    def __init__(self, total, head, act):
+        super().__init__(total, head)
+        self.act = act
+
+    def read(self, n=-1):
+        out = super().read(n)
+        if self.act:
+            act, self.act = self.act, None
+            act()
+        return out
+
+
+def png_body(extra=0):
+    payload = png() + b"\x00" * extra
+    return payload
+
+
+def test_media_limit_a_slot_dropped_while_the_file_is_on_its_way_is_not_found_and_nothing_is_left(data):
+    rid, (sid,) = slot_world(data)
+    payload = png_body(200)
+    stream = Hook(len(payload), payload[:4096], lambda: media.register_slots(data, rid, [{"key": "other", "description": "another"}]))
+    with pytest.raises(media.MediaError) as caught:
+        media.receive(data, stream, len(payload), recording=rid, slot=sid)
+    assert caught.value.kind == "not_found"
+    assert os.listdir(os.path.join(data, "media", rid, "assets")) == []
+
+
+def test_media_limit_a_freeze_or_a_mark_while_the_file_is_on_its_way_is_refused_and_the_old_file_stays(data):
+    rid, (sid,) = slot_world(data)
+    put(data, png(10, 10), recording=rid, slot=sid)
+    old = media.load(data, rid)["slots"][sid]["asset"]
+    payload = png(20, 20, ) + b"\x00" * 300
+    stream = Hook(len(payload), payload[:4096], lambda: media.freeze(data, rid))
+    with pytest.raises(media.MediaError) as caught:
+        media.receive(data, stream, len(payload), recording=rid, slot=sid)
+    assert caught.value.kind == "refused"
+    assert media.load(data, rid)["slots"][sid]["asset"] == old
+    assert os.listdir(os.path.join(data, "media", rid, "assets")) == [old["file"]]
+
+
+def test_media_limit_a_new_asset_replaces_the_old_file_only_after_the_record_names_the_new_one(data):
+    rid, (sid,) = slot_world(data)
+    first = put(data, png(10, 10), recording=rid, slot=sid)
+    first_file = media.load(data, rid)["slots"][sid]["asset"]["file"]
+    second = put(data, png(20, 20), recording=rid, slot=sid)
+    second_file = media.load(data, rid)["slots"][sid]["asset"]["file"]
+    assert first["sha256"] != second["sha256"] and first_file != second_file
+    assert os.listdir(os.path.join(data, "media", rid, "assets")) == [second_file]
+    again = put(data, png(20, 20), recording=rid, slot=sid)                           # the same content: the same name, nothing lost
+    assert again["sha256"] == second["sha256"] and os.listdir(os.path.join(data, "media", rid, "assets")) == [second_file]
+
+
+def test_media_limit_a_full_disk_while_writing_is_no_space_and_leaves_no_file(data, monkeypatch):
+    monkeypatch.setattr(media, "ffprobe_path", lambda: "/stub/ffprobe")
+    calls = []
+
+    def full(out, chunk):
+        calls.append(1)
+        if len(calls) > 1:
+            raise OSError(errno.ENOSPC, "No space left on device")
+        out.write(chunk)
+
+    monkeypatch.setattr(media, "_write", full)
+    error = refusal(data, stream=Body(5_000_000, MOVHEAD), length=5_000_000)
+    assert error.kind == "no_space" and left_over(data) == []
+    monkeypatch.setattr(media, "_write", lambda out, chunk: (_ for _ in ()).throw(OSError(errno.EIO, "Input/output error")))
+    error = refusal(data, stream=Body(5_000_000, MOVHEAD), length=5_000_000)
+    assert error.kind == "refused" and left_over(data) == []
+
+
+def test_media_limit_a_scheduled_recording_is_purged_by_id_only_with_the_explicit_flag(data):
+    rid, folder, now = aged(data, "scheduled", 1)
+    with pytest.raises(media.MediaError) as caught:
+        media.purge(data, now, only=rid)
+    assert caught.value.kind == "refused" and "--include-scheduled" in str(caught.value) and os.path.exists(folder)
+    assert media.purge(data, now, only=rid, include_scheduled=True)["removed"][0]["recording"] == rid and not os.path.exists(folder)
+
+
+def test_media_limit_the_demuxer_is_forced_and_embedded_references_are_off(monkeypatch, tmp_path):
+    seen = {}
+
+    def fake(argv, **kwargs):
+        seen["argv"] = argv
+        raise OSError(2, "stub")
+
+    monkeypatch.setattr(media.subprocess, "run", fake)
+    monkeypatch.setattr(media, "ffprobe_path", lambda: "/stub/ffprobe")
+    with pytest.raises(media.MediaError):
+        media.probe(str(tmp_path / "x"))
+    argv = seen["argv"]
+    assert argv[argv.index("-f") + 1] == "mov" and argv[argv.index("-enable_drefs") + 1] == "0"
+    assert argv[argv.index("-protocol_whitelist") + 1] == "file" and argv.index("-enable_drefs") < argv.index("-i")

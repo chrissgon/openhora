@@ -222,7 +222,8 @@ MEDIA_STATUS = {"usage": (400, "usage"), "length": (411, "length"), "too_large":
                 "type": (415, "media_type"), "no_space": (507, "no_space"), "not_found": (404, "not_found"),
                 "refused": (409, "refused")}   # the family of a refusal of the media store (OpsError.kind) -> status and word
 DRAIN_BYTES = 16 * 1024 * 1024            # an early refusal of an upload reads at most this much of the unread body before it closes
-DRAIN_SECONDS = 2.0
+DRAIN_SECONDS = 2.0                       # ... and for at most this long in total, however slowly the client sends
+MAX_LENGTH_DIGITS = 15                    # a Content-Length with more digits than this is malformed (400)
 QUERY_VALUE_LIMIT = 512                   # bytes of one query value on a route that names a project file (artifact?path=)
 STATIC_LIMIT = 16 * 1024 * 1024
 ONCE = ("host", "origin", "authorization", "content-type", "content-length", "transfer-encoding",
@@ -428,8 +429,8 @@ def check_request(method: str, path: str, headers: dict, port: int, token: str, 
         length = h.get("content-length")
         if length is None:
             return 411, "length"
-        if not (length.isascii() and length.isdigit()):
-            return 400, "usage"
+        if not (length.isascii() and length.isdigit()) or len(length) > MAX_LENGTH_DIGITS:
+            return 400, "usage"   # not a number, or one with so many digits that it is no length (never an int() of thousands of digits)
         if found and found[0]["stream"]:
             return None   # the operation bounds the length before it reads the body (runtime/media.py)
         if int(length) > (found[0]["limit"] if found else JSON_LIMIT):
@@ -914,6 +915,23 @@ def request_line(method: str, path: str, status: int, seconds: float) -> str:
     return f"{CONTROL.sub(' ', str(method))[:16]} {shown} {int(status)} {int(seconds * 1000)}ms"
 
 
+class SocketBody:
+    """The body of the media route as the operation reads it: `read1` waits for the next bytes and no longer (a buffered
+    reader's `read(n)` waits for all n), and `settimeout` arms the connection for the time the upload has left, so that a slow
+    sender cannot stretch an upload past its deadline."""
+
+    def __init__(self, rfile, connection):
+        self.rfile, self.connection = rfile, connection
+
+    def read1(self, n):
+        return self.rfile.read1(n)
+
+    read = read1
+
+    def settimeout(self, seconds):
+        self.connection.settimeout(seconds)
+
+
 def make_handler(service: Service):
     """The request handler class of one service."""
 
@@ -962,7 +980,7 @@ def make_handler(service: Service):
                 if refused:
                     answer = _error(*refused)
                 elif streamed:
-                    answer = handle_stream(service, method, path, headers, self.rfile, lan)
+                    answer = handle_stream(service, method, path, headers, SocketBody(self.rfile, self.connection), lan)
                 else:
                     length = int(headers["content-length"]) if method == "POST" else 0
                     try:
@@ -975,21 +993,27 @@ def make_handler(service: Service):
                         answer = handle(service, method, path, headers, raw, lan=lan)
             try:
                 self._send(*answer)
-                if streamed and answer[0] != 200:
+                if streamed and answer[0] != 200 and not refused and not lan:   # only for a request that passed the rules (Host, Origin, token)
                     self._drain()
             except (BrokenPipeError, ConnectionResetError):
                 pass
             service.log(request_line(method, path, answer[0], time.monotonic() - started))
 
         def _drain(self):
-            """An upload refused before its body was read: the answer is sent, then a bounded part of the unread body is read
-            and dropped, so that closing the socket does not reset the connection under the answer the client has not read."""
+            """An upload refused before its body was read: the answer is sent, then at most DRAIN_BYTES of the unread body are
+            read and dropped, for at most DRAIN_SECONDS in all, so that closing the socket does not reset the connection under
+            the answer the client has not read. Never done for a request that failed the rules (no Origin, no token, the LAN
+            socket): such a connection is closed at once."""
+            until = time.monotonic() + DRAIN_SECONDS
             try:
                 self.connection.shutdown(socket.SHUT_WR)
-                self.connection.settimeout(DRAIN_SECONDS)
                 left = DRAIN_BYTES
                 while left > 0:
-                    piece = self.rfile.read1(min(65536, left)) if hasattr(self.rfile, "read1") else self.rfile.read(min(65536, left))
+                    remaining = until - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    self.connection.settimeout(remaining)
+                    piece = self.rfile.read1(min(65536, left))
                     if not piece:
                         break
                     left -= len(piece)
