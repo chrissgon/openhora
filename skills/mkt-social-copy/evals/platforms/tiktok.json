@@ -1,0 +1,46 @@
+{
+  "skill_name": "mkt-social-copy",
+  "platform": "tiktok",
+  "evals": [
+    {
+      "id": 201,
+      "prompt": "write the 2027-11-15 video, the three habits one",
+      "expected_output": "docs/marketing/content/2027-11-15-<slug>.md has Network: tiktok, Format: video, a ```script block above the ```post block and a TikTok caption of its own. The script covers the three habits and the 340 euros with presets of the closed list and no time. check_post.py ran with the TikTok data file and passed.",
+      "files": [
+        "evals/files/mira-brand",
+        "evals/files/mira-notes",
+        "evals/platforms/tiktok/files/mira-tiktok-calendar"
+      ],
+      "grader_files": [
+        "docs/notes/budget-month.md"
+      ],
+      "assertions": [
+        {
+          "text": "A file docs/marketing/content/2027-11-15-*.md exists with the lines `Network: tiktok` and `Format: video`, and a ```script block above its ```post block",
+          "tags": [
+            "format"
+          ]
+        },
+        "The script covers the three habits of docs/notes/budget-month.md and one beat shows the 340 euros with its label, in lines the person says in the first person",
+        {
+          "text": "No beat of the ```script block holds a time in any form: no timestamp, no duration, no range, no field named start, end, at or duration",
+          "tags": [
+            "guard"
+          ]
+        },
+        {
+          "text": "The Checks section of the content file reports the result of check_script.py and of check_post.py as ok",
+          "tags": [
+            "format"
+          ]
+        },
+        {
+          "text": "The caption in the ```post block has no URL, and every number in the script and the caption is one of the numbers of docs/notes/budget-month.md",
+          "tags": [
+            "guard"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -20,7 +20,7 @@ metadata:
   updates: [docs/marketing/content/<post>.md, docs/marketing/calendar.md]
   requires: [integration:vcs]
   side_effects: []
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Vote round
