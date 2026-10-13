@@ -1,0 +1,12 @@
+{
+ "source": "written for this test from skills/mkt-messaging/assets/messaging-template.md, filled with the fictional Lintel library of that skill's lint test; it passes lint_messaging.py before the trip",
+ "cases": [
+  {
+   "skill": "mkt-messaging",
+   "document": "docs/marketing/messaging.md",
+   "files": {
+    "docs/marketing/messaging.md": "# Messaging: Lintel documentation site\n\n- Owner: mkt-messaging\n- Status: draft\n- Date: 2026-10-04\n- Page: the landing page of the Lintel documentation site\n\n## Summary\n\nThe page speaks to front-end developers who write documentation for a component library. It promises a stylesheet small enough to read in full.\n\n## Sources\n\n- docs/product/prd.md, section Goals.\n- `gzip -c dist/lintel.css | wc -c`, run 2026-10-03: 8112 bytes.\n- library/README.md, section Install.\n\n## Audience\n\n- U-1: a front-end developer who needs a documentation theme this week; fears: a theme that fights their own styles. Source: docs/product/prd.md.\n\n## Promise\n\nA documentation stylesheet you can read in one sitting. Source: docs/product/prd.md.\n\n## Voice\n\n- Plain sentences, no superlatives. Source: derived from library/README.md.\n\n## Proof points\n\n- PROOF-1: The stylesheet is 8 kB gzipped. Evidence: size of the built file. Method: `gzip -c dist/lintel.css | wc -c`. Date: 2026-10-03. Source: build output.\n\n## Sections\n\n- SECTION-1: Hero. Purpose: say what it is. Proof: none. Headline: A stylesheet for docs. Body: Plain CSS, no build step. CTA: Install \u2192 /install. Source: library/README.md.\n- SECTION-2: Size. Purpose: show the weight. Proof: PROOF-1. Headline: Small enough to read. Body: The whole stylesheet is 8 kB. Demo: the file size next to the built file. Source: PROOF-1.\n\n## Taglines\n\n- Styles you can read\n- Docs styling without the weight\n\n## Words\n\n- Use: stylesheet. Source: library/README.md.\n- Avoid: blazing, revolutionary\n\n## Open questions\n\n- OPEN-1: Should the page name the two themes it ships? Blocks: nothing. Recommended: yes, because the README lists both.\n\n## Assumptions\n\nnone\n\n## Readiness\n\n- Ready for design-brief: yes\n"
+   }
+  }
+ ]
+}

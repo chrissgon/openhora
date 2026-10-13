@@ -1,0 +1,14 @@
+{
+  "flow": "short-video",
+  "title": "Script and caption of a short video post",
+  "tasks": [
+    {
+      "key": "script",
+      "skill": "mkt-social-copy",
+      "title": "The script and the caption",
+      "text": "write the script and the caption of the short video post this request describes (a Reel, a TikTok or a Short), as a post file in docs/marketing/content/, from its slot in docs/marketing/calendar.md when the calendar has one, or else from the request. Text only: nothing is recorded, edited or published here. Every number and claim in the script and the caption comes from a document of the project or from the person; ask the person for the material and the platform when the request does not give them, and never invent either.",
+      "depends_on": [],
+      "milestone": true
+    }
+  ]
+}

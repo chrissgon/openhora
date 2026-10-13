@@ -51,6 +51,11 @@
       "where": null
     },
     {
+      "name": "MESSENGER_DISCORD_BOT_TOKEN",
+      "found": false,
+      "where": null
+    },
+    {
       "name": "MESSENGER_TELEGRAM_BOT_TOKEN",
       "found": false,
       "where": null

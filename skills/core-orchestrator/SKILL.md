@@ -20,7 +20,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: []
   side_effects: []
-  version: "2.2.0"
+  version: "2.3.0"
 ---
 
 # Orchestrator

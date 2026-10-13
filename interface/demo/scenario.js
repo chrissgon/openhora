@@ -35,7 +35,7 @@ export const STEPS = Object.freeze([
   { id: "floor", seconds: 6, caption: "tour.floor", route: `#/p/${P}/floor/engineering/agent`, at: [] },
   { id: "review", seconds: 6, caption: "tour.review", route: `#/p/${P}/floor/engineering/inbox`, at: [{ t: 0, op: "finish-build" }] },
   {
-    id: "effect", seconds: 8, caption: "tour.effect", route: `#/p/${P}/floor/marketing/inbox`,
+    id: "effect", seconds: 8, caption: "tour.effect", route: `#/p/${P}/floor/content/inbox`,
     at: [
       { t: 0, op: "release-build" },
       { t: 600, op: "open-effect" },
