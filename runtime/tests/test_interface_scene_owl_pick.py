@@ -292,3 +292,28 @@ def test_the_owl_list_is_styled_and_clipped_until_it_has_the_focus():
     assert ".wb-owls" in css and ".wb-owls:focus-within" in css and ".wb-owl-link" in css
     text = (JS / "floor" / "owl-list.js").read_text(encoding="utf-8")
     assert 'class: "wb-owls' in text and "innerHTML" not in text, "the list is built with the dom helper: text, never markup"
+
+
+# --- an awake owl lights the floor (SPEC-PAR-7 section 12.1) -----------------------------------------------------------------------------------
+
+@needs_node
+def test_a_floor_is_lit_when_any_owl_is_awake_and_the_city_follows(tmp_path):
+    got = run_model_node(tmp_path, SNAP + r"""
+const lit = (snap) => {
+  const row = fm.building(snap, P).rows.find((r) => r.name === "engineering");
+  const city = model.buildingOf(snap.projects[0], snap.details[P]).floors.find((f) => f.agent === "engineering");
+  const world = worldModel(snap, NOW, { focus: P, floor: "engineering", room: { tips: {}, board: null, door: false } }).lots[0].floors.find((f) => f.name === "engineering");
+  return [row.state, row.window, city.window, world.window];
+};
+// a holder that is ready (answered, about to run again) leaves the floor idle, but its owl is awake: lit
+out.ready = lit(make([eng(4, "ready", true)], 2));
+// two places, every owl asleep: grey
+out.asleep = lit(make([], 2));
+// a stopped floor: as today
+out.off = lit(make([eng(4, "done", false)], 2, { agentExtra: { enabled: false } }));
+// a ready task that holds no slot and nothing else: as today (queued is its own rule)
+out.noHolder = lit(make([eng(5, "blocked", false)], 2));
+console.log(JSON.stringify(out));
+""")
+    assert got["ready"] == ["idle", "lit", "lit", "lit"], "an idle floor whose holder is ready has an awake owl: lit in the Floor, the Building and the City"
+    assert got["asleep"][1:] == ["grey", "grey", "grey"] and got["off"][1:] == ["grey", "grey", "grey"] and got["noHolder"][1:] == ["grey", "grey", "grey"]
