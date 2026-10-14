@@ -58,7 +58,9 @@ openhora is a workbench of skills that let a model build a digital solution end 
 
    The local service prints one JSON line with its address and the path of its token file, and serves the pages of `interface/`: open the address in a browser and paste the token once per session. Unless it is started with `--no-dispatch`, it also dispatches the ready tasks of each project (`--dispatch-every`, 30 seconds by default), as far as the modes and the daily caps of the area agents allow; with `--no-dispatch`, `status` says `dispatch off` for every ready task of that service. The MCP mode is a process an MCP client starts, JSON-RPC on standard input and output, with no token and no port, and it has no tool that approves anything. For a project whose configuration is not accepted yet, both list the project with `accepted: false` and answer 412 to each route or tool until `accept-config` is typed in the terminal.
 
-6. **What is not yet a replaceable piece.** If you want to know which layers cannot yet be swapped on their own, read [the review of 2026-10-06](review-2026-10-06.md): the findings, ranked, each with its state in a table at the top.
+6. **A person's phone.** To run projects from Telegram, Discord or WhatsApp, read [messaging.md](messaging.md): the bridge, the channel policy, the messenger providers, the public address the official WhatsApp paths need, the security model and a runbook. It follows one feature across the layers and is not a layer page.
+
+7. **What is not yet a replaceable piece.** If you want to know which layers cannot yet be swapped on their own, read [the review of 2026-10-06](review-2026-10-06.md): the findings, ranked, each with its state in a table at the top.
 
 ## Keeping the pages current
 
@@ -281,3 +283,4 @@ The names fixed for this work. Use each exactly.
 - 2026-10-08: the layer map gives `runtime/service.py` and `runtime/mcp.py` an arrow to `runtime/shell_kit.py`, the kit they share (it imports nothing of the runtime); the other shells keep the one arrow to `runtime/ops.py`.
 - 2026-10-09: brought to the code of the central branch after the eight layer pages: the start commands for the local service and the MCP mode, the configuration check, the layer diagram and its prose (the handlers' call of `cli.py`, the adapter files `lab.py` names, the store, the secrets resolver and the isolated runner), the layer rows, the request path (the execution kit, the effect kinds, the channel rule, the service's dispatch loop), new cross-cutting rows, the glossary's new terms and the known limits (closed rows deleted, open limits added).
 - 2026-10-09: the workbench is called openhora (it was `ai-workbench`): the first sentence of the page, and the three names other machines hold (the secret store's service, the install marker, the plugin's name and link), each with a compatibility stage removed with the next change of reference model (T23); the dated records keep the old name.
+- 2026-10-13: the messaging channels have a page of their own (messaging.md): the bridge, the channel policy, the messenger interface and the five platforms, the security model, a runbook and the open items.

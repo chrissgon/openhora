@@ -5,7 +5,7 @@
 """The messaging bridge's ledger: what it sent, so that a restart sends nothing twice and a tapped button or a reply is
 bound to the card the person saw (runtime/messaging.py).
 
-One file, <data_dir of the first project>/messaging-<platform>.json, mode 0600, written through a temporary file of mode 0600 (O_EXCL, random name, fsync) and published with os.link the first time
+One file, <state folder>/messaging-<platform>.json (the per-user state folder; the first versions kept it in <data_dir of the first project>), mode 0600, written through a temporary file of mode 0600 (O_EXCL, random name, fsync) and published with os.link the first time
 (refusing a path someone placed) and os.replace after. It holds no text of a project: for each card the project's id, the pending decision's id and kind, the
 content hash (a plan's hash, an effect's payload hash, else the sha256 of the card's decision text), the chat, the
 platform's message id, the action ids made for it and the time it was sent; and the platform's next update offset.
