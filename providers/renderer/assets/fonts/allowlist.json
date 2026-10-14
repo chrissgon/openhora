@@ -1,0 +1,36 @@
+{
+ "version": 1,
+ "note": "The fonts a render may use (decision D6: one pinned permissive set). Each row names the file in this folder, its sha256, its licence (SIL Open Font License 1.1, texts beside the files: the licence asks for them to travel with the fonts) and its source. WEAKER PROVENANCE, stated on purpose: the files are Fontsource's Latin subsets of Inter and JetBrains Mono, not the upstream releases; the exact version of the npm packages they came from was not recorded, and the licence inside the packages was not read (the OFL texts here are the upstream projects'). A Latin subset draws Portuguese and English text; another script needs another file. A font that is not listed here is never used: the render falls back to the image's free font and says so.",
+ "fonts": [
+  {
+   "id": "inter-800",
+   "file": "inter-800.woff2",
+   "sha256": "a7d0a50f15d389cad679238466bdb5fc9787aa0715719064ce25abaff042820d",
+   "weight": 800,
+   "family": "Inter",
+   "licence": "OFL-1.1",
+   "licence_file": "Inter-OFL.txt",
+   "source": "@fontsource/inter@5 and @fontsource/jetbrains-mono@5 (npm packages), Latin subset, exact package version not recorded"
+  },
+  {
+   "id": "inter-500",
+   "file": "inter-500.woff2",
+   "sha256": "f3779f1efccc4bdcdf9c0a02ab95bf6bd092ed09c48c08cedc725889edd1d19f",
+   "weight": 500,
+   "family": "Inter",
+   "licence": "OFL-1.1",
+   "licence_file": "Inter-OFL.txt",
+   "source": "@fontsource/inter@5 and @fontsource/jetbrains-mono@5 (npm packages), Latin subset, exact package version not recorded"
+  },
+  {
+   "id": "jetbrains-mono-500",
+   "file": "jetbrains-mono-500.woff2",
+   "sha256": "cb182feeed4d798ff6961d3c79f7026279448fca0676438aaecb21f3fc39553a",
+   "weight": 500,
+   "family": "JetBrains Mono",
+   "licence": "OFL-1.1",
+   "licence_file": "JetBrainsMono-OFL.txt",
+   "source": "@fontsource/inter@5 and @fontsource/jetbrains-mono@5 (npm packages), Latin subset, exact package version not recorded"
+  }
+ ]
+}

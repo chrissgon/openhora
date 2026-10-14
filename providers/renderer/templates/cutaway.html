@@ -1,0 +1,52 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="pv-preset" content="cutaway">
+<meta name="pv-params" content="asset,fit,label">
+<meta name="pv-looks" content="transition">
+<style>
+:root { --c-bg:#0B0F14; --c-text:#FFFFFF; --c-muted:#A8B0BC; --c-accent:#FFC93C; --c-chip_fill:#1B1F2A; --c-chip_text:#FFE08A; --c-chip_border:#FFC93C;
+        --font-display:system-ui,sans-serif; --font-text:system-ui,sans-serif; --font-mono:ui-monospace,monospace;
+        --weight-display:800; --weight-text:500; --weight-mono:500; }
+html, body { margin:0; padding:0; background:transparent; width:1080px; height:1920px; overflow:hidden; }
+#stage { position:absolute; left:0; top:0; width:1080px; height:1920px; overflow:hidden; background:var(--c-bg); }
+#stage > img { position:absolute; left:0; top:0; width:1080px; height:1920px; }
+#chip { position:absolute; left:65px; top:320px; padding:14px 28px; border-radius:16px; border:4px solid var(--c-chip_border);
+        background:var(--c-chip_fill); color:var(--c-chip_text); font-family:var(--font-mono); font-weight:var(--weight-mono); font-size:38px; letter-spacing:0.03em; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script>
+'use strict';
+function easeOutCubic(x) { return 1 - Math.pow(1 - x, 3); }
+function clamp(x) { return Math.max(0, Math.min(1, x)); }
+
+window.renderAt = function (t, data) {
+  const P = data.params;
+  const L = data.look;
+  const stage = document.getElementById('stage');
+  const img = window.__imgs[P.asset];          // decoded by the driver before frame 0
+  stage.replaceChildren(img);
+  img.style.objectFit = P.fit || 'cover';
+  let x = 0, scale = 1, opacity = 1;
+  if (L.transition === 'slide') {
+    x = Math.round((1 - easeOutCubic(clamp(t / 0.3))) * 1080) - Math.round((1 - easeOutCubic(clamp((data.duration - t) / 0.25))) * 1080);
+  } else if (L.transition === 'zoom') {
+    scale = 1 + 0.12 * clamp(t / data.duration);
+    opacity = Math.min(clamp(t / 0.15), clamp((data.duration - t) / 0.15));
+  }
+  img.style.transform = 'translateX(' + x + 'px) scale(' + scale.toFixed(4) + ')';
+  img.style.opacity = opacity.toFixed(3);
+  if (P.label) {
+    const chip = document.createElement('div');
+    chip.id = 'chip';
+    chip.textContent = P.label;
+    chip.style.opacity = easeOutCubic(clamp((t - 0.35) / 0.25)).toFixed(3);
+    stage.appendChild(chip);
+  }
+};
+</script>
+</body>
+</html>

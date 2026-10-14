@@ -1,0 +1,10 @@
+*
+!Dockerfile
+!_*.py
+_docker.py
+_browser.py
+!renderer-presets.json
+!browser-pin.json
+!edl.schema.json
+!templates
+!assets

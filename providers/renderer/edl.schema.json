@@ -1,0 +1,398 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "the renderer's edit list (edl.json) and beats (beats.json)",
+  "description": "Two documents, both renderer-neutral: they hold frame ranges, word indices, preset names, typed parameter values, slot ids and theme tokens, and no ASS-specific field, no filter text, no path, no URL and no time a model wrote, so a second implementation of renderer:video reads the same files. edl.json is written by `base`: the cuts and the captions, from a transcript. beats.json is written by `align`: the overlays and layouts the post file's script block asked for, placed over word indices. Every object is closed (an unlisted key is refused). The checks a schema cannot say (ordering, bounds, hardened text, the vocabulary's own parameter bounds, credential shapes) are in _edl.py, and `check` runs them.",
+  "$defs": {
+    "edl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "fps",
+        "size",
+        "source",
+        "kept",
+        "out_frames",
+        "words",
+        "captions",
+        "theme",
+        "normalisation",
+        "face_box",
+        "zoom",
+        "proposals"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 2,
+          "description": "2: zoom.anchor_y is required and normalisation lists retimed_words and unplaced_words. A version 1 list is refused (edl_schema_outdated): make it again with `base`."
+        },
+        "fps": {
+          "type": "integer",
+          "description": "The output frame rate, within fps_min and fps_max of renderer-presets.json."
+        },
+        "size": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sha256",
+            "duration",
+            "width",
+            "height",
+            "has_audio",
+            "color_matrix"
+          ],
+          "properties": {
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$",
+              "description": "The recording this list was made from; a render refuses another."
+            },
+            "duration": {
+              "type": "number"
+            },
+            "width": {
+              "type": "integer"
+            },
+            "height": {
+              "type": "integer"
+            },
+            "has_audio": {
+              "type": "boolean"
+            },
+            "color_matrix": {
+              "enum": [
+                "bt709",
+                "auto"
+              ]
+            }
+          }
+        },
+        "kept": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "description": "[from_frame, to_frame) of the recording on the grid of fps, ordered, not overlapping."
+        },
+        "out_frames": {
+          "type": "integer",
+          "description": "The sum of the kept ranges."
+        },
+        "words": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "index",
+              "text",
+              "start",
+              "end"
+            ],
+            "properties": {
+              "index": {
+                "type": "integer",
+                "description": "The word's index in the transcript; strictly increasing, not renumbered when words are dropped."
+              },
+              "text": {
+                "type": "string"
+              },
+              "start": {
+                "type": "number"
+              },
+              "end": {
+                "type": "number"
+              },
+              "estimated": {
+                "const": true
+              }
+            }
+          },
+          "description": "The live words on the OUTPUT timeline (after the cuts), in seconds."
+        },
+        "captions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "position",
+            "chunks"
+          ],
+          "properties": {
+            "position": {
+              "enum": [
+                "bottom",
+                "center"
+              ]
+            },
+            "chunks": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "description": "[word_from, word_to] word indices."
+            }
+          }
+        },
+        "theme": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "colors",
+            "fonts"
+          ],
+          "properties": {
+            "colors": {
+              "type": "object",
+              "description": "Every token of the vocabulary's palette to a #RRGGBB value."
+            },
+            "fonts": {
+              "type": "object",
+              "description": "role -> {id, weight}; id is `default` or an id of the font allow-list."
+            }
+          }
+        },
+        "normalisation": {
+          "type": "object",
+          "description": "Counts of what was done to the transcript's times (zero-length words spread, starts clamped, segments dropped as impossible speech) retimed_words (a word that silence covers is misplaced, not absent: it is moved into the voiced span next to it, {index, from, to} in source seconds) and unplaced_words (no voiced span: left out of the captions, {index, start, end}): facts, never text."
+        },
+        "face_box": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "x",
+            "y",
+            "w",
+            "h"
+          ],
+          "properties": {
+            "x": {
+              "type": "integer"
+            },
+            "y": {
+              "type": "integer"
+            },
+            "w": {
+              "type": "integer"
+            },
+            "h": {
+              "type": "integer"
+            }
+          },
+          "description": "The speaker's face in frame pixels, given once per recording. Cards live in the band above it and captions in the band below it; a render fails when one touches it."
+        },
+        "zoom": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "factor",
+            "push_in",
+            "anchor_y"
+          ],
+          "properties": {
+            "mode": {
+              "enum": [
+                "alternate",
+                "none"
+              ],
+              "description": "alternate: every second kept range is drawn at `factor`, about the fixed point."
+            },
+            "factor": {
+              "type": "number"
+            },
+            "push_in": {
+              "type": "number",
+              "description": "A slow extra zoom over each range of 5 s or more, as a fraction (at most 0.03); 0 for none."
+            },
+            "anchor_y": {
+              "type": "number",
+              "description": "The zoom's fixed point: this fraction of the face box's height down from its top, at the face's horizontal centre."
+            }
+          }
+        },
+        "proposals": {
+          "type": "array",
+          "description": "Retakes found by rule, as proposals. Only a confirmed one has been cut: its words are not in `words`.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "kind",
+              "word_from",
+              "word_to",
+              "keep_from",
+              "seconds",
+              "confirmed"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "repeat",
+                  "restart"
+                ]
+              },
+              "word_from": {
+                "type": "integer"
+              },
+              "word_to": {
+                "type": "integer"
+              },
+              "keep_from": {
+                "type": "integer",
+                "description": "The first word of the take that stays."
+              },
+              "seconds": {
+                "type": "number"
+              },
+              "confirmed": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    },
+    "beats": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "threshold",
+        "overlays",
+        "layouts",
+        "slots",
+        "report",
+        "unmatched",
+        "fallbacks"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "threshold": {
+          "type": "number",
+          "description": "The alignment score a beat's spoken line needed to be placed."
+        },
+        "overlays": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/entry"
+          }
+        },
+        "layouts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/entry"
+          }
+        },
+        "slots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "slot",
+              "beat",
+              "param",
+              "type",
+              "description"
+            ],
+            "properties": {
+              "slot": {
+                "type": "string"
+              },
+              "beat": {
+                "type": "integer"
+              },
+              "param": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              }
+            }
+          },
+          "description": "The asset slots the person fills: one file per slot, bound by its id."
+        },
+        "report": {
+          "type": "array",
+          "description": "Per beat: preset, score, matched, reordered, word range."
+        },
+        "unmatched": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "Beat numbers whose spoken line was not found in the transcript: they get no overlay."
+        },
+        "fallbacks": {
+          "type": "array",
+          "description": "Beats whose empty slot the person resolved to a keyword or to nothing."
+        }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "beat",
+        "preset",
+        "params",
+        "word_from",
+        "word_to",
+        "score"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "beat": {
+          "type": "integer"
+        },
+        "preset": {
+          "type": "string",
+          "description": "A name of shared/references/video-presets.json."
+        },
+        "params": {
+          "type": "object",
+          "description": "Typed values of the preset's declared parameters; a slot parameter holds a slot id."
+        },
+        "word_from": {
+          "type": "integer"
+        },
+        "word_to": {
+          "type": "integer"
+        },
+        "score": {
+          "type": "number"
+        }
+      }
+    }
+  }
+}

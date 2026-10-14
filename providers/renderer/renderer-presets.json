@@ -1,0 +1,166 @@
+{
+ "version": 1,
+ "note": "What the renderer decides about the closed vocabulary shared/references/video-presets.json: the frame, the default colours, the timing of each preset and the limits. The vocabulary (names, parameters, bounds) is read from that file by flag; nothing here repeats it. A test holds the presets, their templates and the parameters the templates read equal to the vocabulary.",
+ "frame": {
+  "width": 1080,
+  "height": 1920,
+  "fps": 30,
+  "fps_min": 24,
+  "fps_max": 60,
+  "safe": {
+   "left": 65,
+   "right": 65,
+   "top": 285,
+   "bottom": 1248
+  }
+ },
+ "pip": {
+  "size": 380
+ },
+ "theme": {
+  "colors": {
+   "bg": "#0B0F14",
+   "text": "#FFFFFF",
+   "muted": "#A8B0BC",
+   "accent": "#FFC93C",
+   "chip_fill": "#1B1F2A",
+   "chip_text": "#FFE08A",
+   "chip_border": "#FFC93C"
+  },
+  "font_roles": [
+   "display",
+   "text",
+   "mono"
+  ],
+  "default_font_weight": {
+   "display": 800,
+   "text": 500,
+   "mono": 500
+  },
+  "system_fallback": {
+   "display": "-apple-system, \"Helvetica Neue\", Arial, sans-serif",
+   "text": "-apple-system, \"Helvetica Neue\", Arial, sans-serif",
+   "mono": "Menlo, ui-monospace, monospace"
+  }
+ },
+ "caption": {
+  "template": "caption.html",
+  "positions": [
+   "bottom",
+   "center"
+  ],
+  "max_words": 3,
+  "max_chars": 22,
+  "hold": 0.2,
+  "pause": 0.6
+ },
+ "limits": {
+  "words_max": 4000,
+  "word_chars_max": 40,
+  "kept_ranges_max": 600,
+  "input_seconds_max": 300,
+  "frames_max": 27000,
+  "asset_max_side": 8192,
+  "asset_max_pixels": 40000000,
+  "asset_max_bytes": 67108864,
+  "font_max_bytes": 5242880,
+  "json_max_bytes": 5242880,
+  "render_seconds_base": 120,
+  "render_seconds_per_output_second": 25,
+  "render_seconds_max": 1800,
+  "frame_bytes_estimate": 250000
+ },
+ "presets": {
+  "keyword": {
+   "template": "keyword.html",
+   "anchor": "match_text",
+   "min_duration": 1.0,
+   "max_duration": 1.8,
+   "tail": 0.3,
+   "looks": {}
+  },
+  "list": {
+   "template": "list.html",
+   "anchor": "window",
+   "min_duration": 2.0,
+   "max_duration": 8.0,
+   "tail": 0.5,
+   "looks": {}
+  },
+  "number": {
+   "template": "number.html",
+   "anchor": "window",
+   "min_duration": 2.0,
+   "max_duration": 6.0,
+   "tail": 0.6,
+   "looks": {}
+  },
+  "quote": {
+   "template": "quote.html",
+   "anchor": "window",
+   "min_duration": 2.0,
+   "max_duration": 7.0,
+   "tail": 0.5,
+   "looks": {}
+  },
+  "cutaway": {
+   "template": "cutaway.html",
+   "anchor": "window",
+   "min_duration": 1.5,
+   "max_duration": null,
+   "tail": 0.2,
+   "page_images": true,
+   "looks": {
+    "transition": "slide"
+   }
+  },
+  "pip": {
+   "template": "pip.html",
+   "anchor": "window",
+   "min_duration": 1.5,
+   "max_duration": null,
+   "tail": 0.2,
+   "looks": {}
+  }
+ },
+ "zones": {
+  "card_top": 110,
+  "gap": 18,
+  "caption_bottom": 1620,
+  "caption_margin": 14,
+  "card_min_height": 80,
+  "caption_min_height": 120,
+  "note": "The face box splits the frame: cards (keyword, list, number, quote) live in the band above it, from card_top down to the face box (as the zoom leaves it) less gap; captions live in the band below it, from the face box plus gap down to caption_bottom. The render fails when a drawn card or caption touches the face box."
+ },
+ "face_box_default": {
+  "x": 240,
+  "y": 620,
+  "w": 600,
+  "h": 560
+ },
+ "zoom": {
+  "modes": [
+   "alternate",
+   "none"
+  ],
+  "default_mode": "alternate",
+  "factor": 1.1,
+  "factor_max": 1.25,
+  "push_in": 0.02,
+  "push_in_max": 0.03,
+  "anchor_y": 0.25,
+  "audio_fade_seconds": 0.015
+ },
+ "cuts": {
+  "min_cut": 0.12,
+  "min_kept": 0.4,
+  "gap": 0.5,
+  "noise_db": -35,
+  "min_silence": 0.25,
+  "long_cut": 2.0,
+  "wordless_max": 0.3,
+  "pad_head": 0.1,
+  "pad_tail": 0.14,
+  "wordless_keep": 1.5
+ }
+}
