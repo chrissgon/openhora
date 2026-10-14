@@ -16,10 +16,11 @@ import _media
 import _redact
 from _align import norm_tokens, token_sim
 from _text import Refusal, clean_text
-from _timeline import (build_words, caption_chunks, check_transcript, detect_retakes, kept_ranges, normalise_words, out_frames_of)
+from _timeline import (build_words, caption_chunks, check_transcript, cut_phantoms, detect_retakes, kept_ranges, normalise_words, out_frames_of)
 from _vocab import HEX_COLOR, check_params, slot_params
 
-SCHEMA_VERSION = 1
+EDL_SCHEMA_VERSION = 2     # 2: zoom.anchor_y is required and normalisation lists the phantom words the cut took
+BEATS_SCHEMA_VERSION = 1
 SHA256 = re.compile(r"[0-9a-f]{64}")
 ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")
 MENTION = re.compile(r"(?<![\w@])@[\w.]{1,30}")
@@ -30,7 +31,7 @@ SOURCE_KEYS = {"sha256", "duration", "width", "height", "has_audio", "color_matr
 BEATS_KEYS = {"schema_version", "threshold", "overlays", "layouts", "slots", "report", "unmatched", "fallbacks"}
 ENTRY_KEYS = {"id", "beat", "preset", "params", "word_from", "word_to", "score"}
 SLOT_KEYS = {"slot", "beat", "param", "type", "description"}
-NORMALISATION_KEYS = {"words", "dropped_words", "dropped_segments", "zero_length_words", "spread_runs", "estimated_words", "clamped_starts"}
+NORMALISATION_KEYS = {"words", "dropped_words", "dropped_segments", "zero_length_words", "spread_runs", "estimated_words", "clamped_starts", "phantom_words"}
 
 
 def _num(x) -> bool:
@@ -203,7 +204,11 @@ def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None
         raise Refusal("nothing_kept", "transcript")
     if len(kept) > limits["kept_ranges_max"]:
         raise Refusal("too_many_cuts", "kept")
-    out_words = build_words(words, kept, fps)
+    phantoms = cut_phantoms(kept_words, kept, fps, sil)
+    out_words = build_words(words, kept, fps, {w["index"] for w in phantoms})
+    if not out_words:
+        raise Refusal("nothing_kept", "transcript")
+    report["phantom_words"] = [{"index": w["index"], "start": round(w["start"], 3), "end": round(w["end"], 3)} for w in phantoms]
     cap = data["caption"]
     if caption_position not in cap["positions"]:
         raise Refusal("bad_choice", "caption_position")
@@ -231,7 +236,7 @@ def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None
             "anchor_y": zoom_cfg["anchor_y"] if anchor_y is None else anchor_y}
     check_zoom(data, zoom)
     face = check_face(data, dict(data["face_box_default"] if face_box is None else face_box), "face_box", zoom)
-    edl = {"schema_version": SCHEMA_VERSION, "fps": fps, "size": [frame["width"], frame["height"]],
+    edl = {"schema_version": EDL_SCHEMA_VERSION, "fps": fps, "size": [frame["width"], frame["height"]],
            "source": {"sha256": facts["sha256"], "duration": round(duration, 3), "width": facts["width"], "height": facts["height"],
                       "has_audio": bool(facts["has_audio"]),
                       "color_matrix": "auto" if facts.get("color_space") not in (None, "unknown", "bt709") else "bt709"},
@@ -277,7 +282,9 @@ def check_edl(edl, data: dict, vocab: dict, fonts: dict, platform=None) -> dict:
     """Validate the base list. Returns {texts: [(field, text)], mentions: []} for the caller's scans; raises Refusal."""
     limits, frame = data["limits"], data["frame"]
     closed(edl, EDL_KEYS, "edl")
-    if edl["schema_version"] != SCHEMA_VERSION:
+    if edl["schema_version"] == 1:
+        raise Refusal("edl_schema_outdated", "edl")      # a version 1 list has no zoom.anchor_y: make it again with `base`
+    if edl["schema_version"] != EDL_SCHEMA_VERSION:
         raise Refusal("schema_version", "edl")
     fps = edl["fps"]
     if not _int(fps) or not frame["fps_min"] <= fps <= frame["fps_max"]:
@@ -355,6 +362,13 @@ def check_edl(edl, data: dict, vocab: dict, fonts: dict, platform=None) -> dict:
             raise Refusal("bad_font_weight", "edl.theme.fonts.%s" % role)
     norm = edl["normalisation"]
     closed(norm, NORMALISATION_KEYS, "edl.normalisation")
+    ph = norm["phantom_words"]
+    if not isinstance(ph, list) or len(ph) > 2000:
+        raise Refusal("bad_normalisation", "edl.normalisation.phantom_words")
+    for k, p in enumerate(ph):
+        closed(p, {"index", "start", "end"}, "edl.normalisation.phantom_words[%d]" % k)
+        if not _int(p["index"]) or p["index"] < 0 or not _num(p["start"]) or not _num(p["end"]):
+            raise Refusal("bad_normalisation", "edl.normalisation.phantom_words[%d]" % k)
     check_face(data, edl["face_box"], "edl.face_box", edl["zoom"])
     check_zoom(data, edl["zoom"], "edl.zoom")
     props = edl["proposals"]
@@ -380,7 +394,7 @@ def check_edl(edl, data: dict, vocab: dict, fonts: dict, platform=None) -> dict:
 def check_beats(beats, edl, vocab: dict) -> dict:
     """Validate beats.json against the base list and the vocabulary. Returns {texts, mentions}; raises Refusal."""
     closed(beats, BEATS_KEYS, "beats")
-    if beats["schema_version"] != SCHEMA_VERSION or not _num(beats["threshold"]) or not 0 < beats["threshold"] <= 1:
+    if beats["schema_version"] != BEATS_SCHEMA_VERSION or not _num(beats["threshold"]) or not 0 < beats["threshold"] <= 1:
         raise Refusal("schema_version", "beats")
     index_set = {w["index"] for w in edl["words"]}
     texts, seen_ids, slot_ids_used = [], set(), set()

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import os
 import subprocess
 import tempfile
@@ -49,7 +50,12 @@ def test_the_encoder_thread_count_is_pinned_so_the_bytes_do_not_depend_on_the_ma
     for make in (plain_plan, pip_plan):
         argv = _media.compose_argv("ffmpeg", make())
         i = argv.index("libx264")
-        assert argv[i + 1:i + 3] == ["-threads", "4"] and argv.count("-threads") == 1
+        assert argv[i + 1:i + 3] == ["-threads", "4"] and argv.count("-threads") == 2      # the encoder's and the decoder's
+        assert argv[argv.index("-filter_complex_threads") + 1] == "4" and argv[argv.index("-filter_threads") + 1] == "4"
+        graph = argv[argv.index("-filter_complex") + 1]
+        scales = re.findall(r"scale=[^,;\[]*", graph)
+        assert scales and all("flags=lanczos+accurate_rnd+bitexact" in x for x in scales), scales        # every scale is bit-exact
+        assert argv[argv.index("-sws_flags") + 1] == "lanczos+accurate_rnd+bitexact"
 
 
 def test_the_recording_is_always_read_as_mov_with_a_file_whitelist_and_the_render_is_capped():

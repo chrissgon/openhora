@@ -324,10 +324,11 @@ def test_the_reason_a_browser_did_not_start_crosses_the_boundary_only_as_one_sho
     said = {"ok": False, "code": "browser_failed", "field": "browser", "problems": [], "reason": "CDPError: cannot open display | line two"}
     rc, out, err = run_with_files(world, tmp_path, {"result.json": {"text": json.dumps(said)}}, rc=1)
     assert rc == 1 and err.splitlines()[0] == "refused: browser_failed browser" and "  reason: CDPError: cannot open display | line two" in err
+    assert out["reason"] == "CDPError: cannot open display | line two"                      # and in the result on stdout, the validated string
     for bad in ("x" * 201, "a\u202eb", "line\nbreak", 7):
         said["reason"] = bad
         rc, out, err = run_with_files(world, tmp_path, {"result.json": {"text": json.dumps(said)}}, rc=1)
-        assert rc == 1 and err.startswith("refused: browser_failed browser") and "reason:" not in err
+        assert rc == 1 and err.startswith("refused: browser_failed browser") and "reason:" not in err and "reason" not in out
 
 
 def test_a_container_that_died_without_a_result_is_named_as_killed_when_it_was_out_of_memory(world, tmp_path):

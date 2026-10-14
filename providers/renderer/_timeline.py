@@ -153,6 +153,24 @@ def real_words(words: list, silences=None) -> list:
     return [w for w in words if coverage(w["start"], w["end"], silences) < PHANTOM]
 
 
+def cut_phantoms(words: list, kept: list, fps: int, silences) -> list:
+    """The live words that are phantoms (silence covers PHANTOM of their span, see real_words) and that the cut left out: a kept range
+    holds less than half of the word. They were cut with the silence they sit in, so they are not captions (a caption snapped to the
+    edge of the cut would be shown with no sound under it). A phantom that a kept range holds in full or in most (the soft first word
+    after a long cut) stays, and so does a word whose times were estimated (zero-length in the transcript)."""
+    if not silences:
+        return []
+    out = []
+    for w in words:
+        if w.get("dropped") or w.get("estimated") or coverage(w["start"], w["end"], silences) < PHANTOM:
+            continue                                     # a word whose times were estimated has no times to judge it by: it stays
+        span = max(w["end"] - w["start"], 1e-6)
+        held = sum(max(0.0, min(w["end"], b / fps) - max(w["start"], a / fps)) for a, b in kept)
+        if held < 0.5 * span:
+            out.append(w)
+    return out
+
+
 def protected_spans(words: list, silences=None) -> list:
     """The part of each real word a silence may not cut, widened by WORD_GUARD. A word whose span is far longer than the word takes (the
     transcriber lets a word run on over the pause after it) is protected only for the time it plausibly takes, so that the silence
@@ -211,6 +229,8 @@ def trim_wordless(cuts: list, words: list, fps: int, pad_head: float, pad_tail: 
                 guard = int(math.ceil((first["end"] + WORD_GUARD) * fps - 1e-6))      # the word is not cut by the next cut either
                 for o in out:
                     if o is not c and o[0] >= c[0] and o[0] < guard:
+                        if o[1] <= guard:                  # a cut the extended one swallows: its forced flag (a confirmed retake) is not lost
+                            c[2] = c[2] or o[2]
                         o[0] = min(o[1], guard)
         before = c[0] / fps                      # the kept range that ends here
         last = None
@@ -416,11 +436,12 @@ def src_to_out_seconds(kept: list, fps: int, t: float) -> float:
     return off / fps if t < a / fps else (off + b - a) / fps
 
 
-def build_words(words: list, kept: list, fps: int) -> list:
-    """The live words on the output timeline: {index, text, start, end[, estimated]}, times in seconds, 3 decimals."""
+def build_words(words: list, kept: list, fps: int, skip=()) -> list:
+    """The live words on the output timeline: {index, text, start, end[, estimated]}, times in seconds, 3 decimals. `skip` is a set of
+    word indices left out (the phantoms the cut took, see cut_phantoms)."""
     rows = []
     for w in words:
-        if w["dropped"]:
+        if w["dropped"] or w["index"] in skip:
             continue
         s, e = src_to_out_seconds(kept, fps, w["start"]), src_to_out_seconds(kept, fps, w["end"])
         row = {"index": w["index"], "text": w["text"], "start": round(s, 3), "end": round(max(e, s), 3)}

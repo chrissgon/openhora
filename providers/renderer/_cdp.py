@@ -132,7 +132,12 @@ LAUNCHER = (
     "b, r, w = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])\n"
     "os.dup2(r, 3); os.dup2(w, 4)\n"
     "os.close(r); os.close(w)\n"
-    "os.execv(b, [b] + sys.argv[4:])\n"
+    "try:\n"
+    "    os.execv(b, [b] + sys.argv[4:])\n"
+    "except OSError as e:\n"
+    "    import errno\n"
+    "    print('exec failed: ' + errno.errorcode.get(e.errno, 'UNKNOWN'), file=sys.stderr)\n"
+    "    os._exit(127)\n"
 )
 
 

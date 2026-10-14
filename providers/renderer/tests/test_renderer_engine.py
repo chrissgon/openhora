@@ -434,9 +434,16 @@ def test_the_shipped_allow_list_is_the_one_pinned_set_with_its_licences_and_its_
         assert "SIL OPEN FONT LICENSE Version 1.1" in licence and licence.startswith("Copyright")
     note = json.load(open(os.path.join(folder, "allowlist.json")))["note"]
     assert "WEAKER PROVENANCE" in note and "Fontsource" in note and "not the upstream releases" in note
+    terms_file = os.environ.get("WORKBENCH_PRIVATE_TERMS") or os.path.join(str(K.RENDERER.parents[1]), ".private-terms")
+    terms = []                                                          # the maintainer's own list of what must not appear (git-ignored, absent in CI)
+    if os.path.isfile(terms_file):
+        for line in open(terms_file, encoding="utf-8").read().splitlines():
+            line = line.strip()
+            if line and not line.startswith(("#", "!")):
+                terms.append(re.compile(line[3:], re.I) if line.startswith("re:") else re.compile(re.escape(line), re.I))
     for name in os.listdir(folder):                                     # what the repository holds names no project of anyone's
-        text = open(os.path.join(folder, name), "rb").read().decode("latin-1").lower()
-        assert "chrissgon" not in text and "posts" not in name.lower(), name
+        text = open(os.path.join(folder, name), "rb").read().decode("latin-1")
+        assert not any(t.search(text) or t.search(name) for t in terms), name
 
 
 @needs_browser
@@ -522,6 +529,16 @@ def test_the_browser_gets_its_pipes_on_fd_3_and_4_with_no_shell_in_between(tmp_p
         c.close()
     assert info["product"] == "Fake/1" and info["open"] == []          # nothing else of ours is left open in the browser
     assert "/bin/sh" not in read(_cdp.__file__).replace("on which /bin/sh the machine has", "")
+
+
+def test_a_browser_that_cannot_be_executed_says_so_in_one_line(tmp_path):
+    missing = tmp_path / "no-such-browser"
+    c = _cdp.Chrome(str(missing), {}, str(tmp_path / "w"), time_limit=20)
+    with pytest.raises(_cdp.CDPError) as raised:
+        c.start()
+    c.close()
+    reason = _frames.browser_reason(raised.value, c.log_path)
+    assert "exec failed: ENOENT" in reason, reason
 
 
 def test_a_browser_that_does_not_start_leaves_a_short_redacted_reason(tmp_path):

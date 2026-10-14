@@ -191,7 +191,7 @@ def test_the_zoom_is_about_a_fixed_point_on_a_picture_twice_the_output_size():
     assert _media.zoom_levels(zoom, 1, 300, 30)[0] == 1.1 and _media.zoom_levels(zoom, 1, 300, 30)[1] == pytest.approx(1.1 * 1.02)
     assert _media.zoom_levels(zoom, 1, 60, 30) == (1.1, 1.1)                           # a range under 5 s does not push
     assert _media.zoom_levels({**zoom, "mode": "none", "push_in": 0.0}, 1, 300, 30) == (1.0, 1.0)
-    assert _media.zoom_filter(1.0, 1.0, 100, ANCHOR, 1080, 1920, 30) == "scale=1080:1920:flags=lanczos"
+    assert _media.zoom_filter(1.0, 1.0, 100, ANCHOR, 1080, 1920, 30) == "scale=1080:1920:flags=" + _media.SWS
     still = _media.zoom_filter(1.1, 1.1, 100, ANCHOR, 1080, 1920, 30)
     assert still == "zoompan=z='1.10000':x='1080.00*(1-1/zoom)':y='1520.00*(1-1/zoom)':d=1:s=1080x1920:fps=30"      # the anchor, doubled: the picture is cut at 2x
     push = _media.zoom_filter(1.0, 1.02, 100, ANCHOR, 1080, 1920, 30)
@@ -204,7 +204,7 @@ def test_every_second_range_is_zoomed_on_the_face_and_stays_inside_the_frame():
     graph = graph[graph.index("-filter_complex") + 1]
     assert "scale=2160:3840" in graph and "crop=2160:3840" in graph                    # the picture is cut at twice the output size
     ranges = [part for part in graph.split(";") if "trim=start_frame" in part]
-    assert len(ranges) == 3 and "zoompan" not in ranges[0] and ranges[0].count("scale=1080:1920:flags=lanczos") == 1 and "zoompan=z='1.10000'" in ranges[1] and "zoompan" not in ranges[2]
+    assert len(ranges) == 3 and "zoompan" not in ranges[0] and ranges[0].count("scale=1080:1920:flags=" + _media.SWS) == 1 and "zoompan=z='1.10000'" in ranges[1] and "zoompan" not in ranges[2]
 
 
 def test_the_zoomed_box_is_the_face_box_grown_about_the_anchor():

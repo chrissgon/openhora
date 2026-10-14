@@ -270,6 +270,8 @@ def _even(x: float) -> int:
 
 
 PUSH_MIN_SECONDS = 5.0     # only a range this long gets the slow push-in
+SWS = "lanczos+accurate_rnd+bitexact"     # every scale: the same arithmetic whatever SIMD the CPU has (bitexact), no threads-dependent rounding
+THREADS = 4                                # encoder, filter graph (and with it swscale's slices); the decoder's too, which changes speed only
 BASE = 2                   # the picture is cut at twice the output size, so a zoom never upscales (and a slow zoom does not jitter)
 
 
@@ -302,7 +304,7 @@ def zoom_filter(z0: float, z1: float, frames: int, anchor: tuple, w: int, h: int
     """The filter from the picture cut at BASE times the output size to the output for one kept range: a plain scale at 100%, else
     a zoompan about the fixed point `anchor` (output pixels): the point stays where it is while the picture grows about it."""
     if abs(z0 - 1.0) < 1e-6 and abs(z1 - 1.0) < 1e-6:
-        return "scale=%d:%d:flags=lanczos" % (w, h)
+        return "scale=%d:%d:flags=%s" % (w, h, SWS)
     ax, ay = anchor[0] * BASE, anchor[1] * BASE
     z = "%.5f" % z0 if abs(z1 - z0) < 1e-6 else "%.5f+%.6f*on" % (z0, (z1 - z0) / max(1, frames - 1))
     return "zoompan=z='%s':x='%.2f*(1-1/zoom)':y='%.2f*(1-1/zoom)':d=1:s=%dx%d:fps=%s" % (z, ax, ay, w, h, fps)
@@ -330,7 +332,7 @@ def compose_argv(ffmpeg: str, plan: dict) -> list:
     fps, (w, h) = plan["fps"], plan["size"]
     kept, has_audio = plan["kept"], plan["has_audio"]
     n = len(kept)
-    inputs = [*RECORDING_IN, "-i", plan["src"]]
+    inputs = ["-threads", str(THREADS), *RECORDING_IN, "-i", plan["src"]]    # the decoder's threads: speed only, a decoder is exact whatever the count
     idx, nxt = {}, 1
     for layer, prefix in (("beat", "beat"), ("caption", "cap")):
         if layer in plan["layers"]:
@@ -351,8 +353,8 @@ def compose_argv(ffmpeg: str, plan: dict) -> list:
         mask_in = nxt
         nxt += 1
 
-    g = ["[0:v:0]fps=%s:start_time=0,scale=%d:%d:force_original_aspect_ratio=increase:in_color_matrix=%s:out_color_matrix=bt709:out_range=tv:flags=lanczos,"
-         "crop=%d:%d,setsar=1,format=yuv420p[sv]" % (fps, w * BASE, h * BASE, plan["src_matrix"], w * BASE, h * BASE)]
+    g = ["[0:v:0]fps=%s:start_time=0,scale=%d:%d:force_original_aspect_ratio=increase:in_color_matrix=%s:out_color_matrix=bt709:out_range=tv:flags=%s,"
+         "crop=%d:%d,setsar=1,format=yuv420p[sv]" % (fps, w * BASE, h * BASE, plan["src_matrix"], SWS, w * BASE, h * BASE)]
     if n > 1:
         g.append("[sv]split=%d%s" % (n, "".join("[s%d]" % k for k in range(n))))
         src_v = ["[s%d]" % k for k in range(n)]
@@ -379,20 +381,20 @@ def compose_argv(ffmpeg: str, plan: dict) -> list:
     if not idx and not pips:
         g.append("[cv]%s[vout]" % TAGS)
     else:
-        g.append("[cv]scale=in_range=tv:in_color_matrix=bt709:out_range=pc,format=gbrp[base]")
+        g.append("[cv]scale=in_range=tv:in_color_matrix=bt709:out_range=pc:flags=%s,format=gbrp[base]" % SWS)
         cur = "base"
         size = plan["pip_size"]
         if pips:
             k = len(pips)
             g.append("[base]split=%d%s" % (k + 1, "".join("[main]" if i == 0 else "[spk%d]" % (i - 1) for i in range(k + 1))))
             cur = "main"
-            g.append("[%d:v]format=gray,scale=%d:%d,split=%d%s" % (mask_in, size, size, k, "".join("[m%d]" % i for i in range(k))))
+            g.append("[%d:v]format=gray,scale=%d:%d:flags=%s,split=%d%s" % (mask_in, size, size, SWS, k, "".join("[m%d]" % i for i in range(k))))
             for i, p in enumerate(pips):
                 en = "enable='between(t,%.4f,%.4f)'" % (p["start_frame"] / fps, p["end_frame"] / fps)
-                g.append("[%d:v]scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d,format=gbrp[as%d]" % (pip_in[i], w, h, w, h, i))
+                g.append("[%d:v]scale=%d:%d:force_original_aspect_ratio=increase:flags=%s,crop=%d:%d,format=gbrp[as%d]" % (pip_in[i], w, h, SWS, w, h, i))
                 g.append("[%s][as%d]overlay=0:0:format=gbrp:%s[oa%d]" % (cur, i, en, i))
                 bubble = bubble_crop(face, w, h)
-                g.append("[spk%d]crop=%d:%d:%d:%d,scale=%d:%d,format=gbrp[sq%d]" % (i, bubble[0], bubble[0], bubble[1], bubble[2], size, size, i))
+                g.append("[spk%d]crop=%d:%d:%d:%d,scale=%d:%d:flags=%s,format=gbrp[sq%d]" % (i, bubble[0], bubble[0], bubble[1], bubble[2], size, size, SWS, i))
                 g.append("[sq%d][m%d]alphamerge[bub%d]" % (i, i, i))
                 g.append("[oa%d][bub%d]overlay=%d:%d:format=gbrp:%s[ob%d]" % (i, i, p["x"], p["y"], en, i))
                 cur = "ob%d" % i
@@ -401,14 +403,16 @@ def compose_argv(ffmpeg: str, plan: dict) -> list:
                 g.append("[%d:v]format=gbrap[l_%s]" % (idx[layer], layer))
                 g.append("[%s][l_%s]overlay=0:0:format=gbrp[c_%s]" % (cur, layer, layer))
                 cur = "c_%s" % layer
-        g.append("[%s]scale=in_range=pc:out_range=tv:out_color_matrix=bt709,format=yuv420p,%s[vout]" % (cur, TAGS))
+        g.append("[%s]scale=in_range=pc:out_range=tv:out_color_matrix=bt709:flags=%s,format=yuv420p,%s[vout]" % (cur, SWS, TAGS))
 
-    argv = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-nostdin", *inputs, "-filter_complex", ";".join(g), "-map", "[vout]"]
+    argv = [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-nostdin", "-filter_threads", str(THREADS), "-filter_complex_threads", str(THREADS),
+            *inputs, "-filter_complex", ";".join(g), "-map", "[vout]"]
     if has_audio:
         argv += ["-map", "[aout]", "-c:a", "aac", "-b:a", "160k", "-ar", "48000"]
-    # -threads is pinned: x264's output depends on its thread count, and the automatic count follows the number of cores the machine
-    # shows, so the same render would differ in bytes from one machine to another. Four is the same bytes under any CPU limit.
-    argv += ["-c:v", "libx264", "-threads", "4", "-preset", "medium", "-crf", "18", "-profile:v", "high", "-pix_fmt", "yuv420p",
+    # Every count a thread-dependent step reads is pinned (the encoder's, the filter graph's, with it swscale's slices) and every scale
+    # is bit-exact: x264's output depends on its thread count and the automatic count follows the cores the machine shows, so the same
+    # render would otherwise differ in bytes from one CPU limit or machine to another. See the README for what can still differ.
+    argv += ["-sws_flags", SWS, "-c:v", "libx264", "-threads", str(THREADS), "-preset", "medium", "-crf", "18", "-profile:v", "high", "-pix_fmt", "yuv420p",
              "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
              "-r", str(fps), "-fps_mode", "cfr", "-frames:v", str(plan["out_frames"]), "-shortest",
              "-map_metadata", "-1", "-map_chapters", "-1", "-fflags", "+bitexact", "-flags:v", "+bitexact", "-flags:a", "+bitexact",

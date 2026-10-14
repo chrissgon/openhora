@@ -390,3 +390,62 @@ def test_touching_silences_are_one_silence():
     one = T.kept_ranges(words, 6.0, FPS, [(0.0, 1.5), (1.5, 2.0), (4.0, 6.0)])
     split = T.kept_ranges(words, 6.0, FPS, [(0.0, 2.0), (4.0, 6.0)])
     assert one == split and one[0][0] / FPS == pytest.approx(1.9, abs=0.04)
+
+
+def test_a_phantom_word_in_the_middle_of_speech_is_cut_with_its_silence_and_is_no_caption_but_is_reported():
+    """A transcriber puts "ok" into a pause: silence covers it, the cut takes it, and it must not come back as a caption word snapped to
+    a zero-length point at the cut's edge. The result lists it (index and source times, never its text) for the caption review."""
+    spans = [("Hello", 0.6, 1.0), ("there", 1.0, 1.4), ("ok", 2.0, 2.3), ("again", 3.5, 3.9), ("friend.", 3.95, 4.4)]
+    doc = {"schema_version": 1, "language": "en", "duration": 6.0, "facts": K.facts_block(),
+           "words": [{"index": k, "text": t, "start": a, "end": b, "segment": 0 if k < 2 else 1 if k == 2 else 2} for k, (t, a, b) in enumerate(spans)],
+           "segments": [{"index": 0, "start": 0.6, "end": 1.4, "text": "Hello there", "first_word": 0, "last_word": 1},
+                        {"index": 1, "start": 2.0, "end": 2.3, "text": "ok", "first_word": 2, "last_word": 2},
+                        {"index": 2, "start": 3.5, "end": 4.4, "text": "again friend.", "first_word": 3, "last_word": 4}]}
+    analysis = {"facts": {"duration": 6.0, "sha256": "a" * 64, "width": 1080, "height": 1920, "has_audio": True},
+                "silences": [{"start": 0.0, "end": 0.5}, {"start": 1.55, "end": 3.4}, {"start": 4.6, "end": 6.0}]}
+    edl, _ = _edl.build_base(doc, analysis, DATA, {})
+    assert [w["text"] for w in edl["words"]] == ["Hello", "there", "again", "friend."]
+    assert edl["normalisation"]["phantom_words"] == [{"index": 2, "start": 2.0, "end": 2.3}]
+    assert all(w["end"] > w["start"] for w in edl["words"])                                       # no word snapped to a point
+    live = {w["index"] for w in edl["words"]}
+    assert 2 not in live and all(a in live and b in live for a, b in edl["captions"]["chunks"])
+    assert not any(a / FPS <= 2.15 < b / FPS for a, b in edl["kept"])                              # the silence under it was cut
+    _edl.check_edl(edl, DATA, VOCAB, {})
+
+
+def test_a_phantom_that_a_kept_range_holds_stays_a_caption():
+    """The soft first word after a long cut is a phantom to the cut planner, but the range starts at it: it stays."""
+    spans = [(0, "end.", 88.5, 89.3), (1, "Por", 105.66, 105.83), (2, "example,", 105.83, 106.34), (3, "we", 106.34, 106.62)]
+    ws = [lw(i, t, a, b) for i, t, a, b in spans]
+    sil = [(0.0, 88.4), (89.45, 104.735), (105.577, 106.001), (106.9, 110.0)]
+    kept = T.kept_ranges(ws, 110.0, FPS, sil)
+    assert T.cut_phantoms(ws, kept, FPS, sil) == [] and T.cut_phantoms(ws, kept, FPS, None) == []
+
+
+def test_a_confirmed_retake_that_an_extended_long_cut_swallows_keeps_its_forced_flag():
+    """A long cut that extends to the first word after it takes a later cut that lies inside the extension; if that cut was a confirmed
+    retake, the merged cut stays forced, so the short-range rule never gives frames back to it."""
+    ws = [lw(0, "second", 10.6, 11.0)]
+    cuts = [(52, 297, False), (300, 312, True)]
+    out = T.trim_wordless(cuts, ws, FPS, 0.10, 0.14, 2.0, 0.3)
+    assert out == [(52, 315, True)]
+    assert T.trim_wordless([(52, 297, False), (300, 312, False)], ws, FPS, 0.10, 0.14, 2.0, 0.3) == [(52, 315, False)]
+
+
+def test_an_edit_list_of_version_one_is_refused_with_its_own_code():
+    doc = K.build_transcript()
+    analysis = {"facts": {"duration": doc["duration"], "sha256": "a" * 64, "width": 1080, "height": 1920, "has_audio": True}, "silences": None}
+    edl, _ = _edl.build_base(doc, analysis, DATA, {})
+    assert edl["schema_version"] == 2
+    old = copy.deepcopy(edl)
+    old["schema_version"] = 1
+    assert refused(_edl.check_edl, old, DATA, VOCAB, {}).code == "edl_schema_outdated"
+    old["schema_version"] = 3
+    assert refused(_edl.check_edl, old, DATA, VOCAB, {}).code == "schema_version"
+
+
+def test_a_word_with_estimated_times_is_never_cut_as_a_phantom():
+    ws = [lw(0, "end.", 1.0, 1.4), dict(lw(1, "last.", 2.0, 2.3), estimated=True)]
+    sil = [(1.5, 3.0)]
+    assert T.cut_phantoms(ws, [[0, 45]], FPS, sil) == []
+    assert [w["text"] for w in T.cut_phantoms([ws[0], lw(1, "last.", 2.0, 2.3)], [[0, 45]], FPS, sil)] == ["last."]

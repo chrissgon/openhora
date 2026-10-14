@@ -101,6 +101,7 @@ HINTS = {
     "image_not_built": "run: " + D.BUILD_COMMAND,
     "image_stale": "the image is older than the files in providers/renderer/: run: " + D.BUILD_COMMAND,
     "image_not_recorded": "the tag does not point at the image `build` recorded: `docker image rm` it and run: " + D.BUILD_COMMAND,
+    "edl_schema_outdated": "the edit list is version 1 (no zoom.anchor_y): make it again with `base`, which writes version 2",
     "pin_incomplete": "run once: python3 providers/renderer/ffmpeg.py pin-browser --confirmed (then commit browser-pin.json)",
 }
 
@@ -521,9 +522,11 @@ def main(argv=None) -> int:
             print("  beat %s %s %s" % (p.get("beat"), p.get("field"), p.get("code")), file=sys.stderr)
         if err.code == "bad_mount_path":
             return EXIT_USAGE
+        failure = {"ok": False, "code": err.code, "field": err.field, "problems": getattr(err, "problems", [])}
         if getattr(err, "reason", ""):
             print("  reason: %s" % err.reason, file=sys.stderr)
-        emit({"ok": False, "code": err.code, "field": err.field, "problems": getattr(err, "problems", [])})
+            failure["reason"] = err.reason                  # already through the closed schema: one short plain line
+        emit(failure)
         return EXIT_NOT_CONFIGURED if isinstance(err, NotConfigured) else EXIT_FAILED
 
 

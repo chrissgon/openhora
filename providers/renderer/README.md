@@ -66,9 +66,11 @@ here), or `--no-sandbox` **inside the image only**, with the container as the bo
   result says `browser_sandbox` (`on` or `off`). Tests: `test_the_browsers_own_sandbox_is_on_everywhere_but_the_image...`,
   `test_inside_the_image_the_sandbox_is_off_and_says_so`.
 - **A browser that does not start says why.** `browser_failed` carries a `reason`: the kind of error and the first four lines of the
-  browser's own log, each redacted, control characters removed, at most 200 characters, passed back through the closed result schema.
-  The browser is started without a shell (a short interpreter step puts the pipes on fd 3 and 4 and replaces itself with the browser),
-  so the image's `/bin/sh` (dash) is not involved.
+  browser's own log, each redacted, control characters removed, at most 200 characters. It crosses the closed result schema as one
+  plain string, is printed on stderr as `  reason: ...` and is a `reason` key of the failure's JSON on stdout.
+  The browser is started without a shell (a short interpreter step puts the pipes on fd 3 and 4 and replaces itself with the browser; when
+  that fails it writes `exec failed: <errno name>` to the browser's log, which the reason then carries), so the image's `/bin/sh`
+  (dash) is not involved.
 
 ## Build it (the maintainer's commands, once)
 
@@ -118,7 +120,7 @@ one, an external service) replaces this one behind the same verbs and the same e
   recording must keep an audio stream's offset).
 - **A real transcript's shapes.** Words of zero length are spread evenly to the next word (at least 40 ms) and flagged `estimated`; a start
   that goes back in time is clamped; a segment of three or more words faster than 8 words a second (a repeated sentence squeezed into
-  a fraction of a second) is dropped, all reported in `normalisation`. Word indices are never renumbered. Data streams of an iPhone `.mov`
+  a fraction of a second) is dropped, all reported in `normalisation`. A phantom word (silence covers at least 80% of it) that the cut took with its silence is no caption: it is listed in `normalisation.phantom_words` (index and source times, never its text) so the caption review can show it. Word indices are never renumbered. The edit list is `schema_version` 2 (a version 1 list is refused as `edl_schema_outdated`). Data streams of an iPhone `.mov`
   are ignored; only the first video and audio streams are mapped.
 - **Retakes** are found by rule (a run of four or more words that recurs within 20 s; a sentence cut midway and begun again) and written
   into the edit list as proposals, none applied. The page shows them struck through; `base --confirm <id>` cuts only the confirmed ones.
@@ -140,6 +142,27 @@ one, an external service) replaces this one behind the same verbs and the same e
 - **Output.** 1080x1920 at 30 fps whatever the input (a 4K 60 fps HEVC iPhone clip is scaled down and its frame rate halved; a landscape
   clip is cropped to the centre), H.264 high with AAC, bt709 limited range, metadata (a location) stripped, `-fs` capped, faststart.
 
+## What makes a render the same bytes, and what can still differ
+
+Pinned in the compose command (`_media.compose_argv`): the encoder's threads (`-threads 4`: x264's output depends on its thread count, and
+the automatic count follows the cores the machine shows, 14 inside the container whatever the CPU quota), the filter graph's threads
+(`-filter_threads`, `-filter_complex_threads`, 4, which also fix swscale's slice count), `-sws_flags` and the flags of every explicit
+`scale` (`lanczos+accurate_rnd+bitexact`: the same arithmetic whatever SIMD the CPU has), `+bitexact` on the muxer, the video and the
+audio, and no metadata. The decoder's threads are pinned too (4) but a decoder is exact whatever the count: that pin changes speed only.
+
+Measured (15 s of the real 4K 60 fps recording, in the container, `docker run --cpuset-cpus` so that the container really sees 4, 8 or
+14 cores): the pinned command gave the same sha256 at 0-3, 0-7 and 0-13; the same command without the pins gave a different sha256 at
+each. (`--cpus` alone proves nothing: it is a quota, and the container still sees every core.)
+
+What can still differ, and is not claimed away: an `amd64` image against the `arm64` one (another ffmpeg build, other SIMD paths; the
+`zoompan` filter scales with its own bicubic call, which no flag reaches), another ffmpeg or x264 version (the image pins Debian's
+snapshot, so a rebuild from the same definition gives the same ones), and Chrome's rasterisation of the overlay frames on another CPU
+architecture (the frames are PNGs drawn by the browser; two browsers on one machine drew identical frames, a test checks it). A render is
+reproducible on the same image and CPU architecture; across architectures it is expected to look the same, not to be byte-identical.
+
+The container gets 8 CPUs by default (`--cpus`, never more than the daemon has): the compose of a 104.7 s render waits for the CPU quota,
+and 8 against 4 took it from 366 s to 161 s, with the same bytes.
+
 ## Tests
 
 `uv run --with pytest pytest providers/renderer/tests` (the whole suite takes about five minutes). Browser and ffmpeg tests
@@ -148,10 +171,11 @@ skip with a reason where those are absent; the host side runs against a fake doc
 
 ## Not verified here
 
-- **The image has never been built or run**: no build or pull was made. Its package list (the libraries the headless shell links against)
-  is from knowledge; the build fails by design at the `ldd` line when one is missing.
-- **Chrome with `--no-sandbox` inside the container, and `--disable-dev-shm-usage`, are untested in Docker.**
-- Render time in the container, the quality of the presets on a real recording (condition C2), and the push-in's jitter.
+- **The `arm64` image was built and run on one machine** (Docker 29.3.1, Apple silicon): the build, its self-check, every verb and a
+  render of a real 192 s 4K 60 fps recording (104.7 s out, 197 s at 8 CPUs, 408 s at 4) ran there, with Chrome's sandbox off and
+  `--disable-dev-shm-usage`. **An `amd64` image has not been built or run**, and neither has any other machine's Docker. The package list
+  is checked by the build (it fails at the `ldd` line when a library is missing).
+- The quality of the presets beyond that one recording (condition C2), and the push-in's jitter.
 - **Assets are only header-checked here** (PNG or JPEG by bytes, bounded, never animated). The renderer treats every asset as untrusted
   and the browser decodes it, so P4 and P4b must normalise assets (re-encode to a metadata-free PNG at frame size) before they reach it.
 - Clips (video assets) are not supported: an asset is a PNG or JPEG; the intake normalises everything else. Transitions other than the
