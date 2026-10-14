@@ -85,6 +85,19 @@ CHAT_OWN = (
     {"name": "help", "args": "", "help": "this text", "order": "first"},
     {"name": "new", "args": "text", "help": "start a new request", "order": "last"},
 )
+GROUPS = {
+    "read": {"operations": ("status",), "kind": None},
+    "talk": {"operations": ("go",), "kind": None},
+    "approve-things": {"operations": ("go",), "kind": "plan"},
+    "only-here": {"operations": ("go",), "kind": None},
+}
+DEFAULT_POLICY = {"terminal": ("read", "talk")}
+NEVER_NARROWED = ("terminal",)
+POLICY_CHANNELS = ("chat", "terminal")
+MUST_READ = ("chat",)
+PAGE_ONLY_GROUPS = ("only-here",)
+EFFECT_CHANNELS = ("terminal", "page")
+BRAKES = ("go",)
 '''
 
 DISPATCHER = '''"""The dispatcher.
@@ -109,6 +122,40 @@ SQLITE = '''MIGRATIONS = {
     ]),
     3: ("a column", ["ALTER TABLE jobs ADD COLUMN note TEXT"]),
 }
+'''
+
+MESSENGER_LITERAL = '''PLATFORMS = ("alpha",)
+CAPABILITIES = {"max_text": 100, "buttons": True, "max_buttons": 2, "max_button_label": 10, "lists": False,
+                "max_list_rows": 0, "url_buttons": False, "reply_context": True, "documents": False}
+NETWORK = "wb-planted-credential-value"
+'''
+
+MESSENGER_FUNCTION = '''PLATFORMS = ("beta", "beta-two")
+TEXT, OTHER = 7, 9
+
+
+def capabilities(settings=None) -> dict:
+    on = bool(settings)
+    return {"max_text": TEXT, "buttons": on, "max_buttons": 3 if on else 0, "max_button_label": 20, "lists": False,
+            "max_list_rows": 0, "url_buttons": False, "reply_context": True, "documents": False, "listen": True}
+'''
+
+RESOLVER = '''from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class Secret:
+    name: str
+
+
+REGISTRY: dict[str, Secret] = {s.name: s for s in (
+    Secret("VCS_TOKEN", "read a repository", "read only", ("providers/vcs/github.py",), store_username="github"),
+    Secret("MESSENGER_ALPHA_BOT_TOKEN",
+           "receive and send, "
+           "as a bot",
+           "a bot made for this", ("providers/messenger/alpha.py",), store_username="messenger-alpha"),
+    Secret("MESSENGER_BETA_ENV_ONLY", "read from the environment", "none", ("providers/messenger/beta.py",)),
+)}
 '''
 
 GATE = {"strong_model": "model-one", "strong_harness": "adapter-one", "threshold": 0.8, "runs": 3,
@@ -175,7 +222,8 @@ FLOW_TWO = {"flow": "two", "title": "The second flow", "tasks": [
 # A configuration of a project, which no table may read: its keys and values stay out of every output.
 PLANTED_CONFIGURATION = json.dumps({"workbench": "/somewhere", "planted_setting": "wb-planted-credential-value"})
 
-NEW_TABLES = ("runtime-modules", "service-routes", "handlers", "config-keys", "flow-files", "roles", "held-reasons")
+NEW_TABLES = ("runtime-modules", "service-routes", "handlers", "config-keys", "flow-files", "roles", "held-reasons",
+              "channel-groups", "messenger-capabilities", "messenger-secrets")
 
 PAGE = "".join(f"# {name}\n\nProse kept.\n\n<!-- generated: {name} -->\nstale\n<!-- /generated -->\n\nMore prose.\n\n"
                for name in tables.TABLES)
@@ -188,6 +236,10 @@ def fixture(tmp_path):
         "providers/CONTRACT.md": CONTRACT,
         "providers/widget/fake.py": PROVIDER,
         "providers/widget/auth.py": "VERBS = {'login': print}\n",
+        "providers/messenger/alpha.py": MESSENGER_LITERAL,
+        "providers/messenger/beta.py": MESSENGER_FUNCTION,
+        "providers/messenger/whatsapp_shared.py": "PLATFORMS = ('ignored',)\n",
+        "providers/secrets/resolver.py": RESOLVER,
         "contracts/runtime.md": RUNTIME_CONTRACT,
         "runtime/tests/test_limits.py": LIMIT_TESTS,
         "runtime/operations.py": OPERATIONS_PY,
@@ -471,6 +523,9 @@ SOURCES_OF = {  # the files a table reads: removing one must name it, exit 2, an
     "flow-files": ("flows",),
     "roles": ("runtime/roles.json",),
     "held-reasons": ("runtime/dispatcher.py",),
+    "channel-groups": ("runtime/operations.py",),
+    "messenger-capabilities": ("providers/messenger",),
+    "messenger-secrets": ("providers/secrets/resolver.py",),
 }
 
 
@@ -490,3 +545,69 @@ def test_a_missing_source_of_a_new_table_is_named_with_exit_2(tmp_path):
             assert f"generated block {name}: source not readable" in written.stderr, (name, source)
             assert "kept" in page.read_text(encoding="utf-8")
             assert run("--check", "--root", str(root)).returncode == 2, (name, source)
+
+
+# --- the three tables of the messaging page (MSG-14) -----------------------------------------------------------------
+
+def test_channel_groups_gives_each_group_with_its_operations_kind_validity_and_default(tmp_path):
+    out = printed(fixture(tmp_path), "channel-groups")
+    assert out.startswith("Channels with a policy (`POLICY_CHANNELS`): `chat`, `terminal`.")
+    assert "Never narrowed (`NEVER_NARROWED`): `terminal`." in out and "must list `read` (`MUST_READ`)" in out
+    assert "`DEFAULT_POLICY`: `terminal`: `read`, `talk`;" in out
+    assert "Valid on the page only (`PAGE_ONLY_GROUPS`): `only-here`." in out
+    assert "from (`EFFECT_CHANNELS`): `terminal`, `page`." in out and "Brakes (`BRAKES`)" in out and "`go`." in out
+    header = "| Group | Operations | Decision kind | Valid on | In the default policy of |"
+    assert header + "\n|---|---|---|---|---|" in out
+    # `go` is in the ceiling of terminal and chat in the fixture's table; `status` of terminal only
+    assert "| `read` | `status` | - | `terminal` | `terminal` |" in out
+    assert "| `talk` | `go` | - | `chat`, `terminal` | `terminal` |" in out
+    assert "| `approve-things` | `go` | `plan` | `chat`, `terminal` | - |" in out
+    assert "| `only-here` | `go` | - | - | - |" in out, "a page-only group is valid on no other channel"
+    assert out.index("`read`") < out.index("`talk`") < out.index("`approve-things`"), "the order of the dict"
+
+
+def test_channel_groups_refuses_a_source_that_is_not_a_literal(tmp_path):
+    root = fixture(tmp_path)
+    operations = root / "runtime" / "operations.py"
+    operations.write_text(operations.read_text(encoding="utf-8").replace('BRAKES = ("go",)', "BRAKES = compute_it()"),
+                          encoding="utf-8")
+    done = run("--print", "channel-groups", "--root", str(root))
+    assert done.returncode == 2 and "BRAKES" in done.stderr and done.stdout == ""
+
+
+def test_messenger_capabilities_reads_a_literal_and_a_function_without_running_either(tmp_path):
+    out = printed(fixture(tmp_path), "messenger-capabilities")
+    keys = ("max_text", "buttons", "max_buttons", "max_button_label", "lists", "max_list_rows", "url_buttons", "reply_context",
+            "documents", "listen")
+    assert "| Platform | Provider | " + " | ".join(f"`{k}`" for k in keys) + " |" in out
+    assert "| `alpha` | `alpha.py` | 100 | yes | 2 | 10 | no | 0 | no | yes | no | no |" in out, "a literal; a missing listen is no"
+    # a function: a name of the module (a tuple-assigned constant) is its value, a local name is `configured`
+    assert "| `beta` | `beta.py` | 7 | configured | 3 if configured, else 0 | 20 | no | 0 | no | yes | no | yes |" in out
+    assert "| `beta-two` | `beta.py` | 7 | configured |" in out, "one row for each platform an implementation serves"
+    assert "whatsapp_shared" not in out and "ignored" not in out, "a helper with an underscore is not an implementation"
+    assert "wb-planted-credential-value" not in out and "configured` is a value the provider computes" in out
+
+
+def test_messenger_capabilities_names_a_provider_that_declares_none(tmp_path):
+    root = fixture(tmp_path)
+    (root / "providers" / "messenger" / "beta.py").write_text('PLATFORMS = ("beta",)\n', encoding="utf-8")
+    done = run("--print", "messenger-capabilities", "--root", str(root))
+    assert done.returncode == 2 and "beta.py" in done.stderr and done.stdout == ""
+
+
+def test_messenger_secrets_gives_the_messenger_rows_of_the_registry_and_no_other(tmp_path):
+    out = printed(fixture(tmp_path), "messenger-secrets")
+    assert out.startswith("| Secret | Store username | Read by | Purpose |\n|---|---|---|---|")
+    assert ("| `MESSENGER_ALPHA_BOT_TOKEN` | `messenger-alpha` | `providers/messenger/alpha.py` | "
+            "receive and send, as a bot |") in out, "adjacent string literals are one text"
+    assert "| `MESSENGER_BETA_ENV_ONLY` | - | `providers/messenger/beta.py` | read from the environment |" in out
+    assert "VCS_TOKEN" not in out and "github" not in out and "a bot made for this" not in out, "no other row; no permission text"
+
+
+def test_messenger_secrets_refuses_a_registry_it_cannot_read_as_literals(tmp_path):
+    root = fixture(tmp_path)
+    resolver = root / "providers" / "secrets" / "resolver.py"
+    resolver.write_text(resolver.read_text(encoding="utf-8").replace('("providers/vcs/github.py",)', "github_readers()"),
+                        encoding="utf-8")
+    done = run("--print", "messenger-secrets", "--root", str(root))
+    assert done.returncode == 2 and "not a constant" in done.stderr and done.stdout == ""
