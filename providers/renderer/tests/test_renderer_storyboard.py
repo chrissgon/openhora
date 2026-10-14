@@ -606,7 +606,7 @@ def test_a_png_whose_header_is_larger_than_the_frame_or_the_grid_is_refused_by_t
                   "sheet": {"file": "sheet.png", "sha256": hashlib.sha256(sheet).hexdigest(), "tiles": 1, "columns": 1, "width": 282, "height": 492},
                   "face_box": {"x": 240, "y": 620, "w": 600, "h": 560}, "fonts": {}, "templates": {}, "font_fallbacks": [], "mentions": []}
         world.cfg["run"] = "files"
-        world.cfg["files"] = {"result.json": {"text": json.dumps(result)}, "beat-1.png": {"kind": "hex", "hex": still.hex()}, "sheet.png": {"kind": "hex", "hex": sheet.hex()}}
+        world.cfg["files"] = {"result.json": {"text": json.dumps(result)}, "beat-1.png": {"kind": "bytes", "hex": still.hex()}, "sheet.png": {"kind": "bytes", "hex": sheet.hex()}}
         world.save()
         out = tmp_path / ("o-%d" % still_size[1] + "-%d" % sheet_size[0])
         rc, res, err = world.host(*storyboard_args(out, write(tmp_path, "p.md", TWO)))
