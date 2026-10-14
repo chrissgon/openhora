@@ -17,8 +17,5 @@ docs/architecture/audit-2026-10-02/round2-adapters-ci.md secret-token -- the sam
 evals/tests/test_executor.py secret-assignment -- an invented value the executor test passes into a run under a variable name, to assert that only named variables travel; no credential
 runtime/tests/corpus/endings.jsonl english-only -- replies of archived lab runs, kept as the models wrote them for the classifier of endings; a few are in the language of their case's prompt
 runtime/tests/corpus/endings.jsonl pipe-to-shell -- replies of archived lab runs that quote, and never run, the download the vetting fixture of core-security-audit plants; nothing executes a line of this file
-runtime/tests/pipeline_kit.py english-only -- the fixture speaker talks Brazilian Portuguese as it is spoken (invented sentences), because a caption must stay as said and a test has to show it
-runtime/tests/test_captions_review.py english-only -- the invented words of the fixture speaker (Brazilian Portuguese as spoken), to test that a caption is never respelled
-runtime/tests/test_media_pipeline.py english-only -- the invented words of the fixture speaker (Brazilian Portuguese as spoken), to test that a caption is never respelled
 interface/vendor/perfectui/LICENSE english-only -- vendored third-party licence text, unchanged, hash recorded in the folder's README; the copyright holder's name has a letter outside English
 site/assets/vendor/perfectui/LICENSE english-only -- vendored third-party licence text, unchanged, the same file as interface/vendor/perfectui/LICENSE; the copyright holder's name has a letter outside English

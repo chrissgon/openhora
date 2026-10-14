@@ -1498,7 +1498,7 @@ def _not_code_task(task: dict, what: str) -> None:
 def code_task_add(conn: sqlite3.Connection, *, key: str, title: str, text: str, request_id: int | None = None) -> dict:
     """Add a code task, `running` (the process that adds it runs its first step), under a request. Without request_id a
     request is made for it, `planned` so that the router never picks it (it needs no route). With one, that request must be
-    `planned` or `done` (a done request gets work again). The key is lowercase words joined by hyphens or colons, once per request.
+    `planned` (a done request is not reopened for a recording). The key is lowercase words joined by hyphens or colons, once per request.
     Returns {"request": id, "task": id, "state": "running"}."""
     key = text_arg(key, "key", LABEL_MAX)
     if not CODE_KEY_RE.fullmatch(key):
@@ -1513,8 +1513,8 @@ def code_task_add(conn: sqlite3.Connection, *, key: str, title: str, text: str, 
             flow = None
         else:
             request = _request(conn, request_id)
-            if request["state"] not in ("planned", "done"):
-                raise StoreError(f"request {request_id} is {request['state']}: a media pipeline task is added to a planned or a done request")
+            if request["state"] != "planned":
+                raise StoreError(f"request {request_id} is {request['state']}: a media pipeline task is added to a planned request, never to a done one")
             if conn.execute("SELECT 1 FROM tasks WHERE parent_id = ? AND key = ?", (request_id, key)).fetchone():
                 raise StoreError(f"request {request_id} already has a task {key!r}")
             conn.execute("UPDATE tasks SET state = 'planned', updated_at = ? WHERE id = ?", (now, request_id))

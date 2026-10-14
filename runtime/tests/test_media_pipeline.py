@@ -64,6 +64,11 @@ def ws(tmp_path, monkeypatch):
     return make_world(tmp_path, monkeypatch, post=kit.POST_SLOT)
 
 
+def finish_review(w):
+    """captions-done with the revision the person's view carries now."""
+    return ops.captions_done(w.project, w.rid, ops.captions_read(w.project, w.rid)["revision"])
+
+
 def start(w, **kw):
     return ops.media_pipeline(w.project, w.rid, **({"post": kit.POST_PATH} | kw))
 
@@ -145,7 +150,7 @@ def test_the_code_task_has_a_parent_request_a_key_and_no_skill_and_no_text_of_th
 
 def test_the_answer_runs_the_rest_in_order_and_stops_with_the_task_waiting_for_the_approval_of_the_rendered_file(w):
     start(w)
-    done = ops.captions_done(w.project, w.rid)
+    done = finish_review(w)
     assert done["ok"] is True and done["stopped"] == "approval"
     assert done["steps"]["approval"] == "waiting" and all(v == "done" for k, v in done["steps"].items() if k != "approval")
     assert kit.verbs(w.tree, "renderer") == RENDERER_ORDER and kit.verbs(w.tree, "transcriber") == ["transcribe"], "the earlier steps are not run again"
@@ -174,7 +179,7 @@ def test_the_answer_runs_the_rest_in_order_and_stops_with_the_task_waiting_for_t
 
 def test_nothing_after_the_render_is_built_here_no_payload_no_dry_run_no_effect(w):
     start(w)
-    ops.captions_done(w.project, w.rid)
+    finish_review(w)
     assert not os.path.exists(os.path.join(w.folder, "payload"))
     assert not [p for p in ops.pending(w.project)["pending"] if p["kind"] == "effect"]
     assert kit.verbs(w.tree, "renderer")[-2:] == ["render", "cover"]
@@ -196,7 +201,7 @@ def test_each_step_fails_on_a_stand_in_and_the_task_resumes_at_that_step_with_th
     first = start(w)
     if after_review:
         assert first["stopped"] == "review"
-        first = ops.captions_done(w.project, w.rid)
+        first = finish_review(w)
     assert first["ok"] is False and first["failed"] == step and first["code"] == "browser_failed"
     before = {r: kit.verbs(w.tree, r) for r in ("transcriber", "renderer")}
     saved = state(w)
@@ -231,7 +236,7 @@ def test_a_credential_in_the_transcript_stops_the_remap_and_the_person_fixes_it_
     start(w)
     with pytest.raises(ops.OpsError, match="credential_in_transcript"):
         edit(w, [{"op": "delete", "index": 40}])
-    out = ops.captions_done(w.project, w.rid)
+    out = finish_review(w)
     assert out["ok"] is False and out["failed"] == "remap" and out["code"] == "credential_in_transcript"
     assert secret not in json.dumps(state(w)) and secret not in str(code_task(w))
     assert not os.path.exists(os.path.join(w.folder, "edl.json"))
@@ -295,7 +300,7 @@ def test_no_model_run_is_ever_started_for_the_code_task(w):
     start(w)
     task = code_task(w)["id"]
     assert ops.run_next(w.project)["ran"] is None
-    ops.captions_done(w.project, w.rid)
+    finish_review(w)
     assert ops.run_next(w.project)["ran"] is None
     ops.dispatch(w.project, wait=True)
     assert not (w.adapter / "calls.txt").exists() and ops.task(w.project, task)["runs"] == []
@@ -346,14 +351,14 @@ def test_the_review_shows_chunks_retimed_words_retakes_and_beats_with_their_rang
 
 
 def test_a_beat_below_the_threshold_is_flagged_gets_no_overlay_and_an_anchor_overrides_the_match(tmp_path, monkeypatch):
-    post = kit.POST.replace("line: Esse hábito me poupou trezentos e quarenta reais num mês só.", "line: Isso rendeu um bom troco no fim do ano inteiro.")
+    post = kit.POST.replace("line: Esse hábito me poupou trezentos e quarenta reais num mês só.", "line: Isso rendeu um bom troco no fim do ano inteiro.")  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken: a caption must stay as said
     w = make_world(tmp_path, monkeypatch, post=post)
     start(w)
     shown = ops.captions_read(w.project, w.rid)
     row = next(b for b in shown["beats"] if b["beat"] == 5)
     assert row["below_threshold"] is True and row["matched"] is False and shown["counts"]["below_threshold"] == 1
     # without an anchor the beat gets no overlay and is reported on the task
-    ops.captions_done(w.project, w.rid)
+    finish_review(w)
     beats = json.load(open(os.path.join(w.folder, "beats.json")))
     assert 5 in beats["unmatched"] and not [o for o in beats["overlays"] if o["beat"] == 5]
     assert state(w)["steps"]["align"]["result"]["unmatched"] == [5]
@@ -364,7 +369,7 @@ def test_a_beat_below_the_threshold_is_flagged_gets_no_overlay_and_an_anchor_ove
     shown = ops.captions_read(w.project, w.rid)
     row = next(b for b in shown["beats"] if b["beat"] == 5)
     assert row["anchored"] is True and row["score"] == 1.0 and row["below_threshold"] is False and (row["word_from"], row["word_to"]) == (first, last)
-    done = ops.captions_done(w.project, w.rid)
+    done = finish_review(w)
     assert done["ok"] is True
     beats = json.load(open(os.path.join(w.folder, "beats.json")))
     [overlay] = [o for o in beats["overlays"] if o["beat"] == 5]
@@ -375,14 +380,14 @@ def test_a_beat_below_the_threshold_is_flagged_gets_no_overlay_and_an_anchor_ove
 
 
 def test_an_anchor_survives_an_edit_that_changes_the_word_numbers_before_it(tmp_path, monkeypatch):
-    post = kit.POST.replace("line: Esse hábito me poupou trezentos e quarenta reais num mês só.", "line: Isso rendeu um bom troco no fim do ano inteiro.")
+    post = kit.POST.replace("line: Esse hábito me poupou trezentos e quarenta reais num mês só.", "line: Isso rendeu um bom troco no fim do ano inteiro.")  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken: a caption must stay as said
     w = make_world(tmp_path, monkeypatch, post=post)
     start(w)
     first, last = word_index(w, "hábito"), word_index(w, "só.")
     edit(w, [{"op": "anchor", "beat": 5, "word_from": first, "word_to": last}])
     edit(w, [{"op": "delete", "index": word_index(w, "gasto")}, {"op": "edit", "index": word_index(w, "gente", 0), "text": "a gente"}])
     assert word_index(w, "hábito") == first, "one word less before it, one word more: the numbers moved and came back"
-    ops.captions_done(w.project, w.rid)
+    finish_review(w)
     beats = json.load(open(os.path.join(w.folder, "beats.json")))
     [overlay] = [o for o in beats["overlays"] if o["beat"] == 5]
     edl_words = {x["index"]: x["text"] for x in json.load(open(os.path.join(w.folder, "edl.json")))["words"]}
@@ -395,14 +400,14 @@ def test_a_retake_is_cut_only_when_confirmed_and_an_undo_restores_it(w):
     assert ops.captions_read(w.project, w.rid)["retakes"][0]["confirmed"] is True
     edit(w, [{"op": "retake", "id": "retake-1", "confirmed": False}])
     assert ops.captions_read(w.project, w.rid)["retakes"][0]["confirmed"] is False
-    ops.captions_done(w.project, w.rid)
+    finish_review(w)
     kept = json.load(open(os.path.join(w.folder, "edl.json")))
     assert not any(p["confirmed"] for p in kept["proposals"]) and kept["proposals"][0]["kind"] == "repeat"
     assert all("--confirm" not in c for c in kit.calls(w.tree, "renderer") if c[0] == "base")
     shorter = state(w)["steps"]["base"]["result"]["out_seconds"]
     ops.prepare_again(w.project, w.rid, "review")
     edit(w, [{"op": "retake", "id": "retake-1", "confirmed": True}])
-    ops.captions_done(w.project, w.rid)
+    finish_review(w)
     confirmed = json.load(open(os.path.join(w.folder, "edl.json")))
     assert [p["confirmed"] for p in confirmed["proposals"]] == [True]
     base_calls = [c for c in kit.calls(w.tree, "renderer") if c[0] == "base"][-2:]
@@ -414,7 +419,7 @@ def test_a_confirmed_retake_follows_the_words_when_the_numbers_before_it_change(
     start(w)
     edit(w, [{"op": "retake", "id": "retake-1", "confirmed": True}])
     edit(w, [{"op": "delete", "index": word_index(w, "gasto")}, {"op": "delete", "index": word_index(w, "Ano")}])
-    out = ops.captions_done(w.project, w.rid)
+    out = finish_review(w)
     assert out["ok"] is True
     [proposal] = json.load(open(os.path.join(w.folder, "edl.json")))["proposals"]
     assert proposal["confirmed"] is True
@@ -427,7 +432,7 @@ def test_a_retake_an_edit_took_away_stops_the_base_list_and_the_person_confirms_
     first = ops.captions_read(w.project, w.rid)["retakes"][0]["word_from"]
     words = ops.captions_read(w.project, w.rid)["words"]
     edit(w, [{"op": "edit", "index": first + 2, "text": "duas"}, {"op": "edit", "index": first + 3, "text": "ideias"}])
-    out = ops.captions_done(w.project, w.rid)
+    out = finish_review(w)
     assert out["ok"] is False and out["failed"] == "base" and out["code"] == "retake_lost" and "prepare-again --step review" in out["next"]
     assert not any(c for c in kit.calls(w.tree, "renderer") if c[0] == "render")
     assert code_task(w)["state"] == "failed"
@@ -437,17 +442,17 @@ def test_a_retake_an_edit_took_away_stops_the_base_list_and_the_person_confirms_
 
 def test_words_are_remapped_into_the_edit_list_and_captions_stay_as_spoken(w):
     start(w)
-    edit(w, [{"op": "edit", "index": word_index(w, "pra"), "text": "pra"}, {"op": "edit", "index": word_index(w, "gente", 0), "text": "a gente"},
+    edit(w, [{"op": "edit", "index": word_index(w, "pra"), "text": "pra"}, {"op": "edit", "index": word_index(w, "gente", 0), "text": "a gente"},  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken: a caption must stay as said
              {"op": "delete", "index": word_index(w, "uma")}])
     shown = ops.captions_read(w.project, w.rid)
     gente = word_index(w, "gente", 0)
     assert shown["words"][gente - 1]["estimated"] and shown["words"][gente]["estimated"] and shown["counts"]["edited"] == 2
-    ops.captions_done(w.project, w.rid)
+    finish_review(w)
     edited = json.load(open(os.path.join(w.folder, "transcript.edited.json")))
     edl = json.load(open(os.path.join(w.folder, "edl.json")))
     texts = [x["text"] for x in edl["words"]]
-    assert "pra" in texts and "tá" in texts and "uma" not in texts and edited["facts"]["revision"] == 1
-    assert "para" not in texts and "está" not in texts
+    assert "pra" in texts and "tá" in texts and "uma" not in texts and edited["facts"]["revision"] == 1  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken: a caption must stay as said
+    assert "para" not in texts and "está" not in texts  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken: a caption must stay as said
     assert all(x["index"] == i for i, x in enumerate(edited["words"]))
     assert state(w)["steps"]["remap"]["result"]["edited"] == 2 and state(w)["steps"]["remap"]["result"]["estimated"] >= 2
 
@@ -474,7 +479,7 @@ def test_an_edit_that_carries_a_time_a_stale_revision_or_a_forbidden_character_c
 def test_the_review_files_are_outside_the_project_the_documents_and_every_run_and_private(w):
     start(w)
     edit(w, [{"op": "delete", "index": 3}])
-    ops.captions_done(w.project, w.rid)
+    finish_review(w)
     for name in ("transcript.json", "transcript.edited.json", "review.json", "pipeline.json", "proposal.edl.json", "edl.json", "beats.json"):
         path = os.path.join(w.folder, name)
         assert stat.S_IMODE(os.stat(path).st_mode) == 0o600, name
@@ -493,18 +498,18 @@ def test_the_captions_cannot_be_edited_before_or_after_the_review_and_cannot_be_
         ops.captions_read(w.project, w.rid)
     kit.heal(w.tree, "renderer")
     ops.media_pipeline(w.project, w.rid)
-    ops.captions_done(w.project, w.rid)
+    finish_review(w)
     with pytest.raises(ops.OpsError, match="not open for edits"):
         ops.captions_edit(w.project, w.rid, 1, json.dumps([{"op": "delete", "index": 3}]))
     with pytest.raises(ops.OpsError, match="not waiting for an answer"):
-        ops.captions_done(w.project, w.rid)
+        finish_review(w)
     assert ops.captions_read(w.project, w.rid)["editable"] is False
 
 
 def test_the_face_box_and_the_cover_offset_reach_the_renderer(w):
     start(w)
     edit(w, [{"op": "face_box", "x": 240, "y": 620, "w": 600, "h": 560}, {"op": "cover", "offset_ms": 1500}])
-    ops.captions_done(w.project, w.rid)
+    finish_review(w)
     last_base = [c for c in kit.calls(w.tree, "renderer") if c[0] == "base"][-1]
     assert beat_args(last_base)["--face-box"] == "240,620,600,560" and state(w)["steps"]["base"]["result"]["face_box"] == "set"
     assert beat_args([c for c in kit.calls(w.tree, "renderer") if c[0] == "cover"][0])["--offset-ms"] == "1500"
@@ -515,7 +520,7 @@ def test_the_face_box_and_the_cover_offset_reach_the_renderer(w):
 def test_an_overlay_the_person_dropped_is_not_in_the_beats_the_renderer_checks_and_draws(w):
     start(w)
     edit(w, [{"op": "overlay", "beat": 4, "dropped": True}])
-    ops.captions_done(w.project, w.rid)
+    finish_review(w)
     beats = json.load(open(os.path.join(w.folder, "beats.json")))
     assert 4 not in {o["beat"] for o in beats["overlays"]} and 3 in {o["beat"] for o in beats["overlays"]}
     assert state(w)["steps"]["align"]["result"]["dropped"] == [4] and state(w)["steps"]["check"]["status"] == "done"
@@ -527,10 +532,10 @@ def test_an_overlay_the_person_dropped_is_not_in_the_beats_the_renderer_checks_a
 def test_done_waits_for_a_file_or_a_choice_for_every_asset_slot(ws):
     start(ws)
     with pytest.raises(ops.OpsError, match="slot_needs_a_choice beat7"):
-        ops.captions_done(ws.project, ws.rid)
+        finish_review(ws)
     assert ops.pending(ws.project)["pending"][0]["title"] == "Check the captions" and code_task(ws)["state"] == "waiting"
     edit(ws, [{"op": "slot", "slot": "beat7", "choice": "keyword"}])
-    assert ops.captions_done(ws.project, ws.rid)["ok"] is True
+    assert finish_review(ws)["ok"] is True
     final = [c for c in kit.calls(ws.tree, "renderer") if c[0] == "align"][-1]
     assert beat_args(final)["--empty-slot"] == "beat7=keyword"
 
@@ -543,7 +548,7 @@ def test_an_uploaded_file_is_bound_to_its_slot_by_id_and_handed_to_the_render_wi
     uploaded = ops.media_in(ws.project, recording=ws.rid, slot=sid, file=str(picture))
     assert uploaded["kind"] == "asset" and not ops.captions_read(ws.project, ws.rid)["slots"][0]["choice"]
     assert ops.captions_read(ws.project, ws.rid)["slots"][0]["file"]["type"] == "png"
-    ops.captions_done(ws.project, ws.rid)
+    finish_review(ws)
     render = [c for c in kit.calls(ws.tree, "renderer") if c[0] == "render"][0]
     found = [render[i + 1] for i, v in enumerate(render) if v == "--asset"]
     held = media.load(ws.data, ws.rid)["slots"][sid]["asset"]
@@ -557,7 +562,7 @@ def test_an_asset_of_a_type_the_renderer_does_not_take_is_refused_naming_the_slo
     picture = tmp_path / "painel.webp"
     picture.write_bytes(webp(30, 20))
     ops.media_in(ws.project, recording=ws.rid, slot=media.slot_id(ws.rid, "beat7"), file=str(picture))
-    out = ops.captions_done(ws.project, ws.rid)
+    out = finish_review(ws)
     assert out["ok"] is False and out["failed"] == "render" and out["code"] == "asset_type" and out["field"] == "beat7"
     assert "PNG or a JPEG" in out["next"] and not any(c for c in kit.calls(ws.tree, "renderer") if c[0] == "render")
 
@@ -569,7 +574,7 @@ def test_a_slot_that_lost_its_file_after_the_review_stops_the_alignment_with_the
     sid = media.slot_id(ws.rid, "beat7")
     ops.media_in(ws.project, recording=ws.rid, slot=sid, file=str(picture))
     kit.fail(ws.tree, "renderer", "base", times=1)
-    ops.captions_done(ws.project, ws.rid)
+    finish_review(ws)
     media.update(ws.data, ws.rid, lambda r: r["slots"][sid].update(asset=None))
     kit.heal(ws.tree, "renderer")
     out = ops.media_pipeline(ws.project, ws.rid)
@@ -582,7 +587,7 @@ def test_a_slot_that_lost_its_file_after_the_review_stops_the_alignment_with_the
 def test_prepare_again_from_the_review_opens_the_captions_as_they_were_left_and_runs_no_model(w):
     start(w)
     edit(w, [{"op": "delete", "index": 3}, {"op": "overlay", "beat": 4, "dropped": True}])
-    ops.captions_done(w.project, w.rid)
+    finish_review(w)
     first_pending = ops.pending(w.project)["pending"][0]["id"]
     n = len(kit.calls(w.tree, "renderer"))
     out = ops.prepare_again(w.project, w.rid, "review")
@@ -593,7 +598,7 @@ def test_prepare_again_from_the_review_opens_the_captions_as_they_were_left_and_
     titles = [p["title"] for p in ops.pending(w.project)["pending"]]
     assert titles == ["Check the captions"] and first_pending not in [p["id"] for p in ops.pending(w.project)["pending"]]
     edit(w, [{"op": "overlay", "beat": 4, "dropped": False}])
-    done = ops.captions_done(w.project, w.rid)
+    done = finish_review(w)
     assert done["stopped"] == "approval"
     new = [c[0] for c in kit.calls(w.tree, "renderer")][n:]
     assert new == ["base", "align", "check", "render", "cover"], "from the re-map: no transcription, no analysis, no model"
@@ -604,7 +609,7 @@ def test_prepare_again_from_the_review_opens_the_captions_as_they_were_left_and_
 def test_prepare_again_from_a_later_step_keeps_the_review_and_from_an_earlier_one_starts_it_over(w):
     start(w)
     edit(w, [{"op": "delete", "index": 3}])
-    ops.captions_done(w.project, w.rid)
+    finish_review(w)
     out = ops.prepare_again(w.project, w.rid, "base")
     assert out["stopped"] == "approval" and out["reset"] == ["base", "align", "check", "render", "cover", "approval"]
     assert captions.check_review(json.load(open(os.path.join(w.folder, "review.json"))))["revision"] == 1
@@ -736,7 +741,7 @@ def test_every_reader_of_tasks_copes_with_a_task_that_has_no_skill_in_every_stat
         ops.media_list(w.project)
     start(w)                                  # waiting at the review
     readers()
-    ops.captions_done(w.project, w.rid)       # waiting for the approval
+    finish_review(w)       # waiting for the approval
     readers()
     kit.fail(w.tree, "renderer", "cover")
     ops.prepare_again(w.project, w.rid, "cover")   # failed
@@ -768,7 +773,7 @@ def test_a_word_the_renderer_could_not_place_is_listed_marked_and_left_out_of_th
     assert shown["words"][last]["left_out"] == "unplaced" and shown["words"][last]["chunk"] is None
     assert last not in [i for c in shown["chunks"] for i in c["words"]]
     assert state(w)["steps"]["retakes"]["result"]["unplaced"] == 1
-    ops.captions_done(w.project, w.rid)
+    finish_review(w)
     assert last not in {x["index"] for x in json.load(open(os.path.join(w.folder, "edl.json")))["words"]}
 
 
@@ -785,7 +790,7 @@ def send_back(w, comment="trim the opening", platform="instagram"):
 
 def test_a_video_sent_back_reopens_the_review_with_the_comment_shown_and_the_marker_cleared(w):
     start(w)
-    ops.captions_done(w.project, w.rid)
+    finish_review(w)
     first = state(w)["steps"]["render"]["result"]["sha256"]
     send_back(w)
     before = len(kit.calls(w.tree, "renderer"))
@@ -798,7 +803,7 @@ def test_a_video_sent_back_reopens_the_review_with_the_comment_shown_and_the_mar
     [item] = [ops.pending(w.project, p["id"]) for p in ops.pending(w.project)["pending"]]
     assert "sent back" in item["body"] and "trim the opening" not in item["body"] + json.dumps(item["payload"]), "the comment is not copied into a decision"
     edit(w, [{"op": "delete", "index": word_index(w, "gasto")}])
-    again = ops.captions_done(w.project, w.rid)
+    again = finish_review(w)
     second = state(w)["steps"]["render"]["result"]["sha256"]
     assert again["stopped"] == "approval" and second != first, "another edit list, another render: the old approval goes stale by itself"
     record = media.load(w.data, w.rid)
@@ -809,7 +814,7 @@ def test_a_video_sent_back_reopens_the_review_with_the_comment_shown_and_the_mar
 
 def test_a_marker_for_another_platform_or_step_is_left_alone_and_prepare_again_obeys_a_marker(w):
     start(w)
-    ops.captions_done(w.project, w.rid)
+    finish_review(w)
     send_back(w, platform="tiktok")
     assert ops.media_pipeline(w.project, w.rid)["stopped"] == "approval" and media.load(w.data, w.rid)["resume"]["platform"] == "tiktok"
     media.update(w.data, w.rid, lambda r: r.update(resume={"step": "render", "reason": "sent_back"}))
@@ -822,7 +827,7 @@ def test_a_marker_for_another_platform_or_step_is_left_alone_and_prepare_again_o
 def test_the_page_reads_what_the_pipeline_wrote_the_render_its_facts_and_the_cover(w):
     video = st.load("video")
     start(w)
-    ops.captions_done(w.project, w.rid)
+    finish_review(w)
     result = state(w)["steps"]
     sha = result["render"]["result"]["sha256"]
     read = video.read_result(w.data, w.rid)
@@ -839,7 +844,7 @@ def test_the_page_reads_what_the_pipeline_wrote_the_render_its_facts_and_the_cov
 
 def test_a_send_back_through_the_pages_own_operations_holds_the_post_until_the_pipeline_clears_it(w):
     start(w)
-    ops.captions_done(w.project, w.rid)
+    finish_review(w)
     card = ops.video_card(w.project, w.rid)
     first = card["render"]["sha256"]
     ops.video_approve(w.project, w.rid, first, card["caption"]["sha256"], channel="page")
@@ -850,8 +855,215 @@ def test_a_send_back_through_the_pages_own_operations_holds_the_post_until_the_p
     out = ops.media_pipeline(w.project, w.rid)                       # the pipeline reads the marker, reopens the review, clears it
     assert out["stopped"] == "review" and "resume" not in media.load(w.data, w.rid)
     edit(w, [{"op": "delete", "index": word_index(w, "gasto")}])
-    ops.captions_done(w.project, w.rid)
+    finish_review(w)
     again = ops.video_card(w.project, w.rid)
     assert again["render"]["sha256"] != first and not again["approval"]
     ops.video_approve(w.project, w.rid, again["render"]["sha256"], again["caption"]["sha256"], channel="page")
     assert media.load(w.data, w.rid)["approvals"]["instagram"]["video_sha256"] == again["render"]["sha256"]
+
+
+# --- review round: one pipeline per recording, however many ask ---------------------------------------------------------------------------
+
+
+def codes_of(w):
+    ctx = ops_core.context(w.project)
+    return [t for t in ctx["store"].tasks_list(ctx["conn"]) if t.get("key") == f"media:{w.rid}"]
+
+
+def test_two_requests_at_once_for_a_fresh_recording_make_one_task_and_one_state(tmp_path, monkeypatch):
+    import threading
+    for round_ in range(int(os.environ.get("PIPELINE_LOOPS", "6"))):
+        w = make_world(tmp_path / f"r{round_}", monkeypatch)
+        results, barrier = [], threading.Barrier(2)
+
+        def ask():
+            barrier.wait()
+            try:
+                results.append(ops.media_pipeline(w.project, w.rid, post=kit.POST_PATH))
+            except ops.OpsError as e:
+                results.append(e)
+        threads = [threading.Thread(target=ask) for _ in range(2)]
+        [t.start() for t in threads]
+        [t.join() for t in threads]
+        tasks = codes_of(w)
+        assert len(tasks) == 1, [str(r) for r in results]
+        assert media.load(w.data, w.rid)["tasks"]["code"] == tasks[0]["id"] == state(w)["task"]
+        assert any(isinstance(r, dict) and r["stopped"] == "review" for r in results) and all(isinstance(r, dict) or "already being run" in str(r) for r in results)
+        assert kit.verbs(w.tree, "transcriber") == ["transcribe"], "the second request did not run the steps again"
+        assert not [n for n in os.listdir(w.folder) if n.endswith(".tmp") or n.startswith(".tmp-")]
+
+
+def test_the_state_file_is_written_through_a_temporary_file_of_its_own(w):
+    import threading
+    path = os.path.join(w.folder, "probe.json")
+    errors = []
+
+    def write(n):
+        try:
+            for i in range(200):
+                pipeline.write_json(path, {"n": n, "i": i})
+        except BaseException as e:   # noqa: BLE001
+            errors.append(e)
+    threads = [threading.Thread(target=write, args=(n,)) for n in range(4)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    assert errors == [] and json.load(open(path))["i"] == 199 and stat.S_IMODE(os.stat(path).st_mode) == 0o600
+    assert [n for n in os.listdir(w.folder) if n.startswith(".tmp-")] == []
+
+
+def test_the_code_task_is_made_once_even_when_the_state_is_made_again(w):
+    start(w)
+    os.unlink(os.path.join(w.folder, "pipeline.json"))     # the state file is lost; the record still names the task
+    again = ops.media_pipeline(w.project, w.rid, post=kit.POST_PATH)
+    assert len(codes_of(w)) == 1 and again["task"] == media.load(w.data, w.rid)["tasks"]["code"]
+
+
+def test_a_done_request_is_not_reopened_for_a_recording_and_a_planned_one_is_joined(w):
+    ctx = ops_core.context(w.project)
+    store = ctx["store"]
+    finished = store.request_add(ctx["conn"], title="old", text="x", flow="demo", tasks=[{"key": "k", "skill": "demo-asks", "title": "t", "text": "x"}])["request"]
+    ctx["conn"].execute("UPDATE tasks SET state = 'done' WHERE id = ?", (finished,))
+    with pytest.raises(ops.OpsError, match="never reopens a done one"):
+        start(w, request=finished)
+    assert media.load(w.data, w.rid)["tasks"] == {}
+    open_one = store.request_add(ctx["conn"], title="idea", text="x", flow="demo", tasks=[{"key": "k", "skill": "demo-asks", "title": "t", "text": "x"}])["request"]
+    assert start(w, request=open_one)["request"] == open_one
+
+
+# --- review round: a send-back is consumed inside the lock, and only the marker that was read ------------------------------------------------------
+
+
+def test_the_send_back_is_consumed_with_the_tasks_lock_held_and_the_state_read_under_it(w, monkeypatch):
+    start(w)
+    finish_review(w)
+    send_back(w)
+    seen = []
+    real = pipeline.prepare_again
+
+    def watching(ctx, st, step):
+        seen.append(ops_core._try_lock(ops_core._config_of(w.project), f"task-{st['task']}.lock"))   # None: another holder, this process's own lock
+        return real(ctx, st, step)
+    monkeypatch.setattr(pipeline, "prepare_again", watching)
+    assert ops.media_pipeline(w.project, w.rid)["stopped"] == "review"
+    assert seen == [None], "prepare_again ran while the task's lock was held"
+
+
+def test_a_second_send_back_made_while_the_first_is_consumed_is_not_lost(w):
+    start(w)
+    finish_review(w)
+    send_back(w, comment="first")
+    ctx = ops_core.context(w.project)
+    state_now = pipeline.load_state(w.data, w.rid)
+    ops_pipeline = st.load("ops_pipeline")
+    first = ops_pipeline._resume_marker(ctx, w.rid, state_now)
+    media.update(w.data, w.rid, lambda r: r.update(resume={**first, "at": "2099-01-01T00:00:00Z"}, sent_back={"platform": "instagram", "comment": "second",
+                                                                                                      "at": "2099-01-01T00:00:00Z", "render_sha256": None}))
+    ops_pipeline._clear_resume(ctx, w.rid, state_now, first)
+    assert media.load(w.data, w.rid)["resume"]["at"] == "2099-01-01T00:00:00Z", "only the marker that was read is cleared"
+    ops_pipeline._clear_resume(ctx, w.rid, state_now, media.load(w.data, w.rid)["resume"])
+    assert "resume" not in media.load(w.data, w.rid)
+
+
+# --- review round: a provider's malformed answer is a failure, never a task left running ------------------------------------------------------------
+
+
+def test_a_malformed_provider_result_fails_the_step_with_a_closed_code_and_the_task_moves(w):
+    start(w)
+    kit.fail(w.tree, "renderer", "check", stdout='{"ok": true, "mentions": 5, "overlays": {}}')
+    out = finish_review(w)
+    assert out["ok"] is False and out["failed"] == "check" and out["code"] == "provider_output_invalid" and out["field"] == "check"
+    assert code_task(w)["state"] == "failed" and code_task(w)["note"].startswith("check: provider_output_invalid")
+    kit.heal(w.tree, "renderer")
+    assert ops.media_pipeline(w.project, w.rid)["stopped"] == "approval"
+
+
+def test_a_failure_still_moves_the_task_when_the_recordings_folder_is_gone(w):
+    start(w)
+    kit.fail(w.tree, "renderer", "check", stdout='{"ok": true, "mentions": 5}', rmtree=w.folder)
+    out = finish_review(w)
+    assert out["ok"] is False and out["code"] == "provider_output_invalid"
+    assert not os.path.exists(w.folder) and out["task"] and ops.task(w.project, out["task"])["task"]["state"] == "failed"
+
+
+# --- review round: edits that would fail later are refused when they are made ---------------------------------------------------------------------
+
+
+def test_a_merge_too_long_or_a_word_with_a_space_is_refused_at_edit_time_before_done(w):
+    start(w)
+    long_pair = next(i for i, x in enumerate(ops.captions_read(w.project, w.rid)["words"][:-1]) if x["text"] == "primeira")
+    edit(w, [{"op": "edit", "index": long_pair, "text": "x" * 30}, {"op": "edit", "index": long_pair + 1, "text": "y" * 20}])   # words within the bound of 40
+    with pytest.raises(ops.OpsError, match="text_too_long"):
+        edit(w, [{"op": "merge", "from": long_pair, "to": long_pair + 1}])
+    with pytest.raises(ops.OpsError, match="space_in_word"):
+        edit(w, [{"op": "merge", "from": 1, "to": 2, "text": "dois mundos"}])
+    with pytest.raises(ops.OpsError, match="space_in_word"):
+        edit(w, [{"op": "split", "index": 1, "parts": ["a b", "c"]}])
+    assert ops.captions_read(w.project, w.rid)["counts"]["edited"] == 2
+    assert finish_review(w)["ok"] is True
+
+
+def test_the_two_review_files_are_one_revision_apart_after_a_crash_and_the_persons_words_stay(w):
+    start(w)
+    edit(w, [{"op": "delete", "index": 3}])
+    edited = json.load(open(os.path.join(w.folder, "transcript.edited.json")))
+    edited["words"][0]["text"] = "Olá"
+    edited["facts"]["revision"] += 1                       # the transcript was written, the review file was not
+    pipeline.write_json(os.path.join(w.folder, "transcript.edited.json"), edited)
+    shown = ops.captions_read(w.project, w.rid)
+    assert shown["words"][0]["text"] == "Olá" and shown["revision"] == 2
+    ops.captions_edit(w.project, w.rid, 2, json.dumps([{"op": "delete", "index": 5}]))
+    assert finish_review(w)["ok"] is True
+    edited["facts"]["revision"] += 5                       # a disagreement that is not a cut-short write is refused
+    pipeline.write_json(os.path.join(w.folder, "transcript.edited.json"), edited)
+    with pytest.raises(ops.OpsError, match="review_disagrees"):
+        ops.captions_read(w.project, w.rid)
+
+
+def test_a_retake_an_edit_took_away_opens_unconfirmed_again(w):
+    start(w)
+    edit(w, [{"op": "retake", "id": "retake-1", "confirmed": True}])
+    first = ops.captions_read(w.project, w.rid)["retakes"][0]["word_from"]
+    edit(w, [{"op": "edit", "index": first + 2, "text": "duas"}, {"op": "edit", "index": first + 3, "text": "ideias"}])
+    assert finish_review(w)["code"] == "retake_lost"
+    ops.prepare_again(w.project, w.rid, "review")
+    shown = ops.captions_read(w.project, w.rid)
+    assert shown["retakes"][0]["confirmed"] is False and shown["editable"]
+    edit(w, [{"op": "retake", "id": "retake-1", "confirmed": True}])
+    assert ops.captions_read(w.project, w.rid)["retakes"][0]["confirmed"] is True
+
+
+# --- review round: the small ones ------------------------------------------------------------------------------------------------------------
+
+
+def test_a_deeply_nested_edit_list_is_a_usage_error_and_captions_done_needs_the_revision(w):
+    start(w)
+    with pytest.raises(ops.OpsError, match="not valid JSON") as caught:
+        ops.captions_edit(w.project, w.rid, 0, "[" * 200000)
+    assert caught.value.code == 2
+    assert [a for a in operations_row("captions-done")["args"] if a["name"] == "revision"][0]["required"] is True
+    with pytest.raises(ops.OpsError, match="stale_revision"):
+        ops.captions_done(w.project, w.rid, 7)
+    assert code_task(w)["state"] == "waiting"
+
+
+def operations_row(name):
+    return st.load("operations").by_name(name)
+
+
+def test_the_answer_to_the_review_is_the_persons_not_the_codes(w):
+    start(w)
+    finish_review(w)
+    answered = [p for p in ops.task(w.project, code_task(w)["id"])["pending"] if p["status"] == "resolved"]
+    assert [(p["title"], p["resolved_by"]) for p in answered] == [("Check the captions", "user")]
+
+
+def test_a_failure_names_the_command_from_the_checkout_and_the_environment_of_a_provider_is_minimal(w, monkeypatch):
+    monkeypatch.setenv("SECRET_TOKEN", "not-a-real-secret")
+    kit.fail(w.tree, "renderer", "analyse", exit=3, stderr="refused: image_not_built renderer")
+    out = start(w)
+    assert out["next"] == "python3 providers/renderer/standin.py build --confirmed" and str(w.tree) not in json.dumps(out)
+    kit.heal(w.tree, "renderer")
+    ops.media_pipeline(w.project, w.rid)
+    for role in ("transcriber", "renderer"):
+        for names in kit.envs(w.tree, role):
+            assert "SECRET_TOKEN" not in names and "PATH" in names, role

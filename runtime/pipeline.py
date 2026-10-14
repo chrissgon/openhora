@@ -43,13 +43,16 @@ Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
 
+import contextlib
 import dataclasses
+import fcntl
 import hashlib
 import json
 import os
 import re
 import shlex
 import stat
+import tempfile
 from typing import Callable
 
 import captions as cap
@@ -148,17 +151,36 @@ def read_json(path: str, label: str, limit: int = JSON_LIMIT):
 
 
 def write_json(path: str, value) -> None:
-    """Write a JSON file for its owner only (0600), through a temporary name opened with O_EXCL|O_NOFOLLOW."""
-    temporary = f"{path}.{os.getpid()}.tmp"
+    """Write a JSON file for its owner only (0600), through a temporary file of its own in the same folder (mkstemp: a name no
+    other thread or process shares, so two writers never meet on one) and an atomic rename."""
+    folder = os.path.dirname(path)
+    fd, temporary = tempfile.mkstemp(prefix=".tmp-", suffix=".json", dir=folder)
     try:
-        os.unlink(temporary)
-    except OSError:
-        pass
-    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        json.dump(value, f, indent=1, ensure_ascii=False, sort_keys=True)
-        f.write("\n")
-    os.replace(temporary, path)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(value, f, indent=1, ensure_ascii=False, sort_keys=True)
+            f.write("\n")
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
+
+
+@contextlib.contextmanager
+def recording_lock(data_dir: str, rid: str):
+    """A lock on one recording's pipeline files, waited for (flock on `pipeline.lock` in its folder): the short sections that make
+    the first state of a recording and its code task, so that two requests for one recording make one. The long work holds the
+    code task's lock instead (runtime/ops_pipeline.py `_held`), which is also what makes every other write of pipeline.json,
+    transcript.edited.json and review.json one writer at a time. Not re-entrant: do not take it inside itself."""
+    fd = os.open(os.path.join(media.folder_of(data_dir, rid), "pipeline.lock"), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
 
 
 def remove(path: str) -> None:
@@ -239,7 +261,7 @@ def next_for(code: str, script: str) -> str:
         return DOCKER_NEXT
     if not script:
         return ""
-    quoted = shlex.quote(script)
+    quoted = shlex.quote(script)   # relative to the checkout when the caller could make it so: a job's result is read by the page
     if code in ("image_not_built", "image_stale", "image_not_recorded"):
         return f"python3 {quoted} build --confirmed"
     if code in ("model_missing", "model_mismatch"):
@@ -427,11 +449,15 @@ def _base(ctx: Context, state: dict) -> dict:
     review = load_review(ctx)
     args = ["--transcript", ctx.path(EDITED), "--analysis", ctx.path(ANALYSIS), "--out", ctx.path(EDL)] + _face_args(review)
     done = ctx.call("renderer:video", "base", args, TIMEOUTS["base"])
-    confirm, lost = [], 0
+    confirm, lost = [], []
     if review["confirmed_retakes"]:
         edl = read_json(ctx.path(EDL), EDL)
         confirm, lost = cap.confirmed_ids(review, edited, edl.get("proposals") or [])
         if lost:
+            # the retake the person confirmed is no longer there: it is shown unconfirmed when the captions open again
+            edited["facts"] = dict(edited.get("facts") or {}, revision=review["revision"] + 1)
+            write_json(ctx.path(EDITED), edited)
+            write_json(ctx.path(REVIEW), cap.drop_confirmations(review, lost))
             raise StepFailure("retake_lost", "retakes", "", "open the caption review again (prepare-again --step review) and confirm the retake again")
         if confirm:
             done = ctx.call("renderer:video", "base", args + [x for i in confirm for x in ("--confirm", i)], TIMEOUTS["base"])
@@ -636,6 +662,8 @@ def run(ctx: Context, state: dict) -> dict:
                 raise StepFailure(getattr(e, "code", "failed"), getattr(e, "field", "")) from None
             except OSError:   # a full disk, a folder that cannot be written: a closed word, never the system's message
                 raise StepFailure("io_error", "") from None
+            except (KeyError, TypeError, AttributeError, ValueError, IndexError, RecursionError):   # a provider's JSON that has not the shape its verb promises
+                raise StepFailure("provider_output_invalid", name) from None
             state["steps"][name] = {"status": "done", "at": ctx.now(), "result": outcome}
             state["failure"] = None
             save_state(ctx, state)
@@ -643,8 +671,14 @@ def run(ctx: Context, state: dict) -> dict:
         name = name or "transcribe"
         state["steps"][name] = {"status": "failed", "at": ctx.now(), "result": {}}
         state["failure"] = failure_record(name, failure, ctx.now())
-        save_state(ctx, state)
-        ctx.move("failed", note_of(name, failure), None, None)
+        try:
+            save_state(ctx, state)
+        except OSError:   # the recording's folder is gone (purged, removed): the task still moves, with the note that says why
+            pass
+        try:
+            ctx.move("failed", note_of(name, failure), None, None)
+        except Cancelled:
+            return {"ok": False, "failed": None, "code": "cancelled", "field": "", "next": "", "steps": summary(state)}
         return {"ok": False, "failed": name, "code": failure.code, "field": state["failure"]["field"], "next": failure.next,
                 "steps": summary(state)}
     except Cancelled:

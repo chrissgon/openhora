@@ -39,7 +39,7 @@ def index_of(edited, text):
 
 def test_an_edit_with_the_same_number_of_words_keeps_every_words_time():
     edited, _ = fresh()
-    i = index_of(edited, "pra")
+    i = index_of(edited, "pra")  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken: a caption must stay as said
     before = edited["words"][i]
     out, review, counts = apply([{"op": "edit", "index": i, "text": "para"}])
     after = out["words"][i]
@@ -51,12 +51,12 @@ def test_an_edit_with_the_same_number_of_words_keeps_every_words_time():
 
 def test_captions_are_written_as_spoken_and_never_respelled():
     edited, _ = fresh()
-    i = index_of(edited, "pra")
-    out, _, _ = apply([{"op": "edit", "index": i, "text": "pra"}, {"op": "edit", "index": index_of(edited, "tá"), "text": "tá"},
+    i = index_of(edited, "pra")  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken: a caption must stay as said
+    out, _, _ = apply([{"op": "edit", "index": i, "text": "pra"}, {"op": "edit", "index": index_of(edited, "tá"), "text": "tá"},  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken: a caption must stay as said
                        {"op": "edit", "index": index_of(edited, "gente"), "text": "a gente"}])
     texts = [w["text"] for w in out["words"]]
-    assert "pra" in texts and "tá" in texts and "a" in texts and "gente" in texts
-    assert "para" not in texts and "está" not in texts and "agente" not in texts
+    assert "pra" in texts and "tá" in texts and "a" in texts and "gente" in texts  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken: a caption must stay as said
+    assert "para" not in texts and "está" not in texts and "agente" not in texts  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken: a caption must stay as said
 
 
 def test_a_text_with_spaces_splits_the_word_and_shares_its_time_by_length_flagged_estimated():
@@ -151,7 +151,7 @@ def test_the_refusal_names_a_code_and_a_field_and_never_the_text():
 def test_decomposed_text_is_made_nfc_and_a_hyphen_or_an_apostrophe_stays():
     edited, _ = fresh()
     out, _, _ = apply([{"op": "edit", "index": 3, "text": "voce" + chr(0x302) + ""}])
-    assert out["words"][3]["text"] == "você"
+    assert out["words"][3]["text"] == "você"  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken: a caption must stay as said
     out, _, _ = apply([{"op": "edit", "index": 3, "text": "d'água"}])
     assert out["words"][3]["text"] == "d'água"
 
@@ -305,12 +305,12 @@ def test_a_confirmed_retake_meets_the_new_proposal_that_drops_the_same_words_and
     edited, review = fresh()
     review["confirmed_retakes"] = [{"id": "retake-1", "from": 28, "to": 33}]
     ids, lost = cap.confirmed_ids(review, edited, [{"id": "retake-4", "word_from": 28, "word_to": 33}, {"id": "retake-5", "word_from": 50, "word_to": 54}])
-    assert ids == ["retake-4"] and lost == 0
+    assert ids == ["retake-4"] and lost == []
     ids, lost = cap.confirmed_ids(review, edited, [{"id": "retake-5", "word_from": 50, "word_to": 54}])
-    assert ids == [] and lost == 1
+    assert ids == [] and len(lost) == 1
     out, _, _ = apply([{"op": "delete", "index": 2}], edited, cap.new_review())
     ids, lost = cap.confirmed_ids(review, out, [{"id": "retake-2", "word_from": 27, "word_to": 32}])
-    assert ids == ["retake-2"] and lost == 0, "the new proposal is numbered by the edited words, the range by the transcript's"
+    assert ids == ["retake-2"] and lost == [], "the new proposal is numbered by the edited words, the range by the transcript's"
 
 
 def test_an_anchor_becomes_the_live_edited_words_and_is_lost_when_none_is_left():
@@ -370,3 +370,71 @@ def test_the_view_follows_the_edits_confirmed_retakes_anchors_and_dropped_overla
     assert (rows[5]["word_from"], rows[5]["word_to"]) == (39, 43) and rows[3]["dropped"] is True
     assert shown["slots"][0]["choice"] == "none" and shown["revision"] == 1
     assert shown["words"][1]["chunk"] == 0 and shown["words"][2]["chunk"] == 1, "word 2 went: the chunk of its neighbour now starts there"
+
+
+# --- review round: a confirmed retake is carried over only to a proposal of about its size --------------------------------------------------------
+
+
+def confirmed(entry):
+    edited, review = fresh()
+    review["confirmed_retakes"] = [entry]
+    return edited, review
+
+
+def proposal(first, last, seconds, ident="retake-9"):
+    return {"id": ident, "word_from": first, "word_to": last, "seconds": seconds}
+
+
+def test_a_confirmation_is_carried_to_a_proposal_that_contains_it_or_covers_most_of_it_and_is_not_much_longer():
+    edited, review = confirmed({"id": "retake-1", "from": 30, "to": 39, "seconds": 3.0})
+    assert cap.confirmed_ids(review, edited, [proposal(30, 39, 3.0)]) == (["retake-9"], [])
+    assert cap.confirmed_ids(review, edited, [proposal(28, 41, 4.9)]) == (["retake-9"], []), "contains it, 1.9 s more"
+    assert cap.confirmed_ids(review, edited, [proposal(33, 39, 2.0)]) == (["retake-9"], []), "covers 7 of 10 words"
+    assert cap.confirmed_ids(review, edited, [proposal(36, 39, 1.0)])[0] == [], "covers 4 of 10 words: half or less"
+    assert cap.confirmed_ids(review, edited, [proposal(35, 39, 1.0)])[0] == [], "exactly half is not more than half"
+
+
+def test_a_confirmation_is_not_carried_to_a_much_larger_proposal_and_comes_back_as_lost():
+    edited, review = confirmed({"id": "retake-1", "from": 30, "to": 39, "seconds": 3.0})
+    ids, lost = cap.confirmed_ids(review, edited, [proposal(10, 60, 12.0)])
+    assert ids == [] and lost == review["confirmed_retakes"], "a cut of 12 s was never what the person confirmed"
+    ids, lost = cap.confirmed_ids(review, edited, [proposal(20, 45, 5.01)])
+    assert ids == [] and len(lost) == 1
+    again = cap.drop_confirmations(review, lost)
+    assert again["confirmed_retakes"] == [] and again["revision"] == review["revision"] + 1 and review["confirmed_retakes"]
+
+
+def test_a_confirmation_stored_without_its_time_is_judged_by_the_words_alone():
+    edited, review = confirmed({"id": "retake-1", "from": 30, "to": 39})
+    assert cap.confirmed_ids(review, edited, [proposal(10, 60, 12.0)])[0] == ["retake-9"]
+
+
+def test_the_time_of_a_proposal_is_kept_with_the_confirmation_and_checked_when_the_review_is_read():
+    _, review, _ = apply([{"op": "retake", "id": "retake-1", "confirmed": True}], proposals={"retake-1": (28, 33, 2.4)})
+    assert review["confirmed_retakes"] == [{"id": "retake-1", "from": 28, "to": 33, "seconds": 2.4}] and cap.check_review(review) == review
+    with pytest.raises(cap.CaptionError):
+        cap.check_review({**review, "confirmed_retakes": [{"id": "retake-1", "from": 28, "to": 33, "seconds": "long"}]})
+
+
+def test_reconcile_takes_the_transcripts_revision_only_when_it_is_exactly_one_ahead():
+    edited, review = fresh()
+    edited["facts"]["revision"] = 1
+    assert cap.reconcile(edited, review)["revision"] == 1
+    edited["facts"]["revision"] = 3
+    with pytest.raises(cap.CaptionError, match="review_disagrees"):
+        cap.reconcile(edited, review)
+    assert cap.reconcile(*fresh()) == cap.new_review()
+
+
+def test_a_merge_of_long_words_or_a_text_with_a_space_is_refused_when_it_is_made():
+    edited, review = fresh()
+    a = index_of(edited, "primeira")
+    out, review1, _ = apply([{"op": "edit", "index": a, "text": "x" * 30}, {"op": "edit", "index": a + 1, "text": "y" * 20}])
+    with pytest.raises(cap.CaptionError) as caught:
+        apply([{"op": "merge", "from": a, "to": a + 1}], out, review1, revision=1)
+    assert caught.value.code == "text_too_long"
+    for edit in ({"op": "merge", "from": 1, "to": 2, "text": "dois mundos"}, {"op": "split", "index": 1, "parts": ["a b", "c"]}):
+        with pytest.raises(cap.CaptionError) as caught:
+            apply([edit])
+        assert caught.value.code == "space_in_word"
+    assert cap.harden_word("x" * 40, "w") and cap.harden_word("é", "w") == "é"

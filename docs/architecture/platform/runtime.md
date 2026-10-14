@@ -431,7 +431,7 @@ The limit's text and the stage that built it come from the contract's table; the
 | `media-pipeline` | `--recording` `[--post]` `[--network]` `[--request]` | `media_pipeline` |
 | `captions-read` | `--recording` | `captions_read` |
 | `captions-edit` | `--recording` `--revision` `--text \| --text-file` | `captions_edit` |
-| `captions-done` | `--recording` `[--revision]` | `captions_done` |
+| `captions-done` | `--recording` `--revision` | `captions_done` |
 | `prepare-again` | `--recording` `--step` | `prepare_again` |
 <!-- /generated -->
 

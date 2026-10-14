@@ -101,8 +101,10 @@ def check_review(value) -> dict:
         raise CaptionError("review_unreadable", "review")
     out = dict(base, **value)
     for item in out["confirmed_retakes"]:
-        if not (isinstance(item, dict) and set(item) == {"id", "from", "to"} and isinstance(item["id"], str)
-                and _is_int(item["from"]) and _is_int(item["to"]) and 0 <= item["from"] <= item["to"]):
+        if not (isinstance(item, dict) and set(item) - {"seconds"} == {"id", "from", "to"} and isinstance(item["id"], str)
+                and _is_int(item["from"]) and _is_int(item["to"]) and 0 <= item["from"] <= item["to"]
+                and (item.get("seconds") is None or (isinstance(item["seconds"], (int, float)) and not isinstance(item["seconds"], bool)
+                                                     and 0 <= item["seconds"] < 3600))):
             raise CaptionError("review_unreadable", "confirmed_retakes")
     if not isinstance(out["anchors"], dict) or not all(
             isinstance(k, str) and k.isdigit() and isinstance(v, list) and len(v) == 2 and all(_is_int(i) and i >= 0 for i in v) and v[0] <= v[1]
@@ -159,6 +161,8 @@ def harden_word(value, field: str, max_chars: int = WORD_CHARS_MAX) -> str:
     value = value.strip()
     if not value:
         raise CaptionError("empty_text", field)
+    if any(ch.isspace() for ch in value):
+        raise CaptionError("space_in_word", field)
     if len(value) > max_chars:
         raise CaptionError("text_too_long", field)
     return value
@@ -276,6 +280,8 @@ def _plan_word_edit(op: str, edit: dict, where: str, n: int, words: list, chars:
         if len({words[i]["segment"] for i in range(first, last + 1)}) != 1:
             raise CaptionError("merge_across_segments", where)
         text = None if edit.get("text") is None else harden_word(edit["text"], f"{where}.text", chars)
+        if text is None:   # the words joined are one word: it is held to the same bound as any word, before "done", not after
+            text = harden_word("".join(words[i]["text"] for i in range(first, last + 1)), f"{where}.to", chars)
         _claim(actions, range(first, last + 1), where)
         actions[first] = ("merge", last, text)
         for i in range(first + 1, last + 1):
@@ -302,8 +308,11 @@ def _decide(op: str, edit: dict, where: str, words: list, review: dict, proposal
             raise CaptionError("unknown_retake", where)
         kept = [r for r in review["confirmed_retakes"] if r["id"] != rid]
         if edit["confirmed"]:
-            first, last = proposals[rid]
-            kept.append({"id": rid, "from": first, "to": last})
+            first, last = proposals[rid][0], proposals[rid][1]
+            entry = {"id": rid, "from": first, "to": last}
+            if len(proposals[rid]) > 2 and proposals[rid][2] is not None:
+                entry["seconds"] = proposals[rid][2]
+            kept.append(entry)
         review["confirmed_retakes"] = sorted(kept, key=lambda r: (r["from"], r["id"]))
     elif op == "anchor":
         beat = edit.get("beat")
@@ -400,6 +409,9 @@ def _rebuild(edited: dict, actions: dict, limits: dict) -> tuple:
             counts["merged"] += len(group)
             i = arg
         i += 1
+    for word in new:
+        if word.get("edited"):
+            harden_word(word["text"], "edits", limits["word_chars_max"])
     if not new:
         raise CaptionError("no_words", "edits")
     if len(new) > limits["words_max"]:
@@ -423,8 +435,9 @@ def _rebuild(edited: dict, actions: dict, limits: dict) -> tuple:
 
 
 def retake_ranges(proposal_edl: dict) -> dict:
-    """{retake id: (first, last)} of the words each proposal would drop, in the numbering of transcript.json."""
-    return {p["id"]: (p["word_from"], p["word_to"]) for p in proposal_edl.get("proposals") or []}
+    """{retake id: (first, last, seconds)} of the words each proposal would drop, in the numbering of transcript.json, and the time
+    they take."""
+    return {p["id"]: (p["word_from"], p["word_to"], p.get("seconds")) for p in proposal_edl.get("proposals") or []}
 
 
 def view(edited: dict, review: dict, proposal_edl: dict, proposal_beats: dict, assets: dict) -> dict:
@@ -507,20 +520,55 @@ def view(edited: dict, review: dict, proposal_edl: dict, proposal_beats: dict, a
 # --- what the later steps are given -------------------------------------------------------------------------------------------
 
 
+RETAKE_GROWTH_SECONDS = 2.0     # a new proposal may take this much more time than the one the person confirmed
+RETAKE_OVERLAP = 0.5            # ... and must contain the confirmed words, or cover more than this share of them
+
+
 def confirmed_ids(review: dict, edited: dict, new_proposals: list) -> tuple:
-    """(ids to confirm in the final base list, lost). The base list is made again on the edited words, so its proposals may
-    differ from the ones the person saw; a new proposal is confirmed when the transcript.json words it drops meet a range the
-    person confirmed. `lost` counts the ranges that meet none: the edit took the repeat away, and the pipeline stops there."""
+    """(ids to confirm in the final base list, the confirmations that found no proposal). The base list is made again on the
+    edited words, so its proposals may differ from the ones the person saw. A new proposal carries a confirmation over only when
+    the transcript.json words it drops contain the confirmed range, or cover more than half of it, and it takes no more than 2 s
+    longer than the confirmed one did: an edit never turns a confirmed retake into a much larger cut. A confirmation that no
+    proposal carries is returned (the pipeline stops there, and the retake is shown unconfirmed when the captions open again)."""
     words = edited["words"]
     ids, met = [], set()
     for p in new_proposals:
         o_first, o_last = origin_span(words, p["word_from"], p["word_to"])
         for k, r in enumerate(review["confirmed_retakes"]):
-            if o_first <= r["to"] and o_last >= r["from"]:
-                met.add(k)
-                if p["id"] not in ids:
-                    ids.append(p["id"])
-    return ids, len(review["confirmed_retakes"]) - len(met)
+            overlap = min(o_last, r["to"]) - max(o_first, r["from"]) + 1
+            if overlap <= 0:
+                continue
+            contains = o_first <= r["from"] and o_last >= r["to"]
+            if not (contains or overlap / (r["to"] - r["from"] + 1) > RETAKE_OVERLAP):
+                continue
+            was, now = r.get("seconds"), p.get("seconds")
+            if was is not None and now is not None and now > was + RETAKE_GROWTH_SECONDS:
+                continue
+            met.add(k)
+            if p["id"] not in ids:
+                ids.append(p["id"])
+    return ids, [r for k, r in enumerate(review["confirmed_retakes"]) if k not in met]
+
+
+def drop_confirmations(review: dict, lost: list) -> dict:
+    """The review without the confirmations in `lost`, one revision later: the retake shows unconfirmed when the captions open."""
+    gone = {r["id"] for r in lost}
+    out = copy.deepcopy(review)
+    out["confirmed_retakes"] = [r for r in out["confirmed_retakes"] if r["id"] not in gone]
+    out["revision"] += 1
+    return out
+
+
+def reconcile(edited: dict, review: dict) -> dict:
+    """The review that goes with the edited transcript. The two files are written one after the other (edited first), so a crash
+    can leave the transcript one revision ahead: the person's words are in it, and the decisions of that last batch are the only
+    thing lost, so the review takes the transcript's revision. Any other disagreement is a CaptionError."""
+    have, want = review["revision"], (edited.get("facts") or {}).get("revision", 0)
+    if have == want:
+        return review
+    if want == have + 1:
+        return dict(review, revision=want)
+    raise CaptionError("review_disagrees", "review")
 
 
 def anchors_current(review: dict, edited: dict, live: set) -> tuple:

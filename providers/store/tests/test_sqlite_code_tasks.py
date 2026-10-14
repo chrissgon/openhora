@@ -38,7 +38,7 @@ def test_a_code_task_is_made_under_a_planned_request_with_no_skill_and_no_agent(
     assert store.task_runs_list(conn, made["task"]) == []
 
 
-def test_it_joins_a_planned_or_done_request_and_a_key_is_once_per_request(conn):
+def test_it_joins_a_planned_request_never_a_done_one_and_a_key_is_once_per_request(conn):
     first = store.request_add(conn, title="idea", text="x", flow="demo", tasks=[{"key": "script", "skill": "writer", "title": "t", "text": "x"}])
     request = first["request"]
     made = add(conn, request_id=request)
@@ -46,8 +46,12 @@ def test_it_joins_a_planned_or_done_request_and_a_key_is_once_per_request(conn):
     with pytest.raises(store.StoreError, match="already has a task"):
         add(conn, request_id=request)
     requested = store.request_add(conn, title="waits", text="x")["request"]
-    with pytest.raises(store.StoreError, match="planned or a done request"):
+    with pytest.raises(store.StoreError, match="planned request"):
         add(conn, request_id=requested)
+    done_request = store.request_add(conn, title="d", text="x", flow="demo", tasks=[{"key": "k", "skill": "writer", "title": "t", "text": "x"}])
+    conn.execute("UPDATE tasks SET state = 'done' WHERE id = ?", (done_request["request"],))
+    with pytest.raises(store.StoreError, match="never to a done one"):
+        add(conn, request_id=done_request["request"])
     with pytest.raises(store.StoreError, match="not a request"):
         add(conn, request_id=made["task"])
     for bad in ("Media:1", "media_1", "-media", "media:", "media::1", ":media", ""):

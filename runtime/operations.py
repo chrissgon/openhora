@@ -294,7 +294,7 @@ OPERATIONS = (
      "channels": ("terminal", "page"), "model": False,
      "help": "change the words of a recording's captions (edit, split, merge, delete), confirm or undo a retake, anchor a beat to a word range, drop an overlay, choose for an empty asset slot, give the face box or the cover's offset: the text is a JSON list of those objects (--text or --text-file), the revision the one read; code re-maps the words onto indices and no time can be given"},
     {"name": "captions-done", "call": "captions_done",
-     "args": ({"name": "recording", "kind": "str", "required": True}, {"name": "revision", "kind": "int"}),
+     "args": ({"name": "recording", "kind": "str", "required": True}, {"name": "revision", "kind": "int", "required": True}),
      "channels": ("terminal", "page"), "model": False, "job": True, "exit_unless": ("ok", True),
      "help": "say the captions are right: the decision is answered (with no text in it) and the pipeline goes on to the base list, the alignment with your anchors, the check, the render and the cover"},
     {"name": "prepare-again", "call": "prepare_again",

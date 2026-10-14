@@ -44,7 +44,7 @@ Usage:
   python3 runtime/cli.py media-pipeline --project <dir> --recording <id> [--post <docs/...md> [--network <platform>]] [--request <request id>]
   python3 runtime/cli.py captions-read --project <dir> --recording <id>
   python3 runtime/cli.py captions-edit --project <dir> --recording <id> --revision <n> (--text <json> | --text-file <file>)
-  python3 runtime/cli.py captions-done --project <dir> --recording <id> [--revision <n>]
+  python3 runtime/cli.py captions-done --project <dir> --recording <id> --revision <n>
   python3 runtime/cli.py prepare-again --project <dir> --recording <id> --step <step>
   python3 runtime/cli.py progress --project <dir> [--since 7d | <n>d | YYYY-MM-DD]
   python3 runtime/cli.py approve-policy --project <dir> --file <docs/...> --agent <name> [--sha256 <hash> --expires <YYYY-MM-DD>] [--what <text>]

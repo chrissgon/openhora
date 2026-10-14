@@ -1,5 +1,5 @@
 """Fictional fixtures and stand-in providers for the tests of the media pipeline (runtime/pipeline.py, runtime/captions.py). Not a
-test file. Everything is invented: the speaker, the sentences (Brazilian Portuguese as it is spoken: "pra", "tá", "a gente"), the
+test file. Everything is invented: the speaker, the sentences (Brazilian Portuguese as it is spoken, contractions and all), the
 figures, the recording (a few bytes, never a video).
 
 The stand-in providers sit in the tree the operations layer is pointed at (`providers/transcriber/standin.py` and
@@ -27,16 +27,22 @@ INNER = REPO / "providers" / "renderer" / "_inner.py"
 SENTENCES = [
     (1.2, "Oi gente, tá bom? Hoje eu vou contar uma história rápida sobre dinheiro."),
     (0.9, "Ano passado a gente anotou cada gasto durante noventa dias."),
-    (1.0, "A primeira regra é simples: dá um nome pra cada real."),
+    (1.0, "A primeira regra é simples: dá um nome pra cada real."),  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken: a caption must stay as said
     (0.8, "Depois faz três coisas toda semana."),
     (1.0, "Depois faz três coisas toda semana: revisar, ajustar e comemorar."),
     (0.9, "Esse hábito me poupou trezentos e quarenta reais num mês só."),
     (1.0, "Uma amiga sábia me disse: passos pequenos vencem planos grandes."),
     (0.9, "Olha só como ficou o meu painel."),
-    (1.0, "Segue a gente pra mais passos pequenos."),
+    (1.0, "Segue a gente pra mais passos pequenos."),  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken: a caption must stay as said
 ]
 TAIL = 1.2
 
+SPOKEN_LINES = {   # the lines of the post that carry words only a Portuguese speaker writes, one marker each
+    "regra": "A primeira regra é simples: dá um nome pra cada real.",  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken: a caption must stay as said
+    "nome": "Um nome pra cada real",  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken: a caption must stay as said
+    "segue": "Segue a gente pra mais passos pequenos.",  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken: a caption must stay as said
+    "legenda": "Três hábitos com o dinheiro. Qual você começa hoje?",  # validate: allow english-only -- a fictional speaker talking Brazilian Portuguese as it is spoken: a caption must stay as said
+}
 POST_SLOT = """# Post: Três hábitos com o dinheiro (a fictional fixture)
 
 - Owner: mkt-social-copy
@@ -54,8 +60,8 @@ beat: 2
 line: Ano passado a gente anotou cada gasto durante noventa dias.
 
 beat: 3
-line: A primeira regra é simples: dá um nome pra cada real.
-on-screen: Um nome pra cada real
+line: <<regra>>
+on-screen: <<nome>>
 preset: keyword
 icon: coin
 
@@ -85,17 +91,19 @@ asset: a screenshot of the budgeting dashboard
 fit: cover
 
 beat: 8
-line: Segue a gente pra mais passos pequenos.
+line: <<segue>>
 ```
 
 ## Post
 
 ```post
-Três hábitos com o dinheiro. Qual você começa hoje?
+<<legenda>>
 
 #dinheiro #habitos
 ```
 """
+for _key, _text in SPOKEN_LINES.items():
+    POST_SLOT = POST_SLOT.replace(f"<<{_key}>>", _text)
 # The same post with no asset slot: beat 7 is a keyword. Most tests use this one; the slot tests use POST_SLOT.
 POST = POST_SLOT.replace("""on-screen: Meu painel
 preset: cutaway
@@ -165,6 +173,8 @@ INNER = %(inner)r
 argv = sys.argv[1:]
 with open(os.path.join(HERE, "calls.jsonl"), "a") as log:
     log.write(json.dumps(argv) + "\\n")
+with open(os.path.join(HERE, "env.jsonl"), "a") as log:
+    log.write(json.dumps(sorted(os.environ)) + "\\n")
 verb = argv[0] if argv else ""
 
 
@@ -190,6 +200,12 @@ def arg(flag, default=None):
 
 rule = injected()
 if rule:
+    if rule.get("rmtree"):
+        import shutil
+        shutil.rmtree(rule["rmtree"], ignore_errors=True)
+    if rule.get("stdout") is not None:
+        print(rule["stdout"])
+        sys.exit(0)
     print(rule["stderr"], file=sys.stderr)
     sys.exit(rule["exit"])
 '''
@@ -287,13 +303,18 @@ def verbs(tree: Path, role: str) -> list:
     return [c[0] if c else "" for c in calls(tree, role)]
 
 
-def fail(tree: Path, role: str, verb: str, *, exit=1, stderr="refused: browser_failed render", times=1, skip=0) -> None:
+def fail(tree: Path, role: str, verb: str, *, exit=1, stderr="refused: browser_failed render", times=1, skip=0, stdout=None, rmtree=None) -> None:
     """The next call of `verb` (after `skip` calls) fails `times` times, as a provider does: its stderr and its exit code."""
     path = tree / "providers" / role / "fail.json"
     plan = json.loads(path.read_text()) if path.is_file() else {}
-    plan[verb] = {"exit": exit, "stderr": stderr, "times": times, "skip": skip}
+    plan[verb] = {"exit": exit, "stderr": stderr, "times": times, "skip": skip, "stdout": stdout, "rmtree": rmtree}
     plan.pop("_seen", None)
     path.write_text(json.dumps(plan))
+
+
+def envs(tree: Path, role: str) -> list:
+    path = tree / "providers" / role / "env.jsonl"
+    return [json.loads(line) for line in path.read_text().splitlines()] if path.is_file() else []
 
 
 def heal(tree: Path, role: str) -> None:
