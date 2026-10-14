@@ -60,7 +60,9 @@ openhora is a workbench of skills that let a model build a digital solution end 
 
 6. **A person's phone.** To run projects from Telegram, Discord or WhatsApp, read [messaging.md](messaging.md): the bridge, the channel policy, the messenger providers, the public address the official WhatsApp paths need, the security model and a runbook. It follows one feature across the layers and is not a layer page.
 
-7. **What is not yet a replaceable piece.** If you want to know which layers cannot yet be swapped on their own, read [the review of 2026-10-06](review-2026-10-06.md): the findings, ranked, each with its state in a table at the top.
+7. **A short video.** To turn a script and a recording into a vertical video you approve and post by hand, read [short-video.md](short-video.md): the media store and its artifacts, the pipeline with its two stops, the caption review, the transcriber and the renderer that run in containers, the page, the security model and a runbook. It follows one feature across the layers and is not a layer page.
+
+8. **What is not yet a replaceable piece.** If you want to know which layers cannot yet be swapped on their own, read [the review of 2026-10-06](review-2026-10-06.md): the findings, ranked, each with its state in a table at the top.
 
 ## Keeping the pages current
 
@@ -252,6 +254,22 @@ The names fixed for this work. Use each exactly.
 | Config lock | `<data_dir>/config.lock`: the lock that `accept-config` and `set-mode` take, so that a change finds the file and the accepted hash as it began |
 | Change signal | `version`: a number the store keeps in its file's header (`change_counter`), raised by one with every write transaction that changed a row; a page compares two numbers to know it must reload |
 | Service check | `service-check` (the operation `service_check`): what the local service finds at its start for each project (the secret store, the credential, docker, the eval image, whether it dispatches); it starts nothing |
+| Media store | `<data_dir>/media/`: one folder per recording, outside every repository; `runtime/media.py` is the one module that writes there ([short-video.md](short-video.md)) |
+| Recording | A person's video in the media store, named by an id issued by code (16 hexadecimal characters); one `record.json` ties it to its post files, slots and tasks |
+| Media pipeline | The steps from a recording to its rendered video and cover, with two stops; code and containers only, no model (`runtime/pipeline.py`) |
+| Code task | The task of a recording's pipeline: no skill, key `media:<recording id>`, moved only through `code_task_move`, carrying its two decisions |
+| Caption review | The stop "Check the captions": the person edits words, confirms retakes, anchors beats, answers slots, gives the face box and the cover; code owns every time |
+| Origin | The range of `transcript.json` words an edited word stands for; the numbering every decision of the review is kept in |
+| Edit list | `edl.json`, with `beats.json`: the renderer-neutral description of a video (cuts, words, captions, theme, face box, zoom, overlays), holding no executable text |
+| Beat | One spoken thought of a script, with its line, role and, optionally, a preset and its parameters |
+| Preset | One entry of the closed vocabulary `shared/references/video-presets.json`: an animation drawn by an HTML template, with typed parameters |
+| Asset slot | A place in a beat for a file the person uploads, named by an id issued by code and bound to the file's sha256 |
+| Face box | The speaker's face in frame pixels; cards live above it and captions below it, and a render fails when one touches it |
+| Still | One frame of the recording, framed as the render frames it, for placing the face box |
+| Render | `render-<sha12>.mp4`, written once by the renderer, 0400, named by its own bytes, verified in a fresh container |
+| Video approval | The person's approval of one render and one caption, bound by their two sha256 values; stale the moment either changes |
+| Send-back | The person's return of a video to the review with a comment; it removes the approval and holds the post until it changes |
+| Brand tokens | The closed `brand-tokens` block of `docs/brand/identity.md` that code maps to the renderer's colours and fonts |
 
 ## Known limits and improvements
 
@@ -284,3 +302,4 @@ The names fixed for this work. Use each exactly.
 - 2026-10-09: brought to the code of the central branch after the eight layer pages: the start commands for the local service and the MCP mode, the configuration check, the layer diagram and its prose (the handlers' call of `cli.py`, the adapter files `lab.py` names, the store, the secrets resolver and the isolated runner), the layer rows, the request path (the execution kit, the effect kinds, the channel rule, the service's dispatch loop), new cross-cutting rows, the glossary's new terms and the known limits (closed rows deleted, open limits added).
 - 2026-10-09: the workbench is called openhora (it was `ai-workbench`): the first sentence of the page, and the three names other machines hold (the secret store's service, the install marker, the plugin's name and link), each with a compatibility stage removed with the next change of reference model (T23); the dated records keep the old name.
 - 2026-10-13: the messaging channels have a page of their own (messaging.md): the bridge, the channel policy, the messenger interface and the five platforms, the security model, a runbook and the open items.
+- 2026-10-14: the short video has a page of its own (short-video.md): the media store and its artifacts, the pipeline and its two stops, the caption review, the transcriber and the renderer, the page, the security model, a runbook and the open items; the glossary gains its terms.
