@@ -139,6 +139,7 @@ export function createCaptionsView(env) {
       const every = env.pollEvery || 1500;
       const last = await api.pollJob(job.job, every, { onUpdate: () => { readMedia().then(() => { if (!closed) draw(); }); } });
       if (last.state === "failed") state.error = { text: (last.error && last.error.message) || "The pipeline stopped.", code: "", field: "" };
+      else if (last.result && last.result.ok === false && last.result.code) state.error = { text: model.failureText({ step: last.result.failed, code: last.result.code, field: last.result.field, next: last.result.next }), code: last.result.code, field: "" };
     } catch (e) {
       state.error = model.reasonOf(e);
     }
@@ -424,7 +425,7 @@ export function createCaptionsView(env) {
     if (!steps) return h("p", { class: "wb-empty-line", text: "The pipeline has not started for this recording." });
     return [
       h("ol", { class: "wb-rev-steps", "data-key": "steps" }, model.stepRows(steps).map((r) => h("li", { class: `wb-rev-step is-${r.status}`, "data-step": r.step }, h("span", { text: r.label }), h("span", { class: "wb-card-hint", text: ` — ${r.word}` })))),
-      failure ? notice(`${failure.step || "A step"} stopped: ${failure.code}${failure.field ? ` ${failure.field}` : ""}${failure.next ? `. ${failure.next}` : ""}`, "error") : null,
+      failure ? notice(model.failureText(failure), "error", h("code", { class: "mono wb-rev-code", text: ` ${failure.code}` })) : null,
     ];
   }
 

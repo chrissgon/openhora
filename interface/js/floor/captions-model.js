@@ -31,15 +31,74 @@ export const REASONS = Object.freeze({
   too_many_words: "That would make more words than a video takes.",
   credential_in_transcript: "A word looks like a key or a password: it is not kept.",
   slot_needs_a_choice: "An asset slot has no file and no choice: give it a file, or choose to use a keyword or nothing.",
+  space_in_word: "A word cannot hold a space: split it into words, or give the merge a single word.",
+  review_disagrees: "The edited words and your decisions no longer agree (a write was cut short): open the captions again.",
   review_unreadable: "The review's file cannot be read: open the captions again.",
   edited_unreadable: "The edited words cannot be read: open the captions again.",
 });
+
+/**
+ * The closed codes a pipeline step stops with (runtime/pipeline.py `StepFailure`, and the words the transcriber's and the renderer's own refusals are reduced to), each in a
+ * sentence. The command to run, when there is one, comes from the service (`next`) and is shown beside the sentence.
+ */
+export const FAILURE_WORDS = Object.freeze({
+  file_unreadable: "A file of this recording could not be read.",
+  file_missing: "A file the step needs is missing.",
+  post_unreadable: "The post file could not be read: check its path under docs/.",
+  unknown_step: "That step is not one the pipeline has.",
+  transcript_invalid: "The transcriber's answer is not a transcript the pipeline can use.",
+  slots_frozen: "The asset slots are frozen: an effect is open for this recording.",
+  slot_empty: "An asset slot has no file: give it one, or choose a keyword or nothing.",
+  script_refused: "The post file's script was refused by its own checker: fix the post file, then open the captions again.",
+  retake_lost: "A retake you confirmed no longer matches a repeat after your edits. Open the captions again and confirm it again.",
+  anchor_lost: "A beat you anchored lost its words after your edits: anchor it again.",
+  render_not_verified: "The rendered file did not pass the check against the platform's rules, so it was not kept.",
+  render_missing: "The render finished but its file is not there.",
+  render_cap: "The store already holds as many renders as it may: remove one first.",
+  cover_missing: "The cover frame could not be cut.",
+  asset_type: "An asset must be a PNG or JPEG image for now.",
+  recording_changed: "The recording changed since the pipeline began: start over from the first step.",
+  provider_output_invalid: "A provider answered with something the pipeline cannot read as a result. Run the step again.",
+  not_configured: "The media settings (model and language) are not set: set them in runtime.json, then accept the configuration in the terminal.",
+  no_recording: "The recording's file is missing.",
+  io_error: "A file could not be written (a full disk?).",
+  credential_in_transcript: "A word looks like a key or a password: it is not kept.",
+  docker_missing: "Docker is not installed.",
+  docker_not_answering: "Docker is not answering: start it.",
+  docker_daemon_not_local: "Docker is not a local daemon: the pipeline only uses a local one.",
+  docker_unusable: "Docker cannot be used here.",
+  image_not_built: "The provider's image is not built: build it with your own terminal command.",
+  image_stale: "The provider's image is out of date: build it again with your own terminal command.",
+  image_not_recorded: "The provider's image has no record: build it with your own terminal command.",
+  model_missing: "The speech model is not on this Mac: see the command to fetch it in your own terminal.",
+  model_mismatch: "The speech model on this Mac is not the one pinned.",
+  pin_incomplete: "The browser's pin is incomplete: complete it with your own terminal command.",
+  folder_unusable: "A folder of the store is not private to you.",
+  timeout: "A step took longer than its limit.",
+  usage: "A step was given something it does not take.",
+  failed: "A step failed.",
+  cancelled: "The request was cancelled: the pipeline of this recording stopped with it.",
+  busy: "The pipeline of this recording is being run by another process: wait for it to end.",
+});
+
+/** A step's failure as one sentence for the person: the sentence of its closed code (else the code), the field in brackets, then the command to run when the service gave one. */
+export function failureText(failure) {
+  if (!failure) return "";
+  const code = String(failure.code || "failed");
+  const field = failure.field ? ` (${failure.field})` : "";
+  const sentence = FAILURE_WORDS[code] || REASONS[code] || code;
+  const step = failure.step ? `${STEP_WORDS[failure.step] || failure.step} stopped: ` : "A step stopped: ";
+  return `${step}${sentence}${field}${failure.next ? ` Run: ${failure.next}` : ""}`;
+}
 
 /** The reason a refused call is shown with: the sentence for its closed code, with the field in small words, else the service's own message. */
 export function reasonOf(error) {
   const message = error && typeof error.message === "string" ? error.message : "";
   const found = /refused: ([a-z_]+)(?: ([A-Za-z0-9_.\[\]]+))?/.exec(message);
   if (found && REASONS[found[1]]) return { text: REASONS[found[1]], code: found[1], field: found[2] || "" };
+  if (/already being run/.test(message)) return { text: FAILURE_WORDS.busy, code: "busy", field: "" };
+  const closed = /^([a-z_]+)(?: ([A-Za-z0-9_.\[\]-]{1,40}))?(?: -- (.*))?$/.exec(message);      // a refusal of the pipeline itself: "<code> <field> -- <command>"
+  if (closed && FAILURE_WORDS[closed[1]]) return { text: FAILURE_WORDS[closed[1]] + (closed[3] ? ` Run: ${closed[3]}` : ""), code: closed[1], field: closed[2] || "" };
   if (error && error.name === "ApiError" && error.status === 0) return { text: "The service could not be reached. Is it still running?", code: "network", field: "" };
   if (error && error.name === "ApiError" && error.status === 404) return { text: "This recording's captions are not here (the service answers them on the Mac that runs it).", code: "not_found", field: "" };
   return { text: message || "The request failed.", code: "", field: "" };

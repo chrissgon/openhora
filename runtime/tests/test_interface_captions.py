@@ -139,6 +139,9 @@ out.faceFields = [m.faceBoxFromFields({ x: "10", y: "20", w: "300", h: "300" }),
 out.cover = [m.coverFromSeconds("1.5"), m.coverFromSeconds("1,5"), m.coverFromSeconds("0"), m.coverFromSeconds("-1"), m.coverFromSeconds("abc"), m.coverFromSeconds(""), m.coverFromSeconds("700")];
 out.texts = [m.faceBoxText(null), m.faceBoxText({ x: 10, y: 20, w: 300, h: 300 }), m.coverText(0), m.coverText(1500), m.seconds(12.34), m.clock(75.2), m.clock(-1), m.scoreText(0.7234), m.scoreText(null)];
 const err = (message, status = 409) => ({ name: "ApiError", status, message });
+out.newWords = [m.reasonOf(err("refused: space_in_word edits[0].text")), m.reasonOf(err("refused: review_disagrees review")), m.reasonOf(err("task 5 is already being run by another process")),
+  m.reasonOf(err("retake_lost retakes -- open the caption review again (prepare-again --step review) and confirm the retake again")), m.reasonOf(err("provider_output_invalid base")),
+  m.failureText({ step: "base", code: "retake_lost", field: "", next: "" }), m.failureText({ step: "transcribe", code: "provider_output_invalid", field: "transcribe", next: "" }), m.failureText({ step: "render", code: "browser_failed", field: "render", next: "python3 providers/renderer/ffmpeg.py build --confirmed" }), m.failureText(null)];
 out.reasons = [m.reasonOf(err("refused: stale_revision revision")), m.reasonOf(err("refused: merge_across_segments edits[0]")), m.reasonOf(err("refused: something_new edits[1]")), m.reasonOf(err("the pipeline is busy")),
   m.reasonOf({ name: "ApiError", status: 0, message: "x" }), m.reasonOf(err("no", 404)), m.reasonOf(new Error("boom")), m.reasonOf(null)];
 out.steps = [m.stepRows({ transcribe: "done", review: "waiting", approval: "pending" }), m.isRunning(@STEPS_RUNNING@), m.isRunning(@STEPS_REVIEW@), m.isRunning(null)];
@@ -194,6 +197,12 @@ def test_a_refusal_is_told_in_a_sentence_for_its_closed_code_and_a_new_code_is_s
     assert reasons[2] == {"text": "refused: something_new edits[1]", "code": "", "field": ""}, "a code the page does not know is shown whole"
     assert reasons[3]["text"] == "the pipeline is busy" and "could not be reached" in reasons[4]["text"] and "not here" in reasons[5]["text"]
     assert reasons[6]["text"] == "boom" and reasons[7]["text"] == "The request failed."
+    new = got["newWords"]
+    assert [new[0]["code"], new[1]["code"], new[2]["code"], new[3]["code"], new[4]["code"]] == ["space_in_word", "review_disagrees", "busy", "retake_lost", "provider_output_invalid"]
+    assert "cannot hold a space" in new[0]["text"] and "no longer agree" in new[1]["text"] and "another process" in new[2]["text"]
+    assert new[3]["text"].endswith("confirm the retake again") and "Run: open the caption review again" in new[3]["text"] and new[3]["field"] == "retakes"
+    assert new[5] == "Cut and caption stopped: A retake you confirmed no longer matches a repeat after your edits. Open the captions again and confirm it again."
+    assert "cannot read as a result" in new[6] and new[7] == "Render the video stopped: browser_failed (render) Run: python3 providers/renderer/ffmpeg.py build --confirmed" and new[8] == ""
     rows = got["steps"][0]
     assert [r["label"] for r in rows] == ["Transcribe", "Check the captions", "Wait for your approval"] and [r["word"] for r in rows] == ["done", "waiting for you", "not yet"]
     assert got["steps"][1:] == [True, False, False]
@@ -208,13 +217,27 @@ def test_the_pages_edit_objects_are_the_services_closed_lists_and_none_names_a_t
     assert not set().union(*page.values()) & cap.TIME_KEYS, "no edit the page can make has a field for a time"
 
 
-def test_every_reason_the_service_can_give_has_a_sentence_in_the_page():
+def page_table(name):
     source = MODEL_FILE.read_text(encoding="utf-8")
-    page = set(re.findall(r"^  ([a-z_]+): [\"`]", re.search(r"export const REASONS = Object.freeze\(\{(.*?)\n\}\);", source, re.S).group(1), re.M))
-    raised = set(re.findall(r'CaptionError\("([a-z_]+)"', (st.REPO / "runtime" / "captions.py").read_text(encoding="utf-8")))
-    raised |= set(re.findall(r'"refused: ([a-z_]+) ', (st.REPO / "runtime" / "ops_pipeline.py").read_text(encoding="utf-8")))
-    raised |= {"credential_in_transcript", "slot_needs_a_choice"}
-    assert raised - page == set(), f"codes with no sentence on the page: {sorted(raised - page)}"
+    return set(re.findall(r"^  ([a-z_]+): [\"`]", re.search(rf"export const {name} = Object.freeze\(\{{(.*?)\n\}}\);", source, re.S).group(1), re.M))
+
+
+def test_every_closed_refusal_code_the_service_can_give_has_a_sentence_in_the_page():
+    reasons, failures = page_table("REASONS"), page_table("FAILURE_WORDS")
+    code = lambda name: (st.REPO / "runtime" / name).read_text(encoding="utf-8")
+    refusals = set(re.findall(r'CaptionError\("([a-z_]+)"', code("captions.py")))
+    refusals |= set(re.findall(r'"refused: ([a-z_]+)[ "]', code("ops_pipeline.py")))
+    assert {"space_in_word", "review_disagrees", "stale_revision", "slot_needs_a_choice", "credential_in_transcript"} <= refusals
+    assert refusals - reasons == set(), f"refusals of captions-edit and captions-done with no sentence: {sorted(refusals - reasons)}"
+    steps = set(re.findall(r'StepFailure\("([a-z_]+)"', code("pipeline.py") + code("ops_pipeline.py")))
+    steps |= set(re.findall(r'\("[^"]+", "([a-z_]+)"\)', re.search(r"TRANSCRIBER_TEXTS = \((.*?)\n\)", code("pipeline.py"), re.S).group(1)))
+    nexts = re.findall(r'code (?:in \(([^)]*)\)|== "([a-z_]+)")', code("pipeline.py").split("def next_for")[1].split("def failure_from")[0])
+    for group, single in nexts:
+        steps |= set(re.findall(r'"([a-z_]+)"', group)) | ({single} if single else set())
+    steps |= {"timeout", "usage", "failed", "not_configured", "cancelled", "script_refused"}
+    assert {"retake_lost", "provider_output_invalid"} <= steps
+    assert steps - failures - reasons == set(), f"step failures with no sentence: {sorted(steps - failures - reasons)}"
+    assert "busy" in failures, "the sentence for 'already being run by another process'"
 
 
 # --- the view: reading ------------------------------------------------------------------------------------------------------------------------
@@ -680,7 +703,7 @@ def test_a_pipeline_that_is_not_at_the_review_shows_its_steps_and_the_failure_wi
     progress = got["progress"]
     assert progress["chip"] == "Not at the review yet" and progress["steps"] == 12 and progress["words"] == 0
     assert progress["statuses"][3] == "align-proposal:is-waiting" and progress["statuses"][0] == "transcribe:is-done"
-    assert "script_refused beat3" in progress["failure"] and "fix the post file, then prepare-again" in progress["failure"]
+    assert "script was refused" in progress["failure"] and "(beat3)" in progress["failure"] and "Run: fix the post file, then prepare-again" in progress["failure"]
 
 
 OFF_MAC = r"""
@@ -825,7 +848,7 @@ def test_the_page_calls_only_its_own_routes_builds_no_markup_and_touches_no_imag
         assert forbidden not in code, forbidden
     assert re.findall(r"uploadRecording\(api, env\.project, file, \{ recording: env\.recording, slot: id", code), "a file goes to the media route by the existing upload function, bound to a slot id"
     model = "\n".join(line for line in MODEL_FILE.read_text(encoding="utf-8").splitlines() if not line.lstrip().startswith("//"))
-    assert "document" not in model and "fetch" not in model, "the model is pure"
+    assert "document." not in model and "fetch(" not in model and "window" not in model, "the model is pure"
 
 
 def test_the_review_reads_well_at_a_phones_width_and_nothing_scrolls_sideways():
@@ -843,3 +866,24 @@ def test_the_review_reads_well_at_a_phones_width_and_nothing_scrolls_sideways():
     assert "max-width: 200px" in re.search(r"^\.wb-rev-frame \{([^}]*)\}", floor, re.M).group(1)
     assert "overflow-x" not in "\n".join(re.findall(r"[^\n]*wb-cap[^\n]*", floor)), "nothing in the review scrolls sideways"
     assert not re.search(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(", "\n".join(re.findall(r"[^\n]*wb-cap[^\n]*", floor))), "tokens only: no colour literal"
+
+
+DONE_FAILS = r"""
+const done = clone(VIEW); done.slots[0].choice = "none"; script.view = done;
+const view = make();
+const root = view.el;
+await view.load(); await settle();
+api.pollJob = async (id, every, o) => ({ state: "done", result: { ok: false, failed: "base", code: "retake_lost", field: "retakes", next: "open the caption review again (prepare-again --step review) and confirm the retake again" } });
+script.view = { ...clone(done), editable: false };
+await press(find(root, "[data-key=done]")); await settle(); await settle();
+out.failed = { notice: text(find(root, ".wb-notice-card.is-error")), code: text(find(root, ".wb-rev-code")), chip: text(find(root, ".pui-chip")) };
+console.log(JSON.stringify(out));
+process.exit(0);
+"""
+
+
+@needs_node
+def test_a_pipeline_that_stops_after_done_says_why_in_the_sentence_of_its_code_with_the_command(tmp_path):
+    got = run(tmp_path, DONE_FAILS)["failed"]
+    assert got["notice"].startswith("Cut and caption stopped: A retake you confirmed no longer matches a repeat") and "retakes" in got["notice"] and "Run: open the caption review again" in got["notice"]
+    assert "retake_lost" in got["code"] and got["chip"] == "Checked"
