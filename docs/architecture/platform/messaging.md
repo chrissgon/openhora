@@ -43,7 +43,7 @@ Decisions are numbered M-n in the supervisor's record of the messaging work; the
 | M-30 to M-34 (10-13) | A third WhatsApp provider, `whatsapp-twilio`, for a number that is a Twilio WhatsApp sender. A restricted API key sends; the Auth Token only checks `X-Twilio-Signature`. No documents (text cut at 1600); no card buttons until the person records three quick-reply template ids; no catch-up of messages lost while the machine slept. Shared code with `whatsapp-cloud` lives in `providers/messenger/whatsapp_meta.py`. Leaving Twilio later is Meta's migration between WhatsApp Business Accounts, never deleting the sender. | The maintainer's test number is a Twilio sender. Twilio documents the Auth Token as the signing key and a restricted key for sending, so each secret does one job. |
 | M-36 (10-13) | The official WhatsApp providers take any public HTTPS address (`--public-url`); Tailscale is an optional helper, not a requirement. A README table says who can read the traffic for each option. A missing `keyring` library is reported as such, not as "secret missing". | Forcing one tunnel vendor on every user is not the workbench's choice; the person decides who sits in the path. |
 | M-37 (10-13) | This page and the entry in [decisions.md](../../decisions.md). | The integration is the workbench's own knowledge and must outlive the conversation that built it. |
-| M-38 (10-13) | One service may start several bridges (`--messaging a,b`); cards go to every app; a decision resolved in one app is refused in the others. Being built (MSG-13). | A person may use more than one app; the decision's state, not the app, says whether it is still open. |
+| M-38 (10-13) | One service may start several bridges (`--messaging a,b`); cards go to every app; a decision resolved in one app is refused in the others. Built (MSG-13): at most 6 platforms, one child each, stopped together within one 150 s bound. | A person may use more than one app; the decision's state, not the app, says whether it is still open. |
 
 ## Architecture
 
@@ -106,7 +106,7 @@ The ledger is `<state>/messaging-<platform>.json` (mode 0600), written through a
 
 ### `service.py --messaging` and `service_bridge.py`
 
-`service.py --messaging <platform> [--notice-every <s>]` (off by default) brings up the page and the bridge in one start. After the sockets are bound and the JSON line is printed (which then ends with `"messaging": "<platform>"`), `service_bridge.Child` starts `[sys.executable, runtime/messaging.py, --project <each project>..., --platform <platform>, --stop-on-stdin-eof]`:
+`service.py --messaging <platform>[,<platform>]... [--notice-every <s>]` (off by default; several platforms start one child each, `"messaging"` is then a list in the JSON line and in `GET /projects`) brings up the page and the bridge in one start. After the sockets are bound and the JSON line is printed (which then ends with `"messaging": "<platform>"`), `service_bridge.Child` starts `[sys.executable, runtime/messaging.py, --project <each project>..., --platform <platform>, --stop-on-stdin-eof]`:
 
 - in its **own session** (`start_new_session`), so a signal to the service's group does not reach it and one signal to its group reaches the bridge and everything it started;
 - with **standard input a pipe** the service holds open and never writes to: when the service dies, however it dies, the pipe closes and the bridge, started with `--stop-on-stdin-eof`, stops as a SIGTERM stops it (the flag is off by default because a bridge started by hand under `nohup`, `&`, launchd or systemd has its input at `/dev/null`);
@@ -381,7 +381,7 @@ Common errors, with their cause:
 - **Buttons on Twilio** are built and tested offline and not live: the three templates, the 21656 fallback and the callback-driven resend.
 - **The page state for a paused bridge.** A paused listen provider is a log line only; `GET /projects` has no state for it.
 - **Live results still missing**: the Markdown rendering on Telegram after MSG-4 and Discord buttons were not explicitly confirmed; the unofficial WhatsApp client and the Meta Cloud API were not run live.
-- **Several bridges in one service** (decision M-38) is decided and being built (MSG-13); this page describes one bridge per service.
+- **Several bridges in one service** (decision M-38) is built (MSG-13): `--messaging telegram,whatsapp-twilio` (or the option repeated) starts one child per platform, the section above describes one of them. Each app gets its own card and a decision resolved in one is refused in the others; the bridges share the project's file locks, so two apps written at once may answer "busy" in one; two official WhatsApp providers need different ports in `setup`.
 - **Restarting a crashed bridge** and **queuing a line while a run holds the project** are not built; so is **editing a sent card** when a decision is resolved elsewhere, and **approving effects from the messaging channel** (decision M-3, an opt-in for later).
 - **A Go job in CI** uses the runner's own Go instead of a pinned setup action; moving it to a pinned action is open.
 
