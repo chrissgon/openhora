@@ -211,7 +211,7 @@ out.rows = rowsOf(tab.el).map(idOf);
 const li = (id) => rowsOf(tab.el).find((n) => idOf(n) === String(id));
 const row2 = li(2);
 out.failedRow = {
-  text: text(row2.querySelector(".wb-task-title")), number: text(row2.querySelector(".wb-task-num")), skill: text(row2.querySelector(".wb-task-skill")), chip: text(row2.querySelector(".pui-chip")),
+  text: text(row2.querySelector(".wb-task-title")), number: text(row2.querySelector(".wb-task-num")), skill: text(row2.querySelector(".wb-task-skill")), chip: text(row2.querySelector(".pui-badge")),
   request: row2.querySelector(".wb-task-request a").attrs.href, requestText: text(row2.querySelector(".wb-task-request a")), age: text(row2.querySelector(".wb-task-age")),
   note: text(row2.querySelector(".wb-task-note")), failure: text(row2.querySelector(".wb-task-failure")), retry: row2.querySelector(".wb-task-retry").attrs["aria-label"],
   markup: [...row2.walk()].filter((n) => ["SCRIPT", "B", "I"].includes(n.tagName)).length,
@@ -693,4 +693,4 @@ def test_an_opened_earlier_attempt_reads_in_the_muted_text_token_while_the_statu
     css = interface_css()
     m = re.search(r"\.wb-earlier-list \.wb-run dd\s*\{([^}]*)\}", css)
     assert m and "color: var(--pui-text-muted)" in m.group(1), "M-28: the values of an earlier attempt are muted"
-    assert not re.search(r"\.wb-earlier-list[^{]*\.pui-chip|\.wb-earlier-list[^{]*chip", css), "no rule overrides the chip's own colour"
+    assert not re.search(r"\.wb-earlier-list[^{]*\.pui-badge|\.wb-earlier-list[^{]*chip", css), "no rule overrides the chip's own colour"

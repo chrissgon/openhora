@@ -104,7 +104,7 @@ out.rows = rowsOf().map((r) => {
 });
 // the score comes first, then the band's chip (M-2, R-53), in the list
 const band = rowsOf()[0].children[0].children[4].find((n) => has(n, "wb-band"));
-out.order = band.children.flatMap((c) => c.cls().filter((x) => x === "wb-score" || x === "pui-chip"));
+out.order = band.children.flatMap((c) => c.cls().filter((x) => x === "wb-score" || x === "pui-badge"));
 // the chevron is the accordion's, drawn by the stylesheet from an icon
 out.chevron = rowsOf()[0].children[0].children[0].cls();
 // an open row stays open through a read and the same skill's phone card follows it
@@ -118,7 +118,7 @@ out.cardToRow = [rowsOf()[1].open, rowsOf()[2].open];
 // the card of a phone: name and "version · area", the manifest and runs, the two tiers with the score first; opened: the two sentences only
 out.cards = cards().map((c) => ({ summary: text(c.children[0]), body: c.find((n) => has(n, "wb-skill-detail")).children.map(text) }));
 const tier = cards()[0].find((n) => has(n, "wb-sc-3"));
-out.cardOrder = tier.all((n) => has(n, "wb-band"))[0].children.flatMap((c) => c.cls().filter((x) => x === "wb-score" || x === "pui-chip"));
+out.cardOrder = tier.all((n) => has(n, "wb-band"))[0].children.flatMap((c) => c.cls().filter((x) => x === "wb-score" || x === "pui-badge"));
 // a filter that matches nothing and a read with no skill
 const area = tab.el.all((n) => n.tagName === "SELECT")[0];
 area.value = "marketing"; area.fire("change");
@@ -146,7 +146,7 @@ def test_the_skills_tab_is_a_list_of_accordions_in_five_columns_with_the_score_b
     assert third["body"][:2] == ["Manifest: no", "Runs here: -"] and third["body"][-1] == "Floor model: the service sent no proof for this model."
     assert first["label"].startswith("brand-voice, version 1.2.0, brand, reference model 0.86 reliable, floor model 0.58 watch"), "a row names its cells, since the head is hidden"
     assert [r["open"] for r in got["rows"]] == [False, False, False]
-    assert got["order"] == ["wb-score", "pui-chip"], "the score before the chip (R-53)"
+    assert got["order"] == ["wb-score", "pui-badge"], "the score before the chip (R-53)"
     assert got["chevron"] == ["wb-acc-chev"]
     assert got["afterToggle"] == [True, False], "opening a row of the list opens the same skill's card (one set of names)"
     assert got["keptOpen"] == [True, True, False], "an open row stays open through a read"
@@ -154,7 +154,7 @@ def test_the_skills_tab_is_a_list_of_accordions_in_five_columns_with_the_score_b
     assert got["cards"][0]["summary"] == "brand-voice 1.2.0 · brand Manifest yes · 3 runs here Reference 0.86 reliable Floor 0.58 watch", "R-55: one card per skill, the score first"
     assert got["cards"][0]["body"] == ["Reference model: reference-model-1, adapter-a, mean 0.86, 9 runs. Cause: none.",
                                        "Floor model: floor-model-1, adapter-b, mean 0.58, 9 runs. Cause: pessimistic score under 0.70."], "the card says Manifest and Runs here in its summary: its body holds the two sentences"
-    assert got["cardOrder"] == ["wb-score", "pui-chip"]
+    assert got["cardOrder"] == ["wb-score", "pui-badge"]
     assert got["afterArea"] == ["mkt-publish"]
 
 

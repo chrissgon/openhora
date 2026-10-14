@@ -276,7 +276,7 @@ out.unplaced = text(find(root, "[data-key=unplaced]"));
 out.slots = all(root, "[data-slot-row]").map((n) => text(n));
 out.frame = { lines: text(find(root, "[data-key=face-line]")) + " | " + text(find(root, "[data-key=cover-line]")), frame: all(root, "svg").length, facebox: all(root, "[data-key=facebox]").length };
 out.steps = { shown: all(root, "[data-key=steps]").length };
-out.chip = text(find(root, ".pui-chip"));
+out.chip = text(find(root, ".pui-badge"));
 out.done = { button: find(root, "[data-key=done]") ? off(find(root, "[data-key=done]")) : "none", block: find(root, "[data-key=done-block]") ? text(find(root, "[data-key=done-block]")) : null };
 out.sentBack = find(root, "[data-key=sent-back]");
 out.calls = calls.map((c) => c[0]);
@@ -891,7 +891,7 @@ await press(find(root, "[data-key=done]"));
 await settle(); await settle(); await settle();
 out.sent = calls.filter((c) => c[0] === "done").map((c) => c[1]);
 out.polled = calls.filter((c) => c[0] === "poll").length;
-out.after = { chip: text(find(root, ".pui-chip")), editButtons: all(root, "button.wb-rev-word").length, words: all(root, ".wb-rev-word").length, steps: all(root, "[data-step]").length, reopen: find(root, "[data-key=reopen]") !== null, changed };
+out.after = { chip: text(find(root, ".pui-badge")), editButtons: all(root, "button.wb-rev-word").length, words: all(root, ".wb-rev-word").length, steps: all(root, "[data-step]").length, reopen: find(root, "[data-key=reopen]") !== null, changed };
 // the whole call carried the revision and nothing else
 out.noText = JSON.stringify(out.sent).includes("text") || JSON.stringify(out.sent).includes("Depois");
 await press(find(root, "[data-key=reopen]"));
@@ -917,7 +917,7 @@ const view = make();
 const root = view.el;
 await view.load(); await settle();
 let release; const held = new Promise((r) => { release = r; });
-api.pollJob = async (id, every, o) => { calls.push(["poll", id]); o.onUpdate({ state: "running" }); await settle(); out.during = { chip: text(find(root, ".pui-chip")), steps: all(root, "[data-step]").length, words: all(root, ".wb-rev-word").length, done: find(root, "[data-key=done]") };
+api.pollJob = async (id, every, o) => { calls.push(["poll", id]); o.onUpdate({ state: "running" }); await settle(); out.during = { chip: text(find(root, ".pui-badge")), steps: all(root, "[data-step]").length, words: all(root, ".wb-rev-word").length, done: find(root, "[data-key=done]") };
   await held; return { state: "done", result: { ok: true } }; };
 script.media.pipeline.steps = { transcribe: "done", analyse: "done", retakes: "done", "align-proposal": "done", review: "done", remap: "done", base: "done", align: "done", check: "done", render: "pending", cover: "pending", approval: "pending" };
 const after = clone(done); after.editable = false; script.view = after;
@@ -925,7 +925,7 @@ const pressing = press(find(root, "[data-key=done]"));
 await settle(); await settle();
 release();
 await pressing; await settle();
-out.end = text(find(root, ".pui-chip"));
+out.end = text(find(root, ".pui-badge"));
 console.log(JSON.stringify(out));
 process.exit(0);
 """
@@ -945,7 +945,7 @@ script.readError = new ApiError(409, "refused", "the captions are not ready: the
 const view = make();
 const root = view.el;
 await view.load(); await settle();
-out.progress = { chip: text(find(root, ".pui-chip")), steps: all(root, "[data-step]").length, statuses: all(root, "[data-step]").map((n) => n.attrs["data-step"] + ":" + n.cls().filter((c) => c.startsWith("is-"))[0]),
+out.progress = { chip: text(find(root, ".pui-badge")), steps: all(root, "[data-step]").length, statuses: all(root, "[data-step]").map((n) => n.attrs["data-step"] + ":" + n.cls().filter((c) => c.startsWith("is-"))[0]),
   failure: find(root, "[data-part=steps] .wb-notice-card") ? text(find(root, "[data-part=steps] .wb-notice-card")) : null, words: all(root, ".wb-rev-word").length, error: find(root, ".wb-notice-card.is-error") ? text(find(root, ".wb-notice-card.is-error")) : null };
 console.log(JSON.stringify(out));
 process.exit(0);
@@ -966,7 +966,7 @@ OFF_MAC = r"""
 const view = make({ loopback: false });
 const root = view.el;
 await view.load(); await settle();
-out.mac = { calls: calls.map((c) => c[0]), notice: text(find(root, ".wb-notice-card")), chip: text(find(root, ".pui-chip")), words: all(root, ".wb-rev-word").length, buttons: all(root, "button").map((b) => b.attrs["data-key"]), steps: all(root, "[data-step]").length };
+out.mac = { calls: calls.map((c) => c[0]), notice: text(find(root, ".wb-notice-card")), chip: text(find(root, ".pui-badge")), words: all(root, ".wb-rev-word").length, buttons: all(root, "button").map((b) => b.attrs["data-key"]), steps: all(root, "[data-step]").length };
 console.log(JSON.stringify(out));
 process.exit(0);
 """
@@ -1110,8 +1110,8 @@ def test_the_page_calls_only_its_own_routes_builds_no_markup_and_touches_no_imag
 def test_the_review_reads_well_at_a_phones_width_and_nothing_scrolls_sideways():
     floor = css_file("floor")
     phone = "\n".join(media_blocks(floor, "max-width: 899px"))
-    assert ".wb-rev-word, .wb-rev-matched, .wb-rev-plain, .wb-rev-beat-head, .wb-rev-steps, .wb-rev-heading, .wb-rev-details > summary { font-size: 16px; }" in phone
-    assert "button.wb-rev-word { min-height: 44px; }" in phone and ".wb-rev-sizes .pui-btn { flex: 1 1 auto; min-height: 44px; }" in phone
+    assert ".wb-rev-matched, .wb-rev-plain, .wb-rev-beat-head, .wb-rev-steps, .wb-rev-heading, .wb-rev-details > summary { font-size: 16px; }" in phone
+    assert "button.wb-rev-word { min-height: 44px; }" in phone and ".wb-rev-sizes .pui-chip { flex: 1 1 auto; min-height: 44px; justify-content: center; }" in phone
     assert ".wb-card-actions .pui-btn { flex: 1 1 100%; min-height: 44px; }" in phone, "the buttons are full width and tall enough to touch"
     words = re.search(r"^\.wb-rev-words \{([^}]*)\}", floor, re.M).group(1)
     assert "flex-wrap: wrap" in words and "min-width: 0" in words, "the words wrap onto the next line"
@@ -1132,7 +1132,7 @@ await view.load(); await settle();
 api.pollJob = async (id, every, o) => ({ state: "done", result: { ok: false, failed: "base", code: "retake_lost", field: "retakes", next: "open the caption review again (prepare-again --step review) and confirm the retake again" } });
 script.view = { ...clone(done), editable: false };
 await press(find(root, "[data-key=done]")); await settle(); await settle();
-out.failed = { notice: text(find(root, ".wb-notice-card.is-error")), code: text(find(root, ".wb-rev-code")), chip: text(find(root, ".pui-chip")) };
+out.failed = { notice: text(find(root, ".wb-notice-card.is-error")), code: text(find(root, ".wb-rev-code")), chip: text(find(root, ".pui-badge")) };
 console.log(JSON.stringify(out));
 process.exit(0);
 """
@@ -1156,7 +1156,7 @@ out.shown = { words: all(root, "button.wb-rev-word").length, done: find(root, "[
 script.view = { ...clone(done), editable: false };
 await press(find(root, "[data-key=done]")); await settle(); await settle(); await settle();
 out.sent = calls.filter((c) => c[0] === "done").map((c) => c[1]);
-out.after = text(find(root, ".pui-chip"));
+out.after = text(find(root, ".pui-badge"));
 console.log(JSON.stringify(out));
 process.exit(0);
 """
@@ -1214,7 +1214,7 @@ script.view = two;
 const view = make();
 const root = view.el;
 await view.load(); await settle();
-const rows = all(root, "[data-retake]").map((n) => ({ id: n.attrs["data-retake"], chip: text(find(n, ".pui-chip")), chipClass: find(n, ".pui-chip").attrs.class, confirmed: n.cls().includes("is-confirmed"), struck: find(n, ".wb-rev-struck").cls().join(" "), button: text(find(n, "button")) }));
+const rows = all(root, "[data-retake]").map((n) => ({ id: n.attrs["data-retake"], chip: text(find(n, ".pui-badge")), chipClass: find(n, ".pui-badge").attrs.class, confirmed: n.cls().includes("is-confirmed"), struck: find(n, ".wb-rev-struck").cls().join(" "), button: text(find(n, "button")) }));
 out.rows = rows;
 out.words = { proposed: all(root, ".wb-rev-word.is-retake").map((n) => n.attrs["data-index"]).join(","), cut: all(root, ".wb-rev-word.is-cut").map((n) => n.attrs["data-index"]).join(","), both: all(root, ".wb-rev-word.is-retake.is-cut").length };
 out.aria = word(root, 35).attrs["aria-label"] + " | " + word(root, 61).attrs["aria-label"];

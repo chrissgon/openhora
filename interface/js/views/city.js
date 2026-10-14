@@ -67,7 +67,7 @@ export function createCityView(frame) {
         h("strong", { class: "wb-building-name", text: b.name }),
         b.accepted
           ? (b.decisions > 0 ? h("span", { class: "pui-badge pui-warn pui-soft pui-rounded-full", text: String(b.decisions) }) : null)
-          : h("span", { class: "pui-chip pui-warn pui-soft wb-chip-small", text: "Not accepted" }),
+          : h("span", { class: "pui-badge pui-warn pui-soft", text: "Not accepted" }),
         h("span", { class: "wb-building-sub", text: model.subOf(b) }),
         icon("chevron-right", 14));
       link.addEventListener("click", (event) => {

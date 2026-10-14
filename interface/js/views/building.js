@@ -290,7 +290,7 @@ export function createBuildingView(frame, env) {
     const main = h("button", { class: "wb-rq-main", type: "button", "data-request": String(r.id), "aria-current": r.selected ? "true" : null, "aria-label": r.name },
       h("span", { class: "pui-badge pui-muted pui-soft wb-rq-n", text: `#${r.id}` }),
       h("strong", { class: "wb-rq-title", title: r.title, text: r.title }),
-      r.state ? h("span", { class: `pui-chip ${r.tone} wb-chip-12 wb-rq-state`, text: r.state }) : null,
+      r.state ? h("span", { class: `pui-badge ${r.tone} wb-rq-state`, text: r.state }) : null,
       h("span", { class: "wb-rq-sub", title: r.steps, text: r.steps }));
     main.addEventListener("click", () => {
       if (env && env.selectRequest && projectId) env.selectRequest(projectId, r.id);   // the tracking bar follows this request (kept in memory), then a redraw and a reload

@@ -19,9 +19,14 @@ export function withheldLine(words) {
   return words.length ? h("p", { class: "wb-card-note wb-muted", role: "note", "data-key": "withheld", text: lineText(words) }) : null;
 }
 
-/** A state chip: tone is the classes ("pui-theme pui-soft"). */
-export function chip(text, tone, size = "12") {
-  return h("span", { class: `pui-chip ${tone} wb-chip-${size}`, text });
+/** The classes of an action button of a card, at the library's own size: one source for the review and the video card, so that they cannot drift apart (a primary one is solid in the theme colour, any other an outline). */
+export function actionClass(primary = false) {
+  return `pui-btn ${primary ? "pui-solid pui-theme" : "pui-surface pui-outline"} wb-card-button`;
+}
+
+/** A status label: a PerfectUI badge, at the library's own size. tone is the classes ("pui-theme pui-soft"). */
+export function chip(text, tone) {
+  return h("span", { class: `pui-badge ${tone}`, text });
 }
 
 /**
@@ -51,6 +56,11 @@ export function focusOpenLink(root, path, tries = 30) {
 /** A labelled field group: the label's text, then the control. */
 export function field(label, control, hint) {
   return h("label", { class: "pui-field-group wb-field" }, h("span", { class: "wb-field-label", text: label }), control, hint || null);
+}
+
+/** A text area as every field of the page draws it: the library's input look, and the page's minimum height and vertical resize (base.css `textarea.wb-field-input`). `attrs` are added (rows, data-key, aria-*). */
+export function textArea(attrs = {}) {
+  return h("textarea", { class: "pui-input wb-field-input", ...attrs });
 }
 
 /** What the person reads when a request failed (the frame's texts and the flows' failure branches). */

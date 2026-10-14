@@ -18,7 +18,7 @@ export function cityCard(spec) {
     h("span", { class: `wb-dot${spec.running ? " is-running" : ""}` }),
     h("span", { class: "wb-pill-name", text: spec.name }),
     h("span", { class: "wb-pill-sub", text: spec.sub }));
-  if (!spec.accepted) node.append(h("span", { class: "pui-chip pui-warn pui-soft wb-chip-small", text: "Not accepted" }));
+  if (!spec.accepted) node.append(h("span", { class: "pui-badge pui-warn pui-soft", text: "Not accepted" }));
   else if (spec.decisions > 0) node.append(h("span", { class: "pui-badge pui-warn pui-soft pui-rounded-full", text: String(spec.decisions) }));
   return node;
 }

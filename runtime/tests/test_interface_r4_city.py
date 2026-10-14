@@ -87,7 +87,7 @@ def test_the_city_has_no_box_of_project_controls_and_no_leave_button_and_the_she
     assert got["buttons"] == ["wb-grip"], "the handle is the only button the City's view draws"
     assert got["list"] == {"id": "wb-scene-list", "tabindex": "-1", "head": "Projects", "label": "Projects"}, "the keyboard twin is still what \"Skip to the scene list\" names"
     assert got["rows"] == [["A:northwind-shop, 2 decisions waiting, task #2 running"], ["A:tinykv-docs, not accepted yet"]], "a row is one link with its name for a screen reader, and nothing else"
-    assert got["rowParts"] == [["wb-dot", "wb-building-name", "pui-badge", "wb-building-sub", "wb-icon"], ["wb-dot", "wb-building-name", "pui-chip", "wb-building-sub", "wb-icon"]], \
+    assert got["rowParts"] == [["wb-dot", "wb-building-name", "pui-badge", "wb-building-sub", "wb-icon"], ["wb-dot", "wb-building-name", "pui-badge", "wb-building-sub", "wb-icon"]], \
         "the row of city.html: the dot, the name, the count (or the chip \"Not accepted\"), the sub line, the chevron"
 
 
@@ -150,10 +150,10 @@ console.log(JSON.stringify(out));
 @needs_node
 def test_a_first_read_that_failed_is_the_bands_lead_with_try_again_under_it_as_the_page_draws_it(tmp_path):
     got = run_scene_dom(tmp_path, BAND)
-    assert got["lead"] == ["P.wb-notice-lead:The service could not be reached. Is it still running?", "BUTTON.pui-btn.pui-surface.pui-outline.wb-small-button:Try again"], \
+    assert got["lead"] == ["P.wb-notice-lead:The service could not be reached. Is it still running?", "BUTTON.pui-btn.pui-surface.pui-outline.wb-touch:Try again"], \
         "city.html \"First read failed\": the lead, then the small button; no empty sentence between them"
     assert got["retried"] == 1, "Try again reads everything again"
-    assert got["text"] == ["P.wb-notice-text:A sentence", "BUTTON.pui-btn.pui-surface.pui-outline.wb-small-button:Try again"], "a band that has a sentence of its own keeps it"
+    assert got["text"] == ["P.wb-notice-text:A sentence", "BUTTON.pui-btn.pui-surface.pui-outline.wb-touch:Try again"], "a band that has a sentence of its own keeps it"
     main = (JS / "main.js").read_text(encoding="utf-8")
     assert 'return { kind: "error", lead, retry: true };' in main, "the failure of the first read is said as the lead"
 

@@ -22,7 +22,7 @@ export function toBase64(bytes) {
 let chooserCount = 0;
 
 export function handChooser({ input, line, hint }) {
-  const button = h("button", { class: "pui-btn pui-surface pui-outline wb-small-button wb-hand-choose", type: "button", text: "Choose a file" });
+  const button = h("button", { class: "pui-btn pui-surface pui-outline wb-touch wb-hand-choose", type: "button", text: "Choose a file" });
   button.addEventListener("click", () => { if (!input.disabled) input.click(); });
   input.setAttribute("aria-label", "Hand a file over");
   chooserCount += 1;      // the hint and the line of a web task describe the file input

@@ -380,7 +380,7 @@ const groups = all(tt.el, "details.wb-task-group");
 out.tasks = { groups: groups.map((g) => [text(find(g, ".wb-group-name")), cls(find(g, ".wb-group-tile")).filter((c) => /^pui-(theme|warn|muted|success|error)$/.test(c))[0], cls(find(g, ".wb-group-tile")).includes("is-none"), text(find(g, ".pui-badge")), cls(find(g, ".wb-group-tile .wb-icon")).find((c) => /^wb-icon-/.test(c))]),
   open: groups.map((g) => "open" in g.attrs || g.open === true) };
 const toggle = find(tt.el, "button.wb-task-toggle");
-out.tasks.row = { n: text(find(toggle, ".wb-task-num")), title: text(find(toggle, ".wb-task-title")), chip: text(find(toggle, ".pui-chip")), mark: all(toggle, ".wb-task-mark .wb-icon-chevron-down").length, expanded: toggle.attrs["aria-expanded"], bodyHidden: "hidden" in find(tt.el, ".wb-task-body").attrs };
+out.tasks.row = { n: text(find(toggle, ".wb-task-num")), title: text(find(toggle, ".wb-task-title")), chip: text(find(toggle, ".pui-badge")), mark: all(toggle, ".wb-task-mark .wb-icon-chevron-down").length, expanded: toggle.attrs["aria-expanded"], bodyHidden: "hidden" in find(tt.el, ".wb-task-body").attrs };
 toggle.click();
 await settle();
 out.tasks.opened = { expanded: find(tt.el, "button.wb-task-toggle").attrs["aria-expanded"], bodyHidden: "hidden" in find(tt.el, ".wb-task-body").attrs, runs: all(tt.el, "dl.wb-run").length };
@@ -392,7 +392,7 @@ desk.update({ documents: docs, truncated: false, loading: false, error: null });
 const lobbyDesk = createDeskTab({ project: P, agent: "planning", open() {}, agentColumn: true });
 lobbyDesk.update({ documents: docs, truncated: false, loading: false, error: null });
 const first = find(desk.el, "li.wb-desk-row");
-out.desk = { list: cls(find(desk.el, "ul.wb-desk-list")).join(" "), aria: find(desk.el, "ul.wb-desk-list").attrs["aria-label"], rows: all(desk.el, "li.wb-desk-row").length, table: all(desk.el, "table").length, path: text(find(first, "button.wb-path-button")), bound: text(find(first, ".wb-chip-12")).trim(),
+out.desk = { list: cls(find(desk.el, "ul.wb-desk-list")).join(" "), aria: find(desk.el, "ul.wb-desk-list").attrs["aria-label"], rows: all(desk.el, "li.wb-desk-row").length, table: all(desk.el, "table").length, path: text(find(first, "button.wb-path-button")), bound: text(find(first, "")).trim(),
   meta: text(find(first, ".wb-desk-meta")), agents: all(desk.el, ".wb-desk-agent").length, lobby: all(lobbyDesk.el, "li.wb-desk-row .wb-desk-agent").map(text), lobbyAria: find(lobbyDesk.el, "ul.wb-desk-list").attrs["aria-label"] };
 
 // --- the viewer's head: the path and the size line at the left, `Plain text` and `Close` at the right
@@ -682,7 +682,7 @@ for (const phone of [false, true]) {
     view.update({ snapshot, route: router.parse(`#/p/${P}/floor/engineering/${tab}`), now: new Date("2026-10-10T12:00:00Z"), reload: 1 });
     await settle();
     const head = find(frame.main, ".wb-floor-head");
-    out[`${phone ? "phone" : "desktop"}-${tab}`] = { chips: all(head, ".pui-chip").length, header: all(head, ".wb-header-mode, .wb-mode-plate").length, own: all(frame.main, ".wb-mode-row .wb-mode-plate").length, title: find(head, ".wb-panel-title").textContent };
+    out[`${phone ? "phone" : "desktop"}-${tab}`] = { chips: all(head, ".pui-badge").length, header: all(head, ".wb-header-mode, .wb-mode-plate").length, own: all(frame.main, ".wb-mode-row .wb-mode-plate").length, title: find(head, ".wb-panel-title").textContent };
   }
   view.dispose();
 }

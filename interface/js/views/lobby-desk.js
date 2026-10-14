@@ -58,7 +58,7 @@ function createDeskList(env) {
       const kind = r.kind ? `${r.size ? " · " : ""}${r.kind}` : "";
       const row = h("li", { class: "wb-desk-row" },
         h("span", { class: "wb-desk-path" }, open,
-          r.bound ? h("span", { class: "pui-chip pui-muted pui-soft wb-chip-11", title: "bound to a decision" }, "bound", h("span", { class: "wb-sr", text: " to a decision" })) : null),
+          r.bound ? h("span", { class: "pui-badge pui-muted pui-soft", title: "bound to a decision" }, "bound", h("span", { class: "wb-sr", text: " to a decision" })) : null),
         h("span", { class: "pui-badge pui-muted pui-soft wb-desk-agent", text: r.agent ? format.agentWord(r.agent) : "Lobby" }),
         h("span", { class: "wb-desk-meta wb-muted" },
           h("span", { class: "mono wb-desk-owner", text: r.owner }), r.owner ? " · " : "", h("span", { class: "wb-nowrap" }, r.size, h("span", { class: "wb-desk-kind", text: kind })), " · ", ...whenParts(r.modified)));

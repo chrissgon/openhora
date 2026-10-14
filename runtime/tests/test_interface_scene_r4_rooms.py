@@ -1178,7 +1178,7 @@ out.shape = [plaque.right.z < plaque.origin.z, Math.abs(plaque.right.y - plaque.
 const node = doorNode(label);
 const classes = []; node.classList && classes.push(...node.classList.values ? [...node.classList.values()] : []);
 const html = JSON.stringify(node, (k, v) => (k === "parent" || k === "ownerDocument" ? undefined : v));
-out.badge = ["pui-btn", "pui-soft", "pui-theme", "wb-pill", "pui-badge", "pui-chip"].filter((c) => html.includes(c));
+out.badge = ["pui-btn", "pui-soft", "pui-theme", "wb-pill", "pui-badge", "pui-badge"].filter((c) => html.includes(c));
 out.fit = html.includes("wb-label-fit");
 out.text = html.includes("Control room");
 // the fit: an affine projection stands for the camera; the matrix maps the label's box onto the plate's parallelogram

@@ -28,7 +28,7 @@
 .tk-field:focus-within { outline: 2px solid var(--pui-theme); outline-offset: 2px; }
 .tk-field .pui-input { flex: 1 1 auto; min-height: 44px; border-color: transparent; font-family: var(--wb-font-mono); }
 .tk-field .pui-input:focus-visible { outline: none; }
-.tk-field .pui-btn { flex: none; min-height: 44px; padding-inline: 20px; font-weight: 600; }
+.tk-field .pui-btn { flex: none; min-height: 44px; font-weight: 600; }
 .tk-help, .wb-token-help { color: var(--pui-text-muted); font-size: 12px; }
 .tk-side { position: relative; display: grid; place-content: center; justify-items: center; align-self: stretch; }
 

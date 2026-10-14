@@ -95,7 +95,7 @@ export function plateNode(p, attrs = {}, tag = "div") {
  * in the row's accessible name (the plate is hidden from a screen reader).
  */
 export function rowNode(p, attrs = {}) {
-  const chips = [...chipNodes(p), ...(p.actingLine ? [h("span", { class: "pui-badge pui-muted pui-outline pui-rounded-full wb-acting", text: p.actingLine })] : [])];
+  const chips = [...chipNodes(p), ...(p.actingLine ? [h("span", { class: "pui-badge pui-muted pui-outline pui-rounded-full", text: p.actingLine })] : [])];
   return h("a", { ...attrs, class: `wb-fl-row${p.off ? " is-off" : ""}${attrs.class ? ` ${attrs.class}` : ""}`, "data-floor": p.name },
     h("span", { class: `wb-dot is-${p.dot}` }),
     h("span", { class: "wb-fl-title" },

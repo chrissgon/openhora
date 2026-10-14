@@ -119,7 +119,7 @@ export function createTrack({ onOpenSteps, onSelectRequest = () => {} }) {
       h("span", { class: "wb-now-where", text: now.where }),
       h("a", { class: "wb-now-title", href: now.link, text: now.title }),
       h("div", { class: "wb-now-row" },
-        h("span", { class: `pui-chip pui-soft ${now.running ? "pui-theme" : "pui-warn"} wb-chip-small`, text: now.state }),
+        h("span", { class: `pui-badge pui-soft ${now.running ? "pui-theme" : "pui-warn"}`, text: now.state }),
         h("span", { class: "wb-now-sub", text: now.sub })));
   }
 

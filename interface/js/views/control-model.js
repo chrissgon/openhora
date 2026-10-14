@@ -33,7 +33,7 @@ export const TIER_COLUMNS = Object.freeze([["strong", "Reference model"], ["floo
 
 /** The library classes of a band's chip; a word that is not one of the three is drawn like "watch" (muted), with its own word. */
 export function bandClass(band) {
-  return `pui-chip ${BAND_TONE[band] || "pui-muted"} pui-soft`;
+  return `pui-badge ${BAND_TONE[band] || "pui-muted"} pui-soft`;
 }
 
 /** A number to two decimals; null, a missing value or anything that is not a finite number is "-" (never 0.00). */

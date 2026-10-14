@@ -443,7 +443,7 @@ export function job(id, options) {
 
 // --- jobs ----------------------------------------------------------------------------------------------------------
 
-function sleep(ms, signal) {
+export function sleep(ms, signal) {
   return new Promise((resolve, reject) => {
     if (signal && signal.aborted) {
       reject(new DOMException("aborted", "AbortError"));
@@ -462,7 +462,7 @@ function sleep(ms, signal) {
 }
 
 /** Resolves at once when the tab is visible (or there is no document); else when it becomes visible. An abort rejects. */
-function untilVisible(signal) {
+export function untilVisible(signal) {
   if (typeof document === "undefined" || !document.hidden) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const done = () => {

@@ -18,15 +18,17 @@ export function overflows(body) {
 
 /**
  * Wrap `content` (a node or an array of nodes: the rendered Markdown, or the text as it came). options: {open (the reply is open now), onToggle(open) (the caller keeps the choice),
- * measure(body) -> whether the content is taller than the preview (a test gives its own)}. Returns {el, update(), isOpen(), toggle()}; `update` measures again.
+ * measure(body) -> whether the content is taller than the preview (a test gives its own), whole (the label of the button that opens it, default "Show the whole reply": the video
+ * card says "Show the whole caption"), lines (a line count the stylesheet knows, 4: the class `is-lines-4`; default 8)}. Returns {el, update(), isOpen(), toggle()}; `update` measures again.
  */
-export function replyView(content, { open = false, onToggle = null, measure = overflows } = {}) {
+export function replyView(content, { open = false, onToggle = null, measure = overflows, whole = SHOW_WHOLE, lines = null } = {}) {
   counter += 1;
   const id = `wb-reply-${counter}`;
   let isOpen = Boolean(open);
   const body = h("div", { class: "wb-reply-body", id }, ...[content].flat(Infinity));
-  const button = h("button", { class: "pui-btn pui-link wb-reply-toggle", type: "button", "aria-expanded": String(isOpen), "aria-controls": id, text: isOpen ? SHOW_LESS : SHOW_WHOLE });
+  const button = h("button", { class: "pui-btn pui-link wb-reply-toggle", type: "button", "aria-expanded": String(isOpen), "aria-controls": id, text: isOpen ? SHOW_LESS : whole });
   const root = h("div", { class: `wb-reply${isOpen ? " is-open" : ""}` }, body);
+  if (Number.isInteger(lines) && lines > 0) root.classList.add(`is-lines-${lines}`);      // the stylesheet names the line counts that exist (base.css)
   const showButton = (on) => {      // the button is in the page only when the reply is cut or open: a reply that fits has no button at all
     if (on && button.parentNode !== root) root.append(button);
     else if (!on && button.parentNode === root) button.remove();
@@ -47,7 +49,7 @@ export function replyView(content, { open = false, onToggle = null, measure = ov
     isOpen = !isOpen;
     root.classList.toggle("is-open", isOpen);
     button.setAttribute("aria-expanded", String(isOpen));
-    button.textContent = isOpen ? SHOW_LESS : SHOW_WHOLE;
+    button.textContent = isOpen ? SHOW_LESS : whole;
     if (onToggle) onToggle(isOpen);
     update();
     if (!isOpen && button.scrollIntoView) button.scrollIntoView({ block: "nearest" });     // closed: the page gets shorter under the reader; the button stays in view

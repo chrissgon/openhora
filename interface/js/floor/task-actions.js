@@ -59,7 +59,7 @@ export function createTaskActions(env) {
       const lacking = [];
       for (const action of actionsFor(task, pending)) {
         if (action.kind === "inbox") {
-          out.push(h("a", { class: "pui-btn pui-surface pui-outline wb-small-button wb-task-inbox", href: links.inbox(action.pending), "data-key": `inbox-${task.id}`, text: "Open in the Inbox" }));
+          out.push(h("a", { class: "pui-btn pui-surface pui-outline wb-touch wb-task-inbox", href: links.inbox(action.pending), "data-key": `inbox-${task.id}`, text: "Open in the Inbox" }));
           continue;
         }
         if (!can(OPERATION[action.kind])) {
@@ -69,7 +69,7 @@ export function createTaskActions(env) {
         const [word, doing, label] = WORDS[action.kind];
         const sending = busy.has(`${action.kind}-${task.id}`);
         const button = h("button", {
-          class: `pui-btn pui-surface pui-outline wb-small-button wb-task-action wb-task-${action.kind}`, type: "button", "data-key": `${action.kind}-${task.id}`,
+          class: `pui-btn pui-surface pui-outline wb-touch wb-task-action wb-task-${action.kind}`, type: "button", "data-key": `${action.kind}-${task.id}`,
           "aria-label": `${label} ${task.id}`, "aria-busy": sending ? "true" : null,
         }, sending ? ring(true) : null, sending ? doing : word);
         button.disabled = sending || locked;

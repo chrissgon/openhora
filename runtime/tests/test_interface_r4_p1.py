@@ -251,15 +251,15 @@ def sizes(css: str, selectors: list[str], query: str = "max-width: 899px") -> di
 
 def test_the_building_panel_reads_at_16_px_on_a_phone_and_nothing_goes_under_12():
     css = css_file("building")
-    got = sizes(css, [".wb-facts", ".wb-facts dt", ".wb-rq-title", ".wb-rq-n", ".wb-rq-sub", ".wb-docs-link", ".wb-fl-name", ".wb-sec-head", ".wb-sec-empty", ".wb-rq-cancel", ".wb-fc-name"])
+    got = sizes(css, [".wb-facts", ".wb-facts dt", ".wb-rq-title", ".wb-rq-sub", ".wb-docs-link", ".wb-fl-name", ".wb-sec-head", ".wb-sec-empty", ".wb-rq-cancel", ".wb-fc-name"])
     assert set(got.values()) == {"16px"}, got
-    small = sizes(css, [".wb-fl-mode", ".wb-fl-chips", ".wb-st", ".wb-acting", ".wb-floor-counter", ".wb-fc-runs", ".wb-label-board .wb-label-sub"])
+    small = sizes(css, [".wb-fl-mode", ".wb-fl-chips", ".wb-floor-counter", ".wb-fc-runs", ".wb-label-board .wb-label-sub"])
     assert set(small.values()) == {"12px"}, "chips, badges, counters and the mode word are meta: 12 px, never below, inside the phone's query"
     for path in ("css/building.css", "css/city.css"):
         for value in re.findall(r"font-size:\s*(\d+)px", text(path)):
             assert int(value) >= 11, f"{path}: a size under 11 px outside the phone's query"
     outside = without_media(css)
-    assert rule(outside, ".wb-st").get("font-size") == "11px", "the desktop's badge is unchanged"
+    assert "font-size" not in rule(outside, ".wb-st"), "a badge has the library's size: the page sets none (test_interface_button_sizes.py)"
 
 
 def test_the_city_list_names_a_project_at_16_px_on_a_phone():

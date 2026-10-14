@@ -36,7 +36,7 @@ export function markdownView(text, { name, renderedLabel = name, plainClass }) {
   const rendered = renderMarkdown(value);
   rendered.setAttribute("tabindex", "0");
   rendered.setAttribute("aria-label", renderedLabel);
-  const toggle = h("button", { class: "pui-btn pui-surface pui-outline wb-small-button", type: "button", "data-key": "plain", "aria-pressed": String(plainChosen), text: "Plain text" });
+  const toggle = h("button", { class: "pui-btn pui-surface pui-outline wb-touch", type: "button", "data-key": "plain", "aria-pressed": String(plainChosen), text: "Plain text" });
   const show = () => {
     rendered.hidden = plainChosen;
     pre.hidden = !plainChosen;

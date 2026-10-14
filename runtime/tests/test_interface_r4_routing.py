@@ -215,7 +215,7 @@ const out = {};
 const track = createTrack({ onOpenSteps() {}, onSelectRequest() {} });
 const text = (n) => (n ? n.textContent : null);
 track.set(model.tracking(snapshot(run), P, NOW), "ready");
-out.routed = [text(find(track.el, ".wb-now-where")), text(find(track.el, ".wb-now-title")), text(find(track.el, ".wb-now-sub")), text(find(track.el, ".wb-chip-small")), text(find(track.el, ".wb-track-now-text"))];
+out.routed = [text(find(track.el, ".wb-now-where")), text(find(track.el, ".wb-now-title")), text(find(track.el, ".wb-now-sub")), text(find(track.el, ".wb-now-row .pui-badge")), text(find(track.el, ".wb-track-now-text"))];
 track.set(model.tracking(snapshot(null), P, NOW), "ready");
 out.quiet = [text(find(track.el, ".wb-now-where")), text(find(track.el, ".wb-now-sub"))];
 console.log(JSON.stringify(out));

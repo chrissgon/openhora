@@ -1091,3 +1091,16 @@ def test_a_start_that_cannot_work_is_refused_before_any_task_or_state_is_made_an
         f.write(kit.POST)
     out = ops.media_pipeline(w.project, w.rid, post=kit.POST_PATH, network="instagram")
     assert out["stopped"] == "review" and ops.media_list(w.project, w.rid)["recordings"][0]["pipeline"]["steps"]["review"] == "waiting"
+
+
+def test_media_list_says_whether_a_process_is_running_the_pipeline_so_that_a_stopped_one_is_not_taken_for_a_running_one(w):
+    start(w)
+    task = code_task(w)["id"]
+    shown = lambda: ops.media_list(w.project, w.rid)["recordings"][0]["pipeline"]
+    assert shown()["active"] is False, "nobody runs it: it waits at the review"
+    fd = ops_core._try_lock(ops_core._config_of(w.project), f"task-{task}.lock")
+    try:
+        assert shown()["active"] is True, "a held lock is a runner"
+    finally:
+        os.close(fd)
+    assert shown()["active"] is False, "a closed lock is not"

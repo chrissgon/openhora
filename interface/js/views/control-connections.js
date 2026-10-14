@@ -28,7 +28,7 @@ function classesTable(rows) {
     h("tbody", {}, rows.map((r) => h("tr", {},
       cell("Class", code(r.class)),
       h("td", { "data-label": "Provider", title: r.note || null }, r.provided ? r.provider : h("span", { class: "wb-muted", text: r.provider })),
-      cell("Status", chip(`pui-chip ${r.found ? "pui-success" : "pui-error"} pui-soft`, r.status)),
+      cell("Status", chip(`pui-badge ${r.found ? "pui-success" : "pui-error"} pui-soft`, r.status)),
       cell("Needed by", neededCell(r))))));
 }
 
@@ -39,20 +39,20 @@ function secretsTable(rows) {
     h("thead", {}, h("tr", {}, head.map((t) => h("th", { scope: "col", text: t })))),
     h("tbody", {}, rows.map((r) => h("tr", { "aria-label": model.secretName(r) },
       cell("Name", code(r.name)),
-      cell("Status", chip(`pui-chip ${r.found ? "pui-success" : "pui-error"} pui-soft`, r.status)),
+      cell("Status", chip(`pui-badge ${r.found ? "pui-success" : "pui-error"} pui-soft`, r.status)),
       cell("Where", r.where)))));
 }
 
 function imageCard(spec) {
   return h("div", { class: "pui-card wb-ccard" },
     sectionHead("Image"),
-    h("div", { class: "wb-ccard-line" }, h("strong", { class: "mono", text: spec.name }), chip(`pui-chip ${spec.tone} pui-soft`, spec.chip)),
+    h("div", { class: "wb-ccard-line" }, h("strong", { class: "mono", text: spec.name }), chip(`pui-badge ${spec.tone} pui-soft`, spec.chip)),
     h("p", { class: "wb-muted", text: spec.sentence }));
 }
 
 // The Platform card: "This machine" and "Evidence" on two lines; when the platforms differ the card spans the width and says both on one line (E-11: no consequence is stated).
 function platformCard(spec) {
-  const badge = spec.chip ? chip(`pui-chip ${spec.tone} pui-soft`, spec.chip) : null;
+  const badge = spec.chip ? chip(`pui-badge ${spec.tone} pui-soft`, spec.chip) : null;
   const here = h("span", {}, "This machine: ", code(spec.here));
   return h("div", { class: `pui-card wb-ccard${spec.differs ? " is-wide" : ""}` },
     sectionHead("Platform"),

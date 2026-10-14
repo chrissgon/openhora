@@ -372,7 +372,7 @@ const info = make({ id: 12, title: "Gift cards", state: "requested", tasks: [] }
 const infoNote = byClass(info.el, "wb-lobby-notice-card")[0];
 out.info = [infoNote.cls().includes("pui-error"), infoNote.cls().includes("pui-soft"), infoNote.attrs.role];
 const running = make({ id: 7, title: "Spring", state: "running", tasks: [] });
-out.running = [byClass(running.el, "wb-chip-small")[0].cls().filter((c) => c.startsWith("pui-")), byClass(running.el, "wb-lr-actions")[0].children.map((n) => n.textContent)];
+out.running = [byClass(running.el, "pui-badge")[1].cls().filter((c) => c.startsWith("pui-")), byClass(running.el, "wb-lr-actions")[0].children.map((n) => n.textContent)];
 const final = make({ id: 9, title: "Old", state: "done", tasks: [] });
 out.final = [byClass(final.el, "wb-request-box").length, byClass(final.el, "wb-lobby-request-line").length];
 
@@ -433,12 +433,12 @@ def test_the_tabs_the_form_the_composer_the_request_block_and_the_plan_card_are_
     assert got["blocked"] == [True, True]
     b = got["block"]
     assert b["root"] == "wb-request-10" and b["boxIn"] is True, "the block keeps its id; the request line is a block of its own (R-47)"
-    assert b["line"] == ["pui-badge pui-muted pui-soft pui-rounded-full", "pui-btn pui-link wb-lobby-request-title", "pui-chip pui-muted pui-soft wb-chip-small"], "R-47: number, title, state chip on one line"
+    assert b["line"] == ["pui-badge pui-muted pui-soft pui-rounded-full", "pui-btn pui-link wb-lobby-request-title", "pui-badge pui-muted pui-soft"], "R-47: number, title, state chip on one line"
     assert b["boxChildren"][0] == "wb-lobby-request-line" and b["boxChildren"][1] == "wb-lr-actions" and b["boxChildren"][-1].startswith("wb-lobby-notice-card")
     assert b["actions"] == ["SELECT:Flow for request 10", "BUTTON:Route request 10", "BUTTON:Cancel request 10"], "R-47, E-28: `Route it` and `Cancel request` under the line"
     assert "notice" in b["noticeClasses"] and "pui-soft" in b["noticeClasses"] and "pui-error" in b["noticeClasses"]
     assert got["info"] == [False, False, "status"], "the Recorded notice is information, not an error"
-    assert got["running"] == [["pui-chip", "pui-theme", "pui-soft"], ["Cancel request"]], "C-23: Running takes the theme colour"
+    assert got["running"] == [["pui-badge", "pui-theme", "pui-soft"], ["Cancel request"]], "C-23: Running takes the theme colour"
     assert got["final"] == [0, 0]
     p = got["plan"]
     assert p["tables"] == 0 and p["stacks"] == 0 and p["list"] == ["OL", "Plan tasks"], "R-47: the plan's tasks are blocks at every width, the table is gone"
@@ -786,7 +786,7 @@ def test_the_reviews_fixes_enter_on_a_command_with_arguments_one_read_of_a_task_
     got = run_view_node(Path_tmp(), R4_REVIEW)
     assert got["enterNew"] == [True, "/new ", 0] and got["enterNewAgain"] == [True, ["/new "]], "R-45: Enter fills the field with `/new ` and sends nothing; the second Enter, the list closed, sends"
     assert got["enterHelp"] == [True, "/help"], "a command that takes no arguments, typed whole, is sent"
-    assert got["bound"]["children"] == ["wb-desk-path", "pui-badge", "wb-desk-meta"] and got["bound"]["inPath"] == ["wb-path-button", "pui-chip"], \
+    assert got["bound"]["children"] == ["wb-desk-path", "pui-badge", "wb-desk-meta"] and got["bound"]["inPath"] == ["wb-path-button", "pui-badge"], \
         "the `bound` chip is in the path's cell: the row stays two columns"
     a = got["agent"]
     assert a["first"] == 20 and a["afterTicks"] == 20, "P-6: the bodies read for the Inbox are not read again later while the tasks' state is the same, however much time passed"
