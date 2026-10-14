@@ -33,6 +33,9 @@ export const EDIT_HINT = `Keep the spelling as it is said. A space splits a word
 export const DONE_WORDS = "Done says the captions are right and sends nothing of your words: the video is made from them on this Mac.";
 export const FRAME_WORDS = "A schematic of the frame, not a picture: tap where the face is. The renderer draws the captions and overlays away from it. Numbers you type are saved when you stop typing or leave the field.";
 export const COVER_WORDS = "The cover is the frame of the finished video at the second you give; no picture is shown before the video is made.";
+// The modes in which the review lists the pipeline's steps. Once the review is answered (Done, then checked) the video card, below it, shows the steps of the render and its
+// failure: the list is not drawn twice. Put "running" and "after" back here to show it in the review as well.
+export const STEPS_IN_REVIEW = ["progress"];
 export const IMAGE_TYPES = "image/png,image/jpeg";
 
 export function createCaptionsView(env) {
@@ -682,7 +685,7 @@ export function createCaptionsView(env) {
     paint("head", [mode], () => [h("strong", { class: "wb-card-title", text: "Check the captions" }), chip(stateWord[0], stateWord[1])]);
     paint("notes", [mode, state.error, state.message, view && view.sent_back], noteNodes);
     paint("summary", [view && view.counts, mode], () => (view && (mode === "review" || mode === "after") ? h("p", { class: "wb-card-hint wb-rev-counts", "data-key": "counts", text: countsLine(view.counts) }) : null));
-    paint("steps", [mode, state.media && state.media.pipeline, view && view.steps, view && view.failure], () => (mode === "review" ? null : section("Where the pipeline stands", stepsNode())));
+    paint("steps", [mode, state.media && state.media.pipeline, view && view.steps, view && view.failure], () => (STEPS_IN_REVIEW.includes(mode) ? section("Where the pipeline stands", stepsNode()) : null));
     const open = view && (mode === "review" || mode === "after");
     paint("transcript", [open && view.words, open && view.chunks, open && view.retakes, mode, can("captions-edit"), state.selection], () => (open ? section("The words", [transcriptNode(view)]) : null));
     paint("selection", [mode === "review" && state.selection, mode === "review" && view && state.selection ? view.words.slice(state.selection.from, state.selection.to + 1).map((w) => w.text) : null, can("captions-edit")], () => (mode === "review" && view ? selectionNode(view) : null));

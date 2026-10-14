@@ -7,6 +7,7 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_interface_media_start
 from __future__ import annotations
 
 import json
+import os
 import re
 
 import standin_tree as st
@@ -62,7 +63,7 @@ def test_the_model_finds_the_post_files_the_network_and_the_recordings_that_wait
     assert got["many"] == 20 and got["none"] == [0, 0]
     assert got["waiting"] == ["f", "a"], "stored, open, not started, with a file; the newest first"
     assert got["line"] == ["Recording 01234567, 32.0 s, 3.4 MiB", "Recording 01234567"]
-    assert len(got["refusals"]) == 8 and len(set(got["refusals"])) == 8 and all(not s.startswith("x ") for s in got["refusals"]), got["refusals"]
+    assert len(got["refusals"]) == 11 and len(set(got["refusals"])) == 11 and all(not s.startswith("x ") for s in got["refusals"]), got["refusals"]
     assert got["other"][0].startswith("The service could not be reached") and "cannot start the pipeline from here" in got["other"][1] and got["other"][2] == "something new" and got["other"][3] == "The pipeline could not be started."
     assert got["other"][4] == "That network has no post file for this recording: choose the post file.", "the order of the table matters: this one also says `the recording has no post file`"
 
@@ -72,7 +73,7 @@ def test_every_refusal_the_page_tells_in_a_sentence_is_one_the_service_gives():
     source = "\n".join((INTERFACE.parent / "runtime" / name).read_text(encoding="utf-8") for name in ("ops_pipeline.py", "media.py", "ops_core.py"))
     table = MODEL.read_text(encoding="utf-8").split("export const REFUSALS", 1)[1].split("]);", 1)[0]
     patterns = re.findall(r"\[/(.+?)/, \"", table)
-    assert len(patterns) == 8
+    assert len(patterns) == 11
     for pattern in patterns:
         for alternative in pattern.split("|"):
             assert alternative.replace("\\", "") in source, f"the service no longer says: {alternative}"
@@ -99,10 +100,10 @@ const DOCS = {
 const script = {
   recordings: [{ id: RID, status: "open", raw: { bytes: 3 * 1024 * 1024, duration: 32, name: "take <b>one</b>.mp4" }, pipeline: null, created_at: "2026-10-14T10:00:00Z" }],
   artifacts: Object.keys(DOCS).map((path, i) => ({ path, owner: i === 0 ? "mkt-social-copy" : null, kind: "markdown", modified_at: `2026-10-0${3 - i}T10:00:00Z` })),
-  startError: null, result: { ok: true, task: 2, stopped: "review" }, pollState: "done", pollError: null,
+  platforms: ["instagram", "linkedin", "tiktok"], startError: null, result: { ok: true, task: 2, stopped: "review" }, pollState: "done", pollError: null, jobMessage: "the job could not start",
 };
 const api = {
-  mediaList: async (p, o) => { calls.push(["media-list"]); return { recordings: clone(script.recordings) }; },
+  mediaList: async (p, o) => { calls.push(["media-list"]); return { recordings: clone(script.recordings), platforms: clone(script.platforms) }; },
   artifacts: async () => { calls.push(["artifacts"]); return { artifacts: clone(script.artifacts) }; },
   artifact: async (p, path) => { calls.push(["artifact", path]); if (!(path in DOCS)) throw new ApiError(404, "not_found", "no"); return { path, text: DOCS[path] }; },
   mediaPipeline: async (p, rid, o) => { calls.push(["pipeline", rid, { post: o.post, network: o.network, keys: Object.keys(o).filter((k) => k !== "signal").sort() }]); if (script.startError) throw script.startError; return { job: 7, state: "running" }; },
@@ -112,7 +113,7 @@ const api = {
     if (o && o.onUpdate) o.onUpdate({ state: "running" });
     await settle();
     if (script.pollError) throw script.pollError;
-    return { state: script.pollState, result: script.result, error: script.pollState === "failed" ? { message: "the job could not start" } : null };
+    return { state: script.pollState, result: script.result, error: script.pollState === "failed" ? { error: "refused", message: script.jobMessage, status: 409 } : null };
   },
   uploadMedia: async (p, file, o) => { calls.push(["upload", file.name, o.recording || null]); o.onProgress(5, 10); script.recordings.push({ id: RID2, status: "open", raw: { bytes: file.size, duration: 12, name: file.name }, pipeline: null, created_at: "2026-10-15T10:00:00Z" }); return { recording: RID2, kind: "recording", bytes: file.size }; },
 };
@@ -125,8 +126,8 @@ const out = {};
 """
 
 
-def run(tmp_path, body):
-    script = (PRELUDE + body).replace("@PROJECT@", PROJECT).replace("@RID@", RID).replace("@RID2@", RID2)
+def run(tmp_path, body, real=None):
+    script = (PRELUDE + body).replace("@PROJECT@", PROJECT).replace("@RID@", RID).replace("@RID2@", RID2).replace("@REAL@", json.dumps(real or {}))
     return run_node(tmp_path, script)
 
 
@@ -135,12 +136,12 @@ OFFER = r"""
 const view = make();
 const root = view.el;
 await view.load(); await settle();
-out.offer = { rows: all(root, "li.wb-sv-row").length, head: text(find(root, ".wb-sv-head")), name: text(find(root, ".wb-sv-head")).includes("<b>one</b>"), bolds: all(root, "b").length, posts: all(root, "option").map((o) => o.textContent),
+out.offer = { rows: all(root, "li.wb-sv-row").length, head: text(find(root, ".wb-sv-head")), name: text(find(root, ".wb-sv-head")).includes("<b>one</b>"), bolds: all(root, "b").length, posts: all(key(root, `sv-post-${RID}`), "option").map((o) => o.textContent),
   readDocs: calls.filter((c) => c[0] === "artifact").map((c) => c[1]).sort(), start: off(key(root, `sv-start-${RID}`)), why: text(key(root, `sv-why-${RID}`)) };
 const select = key(root, `sv-post-${RID}`);
-choose(select, "docs/marketing/content/2026-10-02-b.md");           // a post that names no network: the person gives it
-out.noNetwork = { start: off(key(root, `sv-start-${RID}`)), why: text(key(root, `sv-why-${RID}`)), field: Boolean(key(root, `sv-net-${RID}`)) };
-typeInto(key(root, `sv-net-${RID}`), " TikTok ");
+choose(select, "docs/marketing/content/2026-10-02-b.md");           // a post that names no network: the person chooses it among the platforms the service knows
+out.noNetwork = { start: off(key(root, `sv-start-${RID}`)), why: text(key(root, `sv-why-${RID}`)), options: all(key(root, `sv-net-${RID}`), "option").map(text), tag: key(root, `sv-net-${RID}`).tagName };
+choose(key(root, `sv-net-${RID}`), "tiktok");
 out.network = { start: off(key(root, `sv-start-${RID}`)), why: text(key(root, `sv-why-${RID}`)) };
 choose(key(root, `sv-post-${RID}`), "docs/marketing/content/2026-10-03-a.md");       // a post that names its network: no field, the line says it
 out.fromPost = { text: text(key(root, `sv-network-${RID}`)), field: Boolean(key(root, `sv-net-${RID}`)), start: off(key(root, `sv-start-${RID}`)) };
@@ -165,10 +166,10 @@ def test_a_stored_recording_is_offered_with_the_post_files_found_and_the_network
     got = run(tmp_path, OFFER)
     o = got["offer"]
     assert o["rows"] == 1 and o["head"].startswith("Recording 01234567, 32.0 s, 3.0 MiB") and o["name"] is True and o["bolds"] == 0, "every value is text, never markup"
-    assert o["posts"] == ["Choose the post file", "docs/marketing/content/2026-10-03-a.md (instagram)", "docs/marketing/content/2026-10-02-b.md"], "only the post files that carry a script, with the network each names"
+    assert o["posts"] == ["Choose the post file", "docs/marketing/content/2026-10-03-a.md (instagram)", "docs/marketing/content/2026-10-02-b.md", "another file..."], "only the post files that carry a script, with the network each names, and the way to name another"
     assert o["readDocs"] == ["docs/marketing/content/2026-10-01-c.md", "docs/marketing/content/2026-10-02-b.md", "docs/marketing/content/2026-10-03-a.md"]
     assert o["start"] is True and o["why"] == "Choose the post file.", "several post files: the page asks, it never picks"
-    assert got["noNetwork"] == {"start": True, "why": "Give the network this post is for (for example instagram).", "field": True}
+    assert got["noNetwork"] == {"start": True, "why": "Choose the network this post is for.", "options": ["Choose the network", "instagram", "linkedin", "tiktok"], "tag": "SELECT"}, "the networks are the ones the service gave: none is written in the page"
     assert got["network"] == {"start": False, "why": ""}
     assert got["fromPost"] == {"text": "Network: instagram (from the post file)", "field": False, "start": False}
     assert got["started"]["piped"] == [[RID, {"post": "docs/marketing/content/2026-10-03-a.md", "network": "instagram", "keys": ["network", "post"]}]], "no model and no request are sent: the post and the network only"
@@ -180,12 +181,32 @@ def test_a_stored_recording_is_offered_with_the_post_files_found_and_the_network
 
 
 ONE = r"""
-// exactly one post file is the choice; none asks for the path; the typed path is the service's own form
+// one post file is still a click, never a pre-selection; none asks for the path; "another file..." types one; a post that names a network with no data file is told
 const one = clone(script.artifacts).slice(0, 1);
 script.artifacts = one;
 let view = make();
 await view.load(); await settle();
 out.one = { start: off(key(view.el, `sv-start-${RID}`)), selected: key(view.el, `sv-post-${RID}`).value };
+choose(key(view.el, `sv-post-${RID}`), "docs/marketing/content/2026-10-03-a.md");
+out.clicked = { start: off(key(view.el, `sv-start-${RID}`)), selected: key(view.el, `sv-post-${RID}`).value };
+// another file: the select gains a typed path, and the network is chosen (the page did not read that file)
+choose(key(view.el, `sv-post-${RID}`), "__other__");
+out.other = { path: Boolean(key(view.el, `sv-path-${RID}`)), start: off(key(view.el, `sv-start-${RID}`)), why: text(key(view.el, `sv-why-${RID}`)) };
+typeInto(key(view.el, `sv-path-${RID}`), "docs/marketing/content/elsewhere.md");
+out.otherNet = { start: off(key(view.el, `sv-start-${RID}`)), why: text(key(view.el, `sv-why-${RID}`)), select: Boolean(key(view.el, `sv-net-${RID}`)) };
+choose(key(view.el, `sv-net-${RID}`), "linkedin");
+out.otherReady = off(key(view.el, `sv-start-${RID}`));
+await key(view.el, `sv-start-${RID}`).click(); await wait(80); await settle();
+out.otherSent = calls.filter((c) => c[0] === "pipeline").map((c) => c[2]);
+view.close();
+script.recordings = script.recordings.map((r) => ({ ...r, pipeline: null }));      // as if it had not started
+// a post that names a network the service has no data file for
+DOCS["docs/marketing/content/2026-10-03-a.md"] = POST("myspace");
+script.artifacts = clone(one);
+view = make();
+await view.load(); await settle();
+choose(key(view.el, `sv-post-${RID}`), "docs/marketing/content/2026-10-03-a.md");
+out.unknownNetwork = { start: off(key(view.el, `sv-start-${RID}`)), why: text(key(view.el, `sv-why-${RID}`)) };
 view.close();
 script.artifacts = [];
 view = make();
@@ -196,12 +217,25 @@ typeInto(key(root, `sv-path-${RID}`), "../secret.md");
 out.bad = { start: off(key(root, `sv-start-${RID}`)), why: text(key(root, `sv-why-${RID}`)) };
 typeInto(key(root, `sv-path-${RID}`), "docs/marketing/content/x.md");
 out.path = { start: off(key(root, `sv-start-${RID}`)), why: text(key(root, `sv-why-${RID}`)) };
-typeInto(key(root, `sv-net-${RID}`), "Not A Network");
+choose(key(root, `sv-net-${RID}`), "instagrm");        // a value that is not one of the options is not a network
 out.badNet = { start: off(key(root, `sv-start-${RID}`)) };
-typeInto(key(root, `sv-net-${RID}`), "instagram");
-out.ready = { start: off(key(root, `sv-start-${RID}`)), focusKept: key(root, `sv-net-${RID}`).value };
-await key(root, `sv-start-${RID}`).click(); await wait(80); await settle();
-out.sent = calls.filter((c) => c[0] === "pipeline").map((c) => c[2]);
+choose(key(root, `sv-net-${RID}`), "instagram");
+out.ready = { start: off(key(root, `sv-start-${RID}`)), kept: key(root, `sv-path-${RID}`).value };
+view.close();
+// the post files could not be read: its own sentence, not "none found"
+api.artifacts = async () => { throw new ApiError(0, "network", "x"); };
+view = make();
+await view.load(); await settle();
+out.unreadable = text(key(view.el, `sv-noposts-${RID}`));
+view.close();
+// a service that sends no platform list (an older one): the network is typed, and the service decides
+script.platforms = [];
+api.artifacts = async () => ({ artifacts: [] });
+view = make();
+await view.load(); await settle();
+typeInto(key(view.el, `sv-path-${RID}`), "docs/marketing/content/x.md");
+typeInto(key(view.el, `sv-net-${RID}`), "Instagram");
+out.typedNet = { tag: key(view.el, `sv-net-${RID}`).tagName, start: off(key(view.el, `sv-start-${RID}`)) };
 view.close();
 console.log(JSON.stringify(out));
 process.exit(0);
@@ -209,58 +243,159 @@ process.exit(0);
 
 
 @needs_node
-def test_one_post_file_is_the_choice_none_asks_for_the_path_and_a_wrong_path_or_network_is_not_sent(tmp_path):
+def test_one_post_file_is_a_click_none_or_another_asks_for_the_path_and_a_wrong_path_or_network_is_not_sent(tmp_path):
     got = run(tmp_path, ONE)
-    assert got["one"] == {"start": False, "selected": "docs/marketing/content/2026-10-03-a.md"}
+    assert got["one"] == {"start": True, "selected": ""}, "even a single post file is chosen by a click: the choice is explicit"
+    assert got["clicked"] == {"start": False, "selected": "docs/marketing/content/2026-10-03-a.md"}
+    assert got["other"] == {"path": True, "start": True, "why": "Type the path of the post file."}
+    assert got["otherNet"] == {"start": True, "why": "Choose the network this post is for.", "select": True}
+    assert got["otherReady"] is False
+    assert got["otherSent"] == [{"post": "docs/marketing/content/elsewhere.md", "network": "linkedin", "keys": ["network", "post"]}]
+    assert got["unknownNetwork"] == {"start": True, "why": "The post file names myspace, which has no data file here (instagram, linkedin, tiktok): choose another post file."}
     assert got["none"]["hint"].startswith("No post file with a script was found. Type the path") and got["none"]["select"] is False and got["none"]["start"] is True and got["none"]["why"] == "Type the path of the post file."
     assert got["bad"] == {"start": True, "why": "Type the path of the post file."}
-    assert got["path"] == {"start": True, "why": "Give the network this post is for (for example instagram)."}
+    assert got["path"] == {"start": True, "why": "Choose the network this post is for."}
     assert got["badNet"]["start"] is True
-    assert got["ready"] == {"start": False, "focusKept": "instagram"}, "the button follows the typed text without drawing the row again"
-    assert got["sent"] == [{"post": "docs/marketing/content/x.md", "network": "instagram", "keys": ["network", "post"]}]
+    assert got["ready"] == {"start": False, "kept": "docs/marketing/content/x.md"}, "the button follows what is chosen without drawing the row again"
+    assert got["unreadable"].startswith("The post files could not be read (The service could not be reached") and "Type the path" in got["unreadable"] and "No post file with a script" not in got["unreadable"]
+    assert got["typedNet"] == {"tag": "INPUT", "start": False}
 
 
 REFUSED = r"""
+// every refusal of media-pipeline reaches the page as a FAILED JOB whose error message is the service's own text: the page tells it in its sentence
+const REAL = @REAL@;
 const view = make();
 const root = view.el;
 await view.load(); await settle();
 choose(key(root, `sv-post-${RID}`), "docs/marketing/content/2026-10-03-a.md");
-const tries = [
-  new ApiError(409, "refused", "recording 0123456789abcdef has no file yet: take it in with media-in first"),
-  new ApiError(409, "refused", "the recording has several post files: name the network with --network and the post file with --post"),
-  new ApiError(0, "network", "x"),
-  new ApiError(404, "not_found", "no"),
-];
-out.refusals = [];
-for (const e of tries) {
-  script.startError = e;
-  await key(root, `sv-start-${RID}`).click(); await wait(40); await settle();
-  out.refusals.push(text(find(root, ".wb-notice-card")));
-  out.refusals.push(off(key(root, `sv-start-${RID}`)));
+out.told = {};
+for (const [name, message] of Object.entries(REAL)) {
+  script.pollState = "failed"; script.jobMessage = message;
+  await key(root, `sv-start-${RID}`).click(); await wait(60); await settle();
+  out.told[name] = text(find(root, ".wb-notice-card"));
 }
+// a request refused before it was a job (the route answered a refusal at once) is told the same way
+script.pollState = "done"; script.startError = new ApiError(409, "refused", REAL.no_file);
+await key(root, `sv-start-${RID}`).click(); await wait(40); await settle();
+out.direct = text(find(root, ".wb-notice-card"));
+script.startError = new ApiError(0, "network", "x");
+await key(root, `sv-start-${RID}`).click(); await wait(40); await settle();
+out.network = text(find(root, ".wb-notice-card"));
+script.startError = new ApiError(404, "not_found", "no");
+await key(root, `sv-start-${RID}`).click(); await wait(40); await settle();
+out.gone = text(find(root, ".wb-notice-card"));
+out.stays = off(key(root, `sv-start-${RID}`));
+// a pipeline that stopped at a step, and a job with no message
 script.startError = null;
 script.result = { ok: false, failed: "base", code: "retake_lost", field: "retakes", next: "python3 pipeline.py review" };
 await key(root, `sv-start-${RID}`).click(); await wait(60); await settle();
 out.stopped = text(find(root, ".wb-notice-card"));
-script.result = { ok: true, task: 2 };
-script.pollState = "failed";
+script.result = { ok: true, task: 2 }; script.pollState = "failed"; script.jobMessage = "";
 await key(root, `sv-start-${RID}`).click(); await wait(60); await settle();
-out.failedJob = text(find(root, ".wb-notice-card"));
+out.silent = text(find(root, ".wb-notice-card"));
 view.close();
 console.log(JSON.stringify(out));
 process.exit(0);
 """
 
 
+def real_refusals(tmp_path, monkeypatch):
+    """The messages the real operation gives, each made by the real operation over a world with stand-in providers (nothing is typed here from the service's text)."""
+    import test_media_pipeline as tm
+    kit, ops, media, ops_core = tm.kit, tm.ops, tm.media, tm.ops_core
+    w = tm.make_world(tmp_path, monkeypatch)
+    said = {}
+
+    def refused(name, call):
+        try:
+            call()
+        except ops.OpsError as e:
+            said[name] = str(e)
+        else:
+            raise AssertionError(f"{name}: the service did not refuse")
+
+    other = "docs/marketing/content/other.md"
+    noscript, nonet = "docs/marketing/content/noscript.md", "docs/marketing/content/nonet.md"
+    for rel, text in ((noscript, kit.POST.replace("```script", "```text")), (nonet, re.sub(r"^- Network:.*\n", "", kit.POST, flags=re.M)), (other, kit.POST)):
+        with open(os.path.join(w.project, *rel.split("/")), "w", encoding="utf-8") as f:
+            f.write(text)
+    empty = media.create(w.data)["id"]
+    refused("no_file", lambda: ops.media_pipeline(w.project, empty))
+    refused("typo", lambda: ops.media_pipeline(w.project, w.rid, post=kit.POST_PATH, network="instagrm"))
+    refused("bad_path", lambda: ops.media_pipeline(w.project, w.rid, post="notes/x.md", network="instagram"))
+    refused("unreadable", lambda: ops.media_pipeline(w.project, w.rid, post="docs/marketing/content/missing.md", network="instagram"))
+    refused("no_script", lambda: ops.media_pipeline(w.project, w.rid, post=noscript, network="instagram"))
+    refused("no_network", lambda: ops.media_pipeline(w.project, w.rid, post=nonet))
+    media.link_posts(w.data, w.rid, {"instagram": kit.POST_PATH, "tiktok": other})
+    refused("several", lambda: ops.media_pipeline(w.project, w.rid))
+    refused("no_post_for", lambda: ops.media_pipeline(w.project, w.rid, network="linkedin"))
+    out = tm.start(w)
+    refused("started_for", lambda: ops.media_pipeline(w.project, w.rid, post=kit.POST_PATH, network="tiktok"))
+    task = tm.code_task(w)["id"]
+    fd = ops_core._try_lock(ops_core._config_of(w.project), f"task-{task}.lock")
+    try:
+        refused("being_run", lambda: ops.media_pipeline(w.project, w.rid))
+    finally:
+        os.close(fd)
+    ops.cancel(w.project, out["request"])
+    refused("cancelled", lambda: ops.captions_edit(w.project, w.rid, 0, json.dumps([{"op": "delete", "index": 3}])))
+    return said
+
+
 @needs_node
-def test_a_refused_start_is_told_in_the_sentence_of_its_closed_code_and_the_person_can_try_again(tmp_path):
-    got = run(tmp_path, REFUSED)
-    assert got["refusals"][0] == "This recording has no file yet: upload it first." and got["refusals"][1] is False, "the control stays for another try"
-    assert got["refusals"][2] == "Choose the post file this recording is for."
-    assert got["refusals"][4].startswith("The service could not be reached")
-    assert "cannot start the pipeline from here" in got["refusals"][6]
-    assert got["stopped"].startswith("Cut and caption stopped:") and "retake_lost" not in got["stopped"] or "stopped" in got["stopped"], got["stopped"]
-    assert got["failedJob"] == "the job could not start"
+def test_every_refusal_of_the_real_service_reaches_the_page_as_a_failed_job_and_is_told_in_the_pages_sentence(tmp_path, monkeypatch):
+    real = real_refusals(tmp_path / "service", monkeypatch)
+    got = run(tmp_path, REFUSED, real=real)
+    assert got["told"] == {
+        "no_file": "This recording has no file yet: upload it first.",
+        "typo": "That network has no data file here: choose the network from the list.",
+        "bad_path": "A post file is a Markdown file under docs/ of the project.",
+        "unreadable": "This post file cannot be read: it must be a regular Markdown file under docs/ of the project.",
+        "no_script": "This post file has no script block: a short video needs the script of its beats. Choose another post file.",
+        "no_network": "The post file names no network: type the network (for example instagram).",
+        "several": "Choose the post file this recording is for.",
+        "no_post_for": "That network has no post file for this recording: choose the post file.",
+        "started_for": "This recording's pipeline was started for another post file: change that post file's text and open the captions again, or start another recording.",
+        "being_run": "The pipeline of this recording is being run by another process: wait for it to end.",
+        "cancelled": "The request this recording belonged to was cancelled: its pipeline stopped with it.",
+    }, "each message is the real one, taken from the operation"
+    assert got["direct"] == "This recording has no file yet: upload it first."
+    assert got["network"].startswith("The service could not be reached") and "cannot start the pipeline from here" in got["gone"] and got["stays"] is False, "the control stays for another try"
+    assert got["stopped"].startswith("Cut and caption stopped:") and "retake" in got["stopped"].lower(), got["stopped"]
+    assert got["silent"] == "The pipeline stopped."
+
+
+DOUBLE = r"""
+// a double click in one tab starts one pipeline; two instances of the part (the Tasks tab's and the Agent tab's) offer a recording once, and the one that did not start it stops offering it
+const a = make(), b = make({ upload: false, title: "Edit a recording" });
+await a.load(); await b.load(); await settle();
+choose(key(a.el, `sv-post-${RID}`), "docs/marketing/content/2026-10-03-a.md");
+const button = key(a.el, `sv-start-${RID}`);
+button.click(); button.click();
+await wait(100); await settle();
+out.double = calls.filter((c) => c[0] === "pipeline").length;
+out.bothOffered = [all(a.el, "li.wb-sv-row").length, all(b.el, "li.wb-sv-row").length];
+await b.load(); await settle();                                    // the store changed: the page reads again
+out.afterRefresh = [all(a.el, "li.wb-sv-row").length, all(b.el, "li.wb-sv-row").length, text(key(b.el, "sv-none"))];
+a.close(); b.close();
+console.log(JSON.stringify(out));
+process.exit(0);
+"""
+
+
+@needs_node
+def test_a_double_click_starts_one_pipeline_and_a_recording_started_in_one_place_is_no_longer_offered_in_the_other(tmp_path):
+    got = run(tmp_path, DOUBLE)
+    assert got["double"] == 1, "the second click finds the first one's start under way"
+    assert got["bothOffered"] == [1, 1], "until the other part reads again, it still offers it"
+    assert got["afterRefresh"] == [1, 0, "No recording is waiting to be edited."], "after the store changed (a reload of the page) the other part no longer offers it; the starter keeps its result line"
+
+
+def test_the_agent_tab_reads_again_when_the_store_changes_in_both_places_it_lives():
+    agent = (JS / "floor" / "agent-tab.js").read_text(encoding="utf-8")
+    assert re.search(r"reload\(\) \{\s*if \(startLoaded\) mediaStart\.load\(\);\s*\}", agent)
+    assert "tab.reload();" in (JS / "views" / "lobby-agent.js").read_text(encoding="utf-8")
+    assert "if (agentTabLive) agentTabLive.reload();" in (JS / "views" / "floor.js").read_text(encoding="utf-8")
 
 
 POLICY = r"""
@@ -322,7 +457,7 @@ out.notVideo = { error: text(find(root, ".wb-notice-card")), send: Boolean(find(
 view.pick({ name: "take.mp4", size: 5 * 1024 * 1024, type: "video/mp4" });
 out.picked = { name: text(find(root, ".wb-hand-chosen")), send: text(find(root, ".wb-hand-send")) };
 find(root, ".wb-hand-send").click(); await wait(60); await settle();
-out.uploaded = { calls: calls.filter((c) => c[0] === "upload"), message: text(key(root, "sv-message")), rows: all(root, "li.wb-sv-row").length, head: text(find(root, ".wb-sv-head")).slice(0, 20), posts: all(root, "option").length };
+out.uploaded = { calls: calls.filter((c) => c[0] === "upload"), message: text(key(root, "sv-message")), rows: all(root, "li.wb-sv-row").length, head: text(find(root, ".wb-sv-head")).slice(0, 20), posts: all(key(root, `sv-post-${RID2}`), "option").length };
 // a video over the limit and a file of another kind are told, not sent
 view.pick({ name: "big.mp4", size: 2 * 1024 * 1024 * 1024, type: "video/mp4" });
 out.big = { error: text(find(root, ".wb-notice-card")), send: Boolean(find(root, ".wb-hand-send")) };
@@ -339,8 +474,8 @@ def test_a_short_video_starts_from_a_recording_chosen_and_uploaded_with_no_agent
     assert got["notVideo"] == {"error": "This is not a video: choose a .mov or .mp4 recording.", "send": False}
     assert got["picked"] == {"name": "take.mp4", "send": "Upload the recording"}
     assert got["uploaded"]["calls"] == [["upload", "take.mp4", None]], "to the media route as a new recording: no task, no slot"
-    assert got["uploaded"]["message"].startswith("Recording stored (fedcba98)") and got["uploaded"]["rows"] == 1 and got["uploaded"]["head"].startswith("Recording fedcba98") and got["uploaded"]["posts"] == 3
-    assert "1 GiB" in got["big"]["error"] or "larger" in got["big"]["error"].lower() or "at most" in got["big"]["error"].lower(), got["big"]["error"]
+    assert got["uploaded"]["message"].startswith("Recording stored (fedcba98)") and got["uploaded"]["rows"] == 1 and got["uploaded"]["head"].startswith("Recording fedcba98") and got["uploaded"]["posts"] == 4
+    assert got["big"]["error"] == "A recording is at most 1 GiB."
     assert got["big"]["send"] is False
 
 

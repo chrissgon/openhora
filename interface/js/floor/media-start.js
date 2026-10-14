@@ -27,6 +27,7 @@ import { notice, withheldLine } from "./widgets.js";
 
 export const ON_THE_MAC = "A short video is started on the Mac that runs the service: the recording is uploaded and edited there, and is not sent over the network.";
 export const UPLOAD_HINT = "A video (a .mov or .mp4 up to 1 GiB and 5 minutes). It needs no task: it gets its own.";
+export const OTHER = "__other__";      // the choice of a file the page did not find: its path is typed
 export const NO_POSTS = "No post file with a script was found. Type the path of the post file this recording is for (a Markdown file under docs/ of the project).";
 
 export function createMediaStart(env) {
@@ -35,14 +36,14 @@ export function createMediaStart(env) {
   const api = env.api;
   const el = h("section", { class: "pui-card wb-card wb-sv", "aria-label": env.title || "New short video", "data-key": "media-start" });
   const state = {
-    waiting: [], busyIds: new Set(), entries: new Map(), posts: null, postsError: null, postsRead: false,
+    waiting: [], platforms: [], busyIds: new Set(), entries: new Map(), posts: null, postsError: null, postsRead: false,
     picked: null, uploading: null, message: null, error: null, per: new Map(), loaded: false,
   };
   let closed = false;
   const closing = new AbortController();
 
   const row = (id) => {
-    if (!state.per.has(id)) state.per.set(id, { post: "", typedPost: "", typedNetwork: "", busy: false, steps: null, error: null, result: null });
+    if (!state.per.has(id)) state.per.set(id, { post: "", typedPost: "", network: "", busy: false, steps: null, error: null, result: null });
     return state.per.get(id);
   };
 
@@ -51,6 +52,7 @@ export function createMediaStart(env) {
   async function readMedia() {
     const found = await api.mediaList(env.project, { signal: closing.signal });
     const recordings = found.recordings || [];
+    state.platforms = Array.isArray(found.platforms) ? found.platforms.filter((n) => NETWORK_WORD.test(n)) : [];      // the networks the service has a data file for: asked, never written here
     state.waiting = waitingRecordings(recordings);
     for (const w of state.waiting) state.entries.set(w.id, w);
     for (const r of recordings) {       // a recording being started: its steps, from the pipeline the first step made
@@ -147,20 +149,28 @@ export function createMediaStart(env) {
 
   // --- starting the pipeline ---------------------------------------------------------------------------------------------------------
 
-  /** The post file and the network chosen for a recording, or why there is none yet: {post, network} or {reason}. */
-  /** The post file of a recording among the ones found: the one the person chose, or the only one there is; with several and no choice, none (never a guess). */
+  /** The post file of a recording among the ones found: the one the person chose (never one picked for them: the choice is a click). */
   function postOf(per, posts) {
-    return posts.find((p) => p.path === per.post) || (per.post === "" && posts.length === 1 ? posts[0] : null);
+    return posts.find((p) => p.path === per.post) || null;
   }
 
+  /** Whether the post file is typed: none was found, or the person chose "another file...". */
+  const typedPost = (per, posts) => !posts.length || per.post === OTHER;
+
+  /** The post file and the network chosen for a recording, or why there is none yet: {post, network} or {reason}. */
   function chosen(id) {
     const per = row(id);
     const posts = state.posts || [];
-    const known = postOf(per, posts);
-    const post = posts.length ? (known ? known.path : null) : postPath(per.typedPost);
-    if (!post) return { reason: posts.length ? "Choose the post file." : "Type the path of the post file." };
-    const network = known && known.network ? known.network : per.typedNetwork.trim().toLowerCase();
-    if (!NETWORK_WORD.test(network)) return { reason: "Give the network this post is for (for example instagram)." };
+    const typed = typedPost(per, posts);
+    const known = typed ? null : postOf(per, posts);
+    const post = typed ? postPath(per.typedPost) : (known ? known.path : null);
+    if (!post) return { reason: typed ? "Type the path of the post file." : "Choose the post file." };
+    const fromPost = Boolean(known && known.network);
+    const network = fromPost ? known.network : per.network.trim().toLowerCase();
+    const listed = state.platforms;
+    if (fromPost && listed.length && !listed.includes(network)) return { reason: `The post file names ${network}, which has no data file here (${listed.join(", ")}): choose another post file.` };
+    if (!network) return { reason: listed.length ? "Choose the network this post is for." : "Give the network this post is for (for example instagram)." };
+    if (listed.length ? !listed.includes(network) : !NETWORK_WORD.test(network)) return { reason: "Give the network this post is for (for example instagram)." };
     return { post, network };
   }
 
@@ -177,7 +187,7 @@ export function createMediaStart(env) {
     try {
       const job = await api.mediaPipeline(env.project, id, { post: picked.post, network: picked.network, signal: closing.signal });
       const last = await api.pollJob(job.job, env.pollEvery || 1500, { signal: closing.signal, onUpdate: () => { readMedia().then(() => { if (!closed) draw(); }).catch(() => {}); } });
-      if (last.state === "failed") per.error = (last.error && last.error.message) || "The pipeline stopped.";
+      if (last.state === "failed") per.error = last.error && last.error.message ? refusalText(last.error) : "The pipeline stopped.";      // a refusal of the operation reaches the page as a failed job: its words are told in the page's sentences
       else if (last.result && last.result.ok === false) per.error = failureText({ step: last.result.failed, code: last.result.code, field: last.result.field, next: last.result.next });
       else per.result = last.result || {};
     } catch (e) {
@@ -221,34 +231,47 @@ export function createMediaStart(env) {
       h("p", { class: "wb-card-hint", text: UPLOAD_HINT }));
   }
 
+  function pathInput(r, per) {
+    const input = h("input", { class: "pui-input wb-sv-input", type: "text", "data-key": `sv-path-${r.id}`, "aria-label": "Path of the post file", autocomplete: "off", spellcheck: "false", placeholder: "docs/marketing/content/..." });
+    input.value = per.typedPost;
+    input.addEventListener("input", () => { per.typedPost = input.value; refreshStart(r.id); });
+    return labelled("Post file path", input);
+  }
+
   function postPicker(r, per, posts) {
     if (posts.length) {
       const now = postOf(per, posts);
       const select = h("select", { class: "pui-input wb-sv-select", "data-key": `sv-post-${r.id}`, "aria-label": "The post file of this recording" },
-        [h("option", { value: "", selected: !now, text: "Choose the post file" }),
-          ...posts.map((p) => h("option", { value: p.path, selected: Boolean(now) && p.path === now.path, text: `${p.path}${p.network ? ` (${p.network})` : ""}` }))]);
-      select.value = now ? now.path : "";
+        [h("option", { value: "", selected: !now && per.post !== OTHER, text: "Choose the post file" }),
+          ...posts.map((p) => h("option", { value: p.path, selected: Boolean(now) && p.path === now.path, text: `${p.path}${p.network ? ` (${p.network})` : ""}` })),
+          h("option", { value: OTHER, selected: per.post === OTHER, text: "another file..." })]);
+      select.value = per.post === OTHER ? OTHER : (now ? now.path : "");
       select.addEventListener("change", () => { per.post = select.value; draw(); });
-      return labelled("Post file", select);
+      return [labelled("Post file", select), per.post === OTHER ? pathInput(r, per) : null];
     }
-    const input = h("input", { class: "pui-input wb-sv-input", type: "text", "data-key": `sv-path-${r.id}`, "aria-label": "Path of the post file", autocomplete: "off", spellcheck: "false", placeholder: "docs/marketing/content/..." });
-    input.value = per.typedPost;
-    input.addEventListener("input", () => { per.typedPost = input.value; refreshStart(r.id); });
-    return [h("p", { class: "wb-card-hint", "data-key": `sv-noposts-${r.id}`, text: NO_POSTS }), labelled("Post file", input)];
+    const why = state.postsError ? `The post files could not be read (${refusalText(state.postsError)}). Type the path of the post file this recording is for.` : NO_POSTS;
+    return [h("p", { class: "wb-card-hint", "data-key": `sv-noposts-${r.id}`, text: why }), pathInput(r, per)];
   }
 
   function networkField(r, per, known) {
     if (known && known.network) return h("p", { class: "wb-card-note", "data-key": `sv-network-${r.id}`, text: `Network: ${known.network} (from the post file)` });
+    if (state.platforms.length) {
+      const select = h("select", { class: "pui-input wb-sv-select", "data-key": `sv-net-${r.id}`, "aria-label": "The network of the post" },
+        [h("option", { value: "", selected: !per.network, text: "Choose the network" }), ...state.platforms.map((n) => h("option", { value: n, selected: n === per.network, text: n }))]);
+      select.value = per.network;
+      select.addEventListener("change", () => { per.network = select.value; refreshStart(r.id); });
+      return labelled("Network", select);
+    }
     const input = h("input", { class: "pui-input wb-sv-input", type: "text", "data-key": `sv-net-${r.id}`, "aria-label": "The network of the post", autocomplete: "off", spellcheck: "false", placeholder: "for example instagram" });
-    input.value = per.typedNetwork;
-    input.addEventListener("input", () => { per.typedNetwork = input.value; refreshStart(r.id); });
+    input.value = per.network;
+    input.addEventListener("input", () => { per.network = input.value; refreshStart(r.id); });
     return labelled("Network", input);
   }
 
   function offerNode(r) {
     const per = row(r.id);
     const posts = state.posts || [];
-    const known = postOf(per, posts);
+    const known = typedPost(per, posts) ? null : postOf(per, posts);
     const picked = chosen(r.id);
     const may = can("media-pipeline");
     return h("li", { class: "wb-sv-row", "data-recording": r.id }, ...[
@@ -314,7 +337,7 @@ export function createMediaStart(env) {
     const active = state.waiting.concat(shownIds.filter((id) => !state.waiting.some((w) => w.id === id) && state.entries.has(id)).map((id) => state.entries.get(id)));
     paint("notes", [state.error, state.message], () => [state.message ? h("p", { class: "wb-card-note", role: "status", "data-key": "sv-message", text: state.message }) : null, state.error ? notice(state.error, "error") : null]);
     paint("upload", [env.upload !== false, can("media-in"), state.picked && state.picked.name, Boolean(state.uploading)], uploadNode);
-    paint("offers", [active.map((r) => r.id), state.posts, [...state.per].map(([id, p]) => [id, p.post, p.busy, p.steps, p.error, p.result]), can("media-pipeline"), state.loaded],
+    paint("offers", [active.map((r) => r.id), state.posts, state.postsError && state.postsError.message, state.platforms, [...state.per].map(([id, p]) => [id, p.post, p.network, p.busy, p.steps, p.error, p.result]), can("media-pipeline"), state.loaded],
       () => (active.length ? h("ul", { class: "wb-sv-list", "data-key": "sv-list" }, active.map(offerNode))
         : (state.loaded ? h("p", { class: "wb-empty-line", "data-key": "sv-none", text: "No recording is waiting to be edited." }) : null)));
   }

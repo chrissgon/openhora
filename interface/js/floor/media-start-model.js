@@ -56,6 +56,9 @@ export function recordingLine(r) {
  * codes a step stops with are told by captions-model.failureText.
  */
 export const REFUSALS = Object.freeze([
+  [/is not a platform with a data file/, "That network has no data file here: choose the network from the list."],
+  [/the post file has no ```script block/, "This post file has no script block: a short video needs the script of its beats. Choose another post file."],
+  [/the post file cannot be read/, "This post file cannot be read: it must be a regular Markdown file under docs/ of the project."],
   [/has no file yet/, "This recording has no file yet: upload it first."],
   [/the post file has no `- Network:` line/, "The post file names no network: type the network (for example instagram)."],
   [/has no post file for/, "That network has no post file for this recording: choose the post file."],

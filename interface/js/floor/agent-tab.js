@@ -412,6 +412,10 @@ export function createAgentTab(env) {
     focusSelect() {
       stopButton.focus();
     },
+    /** The store changed (the page's reload stamp moved): a recording another tab or another part of the page started is no longer offered here. */
+    reload() {
+      if (startLoaded) mediaStart.load();
+    },
     /** view: floor-model.floor(...) with found true; {notAccepted: true, ...} draws the waiting line only; null while loading. */
     update(view) {
       lastView = view;

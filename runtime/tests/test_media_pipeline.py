@@ -664,8 +664,10 @@ def test_a_recording_without_a_file_cannot_start_and_a_post_that_is_a_link_is_no
     target.write_text(kit.POST)
     link = "docs/marketing/content/link.md"
     os.symlink(target, os.path.join(w.project, *link.split("/")))
-    out = ops.media_pipeline(w.project, w.rid, post=link, network="instagram")
-    assert out["ok"] is False and out["failed"] == "align-proposal" and out["code"] == "post_unreadable"
+    with pytest.raises(ops.OpsError, match="cannot be read"):
+        ops.media_pipeline(w.project, w.rid, post=link, network="instagram")
+    assert ops.media_list(w.project, w.rid)["recordings"][0]["pipeline"] is None, "a refused start leaves no state and no task: the recording is still offered"
+    assert ops.media_list(w.project, w.rid)["recordings"][0]["posts"] == {}
 
 
 def test_a_post_the_checker_refuses_stops_the_alignment_with_the_checkers_closed_code(tmp_path, monkeypatch):
@@ -759,9 +761,10 @@ def test_a_post_file_in_a_folder_that_leads_out_of_the_project_is_not_read(w, tm
     outside.mkdir()
     (outside / "x.md").write_text(kit.POST)
     os.symlink(outside, os.path.join(w.project, "docs", "marketing", "out"))
-    out = ops.media_pipeline(w.project, w.rid, post="docs/marketing/out/x.md", network="instagram")
-    assert out["ok"] is False and out["failed"] == "align-proposal" and out["code"] == "post_unreadable"
+    with pytest.raises(ops.OpsError, match="cannot be read"):
+        ops.media_pipeline(w.project, w.rid, post="docs/marketing/out/x.md", network="instagram")
     assert not any(c for c in kit.calls(w.tree, "renderer") if c[0] == "align")
+    assert ops.media_list(w.project, w.rid)["recordings"][0]["pipeline"] is None
 
 
 def test_a_word_the_renderer_could_not_place_is_listed_marked_and_left_out_of_the_captions(tmp_path, monkeypatch):
@@ -1067,3 +1070,24 @@ def test_a_failure_names_the_command_from_the_checkout_and_the_environment_of_a_
     for role in ("transcriber", "renderer"):
         for names in kit.envs(w.tree, role):
             assert "SECRET_TOKEN" not in names and "PATH" in names, role
+
+
+def test_a_start_that_cannot_work_is_refused_before_any_task_or_state_is_made_and_the_recording_stays_offered(tmp_path, monkeypatch):
+    """A typo in the network, a post with no script block, a missing post file: refused up front, so that a bad start does not strand the recording."""
+    no_script = kit.POST.replace("```script", "```text")
+    w = make_world(tmp_path, monkeypatch, post=no_script)
+    listed = ops.media_list(w.project)
+    assert listed["platforms"] == ["instagram", "tiktok"], "the platforms are the data files of the checkout: the page asks the service, it knows none by itself"
+    for args, match in (({"post": kit.POST_PATH, "network": "instagrm"}, "is not a platform with a data file"),
+                        ({"post": kit.POST_PATH, "network": "instagram"}, "has no ```script block"),
+                        ({"post": "docs/marketing/content/missing.md", "network": "instagram"}, "cannot be read")):
+        with pytest.raises(ops.OpsError, match=match):
+            ops.media_pipeline(w.project, w.rid, **args)
+        shown = ops.media_list(w.project, w.rid)["recordings"][0]
+        assert shown["pipeline"] is None and shown["tasks"] == {} and shown["posts"] == {}, "no state, no task, no link"
+    assert not os.path.exists(os.path.join(w.folder, "pipeline.json"))
+    # the same recording starts once the post is a short video's
+    with open(os.path.join(w.project, *kit.POST_PATH.split("/")), "w", encoding="utf-8") as f:
+        f.write(kit.POST)
+    out = ops.media_pipeline(w.project, w.rid, post=kit.POST_PATH, network="instagram")
+    assert out["stopped"] == "review" and ops.media_list(w.project, w.rid)["recordings"][0]["pipeline"]["steps"]["review"] == "waiting"

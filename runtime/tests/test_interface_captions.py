@@ -902,12 +902,12 @@ process.exit(0);
 
 
 @needs_node
-def test_done_sends_the_revision_and_nothing_of_the_words_then_the_pipelines_steps_show_and_the_captions_can_be_opened_again(tmp_path):
+def test_done_sends_the_revision_and_nothing_of_the_words_then_the_steps_are_the_video_cards_and_the_captions_can_be_opened_again(tmp_path):
     got = run(tmp_path, DONE)
     assert got["ready"]["off"] is False and "Done" in got["ready"]["label"] and got["ready"]["hint"] is True
     assert got["sent"] == [{"revision": 0, "keys": ["revision"]}] and got["noText"] is False, "Done carries the revision and no text"
     assert got["polled"] == 1
-    assert got["after"]["chip"] == "Checked" and got["after"]["editButtons"] == 0 and got["after"]["steps"] == 12 and got["after"]["reopen"] is True and got["after"]["changed"] == 1
+    assert got["after"]["chip"] == "Checked" and got["after"]["editButtons"] == 0 and got["after"]["steps"] == 0 and got["after"]["reopen"] is True and got["after"]["changed"] == 1
     assert got["reopen"] == [[RID, "review"]]
 
 
@@ -917,8 +917,8 @@ const view = make();
 const root = view.el;
 await view.load(); await settle();
 let release; const held = new Promise((r) => { release = r; });
-api.pollJob = async (id, every, o) => { calls.push(["poll", id]); o.onUpdate({ state: "running" }); await settle(); out.during = { chip: text(find(root, ".pui-chip")), steps: text(find(root, "[data-key=steps]")), words: all(root, ".wb-rev-word").length, done: find(root, "[data-key=done]") };
-  script.media.pipeline.steps.render = "done"; o.onUpdate({ state: "running" }); await settle(); out.later = text(find(root, '[data-step="render"]')); await held; return { state: "done", result: { ok: true } }; };
+api.pollJob = async (id, every, o) => { calls.push(["poll", id]); o.onUpdate({ state: "running" }); await settle(); out.during = { chip: text(find(root, ".pui-chip")), steps: all(root, "[data-step]").length, words: all(root, ".wb-rev-word").length, done: find(root, "[data-key=done]") };
+  await held; return { state: "done", result: { ok: true } }; };
 script.media.pipeline.steps = { transcribe: "done", analyse: "done", retakes: "done", "align-proposal": "done", review: "done", remap: "done", base: "done", align: "done", check: "done", render: "pending", cover: "pending", approval: "pending" };
 const after = clone(done); after.editable = false; script.view = after;
 const pressing = press(find(root, "[data-key=done]"));
@@ -932,10 +932,12 @@ process.exit(0);
 
 
 @needs_node
-def test_while_the_pipeline_goes_on_after_done_the_steps_are_shown_and_updated_from_the_media_list(tmp_path):
+def test_while_the_pipeline_goes_on_after_done_the_review_does_not_list_the_steps_the_video_card_does(tmp_path):
     got = run(tmp_path, RUNNING)
-    assert got["during"]["chip"] == "Running" and "Render the video" in got["during"]["steps"] and got["during"]["words"] == 0 and got["during"]["done"] is None
-    assert "done" in got["later"] and got["end"] == "Checked"
+    assert got["during"]["chip"] == "Running" and got["during"]["steps"] == 0 and got["during"]["words"] == 0 and got["during"]["done"] is None, "one list of steps, in the card below: not drawn twice"
+    assert got["end"] == "Checked"
+    from_file = (JS / "floor" / "captions-view.js").read_text(encoding="utf-8")
+    assert 'export const STEPS_IN_REVIEW = ["progress"];' in from_file, "the one line that puts the review's own list back"
 
 
 PROGRESS = r"""
