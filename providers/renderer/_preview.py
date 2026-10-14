@@ -17,6 +17,7 @@ theme flags. Standard library only.
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import shutil
 import struct
@@ -100,6 +101,8 @@ def build_lists(rows: list, data: dict, vocab: dict, allow: dict, *, colors=None
     if not rows:
         raise Refusal("no_beats", "post")
     transcript, analysis, ranges = synthetic_words(rows, cfg)
+    if transcript["duration"] > data["limits"]["input_seconds_max"]:
+        raise Refusal("script_too_long", "post")                           # a clear refusal, not the analysis check's
     edl, notes = _edl.build_base(transcript, analysis, data, allow, None, 3600.0, None, cfg["trail"], "bottom", colors, font_flags, face,
                                  "none", None, 0.0)
     with_preset = [r for r in rows if r["preset"]]
@@ -111,9 +114,12 @@ def build_lists(rows: list, data: dict, vocab: dict, allow: dict, *, colors=None
 
 
 def rest_frame(entry: dict, data: dict, fps: int) -> int:
-    """The output frame where an entry is at rest: its end less the preset's `tail` seconds less one frame, never before it starts."""
-    tail = data["presets"][entry["preset"]]["tail"]
-    return max(entry["start_frame"], min(entry["end_frame"] - 1, entry["end_frame"] - int(round(tail * fps)) - 1))
+    """The output frame where an entry is at rest: `settled` seconds (renderer-presets.json, per preset) after it starts, or, for a beat
+    too short for that, its end less the preset's `tail` seconds less one frame; never before it starts, never after its last frame."""
+    cfg = data["presets"][entry["preset"]]
+    settled = entry["start_frame"] + int(math.ceil(cfg["settled"] * fps - 1e-9))
+    last_calm = entry["end_frame"] - int(round(cfg["tail"] * fps)) - 1
+    return max(entry["start_frame"], min(entry["end_frame"] - 1, settled, last_calm))
 
 
 # ---------------------------------------------------------------- drawing
@@ -134,9 +140,10 @@ def flat_png(width: int, height: int, color: str) -> bytes:
 
 
 def draw_rest_frames(*, data, vocab, allow, edl, beats, browser, jobs, work, time_limit, templates_dir=None, fonts_directory=None) -> dict:
-    """Draw the rest frame of every beat of `beats` with the render's frame loop. Returns {entries (the timeline's, in order), frames
+    """Draw the rest frame of every beat of `beats` with the render's frame loop; every other frame of a beat goes through the page and the
+    face-box check too (a card overshoots while it pops in) and is not written. Returns {entries (the timeline's, in order), frames
     ({beat number: PNG path}), rest ({beat number: output frame}), facts (what the loop reports), fonts, templates}.
-    Only those frames are drawn; a card that touches the face box raises `overlay_hits_face`, as in a render."""
+    Only those frames are written; a card that touches the face box on any frame raises `overlay_hits_face`, as in a render."""
     cfg = data["storyboard"]
     timeline = _edl.resolve_timeline(edl, beats, vocab, data)
     entries = timeline["beats"]
@@ -171,7 +178,7 @@ def draw_rest_frames(*, data, vocab, allow, edl, beats, browser, jobs, work, tim
     _, facts = _frames.draw_frames(
         data=data, edl=edl, timeline=timeline, serve=serve, theme_fonts_urls=_render.font_urls_of(data, edl, font_serve), assets=assets,
         browser=browser, jobs_n=max(1, min(jobs, 8)), frames_dir=frames_dir, workdir=work, time_limit=time_limit, templates=templates,
-        png_blank=_render.blank_png, only=only, backdrop={"color": cfg["backdrop"], "slot_fill": cfg["slot_fill"]})
+        png_blank=_render.blank_png, only=only, check_all=True, backdrop={"color": cfg["backdrop"], "slot_fill": cfg["slot_fill"]})
     frames = {n: os.path.join(frames_dir, "beat_%06d.png" % f) for n, f in rest.items()}
     return {"entries": entries, "frames": frames, "rest": rest, "facts": facts, "fonts": fonts_used, "templates": tpl_hashes}
 
@@ -210,18 +217,17 @@ def sheet_argv(ffmpeg: str, files: list, cfg: dict, out_name: str) -> list:
     return argv
 
 
-def contact_sheet(ffmpeg: str, files: list, cfg: dict, out: str, timeout: float = 120) -> dict:
-    """Write the sheet of `files` (PNG paths, in beat order) to `out`. Returns {file, sha256, tiles, columns, width, height}."""
+def contact_sheet(ffmpeg: str, files: list, cfg: dict, out: str, scratch: str, timeout: float = 120) -> dict:
+    """Write the sheet of `files` (PNG paths, in beat order) to `out`, working in a temporary folder under `scratch` (never in the output
+    folder). Returns {file, sha256, tiles, columns, width, height}."""
     g = sheet_geometry(len(files), cfg)
-    folder = os.path.dirname(os.path.abspath(out))
-    work = tempfile.mkdtemp(prefix=".sheet-", dir=folder)
+    work = tempfile.mkdtemp(prefix=".sheet-", dir=scratch)
     try:
         _media.run(sheet_argv(ffmpeg, [os.path.abspath(f) for f in files], cfg, "sheet.png"), timeout, cwd=work)
         part = os.path.join(work, "sheet.png")
         if not os.path.isfile(part) or os.path.getsize(part) == 0:
             raise Refusal("sheet_failed", "sheet")
-        os.chmod(part, 0o600)
-        os.replace(part, out)
+        _write_once(part, out)
     except _media.ToolError:
         raise Refusal("sheet_failed", "sheet") from None
     finally:
@@ -240,7 +246,7 @@ def storyboard(*, rows: list, data: dict, vocab: dict, allow: dict, colors=None,
     edl, beats, notes, transcript, mentions = build_lists(rows, data, vocab, allow, colors=colors, font_flags=font_flags, face=face, cfg=cfg)
     ffmpeg, browser = tools()                                             # looked for only now: a refusal above needs neither
     os.makedirs(out_dir, mode=0o700, exist_ok=True)
-    base = os.path.abspath(scratch) if scratch else os.path.abspath(out_dir)
+    base = os.path.abspath(scratch) if scratch else tempfile.gettempdir()      # never the output folder
     work = tempfile.mkdtemp(prefix=".storyboard-", dir=base)
     os.chmod(work, 0o700)
     try:
@@ -252,14 +258,14 @@ def storyboard(*, rows: list, data: dict, vocab: dict, allow: dict, colors=None,
             dest = os.path.join(out_dir, "%s%d.png" % (STILL_PREFIX, n))
             _write_once(drawn["frames"][n], dest)
             files.append(dest)
-        sheet = contact_sheet(ffmpeg, files, cfg, os.path.join(out_dir, SHEET_NAME))
+        sheet = contact_sheet(ffmpeg, files, cfg, os.path.join(out_dir, SHEET_NAME), work)
     finally:
         shutil.rmtree(work, ignore_errors=True)
     by_beat = {e["beat"]: e for e in drawn["entries"]}
     return {"ok": True, "beats": [{"beat": n, "preset": by_beat[n]["preset"], "file": "%s%d.png" % (STILL_PREFIX, n),
                                    "sha256": _media.sha256_file(os.path.join(out_dir, "%s%d.png" % (STILL_PREFIX, n))), "frame": drawn["rest"][n]} for n in order],
             "sheet": sheet, "skipped": [r["beat"] for r in rows if not r["preset"]], "words": len(transcript["words"]),
-            "frame_jobs": drawn["facts"]["frame_jobs"], "jobs": jobs, "face_box": edl["face_box"], "fonts": drawn["fonts"],
+            "frame_jobs": drawn["facts"]["frames_rendered"] + drawn["facts"]["frames_reused"], "frames_checked": drawn["facts"]["frame_jobs"], "jobs": jobs, "face_box": edl["face_box"], "fonts": drawn["fonts"],
             "templates": drawn["templates"], "font_fallbacks": notes, "mentions": mentions,
             "browser": drawn["facts"].get("browser"), "browser_sandbox": drawn["facts"].get("browser_sandbox")}
 

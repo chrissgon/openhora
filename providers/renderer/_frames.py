@@ -292,7 +292,7 @@ window.__backdrop = (geom, fill, bubble) => {
 
 
 def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser, jobs_n, frames_dir, workdir, time_limit,
-                templates, png_blank, only=None, backdrop=None):
+                templates, png_blank, only=None, backdrop=None, check_all=False):
     """Draw every frame of both tracks with `jobs_n` pages at the same time, into `frames_dir`.
 
     `only` (the storyboard's one use): a set of (track, frame) pairs; just those frames of the jobs are drawn and nothing else is
@@ -308,7 +308,7 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
     w, h = edl["size"]
     by_index = {x["index"]: x for x in edl["words"]}
     tracks, jobs = frame_jobs(timeline, edl["out_frames"])
-    if only is not None:
+    if only is not None and not check_all:
         jobs = [j for j in jobs if (j[1], j[0]) in only]
     os.makedirs(frames_dir, exist_ok=True)
     blank = os.path.join(frames_dir, "blank.png")
@@ -364,6 +364,8 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
                     hit = face_hit(result["boxes"], entry["face"])
                     if hit:
                         raise Refusal("overlay_hits_face", hit)
+                    if only is not None and (track, f) not in only:
+                        continue                                           # checked, not drawn
                     if backdrop and preset == "pip":
                         page.evaluate("window.__backdrop(%s, %s, %s)" % (json.dumps(payload["geom"]), json.dumps(backdrop["slot_fill"]), json.dumps(backdrop["color"])))
                     dest = os.path.join(frames_dir, "%s_%06d.png" % ("cap" if track == "caption" else "beat", f))

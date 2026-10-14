@@ -193,7 +193,7 @@ def verb_align(args) -> dict:
 def verb_check_documents(args) -> dict:
     data = load_data()
     vocab = load_vocabulary(args.vocabulary)
-    platform = read_json(args.platform_file) if args.platform_file else None
+    platform = _render.read_platform(args.platform_file) if args.platform_file else None
     edl = read_json(args.edl, data["limits"]["json_max_bytes"])
     beats = read_json(args.beats, data["limits"]["json_max_bytes"])
     allow = _frames.font_allowlist()
@@ -274,7 +274,7 @@ def verb_verify(args) -> dict:
     finds it inside the platform file's video spec (container, codec, audio codec, size, fps range, duration, bytes, faststart),
     tagged bt709 limited range, and as long as the edit list says."""
     ffmpeg, ffprobe = tools(args)
-    platform = read_json(args.platform_file)
+    platform = _render.read_platform(args.platform_file)
     if _media.sha256_file(args.input) != args.sha256:
         raise Refusal("render_differs", "render")
     verdict = _media.check_output(ffprobe, args.input, platform)

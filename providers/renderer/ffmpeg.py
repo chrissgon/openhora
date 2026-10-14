@@ -414,6 +414,41 @@ STILL_NAME = re.compile(r"beat-[0-9]{1,2}\.png|sheet\.png")
 STILL_MAX_BYTES = 8 * 1024 * 1024
 
 
+STORYBOARD_MAX_PIXELS = 16 * 1000 * 1000      # a fixed ceiling on any one PNG the container names, whatever its header says
+
+
+def storyboard_files(result: dict, data: dict) -> list:
+    """[(file name, sha256, (width, height))] the container may hand over, from what it reported, trusting none of it: every key must be
+    there (`container_result_invalid` otherwise), a still's name must be `beat-<its beat>.png` and its size the frame's, the sheet's size
+    the grid the presets give for that many tiles (never its own declaration), and every size within a fixed ceiling."""
+    bad = Refusal("container_result_invalid", "storyboard")
+    beats, sheet = result.get("beats"), result.get("sheet")
+    if not isinstance(beats, list) or not beats or not isinstance(sheet, dict):
+        raise bad
+    frame = (data["frame"]["width"], data["frame"]["height"])
+    wanted, seen = [], set()
+    for b in beats:
+        number = b.get("beat") if isinstance(b, dict) else None
+        name, digest = (b.get("file"), b.get("sha256")) if isinstance(b, dict) else (None, None)
+        if not isinstance(number, int) or isinstance(number, bool) or number < 1 or number in seen or name != "beat-%d.png" % number \
+                or not STILL_NAME.fullmatch(name) or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise bad
+        seen.add(number)
+        wanted.append((name, digest, frame))
+    cfg = data["storyboard"]["sheet"]
+    cols = max(1, min(len(beats), cfg["columns"]))
+    rows = -(-len(beats) // cols)
+    size = (cols * (cfg["tile_width"] + cfg["gap"]), rows * (cfg["tile_height"] + cfg["gap"]))
+    digest = sheet.get("sha256")
+    if sheet.get("file") != "sheet.png" or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest) \
+            or (sheet.get("width"), sheet.get("height")) != size or sheet.get("tiles") != len(beats) or sheet.get("columns") != cols:
+        raise bad
+    wanted.append(("sheet.png", digest, size))
+    if any(w * h > STORYBOARD_MAX_PIXELS for _, _, (w, h) in wanted):
+        raise bad
+    return wanted
+
+
 def verb_storyboard(args) -> dict:
     """A still per beat and a contact sheet. The container gets no recording and no transcript (two mounts: the staged job folder
     read-only and the output folder); the host reads each PNG as untrusted: size-capped, hashed, its header checked, then named."""
@@ -433,8 +468,7 @@ def verb_storyboard(args) -> dict:
                 inner += [flag, v]
         result = job.run(inner, "storyboard")
         out_dir = os.path.abspath(args.out)
-        wanted = [(b["file"], b["sha256"], (1080, 1920)) for b in result["beats"]]
-        wanted.append((result["sheet"]["file"], result["sheet"]["sha256"], (result["sheet"]["width"], result["sheet"]["height"])))
+        wanted = storyboard_files(result, load_data())
         candidates = os.path.join(job.root, "candidates")
         os.mkdir(candidates, 0o700)
         for name, digest, size in wanted:

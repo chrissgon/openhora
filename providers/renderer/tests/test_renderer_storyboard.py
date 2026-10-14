@@ -165,7 +165,9 @@ def test_the_synthetic_list_has_no_cut_no_zoom_and_its_beats_never_clip_each_oth
     assert timeline["dropped"] == [] and not any(e.get("clipped") for e in timeline["beats"]) and len(timeline["beats"]) == 6
     for e in timeline["beats"]:
         f = _preview.rest_frame(e, DATA, edl["fps"])
-        assert e["start_frame"] <= f < e["end_frame"] and e["end_frame"] - f == int(round(DATA["presets"][e["preset"]]["tail"] * 30)) + 1
+        cfg = DATA["presets"][e["preset"]]
+        assert e["start_frame"] < f < e["end_frame"] and f - e["start_frame"] <= int(-(-cfg["settled"] * 30 // 1))
+        assert e["end_frame"] - f >= int(round(cfg["tail"] * 30)) + 1
 
 
 # ---------------------------------------------------------------- the host side: what the container gets
@@ -208,7 +210,7 @@ def test_the_storyboard_result_is_rebuilt_from_a_closed_schema_and_a_png_that_is
     still = tmp_path / "fake.png"
     still.write_bytes(b"GIF89a" + b"\0" * 64)
     digest = hashlib.sha256(still.read_bytes()).hexdigest()
-    result = {"ok": True, "beats": [{"beat": 1, "preset": "keyword", "file": "beat-1.png", "sha256": digest, "frame": 3}], "skipped": [], "words": 8, "frame_jobs": 1,
+    result = {"ok": True, "beats": [{"beat": 1, "preset": "keyword", "file": "beat-1.png", "sha256": digest, "frame": 3}], "skipped": [], "words": 8, "frame_jobs": 1, "frames_checked": 1,
               "jobs": 1, "sheet": {"file": "sheet.png", "sha256": digest, "tiles": 1, "columns": 1, "width": 282, "height": 492},
               "face_box": {"x": 240, "y": 620, "w": 600, "h": 560}, "fonts": {}, "templates": {}, "font_fallbacks": [], "mentions": [], "planted": "x"}
     world.cfg["run"] = "files"
@@ -306,7 +308,7 @@ def test_a_still_equals_the_frame_the_render_loop_draws_for_the_same_list_at_tha
     _, facts = _frames.draw_frames(data=DATA, edl=edl, timeline=timeline, serve=serve, theme_fonts_urls=_render.font_urls_of(DATA, edl, font_serve), assets={},
                                    browser=K.BROWSER, jobs_n=3, frames_dir=str(full), workdir=str(tmp_path / "w"), time_limit=300, templates=templates,
                                    png_blank=_render.blank_png, backdrop={"color": cfg["backdrop"], "slot_fill": cfg["slot_fill"]})
-    assert facts["frame_jobs"] > 100 and shown["facts"]["frame_jobs"] == 2
+    assert facts["frame_jobs"] > 100 and shown["facts"]["frames_rendered"] == 2 and shown["facts"]["frame_jobs"] > 2
     for n, f in shown["rest"].items():
         assert Path(shown["frames"][n]).read_bytes() == (full / ("beat_%06d.png" % f)).read_bytes()
 
@@ -349,7 +351,7 @@ def test_the_in_process_storyboard_draws_exactly_one_frame_per_beat_with_a_prese
     out = tmp_path / "o"
     result = _preview.storyboard(rows=rows_of(K.POST), data=DATA, vocab=VOCAB, allow=ALLOW, tools=lambda: (K.FFMPEG, K.BROWSER), jobs=3, out_dir=str(out),
                                  scratch=str(tmp_path))
-    assert len(calls) == 6 == result["frame_jobs"] and len(result["beats"]) == 6
+    assert len(calls) == 6 == result["frame_jobs"] and len(result["beats"]) == 6 and result["frames_checked"] > 100
     assert not any(p.name.startswith(".storyboard-") for p in tmp_path.iterdir())
 
 
@@ -409,44 +411,78 @@ def test_the_real_templates_keep_every_preset_clear_of_a_face_box_that_leaves_th
         assert rc == 0, (name, err)
 
 
+LARGEST = [("keyword", {"text": "k" * 24, "icon": "coin"}), ("list", {"items": " | ".join("x" * 30 for _ in range(4)), "icon": "star"}),
+           ("number", {"value": "1,234,567", "label": "n" * 40}), ("quote", {"text": "q" * 120, "author": "a" * 40}),
+           ("cutaway", {"asset": "a flat picture", "label": "c" * 40}), ("pip", {"asset": "a flat chart", "label": "p" * 40})]
+
+
+def draw_frames_of(tmp, preset, edl, bl, frames):
+    """The frames `frames` of the one beat of a list, through the render's loop with the storyboard's backdrop (nothing but the PNGs)."""
+    timeline = _edl.resolve_timeline(edl, bl, VOCAB, DATA)
+    timeline["captions"] = []
+    template = DATA["presets"][preset]["template"]
+    serve, _ = _frames.load_templates([template])
+    font_serve, _ = _frames.load_fonts(edl["theme"]["fonts"], ALLOW, DATA["limits"]["font_max_bytes"])
+    serve.update(font_serve)
+    slot = timeline["beats"][0]["params"].get("asset")
+    assets = {}
+    if slot:
+        Path(tmp, "a").mkdir(exist_ok=True)
+        Path(tmp, "a", slot + ".png").write_bytes(_preview.flat_png(1080, 1920, DATA["storyboard"]["slot_fill"]))
+        assets = _frames.load_assets({slot: str(Path(tmp, "a", slot + ".png"))}, {}, DATA["limits"])
+        serve["/assets/%s.png" % slot] = (assets[slot]["data"], "image/png")
+    folder = Path(tmp) / ("frames-%d" % len(list(Path(tmp).glob("frames-*"))))
+    _frames.draw_frames(data=DATA, edl=edl, timeline=timeline, serve=serve, theme_fonts_urls=_render.font_urls_of(DATA, edl, font_serve), assets=assets,
+                        browser=K.BROWSER, jobs_n=1, frames_dir=str(folder), workdir=str(Path(tmp) / "w"), time_limit=120, templates={preset: template},
+                        png_blank=_render.blank_png, only={("beat", f) for f in frames},
+                        backdrop={"color": DATA["storyboard"]["backdrop"], "slot_fill": DATA["storyboard"]["slot_fill"]})
+    return {f: (folder / ("beat_%06d.png" % f)).read_bytes() for f in frames}
+
+
 @needs_all
-def test_the_overlay_is_at_rest_at_the_chosen_frame_for_every_preset_with_its_largest_parameters_and_the_shortest_line(tmp_path):
-    items = " | ".join("x" * 30 for _ in range(4))
-    beats = [("keyword", {"text": "k" * 24, "icon": "coin"}), ("list", {"items": items, "icon": "star"}), ("number", {"value": "1,234,567", "label": "n" * 40}),
-             ("quote", {"text": "q" * 120, "author": "a" * 40}), ("cutaway", {"asset": "a flat picture", "label": "c" * 40}), ("pip", {"asset": "a flat chart", "label": "p" * 40})]
-    for number, (preset, params) in enumerate(beats, 1):
-        row = _preview.beat_row(VOCAB, {"preset": preset, "params": params, "line": "Go."})        # one word: the shortest beat there is
+@pytest.mark.parametrize("preset,params", LARGEST, ids=[p for p, _ in LARGEST])
+def test_the_overlay_is_settled_at_the_chosen_frame_for_every_preset_at_its_largest_parameters(tmp_path, preset, params):
+    """A long beat is drawn at `settled` seconds: the picture must not change on the frames after it. A short beat (the shortest line the
+    vocabulary allows) is drawn at its end less its tail: the picture must not change on the frame before. The failing message names the
+    constant of renderer-presets.json that moved."""
+    for kind, line in (("long", " ".join(["Go"] * 40)), ("short", "Go.")):
+        row = _preview.beat_row(VOCAB, {"preset": preset, "params": params, "line": line})
         edl, bl = lists_of([row])
-        work = tmp_path / preset
-        work.mkdir()
-        try:
-            shown = _preview.draw_rest_frames(data=DATA, vocab=VOCAB, allow=ALLOW, edl=edl, beats=bl, browser=K.BROWSER, jobs=1, work=str(work), time_limit=120)
-        except Refusal as e:                                             # the largest text may not fit above the default face box: the check, not a half-drawn card
-            assert e.code == "overlay_hits_face", (preset, e.code)
-            continue
-        entry = shown["entries"][0]
-        rest = shown["rest"][1]
-        assert rest > entry["start_frame"] + 10, preset
-        # nothing moves any more: the frame before the chosen one is the same picture, and so is the frame after it until the exit starts
-        around = {rest - 1} | ({rest + 2} if preset in ("keyword", "list", "number", "quote") else set())
-        timeline = _edl.resolve_timeline(edl, bl, VOCAB, DATA)
-        timeline["captions"] = []
-        template = DATA["presets"][preset]["template"]
-        serve, _ = _frames.load_templates([template])
-        font_serve, _ = _frames.load_fonts(edl["theme"]["fonts"], ALLOW, DATA["limits"]["font_max_bytes"])
-        serve.update(font_serve)
-        slot = entry["params"].get("asset")
-        assets = {}
-        if slot:
-            (work / "a").mkdir()
-            (work / "a" / (slot + ".png")).write_bytes(_preview.flat_png(1080, 1920, DATA["storyboard"]["slot_fill"]))
-            assets = _frames.load_assets({slot: str(work / "a" / (slot + ".png"))}, {}, DATA["limits"])
-            serve["/assets/%s.png" % slot] = (assets[slot]["data"], "image/png")
-        _frames.draw_frames(data=DATA, edl=edl, timeline=timeline, serve=serve, theme_fonts_urls=_render.font_urls_of(DATA, edl, font_serve), assets=assets,
-                            browser=K.BROWSER, jobs_n=1, frames_dir=str(work / "earlier"), workdir=str(work / "w"), time_limit=120, templates={preset: template},
-                            png_blank=_render.blank_png, only={("beat", f) for f in around}, backdrop={"color": DATA["storyboard"]["backdrop"], "slot_fill": DATA["storyboard"]["slot_fill"]})
-        for f in around:
-            assert (work / "earlier" / ("beat_%06d.png" % f)).read_bytes() == Path(shown["frames"][1]).read_bytes(), (preset, f - rest)
+        entry = _edl.resolve_timeline(edl, bl, VOCAB, DATA)["beats"][0]
+        rest = _preview.rest_frame(entry, DATA, edl["fps"])
+        settled_frame = entry["start_frame"] + int(-(-DATA["presets"][preset]["settled"] * 30 // 1))
+        neighbours = [f for f in (rest + 1, rest + 2) if f < entry["end_frame"] - 9]            # before any template's exit (the longest is 0.3 s)
+        assert neighbours and rest > entry["start_frame"], (preset, kind)
+        (tmp_path / kind).mkdir()
+        pics = draw_frames_of(tmp_path / kind, preset, edl, bl, [rest] + neighbours)
+        constant = "renderer-presets.json presets.%s.settled" % preset if rest == settled_frame else "renderer-presets.json presets.%s.tail or min_duration" % preset
+        for f in neighbours:
+            assert pics[f] == pics[rest], "%s (%s beat): the picture still changes %+d frames after the chosen one; raise %s" % (preset, kind, f - rest, constant)
+        if kind == "long":
+            assert rest == settled_frame, preset
+
+
+@needs_all
+def test_a_card_that_overshoots_onto_the_face_box_while_it_pops_in_is_refused_although_clear_at_rest(tmp_path):
+    """Every frame of a beat goes through the page and the face-box check (the render's check), and only the chosen frame is written. A
+    copy of the renderer whose keyword card sits over the face box for its first 0.2 s (a stand-in for a pop-in overshoot) is refused."""
+    import subprocess, sys
+    copy = tmp_path / "r"
+    shutil.copytree(K.RENDERER, copy, ignore=shutil.ignore_patterns("tests", "__pycache__"))
+    html = (copy / "templates" / "keyword.html").read_text()
+    bad = html.replace("pos.style.top = z[0] + 'px';", "pos.style.top = (window.__t < 0.2 ? 650 : z[0]) + 'px';")
+    bad = bad.replace("window.renderAt = function (t, data) {", "window.renderAt = function (t, data) {\n  window.__t = t;", 1)
+    assert bad != html and "window.__t = t" in bad
+    (copy / "templates" / "keyword.html").write_text(bad)
+    _frames.write_pins(str(copy / "templates"))
+    env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"], "RENDERER_BROWSER": K.BROWSER}
+    args = [sys.executable, str(copy / "_inner.py"), "storyboard", "--beat", str(write(tmp_path, "k.json", BEAT_KEYWORD)), "--vocabulary", str(K.VOCABULARY)]
+    done = subprocess.run([*args, "--out", str(tmp_path / "o")], capture_output=True, text=True, env=env, timeout=300)
+    assert done.returncode == 1 and done.stderr.startswith("refused: overlay_hits_face"), done.stderr
+    assert not (tmp_path / "o").exists() or not list((tmp_path / "o").iterdir())
+    edl, bl = lists_of([_preview.beat_row(VOCAB, BEAT_KEYWORD)])                      # the frame it is drawn at is clear: only the check on every frame sees it
+    rest = _preview.rest_frame(_edl.resolve_timeline(edl, bl, VOCAB, DATA)["beats"][0], DATA, edl["fps"])
+    assert rest / 30.0 - _edl.resolve_timeline(edl, bl, VOCAB, DATA)["beats"][0]["start_frame"] / 30.0 > 0.2
 
 
 @needs_all
@@ -477,3 +513,118 @@ def test_the_storyboard_rate_equals_the_vocabulary_rate_once_the_vocabulary_has_
     if rate is None:
         pytest.skip("shared/references/video-presets.json has no speaking rate yet (P3b / P5c-0 put it there)")
     assert rate == DATA["storyboard"]["words_per_second"]
+
+
+def test_a_script_that_would_run_too_long_is_refused_with_its_own_code_before_anything_else():
+    row = _preview.beat_row(VOCAB, {"preset": "keyword", "params": {"text": "Long", "icon": "coin"}, "line": " ".join(["w"] * 100)})
+    rows = [dict(row, beat=k) for k in range(1, 13)]
+    transcript, _, _ = _preview.synthetic_words(rows, DATA["storyboard"])
+    assert transcript["duration"] > DATA["limits"]["input_seconds_max"]
+    with pytest.raises(Refusal) as e:
+        _preview.build_lists(rows, DATA, VOCAB, ALLOW)
+    assert e.value.code == "script_too_long"
+
+
+def test_a_platform_file_that_is_not_an_object_is_refused_by_render_verify_and_check_and_storyboard_needs_none(tmp_path):
+    for text in ("null", "[]", "3", '"x"'):
+        path = write(tmp_path, "platform.json", text)
+        with pytest.raises(Refusal) as e:
+            _render.read_platform(str(path))
+        assert e.value.code == "bad_platform"
+    null = write(tmp_path, "null.json", "null")
+    for args in (["render", "--edl", tmp_path / "e.json", "--beats", tmp_path / "b.json", "--in", tmp_path / "s.mp4", "--out", tmp_path / "o", "--platform-file", null,
+                  "--vocabulary", K.VOCABULARY],
+                 ["verify", "--in", tmp_path / "s.mp4", "--platform-file", null, "--sha256", "0" * 64],
+                 ["check", "--edl", tmp_path / "e.json", "--beats", tmp_path / "b.json", "--vocabulary", K.VOCABULARY, "--platform-file", null]):
+        for name in ("e.json", "b.json"):
+            write(tmp_path, name, "{}")
+        (tmp_path / "s.mp4").write_bytes(b"x")
+        rc, _, err = K.run_verb(*args)
+        assert rc == 1 and ("bad_platform" in err or "refused:" in err), (args[0], err)
+    assert _render.check_documents.__doc__ and "storyboard" in _render.check_documents.__doc__
+
+
+def good_result(files):
+    return {"ok": True, "beats": [{"beat": 1, "preset": "keyword", "file": "beat-1.png", "sha256": "a" * 64, "frame": 3},
+                                  {"beat": 2, "preset": "list", "file": "beat-2.png", "sha256": "b" * 64, "frame": 9}],
+            "sheet": {"file": "sheet.png", "sha256": "c" * 64, "tiles": 2, "columns": 2, "width": 564, "height": 492}}
+
+
+def test_the_host_trusts_nothing_the_container_says_about_its_files():
+    import ffmpeg as H
+    wanted = H.storyboard_files(good_result(None), DATA)
+    assert wanted == [("beat-1.png", "a" * 64, (1080, 1920)), ("beat-2.png", "b" * 64, (1080, 1920)), ("sheet.png", "c" * 64, (564, 492))]
+    cases = {}
+
+    def broken(label, edit):
+        doc = json.loads(json.dumps(good_result(None)))
+        edit(doc)
+        cases[label] = doc
+
+    broken("no beats key", lambda d: d.pop("beats"))
+    broken("no sheet key", lambda d: d.pop("sheet"))
+    broken("empty beats", lambda d: d.update(beats=[]))
+    broken("beat without file", lambda d: d["beats"][0].pop("file"))
+    broken("beat without sha256", lambda d: d["beats"][0].pop("sha256"))
+    broken("beat without number", lambda d: d["beats"][0].pop("beat"))
+    broken("a name that is not its beat's", lambda d: d["beats"][0].update(file="beat-2.png"))
+    broken("a name outside the folder", lambda d: d["beats"][0].update(file="../beat-1.png"))
+    broken("the same beat twice", lambda d: d["beats"][1].update(beat=1, file="beat-1.png"))
+    broken("a hash that is not one", lambda d: d["beats"][0].update(sha256="xyz"))
+    broken("sheet without width", lambda d: d["sheet"].pop("width"))
+    broken("sheet without sha256", lambda d: d["sheet"].pop("sha256"))
+    broken("sheet with a huge declared size", lambda d: d["sheet"].update(width=60000, height=60000))
+    broken("sheet larger than its grid", lambda d: d["sheet"].update(width=1128, height=984))
+    broken("sheet with another tile count", lambda d: d["sheet"].update(tiles=5))
+    broken("sheet with another name", lambda d: d["sheet"].update(file="other.png"))
+    broken("a beat that is not an object", lambda d: d["beats"].__setitem__(0, 7))
+    for label, doc in cases.items():
+        with pytest.raises(Refusal) as e:
+            H.storyboard_files(doc, DATA)
+        assert e.value.code == "container_result_invalid", label
+
+
+def test_a_png_whose_header_is_larger_than_the_frame_or_the_grid_is_refused_by_the_host(tmp_path):
+    """A small file with a header that declares a huge size (a decode bomb for whoever opens it) never reaches the output folder."""
+    import struct, zlib
+    (tmp_path / "home").mkdir()
+    world = DK.World(tmp_path)
+
+    def png(w, h):
+        def chunk(tag, body):
+            return struct.pack(">I", len(body)) + tag + body + struct.pack(">I", zlib.crc32(tag + body) & 0xFFFFFFFF)
+        return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(b"\x00")) + chunk(b"IEND", b"")
+
+    for still_size, sheet_size, code in (((1080, 1920), (282, 492), None), ((60000, 60000), (282, 492), "container_file_not_png"),
+                                         ((1080, 1920), (30000, 30000), "container_file_not_png"), ((1080, 1919), (282, 492), "container_file_not_png")):
+        still, sheet = png(*still_size), png(*sheet_size)
+        result = {"ok": True, "beats": [{"beat": 1, "preset": "keyword", "file": "beat-1.png", "sha256": hashlib.sha256(still).hexdigest(), "frame": 3}],
+                  "skipped": [], "words": 8, "frame_jobs": 1, "frames_checked": 5, "jobs": 1,
+                  "sheet": {"file": "sheet.png", "sha256": hashlib.sha256(sheet).hexdigest(), "tiles": 1, "columns": 1, "width": 282, "height": 492},
+                  "face_box": {"x": 240, "y": 620, "w": 600, "h": 560}, "fonts": {}, "templates": {}, "font_fallbacks": [], "mentions": []}
+        world.cfg["run"] = "files"
+        world.cfg["files"] = {"result.json": {"text": json.dumps(result)}, "beat-1.png": {"kind": "hex", "hex": still.hex()}, "sheet.png": {"kind": "hex", "hex": sheet.hex()}}
+        world.save()
+        out = tmp_path / ("o-%d" % still_size[1] + "-%d" % sheet_size[0])
+        rc, res, err = world.host(*storyboard_args(out, write(tmp_path, "p.md", TWO)))
+        if code is None:
+            assert rc == 0, err
+        else:
+            assert rc == 1 and err.startswith("refused: " + code), err
+            assert not out.exists()
+
+
+def test_the_contact_sheet_works_in_the_scratch_folder_and_leaves_nothing_in_the_output_folder(tmp_path, monkeypatch):
+    made = []
+    real = tempfile_mkdtemp = __import__("tempfile").mkdtemp
+    monkeypatch.setattr(_preview.tempfile, "mkdtemp", lambda *a, **k: made.append(k.get("dir")) or real(*a, **k))
+    if not K.HAVE_FFMPEG:
+        pytest.skip(K.SKIP_MEDIA)
+    scratch, out = tmp_path / "scratch", tmp_path / "out"
+    scratch.mkdir()
+    out.mkdir()
+    tile = scratch / "t.png"
+    tile.write_bytes(_preview.flat_png(1080, 1920, "#112233"))
+    result = _preview.contact_sheet(K.FFMPEG, [str(tile)], DATA["storyboard"], str(out / "sheet.png"), str(scratch))
+    assert made == [str(scratch)] and result["tiles"] == 1 and sorted(p.name for p in out.iterdir()) == ["sheet.png"]
+    assert [p for p in scratch.iterdir() if p.name.startswith(".sheet-")] == []

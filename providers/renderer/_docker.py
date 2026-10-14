@@ -623,7 +623,7 @@ RESULT_SCHEMAS = {
     "cover": dct(ok=B, offset_ms=I, sha256=S),
     "still": dct(ok=B, at_ms=I, sha256=S, width=I, height=I, bytes=I),
     "verify": dct(ok=B, sha256=S, output=OUTPUT),
-    "storyboard": dct(ok=B, beats=lst(dct(beat=I, preset=S, file=S, sha256=S, frame=I), 12), skipped=lst(I, 100), words=I, frame_jobs=I, jobs=I,
+    "storyboard": dct(ok=B, beats=lst(dct(beat=I, preset=S, file=S, sha256=S, frame=I), 12), skipped=lst(I, 100), words=I, frame_jobs=I, frames_checked=I, jobs=I,
                       sheet=dct(file=S, sha256=S, tiles=I, columns=I, width=I, height=I), face_box=dct(x=I, y=I, w=I, h=I), fonts=mp(S), templates=mp(S),
                       font_fallbacks=lst(dct(role=S, asked=S, used=S, reason=S), 20), mentions=lst(S, 500), browser=opt(S), browser_sandbox=opt(S)),
     "render": dct(ok=B, dry_run=B, out_seconds=N, out_frames=I, frame_jobs=I, jobs=I, time_limit_seconds=I, layers=lst(S, 4),

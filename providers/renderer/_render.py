@@ -44,20 +44,28 @@ def time_limit_for(data: dict, out_seconds: float, requested=None) -> int:
     return int(min(lim["render_seconds_max"], max(10, chosen)))
 
 
+def read_platform(path) -> dict:
+    """The platform file: a JSON object, or a Refusal (`null`, a list or a number would silently skip the platform's checks)."""
+    platform = read_json(path)
+    if not isinstance(platform, dict):
+        raise Refusal("bad_platform", "platform")
+    return platform
+
+
 def load_documents(edl_path, beats_path, platform_path, vocabulary_path, fonts_directory=None):
     data = load_data()
     limits = data["limits"]
     edl = read_json(edl_path, limits["json_max_bytes"])
     beats = read_json(beats_path, limits["json_max_bytes"])
-    platform = read_json(platform_path)
+    platform = read_platform(platform_path)
     vocab = load_vocabulary(vocabulary_path)
     allow = _frames.font_allowlist(fonts_directory)
     return data, edl, beats, platform, vocab, allow
 
 
 def check_documents(data, edl, beats, platform, vocab, allow) -> dict:
-    """Check the edit list and the beats. Returns {mentions}; raises the first Refusal. `platform` None: no platform to check against
-    (the storyboard has no platform and no recording)."""
+    """Check the edit list and the beats. Returns {mentions}; raises the first Refusal. `platform` None is for the callers that have no
+    platform on purpose (`check` without a file, the storyboard); `render` and `verify` read theirs with `read_platform`."""
     first = _edl.check_edl(edl, data, vocab, allow, platform)
     second = _edl.check_beats(beats, edl, vocab)
     frame = (platform or {}).get("video") or {}
