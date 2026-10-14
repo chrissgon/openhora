@@ -65,7 +65,8 @@ def normalise_words(words: list, segments: list, duration: float) -> tuple:
       2. A word that ends before it starts ends where it starts. A start that goes back in time is moved up to the
          previous start (clamped).
       3. A run of consecutive words of zero length is spread evenly from the run's start to the start of the next word,
-         at least 40 ms each; the words are marked `estimated`. A word that remains of zero length gets 40 ms.
+         at least 40 ms each (when the next word is more than twice what the run plausibly takes away, each word takes what it
+         plausibly takes instead, one after the other from the run's start); the words are marked `estimated`. A word that remains of zero length gets 40 ms.
 
     The report counts what was done (never a text) for the base list's facts."""
     seg_times = {s["index"]: (s["start"], s["end"]) for s in segments}
@@ -109,11 +110,21 @@ def normalise_words(words: list, segments: list, duration: float) -> tuple:
         run_start = live[k]["start"]
         next_start = live[j + 1]["start"] if j + 1 < len(live) else duration
         slot = max(MIN_WORD_SECONDS, (next_start - run_start) / count)
-        for m in range(count):
-            w = live[k + m]
-            w["start"] = round(run_start + m * slot, 4)
-            w["end"] = round(run_start + (m + 1) * slot, 4)
-            w["estimated"] = True
+        lengths = [plausible_seconds(live[k + m]["text"]) for m in range(count)]
+        if next_start - run_start > 2 * sum(lengths):
+            # far more room than the words take (a long pause, or the first word of a retake, comes next): the words are not stretched
+            # over it, each takes what it plausibly takes, one after the other from the run's start
+            cursor = run_start
+            for m in range(count):
+                w = live[k + m]
+                w["start"], w["end"], w["estimated"] = round(cursor, 4), round(cursor + lengths[m], 4), True
+                cursor += lengths[m]
+        else:
+            for m in range(count):
+                w = live[k + m]
+                w["start"] = round(run_start + m * slot, 4)
+                w["end"] = round(run_start + (m + 1) * slot, 4)
+                w["estimated"] = True
         estimated_runs += 1
         k = j + 1
     # a spread that ran into the next word moves that word's start up (starts stay non-decreasing)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import math
 
 import pytest
 
@@ -400,10 +401,10 @@ def transcript_of(spans, duration):
                           "last_word": len(spans) - 1}]}
 
 
-def base_of(spans, silences, duration):
+def base_of(spans, silences, duration, confirm=()):
     analysis = {"facts": {"duration": duration, "sha256": "a" * 64, "width": 1080, "height": 1920, "has_audio": True},
                 "silences": [{"start": a, "end": b} for a, b in silences]}
-    edl, _ = _edl.build_base(transcript_of(spans, duration), analysis, DATA, {})
+    edl, _ = _edl.build_base(transcript_of(spans, duration), analysis, DATA, {}, confirm=confirm)
     return edl
 
 
@@ -528,3 +529,34 @@ def test_a_short_word_in_a_short_pause_between_two_words_stays_where_it_is():
     assert [m["index"] for m in T.retime_misplaced(ws, [(1.5, 3.9)])[0]] == [1]
     ws = [lw(0, "x", 1.0, 1.4), lw(1, "word", 1.45, 1.8), lw(2, "y", 2.0, 2.4)]
     assert [m["index"] for m in T.retime_misplaced(ws, [(1.42, 1.85)])[0]] == [1]
+
+
+RETAKE_WORDS = [("we", 0.0, 0.22), ("start", 0.22, 0.44), ("the", 0.44, 0.66), ("day", 0.66, 0.88), ("now", 0.88, 1.1)]
+
+
+def at(spans, offset):
+    return [(t, round(a + offset, 3), round(b + offset, 3)) for t, a, b in spans]
+
+
+def test_a_confirmed_retake_after_a_long_silence_leaves_no_fragment_of_its_own_first_word():
+    """The word before the retake has no length in the transcript, and the long silence after it ends 0.2 s before the retake's first
+    word. The estimated word used to be stretched to the retake's start, so it counted as speech over the whole pause and a 0.3 s range
+    (the retake's head pad and the start of its first word) stayed. The retake's words count nowhere, the previous word is not stretched,
+    and the cut runs from its tail pad to the first word that stays."""
+    spans = [("Hello", 1.0, 1.4), ("there.", 1.6, 1.6)] + at(RETAKE_WORDS, 6.3) + at(RETAKE_WORDS, 8.4) + [("ok.", 9.6, 9.9)]
+    edl = base_of(spans, [(0.0, 0.8), (1.7, 6.1), (7.5, 8.2), (10.1, 11.0)], 11.0, confirm={"retake-1"})
+    assert [p["id"] for p in edl["proposals"]] == ["retake-1"] and edl["proposals"][0]["confirmed"]
+    ranges = [(a / FPS, b / FPS) for a, b in edl["kept"]]
+    assert len(ranges) == 2, ranges                                                               # no fragment between the two takes
+    assert ranges[0][1] < 2.1 and ranges[1][0] == pytest.approx(8.3, abs=0.04)                  # the first ends at "there." and its pad
+    assert not any(6.0 < a < 8.0 or 6.0 < b < 8.2 for a, b in ranges)
+
+
+def test_a_confirmed_retake_right_after_a_word_is_cut_at_its_first_word_start_not_after_it():
+    """The word before the retake runs 10 ms into the retake's first word (the transcriber's times overlap): the cut still starts where
+    the retake's first word starts, never after it, so none of that word is heard."""
+    spans = [("Hello", 1.0, 1.4), ("there.", 1.4, 1.66)] + at(RETAKE_WORDS, 1.65) + at(RETAKE_WORDS, 4.2)
+    edl = base_of(spans, [(0.0, 0.8), (2.9, 4.0), (5.4, 7.0)], 7.0, confirm={"retake-1"})
+    assert edl["proposals"][0]["confirmed"]
+    assert edl["kept"][0][1] <= int(math.ceil(1.65 * FPS - 1e-6))                                # the first range ends at the retake's first word
+    assert edl["kept"][1][0] / FPS == pytest.approx(4.1, abs=0.04)

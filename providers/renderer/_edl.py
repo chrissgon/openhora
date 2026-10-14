@@ -179,10 +179,13 @@ def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None
         p["confirmed"] = True
         first, last = by_index[p["word_from"]], by_index[p["word_to"]]
         keep = by_index[p["keep_from"]]
-        before = [w for w in live if w["index"] < p["word_from"]]
-        lo = first["start"] - 0.03
+        # The words of a confirmed retake count nowhere in the cut planning: the cut runs from the end of the last word that stays before
+        # it plus that word's tail pad, never later than the retake's first word starts, to the first word that stays after it less
+        # its head pad.
+        before = [w for w in live if w["index"] < p["word_from"] and not w["dropped"]]
+        lo = first["start"]
         if before:
-            lo = max(lo, before[-1]["end"] + 0.02)
+            lo = min(before[-1]["end"] + pad_tail, first["start"])
         hi = keep["start"] - pad_head
         if hi > lo:
             forced.append((lo, hi))
