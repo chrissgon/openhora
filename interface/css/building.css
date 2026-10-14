@@ -57,7 +57,7 @@
 .wb-plate-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wb-plate-row > .pui-badge, .wb-plate-row > .wb-dot { flex: 0 0 auto; }
 .wb-plate-state { display: flex; justify-content: flex-end; flex: 0 0 auto; margin-left: auto; }
-.wb-st { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.wb-st { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wb-plate-state .wb-st { max-width: none; overflow: visible; text-overflow: clip; }   /* the plate's state is never cut; the floor row's keeps its ellipsis */
 .wb-plate-meters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .wb-plate-meter { display: grid; gap: 1px; font-variant-numeric: tabular-nums; }
@@ -165,7 +165,6 @@
 .wb-fl-mode { color: var(--pui-text-muted); font-size: 12px; }
 .wb-fl-chev { grid-area: chev; display: inline-flex; margin-left: auto; color: var(--pui-text-muted); }
 .wb-docs-link > .wb-fl-chev { margin-left: auto; }
-.wb-acting { font-size: 11px; }
 
 @media (prefers-reduced-motion: reduce) { .wb-plate, .wb-fl-row { transition: none; } }
 .wb-floor-steps { position: absolute; right: 10px; bottom: 10px; z-index: 2; display: none; gap: 4px; justify-items: center; }
@@ -182,9 +181,9 @@
   /* M-32: on a phone the reading text is 16 px: the panel's facts, request titles and detail lines, the documents line, floor names, the section heads, the empty lines, the cancel
      button and the floor card's name; chips, badges, counters and the mode word are meta and stand at 12 px, never below. A scene label of the Floor (the board's) is 12 */
   .wb-facts, .wb-facts dt { font-size: 16px; }
-  .wb-rq-title, .wb-rq-n, .wb-rq-sub, .wb-docs-link, .wb-fl-name, .wb-sec-head, .wb-sec-empty { font-size: 16px; }
+  .wb-rq-title, .wb-rq-sub, .wb-docs-link, .wb-fl-name, .wb-sec-head, .wb-sec-empty { font-size: 16px; }
   .wb-rq-cancel { min-height: 32px; font-size: 16px; }
-  .wb-fl-mode, .wb-fl-chips, .wb-st, .wb-acting, .wb-floor-counter, .wb-fc-runs, .wb-label-board .wb-label-sub { font-size: 12px; }
+  .wb-fl-mode, .wb-fl-chips, .wb-floor-counter, .wb-fc-runs, .wb-label-board .wb-label-sub { font-size: 12px; }
   .wb-fc-name { font-size: 16px; }   /* the card's line of mode, runs and spend is a meta line: at 12 px the card is two lines and the room above the sheet keeps its height */
 }
 

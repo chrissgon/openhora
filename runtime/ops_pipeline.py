@@ -569,17 +569,35 @@ def prepare_again(project: str, recording: str, step: str) -> dict:
         return {**_run(ctx, rid, state), **reset}
 
 
-def pipeline_summary(data_dir: str, rid: str):
-    """What `media-list` shows of a recording's pipeline: its steps, where it stands and the last failure; None before it
-    started or when its file cannot be read."""
+def run_active(ctx: dict, task_id: int) -> bool:
+    """Whether a process is running the task's pipeline now: its lock is held (a closed or dead process releases it, so a held lock is the proof). A shared probe: it
+    never takes the lock from a runner, and it does not make a lock file that is not there."""
+    cfg = ctx["cfg"]
+    name = f"task-{task_id}.lock"
+    if not os.path.exists(os.path.join(core._locks_dir(cfg), name)):
+        return False
+    fd = core._try_lock(cfg, name, shared=True)
+    if fd is None:
+        return True
+    os.close(fd)
+    return False
+
+
+def pipeline_summary(data_dir: str, rid: str, ctx: dict | None = None):
+    """What `media-list` shows of a recording's pipeline: its steps, where it stands, the last failure and, when a context is given, whether a process is running
+    it now (`active`: a step left pending with no failure and nobody running it is a pipeline that stopped, for instance a cancelled request or a killed service);
+    None before it started or when its file cannot be read."""
     try:
         state = pipeline.load_state(data_dir, rid)
     except pipeline.StepFailure:
         return None
     if state is None:
         return None
-    return {"task": state["task"], "request": state["request"], "platform": state["platform"], "steps": pipeline.summary(state),
-            "next": pipeline.next_step(state), "failure": state.get("failure")}
+    shown = {"task": state["task"], "request": state["request"], "platform": state["platform"], "steps": pipeline.summary(state),
+             "next": pipeline.next_step(state), "failure": state.get("failure")}
+    if ctx is not None:
+        shown["active"] = run_active(ctx, state["task"])
+    return shown
 
 
 if __name__ == "__main__":

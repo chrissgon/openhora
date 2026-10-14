@@ -16,9 +16,10 @@
 //          can(op) (optional: whether the page may do an operation, js/permissions.js; without it everything is allowed),
 //          loopback (optional: whether this page was opened on the Mac, default onLoopback()), now() (a Date), objects (optional, for a test:
 //          {create(blob) -> url, revoke(url)}), save(blob, name) (optional, for a test: what "Download" does with the bytes),
-//          pollEvery (ms between two reads while the video is being made, default 3000), measure(body) (optional, for a test: whether the caption is taller than its preview)}
+//          pollEvery (ms between two reads while the video is being made, default 3000; at most MAX_POLLS reads, or `maxPolls` for a test), measure(body) (optional, for a test: whether the caption is taller than its preview)}
 // Returns {el, load({quiet}), close()}.
 
+import { sleep, untilVisible } from "../api.js";
 import { fill, h, keepScroll } from "../dom.js";
 import { formatSize } from "../floor-model.js";
 import { reader } from "../permissions.js";
@@ -31,6 +32,9 @@ export const ON_THE_MAC = "Watch and approve on the Mac that runs the service: a
 export const APPROVE_WORDS = "Approving binds this exact file and this exact caption, by the two hashes above. A new render or any edit of the caption asks you again. Nothing is published or scheduled.";
 export const SENT_BACK_WORDS = "This post was sent back for review. It takes no approval until it is rendered again or its caption is edited.";
 export const COMMENT_LABEL = "Comment for the review (required)";
+export const MAX_POLLS = 200;       // reads while the video is being made: about ten minutes at the default pause, then the card stops looking and says so
+export const STALLED_WORDS = "The page stopped checking for progress after a while: press Check again.";
+export const IDLE_WORDS = "The video is not being made: the pipeline stopped before it finished (the service was restarted, or the request was cancelled). Nothing is running.";
 export const MAKING_WORDS = "Making the video takes a few minutes. This page reads the pipeline again by itself; there is nothing to approve until the video is made.";
 export const CAPTION_LINES = 4;
 export const NO_RENDER = "There is no render yet.";
@@ -52,13 +56,16 @@ export function factsLine(render) {
 }
 
 /**
- * Where the card stands, from the pipeline and the render: "stopped" (a step failed), "making" (the captions are checked and the render or the cover is not done),
+ * Where the card stands, from the pipeline and the render: "stopped" (a step failed, or the render is not done and no process runs it), "making" (the captions are checked, the render or the cover is not done and a process runs it),
  * "none" (no render, and nothing is making one) or "ready" (a render exists and nothing is being made). The pipeline is null when it has not started or was not read.
  */
 export function phaseOf(card, pipeline) {
   const steps = pipeline && pipeline.steps;
   if (pipeline && pipeline.failure) return "stopped";
-  if (steps && steps.review === "done" && ["render", "cover"].some((step) => steps[step] && steps[step] !== "done")) return "making";
+  if (steps && Object.values(steps).includes("failed")) return "stopped";      // agrees with captions-model isRunning: a failed step means stopped
+  if (steps && steps.review === "done" && ["render", "cover"].some((step) => steps[step] && steps[step] !== "done")) {
+    return pipeline.active === false ? "stopped" : "making";       // a step left pending with nobody running it (a cancelled request, a killed service) is not "making"
+  }
   return card && card.render ? "ready" : "none";
 }
 
@@ -98,13 +105,15 @@ export function createVideoCard(env) {
     setTimeout(() => urls.revoke(url), 120000);     // a large file in Safari keeps reading the URL for a while after the click
   });
   const state = {
-    card: null, pipeline: null, error: null, loading: true, platform: env.platform || null,
+    card: null, pipeline: null, stalled: false, restarting: false, error: null, loading: true, platform: env.platform || null,
     media: { sha: null, state: "idle", url: null, cover: null, blob: null, received: 0, total: 0, error: null },   // the video, its bytes and the cover of one render
     busy: null, comment: "", message: null, captionOpen: false,
   };
   let controller = null;
   let closed = false;
-  let timer = null;        // the next read while the video is being made
+  const closing = new AbortController();      // aborted when the card closes: what waits (the next read, a restart) stops
+  let watching = false;        // one chain of reads at a time, however many loads overlap
+  let polls = 0;
 
   function releaseMedia() {
     if (controller) controller.abort();
@@ -182,34 +191,91 @@ export function createVideoCard(env) {
     }
   }
 
+  /** One read: the card and the pipeline, drawn. Resolves the card read, or null when the read failed or the card closed. */
+  async function readOnce() {
+    const [card, pipeline] = await Promise.all([env.api.videoCard(env.project, env.recording, { platform: state.platform || undefined }), readPipeline()]);
+    if (closed) return null;
+    state.card = card;
+    state.pipeline = pipeline;
+    state.error = null;
+    state.loading = false;
+    if (card.platform) state.platform = card.platform;
+    draw();
+    return card;
+  }
+
+  /**
+   * While the video is being made the card reads again by itself, so that a reload of the page, or a pipeline that ran elsewhere, is not left looking stuck. One chain
+   * of reads: none while the tab is hidden (it reads at once when the tab shows again), and at most MAX_POLLS of them, after which the card says it stopped looking.
+   */
+  async function watch() {
+    if (watching) return;
+    watching = true;
+    try {
+      while (!closed && state.card && phaseOf(state.card, state.pipeline) === "making") {
+        if (polls >= (env.maxPolls || MAX_POLLS)) {
+          if (!state.stalled) {
+            state.stalled = true;
+            draw();
+          }
+          return;
+        }
+        await sleep(env.pollEvery || 3000, closing.signal);
+        await untilVisible(closing.signal);
+        if (closed) return;
+        polls += 1;
+        try {
+          await readOnce();
+        } catch (e) {
+          if (closed || (e && e.name === "AbortError")) return;
+          return;      // a read that failed ends the chain: "Check again" reads again
+        }
+      }
+    } catch (e) {
+      if (!(e && e.name === "AbortError")) throw e;
+    } finally {
+      watching = false;
+    }
+  }
+
   async function load({ quiet = false } = {}) {
     if (closed) return;
     if (!quiet && !state.card) {
       state.loading = true;
       draw();
     }
-    if (timer !== null) {
-      clearTimeout(timer);
-      timer = null;
-    }
+    polls = 0;
+    state.stalled = false;
     try {
-      const [card, pipeline] = await Promise.all([env.api.videoCard(env.project, env.recording, { platform: state.platform || undefined }), readPipeline()]);
-      if (closed) return;
-      state.card = card;
-      state.pipeline = pipeline;
-      state.error = null;
-      state.loading = false;
-      if (card.platform) state.platform = card.platform;
-      draw();
-      // while the video is being made the card reads again by itself, so that a reload of the page, or a pipeline that ran elsewhere, is not left looking stuck
-      if (phaseOf(card, pipeline) === "making") timer = setTimeout(() => { timer = null; load({ quiet: true }); }, env.pollEvery || 3000);
-      await fetchMedia(card);
+      const card = await readOnce();
+      if (!card) return;
+      watch();
+      if (phaseOf(card, state.pipeline) === "ready") await fetchMedia(card);      // the video of a render is fetched only when there is nothing being made
     } catch (e) {
       if (closed) return;
       state.loading = false;
       state.error = errorText(e);
       draw();
     }
+  }
+
+  /** "Start again": the pipeline stopped with nobody running it; it runs again from the step it had reached (prepare-again), and the card reads as it goes. */
+  async function startAgain() {
+    const step = state.pipeline && state.pipeline.next;
+    if (!step || state.restarting || !can("prepare-again") || !loopback || typeof env.api.prepareAgain !== "function") return;
+    state.restarting = true;
+    state.error = null;
+    draw();
+    try {
+      const job = await env.api.prepareAgain(env.project, env.recording, step, { signal: closing.signal });
+      const last = await env.api.pollJob(job.job, env.pollEvery || 3000, { signal: closing.signal });
+      if (last.state === "failed") state.error = (last.error && last.error.message) || "The pipeline could not be started again.";
+    } catch (e) {
+      if (closed || (e && e.name === "AbortError")) return;
+      state.error = errorText(e);
+    }
+    state.restarting = false;
+    if (!closed) await load({ quiet: true });
   }
 
   async function write(word, call) {
@@ -224,7 +290,7 @@ export function createVideoCard(env) {
       state.busy = null;
       state.loading = false;
       draw();
-      await fetchMedia(state.card);
+      if (phaseOf(state.card, state.pipeline) === "ready") await fetchMedia(state.card);
     } catch (e) {
       state.busy = null;
       state.error = errorText(e);
@@ -299,10 +365,14 @@ export function createVideoCard(env) {
     const pipeline = state.pipeline;
     if (!pipeline || (phase !== "making" && phase !== "stopped")) return null;
     const failure = pipeline.failure;
+    const idle = phase === "stopped" && !failure && !Object.values(pipeline.steps || {}).includes("failed");      // stopped with no failure word: nobody is running it
     return h("div", { class: "wb-video-pipeline", "data-key": "pipeline" },
       phase === "making" ? h("p", { class: "wb-card-note", role: "status", "data-key": "making", text: MAKING_WORDS }) : null,
+      phase === "making" && state.stalled ? h("p", { class: "wb-card-note", role: "status", "data-key": "stalled", text: STALLED_WORDS }) : null,
+      idle ? h("p", { class: "wb-card-note", role: "status", "data-key": "idle", text: IDLE_WORDS }) : null,
       h("ol", { class: "wb-video-steps", "data-key": "steps" }, stepRows(pipeline.steps).map((r) => h("li", { class: `wb-video-step is-${r.status}`, "data-step": r.step }, h("span", { text: r.label }), h("span", { class: "wb-card-hint", text: ` — ${r.word}` })))),
-      failure ? notice(failureText(failure), "error", h("code", { class: "mono wb-video-code", text: ` ${failure.code}` })) : null);
+      failure ? notice(failureText(failure), "error", h("code", { class: "mono wb-video-code", text: ` ${failure.code}` })) : null,
+      idle && loopback && can("prepare-again") && pipeline.next ? h("div", { class: "wb-card-actions" }, button(state.restarting ? "Starting..." : "Start again", "start-again", startAgain, { disabled: state.restarting, primary: true })) : null);
   }
 
   function hashLine(label, value) {
@@ -406,7 +476,7 @@ export function createVideoCard(env) {
       state.error ? notice(state.error, "error") : null,
       state.message ? h("p", { class: "wb-card-note", role: "status", text: state.message }) : null,
       card.problems.filter((line) => line !== "there is no render yet").map((line) => notice(line, "warn"))]);      // the card says "no render yet" once, in its own part
-    paint("pipeline", [phase, state.pipeline && state.pipeline.steps, state.pipeline && state.pipeline.failure], () => pipelineNode(phase));
+    paint("pipeline", [phase, state.pipeline && state.pipeline.steps, state.pipeline && state.pipeline.failure, state.stalled, state.restarting, can("prepare-again")], () => pipelineNode(phase));
     paint("media", [phase, card.render ? card.render.sha256 : null, loopback, media.sha, media.state, media.url, media.cover, media.error, state.pipeline && state.pipeline.steps && state.pipeline.steps.review], () => mediaNode(card, phase));
     paint("facts", [card.render], () => (card.render ? h("div", { class: "wb-video-facts" },
       h("p", { class: "wb-card-hint wb-video-line", text: factsLine(card.render) }), hashLine("Video", card.render.sha256)) : null));
@@ -436,7 +506,7 @@ export function createVideoCard(env) {
     /** The card was left or its task closed: stop the downloads and revoke the URLs. */
     close() {
       closed = true;
-      if (timer !== null) clearTimeout(timer);
+      closing.abort();
       releaseMedia();
     },
     /** For a test: the state the last draw was made from. */

@@ -25,6 +25,8 @@ out.facts = [factsLine({ duration: 41.5, width: 1080, height: 1920, bytes: 14.2 
 const R = { sha256: "a" };
 out.state = [stateOf({ approval: { state: "approved" }, render: R })[0], stateOf({ approval: { state: "stale" }, render: R })[0], stateOf({ approval: null, sent_back: { comment: "x" }, render: R })[0], stateOf({ approval: null, render: R })[0], stateOf({ approval: null, render: null })[0], stateOf(null)[0]];
 const steps = (extra) => ({ steps: { transcribe: "done", review: "done", base: "done", check: "done", render: "done", cover: "done", approval: "waiting", ...extra }, failure: null });
+out.stoppedPhases = [phaseOf({ render: null }, { ...steps({ render: "pending", cover: "pending" }), active: false }), phaseOf({ render: null }, { ...steps({ render: "pending", cover: "pending" }), active: true }), phaseOf({ render: null }, steps({ render: "pending", cover: "pending" })),
+  phaseOf({ render: null }, { ...steps({ render: "failed", cover: "pending" }), failure: null, active: true }), phaseOf({ render: R }, { ...steps({}), active: false })];
 out.phase = [phaseOf({ render: R }, null), phaseOf({ render: null }, null), phaseOf({ render: null }, steps({ render: "pending", cover: "pending" })), phaseOf({ render: R }, steps({})), phaseOf({ render: null }, steps({ review: "waiting", render: "pending" })),
   phaseOf({ render: R }, { ...steps({}), failure: { step: "cover", code: "cover_missing" } }), phaseOf({ render: R }, steps({ cover: "pending" }))];
 out.pipelineState = [stateOf({ approval: { state: "approved" }, render: R }, steps({ render: "pending" }))[0], stateOf({ approval: null, render: null }, { ...steps({}), failure: { step: "render", code: "x" } })[0]];
@@ -41,6 +43,7 @@ def test_the_pure_words_of_the_card(tmp_path):
     assert got["facts"][0] == "41.5 s, 1080 × 1920, 14.2 MB" and got["facts"][1].endswith("2.0 KB") and got["facts"][2] == ""
     assert got["state"] == ["Approved", "Approval no longer holds", "Sent back", "Waiting for your approval", "No video yet", "No video yet"], "waiting for approval only when a render exists"
     assert got["phase"] == ["ready", "none", "making", "ready", "none", "stopped", "making"], "the pipeline decides: making while render or cover is not done after the review, stopped on a failure"
+    assert got["stoppedPhases"] == ["stopped", "making", "making", "stopped", "ready"], "no process running it (active false) or a failed step is stopped; a pipeline that does not say is taken as running; a finished one is ready"
     assert got["pipelineState"] == ["Making the video", "Stopped"], "making wins over an older approval; a failure wins over everything"
     assert got["stale"][0] == "You approved this post on 2026-10-14T10:00:00Z, but the video was rendered again since. Watch and read it again, then approve again."
     assert "the video was rendered again and the caption was edited" in got["stale"][1] and "it changed" in got["stale"][2]
@@ -427,7 +430,7 @@ def test_only_the_code_task_of_a_recording_gets_the_card_made_when_its_row_opens
 def test_the_card_calls_only_its_own_routes_builds_no_markup_and_touches_no_configuration():
     source = CARD.read_text(encoding="utf-8")
     code = "\n".join(line for line in source.splitlines() if not line.lstrip().startswith("//"))
-    assert set(re.findall(r"\benv\.api\.(\w+)\(", code)) == {"videoCard", "videoCover", "videoRaw", "videoApprove", "videoSendBack", "videoDownload", "mediaList"}
+    assert set(re.findall(r"\benv\.api\.(\w+)\(", code)) == {"videoCard", "videoCover", "videoRaw", "videoApprove", "videoSendBack", "videoDownload", "mediaList", "prepareAgain", "pollJob"}
     for forbidden in ("setMode", "acceptConfig", "accept-config", "mode:", "innerHTML", "insertAdjacentHTML", "outerHTML", "createContextualFragment", "fetch(", "XMLHttpRequest",
                       "localStorage", "sessionStorage", "window.open", "ev" + "al(", "new Func" + "tion", ".style"):
         assert forbidden not in code, forbidden
@@ -504,7 +507,9 @@ const reads = { card: 0, media: 0 };
 const api = {
   videoCard: async () => { reads.card += 1; return JSON.parse(JSON.stringify(script.card)); },
   mediaList: async () => { reads.media += 1; if (script.mediaError) throw new Error("no"); return { recordings: [{ id: "0123456789abcdef", pipeline: script.pipeline }] }; },
-  videoRaw: async () => ({ size: 3 }), videoCover: async () => ({ size: 1 }),
+  videoRaw: async () => { reads.raw = (reads.raw || 0) + 1; return { size: 3 }; }, videoCover: async () => ({ size: 1 }),
+  prepareAgain: async (p, rid, step) => { reads.again = [...(reads.again || []), step]; script.pipeline = { ...script.pipeline, active: true }; return { job: 9, state: "running" }; },
+  pollJob: async () => { await new Promise((r) => setTimeout(r, 10)); script.card = { ...base, render: withRender, problems: [] }; script.pipeline = { task: 2, steps: steps({ render: "done", cover: "done", approval: "waiting" }), next: "approval", failure: null, active: false }; return { state: "done", result: { ok: true } }; },
 };
 const objects = { create: () => "blob:x", revoke: () => {} };
 const make = (extra = {}) => createVideoCard({ project: "0123456789ab", recording: "0123456789abcdef", api, loopback: true, objects, pollEvery: 40, ...extra });
@@ -673,3 +678,129 @@ def test_no_block_of_the_card_or_the_review_scrolls_on_its_own_and_the_caption_u
     card = CARD.read_text(encoding="utf-8")
     assert 'from "./reply.js"' in card and "replyView(" in card
     assert "scrollTop" not in card
+
+
+IDLE = r"""
+import { FakeNode, settle, find, all } from "@FAKE@";
+import { createVideoCard, STALLED_WORDS, IDLE_WORDS, MAX_POLLS } from "@JS@/floor/video-card.js";
+const SHA = "a".repeat(64), CAP = "c".repeat(64);
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const withRender = { sha256: SHA, bytes: 3, duration: 41.5, width: 1080, height: 1920, fps: 30, codec: "h264", name: "render-aaaaaaaaaaaa.mp4", source: "result" };
+const base = { recording: "0123456789abcdef", status: "open", platforms: ["instagram"], platform: "instagram", render: null, cover: null,
+  caption: { text: "Three habits.", sha256: CAP, chars: 13, post_file: "docs/marketing/content/x.md" }, approval: null, sent_back: null, can_download: false, download_name: null, problems: [] };
+const steps = (extra = {}) => ({ transcribe: "done", review: "done", base: "done", check: "done", render: "pending", cover: "pending", approval: "pending", ...extra });
+const script = { card: { ...base }, pipeline: { task: 2, steps: steps(), next: "render", failure: null, active: true } };
+const reads = { card: 0, raw: 0, again: [] };
+const api = {
+  videoCard: async () => { reads.card += 1; return JSON.parse(JSON.stringify(script.card)); },
+  mediaList: async () => ({ recordings: [{ id: "0123456789abcdef", pipeline: JSON.parse(JSON.stringify(script.pipeline)) }] }),
+  videoRaw: async () => { reads.raw += 1; return { size: 3 }; }, videoCover: async () => ({ size: 1 }),
+  prepareAgain: async (p, rid, step) => { reads.again.push(step); script.pipeline = { ...script.pipeline, active: true }; return { job: 9 }; },
+  pollJob: async () => { await wait(10); script.card = { ...base, render: withRender }; script.pipeline = { task: 2, steps: steps({ render: "done", cover: "done", approval: "waiting" }), next: "approval", failure: null, active: false }; return { state: "done", result: { ok: true } }; },
+};
+const objects = { create: () => "blob:x", revoke: () => {} };
+const make = (extra = {}) => createVideoCard({ project: "0123456789ab", recording: "0123456789abcdef", api, loopback: true, objects, pollEvery: 30, ...extra });
+const text = (n) => n.textContent;
+const key = (root, k) => find(root, `[data-key="${k}"]`);
+const out = {};
+
+// a hidden tab does not poll, and reads at once when it is shown again
+{
+  script.card = { ...base }; script.pipeline = { task: 2, steps: steps(), next: "render", failure: null, active: true };
+  const view = make(); await view.load(); await settle();
+  document.hidden = true;
+  await wait(100);
+  const hiddenAt = reads.card;
+  await wait(150);
+  out.hidden = { stable: reads.card === hiddenAt };
+  document.hidden = false;
+  (document.listeners.visibilitychange || []).forEach((fn) => fn());
+  await wait(40);
+  out.shown = reads.card > hiddenAt;
+  view.close();
+}
+
+// loads that overlap make one chain of reads, not several
+{
+  reads.card = 0;
+  const view = make(); await view.load();
+  await Promise.all([view.load({ quiet: true }), view.load({ quiet: true }), view.load({ quiet: true })]);
+  const at = reads.card;
+  await wait(125);
+  out.chain = reads.card - at;
+  view.close();
+}
+
+// the pipeline stopped with nobody running it: "Stopped", the sentence, "Start again", and no polling
+{
+  script.card = { ...base, render: withRender }; reads.raw = 0; reads.again = [];
+  script.pipeline = { task: 2, steps: steps(), next: "render", failure: null, active: false };
+  const view = make(); await view.load(); await settle();
+  const at = reads.card;
+  await wait(120);
+  out.idle = { chip: text(find(view.el, ".pui-badge")), note: text(key(view.el, "idle")), again: Boolean(key(view.el, "start-again")), approve: Boolean(key(view.el, "approve")), video: Boolean(find(view.el, "video")),
+    steps: all(view.el, "[data-key=steps] li").length, polled: reads.card - at, raw: reads.raw };
+  key(view.el, "start-again").click();
+  await wait(150); await settle();
+  out.restarted = { again: reads.again, chip: text(find(view.el, ".pui-badge")), approve: Boolean(key(view.el, "approve")), idle: Boolean(key(view.el, "idle")) };
+  view.close();
+}
+
+// a failed step with no failure word is stopped too; the video of an older render is not fetched while one is made
+{
+  reads.raw = 0;
+  script.card = { ...base, render: withRender };
+  script.pipeline = { task: 2, steps: steps({ render: "failed" }), next: "render", failure: null, active: true };
+  let view = make(); await view.load(); await settle();
+  out.failedStep = { chip: text(find(view.el, ".pui-badge")), again: Boolean(key(view.el, "start-again")) };
+  view.close();
+  script.pipeline = { task: 2, steps: steps(), next: "render", failure: null, active: true };
+  view = make(); await view.load(); await settle();
+  out.noFetch = { chip: text(find(view.el, ".pui-badge")), raw: reads.raw };
+  view.close();
+  script.card = { ...base, render: withRender, problems: [] };
+  script.pipeline = { task: 2, steps: steps({ render: "done", cover: "done", approval: "waiting" }), next: "approval", failure: null, active: false };
+  view = make(); await view.load(); await settle(); await wait(20);
+  out.ready = { chip: text(find(view.el, ".pui-badge")), raw: reads.raw };
+  view.close();
+}
+
+// the polling is capped: the card says it stopped looking, and "Check again" looks again
+{
+  script.card = { ...base }; script.pipeline = { task: 2, steps: steps(), next: "render", failure: null, active: true };
+  reads.card = 0;
+  const view = make({ maxPolls: 3 }); await view.load(); await settle();
+  await wait(250);
+  const capped = reads.card;
+  await wait(120);
+  out.cap = { reads: capped, stable: reads.card === capped, note: text(key(view.el, "stalled")), constant: MAX_POLLS };
+  key(view.el, "reload").click();
+  await wait(60);
+  out.again = { more: reads.card > capped, noteGone: key(view.el, "stalled") === null };
+  view.close();
+}
+console.log(JSON.stringify(out));
+process.exit(0);
+"""
+
+
+@needs_node
+def test_the_card_polls_only_while_the_tab_is_shown_in_one_chain_and_a_cap_and_says_when_it_stopped_looking(tmp_path):
+    got = run_node(tmp_path, IDLE)
+    assert got["hidden"] == {"stable": True} and got["shown"] is True, "no read while the tab is hidden; one at once when it is shown"
+    assert 2 <= got["chain"] <= 5, "one chain: with a pause of 30 ms about four reads in 125 ms, not eight"
+    c = got["cap"]
+    assert c["reads"] <= 5 and c["stable"] is True and "stopped checking" in c["note"] and c["constant"] == 200, "capped, then silent, and it says so"
+    assert got["again"] == {"more": True, "noteGone": True}, "Check again looks again"
+
+
+@needs_node
+def test_a_pipeline_that_nobody_runs_is_stopped_with_start_again_and_a_failed_step_is_stopped_and_an_older_render_is_not_fetched(tmp_path):
+    got = run_node(tmp_path, IDLE)
+    i = got["idle"]
+    assert i["chip"] == "Stopped" and "Nothing is running" in i["note"] and i["again"] is True and i["approve"] is False and i["video"] is False and i["steps"] == 7, i
+    assert i["polled"] == 0 and i["raw"] == 0, "no polling for a pipeline nobody runs, and no video fetched while it is not ready"
+    assert got["restarted"] == {"again": ["render"], "chip": "Waiting for your approval", "approve": True, "idle": False}, "Start again runs prepare-again from the step it had reached, and the card follows"
+    assert got["failedStep"] == {"chip": "Stopped", "again": False}, "a failed status is stopped (the failure's own sentence is the review's)"
+    assert got["noFetch"] == {"chip": "Making the video", "raw": 0}
+    assert got["ready"] == {"chip": "Waiting for your approval", "raw": 1}, "the video is fetched when the render is the card's"

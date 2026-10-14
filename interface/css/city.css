@@ -68,7 +68,7 @@
 }
 .wb-building-link .wb-dot { grid-area: dot; }
 .wb-building-name { grid-area: name; overflow-wrap: anywhere; font-weight: 600; }   /* the round's page draws the name at 600, not the browser's bold */
-.wb-building-link > .pui-badge, .wb-building-link > .pui-badge { grid-area: badge; }
+.wb-building-link > .pui-badge { grid-area: badge; }
 .wb-building-sub { grid-area: sub; color: var(--pui-text-muted); font-size: 12px; }
 .wb-building-link > .wb-icon { grid-area: chev; color: var(--pui-text-muted); }
 

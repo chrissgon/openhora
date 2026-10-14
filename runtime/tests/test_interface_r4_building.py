@@ -489,7 +489,7 @@ def test_the_stylesheet_draws_the_plate_the_rows_the_requests_and_the_tag_as_the
     has(".wb-plate.is-short, .wb-plate.is-tiny", "padding: 6px 12px")
     has(".wb-plate", "margin-left: 28px")
     assert "PLATE_SHIFT = 28" in (JS / "views" / "building.js").read_text(encoding="utf-8"), "the fit keeps the room of the plate's margin"
-    has(".wb-st", "text-overflow: ellipsis", "font-size: 11px")
+    has(".wb-st", "text-overflow: ellipsis")
     has(".wb-rq.is-selected", "background-color: var(--pui-bg-emphasis)")
     has(".wb-rq-cancel", "grid-column: 1 / -1", "margin: -2px 0 6px 44px")
     has(".wb-rq-main", 'grid-template-areas: "n title chip ." "n sub sub sub"')   # R4-A3b: a fourth, free column carries the leftover width, so the chip's column is never squeezed
