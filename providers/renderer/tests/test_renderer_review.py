@@ -295,7 +295,7 @@ def test_a_container_result_with_hostile_text_never_reaches_the_hosts_output(wor
     assert rc == 1 and err.splitlines()[0] == "refused: credential_shaped edl.words[3]" and "secret" not in err and out["problems"] == []
 
 
-def test_the_containers_stderr_is_read_up_to_a_cap_and_never_printed(world, tmp_path):
+def test_the_containers_stderr_is_read_up_to_a_cap_and_never_printed(world, tmp_path, monkeypatch):
     flood = D.MAX_STDERR * 40
     world.cfg.update(run="files", files={"result.json": {"text": json.dumps({"ok": True, "ffmpeg": "f", "ffprobe": "p", "missing": [], "python": "3", "browser": "b", "libass": False,
                                                                            "container": True, "templates": []})}}, rc=0, flood=flood,
@@ -307,8 +307,10 @@ def test_the_containers_stderr_is_read_up_to_a_cap_and_never_printed(world, tmp_
     import time
     world.cfg["run"] = "files"
     world.save()
-    os.environ["DOCKER_CONFIG"] = str(world.config)
-    os.environ["PATH"] = "%s:%s" % (world.bin, os.environ["PATH"])
+    # monkeypatch, not os.environ: the change must end with the test, or every later test of the process (under xdist,
+    # a different set of them on each run) would run with a fake docker first on its PATH
+    monkeypatch.setenv("DOCKER_CONFIG", str(world.config))
+    monkeypatch.setenv("PATH", "%s:%s" % (world.bin, os.environ["PATH"]))
     folder = tmp_path / "o"
     folder.mkdir()
     rc, stderr = D.run_container(["docker", "run", "--name", "n", "-v", "%s:/out:rw" % folder, "image"], "n", 60)

@@ -17,7 +17,7 @@ import _redact
 from _align import norm_tokens, token_sim
 from _text import Refusal, clean_text
 from _timeline import (build_words, caption_chunks, check_transcript, retime_misplaced, detect_retakes, kept_ranges, normalise_words, out_frames_of)
-from _vocab import HEX_COLOR, check_params, slot_params
+from _vocab import HEX_COLOR, check_params, script_section, slot_params
 
 EDL_SCHEMA_VERSION = 2     # 2: zoom.anchor_y is required and normalisation lists retimed_words and unplaced_words
 BEATS_SCHEMA_VERSION = 1
@@ -28,8 +28,11 @@ EDL_KEYS = {"schema_version", "fps", "size", "source", "kept", "out_frames", "wo
             "proposals"}
 PROPOSAL_KEYS = {"id", "kind", "word_from", "word_to", "keep_from", "seconds", "confirmed"}
 SOURCE_KEYS = {"sha256", "duration", "width", "height", "has_audio", "color_matrix"}
-BEATS_KEYS = {"schema_version", "threshold", "overlays", "layouts", "slots", "report", "unmatched", "fallbacks"}
-ENTRY_KEYS = {"id", "beat", "preset", "params", "word_from", "word_to", "score"}
+BEATS_REQUIRED = {"schema_version", "threshold", "overlays", "layouts", "slots", "report", "unmatched", "fallbacks"}
+BEATS_KEYS = BEATS_REQUIRED | {"script"}          # `script` is optional: a beats file without it stays valid, schema_version 1
+ENTRY_REQUIRED = {"id", "beat", "preset", "params", "word_from", "word_to", "score"}
+ENTRY_KEYS = ENTRY_REQUIRED | {"role", "emphasis"}      # the beat's role and emphasis from the script, both optional
+SCRIPT_KEYS = {"title", "loop"}
 SLOT_KEYS = {"slot", "beat", "param", "type", "description"}
 NORMALISATION_KEYS = {"words", "dropped_words", "dropped_segments", "zero_length_words", "spread_runs", "estimated_words", "clamped_starts", "retimed_words", "unplaced_words"}
 
@@ -402,9 +405,33 @@ def check_edl(edl, data: dict, vocab: dict, fonts: dict, platform=None) -> dict:
     return {"texts": texts, "mentions": mentions_of(texts), "indices": index_set}
 
 
+def check_role_emphasis(obj: dict, vocab: dict, field: str) -> None:
+    """`role` and `emphasis`, when present, are values of the vocabulary's closed lists (version 2 of the file)."""
+    script = script_section(vocab)
+    for key, listed in (("role", "roles"), ("emphasis", "emphasis")):
+        if key in obj and (script is None or obj[key] not in script[listed]):
+            raise Refusal("bad_" + key, "%s.%s" % (field, key))
+
+
+def check_script_object(obj, vocab: dict) -> list:
+    """The `script` object of beats.json: closed keys, a bounded hardened title, a boolean loop. Returns the texts to scan."""
+    script = script_section(vocab)
+    closed(obj, SCRIPT_KEYS, "beats.script", required=())
+    if script is None:
+        raise Refusal("script_without_vocabulary", "beats.script")
+    texts = []
+    if "title" in obj:
+        if clean_text(obj["title"], script["limits"]["title_max"], "beats.script.title") != obj["title"]:
+            raise Refusal("text_not_clean", "beats.script.title")
+        texts.append(("beats.script.title", obj["title"]))
+    if "loop" in obj and not isinstance(obj["loop"], bool):
+        raise Refusal("bad_loop", "beats.script.loop")
+    return texts
+
+
 def check_beats(beats, edl, vocab: dict) -> dict:
     """Validate beats.json against the base list and the vocabulary. Returns {texts, mentions}; raises Refusal."""
-    closed(beats, BEATS_KEYS, "beats")
+    closed(beats, BEATS_KEYS, "beats", BEATS_REQUIRED)
     if beats["schema_version"] != BEATS_SCHEMA_VERSION or not _num(beats["threshold"]) or not 0 < beats["threshold"] <= 1:
         raise Refusal("schema_version", "beats")
     index_set = {w["index"] for w in edl["words"]}
@@ -417,7 +444,8 @@ def check_beats(beats, edl, vocab: dict) -> dict:
         for k, e in enumerate(entries):
             field = "beats.%s[%d]" % (bucket, k)
             total += 1
-            closed(e, ENTRY_KEYS, field)
+            closed(e, ENTRY_KEYS, field, ENTRY_REQUIRED)
+            check_role_emphasis(e, vocab, field)
             if not isinstance(e["id"], str) or not ID.fullmatch(e["id"]) or e["id"] in seen_ids:
                 raise Refusal("bad_id", field)
             seen_ids.add(e["id"])
@@ -456,6 +484,11 @@ def check_beats(beats, edl, vocab: dict) -> dict:
     for key in ("report", "fallbacks", "unmatched"):
         if not isinstance(beats[key], list):
             raise Refusal("not_list", "beats.%s" % key)
+    for k, item in enumerate(beats["report"]):
+        if isinstance(item, dict):
+            check_role_emphasis(item, vocab, "beats.report[%d]" % k)
+    if "script" in beats:
+        texts.extend(check_script_object(beats["script"], vocab))
     scan_texts(texts)
     return {"texts": texts, "mentions": mentions_of(texts)}
 

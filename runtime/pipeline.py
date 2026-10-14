@@ -17,7 +17,8 @@ or a check. The steps, in order, each result recorded and each resumable:
   review           STOP: the decision "Check the captions" (runtime/captions.py). The person corrects words, confirms or
                    rejects each retake, anchors the beats, gives the face box; `captions-done` answers it
   remap            the edited transcript is made (or confirmed), hardened and scanned    -> transcript.edited.json
-  base             renderer base on the edited transcript, the confirmed retakes cut     -> edl.json
+  base             renderer base on the edited transcript, the confirmed retakes cut,    -> edl.json
+                   the project's theme from its identity (runtime/theme.py)
   align            renderer align on it, the person's anchors over the match             -> beats.json
   check            renderer check (schema, bounds, hardening, credential shapes)
   render           renderer render, then the render is verified in a fresh container     -> render-<sha12>.mp4
@@ -57,6 +58,7 @@ from typing import Callable
 
 import captions as cap
 import media
+import theme
 
 STEPS = ("transcribe", "analyse", "retakes", "align-proposal", "review", "remap", "base", "align", "check", "render", "cover",
          "approval")
@@ -447,7 +449,11 @@ def load_review(ctx: Context) -> dict:
 def _base(ctx: Context, state: dict) -> dict:
     edited = cap.check_edited(read_json(ctx.path(EDITED), EDITED))
     review = load_review(ctx)
-    args = ["--transcript", ctx.path(EDITED), "--analysis", ctx.path(ANALYSIS), "--out", ctx.path(EDL)] + _face_args(review)
+    try:   # the project's theme, from its identity (runtime/theme.py); the same arguments reach the run with the confirmed retakes
+        theme_flags, theme_record = theme.theme_args(ctx.project, ctx.root, use_default=review["theme"] == "default")
+    except theme.ThemeError as e:
+        raise StepFailure(e.code, e.field, "theme", e.sentence) from None
+    args = ["--transcript", ctx.path(EDITED), "--analysis", ctx.path(ANALYSIS), "--out", ctx.path(EDL)] + _face_args(review) + theme_flags
     done = ctx.call("renderer:video", "base", args, TIMEOUTS["base"])
     confirm, lost = [], []
     if review["confirmed_retakes"]:
@@ -464,7 +470,7 @@ def _base(ctx: Context, state: dict) -> dict:
     edl = read_json(ctx.path(EDL), EDL)
     return {"kept_ranges": done.get("kept_ranges"), "out_seconds": done.get("out_seconds"), "retakes_confirmed": len(confirm),
             "retakes_proposed": len(edl.get("proposals") or []), "face_box": "set" if review["face_box"] else "default",
-            **_normalisation_counts(edl)}
+            "theme": theme_record, **_normalisation_counts(edl)}
 
 
 def _asset_for(ctx: Context, record: dict, slot: str):
@@ -553,7 +559,8 @@ def _render(ctx: Context, state: dict) -> dict:
     result = {"name": name, "sha256": done["sha256"], "bytes": done.get("bytes"), "seconds": done.get("seconds"), "output": output,
               "replayed": bool(done.get("replayed")),
               "unmatched_beats": done.get("unmatched_beats") or [], "fonts": {str(k): str(v)[:40] for k, v in list(fonts.items())[:8]},
-              "browser_sandbox": done.get("browser_sandbox"), "image": (done.get("image") or {}).get("id")}
+              "browser_sandbox": done.get("browser_sandbox"), "image": (done.get("image") or {}).get("id"),
+              "theme": ((state["steps"].get("base") or {}).get("result") or {}).get("theme")}
     write_render_result(ctx, result, None)
     return result
 
@@ -562,7 +569,7 @@ def write_render_result(ctx: Context, render: dict, cover) -> None:
     """render.json, the renderer's result for the recording as the page reads it (runtime/video.py): `sha256`, `bytes`, `output`
     (the ffprobe facts of the file), `name`, and, once the cover is cut, `cover` ({"offset_ms", "sha256", "name"}). Closed words
     and numbers only; written again when the cover is."""
-    doc = {k: render.get(k) for k in ("sha256", "bytes", "output", "name", "seconds", "replayed", "unmatched_beats", "fonts", "browser_sandbox", "image")}
+    doc = {k: render.get(k) for k in ("sha256", "bytes", "output", "name", "seconds", "replayed", "unmatched_beats", "fonts", "browser_sandbox", "image", "theme")}
     doc["verified"] = True
     if cover:
         doc["cover"] = {k: cover[k] for k in ("offset_ms", "sha256", "name")}
@@ -607,13 +614,22 @@ def review_decision(ctx: Context, state: dict) -> dict:
                                                                                               "below_threshold": below, **counts}}}}
 
 
+def describe_theme(record) -> str:
+    """The sentence that says the default theme was used and why (theme.REASONS), or the empty string."""
+    return theme.describe(record) if isinstance(record, dict) else ""
+
+
 def approval_decision(ctx: Context, state: dict) -> dict:
     render = state["steps"]["render"]["result"]
     body = (f"Recording {ctx.rid}: the video is rendered ({render.get('seconds')} s, {render.get('bytes')} bytes, sha256 {render['sha256']}). "
             "Nothing is approved, scheduled or published yet: the page shows the video and takes the approval of exactly this file.")
+    used = describe_theme(render.get("theme"))
+    if used:
+        body += f" Colours: {used}."
     return {"kind": "question", "title": "Approve the rendered video", "body": body,
             "payload": {"media_pipeline": {"recording": ctx.rid, "step": "approval", "platform": ctx.platform,
                                            "render": {k: render.get(k) for k in ("name", "sha256", "bytes", "seconds")},
+                                           "theme": {k: (render.get("theme") or {}).get(k) for k in ("source", "reason")},
                                            "cover": state["steps"]["cover"]["result"]}}}
 
 

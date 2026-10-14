@@ -670,7 +670,8 @@ def test_a_deferred_card_goes_out_as_soon_as_the_person_writes_without_waiting_f
     [card] = [s for s in r.sent() if s["message"]["actions"]]
     assert card["chat"] == "defer-once" and SECRET_TEXT in card["message"]["text"]
     assert [q["message"]["actions"] != [] for q in r.requests() if q["op"] == "send"][0] is True, "the card was the first request, deferred"
-    assert r.bridge.ledger.sent(r.projects[0]["id"], 1, bridge.cards.content_sha256(r.items[1]), "defer-once")
+    # the provider writes the card before the bridge's thread records it in the ledger: wait for the record
+    assert wait_for(lambda: r.bridge.ledger.sent(r.projects[0]["id"], 1, bridge.cards.content_sha256(r.items[1]), "defer-once"))
     assert len([x for x in r.log if "kept for later" in x]) == 1
     r.finish()
 

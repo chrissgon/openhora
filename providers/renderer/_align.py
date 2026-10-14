@@ -2,8 +2,10 @@
 
   run_checker   runs the script checker of the post-writing skill as an isolated subprocess and refuses a post it does
                 not pass. The renderer never imports that code and never reads a beat the checker refused.
-  read_beats    the checked block's beats (number, spoken line, preset, parameters), parsed with the same fence and
-                `key: value` rules.
+  read_script   the checked block's header (the script-level fields) and beats (number, spoken line, role, emphasis,
+                preset, parameters), parsed with the same fence and `key: value` rules; read_beats is its beats.
+  script_object the header's `title` and `loop`, as the optional `script` object of beats.json.
+  annotate      writes each beat's role and emphasis into beats.json's entries and report, and the script object.
   align_line    the best window of the transcript for one spoken line: NFKC, casefold and punctuation normalised, free
                 start and end, a spoken word that is not in the line costs little, a missing one costs a full word,
                 figures excluded from scoring, a tie goes to the last occurrence (a retake wins), a threshold.
@@ -24,10 +26,10 @@ import tempfile
 import unicodedata
 
 from _text import Refusal, clean_text
-from _vocab import check_params, slot_params, slot_types
+from _vocab import check_params, script_section, slot_params, slot_types
 
 FENCE = re.compile(r"^```([\w-]*)\s*$")
-KEY_LINE = re.compile(r"^([a-z][a-z0-9-]{0,31}):(?: (.*))?$")
+KEY_LINE = re.compile(r"^([a-z][a-z0-9_-]{0,31}):(?: (.*))?$")
 FORMAT_LINE = re.compile(r"^\s*-\s*Format:\s*([A-Za-z-]+)\s*$", re.M)
 VIDEO_FORMATS = ("reel", "video")
 DEL_COST = 1.0      # a beat token that was not spoken
@@ -88,10 +90,35 @@ def script_block(text: str) -> str:
     return found[0]
 
 
-def read_beats(text: str, vocab: dict) -> list:
-    """The beats of an already-checked post: [{beat, line, preset, params, slots}]. `params` holds the values with the
-    main parameter under its own name (never `on-screen`); `slots` maps a slot parameter to its description."""
-    beats, current = [], None
+BEAT_KEYS = ("line", "role", "emphasis", "on-screen", "preset")
+
+
+def read_header(lines: list, vocab: dict) -> dict:
+    """The script header: (key, value) lines checked against the vocabulary (a version 2 file): keys from its closed list, each at
+    most once, values from the closed lists or bounded hardened text. A version 1 vocabulary has no header: any line is refused."""
+    script = script_section(vocab)
+    header = {}
+    for key, value in lines:
+        if script is None or key not in script["header"]["keys"] or key in header:
+            raise Refusal("script_header", "post")
+        field = "script." + key
+        if key in ("title", "send_to"):
+            header[key] = clean_text(value, script["limits"]["title_max" if key == "title" else "send_to_max"], field)
+        elif value not in script["header"][key]:
+            raise Refusal("script_header", field)
+        else:
+            header[key] = value
+    return header
+
+
+def read_script(text: str, vocab: dict) -> tuple:
+    """(header, rows) of an already-checked post. rows: [{beat, line, role, emphasis, preset, params, slots}]; `params` holds the
+    values with the main parameter under its own name (never `on-screen`); `slots` maps a slot parameter to its description;
+    role and emphasis are None when the beat has none. An unknown key, an undeclared parameter and a value outside a
+    closed list are refused."""
+    script = script_section(vocab)
+    beats, current, header_lines = [], None, []
+    header_keys = script["header"]["keys"] if script else ()
     for raw in script_block(text).split("\n"):
         line = raw.rstrip("\r").strip(" ")
         if not line:
@@ -104,21 +131,29 @@ def read_beats(text: str, vocab: dict) -> list:
             current = {"beat": len(beats) + 1, "fields": {}}
             beats.append(current)
         elif current is None:
-            raise Refusal("script_line", "post")
+            if key not in header_keys:
+                raise Refusal("script_header" if script and key not in BEAT_KEYS else "script_line", "post")
+            header_lines.append((key, value))
         else:
             current["fields"][key] = value
+    header = read_header(header_lines, vocab)
     rows = []
     for b in beats:
         f = b["fields"]
         name = f.get("preset")
         row = {"beat": b["beat"], "line": clean_text(f.get("line", ""), vocab["limits"]["line_max"], "beat%d.line" % b["beat"]),
-               "preset": name, "params": {}, "slots": {}}
+               "role": None, "emphasis": None, "preset": name, "params": {}, "slots": {}}
+        for key, listed in (("role", "roles"), ("emphasis", "emphasis")):
+            if key in f:
+                if script is None or f[key] not in script[listed]:
+                    raise Refusal("bad_" + key, "beat%d.%s" % (b["beat"], key))
+                row[key] = f[key]
         if name:
             if name not in vocab["presets"]:
                 raise Refusal("unknown_preset", "beat%d" % b["beat"])
             spec = vocab["presets"][name]
             for key, value in f.items():
-                if key in ("line", "preset"):
+                if key in BEAT_KEYS and key != "on-screen":
                     continue
                 param = spec["main"] if key == "on-screen" else key
                 if param not in spec["params"]:
@@ -127,8 +162,40 @@ def read_beats(text: str, vocab: dict) -> list:
                     row["slots"][param] = clean_text(value, vocab["limits"]["slot_description_max"], "beat%d.%s" % (b["beat"], key))
                 else:
                     row["params"][param] = value
+        else:
+            for key in f:
+                if key not in ("line", "role", "emphasis"):
+                    raise Refusal("undeclared_param", "beat%d.%s" % (b["beat"], key))
         rows.append(row)
-    return rows
+    return header, rows
+
+
+def read_beats(text: str, vocab: dict) -> list:
+    """The beats of an already-checked post (see read_script)."""
+    return read_script(text, vocab)[1]
+
+
+def script_object(header: dict) -> dict:
+    """The header's `title` and `loop` for beats.json; the rest of the header stays in the post file. {} when there are none."""
+    out = {}
+    if "title" in header:
+        out["title"] = header["title"]
+    if "loop" in header:
+        out["loop"] = header["loop"] == "yes"
+    return out
+
+
+def annotate(beats: dict, rows: list, header: dict) -> dict:
+    """Writes the role and the emphasis of each beat into beats.json's entries and report items, and the `script` object when the
+    header has a title or a loop. Nothing is added for a beat that has neither, so a post without them gives the file it always gave."""
+    meta = {r["beat"]: {k: r[k] for k in ("role", "emphasis") if r.get(k)} for r in rows}
+    for bucket in ("overlays", "layouts", "report"):
+        for item in beats[bucket]:
+            item.update(meta.get(item.get("beat"), {}))
+    script = script_object(header)
+    if script:
+        beats["script"] = script
+    return beats
 
 
 # ---------------------------------------------------------------- alignment

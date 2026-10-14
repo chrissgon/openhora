@@ -98,7 +98,10 @@ one, an external service) replaces this one behind the same verbs and the same e
 - `base` writes the edit list: frame ranges of the recording, the live words on the output timeline, caption chunks as word indices, the
   theme tokens, the face box, the zoom, the retake proposals. It holds no filter text, no path, no URL and no ASS field.
 - `align` writes `beats.json`: overlays and layouts as preset names from `shared/references/video-presets.json`, typed parameters, word
-  indices, slot ids (never a description or a file).
+  indices, slot ids (never a description or a file). A beat's optional `role` and `emphasis` (closed lists of the vocabulary's `script`
+  section, version 2 of the file) are written into its entry and its `report` item, and the script header's `title` and `loop` into an
+  optional `script` object; the rest of the header stays in the post file. A beats file without these fields stays valid and stays
+  `schema_version` 1. The vocabulary file is read at version 1 or 2, never 3.
 - `render` takes both, the recording, the platform file and the person's asset files by slot, and writes `render-<sha12>.mp4`, 0400,
   never rewritten, after checking the file against the platform's video spec. What an implementation owns is only how it draws.
 - Selection is `RENDERER_VIDEO_PROVIDER` / `RENDERER_PROVIDER` (or the runtime's configuration), as for every class.

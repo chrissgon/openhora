@@ -269,7 +269,7 @@ export const edit = Object.freeze({
 /** The keys an edit object may carry, by kind: the same closed lists as runtime/captions.py OPS (a test ties them). No key of any names a time. */
 export const EDIT_KEYS = Object.freeze({
   edit: ["index", "text"], delete: ["index"], merge: ["from", "to", "text"], split: ["index", "parts"], retake: ["id", "confirmed"],
-  anchor: ["beat", "word_from", "word_to", "clear"], overlay: ["beat", "dropped"], slot: ["slot", "choice"], face_box: ["x", "y", "w", "h", "clear"], cover: ["offset_ms"],
+  anchor: ["beat", "word_from", "word_to", "clear"], overlay: ["beat", "dropped"], slot: ["slot", "choice"], face_box: ["x", "y", "w", "h", "clear"], cover: ["offset_ms"], theme: ["choice"],
 });
 
 // --- the face box and the cover ----------------------------------------------------------------------------------------------------------
