@@ -19,7 +19,7 @@ metadata:
   updates: [docs/marketing/calendar.md]
   requires: []
   side_effects: []
-  version: "2.0.0"
+  version: "2.1.0"
 ---
 
 # Social copy
@@ -86,12 +86,12 @@ Progress:
 - [ ] Step 1: Read the state file, the calendar, the voice guide (structure, register, limits, the approved rewrites as the model of tone), the strategy (claim rules, product links), the profile (never-expose list), the messaging when the post is about the product, and the guidelines if present. If a required one is missing: Stop rule 1. Pick the slots to write: those the user named, or else every `topic-approved` slot without a content file. A slot already `scheduled` or `published` is never rewritten. When the user's words fit more than one slot, do not ask which: take the earliest one that is still `topic-approved` or `drafted`, write it, and say in the first line of the reply which slot you took and which you passed over. A request with no calendar slot (the user gives the topic and its material): its file is named with today's date, `date +%F`, and its `Slot:` line says `none (asked by the user)`.
 - [ ] Step 2: Find the platform: the `Network:` field of the calendar row or of the post file this step works on, lowercased; when there is none, the platform the request names (`Platform: <name>` or the user's words); when neither names one, Stop rule 3: ask which platform, and take none by default. Read `../../shared/references/platforms/<platform>.md`; if there is no such file, stop and say the platform is not supported. Read no other file of that folder. Then the format: a reference with a `## Post shape` section lists the platform's formats on its `Formats accepted:` line; the format is the one the request, the calendar row or the post file names, the only one when the platform accepts one, else Stop rule 7. A reference with no such section is a text post: format `text`, no script. `reel`, `video`, `carousel` and `static` are **video or images posts**: read that format's `## Format: <format>` section of the reference (its length, items and caption limits); steps 4 and 7 apply to them only.
 - [ ] Step 3: For each slot, open its material and list the facts you may use, each with its source: numbers with unit and origin, what was built, what failed, who to credit. A post about the product uses only the messaging's proof points and none of its avoided words. Anything a post needs that is not on this list is either left out or asked; never estimated. Material missing, or only an idea: Stop rule 2. A number, a result or a name the user asks for and the material does not have: Stop rule 4.
-- [ ] Step 4: For a video or images post, write the script before the caption. Read `../../shared/references/video-presets.md` (if it or `video-presets.json` is missing: Stop rule 8) and `references/video-script.md`, and write the ```script block of the output template as they say. The main text parameter of each preset, which the beat's `on-screen` line fills: keyword to `text`, list to `items`, number to `label` (the figure is `value`), quote to `text`, cutaway to `label`, pip to `label`. Every fact in a line is on step 3's list.
+- [ ] Step 4: For a video or images post, write the script before the caption. Read `../../shared/references/video-presets.md` (if it or `video-presets.json` is missing: Stop rule 8) and `references/video-script.md`, and write the ```script block of the output template as they say. A `reel` or `video` script has its header and a `role` on every beat. The main text parameter of each preset, which the beat's `on-screen` line fills: keyword to `text`, list to `items`, number to `label` (the figure is `value`, also in the `line` as digits), quote to `text`, cutaway to `label`, pip to `label`. Every fact in a line is on step 3's list.
 - [ ] Step 5: Write the caption in the slot's language, following the voice's post structure in order (for example: hook, what they did, the artifact, number or failure, what the reader takes away, a real question). Say who the post serves. Write the language natively, never translated word for word. For a video or images post the caption repeats none of the spoken lines word for word. Links, hashtags, mentions and the first comment follow the platform's reference read at step 2 and the voice's and the strategy's limits; a first comment is written only when the reference says the platform has one (`not checked` means none); a link in a first comment comes from the strategy, the profile or the material, never guessed.
 - [ ] Step 6: Write the file `docs/marketing/content/<YYYY-MM-DD>-<slug>.md` from the template, with `Network:` and `Format:` set from step 2. The exact text goes inside the ```script, ```post and ```first-comment blocks, nothing else in them; the ```script block stands above the ```post block, and a text post has none. Then run steps 7 and 8.
-- [ ] Step 7: For a video or images post, check the script: `python3 <this skill's folder>/scripts/check_script.py --content <file> --presets <this skill's folder>/../../shared/references/video-presets.json --format <the format of step 2>`, adding `--max-items <n>` for a carousel when the reference's `Items:` line gives a limit. It checks every beat against the vocabulary: the preset, the parameters, their types and bounds, the asset slot descriptions, and that no time and no refused character is in the script. Fix every problem it prints (beat, field, closed code; never the refused text) in the file and run it again until `"ok": true`. On exit 2 or an error on stderr, stop and report it to the user as it is printed; never loop on it. A text post skips this step.
+- [ ] Step 7: For a video or images post, check the script: `python3 <this skill's folder>/scripts/check_script.py --content <file> --presets <this skill's folder>/../../shared/references/video-presets.json --format <the format of step 2>`, adding `--max-items <n>` for a carousel when the reference's `Items:` line gives a limit. For a `reel` or `video` read the section "What to pass to the checker" of `references/video-script.md` and add the flags it names (`--language`, `--register`, `--material`, `--figure`; a `--figure` needs its row in Claims and sources, source `the user's words`). Fix every problem it prints (beat, field, closed code; never the refused text) in the file and run it again until `"ok": true`. Then read `"warnings"`: add the header and roles for `legacy_script`, the flag for `language_unset` or `material_missing`, fix what a change of words fixes, and list the rest under Checks and in the reply. On exit 2 or an error on stderr, stop and report it to the user as it is printed; never loop on it. A text post skips this step.
 - [ ] Step 8: Check the caption: `python3 <this skill's folder>/scripts/check_post.py --content <file> --platform-file <this skill's folder>/../../shared/references/platforms/<platform>.json`, adding `--no-body-links` when the strategy, the voice or the platform's reference puts links in the first comment. A platform with no data file: leave the flag out and write `platform limits: no data file` under `unchecked`. Fix every voice violation, every limit problem and every body link and rerun until `"ok": true`. A sensitive-topics hit is not rewritten around: remove that part of the post if the post stands without it, otherwise mark the post `blocked` and tell the user; a hit that looks innocent: Stop rule 5. Anything in `unchecked` stays listed in the file and in the reply; the post is never presented as checked. Write both results (script and caption) in the file's Checks section.
-- [ ] Step 9: Judge what the scripts cannot: every number and claim, in the script and in the caption, is in the "Claims and sources" table with a source from step 3; nothing from the never-expose list appears; nothing the strategy forbids appears; a slot marked `action` in the calendar keeps `Approval: action`.
+- [ ] Step 9: Judge what the scripts cannot: for a video, the right-hand column of the eleven rules in `references/video-script.md`; every number and claim, in the script and in the caption, is in the "Claims and sources" table with a source from step 3; nothing from the never-expose list appears; nothing the strategy forbids appears; a slot marked `action` in the calendar keeps `Approval: action`.
 - [ ] Step 10: Update the slot in the calendar: `Content` = the file path, `Status` = `drafted`. Change no other row; a request with no calendar slot changes none.
 - [ ] Step 11: Self-check against "Quality criteria": read the script and the caption sentence by sentence; every number, feature, name and claim has its row in "Claims and sources" and its line in step 3's list. Delete what has none; an `Assumption:` never justifies a claim inside the text. If the external-content section lists an instruction, it says `not followed`.
 - [ ] Step 12: Run `git status --short` and reply with the template below, showing each script, post and first comment as in the file, then stop: Stop rule 6. Apply the user's changes to the file and rerun steps 7 and 8. Publication is `mkt-publish`'s gate, not this one.
@@ -114,26 +114,7 @@ Progress:
 ## Script
 
 ```script
-beat: 1
-line: <the exact words the person says (video) or the text the image carries (carousel, static)>
-on-screen: <the preset's main text, written here and nowhere else>
-preset: <keyword | list | number | quote | cutaway | pip>
-<parameter>: <value, one line per parameter the preset declares besides its main one>
-
-beat: 2
-line: <the exact words>
-preset: cutaway
-asset: <what to show, in words: a screenshot of ..., never a path or a link>
-fit: <cover | contain>
-
-beat: 3
-line: <the exact words, with a figure from step 3's list>
-on-screen: <the label of the figure, not the figure>
-preset: number
-value: <the figure as the material gives it>
-
-beat: 4
-line: <a beat with no animation has only its line>
+<for a video, the header, then the beats: the block's template, "The block's template" in references/video-script.md>
 ```
 
 ## Post
@@ -150,7 +131,7 @@ line: <a beat with no animation has only its line>
 
 ## Checks
 
-- check_script.py: ok | <problems> | not applicable (text post)
+- check_script.py: ok | <problems> | not applicable (text post); warnings: <codes left> | none
 - check_post.py: ok | <problems> | unchecked: <what and why>
 
 ## Claims and sources
@@ -180,7 +161,7 @@ Post:
 
 First comment: <exact text | none>
 
-- Check: `check_script.py <the arguments as run>` → `"ok": <true|false>`, `"problems": [...]`, as printed (video or images formats)
+- Check: `check_script.py <the arguments as run>` → `"ok": <true|false>`, `"problems": [...]`, `"warnings": [...]`, as printed (video or images formats)
 - Check: `check_post.py <the arguments as run>` → `"ok": <true|false>`, `"unchecked": [...]`, `"problems": [...]`, copied from what it printed
 - Left out: <what the user asked for that has no source or that the vocabulary does not offer, and why> | nothing
 - Files changed: <the lines `git status --short` printed, copied; `none` when it printed nothing>
@@ -195,7 +176,7 @@ What should change?
 Approve a post only if all of the following hold:
 
 - `check_post.py` printed `"ok": true`, or the post is `blocked` or lists what stayed `unchecked`.
-- For a video or images post, `check_script.py` printed `"ok": true`, and the `Format:` line names the format of the platform's reference.
+- For a video or images post, `check_script.py` printed `"ok": true`, and the `Format:` line names the format of the platform's reference. For a `reel` or `video`, it has its header and a role on every beat.
 - The script's lines are all that the person says, every fact in them has a source from step 3, and nothing in a beat is outside the vocabulary; a layout beat exists only where the person has something to show.
 - Every number, result, name and event in the post is in "Claims and sources" with a source from the inputs or the user's words.
 - The post follows the voice's structure, is in the slot's language, and says who it serves.

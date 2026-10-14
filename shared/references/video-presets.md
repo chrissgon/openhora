@@ -110,3 +110,17 @@ A script has at most 12 beats and a spoken line of at most 240 characters.
 - One preset per beat; a script of a 30-second video holds about three to six beats, not one per sentence.
 - Do not use the same preset for every beat: a script of only keywords is flat. Prefer the preset the content calls for (a number for a measured figure, a list for parallel things).
 - A layout preset (`cutaway`, `pip`) is only written when the person has the material to show. Ask when it is not known.
+
+## The script's own vocabulary (version 2 of the data file)
+
+Besides the presets, the data file's `script` section lists what a script means. **No field here is a time**; code turns roles into timing.
+
+- **Beat `role`**, one per beat: `hook` (the first beat: the promise or the claim), `setup` (the context the point needs), `point` (one idea that keeps the hook's promise), `proof` (an example, a number or a quoted verse that backs a point), `turn` (the reversal or the twist), `payoff` (the answer the hook opened; sits late), `cta` (the one ask, the last beat).
+- **Beat `emphasis`**: `none` or `punch` (a punch-in on that beat, drawn by the renderer's framing layer). At most one `punch` in any three beats, and at least 25 words, 10 seconds at the speech rate, between two.
+- **The header**, at the top of the script block, before the first beat: one `key: value` line each, each key at most once, in any order. `hook_type` (contrarian, mistake, result, curiosity, number, question, story) and `title` (3 to 5 words, at most 40 characters) are required for a `reel` or `video`; `cta_kind` (save, send, comment, follow-up-video) is required when a `cta` beat exists; `send_to` (text, at most 40 characters) is required when `cta_kind` is `send` and refused otherwise; `loop` (yes or no); `pattern` (list, myth, story, problem-solution, before-after, steps), optional.
+- **One speech rate: 2.5 words per second** (150 words a minute). 6 seconds are 15 words, 10 seconds are 25 words, 60 to 90 seconds (the default target) are 150 to 225 words, 120 seconds (the most) are 300 words. A word is a whitespace-separated token with at least one letter or digit.
+- **Thresholds** (all in the data file's `script.limits`): a hook of at most 18 words; a line of 8 to 30 words (shorter warns, except a `turn`; longer is refused); a `cta` of at most 20 words; no preset on more than half of the beats; a `list` of 2 to 4 items; at most one preset per 20 words in the `calm` register; a quoted span is 3 words or more.
+- **Language data** (`script.languages`, one entry per language: `en`, `pt-BR`): opener phrases (a hook that starts with one draws a warning, never a refusal), negation words, number words, stop words and goodbye words (a loop that ends with one draws a warning). A language with no entry skips the checks that read these lists, with a warning.
+- **Patterns** (`script.patterns`): the roles, and the presets, each declared pattern needs. `list` and `steps`: a hook, a `payoff` or a `cta`, and as many `point` beats as the hook's number promises; `myth`: a hook, a `turn`, a `proof`; `story`: a hook, a `turn`, a `payoff`; `problem-solution`: a hook, a `point`, a `payoff`; `before-after`: two `compare` beats, a preset the list does not offer yet.
+
+A script with none of these (no header and no role) is a version 1 script and keeps passing, with warnings. How the checker uses the section is in the post-writing skill's `references/video-script.md`.

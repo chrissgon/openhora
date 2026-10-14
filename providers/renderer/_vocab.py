@@ -15,6 +15,7 @@ import re
 from _text import Refusal, clean_text
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+VOCABULARY_VERSIONS = (1, 2)       # 2 adds the `script` section (roles, header, thresholds, language data); a version 1 file has none
 HEX_COLOR = re.compile(r"#[0-9A-Fa-f]{6}")
 SLOT_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")
 
@@ -42,16 +43,28 @@ def load_vocabulary(path: str) -> dict:
     """The vocabulary file, with the same structural checks as the script checker's own loader."""
     vocab = read_json(path)
     try:
-        assert vocab["version"] == 1 and isinstance(vocab["presets"], dict)
+        assert vocab["version"] in VOCABULARY_VERSIONS and isinstance(vocab["presets"], dict)     # version 3 or later: not read silently
         for key in ("icons", "palette", "limits"):
             assert key in vocab
         for name, preset in vocab["presets"].items():
             assert preset["main"] in preset["params"] and preset["kind"] in ("overlay", "layout"), name
             for spec in preset["params"].values():
                 assert "type" in spec
+        if vocab["version"] >= 2:
+            script = vocab["script"]
+            assert all(isinstance(script[k], list) for k in ("roles", "emphasis"))
+            assert all(isinstance(script["header"][k], list) for k in ("keys", "hook_type", "cta_kind", "loop", "pattern"))
+            assert isinstance(script["limits"]["title_max"], int)
+        else:
+            vocab.pop("script", None)
     except (AssertionError, KeyError, TypeError):
         raise Refusal("not_a_vocabulary", os.path.basename(path)) from None
     return vocab
+
+
+def script_section(vocab: dict):
+    """The vocabulary's `script` section (version 2), or None for a version 1 file."""
+    return vocab.get("script")
 
 
 def slot_types(spec: dict) -> list:

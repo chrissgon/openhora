@@ -33,7 +33,7 @@ effects = st.load("effects")
 # Public functions of ops.py that are not an operation of a shell: what the other modules and the tests use.
 NOT_OPERATIONS = {"store_module", "context", "task_prompt", "code_task", "chat_memory", "state_question", "state_reply", "queued_ids",
                   "route_busy", "queue_route", "held_commands", "held_next", "drop_note", "asks_state", "waiting", "queue_stale", "with_routing",
-                  "write_checkpoints", "media_receive", "purge_round", "pipeline_summary"}  # ops_media.py: the service's streaming intake, the round's retention; ops_pipeline.py: the pipeline a code task carries, what media-list shows of it  # ops_config.py: the one writer of the accepted hash and the Checkpoints line
+                  "write_checkpoints", "media_receive", "purge_round", "pipeline_summary", "known_platforms"}  # ops_media.py: the service's streaming intake, the round's retention; ops_pipeline.py: the pipeline a code task carries, what media-list shows of it and the platforms a start can name  # ops_config.py: the one writer of the accepted hash and the Checkpoints line
 KINDS = ("int", "str", "text", "file", "list", "flag", "choice", "pairs")
 CHANNELS = ("terminal", "chat", "page", "mcp", "messaging")
 # Modules that still hold the terminal's command as a string, outside the operations layer's own texts.
