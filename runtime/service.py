@@ -68,16 +68,18 @@ serves the pages and the reads all the same.
                    one). Two official WhatsApp providers both listen on port 8787 by default: give them different ports in
                    `setup`; a bridge whose provider cannot bind its port exits with a reason, reported for that child only.
                    Each child's exit is reported with its platform and the others keep running; "messaging" in GET /projects
-                   is then a list of the objects below, and the start line's "messaging" a list of platforms. The child has its own session, its standard input is a pipe
-                   this service holds open (the bridge stops when it closes: --stop-on-stdin-eof), its standard output goes
-                   to /dev/null and its standard error is this service's; its environment is the one this service had at the
-                   very start of main (a key written later into this process never reaches it). When it exits, at any time,
-                   one line on standard error gives the code and its meaning (4 another bridge serves the platform, 3 the
-                   messenger is not configured or another program reads the bot, 2 usage) and the service goes on serving
-                   the page; nothing restarts it. GET /api/v1/projects then has a top-level "messaging":
-                   {"platform", "state": "running" | "stopped", "exit_code"} (null without the option). When the service stops
-                   it closes the child's input, sends SIGTERM to the child's process group, and after it ended its own runs
-                   waits up to 150 s (one bound for all the children together) before SIGKILL to the group of each one left. The service and the bridge each have their own model slot:
+                   is then a list of the objects below, and the start line's "messaging" a list of platforms.
+                   The child has its own session, its standard input is a pipe this service holds open (the bridge stops
+                   when it closes: --stop-on-stdin-eof), its standard output goes to /dev/null and its standard error is
+                   this service's; its environment is the one this service had at the very start of main (a key written
+                   later into this process never reaches it). When it exits, at any time, one line on standard error gives
+                   the code and its meaning (4 another bridge serves the platform, 3 the messenger is not configured or
+                   another program reads the bot, 2 usage) and the service goes on serving the page; nothing restarts it.
+                   GET /api/v1/projects then has a top-level "messaging":
+                   {"platform", "state": "running" | "stopped", "exit_code"} (null without the option). When the service
+                   stops it closes the child's input, sends SIGTERM to the child's process group, and after it ended its
+                   own runs waits up to 150 s (one bound for all the children together) before SIGKILL to the group of
+                   each one left. The service and the bridge each have their own model slot:
                    only the project's file locks keep two router runs apart (contracts/runtime.md, "The messaging bridge")
   --notice-every   seconds between two looks of the bridge at what waits for the person (passed to the bridge only; default
                    60, at least 5); it needs --messaging
@@ -974,7 +976,7 @@ def serve(projects, port=8765, poll_every=60.0, dispatch_every=DISPATCH_EVERY, t
     (0: not at all), the `dispatch` loop every `dispatch_every` seconds (30 unless told; None or 0: not at all). After
     the JSON line it logs what each project's check found (check_projects). Returns the exit code.
     `ready(service)` is called once the socket listens, `server_class` replaces the HTTP server (both are the tests').
-    `messaging` (a platform) starts the bridge child after the JSON line (service_bridge.py) with `environment`, the snapshot
+    `messaging` (a platform name, or a list of names) starts the bridge child after the JSON line (service_bridge.py) with `environment`, the snapshot
     of the environment main() took before any thread (None: the environment now), and `notice_every` for the bridge only;
     at the top of the final block the child's stop begins (its input closed, SIGTERM to its group), and after the runs are
     ended it is waited for up to `bridge_stop_wait` seconds, then killed. `bridge_argv` (the interpreter and script the
@@ -1019,6 +1021,7 @@ def serve(projects, port=8765, poll_every=60.0, dispatch_every=DISPATCH_EVERY, t
     child = None
     if messaging:
         platforms = [messaging] if isinstance(messaging, str) else list(messaging)
+        messaging = platforms[0] if len(platforms) == 1 else platforms  # one platform keeps its string everywhere
         make = service_bridge.Child if len(platforms) == 1 else service_bridge.Bridges
         child = make(platforms[0] if len(platforms) == 1 else platforms, [p["path"] for p in found],
                      environment if environment is not None else dict(os.environ),
@@ -1067,7 +1070,7 @@ def serve(projects, port=8765, poll_every=60.0, dispatch_every=DISPATCH_EVERY, t
             thread.start()
         print(json.dumps({**shown, "token_file": target,
                           "projects": [{"id": p["id"], "name": p["name"]} for p in found],
-                          **({"messaging": messaging if isinstance(messaging, str) else list(messaging)} if messaging else {})}), file=out, flush=True)
+                          **({"messaging": messaging} if messaging else {})}), file=out, flush=True)
         if child is not None:  # after the sockets are bound and the line is printed
             child.start()
         check_projects(ops_module, found, dispatch_every, log)
