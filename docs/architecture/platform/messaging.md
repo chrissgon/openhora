@@ -43,6 +43,7 @@ Decisions are numbered M-n in the supervisor's record of the messaging work; the
 | M-30 to M-34 (10-13) | A third WhatsApp provider, `whatsapp-twilio`, for a number that is a Twilio WhatsApp sender. A restricted API key sends; the Auth Token only checks `X-Twilio-Signature`. No documents (text cut at 1600); no card buttons until the person records three quick-reply template ids; no catch-up of messages lost while the machine slept. Shared code with `whatsapp-cloud` lives in `providers/messenger/whatsapp_meta.py`. Leaving Twilio later is Meta's migration between WhatsApp Business Accounts, never deleting the sender. | The maintainer's test number is a Twilio sender. Twilio documents the Auth Token as the signing key and a restricted key for sending, so each secret does one job. |
 | M-36 (10-13) | The official WhatsApp providers take any public HTTPS address (`--public-url`); Tailscale is an optional helper, not a requirement. A README table says who can read the traffic for each option. A missing `keyring` library is reported as such, not as "secret missing". | Forcing one tunnel vendor on every user is not the workbench's choice; the person decides who sits in the path. |
 | M-37 (10-13) | This page and the entry in [decisions.md](../../decisions.md). | The integration is the workbench's own knowledge and must outlive the conversation that built it. |
+| M-38 (10-13) | One service may start several bridges (`--messaging a,b`); cards go to every app; a decision resolved in one app is refused in the others. Being built (MSG-13). | A person may use more than one app; the decision's state, not the app, says whether it is still open. |
 
 ## Architecture
 
@@ -82,7 +83,7 @@ The five channels are the values of the `channels` column of the table (`runtime
 
 ### The bridge
 
-`runtime/messaging.py` is the shell: `uv run --with keyring==25.7.0 python3 runtime/messaging.py --project <dir> [--project <dir>]... --platform <platform> [--notice-every 60] [--state-dir <dir>] [--stop-on-stdin-eof]`. It runs until SIGINT or SIGTERM, then stops polling, ends the runs it started (`ops.stop_runs`) and, last, closes the provider's session. It prints one JSON line at the start (the platform and the projects' ids and names, never a sender or a token) and logs to standard error with no sender id, no text and no result. Exit codes: 0 stopped, 2 usage (also a state folder that is not safe, and a `--platform` that is not a lowercase word of letters, digits and hyphens), 3 a folder that is not a configured project, or the messenger provider is not configured (also the provider's two Telegram 409 answers, and the end of a listen provider that said it could not go on), 4 another bridge already serves the platform for this user.
+`runtime/messaging.py` is the shell: `uv run --with keyring==25.7.0 python3 runtime/messaging.py --project <dir> [--project <dir>]... --platform <platform> [--notice-every 60] [--state-dir <dir>] [--stop-on-stdin-eof]`. It runs until SIGINT or SIGTERM, then stops polling, ends the runs it started (`ops.stop_runs`) and, last, closes the provider's session. It prints one JSON line at the start (the platform and the projects' ids and names, never a sender or a token) and logs to standard error with no sender id, no text and no result. Exit codes: 0 stopped, 2 usage (also a state folder that is not safe, and a `--platform` that is not a lowercase word of letters, digits and hyphens), 3 a folder that is not a configured project, or the messenger provider is not configured (also the provider's two Telegram 409 answers, and the end of a listen provider that said it could not go on), 4 another bridge already serves the platform for this user; 1 a messenger or ledger failure that is not "not configured".
 
 Its modules, each with one job (the layer map in `scripts/tests/test_layer_map.py` lets `messaging.py` import `ops.py`, `shell_kit.py` and these, and `service.py` import `service_bridge.py`):
 
@@ -241,7 +242,7 @@ Add one file, `providers/messenger/<impl>.py`, that declares `PLATFORMS` and imp
 | Sender id | numeric user id | user id | phone digits | phone digits (and, if used, a business-scoped id) | phone digits (and, if used, a business-scoped id) |
 | Secrets (store usernames) | `messenger-telegram` | `messenger-discord` | none: the session file | `messenger-whatsapp-cloud`, `-app-secret`, `-verify-token` | `messenger-whatsapp-twilio-api-key-sid`, `-api-key-secret`, `-auth-token` |
 | Public HTTPS address | no | no | no | yes | yes |
-| Live test | no result recorded in the sources | run by the maintainer; findings below | an attempt showed the number must be separate | **not tested live** | **passed** (text and typed commands); buttons not tested |
+| Live test | run by the maintainer: cards and the conversation received (the Markdown rendering not explicitly confirmed) | run by the maintainer: a card received in a direct message (buttons not confirmed); findings below | **not tested live** (an attempt showed the number must be separate) | **not tested live** | **passed** (text and typed commands); buttons not tested |
 
 ### Telegram
 
@@ -262,7 +263,7 @@ Add one file, `providers/messenger/<impl>.py`, that declares `PLATFORMS` and imp
 - **Session and `paused`.** `session.db` (0600, in `whatsapp/`, mode 0700) holds the keys of a linked device: whoever holds the file can read and send as that number. A logged-out device makes the provider write a `paused` event naming `pair` and exit 3; the bridge waits and asks again. A second program using the same session is not a pause: the provider says so and the bridge stops. A refused client version stops it the same way, with a sentence to update and build again.
 - **Licences and risk.** The program links whatsmeow (MPL-2.0) and, through it, `go.mau.fi/libsignal` (GPL-3.0). The repository carries source only; do not hand a built binary to anyone without meeting the GPL-3.0. WhatsApp's terms bar automation and unofficial clients, so the number may be restricted or banned; the protocol is not published and may change under the client.
 - **Privacy.** Messages are end-to-end encrypted between WhatsApp's clients; this program is one of them and decrypts them on the machine that runs the bridge. WhatsApp sees who writes to whom and when.
-- **Tested.** Offline (Go and Python). The sources record the need for a separate number from a live attempt; no other live result is recorded for this platform.
+- **Tested.** Offline (Go and Python). **Not tested live**: an attempt showed that the number must be separate.
 
 ### WhatsApp Cloud API (Meta direct)
 
@@ -287,7 +288,7 @@ Add one file, `providers/messenger/<impl>.py`, that declares `PLATFORMS` and imp
 - **The window** is the same rule as the Cloud provider's, with the time of receipt as the clock (Twilio sends no timestamp). Error 63016, from the send or a per-message status callback for a SID this process sent (`sent.json`, 2 days), closes the window and sends the template once. The person must leave the status callback URL of the sender empty: the provider passes it on every message and both together would deliver each report twice.
 - **Costs.** Twilio charges per message, inbound or outbound, plus Meta's fees for a template outside the window and a small fee for a failed message; figures are in the provider's README, from Twilio's pricing page at the time of writing.
 - **Messages lost while asleep.** Twilio retries a webhook once, and only on a connection failure. A message the person sends while the machine is asleep or offline is lost for good, unlike Meta's retries of up to 7 days. There is no catch-up; the person writes again.
-- **Tested.** Offline, including Twilio's published signature vector. **Passed the maintainer's live test** (text in and out, typed commands). Not tested live: card buttons, the second published signature vector (its parameters are not in the sources), the template path after 24 hours.
+- **Tested.** Offline, including Twilio's published signature vector. **Passed the maintainer's live test**: the webhook signature, `whoami`, cards with typed commands and the conversation. Not tested live: card buttons, the second published signature vector (its parameters are not in the sources), the template path after 24 hours.
 
 ## Public HTTPS for webhooks
 
@@ -379,7 +380,8 @@ Common errors, with their cause:
 - **The second Twilio signature vector.** Twilio publishes two examples; the first is a test. The parameters of the second (a repeated `Digits` value) are not in the sources, so the rule for a repeated parameter is tested only against a reference implementation written in the test kit.
 - **Buttons on Twilio** are built and tested offline and not live: the three templates, the 21656 fallback and the callback-driven resend.
 - **The page state for a paused bridge.** A paused listen provider is a log line only; `GET /projects` has no state for it.
-- **Telegram and Discord live results** are not recorded in the sources this page was written from; the live-test findings that exist are the ones in "Operating it".
+- **Live results still missing**: the Markdown rendering on Telegram after MSG-4 and Discord buttons were not explicitly confirmed; the unofficial WhatsApp client and the Meta Cloud API were not run live.
+- **Several bridges in one service** (decision M-38) is decided and being built (MSG-13); this page describes one bridge per service.
 - **Restarting a crashed bridge** and **queuing a line while a run holds the project** are not built; so is **editing a sent card** when a decision is resolved elsewhere, and **approving effects from the messaging channel** (decision M-3, an opt-in for later).
 - **A Go job in CI** uses the runner's own Go instead of a pinned setup action; moving it to a pinned action is open.
 
