@@ -179,9 +179,98 @@ current = card({ platforms: ["instagram", "tiktok"], platform: null, render: car
 view = make(); root = view.el; calls.length = 0;
 await view.load(); await settle();
 out.picker = { buttons: all(root, ".wb-video-platforms button").map((b) => text(b)) };
+
+// --- a store change during playback: the same video node and the same comment box, with the typed text and the focus kept
+calls.length = 0; made.length = 0; revoked.length = 0;
+current = card();
+view = make(); root = view.el;
+await view.load(); await settle();
+const player = find(root, "video");
+const comment = find(root, "textarea");
+comment.value = "Slow the second beat"; comment.listeners.input.forEach((fn) => fn()); comment.focus();
+const rawBefore = calls.filter((c) => c[0] === "videoRaw").length;
+current = card({ problems: [] });                                    // the store changed somewhere else: the same card comes back
+await view.load({ quiet: true }); await settle();
+out.kept = { sameVideo: find(root, "video") === player, sameComment: find(root, "textarea") === comment, value: comment.value, focused: comment.focused, active: globalThis.document.activeElement === comment,
+  refetched: calls.filter((c) => c[0] === "videoRaw").length - rawBefore, revoked: revoked.length };
+current = approved();                                                // the approval changed: the approval part is drawn again, the video is not
+await view.load({ quiet: true }); await settle();
+out.keptAfterApproval = { sameVideo: find(root, "video") === player, sameComment: find(root, "textarea") === comment, chip: text(find(root, ".pui-chip")), download: find(root, "[data-key=download]") !== null };
+current = card({ render: { ...card().render, sha256: SHA2 } });      // another render: a new video
+await view.load({ quiet: true }); await settle();
+out.newRender = { sameVideo: find(root, "video") === player, videos: all(root, "video").length, src: find(root, "video").attrs.src, sameComment: find(root, "textarea") === comment };
+view.close();
+
+// --- Download saves the blob already held when it is the approved file's, and fetches the file when it is not
+calls.length = 0; saved.length = 0; made.length = 0; revoked.length = 0;
+current = approved();
+view = make(); root = view.el;
+await view.load(); await settle();
+find(root, "[data-key=download]").click(); await settle();
+out.heldDownload = { fetched: calls.filter((c) => c[0] === "videoDownload").length, saved: saved.map((x) => [...x]) };
+view.close();
+calls.length = 0; saved.length = 0;
+current = approved(SHA, { approval: { state: "approved", reasons: [], approved_at: "2026-10-14T10:00:00Z", approved_via: "page", video_sha256: SHA2, caption_sha256: CAP, platform: "instagram" } });
+view = make(); root = view.el;
+await view.load(); await settle();
+find(root, "[data-key=download]").click(); await settle();
+out.otherDownload = { fetched: calls.filter((c) => c[0] === "videoDownload").length, saved: saved.map((x) => [...x]) };
+view.close();
+
+// --- the video on screen must be the render the card names before Approve sends anything
+calls.length = 0;
+current = card();
+view = make(); root = view.el;
+await view.load(); await settle();
+let free; gate = new Promise((r) => { free = r; });
+current = card({ render: { ...card().render, sha256: SHA2 } });      // another render appears: its video is loading, the old one is not its video
+view.load({ quiet: true }); await settle();
+out.otherRender = { disabled: off(find(root, "[data-key=approve]")), video: all(root, "video").length };
+find(root, "[data-key=approve]").click(); await settle();
+out.otherRenderClick = calls.filter((c) => c[0] === "videoApprove").length;
+free(); gate = null; await settle();
+out.otherRenderReady = off(find(root, "[data-key=approve]"));
+view.close();
+
+// --- a post that was sent back takes no Approve until it changes
+calls.length = 0;
+current = card({ sent_back: { comment: "Too fast.", at: "2026-10-14T11:00:00Z", render_sha256: SHA, blocks_approval: true } });
+view = make(); root = view.el;
+await view.load(); await settle();
+out.heldBack = { approve: find(root, "[data-key=approve]"), note: text(find(root, "[data-key=held-back]")), note2: text(find(root, "[data-key=sent-back]")) };
+current = card({ sent_back: { comment: "Too fast.", at: "2026-10-14T11:00:00Z", render_sha256: SHA, blocks_approval: false } });
+await view.load({ quiet: true }); await settle();
+out.liftedBack = { approve: find(root, "[data-key=approve]") !== null, note: find(root, "[data-key=held-back]") };
+view.close();
 console.log(JSON.stringify(out));
 process.exit(0);
 """
+
+
+@needs_node
+def test_a_store_change_during_playback_keeps_the_video_node_and_the_comment_box(tmp_path):
+    got = run_node(tmp_path, CARD_RUN)
+    kept = got["kept"]
+    assert kept == {"sameVideo": True, "sameComment": True, "value": "Slow the second beat", "focused": True, "active": True, "refetched": 0, "revoked": 0}, \
+        "a read that changed nothing draws nothing: the playback position and the typed comment stay"
+    assert got["keptAfterApproval"]["sameVideo"] is True and got["keptAfterApproval"]["sameComment"] is True, "an approval draws its own part only"
+    assert got["keptAfterApproval"]["chip"] == "Approved" and got["keptAfterApproval"]["download"] is True
+    assert got["newRender"]["sameVideo"] is False and got["newRender"]["videos"] == 1 and got["newRender"]["sameComment"] is True, "another render is another video; the comment stays"
+
+
+@needs_node
+def test_download_saves_the_held_bytes_of_the_approved_file_and_fetches_it_otherwise(tmp_path):
+    got = run_node(tmp_path, CARD_RUN)
+    assert got["heldDownload"] == {"fetched": 0, "saved": [[32, "short-video-instagram-aaaaaaaaaaaa.mp4"]]}
+    assert got["otherDownload"] == {"fetched": 1, "saved": [[32, "short-video-instagram-aaaaaaaaaaaa.mp4"]]}
+
+
+@needs_node
+def test_approve_waits_for_the_video_of_the_render_the_card_names_and_a_sent_back_post_takes_none(tmp_path):
+    got = run_node(tmp_path, CARD_RUN)
+    assert got["otherRender"] == {"disabled": True, "video": 0} and got["otherRenderClick"] == 0 and got["otherRenderReady"] is False
+    assert got["heldBack"]["approve"] is None and "sent back for review" in got["heldBack"]["note"] and "Too fast." in got["heldBack"]["note2"]
+    assert got["liftedBack"] == {"approve": True, "note": None}
 
 
 @needs_node
@@ -197,7 +286,7 @@ def test_the_card_plays_a_blob_approves_the_two_hashes_it_shows_and_downloads_th
     assert got["sent"] == {"videoSha256": "a" * 64, "captionSha256": "c" * 64, "platform": "instagram"}, "approve sends the two hashes the card shows, and nothing else"
     assert got["afterApprove"]["chip"] == "Approved" and "sha256 aaaaaaaaaaaa" in got["afterApprove"]["line"] and "sha256 cccccccccccc" in got["afterApprove"]["line"]
     assert got["afterApprove"]["approveGone"] is True and got["afterApprove"]["download"] == "Download short-video-instagram-aaaaaaaaaaaa.mp4"
-    assert got["download"]["calls"] == [["videoDownload", "instagram"]] and got["download"]["saved"] == [[32, "short-video-instagram-aaaaaaaaaaaa.mp4"]] and got["download"]["message"] is True
+    assert got["download"]["calls"] == [] and got["download"]["saved"] == [[32, "short-video-instagram-aaaaaaaaaaaa.mp4"]] and got["download"]["message"] is True
     stale = got["stale"]
     assert stale["chip"] == "Approval no longer holds" and "rendered again" in stale["notice"] and stale["approve"] is True and stale["download"] is True
     assert stale["rawFor"] == ["a" * 64, "b" * 64] and stale["revoked"] >= 2, "a new render is fetched and the old blob URLs are revoked"

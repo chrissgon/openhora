@@ -334,7 +334,7 @@ def test_the_download_is_refused_when_the_approval_no_longer_holds(world, one):
     assert second["sha"] != one["sha"]
 
 
-def test_the_download_hashes_the_file_again_so_a_swapped_file_is_not_delivered(world, one):
+def test_a_file_changed_after_the_approval_is_not_delivered_because_its_identity_moved(world, one):
     approve(world, one["sha"])
     os.chmod(one["path"], 0o600)
     with open(one["path"], "r+b") as f:
@@ -467,3 +467,104 @@ def test_a_project_that_turns_the_video_group_off_for_the_page_cannot_approve_bu
     assert status == 409 and "not enabled" in json.loads(answer)["message"]
     set_channels(world.project, {"page": ["read", "video"]})
     assert post(world, path + "/approve", {"video_sha256": one["sha"], "caption_sha256": caption_sha(), "platform": "instagram"})[0] == 200
+
+
+# --- one hashing of a file at a time, the stream's total time, and HEAD ----------------------------------------------------------------------------------
+
+
+def test_a_cold_cache_hashes_a_file_once_however_many_cards_ask_at_once(world, one, monkeypatch):
+    video._VERIFIED.clear()
+    count = []
+    real = video._digest
+
+    def counting(f):
+        count.append(1)
+        time.sleep(0.15)                       # long enough for every thread to be waiting for the first
+        return real(f)
+
+    monkeypatch.setattr(video, "_digest", counting)
+    done = []
+    threads = [threading.Thread(target=lambda: done.append(video.open_render(world.data, world.rid, one["sha"]).sha256)) for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(10)
+    assert done == [one["sha"]] * 6 and len(count) == 1, "six readers, one pass over the file"
+    video.open_render(world.data, world.rid, one["sha"]).close()
+    assert len(count) == 1, "the next card finds the digest"
+    video.open_render(world.data, world.rid, one["sha"], fresh=True).close()
+    assert len(count) == 2, "an approval always hashes again"
+    assert video._HASHING == {}, "no lock of a finished hashing is kept"
+
+
+def test_a_stream_has_a_total_time_that_grows_with_its_length_and_stops_a_reader_that_is_too_slow(world, one, monkeypatch):
+    assert service.STREAM_MAX_SECONDS >= 600 and service.STREAM_BASE_SECONDS > 0
+    opened = video.open_render(world.data, world.rid, one["sha"])
+    body = service.FileBody(opened, 0, opened.size)
+    assert body.seconds == service.STREAM_BASE_SECONDS + opened.size / service.STREAM_MIN_BYTES_PER_SECOND
+    opened.close()
+    huge = types_namespace(size=10 ** 12)
+    assert service.FileBody(huge, 0, huge.size).seconds == service.STREAM_MAX_SECONDS, "never more than the cap"
+    monkeypatch.setattr(service, "STREAM_BASE_SECONDS", 0.2)
+    monkeypatch.setattr(service, "STREAM_MIN_BYTES_PER_SECOND", 10 ** 12)
+    opened = video.open_render(world.data, world.rid, one["sha"])
+    body = service.FileBody(opened, 0, opened.size, on_close=lambda: gave.append(1))
+    gave = []
+    taken = 0
+    with pytest.raises(TimeoutError):
+        for block in body.chunks(1024):
+            taken += len(block)
+            time.sleep(0.05)                   # a reader that takes a chunk every 50 ms
+    assert 0 < taken < opened.size
+    body.close()
+    assert gave == [1]
+
+
+def types_namespace(**kw):
+    import types
+    return types.SimpleNamespace(file=None, close=lambda: None, **kw)
+
+
+def test_a_reader_that_trickles_is_cut_at_the_deadline_the_file_is_closed_and_the_gate_is_free(world, monkeypatch):
+    import io
+
+    class Trickle(io.BytesIO):
+        """The socket of a reader that takes a chunk every 0.15 s."""
+
+        def write(self, block):
+            time.sleep(0.15)
+            return super().write(block)
+
+    big = write_render(world.data, world.rid, "big", size=2_000_000)
+    monkeypatch.setattr(service, "SERVE_CHUNK", 16 * 1024)
+    monkeypatch.setattr(service, "STREAM_BASE_SECONDS", 0.5)
+    monkeypatch.setattr(service, "STREAM_MIN_BYTES_PER_SECOND", 10 ** 12)
+    status, head, body = service.handle(world.svc, "GET", render_path(world, big["sha"]), headers(), b"")
+    assert status == 200 and isinstance(body, service.FileBody) and not world.svc.video_gate.acquire(blocking=False), "the read holds the gate"
+    handler = service.make_handler(world.svc)
+    instance = handler.__new__(handler)
+    instance.command, instance.request_version, instance.requestline, instance.wfile = "GET", "HTTP/1.1", "GET /x HTTP/1.1", Trickle()
+    instance.client_address, instance.close_connection = ("127.0.0.1", 1), True
+    started = time.monotonic()
+    with pytest.raises(TimeoutError):
+        instance._send(status, head, body)
+    assert time.monotonic() - started < 3 and 0 < len(instance.wfile.getvalue()) < 2_000_000
+    assert body.closed and world.svc.video_gate.acquire(blocking=False), "the file is closed and the gate is back, whatever the reader does"
+    world.svc.video_gate.release()
+
+
+def test_a_head_request_never_gets_a_streamed_body(world, one):
+    import io
+    handler = service.make_handler(world.svc)
+    instance = handler.__new__(handler)
+    instance.command, instance.request_version, instance.requestline, instance.wfile = "HEAD", "HTTP/1.1", "HEAD /x HTTP/1.1", io.BytesIO()
+    instance.client_address, instance.close_connection = ("127.0.0.1", 1), True
+    opened = video.open_render(world.data, world.rid, one["sha"])
+    gave = []
+    body = service.FileBody(opened, 0, opened.size, on_close=lambda: gave.append(1))
+    instance._send(200, {"Content-Type": "video/mp4"}, body)
+    written = instance.wfile.getvalue()
+    assert b"Content-Length: %d" % opened.size in written and written.endswith(b"\r\n\r\n"), "the head says the length and nothing follows it"
+    assert gave == [1] and body.closed, "the file and the gate are still given back"
+    # and the service answers HEAD with 405 before any route: no file is opened for it
+    assert service.handle(world.svc, "HEAD", render_path(world, one["sha"]), headers(), b"")[0] == 405

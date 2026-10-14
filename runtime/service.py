@@ -152,7 +152,7 @@ answer 200 with `Accept-Ranges: bytes` or, for one `Range: bytes=...` header, 20
 memory. They and the two POST routes answer on the loopback socket only: a byte route is, to a request that came in on the LAN
 socket or names a Host that is not a loopback one, a route that does not exist (404, a video must not cross the network as plain
 HTTP), and approve and send-back are refused there (409, "watch and approve on the Mac"). Render and download are read one at a time
-(a second concurrent read is 409 refused). The page cannot send a header in a `src`, so it fetches the video with the bearer header and
+(a second concurrent read is 409 refused); a stream has a total time (30 s plus its length at 256 KiB/s, at most 30 minutes) after which it ends and gives the gate back. The page cannot send a header in a `src`, so it fetches the video with the bearer header and
 plays a `blob:` URL it built (the policy's `media-src blob:`); the token is never in a URL.
 
 A line of the conversation, or a request to route, that the page sends while a run holds the project is queued by the operation
@@ -234,7 +234,7 @@ PATH_LIMIT = 2048
 OCTET = "application/octet-stream"        # the Content-Type of the media route, the one POST that is not JSON (rule 5)
 MEDIA_STATUS = {"usage": (400, "usage"), "length": (411, "length"), "too_large": (413, "too_large"),
                 "type": (415, "media_type"), "no_space": (507, "no_space"), "not_found": (404, "not_found"),
-                "refused": (409, "refused")}   # the family of a refusal of the media store (OpsError.kind) -> status and word
+                "refused": (409, "refused"), "sent_back": (409, "sent_back")}   # the family of a refusal of the media store (OpsError.kind) -> status and word
 DRAIN_BYTES = 16 * 1024 * 1024            # an early refusal of an upload reads at most this much of the unread body before it closes
 DRAIN_SECONDS = 2.0                       # ... and for at most this long in total, however slowly the client sends
 MAX_LENGTH_DIGITS = 15                    # a Content-Length with more digits than this is malformed (400)
@@ -263,6 +263,12 @@ RANGE_SPEC = re.compile(r"([0-9]{1,15})?-([0-9]{1,15})?")
 SERVE_CHUNK = 256 * 1024                  # bytes of a file written to the socket at a time
 LAN_APPROVAL = "Watch and approve on the Mac that runs the service: a video is not shown, and nothing is approved, over the network."
 ONE_AT_A_TIME = ("video-raw", "video-download")   # the operations whose read holds the service's one video gate
+# A stream has a total deadline, so that a reader that trickles cannot hold the one video gate for ever: STREAM_BASE_SECONDS plus the length at
+# STREAM_MIN_BYTES_PER_SECOND (a reader slower than this on average is cut), never more than STREAM_MAX_SECONDS. When it passes the stream ends,
+# the file is closed and the gate is given back.
+STREAM_BASE_SECONDS = 30.0
+STREAM_MIN_BYTES_PER_SECOND = 256 * 1024
+STREAM_MAX_SECONDS = 1800.0
 WORDS = {
     "host": "the Host header must be 127.0.0.1:<port> or localhost:<port> (or the LAN address, when the service was started with --lan)",
     "origin": "the Origin must be this service's own (http://127.0.0.1:<port> or http://localhost:<port>, or the LAN address with --lan); a POST needs one",
@@ -277,6 +283,7 @@ WORDS = {
     "usage": "the request is malformed",
     "refused": "the operation refused",
     "range": "the byte range cannot be answered for this file",
+    "sent_back": "this post was sent back and has not changed since: it takes no approval yet",
     "not_configured": "the project is not configured",
     "busy": "a job that calls a model is running for this project",
     "stopping": "the service is stopping",
@@ -620,12 +627,16 @@ class FileBody:
         self.length = opened.size - start if length is None else length
         self.on_close = on_close
         self.closed = False
+        self.seconds = min(STREAM_MAX_SECONDS, STREAM_BASE_SECONDS + self.length / STREAM_MIN_BYTES_PER_SECOND)   # the stream's total time
 
     def chunks(self, size: int = SERVE_CHUNK):
         f = self.opened.file
         f.seek(self.start)
         left = self.length
+        until = time.monotonic() + self.seconds
         while left > 0:
+            if time.monotonic() > until:
+                raise TimeoutError("the stream's total time ran out: the reader is too slow")
             block = f.read(min(size, left))
             if not block:
                 break
@@ -1130,8 +1141,9 @@ def make_handler(service: Service):
                 self.send_header("Connection", "close")
                 self.end_headers()
                 if streamed:
-                    for block in payload.chunks():
-                        self.wfile.write(block)
+                    if self.command != "HEAD":     # a HEAD answer is the head alone: a streamed body is never sent to it
+                        for block in payload.chunks():
+                            self.wfile.write(block)
                 elif self.command != "HEAD":
                     self.wfile.write(payload)
                 self.close_connection = True

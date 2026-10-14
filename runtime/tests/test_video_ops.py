@@ -18,6 +18,7 @@ import standin_tree as st
 from video_fixtures import CAPTION, POST, caption_sha, mp4_bytes, world, write_post, write_render  # noqa: F401
 
 ops = st.load("ops")
+ops_video = st.load("ops_video")
 cli = st.load("cli")
 media = st.load("media")
 video = st.load("video")
@@ -231,11 +232,60 @@ def test_sending_back_needs_a_comment_removes_the_approval_and_returns_the_post_
     assert record["status"] == "open"
 
 
-def test_approving_again_after_a_send_back_clears_the_comment_and_a_closed_post_cannot_be_sent_back(world, one):
+def test_a_send_back_holds_the_post_until_it_is_rendered_again_or_its_caption_is_edited(world, one):
+    approve(world, one["sha"])
     ops.video_send_back(world.project, world.rid, "Change the hook.")
-    assert card(world)["sent_back"]["comment"] == "Change the hook."
-    again = approve(world, one["sha"])
+    shown = card(world)
+    assert shown["sent_back"]["comment"] == "Change the hook." and shown["sent_back"]["blocks_approval"] is True
+    # the same render and the same caption, from a card that was open before the send-back: refused with its own code, nothing recorded
+    error = refused(approve, world, one["sha"])
+    assert error.kind == "sent_back" and error.code == 1 and "sent_back" in str(error)
+    record = media.load(world.data, world.rid)
+    assert not record["approvals"] and record["resume"]["step"] == "review", "the refused approval undid nothing"
+    # a new render lifts it
+    second = write_render(world.data, world.rid, "two")
+    assert card(world)["sent_back"]["blocks_approval"] is False
+    again = approve(world, second["sha"])
     assert again["sent_back"] is None and again["approval"]["state"] == "approved"
+
+
+def test_an_edit_of_the_caption_lifts_a_send_back_and_the_pipelines_resume_lifts_it_too(world, one):
+    ops.video_send_back(world.project, world.rid, "Reword it.")
+    assert refused(approve, world, one["sha"]).kind == "sent_back"
+    write_post(world.project, CAPTION + " (reworded)")
+    assert card(world)["sent_back"]["blocks_approval"] is False
+    assert approve(world, one["sha"], caption=CAPTION + " (reworded)")["approval"]["state"] == "approved"
+    write_post(world.project)
+    ops.video_send_back(world.project, world.rid, "Back again.")
+    assert refused(approve, world, one["sha"]).kind == "sent_back"
+    media.update(world.data, world.rid, lambda r: r.pop("resume"))                       # the pipeline resumed at review and cleared its marker
+    assert card(world)["sent_back"]["blocks_approval"] is False
+    assert approve(world, one["sha"])["approval"]["state"] == "approved"
+
+
+def test_a_stale_card_in_a_second_tab_cannot_approve_after_the_send_back_of_the_first(world, one):
+    tab_two = card(world)                                                         # tab two reads the card: nothing approved, nothing held
+    assert tab_two["sent_back"] is None
+    ops.video_send_back(world.project, world.rid, "Too fast.")                    # tab one sends it back
+    error = refused(ops.video_approve, world.project, world.rid, tab_two["render"]["sha256"], tab_two["caption"]["sha256"], channel="page")
+    assert error.kind == "sent_back" and not media.load(world.data, world.rid)["approvals"]
+    # the race inside the record lock: the check runs again where the approval is written
+    original = ops_video._sent_back_blocks
+    calls = []
+
+    def late(record, platform, render_sha, caption_sha):
+        calls.append(1)
+        return False if len(calls) == 1 else original(record, platform, render_sha, caption_sha)    # the first look sees nothing, the one under the lock sees the send-back
+
+    ops_video._sent_back_blocks = late
+    try:
+        assert refused(approve, world, one["sha"]).kind == "sent_back" and len(calls) == 2
+    finally:
+        ops_video._sent_back_blocks = original
+    assert not media.load(world.data, world.rid)["approvals"]
+
+
+def test_a_closed_post_cannot_be_sent_back(world, one):
     media.mark(world.data, world.rid, "published")
     assert "published" in str(refused(ops.video_send_back, world.project, world.rid, "late"))
 

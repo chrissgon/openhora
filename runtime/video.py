@@ -25,7 +25,10 @@ Reading a file, `open_render` / `open_cover`:
     cannot be served, because the bytes are read from the descriptor that was hashed. The digest of a descriptor is kept for
     the next range request of the same file under its identity (device, inode, size, modification and change time of the
     descriptor): a render is 0400 and never rewritten, a replacement is another inode and a change moves the times, so a
-    range request does not hash a hundred megabytes again, and an approval always does (`fresh`).
+    range request does not hash a hundred megabytes again, and an approval always does (`fresh`). Hashing is single flight per
+    file: requests for one file hash it one at a time, so a cold cache costs one pass however many cards ask at once. What this does
+    not catch: a write in place by the same user (who owns the file and can chmod it) while a stream is going is seen only by the next
+    request, whose identity has moved; it is out of scope, since the person's own account can change the file under any check.
 
 The approval, `approval_state`: the person's approval is a record in the recording's record.json (`approvals.<platform>`) that
 binds the sha256 of the exact file and the sha256 of the caption text, the platform and the date. It is valid only while
@@ -62,6 +65,7 @@ VERIFIED_MAX = 64
 
 _VERIFIED: dict = {}
 _VERIFIED_LOCK = threading.Lock()
+_HASHING: dict = {}                     # file identity -> the lock of the one hashing of it that runs (single flight)
 
 
 class VideoError(Exception):
@@ -158,22 +162,38 @@ def _open_in(data_dir: str, recording: str, name: str, limit: int, what: str):
         raise
 
 
-def _verified(f, info, expected: str, fresh: bool) -> None:
+def digest_of(f, info, fresh: bool = False) -> str:
+    """The sha256 of the open file, hashed through its descriptor. Not fresh: the digest remembered under the descriptor's identity is
+    returned when there is one. Single flight: requests for the same file (the same identity) hash one at a time, so a cold cache costs
+    one pass over the file however many cards ask at once; the others find the digest the first one left. Fresh (an approval): always
+    hashed now, still one at a time per file."""
     key = _identity(info)
     if not fresh:
         with _VERIFIED_LOCK:
             known = _VERIFIED.get(key)
         if known is not None:
-            if known != expected:
-                raise VideoError("the bytes of this file are not the ones its name says", "refused")
-            return
-    got = _digest(f)
-    if got != expected:
-        raise VideoError("the bytes of this file are not the ones its name says (its sha256 differs); it is not served", "refused")
+            return known
     with _VERIFIED_LOCK:
-        if len(_VERIFIED) >= VERIFIED_MAX:
-            _VERIFIED.clear()
-        _VERIFIED[key] = got
+        flight = _HASHING.setdefault(key, threading.Lock())
+    with flight:
+        if not fresh:
+            with _VERIFIED_LOCK:
+                known = _VERIFIED.get(key)
+            if known is not None:
+                return known
+        got = _digest(f)
+        with _VERIFIED_LOCK:
+            if len(_VERIFIED) >= VERIFIED_MAX:
+                _VERIFIED.clear()
+            _VERIFIED[key] = got
+            if _HASHING.get(key) is flight:
+                del _HASHING[key]
+    return got
+
+
+def _verified(f, info, expected: str, fresh: bool) -> None:
+    if digest_of(f, info, fresh) != expected:
+        raise VideoError("the bytes of this file are not the ones its name says (its sha256 differs); it is not served", "refused")
 
 
 def open_render(data_dir: str, recording: str, sha256: str, fresh: bool = False) -> Opened:
@@ -298,17 +318,8 @@ def sha_of_name(data_dir: str, recording: str, name: str, sha12: str):
     except VideoError:
         return None
     try:
-        key = _identity(info)
-        with _VERIFIED_LOCK:
-            known = _VERIFIED.get(key)
-        got = known or _digest(f)
-        if not got.startswith(sha12):
-            return None
-        with _VERIFIED_LOCK:
-            if len(_VERIFIED) >= VERIFIED_MAX:
-                _VERIFIED.clear()
-            _VERIFIED[key] = got
-        return got
+        got = digest_of(f, info)
+        return got if got.startswith(sha12) else None
     finally:
         f.close()
 

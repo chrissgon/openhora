@@ -26,6 +26,7 @@ import { busyLine, chip, errorText, notice, withheldLine } from "./widgets.js";
 
 export const ON_THE_MAC = "Watch and approve on the Mac that runs the service: a video is not shown, and nothing is approved, over the network.";
 export const APPROVE_WORDS = "Approving binds this exact file and this exact caption, by the two hashes above. A new render or any edit of the caption asks you again. Nothing is published or scheduled.";
+export const SENT_BACK_WORDS = "This post was sent back for review. It takes no approval until it is rendered again or its caption is edited.";
 export const COMMENT_LABEL = "Comment for the review (required)";
 
 /** The first characters of a sha256, the form a person compares by eye. */
@@ -72,11 +73,11 @@ export function createVideoCard(env) {
     link.setAttribute("href", url);
     link.setAttribute("download", name);
     link.click();
-    setTimeout(() => urls.revoke(url), 10000);
+    setTimeout(() => urls.revoke(url), 120000);     // a large file in Safari keeps reading the URL for a while after the click
   });
   const state = {
     card: null, error: null, loading: true, platform: env.platform || null,
-    media: { sha: null, state: "idle", url: null, cover: null, received: 0, total: 0, error: null },   // the video and the cover of one render
+    media: { sha: null, state: "idle", url: null, cover: null, blob: null, received: 0, total: 0, error: null },   // the video, its bytes and the cover of one render
     busy: null, comment: "", message: null,
   };
   let controller = null;
@@ -87,7 +88,7 @@ export function createVideoCard(env) {
     controller = null;
     if (state.media.url) urls.revoke(state.media.url);
     if (state.media.cover) urls.revoke(state.media.cover);
-    state.media = { sha: null, state: "idle", url: null, cover: null, received: 0, total: 0, error: null };
+    state.media = { sha: null, state: "idle", url: null, cover: null, blob: null, received: 0, total: 0, error: null };
   }
 
   /** Fetch the cover (small) and then the video of the render the card names, once for each render; both become blob URLs. */
@@ -119,6 +120,7 @@ export function createVideoCard(env) {
       });
       if (mine.signal.aborted) return;
       state.media.url = urls.create(blob);
+      state.media.blob = blob;
       state.media.state = "ready";
     } catch (e) {
       if (mine.signal.aborted || (e && e.name === "AbortError")) return;
@@ -192,6 +194,8 @@ export function createVideoCard(env) {
   function approve() {
     const card = state.card;
     if (!card || !card.render || !card.caption || !can("video-approve") || !loopback || state.media.state !== "ready") return;
+    if (state.media.sha !== card.render.sha256) return;      // the video on screen is not the render the card names: watch the new one first
+    if (card.sent_back && card.sent_back.blocks_approval) return;
     write("approve", () => env.api.videoApprove(env.project, env.recording, { videoSha256: card.render.sha256, captionSha256: card.caption.sha256, platform: card.platform }));
   }
 
@@ -214,7 +218,9 @@ export function createVideoCard(env) {
     state.error = null;
     draw();
     try {
-      const blob = await env.api.videoDownload(env.project, env.recording, card.platform, {});
+      // the bytes already held are the approved file's when they are the render of the approved hash: save those, else fetch the file
+      const held = state.media.state === "ready" && state.media.blob && card.approval && state.media.sha === card.approval.video_sha256 ? state.media.blob : null;
+      const blob = held || await env.api.videoDownload(env.project, env.recording, card.platform, {});
       save(blob, card.download_name);
       state.message = `Saved ${card.download_name}. Post it by hand: nothing was published.`;
     } catch (e) {
@@ -236,7 +242,7 @@ export function createVideoCard(env) {
     if (!card.render) return h("p", { class: "wb-empty-line", text: "There is no render yet." });
     if (!loopback) return notice(ON_THE_MAC, "warn");
     const media = state.media;
-    if (media.state === "ready") {
+    if (media.state === "ready" && media.sha === card.render.sha256) {
       const video = h("video", { class: "wb-video-player", controls: true, playsinline: true, preload: "metadata", src: media.url, poster: media.cover || undefined, "aria-label": "The rendered video" });
       return h("div", { class: "wb-video-figure" }, video);
     }
@@ -251,76 +257,113 @@ export function createVideoCard(env) {
 
   function approvalNode(card) {
     const approval = card.approval;
-    const ready = card.render && card.caption && loopback && state.media.state === "ready";
-    const parts = [];
+    const ready = Boolean(card.render && card.caption && loopback && state.media.state === "ready" && state.media.sha === card.render.sha256);
+    const rows = [];
     if (approval && approval.state === "approved") {
-      parts.push(h("p", { class: "wb-video-approved", role: "status" },
+      rows.push(h("p", { class: "wb-video-approved", role: "status" },
         `Approved ${approval.approved_at}${approval.approved_via ? ` from the ${approval.approved_via}` : ""}: this exact file (sha256 ${shortHash(approval.video_sha256)}) and this exact caption (sha256 ${shortHash(approval.caption_sha256)}) for ${approval.platform}.`));
-      if (card.can_download && loopback) parts.push(h("div", { class: "wb-card-actions" }, button(state.busy === "download" ? "Downloading..." : `Download ${card.download_name}`, "download", download, { disabled: Boolean(state.busy), primary: true })));
-      parts.push(h("p", { class: "wb-card-note wb-muted", text: "The download is for you to post by hand. It is the approved file, byte for byte; nothing is published or scheduled." }));
+      if (card.can_download && loopback) rows.push(h("div", { class: "wb-card-actions" }, button(state.busy === "download" ? "Downloading..." : `Download ${card.download_name}`, "download", download, { disabled: Boolean(state.busy), primary: true })));
+      rows.push(h("p", { class: "wb-card-note wb-muted", text: "The download is for you to post by hand. It is the approved file, byte for byte; nothing is published or scheduled." }));
     } else {
-      if (approval && approval.state === "stale") parts.push(notice(staleLine(approval), "warn"));
-      parts.push(h("p", { class: "wb-card-note wb-muted", text: APPROVE_WORDS }));
-      if (loopback && can("video-approve")) {
-        parts.push(h("div", { class: "wb-card-actions" }, button(state.busy === "approve" ? "Approving..." : "Approve this video and caption", "approve", approve, { disabled: !ready || Boolean(state.busy), primary: true })));
-        if (card.render && loopback && state.media.state !== "ready" && state.media.state !== "failed") parts.push(h("p", { class: "wb-card-note wb-muted", text: "You can approve once the video has loaded." }));
+      if (approval && approval.state === "stale") rows.push(notice(staleLine(approval), "warn"));
+      rows.push(h("p", { class: "wb-card-note wb-muted", text: APPROVE_WORDS }));
+      if (card.sent_back && card.sent_back.blocks_approval) {
+        rows.push(h("p", { class: "wb-card-note", "data-key": "held-back", role: "status", text: SENT_BACK_WORDS }));
+      } else if (loopback && can("video-approve")) {
+        rows.push(h("div", { class: "wb-card-actions" }, button(state.busy === "approve" ? "Approving..." : "Approve this video and caption", "approve", approve, { disabled: !ready || Boolean(state.busy), primary: true })));
+        if (card.render && loopback && state.media.state !== "ready" && state.media.state !== "failed") rows.push(h("p", { class: "wb-card-note wb-muted", text: "You can approve once the video has loaded." }));
       }
     }
-    return h("div", { class: "wb-video-approval" }, parts);
+    return h("div", { class: "wb-video-approval" }, rows);
   }
 
+  let sendButton = null;       // the Send back button of the form that is on screen, so that its busy state is set without drawing the form again
+
   function sendBackNode(card) {
-    if (!loopback || !can("video-send-back") || !card.render) return null;
+    if (!loopback || !can("video-send-back") || !card.render) {
+      sendButton = null;
+      return null;
+    }
     const area = h("textarea", { class: "pui-textarea wb-video-comment", rows: "3", "aria-label": COMMENT_LABEL, "data-key": "comment", placeholder: "What should change?" });
     area.value = state.comment;
     area.addEventListener("input", () => { state.comment = area.value; });
+    sendButton = button("Send back with a comment", "send-back", sendBack);
     return h("div", { class: "wb-video-back" },
       h("label", { class: "pui-field-group wb-field" }, h("span", { class: "wb-field-label", text: COMMENT_LABEL }), area),
-      h("div", { class: "wb-card-actions" }, button(state.busy === "send-back" ? "Sending..." : "Send back with a comment", "send-back", sendBack, { disabled: Boolean(state.busy) })));
+      h("div", { class: "wb-card-actions" }, sendButton));
+  }
+
+  // The card is drawn in parts. Each part has a signature of everything it shows; a part is drawn again only when its signature changed, so that a
+  // read that changed nothing (a store change somewhere else) keeps the same `video` node (the position of the playback) and the same comment
+  // box (what is typed in it and where the focus is).
+  const PART_NAMES = ["picker", "notes", "media", "facts", "caption", "sentBack", "approval", "sendBack", "actions", "withheld"];
+  const parts = {};
+  let shape = null;       // "card" once the skeleton of the parts is on screen
+
+  function skeleton() {
+    parts.head = { node: h("div", { class: "wb-card-head wb-video-head" }), sig: null };
+    for (const name of PART_NAMES) parts[name] = { node: h("div", { class: "wb-video-slot", "data-part": name }), sig: null };
+    fill(el, parts.head.node, h("div", { class: "wb-card-content wb-video-content" }, PART_NAMES.map((name) => parts[name].node)));
+    shape = "card";
+  }
+
+  function paint(name, signature, build) {
+    const part = parts[name];
+    const key = JSON.stringify(signature);
+    if (part.sig === key) return;
+    part.sig = key;
+    fill(part.node, build());
   }
 
   function draw() {
     if (closed) return;
     const card = state.card;
-    if (state.loading && !card) {
-      fill(el, h("div", { class: "wb-card-content" }, busyLine("Loading the video...")));
-      return;
-    }
     if (!card) {
-      fill(el, h("div", { class: "wb-card-content" }, notice(state.error || "The video could not be read.", "error"), h("div", { class: "wb-card-actions" }, button("Try again", "reload", () => load()))));
+      shape = null;
+      sendButton = null;
+      fill(el, h("div", { class: "wb-card-content" }, state.loading
+        ? busyLine("Loading the video...")
+        : [notice(state.error || "The video could not be read.", "error"), h("div", { class: "wb-card-actions" }, button("Try again", "reload", () => load()))]));
       return;
     }
+    if (shape !== "card") skeleton();
     const [word, tone] = stateOf(card);
     const withheld = [];
     if (!can("video-approve")) withheld.push("video-approve");
     if (!can("video-send-back")) withheld.push("video-send-back");
-    const picker = card.platforms.length > 1 ? h("div", { class: "wb-video-platforms", role: "group", "aria-label": "Platform" },
+    const media = state.media;
+    const ready = Boolean(card.render && card.caption && loopback && media.state === "ready" && media.sha === card.render.sha256);
+    const blocked = Boolean(card.sent_back && card.sent_back.blocks_approval);
+    paint("head", [card.platform, word], () => [h("strong", { class: "wb-card-title", text: `Video for ${card.platform || "the post"}` }), chip(word, tone)]);
+    paint("picker", [card.platforms, card.platform], () => (card.platforms.length > 1 ? h("div", { class: "wb-video-platforms", role: "group", "aria-label": "Platform" },
       card.platforms.map((name) => {
         const node = button(name, `platform-${name}`, () => { state.platform = name; state.card = null; releaseMedia(); load(); }, { primary: name === card.platform });
         node.setAttribute("aria-pressed", name === card.platform ? "true" : "false");
         return node;
-      })) : null;
-    fill(el,
-      h("div", { class: "wb-card-head wb-video-head" }, h("strong", { class: "wb-card-title", text: `Video for ${card.platform || "the post"}` }), chip(word, tone)),
-      h("div", { class: "wb-card-content wb-video-content" },
-      picker,
+      })) : null));
+    paint("notes", [state.error, state.message, card.problems], () => [
       state.error ? notice(state.error, "error") : null,
       state.message ? h("p", { class: "wb-card-note", role: "status", text: state.message }) : null,
-      card.problems.map((line) => notice(line, "warn")),
-      mediaNode(card),
-      card.render ? h("div", { class: "wb-video-facts" },
-        h("p", { class: "wb-card-hint wb-video-line", text: factsLine(card.render) }),
-        hashLine("Video", card.render.sha256)) : null,
-      card.caption ? h("div", { class: "wb-video-caption-box" },
-        h("p", { class: "wb-video-heading", text: "Caption" }),
-        h("pre", { class: "wb-pre wb-video-caption", "data-key": "caption", tabindex: "0", "aria-label": "The caption of the post", text: card.caption.text }),
-        h("p", { class: "wb-card-hint wb-video-line", text: `${card.caption.chars} characters, from ${card.caption.post_file}` }),
-        hashLine("Caption", card.caption.sha256)) : null,
-      card.sent_back ? h("p", { class: "wb-card-note", "data-key": "sent-back", text: `Sent back on ${card.sent_back.at}: ${card.sent_back.comment}` }) : null,
-      approvalNode(card),
-      sendBackNode(card),
-      h("div", { class: "wb-card-actions" }, button("Check again", "reload", () => load({ quiet: true }))),
-      withheldLine(withheld)));
+      card.problems.map((line) => notice(line, "warn"))]);
+    paint("media", [card.render ? card.render.sha256 : null, loopback, media.sha, media.state, media.url, media.cover, media.error], () => mediaNode(card));
+    paint("facts", [card.render], () => (card.render ? h("div", { class: "wb-video-facts" },
+      h("p", { class: "wb-card-hint wb-video-line", text: factsLine(card.render) }), hashLine("Video", card.render.sha256)) : null));
+    paint("caption", [card.caption], () => (card.caption ? h("div", { class: "wb-video-caption-box" },
+      h("p", { class: "wb-video-heading", text: "Caption" }),
+      h("pre", { class: "wb-pre wb-video-caption", "data-key": "caption", tabindex: "0", "aria-label": "The caption of the post", text: card.caption.text }),
+      h("p", { class: "wb-card-hint wb-video-line", text: `${card.caption.chars} characters, from ${card.caption.post_file}` }),
+      hashLine("Caption", card.caption.sha256)) : null));
+    paint("sentBack", [card.sent_back], () => (card.sent_back ? h("p", { class: "wb-card-note", "data-key": "sent-back", text: `Sent back on ${card.sent_back.at}: ${card.sent_back.comment}` }) : null));
+    paint("approval", [card.approval, card.can_download, card.download_name, Boolean(card.render), Boolean(card.caption), loopback, can("video-approve"), media.state, ready,
+      state.busy === "approve" || state.busy === "download" ? state.busy : null, blocked], () => approvalNode(card));
+    paint("sendBack", [Boolean(card.render), loopback, can("video-send-back")], () => sendBackNode(card));
+    if (sendButton) {
+      sendButton.textContent = state.busy === "send-back" ? "Sending..." : "Send back with a comment";
+      if (state.busy) sendButton.setAttribute("disabled", "");
+      else sendButton.removeAttribute("disabled");
+    }
+    paint("actions", 1, () => h("div", { class: "wb-card-actions" }, button("Check again", "reload", () => load({ quiet: true }))));
+    paint("withheld", [withheld], () => withheldLine(withheld));
   }
 
   return {

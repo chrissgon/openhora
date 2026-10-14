@@ -11,7 +11,8 @@ module of the layer shares are read as `core.<name>` (runtime/ops_core.py).
   video_card(project, recording, platform)     what the page shows for one post of the recording: the current render (its hash,
                                    size, duration, frame size), the cover, the caption exactly as the post file has it with its
                                    hash, the approval and whether it still holds, the comment of the last send-back, and the
-                                   download name. It reads records and small files; it hashes no video.
+                                   download name. It reads records and small files and hashes a render once per file (the digest is kept under the file's
+                                   identity, one hashing at a time per file), so the first card of a new render costs a pass over it.
   video_approve(project, recording, video_sha256, caption_sha256, platform, channel)   the one explicit action: approve the exact
                                    render and the exact caption the person saw. It hashes the render's bytes again, requires the
                                    hash to equal both what the person saw and the current render, requires the caption to hash to
@@ -164,7 +165,9 @@ def _card(project: str, recording: str, platform) -> dict:
             out["download_name"] = video.download_name(chosen, approval["video_sha256"])
     back = record.get("sent_back")
     if isinstance(back, dict) and back.get("platform") == chosen:
-        out["sent_back"] = {"comment": back.get("comment"), "at": back.get("at"), "render_sha256": back.get("render_sha256")}
+        out["sent_back"] = {"comment": back.get("comment"), "at": back.get("at"), "render_sha256": back.get("render_sha256"),
+                            "blocks_approval": _sent_back_blocks(record, chosen, render["sha256"] if render else None,
+                                                                 caption["sha256"] if caption else None)}
     return out
 
 
@@ -202,6 +205,9 @@ def video_approve(project: str, recording: str, video_sha256: str, caption_sha25
             raise video.VideoError(problem or "the caption cannot be read", "refused")
         if caption["sha256"] != caption_sha256:
             raise video.VideoError("the caption changed since you read it: reload the card and read it again before you approve", "refused")
+        if _sent_back_blocks(record, chosen, render["sha256"], caption["sha256"]):
+            raise video.VideoError("this post was sent back with a comment and has not been rendered again nor had its caption edited since: "
+                                   "it takes no approval until it changes (code sent_back)", "sent_back")
         opened = video.open_render(data_dir, recording, video_sha256, fresh=True)   # the bytes, hashed now
         size = opened.size
         opened.close()
@@ -211,6 +217,8 @@ def video_approve(project: str, recording: str, video_sha256: str, caption_sha25
 
         def change(r: dict) -> None:
             _need_open(r)
+            if _sent_back_blocks(r, chosen, render["sha256"], caption["sha256"]):   # a send-back in another tab, between the read and the write
+                raise video.VideoError("this post was just sent back: it takes no approval until it changes (code sent_back)", "sent_back")
             r.setdefault("approvals", {})[chosen] = entry
             if isinstance(r.get("sent_back"), dict) and r["sent_back"].get("platform") == chosen:
                 r["sent_back"] = None
@@ -221,6 +229,17 @@ def video_approve(project: str, recording: str, video_sha256: str, caption_sha25
         return _card(project, recording, chosen)
     except (video.VideoError, media.MediaError) as e:
         raise _refusal(e) from None
+
+
+def _sent_back_blocks(record: dict, platform: str, render_sha, caption_sha) -> bool:
+    """Whether a send-back still holds the post at the review step: the pipeline has not resumed (`resume` is pending for this platform)
+    and the render and the caption are still the pair that was sent back. A new render or an edit of the caption lifts it."""
+    back, resume = record.get("sent_back"), record.get("resume")
+    if not isinstance(back, dict) or back.get("platform") != platform:
+        return False
+    if not isinstance(resume, dict) or resume.get("platform") != platform:
+        return False
+    return back.get("render_sha256") == render_sha and back.get("caption_sha256") == caption_sha
 
 
 def _need_open(record: dict) -> None:
@@ -240,13 +259,15 @@ def video_send_back(project: str, recording: str, comment: str, platform: str | 
         chosen = _platform_of(record, platform)
         _need_open(record)
         render, _ = _render(data_dir, recording)
+        caption, _ = _caption(project, record["posts"][chosen])
         stamp = media.stamp()
 
         def change(r: dict) -> None:
             _need_open(r)
             approvals = r.setdefault("approvals", {})
             had = approvals.pop(chosen, None) is not None
-            r["sent_back"] = {"platform": chosen, "comment": text, "at": stamp, "render_sha256": render["sha256"] if render else None}
+            r["sent_back"] = {"platform": chosen, "comment": text, "at": stamp, "render_sha256": render["sha256"] if render else None,
+                              "caption_sha256": caption["sha256"] if caption else None}
             r["resume"] = {"step": PIPELINE_STEP, "reason": "sent_back", "platform": chosen, "at": stamp}
             video.log_event(r, {"event": "sent_back", "platform": chosen, "at": stamp, "approval_removed": had})
 

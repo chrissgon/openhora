@@ -186,7 +186,7 @@ media-purge  applies the retention now, in code, with no model: what is due goes
 video-card  what the page shows for the rendered video of a post of a recording: the current render (its sha256, size, duration,
           frame size), the cover, the caption exactly as the post file has it with its sha256, the approval and whether it still
           holds (approved, or stale because the render or the caption changed since), and the comment of the last send-back.
-          With no --post-platform the recording must have one post. It hashes no video.
+          With no --post-platform the recording must have one post. It hashes a new render once (kept under the file's identity).
 video-approve  approves the exact rendered file and the exact caption you saw, naming both by hash: the render's sha256 and the
           caption's sha256 as video-card printed them. Refused when the post is not open, when the render is not the one with
           that hash (it was rendered again), when the caption is not the one with that hash, and when the file's bytes, hashed again

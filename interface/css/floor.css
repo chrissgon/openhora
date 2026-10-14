@@ -128,6 +128,7 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
 .wb-video { min-width: 0; }
 .wb-video-content { grid-template-columns: minmax(0, 1fr); }     /* a grid's column otherwise grows to its longest unbroken line: a hash or a file name would push the card past the screen */
 .wb-video-content > * { min-width: 0; }
+.wb-video-slot { display: contents; }     /* a part of the card that is drawn on its own: no box of its own, so an empty one leaves no gap */
 .wb-video-button { max-width: 100%; height: auto; white-space: normal; overflow-wrap: anywhere; text-align: center; }
 .wb-video-head { flex-wrap: wrap; justify-content: space-between; }
 .wb-video-figure { display: grid; justify-items: center; padding: 6px; border-radius: var(--pui-radius); background-color: var(--wb-raised); }
