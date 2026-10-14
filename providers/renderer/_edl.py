@@ -198,14 +198,18 @@ def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None
     wordless_max = cuts["wordless_max"] if wordless_max is None else wordless_max
     if not _num(long_cut) or not _num(wordless_max) or long_cut < 0 or wordless_max < 0:
         raise Refusal("bad_cut_setting", "cuts")
+    retimed, unplaced = retime_misplaced(kept_words, sil)          # before the cuts are planned: they protect each word where it is said
+    gone = {w["index"] for w in unplaced}
+    kept_words = [w for w in kept_words if w["index"] not in gone]
+    if not kept_words:
+        raise Refusal("nothing_kept", "transcript")
     kept = kept_ranges(kept_words, duration, fps, sil, pad_head, pad_tail, cuts["min_cut"], cuts["min_kept"], gap, forced, long_cut, wordless_max,
                        cuts["wordless_keep"])
     if not kept:
         raise Refusal("nothing_kept", "transcript")
     if len(kept) > limits["kept_ranges_max"]:
         raise Refusal("too_many_cuts", "kept")
-    retimed, unplaced = retime_misplaced(kept_words, kept, fps, sil)
-    out_words = build_words(words, kept, fps, {w["index"] for w in unplaced})
+    out_words = build_words(words, kept, fps, gone)
     if not out_words:
         raise Refusal("nothing_kept", "transcript")
     report["retimed_words"] = retimed

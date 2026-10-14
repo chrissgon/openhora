@@ -155,6 +155,8 @@ def real_words(words: list, silences=None) -> list:
 
 RETIME_MIN = 0.12           # the shortest a re-timed word is spread to
 RETIME_ROOM = 0.05         # a voiced span shorter than this per word holds no word
+SHORT_WORD = 0.25          # a word this short, in a pause this short between two words, stays where it is
+SHORT_PAUSE = 0.5
 
 
 def _joined(silences) -> list:
@@ -167,29 +169,23 @@ def _joined(silences) -> list:
     return out
 
 
-def _range_at(kept: list, fps: int, t: float):
-    """(lo, hi) seconds of the kept range that holds t, else None."""
-    for a, b in kept:
-        if a / fps - 1e-6 <= t <= b / fps + 1e-6:
-            return a / fps, b / fps
-    return None
-
-
-def retime_misplaced(words: list, kept: list, fps: int, silences) -> tuple:
+def retime_misplaced(words: list, silences) -> tuple:
     """A word that silence covers by PHANTOM or more is misplaced, not absent: a transcriber squeezes the words of a stretch it could not
     time into the quiet next to it (the opening words of a take into the leading silence, a few words of a sentence into the pause after
-    them). The sound of those words is in the recording and is kept, so their captions are too, at the right time. A word whose times
-    were estimated (zero-length in the transcript) has no times to judge by and is left as it is.
+    them). The sound of those words is in the recording and is kept, so their captions are too, at the right time. This runs before the
+    cuts are planned, so that the cuts protect each word where it is said. Left as they are: a word whose times were estimated
+    (zero-length in the transcript: silence coverage tells nothing about made-up times), and a short word (SHORT_WORD) in a short pause
+    (SHORT_PAUSE) between two words, which is a soft word in its place.
 
     Each run of consecutive such words (in `words`, the live ones, in index order) is moved into the voiced span next to it, and
     `words` is changed in place (`start`, `end`, `retimed`):
-      after   when a live word follows the run inside the kept range that holds the end of the silence, with room for the run
-              (RETIME_MIN per word): the run is spread evenly from the end of the silence up to that word's start. When the next
+      after   when a live word follows the run, with room for the run (RETIME_MIN per word) and mostly voiced sound between the end of
+              the silence and that word: the run is spread evenly from the end of the silence up to that word's start. When the next
               live word is too close (the transcriber timed it before the sound starts), the run takes that word in and the next,
               until there is room: those words are moved too;
-      before  else, when a live word precedes the run inside the kept range that holds the start of the silence: spread evenly over
-              the span from that word's end to the start of the silence (at least RETIME_ROOM per word);
-      none    else: the words are unplaced and returned, to be left out of the captions.
+      before  else, when a live word precedes the run: spread evenly over the mostly voiced span from that word's end to the start of
+              the silence (at least RETIME_ROOM per word);
+      none    else: the words are unplaced and returned, to be left out of the captions and the cut planning.
     Every word keeps its transcript index. Returns ([{index, from, to}], [unplaced words]); no silence found means no words moved."""
     if not silences:
         return [], []
@@ -203,7 +199,17 @@ def retime_misplaced(words: list, kept: list, fps: int, silences) -> tuple:
                 best, best_cov = (s, e), cov
         return best
 
-    flagged = [bool(not w.get("estimated") and w["end"] > w["start"] and coverage(w["start"], w["end"], silences) >= PHANTOM) for w in words]
+    def flag(i):
+        w = words[i]
+        if w.get("estimated") or w["end"] <= w["start"] or coverage(w["start"], w["end"], silences) < PHANTOM:
+            return False
+        if 0 < i < len(words) - 1 and w["end"] - w["start"] <= SHORT_WORD:
+            gap = silence_of(w)
+            if gap is not None and gap[1] - gap[0] < SHORT_PAUSE:
+                return False
+        return True
+
+    flagged = [flag(i) for i in range(len(words))]
     retimed, unplaced = [], []
     k = 0
     while k < len(words):
@@ -218,27 +224,23 @@ def retime_misplaced(words: list, kept: list, fps: int, silences) -> tuple:
         placed, last = None, j
         if s_last is not None:
             v = s_last[1]
-            rng = _range_at(kept, fps, v)
-            while rng is not None:
-                nxt = words[last + 1] if last + 1 < len(words) else None
-                if nxt is None or nxt["start"] > rng[1] + 1e-6:
-                    break
+            while last + 1 < len(words):
+                nxt = words[last + 1]
                 n = last - k + 1
                 if nxt["start"] - v >= RETIME_MIN * n:
-                    slot = (nxt["start"] - v) / n
-                    placed = [(v + m * slot, v + (m + 1) * slot) for m in range(n)]
+                    if coverage(v, nxt["start"], silences) < 0.5:
+                        slot = (nxt["start"] - v) / n
+                        placed = [(v + m * slot, v + (m + 1) * slot) for m in range(n)]
                     break
                 last += 1
         if placed is None:
             last = j
             if prv is not None and s_first is not None:
-                rng = _range_at(kept, fps, s_first[0])
-                if rng is not None:
-                    lo, hi = max(prv["end"], rng[0]), min(s_first[0], rng[1])
-                    n = j - k + 1
-                    if hi - lo >= RETIME_ROOM * n:
-                        slot = (hi - lo) / n
-                        placed = [(lo + m * slot, lo + (m + 1) * slot) for m in range(n)]
+                lo, hi = prv["end"], s_first[0]
+                n = j - k + 1
+                if hi - lo >= RETIME_ROOM * n and coverage(lo, hi, silences) < 0.5:
+                    slot = (hi - lo) / n
+                    placed = [(lo + m * slot, lo + (m + 1) * slot) for m in range(n)]
         run = words[k:last + 1]
         if placed is None:
             unplaced.extend(words[k:j + 1])

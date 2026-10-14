@@ -446,11 +446,10 @@ def test_a_word_with_no_voiced_span_in_its_range_is_dropped_and_reported():
 
 def test_a_word_squeezed_into_a_pause_with_voiced_sound_before_it_goes_before_the_pause_when_nothing_follows():
     ws = [lw(0, "end", 1.0, 1.3), lw(1, "ok", 3.0, 3.3)]
-    kept = [[15, 60]]                                                                              # 0.5 to 2.0 s
-    moved, unplaced = T.retime_misplaced(ws, kept, FPS, [(1.5, 6.0)])
+    moved, unplaced = T.retime_misplaced(ws, [(1.5, 6.0)])
     assert unplaced == [] and moved == [{"index": 1, "from": [3.0, 3.3], "to": [1.3, 1.5]}]
     assert (ws[1]["start"], ws[1]["end"], ws[1]["retimed"]) == (1.3, 1.5, True)
-    assert T.retime_misplaced([lw(0, "x", 1.0, 1.3)], kept, FPS, None) == ([], [])
+    assert T.retime_misplaced([lw(0, "x", 1.0, 1.3)], None) == ([], [])
 
 
 def test_a_confirmed_retake_that_an_extended_long_cut_swallows_keeps_its_forced_flag():
@@ -491,8 +490,41 @@ def test_when_the_next_live_word_is_timed_before_the_sound_starts_the_run_takes_
     """The shape of a real opening: five words squeezed into the leading silence, and the next word timed at 1.94, six milliseconds before
     the silence ends: there is no span between the silence and it, so the words that follow are moved too, until the run has room."""
     ws = [lw(0, "a", 0.0, 0.4), lw(1, "b", 0.4, 0.8), lw(2, "c", 0.8, 1.2), lw(3, "next", 1.94, 2.47), lw(4, "after", 2.47, 2.98), lw(5, "then", 2.98, 3.76)]
-    kept = [[55, 150]]                                                                             # 1.83 to 5.0 s
-    moved, unplaced = T.retime_misplaced(ws, kept, FPS, [(0.0, 1.946)])
+    moved, unplaced = T.retime_misplaced(ws, [(0.0, 1.946)])
     assert unplaced == [] and [m["index"] for m in moved] == [0, 1, 2, 3]                        # the three, and the word timed too early
     assert ws[0]["start"] == pytest.approx(1.946, abs=1e-3) and ws[3]["end"] == pytest.approx(2.47, abs=1e-3) and ws[4]["start"] == 2.47
     assert all(a["end"] <= b["start"] + 1e-6 and b["end"] - b["start"] >= 0.12 for a, b in zip(ws, ws[1:]))
+
+
+def test_a_run_retimed_into_sound_the_old_times_would_have_cut_is_kept_whole_by_the_cuts():
+    """Three words squeezed into a long silence (3.0 to 3.9 s) that are really said right after it (10.0 s): with their old times the
+    cut planner thought the sound after the long cut was wordless (the next word is at 11.0) and trimmed 10.0 to 10.8 away. Re-timed
+    before the cuts are planned, the range after the cut starts at the sound."""
+    def make():
+        return [lw(0, "start.", 1.0, 1.4), lw(1, "ok", 3.0, 3.3), lw(2, "go", 3.3, 3.6), lw(3, "now", 3.6, 3.9), lw(4, "later", 11.0, 11.4), lw(5, "end.", 11.45, 11.9)]
+    sil = [(0.0, 0.8), (1.5, 10.0), (12.1, 14.0)]
+    old = T.kept_ranges(make(), 14.0, FPS, sil)
+    assert old[1][0] / FPS == pytest.approx(10.9, abs=0.05)                           # the sound 10.0 to 10.9 would be cut
+    ws = make()
+    moved, unplaced = T.retime_misplaced(ws, sil)
+    assert [m["index"] for m in moved] == [1, 2, 3] and unplaced == [] and ws[1]["start"] == pytest.approx(10.0)
+    kept = T.kept_ranges(ws, 14.0, FPS, sil)
+    assert kept[1][0] / FPS == pytest.approx(9.9, abs=0.04) and kept[1][1] / FPS > 11.9       # kept from the sound, 0.10 s head pad
+    doc = transcript_of([("start.", 1.0, 1.4), ("ok", 3.0, 3.3), ("go", 3.3, 3.6), ("now", 3.6, 3.9), ("later", 11.0, 11.4), ("end.", 11.45, 11.9)], 14.0)
+    analysis = {"facts": {"duration": 14.0, "sha256": "a" * 64, "width": 1080, "height": 1920, "has_audio": True},
+                "silences": [{"start": a, "end": b} for a, b in sil]}
+    edl, _ = _edl.build_base(doc, analysis, DATA, {})
+    assert any(a / FPS <= 10.0 < b / FPS for a, b in edl["kept"])                    # and the base list keeps it
+
+
+def test_a_short_word_in_a_short_pause_between_two_words_stays_where_it_is():
+    """"a" in "working a seu favor": 0.08 s long, inside a 0.35 s pause between two words. It is a soft word in its place, not a misplaced
+    one: it keeps its times and is neither moved nor dropped."""
+    ws = [lw(0, "trabalhando", 187.82, 188.71), lw(1, "a", 188.71, 188.79), lw(2, "seu", 188.86, 189.15), lw(3, "favor?", 189.15, 190.16)]
+    moved, unplaced = T.retime_misplaced(ws, [(188.689, 189.042)])
+    assert moved == [] and unplaced == [] and (ws[1]["start"], ws[1]["end"]) == (188.71, 188.79)
+    # the same word, 0.08 s long, in a long pause, is misplaced; and so is a long word in a short pause
+    ws = [lw(0, "x", 1.0, 1.4), lw(1, "a", 2.0, 2.08), lw(2, "y", 4.0, 4.4)]
+    assert [m["index"] for m in T.retime_misplaced(ws, [(1.5, 3.9)])[0]] == [1]
+    ws = [lw(0, "x", 1.0, 1.4), lw(1, "word", 1.45, 1.8), lw(2, "y", 2.0, 2.4)]
+    assert [m["index"] for m in T.retime_misplaced(ws, [(1.42, 1.85)])[0]] == [1]
