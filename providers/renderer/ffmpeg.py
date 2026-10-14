@@ -46,10 +46,14 @@ Verbs (every verb prints one JSON object on stdout; diagnostics on stderr, the f
         ending in .mp4: its folder is used, the file name is always content-addressed. --dry-run prints the exact docker command.
   cover --in MP4 --offset-ms N --out PNG
         One frame of a render.
+  still --in VIDEO --at-ms N --out DIR
+        One PNG frame of a recording at N ms, framed exactly as the render frames the source into 1080x1920 (the same scale and crop, so
+        a pixel of the still is a pixel of the render's unzoomed picture). Writes DIR/still-<sha12>.png (mode 0400, never rewritten) and
+        prints its sha256, size and offset. The recording is read under the same rules as `analyse` and `render`.
   pin-templates --confirmed
         Maintainer tool: rewrite templates/pins.json after a reviewed template change.
 
-Container limits, for analyse, base, align, check, render and cover: --memory-mb (default 6144, at least 3072), --cpus (default 8,
+Container limits, for analyse, base, align, check, render, cover and still: --memory-mb (default 6144, at least 3072), --cpus (default 8,
 never more than the daemon has), --scratch-mb (default 2048, memory-backed, and at most the memory less 2048: a larger one is refused,
 never an out-of-memory kill), --timeout (seconds).
 
@@ -93,6 +97,7 @@ EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
 MAX_RECORDING_BYTES = 1 << 30
 MAX_SMALL_FILE = 5 * 1024 * 1024
 COVER_MAX_BYTES = 16 * 1024 * 1024
+STILL_MAX_BYTES = 8 * 1024 * 1024        # the largest still the host keeps (the service refuses to serve more): a 1080x1920 photograph is a few MiB
 CRASH_CODES = {125: "docker_run_failed", 126: "docker_run_failed", 127: "docker_run_failed", 137: "container_killed", 143: "container_killed"}
 HINTS = {
     "docker_missing": "install Docker and start it (the renderer runs in a container)",
@@ -405,6 +410,31 @@ def verb_cover(args) -> dict:
         return dict(result, path=os.path.abspath(args.out))
 
 
+def verb_still(args) -> dict:
+    """A frame of the recording, framed as the render frames it. The container writes `still.png`; the host hashes it on the way out,
+    checks the PNG header and the frame size itself, and stores it as `still-<sha12>.png`, 0400, never rewritten."""
+    if args.at_ms < 0:
+        raise Usage("--at-ms is a number of milliseconds, zero or more")
+    out_dir = os.path.abspath(args.out)
+    with Job(args, 120, "still") as job:
+        result = job.run(["still", "--in", job.mount_recording(args.input), "--at-ms", str(args.at_ms), "--out", D.MOUNT_OUT + "/still.png"], "still")
+        digest = result.get("sha256", "")
+        if not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise Refusal("container_result_invalid", "still")
+        candidate = os.path.join(job.root, "candidate.png")
+        job.collect("still.png", candidate, max_bytes=STILL_MAX_BYTES, mode=0o400, expect_sha256=digest)
+        frame = load_data()["frame"]
+        if result.get("at_ms") != args.at_ms or result.get("bytes") != os.path.getsize(candidate):
+            raise Refusal("container_result_invalid", "still")          # the container's own account must be the request and the file
+        if _render.png_size(candidate) != (frame["width"], frame["height"]) or (result.get("width"), result.get("height")) != (frame["width"], frame["height"]):
+            raise Refusal("container_result_invalid", "still")
+        final = os.path.join(out_dir, "still-%s.png" % digest[:12])
+        os.makedirs(out_dir, mode=0o700, exist_ok=True)
+        outcome = D.copy_out(candidate, final, max_bytes=STILL_MAX_BYTES, mode=0o400, expect_sha256=digest, exclusive=True)
+        return dict(result, path=final, name=os.path.basename(final), replayed=(outcome == "replayed"),
+                    image={"id": job.image["id"], "tag": job.image["tag"]})
+
+
 # ---------------------------------------------------------------- command line
 
 def parser() -> argparse.ArgumentParser:
@@ -485,12 +515,17 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--in", dest="input", required=True)
     sp.add_argument("--offset-ms", type=int, required=True)
     sp.add_argument("--out", required=True)
+    sp = sub.add_parser("still")
+    add_limits(sp)
+    sp.add_argument("--in", dest="input", required=True)
+    sp.add_argument("--at-ms", type=int, required=True)
+    sp.add_argument("--out", required=True, help="the folder the still is written into")
     return p
 
 
 VERBS = {"build": verb_build, "pin-browser": verb_pin_browser, "reap": verb_reap, "pin-templates": verb_pin_templates,
          "analyse": verb_analyse, "base": verb_base, "align": verb_align, "check": verb_check_documents, "render": verb_render,
-         "cover": verb_cover}
+         "cover": verb_cover, "still": verb_still}
 
 
 def main(argv=None) -> int:

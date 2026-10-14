@@ -318,6 +318,14 @@ def bubble_crop(face: dict, w: int, h: int) -> tuple:
     return side, x, y
 
 
+def framing_filter(w: int, h: int, src_matrix: str) -> str:
+    """How the render frames a source into the output: scaled up to cover twice the output size (BASE), the centre cropped to it,
+    read through the source's colour matrix and written as bt709 limited range. The render's graph and the still frame use this one
+    text, so a pixel of the still is the pixel of the render's unzoomed picture."""
+    return ("scale=%d:%d:force_original_aspect_ratio=increase:in_color_matrix=%s:out_color_matrix=bt709:out_range=tv:flags=%s,"
+            "crop=%d:%d,setsar=1" % (w * BASE, h * BASE, src_matrix, SWS, w * BASE, h * BASE))
+
+
 def compose_argv(ffmpeg: str, plan: dict) -> list:
     """The whole render as one ffmpeg command, built as a list. `plan` holds:
 
@@ -353,8 +361,7 @@ def compose_argv(ffmpeg: str, plan: dict) -> list:
         mask_in = nxt
         nxt += 1
 
-    g = ["[0:v:0]fps=%s:start_time=0,scale=%d:%d:force_original_aspect_ratio=increase:in_color_matrix=%s:out_color_matrix=bt709:out_range=tv:flags=%s,"
-         "crop=%d:%d,setsar=1,format=yuv420p[sv]" % (fps, w * BASE, h * BASE, plan["src_matrix"], SWS, w * BASE, h * BASE)]
+    g = ["[0:v:0]fps=%s:start_time=0,%s,format=yuv420p[sv]" % (fps, framing_filter(w, h, plan["src_matrix"]))]
     if n > 1:
         g.append("[sv]split=%d%s" % (n, "".join("[s%d]" % k for k in range(n))))
         src_v = ["[s%d]" % k for k in range(n)]
@@ -423,3 +430,15 @@ def compose_argv(ffmpeg: str, plan: dict) -> list:
 def cover_argv(ffmpeg: str, src: str, offset_seconds: float, out_name: str) -> list:
     return [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-nostdin", "-ss", "%.3f" % offset_seconds, *RECORDING_IN,
             "-i", src, "-frames:v", "1", "-f", "image2", "-c:v", "png", out_name]
+
+
+def still_argv(ffmpeg: str, src: str, at_seconds: float, size: tuple, src_matrix: str, out_name: str) -> list:
+    """One frame of a recording at `at_seconds`, framed as the render frames it (framing_filter, then the plain scale of an unzoomed
+    range down to the output size) and converted to RGB the way the render converts for its overlays, written as a PNG with no
+    metadata. The same input rules as every read of a recording (RECORDING_IN)."""
+    w, h = size
+    graph = "%s,format=yuv420p,scale=%d:%d:flags=%s,scale=in_range=tv:in_color_matrix=bt709:out_range=pc:flags=%s,format=rgb24" % (
+        framing_filter(w, h, src_matrix), w, h, SWS, SWS)
+    return [ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-nostdin", "-ss", "%.3f" % at_seconds, *RECORDING_IN, "-i", src,
+            "-map", "0:v:0", "-an", "-sn", "-dn", "-vf", graph, "-frames:v", "1", "-map_metadata", "-1", "-fflags", "+bitexact",
+            "-flags:v", "+bitexact", "-f", "image2", "-c:v", "png", out_name]

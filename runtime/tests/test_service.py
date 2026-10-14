@@ -184,7 +184,7 @@ def path_of(world, route):
 OP_ROUTES = [r for r in service.ROUTES if r["op"] and not r["upload"] and not r["stream"] and not r["file"]]  # the media route is streamed: test_media_route.py; the video files are answered in ranges: test_video_route.py
 VIEW_READS = ("agents", "conversation", "skills", "costs", "connections", "artifacts", "artifact", "artifact-raw", "version", "commands", "media-list",
               "video-card")  # the reads of the views
-FILE_READS = ("video-raw", "video-cover", "video-download")   # the reads that answer a file in ranges (test_video_route.py)
+FILE_READS = ("video-raw", "video-cover", "media-still", "video-download")   # the reads that answer a file in ranges (test_video_route.py)
 READ_OPS = ("status", "pending", "flows", "task", "progress", "captions-read") + VIEW_READS + FILE_READS
 
 

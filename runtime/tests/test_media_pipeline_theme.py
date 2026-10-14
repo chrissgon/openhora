@@ -168,11 +168,11 @@ def test_a_draft_identity_stops_the_base_step_with_its_sentence_and_the_task_res
     assert task["state"] == "failed"
     assert task["note"] == "base: theme_draft status -- " + theme.DRAFT_SENTENCE
     assert state(w)["failure"]["step"] == "base" and state(w)["steps"]["base"]["status"] == "failed"
-    assert [c[0] for c in kit.calls(w.tree, "renderer")] == ["analyse", "base", "align"], "no renderer call was made for the refused step"
+    assert [c[0] for c in kit.calls(w.tree, "renderer")] == ["analyse", "still", "base", "align"], "no renderer call was made for the refused step"
     put(w, identity())                                                   # the person approves it
     resumed = ops.media_pipeline(w.project, w.rid)
     assert resumed["ok"] is True and resumed["steps"]["base"] == "done" and resumed["stopped"] == "approval"
-    assert kit.verbs(w.tree, "renderer") == ["analyse", "base", "align", "base", "align", "check", "render", "cover"]
+    assert kit.verbs(w.tree, "renderer") == ["analyse", "still", "base", "align", "base", "align", "check", "render", "cover"]
     assert pairs(base_calls(w)[-1], "--color")["accent"] == "#3DDC97"
 
 

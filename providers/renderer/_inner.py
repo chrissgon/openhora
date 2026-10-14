@@ -11,6 +11,7 @@ only writable mount) and /scratch (memory-backed), with no network.
   render   --edl EDL --beats BEATS --in VIDEO --out DIR --platform-file F --vocabulary V ...    the video
   verify   --in MP4 --platform-file F --sha256 H [--expect-seconds S]   a finished render against the platform's spec
   cover    --in MP4 --offset-ms N --out PNG                  one frame of a render
+  still    --in VIDEO --at-ms N --out PNG                    one frame of a recording, framed as the render frames it (1080x1920)
   selfcheck                                  the versions of what the image holds, and that each tool starts
 
 Every verb writes its result as one JSON object to `--result FILE` (before the verb; stdout when absent): the same object the
@@ -226,6 +227,16 @@ def verb_cover(args) -> dict:
     return dict(_render.make_cover(ffmpeg, args.input, args.out, args.offset_ms, facts["duration"]), ok=True)
 
 
+def verb_still(args) -> dict:
+    ffmpeg, ffprobe = tools(args)
+    data = load_data()
+    facts = _media.probe(ffprobe, args.input)
+    if facts["duration"] > data["limits"]["input_seconds_max"]:
+        raise Refusal("input_too_long", "input")
+    frame = data["frame"]
+    return dict(_render.make_still(ffmpeg, args.input, args.out, args.at_ms, facts, (frame["width"], frame["height"])), ok=True)
+
+
 def verb_verify(args) -> dict:
     """Check a finished render, from outside the container that made it: its sha256 is the one the render reported, and ffprobe
     finds it inside the platform file's video spec (container, codec, audio codec, size, fps range, duration, bytes, faststart),
@@ -353,11 +364,16 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--in", dest="input", required=True)
     sp.add_argument("--offset-ms", type=int, required=True)
     sp.add_argument("--out", required=True)
+    sp = sub.add_parser("still")
+    common(sp)
+    sp.add_argument("--in", dest="input", required=True)
+    sp.add_argument("--at-ms", type=int, required=True)
+    sp.add_argument("--out", required=True)
     return p
 
 
 VERBS = {"verify": verb_verify, "selfcheck": verb_selfcheck, "analyse": verb_analyse, "base": verb_base, "align": verb_align, "check": verb_check_documents,
-         "render": verb_render, "cover": verb_cover}
+         "render": verb_render, "cover": verb_cover, "still": verb_still}
 
 
 def write_result(path, obj) -> None:

@@ -21,6 +21,8 @@ module of the layer shares are read as `core.<name>` (runtime/ops_core.py).
                                    approval is removed and the record says the pipeline resumes at `review`.
   video_raw(project, recording, sha256)        the render, opened and verified, for the service to stream (a file object)
   video_cover(project, recording, sha256)      the cover PNG of that render, the same way
+  media_still(project, recording, sha256)      the still frame (a PNG) of the recording itself that the pipeline made for the face-box
+                                               picker (renderer `still`), chosen by the recording and the PNG's own sha256, the same way
   video_download(project, recording, platform) the approved file, the same way, with its file name; refused while the approval
                                    does not hold
 
@@ -298,6 +300,16 @@ def video_cover(project: str, recording: str, sha256: str) -> dict:
         result = video.read_result(data_dir, recording)
         expected = ((result or {}).get("cover") or {}).get("sha256") if result and result["sha256"] == sha256 else None
         return _stream(video.open_cover(data_dir, recording, sha256, expected), "image/png")
+    except (video.VideoError, media.MediaError) as e:
+        raise _refusal(e) from None
+
+
+def media_still(project: str, recording: str, sha256: str) -> dict:
+    """The still frame of a recording, named by the recording and the PNG's sha256: {"file", "size", "media_type": "image/png", "sha256",
+    "name"}. The file is `still-<sha12>.png` in the recording's folder, opened without following a link, a PNG, at most 8 MiB, and the open
+    descriptor's hash must equal the sha256 asked for. The caller closes it."""
+    try:
+        return _stream(video.open_still(_data_dir(project), recording, sha256), "image/png")
     except (video.VideoError, media.MediaError) as e:
         raise _refusal(e) from None
 

@@ -100,7 +100,7 @@ def renders(w):
     return sorted(n for n in os.listdir(w.folder) if media.RENDER.fullmatch(n))
 
 
-RENDERER_ORDER = ["analyse", "base", "align", "base", "align", "check", "render", "cover"]
+RENDERER_ORDER = ["analyse", "still", "base", "align", "base", "align", "check", "render", "cover"]
 
 
 # --- the steps, in order, and the stop at the review ----------------------------------------------------------------------------------
@@ -112,14 +112,14 @@ def test_a_recording_runs_the_steps_in_order_and_stops_at_the_caption_review_bef
     assert out["steps"] == {"transcribe": "done", "analyse": "done", "retakes": "done", "align-proposal": "done", "review": "waiting",
                             "remap": "pending", "base": "pending", "align": "pending", "check": "pending", "render": "pending",
                             "cover": "pending", "approval": "pending"}
-    assert kit.verbs(w.tree, "transcriber") == ["transcribe"] and kit.verbs(w.tree, "renderer") == ["analyse", "base", "align"]
+    assert kit.verbs(w.tree, "transcriber") == ["transcribe"] and kit.verbs(w.tree, "renderer") == ["analyse", "still", "base", "align"]
     assert not renders(w) and not [n for n in os.listdir(w.folder) if n.startswith("cover") or n == "render.json"] and not os.path.exists(os.path.join(w.folder, "edl.json"))
     pending = ops.pending(w.project)["pending"]
     assert [(p["kind"], p["title"], p["task_id"]) for p in pending] == [("question", "Check the captions", out["task"])]
     # a second call while it waits starts nothing and opens no second decision
     again = start(w)
     assert again["stopped"] == "review" and again["pending"] == out["pending"]
-    assert kit.verbs(w.tree, "renderer") == ["analyse", "base", "align"] and len(ops.pending(w.project)["pending"]) == 1
+    assert kit.verbs(w.tree, "renderer") == ["analyse", "still", "base", "align"] and len(ops.pending(w.project)["pending"]) == 1
 
 
 def test_the_transcriber_is_asked_for_dtw_timestamps_with_the_projects_model_and_language_and_the_mode_is_recorded(w):
@@ -220,7 +220,7 @@ def test_each_step_fails_on_a_stand_in_and_the_task_resumes_at_that_step_with_th
     after = {r: kit.verbs(w.tree, r) for r in ("transcriber", "renderer")}
     new = {r: after[r][len(before[r]):] for r in after}
     assert resumed["ok"] is True and resumed["steps"][step] == "done"
-    wanted = {"transcribe": ([ "transcribe"], ["analyse", "base", "align"]), "analyse": ([], ["analyse", "base", "align"]),
+    wanted = {"transcribe": ([ "transcribe"], ["analyse", "still", "base", "align"]), "analyse": ([], ["analyse", "still", "base", "align"]),
               "retakes": ([], ["base", "align"]), "align-proposal": ([], ["align"]), "base": ([], ["base", "align", "check", "render", "cover"]),
               "align": ([], ["align", "check", "render", "cover"]), "check": ([], ["check", "render", "cover"]), "render": ([], ["render", "cover"]),
               "cover": ([], ["cover"])}[step]
@@ -327,7 +327,7 @@ def test_the_cancel_of_the_request_stops_the_pipeline_without_a_failure(w):
     assert code_task(w)["state"] == "cancelled"
     result = ops.media_pipeline(w.project, w.rid)
     assert result["ok"] is False and result["code"] == "cancelled"
-    assert kit.verbs(w.tree, "renderer") == ["analyse", "base", "align"]
+    assert kit.verbs(w.tree, "renderer") == ["analyse", "still", "base", "align"]
 
 
 # --- the caption review ---------------------------------------------------------------------------------------------------------------
@@ -710,7 +710,7 @@ def test_a_pipeline_that_died_mid_step_is_resumed_from_its_file(w):
     saved["decisions"] = {}
     open(os.path.join(w.folder, "pipeline.json"), "w").write(json.dumps(saved))
     ops.media_pipeline(w.project, w.rid)
-    assert kit.verbs(w.tree, "renderer") == ["analyse", "base", "align", "align"], "only the step that had no result runs again"
+    assert kit.verbs(w.tree, "renderer") == ["analyse", "still", "base", "align", "align"], "only the step that had no result runs again"
     assert state(w)["steps"]["align-proposal"]["status"] == "done"
 
 

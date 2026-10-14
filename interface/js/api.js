@@ -329,13 +329,22 @@ export function videoCover(p, recording, sha256, { signal } = {}) {
   return send("GET", `/projects/${enc(p)}/video/${enc(recording)}/cover/${enc(sha256)}`, { signal, raw: true });
 }
 
+/**
+ * GET /projects/{p}/media/{recording}/still/{sha256}: the still frame of a recording, as a Blob (image/png), fetched with the bearer header (an `<img src>` cannot send one) and shown from a
+ * `blob:` URL (the policy's `img-src blob:`). `sha256` is the PNG's own hash, `still.sha256` of `captionsRead` or of `mediaList`'s `pipeline`. The picture is 1080x1920, the frame the render
+ * cuts the recording into, so a point of it is a point of the face box. The service answers on the loopback socket only; there is no still while `still` is null.
+ */
+export function mediaStill(p, recording, sha256, { signal } = {}) {
+  return send("GET", `/projects/${enc(p)}/media/${enc(recording)}/still/${enc(sha256)}`, { signal, raw: true, accept: "image/png" });
+}
+
 /** GET /projects/{p}/video/{recording}/download/{platform}: the approved file as a Blob, for the person to save; refused (409) while no approval holds. */
 export function videoDownload(p, recording, platform, { signal, onBytes } = {}) {
   return send("GET", `/projects/${enc(p)}/video/${enc(recording)}/download/${enc(platform)}`, { signal, raw: true, accept: "video/mp4", onBytes });
 }
 
 /**
- * GET /projects/{p}/media/{recording}/captions: the caption review of a recording: {recording, platform, task, steps, editable, language, failure, sent_back, revision, words, chunks,
+ * GET /projects/{p}/media/{recording}/captions: the caption review of a recording: {recording, platform, task, steps, still: {sha256, name, at_ms} | null, editable, language, failure, sent_back, revision, words, chunks,
  * segments, retakes, beats, slots, unplaced, threshold, face_box, cover_offset_ms, counts}. The person's own words leave here, so the service answers it on the loopback socket only; a
  * pipeline that is not at the review yet is a 409 whose sentence starts "the captions are not ready".
  */

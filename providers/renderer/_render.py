@@ -241,3 +241,34 @@ def make_cover(ffmpeg: str, video: str, out: str, offset_ms: int, duration: floa
     finally:
         shutil.rmtree(work, ignore_errors=True)
     return {"path": os.path.abspath(out), "offset_ms": offset_ms, "sha256": _media.sha256_file(out)}
+
+
+def png_size(path: str):
+    """(width, height) of a PNG file from its header bytes, or None when the file is not a PNG."""
+    with open(path, "rb") as fh:
+        head = fh.read(24)
+    if len(head) < 24 or head[:8] != b"\x89PNG\r\n\x1a\n" or head[12:16] != b"IHDR":
+        return None
+    return struct.unpack(">II", head[16:24])
+
+
+def make_still(ffmpeg: str, recording: str, out: str, at_ms: int, facts: dict, size: tuple) -> dict:
+    """One PNG frame of the recording at `at_ms`, framed as the render frames it into `size` (0600, written through a temporary name).
+    `facts` are the recording's probe facts: the offset must lie inside the recording and the colour matrix is read from them the way
+    `base` reads it for the edit list."""
+    if not isinstance(at_ms, int) or isinstance(at_ms, bool) or at_ms < 0 or at_ms / 1000.0 >= facts["duration"]:
+        raise Refusal("bad_still_offset", "at-ms")
+    matrix = "auto" if facts.get("color_space") not in (None, "unknown", "bt709") else "bt709"
+    folder = os.path.dirname(os.path.abspath(out))
+    os.makedirs(folder, mode=0o700, exist_ok=True)
+    work = tempfile.mkdtemp(prefix=".still-", dir=folder)
+    try:
+        _media.run(_media.still_argv(ffmpeg, os.path.abspath(recording), at_ms / 1000.0, size, matrix, "still.png"), 120, cwd=work)
+        part = os.path.join(work, "still.png")
+        if not os.path.isfile(part) or os.path.getsize(part) == 0 or png_size(part) != tuple(size):
+            raise Refusal("still_failed", "still")
+        os.chmod(part, 0o600)
+        os.replace(part, out)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    return {"at_ms": at_ms, "sha256": _media.sha256_file(out), "width": size[0], "height": size[1], "bytes": os.path.getsize(out)}

@@ -11,7 +11,7 @@ beats come from the post file's script block.
 |------|------------|
 | `ffmpeg.py` | The host side, the one implementation file of the folder: checks flags, stages inputs into a private job folder, builds the `docker run` command, runs it, reads the result as untrusted. Python 3.9, standard library only. |
 | `_docker.py`, `_browser.py` | The host side's helpers: the container's limits, the build, the state folders; the browser pin and the maintainer's one-time `pin-browser`. Not in the image. |
-| `_inner.py` | The container's entry point (`python3 -I /opt/renderer/_inner.py <verb>`): `analyse`, `base`, `align`, `check`, `render`, `cover`, `selfcheck`. The tests run it directly on the host with a local Chromium. |
+| `_inner.py` | The container's entry point (`python3 -I /opt/renderer/_inner.py <verb>`): `analyse`, `base`, `align`, `check`, `render`, `cover`, `still`, `selfcheck`. The tests run it directly on the host with a local Chromium. |
 | `_edl.py`, `_timeline.py`, `_align.py`, `_vocab.py`, `_text.py` | The edit list and its check, the cuts, captions and retake proposals, the beats and their alignment, the vocabulary's typed parameters, the text rules. |
 | `_cdp.py`, `_frames.py`, `_lint.py`, `_render.py`, `_media.py` | The DevTools-pipe driver, the frame loop and what is served to the page, the determinism lint, the render, ffprobe/ffmpeg and the one compose command. |
 | `_redact.py` | A generated copy of `shared/scripts/redact.py` (the credential formats `check` scans with). |
@@ -105,6 +105,17 @@ one, an external service) replaces this one behind the same verbs and the same e
 - `render` takes both, the recording, the platform file and the person's asset files by slot, and writes `render-<sha12>.mp4`, 0400,
   never rewritten, after checking the file against the platform's video spec. What an implementation owns is only how it draws.
 - Selection is `RENDERER_VIDEO_PROVIDER` / `RENDERER_PROVIDER` (or the runtime's configuration), as for every class.
+
+## The still frame (`still`)
+
+`still --in <recording> --at-ms <n> --out <dir>` writes one PNG of the recording at that time, framed exactly as the render frames the source
+(`_media.framing_filter`, the one text the render's graph and the still share: scaled to cover twice the frame, the centre cropped, then
+the plain scale of an unzoomed range down to 1080x1920), so the face box the person draws on it is in the render's pixels. The page builds no
+images and nothing outside the container decodes a recording: this is the one place a still is made. The recording is read with
+`-f mov -protocol_whitelist file -enable_drefs 0` and the container has every limit of `analyse` and `render`. The host stores the file as
+`still-<sha12>.png` (0400, never rewritten, the same bytes are a replay) after checking, itself, the hash, the PNG header, the 1080x1920
+size and an 8 MiB cap. An offset outside the recording is `bad_still_offset`. The host also refuses a result whose `at_ms` is not the request or whose `bytes` is not the file's size. Adding this verb changed the image definition, so the tag changed: until the maintainer runs `build --confirmed` the new tag does not exist and every renderer step reports `image_not_built` (not `image_stale`, which is for an image that exists and is older than the files). Test: `tests/test_renderer_still.py`, which also holds the
+still equal, within the codec's loss, to the render's own first picture of a range that starts at that frame.
 
 ## What the edit does
 
