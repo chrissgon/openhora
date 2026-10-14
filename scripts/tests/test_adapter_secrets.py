@@ -44,6 +44,9 @@ BEFORE = {
     "MESSENGER_WHATSAPP_CLOUD_TOKEN": ((), "messenger-whatsapp-cloud", ("providers/messenger/whatsapp-cloud.py",)),
     "MESSENGER_WHATSAPP_CLOUD_APP_SECRET": ((), "messenger-whatsapp-cloud-app-secret", ("providers/messenger/whatsapp-cloud.py",)),
     "MESSENGER_WHATSAPP_CLOUD_VERIFY_TOKEN": ((), "messenger-whatsapp-cloud-verify-token", ("providers/messenger/whatsapp-cloud.py",)),
+    "MESSENGER_WHATSAPP_TWILIO_API_KEY_SID": ((), "messenger-whatsapp-twilio-api-key-sid", ("providers/messenger/whatsapp-twilio.py",)),
+    "MESSENGER_WHATSAPP_TWILIO_API_KEY_SECRET": ((), "messenger-whatsapp-twilio-api-key-secret", ("providers/messenger/whatsapp-twilio.py",)),
+    "MESSENGER_WHATSAPP_TWILIO_AUTH_TOKEN": ((), "messenger-whatsapp-twilio-auth-token", ("providers/messenger/whatsapp-twilio.py",)),
     # The key proxy of the eval network became a reader of the floor key on 2026-10-03: it holds the value of an eval run.
     "OPENROUTER_API_KEY": ((), "openrouter", ("evals/eval_run.py --pass-env", "adapters/agents-dir/run-prompt.sh",
                                               "evals/container/keyproxy/keyproxy.py", "adapters/api/run_agent.py")),

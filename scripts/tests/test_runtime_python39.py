@@ -81,6 +81,8 @@ ON_SYSTEM_PYTHON = [
     "providers/messenger/whatsapp-cloud.py",
     # The transcriber: the runtime starts it with its own interpreter (stdlib only; it drives the docker client).
     "providers/transcriber/whispercpp.py",
+    # The same API through Twilio, and the module the two official WhatsApp providers share (MSG-9).
+    "providers/messenger/whatsapp-twilio.py", "providers/messenger/whatsapp_meta.py",
     # The documents' local implementation, called the same way (stage 3).
     "providers/documents/local.py",
 ]
