@@ -116,7 +116,7 @@ The rules of a request, in this order, each a refusal unless the request satisfi
      with `queues` (say, route): it starts anyway, and the operation itself queues its call while a run holds the
      project. Jobs live in memory; the records are in the store.
   9. Every response: Cache-Control no-store and X-Content-Type-Options nosniff; a page also a Content-Security-Policy of
-     "default-src 'self'; img-src 'self' blob:; frame-ancestors 'none'" and Referrer-Policy no-referrer.
+     "default-src 'self'; img-src 'self' blob:; media-src blob:; frame-ancestors 'none'" and Referrer-Policy no-referrer.
  10. A static path is served only when its real path is inside the interface folder, with a known extension, no
      dotfile and no listing. /favicon.ico (which browsers ask for by default) is answered with /favicon.svg.
  11. The log line is the method, the path (never the query), the status and the duration. Never a header, a body or the
@@ -140,6 +140,20 @@ answers bytes: an image of the project, by its magic number, at most 25 MiB, wit
 and Content-Disposition inline; its row lists the page channel only) and /version (the change signal of the project's store: a
 number that grows on every write). Each takes the query keys it names and no other. The service's own GET /versions answers
 the /version of every project in one request, so that a page that shows several asks once a second whatever their number.
+
+The rendered video (runtime/ops_video.py, runtime/video.py) has six routes under /projects/<id>/video/<recording>, where the recording
+is the 16 hex characters code issued: GET (the card; query: platform), GET render/<sha256> and GET cover/<sha256> (the bytes of the
+video and of its cover frame), GET download/<platform> (the approved file, as an attachment with a plain file name), POST approve and
+POST send-back (JSON; approve carries video_sha256, caption_sha256 and platform, and is the person's one explicit action). The file is
+chosen by the recording and the hash in the path, never by a path: the operation builds the name `render-<sha12>.mp4` itself, opens it
+without following a link, and hashes the open descriptor against the hash in the path before it is read. The three byte routes
+answer 200 with `Accept-Ranges: bytes` or, for one `Range: bytes=...` header, 206 with `Content-Range`, and 416 with
+`Content-Range: bytes */<size>` for a range that cannot be answered; they stream from the open descriptor, in chunks, never whole in
+memory. They and the two POST routes answer on the loopback socket only: a byte route is, to a request that came in on the LAN
+socket or names a Host that is not a loopback one, a route that does not exist (404, a video must not cross the network as plain
+HTTP), and approve and send-back are refused there (409, "watch and approve on the Mac"). Render and download are read one at a time
+(a second concurrent read is 409 refused). The page cannot send a header in a `src`, so it fetches the video with the bearer header and
+plays a `blob:` URL it built (the policy's `media-src blob:`); the token is never in a URL.
 
 A line of the conversation, or a request to route, that the page sends while a run holds the project is queued by the operation
 (runtime/ops_say.py), not refused; a third loop, `route_queued`, runs every QUEUE_EVERY seconds (not task dispatch, so
@@ -227,12 +241,14 @@ MAX_LENGTH_DIGITS = 15                    # a Content-Length with more digits th
 QUERY_VALUE_LIMIT = 512                   # bytes of one query value on a route that names a project file (artifact?path=)
 STATIC_LIMIT = 16 * 1024 * 1024
 ONCE = ("host", "origin", "authorization", "content-type", "content-length", "transfer-encoding",
-        "x-recording-id", "x-slot-id", "x-file-name")
-# Three directives. `default-src 'self'` and `frame-ancestors 'none'` are the rule since the first page. `img-src 'self'
+        "x-recording-id", "x-slot-id", "x-file-name", "range")
+# Four directives. `default-src 'self'` and `frame-ancestors 'none'` are the rule since the first page. `img-src 'self'
 # blob:` is there for one reason: the raw bytes of an image sit behind the bearer header, so the page fetches them itself
 # and shows them from a `blob:` URL it built; `blob:` can only name bytes the page made, nothing from another origin.
-# Never `data:`, and no other directive is widened.
-CSP = "default-src 'self'; img-src 'self' blob:; frame-ancestors 'none'"
+# `media-src blob:` is the same reason for a rendered video: the bytes sit behind the bearer header, the page fetches them and
+# plays a `blob:` URL it built, and nothing is fetched as media by address (it is not `'self'`: no `<video src>` may name a
+# route of the service). Never `data:`, and no other directive is widened.
+CSP = "default-src 'self'; img-src 'self' blob:; media-src blob:; frame-ancestors 'none'"
 # What a static file is served as. An extension not here is not served (the rule fails closed).
 TYPES = {
     ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8",
@@ -243,6 +259,10 @@ TYPES = {
 }
 DEMO_DIR = "demo"  # interface/demo/: the demo mode of the page, never served by this service
 PAGE_TYPES = ("text/html", "image/svg+xml")  # a document the browser can run: it carries the policy headers
+RANGE_SPEC = re.compile(r"([0-9]{1,15})?-([0-9]{1,15})?")
+SERVE_CHUNK = 256 * 1024                  # bytes of a file written to the socket at a time
+LAN_APPROVAL = "Watch and approve on the Mac that runs the service: a video is not shown, and nothing is approved, over the network."
+ONE_AT_A_TIME = ("video-raw", "video-download")   # the operations whose read holds the service's one video gate
 WORDS = {
     "host": "the Host header must be 127.0.0.1:<port> or localhost:<port> (or the LAN address, when the service was started with --lan)",
     "origin": "the Origin must be this service's own (http://127.0.0.1:<port> or http://localhost:<port>, or the LAN address with --lan); a POST needs one",
@@ -256,6 +276,7 @@ WORDS = {
     "not_found": "no such route, project or file",
     "usage": "the request is malformed",
     "refused": "the operation refused",
+    "range": "the byte range cannot be answered for this file",
     "not_configured": "the project is not configured",
     "busy": "a job that calls a model is running for this project",
     "stopping": "the service is stopping",
@@ -276,10 +297,10 @@ class Usage(Exception):
 
 
 def _route(method, pattern, op=None, *, bind=None, take=None, hidden=(), own=None, upload=False, query_max=None,
-           raw=False, stream=False):
+           raw=False, stream=False, file=False, loopback=False):
     return {"method": method, "pattern": pattern, "op": op, "bind": dict(bind or {}), "take": take,
             "hidden": tuple(hidden), "own": own, "upload": upload, "limit": FILE_LIMIT if upload else JSON_LIMIT,
-            "query_max": query_max, "raw": raw, "stream": stream}
+            "query_max": query_max, "raw": raw, "stream": stream, "file": file, "loopback": loopback}
 
 
 ROUTES = (
@@ -313,6 +334,12 @@ ROUTES = (
     _route("GET", "/projects/{p}/artifact", "artifact", take=("path",), query_max=QUERY_VALUE_LIMIT),
     _route("GET", "/projects/{p}/artifact/raw", "artifact-raw", take=("path",), query_max=QUERY_VALUE_LIMIT, raw=True),
     _route("GET", "/projects/{p}/version", "version", take=()),
+    _route("GET", "/projects/{p}/video/{rid}", "video-card", bind={"recording": "rid"}, take=("platform",)),
+    _route("GET", "/projects/{p}/video/{rid}/render/{sha}", "video-raw", bind={"recording": "rid", "sha256": "sha"}, take=(), file=True, loopback=True),
+    _route("GET", "/projects/{p}/video/{rid}/cover/{sha}", "video-cover", bind={"recording": "rid", "sha256": "sha"}, take=(), file=True, loopback=True),
+    _route("GET", "/projects/{p}/video/{rid}/download/{platform}", "video-download", bind={"recording": "rid", "platform": "platform"}, take=(), file=True, loopback=True),
+    _route("POST", "/projects/{p}/video/{rid}/approve", "video-approve", bind={"recording": "rid"}, loopback=True),
+    _route("POST", "/projects/{p}/video/{rid}/send-back", "video-send-back", bind={"recording": "rid"}, loopback=True),
     _route("GET", "/projects/{p}/commands", "commands", take=()),
     _route("GET", "/versions", own="versions"),
     _route("POST", "/projects/{p}/conversation", "say"),
@@ -320,7 +347,8 @@ ROUTES = (
     _route("POST", "/projects/{p}/dispatch", "dispatch", take=()),
     _route("GET", "/jobs/{id}", own="job"),
 )
-PARTS = {"p": "[0-9a-f]{12}", "id": "[0-9]{1,9}", "name": "[A-Za-z0-9][A-Za-z0-9._-]{0,63}"}
+PARTS = {"p": "[0-9a-f]{12}", "id": "[0-9]{1,9}", "name": "[A-Za-z0-9][A-Za-z0-9._-]{0,63}", "rid": "[0-9a-f]{16}",
+         "sha": "[0-9a-f]{64}", "platform": "[a-z0-9][a-z0-9-]{0,31}"}
 COMPILED = tuple((re.compile(PREFIX + re.sub(r"\{(\w+)\}", lambda m: f"(?P<{m.group(1)}>{PARTS[m.group(1)]})", r["pattern"])), r)
                  for r in ROUTES)
 
@@ -548,6 +576,139 @@ def arguments(row: dict, route: dict, params: dict, given: dict, from_query: boo
     return out
 
 
+# --- a file answered in ranges ------------------------------------------------------------------------------------------
+
+
+class RangeError(Exception):
+    """A Range header that cannot be answered: 416."""
+
+
+def parse_range(header, size: int):
+    """None when the whole file is answered (no header, or a unit other than bytes, which the HTTP standard says to ignore); else
+    (start, end), both inclusive and inside the file, for one range: `bytes=a-b`, `bytes=a-` or `bytes=-n`. RangeError for a
+    range that is malformed, empty, one of several, or that starts past the end of the file."""
+    if header is None:
+        return None
+    text = str(header).strip()
+    if not text.lower().startswith("bytes="):
+        return None
+    found = RANGE_SPEC.fullmatch(text[6:].strip())
+    if not found or (found.group(1) is None and found.group(2) is None):
+        raise RangeError("a single byte range: bytes=<first>-<last>, bytes=<first>- or bytes=-<count>")
+    first, last = found.group(1), found.group(2)
+    if first is None:
+        count = int(last)
+        if count == 0:
+            raise RangeError("a suffix range of zero bytes is empty")
+        return max(0, size - count), size - 1
+    start = int(first)
+    end = size - 1 if last is None else int(last)
+    if start >= size or end < start:
+        raise RangeError("the range starts past the end of the file or ends before it starts")
+    return start, min(end, size - 1)
+
+
+class FileBody:
+    """A response body streamed from an open file (an operation's `opened`: `.file`, `.size`, `.close()`): `length` bytes from
+    `start`, in chunks of SERVE_CHUNK, from the descriptor the operation verified. Whoever sends it closes it (the socket's handler
+    does, always); closing also runs `on_close`, which gives back the service's one-video-at-a-time gate. A caller with no socket
+    (a test) reads it with `read_all()` and closes it."""
+
+    def __init__(self, opened, start: int = 0, length=None, on_close=None):
+        self.opened = opened
+        self.start = start
+        self.length = opened.size - start if length is None else length
+        self.on_close = on_close
+        self.closed = False
+
+    def chunks(self, size: int = SERVE_CHUNK):
+        f = self.opened.file
+        f.seek(self.start)
+        left = self.length
+        while left > 0:
+            block = f.read(min(size, left))
+            if not block:
+                break
+            left -= len(block)
+            yield block
+
+    def read_all(self) -> bytes:
+        return b"".join(self.chunks())
+
+    def close(self) -> None:
+        if self.closed:
+            return
+        self.closed = True
+        try:
+            self.opened.close()
+        finally:
+            if self.on_close is not None:
+                self.on_close()
+
+
+def _file_headers(found: dict) -> dict:
+    """The headers of a file answer: its media type, the hardening every response has, and, by the route, inline or an
+    attachment with the plain file name the operation gave (a name of letters, digits, '-' and '.' only)."""
+    out = {**_headers(found["media_type"]), "Content-Security-Policy": CSP, "Referrer-Policy": "no-referrer", "Accept-Ranges": "bytes",
+           "ETag": '"' + str(found["sha256"]) + '"'}
+    name = found.get("filename")
+    out["Content-Disposition"] = f'attachment; filename="{name}"' if name else "inline"
+    return out
+
+
+def _loopback_only(service: Service, headers: dict, lan: bool) -> bool:
+    """Whether the request came in on the loopback socket with a loopback Host (a LAN request, or a name that is not the
+    loopback's, is not a request these routes answer)."""
+    return not lan and str({str(k).lower(): v for k, v in headers.items()}.get("host")).lower() in allowed_hosts(service.port)
+
+
+def _file(service: Service, route: dict, params: dict, query: str, headers: dict) -> tuple:
+    """A GET route that answers a file (the rendered video, its cover, the approved download): the operation opens and verifies
+    the file and the service streams it, whole or one byte range, from the same descriptor. The video and the download are read one
+    at a time (`service.video_gate`). The reads are in the policy group `read`, so `_policy_refusal` asks nothing of the configuration."""
+    project = service.by_id.get(params.get("p"))
+    if project is None:
+        return _error(404, "not_found", "no such project")
+    if query:
+        raise Usage("this route takes no query")
+    row = service.ops.operations.by_name(route["op"])
+    if "page" not in row["channels"]:
+        return _error(404, "not_found")
+    _policy_refusal(service, project, row, route, params, {}, True)
+    args = arguments(row, route, params, {}, True)
+    gated = row["name"] in ONE_AT_A_TIME
+    if gated and not service.video_gate.acquire(blocking=False):
+        return _error(409, "refused", "another video is being read; wait for it to finish")
+    opened, body = None, None
+
+    def release():
+        if gated:
+            service.video_gate.release()
+    try:
+        found = getattr(service.ops, row["call"])(project["path"], **args)
+        opened = found["opened"]
+        h = {str(k).lower(): v for k, v in headers.items()}
+        try:
+            span = parse_range(h.get("range"), opened.size)
+        except RangeError as e:
+            status, head, payload = _error(416, "range", str(e))
+            return status, {**head, "Content-Range": f"bytes */{opened.size}"}, payload
+        out = _file_headers(found)
+        if span is None:
+            body, status = FileBody(opened, 0, opened.size, release), 200
+        else:
+            body, status = FileBody(opened, span[0], span[1] - span[0] + 1, release), 206
+            out["Content-Range"] = f"bytes {span[0]}-{span[1]}/{opened.size}"
+        return status, out, body
+    finally:
+        if body is None:    # nothing will send a body (a refusal, a 416, an error): give back the file and the gate
+            try:
+                if opened is not None:
+                    opened.close()
+            finally:
+                release()
+
+
 # --- the service object, the jobs and the loops ----------------------------------------------------------------------
 
 
@@ -567,6 +728,7 @@ class Service(shell_kit.Jobs):
         self.address = None      # (host, port) the socket is bound to, set by serve()
         self.lan_ip = lan_ip     # the private address of --lan (a second socket, the same port), or None: the default
         self.bridge = None       # the child of --messaging (service_bridge.Child), or None: the default
+        self.video_gate = threading.Lock()   # one read of a rendered video (render, download) at a time; the cover is small and has none
 
     def messaging_state(self):
         """The service's own field of GET /projects: the bridge child's state, or None without --messaging."""
@@ -825,6 +987,9 @@ def handle(service: Service, method: str, path: str, headers: dict, body: bytes,
     if found is None:
         return _error(405, "method") if known_path(bare) else _error(404, "not_found")
     route, params = found
+    if route["loopback"] and not _loopback_only(service, headers, lan):
+        # the rendered video does not cross the network as plain HTTP: a byte route is no route there, and the approval is refused with the sentence
+        return _error(404, "not_found") if route["file"] else _error(409, "refused", LAN_APPROVAL)
     if route["stream"]:   # a caller with the body in memory (a test): the same function the socket's handler gives its stream to
         return handle_stream(service, method, path, headers, io.BytesIO(body), lan)
     if len(body) > route["limit"]:
@@ -844,6 +1009,8 @@ def handle(service: Service, method: str, path: str, headers: dict, body: bytes,
             if query:
                 raise Usage("this route takes no query")
             return _job_get(service, params)
+        if route["file"]:
+            return _file(service, route, params, query, headers)
         return _operation(service, route, params, query, body)
     except Usage as e:
         return _error(400, "usage", str(e))
@@ -954,15 +1121,23 @@ def make_handler(service: Service):
             self._send(*_error(status, word))
 
         def _send(self, status, headers, payload):
-            self.send_response(status)
-            for key, value in headers.items():
-                self.send_header(key, value)
-            self.send_header("Content-Length", str(len(payload)))
-            self.send_header("Connection", "close")
-            self.end_headers()
-            if self.command != "HEAD":
-                self.wfile.write(payload)
-            self.close_connection = True
+            streamed = isinstance(payload, FileBody)
+            try:
+                self.send_response(status)
+                for key, value in headers.items():
+                    self.send_header(key, value)
+                self.send_header("Content-Length", str(payload.length if streamed else len(payload)))
+                self.send_header("Connection", "close")
+                self.end_headers()
+                if streamed:
+                    for block in payload.chunks():
+                        self.wfile.write(block)
+                elif self.command != "HEAD":
+                    self.wfile.write(payload)
+                self.close_connection = True
+            finally:
+                if streamed:
+                    payload.close()    # whatever happened to the socket: the file and the gate are given back
 
         def _serve(self):
             started = time.monotonic()
@@ -995,7 +1170,7 @@ def make_handler(service: Service):
                 self._send(*answer)
                 if streamed and answer[0] != 200 and not refused and not lan:   # only for a request that passed the rules (Host, Origin, token)
                     self._drain()
-            except (BrokenPipeError, ConnectionResetError):
+            except OSError:    # the client went away or stalled (a broken pipe, a reset, a timeout): nothing more to send
                 pass
             service.log(request_line(method, path, answer[0], time.monotonic() - started))
 

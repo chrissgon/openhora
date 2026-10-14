@@ -15,6 +15,12 @@ export const actions = {
   goAhead: api.goAhead,
   route: api.route,
   handOver: api.handOver,
+  videoCard: api.videoCard,
+  videoApprove: api.videoApprove,
+  videoSendBack: api.videoSendBack,
+  videoRaw: api.videoRaw,
+  videoCover: api.videoCover,
+  videoDownload: api.videoDownload,
   pollJob: api.pollJob,
   flows: api.flows,
 };

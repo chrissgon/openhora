@@ -87,6 +87,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/ops_reads.py` | The reads of the local interface and the signals of the local service: the change signal of the store (`version`), the stop of the runs a process started, the conversation's commands as rows (`commands`), the agents with their day, the conversation's messages, the skills with their proof, the costs, the connections, the service's start check and the project's artifacts. |
 | `runtime/ops_runs.py` | The runs of tasks: one task run (`run_task`), the person's verb that picks one (`run_next`), the dispatcher's round (`dispatch`), and the processes the round starts. |
 | `runtime/ops_say.py` | The conversation with the planning agent: one turn of it (`say`) and the memory a plain line carries to the router. |
+| `runtime/ops_video.py` | The operations of the rendered video (runtime/video.py): the card the page draws, the person's approval of the exact file and caption, sending a video back with a comment, and the three reads of bytes (the video, its cover, the download of the approved file). |
 | `runtime/ops_waits.py` | The derived waits in the operations layer: which task waits for which, worked out from the artifact contract. |
 | `runtime/parallel.py` | The rules of tasks that run at once, decided by pure functions: whether a ready task may start beside the ones that run (a slot of its agent, a slot of the project, no code task of its request, no artifact in use), and what a skill's footprint is. |
 | `runtime/path_rule.py` | The path rule: how one path of what a run left goes back to the project. |
@@ -101,6 +102,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/shell_kit.py` | What the two network-free shells of the operations layer share: the local service (runtime/service.py) and the MCP mode (runtime/mcp.py). |
 | `runtime/skill_meta.py` | What a skill declares in its frontmatter, read for the runtime: the artifact lists, the requirement classes, the side effects and the version. |
 | `runtime/state_merge.py` | The one module that decides what a run may change in the project's state file (docs/workbench/state.md), limit L10 of the platform plan. |
+| `runtime/video.py` | The rendered video of a short post, as the page sees it: which file it is, whether its bytes are the ones its name says, and what the person's approval of it binds. |
 | `runtime/workcopy.py` | What enters a run copy, and what comes back from it: the limits of the task runtime that decide which files of a project a run sees (L1 to L6) and which files a run leaves come back (L7, L8, L12, L14). |
 | `runtime/handlers/published_posts.py` | The weekly routine that lists the published posts (backlog item PB16): the first handler of the task runtime. |
 | `runtime/handlers/social.py` | Agent runtime: find new work, run an agent on it read-only, gate its proposal, execute or queue it. |
@@ -420,6 +422,9 @@ The limit's text and the stage that built it come from the contract's table; the
 | `media-in` | `[--recording]` `--file` `[--slot]` | `media_in` |
 | `media-list` | `[--recording]` | `media_list` |
 | `media-purge` | `[--recording]` `[--include-scheduled]` | `media_purge` |
+| `video-card` | `--recording` `[--post-platform]` | `video_card` |
+| `video-approve` | `--recording` `--video-sha256` `--caption-sha256` `[--post-platform]` | `video_approve` |
+| `video-send-back` | `--recording` `--comment` `[--post-platform]` | `video_send_back` |
 <!-- /generated -->
 
 The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-run`, `dispatch`, and `say` for a new request. The row of `release` says no model and carries `job`, yet releasing a brief routes its delivery again, which runs the router (`ops._after_release`).
@@ -499,6 +504,12 @@ The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-
 | `media_in` | `media-in` | terminal, page | no | take a recording (or, with a slot, the image or clip of an asset slot) from disk into the media store: type read from the bytes, hashed, bounded; without a recording id one is issued |
 | `media_list` | `media-list` | terminal, page | no | the recordings of the media store with their status, file facts, slots and retention dates, and the store's use of its limits |
 | `media_purge` | `media-purge` | terminal | no | apply the retention to the media store now, in code: what is due goes, with the edit task's run folders; with a recording id, that recording whatever its age (a scheduled one, whose post has not gone out, only with --include-scheduled) |
+| `video_card` | `video-card` | terminal, page | no | what the page shows for the rendered video of a post: the render's hash and facts, the cover, the caption with its hash, the approval and whether it still holds |
+| `video_approve` | `video-approve` | terminal, page | no | approve the exact rendered file and the exact caption you saw, by their hashes; a re-render or an edit of the caption makes the approval stale; nothing is published or scheduled |
+| `video_send_back` | `video-send-back` | terminal, page | no | send the rendered video back to the review step with your comment; its approval, if any, is removed |
+| `video_raw` | `video-raw` | page | no | the bytes of one rendered video, chosen by its recording and its hash (never a path), streamed with byte ranges; the service answers them on the loopback socket only |
+| `video_cover` | `video-cover` | page | no | the cover frame (a PNG) of one rendered video, chosen by its recording and the video's hash; the loopback socket only |
+| `video_download` | `video-download` | page | no | the approved video file of a post, as a download with a plain file name; refused while no approval holds; the loopback socket only |
 <!-- /generated -->
 
 **The dispatcher's jobs**, `/usr/bin/python3 runtime/dispatcher.py <verb> --project <dir> [--pin <file>]`, run by the scheduler from a copy kept in the job folder:

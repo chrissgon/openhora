@@ -38,6 +38,9 @@ Usage:
   python3 runtime/cli.py media-in --project <dir> --file <path> [--recording <id>] [--slot <slot id>]
   python3 runtime/cli.py media-list --project <dir> [--recording <id>]
   python3 runtime/cli.py media-purge --project <dir> [--recording <id> [--include-scheduled]]
+  python3 runtime/cli.py video-card --project <dir> --recording <id> [--post-platform <name>]
+  python3 runtime/cli.py video-approve --project <dir> --recording <id> --video-sha256 <hash> --caption-sha256 <hash> [--post-platform <name>]
+  python3 runtime/cli.py video-send-back --project <dir> --recording <id> --comment <text> [--post-platform <name>]
   python3 runtime/cli.py progress --project <dir> [--since 7d | <n>d | YYYY-MM-DD]
   python3 runtime/cli.py approve-policy --project <dir> --file <docs/...> --agent <name> [--sha256 <hash> --expires <YYYY-MM-DD>] [--what <text>]
   python3 runtime/cli.py revoke-policy --project <dir> --id <approval id>
@@ -180,6 +183,17 @@ media-purge  applies the retention now, in code, with no model: what is due goes
           run folders. With --recording, that recording whatever its age, except a scheduled one (its post has not gone out), which
           needs --include-scheduled too. A recording whose task runs, or an open post whose task still waits, is left alone unless
           it is named. A dispatcher round does the same at its start.
+video-card  what the page shows for the rendered video of a post of a recording: the current render (its sha256, size, duration,
+          frame size), the cover, the caption exactly as the post file has it with its sha256, the approval and whether it still
+          holds (approved, or stale because the render or the caption changed since), and the comment of the last send-back.
+          With no --post-platform the recording must have one post. It hashes no video.
+video-approve  approves the exact rendered file and the exact caption you saw, naming both by hash: the render's sha256 and the
+          caption's sha256 as video-card printed them. Refused when the post is not open, when the render is not the one with
+          that hash (it was rendered again), when the caption is not the one with that hash, and when the file's bytes, hashed again
+          now, do not equal the hash. It records the approval with the date; nothing is published or scheduled. The page's approval
+          is the same operation, on the Mac that runs the service.
+video-send-back  returns the post to the review step with your comment (required): its approval is removed, and the record says the
+          media pipeline resumes at the review step.
 deps      installs the dependency sets of runtime.json ("dependencies") by code, with no model: in the eval
           image, in a step that sees only the dependency files, on the open network; the result is cached under
           the data folder by the files and the image, and a run whose copy holds versioned files gets a copy of it.

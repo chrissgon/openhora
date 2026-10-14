@@ -162,7 +162,7 @@ def wait_job(world, number):
         time.sleep(0.01)
 
 
-ID = {"p": None, "id": "7", "name": "writer"}
+ID = {"p": None, "id": "7", "name": "writer", "rid": "0123456789abcdef", "sha": "ab" * 32, "platform": "instagram"}
 
 
 def sample(row, route):
@@ -178,12 +178,14 @@ def sample(row, route):
 
 
 def path_of(world, route):
-    return "/api/v1" + route["pattern"].replace("{p}", world.projects[0]["id"]).replace("{id}", ID["id"]).replace("{name}", ID["name"])
+    return "/api/v1" + route["pattern"].replace("{p}", world.projects[0]["id"]).replace("{id}", ID["id"]).replace("{name}", ID["name"]).replace("{rid}", ID["rid"]).replace("{sha}", ID["sha"]).replace("{platform}", ID["platform"])
 
 
-OP_ROUTES = [r for r in service.ROUTES if r["op"] and not r["upload"] and not r["stream"]]  # the media route is streamed: test_media_route.py
-VIEW_READS = ("agents", "conversation", "skills", "costs", "connections", "artifacts", "artifact", "artifact-raw", "version", "commands", "media-list")  # the reads of the views
-READ_OPS = ("status", "pending", "flows", "task", "progress") + VIEW_READS
+OP_ROUTES = [r for r in service.ROUTES if r["op"] and not r["upload"] and not r["stream"] and not r["file"]]  # the media route is streamed: test_media_route.py; the video files are answered in ranges: test_video_route.py
+VIEW_READS = ("agents", "conversation", "skills", "costs", "connections", "artifacts", "artifact", "artifact-raw", "version", "commands", "media-list",
+              "video-card")  # the reads of the views
+FILE_READS = ("video-raw", "video-cover", "video-download")   # the reads that answer a file in ranges (test_video_route.py)
+READ_OPS = ("status", "pending", "flows", "task", "progress") + VIEW_READS + FILE_READS
 
 
 # --- rule 1: the loopback address -----------------------------------------------------------------------------------
@@ -404,11 +406,11 @@ def test_every_response_carries_the_cache_and_sniffing_headers_and_a_page_the_po
         status, headers, _ = call(world, method, path, body, auth=auth, raw=b"" if body is None and method == "POST" else None)
         assert headers["Cache-Control"] == "no-store" and headers["X-Content-Type-Options"] == "nosniff", (path, status)
         page = headers["Content-Type"].startswith("text/html")
-        assert (headers.get("Content-Security-Policy") == "default-src 'self'; img-src 'self' blob:; frame-ancestors 'none'") == page, path
+        assert (headers.get("Content-Security-Policy") == "default-src 'self'; img-src 'self' blob:; media-src blob:; frame-ancestors 'none'") == page, path
         assert (headers.get("Referrer-Policy") == "no-referrer") == page, path
     (world.interface / "logo.svg").write_text("<svg xmlns='http://www.w3.org/2000/svg'/>")
     headers = call(world, "GET", "/logo.svg", auth=False)[1]
-    assert headers["Content-Security-Policy"] == "default-src 'self'; img-src 'self' blob:; frame-ancestors 'none'"  # an svg can hold a script
+    assert headers["Content-Security-Policy"] == "default-src 'self'; img-src 'self' blob:; media-src blob:; frame-ancestors 'none'"  # an svg can hold a script
 
 
 def test_a_post_needs_json_a_known_length_and_a_body_the_route_takes(world):
@@ -1175,15 +1177,17 @@ def test_the_command_prints_its_help_and_refuses_an_unknown_call_and_a_missing_p
     assert missing.returncode == 3 and str(tmp_path / "nothing") in missing.stderr and missing.stdout == ""
 
 
-def test_the_policy_of_a_page_is_exactly_three_directives_and_never_allows_data():
-    """The header is a security decision: `blob:` is there so that the page can show an image it fetched with the token
-    (contracts/runtime.md, "The local service"); `default-src` and `frame-ancestors` are as they were."""
-    assert service.CSP == "default-src 'self'; img-src 'self' blob:; frame-ancestors 'none'"
-    assert [d.split()[0] for d in service.CSP.split("; ")] == ["default-src", "img-src", "frame-ancestors"]
+def test_the_policy_of_a_page_is_exactly_four_directives_and_never_allows_data():
+    """The header is a security decision: `blob:` is there so that the page can show an image it fetched with the token, and
+    `media-src blob:` (not `'self'`) so that it can play a rendered video it fetched the same way (contracts/runtime.md, "The local
+    service"); `default-src` and `frame-ancestors` are as they were."""
+    assert service.CSP == "default-src 'self'; img-src 'self' blob:; media-src blob:; frame-ancestors 'none'"
+    assert [d.split()[0] for d in service.CSP.split("; ")] == ["default-src", "img-src", "media-src", "frame-ancestors"]
+    assert "media-src blob:" in service.CSP and "media-src 'self'" not in service.CSP
     assert "data:" not in service.CSP and "unsafe" not in service.CSP and "http" not in service.CSP
     contract = (st.REPO / "contracts" / "runtime.md").read_text(encoding="utf-8")
     assert f"`Content-Security-Policy: {service.CSP}`" in contract
-    assert all(d in contract for d in ("`default-src 'self'`", "`frame-ancestors 'none'`", "`img-src 'self' blob:`"))
+    assert all(d in contract for d in ("`default-src 'self'`", "`frame-ancestors 'none'`", "`img-src 'self' blob:`", "`media-src blob:`"))
 
 
 # --- ADJ-B3 (A-39): the token file's path and the commands that read it, before the page holds a token -------------------------------

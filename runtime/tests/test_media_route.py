@@ -265,7 +265,7 @@ def test_route_the_handler_streams_and_never_holds_the_body(world):
     import inspect
     source = inspect.getsource(service.make_handler)
     assert "handle_stream(service, method, path, headers, SocketBody(self.rfile, self.connection), lan)" in source        # the socket, not bytes
-    assert service.CSP == "default-src 'self'; img-src 'self' blob:; frame-ancestors 'none'"   # the page's policy is unchanged here (P7 adds media-src)
+    assert service.CSP == "default-src 'self'; img-src 'self' blob:; media-src blob:; frame-ancestors 'none'"   # the page's policy since P7 (media-src for the rendered video)
 
 
 def test_route_the_operation_is_for_the_terminal_and_the_page_never_the_model_clients_or_messaging():

@@ -45,6 +45,8 @@ ON_SYSTEM_PYTHON = [
     "runtime/service.py", "runtime/service_bridge.py",
     # The media store (M1 P4): the intake the service and the terminal call, and its operations.
     "runtime/media.py", "runtime/ops_media.py",
+    # The rendered video (M1 P7): the file checks, the approval and their operations.
+    "runtime/video.py", "runtime/ops_video.py",
     # The MCP mode (stage 9): the same operations layer over standard input and output.
     "runtime/mcp.py",
     # The messaging bridge (MSG-1): its shell and its modules, started with the system interpreter like the other shells.

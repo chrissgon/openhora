@@ -254,6 +254,32 @@ OPERATIONS = (
      "args": ({"name": "recording", "kind": "str"}, {"name": "include_scheduled", "kind": "flag", "flag": "include-scheduled"}),
      "channels": ("terminal",), "model": False,
      "help": "apply the retention to the media store now, in code: what is due goes, with the edit task's run folders; with a recording id, that recording whatever its age (a scheduled one, whose post has not gone out, only with --include-scheduled)"},
+    {"name": "video-card", "call": "video_card",
+     "args": ({"name": "recording", "kind": "str", "required": True}, {"name": "platform", "kind": "str", "flag": "post-platform"}),
+     "channels": ("terminal", "page"), "model": False,
+     "help": "what the page shows for the rendered video of a post: the render's hash and facts, the cover, the caption with its hash, the approval and whether it still holds"},
+    {"name": "video-approve", "call": "video_approve",
+     "args": ({"name": "recording", "kind": "str", "required": True}, {"name": "video_sha256", "kind": "str", "required": True, "flag": "video-sha256"},
+              {"name": "caption_sha256", "kind": "str", "required": True, "flag": "caption-sha256"}, {"name": "platform", "kind": "str", "flag": "post-platform"}),
+     "channels": ("terminal", "page"), "model": False, "channel_arg": True,
+     "help": "approve the exact rendered file and the exact caption you saw, by their hashes; a re-render or an edit of the caption makes the approval stale; nothing is published or scheduled"},
+    {"name": "video-send-back", "call": "video_send_back",
+     "args": ({"name": "recording", "kind": "str", "required": True}, {"name": "comment", "kind": "str", "required": True},
+              {"name": "platform", "kind": "str", "flag": "post-platform"}),
+     "channels": ("terminal", "page"), "model": False,
+     "help": "send the rendered video back to the review step with your comment; its approval, if any, is removed"},
+    {"name": "video-raw", "call": "video_raw",
+     "args": ({"name": "recording", "kind": "str", "required": True}, {"name": "sha256", "kind": "str", "required": True}),
+     "channels": ("page",), "model": False,
+     "help": "the bytes of one rendered video, chosen by its recording and its hash (never a path), streamed with byte ranges; the service answers them on the loopback socket only"},
+    {"name": "video-cover", "call": "video_cover",
+     "args": ({"name": "recording", "kind": "str", "required": True}, {"name": "sha256", "kind": "str", "required": True}),
+     "channels": ("page",), "model": False,
+     "help": "the cover frame (a PNG) of one rendered video, chosen by its recording and the video's hash; the loopback socket only"},
+    {"name": "video-download", "call": "video_download",
+     "args": ({"name": "recording", "kind": "str", "required": True}, {"name": "platform", "kind": "str", "flag": "post-platform"}),
+     "channels": ("page",), "model": False,
+     "help": "the approved video file of a post, as a download with a plain file name; refused while no approval holds; the loopback socket only"},
 )
 
 # What the conversation answers itself, with no operation: the help, and a new request whatever is open.
@@ -270,7 +296,8 @@ CHAT_OWN = (
 # covers the ceiling's share of it. Pure literals, like the table.
 GROUPS = {
     "read": {"operations": ("status", "progress", "pending", "task", "agents", "costs", "skills", "artifacts", "artifact",
-                            "flows", "conversation", "connections", "version", "config", "commands", "artifact-raw", "media-list"),
+                            "flows", "conversation", "connections", "version", "config", "commands", "artifact-raw", "media-list", "video-card", "video-raw",
+                            "video-cover", "video-download"),
              "kind": None},
     "talk": {"operations": ("say",), "kind": None},
     "answer": {"operations": ("answer",), "kind": None},
@@ -286,6 +313,7 @@ GROUPS = {
     "dispatch": {"operations": ("dispatch",), "kind": None},
     "documents": {"operations": ("sync", "hand-over"), "kind": None},
     "media": {"operations": ("media-in",), "kind": None},
+    "video": {"operations": ("video-approve", "video-send-back"), "kind": None},
     "verdict": {"operations": ("verdict",), "kind": None},
 }
 # The policy of a channel that has no entry in the project's configuration. A channel absent from this table keeps its
