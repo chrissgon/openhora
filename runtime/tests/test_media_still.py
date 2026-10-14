@@ -275,3 +275,87 @@ def test_the_step_is_in_the_choices_of_prepare_again_and_a_raw_purge_takes_the_s
     assert len(stills(w)) == 1
     media._purge_raw(w.data, w.rid, w.folder, media.now_utc())
     assert stills(w) == [], "the still is a picture of the raw recording: it goes with it, unlike the renders and covers"
+
+
+# --- the still's prepare-again touches nothing else (review of #381) -------------------------------------------------------------------------------
+
+
+def snapshot(w):
+    """What a side step's prepare-again must leave alone: the state without the still's entry, the record's marker, the task, the decisions."""
+    saved = state(w)
+    saved["steps"].pop("still", None)
+    return {"state": saved, "resume": media.load(w.data, w.rid).get("resume"), "task": code_task(w)["state"],
+            "pending": ops.pending(w.project)["pending"]}
+
+
+def test_prepare_again_at_the_still_after_a_send_back_is_refused_and_keeps_the_marker_the_review_and_the_still(w):
+    from test_media_pipeline import send_back
+    start(w)
+    finish_review(w)
+    made = state(w)["steps"]["still"]
+    send_back(w)
+    before, calls = snapshot(w), len(kit.calls(w.tree, "renderer"))
+    with pytest.raises(ops.OpsError, match="already answered"):
+        ops.prepare_again(w.project, w.rid, "still")
+    assert snapshot(w) == before and state(w)["steps"]["still"] == made and stills(w) == [made["result"]["name"]]
+    assert len(kit.calls(w.tree, "renderer")) == calls, "no provider ran"
+    assert media.load(w.data, w.rid)["resume"]["step"] == "review", "the send-back is still there to be consumed"
+    out = ops.media_pipeline(w.project, w.rid)                        # and the next ordinary call reopens the review as before
+    assert out["stopped"] == "review" and "resume" not in media.load(w.data, w.rid)
+
+
+def test_prepare_again_at_the_still_does_not_relaunch_a_failed_main_step_or_clear_the_failure(w):
+    kit.fail(w.tree, "renderer", "render", times=1)
+    start(w)
+    finish_review(w)
+    failed = state(w)
+    assert failed["failure"]["step"] == "render" and code_task(w)["state"] == "failed"
+    calls = len(kit.calls(w.tree, "renderer"))
+    kit.heal(w.tree, "renderer")
+    with pytest.raises(ops.OpsError, match="already answered"):
+        ops.prepare_again(w.project, w.rid, "still")                  # the review is answered: refused, nothing relaunched
+    assert state(w) == failed and code_task(w)["state"] == "failed" and len(kit.calls(w.tree, "renderer")) == calls
+
+
+def test_a_failed_step_before_the_review_is_not_relaunched_by_the_stills_prepare_again(w):
+    kit.fail(w.tree, "renderer", "align", times=1)                     # align-proposal fails; the still was made before it
+    out = start(w)
+    assert out["failed"] == "align-proposal"
+    failure, calls = state(w)["failure"], len(kit.calls(w.tree, "renderer"))
+    kit.heal(w.tree, "renderer")
+    done = ops.prepare_again(w.project, w.rid, "still")
+    assert done["ok"] is True and done["reset"] == ["still"] and "stopped" not in done
+    assert [c[0] for c in kit.calls(w.tree, "renderer")[calls:]] == ["still"], "only the still ran: the failed step is not relaunched"
+    assert state(w)["failure"] == failure and state(w)["steps"]["align-proposal"]["status"] == "failed" and code_task(w)["state"] == "failed"
+
+
+def test_a_remake_that_is_skipped_keeps_the_earlier_still_and_its_file(w):
+    start(w)
+    made = state(w)["steps"]["still"]
+    kit.fail(w.tree, "renderer", "still", stderr="refused: docker_missing docker", exit=3)
+    done = ops.prepare_again(w.project, w.rid, "still")
+    assert done["ok"] is True and done["still_code"] == "docker_missing" and done["still_status"] == "done" and done["reset"] == ["still"]
+    assert state(w)["steps"]["still"] == made and stills(w) == [made["result"]["name"]] and done["still"]["name"] == made["result"]["name"]
+
+
+def test_a_remake_at_another_time_removes_the_old_file_only_after_the_new_one_is_made(w):
+    start(w)
+    first = state(w)["steps"]["still"]["result"]["name"]
+    path = w.tree / "providers" / "renderer" / "analysis-source.json"
+    doc = json.loads(path.read_text())
+    doc["silences"] = [{"start": 0.0, "end": 3.4}] + doc["silences"][1:]
+    path.write_text(json.dumps(doc))
+    os.unlink(os.path.join(w.folder, "analysis.json"))
+    with open(os.path.join(w.folder, "analysis.json"), "w", encoding="utf-8") as f:
+        json.dump(doc, f)
+    done = ops.prepare_again(w.project, w.rid, "still")
+    now = state(w)["steps"]["still"]["result"]
+    assert done["still_status"] == "done" and now["at_ms"] == 3100 and stills(w) == [now["name"]] and now["name"] != first
+
+
+def test_the_remake_is_refused_before_the_recording_is_analysed(w):
+    kit.fail(w.tree, "renderer", "analyse", times=1)
+    start(w)
+    assert state(w)["steps"].get("still") is None
+    with pytest.raises(ops.OpsError, match="already answered or not reached"):
+        ops.prepare_again(w.project, w.rid, "still")

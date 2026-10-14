@@ -221,3 +221,11 @@ def test_the_still_verb_is_listed_by_the_providers_contract_and_the_modules_that
     contract = (K.REPO / "providers" / "CONTRACT.md").read_text()
     assert "`still --in <video> --at-ms <n> --out <dir>`" in contract and "still-<sha12>.png" in contract
     assert "still" in D.RESULT_SCHEMAS and D.RESULT_SCHEMAS["still"][1].keys() == {"ok": 0, "at_ms": 0, "sha256": 0, "width": 0, "height": 0, "bytes": 0}.keys()
+
+
+def test_a_container_whose_account_differs_from_the_request_or_the_file_is_refused(world, tmp_path):
+    png = png_header() + b"x" * 40
+    for name, over in (("at", {"at_ms": 5}), ("bytes", {"bytes": len(png) + 1})):
+        rc, out, err = run_with_png(world, tmp_path / name, png, **over)
+        assert rc == 1 and err.startswith("refused: container_result_invalid still"), (name, err)
+        assert not (tmp_path / name / "out").exists()

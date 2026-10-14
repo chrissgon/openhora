@@ -557,6 +557,8 @@ def prepare_again(project: str, recording: str, step: str) -> dict:
         state = _locked_state(ctx, rid)
         _refuse_cancelled(ctx, state)
         pc = _make_context(ctx, rid, state)
+        if step in pipeline.SIDE_STEPS:
+            return _remake_side_step(ctx, rid, state, pc, step)
         marker = _resume_marker(ctx, rid, state)
         if marker is not None and pipeline.ORDER.index(step) > pipeline.ORDER.index("review"):
             step = "review"      # a video sent back from the page reopens the captions, whatever later step was asked
@@ -567,6 +569,31 @@ def prepare_again(project: str, recording: str, step: str) -> dict:
         if marker is not None:
             _clear_resume(ctx, rid, state, marker)
         return {**_run(ctx, rid, state), **reset}
+
+
+def _remake_side_step(ctx: dict, rid: str, state: dict, pc: pipeline.Context, step: str) -> dict:
+    """`prepare-again --step still`: the still alone. It touches nothing else: the page's send-back marker is not consumed (a
+    main step's prepare-again or the next media-pipeline does that), the pipeline's `failure` stays, no main step runs again
+    (a failed one is not relaunched), the decision and the task are not moved. Refused while the review is answered or the
+    recording is not analysed, before anything is changed, and the earlier still is kept when the remake is skipped."""
+    if not pipeline.side_step_due(state):
+        raise core.OpsError("the still is the picture behind the face box of the caption review, which is already answered or not reached: "
+                            "open the captions again (prepare-again --step review) and it is made there", 1)
+    try:
+        done = pipeline.remake_side_step(pc, state, step)
+    except pipeline.Cancelled:
+        return {"recording": rid, "task": state["task"], "request": state["request"], "platform": state["platform"], "ok": False, "failed": None,
+                "code": "cancelled", "field": "", "next": "", "steps": pipeline.summary(state)}
+    except pipeline.StepFailure as e:
+        raise _refusal(e) from None
+    waiting = pipeline.next_step(state)
+    out = {"recording": rid, "task": state["task"], "request": state["request"], "platform": state["platform"], "ok": True,
+           "steps": pipeline.summary(state), "still": pipeline.still_of(state), "reset": done["reset"], "still_status": done["status"]}
+    if done["code"]:
+        out["still_code"] = done["code"]
+    if waiting in pipeline.STOPS and pipeline.step_status(state, waiting) == "waiting" and state["decisions"].get(waiting):
+        out.update(stopped=waiting, pending=state["decisions"][waiting])
+    return out
 
 
 def run_active(ctx: dict, task_id: int) -> bool:

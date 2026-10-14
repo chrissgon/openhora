@@ -114,7 +114,7 @@ the plain scale of an unzoomed range down to 1080x1920), so the face box the per
 images and nothing outside the container decodes a recording: this is the one place a still is made. The recording is read with
 `-f mov -protocol_whitelist file -enable_drefs 0` and the container has every limit of `analyse` and `render`. The host stores the file as
 `still-<sha12>.png` (0400, never rewritten, the same bytes are a replay) after checking, itself, the hash, the PNG header, the 1080x1920
-size and an 8 MiB cap. An offset outside the recording is `bad_still_offset`. Test: `tests/test_renderer_still.py`, which also holds the
+size and an 8 MiB cap. An offset outside the recording is `bad_still_offset`. The host also refuses a result whose `at_ms` is not the request or whose `bytes` is not the file's size. Adding this verb changed the image definition, so the tag changed: until the maintainer runs `build --confirmed` the new tag does not exist and every renderer step reports `image_not_built` (not `image_stale`, which is for an image that exists and is older than the files). Test: `tests/test_renderer_still.py`, which also holds the
 still equal, within the codec's loss, to the render's own first picture of a range that starts at that frame.
 
 ## What the edit does

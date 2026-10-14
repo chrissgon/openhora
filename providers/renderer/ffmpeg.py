@@ -424,6 +424,8 @@ def verb_still(args) -> dict:
         candidate = os.path.join(job.root, "candidate.png")
         job.collect("still.png", candidate, max_bytes=STILL_MAX_BYTES, mode=0o400, expect_sha256=digest)
         frame = load_data()["frame"]
+        if result.get("at_ms") != args.at_ms or result.get("bytes") != os.path.getsize(candidate):
+            raise Refusal("container_result_invalid", "still")          # the container's own account must be the request and the file
         if _render.png_size(candidate) != (frame["width"], frame["height"]) or (result.get("width"), result.get("height")) != (frame["width"], frame["height"]):
             raise Refusal("container_result_invalid", "still")
         final = os.path.join(out_dir, "still-%s.png" % digest[:12])

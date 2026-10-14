@@ -809,23 +809,53 @@ def prepare_again(ctx: Context, state: dict, step: str) -> dict:
     """Start the pipeline over from `step`: that step and every later one become pending and the files they made are removed.
     From the review or before, the person's decision on a step is kept, so the captions open again as they were left;
     from `align-proposal` or before, the words are new, and the review starts over. A render stays (it is named by its
-    bytes); retention removes it. A side step (the still) is prepared alone: nothing after it is reset. Returns the steps that
+    bytes); retention removes it. A side step (the still) is not prepared here but by `remake_side_step`. Returns the steps that
     were reset."""
-    if step not in ORDER or step == "approval":
+    if step not in ORDER or step == "approval" or step in SIDE_STEPS:
         raise StepFailure("unknown_step", "step")
     start = ORDER.index(step)
-    names = (step,) if step in SIDE_STEPS else ORDER[start:]
-    reset = [n for n in names if n in state["steps"]]
-    for name in names:
+    reset = [n for n in ORDER[start:] if n in state["steps"]]
+    for name in ORDER[start:]:
         _remove_outputs(ctx, name, state)
         state["steps"].pop(name, None)
         state["decisions"].pop(name, None)
-    if step not in SIDE_STEPS and start <= ORDER.index(REVIEW_FILES_RESET_UP_TO):
+    if start <= ORDER.index(REVIEW_FILES_RESET_UP_TO):
         remove(ctx.path(EDITED))
         remove(ctx.path(REVIEW))
     state["failure"] = None
     save_state(ctx, state)
     return {"reset": reset}
+
+
+def side_step_due(state: dict) -> bool:
+    """Whether a side step can be made now: the recording is analysed and the review is not answered."""
+    return step_status(state, "analyse") == "done" and step_status(state, "review") != "done"
+
+
+def remake_side_step(ctx: Context, state: dict, name: str) -> dict:
+    """Make a side step again, alone: nothing else is reset, the pipeline's `failure` and the decisions are not touched, and no main
+    step runs. The step that was there is kept until the new one is made: when the remake is skipped the earlier result and its
+    file stay, so a still is never deleted unless another stands in its place. Returns {"reset": [name] or [], "status",
+    "code"} where `code` is the closed code of a skipped remake. StepFailure `unknown_step` while the recording is not analysed
+    or the review is answered (the operation refuses that first, with a sentence; this is the guard behind it)."""
+    if name not in SIDE_STEPS:
+        raise StepFailure("unknown_step", "step")
+    if not side_step_due(state):
+        raise StepFailure("unknown_step", name)
+    previous = state["steps"].pop(name, None)
+    side_step(ctx, state, name)
+    made = state["steps"].get(name) or {}
+    old_name = ((previous or {}).get("result") or {}).get("name") if (previous or {}).get("status") == "done" else None
+    code = None
+    if made.get("status") == "done":
+        if isinstance(old_name, str) and STILL_FILE.fullmatch(old_name) and old_name != made["result"].get("name"):
+            remove(ctx.path(old_name))
+    else:
+        code = (made.get("result") or {}).get("code")
+        if previous is not None and (previous.get("status") == "done"):
+            state["steps"][name] = previous          # the earlier still stands: nothing was deleted
+            save_state(ctx, state)
+    return {"reset": [name] if previous is not None else [], "status": (state["steps"].get(name) or {}).get("status", "pending"), "code": code}
 
 
 SCRIPT_BLOCK = re.compile(r"^```script[ \t]*$", re.M)
