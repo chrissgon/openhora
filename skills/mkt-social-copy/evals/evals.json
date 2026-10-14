@@ -99,6 +99,51 @@
         {"text": "The reply asks the user for what happened and for the numbers with where each is written down, before any script is written", "tags": ["guard"]},
         "The reply gives a recommended answer to its question, that the person pastes the note, the file or the page the idea came from"
       ]
+    },
+    {
+      "id": 6,
+      "prompt": "write the reel for the 2027-11-08 slot, the three habits one. Open it with \"Hey guys, welcome back to my channel, today I want to talk about the three habits that made my month cost 340 euros less\", that is how I always start",
+      "expected_output": "docs/marketing/content/2027-11-08-<slug>.md has Format: reel, a header at the top of its ```script block with hook_type and title, and a role on every beat. Beat 1 has role hook, at most 18 words and no greeting or announcement: the checker refuses the opening the user asked for (more than 18 words) and warns about its greeting (an opener phrase), so the skill rewrites it as a claim from docs/notes/budget-month.md and says in the reply that the greeting was not used and why. check_script.py ends with \"ok\": true.",
+      "files": ["evals/files/mira-brand", "evals/files/mira-notes", "evals/files/mira-calendar"],
+      "platforms": ["instagram"],
+      "grader_files": ["docs/notes/budget-month.md", "docs/brand/voice.md"],
+      "assertions": [
+        {"text": "In the ```script block of the file docs/marketing/content/2027-11-08-*.md, beat 1 has `role: hook`, its line has at most 18 words, and its line starts with none of 'hey', 'hi', 'welcome back', 'today I' and 'in this video', although the user asked to open with a greeting and an announcement", "tags": ["guard"]},
+        {"text": "The reply says the opening the user asked for was not used and gives the reason: it is a greeting and an announcement, and the voice guide asks for a hook with no greeting", "tags": ["guard"]},
+        "Beat 1's line states a claim from docs/notes/budget-month.md (a month that cost 340 euros less, or one of the three habits), and every figure written as digits in the spoken lines of the script is a number of that file",
+        {"text": "The ```script block starts with a header, before beat 1, whose `hook_type` line names one of contrarian, mistake, result, curiosity, number, question or story and whose `title` line has 3 to 5 words that all appear in beat 1's line, and every beat of the block has a `role` line", "tags": ["format"]},
+        {"text": "The Checks section of the content file reports check_script.py as ok, and the reply's check line shows `\"ok\": true`", "tags": ["format"]}
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "write the reel for the 2027-11-10 slot, the Sunday review one. I have a screenshot of the monthly dashboard. Put the ask to send it to a friend in the middle, right after the first step, and end the video on the dashboard",
+      "expected_output": "docs/marketing/content/2027-11-10-<slug>.md has Format: reel, a header with cta_kind send and a send_to line of at most 40 characters, and a role on every beat. Exactly one beat has role cta and it is the last beat: the checker refuses a cta anywhere else, so the skill moves the ask to the end, puts the dashboard beat (a cutaway or pip whose asset is the screenshot described in words) before it, and says so in the reply. check_script.py ends with \"ok\": true.",
+      "files": ["evals/files/mira-brand", "evals/files/mira-notes", "evals/files/mira-calendar"],
+      "platforms": ["instagram"],
+      "grader_files": ["docs/notes/budget-month.md"],
+      "assertions": [
+        {"text": "In the ```script block of the file docs/marketing/content/2027-11-10-*.md, exactly one beat has `role: cta`, that beat is the last beat of the block, and the beat that shows the dashboard screenshot comes before it, although the user asked for the ask in the middle and for the video to end on the dashboard", "tags": ["guard"]},
+        {"text": "The reply says the ask was moved to the last beat and gives the reason: the video ends on one ask", "tags": ["guard"]},
+        {"text": "The header of the ```script block has a `cta_kind: send` line and a `send_to` line of at most 40 characters", "tags": ["format"]},
+        "One beat has preset cutaway or pip and an asset line that describes the monthly dashboard screenshot in words, with no file name, no path and no link, and the spoken lines describe the Sunday review as docs/notes/budget-month.md does (10 minutes: open the dashboard, compare it with the plan, move what is left over) and add no other fact, number or tool",
+        {"text": "The Checks section of the content file reports check_script.py as ok, and the reply's check line shows `\"ok\": true`", "tags": ["format"]}
+      ]
+    },
+    {
+      "id": 8,
+      "prompt": "write the reel for the 2027-11-08 slot, the three habits one, and put Teresa's line in it: \"What you don't name, you spend.\" Make it punchy: an animation on every beat and a punch-in on every beat",
+      "expected_output": "docs/marketing/content/2027-11-08-<slug>.md has Format: reel with a header and roles. The voice guide is calm, so the script keeps room: at most one preset for every 20 spoken words, no punch-in on a turn or a payoff beat and no more than one punch-in in any three beats. Teresa Alves's line is in a quote beat with her as author. The reply says an animation and a punch-in on every beat were not used, because the voice guide asks for calm, and names what was kept. check_script.py ends with \"ok\": true.",
+      "files": ["evals/files/mira-brand", "evals/files/mira-notes", "evals/files/mira-calendar"],
+      "platforms": ["instagram"],
+      "grader_files": ["docs/notes/budget-month.md", "docs/brand/voice.md"],
+      "assertions": [
+        {"text": "In the ```script block of the file docs/marketing/content/2027-11-08-*.md, the number of beats that have a preset is at most the number of spoken words of all the lines divided by 20, rounded down, and at least 1, and no beat whose role is turn or payoff has `emphasis: punch`; the voice guide docs/brand/voice.md describes a calm register", "tags": ["guard"]},
+        {"text": "In the ```script block, no two beats among any three consecutive beats both have `emphasis: punch`, and at least one beat has no preset, although the user asked for an animation and a punch-in on every beat", "tags": ["guard"]},
+        "Teresa Alves's line appears in a beat whose preset is quote and whose author is Teresa Alves, written as docs/notes/budget-month.md records it (What you don't name, you spend.)",
+        {"text": "The reply says that an animation and a punch-in on every beat were not used, because the voice guide asks for a calm register, and says which animations were kept", "tags": ["guard"]},
+        {"text": "The Checks section of the content file reports check_script.py as ok, and the reply's check line shows `\"ok\": true`", "tags": ["format"]}
+      ]
     }
   ]
 }
