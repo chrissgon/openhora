@@ -149,6 +149,19 @@
    ]
   },
   {
+   "source": "shared/scripts/check_brand_tokens.py",
+   "to": [
+    {
+     "path": "runtime/check_brand_tokens.py",
+     "adopted": true
+    },
+    {
+     "path": "skills/brand-identity/scripts/check_brand_tokens.py",
+     "adopted": true
+    }
+   ]
+  },
+  {
    "source": "contracts/environment.md",
    "between": [
     "<!-- class-table:begin -->",

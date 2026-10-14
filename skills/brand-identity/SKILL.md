@@ -19,7 +19,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: [search:web]
   side_effects: []
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Brand identity
@@ -87,11 +87,11 @@ Progress:
   Exit 1 means at least one pair fails; the JSON is still printed. Turn every failure into a usage rule with its ratio (for example "the accent on white only for large text"); never drop a failing pair silently.
 - [ ] Step 6: Formats. For each piece, the pixel size and the safe area, with the source. For a piece on a platform, start from what its reference says about that piece (size, the areas the interface covers) and keep the reference's label (`not checked`); confirm it on the platform's own help page when you can read it, citing the URL and the date. When you cannot (no `search:web`, the page does not load), write the source as `secondary, unverified` and add an open question to confirm it. Leave out the areas the interface covers.
 - [ ] Step 7: Build the first piece from [assets/piece-template.html](assets/piece-template.html), set to the size and safe area of step 6, in at least three variants (for example dark, light, accent background) that share the layout and differ in mode. Write it to `docs/brand/pieces/<piece>.html` (one file that selects the variant with `?v=<variant>`) or `docs/brand/pieces/<piece>-<variant>.html` (one file per variant). Text inside the piece comes from the strategy or the voice; code shown in it names things that exist in the person's products. A post image starts from [assets/post-card-template.html](assets/post-card-template.html).
-- [ ] Step 8: Write the draft of `docs/brand/identity.md` from the template now, before showing anything, so that the run never stops without it: everything decided so far (base, colours with their usage rules, typography, elements, formats, the ```brand-tokens JSON block), status `draft`, the date from `date +%F`, and the open choice recorded in "First piece" as `awaiting choice` with the variants on offer. In the `Production:` line write the script's name and its arguments, never its path. Register it in the state file's Artifacts table as `brand-identity`, status `draft`.
+- [ ] Step 8: Write the draft of `docs/brand/identity.md` from the template now, before showing anything, so that the run never stops without it: everything decided so far (base, colours with their usage rules, typography, elements, formats, the closed ```brand-tokens JSON block of "Tokens" below, with `"status": "draft"`), status `draft`, the date from `date +%F`, and the open choice recorded in "First piece" as `awaiting choice` with the variants on offer. In the `Production:` line write the script's name and its arguments, never its path. Register it in the state file's Artifacts table as `brand-identity`, status `draft`.
 - [ ] Step 9: Render each variant at the exact size: `python3 <this skill's folder>/scripts/render.py --html docs/brand/pieces/<piece>.html --width <W> --height <H> --query v=<variant> --out docs/brand/pieces/<piece>-<variant>.png` (self-contained HTML only; it checks the PNG size; `--help` for `--fill` and `--font-face`). Exit 3 means no browser: deliver the HTML files and the exact size. Look at every render yourself; when you cannot open images, say so in the reply and rely on the width and height `render.py` printed.
-- [ ] Step 10: Self-check against "Quality criteria": list every number, name and claim in the identity and where it came from; remove or label what has no origin. Fix, then re-check.
+- [ ] Step 10: Check the tokens block: `python3 <this skill's folder>/scripts/check_brand_tokens.py --file docs/brand/identity.md`. Exit 1 means at least one problem, printed as a code and a field (for example `bad_color color.accent.dark`); fix the block and run it again until it prints `"ok": true`. Then self-check against "Quality criteria": list every number, name and claim in the identity and where it came from; remove or label what has no origin. Fix, then re-check.
 - [ ] Step 11: Reply with the reply template, and ask which variant to keep: Stop rule 4. The self-check comes before the reply, never after it.
-- [ ] Step 12: When the person has chosen (a later message), complete the file: the variant chosen in "First piece" and whatever the choice changes (for example the default mode). When they apply it, ask for a screenshot of the real placement, check the safe area against it and write the date applied. Status stays `draft` until the person approves the identity itself, not only the piece.
+- [ ] Step 12: When the person has chosen (a later message), complete the file: the variant chosen in "First piece" and whatever the choice changes (for example the default mode). When they apply it, ask for a screenshot of the real placement, check the safe area against it and write the date applied. Status stays `draft` until the person approves the identity itself, not only the piece. When they do, write `approved (<date>)` on the Status line and set `"status": "approved"` in the block, then run the step 10 command again: a pipeline that renders video reads the block and refuses a draft identity.
 
 ## Output template
 
@@ -121,8 +121,14 @@ Usage rules: <one per contrast result from contrast.py, with the ratio>
 Production: HTML rendered to PNG with `render.py` (script of brand-identity); sources in docs/brand/pieces/
 ## Tokens
 ```brand-tokens
-{"mode_default": "...", "color": {...}, "font": {...}}
+{"version": 1, "status": "draft", "mode_default": "dark",
+ "color": {"bg": {"dark": "#RRGGBB", "light": "#RRGGBB"}, "fg": {"dark": "#RRGGBB", "light": "#RRGGBB"},
+           "muted": {"dark": "#RRGGBB", "light": "#RRGGBB"}, "accent": {"dark": "#RRGGBB", "light": "#RRGGBB"},
+           "surface": {"dark": "#RRGGBB", "light": "#RRGGBB"}},
+ "font": {"display": {"family": "<name>", "weight": 800}, "body": {"family": "<name>", "weight": 500},
+          "mono": {"family": "<name>", "weight": 500}}}
 ```
+The block is closed: no other key and no other role. Roles: `bg` the page background; `fg` the text on it; `muted` the secondary text; `accent` the one accent colour; `surface` the fill of a card or badge (leave it out when the identity has none). Each holds `dark` and `light`, copied from the Colours table row of that role, six hex digits (`#RRGGBB`) and nothing else. Fonts: `display` the titles; `body` the running text; `mono` the labels and code (leave it out when there is none). `family` and `weight` are copied from the Typography table. `status` is `draft` or `approved`, the same as the Status line. `bg`, `fg`, `muted`, `accent`, `display` and `body` are required.
 ## Open questions
 1. <question> Recommended: <answer>
 ## Assumptions
@@ -136,6 +142,7 @@ Reply template. The evidence lines are copied from what the commands printed, ne
 ## Identity: <name> (draft)
 - Files: docs/brand/identity.md; docs/brand/pieces/<piece>.html; <each PNG with its width x height>
 - Contrast: `contrast.py` → <one line per failing pair: name, ratio, the usage rule> | every pair passes
+- Tokens: `check_brand_tokens.py` → `"ok": true` | <each problem it printed: code and field>
 - Render: `render.py --html docs/brand/pieces/<piece>.html --width <W> --height <H> --query v=<variant>` → `"width": <W>, "height": <H>`, one line per variant | exit 3: no browser, HTML delivered
 - Formats: <piece, size, source or `secondary, unverified`>
 - Files changed: <the lines `git status --short` printed, copied; `none` when it printed nothing>
@@ -154,7 +161,7 @@ Approve the identity only if all of the following hold:
 - Every typeface names its licence with the URL of the licence file that was read, or is marked `not checked` with an open question.
 - Every format has a size and a safe area with a source; secondary and unverified sources are labelled.
 - The pieces are in `docs/brand/pieces/`, rendered at the exact size when a browser was found, and the variant is the person's choice, never picked for them.
-- The tokens block is valid JSON and matches the tables.
+- The tokens block passes `check_brand_tokens.py` (closed roles, `#RRGGBB` values, a family and a weight per font role, `status` equal to the Status line) and matches the tables: each colour role holds the dark and light values of its row of the Colours table, and each font role the family and weight of its row of the Typography table.
 - Every number, name and claim in the identity has its origin in an input, the user's words, a tool result or a script output, or is listed under "Assumptions".
 
 ## Gotchas
