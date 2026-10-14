@@ -153,22 +153,101 @@ def real_words(words: list, silences=None) -> list:
     return [w for w in words if coverage(w["start"], w["end"], silences) < PHANTOM]
 
 
-def cut_phantoms(words: list, kept: list, fps: int, silences) -> list:
-    """The live words that are phantoms (silence covers PHANTOM of their span, see real_words) and that the cut left out: a kept range
-    holds less than half of the word. They were cut with the silence they sit in, so they are not captions (a caption snapped to the
-    edge of the cut would be shown with no sound under it). A phantom that a kept range holds in full or in most (the soft first word
-    after a long cut) stays, and so does a word whose times were estimated (zero-length in the transcript)."""
-    if not silences:
-        return []
+RETIME_MIN = 0.12           # the shortest a re-timed word is spread to
+RETIME_ROOM = 0.05         # a voiced span shorter than this per word holds no word
+
+
+def _joined(silences) -> list:
     out = []
-    for w in words:
-        if w.get("dropped") or w.get("estimated") or coverage(w["start"], w["end"], silences) < PHANTOM:
-            continue                                     # a word whose times were estimated has no times to judge it by: it stays
-        span = max(w["end"] - w["start"], 1e-6)
-        held = sum(max(0.0, min(w["end"], b / fps) - max(w["start"], a / fps)) for a, b in kept)
-        if held < 0.5 * span:
-            out.append(w)
+    for s, e in sorted(silences):                 # touching intervals are one silence (see kept_ranges)
+        if out and s - out[-1][1] <= 0.1:
+            out[-1] = (out[-1][0], max(out[-1][1], e))
+        else:
+            out.append((s, e))
     return out
+
+
+def _range_at(kept: list, fps: int, t: float):
+    """(lo, hi) seconds of the kept range that holds t, else None."""
+    for a, b in kept:
+        if a / fps - 1e-6 <= t <= b / fps + 1e-6:
+            return a / fps, b / fps
+    return None
+
+
+def retime_misplaced(words: list, kept: list, fps: int, silences) -> tuple:
+    """A word that silence covers by PHANTOM or more is misplaced, not absent: a transcriber squeezes the words of a stretch it could not
+    time into the quiet next to it (the opening words of a take into the leading silence, a few words of a sentence into the pause after
+    them). The sound of those words is in the recording and is kept, so their captions are too, at the right time. A word whose times
+    were estimated (zero-length in the transcript) has no times to judge by and is left as it is.
+
+    Each run of consecutive such words (in `words`, the live ones, in index order) is moved into the voiced span next to it, and
+    `words` is changed in place (`start`, `end`, `retimed`):
+      after   when a live word follows the run inside the kept range that holds the end of the silence, with room for the run
+              (RETIME_MIN per word): the run is spread evenly from the end of the silence up to that word's start. When the next
+              live word is too close (the transcriber timed it before the sound starts), the run takes that word in and the next,
+              until there is room: those words are moved too;
+      before  else, when a live word precedes the run inside the kept range that holds the start of the silence: spread evenly over
+              the span from that word's end to the start of the silence (at least RETIME_ROOM per word);
+      none    else: the words are unplaced and returned, to be left out of the captions.
+    Every word keeps its transcript index. Returns ([{index, from, to}], [unplaced words]); no silence found means no words moved."""
+    if not silences:
+        return [], []
+    sil = _joined(silences)
+
+    def silence_of(w):
+        best, best_cov = None, 0.0
+        for s, e in sil:
+            cov = max(0.0, min(w["end"], e) - max(w["start"], s))
+            if cov > best_cov:
+                best, best_cov = (s, e), cov
+        return best
+
+    flagged = [bool(not w.get("estimated") and w["end"] > w["start"] and coverage(w["start"], w["end"], silences) >= PHANTOM) for w in words]
+    retimed, unplaced = [], []
+    k = 0
+    while k < len(words):
+        if not flagged[k]:
+            k += 1
+            continue
+        j = k
+        while j + 1 < len(words) and flagged[j + 1]:
+            j += 1
+        prv = words[k - 1] if k > 0 else None
+        s_first, s_last = silence_of(words[k]), silence_of(words[j])
+        placed, last = None, j
+        if s_last is not None:
+            v = s_last[1]
+            rng = _range_at(kept, fps, v)
+            while rng is not None:
+                nxt = words[last + 1] if last + 1 < len(words) else None
+                if nxt is None or nxt["start"] > rng[1] + 1e-6:
+                    break
+                n = last - k + 1
+                if nxt["start"] - v >= RETIME_MIN * n:
+                    slot = (nxt["start"] - v) / n
+                    placed = [(v + m * slot, v + (m + 1) * slot) for m in range(n)]
+                    break
+                last += 1
+        if placed is None:
+            last = j
+            if prv is not None and s_first is not None:
+                rng = _range_at(kept, fps, s_first[0])
+                if rng is not None:
+                    lo, hi = max(prv["end"], rng[0]), min(s_first[0], rng[1])
+                    n = j - k + 1
+                    if hi - lo >= RETIME_ROOM * n:
+                        slot = (hi - lo) / n
+                        placed = [(lo + m * slot, lo + (m + 1) * slot) for m in range(n)]
+        run = words[k:last + 1]
+        if placed is None:
+            unplaced.extend(words[k:j + 1])
+        else:
+            for w, (a, b) in zip(run, placed):
+                retimed.append({"index": w["index"], "from": [round(w["start"], 3), round(w["end"], 3)], "to": [round(a, 3), round(b, 3)]})
+                w["start"], w["end"], w["retimed"] = round(a, 4), round(b, 4), True
+        k = last + 1
+    return retimed, unplaced
 
 
 def protected_spans(words: list, silences=None) -> list:
@@ -438,7 +517,7 @@ def src_to_out_seconds(kept: list, fps: int, t: float) -> float:
 
 def build_words(words: list, kept: list, fps: int, skip=()) -> list:
     """The live words on the output timeline: {index, text, start, end[, estimated]}, times in seconds, 3 decimals. `skip` is a set of
-    word indices left out (the phantoms the cut took, see cut_phantoms)."""
+    word indices left out (the words retime_misplaced found no voiced span for)."""
     rows = []
     for w in words:
         if w["dropped"] or w["index"] in skip:

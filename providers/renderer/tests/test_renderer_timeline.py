@@ -392,34 +392,65 @@ def test_touching_silences_are_one_silence():
     assert one == split and one[0][0] / FPS == pytest.approx(1.9, abs=0.04)
 
 
-def test_a_phantom_word_in_the_middle_of_speech_is_cut_with_its_silence_and_is_no_caption_but_is_reported():
-    """A transcriber puts "ok" into a pause: silence covers it, the cut takes it, and it must not come back as a caption word snapped to
-    a zero-length point at the cut's edge. The result lists it (index and source times, never its text) for the caption review."""
-    spans = [("Hello", 0.6, 1.0), ("there", 1.0, 1.4), ("ok", 2.0, 2.3), ("again", 3.5, 3.9), ("friend.", 3.95, 4.4)]
-    doc = {"schema_version": 1, "language": "en", "duration": 6.0, "facts": K.facts_block(),
-           "words": [{"index": k, "text": t, "start": a, "end": b, "segment": 0 if k < 2 else 1 if k == 2 else 2} for k, (t, a, b) in enumerate(spans)],
-           "segments": [{"index": 0, "start": 0.6, "end": 1.4, "text": "Hello there", "first_word": 0, "last_word": 1},
-                        {"index": 1, "start": 2.0, "end": 2.3, "text": "ok", "first_word": 2, "last_word": 2},
-                        {"index": 2, "start": 3.5, "end": 4.4, "text": "again friend.", "first_word": 3, "last_word": 4}]}
-    analysis = {"facts": {"duration": 6.0, "sha256": "a" * 64, "width": 1080, "height": 1920, "has_audio": True},
-                "silences": [{"start": 0.0, "end": 0.5}, {"start": 1.55, "end": 3.4}, {"start": 4.6, "end": 6.0}]}
-    edl, _ = _edl.build_base(doc, analysis, DATA, {})
-    assert [w["text"] for w in edl["words"]] == ["Hello", "there", "again", "friend."]
-    assert edl["normalisation"]["phantom_words"] == [{"index": 2, "start": 2.0, "end": 2.3}]
-    assert all(w["end"] > w["start"] for w in edl["words"])                                       # no word snapped to a point
-    live = {w["index"] for w in edl["words"]}
-    assert 2 not in live and all(a in live and b in live for a, b in edl["captions"]["chunks"])
-    assert not any(a / FPS <= 2.15 < b / FPS for a, b in edl["kept"])                              # the silence under it was cut
+def transcript_of(spans, duration):
+    """A transcript with one segment per run of words: spans is [(text, start, end)]."""
+    return {"schema_version": 1, "language": "en", "duration": duration, "facts": K.facts_block(),
+            "words": [{"index": k, "text": t, "start": a, "end": b, "segment": 0} for k, (t, a, b) in enumerate(spans)],
+            "segments": [{"index": 0, "start": spans[0][1], "end": spans[-1][2], "text": " ".join(t for t, _, _ in spans), "first_word": 0,
+                          "last_word": len(spans) - 1}]}
+
+
+def base_of(spans, silences, duration):
+    analysis = {"facts": {"duration": duration, "sha256": "a" * 64, "width": 1080, "height": 1920, "has_audio": True},
+                "silences": [{"start": a, "end": b} for a, b in silences]}
+    edl, _ = _edl.build_base(transcript_of(spans, duration), analysis, DATA, {})
+    return edl
+
+
+def test_opening_words_squeezed_into_the_leading_silence_are_retimed_after_it_and_keep_their_captions():
+    """The transcriber put the opening hook (3 words) into the leading silence, 0.0 to 1.2 s; the person said it after 2.0 s. The words keep
+    their captions and indices, are moved into the voiced span after the silence (up to the next live word), and the first caption
+    is the first word."""
+    spans = [("You", 0.0, 0.4), ("know", 0.4, 0.8), ("what", 0.8, 1.2), ("Naruto", 3.0, 3.4), ("said.", 3.45, 3.9)]
+    edl = base_of(spans, [(0.0, 2.0), (4.2, 6.0)], 6.0)
+    assert [w["index"] for w in edl["words"]] == [0, 1, 2, 3, 4]
+    assert edl["captions"]["chunks"][0][0] == 0
+    moved = edl["normalisation"]["retimed_words"]
+    assert [m["index"] for m in moved] == [0, 1, 2] and edl["normalisation"]["unplaced_words"] == []
+    assert moved[0]["from"] == [0.0, 0.4] and moved[0]["to"][0] == pytest.approx(2.0) and moved[-1]["to"][1] <= 3.0 + 1e-6
+    assert all(m["to"][1] - m["to"][0] >= 0.12 - 1e-6 for m in moved)                           # the minimum word length
+    by = {w["index"]: w for w in edl["words"]}
+    assert by[0]["start"] < by[1]["start"] < by[2]["start"] < by[3]["start"] and by[0]["start"] < 0.3         # on the output timeline, near its start
+    assert all(w["end"] > w["start"] for w in edl["words"])
     _edl.check_edl(edl, DATA, VOCAB, {})
 
 
-def test_a_phantom_that_a_kept_range_holds_stays_a_caption():
-    """The soft first word after a long cut is a phantom to the cut planner, but the range starts at it: it stays."""
-    spans = [(0, "end.", 88.5, 89.3), (1, "Por", 105.66, 105.83), (2, "example,", 105.83, 106.34), (3, "we", 106.34, 106.62)]
-    ws = [lw(i, t, a, b) for i, t, a, b in spans]
-    sil = [(0.0, 88.4), (89.45, 104.735), (105.577, 106.001), (106.9, 110.0)]
-    kept = T.kept_ranges(ws, 110.0, FPS, sil)
-    assert T.cut_phantoms(ws, kept, FPS, sil) == [] and T.cut_phantoms(ws, kept, FPS, None) == []
+def test_a_run_of_words_squeezed_into_a_pause_in_the_middle_of_speech_is_retimed_after_the_pause():
+    spans = [("Hello", 0.6, 1.0), ("there", 1.0, 1.4), ("ok", 2.0, 2.3), ("again", 3.9, 4.3), ("friend.", 4.35, 4.8)]
+    edl = base_of(spans, [(0.0, 0.5), (1.55, 3.4), (5.0, 6.0)], 6.0)
+    assert [w["text"] for w in edl["words"]] == ["Hello", "there", "ok", "again", "friend."]
+    assert edl["normalisation"]["retimed_words"] == [{"index": 2, "from": [2.0, 2.3], "to": [3.4, 3.9]}]
+    assert edl["normalisation"]["unplaced_words"] == []
+    by = {w["index"]: w for w in edl["words"]}
+    assert by[1]["end"] <= by[2]["start"] <= by[3]["start"]                                       # in order on the output timeline
+    _edl.check_edl(edl, DATA, VOCAB, {})
+
+
+def test_a_word_with_no_voiced_span_in_its_range_is_dropped_and_reported():
+    spans = [("Hello", 0.6, 1.0), ("there.", 1.0, 1.58), ("bye", 4.0, 4.3)]
+    edl = base_of(spans, [(0.0, 0.5), (1.6, 6.0)], 6.0)
+    assert [w["text"] for w in edl["words"]] == ["Hello", "there."]
+    assert edl["normalisation"]["unplaced_words"] == [{"index": 2, "start": 4.0, "end": 4.3}] and edl["normalisation"]["retimed_words"] == []
+    _edl.check_edl(edl, DATA, VOCAB, {})
+
+
+def test_a_word_squeezed_into_a_pause_with_voiced_sound_before_it_goes_before_the_pause_when_nothing_follows():
+    ws = [lw(0, "end", 1.0, 1.3), lw(1, "ok", 3.0, 3.3)]
+    kept = [[15, 60]]                                                                              # 0.5 to 2.0 s
+    moved, unplaced = T.retime_misplaced(ws, kept, FPS, [(1.5, 6.0)])
+    assert unplaced == [] and moved == [{"index": 1, "from": [3.0, 3.3], "to": [1.3, 1.5]}]
+    assert (ws[1]["start"], ws[1]["end"], ws[1]["retimed"]) == (1.3, 1.5, True)
+    assert T.retime_misplaced([lw(0, "x", 1.0, 1.3)], kept, FPS, None) == ([], [])
 
 
 def test_a_confirmed_retake_that_an_extended_long_cut_swallows_keeps_its_forced_flag():
@@ -444,8 +475,24 @@ def test_an_edit_list_of_version_one_is_refused_with_its_own_code():
     assert refused(_edl.check_edl, old, DATA, VOCAB, {}).code == "schema_version"
 
 
-def test_a_word_with_estimated_times_is_never_cut_as_a_phantom():
-    ws = [lw(0, "end.", 1.0, 1.4), dict(lw(1, "last.", 2.0, 2.3), estimated=True)]
-    sil = [(1.5, 3.0)]
-    assert T.cut_phantoms(ws, [[0, 45]], FPS, sil) == []
-    assert [w["text"] for w in T.cut_phantoms([ws[0], lw(1, "last.", 2.0, 2.3)], [[0, 45]], FPS, sil)] == ["last."]
+def test_an_edit_list_of_version_one_is_refused_with_its_own_code():
+    doc = K.build_transcript()
+    analysis = {"facts": {"duration": doc["duration"], "sha256": "a" * 64, "width": 1080, "height": 1920, "has_audio": True}, "silences": None}
+    edl, _ = _edl.build_base(doc, analysis, DATA, {})
+    assert edl["schema_version"] == 2
+    old = copy.deepcopy(edl)
+    old["schema_version"] = 1
+    assert refused(_edl.check_edl, old, DATA, VOCAB, {}).code == "edl_schema_outdated"
+    old["schema_version"] = 3
+    assert refused(_edl.check_edl, old, DATA, VOCAB, {}).code == "schema_version"
+
+
+def test_when_the_next_live_word_is_timed_before_the_sound_starts_the_run_takes_it_in_until_there_is_room():
+    """The shape of a real opening: five words squeezed into the leading silence, and the next word timed at 1.94, six milliseconds before
+    the silence ends: there is no span between the silence and it, so the words that follow are moved too, until the run has room."""
+    ws = [lw(0, "a", 0.0, 0.4), lw(1, "b", 0.4, 0.8), lw(2, "c", 0.8, 1.2), lw(3, "next", 1.94, 2.47), lw(4, "after", 2.47, 2.98), lw(5, "then", 2.98, 3.76)]
+    kept = [[55, 150]]                                                                             # 1.83 to 5.0 s
+    moved, unplaced = T.retime_misplaced(ws, kept, FPS, [(0.0, 1.946)])
+    assert unplaced == [] and [m["index"] for m in moved] == [0, 1, 2, 3]                        # the three, and the word timed too early
+    assert ws[0]["start"] == pytest.approx(1.946, abs=1e-3) and ws[3]["end"] == pytest.approx(2.47, abs=1e-3) and ws[4]["start"] == 2.47
+    assert all(a["end"] <= b["start"] + 1e-6 and b["end"] - b["start"] >= 0.12 for a, b in zip(ws, ws[1:]))

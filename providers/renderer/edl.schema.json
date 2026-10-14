@@ -24,7 +24,7 @@
       "properties": {
         "schema_version": {
           "const": 2,
-          "description": "2: zoom.anchor_y is required and normalisation lists phantom_words. A version 1 list is refused (edl_schema_outdated): make it again with `base`."
+          "description": "2: zoom.anchor_y is required and normalisation lists retimed_words and unplaced_words. A version 1 list is refused (edl_schema_outdated): make it again with `base`."
         },
         "fps": {
           "type": "integer",
@@ -171,7 +171,7 @@
         },
         "normalisation": {
           "type": "object",
-          "description": "Counts of what was done to the transcript's times (zero-length words spread, starts clamped, segments dropped as impossible speech) and phantom_words, the words the cut took with the silence they sit in ({index, start, end} in source seconds, no caption): facts, never text."
+          "description": "Counts of what was done to the transcript's times (zero-length words spread, starts clamped, segments dropped as impossible speech) retimed_words (a word that silence covers is misplaced, not absent: it is moved into the voiced span next to it, {index, from, to} in source seconds) and unplaced_words (no voiced span: left out of the captions, {index, start, end}): facts, never text."
         },
         "face_box": {
           "type": "object",
