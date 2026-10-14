@@ -389,7 +389,7 @@ def test_over_a_real_socket_a_range_is_answered_206_with_exactly_the_bytes_and_t
     assert status == 416 and head["Content-Range"] == f"bytes */{len(one['bytes'])}"
     status, _, body = fetch(running.port, path, Range="bytes=-16")
     assert status == 206 and body == one["bytes"][-16:]
-    assert world.svc.video_gate.acquire(blocking=False)
+    assert world.svc.video_gate.acquire(timeout=2)
     world.svc.video_gate.release()
 
 
@@ -568,3 +568,17 @@ def test_a_head_request_never_gets_a_streamed_body(world, one):
     assert gave == [1] and body.closed, "the file and the gate are still given back"
     # and the service answers HEAD with 405 before any route: no file is opened for it
     assert service.handle(world.svc, "HEAD", render_path(world, one["sha"]), headers(), b"")[0] == 405
+
+
+def test_the_gate_is_given_back_before_the_last_block_is_written_so_no_reader_can_hold_the_whole_body_first(world, one, monkeypatch):
+    monkeypatch.setattr(service, "SERVE_CHUNK", 64 * 1024)
+    status, head, body = service.handle(world.svc, "GET", render_path(world, one["sha"]), headers(), b"")
+    assert status == 200 and not world.svc.video_gate.acquire(blocking=False)
+    seen = []
+    for block in body.chunks(64 * 1024):
+        seen.append((len(block), body.closed))
+    assert sum(n for n, _ in seen) == len(one["bytes"]) and len(seen) > 2
+    assert [closed for _, closed in seen[:-1]] == [False] * (len(seen) - 1) and seen[-1][1] is True, "closed with the last block in hand"
+    assert world.svc.video_gate.acquire(blocking=False), "the gate was free when the last block was handed to the socket"
+    world.svc.video_gate.release()
+    body.close()

@@ -641,6 +641,8 @@ class FileBody:
             if not block:
                 break
             left -= len(block)
+            if left <= 0:
+                self.close()      # the last block is in memory: the file and the gate are given back before it is written, so no reader can hold the whole body while the gate is still held
             yield block
 
     def read_all(self) -> bytes:
