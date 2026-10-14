@@ -1,0 +1,493 @@
+#!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.9"
+# dependencies = []
+# ///
+"""The operations of the media pipeline (runtime/pipeline.py) and of the caption review (runtime/captions.py): `media-pipeline`,
+`captions-read`, `captions-edit`, `captions-done` and `prepare-again`. A sibling of runtime/ops.py, which exposes each of them
+under its name; no shell imports this file. The names every module of the layer shares are read as `core.<name>`.
+
+  media_pipeline(project, recording, post, platform, request)   take a recording that is in the media store through the
+                                   steps up to its rendered video and its cover, and stop with the task waiting. A code task
+                                   (a task of a request with no skill, key `media:<recording id>`) carries it and the
+                                   decisions. A step already done is not run again; a failed one is run again from there.
+                                   The first call links the post file to the platform when `post` is given. A job: it takes
+                                   minutes. No model is called.
+  captions_read(project, recording)   the caption review the page shows: the transcript as caption chunks, the retakes
+                                   proposed, the words whose timing was adjusted, each beat with its matched words and
+                                   score, the words left out. The person's own words leave here, so it answers the
+                                   terminal and the loopback page only (the table: no `mcp`, no `messaging`).
+  captions_edit(project, recording, revision, edits)   the person's changes to words (edit, split, merge, delete), their
+                                   answers on the retakes, anchors, dropped overlays, an empty slot's choice, the face box and
+                                   the cover's offset, all re-mapped by code (runtime/captions.py). No time can be given.
+  captions_done(project, recording, revision)   the person says the captions are right: the decision is answered, with no
+                                   text in it, and the pipeline goes on from the re-map. A job.
+  prepare_again(project, recording, step)   start over from a named step (the person's, from a Reject option or a changed
+                                   post file). A job.
+
+The images of the transcriber and of the renderer are built by the person's terminal commands, never by an operation: a
+provider that says it is not set up stops the step with the command to run. Nothing here builds, pulls, fetches or pins.
+
+Standard library only. Runs on Python 3.9.
+"""
+from __future__ import annotations
+
+import contextlib
+import json
+import os
+import re
+import stat
+import sys
+
+import ops_core as core
+import captions as cap
+import isolated
+import media
+import pipeline
+import workcopy
+
+PROVIDERS = {"transcriber": "transcriber:speech", "renderer": "renderer:video"}
+CHECKER = ("mkt-social-copy", "check_script.py")     # the skill that writes the script block checks it with its own script
+TASK_KEY = "media:{}"                  # the key P7's video card is mounted on
+KEY_ID = re.compile(r"media:([0-9a-f]{16})")
+
+
+def _refusal(error) -> "core.OpsError":
+    if isinstance(error, media.MediaError):
+        out = core.OpsError(str(error), 2 if error.kind in ("usage", "length") else 1)
+        out.kind = error.kind
+        return out
+    if isinstance(error, cap.CaptionError):
+        return core.OpsError(f"refused: {error.code}" + (f" {error.field}" if error.field else ""), 1)
+    return core.OpsError(f"{error.code}" + (f" {error.field}" if error.field else "") + (f" -- {error.next}" if error.next else ""), 1)
+
+
+def _resolver():
+    return core._load("workbench_provider_resolve", os.path.join(core.ROOT, "providers", "resolve.py"))
+
+
+def _caller(root: str):
+    """The pipeline's one way to run a provider's verb: providers/resolve.py's call, its refusal read as a closed code."""
+    resolve = _resolver()
+
+    def call(cls: str, verb: str, args: list, timeout: int) -> dict:
+        word = cls.split(":")[0]
+        try:
+            return resolve.call(cls, verb, args, root=root, timeout=timeout)
+        except resolve.ProviderCallError as e:
+            try:
+                script = resolve.resolve(cls, root=root)["path"]
+            except Exception:   # the class does not resolve: there is no script to name
+                script = ""
+            raise pipeline.failure_from(word, e.kind, e.stderr_tail or e.reason, script) from None
+    return call
+
+
+def _data_dir(ctx: dict) -> str:
+    return ctx["cfg"]["data_dir"]
+
+
+def _rid(value) -> str:
+    try:
+        return media.check_id(value)
+    except media.MediaError as e:
+        raise _refusal(e) from None
+
+
+def _record(ctx: dict, rid: str) -> dict:
+    try:
+        return media.load(_data_dir(ctx), rid)
+    except media.MediaError as e:
+        raise _refusal(e) from None
+
+
+@contextlib.contextmanager
+def _held(ctx: dict, task_id: int):
+    """The task's lock, held while a pipeline step runs: the proof that the task is alive (runtime/ops_runs.py recovers a
+    `running` task whose lock nobody holds). Not core._task_lock: that one writes the process group for `stop-runs --all` to
+    signal, and the process here may be the local service."""
+    fd = core._try_lock(ctx["cfg"], f"task-{task_id}.lock")
+    if fd is None:
+        raise core.OpsError(f"task {task_id} is already being run by another process", 1)
+    try:
+        yield
+    finally:
+        os.close(fd)
+
+
+def _make_context(ctx: dict, rid: str, state: dict) -> pipeline.Context:
+    cfg, store, task_id = ctx["cfg"], ctx["store"], state["task"]
+
+    def move(word, note, pending, resolve):
+        try:
+            return store.code_task_move(ctx["conn"], task_id, state=word, note=note, pending=pending, resolve=resolve)
+        except store.StoreError as e:
+            if _stored_state(ctx, task_id) == "cancelled":
+                raise pipeline.Cancelled() from None
+            raise core.OpsError(str(e), e.code) from None
+
+    def alive():
+        if _stored_state(ctx, task_id) == "cancelled":
+            raise pipeline.Cancelled()
+
+    try:
+        checker = isolated.skill_script(core.ROOT, *CHECKER)
+    except ValueError:
+        checker = ""
+    return pipeline.Context(data_dir=_data_dir(ctx), project=cfg["project"], root=core.ROOT, rid=rid, platform=state["platform"],
+                            post=state["post"], settings=cfg.get("media") or {}, call=_caller(core.ROOT), move=move,
+                            scan=workcopy.credential_findings, alive=alive, checker=checker, now=media.stamp,
+                            task_id=task_id, request_id=state["request"])
+
+
+def _stored_state(ctx: dict, task_id: int):
+    try:
+        return ctx["store"].task_get(ctx["conn"], task_id)["state"]
+    except ctx["store"].StoreError:
+        return None
+
+
+def _load_state(ctx: dict, rid: str):
+    try:
+        return pipeline.load_state(_data_dir(ctx), rid)
+    except pipeline.StepFailure as e:
+        raise _refusal(e) from None
+
+
+def _platform_of(ctx: dict, record: dict, platform, post) -> tuple:
+    """(platform, post path) for a pipeline that starts now: the post file the person names (linked to the recording here),
+    or the one the recording has. The platform is the one given, else the one the post file's `- Network:` line names, else
+    the recording's only one. Never a guess: a recording with several posts and no platform is a question."""
+    data = _data_dir(ctx)
+    if post is not None:
+        if not isinstance(post, str) or not media.POST_PATH.fullmatch(post) or ".." in post.split("/") or "//" in post:
+            raise core.OpsError("a post file is a Markdown file under docs/ of the project", 2)
+        if platform is None:
+            platform = _network_of(ctx["cfg"]["project"], post)
+            if platform is None:
+                raise core.OpsError("name the network with --network: the post file has no `- Network:` line to say it", 2)
+        try:
+            record = media.link_posts(data, record["id"], {platform: post})
+        except media.MediaError as e:
+            raise _refusal(e) from None
+    posts = record.get("posts") or {}
+    if platform is None:
+        if len(posts) == 1:
+            platform = next(iter(posts))
+        else:
+            raise core.OpsError("the recording has " + ("no post file" if not posts else "several post files")
+                                + ": name the network with --network and the post file with --post", 2)
+    if platform not in posts:
+        raise core.OpsError(f"the recording has no post file for {platform}: give it with --post", 2)
+    return platform, posts[platform]
+
+
+def _network_of(project: str, post: str):
+    """The platform a post file's `- Network:` line names; None when there is none or the file cannot be read (a link is not read)."""
+    try:
+        fd = os.open(pipeline.post_file(project, post), os.O_RDONLY | os.O_NOFOLLOW)
+    except (OSError, pipeline.StepFailure):
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        with os.fdopen(fd, "rb", closefd=False) as f:
+            return pipeline.network_of(f.read(pipeline.POST_LIMIT).decode("utf-8", "replace"))
+    finally:
+        os.close(fd)
+
+
+def _new_task(ctx: dict, rid: str, request) -> dict:
+    store = ctx["store"]
+    try:
+        made = store.code_task_add(ctx["conn"], key=TASK_KEY.format(rid), title=f"Edit the recording {rid[:8]}",
+                                   text=f"Take recording {rid} through the media pipeline up to its rendered video. No model runs.",
+                                   request_id=request)
+    except store.StoreError as e:
+        raise core.OpsError(str(e), e.code) from None
+    try:
+        media.bind_tasks(_data_dir(ctx), rid, {"code": made["task"]})
+    except media.MediaError as e:
+        raise _refusal(e) from None
+    return made
+
+
+def media_pipeline(project: str, recording: str, post: str | None = None, network: str | None = None, request: int | None = None) -> dict:
+    """Take the recording through the steps up to the render and its cover, in this process, and stop at the caption
+    review or, at the end, with the task waiting for the approval of the rendered file. See the module text."""
+    ctx = core.context(project)
+    rid = _rid(recording)
+    record = _record(ctx, rid)
+    if not record.get("raw"):
+        raise core.OpsError(f"recording {rid} has no file yet: take it in with media-in first", 1)
+    state = _load_state(ctx, rid)
+    if state is None:
+        platform, path = _platform_of(ctx, record, network, post)
+        made = _new_task(ctx, rid, request)
+        state = pipeline.new_state(rid, platform, path, made["task"], made["request"])
+        pc = _make_context(ctx, rid, state)
+        pipeline.save_state(pc, state)
+    else:
+        if network not in (None, state["platform"]) or post not in (None, state["post"]):
+            raise core.OpsError(f"the pipeline of recording {rid} was started for {state['platform']} with {state['post']}: change the post "
+                                "file's text and use prepare-again, or start another recording", 1)
+        if not _cancelled(ctx, state):
+            _consume_resume(ctx, rid, state)
+    return _run(ctx, rid, state)
+
+
+def _cancelled(ctx: dict, state: dict) -> bool:
+    return _stored_state(ctx, state["task"]) == "cancelled"
+
+
+def _refuse_cancelled(ctx: dict, state: dict) -> None:
+    if _cancelled(ctx, state):
+        raise core.OpsError(f"request {state['request']} was cancelled: the pipeline of this recording stopped with it", 1)
+
+
+def _resume_marker(ctx: dict, rid: str, state: dict):
+    """The page's send-back (runtime/ops_video.py) leaves `resume = {"step": "review", "reason": "sent_back", "platform", "at"}` in
+    the recording's record. This is that marker when it is this pipeline's (its platform, the review), else None: a marker for
+    another platform or another step is left alone."""
+    marker = _record(ctx, rid).get("resume")
+    if isinstance(marker, dict) and marker.get("step") == "review" and marker.get("reason") == "sent_back" \
+            and marker.get("platform") in (None, state["platform"]):
+        return marker
+    return None
+
+
+def _clear_resume(ctx: dict, rid: str, state: dict, marker: dict) -> None:
+    """The marker is consumed: the decision will say the video was sent back (the comment is shown by `captions-read`, never put
+    in a decision), and the record no longer asks."""
+    state["sent_back_at"] = marker.get("at")
+    pipeline.save_state(_make_context(ctx, rid, state), state)
+    try:
+        media.update(_data_dir(ctx), rid, lambda r: r.pop("resume", None))
+    except media.MediaError as e:
+        raise _refusal(e) from None
+
+
+def _consume_resume(ctx: dict, rid: str, state: dict) -> bool:
+    """Open the review again as the person left it (no model, no provider run) when the page sent the video back, and clear the
+    marker. Before the review was reached there is nothing to reopen: the pipeline gets there by itself. Returns whether a marker
+    was consumed."""
+    marker = _resume_marker(ctx, rid, state)
+    if marker is None:
+        return False
+    if all(pipeline.step_status(state, n) == "done" for n in pipeline.STEPS[:4]):
+        try:
+            pipeline.prepare_again(_make_context(ctx, rid, state), state, "review")
+        except pipeline.StepFailure as e:
+            raise _refusal(e) from None
+    _clear_resume(ctx, rid, state, marker)
+    return True
+
+
+def _run(ctx: dict, rid: str, state: dict) -> dict:
+    pc = _make_context(ctx, rid, state)
+    if _cancelled(ctx, state):
+        return {"recording": rid, "task": state["task"], "request": state["request"], "platform": state["platform"], "ok": False, "failed": None,
+                "code": "cancelled", "field": "", "next": "", "steps": pipeline.summary(state)}
+    with _held(ctx, state["task"]):
+        try:
+            outcome = pipeline.run(pc, state)
+        except pipeline.StepFailure as e:   # a failure of the state file itself: nothing to record it in
+            raise _refusal(e) from None
+    return {"recording": rid, "task": state["task"], "request": state["request"], "platform": state["platform"], **outcome}
+
+
+def resume_task(project: str, task: dict) -> dict:
+    """The pipeline of the recording a code task carries, from where it stopped (the key of the task names the recording)."""
+    found = KEY_ID.fullmatch(task.get("key") or "")
+    if not found:
+        raise core.OpsError(f"task {task['id']} is not a media pipeline task", 1)
+    return media_pipeline(project, found.group(1))
+
+
+# --- the caption review ----------------------------------------------------------------------------------------------------------------
+
+
+def _documents(pc: pipeline.Context, need_review: bool = False) -> dict:
+    """The files the review reads: transcript.json, the edited transcript (the transcript itself, edited by nobody yet), the
+    review state, and the proposal edit list and beats."""
+    try:
+        edited_path = pc.path(pipeline.EDITED)
+        edited = cap.check_edited(pipeline.read_json(edited_path, pipeline.EDITED)) if pipeline.exists(edited_path) else \
+            cap.start_edited(pipeline.read_json(pc.path(pipeline.TRANSCRIPT), pipeline.TRANSCRIPT))
+        review = pipeline.load_review(pc)
+        return {"edited": edited, "review": review, "edl": pipeline.read_json(pc.path(pipeline.PROPOSAL_EDL), pipeline.PROPOSAL_EDL),
+                "beats": pipeline.read_json(pc.path(pipeline.PROPOSAL_BEATS), pipeline.PROPOSAL_BEATS)}
+    except (pipeline.StepFailure, cap.CaptionError) as e:
+        raise _refusal(e) from None
+
+
+def _assets(pc: pipeline.Context, record: dict, beats: dict) -> dict:
+    out = {}
+    for s in beats.get("slots") or []:
+        held = (record.get("slots") or {}).get(media.slot_id(pc.rid, s["slot"]))
+        asset = held.get("asset") if isinstance(held, dict) else None
+        out[s["slot"]] = None if not asset else {"name": asset.get("name"), "type": asset.get("type"), "sha256": asset.get("sha256"),
+                                                 "stale": bool(asset.get("stale"))}
+    return out
+
+
+def _review_ready(state) -> None:
+    if state is None or any(pipeline.step_status(state, n) != "done" for n in pipeline.STEPS[:4]):
+        where = "has not started" if state is None else f"is at {pipeline.next_step(state)}"
+        raise core.OpsError(f"the captions are not ready: the pipeline {where}", 1)
+
+
+def _sent_back(record: dict, state: dict):
+    """What the page's send-back kept for this platform: the person's comment, when, and the render it was about; None otherwise."""
+    back = record.get("sent_back")
+    if isinstance(back, dict) and back.get("platform") in (None, state["platform"]):
+        return {"comment": back.get("comment"), "at": back.get("at"), "render_sha256": back.get("render_sha256")}
+    return None
+
+
+def captions_read(project: str, recording: str) -> dict:
+    """The caption review of a recording as the page shows it (runtime/captions.py, `view`), with where the pipeline stands."""
+    ctx = core.context(project)
+    rid = _rid(recording)
+    state = _load_state(ctx, rid)
+    _review_ready(state)
+    pc = _make_context(ctx, rid, state)
+    docs = _documents(pc)
+    record = _record(ctx, rid)
+    shown = cap.view(docs["edited"], docs["review"], docs["edl"], docs["beats"], _assets(pc, record, docs["beats"]))
+    return {"recording": rid, "platform": state["platform"], "task": state["task"], "steps": pipeline.summary(state),
+            "editable": pipeline.step_status(state, "review") == "waiting", "language": docs["edited"].get("language"),
+            "failure": state.get("failure"), "sent_back": _sent_back(_record(ctx, rid), state), **shown}
+
+
+def _json_edits(text) -> list:
+    try:
+        value = json.loads(text)
+    except (TypeError, ValueError):
+        raise core.OpsError("edits is not valid JSON: a list of edit objects", 2) from None
+    if not isinstance(value, list):
+        raise core.OpsError("edits is a list of edit objects", 2)
+    return value
+
+
+def captions_edit(project: str, recording: str, revision: int, text: str) -> dict:
+    """Apply the person's edits to the words of a recording and their decisions on the review, re-mapped by code onto word
+    indices (runtime/captions.py). `revision` is the one the view carried; `text` is the JSON list of the closed edit objects.
+    Refused unless the pipeline waits at the review. Writes the edited transcript and the review state, outside the project;
+    returns the review as `captions_read` does."""
+    ctx = core.context(project)
+    rid = _rid(recording)
+    state = _load_state(ctx, rid)
+    _review_ready(state)
+    _refuse_cancelled(ctx, state)
+    if pipeline.step_status(state, "review") != "waiting":
+        raise core.OpsError("the captions are not open for edits: the pipeline is not waiting at the review "
+                            "(prepare-again --step review opens them again)", 1)
+    items = _json_edits(text)
+    pc = _make_context(ctx, rid, state)
+    with _held(ctx, state["task"]):
+        docs = _documents(pc)
+        if (docs["edited"].get("facts") or {}).get("revision", 0) != docs["review"]["revision"]:
+            raise core.OpsError("the edited transcript and the review disagree (a write was cut short): prepare-again --step review", 1)
+        limits = _limits()
+        try:
+            edited, review, counts = cap.apply_edits(
+                docs["edited"], docs["review"], items, revision=revision, proposals=cap.retake_ranges(docs["edl"]),
+                beats={r["beat"] for r in docs["beats"].get("report") or [] if r.get("preset")},
+                slots={s["slot"] for s in docs["beats"].get("slots") or []}, limits=limits)
+        except cap.CaptionError as e:
+            raise _refusal(e) from None
+        if pc.scan(" ".join(w["text"] for w in edited["words"])):
+            raise core.OpsError("refused: credential_in_transcript edits", 1)
+        try:
+            pipeline.write_json(pc.path(pipeline.EDITED), edited)
+            pipeline.write_json(pc.path(pipeline.REVIEW), review)
+        except OSError as e:
+            raise core.OpsError(f"the review could not be written: {e.strerror}", 1) from None
+    shown = cap.view(edited, review, docs["edl"], docs["beats"], _assets(pc, _record(ctx, rid), docs["beats"]))
+    return {"recording": rid, "applied": counts, "editable": True, **shown}
+
+
+def _limits() -> dict:
+    """The renderer's own limits on a word (providers/renderer/renderer-presets.json), so that the review refuses what the
+    renderer would, before any step runs; the defaults of runtime/captions.py when the file cannot be read."""
+    try:
+        with open(os.path.join(core.ROOT, "providers", "renderer", "renderer-presets.json"), encoding="utf-8") as f:
+            found = json.load(f)["limits"]
+        return {"word_chars_max": int(found["word_chars_max"]), "words_max": int(found["words_max"])}
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+
+
+def _unanswered_slots(pc: pipeline.Context, record: dict, beats: dict, review: dict) -> list:
+    assets = _assets(pc, record, beats)
+    return [s for s, a in assets.items() if (a is None or a["stale"]) and s not in review["empty_slots"]]
+
+
+def captions_done(project: str, recording: str, revision: int | None = None) -> dict:
+    """The person says the captions are right. The decision is answered (the answer holds no text) and the pipeline goes on
+    from the re-map: base list, alignment with the person's anchors, check, render, cover. Refused while an asset slot has
+    neither a file nor a choice, and when `revision` is given and is not the review's (the view the person saw is old)."""
+    ctx = core.context(project)
+    rid = _rid(recording)
+    state = _load_state(ctx, rid)
+    _review_ready(state)
+    _refuse_cancelled(ctx, state)
+    if pipeline.step_status(state, "review") != "waiting":
+        raise core.OpsError("the captions are not waiting for an answer: the pipeline is not at the review", 1)
+    pc = _make_context(ctx, rid, state)
+    docs = _documents(pc)
+    if revision is not None and revision != docs["review"]["revision"]:
+        raise core.OpsError("refused: stale_revision revision", 1)
+    empty = _unanswered_slots(pc, _record(ctx, rid), docs["beats"], docs["review"])
+    if empty:
+        raise core.OpsError("refused: slot_needs_a_choice " + empty[0] + ": give each asset slot a file (media-in --slot) or a choice "
+                            "(keyword or none) before you say done", 1)
+    pending_id = state["decisions"].get("review")
+    if not isinstance(pending_id, int):
+        raise core.OpsError("the decision \"Check the captions\" is not open: prepare-again --step review opens it again", 1)
+    with _held(ctx, state["task"]):
+        pipeline.answer_review(pc, state, pending_id)
+    return _run(ctx, rid, state)
+
+
+def prepare_again(project: str, recording: str, step: str) -> dict:
+    """Start the pipeline of a recording over from a named step and run it. From `review` the captions open again as the
+    person left them; from `align-proposal` or before, the words are new and the review starts over. Refused while the
+    pipeline runs. The person starts it: a Reject option of the page, or a changed post file."""
+    ctx = core.context(project)
+    rid = _rid(recording)
+    state = _load_state(ctx, rid)
+    if state is None:
+        raise core.OpsError(f"the pipeline of recording {rid} has not started: media-pipeline starts it", 1)
+    _refuse_cancelled(ctx, state)
+    pc = _make_context(ctx, rid, state)
+    with _held(ctx, state["task"]):
+        marker = _resume_marker(ctx, rid, state)
+        if marker is not None and pipeline.STEPS.index(step) > pipeline.STEPS.index("review"):
+            step = "review"      # a video sent back from the page reopens the captions, whatever later step was asked
+        try:
+            reset = pipeline.prepare_again(pc, state, step)
+        except pipeline.StepFailure as e:
+            raise _refusal(e) from None
+        if marker is not None:
+            _clear_resume(ctx, rid, state, marker)
+    return {**_run(ctx, rid, state), **reset}
+
+
+def pipeline_summary(data_dir: str, rid: str):
+    """What `media-list` shows of a recording's pipeline: its steps, where it stands and the last failure; None before it
+    started or when its file cannot be read."""
+    try:
+        state = pipeline.load_state(data_dir, rid)
+    except pipeline.StepFailure:
+        return None
+    if state is None:
+        return None
+    return {"task": state["task"], "request": state["request"], "platform": state["platform"], "steps": pipeline.summary(state),
+            "next": pipeline.next_step(state), "failure": state.get("failure")}
+
+
+if __name__ == "__main__":
+    print(__doc__.strip(), file=sys.stdout if sys.argv[1:] in (["--help"], ["-h"]) else sys.stderr)
+    sys.exit(0 if sys.argv[1:] in (["--help"], ["-h"]) else 2)

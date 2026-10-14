@@ -170,7 +170,7 @@ def test_the_media_rows_never_reach_the_model_clients_and_the_cli_flags_are_the_
     for name, channels in (("media-in", ("terminal", "page")), ("media-list", ("terminal", "page")), ("media-purge", ("terminal",))):
         assert operations.by_name(name)["channels"] == channels and operations.by_name(name)["model"] is False
     assert {"media-in", "media-list", "media-purge"} <= set(operations.terminal_verbs())
-    assert operations.GROUPS["media"] == {"operations": ("media-in",), "kind": None}
+    assert operations.GROUPS["media"] == {"operations": ("media-in", "media-pipeline", "captions-read", "captions-edit", "captions-done", "prepare-again"), "kind": None}
     assert "media-list" in operations.GROUPS["read"]["operations"]
     assert not any(name.startswith("media") for name in operations.permissions("mcp", None) + operations.permissions("messaging", None))
     assert not any(row["name"].startswith("media") for row in operations.OPERATIONS if "chat" in row["channels"])

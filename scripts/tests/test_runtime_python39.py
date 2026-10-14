@@ -47,6 +47,8 @@ ON_SYSTEM_PYTHON = [
     "runtime/media.py", "runtime/ops_media.py",
     # The rendered video (M1 P7): the file checks, the approval and their operations.
     "runtime/video.py", "runtime/ops_video.py",
+    # The media pipeline and the caption review (M1 P4b): the steps, the re-mapping of words, and their operations.
+    "runtime/pipeline.py", "runtime/captions.py", "runtime/ops_pipeline.py",
     # The MCP mode (stage 9): the same operations layer over standard input and output.
     "runtime/mcp.py",
     # The messaging bridge (MSG-1): its shell and its modules, started with the system interpreter like the other shells.

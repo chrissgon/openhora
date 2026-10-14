@@ -105,6 +105,10 @@ The rules of a request, in this order, each a refusal unless the request satisfi
      issued by code) and X-File-Name (percent-encoded UTF-8, a label only). It is answered on the loopback socket only:
      a request that arrived on the LAN socket of --lan, or whose Host is not a loopback one, gets the 404 of a service
      with no such route (a recording must not cross the network as plain HTTP). Every other POST still needs JSON.
+     The routes of the media pipeline and the caption review (POST /projects/<id>/media/<recording>/pipeline, GET and POST
+     .../captions, POST .../captions/done, POST .../prepare-again; a route with `loopback`) are JSON like the rest and are
+     answered on the loopback socket only, like the upload: the person's words and a recording's pipeline never cross the
+     network, so the LAN socket gets the same 404. Their rows list the page and the terminal, never `mcp` or `messaging`.
   6. An unknown path is 404 "not_found", a known path with another method 405 "method", an unknown project id 404.
   7. One route calls one operation and returns what it returned, unchanged, with 200. OpsError code 1 is 409
      "refused", 2 is 400 "usage", 3 is 412 "not_configured"; anything else is 500 "internal" (the traceback on stderr
@@ -329,6 +333,12 @@ ROUTES = (
     _route("POST", "/projects/{p}/tasks/{id}/files", "hand-over", bind={"task_id": "id"}, hidden=("file",), upload=True),
     _route("POST", "/projects/{p}/media", "media-in", take=(), hidden=("file",), stream=True),
     _route("GET", "/projects/{p}/media", "media-list", take=("recording",)),
+    _route("POST", "/projects/{p}/media/{rid}/pipeline", "media-pipeline", bind={"recording": "rid"}, take=("post", "network", "request"),
+           loopback=True),
+    _route("GET", "/projects/{p}/media/{rid}/captions", "captions-read", bind={"recording": "rid"}, take=(), loopback=True),
+    _route("POST", "/projects/{p}/media/{rid}/captions", "captions-edit", bind={"recording": "rid"}, take=("revision", "text"), loopback=True),
+    _route("POST", "/projects/{p}/media/{rid}/captions/done", "captions-done", bind={"recording": "rid"}, take=("revision",), loopback=True),
+    _route("POST", "/projects/{p}/media/{rid}/prepare-again", "prepare-again", bind={"recording": "rid"}, take=("step",), loopback=True),
     _route("POST", "/projects/{p}/runs/{id}/verdict", "verdict", bind={"run_id": "id"}),
     _route("POST", "/projects/{p}/agents/{name}/mode", "set-mode", bind={"agent": "name"}, take=("mode",)),
     _route("GET", "/projects/{p}/progress", "progress"),
@@ -1002,7 +1012,8 @@ def handle(service: Service, method: str, path: str, headers: dict, body: bytes,
     route, params = found
     if route["loopback"] and not _loopback_only(service, headers, lan):
         # the rendered video does not cross the network as plain HTTP: a byte route is no route there, and the approval is refused with the sentence
-        return _error(404, "not_found") if route["file"] else _error(409, "refused", LAN_APPROVAL)
+        # (the pipeline's and the caption review's routes are no route there either: the person's words never cross the network)
+        return _error(404, "not_found") if route["file"] or not route["op"].startswith("video-") else _error(409, "refused", LAN_APPROVAL)
     if route["stream"]:   # a caller with the body in memory (a test): the same function the socket's handler gives its stream to
         return handle_stream(service, method, path, headers, io.BytesIO(body), lan)
     if len(body) > route["limit"]:

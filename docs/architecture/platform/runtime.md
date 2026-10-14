@@ -54,6 +54,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/autonomy.py` | The five autonomy modes of an area agent, from the three facts under them, and the daily caps: the one module that compares a mode word (decision D14 of the platform plan). |
 | `runtime/billing.py` | The billing of the credential a run uses, read from the adapters' manifests: whether a run is covered by a subscription, paid by use (an API key) or free. |
 | `runtime/board.py` | The mirror of tasks to and from the project's task board (class integration:issue-tracker). |
+| `runtime/captions.py` | The caption review of a recording (amendment A4 of the short-video plan): what the person sees of the transcript, and how the words they change are re-mapped onto word indices. |
 | `runtime/changeset.py` | The change set: how code a run changed comes back (limit L9), and why a working document never enters a commit (limit L11). |
 | `runtime/chat.py` | The conversation with the planning agent, in the terminal: one more shell of the operations layer (runtime/ops.py, say). |
 | `runtime/cli.py` | The terminal shell of the task runtime: one command per operation of runtime/ops.py, nothing else. |
@@ -84,6 +85,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/ops_config.py` | The configuration's acceptance in the operations layer: who may accept a change of docs/workbench/runtime.json, and the two operations that change or accept it. |
 | `runtime/ops_core.py` | The names every module of the operations layer shares, once: the checkout (ROOT), the refusal (OpsError), the project's context and the store call, the locks, the runtime's own key and the data-folder names. |
 | `runtime/ops_media.py` | The operations of the media store (runtime/media.py): `media-in`, `media-list` and `media-purge`, and the two helpers the shells and the dispatcher's round call: `media_receive` (the local service's streaming route: a body that is a stream, not a JSON argument) and `purge_round`. |
+| `runtime/ops_pipeline.py` | The operations of the media pipeline (runtime/pipeline.py) and of the caption review (runtime/captions.py): `media-pipeline`, `captions-read`, `captions-edit`, `captions-done` and `prepare-again`. |
 | `runtime/ops_reads.py` | The reads of the local interface and the signals of the local service: the change signal of the store (`version`), the stop of the runs a process started, the conversation's commands as rows (`commands`), the agents with their day, the conversation's messages, the skills with their proof, the costs, the connections, the service's start check and the project's artifacts. |
 | `runtime/ops_runs.py` | The runs of tasks: one task run (`run_task`), the person's verb that picks one (`run_next`), the dispatcher's round (`dispatch`), and the processes the round starts. |
 | `runtime/ops_say.py` | The conversation with the planning agent: one turn of it (`say`) and the memory a plain line carries to the router. |
@@ -91,6 +93,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/ops_waits.py` | The derived waits in the operations layer: which task waits for which, worked out from the artifact contract. |
 | `runtime/parallel.py` | The rules of tasks that run at once, decided by pure functions: whether a ready task may start beside the ones that run (a slot of its agent, a slot of the project, no code task of its request, no artifact in use), and what a skill's footprint is. |
 | `runtime/path_rule.py` | The path rule: how one path of what a run left goes back to the project. |
+| `runtime/pipeline.py` | The media pipeline of a recording (package P4b of the short-video plan): the steps that take a recording that is in the media store to a rendered video, with its cover, and stop with the task waiting for the person. |
 | `runtime/plan.py` | The plan of a request: the tasks code builds from a route, which the person approves before any task exists. |
 | `runtime/progress.py` | Progress and the summary of a period, computed from the store's records: no model writes them. |
 | `runtime/project_config.py` | The project's configuration of the runtime: &lt;project&gt;/docs/workbench/runtime.json, and its hash. |
@@ -425,6 +428,11 @@ The limit's text and the stage that built it come from the contract's table; the
 | `video-card` | `--recording` `[--post-platform]` | `video_card` |
 | `video-approve` | `--recording` `--video-sha256` `--caption-sha256` `[--post-platform]` | `video_approve` |
 | `video-send-back` | `--recording` `--comment` `[--post-platform]` | `video_send_back` |
+| `media-pipeline` | `--recording` `[--post]` `[--network]` `[--request]` | `media_pipeline` |
+| `captions-read` | `--recording` | `captions_read` |
+| `captions-edit` | `--recording` `--revision` `--text \| --text-file` | `captions_edit` |
+| `captions-done` | `--recording` `[--revision]` | `captions_done` |
+| `prepare-again` | `--recording` `--step` | `prepare_again` |
 <!-- /generated -->
 
 The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-run`, `dispatch`, and `say` for a new request. The row of `release` says no model and carries `job`, yet releasing a brief routes its delivery again, which runs the router (`ops._after_release`).
@@ -510,6 +518,11 @@ The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-
 | `video_raw` | `video-raw` | page | no | the bytes of one rendered video, chosen by its recording and its hash (never a path), streamed with byte ranges; the service answers them on the loopback socket only |
 | `video_cover` | `video-cover` | page | no | the cover frame (a PNG) of one rendered video, chosen by its recording and the video's hash; the loopback socket only |
 | `video_download` | `video-download` | page | no | the approved video file of a post, as a download with a plain file name; refused while no approval holds; the loopback socket only |
+| `media_pipeline` | `media-pipeline` | terminal, page | no | take a recording of the media store through the steps up to its rendered video and cover, with no model: transcribe, analyse, retakes, align, then the decision to check the captions, then base list, align, check, render, cover; a step done is not run again and a failed one runs again from there; post links the post file (docs/...md) to the network on the first call; the images of the providers are built by your own terminal commands, never by this |
+| `captions_read` | `captions-read` | terminal, page | no | the caption review of a recording: the transcript as caption chunks, the retakes proposed, the words whose timing was adjusted, each beat with its matched words and score, the words left out; the page answers it on the loopback socket only |
+| `captions_edit` | `captions-edit` | terminal, page | no | change the words of a recording's captions (edit, split, merge, delete), confirm or undo a retake, anchor a beat to a word range, drop an overlay, choose for an empty asset slot, give the face box or the cover's offset: the text is a JSON list of those objects (--text or --text-file), the revision the one read; code re-maps the words onto indices and no time can be given |
+| `captions_done` | `captions-done` | terminal, page | no | say the captions are right: the decision is answered (with no text in it) and the pipeline goes on to the base list, the alignment with your anchors, the check, the render and the cover |
+| `prepare_again` | `prepare-again` | terminal, page | no | start a recording's pipeline over from a named step and run it: review opens the captions again as you left them; align-proposal or before makes the words new; later steps keep your decisions |
 <!-- /generated -->
 
 **The dispatcher's jobs**, `/usr/bin/python3 runtime/dispatcher.py <verb> --project <dir> [--pin <file>]`, run by the scheduler from a copy kept in the job folder:

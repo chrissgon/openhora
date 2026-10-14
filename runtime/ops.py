@@ -2700,6 +2700,9 @@ from ops_media import media_in, media_list, media_purge, media_receive, purge_ro
 # The rendered video (runtime/ops_video.py, runtime/video.py): the card, the approval of the exact file and caption, the send-back, and the
 # three reads of bytes the local service streams.
 from ops_video import video_approve, video_card, video_cover, video_download, video_raw, video_send_back  # noqa: E402,F401
+# The media pipeline and the caption review (runtime/ops_pipeline.py, runtime/pipeline.py, runtime/captions.py): the five
+# operations; no model is called.
+from ops_pipeline import captions_done, captions_edit, captions_read, media_pipeline, prepare_again  # noqa: E402,F401
 
 
 if __name__ == "__main__":

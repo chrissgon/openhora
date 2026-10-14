@@ -1035,8 +1035,8 @@ def purge(data_dir: str, now=None, run_dirs_of=None, only=None, include_schedule
 
 
 def _purge_raw(data_dir: str, rid: str, folder: str, now) -> None:
-    """Everything but the renders, the covers, the payload folder and the record."""
-    keep = {RECORD, "payload"}
+    """Everything but the renders, their result (render.json), the covers, the payload folder and the record."""
+    keep = {RECORD, "payload", "render.json"}     # render.json names the render the page shows; it goes with the renders
     for name in os.listdir(folder):
         if name in keep or RENDER.fullmatch(name) or re.fullmatch(r"cover[A-Za-z0-9._-]*", name):
             continue

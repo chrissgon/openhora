@@ -25,6 +25,7 @@ ops_reads = st.load("ops_reads")
 ops_config = st.load("ops_config")
 ops_media = st.load("ops_media")
 ops_video = st.load("ops_video")
+ops_pipeline = st.load("ops_pipeline")
 operations = st.load("operations")
 cli = st.load("cli")
 effects = st.load("effects")
@@ -32,7 +33,7 @@ effects = st.load("effects")
 # Public functions of ops.py that are not an operation of a shell: what the other modules and the tests use.
 NOT_OPERATIONS = {"store_module", "context", "task_prompt", "code_task", "chat_memory", "state_question", "state_reply", "queued_ids",
                   "route_busy", "queue_route", "held_commands", "held_next", "drop_note", "asks_state", "waiting", "queue_stale", "with_routing",
-                  "write_checkpoints", "media_receive", "purge_round"}  # ops_media.py: the service's streaming intake, the round's retention  # ops_config.py: the one writer of the accepted hash and the Checkpoints line
+                  "write_checkpoints", "media_receive", "purge_round", "resume_task", "pipeline_summary"}  # ops_media.py: the service's streaming intake, the round's retention; ops_pipeline.py: the pipeline a code task carries, what media-list shows of it  # ops_config.py: the one writer of the accepted hash and the Checkpoints line
 KINDS = ("int", "str", "text", "file", "list", "flag", "choice", "pairs")
 CHANNELS = ("terminal", "chat", "page", "mcp", "messaging")
 # Modules that still hold the terminal's command as a string, outside the operations layer's own texts.
@@ -89,8 +90,8 @@ def test_every_row_calls_a_function_of_the_operations_layer_that_accepts_its_arg
 
 
 def test_every_public_function_of_the_operations_layer_is_a_row_or_listed_as_not_one():
-    # the layer is the files below (CONS-1B, ADJ-R1, R4-C3, M1 P4): ops.py and the siblings it re-exports from; a function counts where it is defined
-    public = {n for module in (ops, ops_say, ops_reads, ops_core, ops_config, ops_media, ops_video) for n, f in inspect.getmembers(module, inspect.isfunction)
+    # the layer is the files below (CONS-1B, ADJ-R1, R4-C3, M1 P4, P4b, P7): ops.py and the siblings it re-exports from; a function counts where it is defined
+    public = {n for module in (ops, ops_say, ops_reads, ops_core, ops_config, ops_media, ops_video, ops_pipeline) for n, f in inspect.getmembers(module, inspect.isfunction)
               if not n.startswith("_") and f.__module__ == module.__name__}
     called = {r["call"] for r in operations.OPERATIONS}
     assert called <= public

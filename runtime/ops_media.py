@@ -32,6 +32,7 @@ import sys
 
 import ops_core as core
 import media
+import ops_pipeline
 
 
 def _refusal(error: "media.MediaError") -> "core.OpsError":
@@ -61,10 +62,10 @@ def media_receive(project: str, stream, length, recording: str | None = None, sl
         raise _refusal(e) from None
 
 
-def _shown(record: dict) -> dict:
-    """A record as the shells show it: the facts and the dates, no path."""
-    return {k: record.get(k) for k in ("id", "status", "created_at", "updated_at", "ended_at", "raw", "posts", "slots",
-                                       "frozen", "tasks", "purged")}
+def _shown(record: dict, data_dir: str) -> dict:
+    """A record as the shells show it: the facts and the dates, no path, and where its pipeline stands."""
+    return {**{k: record.get(k) for k in ("id", "status", "created_at", "updated_at", "ended_at", "raw", "posts", "slots",
+                                          "frozen", "tasks", "purged")}, "pipeline": ops_pipeline.pipeline_summary(data_dir, record["id"])}
 
 
 def media_list(project: str, recording: str | None = None) -> dict:
@@ -73,8 +74,8 @@ def media_list(project: str, recording: str | None = None) -> dict:
     data_dir = ctx["cfg"]["data_dir"]
     try:
         if recording is not None:
-            return {"recordings": [_shown(media.load(data_dir, media.check_id(recording)))], "usage": media.usage(data_dir)}
-        return {"recordings": [_shown(r) for r in media.records(data_dir)], "usage": media.usage(data_dir),
+            return {"recordings": [_shown(media.load(data_dir, media.check_id(recording)), data_dir)], "usage": media.usage(data_dir)}
+        return {"recordings": [_shown(r, data_dir) for r in media.records(data_dir)], "usage": media.usage(data_dir),
                 "retention": {"raw_days": media.RAW_DAYS, "render_days": media.RENDER_DAYS,
                               "abandoned_days": media.ABANDONED_DAYS},
                 "limits": {"max_bytes": media.MEDIA_MAX_BYTES, "max_seconds": media.MAX_SECONDS}}

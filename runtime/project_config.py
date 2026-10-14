@@ -50,6 +50,10 @@ from a recipe of the closed table of runtime/deps.py, checked there (deps.declar
 
   "dependencies": [{"recipe": "python-requirements", "file": ".workbench-local/requirements-dev.txt"}]
 
+It also reads "media" (the media pipeline; absent means {}): {"model": "small", "language": "pt"}, the transcriber's model
+(by its name in providers/transcriber/models.json) and the language of the person's recordings. They are in the file whose
+hash the person accepts: no operation of the page changes them.
+
 It also reads "model_prices" (stage 9; absent means {}): what the person typed from a provider's price page so that a run's
 cost can be recomputed from its token counts (runtime/costs.py): {"<model id as the gate file writes it>":
 {"input_usd_per_mtok", "output_usd_per_mtok", "cache_read_usd_per_mtok", "cache_write_usd_per_mtok" (each a number, 0 or
@@ -89,7 +93,7 @@ REQUIRED = ("workbench", "data_dir", "store_db")
 # The top-level keys of the task runtime: the three required ones and every key this module checks or passes on.
 TASK_RUNTIME_KEYS = ("workbench", "data_dir", "store_db", "area_agents", "handlers", "task_board", "documents",
                      "protected_paths", "code", "dependencies", "max_cost_usd_per_run", "model_prices", "messaging", "channels",
-                     "max_running")
+                     "max_running", "media")
 # The top-level keys scripts/runtime.py, scripts/runtime_vote.py and scripts/vote_job.py read from the same file
 # (the first runtime). Leaves with stage 7.
 FIRST_RUNTIME_KEYS = ("agent", "harness", "model", "mailbox", "publisher", "store", "scheduler", "notification_query",
@@ -160,6 +164,33 @@ def load(project: str) -> dict:
     out["messaging"] = _messaging(raw.get("messaging"))
     out["channels"] = _channels(raw.get("channels"))
     out["max_running"] = _max_running(raw)
+    out["media"] = _media(raw.get("media"))
+    return out
+
+
+MEDIA_KEYS = ("model", "language")
+MEDIA_MODEL = re.compile(r"[a-z0-9][a-z0-9.-]{0,63}")
+MEDIA_LANGUAGE = re.compile(r"[a-z]{2,3}|auto")
+
+
+def _media(value) -> dict:
+    """The key "media" (the media pipeline, runtime/pipeline.py; absent means {}): {"model": the name of a model of the
+    transcriber's pinned list (providers/transcriber/models.json, which the provider checks), "language": a code of two or
+    three letters, or auto}. The person chooses them and accepts them with the rest of the file: no operation of the page
+    changes them. A pipeline whose settings are missing stops at its first step and says which."""
+    if value is None:
+        return {}
+    if not isinstance(value, dict) or set(value) - set(MEDIA_KEYS):
+        raise ConfigError(f"runtime.json media must be an object with the keys {', '.join(MEDIA_KEYS)}")
+    out = {}
+    if "model" in value:
+        if not isinstance(value["model"], str) or not MEDIA_MODEL.fullmatch(value["model"]):
+            raise ConfigError("runtime.json media.model is the name of a model of the transcriber's list (providers/transcriber/models.json)")
+        out["model"] = value["model"]
+    if "language" in value:
+        if not isinstance(value["language"], str) or not MEDIA_LANGUAGE.fullmatch(value["language"]):
+            raise ConfigError("runtime.json media.language is a code of two or three lowercase letters, or auto")
+        out["language"] = value["language"]
     return out
 
 
