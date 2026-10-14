@@ -611,3 +611,24 @@ def test_messenger_secrets_refuses_a_registry_it_cannot_read_as_literals(tmp_pat
                         encoding="utf-8")
     done = run("--print", "messenger-secrets", "--root", str(root))
     assert done.returncode == 2 and "not a constant" in done.stderr and done.stdout == ""
+
+
+def test_verbs_of_reads_the_subcommands_a_provider_adds_with_add_parser(tmp_path):
+    source = tmp_path / "messenger.py"
+    source.write_text(
+        "import argparse\n"
+        "def build():\n"
+        "    p = argparse.ArgumentParser()\n"
+        "    sub = p.add_subparsers(dest='verb')\n"
+        "    for name, func in (('capabilities', 1), ('listen', 2)):\n"
+        "        sub.add_parser(name)\n"
+        "    sub.add_parser('setup')\n"
+        "    for name in ('receive', 'send'):\n"
+        "        sub.add_parser(name)\n"
+        "    for other in ('unrelated',):\n"
+        "        print(other)\n"
+        "    sub.add_parser(computed())\n"
+        "    return p\n", encoding="utf-8")
+    check, verbs = tables.verbs_of(str(source))
+    assert not check
+    assert verbs == ["capabilities", "listen", "receive", "send", "setup"]
