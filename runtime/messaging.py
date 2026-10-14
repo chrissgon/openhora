@@ -144,9 +144,9 @@ def serve(argv_projects, platform: str, notice_every: float = DEFAULT_NOTICE_EVE
         print(f"error: {e}", file=sys.stderr)
         return 3 if getattr(e, "kind", "") == "not-configured" else 1
     server = bridge.Bridge(ops_module, found, messenger, ledger, platform, log)
-    print(json.dumps({"platform": platform, "projects": [{"id": p["id"], "name": p["name"]} for p in found]}), file=out, flush=True)
     code = 0
-    try:
+    try:   # the start line is inside the try: a signal that lands right after it still ends the runs in the finally
+        print(json.dumps({"platform": platform, "projects": [{"id": p["id"], "name": p["name"]} for p in found]}), file=out, flush=True)
         getattr(messenger, "open_session", lambda log: None)(log)   # a provider that listens is started here, once
         server.serve_loop(stop, notice_every, poll)
     except Stop:
