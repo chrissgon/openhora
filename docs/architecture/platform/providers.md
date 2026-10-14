@@ -37,7 +37,7 @@ Where: **repo** is this repository, **data** is the provider's data folder on th
 | `reader:email` | `mailbox/` | `gmail.py` | `--check`, `search`, `get`, `read-eml` |
 | `generator:image` | `generator/` | none ships | - |
 | `generator:video` | `generator/` | none ships | - |
-| `renderer:video` | `renderer/` | `ffmpeg.py` | `--check`, `build`, `pin-browser`, `reap`, `pin-templates`, `analyse`, `base`, `align`, `check`, `render`, `cover`, `still` |
+| `renderer:video` | `renderer/` | `ffmpeg.py` | `--check`, `build`, `pin-browser`, `reap`, `pin-templates`, `analyse`, `base`, `align`, `check`, `render`, `storyboard`, `cover`, `still` |
 | `search:web` | `search/` | none ships | - |
 | `integration:vcs` | `vcs/` | `github.py` | `--check`, `alerts`, `dismiss-alert`, `read-file`, `commit-files`, `open-pr`, `resolve` |
 | `integration:issue-tracker` | `issue-tracker/` | `local.py` | `--check`, `list`, `get`, `comments`, `upsert`, `resolve` |

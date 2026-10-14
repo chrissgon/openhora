@@ -364,6 +364,11 @@ class Page:
         send("Emulation.setDefaultBackgroundColorOverride", {"color": {"r": 0, "g": 0, "b": 0, "a": 0}}, s)
         send("Page.addScriptToEvaluateOnNewDocument", {"source": FREEZE_JS}, s)
 
+    def set_backdrop(self, color):
+        """Draw the page over an opaque colour ("#RRGGBB") instead of a transparent one (the storyboard's stills)."""
+        r, g, b = (int(color[i:i + 2], 16) for i in (1, 3, 5))
+        self.c.send("Emulation.setDefaultBackgroundColorOverride", {"color": {"r": r, "g": g, "b": b, "a": 1}}, self.sid)
+
     def evaluate(self, expression, await_promise=False, timeout=60):
         r = self.c.send("Runtime.evaluate", {"expression": expression, "awaitPromise": await_promise,
                                              "returnByValue": True}, self.sid, timeout)

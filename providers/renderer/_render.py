@@ -44,26 +44,47 @@ def time_limit_for(data: dict, out_seconds: float, requested=None) -> int:
     return int(min(lim["render_seconds_max"], max(10, chosen)))
 
 
+def read_platform(path) -> dict:
+    """The platform file: a JSON object, or a Refusal (`null`, a list or a number would silently skip the platform's checks)."""
+    platform = read_json(path)
+    if not isinstance(platform, dict):
+        raise Refusal("bad_platform", "platform")
+    return platform
+
+
 def load_documents(edl_path, beats_path, platform_path, vocabulary_path, fonts_directory=None):
     data = load_data()
     limits = data["limits"]
     edl = read_json(edl_path, limits["json_max_bytes"])
     beats = read_json(beats_path, limits["json_max_bytes"])
-    platform = read_json(platform_path)
+    platform = read_platform(platform_path)
     vocab = load_vocabulary(vocabulary_path)
     allow = _frames.font_allowlist(fonts_directory)
     return data, edl, beats, platform, vocab, allow
 
 
 def check_documents(data, edl, beats, platform, vocab, allow) -> dict:
-    """Check the edit list and the beats. Returns {mentions}; raises the first Refusal."""
+    """Check the edit list and the beats. Returns {mentions}; raises the first Refusal. `platform` None is for the callers that have no
+    platform on purpose (`check` without a file, the storyboard); `render` and `verify` read theirs with `read_platform`."""
     first = _edl.check_edl(edl, data, vocab, allow, platform)
     second = _edl.check_beats(beats, edl, vocab)
-    frame = platform.get("video") or {}
+    frame = (platform or {}).get("video") or {}
     for key, ok in (("fps_min", lambda v: edl["fps"] >= v), ("fps_max", lambda v: edl["fps"] <= v)):
         if frame.get(key) is not None and not ok(frame[key]):
             raise Refusal("fps_outside_platform", "edl.fps")
     return {"mentions": sorted(set(first["mentions"]) | set(second["mentions"]))}
+
+
+def font_urls_of(data, edl, font_serve) -> dict:
+    """The theme's fonts as the page's setup wants them: {role: {weight, fallback[, url]}}."""
+    urls = {}
+    for role, f in edl["theme"]["fonts"].items():
+        entry = {"weight": f["weight"], "fallback": data["theme"]["system_fallback"][role]}
+        for path in font_serve:
+            if path.startswith("/fonts/%s." % role):
+                entry["url"] = "https://render.invalid" + path
+        urls[role] = entry
+    return urls
 
 
 def compose_plan(data, edl, timeline, assets, platform, src, frames_rel="frames") -> dict:
@@ -162,13 +183,7 @@ def render(*, edl_path, beats_path, src, out, platform_path, vocabulary_path, as
             fd = os.open(os.path.join(work, "assets", "%s.%s" % (slot, a["kind"])), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             with os.fdopen(fd, "wb") as fh:
                 fh.write(a["data"])
-        font_urls = {}
-        for role, f in edl["theme"]["fonts"].items():
-            entry = {"weight": f["weight"], "fallback": data["theme"]["system_fallback"][role]}
-            for path in font_serve:
-                if path.startswith("/fonts/%s." % role):
-                    entry["url"] = "https://render.invalid" + path
-            font_urls[role] = entry
+        font_urls = font_urls_of(data, edl, font_serve)
         frames_dir = os.path.join(work, "frames")
         layers, ffacts = _frames.draw_frames(
             data=data, edl=edl, timeline=timeline, serve=serve, theme_fonts_urls=font_urls, assets=assets, browser=browser["path"],

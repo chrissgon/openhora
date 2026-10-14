@@ -77,6 +77,7 @@
    "min_duration": 1.0,
    "max_duration": 1.8,
    "tail": 0.3,
+   "settled": 0.4,
    "looks": {}
   },
   "list": {
@@ -85,6 +86,7 @@
    "min_duration": 2.0,
    "max_duration": 8.0,
    "tail": 0.5,
+   "settled": 2.0,
    "looks": {}
   },
   "number": {
@@ -93,6 +95,7 @@
    "min_duration": 2.0,
    "max_duration": 6.0,
    "tail": 0.6,
+   "settled": 1.55,
    "looks": {}
   },
   "quote": {
@@ -101,6 +104,7 @@
    "min_duration": 2.0,
    "max_duration": 7.0,
    "tail": 0.5,
+   "settled": 0.85,
    "looks": {}
   },
   "cutaway": {
@@ -109,6 +113,7 @@
    "min_duration": 1.5,
    "max_duration": null,
    "tail": 0.2,
+   "settled": 0.65,
    "page_images": true,
    "looks": {
     "transition": "slide"
@@ -120,6 +125,7 @@
    "min_duration": 1.5,
    "max_duration": null,
    "tail": 0.2,
+   "settled": 0.5,
    "looks": {}
   }
  },
@@ -162,5 +168,21 @@
   "pad_head": 0.1,
   "pad_tail": 0.14,
   "wordless_keep": 1.5
+ },
+ "storyboard": {
+  "note": "The storyboard draws each beat at `settled` seconds into it (per preset, above): the longest entrance of the template, from its easing, at the vocabulary's largest parameters and a long beat; a beat too short for that is drawn at its end less its tail less one frame. The storyboard verb (no recording, no transcript): each beat's line is split into words spoken at words_per_second (2.5, the speaking rate of P3b; a test holds the two equal once both files carry it), one beat after another with beat_gap seconds between them, and trail seconds after the last word so that no beat is cut short by the video's end. Every time here is a whole number of frames at 30 fps, so every beat starts on a frame. The page is drawn over `backdrop`; a layout's asset slot is filled with `slot_fill`. The contact sheet is a grid of tile_width x tile_height tiles in rows of `columns`, `gap` pixels apart, on `fill`.",
+  "words_per_second": 2.5,
+  "beat_gap": 2.0,
+  "trail": 2.5,
+  "time_limit_seconds": 120,
+  "backdrop": "#2E343D",
+  "slot_fill": "#59626F",
+  "sheet": {
+   "columns": 4,
+   "tile_width": 270,
+   "tile_height": 480,
+   "gap": 12,
+   "fill": "#14181E"
+  }
  }
 }
