@@ -12,22 +12,29 @@
 // well; this is the sentence, not the guard. Every value is text (h() puts it in with textContent), the caption is a `pre` that wraps, and
 // the blob URLs are revoked when the card closes or shows another render.
 //
-//   env = {project, recording, api: {videoCard, videoApprove, videoSendBack, videoRaw, videoCover, videoDownload},
+//   env = {project, recording, api: {videoCard, videoApprove, videoSendBack, videoRaw, videoCover, videoDownload, mediaList (optional: where the pipeline stands)},
 //          can(op) (optional: whether the page may do an operation, js/permissions.js; without it everything is allowed),
 //          loopback (optional: whether this page was opened on the Mac, default onLoopback()), now() (a Date), objects (optional, for a test:
-//          {create(blob) -> url, revoke(url)}), save(blob, name) (optional, for a test: what "Download" does with the bytes)}
+//          {create(blob) -> url, revoke(url)}), save(blob, name) (optional, for a test: what "Download" does with the bytes),
+//          pollEvery (ms between two reads while the video is being made, default 3000), measure(body) (optional, for a test: whether the caption is taller than its preview)}
 // Returns {el, load({quiet}), close()}.
 
 import { fill, h, keepScroll } from "../dom.js";
 import { formatSize } from "../floor-model.js";
 import { reader } from "../permissions.js";
+import { failureText, stepRows } from "./captions-model.js";
 import { onLoopback } from "./media-upload.js";
-import { busyLine, chip, errorText, notice, withheldLine } from "./widgets.js";
+import { replyView } from "./reply.js";
+import { busyLine, chip, errorText, field, notice, textArea, withheldLine } from "./widgets.js";
 
 export const ON_THE_MAC = "Watch and approve on the Mac that runs the service: a video is not shown, and nothing is approved, over the network.";
 export const APPROVE_WORDS = "Approving binds this exact file and this exact caption, by the two hashes above. A new render or any edit of the caption asks you again. Nothing is published or scheduled.";
 export const SENT_BACK_WORDS = "This post was sent back for review. It takes no approval until it is rendered again or its caption is edited.";
 export const COMMENT_LABEL = "Comment for the review (required)";
+export const MAKING_WORDS = "Making the video takes a few minutes. This page reads the pipeline again by itself; there is nothing to approve until the video is made.";
+export const CAPTION_LINES = 4;
+export const NO_RENDER = "There is no render yet.";
+export const NO_RENDER_REVIEW = "There is no render yet: the video is made after you check the captions.";
 
 /** The first characters of a sha256, the form a person compares by eye. */
 export function shortHash(sha) {
@@ -44,12 +51,27 @@ export function factsLine(render) {
   return parts.join(", ");
 }
 
-/** The state of the approval as the card's chip: [word, tone]. */
-export function stateOf(card) {
+/**
+ * Where the card stands, from the pipeline and the render: "stopped" (a step failed), "making" (the captions are checked and the render or the cover is not done),
+ * "none" (no render, and nothing is making one) or "ready" (a render exists and nothing is being made). The pipeline is null when it has not started or was not read.
+ */
+export function phaseOf(card, pipeline) {
+  const steps = pipeline && pipeline.steps;
+  if (pipeline && pipeline.failure) return "stopped";
+  if (steps && steps.review === "done" && ["render", "cover"].some((step) => steps[step] && steps[step] !== "done")) return "making";
+  return card && card.render ? "ready" : "none";
+}
+
+/** The state of the card as its chip: [word, tone]. The pipeline decides while the video is made or a step stopped; the approval, once there is a render. */
+export function stateOf(card, pipeline = null) {
+  const phase = phaseOf(card, pipeline);
+  if (phase === "stopped") return ["Stopped", "pui-warn pui-soft"];
+  if (phase === "making") return ["Making the video", "pui-muted pui-soft"];
   const approval = card && card.approval;
   if (approval && approval.state === "approved") return ["Approved", "pui-theme pui-soft"];
   if (approval && approval.state === "stale") return ["Approval no longer holds", "pui-warn pui-soft"];
   if (card && card.sent_back) return ["Sent back", "pui-muted pui-soft"];
+  if (phase === "none") return ["No video yet", "pui-muted pui-soft"];
   return ["Waiting for your approval", "pui-muted pui-soft"];
 }
 
@@ -76,12 +98,13 @@ export function createVideoCard(env) {
     setTimeout(() => urls.revoke(url), 120000);     // a large file in Safari keeps reading the URL for a while after the click
   });
   const state = {
-    card: null, error: null, loading: true, platform: env.platform || null,
+    card: null, pipeline: null, error: null, loading: true, platform: env.platform || null,
     media: { sha: null, state: "idle", url: null, cover: null, blob: null, received: 0, total: 0, error: null },   // the video, its bytes and the cover of one render
-    busy: null, comment: "", message: null,
+    busy: null, comment: "", message: null, captionOpen: false,
   };
   let controller = null;
   let closed = false;
+  let timer = null;        // the next read while the video is being made
 
   function releaseMedia() {
     if (controller) controller.abort();
@@ -147,20 +170,39 @@ export function createVideoCard(env) {
 
   // --- reading and the two writes ---------------------------------------------------------------------------------------------
 
+  /** Where the pipeline of the recording stands, as `media-list` gives it, or null (not started, not readable, or the page has no such call). Never a refusal that stops the card. */
+  async function readPipeline() {
+    if (typeof env.api.mediaList !== "function") return null;
+    try {
+      const found = await env.api.mediaList(env.project, { recording: env.recording });
+      const record = ((found && found.recordings) || [])[0];
+      return record && record.pipeline ? record.pipeline : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   async function load({ quiet = false } = {}) {
     if (closed) return;
     if (!quiet && !state.card) {
       state.loading = true;
       draw();
     }
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
     try {
-      const card = await env.api.videoCard(env.project, env.recording, { platform: state.platform || undefined });
+      const [card, pipeline] = await Promise.all([env.api.videoCard(env.project, env.recording, { platform: state.platform || undefined }), readPipeline()]);
       if (closed) return;
       state.card = card;
+      state.pipeline = pipeline;
       state.error = null;
       state.loading = false;
       if (card.platform) state.platform = card.platform;
       draw();
+      // while the video is being made the card reads again by itself, so that a reload of the page, or a pipeline that ran elsewhere, is not left looking stuck
+      if (phaseOf(card, pipeline) === "making") timer = setTimeout(() => { timer = null; load({ quiet: true }); }, env.pollEvery || 3000);
       await fetchMedia(card);
     } catch (e) {
       if (closed) return;
@@ -238,8 +280,9 @@ export function createVideoCard(env) {
     return node;
   }
 
-  function mediaNode(card) {
-    if (!card.render) return h("p", { class: "wb-empty-line", text: "There is no render yet." });
+  function mediaNode(card, phase) {
+    if (phase === "making" || phase === "stopped") return null;      // the pipeline part says what is going on; an older render is not shown beside it
+    if (!card.render) return h("p", { class: "wb-empty-line", "data-key": "no-render", text: state.pipeline && state.pipeline.steps && state.pipeline.steps.review !== "done" ? NO_RENDER_REVIEW : NO_RENDER });
     if (!loopback) return notice(ON_THE_MAC, "warn");
     const media = state.media;
     if (media.state === "ready" && media.sha === card.render.sha256) {
@@ -251,11 +294,23 @@ export function createVideoCard(env) {
     return h("div", { class: "wb-video-loadbox" }, h("p", { class: "wb-video-loading wb-muted", role: "status", text: loadingText() }), bar);
   }
 
+  /** The steps of the pipeline while the video is made or a step stopped, with what it takes and, on a failure, its sentence and the command. */
+  function pipelineNode(phase) {
+    const pipeline = state.pipeline;
+    if (!pipeline || (phase !== "making" && phase !== "stopped")) return null;
+    const failure = pipeline.failure;
+    return h("div", { class: "wb-video-pipeline", "data-key": "pipeline" },
+      phase === "making" ? h("p", { class: "wb-card-note", role: "status", "data-key": "making", text: MAKING_WORDS }) : null,
+      h("ol", { class: "wb-video-steps", "data-key": "steps" }, stepRows(pipeline.steps).map((r) => h("li", { class: `wb-video-step is-${r.status}`, "data-step": r.step }, h("span", { text: r.label }), h("span", { class: "wb-card-hint", text: ` — ${r.word}` })))),
+      failure ? notice(failureText(failure), "error", h("code", { class: "mono wb-video-code", text: ` ${failure.code}` })) : null);
+  }
+
   function hashLine(label, value) {
     return h("div", { class: "wb-video-hash" }, h("span", { class: "wb-card-hint", text: `${label} sha256` }), h("code", { class: "wb-hash", "data-key": `hash-${label.toLowerCase()}`, text: value }));
   }
 
-  function approvalNode(card) {
+  function approvalNode(card, phase) {
+    if (phase !== "ready") return null;      // nothing is approved or downloaded while a video is made, a step stopped, or there is no render
     const approval = card.approval;
     const ready = Boolean(card.render && card.caption && loopback && state.media.state === "ready" && state.media.sha === card.render.sha256);
     const rows = [];
@@ -279,24 +334,24 @@ export function createVideoCard(env) {
 
   let sendButton = null;       // the Send back button of the form that is on screen, so that its busy state is set without drawing the form again
 
-  function sendBackNode(card) {
-    if (!loopback || !can("video-send-back") || !card.render) {
+  function sendBackNode(card, phase) {
+    if (!loopback || !can("video-send-back") || !card.render || phase !== "ready") {
       sendButton = null;
       return null;
     }
-    const area = h("textarea", { class: "pui-textarea wb-video-comment", rows: "3", "aria-label": COMMENT_LABEL, "data-key": "comment", placeholder: "What should change?" });
+    const area = textArea({ rows: "3", "aria-label": COMMENT_LABEL, "data-key": "comment", placeholder: "What should change?" });
     area.value = state.comment;
     area.addEventListener("input", () => { state.comment = area.value; });
     sendButton = button("Send back with a comment", "send-back", sendBack);
     return h("div", { class: "wb-video-back" },
-      h("label", { class: "pui-field-group wb-field" }, h("span", { class: "wb-field-label", text: COMMENT_LABEL }), area),
+      field(COMMENT_LABEL, area),
       h("div", { class: "wb-card-actions" }, sendButton));
   }
 
   // The card is drawn in parts. Each part has a signature of everything it shows; a part is drawn again only when its signature changed, so that a
   // read that changed nothing (a store change somewhere else) keeps the same `video` node (the position of the playback) and the same comment
   // box (what is typed in it and where the focus is).
-  const PART_NAMES = ["picker", "notes", "media", "facts", "caption", "sentBack", "approval", "sendBack", "actions", "withheld"];
+  const PART_NAMES = ["picker", "notes", "pipeline", "media", "facts", "caption", "sentBack", "approval", "sendBack", "actions", "withheld"];
   const parts = {};
   let shape = null;       // "card" once the skeleton of the parts is on screen
 
@@ -332,7 +387,8 @@ export function createVideoCard(env) {
       return;
     }
     if (shape !== "card") skeleton();
-    const [word, tone] = stateOf(card);
+    const phase = phaseOf(card, state.pipeline);
+    const [word, tone] = stateOf(card, state.pipeline);
     const withheld = [];
     if (!can("video-approve")) withheld.push("video-approve");
     if (!can("video-send-back")) withheld.push("video-send-back");
@@ -349,19 +405,22 @@ export function createVideoCard(env) {
     paint("notes", [state.error, state.message, card.problems], () => [
       state.error ? notice(state.error, "error") : null,
       state.message ? h("p", { class: "wb-card-note", role: "status", text: state.message }) : null,
-      card.problems.map((line) => notice(line, "warn"))]);
-    paint("media", [card.render ? card.render.sha256 : null, loopback, media.sha, media.state, media.url, media.cover, media.error], () => mediaNode(card));
+      card.problems.filter((line) => line !== "there is no render yet").map((line) => notice(line, "warn"))]);      // the card says "no render yet" once, in its own part
+    paint("pipeline", [phase, state.pipeline && state.pipeline.steps, state.pipeline && state.pipeline.failure], () => pipelineNode(phase));
+    paint("media", [phase, card.render ? card.render.sha256 : null, loopback, media.sha, media.state, media.url, media.cover, media.error, state.pipeline && state.pipeline.steps && state.pipeline.steps.review], () => mediaNode(card, phase));
     paint("facts", [card.render], () => (card.render ? h("div", { class: "wb-video-facts" },
       h("p", { class: "wb-card-hint wb-video-line", text: factsLine(card.render) }), hashLine("Video", card.render.sha256)) : null));
     paint("caption", [card.caption], () => (card.caption ? h("div", { class: "wb-video-caption-box" },
       h("p", { class: "wb-video-heading", text: "Caption" }),
-      h("pre", { class: "wb-pre wb-video-caption", "data-key": "caption", tabindex: "0", "aria-label": "The caption of the post", text: card.caption.text }),
+      // the caption is cut to a few lines with "Show the whole caption" (floor/reply.js): the panel is the only scroll, the card has no box that scrolls by itself
+      replyView(h("pre", { class: "wb-pre wb-video-caption", "data-key": "caption", "aria-label": "The caption of the post", text: card.caption.text }),
+        { whole: "Show the whole caption", lines: CAPTION_LINES, open: state.captionOpen, onToggle: (open) => { state.captionOpen = open; }, ...(env.measure ? { measure: env.measure } : {}) }).el,
       h("p", { class: "wb-card-hint wb-video-line", text: `${card.caption.chars} characters, from ${card.caption.post_file}` }),
       hashLine("Caption", card.caption.sha256)) : null));
     paint("sentBack", [card.sent_back], () => (card.sent_back ? h("p", { class: "wb-card-note", "data-key": "sent-back", text: `Sent back on ${card.sent_back.at}: ${card.sent_back.comment}` }) : null));
     paint("approval", [card.approval, card.can_download, card.download_name, Boolean(card.render), Boolean(card.caption), loopback, can("video-approve"), media.state, ready,
-      state.busy === "approve" || state.busy === "download" ? state.busy : null, blocked], () => approvalNode(card));
-    paint("sendBack", [Boolean(card.render), loopback, can("video-send-back")], () => sendBackNode(card));
+      state.busy === "approve" || state.busy === "download" ? state.busy : null, blocked, phase], () => approvalNode(card, phase));
+    paint("sendBack", [Boolean(card.render), loopback, can("video-send-back"), phase], () => sendBackNode(card, phase));
     if (sendButton) {
       sendButton.textContent = state.busy === "send-back" ? "Sending..." : "Send back with a comment";
       if (state.busy) sendButton.setAttribute("disabled", "");
@@ -377,6 +436,7 @@ export function createVideoCard(env) {
     /** The card was left or its task closed: stop the downloads and revoke the URLs. */
     close() {
       closed = true;
+      if (timer !== null) clearTimeout(timer);
       releaseMedia();
     },
     /** For a test: the state the last draw was made from. */

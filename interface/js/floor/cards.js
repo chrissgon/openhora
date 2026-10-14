@@ -29,7 +29,7 @@ import { createWaitsBlock } from "../cards/plan-waits.js";
 import { commandBlock } from "../frame/command.js";
 import { fileRefusal, handChooser, handOverStep, toBase64 } from "./hand-file.js";
 import { reader, wordOf } from "../permissions.js";
-import { agoText, chip, errorText, field, isGone, jobText, notice, ring, withheldLine } from "./widgets.js";
+import { agoText, chip, errorText, field, isGone, jobText, notice, ring, textArea, withheldLine } from "./widgets.js";
 
 // The buttons of each kind, in the drawn order, by the word of `actions` they send, with their "-ing" word.
 export const BUTTONS = Object.freeze({
@@ -217,7 +217,7 @@ export function createCard(item, env) {
   }
 
   function textarea(key, label, rows, hint, invalid) {
-    const control = h("textarea", { class: "pui-input wb-field-input", rows: String(rows), "aria-keyshortcuts": key === "answer" ? "Control+Enter Meta+Enter" : null, "aria-invalid": invalid ? "true" : null });
+    const control = textArea({ rows: String(rows), "aria-keyshortcuts": key === "answer" ? "Control+Enter Meta+Enter" : null, "aria-invalid": invalid ? "true" : null });
     control.value = state.typed[key];
     control.disabled = Boolean(state.busy) || Boolean(state.done);
     control.addEventListener("input", () => { state.typed[key] = control.value; });

@@ -18,11 +18,16 @@ from test_interface_phone_sheet import media_blocks
 CARD = JS / "floor" / "video-card.js"
 
 PURE = r"""
-import { shortHash, factsLine, stateOf, staleLine, ON_THE_MAC } from "@JS@/floor/video-card.js";
+import { shortHash, factsLine, stateOf, phaseOf, staleLine, ON_THE_MAC } from "@JS@/floor/video-card.js";
 const out = {};
 out.short = [shortHash("ab".repeat(32)), shortHash(null), shortHash("abc")];
 out.facts = [factsLine({ duration: 41.5, width: 1080, height: 1920, bytes: 14.2 * 1024 * 1024 }), factsLine({ duration: null, width: null, height: null, bytes: 2048 }), factsLine(null)];
-out.state = [stateOf({ approval: { state: "approved" } })[0], stateOf({ approval: { state: "stale" } })[0], stateOf({ approval: null, sent_back: { comment: "x" } })[0], stateOf({ approval: null })[0], stateOf(null)[0]];
+const R = { sha256: "a" };
+out.state = [stateOf({ approval: { state: "approved" }, render: R })[0], stateOf({ approval: { state: "stale" }, render: R })[0], stateOf({ approval: null, sent_back: { comment: "x" }, render: R })[0], stateOf({ approval: null, render: R })[0], stateOf({ approval: null, render: null })[0], stateOf(null)[0]];
+const steps = (extra) => ({ steps: { transcribe: "done", review: "done", base: "done", check: "done", render: "done", cover: "done", approval: "waiting", ...extra }, failure: null });
+out.phase = [phaseOf({ render: R }, null), phaseOf({ render: null }, null), phaseOf({ render: null }, steps({ render: "pending", cover: "pending" })), phaseOf({ render: R }, steps({})), phaseOf({ render: null }, steps({ review: "waiting", render: "pending" })),
+  phaseOf({ render: R }, { ...steps({}), failure: { step: "cover", code: "cover_missing" } }), phaseOf({ render: R }, steps({ cover: "pending" }))];
+out.pipelineState = [stateOf({ approval: { state: "approved" }, render: R }, steps({ render: "pending" }))[0], stateOf({ approval: null, render: null }, { ...steps({}), failure: { step: "render", code: "x" } })[0]];
 out.stale = [staleLine({ approved_at: "2026-10-14T10:00:00Z", reasons: ["render_changed"] }), staleLine({ approved_at: "d", reasons: ["render_changed", "caption_changed"] }), staleLine({ approved_at: "d", reasons: [] })];
 out.mac = ON_THE_MAC;
 console.log(JSON.stringify(out));
@@ -34,7 +39,9 @@ def test_the_pure_words_of_the_card(tmp_path):
     got = run_node(tmp_path, PURE)
     assert got["short"] == ["abababababab", "", "abc"]
     assert got["facts"][0] == "41.5 s, 1080 × 1920, 14.2 MB" and got["facts"][1].endswith("2.0 KB") and got["facts"][2] == ""
-    assert got["state"] == ["Approved", "Approval no longer holds", "Sent back", "Waiting for your approval", "Waiting for your approval"]
+    assert got["state"] == ["Approved", "Approval no longer holds", "Sent back", "Waiting for your approval", "No video yet", "No video yet"], "waiting for approval only when a render exists"
+    assert got["phase"] == ["ready", "none", "making", "ready", "none", "stopped", "making"], "the pipeline decides: making while render or cover is not done after the review, stopped on a failure"
+    assert got["pipelineState"] == ["Making the video", "Stopped"], "making wins over an older approval; a failure wins over everything"
     assert got["stale"][0] == "You approved this post on 2026-10-14T10:00:00Z, but the video was rendered again since. Watch and read it again, then approve again."
     assert "the video was rendered again and the caption was edited" in got["stale"][1] and "it changed" in got["stale"][2]
     assert got["mac"].startswith("Watch and approve on the Mac")
@@ -420,7 +427,7 @@ def test_only_the_code_task_of_a_recording_gets_the_card_made_when_its_row_opens
 def test_the_card_calls_only_its_own_routes_builds_no_markup_and_touches_no_configuration():
     source = CARD.read_text(encoding="utf-8")
     code = "\n".join(line for line in source.splitlines() if not line.lstrip().startswith("//"))
-    assert set(re.findall(r"\benv\.api\.(\w+)\(", code)) == {"videoCard", "videoCover", "videoRaw", "videoApprove", "videoSendBack", "videoDownload"}
+    assert set(re.findall(r"\benv\.api\.(\w+)\(", code)) == {"videoCard", "videoCover", "videoRaw", "videoApprove", "videoSendBack", "videoDownload", "mediaList"}
     for forbidden in ("setMode", "acceptConfig", "accept-config", "mode:", "innerHTML", "insertAdjacentHTML", "outerHTML", "createContextualFragment", "fetch(", "XMLHttpRequest",
                       "localStorage", "sessionStorage", "window.open", "ev" + "al(", "new Func" + "tion", ".style"):
         assert forbidden not in code, forbidden
@@ -451,7 +458,7 @@ def test_the_card_fits_a_phone_its_video_and_buttons_take_the_width_and_nothing_
     player = re.search(r"\.wb-video-player \{([^}]*)\}", floor).group(1)
     assert "width: 100%" in player and "max-height: 70vh" in player and "height: auto" in player
     caption = re.search(r"\.wb-video-caption \{([^}]*)\}", floor).group(1)
-    assert "overflow-y: auto" in caption and "overflow-x" not in caption and "white-space: nowrap" not in caption, "the caption wraps, it never scrolls sideways"
+    assert "overflow" not in caption and "max-height" not in caption and "white-space: nowrap" not in caption, "the caption wraps, and it is no box that scrolls: floor/reply.js cuts it"
     pre = re.search(r"^\.wb-pre \{([^}]*)\}", floor, re.M).group(1)
     assert "overflow-wrap: anywhere" in pre and "white-space: pre-wrap" in pre
     assert "overflow-wrap: anywhere" in re.search(r"^\.wb-hash \{([^}]*)\}", floor, re.M).group(1), "a 64-character hash wraps"
@@ -469,7 +476,7 @@ const api = { videoCard: async () => card };
 const view = createVideoCard({ project: "0123456789ab", recording: "0123456789abcdef", api, loopback: true });
 await view.load(); await settle();
 const notices = all(view.el, ".wb-notice-card");
-console.log(JSON.stringify({ count: notices.length, texts: notices.map((n) => n.textContent), stray: view.el.textContent.includes("object") }));
+console.log(JSON.stringify({ count: notices.length, texts: notices.map((n) => n.textContent), stray: view.el.textContent.includes("object"), line: all(view.el, "[data-key=no-render]").length, said: (view.el.textContent.toLowerCase().match(/no render yet/g) || []).length }));
 process.exit(0);
 """
 
@@ -477,4 +484,192 @@ process.exit(0);
 @needs_node
 def test_every_problem_of_the_card_is_a_notice_of_its_own_never_a_list_turned_into_text(tmp_path):
     got = run_node(tmp_path, PROBLEMS)
-    assert got["count"] == 2 and got["texts"] == ["there is no render yet", "the post file has no single ```post block"] and got["stray"] is False
+    assert got["count"] == 1 and got["texts"] == ["the post file has no single ```post block"] and got["stray"] is False, "the service's \"no render yet\" is the card's own line, not a second notice"
+    assert got["line"] == 1 and got["said"] == 1, "and it is said once"
+
+
+# --- the card's state comes from the pipeline ----------------------------------------------------------------------------------------------------
+
+STATES = r"""
+import { FakeNode, settle, find, all } from "@FAKE@";
+import { createVideoCard } from "@JS@/floor/video-card.js";
+const SHA = "a".repeat(64), CAP = "c".repeat(64);
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const withRender = { sha256: SHA, bytes: 3, duration: 41.5, width: 1080, height: 1920, fps: 30, codec: "h264", name: "render-aaaaaaaaaaaa.mp4", source: "result" };
+const base = { recording: "0123456789abcdef", status: "open", platforms: ["instagram"], platform: "instagram", render: null, cover: null,
+  caption: { text: "Three habits.", sha256: CAP, chars: 13, post_file: "docs/marketing/content/x.md" }, approval: null, sent_back: null, can_download: false, download_name: null, problems: ["there is no render yet"] };
+const steps = (extra = {}) => ({ transcribe: "done", analyse: "done", retakes: "done", "align-proposal": "done", review: "done", remap: "done", base: "done", align: "done", check: "done", render: "pending", cover: "pending", approval: "pending", ...extra });
+const script = { card: { ...base }, pipeline: { task: 2, steps: steps(), next: "render", failure: null }, mediaError: false };
+const reads = { card: 0, media: 0 };
+const api = {
+  videoCard: async () => { reads.card += 1; return JSON.parse(JSON.stringify(script.card)); },
+  mediaList: async () => { reads.media += 1; if (script.mediaError) throw new Error("no"); return { recordings: [{ id: "0123456789abcdef", pipeline: script.pipeline }] }; },
+  videoRaw: async () => ({ size: 3 }), videoCover: async () => ({ size: 1 }),
+};
+const objects = { create: () => "blob:x", revoke: () => {} };
+const make = (extra = {}) => createVideoCard({ project: "0123456789ab", recording: "0123456789abcdef", api, loopback: true, objects, pollEvery: 40, ...extra });
+const text = (n) => n.textContent;
+const look = (root) => ({
+  chip: text(find(root, ".pui-chip")), approve: all(root, "[data-key=approve]").length, download: all(root, "[data-key=download]").length, sendBack: all(root, "[data-key=send-back]").length, video: all(root, "video").length,
+  steps: all(root, "[data-key=steps] li").map((n) => n.attrs["data-step"] + ":" + n.cls().find((c) => c.startsWith("is-"))), making: all(root, "[data-key=making]").length, noRender: all(root, "[data-key=no-render]").length,
+  notices: all(root, ".wb-notice-card").map(text), said: (text(root).toLowerCase().match(/no render yet/g) || []).length,
+});
+const out = {};
+
+// the render is being made: the maintainer's case. One chip, the steps, a note, nothing to approve or download, and "no render yet" nowhere
+{
+  const view = make(); await view.load(); await settle();
+  out.making = look(view.el);
+  out.makingNote = text(find(view.el, "[data-key=making]"));
+  // an older render and an older approval do not show beside a new render being made
+  script.card = { ...base, render: withRender, problems: [], approval: { state: "approved", reasons: [], approved_at: "d", approved_via: "page", video_sha256: SHA, caption_sha256: CAP, platform: "instagram" }, can_download: true, download_name: "x.mp4" };
+  await view.load({ quiet: true }); await settle();
+  out.older = look(view.el);
+  view.close();
+}
+
+// it reads again by itself while the video is made, and shows the approval once a render exists and the approval step is reached
+{
+  script.card = { ...base };
+  script.pipeline = { task: 2, steps: steps(), next: "render", failure: null };
+  reads.card = 0;
+  const view = make(); await view.load(); await settle();
+  await wait(150);
+  out.polled = reads.card;
+  script.card = { ...base, render: withRender, problems: [] };
+  script.pipeline = { task: 2, steps: steps({ render: "done", cover: "done", approval: "waiting" }), next: "approval", failure: null };
+  await wait(150);
+  out.ready = look(view.el);
+  const after = reads.card;
+  await wait(150);
+  out.stoppedPolling = reads.card === after;
+  view.close();
+}
+
+// closing stops the reads
+{
+  script.card = { ...base };
+  script.pipeline = { task: 2, steps: steps(), next: "render", failure: null };
+  const view = make(); await view.load(); await settle();
+  view.close();
+  const at = reads.card;
+  await wait(150);
+  out.closedReads = reads.card - at;
+}
+
+// a failure: its sentence, its code and the command, as the review shows them; nothing to approve
+{
+  script.card = { ...base };
+  script.pipeline = { task: 2, steps: steps({ render: "failed" }), next: "render", failure: { step: "render", code: "browser_failed", field: "render", next: "python3 providers/renderer/ffmpeg.py build --confirmed" } };
+  const view = make(); await view.load(); await settle();
+  out.failed = look(view.el);
+  view.close();
+}
+
+// no pipeline and no render: one line; the pipeline before the review says when the video is made
+{
+  script.card = { ...base };
+  script.pipeline = null;
+  const view = make(); await view.load(); await settle();
+  out.none = look(view.el);
+  out.noneLine = text(find(view.el, "[data-key=no-render]"));
+  view.close();
+  script.pipeline = { task: 2, steps: steps({ review: "waiting", render: "pending", cover: "pending" }), next: "review", failure: null };
+  const early = make(); await early.load(); await settle();
+  out.early = look(early.el);
+  out.earlyLine = text(find(early.el, "[data-key=no-render]"));
+  early.close();
+}
+
+// the pipeline cannot be read: the card works as it did, with the render it has
+{
+  script.card = { ...base, render: withRender, problems: [] };
+  script.pipeline = null;
+  script.mediaError = true;
+  const view = make(); await view.load(); await settle();
+  out.unread = look(view.el);
+  view.close();
+  script.mediaError = false;
+}
+console.log(JSON.stringify(out));
+process.exit(0);
+"""
+
+
+@needs_node
+def test_the_card_shows_making_the_video_while_the_pipeline_renders_and_hides_approve_and_download(tmp_path):
+    got = run_node(tmp_path, STATES)
+    m = got["making"]
+    assert m["chip"] == "Making the video" and (m["approve"], m["download"], m["sendBack"], m["video"]) == (0, 0, 0, 0)
+    assert m["noRender"] == 0 and m["said"] == 0 and m["notices"] == [], "no \"no render yet\" in any form while the video is made"
+    assert m["making"] == 1 and "takes a few minutes" in got["makingNote"]
+    assert m["steps"][-3:] == ["render:is-pending", "cover:is-pending", "approval:is-pending"] and "review:is-done" in m["steps"], "the steps are shown with where each stands"
+    o = got["older"]
+    assert o["chip"] == "Making the video" and (o["approve"], o["download"], o["video"]) == (0, 0, 0), "an older render and an older approval do not show beside a new render being made"
+    assert got["polled"] >= 3, "the card reads again by itself while the video is made"
+    r = got["ready"]
+    assert r["chip"] == "Waiting for your approval" and r["approve"] == 1 and r["making"] == 0 and r["steps"] == [] and got["stoppedPolling"] is True
+    assert got["closedReads"] == 0
+
+
+@needs_node
+def test_a_step_that_stopped_shows_its_sentence_and_command_and_a_card_with_no_render_says_so_once(tmp_path):
+    got = run_node(tmp_path, STATES)
+    f = got["failed"]
+    assert f["chip"] == "Stopped" and (f["approve"], f["download"], f["sendBack"]) == (0, 0, 0) and f["making"] == 0
+    assert len(f["notices"]) == 1 and "Run: python3 providers/renderer/ffmpeg.py build --confirmed" in f["notices"][0] and "browser_failed" in f["notices"][0] and "Render the video stopped" in f["notices"][0]
+    assert "render:is-failed" in f["steps"]
+    n = got["none"]
+    assert n["chip"] == "No video yet" and n["noRender"] == 1 and n["said"] == 1 and n["notices"] == [] and n["approve"] == 0, "one line, no disabled Approve"
+    assert got["noneLine"] == "There is no render yet."
+    assert got["earlyLine"] == "There is no render yet: the video is made after you check the captions." and got["early"]["said"] == 1
+    u = got["unread"]
+    assert u["chip"] == "Waiting for your approval" and u["approve"] == 1, "a pipeline that cannot be read leaves the card as it was"
+
+
+CAPTION = r"""
+import { FakeNode, settle, find, all } from "@FAKE@";
+import { createVideoCard, CAPTION_LINES } from "@JS@/floor/video-card.js";
+const base = { recording: "0123456789abcdef", status: "open", platforms: ["instagram"], platform: "instagram", render: null, cover: null,
+  caption: { text: "A long caption.\n".repeat(30), sha256: "c".repeat(64), chars: 480, post_file: "docs/marketing/content/x.md" }, approval: null, sent_back: null, can_download: false, download_name: null, problems: [] };
+const api = { videoCard: async () => base };
+let tall = true;
+const view = createVideoCard({ project: "0123456789ab", recording: "0123456789abcdef", api, loopback: true, measure: () => tall });
+await view.load(); await settle();
+const reply = () => find(view.el, ".wb-reply");
+const button = () => find(view.el, ".wb-reply-toggle");
+const out = {};
+out.cut = { cls: reply().cls().includes("is-cut"), open: reply().cls().includes("is-open"), label: button().textContent, aria: button().attrs["aria-expanded"], lines: reply().cls().includes("is-lines-4"), lineConst: CAPTION_LINES, scrollBoxes: all(view.el, "[tabindex]").length };
+button().click(); await settle();
+out.open = { cls: reply().cls().includes("is-open"), label: button().textContent, aria: button().attrs["aria-expanded"] };
+await view.load({ quiet: true }); await settle();
+out.stays = { open: reply().cls().includes("is-open"), label: button().textContent };
+button().click(); await settle();
+out.closed = { open: reply().cls().includes("is-open"), label: button().textContent };
+tall = false;
+base.caption = { ...base.caption, text: "short", sha256: "d".repeat(64) };
+await view.load({ quiet: true }); await settle();
+out.short = { button: all(view.el, ".wb-reply-toggle").length, text: find(view.el, "[data-key=caption]").textContent };
+console.log(JSON.stringify(out));
+process.exit(0);
+"""
+
+
+@needs_node
+def test_a_long_caption_is_cut_to_a_few_lines_and_opens_and_closes_and_a_short_one_has_no_button(tmp_path):
+    got = run_node(tmp_path, CAPTION)
+    assert got["cut"]["cls"] is True and got["cut"]["open"] is False and got["cut"]["label"] == "Show the whole caption" and got["cut"]["aria"] == "false"
+    assert got["cut"]["lines"] is True and got["cut"]["lineConst"] == 4 and got["cut"]["scrollBoxes"] == 0, "four lines, and nothing in the card takes the keyboard focus to scroll"
+    assert got["open"] == {"cls": True, "label": "Show less", "aria": "true"}
+    assert got["stays"] == {"open": True, "label": "Show less"}, "a read that changed nothing keeps the caption open"
+    assert got["closed"] == {"open": False, "label": "Show the whole caption"}
+    assert got["short"] == {"button": 0, "text": "short"}
+
+
+def test_no_block_of_the_card_or_the_review_scrolls_on_its_own_and_the_caption_uses_the_shared_reply_helper():
+    floor = css_file("floor")
+    for selector, body in re.findall(r"^([^{}@]*\.wb-(?:video|rev|card)[^{}]*)\{([^}]*)\}", floor, re.M):
+        assert not re.search(r"overflow(-y|-x)?\s*:\s*(auto|scroll)", body), f"{selector.strip()} scrolls on its own: the panel is the only scroller"
+    card = CARD.read_text(encoding="utf-8")
+    assert 'from "./reply.js"' in card and "replyView(" in card
+    assert "scrollTop" not in card

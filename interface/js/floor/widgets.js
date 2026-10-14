@@ -53,6 +53,11 @@ export function field(label, control, hint) {
   return h("label", { class: "pui-field-group wb-field" }, h("span", { class: "wb-field-label", text: label }), control, hint || null);
 }
 
+/** A text area as every field of the page draws it: the library's input look, and the page's minimum height and vertical resize (base.css `textarea.wb-field-input`). `attrs` are added (rows, data-key, aria-*). */
+export function textArea(attrs = {}) {
+  return h("textarea", { class: "pui-input wb-field-input", ...attrs });
+}
+
 /** What the person reads when a request failed (the frame's texts and the flows' failure branches). */
 export function errorText(e) {
   if (!e) return "The request failed.";

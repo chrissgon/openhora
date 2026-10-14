@@ -140,9 +140,8 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
 .wb-video-hash { gap: 2px; }
 .wb-video-heading { margin: 0; font-size: 13px; font-weight: 600; }
 .wb-video-line { margin: 0; }
-.wb-video-caption { max-height: 40vh; overflow-y: auto; }
+.wb-video-caption { margin: 0; }     /* cut to a few lines by floor/reply.js, never a box that scrolls on its own */
 .wb-video-approved { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
-.wb-video-comment { width: 100%; box-sizing: border-box; resize: vertical; }
 .wb-video-platforms { display: flex; flex-wrap: wrap; gap: 6px; }
 
 /* "New short video" and "Edit this recording" (floor/media-start.js): the upload of a recording and the offer to edit each stored recording that was not started. One column that
@@ -210,10 +209,10 @@ span.wb-rev-word[data-marks]::after { content: " (" attr(data-marks) ")"; color:
 .wb-rev-details > summary { cursor: pointer; font-size: 13px; }
 .wb-rev-sentback { display: grid; gap: 4px; padding: 8px 10px; border-radius: var(--pui-radius); background-color: color-mix(in oklab, var(--pui-warn) 15%, var(--wb-raised)); }
 .wb-rev-sentback > * { margin: 0; overflow-wrap: anywhere; }
-.wb-rev-steps { display: grid; gap: 4px; margin: 0; padding-left: 1.4em; font-size: 13px; }
-.wb-rev-step.is-done { color: var(--pui-text-muted); }
-.wb-rev-step.is-waiting { font-weight: 600; }
-.wb-rev-step.is-failed { color: var(--pui-error); }
+.wb-rev-steps, .wb-video-steps { display: grid; gap: 4px; margin: 0; padding-left: 1.4em; font-size: 13px; }
+.wb-rev-step.is-done, .wb-video-step.is-done { color: var(--pui-text-muted); }
+.wb-rev-step.is-waiting, .wb-video-step.is-waiting { font-weight: 600; }
+.wb-rev-step.is-failed, .wb-video-step.is-failed { color: var(--pui-error); }
 .wb-rev-frame-box { display: grid; gap: 8px; min-width: 0; }
 .wb-rev-frame { display: block; width: 100%; max-width: 200px; height: auto; border: var(--pui-border-width) solid var(--pui-border); border-radius: var(--pui-radius); cursor: crosshair; }
 .wb-rev-frame-bg { fill: var(--wb-sunken); }
@@ -227,7 +226,8 @@ span.wb-rev-word[data-marks]::after { content: " (" attr(data-marks) ")"; color:
 .wb-rev-hand { grid-template-columns: auto minmax(0, 1fr); }
 .wb-rev-button, .wb-rev-hand .pui-btn { max-width: 100%; height: auto; white-space: normal; overflow-wrap: anywhere; text-align: center; }     /* a button's words wrap: a long label never pushes the card past the screen */
 .wb-rev-hand .wb-hand-name { white-space: normal; overflow-wrap: anywhere; }
-.wb-rev-code { font-size: 12px; }
+.wb-rev-code, .wb-video-code { font-size: 12px; }
+.wb-video-pipeline { display: grid; gap: 8px; min-width: 0; }
 .wb-rev-done { display: grid; gap: 6px; }
 .wb-rev-done > * { margin: 0; }
 .wb-card-actions.is-end { justify-content: flex-end; }
@@ -486,7 +486,8 @@ span.wb-rev-word[data-marks]::after { content: " (" attr(data-marks) ")"; color:
   .wb-sv-details > summary, .wb-sv-head, .wb-sv-steps { font-size: 16px; }
   .wb-sv-row .pui-btn { min-height: 44px; }
   .wb-rev-word, .wb-rev-matched, .wb-rev-plain, .wb-rev-beat-head, .wb-rev-steps, .wb-rev-heading, .wb-rev-details > summary { font-size: 16px; }
-  .wb-rev-clock, .wb-rev-code { font-size: 12px; }
+  .wb-rev-clock, .wb-rev-code, .wb-video-code { font-size: 12px; }
+.wb-video-pipeline { display: grid; gap: 8px; min-width: 0; }
   .wb-rev-numbers { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .wb-rev-sizes .pui-btn { flex: 1 1 auto; min-height: 44px; }
   button.wb-rev-word { min-height: 44px; }
