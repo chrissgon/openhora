@@ -36,7 +36,7 @@ def run_node(tmp_path: Path, body: str) -> dict:
 # --- a fake document that is enough to build and press the cards ---------------------------------------------------------------
 
 FAKE_DOM = r"""
-class FakeText { constructor(data) { this.data = String(data); this.parent = null; this.isText = true; } get textContent() { return this.data; } }
+class FakeText { constructor(data) { this.data = String(data); this.parent = null; this.isText = true; } get textContent() { return this.data; } remove() { if (this.parent) this.parent.children = this.parent.children.filter((c) => c !== this); this.parent = null; } }
 function matches(node, selector) {
   if (!node || node.isText) return false;
   for (const part of selector.split(",").map((s) => s.trim())) {
@@ -76,6 +76,15 @@ export class FakeNode {
   append(...items) { for (const it of items) { const n = it instanceof FakeNode || it instanceof FakeText ? it : new FakeText(it); if (n.parent) n.parent.children = n.parent.children.filter((c) => c !== n); n.parent = this; this.children.push(n); } }
   replaceChildren(...items) { this.children.forEach((c) => { c.parent = null; }); this.children = []; this.append(...items); }
   remove() { if (this.parent) this.parent.children = this.parent.children.filter((c) => c !== this); this.parent = null; }
+  get childNodes() { return this.children; }
+  get parentNode() { return this.parent; }
+  insertBefore(node, before) {
+    if (node.parent) node.parent.children = node.parent.children.filter((c) => c !== node);
+    node.parent = this;
+    const at = before ? this.children.indexOf(before) : -1;
+    if (at < 0) this.children.push(node); else this.children.splice(at, 0, node);
+    return node;
+  }
   contains(n) { for (let x = n; x; x = x.parent) if (x === this) return true; return false; }
   focus() { this.focused = true; globalThis.document.activeElement = this; }
   scrollIntoView() {}

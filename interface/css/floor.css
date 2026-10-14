@@ -197,6 +197,9 @@ span.wb-rev-word[data-marks]::after { content: " (" attr(data-marks) ")"; color:
 .wb-rev-frame { display: block; width: 100%; max-width: 200px; height: auto; border: var(--pui-border-width) solid var(--pui-border); border-radius: var(--pui-radius); cursor: crosshair; }
 .wb-rev-frame-bg { fill: var(--wb-sunken); }
 .wb-rev-facebox { fill: color-mix(in oklab, var(--pui-theme) 30%, transparent); stroke: var(--pui-theme); stroke-width: 6px; }
+.wb-rev-facebox-preview { fill: color-mix(in oklab, var(--pui-theme) 12%, transparent); stroke: var(--pui-theme); stroke-width: 6px; stroke-dasharray: 24 14; pointer-events: none; }
+.wb-rev-pending { overflow-wrap: anywhere; }
+.wb-rev-pending.is-invalid { color: var(--wb-ink-error); }
 .wb-rev-sizes { display: flex; flex-wrap: wrap; gap: 6px; }
 .wb-rev-numbers { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 .wb-rev-input, .wb-rev-number, .wb-rev-select { width: 100%; box-sizing: border-box; }
@@ -376,6 +379,8 @@ span.wb-rev-word[data-marks]::after { content: " (" attr(data-marks) ")"; color:
 .wb-task-toggle[aria-expanded="true"] .wb-task-mark { rotate: 180deg; }
 .wb-task-body { display: grid; gap: 6px; padding: 0 12px 12px; }
 .wb-task-body[hidden] { display: none; }
+.wb-task-media { min-width: 0; }     /* the place of the caption review and the video card in a row: kept as a node whatever else of the row is drawn again */
+.wb-task-media:empty { display: none; }
 .wb-task-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; font-size: 12px; overflow-wrap: anywhere; }
 .wb-task-skill { font-size: 12px; overflow-wrap: anywhere; }
 .wb-task-request { min-width: 0; overflow-wrap: anywhere; }

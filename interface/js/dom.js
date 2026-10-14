@@ -62,3 +62,30 @@ export function fill(node, ...children) {
   node.replaceChildren(...children.flat().filter((c) => c !== undefined && c !== null && c !== false).map((c) => (c instanceof Node ? c : document.createTextNode(String(c)))));
   return node;
 }
+
+/**
+ * Make the children of a node exactly the given ones, in that order, without taking out the ones that are already there in place: a node that stays is never detached,
+ * so what it holds (a scroll position inside it, a playing video, a focused field, a selection) is kept, which `fill` cannot promise since it detaches every child.
+ */
+export function sync(node, ...children) {
+  const want = children.flat(Infinity).filter((c) => c !== undefined && c !== null && c !== false).map((c) => (c instanceof Node ? c : document.createTextNode(String(c))));
+  const keep = new Set(want);
+  for (const child of [...node.childNodes]) if (!keep.has(child)) child.remove();
+  want.forEach((child, i) => {
+    const at = node.childNodes[i];
+    if (at !== child) node.insertBefore(child, at || null);
+  });
+  return node;
+}
+
+/**
+ * Run `render`, then put back the scroll position of every ancestor of `node` that was scrolled before it: a redraw that replaces nodes makes the page shorter for a
+ * moment, and a browser then moves the position of a scrolled panel; the person reading further down must stay where they were.
+ */
+export function keepScroll(node, render) {
+  const saved = [];
+  for (let up = node.parentNode; up; up = up.parentNode) if (up.scrollTop > 0) saved.push([up, up.scrollTop]);
+  const result = render();
+  for (const [up, top] of saved) if (up.scrollTop !== top) up.scrollTop = top;
+  return result;
+}

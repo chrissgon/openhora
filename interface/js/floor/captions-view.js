@@ -20,8 +20,9 @@
 //          so that the video card reads again), pollEvery (ms between asks for a running job, default 1500)}
 // Returns {el, load({quiet}), close(), snapshot()}.
 
-import { fill, h, svg } from "../dom.js";
+import { fill, h, keepScroll, svg } from "../dom.js";
 import { reader } from "../permissions.js";
+import { createAutosave, AUTOSAVE_MS } from "./autosave.js";
 import { handOverStep } from "./hand-file.js";
 import { mediaRefusal, onLoopback, uploadRecording } from "./media-upload.js";
 import * as model from "./captions-model.js";
@@ -30,7 +31,7 @@ import { busyLine, chip, notice, withheldLine } from "./widgets.js";
 export const ON_THE_MAC = "Check the captions on the Mac that runs the service: your words are read and changed there, and are not sent over the network.";
 export const EDIT_HINT = `Keep the spelling as it is said. A space splits a word: its time is shared out and marked estimated. At most ${model.WORD_CHARS_MAX} characters.`;
 export const DONE_WORDS = "Done says the captions are right and sends nothing of your words: the video is made from them on this Mac.";
-export const FRAME_WORDS = "A schematic of the frame, not a picture: tap where the face is. The renderer draws the captions and overlays away from it.";
+export const FRAME_WORDS = "A schematic of the frame, not a picture: tap where the face is. The renderer draws the captions and overlays away from it. Numbers you type are saved when you stop typing or leave the field.";
 export const COVER_WORDS = "The cover is the frame of the finished video at the second you give; no picture is shown before the video is made.";
 export const IMAGE_TYPES = "image/png,image/jpeg";
 
@@ -42,7 +43,7 @@ export function createCaptionsView(env) {
   const state = {
     view: null, media: null, mode: "loading", loading: true, error: null, message: null, job: false,
     selection: null, typed: { key: "", word: "", merge: "" }, busy: null, picked: {}, uploading: {}, uploadError: {},
-    face: { size: "medium", fields: { x: "", y: "", w: "", h: "" } }, coverText: "",
+    face: { size: "medium", fields: { x: "", y: "", w: "", h: "" } }, coverText: "", coverTyped: false,
   };
   let closed = false;
   let controller = null;
@@ -414,43 +415,157 @@ export function createCaptionsView(env) {
     return Number.isFinite(found) && found > 0 ? found : null;
   }
 
-  /** A face box edit; what the person typed in the four numbers is dropped only when the service accepted it, so a refusal leaves their numbers to correct. */
-  async function faceEdit(edit, words) {
-    if (await send([edit], words)) {
-      state.face.fields = { x: "", y: "", w: "", h: "" };
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  /**
+   * One edit of the face box or the cover for an autosave: waits for a call that is out (never two together), sends it, and when the service says the revision moved
+   * (stale_revision) reads the captions again and sends it once more with the person's numbers. Resolves {ok: true} or {ok: false, reason}.
+   */
+  async function saveEdit(edit, words) {
+    for (let waited = 0; state.busy && !closed && waited < 100; waited += 1) await sleep(100);
+    if (closed) return { ok: false, reason: "" };
+    if (!editing() || !state.view) return { ok: false, reason: "The captions cannot be changed here." };
+    let ok = await send([edit], words);
+    if (!ok && !closed && state.error && state.error.code === "stale_revision") {
+      state.error = null;
+      await load({ quiet: true });
+      if (closed) return { ok: false, reason: "" };
+      ok = await send([edit], words);
+    }
+    return ok ? { ok: true } : { ok: false, reason: state.error ? state.error.text : "The change was not saved." };
+  }
+
+  // The face box and the cover save themselves (floor/autosave.js): the numbers typed are checked at every key, sent after a pause (or when the field is left, or Enter),
+  // and drawn dashed until the service has accepted them. What the person typed is dropped only when the service accepted it, so a refusal leaves the numbers to correct.
+  let faceRefs = null;                       // the nodes of the frame part as last drawn: {frame, stored, dashed, line}
+  const faceUi = { status: "idle", text: "", target: null };
+  let coverRefs = null;
+  const coverUi = { text: "", invalid: false };
+
+  function paintFace() {
+    const r = faceRefs;
+    if (!r) return;
+    const live = (faceUi.status === "pending" || faceUi.status === "saving") && faceUi.target;
+    if (live) {
+      for (const [name, key] of [["x", "x"], ["y", "y"], ["width", "w"], ["height", "h"]]) r.dashed.setAttribute(name, String(faceUi.target[key]));
+      if (!r.dashed.parentNode) r.frame.append(r.dashed);
+      if (r.stored && r.stored.parentNode) r.stored.remove();
+    } else {
+      r.dashed.remove();
+      if (r.stored && !r.stored.parentNode) r.frame.append(r.stored);
+    }
+    r.line.textContent = faceUi.text;
+    r.line.setAttribute("class", `wb-card-hint wb-rev-pending${faceUi.status === "invalid" || faceUi.status === "refused" ? " is-invalid" : ""}`);
+  }
+
+  function paintCover() {
+    if (coverRefs) {
+      coverRefs.line.textContent = coverUi.text;
+      coverRefs.line.setAttribute("class", `wb-card-hint wb-rev-pending${coverUi.invalid ? " is-invalid" : ""}`);
+    }
+  }
+
+  const SAVING = { pending: "Saves when you stop typing.", saving: "Saving..." };
+  const faceAuto = createAutosave({
+    delay: env.autosaveMs || AUTOSAVE_MS,
+    check: () => {
+      const got = model.faceBoxPreview(state.face.fields, state.view ? state.view.face_box : null);
+      return got.state === "valid" ? { state: "valid", value: got.box } : got;
+    },
+    save: async (box) => {
+      const result = await saveEdit(model.edit.faceBox(box), "Chose the face box.");
+      if (result.ok) {
+        for (const k of ["x", "y", "w", "h"]) if (String(state.face.fields[k]).trim() === String(box[k])) state.face.fields[k] = "";     // what was saved is no longer "typed"; a number typed since stays
+        faceUi.target = null;
+        draw();
+      }
+      return result;
+    },
+    show: (status, info) => {
+      faceUi.status = status;
+      if (info && info.value) faceUi.target = info.value;
+      faceUi.text = status === "invalid" || status === "refused" ? info.reason : SAVING[status] || "";
+      paintFace();
+    },
+  });
+  const coverAuto = createAutosave({
+    delay: env.autosaveMs || AUTOSAVE_MS,
+    check: () => {
+      if (!state.coverTyped || !state.view) return { state: "same" };
+      const got = model.coverFromSeconds(state.coverText, recordingSeconds());
+      if (got.reason) return { state: "invalid", reason: got.reason };
+      return got.offsetMs === state.view.cover_offset_ms ? { state: "same" } : { state: "valid", value: got.offsetMs };
+    },
+    save: async (offsetMs) => {
+      const result = await saveEdit(model.edit.cover(offsetMs), "Chose the cover.");
+      if (result.ok && state.coverTyped && model.coverFromSeconds(state.coverText, recordingSeconds()).offsetMs === offsetMs) {
+        state.coverText = "";
+        state.coverTyped = false;
+        draw();
+      }
+      return result;
+    },
+    show: (status, info) => {
+      coverUi.invalid = status === "invalid" || status === "refused";
+      coverUi.text = coverUi.invalid ? info.reason : SAVING[status] || "";
+      paintCover();
+    },
+  });
+
+  /** An explicit change of the cover (the first frame): whatever was typed or waiting is dropped when the service accepted it. */
+  async function coverEdit(offsetMs, words) {
+    coverAuto.cancel();
+    const result = await saveEdit(model.edit.cover(offsetMs), words);
+    if (result.ok) {
+      state.coverText = "";
+      state.coverTyped = false;
       draw();
     }
   }
 
-  /** A cover edit; the typed seconds are dropped only when the service accepted it. */
-  async function coverEdit(offsetMs, words) {
-    if (await send([model.edit.cover(offsetMs)], words)) {
-      state.coverText = "";
+  /** An explicit change of the face box (Clear): whatever was typed or waiting is dropped when the service accepted it. */
+  async function faceClear() {
+    faceAuto.cancel();
+    const result = await saveEdit(model.edit.clearFaceBox(), "Cleared the face box.");
+    if (result.ok) {
+      state.face.fields = { x: "", y: "", w: "", h: "" };
       draw();
     }
   }
 
   function frameNode(view) {
     const box = view.face_box;
+    const stored = box ? svg("rect", { x: String(box.x), y: String(box.y), width: String(box.w), height: String(box.h), class: "wb-rev-facebox", "data-key": "facebox" }) : null;
+    const dashed = svg("rect", { x: "0", y: "0", width: "0", height: "0", class: "wb-rev-facebox-preview", "data-key": "facebox-preview" });
     const frame = svg("svg", { class: "wb-rev-frame", viewBox: `0 0 ${model.FRAME.w} ${model.FRAME.h}`, role: "img", "aria-label": "The 9 by 16 frame: tap where the face is", "data-key": "frame" },
-      svg("rect", { x: "0", y: "0", width: String(model.FRAME.w), height: String(model.FRAME.h), class: "wb-rev-frame-bg" }),
-      box ? svg("rect", { x: String(box.x), y: String(box.y), width: String(box.w), height: String(box.h), class: "wb-rev-facebox", "data-key": "facebox" }) : null);
+      svg("rect", { x: "0", y: "0", width: String(model.FRAME.w), height: String(model.FRAME.h), class: "wb-rev-frame-bg" }), stored);
+    const line = h("span", { class: "wb-card-hint wb-rev-pending", "data-key": "face-pending", role: "status" });
+    faceRefs = { frame, stored, dashed, line };
     if (editing()) {
       frame.addEventListener("click", (event) => {
         const rect = frame.getBoundingClientRect ? frame.getBoundingClientRect() : null;
         if (!rect || !rect.width || !rect.height || !event) return;
-        const next = model.faceBoxAt((event.clientX - rect.left) / rect.width, (event.clientY - rect.top) / rect.height, model.FACE_SIZES[state.face.size]);
-        faceEdit(model.edit.faceBox(next), "Chose the face box.");
+        state.face.fields = { x: "", y: "", w: "", h: "" };      // a tap is a new choice: the numbers typed before it are not sent after it
+        faceAuto.submit(model.faceBoxAt((event.clientX - rect.left) / rect.width, (event.clientY - rect.top) / rect.height, model.FACE_SIZES[state.face.size]));
       });
     }
     const f0 = state.face.fields;
+    const leave = (auto) => ({ blur: () => auto.flush(), enter: (event) => { if (event && event.key === "Enter") { if (event.preventDefault) event.preventDefault(); auto.flush({ retry: true }); } } });
     const fields = ["x", "y", "w", "h"].map((k) => {
       const input = h("input", { class: "pui-input wb-rev-number", type: "text", inputmode: "numeric", "data-key": `face-${k}`, "aria-label": `Face box ${k}, in pixels`, autocomplete: "off" });
       input.value = f0[k] !== "" ? f0[k] : box ? String(box[k]) : "";
-      input.addEventListener("input", () => { state.face.fields[k] = input.value; });
+      input.addEventListener("input", () => { state.face.fields[k] = input.value; faceAuto.touch(); });
+      input.addEventListener("blur", leave(faceAuto).blur);
+      input.addEventListener("keydown", leave(faceAuto).enter);
       return labelled(k, input);
     });
-    const cover = textField("cover", "Cover: seconds into the finished video", state.coverText !== "" ? state.coverText : (view.cover_offset_ms / 1000).toFixed(1), (v) => { state.coverText = v; });
+    const cover = textField("cover", "Cover: seconds into the finished video", state.coverTyped ? state.coverText : (view.cover_offset_ms / 1000).toFixed(1), (v) => { state.coverText = v; state.coverTyped = true; coverAuto.touch(); });
+    cover.addEventListener("blur", leave(coverAuto).blur);
+    cover.addEventListener("keydown", leave(coverAuto).enter);
+    const coverLine = h("span", { class: "wb-card-hint wb-rev-pending", "data-key": "cover-pending", role: "status" });
+    coverRefs = { line: coverLine };
+    paintFace();
+    paintCover();
     return h("div", { class: "wb-rev-frame-box" },
       h("p", { class: "wb-card-hint", text: FRAME_WORDS }),
       frame,
@@ -462,20 +577,9 @@ export function createCaptionsView(env) {
           return node;
         })),
         h("div", { class: "wb-rev-numbers" }, fields),
-        h("div", { class: "wb-card-actions" },
-          act("Set the face box", "set-face", () => {
-            const f = state.face.fields;      // read now: the object is replaced when a face box edit was accepted
-            const got = model.faceBoxFromFields({ x: f.x !== "" ? f.x : box ? box.x : "", y: f.y !== "" ? f.y : box ? box.y : "", w: f.w !== "" ? f.w : box ? box.w : "", h: f.h !== "" ? f.h : box ? box.h : "" });
-            if (got.reason) { state.error = { text: got.reason, code: "", field: "" }; draw(); return; }
-            faceEdit(model.edit.faceBox(got.box), "Chose the face box.");
-          }),
-          box ? act("Clear the face box", "clear-face", () => faceEdit(model.edit.clearFaceBox(), "Cleared the face box.")) : null),
+        h("div", { class: "wb-card-actions" }, line, box ? act("Clear the face box", "clear-face", faceClear) : null),
         labelled("Cover: seconds into the finished video", cover),
-        h("div", { class: "wb-card-actions" }, act("Set the cover", "set-cover", () => {
-          const got = model.coverFromSeconds(state.coverText !== "" ? state.coverText : String(view.cover_offset_ms / 1000), recordingSeconds());
-          if (got.reason) { state.error = { text: got.reason, code: "", field: "" }; draw(); return; }
-          coverEdit(got.offsetMs, "Chose the cover.");
-        }), act("First frame", "cover-first", () => coverEdit(0, "The cover is the first frame."))),
+        h("div", { class: "wb-card-actions" }, coverLine, act("First frame", "cover-first", () => coverEdit(0, "The cover is the first frame."))),
       ] : null,
       h("p", { class: "wb-card-note", "data-key": "cover-line", text: model.coverText(view.cover_offset_ms) }),
       h("p", { class: "wb-card-hint", text: COVER_WORDS }));
@@ -523,7 +627,17 @@ export function createCaptionsView(env) {
     const key = JSON.stringify(signature);
     if (part.sig === key) return;
     part.sig = key;
+    // a part drawn again keeps the field the person is in: the same control by its key gets the focus back, with the caret where it was
+    const active = typeof document !== "undefined" ? document.activeElement : null;
+    const focused = active && active.getAttribute && part.node.contains(active) ? { key: active.getAttribute("data-key"), from: active.selectionStart, to: active.selectionEnd } : null;
     fill(part.node, [produce()].flat(Infinity));
+    if (focused && focused.key) {
+      const next = [...part.node.querySelectorAll("[data-key]")].find((n) => n.getAttribute("data-key") === focused.key);
+      if (next && next.focus) {
+        next.focus({ preventScroll: true });
+        if (typeof focused.from === "number" && next.setSelectionRange) next.setSelectionRange(focused.from, focused.to);
+      }
+    }
   }
 
   function section(title, body) {
@@ -542,7 +656,12 @@ export function createCaptionsView(env) {
     ];
   }
 
+  /** Draw, and leave the scroll position of the panel where it was (dom.js keepScroll). */
   function draw() {
+    keepScroll(el, drawNow);
+  }
+
+  function drawNow() {
     if (closed) return;
     if (state.mode === "loading" && state.loading) {
       shape = null;
@@ -571,7 +690,7 @@ export function createCaptionsView(env) {
     paint("beats", [mode, open && view.beats, open && view.threshold, state.selection, open && view.words.length, can("captions-edit")], () => (open ? section(`Beats of the script${Number.isFinite(view.threshold) ? ` (a match below ${view.threshold} is flagged)` : ""}`, beatsNode(view)) : null));
     paint("words", [open && view.words.filter((w) => w.timing_adjusted).map((w) => w.index), open && view.unplaced, open && view.words.length], () => (open ? wordsNode(view) : null));
     paint("slots", [mode, open && view.slots, open && state.media && state.media.slots, Object.keys(state.picked).map((k) => [k, state.picked[k] && state.picked[k].name]), state.uploading, state.uploadError, can("captions-edit"), can("media-in")], () => (open ? section("Asset slots", slotsNode(view)) : null));
-    paint("frame", [mode, open && view.face_box, open && view.cover_offset_ms, state.face, state.coverText, can("captions-edit")], () => (open ? section("Face box and cover", frameNode(view)) : null));
+    paint("frame", [mode, open && view.face_box, open && view.cover_offset_ms, state.face, state.coverText, state.coverTyped, can("captions-edit")], () => (open ? section("Face box and cover", frameNode(view)) : null));
     paint("done", [mode, open && view && model.doneBlock(view), can("captions-done"), can("prepare-again")], () => doneNode(view));
     paint("actions", [mode], () => h("div", { class: "wb-card-actions" }, act("Check again", "reload", () => { state.error = null; state.message = null; load({ quiet: true }); })));
     paint("withheld", [withheld], () => withheldLine(withheld));
@@ -589,6 +708,8 @@ export function createCaptionsView(env) {
     /** The row closed or the task went away: stop what is going. */
     close() {
       closed = true;
+      faceAuto.stop();
+      coverAuto.stop();
       closing.abort();
       if (controller) controller.abort();
     },
