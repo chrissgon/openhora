@@ -341,7 +341,36 @@
         },
         "report": {
           "type": "array",
-          "description": "Per beat: preset, score, matched, reordered, word range."
+          "description": "Per beat: preset, score, matched, reordered, word range, and the beat's role and emphasis when the script gave them.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "beat": {
+                "type": "integer"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "hook",
+                  "setup",
+                  "point",
+                  "proof",
+                  "turn",
+                  "payoff",
+                  "cta"
+                ],
+                "description": "The beat's role from the script (shared/references/video-presets.json, `script.roles`). Optional: a beats file without it stays valid and stays schema_version 1."
+              },
+              "emphasis": {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "punch"
+                ],
+                "description": "The beat's emphasis from the script (`script.emphasis`): `punch` asks the framing layer for a punch-in on that beat. Optional."
+              }
+            }
+          }
         },
         "unmatched": {
           "type": "array",
@@ -353,6 +382,21 @@
         "fallbacks": {
           "type": "array",
           "description": "Beats whose empty slot the person resolved to a keyword or to nothing."
+        },
+        "script": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The script-level fields the player or a later stage reads, copied by `align` from the post's script header; the rest of the header stays in the post file. Optional, and so is each key.",
+          "properties": {
+            "title": {
+              "type": "string",
+              "description": "The header's `title`: bounded, hardened text (at most the vocabulary's `script.limits.title_max` characters)."
+            },
+            "loop": {
+              "type": "boolean",
+              "description": "The header's `loop` (yes is true): the last line joins the first."
+            }
+          }
         }
       }
     },
@@ -391,6 +435,27 @@
         },
         "score": {
           "type": "number"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "hook",
+            "setup",
+            "point",
+            "proof",
+            "turn",
+            "payoff",
+            "cta"
+          ],
+          "description": "The beat's role from the script (shared/references/video-presets.json, `script.roles`). Optional: a beats file without it stays valid and stays schema_version 1."
+        },
+        "emphasis": {
+          "type": "string",
+          "enum": [
+            "none",
+            "punch"
+          ],
+          "description": "The beat's emphasis from the script (`script.emphasis`): `punch` asks the framing layer for a punch-in on that beat. Optional."
         }
       }
     }

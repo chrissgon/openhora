@@ -155,7 +155,7 @@ def verb_align(args) -> dict:
     if fmt not in _align.VIDEO_FORMATS:
         raise Refusal("post_format", "post")
     _align.run_checker(args.checker, args.post, args.vocabulary, fmt)       # refuses a post it does not pass
-    rows = _align.read_beats(text, vocab)
+    header, rows = _align.read_script(text, vocab)
     tr = _timeline.check_transcript(read_json(args.transcript, limits["json_max_bytes"]), limits)
     words, _ = _timeline.normalise_words(tr["words"], tr["segments"], tr["duration"])
     live = [w for w in words if not w["dropped"]]
@@ -179,6 +179,7 @@ def verb_align(args) -> dict:
     beats = _align.build_beats(with_preset, results, vocab, args.threshold, empty)
     beats["report"] = sorted(beats["report"] + [{"beat": r["beat"], "preset": None} for r in rows if not r["preset"]],
                              key=lambda x: x["beat"])
+    _align.annotate(beats, rows, header)
     write_json(args.out, beats)
     return {"ok": True, "out": os.path.abspath(args.out), "beats": len(rows), "overlays": len(beats["overlays"]),
             "layouts": len(beats["layouts"]), "unmatched": beats["unmatched"], "slots": [s["slot"] for s in beats["slots"]],
