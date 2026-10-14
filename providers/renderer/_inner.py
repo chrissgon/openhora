@@ -211,6 +211,7 @@ def browser_path(args) -> str:
 
 
 def verb_render(args) -> dict:
+    _render.read_platform(args.platform_file)           # inputs are checked before any tool is looked for
     ffmpeg, ffprobe = tools(args)
     browser = {"path": None} if args.dry_run else {"path": browser_path(args)}
     asset_files = {slot_key(k): v for k, v in pairs(args.asset, "--asset").items()}
@@ -273,8 +274,8 @@ def verb_verify(args) -> dict:
     """Check a finished render, from outside the container that made it: its sha256 is the one the render reported, and ffprobe
     finds it inside the platform file's video spec (container, codec, audio codec, size, fps range, duration, bytes, faststart),
     tagged bt709 limited range, and as long as the edit list says."""
-    ffmpeg, ffprobe = tools(args)
     platform = _render.read_platform(args.platform_file)
+    ffmpeg, ffprobe = tools(args)
     if _media.sha256_file(args.input) != args.sha256:
         raise Refusal("render_differs", "render")
     verdict = _media.check_output(ffprobe, args.input, platform)

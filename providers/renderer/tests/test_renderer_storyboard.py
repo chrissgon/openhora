@@ -532,15 +532,18 @@ def test_a_platform_file_that_is_not_an_object_is_refused_by_render_verify_and_c
             _render.read_platform(str(path))
         assert e.value.code == "bad_platform"
     null = write(tmp_path, "null.json", "null")
+    nowhere = str(tmp_path / "no-such-tool")                 # the tools are named and missing: the platform must be refused before they are looked for
+    for name in ("e.json", "b.json"):
+        write(tmp_path, name, "{}")
+    (tmp_path / "s.mp4").write_bytes(b"x")
     for args in (["render", "--edl", tmp_path / "e.json", "--beats", tmp_path / "b.json", "--in", tmp_path / "s.mp4", "--out", tmp_path / "o", "--platform-file", null,
-                  "--vocabulary", K.VOCABULARY],
-                 ["verify", "--in", tmp_path / "s.mp4", "--platform-file", null, "--sha256", "0" * 64],
+                  "--vocabulary", K.VOCABULARY, "--ffmpeg", nowhere, "--ffprobe", nowhere],
+                 ["verify", "--in", tmp_path / "s.mp4", "--platform-file", null, "--sha256", "0" * 64, "--ffmpeg", nowhere, "--ffprobe", nowhere],
                  ["check", "--edl", tmp_path / "e.json", "--beats", tmp_path / "b.json", "--vocabulary", K.VOCABULARY, "--platform-file", null]):
-        for name in ("e.json", "b.json"):
-            write(tmp_path, name, "{}")
-        (tmp_path / "s.mp4").write_bytes(b"x")
         rc, _, err = K.run_verb(*args)
-        assert rc == 1 and ("bad_platform" in err or "refused:" in err), (args[0], err)
+        assert rc == 1 and err.startswith("refused: bad_platform platform"), (args[0], err)
+    rc, _, err = K.run_verb("verify", "--in", tmp_path / "s.mp4", "--platform-file", write(tmp_path, "ok.json", "{}"), "--sha256", "0" * 64, "--ffmpeg", nowhere, "--ffprobe", nowhere)
+    assert rc == 3 and err.startswith("refused: tool_missing")           # with an object, the next thing refused is the missing tool
     assert _render.check_documents.__doc__ and "storyboard" in _render.check_documents.__doc__
 
 
