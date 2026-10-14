@@ -134,7 +134,7 @@ console.log(JSON.stringify(out));
 @needs_node
 def test_the_control_models_chips_filters_notice_platform_chart_and_words_follow_the_handoff(tmp_path):
     got = run_node(tmp_path, MODEL_SCRIPT)
-    ok, muted, error = "pui-chip pui-success pui-soft", "pui-chip pui-muted pui-soft", "pui-chip pui-error pui-soft"
+    ok, muted, error = "pui-badge pui-success pui-soft", "pui-badge pui-muted pui-soft", "pui-badge pui-error pui-soft"
     assert got["chips"] == [
         [["reliable", ok, "0.87"], ["watch", muted, "0.58"]],
         [["watch", muted, "0.66"], ["needs a test", error, "-"]],

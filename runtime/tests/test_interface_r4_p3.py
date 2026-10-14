@@ -339,7 +339,7 @@ def test_the_phones_fields_buttons_and_tabs_are_16_px_and_no_text_is_left_under_
                 assert raised and float(raised.group(1)) >= 12, f"{name}.css: {part} is {size.group(1)} px and stays so on a phone"
     floor = _phone_text(css_file("floor"))
     assert re.search(r"\.wb-panel :is\(input, textarea, select\) \{ font-size: 16px; \}", floor), "every field is 16 px (and the page cannot be zoomed)"
-    assert re.search(r"\.wb-panel :is\(button, \.pui-btn\) \{ font-size: 16px; \}", floor)
+    assert not re.search(r"\.wb-panel :is\(button, \.pui-btn\)", floor), "a button's text size is the library's: no rule of the page sets it (test_interface_button_sizes.py)"
     assert re.search(r"\.wb-card-body, ", floor) and ".wb-card-line" in floor and ".wb-res-said" in floor
     assert re.search(r"\.wb-lobby-tab \{[^}]*font-size: 16px", _phone_text(css_file("lobby")))
     assert re.search(r"\.wb-control \.wb-tablist \.wb-tab \{ font-size: 16px; \}", _phone_text(css_file("control")))

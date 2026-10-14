@@ -25,7 +25,7 @@ import { reader } from "../permissions.js";
 import { failureText, stepRows } from "./captions-model.js";
 import { onLoopback } from "./media-upload.js";
 import { replyView } from "./reply.js";
-import { busyLine, chip, errorText, field, notice, textArea, withheldLine } from "./widgets.js";
+import { actionClass, busyLine, chip, errorText, field, notice, textArea, withheldLine } from "./widgets.js";
 
 export const ON_THE_MAC = "Watch and approve on the Mac that runs the service: a video is not shown, and nothing is approved, over the network.";
 export const APPROVE_WORDS = "Approving binds this exact file and this exact caption, by the two hashes above. A new render or any edit of the caption asks you again. Nothing is published or scheduled.";
@@ -275,7 +275,7 @@ export function createVideoCard(env) {
   // --- drawing ----------------------------------------------------------------------------------------------------------------
 
   function button(label, key, onClick, { disabled = false, primary = false } = {}) {
-    const node = h("button", { class: `pui-btn ${primary ? "pui-solid pui-theme" : "pui-surface pui-outline"} wb-card-button wb-video-button`, type: "button", "data-key": key, disabled, text: label });
+    const node = h("button", { class: `${actionClass(primary)} wb-video-button`, type: "button", "data-key": key, disabled, text: label });
     node.addEventListener("click", onClick);
     return node;
   }

@@ -155,7 +155,7 @@ export function createCard(item, env) {
 
   function plainButton() {
     const on = plainChoice();
-    const button = h("button", { class: "pui-btn pui-surface pui-outline wb-small-button wb-card-plain", type: "button", "data-key": "plain", "aria-pressed": String(on), text: "Plain text" });
+    const button = h("button", { class: "pui-btn pui-surface pui-outline wb-touch wb-card-plain", type: "button", "data-key": "plain", "aria-pressed": String(on), text: "Plain text" });
     button.addEventListener("click", () => {
       setPlainChoice(!plainChoice());     // every card that listens draws again (below), this one too
       const next = root.querySelector ? root.querySelector("button.wb-card-plain") : null;

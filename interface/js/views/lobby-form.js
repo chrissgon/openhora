@@ -23,7 +23,7 @@ export function createForm({ onCreate, onBack = () => {} }) {
   const create = h("button", { class: "pui-btn pui-solid pui-theme", type: "submit", text: "Create request" });
   const error = h("div", { class: "notice pui-soft pui-error wb-card-error", role: "alert", hidden: true });
   const busy = h("div", { class: "wb-lobby-busy", role: "status", hidden: true }, h("span", { class: "wb-lobby-ring", "aria-hidden": "true" }), h("span", { text: "Creating the request..." }));
-  const back = h("button", { class: "pui-btn pui-surface pui-outline wb-small-button wb-newreq-back", type: "button" }, icon("chevron-left", 16), h("span", { text: "Back to the conversation" }));
+  const back = h("button", { class: "pui-btn pui-surface pui-outline wb-touch wb-newreq-back", type: "button" }, icon("chevron-left", 16), h("span", { text: "Back to the conversation" }));
   back.addEventListener("click", () => onBack());
   const flowField = h("label", { class: "pui-field-group wb-field", for: flowId }, h("span", { text: "Flow" }), flow);
   const routeLine = h("div");      // the line under the form when the page may not route (js/permissions.js)

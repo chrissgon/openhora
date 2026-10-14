@@ -151,7 +151,7 @@ const request = { id: 16, title: LONG, state: "requested", tasks: [] };
 const body = { task: { id: 16, text: LONG + "\nA second paragraph that the title never holds." }, pending: [] };
 let block = make(request, { body });
 const line = byClass(block.el, "wb-lobby-request-line")[0];
-out.order = line.children.map((n) => (n.cls().includes("pui-badge") ? "number" : n.cls().includes("wb-lobby-request-title") ? "title" : n.cls().includes("pui-chip") ? "state" : "action"));
+out.order = line.children.map((n) => (n.cls().includes("pui-rounded-full") ? "number" : n.cls().includes("wb-lobby-request-title") ? "title" : n.cls().includes("pui-badge") ? "state" : "action"));
 const title = byClass(block.el, "wb-lobby-request-title")[0];
 out.title = { tag: title.tagName, text: title.textContent, tip: title.attrs.title, name: title.attrs["aria-label"], expanded: title.attrs["aria-expanded"], type: title.attrs.type };
 const full = byClass(block.el, "wb-lobby-request-full")[0];

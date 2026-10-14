@@ -17,7 +17,7 @@ function resolvedLine(item, now) {
   const good = item.status === "resolved" && item.resolution !== "rejected";
   const when = ago(item.resolved_at || item.created_at, now);
   return h("div", { class: "wb-lobby-resolved" },
-    h("span", { class: `pui-chip pui-soft ${good ? "pui-success" : "pui-muted"} wb-chip-small`, text: resolvedWord(item) }),
+    h("span", { class: `pui-badge pui-soft ${good ? "pui-success" : "pui-muted"}`, text: resolvedWord(item) }),
     h("span", { class: "wb-lobby-resolved-text", text: `${item.title || ""}${when ? ` · ${when}` : ""}` }));
 }
 
@@ -79,7 +79,7 @@ export function createBlock({ api, project, request, body, open, now, signal, on
     ? h("button", { class: "pui-btn pui-link pui-error wb-lobby-cancel-link", type: "button", text: "Cancel request", "aria-label": `Cancel request ${request.id}` }) : null;
   const routeAllowed = can("route");
   const route = line.routable && routeAllowed
-    ? h("button", { class: "pui-btn pui-surface pui-outline wb-small-button wb-route-button", type: "button", text: routing ? "Routing..." : "Route it", disabled: Boolean(routing),
+    ? h("button", { class: "pui-btn pui-surface pui-outline wb-touch wb-route-button", type: "button", text: routing ? "Routing..." : "Route it", disabled: Boolean(routing),
       "aria-label": routing ? `Request ${request.id} is being routed` : `Route request ${request.id}`, title: request.routing ? routingWords(request, now) : runBusy && !remembered ? QUEUE_REASON : null }) : null;
   // the run's words on an element that wraps, not only on the button's tooltip (a touch screen has no tooltip)
   const runNote = request.routing ? h("span", { class: "wb-lr-run", text: routingWords(request, now) }) : null;
@@ -97,7 +97,7 @@ export function createBlock({ api, project, request, body, open, now, signal, on
   const row = h("div", { class: "wb-lobby-request-line", role: "group", "aria-label": line.name },
     h("span", { class: "pui-badge pui-muted pui-soft pui-rounded-full", text: `#${request.id}` }),
     titleButton,
-    line.state ? h("span", { class: `pui-chip ${line.tone} wb-chip-small`, text: line.state }) : null);
+    line.state ? h("span", { class: `pui-badge ${line.tone}`, text: line.state }) : null);
   const lacking = line.routable && !routeAllowed ? ["route"] : [];
   const actions = chooser || route || cancel ? h("div", { class: `wb-lr-actions${chooser ? " has-flow" : ""}` }, chooser, route, cancel, runNote) : null;
   if (cancel) cancel.addEventListener("click", () => onCancel(request, cancel));

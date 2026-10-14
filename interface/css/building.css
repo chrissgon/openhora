@@ -21,7 +21,6 @@
 .wb-pip { box-sizing: border-box; width: var(--wb-pip); height: var(--wb-pip); border: 1px solid currentColor; border-radius: 1px; }
 .wb-pip.is-on { background-color: currentColor; }
 
-.wb-chip-12 { padding: 0 8px; font-size: 12px; }
 
 /* a floor's plate (R-25, R-26; building.html): beside its floor, one size: the name row and the two meters of the day side by side; the name row alone (`is-short`) with more
    than eight floors, or (`is-tiny`, put on by the scene's stacking) when the column would not fit. It stands 28 px farther from the building than the scene's column puts it,

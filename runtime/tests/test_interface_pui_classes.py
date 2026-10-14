@@ -38,7 +38,7 @@ def used(globs) -> dict:
 
 def test_the_library_is_read_and_has_the_classes_the_page_leans_on():
     known = defined()
-    assert {"pui-btn", "pui-chip", "pui-badge", "pui-input", "pui-card", "pui-field-group", "pui-solid", "pui-outline", "pui-theme"} <= known, "the class list was read from the vendored css"
+    assert {"pui-btn", "pui-badge", "pui-badge", "pui-input", "pui-card", "pui-field-group", "pui-solid", "pui-outline", "pui-theme"} <= known, "the class list was read from the vendored css"
 
 
 def test_no_script_or_page_uses_a_pui_class_the_library_does_not_define():

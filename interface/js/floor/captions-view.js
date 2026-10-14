@@ -26,7 +26,7 @@ import { createAutosave, AUTOSAVE_MS } from "./autosave.js";
 import { handOverStep } from "./hand-file.js";
 import { mediaRefusal, onLoopback, uploadRecording } from "./media-upload.js";
 import * as model from "./captions-model.js";
-import { busyLine, chip, notice, withheldLine } from "./widgets.js";
+import { actionClass, busyLine, chip, notice, withheldLine } from "./widgets.js";
 
 export const ON_THE_MAC = "Check the captions on the Mac that runs the service: your words are read and changed there, and are not sent over the network.";
 export const EDIT_HINT = `Keep the spelling as it is said. A space splits a word: its time is shared out and marked estimated. At most ${model.WORD_CHARS_MAX} characters.`;
@@ -220,8 +220,8 @@ export function createCaptionsView(env) {
   // --- drawing: small pieces -------------------------------------------------------------------------------------------------------
 
   /** A button that sends an edit; `data-idle` marks it to be disabled while a call is in flight. */
-  function act(label, key, onClick, { primary = false, disabled = false, small = true } = {}) {
-    const node = h("button", { class: `pui-btn ${primary ? "pui-solid pui-theme" : "pui-surface pui-outline"} wb-card-button wb-rev-button${small ? " wb-small-button" : ""}`, type: "button", "data-key": key, "data-idle": "", "data-locked": disabled ? "" : null, disabled, text: label });
+  function act(label, key, onClick, { primary = false, disabled = false } = {}) {
+    const node = h("button", { class: `${actionClass(primary)} wb-rev-button`, type: "button", "data-key": key, "data-idle": "", "data-locked": disabled ? "" : null, disabled, text: label });
     node.addEventListener("click", onClick);
     return node;
   }
@@ -254,7 +254,7 @@ export function createCaptionsView(env) {
   // --- drawing: the parts -------------------------------------------------------------------------------------------------------------
 
   function wordNode(word) {
-    const classes = ["wb-rev-word"];
+    const classes = ["pui-chip", "pui-surface", "pui-outline", "wb-rev-word"];      // a compact item: the library's chip (a button when the words can be edited), at its own size
     const selected = state.selection && word.index >= state.selection.from && word.index <= state.selection.to;
     if (selected) classes.push("is-selected");
     if (word.retake) classes.push(word.retake === "confirmed" ? "is-cut" : "is-retake");
@@ -388,7 +388,7 @@ export function createCaptionsView(env) {
         state.uploadError[s.slot] = "";
         draw();
       });
-      const choose = h("button", { class: "pui-btn pui-surface pui-outline wb-small-button wb-hand-choose", type: "button", "data-key": `choose-${s.slot}`, "data-idle": "", text: s.file ? "Choose another file" : "Choose a file" });
+      const choose = h("button", { class: "pui-btn pui-surface pui-outline wb-touch wb-hand-choose", type: "button", "data-key": `choose-${s.slot}`, "data-idle": "", text: s.file ? "Choose another file" : "Choose a file" });
       choose.addEventListener("click", () => { if (!input.disabled) input.click(); });
       const select = h("select", { class: "pui-input wb-rev-select", "data-key": `choice-${s.slot}`, "data-idle": "", "aria-label": `If ${s.slot} gets no file` },
         [["", "No choice yet"], ["keyword", "Use a keyword instead"], ["none", "Leave the overlay out"]].map(([value, label]) => h("option", { value, selected: (s.choice || "") === value, text: label })));
@@ -575,8 +575,9 @@ export function createCaptionsView(env) {
       h("p", { class: "wb-card-note", "data-key": "face-line", text: model.faceBoxText(box) }),
       editing() ? [
         h("div", { class: "wb-rev-sizes", role: "group", "aria-label": "Size of the face box" }, Object.keys(model.FACE_SIZES).map((name) => {
-          const node = act(name, `size-${name}`, () => { state.face.size = name; draw(); }, { primary: state.face.size === name });
-          node.setAttribute("aria-pressed", state.face.size === name ? "true" : "false");
+          const on = state.face.size === name;
+          const node = h("button", { class: `pui-chip ${on ? "pui-solid pui-theme" : "pui-surface pui-outline"} wb-rev-size`, type: "button", "data-key": `size-${name}`, "data-idle": "", "aria-pressed": on ? "true" : "false", text: name });
+          node.addEventListener("click", () => { state.face.size = name; draw(); });
           return node;
         })),
         h("div", { class: "wb-rev-numbers" }, fields),
@@ -603,7 +604,7 @@ export function createCaptionsView(env) {
       const block = model.doneBlock(view);
       return h("div", { class: "wb-rev-done" },
         block ? h("p", { class: "wb-card-note", "data-key": "done-block", role: "status", text: block }) : null,
-        loopback && can("captions-done") ? h("div", { class: "wb-card-actions" }, act("Done: the captions are right", "done", done, { primary: true, small: false, disabled: Boolean(block) })) : null,
+        loopback && can("captions-done") ? h("div", { class: "wb-card-actions" }, act("Done: the captions are right", "done", done, { primary: true, disabled: Boolean(block) })) : null,
         h("p", { class: "wb-card-hint", text: DONE_WORDS }));
     }
     if (state.mode === "after" && loopback && can("prepare-again")) {

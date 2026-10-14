@@ -214,7 +214,6 @@ code, .mono {
 
 .wb-dot { flex: none; width: 7px; height: 7px; border-radius: 9999px; background-color: var(--pui-muted); }
 .wb-dot.is-running { background-color: var(--pui-theme); }
-.wb-chip-small { padding: 2px 8px; font-size: 12px; }
 
 /* a decision arriving: the badge scales 1, 1.15, 1 once in 300 ms (none under reduced motion, below) */
 .wb-label.is-pop .pui-badge, .wb-plate.is-pop .pui-badge, .wb-tab .pui-badge.is-pop { animation: wb-pop 0.3s ease-out 1; }
@@ -254,8 +253,8 @@ code, .mono {
 .wb-sheet-body .wb-steps { display: grid; gap: 4px; }
 
 .wb-tablist { display: flex; gap: 2px; padding: 0 10px; border-bottom: var(--pui-border-width) solid var(--pui-border); }
-.wb-tab.pui-btn { border-radius: 0; border-bottom: 2px solid transparent; color: var(--pui-text-muted); font-weight: 400; text-decoration: none; }
-.wb-tab.pui-btn.is-selected { border-bottom-color: var(--pui-theme); color: var(--pui-text); font-weight: 600; }
+.wb-tab { border-radius: 0; border-bottom: 2px solid transparent; color: var(--pui-text-muted); font-weight: 400; text-decoration: none; }
+.wb-tab.is-selected { border-bottom-color: var(--pui-theme); color: var(--pui-text); font-weight: 600; }
 
 .wb-field { --pui-edge: var(--pui-muted); }
 /* R-37: a text area is about three lines high by default */
@@ -293,7 +292,6 @@ textarea.wb-field-input { min-height: 76px; resize: vertical; }
 .wb-field-input, .wb-select, .wb-file { --pui-edge: var(--pui-muted); }
 .wb-hint { color: var(--pui-text-muted); font-size: 12px; }
 .wb-hint.is-error { color: var(--wb-ink-error); }
-.wb-small-button { padding: 4px 10px; gap: 6px; }
 .pui-btn.pui-surface.pui-outline { background-color: var(--wb-raised); }
 
 .wb-ring { display: inline-block; flex: none; box-sizing: border-box; width: var(--wb-ring); height: var(--wb-ring); border: 2px solid var(--pui-bg-emphasis); border-top-color: var(--pui-theme); border-radius: 9999px; }
@@ -336,7 +334,7 @@ textarea.wb-field-input { min-height: 76px; resize: vertical; }
 .wb-viewer-dialog .wb-viewer { max-height: calc(100dvh - 16px); }
 
 @media (max-width: 899px) {
-  .wb-set-mode, .wb-small-button { min-height: 44px; }
+  .wb-set-mode, .wb-touch { min-height: 44px; }
 }
 
 @media (max-width: 899px) {
@@ -390,9 +388,9 @@ textarea.wb-field-input { min-height: 76px; resize: vertical; }
 /* a segmented control (R-33, R-43): a sunken track; the selected tab is a raised piece; a count sits beside its word, a plain figure. The tabs of the Floor, the Lobby and the
    Control room are this. */
 .wb-tabs, .wb-tablist { gap: 2px; margin: 8px 10px; padding: 3px; border: 0; border-radius: var(--pui-radius); background-color: light-dark(var(--pui-bg-emphasis), var(--pui-bg)); }
-.wb-tab, .wb-tab.pui-btn { padding: 5px 12px; border: 0; border-radius: calc(var(--pui-radius) - 3px); color: var(--pui-text-muted); font-weight: 400; }
-.wb-tab.is-selected, .wb-tab.pui-btn.is-selected { border: 0; background-color: var(--wb-raised); box-shadow: var(--wb-elev); color: var(--pui-text); font-weight: 400; }
-.wb-tab .pui-badge { padding: 0; border: 0; background-color: transparent; color: var(--pui-text-muted); font-weight: 400; }
+.wb-tab { padding: 5px 12px; border: 0; border-radius: calc(var(--pui-radius) - 3px); color: var(--pui-text-muted); font-weight: 400; }
+.wb-tab.is-selected { border: 0; background-color: var(--wb-raised); box-shadow: var(--wb-elev); color: var(--pui-text); font-weight: 400; }
+.wb-tab .pui-badge { border: 0; background-color: transparent; color: var(--pui-text-muted); font-weight: 400; }
 .wb-tab.is-selected .pui-badge { color: var(--wb-ink-theme); }
 .wb-tab .pui-badge.pui-warn { color: var(--wb-ink-warn); }
 /* the tab bar (R-33): the track in a row of its own under a panel's head, with a line under it; the track is as wide as its tabs, unless the screen makes it fill (the Lobby's five tabs) */
@@ -432,5 +430,5 @@ textarea.wb-field-input { min-height: 76px; resize: vertical; }
   .wb-plan-body .wb-md { font-size: 16px; }
   .wb-md pre, .wb-md table, .wb-md.is-plain, .wb-md-rest, .wb-viewer-text, .wb-command, .wb-command-code { font-size: 14px; }
   .wb-md th { font-size: 12px; }
-  .wb-note, .wb-hint, .wb-copy-status, .wb-viewer-line, .wb-md-note, .wb-chip-small { font-size: 12px; }
+  .wb-note, .wb-hint, .wb-copy-status, .wb-viewer-line, .wb-md-note { font-size: 12px; }
 }

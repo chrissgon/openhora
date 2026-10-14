@@ -53,11 +53,11 @@ const autopilot = createAutopilot({
 const bridge = createBridge({ win: window, parent: window.parent, origin: window.location.origin, autopilot });
 
 function ribbon() {
-  const start = h("button", { class: "pui-btn pui-surface pui-outline wb-small-button", type: "button", text: "Start over" });
+  const start = h("button", { class: "pui-btn pui-surface pui-outline wb-touch", type: "button", text: "Start over" });
   start.addEventListener("click", () => { autopilot.replay(); });
   const parts = [h("span", { class: "pui-badge pui-soft pui-warn", text: "Demo · fictional data" })];
   if (reduced) {
-    const next = h("button", { class: "pui-btn pui-surface pui-outline wb-small-button", type: "button", text: "Next step" });
+    const next = h("button", { class: "pui-btn pui-surface pui-outline wb-touch", type: "button", text: "Next step" });
     next.addEventListener("click", () => { autopilot.play(); });
     parts.push(next);
   }

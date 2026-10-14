@@ -4,11 +4,9 @@
    Linked by index.html in this order: base, frame, token, city, building, floor, lobby, control, then scene.css. A later rule wins a tie, so a rule that overrides one of the same weight stays in the same file as that rule or in a file that loads after it. */
 
 .wb-mode-wrap { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.wb-mode-plate { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; font-size: 12px; line-height: 1.3; white-space: nowrap; }
-.wb-acting-plate { font-size: 11px; }
+.wb-mode-plate { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .wb-card-button { justify-content: center; }
 
-.wb-chip-11 { padding: 0 6px; font-size: 11px; }
 
 /* the Floor's panel (R-33): the head with no line under it, the tabs as a segmented control, one tab's content; the viewer replaces the whole panel */
 .wb-panel-floor { grid-template-rows: minmax(0, 1fr); }
@@ -179,8 +177,8 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
 .wb-rev-chunk.is-outside { grid-template-columns: minmax(0, 1fr); }
 .wb-rev-clock { color: var(--pui-text-muted); font-size: 11px; padding-top: 8px; }
 .wb-rev-words { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
-.wb-rev-word { display: inline-block; max-width: 100%; padding: 5px 8px; border: 1px solid var(--pui-border); border-radius: var(--pui-radius); background-color: var(--wb-raised); color: inherit; font: inherit; font-size: 14px; line-height: 1.25; overflow-wrap: anywhere; text-align: left; }
-button.wb-rev-word { cursor: pointer; }
+.wb-rev-word { max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: left; line-height: 1.25; }     /* a PerfectUI chip: its own padding, border and size; only the layout of a long word is ours */
+button.wb-rev-word, button.wb-rev-size { cursor: pointer; }
 button.wb-rev-word:focus-visible { outline: 2px solid var(--pui-theme); outline-offset: 1px; }
 .wb-rev-word.is-selected { border-color: var(--pui-theme); background-color: var(--wb-tint-selected); }
 .wb-rev-word.is-retake { text-decoration-line: line-through; text-decoration-style: dashed; color: var(--pui-text-muted); }     /* a proposal: dashed strike-through, muted */
@@ -200,7 +198,7 @@ span.wb-rev-word[data-marks]::after { content: " (" attr(data-marks) ")"; color:
 .wb-rev-row.is-confirmed { border-color: var(--pui-error); }
 .wb-rev-row.is-confirmed .wb-rev-struck { text-decoration-style: double; text-decoration-color: var(--pui-error); }
 .wb-rev-row > * { margin: 0; min-width: 0; overflow-wrap: anywhere; }
-.wb-rev-row > .pui-chip { justify-self: start; }
+.wb-rev-row > .pui-badge { justify-self: start; }
 .wb-rev-struck { text-decoration: line-through; text-decoration-style: dashed; color: var(--pui-text-muted); }
 .wb-rev-beat-head { font-size: 13px; }
 .wb-rev-matched, .wb-rev-plain { font-size: 13px; overflow-wrap: anywhere; white-space: pre-wrap; }
@@ -470,7 +468,6 @@ span.wb-rev-word[data-marks]::after { content: " (" attr(data-marks) ")"; color:
    (code in a card 14 px, it wraps), chips, meta lines and table heads are at least 12 px. A rule here beats the one of the same name above because it comes later in the file. */
 @media (max-width: 899px) {
   .wb-panel :is(input, textarea, select) { font-size: 16px; }
-  .wb-panel :is(button, .pui-btn) { font-size: 16px; }
   .wb-panel .wb-md { font-size: 16px; }
   .wb-panel .wb-md :is(h3, h4) { font-size: 16px; }
   .wb-panel .wb-md h2 { font-size: 17px; }
@@ -485,14 +482,15 @@ span.wb-rev-word[data-marks]::after { content: " (" attr(data-marks) ")"; color:
   .wb-video-loading, .wb-video-approved, .wb-video-heading, .wb-video-line { font-size: 16px; }
   .wb-sv-details > summary, .wb-sv-head, .wb-sv-steps { font-size: 16px; }
   .wb-sv-row .pui-btn { min-height: 44px; }
-  .wb-rev-word, .wb-rev-matched, .wb-rev-plain, .wb-rev-beat-head, .wb-rev-steps, .wb-rev-heading, .wb-rev-details > summary { font-size: 16px; }
+  .wb-rev-matched, .wb-rev-plain, .wb-rev-beat-head, .wb-rev-steps, .wb-rev-heading, .wb-rev-details > summary { font-size: 16px; }
   .wb-rev-clock, .wb-rev-code, .wb-video-code { font-size: 12px; }
 .wb-video-pipeline { display: grid; gap: 8px; min-width: 0; }
   .wb-rev-numbers { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .wb-rev-sizes .pui-btn { flex: 1 1 auto; min-height: 44px; }
+  .wb-rev-sizes .pui-chip { flex: 1 1 auto; min-height: 44px; justify-content: center; }
   button.wb-rev-word { min-height: 44px; }
+  .wb-rev-button, .wb-video-button { min-height: 44px; }
   .wb-rev-frame { max-width: 180px; }
-  .wb-mode-plate, .wb-chip-11, .wb-acting-plate, .wb-skill, .wb-desk-agent, .wb-wb-line, .wb-plan-table .wb-cell-skill, .wb-plan-stacked-skill, .wb-plan-stacked-skill code,
+  .wb-skill, .wb-desk-agent, .wb-wb-line, .wb-plan-table .wb-cell-skill, .wb-plan-stacked-skill, .wb-plan-stacked-skill code,
   .wb-task-group-name, .wb-group-name, .wb-meter-cell > .wb-note { font-size: 12px; }
 }
 

@@ -366,7 +366,7 @@ export function createFrame(root, handlers) {
       if (spec.lead) band.append(h("p", { class: "wb-notice-lead", text: spec.lead }));
       if (spec.text || spec.command) band.append(sentence(spec.text, spec.command, spec.mono));     // a band may be its lead alone
       if (spec.retry) {
-        const button = h("button", { class: "pui-btn pui-surface pui-outline wb-small-button", type: "button", text: "Try again" });
+        const button = h("button", { class: "pui-btn pui-surface pui-outline wb-touch", type: "button", text: "Try again" });
         button.addEventListener("click", () => handlers.onRetry());
         band.append(button);
       }

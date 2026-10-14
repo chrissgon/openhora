@@ -68,7 +68,7 @@ export function createViewer({ onClose, listed = () => undefined, object = null,
     const url = blobUrl;
     let newTab = null;
     if (NEW_TAB_TYPES.includes(blob.type)) {
-      newTab = h("button", { class: "pui-btn pui-surface pui-outline wb-small-button", type: "button", "data-key": "open-tab", text: "Open in a new tab" });
+      newTab = h("button", { class: "pui-btn pui-surface pui-outline wb-touch", type: "button", "data-key": "open-tab", text: "Open in a new tab" });
       newTab.addEventListener("click", () => openTab(url));
     }
     const size = formatSize(typeof blob.size === "number" ? blob.size : listedSize);
@@ -86,7 +86,7 @@ export function createViewer({ onClose, listed = () => undefined, object = null,
    * which the body no longer carries) and `Close`.
    */
   function head(path, line, tools = null) {
-    const close = h("button", { class: "pui-btn pui-surface pui-outline wb-small-button", type: "button", "data-key": "close", text: "Close" });
+    const close = h("button", { class: "pui-btn pui-surface pui-outline wb-touch", type: "button", "data-key": "close", text: "Close" });
     close.addEventListener("click", () => onClose());
     return h("div", { class: "wb-viewer-head" },
       h("div", { class: "wb-viewer-titles wb-panel-titles" }, h("strong", { class: "wb-viewer-path mono", id: titleId, tabindex: "-1", text: path }), line ? h("span", { class: "wb-muted wb-viewer-line wb-panel-sub", text: line }) : null),

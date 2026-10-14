@@ -38,7 +38,7 @@ export function emptyBlock(text) {
 
 /** A chip in the library's classes, at the page's size (12 px). */
 export function chip(className, text) {
-  return h("span", { class: `${className} wb-chip-12`, text });
+  return h("span", { class: `${className}`, text });
 }
 
 /** A section heading above a table or a card: small, as the page draws it (`h3.wb-sec-head`). */

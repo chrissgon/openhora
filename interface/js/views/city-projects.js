@@ -119,7 +119,7 @@ export function createProjectsPanel(env) {
   function leaveChooser() {
     return h("div", { class: "wb-add-form" }, h("p", { class: "wb-card-note", text: "Which project does the service stop holding?" }),
       projects.map((p) => {
-        const choose = h("button", { class: "pui-btn pui-surface pui-outline wb-small-button", type: "button", "data-key": `leave-choose-${p.id}`, "aria-label": `Leave project ${p.name}`, text: `Leave ${p.name}` });
+        const choose = h("button", { class: "pui-btn pui-surface pui-outline wb-touch", type: "button", "data-key": `leave-choose-${p.id}`, "aria-label": `Leave project ${p.name}`, text: `Leave ${p.name}` });
         choose.addEventListener("click", () => {
           leaving = p.id;
           draw();
@@ -146,7 +146,7 @@ export function createProjectsPanel(env) {
     if (mode === null) return;
     const active = document.activeElement;
     const key = typing && active && el.contains(active) && active.getAttribute ? active.getAttribute("data-key") : null;
-    const closeButton = h("button", { class: "pui-btn pui-surface pui-outline wb-small-button", type: "button", "data-key": "close-add", text: "Close" });
+    const closeButton = h("button", { class: "pui-btn pui-surface pui-outline wb-touch", type: "button", "data-key": "close-add", text: "Close" });
     closeButton.addEventListener("click", close);
     el.replaceChildren(
       h("div", { class: "wb-add-head" }, h("strong", { text: mode === "add" ? "Add a project" : "Leave this project" }), closeButton),

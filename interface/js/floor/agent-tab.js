@@ -142,9 +142,9 @@ export function createAgentTab(env) {
       fill(plateBox);
       return;
     }
-    const plate = h("span", { class: "pui-chip pui-muted pui-outline pui-rounded-full wb-mode-plate", text: agent.mode });
+    const plate = h("span", { class: "pui-badge pui-muted pui-outline pui-rounded-full wb-mode-plate", text: agent.mode });
     const acting = agent.acting_mode && agent.acting_mode !== agent.mode
-      ? h("span", { class: "pui-chip pui-muted pui-outline pui-rounded-full wb-mode-plate wb-acting-plate", text: `acting as ${agent.acting_mode}` }) : null;
+      ? h("span", { class: "pui-badge pui-muted pui-outline pui-rounded-full wb-mode-plate", text: `acting as ${agent.acting_mode}` }) : null;
     // A-62: a stopped agent's line says how to bring it back (not while the configuration waits for acceptance: that step comes first)
     const back = agent.mode === "stopped" && !waiting ? ` ${BRING_BACK}` : "";
     fill(plateBox, plate, acting, h("span", { class: "wb-muted wb-mode-line", text: `${MODE_LINES[agent.mode] || ""}.${back}` }));

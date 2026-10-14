@@ -533,7 +533,7 @@ const open = find(line.el, "button.wb-cancel-link");
 open.click();
 const buttons = all(line.dialog, "button");
 out.dialog = { labels: buttons.map((b) => b.textContent), open: line.dialog.open, count: find(line.dialog, ".wb-card-hint").textContent, title: find(line.dialog, ".wb-card-title").textContent, labelled: line.dialog.attrs["aria-labelledby"] === find(line.dialog, ".wb-card-title").attrs.id,
-  chip: find(line.el, ".pui-chip").textContent, line: line.el.textContent };
+  chip: all(line.el, ".pui-badge").slice(-1)[0].textContent, line: line.el.textContent };
 all(line.dialog, "button")[1].click();
 await settle();
 out.cancelled = { calls: calls.filter((c) => c[0] === "cancel").map((c) => [c[1], c[2], c.length]), changed, closed: !line.dialog.open };

@@ -406,7 +406,7 @@ def test_the_stylesheet_has_the_rounds_tokens_and_the_frames_places():
         "R-11: the band's tint is mixed into the raised surface, so the drawing does not show through"
     assert top[".notice.pui-soft"]["border-color"] == "transparent", "R-11: a notice is the soft style, no line round it"
     assert ".notice.error" not in top and ".wb-notice.is-error" not in top, "the bordered error card is gone"
-    for selector in (".wb-tab.is-selected, .wb-tab.pui-btn.is-selected", ".wb-tabs, .wb-tablist"):
+    for selector in (".wb-tab.is-selected", ".wb-tabs, .wb-tablist"):
         assert selector in top, f"R-33, R-43: the segmented control: {selector}"
 
 

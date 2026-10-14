@@ -54,7 +54,7 @@ export function createDeskTab(env) {
         env.open(r.path);
       });
       const tags = [
-        r.bound ? h("span", { class: "pui-chip pui-muted pui-outline wb-chip-12", title: "bound to a decision" }, "bound", h("span", { class: "wb-sr", text: " to a decision" })) : null,
+        r.bound ? h("span", { class: "pui-badge pui-muted pui-outline", title: "bound to a decision" }, "bound", h("span", { class: "wb-sr", text: " to a decision" })) : null,
         env.agentColumn ? h("span", { class: "pui-badge pui-muted pui-soft wb-desk-agent", text: format.agentWord(r.agent) }) : null,
       ].filter(Boolean);
       const size = [r.size, r.kind].filter(Boolean).join(" · ");

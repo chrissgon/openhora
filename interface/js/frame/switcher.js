@@ -155,7 +155,7 @@ export function createSwitcher({ onSelect, onForgetToken, onOpen, onAdd = () => 
         const row = h("li", { class: `pui-list-item wb-option${p.id === selected ? " is-selected" : ""}`, id: optionId, role: "option", "aria-selected": String(p.id === selected) },
           h("span", { class: "wb-option-text" }, h("strong", { class: "wb-option-name", text: p.name }), h("span", { class: "wb-option-sub", text: p.sub || "" })),
           p.accepted === false
-            ? h("span", { class: "pui-chip pui-warn pui-soft wb-chip-small", text: "Not accepted" })
+            ? h("span", { class: "pui-badge pui-warn pui-soft", text: "Not accepted" })
             : h("span", { class: "pui-badge pui-warn pui-soft pui-rounded-full", text: String(p.badge ?? 0) }),
           h("span", { class: `wb-check pui-soft pui-success${p.id === selected ? " is-on" : ""}` }, icon("check", 14)));
         row.addEventListener("click", () => choose(i));

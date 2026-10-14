@@ -96,7 +96,7 @@ await settle();
 out.afterLoad = {
   video: all(root, "video").length, src: find(root, "video") ? find(root, "video").attrs.src : null, poster: find(root, "video") ? find(root, "video").attrs.poster : null,
   controls: find(root, "video") && "controls" in find(root, "video").attrs, caption: text(find(root, "[data-key=caption]")), videoHash: text(find(root, "[data-key=hash-video]")), captionHash: text(find(root, "[data-key=hash-caption]")),
-  facts: text(find(root, ".wb-video-facts")), approve: off(find(root, "[data-key=approve]")) === null ? null : !off(find(root, "[data-key=approve]")), chip: text(find(root, ".pui-chip")),
+  facts: text(find(root, ".wb-video-facts")), approve: off(find(root, "[data-key=approve]")) === null ? null : !off(find(root, "[data-key=approve]")), chip: text(find(root, ".pui-badge")),
   calls: calls.map((c) => c[0]), made: made.length,
 };
 out.wrongHtml = text(find(root, "[data-key=caption]")).includes("<b>not markup</b>") && all(root, "b").length === 0;
@@ -106,7 +106,7 @@ find(root, "[data-key=approve]").click();
 await settle();
 const sent = calls.find((c) => c[0] === "videoApprove");
 out.sent = sent && sent[1];
-out.afterApprove = { chip: text(find(root, ".pui-chip")), line: text(find(root, ".wb-video-approved")), approveGone: find(root, "[data-key=approve]") === null, download: find(root, "[data-key=download]") ? text(find(root, "[data-key=download]")) : null };
+out.afterApprove = { chip: text(find(root, ".pui-badge")), line: text(find(root, ".wb-video-approved")), approveGone: find(root, "[data-key=approve]") === null, download: find(root, "[data-key=download]") ? text(find(root, "[data-key=download]")) : null };
 
 // --- Download saves the exact file under the plain name the service gave
 find(root, "[data-key=download]").click();
@@ -118,7 +118,7 @@ current = card({ render: { ...card().render, sha256: SHA2 }, approval: { state: 
 const revokedBefore = revoked.length;
 await view.load({ quiet: true });
 await settle();
-out.stale = { chip: text(find(root, ".pui-chip")), notice: text(find(root, ".wb-notice-card")), approve: off(find(root, "[data-key=approve]")) === null ? null : !off(find(root, "[data-key=approve]")), download: find(root, "[data-key=download]") === null,
+out.stale = { chip: text(find(root, ".pui-badge")), notice: text(find(root, ".wb-notice-card")), approve: off(find(root, "[data-key=approve]")) === null ? null : !off(find(root, "[data-key=approve]")), download: find(root, "[data-key=download]") === null,
   rawFor: calls.filter((c) => c[0] === "videoRaw").map((c) => c[1]), revoked: revoked.length - revokedBefore };
 
 // --- Send back needs a comment, sends exactly it, and leaves the post waiting
@@ -130,7 +130,7 @@ area.value = "  Trim the second beat.  ";
 area.listeners.input.forEach((fn) => fn());
 find(root, "[data-key=send-back]").click();
 await settle();
-out.sendBack = { calls: calls.filter((c) => c[0] === "videoSendBack"), note: text(find(root, "[data-key=sent-back]")), chip: text(find(root, ".pui-chip")) };
+out.sendBack = { calls: calls.filter((c) => c[0] === "videoSendBack"), note: text(find(root, "[data-key=sent-back]")), chip: text(find(root, ".pui-badge")) };
 
 // --- closing revokes every blob URL that was made
 view.close();
@@ -144,7 +144,7 @@ view = make(); root = view.el;
 await view.load(); await settle();
 find(root, "[data-key=approve]").click();
 await settle();
-out.refused = { text: text(find(root, ".notice")), chip: text(find(root, ".pui-chip")), approve: find(root, "[data-key=approve]") !== null };
+out.refused = { text: text(find(root, ".notice")), chip: text(find(root, ".pui-badge")), approve: find(root, "[data-key=approve]") !== null };
 fail = null;
 view.close();
 
@@ -202,7 +202,7 @@ out.kept = { sameVideo: find(root, "video") === player, sameComment: find(root, 
   refetched: calls.filter((c) => c[0] === "videoRaw").length - rawBefore, revoked: revoked.length };
 current = approved();                                                // the approval changed: the approval part is drawn again, the video is not
 await view.load({ quiet: true }); await settle();
-out.keptAfterApproval = { sameVideo: find(root, "video") === player, sameComment: find(root, "textarea") === comment, chip: text(find(root, ".pui-chip")), download: find(root, "[data-key=download]") !== null };
+out.keptAfterApproval = { sameVideo: find(root, "video") === player, sameComment: find(root, "textarea") === comment, chip: text(find(root, ".pui-badge")), download: find(root, "[data-key=download]") !== null };
 current = card({ render: { ...card().render, sha256: SHA2 } });      // another render: a new video
 await view.load({ quiet: true }); await settle();
 out.newRender = { sameVideo: find(root, "video") === player, videos: all(root, "video").length, src: find(root, "video").attrs.src, sameComment: find(root, "textarea") === comment };
@@ -510,7 +510,7 @@ const objects = { create: () => "blob:x", revoke: () => {} };
 const make = (extra = {}) => createVideoCard({ project: "0123456789ab", recording: "0123456789abcdef", api, loopback: true, objects, pollEvery: 40, ...extra });
 const text = (n) => n.textContent;
 const look = (root) => ({
-  chip: text(find(root, ".pui-chip")), approve: all(root, "[data-key=approve]").length, download: all(root, "[data-key=download]").length, sendBack: all(root, "[data-key=send-back]").length, video: all(root, "video").length,
+  chip: text(find(root, ".pui-badge")), approve: all(root, "[data-key=approve]").length, download: all(root, "[data-key=download]").length, sendBack: all(root, "[data-key=send-back]").length, video: all(root, "video").length,
   steps: all(root, "[data-key=steps] li").map((n) => n.attrs["data-step"] + ":" + n.cls().find((c) => c.startsWith("is-"))), making: all(root, "[data-key=making]").length, noRender: all(root, "[data-key=no-render]").length,
   notices: all(root, ".wb-notice-card").map(text), said: (text(root).toLowerCase().match(/no render yet/g) || []).length,
 });

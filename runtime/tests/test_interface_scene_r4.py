@@ -416,7 +416,7 @@ const off = cityCard({ name: "tinykv-docs", sub: "not accepted yet", running: fa
 console.log(JSON.stringify({
   classes: [pill.cls(), quiet.cls(), off.cls()],
   names: [find(pill, ".wb-pill-name") && text(find(pill, ".wb-pill-name")), text(find(pill, ".wb-pill-sub")), find(pill, ".wb-dot").cls()],
-  badge: [text(find(pill, ".pui-badge")), find(off, ".pui-chip") && text(find(off, ".pui-chip")), find(quiet, ".pui-badge")],
+  badge: [text(find(pill, ".pui-badge")), find(off, ".pui-badge") && text(find(off, ".pui-badge")), find(quiet, ".pui-badge")],
   order: pill.children.map((c) => c.cls()[0] || c.cls()),
 }));
 """)
