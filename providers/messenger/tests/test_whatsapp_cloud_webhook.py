@@ -299,7 +299,7 @@ def test_the_window_is_recorded_before_the_update_is_written_so_the_bridges_repl
 def test_the_server_binds_127_0_0_1_and_nothing_else(rig):
     r = rig()
     assert r.listener.server.server_address[0] == "127.0.0.1"
-    source = open(kit.SCRIPT, encoding="utf-8").read()
+    source = open(kit.SCRIPT, encoding="utf-8").read() + open(kit.SCRIPT.with_name("whatsapp_meta.py"), encoding="utf-8").read()   # the server is in the shared module (MSG-9)
     assert wc.LOOPBACK == "127.0.0.1" and "super().__init__((LOOPBACK, port), Handler)" in source
     with socket.socket() as s:                  # not reachable on another loopback address of the machine either
         s.settimeout(1)
@@ -377,7 +377,7 @@ def test_a_request_writes_nothing_to_stderr_not_the_path_nor_the_verify_token(ri
 def test_handle_error_and_the_default_log_methods_are_replaced(tmp_path):
     assert wc.Handler.log_message is wc.Handler.log_error is wc.Handler.log_request
     assert "handle_error" in wc.Server.__dict__ and "server_bind" in wc.Server.__dict__
-    source = open(kit.SCRIPT, encoding="utf-8").read()
+    source = open(kit.SCRIPT, encoding="utf-8").read() + open(kit.SCRIPT.with_name("whatsapp_meta.py"), encoding="utf-8").read()
     assert "getfqdn" not in source
 
 

@@ -29,6 +29,12 @@ seconds (150, above the bridge's own 120 s wait for its jobs, so a bridge still 
 child is still alive send SIGKILL to the group and log one line. Only by the group id the child's own session made
 (never by a name or a pattern).
 
+Several platforms (--messaging telegram,whatsapp-twilio). `Bridges` holds one `Child` per platform, started in the order
+given, each exactly as above (its own session, its own stdin pipe, the same snapshot, `--notice-every` shared). One child's
+exit is reported with its platform and the others keep running; GET /projects then lists one object per child. The stop
+begins for all at once (`begin_stop`) and `finish_stop` waits for all of them within the one `stop_wait` bound, not that long
+each, then kills by group any left, one line per child.
+
 `bridge_argv` (the program part of the command: the interpreter and the script), `stop_wait` and `environment` are
 parameters of the service's serve function, which only tests change: no variable, file or configuration key names them.
 
@@ -94,7 +100,7 @@ class Child:
             self.process = subprocess.Popen(self.argv, env=self.environment, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
                                             start_new_session=True, close_fds=True)
         except OSError as e:
-            self.log(f"the messaging bridge could not be started ({e.__class__.__name__}); the page is served without it")
+            self.log(f"the messaging bridge ({self.platform}) could not be started ({e.__class__.__name__}); the page is served without it")
             with self.lock:
                 self.exit_code = -1 if self.exit_code is None else self.exit_code
             return False
@@ -132,22 +138,24 @@ class Child:
         if self.process.poll() is None:
             self._signal(signal.SIGTERM)
 
-    def finish_stop(self) -> None:
-        """Wait up to `stop_wait` seconds for the child; SIGKILL to its group when it is still alive, and one line."""
+    def finish_stop(self, deadline=None) -> None:
+        """Wait for the child until `deadline` (a time.monotonic() value; by default `stop_wait` seconds from now); SIGKILL to
+        its group when it is still alive, and one line."""
         if self.process is None:
             return
-        deadline = time.monotonic() + self.stop_wait
+        if deadline is None:
+            deadline = time.monotonic() + self.stop_wait
         while self.process.poll() is None and time.monotonic() < deadline:
             time.sleep(0.05)
         if self.process.poll() is None:
-            self.log(f"the messaging bridge did not stop in {self.stop_wait:g} s and was killed; the model jobs it was running "
+            self.log(f"the messaging bridge ({self.platform}) did not stop in {self.stop_wait:g} s and was killed; the model jobs it was running "
                      "(unknown: its output is not read) leave their containers, which stay until they are removed by hand "
                      "or by a later stop-runs --all")
             self._signal(signal.SIGKILL)
             try:
                 self.process.wait(10)
             except subprocess.TimeoutExpired:
-                self.log("the messaging bridge is still not gone after SIGKILL")
+                self.log(f"the messaging bridge ({self.platform}) is still not gone after SIGKILL")
         if self.watcher is not None:
             self.watcher.join(5)
 
@@ -157,3 +165,34 @@ class Child:
             os.killpg(self.group, number)
         except OSError:  # already gone
             pass
+
+
+class Bridges:
+    """Several bridge children of one service (--messaging telegram,whatsapp-twilio): one Child per platform, started in the
+    order given, each exactly as a single child is. A child that exits is reported with its platform and the others keep
+    running. The stop begins for all of them at once (`begin_stop`), and `finish_stop` waits for all of them within ONE bound
+    of `stop_wait` seconds, not that many seconds each, then kills by group any that is left, one line per child."""
+
+    def __init__(self, platforms, paths, environment, log, notice_every=None, program=None, stop_wait: float = BRIDGE_STOP_WAIT):
+        self.stop_wait = float(stop_wait)
+        self.children = [Child(p, paths, environment, log, notice_every=notice_every, program=program, stop_wait=stop_wait)
+                         for p in platforms]
+
+    def start(self) -> bool:
+        """Start every child in order. True when all started."""
+        return all([child.start() for child in self.children])
+
+    def state(self) -> list:
+        """One {"platform", "state", "exit_code"} per child, in the order given."""
+        return [child.state() for child in self.children]
+
+    def begin_stop(self) -> None:
+        """Close every child's standard input and send SIGTERM to every group. Does not wait."""
+        for child in self.children:
+            child.begin_stop()
+
+    def finish_stop(self) -> None:
+        """Wait for all children within one bound, then SIGKILL to the group of each one left."""
+        deadline = time.monotonic() + self.stop_wait
+        for child in self.children:
+            child.finish_stop(deadline)

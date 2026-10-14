@@ -159,11 +159,26 @@ def secret_resolver():
     return module
 
 
+def store_missing_note(resolver) -> str:
+    """The sentence that tells the OS secret store cannot be read in this Python (no keyring library), with its trailing space,
+    or "" (also for a resolver without the check)."""
+    available = getattr(resolver, "store_available", None)
+    try:
+        if available is None or available():
+            return ""
+    except Exception:  # a broken check must not hide the real error
+        return ""
+    return ("the OS secret store is not available in this Python (the keyring library is missing): run this command with "
+            "`uv run --with keyring==25.7.0 python3 ...`, or export the variable. ")
+
+
 def load_token() -> str:
-    found = secret_resolver().resolve(SECRET)
+    resolver = secret_resolver()
+    found = resolver.resolve(SECRET)
     token = found[0] if found else ""
     if not token:
-        raise ProviderError(f"no Discord bot token: export {SECRET}, or store one with "
+        raise ProviderError(store_missing_note(resolver) +
+                            f"no Discord bot token: export {SECRET}, or store one with "
                             f"uv run --with keyring==25.7.0 keyring set openhora {KEYRING_USERNAME}",
                             EXIT_NOT_CONFIGURED, "not-configured")
     if not re.fullmatch(r"[A-Za-z0-9._-]+", token):
