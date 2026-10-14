@@ -201,7 +201,7 @@ def build_base(transcript_doc, analysis: dict, data: dict, fonts: dict, fps=None
     wordless_max = cuts["wordless_max"] if wordless_max is None else wordless_max
     if not _num(long_cut) or not _num(wordless_max) or long_cut < 0 or wordless_max < 0:
         raise Refusal("bad_cut_setting", "cuts")
-    retimed, unplaced = retime_misplaced(kept_words, sil)          # before the cuts are planned: they protect each word where it is said
+    retimed, unplaced = retime_misplaced(live, sil)           # `live` still holds the words of the confirmed retakes, flagged dropped: walls          # before the cuts are planned: they protect each word where it is said
     gone = {w["index"] for w in unplaced}
     kept_words = [w for w in kept_words if w["index"] not in gone]
     if not kept_words:

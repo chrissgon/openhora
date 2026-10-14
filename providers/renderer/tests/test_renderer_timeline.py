@@ -566,3 +566,17 @@ def test_a_forced_cut_starts_on_the_frame_that_holds_its_start_so_a_retakes_firs
     ws = [lw(0, "before", 1.0, 1.4)]
     kept = T.kept_ranges(ws, 6.0, FPS, [(0.0, 0.9), (4.0, 6.0)], forced=[(2.51, 3.0)], long_cut=0)       # 2.51 s is inside frame 75 (2.5 to 2.533)
     assert [r for r in kept if r[1] / FPS > 2.4 and r[0] / FPS < 3.1][0][1] == 75                         # the range ends where the frame starts
+
+
+def test_a_confirmed_retake_is_a_wall_for_the_retiming_and_a_word_in_a_short_pause_with_no_span_is_left_alone():
+    """"entender," is 0.6 s long and silence covers 83 percent of it (a stretched word across a 0.5 s pause); the next words are a
+    confirmed retake (dropped) and then, far away, the take that stays. Nothing may be moved across the retake to the far take, and the
+    word, in a pause shorter than 0.6 s with no span to go to, is neither moved nor dropped."""
+    retake = dict(lw(2, "nos", 1.75, 1.95), dropped=True)
+    ws = [lw(0, "entender,", 1.0, 1.6), lw(1, "mas", 1.6, 1.74), retake, lw(3, "next", 5.0, 5.4)]
+    moved, unplaced = T.retime_misplaced(ws, [(1.05, 1.55)])
+    assert moved == [] and unplaced == [] and (ws[0]["start"], ws[0]["end"]) == (1.0, 1.6) and "retimed" not in ws[0]
+    # a long silence with no span is still a drop, and a retake word is never moved
+    ws = [lw(0, "end.", 1.0, 1.4), dict(lw(1, "gone", 3.0, 3.3), dropped=True), lw(2, "ok", 3.4, 3.7), lw(3, "later", 9.0, 9.4)]
+    moved, unplaced = T.retime_misplaced(ws, [(1.5, 8.9)])
+    assert [w["index"] for w in unplaced] == [2] and ws[1]["start"] == 3.0

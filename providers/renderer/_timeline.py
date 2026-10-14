@@ -168,6 +168,7 @@ RETIME_MIN = 0.12           # the shortest a re-timed word is spread to
 RETIME_ROOM = 0.05         # a voiced span shorter than this per word holds no word
 SHORT_WORD = 0.25          # a word this short, in a pause this short between two words, stays where it is
 SHORT_PAUSE = 0.5
+LEAVE_PAUSE = 0.6          # a word with no span to go to, in a pause shorter than this, is left where it is (a longer silence: it is dropped)
 
 
 def _joined(silences) -> list:
@@ -197,6 +198,8 @@ def retime_misplaced(words: list, silences) -> tuple:
       before  else, when a live word precedes the run: spread evenly over the mostly voiced span from that word's end to the start of
               the silence (at least RETIME_ROOM per word);
       none    else: the words are unplaced and returned, to be left out of the captions and the cut planning.
+    A word flagged `dropped` (a confirmed retake) is never moved and is a wall: nothing is placed across it. A run with no span to go to
+    is dropped only when its silence is LEAVE_PAUSE or longer; in a shorter pause it is left as it is.
     Every word keeps its transcript index. Returns ([{index, from, to}], [unplaced words]); no silence found means no words moved."""
     if not silences:
         return [], []
@@ -212,7 +215,7 @@ def retime_misplaced(words: list, silences) -> tuple:
 
     def flag(i):
         w = words[i]
-        if w.get("estimated") or w["end"] <= w["start"] or coverage(w["start"], w["end"], silences) < PHANTOM:
+        if w.get("dropped") or w.get("estimated") or w["end"] <= w["start"] or coverage(w["start"], w["end"], silences) < PHANTOM:
             return False
         if 0 < i < len(words) - 1 and w["end"] - w["start"] <= SHORT_WORD:
             gap = silence_of(w)
@@ -237,6 +240,8 @@ def retime_misplaced(words: list, silences) -> tuple:
             v = s_last[1]
             while last + 1 < len(words):
                 nxt = words[last + 1]
+                if nxt.get("dropped"):
+                    break                                  # a dropped word (a confirmed retake) is a wall: nothing is moved across it
                 n = last - k + 1
                 if nxt["start"] - v >= RETIME_MIN * n:
                     if coverage(v, nxt["start"], silences) < 0.5:
@@ -246,7 +251,7 @@ def retime_misplaced(words: list, silences) -> tuple:
                 last += 1
         if placed is None:
             last = j
-            if prv is not None and s_first is not None:
+            if prv is not None and not prv.get("dropped") and s_first is not None:
                 lo, hi = prv["end"], s_first[0]
                 n = j - k + 1
                 if hi - lo >= RETIME_ROOM * n and coverage(lo, hi, silences) < 0.5:
@@ -254,7 +259,10 @@ def retime_misplaced(words: list, silences) -> tuple:
                     placed = [(lo + m * slot, lo + (m + 1) * slot) for m in range(n)]
         run = words[k:last + 1]
         if placed is None:
-            unplaced.extend(words[k:j + 1])
+            if s_first is not None and s_last is not None and max(s_first[1] - s_first[0], s_last[1] - s_last[0]) < LEAVE_PAUSE:
+                pass                                          # in a short pause: a stretched or soft word in its place, left as it is
+            else:
+                unplaced.extend(words[k:j + 1])
         else:
             for w, (a, b) in zip(run, placed):
                 retimed.append({"index": w["index"], "from": [round(w["start"], 3), round(w["end"], 3)], "to": [round(a, 3), round(b, 3)]})
