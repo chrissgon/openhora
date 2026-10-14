@@ -102,6 +102,11 @@ elif cmd == "run":
     import re
     pattern = re.compile("|".join(re.escape(k) for k in sorted(table, key=lambda k: -len(k))) + "(?![A-Za-z0-9_.-])")
     mapped = [pattern.sub(lambda m: table[m.group(0)], a) for a in inner]       # one pass: a host path that holds "/out" is not rewritten again
+    if "selfcheck" in inner and CFG.get("selfcheck"):          # the image's own self-check, canned where this machine has no ffmpeg or browser to run it
+        with open(mapped[mapped.index("--result") + 1], "w") as fh:
+            json.dump(CFG["selfcheck"], fh)
+        shutil.rmtree(scratch, ignore_errors=True)
+        sys.exit(0)
     env = {"PATH": os.environ["PATH"], "HOME": scratch, "TMPDIR": scratch}
     if CFG.get("browser"):
         env["RENDERER_BROWSER"] = CFG["browser"]

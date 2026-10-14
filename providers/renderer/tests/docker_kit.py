@@ -28,6 +28,11 @@ class World:
         fake.write_text("#!%s\n" % sys.executable + FAKE.read_text().split("\n", 1)[1])
         fake.chmod(0o755)
         self.cfg = {"inner": str(K.SCRIPT), "browser": K.BROWSER, "images": {}}
+        if not (K.HAVE_FFMPEG and K.BROWSER):
+            # The container's self-check needs ffmpeg and a browser; the host side under test needs neither, so a machine without them
+            # (a CI runner) is given the answer the image would give.
+            self.cfg["selfcheck"] = {"ok": True, "ffmpeg": "ffmpeg version fake", "ffprobe": "ffprobe version fake", "missing": [], "python": "3.11.2",
+                                     "browser": "HeadlessChrome/fake", "libass": True, "container": False, "templates": ["caption.html"]}
         self.cfg.update(cfg)
         if image:
             self.install_image()

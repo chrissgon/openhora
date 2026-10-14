@@ -150,7 +150,7 @@ def test_a_stopped_daemon_or_a_missing_docker_is_not_configured(world, tmp_path)
     world.save()
     rc, out, err = world.host("--check")
     assert rc == 3 and err.startswith("refused: docker_not_answering") and "start the Docker daemon" in err
-    rc, out, err = world.host("--check", env={"PATH": "/usr/bin:/bin"})
+    rc, out, err = world.host("--check", env={"PATH": str(tmp_path / "no-docker-here")})          # a folder with no docker (a CI runner has one in /usr/bin)
     assert rc == 3 and err.startswith("refused: docker_missing")
 
 
@@ -196,9 +196,9 @@ def test_changing_a_template_or_a_module_changes_the_image_tag(tmp_path):
 
 
 def test_check_runs_the_images_self_check_and_reports_the_sandbox_it_has(world):
+    if not (K.BROWSER and K.HAVE_FFMPEG):
+        pytest.skip(K.SKIP_BROWSER + "; " + K.SKIP_MEDIA)       # here the self-check is the real one, run by the fake docker with the local tools
     rc, out, err = world.host("--check")
-    if not K.BROWSER:
-        pytest.skip(K.SKIP_BROWSER)
     assert rc == 0, err
     assert out["ok"] and out["image"]["tag"] == D.image_tag() and out["selfcheck"]["ffmpeg"].startswith("ffmpeg") and out["selfcheck"]["browser"]
     assert out["daemon"] == {"cpus": 8, "architecture": "aarch64"} and out["browser_sandbox"] == "on"      # on the host a browser keeps its sandbox
