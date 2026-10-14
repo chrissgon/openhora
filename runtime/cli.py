@@ -41,6 +41,11 @@ Usage:
   python3 runtime/cli.py video-card --project <dir> --recording <id> [--post-platform <name>]
   python3 runtime/cli.py video-approve --project <dir> --recording <id> --video-sha256 <hash> --caption-sha256 <hash> [--post-platform <name>]
   python3 runtime/cli.py video-send-back --project <dir> --recording <id> --comment <text> [--post-platform <name>]
+  python3 runtime/cli.py media-pipeline --project <dir> --recording <id> [--post <docs/...md> [--network <platform>]] [--request <request id>]
+  python3 runtime/cli.py captions-read --project <dir> --recording <id>
+  python3 runtime/cli.py captions-edit --project <dir> --recording <id> --revision <n> (--text <json> | --text-file <file>)
+  python3 runtime/cli.py captions-done --project <dir> --recording <id> --revision <n>
+  python3 runtime/cli.py prepare-again --project <dir> --recording <id> --step <step>
   python3 runtime/cli.py progress --project <dir> [--since 7d | <n>d | YYYY-MM-DD]
   python3 runtime/cli.py approve-policy --project <dir> --file <docs/...> --agent <name> [--sha256 <hash> --expires <YYYY-MM-DD>] [--what <text>]
   python3 runtime/cli.py revoke-policy --project <dir> --id <approval id>
@@ -194,6 +199,25 @@ video-approve  approves the exact rendered file and the exact caption you saw, n
           is the same operation, on the Mac that runs the service.
 video-send-back  returns the post to the review step with your comment (required): its approval is removed, and the record says the
           media pipeline resumes at the review step.
+media-pipeline  takes a recording of the media store through the steps up to its rendered video and its cover, with no model: the
+          transcriber (a container, `--timestamps dtw`), the renderer's analysis, the retakes it proposes, the alignment of the script's
+          beats; then it STOPS with the decision "Check the captions", before anything is rendered; after captions-done it makes the base
+          list, aligns again with your anchors, checks, renders, cuts the cover and stops with the task waiting for the approval of the
+          rendered file. A code task (no skill) carries it. A step done is not run again; a step that failed runs again from there (retry
+          says so: the store never makes this task ready for a model). The first call links the post file (--post) to its network (the
+          post's `- Network:` line, or --network). Both images are built by your own commands, never by this: a provider that is not set
+          up stops the step with the command to run. Its settings are the `media` key of runtime.json (model, language). A job on the page.
+captions-read  the caption review of a recording: the transcript as caption chunks, the retakes proposed (to confirm or undo), the words
+          whose timing the renderer adjusted, each beat with its matched words and score (below the threshold flagged), the words left
+          out, the asset slots and what you decided. The page answers it on the loopback socket only; no `mcp`, no `messaging`.
+captions-edit  applies your changes to the words (edit, split, merge, delete), your answers on the retakes, anchors, dropped overlays,
+          the choice for an empty asset slot, the face box and the cover offset: --text is a JSON list of those objects, --revision the
+          one captions-read gave. Code re-maps the words onto indices and keeps your decisions in the numbering of the transcript; no
+          time can be given. Only while the pipeline waits at the review.
+captions-done  you say the captions are right: the decision is answered (no text in it) and the pipeline goes on. Refused while an asset
+          slot has neither a file nor a choice.
+prepare-again  starts a recording's pipeline over from --step and runs it: review opens the captions as you left them, align-proposal or
+          before makes the words new, later steps keep your decisions.
 deps      installs the dependency sets of runtime.json ("dependencies") by code, with no model: in the eval
           image, in a step that sees only the dependency files, on the open network; the result is cached under
           the data folder by the files and the image, and a run whose copy holds versioned files gets a copy of it.

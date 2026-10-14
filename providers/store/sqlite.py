@@ -1083,8 +1083,8 @@ KEY_RE = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
 OPEN_WAIT = "EXISTS (SELECT 1 FROM task_waits w WHERE w.task_id = tasks.id AND w.status = 'open')"
 # The oldest ready task (never a request) with no open wait: what a caller that picks one asks, then claims by its id
 # (task_claim).
-NEXT_READY_TASK = ("SELECT id FROM tasks WHERE state = 'ready' AND parent_id IS NOT NULL AND NOT " + OPEN_WAIT +
-                   " ORDER BY id LIMIT 1")
+NEXT_READY_TASK = ("SELECT id FROM tasks WHERE state = 'ready' AND parent_id IS NOT NULL AND skill IS NOT NULL AND NOT " +
+                   OPEN_WAIT + " ORDER BY id LIMIT 1")
 WAIT_KINDS = ("input", "after")
 WAIT_STATUSES = ("open", "cleared", "dropped")
 DOCUMENT_FIELDS = ("remote_id", "written_sha256", "remote_version", "read_sha256", "status", "note")
@@ -1397,6 +1397,9 @@ def pending_resolve(conn: sqlite3.Connection, pending_id: int, *, resolution: st
             raise StoreError(f"no pending decision {pending_id}")
         if row["status"] != "open":
             raise StoreError(f"pending decision {pending_id} is {row['status']}, not open")
+        if is_code_task(_task(conn, row["task_id"])):
+            raise StoreError(f"pending decision {pending_id} belongs to a media pipeline task: it is resolved by captions-done (Check the "
+                             "captions) or by the approval of the render, never answered, released or rejected here")
         if row["kind"] in {kind for kind, _ in KIND_RESOLUTIONS}:
             raise StoreError(f"pending decision {pending_id} is a {row['kind']}: it is approved or rejected, "
                              "not answered or released")
@@ -1436,6 +1439,7 @@ def task_retry(conn: sqlite3.Connection, task_id: int, waits: list | None = None
     now = iso(utcnow())
     with write(conn):
         task = _task(conn, task_id)
+        _not_code_task(task, "retried")
         previous = task["state"]
         if previous not in ("failed", "blocked"):
             raise StoreError(f"task {task_id} is {previous}: only a failed or a blocked task is retried")
@@ -1471,10 +1475,97 @@ def task_fail_orphans(conn: sqlite3.Connection, task_ids, run_ids, note: str) ->
     return {"tasks": tasks, "runs": sorted(runs)}
 
 
+# A code task is a task of a request that runs no skill: the pipeline that takes a recording to a rendered video
+# (runtime/pipeline.py). It has a parent request, a key and NO skill, and no run row: code runs it, in the process that
+# holds its task lock, and records its steps in the media folder. It is never `ready` or `planned`, so no model run can pick
+# it (NEXT_READY_TASK and task_claim skip a task with no skill, and task_retry and pending_resolve refuse it): its states
+# move only through code_task_move.
+CODE_TASK_STATES = ("running", "waiting", "failed", "done")
+CODE_KEY_RE = re.compile(r"[a-z0-9]+([-:][a-z0-9]+)*")    # media:<recording id>: the page finds the task's card by this key
+
+
+def is_code_task(task: dict) -> bool:
+    return task.get("parent_id") is not None and task.get("skill") is None
+
+
+def _not_code_task(task: dict, what: str) -> None:
+    if is_code_task(task):
+        key = task.get("key") or ""
+        resume = f"; resume it with media-pipeline --recording {key[len('media:'):]}" if key.startswith("media:") else ""
+        raise StoreError(f"task {task['id']} is a media pipeline task: it is not {what}{resume}")
+
+
+def code_task_add(conn: sqlite3.Connection, *, key: str, title: str, text: str, request_id: int | None = None) -> dict:
+    """Add a code task, `running` (the process that adds it runs its first step), under a request. Without request_id a
+    request is made for it, `planned` so that the router never picks it (it needs no route). With one, that request must be
+    `planned` (a done request is not reopened for a recording). The key is lowercase words joined by hyphens or colons, once per request.
+    Returns {"request": id, "task": id, "state": "running"}."""
+    key = text_arg(key, "key", LABEL_MAX)
+    if not CODE_KEY_RE.fullmatch(key):
+        raise StoreError(f"task key {key!r} must be lowercase words joined by hyphens or colons", EXIT_USAGE)
+    title = text_arg(title, "title", TITLE_MAX)
+    text = text_arg(text, "text", TEXT_MAX, multiline=True)
+    now = iso(utcnow())
+    with write(conn):
+        if request_id is None:
+            request_id = conn.execute("INSERT INTO tasks (title, text, state, created_at, updated_at) VALUES (?, ?, 'planned', ?, ?)",
+                                      (title, text, now, now)).lastrowid
+            flow = None
+        else:
+            request = _request(conn, request_id)
+            if request["state"] != "planned":
+                raise StoreError(f"request {request_id} is {request['state']}: a media pipeline task is added to a planned request, never to a done one")
+            if conn.execute("SELECT 1 FROM tasks WHERE parent_id = ? AND key = ?", (request_id, key)).fetchone():
+                raise StoreError(f"request {request_id} already has a task {key!r}")
+            conn.execute("UPDATE tasks SET state = 'planned', updated_at = ? WHERE id = ?", (now, request_id))
+            flow = request["flow"]
+        task_id = conn.execute(
+            "INSERT INTO tasks (parent_id, flow, key, skill, agent, title, text, state, depends_on, milestone, created_at, updated_at) "
+            "VALUES (?, ?, ?, NULL, NULL, ?, ?, 'running', '[]', 0, ?, ?)", (request_id, flow, key, title, text, now, now)).lastrowid
+    return {"request": request_id, "task": task_id, "state": "running"}
+
+
+def code_task_move(conn: sqlite3.Connection, task_id: int, *, state: str, note: str | None = None, pending: dict | None = None,
+                   resolve: dict | None = None, by: str = "code") -> dict:
+    """Move a code task to `running`, `waiting`, `failed` or `done`, in one transaction. `waiting` needs `pending`
+    ({"kind", "title", "body"[, "payload"]}, opened on the task, run_id NULL); the other states refuse one. Every decision
+    of the task still open when it leaves `waiting` is cancelled, except `resolve` ({"id", "answer"}), which is resolved
+    `answered` by the person (`captions-done`) in the same transaction. A task that is `done` or `cancelled` does not move.
+    Returns {"task_id", "state", "pending_id" or None}."""
+    if state not in CODE_TASK_STATES or (state == "waiting") != (pending is not None):
+        raise StoreError("a code task moves to running, failed or done, or to waiting with a pending decision", EXIT_USAGE)
+    note = text_arg(note, "note", NOTE_MAX, multiline=True, required=False)
+    item = None if pending is None else _pending_item(pending)
+    now = iso(utcnow())
+    with write(conn):
+        task = _task(conn, task_id)
+        if not is_code_task(task):
+            raise StoreError(f"task {task_id} is not a media pipeline task")
+        if task["state"] in ("done", "cancelled"):
+            raise StoreError(f"task {task_id} is {task['state']}: it does not move")
+        if resolve is not None:
+            row = conn.execute("SELECT task_id, status FROM pending_decisions WHERE id = ?", (resolve.get("id"),)).fetchone()
+            if row is None or row["task_id"] != task_id or row["status"] != "open":
+                raise StoreError(f"pending decision {resolve.get('id')} is not open on task {task_id}")
+            answer = text_arg(resolve.get("answer"), "answer", NOTE_MAX, multiline=True)
+            conn.execute("UPDATE pending_decisions SET status = 'resolved', resolution = 'answered', answer = ?, resolved_at = ?, "
+                         "resolved_by = ? WHERE id = ?", (answer, now, text_arg(by, "by", LABEL_MAX), resolve["id"]))
+        conn.execute("UPDATE pending_decisions SET status = 'cancelled', resolved_at = ?, resolved_by = 'code' WHERE task_id = ? "
+                     "AND status = 'open'", (now, task_id))
+        conn.execute("UPDATE tasks SET state = ?, note = ?, updated_at = ? WHERE id = ?", (state, note, now, task_id))
+        pending_id = None
+        if item is not None:
+            pending_id = conn.execute(
+                "INSERT INTO pending_decisions (task_id, run_id, kind, title, body, payload, payload_sha256, created_at) "
+                "VALUES (?, NULL, ?, ?, ?, ?, ?, ?)", (task_id, *item, now)).lastrowid
+        _refresh(conn, now)
+    return {"task_id": task_id, "state": state, "pending_id": pending_id}
+
+
 # The tasks of a request that hold a slot of their agent: running, waiting for the person, or ready because the person
 # answered a decision the task's latest run opened (it is about to run again).
 SLOT_HOLDERS = (
-    "SELECT t.id, t.agent FROM tasks t WHERE t.parent_id IS NOT NULL AND ("
+    "SELECT t.id, t.agent FROM tasks t WHERE t.parent_id IS NOT NULL AND t.skill IS NOT NULL AND ("
     " t.state IN ('running', 'waiting')"
     " OR (t.state = 'ready' AND EXISTS ("
     "  SELECT 1 FROM pending_decisions p WHERE p.task_id = t.id AND p.resolution = 'answered'"
@@ -2321,8 +2412,8 @@ def task_claim(conn: sqlite3.Connection, task_id: int) -> dict:
         row = conn.execute("SELECT id, parent_id, state FROM tasks WHERE id = ?", (task_id,)).fetchone()
         if row is None:
             return {"task": None, "reason": "unknown"}
-        if row["state"] != "ready" or row["parent_id"] is None:
-            return {"task": None, "reason": "not-ready"}
+        if row["state"] != "ready" or row["parent_id"] is None or _task(conn, task_id)["skill"] is None:
+            return {"task": None, "reason": "not-ready"}   # a request is never given out, nor is a task with no skill (a code task)
         if conn.execute("SELECT 1 FROM task_waits WHERE task_id = ? AND status = 'open'", (task_id,)).fetchone():
             return {"task": None, "reason": "waiting"}
         conn.execute("UPDATE tasks SET state = 'running', updated_at = ? WHERE id = ? AND state = 'ready'",

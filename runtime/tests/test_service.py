@@ -185,7 +185,7 @@ OP_ROUTES = [r for r in service.ROUTES if r["op"] and not r["upload"] and not r[
 VIEW_READS = ("agents", "conversation", "skills", "costs", "connections", "artifacts", "artifact", "artifact-raw", "version", "commands", "media-list",
               "video-card")  # the reads of the views
 FILE_READS = ("video-raw", "video-cover", "video-download")   # the reads that answer a file in ranges (test_video_route.py)
-READ_OPS = ("status", "pending", "flows", "task", "progress") + VIEW_READS + FILE_READS
+READ_OPS = ("status", "pending", "flows", "task", "progress", "captions-read") + VIEW_READS + FILE_READS
 
 
 # --- rule 1: the loopback address -----------------------------------------------------------------------------------
@@ -542,7 +542,8 @@ def test_a_route_is_a_job_exactly_when_its_table_row_says_so(world):
         if row["model"] is not False:
             assert row.get("job") is True, row["name"]
     assert {r["name"] for r in operations.OPERATIONS if r.get("job")} == \
-        {"route", "route-queued", "release", "approve", "run-next", "run-task", "sync", "contained-run", "dispatch", "handler", "say"}
+        {"route", "route-queued", "release", "approve", "run-next", "run-task", "sync", "contained-run", "dispatch", "handler", "say",
+        "media-pipeline", "captions-done", "prepare-again"}
 
 
 def test_a_refused_operation_becomes_its_documented_status(world):
