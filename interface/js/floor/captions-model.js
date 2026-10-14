@@ -294,16 +294,38 @@ export function coverText(ms) {
   return Number(ms) > 0 ? `Cover: the frame at ${(Number(ms) / 1000).toFixed(1)} s of the finished video.` : "Cover: the first frame of the finished video.";
 }
 
-/** The face box a person typed in four numbers, or the reason there is none (inside the frame, a size): {box} or {reason}. */
+/** The face box a person typed in four numbers, or the reason there is none, said for what is wrong (a number missing, not whole, no size, outside the frame): {box} or {reason}. */
 export function faceBoxFromFields(fields) {
   const box = {};
   for (const key of ["x", "y", "w", "h"]) {
-    const value = Number(fields[key]);
-    if (!Number.isInteger(value) || String(fields[key]).trim() === "") return { reason: "The face box takes whole numbers of pixels." };
+    const text = String(fields[key]).trim();
+    if (text === "") return { reason: "The face box needs all four numbers: x, y, w and h." };
+    const value = Number(text);
+    if (!Number.isInteger(value)) return { reason: "The face box takes whole numbers of pixels." };
     box[key] = value;
   }
-  if (box.w <= 0 || box.h <= 0 || box.x < 0 || box.y < 0 || box.x + box.w > FRAME.w || box.y + box.h > FRAME.h) return { reason: REASONS.bad_face_box };
+  if (box.w <= 0 || box.h <= 0) return { reason: "The face box needs a width and a height above 0." };
+  if (box.x < 0 || box.y < 0 || box.x + box.w > FRAME.w || box.y + box.h > FRAME.h) {
+    return { reason: `The face box is outside the ${FRAME.w} × ${FRAME.h} frame: it must lie inside the frame (x + w at most ${FRAME.w}, y + h at most ${FRAME.h}).` };
+  }
   return { box };
+}
+
+/** The four fields as the page reads them: a field left empty stands for the stored box's number (the stored box is null or {x, y, w, h}). */
+export function effectiveFields(fields, box) {
+  return Object.fromEntries(["x", "y", "w", "h"].map((k) => [k, String(fields[k]).trim() !== "" ? String(fields[k]) : box ? String(box[k]) : ""]));
+}
+
+/**
+ * What the numbers typed in the face box fields say right now: {state: "same"} when they are what is stored (or nothing was typed),
+ * {state: "valid", box} for a box that has not been saved, {state: "invalid", reason} for one that cannot be.
+ */
+export function faceBoxPreview(fields, box) {
+  if (["x", "y", "w", "h"].every((k) => String(fields[k]).trim() === "")) return { state: "same" };
+  const got = faceBoxFromFields(effectiveFields(fields, box));
+  if (got.reason) return { state: "invalid", reason: got.reason };
+  if (box && ["x", "y", "w", "h"].every((k) => box[k] === got.box[k])) return { state: "same" };
+  return { state: "valid", box: got.box };
 }
 
 /** The offset in milliseconds of seconds a person typed, or the reason there is none. With the recording's length (`limitSeconds`) a later one is refused too. */

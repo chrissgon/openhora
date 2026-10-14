@@ -10,7 +10,7 @@
 // go-aheads, sent by task-actions.js through the client the view hands in (floor/actions.js), never through a client of this file.
 
 import * as client from "../api.js";
-import { fill, h } from "../dom.js";
+import { fill, h, keepScroll, sync } from "../dom.js";
 import { arrowNav } from "../frame/arrows.js";
 import { icon } from "../frame/icons.js";
 import { runsSection } from "./run-block.js";
@@ -51,6 +51,8 @@ export function createTasksTab(env) {
   const expanded = new Set();
   const earlierOpen = new Set();   // task ids whose "Earlier attempts" disclosure is open (closed by default)
   const videos = new Map();        // recording id -> what an open row of a recording's code task shows: the caption review and the rendered-video card (closed, with the blob URLs revoked, when the row closes)
+  const rows = new Map();          // task id -> {sig, li, body, slot}: the row's nodes, made once and changed in place
+  const groupNodes = new Map();    // group id -> {details, list, head, isOpen, summary}: the group's block, made once
   const opened = new Map();        // group id -> the person's choice, over "open when it holds a task"
   const actions = createTaskActions({ project: env.project, api: env.api, refresh: () => env.refresh(), redraw: () => draw(), done: (id) => bodies.delete(id), can: env.can });
   let shown = "";
@@ -167,6 +169,16 @@ export function createTasksTab(env) {
   function rowNode(task) {
     const row = rowOf(task, { requests: last.requests, pending: last.pending, body: (bodies.get(task.id) || {}).body || null, now: env.now() });
     const isOpen = expanded.has(task.id);
+    // A row is made once and kept: its pieces are changed only when what it shows changed, and its video slot (the caption review and the rendered-video card)
+    // is never taken out of it, so a poll or a store change leaves the person's place in a long review where it was.
+    let entry = rows.get(task.id);
+    if (!entry) {
+      entry = { sig: "", li: h("li", { "data-task": String(task.id) }), body: h("div", { class: "wb-task-body", id: `wb-task-body-${task.id}` }), slot: h("div", { class: "wb-task-media" }) };
+      rows.set(task.id, entry);
+    }
+    const sig = JSON.stringify([row, isOpen, earlierOpen.has(task.id), !row.hasBody && [bodies.has(task.id), reading.has(task.id)], actions.signature()]);     // a body being read again changes nothing a row shows while the old one stands
+    if (sig === entry.sig) return entry.li;
+    entry.sig = sig;
     const detailId = `wb-task-detail-${task.id}`;
     const toggle = h("button", { class: "pui-btn pui-link wb-task-toggle wb-task-head", type: "button", "data-key": `toggle-${task.id}`, "aria-expanded": isOpen ? "true" : "false", "aria-controls": `wb-task-body-${task.id}` },
       h("span", { class: "wb-task-num wb-task-n", text: row.number }), h("span", { class: "wb-task-title", text: row.title }), chip(row.word, row.tone),
@@ -179,34 +191,52 @@ export function createTasksTab(env) {
     const buttons = actions.nodes(task, { pending: last.pending, links: env.links });
     const showNote = row.note && (task.state === "failed" || task.state === "cancelled");     // a blocked task's sentence stands beside Retry
     const failure = row.failure ? `${row.failure.failure}${row.failure.ending ? ` · ${row.failure.ending}` : ""}` : "";
-    return h("li", { class: `wb-task wb-task-acc${isOpen ? " is-open" : ""}`, "data-task": String(task.id) },
-      toggle,
-      h("div", { class: "wb-task-body", id: `wb-task-body-${task.id}`, hidden: !isOpen },
-        meta,
-        failure ? h("p", { class: "wb-task-failure", text: failure }) : null,
-        row.waits.map((line) => h("p", { class: "wb-task-waits wb-muted", text: line })),
-        showNote ? h("p", { class: "wb-task-note wb-muted", text: row.note }) : null,
-        row.returned.length ? h("ul", { class: "wb-paths wb-task-paths" }, row.returned.map(pathRow)) : null,
-        buttons.length ? h("div", { class: "wb-task-actions" }, buttons) : null,
-        actions.failure(task.id),
-        isOpen ? videoOf(task) : null,
-        h("div", { class: "wb-task-detail", id: detailId, hidden: !isOpen }, isOpen ? detailOf(task, row) : null)));
+    entry.li.setAttribute("class", `wb-task wb-task-acc${isOpen ? " is-open" : ""}`);
+    entry.body.hidden = !isOpen;
+    sync(entry.slot, isOpen ? videoOf(task) : null);
+    sync(entry.body,
+      meta,
+      failure ? h("p", { class: "wb-task-failure", text: failure }) : null,
+      row.waits.map((line) => h("p", { class: "wb-task-waits wb-muted", text: line })),
+      showNote ? h("p", { class: "wb-task-note wb-muted", text: row.note }) : null,
+      row.returned.length ? h("ul", { class: "wb-paths wb-task-paths" }, row.returned.map(pathRow)) : null,
+      buttons.length ? h("div", { class: "wb-task-actions" }, buttons) : null,
+      actions.failure(task.id),
+      entry.slot,
+      h("div", { class: "wb-task-detail", id: detailId, hidden: !isOpen }, isOpen ? detailOf(task, row) : null));
+    sync(entry.li, toggle, entry.body);
+    return entry.li;
   }
 
-  /** A group (R-39): a bordered block; its header has the state's icon in the state's colour (faint when the group is empty), the name in small capitals and the count at the right. */
+  /** A group (R-39): a bordered block; its header has the state's icon in the state's colour (faint when the group is empty), the name in small capitals and the count at the right. The block is made once; its rows are kept (rowNode). */
   function groupNode(group) {
     const isOpen = group.count > 0 && (opened.has(group.id) ? opened.get(group.id) : true);
-    const summary = h("summary", { class: "wb-task-group-head", "data-key": `group-${group.id}` },
-      h("span", { class: `wb-tile wb-group-tile pui-soft ${group.tone}${group.count === 0 ? " is-none" : ""}`, "aria-hidden": "true" }, icon(group.icon, 14)),
-      h("span", { class: "wb-task-group-name wb-group-name", text: group.label }), h("span", { class: "pui-badge pui-muted pui-soft pui-rounded-full", text: String(group.count) }));
-    const details = h("details", { class: "wb-task-group", "data-group": group.id, open: isOpen },
-      summary, isOpen ? h("ul", { class: "wb-task-list", role: "list" }, group.tasks.map(rowNode)) : null);
-    details.addEventListener("toggle", () => {
-      if (details.open === isOpen) return;
-      opened.set(group.id, details.open);
-      draw();
-    });
-    return details;
+    let entry = groupNodes.get(group.id);
+    if (!entry) {
+      const details = h("details", { class: "wb-task-group", "data-group": group.id });
+      entry = { details, list: h("ul", { class: "wb-task-list", role: "list" }), head: "", isOpen: false };
+      details.addEventListener("toggle", () => {
+        if (details.open === entry.isOpen) return;
+        opened.set(group.id, details.open);
+        draw();
+      });
+      groupNodes.set(group.id, entry);
+    }
+    const head = JSON.stringify([group.icon, group.tone, group.count, group.label]);
+    if (head !== entry.head) {
+      entry.head = head;
+      entry.summary = h("summary", { class: "wb-task-group-head", "data-key": `group-${group.id}` },
+        h("span", { class: `wb-tile wb-group-tile pui-soft ${group.tone}${group.count === 0 ? " is-none" : ""}`, "aria-hidden": "true" }, icon(group.icon, 14)),
+        h("span", { class: "wb-task-group-name wb-group-name", text: group.label }), h("span", { class: "pui-badge pui-muted pui-soft pui-rounded-full", text: String(group.count) }));
+    }
+    entry.isOpen = isOpen;
+    if (isOpen !== (entry.details.getAttribute("open") !== null)) {      // the attribute is the state (a person's click changes it too); the toggle event of this change finds it equal to `isOpen` and does nothing
+      if (isOpen) entry.details.setAttribute("open", "");
+      else entry.details.removeAttribute("open");
+    }
+    if (isOpen) sync(entry.list, group.tasks.map(rowNode));
+    sync(entry.details, entry.summary, isOpen ? entry.list : null);
+    return entry.details;
   }
 
   function drawNow() {
@@ -226,10 +256,16 @@ export function createTasksTab(env) {
     if (key === shown) return;
     shown = key;
     if (!last.tasks.length) {
+      rows.clear();
+      groupNodes.clear();
       fill(el, h("p", { class: "wb-empty-line", text: NONE_TEXT }));
       return;
     }
-    keepFocus(groupsBox, () => fill(groupsBox, groups.map(groupNode)));
+    // the nodes of a row that did not change stay where they are; the scroll position of the panel is put back whatever was replaced
+    keepScroll(el, () => keepFocus(groupsBox, () => {
+      sync(groupsBox, groups.map(groupNode));
+      for (const id of [...rows.keys()]) if (!last.tasks.some((t) => t.id === id)) rows.delete(id);
+    }));
     if (el.children[0] !== groupsBox) fill(el, groupsBox);
   }
 

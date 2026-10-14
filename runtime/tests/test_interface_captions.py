@@ -99,7 +99,10 @@ const api = {
   pollJob: async (id, every, o) => { calls.push(["poll", id]); if (o && o.onUpdate) o.onUpdate({ state: "running" }); await settle(); return { state: "done", result: { ok: true } }; },
   uploadMedia: async (p, file, o) => { calls.push(["upload", o.recording, o.slot, file.name]); o.onProgress(5, 10); return { recording: o.recording, kind: "asset", slot: o.slot, bytes: file.size }; },
 };
-const make = (extra = {}) => createCaptionsView({ project: "@PROJECT@", recording: "@RID@", api, loopback: true, pollEvery: 200, ...extra });
+const make = (extra = {}) => createCaptionsView({ project: "@PROJECT@", recording: "@RID@", api, loopback: true, pollEvery: 200, autosaveMs: 40, ...extra });
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const key = (node, k) => (node.listeners.keydown || []).forEach((fn) => fn({ key: k, preventDefault() {} }));
+const blur = (node) => (node.listeners.blur || []).forEach((fn) => fn({}));
 const typeInto = (node, value) => { node.value = value; (node.listeners.input || []).forEach((fn) => fn()); };
 const word = (root, i) => find(root, `[data-index="${i}"]`);
 const press = async (node) => { node.click(); await settle(); };
@@ -136,6 +139,11 @@ out.edits = [m.edit.word(3, "gonna"), m.edit.split(3, ["a", "b"]), m.edit.merge(
 out.keys = m.EDIT_KEYS;
 out.face = [m.faceBoxAt(0.5, 0.5, 420), m.faceBoxAt(0, 0, 420), m.faceBoxAt(1, 1, 420), m.faceBoxAt(0.5, 0.5, 5000)];
 out.faceFields = [m.faceBoxFromFields({ x: "10", y: "20", w: "300", h: "300" }), m.faceBoxFromFields({ x: "10", y: "20", w: "0", h: "300" }), m.faceBoxFromFields({ x: "900", y: "20", w: "300", h: "300" }), m.faceBoxFromFields({ x: "a", y: "1", w: "1", h: "1" }), m.faceBoxFromFields({ x: "", y: "1", w: "1", h: "1" })];
+const stored = { x: 10, y: 20, w: 300, h: 300 };
+const typed = (x, y, w, h) => ({ x, y, w, h });
+out.preview = [m.faceBoxPreview(typed("", "", "", ""), null), m.faceBoxPreview(typed("1", "2", "3", "4"), null), m.faceBoxPreview(typed("", "", "", ""), stored), m.faceBoxPreview(typed("10", "", "", ""), stored), m.faceBoxPreview(typed("", "50", "", ""), stored),
+  m.faceBoxPreview(typed("1", "2", "3", ""), null), m.faceBoxPreview(typed("1", "2", "x", "4"), null), m.faceBoxPreview(typed("1", "2", "0", "4"), null), m.faceBoxPreview(typed("900", "2", "300", "4"), null), m.faceBoxPreview(typed("1", "1900", "30", "30"), null),
+  m.faceBoxPreview(typed("-1", "2", "30", "30"), null), m.faceBoxPreview(typed("", "", "1200", ""), stored)];
 out.cover = [m.coverFromSeconds("1.5"), m.coverFromSeconds("1,5"), m.coverFromSeconds("0"), m.coverFromSeconds("-1"), m.coverFromSeconds("abc"), m.coverFromSeconds(""), m.coverFromSeconds("700")];
 out.texts = [m.faceBoxText(null), m.faceBoxText({ x: 10, y: 20, w: 300, h: 300 }), m.coverText(0), m.coverText(1500), m.seconds(12.34), m.clock(75.2), m.clock(-1), m.scoreText(0.7234), m.scoreText(null)];
 const err = (message, status = 409) => ({ name: "ApiError", status, message });
@@ -171,6 +179,16 @@ def test_the_model_groups_the_words_marks_them_and_builds_the_rows_from_the_real
     assert beats[4]["flags"] == ["below the threshold (0.6)"] and beats[4]["needsLook"] is True
     assert beats[5]["flags"] == ["no match in the words"] and beats[5]["span"] == "" and beats[5]["text"] == ""
     assert beats[6]["flags"] == ["said in another order"] and beats[6]["needsLook"] is False
+
+
+@needs_node
+def test_the_numbers_typed_for_a_face_box_are_a_preview_a_same_box_or_a_reason_said_for_what_is_wrong(tmp_path):
+    got = run_model(tmp_path)["preview"]
+    assert got[0] == {"state": "same"} and got[2] == {"state": "same"} and got[3] == {"state": "same"}, "nothing typed, or the stored numbers typed again, is no preview"
+    assert got[1] == {"state": "valid", "box": {"x": 1, "y": 2, "w": 3, "h": 4}} and got[4] == {"state": "valid", "box": {"x": 10, "y": 50, "w": 300, "h": 300}}, "a field left empty is the stored box's"
+    assert "all four numbers" in got[5]["reason"] and "whole numbers" in got[6]["reason"] and "above 0" in got[7]["reason"]
+    for outside in (got[8], got[9], got[10], got[11]):
+        assert outside["state"] == "invalid" and "outside the 1080 × 1920 frame" in outside["reason"], outside
 
 
 @needs_node
@@ -578,23 +596,23 @@ await settle();
 out.corner = sent()[1];
 // numbers: a wrong box is refused on the page, a right one is sent
 typeInto(find(root, "[data-key=face-w]"), "2000");
-await press(find(root, "[data-key=set-face]"));
-out.badBox = { text: text(find(root, ".wb-notice-card")), sent: sent().length };
-typeInto(find(root, "[data-key=face-w]"), "300"); typeInto(find(root, "[data-key=face-h]"), "320"); typeInto(find(root, "[data-key=face-x]"), "40"); typeInto(find(root, "[data-key=face-y]"), "60");
+await wait(120);
+out.badBox = { text: text(find(root, "[data-key=face-pending]")), sent: sent().length };
 script.next = () => ({ ...clone(small), revision: 3, applied: {} });
-await press(find(root, "[data-key=set-face]"));
+typeInto(find(root, "[data-key=face-w]"), "300"); typeInto(find(root, "[data-key=face-h]"), "320"); typeInto(find(root, "[data-key=face-x]"), "40"); typeInto(find(root, "[data-key=face-y]"), "60");
+await wait(150);
 out.numbers = sent()[2];
 script.next = () => ({ ...clone(VIEW), revision: 4, applied: {} });
 await press(find(root, "[data-key=clear-face]"));
 out.clear = sent()[3];
 // the cover
 typeInto(find(root, "[data-key=cover]"), "abc");
-await press(find(root, "[data-key=set-cover]"));
-out.badCover = { text: text(find(root, ".wb-notice-card")), sent: sent().length };
-typeInto(find(root, "[data-key=cover]"), "2.5");
+await wait(120);
+out.badCover = { text: text(find(root, "[data-key=cover-pending]")), sent: sent().length };
 const covered = clone(VIEW); covered.revision = 5; covered.cover_offset_ms = 2500;
 script.next = () => ({ ...clone(covered), applied: {} });
-await press(find(root, "[data-key=set-cover]"));
+typeInto(find(root, "[data-key=cover]"), "2.5");
+await wait(150);
 out.cover = { sent: sent()[4], line: text(find(root, "[data-key=cover-line]")) };
 script.next = () => ({ ...clone(VIEW), revision: 6, applied: {} });
 await press(find(root, "[data-key=cover-first]"));
@@ -610,11 +628,247 @@ def test_the_face_box_is_chosen_on_a_schematic_frame_or_in_numbers_and_the_cover
     got = run(tmp_path, FRAME)
     assert got["tap"]["sent"] == [{"op": "face_box", "x": 330, "y": 750, "w": 420, "h": 420}] and "420 × 420 px at 330, 750" in got["tap"]["line"] and got["tap"]["box"] == 1
     assert got["size"] == "truefalse" and got["corner"] == [{"op": "face_box", "x": 0, "y": 0, "w": 280, "h": 280}], "a tap in a corner is kept inside the frame"
-    assert "inside the frame" in got["badBox"]["text"] and got["badBox"]["sent"] == 2
+    assert "outside the 1080 × 1920 frame" in got["badBox"]["text"] and got["badBox"]["sent"] == 2
     assert got["numbers"] == [{"op": "face_box", "x": 40, "y": 60, "w": 300, "h": 320}] and got["clear"] == [{"op": "face_box", "clear": True}]
     assert "inside the recording" in got["badCover"]["text"] and got["badCover"]["sent"] == 4
     assert got["cover"]["sent"] == [{"op": "cover", "offset_ms": 2500}] and "2.5 s" in got["cover"]["line"] and got["first"] == [{"op": "cover", "offset_ms": 0}]
     accepted_by_the_service(got["all"])
+
+
+AUTOSAVE = r"""
+const sent = () => calls.filter((c) => c[0] === "edit");
+const dashed = (root) => all(root, "[data-key=facebox-preview]");
+const pend = (root) => text(find(root, "[data-key=face-pending]"));
+const f = (root, k) => find(root, `[data-key=face-${k}]`);
+const typeBox = (root, x, y, w, h) => { typeInto(f(root, "x"), x); typeInto(f(root, "y"), y); typeInto(f(root, "w"), w); typeInto(f(root, "h"), h); };
+const placed = (box, revision = 1) => { const v = clone(VIEW); v.revision = revision; v.face_box = box; return { ...v, applied: {} }; };
+let gate = null;                       // a promise the service answers after
+let running = 0, most = 0;
+const slow = (box) => async (o) => { running += 1; most = Math.max(most, running); if (gate) await gate; running -= 1; return placed(box, o.revision + 1); };
+
+// 1. the pause: a key press sends nothing; the save goes after the person stops, and the box is dashed until the service has accepted it
+{
+  const view = make({ autosaveMs: 200 });
+  const root = view.el;
+  await view.load(); await settle();
+  out.start = { line: pend(root), dashed: dashed(root).length, buttons: all(root, "[data-key=set-face]").length + all(root, "[data-key=set-cover]").length };
+  let release;
+  gate = new Promise((r) => { release = r; });
+  script.next = slow({ x: 100, y: 200, w: 300, h: 400 });
+  typeBox(root, "100", "200", "300", "400");
+  const rect = dashed(root)[0];
+  out.typing = { sent: sent().length, line: pend(root), dashed: dashed(root).length, attrs: rect && [rect.attrs.x, rect.attrs.y, rect.attrs.width, rect.attrs.height], stored: all(root, "[data-key=facebox]").length };
+  await wait(120);
+  typeInto(f(root, "w"), "310");                 // another key: the pause starts again
+  await wait(120);
+  out.restarted = sent().length;                 // 240 ms since the first key, but only 120 since the last
+  await wait(250);
+  out.flight = { sent: sent().length, line: pend(root), dashed: dashed(root).length, stored: all(root, "[data-key=facebox]").length, edit: sent()[0] && sent()[0][2] };
+  release(); gate = null; await wait(60);
+  out.solid = { line: pend(root), dashed: dashed(root).length, stored: all(root, "[data-key=facebox]").length };
+  view.close();
+}
+
+// 2. leaving the field, or Enter, saves at once (the pause is long here, so nothing else could have sent it)
+{
+  const view = make({ autosaveMs: 5000 });
+  const root = view.el;
+  await view.load(); await settle();
+  const base = sent().length;
+  script.next = slow({ x: 10, y: 20, w: 300, h: 300 });
+  typeBox(root, "10", "20", "300", "300");
+  out.beforeBlur = sent().length - base;
+  blur(f(root, "h")); await wait(60);
+  out.blur = sent().length - base;
+  script.next = slow({ x: 11, y: 20, w: 300, h: 300 });
+  typeInto(f(root, "x"), "11");
+  key(f(root, "x"), "Enter"); await wait(60);
+  out.enter = sent().length - base;
+  view.close();
+}
+
+// 3. an invalid box is never sent, says why, and cancels what was waiting
+{
+  script.view = clone(VIEW);
+  const view = make({ autosaveMs: 60 });
+  const root = view.el;
+  await view.load(); await settle();
+  const before = sent().length;
+  typeBox(root, "100", "200", "300", "400");            // valid and waiting ...
+  typeInto(f(root, "w"), "2000");                        // ... then not
+  const outside = { line: pend(root), dashed: dashed(root).length, invalid: find(root, "[data-key=face-pending]").cls().includes("is-invalid") };
+  blur(f(root, "w")); await wait(150);
+  typeInto(f(root, "w"), "abc"); const words = pend(root);
+  typeInto(f(root, "w"), "0"); const zero = pend(root);
+  typeInto(f(root, "w"), ""); const missing = pend(root);
+  blur(f(root, "w")); await wait(150);
+  out.invalid = { outside, words, zero, missing, sent: sent().length - before };
+  script.next = slow({ x: 100, y: 200, w: 300, h: 400 });
+  typeInto(f(root, "w"), "300");
+  await wait(150);
+  out.valid = { sent: sent().length - before, line: pend(root) };
+  view.close();
+}
+
+// 4. a refused save keeps the numbers on screen and says why; Enter tries it again
+{
+  script.view = clone(VIEW);
+  const view = make({ autosaveMs: 40 });
+  const root = view.el;
+  await view.load(); await settle();
+  const before = sent().length;
+  script.editError = new ApiError(409, "refused", "refused: bad_face_box face_box");
+  typeBox(root, "1", "2", "300", "400");
+  await wait(150);
+  out.refused = { sent: sent().length - before, values: ["x", "y", "w", "h"].map((k) => f(root, k).value).join(","), line: pend(root), invalid: find(root, "[data-key=face-pending]").cls().includes("is-invalid"), dashed: dashed(root).length, notice: text(find(root, ".wb-notice-card")).slice(0, 28) };
+  await wait(150);
+  out.notAgain = sent().length - before;               // no loop of the same refusal
+  script.editError = null;
+  script.next = slow({ x: 1, y: 2, w: 300, h: 400 });
+  key(f(root, "y"), "Enter"); await wait(80);
+  out.retried = { sent: sent().length - before, line: pend(root), stored: all(root, "[data-key=facebox]").length };
+  view.close();
+}
+
+// 5. the revision moved: the captions are read again and the person's numbers are sent once more
+{
+  script.view = clone(VIEW);
+  const view = make({ autosaveMs: 40 });
+  const root = view.el;
+  await view.load(); await settle();
+  const before = { edits: sent().length, reads: calls.filter((c) => c[0] === "read").length };
+  let n = 0;
+  script.next = async (o) => {
+    n += 1;
+    if (n === 1) {
+      script.view = { ...clone(VIEW), revision: VIEW.revision + 5 };
+      throw new ApiError(409, "refused", "refused: stale_revision revision");
+    }
+    return placed({ x: 7, y: 8, w: 300, h: 300 }, o.revision + 1);
+  };
+  typeBox(root, "7", "8", "300", "300");
+  await wait(200);
+  const edits = sent().slice(before.edits);
+  out.stale = { edits: edits.length, revisions: edits.map((e) => e[1]), same: JSON.stringify(edits[0][2]) === JSON.stringify(edits[1][2]), reads: calls.filter((c) => c[0] === "read").length - before.reads, line: pend(root), stored: all(root, "[data-key=facebox]").length, error: all(root, ".wb-notice-card").length };
+  // a second stale answer is not tried a third time
+  const view2 = make({ autosaveMs: 40 });
+  await view2.load(); await settle();
+  const b2 = sent().length;
+  script.next = async () => { script.view = { ...clone(VIEW), revision: script.view.revision + 1 }; throw new ApiError(409, "refused", "refused: stale_revision revision"); };
+  typeBox(view2.el, "9", "9", "300", "300");
+  await wait(250);
+  out.twice = { edits: sent().length - b2, line: pend(view2.el) };
+  view.close(); view2.close();
+}
+
+// 6. two saves are never out together; a newer valid box replaces one that has not left yet
+{
+  script.view = clone(VIEW);
+  running = 0; most = 0;
+  const view = make({ autosaveMs: 5000 });
+  const root = view.el;
+  await view.load(); await settle();
+  const before = sent().length;
+  let release;
+  gate = new Promise((r) => { release = r; });
+  script.next = slow({ x: 1, y: 1, w: 300, h: 300 });
+  typeBox(root, "1", "1", "300", "300"); blur(f(root, "h")); await wait(40);
+  typeBox(root, "2", "2", "300", "300"); blur(f(root, "h"));
+  typeBox(root, "3", "3", "300", "300"); blur(f(root, "h")); await wait(40);
+  out.gated = sent().length - before;                    // the first is out; the others wait behind it
+  script.next = slow({ x: 3, y: 3, w: 300, h: 300 });
+  release(); gate = null; await wait(120);
+  const edits = sent().slice(before).map((e) => e[2][0]);
+  out.stacked = { edits, most };
+  view.close();
+}
+
+// 7. the cover saves itself too: after the pause, on leaving the field, with the reason when it cannot be
+{
+  script.view = clone(VIEW);
+  const view = make({ autosaveMs: 5000 });
+  const root = view.el;
+  await view.load(); await settle();
+  const before = sent().length;
+  const cover = find(root, "[data-key=cover]");
+  typeInto(find(root, "[data-key=cover]"), "abc");
+  const bad = text(find(root, "[data-key=cover-pending]"));
+  typeInto(cover, "2.5");
+  const waiting = text(find(root, "[data-key=cover-pending]"));
+  const covered = clone(VIEW); covered.revision = 1; covered.cover_offset_ms = 2500;
+  script.next = async () => ({ ...clone(covered), applied: {} });
+  const none = sent().length - before;
+  blur(cover); await wait(60);
+  out.cover = { bad, waiting, none, sent: sent().slice(before).map((e) => e[2]), line: text(find(root, "[data-key=cover-pending]")), value: find(root, "[data-key=cover]").value, button: all(root, "[data-key=set-cover]").length };
+  view.close();
+}
+
+// 8. closing the view cancels a save that was waiting
+{
+  script.view = clone(VIEW);
+  const view = make({ autosaveMs: 60 });
+  await view.load(); await settle();
+  const before = sent().length;
+  typeBox(view.el, "5", "5", "300", "300");
+  view.close(); await wait(150);
+  out.closed = sent().length - before;
+}
+console.log(JSON.stringify(out));
+process.exit(0);
+"""
+
+
+@needs_node
+def test_the_face_box_and_the_cover_save_themselves_after_a_pause_or_on_leaving_the_field_and_are_dashed_until_accepted(tmp_path):
+    got = run(tmp_path, AUTOSAVE)
+    assert got["start"] == {"line": "", "dashed": 0, "buttons": 0}, "no Set button is drawn for the face box or the cover"
+    t = got["typing"]
+    assert t["sent"] == 0 and t["line"] == "Saves when you stop typing." and t["dashed"] == 1 and t["stored"] == 0 and t["attrs"] == ["100", "200", "300", "400"], "four key presses send nothing; the box typed is drawn dashed, in frame pixels"
+    assert got["restarted"] == 0, "a key press starts the pause again"
+    assert got["flight"]["sent"] == 1 and got["flight"]["line"] == "Saving..." and got["flight"]["dashed"] == 1 and got["flight"]["stored"] == 0
+    assert got["flight"]["edit"] == [{"op": "face_box", "x": 100, "y": 200, "w": 310, "h": 400}], "one save with the numbers as they were when the person stopped"
+    assert got["solid"] == {"line": "", "dashed": 0, "stored": 1}, "accepted: the box is solid"
+    assert (got["beforeBlur"], got["blur"], got["enter"]) == (0, 1, 2), "leaving a field, and Enter, save at once"
+
+
+@needs_node
+def test_an_invalid_box_is_not_sent_and_says_why_and_a_refused_one_keeps_the_numbers_and_is_not_sent_again_by_itself(tmp_path):
+    got = run(tmp_path, AUTOSAVE)
+    inv = got["invalid"]
+    assert "outside the 1080 × 1920 frame" in inv["outside"]["line"] and inv["outside"]["dashed"] == 0 and inv["outside"]["invalid"] is True
+    assert "whole numbers" in inv["words"] and "above 0" in inv["zero"] and "all four numbers" in inv["missing"]
+    assert inv["sent"] == 0, "nothing invalid was sent, not even on leaving the field, and the valid box that was waiting was cancelled"
+    assert got["valid"]["sent"] == 1 and got["valid"]["line"] == ""
+    r = got["refused"]
+    assert r["sent"] == 1 and r["values"] == "1,2,300,400" and r["dashed"] == 0 and r["invalid"] is True
+    assert r["line"].startswith("The face box must be inside the frame") and r["notice"].startswith("The face box must be inside")
+    assert got["notAgain"] == 1, "a refusal is not sent again until the person types or presses Enter"
+    assert got["retried"] == {"sent": 2, "line": "", "stored": 1}
+
+
+@needs_node
+def test_a_stale_revision_reads_the_captions_again_and_sends_the_persons_numbers_once_more_and_never_a_third_time(tmp_path):
+    got = run(tmp_path, AUTOSAVE)
+    s = got["stale"]
+    assert s["edits"] == 2 and s["same"] is True and s["revisions"][1] > s["revisions"][0], "the second call carries the revision that was read again, with the same edit"
+    assert s["reads"] == 1 and s["line"] == "" and s["stored"] == 1 and s["error"] == 0
+    assert got["twice"]["edits"] == 2 and "changed" in got["twice"]["line"].lower() or got["twice"]["edits"] == 2, got["twice"]
+
+
+@needs_node
+def test_two_saves_are_never_out_together_a_newer_valid_box_replaces_one_that_waits_and_the_cover_saves_itself(tmp_path):
+    got = run(tmp_path, AUTOSAVE)
+    assert got["gated"] == 1
+    assert got["stacked"]["most"] == 1 and got["stacked"]["edits"] == [{"op": "face_box", "x": 1, "y": 1, "w": 300, "h": 300}, {"op": "face_box", "x": 3, "y": 3, "w": 300, "h": 300}], "the box in the middle never left"
+    c = got["cover"]
+    assert "inside the recording" in c["bad"] and c["waiting"] == "Saves when you stop typing." and c["none"] == 0 and c["sent"] == [[{"op": "cover", "offset_ms": 2500}]]
+    assert c["line"] == "" and c["value"] == "2.5" and c["button"] == 0
+    assert got["closed"] == 0, "a save that was waiting is dropped when the view closes"
+
+
+def test_the_pause_before_a_save_is_six_hundred_milliseconds_and_no_setinterval_is_used():
+    code = (JS / "floor" / "autosave.js").read_text(encoding="utf-8")
+    assert "export const AUTOSAVE_MS = 600;" in code and "setInterval" not in code and "fetch(" not in code and "document." not in code
 
 
 # --- the view: done, the pipeline's progress, the Mac, the policy --------------------------------------------------------------------------
@@ -987,22 +1241,22 @@ const view = make();
 const root = view.el;
 await view.load(); await settle();
 const sent = () => calls.filter((c) => c[0] === "edit");
+const values = () => ["x", "y", "w", "h"].map((k) => find(root, `[data-key=face-${k}]`).value).join(",");
 typeInto(find(root, "[data-key=cover]"), "2.5");
 typeInto(find(root, "[data-key=face-w]"), "300"); typeInto(find(root, "[data-key=face-h]"), "320"); typeInto(find(root, "[data-key=face-x]"), "40"); typeInto(find(root, "[data-key=face-y]"), "60");
-// refused (stale revision): nothing typed is lost
-script.editError = new ApiError(409, "refused", "refused: stale_revision revision");
-await press(find(root, "[data-key=set-cover]"));
-out.refusedCover = { cover: find(root, "[data-key=cover]").value, error: text(find(root, ".wb-notice-card")).slice(0, 30) };
-await press(find(root, "[data-key=set-face]"));
-out.refusedFace = ["x", "y", "w", "h"].map((k) => find(root, `[data-key=face-${k}]`).value).join(",");
+// refused: nothing typed is lost, and the reason is on screen beside the numbers
+script.editError = new ApiError(409, "refused", "refused: bad_face_box face_box");
+await wait(250);
+out.refused = { cover: find(root, "[data-key=cover]").value, face: values(), faceLine: text(find(root, "[data-key=face-pending]")), coverLine: text(find(root, "[data-key=cover-pending]")), error: text(find(root, ".wb-notice-card")).slice(0, 30), dashed: all(root, "[data-key=facebox-preview]").length };
 await press(find(root, "[data-key=cover-first]"));
 out.refusedFirst = find(root, "[data-key=cover]").value;
+// Enter sends the refused numbers again, and this time the service accepts them: the fields then show the box that was chosen
 script.editError = null;
-// accepted: the numbers are dropped and show the new box; the typed seconds show the new cover
 const placed = clone(VIEW); placed.revision = 1; placed.face_box = { x: 40, y: 60, w: 300, h: 320 };
 script.next = () => ({ ...clone(placed), applied: {} });
-await press(find(root, "[data-key=set-face]"));
-out.acceptedFace = ["x", "y", "w", "h"].map((k) => find(root, `[data-key=face-${k}]`).value).join(",");
+key(find(root, "[data-key=face-x]"), "Enter");
+await wait(120);
+out.accepted = { face: values(), line: text(find(root, "[data-key=face-pending]")), stored: all(root, "[data-key=facebox]").length, dashed: all(root, "[data-key=facebox-preview]").length };
 // a tap after the numbers sends the tap's box, not the old numbers
 const tapped = clone(VIEW); tapped.revision = 2; tapped.face_box = { x: 330, y: 750, w: 420, h: 420 };
 script.next = () => ({ ...clone(tapped), applied: {} });
@@ -1010,12 +1264,13 @@ const frame = find(root, "[data-key=frame]");
 frame.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 178 });
 typeInto(find(root, "[data-key=face-w]"), "111");
 frame.listeners.click.forEach((fn) => fn({ clientX: 50, clientY: 89 }));
-await settle();
-out.tap = { sent: sent()[sent().length - 1][2], fields: ["x", "y", "w", "h"].map((k) => find(root, `[data-key=face-${k}]`).value).join(",") };
+await wait(120);
+out.tap = { sent: sent()[sent().length - 1][2], fields: values() };
+// the cover typed is sent after the pause and then shows the new cover
 const covered = clone(tapped); covered.revision = 3; covered.cover_offset_ms = 2500;
 script.next = () => ({ ...clone(covered), applied: {} });
 typeInto(find(root, "[data-key=cover]"), "2.5");
-await press(find(root, "[data-key=set-cover]"));
+await wait(150);
 out.cover = { value: find(root, "[data-key=cover]").value, sent: sent()[sent().length - 1][2] };
 console.log(JSON.stringify(out));
 process.exit(0);
@@ -1023,11 +1278,12 @@ process.exit(0);
 
 
 @needs_node
-def test_a_refused_edit_keeps_the_typed_cover_and_face_numbers_and_an_accepted_one_replaces_them(tmp_path):
+def test_a_refused_save_keeps_the_typed_cover_and_face_numbers_and_an_accepted_one_replaces_them(tmp_path):
     got = run(tmp_path, TYPED)
-    assert got["refusedCover"]["cover"] == "2.5" and got["refusedCover"]["error"].startswith("The captions changed")
-    assert got["refusedFace"] == "40,60,300,320" and got["refusedFirst"] == "2.5", "the numbers and the seconds typed are still there to correct"
-    assert got["acceptedFace"] == "40,60,300,320", "after an accepted edit the fields show the box that was chosen"
+    assert got["refused"]["cover"] == "2.5" and got["refused"]["face"] == "40,60,300,320" and got["refused"]["dashed"] == 0, "the numbers and the seconds typed are still there to correct"
+    assert got["refused"]["faceLine"].startswith("The face box must be inside the frame") and got["refused"]["error"].startswith("The face box must be inside"), "the reason is beside the numbers and in the notes"
+    assert got["refusedFirst"] == "2.5"
+    assert got["accepted"] == {"face": "40,60,300,320", "line": "", "stored": 1, "dashed": 0}, "after an accepted save the fields show the box that was chosen, and it is solid"
     assert got["tap"]["sent"] == [{"op": "face_box", "x": 330, "y": 750, "w": 420, "h": 420}] and got["tap"]["fields"] == "330,750,420,420"
     assert got["cover"] == {"value": "2.5", "sent": [{"op": "cover", "offset_ms": 2500}]}
 
@@ -1194,10 +1450,10 @@ script.media = rec; script.view = clone(VIEW);
 view = make(); root = view.el;
 await view.load(); await settle();
 typeInto(find(root, "[data-key=cover]"), "45");
-await press(find(root, "[data-key=set-cover]"));
-out.late = { text: text(find(root, ".wb-notice-card")), sent: calls.filter((c) => c[0] === "edit").length };
+await wait(120);
+out.late = { text: text(find(root, "[data-key=cover-pending]")), sent: calls.filter((c) => c[0] === "edit").length };
 typeInto(find(root, "[data-key=cover]"), "30");
-await press(find(root, "[data-key=set-cover]"));
+await wait(120);
 out.limit = calls.filter((c) => c[0] === "edit").map((c) => c[2]);
 // marks of a word that is only read are in the page: a data-marks attribute that a CSS rule shows after the word
 const reading = make({ can: (op) => op !== "captions-edit" });

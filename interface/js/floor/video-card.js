@@ -18,7 +18,7 @@
 //          {create(blob) -> url, revoke(url)}), save(blob, name) (optional, for a test: what "Download" does with the bytes)}
 // Returns {el, load({quiet}), close()}.
 
-import { fill, h } from "../dom.js";
+import { fill, h, keepScroll } from "../dom.js";
 import { formatSize } from "../floor-model.js";
 import { reader } from "../permissions.js";
 import { onLoopback } from "./media-upload.js";
@@ -315,7 +315,12 @@ export function createVideoCard(env) {
     fill(part.node, [build()].flat(Infinity));
   }
 
+  /** Draw, and leave the scroll position of the panel where it was (dom.js keepScroll). */
   function draw() {
+    keepScroll(el, drawNow);
+  }
+
+  function drawNow() {
     if (closed) return;
     const card = state.card;
     if (!card) {
