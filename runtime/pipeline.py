@@ -716,6 +716,14 @@ def prepare_again(ctx: Context, state: dict, step: str) -> dict:
     return {"reset": reset}
 
 
+SCRIPT_BLOCK = re.compile(r"^```script[ \t]*$", re.M)
+
+
+def has_script(text: str) -> bool:
+    """Whether a post file has a ```script block, the beats of a short video (a text post has none: the pipeline is not for it)."""
+    return bool(SCRIPT_BLOCK.search(text or ""))
+
+
 def network_of(text: str):
     """The platform the post file names on its `- Network:` line, or None."""
     found = NETWORK_LINE.search(text or "")

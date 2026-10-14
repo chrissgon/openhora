@@ -280,9 +280,9 @@ out.afterChange = [document.activeElement.attrs["data-key"] === focused, text(li
 // --- states: loading, no task ---
 const fresh = createTasksTab(env);
 fresh.update({ tasks: [], requests: [], pending: [], loading: true });
-out.loading = [text(fresh.el), all(fresh.el, "details").length];
+out.loading = [text(find(fresh.el, ".wb-tasks-list")), all(find(fresh.el, ".wb-tasks-list"), "details").length];      // the list under "New short video"
 fresh.update({ tasks: [], requests: [], pending: [], loading: false });
-out.none = [text(fresh.el), all(fresh.el, "details").length];
+out.none = [text(find(fresh.el, ".wb-tasks-list")), all(find(fresh.el, ".wb-tasks-list"), "details").length];
 // a task that waits with no decision found (the Lobby's too): the link is the bare Inbox, never an id of another task
 const lonely = createTasksTab(env);
 lonely.update({ tasks: [task(30, "waiting")], requests, pending: [{ id: 99, kind: "question", task_id: 31, agent: "engineering" }], loading: false });

@@ -74,8 +74,8 @@ def media_list(project: str, recording: str | None = None) -> dict:
     data_dir = ctx["cfg"]["data_dir"]
     try:
         if recording is not None:
-            return {"recordings": [_shown(media.load(data_dir, media.check_id(recording)), data_dir)], "usage": media.usage(data_dir)}
-        return {"recordings": [_shown(r, data_dir) for r in media.records(data_dir)], "usage": media.usage(data_dir),
+            return {"recordings": [_shown(media.load(data_dir, media.check_id(recording)), data_dir)], "usage": media.usage(data_dir), "platforms": ops_pipeline.known_platforms()}
+        return {"recordings": [_shown(r, data_dir) for r in media.records(data_dir)], "usage": media.usage(data_dir), "platforms": ops_pipeline.known_platforms(),
                 "retention": {"raw_days": media.RAW_DAYS, "render_days": media.RENDER_DAYS,
                               "abandoned_days": media.ABANDONED_DAYS},
                 "limits": {"max_bytes": media.MEDIA_MAX_BYTES, "max_seconds": media.MAX_SECONDS}}

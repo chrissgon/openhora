@@ -379,6 +379,7 @@ export function createFloorView(frame, env) {
         changes += 1;
         for (const entry of bodies.values()) entry.at = 0;
         documentsAt = 0;
+        if (agentTabLive) agentTabLive.reload();
         if (viewerPath !== null && !kept) viewer.load(project, viewerPath, { quiet: true });
       }
       reloaded = data.reload;
