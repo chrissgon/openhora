@@ -131,14 +131,37 @@ def test_a_missing_repeated_oversize_or_unreadable_block_is_a_code():
     assert [p["code"] for p in cbt.check_text(document(GOOD, fence="json"))] == ["block_missing"], "only the brand-tokens fence is the block"
 
 
-def test_the_status_line_is_compared_only_when_it_is_written_in_english():
+def test_a_key_written_twice_is_refused_at_any_depth():
+    assert [p["code"] for p in cbt.check_text(document('{"version": 1, "version": 1}'))] == ["duplicate_key"]
+    twice = json.dumps(GOOD).replace('"accent": {"dark": "#2EC4B6"', '"accent": {"dark": "#000000", "dark": "#2EC4B6"')
+    assert twice != json.dumps(GOOD) and [p["code"] for p in cbt.check_text(document(twice))] == ["duplicate_key"]
+    nested = json.dumps(GOOD).replace('"weight": 800}', '"weight": 800, "weight": 700}', 1)
+    assert [p["code"] for p in cbt.check_text(document(nested))] == ["duplicate_key"]
+
+
+def test_the_status_line_is_read_from_a_closed_list_of_words_and_must_agree_with_the_block():
     assert codes(GOOD, status="draft") == [("status_mismatch", "status")]
     assert codes(dict(GOOD, status="draft"), status="approved (2026-10-01)") == [("status_mismatch", "status")]
     assert codes(dict(GOOD, status="draft"), status="draft") == []
-    assert codes(dict(GOOD, status="draft"), status="rascunho") == [], "the document's language is not guessed: the block's own status stands"
-    assert codes(GOOD, status="aprovado (2026-10-01)") == []
-    assert cbt.status_line("- Status: Draft\n") == "draft" and cbt.status_line("- Status: approved (2026-10-01)\n") == "approved"
-    assert cbt.status_line("- Status: rascunho\n") is None and cbt.status_line("no line") is None
+    assert codes(dict(GOOD, status="draft"), status="rascunho") == []
+    assert codes(GOOD, status="rascunho") == [("status_mismatch", "status")], "the Portuguese word is read, not skipped"
+    assert codes(GOOD, status="aprovado (2026-10-01)") == [] and codes(GOOD, status="Aprovada (2026-10-01)") == []
+    assert codes(dict(GOOD, status="draft"), status="aprovado (2026-10-01)") == [("status_mismatch", "status")]
+    assert cbt.document_status("- Status: Draft\n") == "draft" and cbt.document_status("- Status: approved (2026-10-01)\n") == "approved"
+    assert cbt.document_status("- Status: rascunho\n") == "draft" and cbt.document_status("- Status: aprovada\n") == "approved"
+    assert cbt.document_status("no line") is None
+
+
+@pytest.mark.parametrize("word", ["final", "borrador", "pendente", "", "approvedish", "draft-ish"])
+def test_a_status_line_that_is_present_and_not_in_the_list_is_refused_and_never_replaced_by_the_blocks_status(word):
+    assert cbt.document_status("- Status: %s\n" % word) == "unknown"
+    assert codes(GOOD, status=word) == [("status_unknown", "status")]
+    assert codes(dict(GOOD, status="draft"), status=word) == [("status_unknown", "status")]
+
+
+def test_a_document_with_no_status_line_is_judged_by_the_block_alone():
+    text = document(GOOD).replace("- Status: approved (2026-10-01)\n", "")
+    assert "Status" not in text and cbt.check_text(text) == []
 
 
 def test_a_key_that_is_not_a_short_word_is_never_echoed_in_a_field():
@@ -147,11 +170,20 @@ def test_a_key_that_is_not_a_short_word_is_never_echoed_in_a_field():
     assert codes(dict(GOOD, **{"x" * 40: 1})) == [("unknown_key", "?")]
 
 
-def test_the_fence_must_open_and_close_on_a_line_of_its_own():
-    assert cbt.blocks("```brand-tokens\n{}\n```\n") == ["{}"]
-    assert cbt.blocks("  ```brand-tokens\n{}\n```\n") == []
-    assert cbt.blocks("```brand-tokens\n{}\n") == []
-    assert cbt.blocks("```brand-tokens   \n{}\n```   \n") == ["{}"]
+def test_a_fence_is_read_whether_indented_or_tilde_and_one_that_cannot_be_read_is_a_problem_never_ignored():
+    assert cbt.scan("```brand-tokens\n{}\n```\n") == (["{}"], [])
+    assert cbt.scan("  ```brand-tokens\n{}\n  ```\n") == (["{}"], [])
+    assert cbt.scan("~~~brand-tokens\n{}\n~~~\n") == (["{}"], [])
+    assert cbt.scan("````brand-tokens\n{}\n````\n") == (["{}"], [])
+    assert cbt.scan("```brand-tokens   \n{}\n```   \n") == (["{}"], [])
+    assert cbt.scan("```brand-tokens\n{}\n") == ([], [{"code": "block_unclosed", "field": ""}])
+    assert cbt.scan("~~~brand-tokens\n{}\n```\n") == ([], [{"code": "block_unclosed", "field": ""}]), "a fence closes with its own character"
+    assert cbt.scan("```brand-tokens json\n{}\n```\n") == ([], [{"code": "block_fence_odd", "field": ""}])
+    assert cbt.scan("```json\n{}\n```\n") == ([], [])
+    for fence in ("~~~brand-tokens", "  ```brand-tokens"):
+        text = document(GOOD).replace("```brand-tokens", fence).replace("\n```\n", "\n%s\n" % fence.strip()[:3])
+        assert cbt.check_text(text) == [], fence
+    assert [p["code"] for p in cbt.check_text(document(GOOD).replace("\n```\n", "\n"))] == ["block_unclosed"]
 
 
 def test_the_roles_the_module_names_are_the_ones_the_docstring_and_the_skill_promise():

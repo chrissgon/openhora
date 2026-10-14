@@ -146,7 +146,7 @@ def test_no_identity_runs_the_renderers_default_theme_and_the_record_says_so(w):
 
 def test_an_identity_with_the_old_open_block_runs_the_default_theme_and_says_the_block_is_not_closed(w):
     put(w, identity({"mode_default": "dark", "color": {"dark": {"bg": "#000000", "text": "#FFFFFF", "accent": "#07B6F0"}}, "font": {"body": "system-ui"}},
-                    status="rascunho"))
+                    status="aprovado (2026-10-01)"))
     start(w)
     done = finish_review(w)
     assert done["ok"] is True
@@ -166,7 +166,7 @@ def test_a_draft_identity_stops_the_base_step_with_its_sentence_and_the_task_res
     assert first["ok"] is False and first["failed"] == "base" and first["code"] == "theme_draft"
     task = code_task(w)
     assert task["state"] == "failed"
-    assert task["note"] == "base: theme_draft status -- the identity is a draft: approve it, or choose the default theme"
+    assert task["note"] == "base: theme_draft status -- " + theme.DRAFT_SENTENCE
     assert state(w)["failure"]["step"] == "base" and state(w)["steps"]["base"]["status"] == "failed"
     assert [c[0] for c in kit.calls(w.tree, "renderer")] == ["analyse", "base", "align"], "no renderer call was made for the refused step"
     put(w, identity())                                                   # the person approves it
@@ -186,17 +186,62 @@ def test_a_low_contrast_theme_stops_the_step_with_the_pair_named(w):
     assert "Orchard" not in note
 
 
-def test_the_choice_of_the_default_theme_in_the_review_runs_it_and_records_the_choice(w, monkeypatch):
+def test_the_choice_of_the_default_theme_goes_through_the_real_review_and_runs_it_and_records_the_choice(w):
     put(w, identity(dict(BLOCK, color=dict(BLOCK["color"], muted={"dark": "#4A5160"}))))
     start(w)
-    assert finish_review(w)["code"] == "theme_low_contrast"
-    real = pipeline.load_review
-    monkeypatch.setattr(pipeline, "load_review", lambda ctx: dict(real(ctx), theme="default"))   # the `theme` edit of the review (captions.py owns it)
-    resumed = ops.media_pipeline(w.project, w.rid)
+    failed = finish_review(w)
+    assert failed["code"] == "theme_low_contrast" and "captions-edit" in code_task(w)["note"], "the refusal names the way out"
+    ops.prepare_again(w.project, w.rid, "review")                                   # the way the sentence names: open the review again ...
+    assert ops.captions_read(w.project, w.rid)["theme"] == "identity"
+    shown = edit(w, [{"op": "theme", "choice": "default"}])                         # ... choose ...
+    assert shown["theme"] == "default"
+    resumed = finish_review(w)                                                       # ... and say done
     assert resumed["ok"] is True and resumed["stopped"] == "approval"
-    assert all("--color" not in c for c in base_calls(w))
+    assert all("--color" not in c for c in base_calls(w)[-1:])
     recorded = state(w)["steps"]["base"]["result"]["theme"]
     assert (recorded["source"], recorded["reason"]) == ("default", "chosen") and render_json(w)["theme"] == recorded
+
+
+def test_the_theme_choice_of_the_review_is_closed_kept_and_undone_by_the_same_edit(w):
+    start(w)
+    assert ops.captions_read(w.project, w.rid)["theme"] == "identity"
+    assert edit(w, [{"op": "theme", "choice": "default"}])["theme"] == "default"
+    assert edit(w, [{"op": "theme", "choice": "identity"}])["theme"] == "identity"
+    for bad in ({"op": "theme", "choice": "blue"}, {"op": "theme", "choice": ""}, {"op": "theme", "choice": None}, {"op": "theme"},
+                {"op": "theme", "choice": "default", "color": "#FFFFFF"}):
+        with pytest.raises(ops.OpsError):
+            edit(w, [bad])
+    assert ops.captions_read(w.project, w.rid)["theme"] == "identity", "an edit refused as a whole changes nothing"
+    review_path = os.path.join(w.data, "media", w.rid, "review.json")
+    stored = json.load(open(review_path))
+    assert stored["version"] == 1 and stored["theme"] == "identity"
+    del stored["theme"]                                                              # a review written before the key existed is still read
+    json.dump(stored, open(review_path, "w"))
+    assert ops.captions_read(w.project, w.rid)["theme"] == "identity"
+    stored["theme"] = "blue"
+    json.dump(stored, open(review_path, "w"))
+    with pytest.raises(ops.OpsError):
+        ops.captions_read(w.project, w.rid)
+
+
+def test_the_approval_says_when_the_colours_are_the_renderers_own_and_why(w):
+    put(w, identity({"mode_default": "dark", "color": {"dark": {"bg": "#000000"}}, "font": {"body": "system-ui"}}, status="aprovado (2026-10-14)"))
+    start(w)
+    finish_review(w)
+    [pending] = [p for p in ops.pending(w.project)["pending"] if p["title"] == "Approve the rendered video"]
+    body = ops.pending(w.project, pending["id"])["body"]
+    assert "Colours: default theme: the identity's block is in the old format; run brand-identity again to write the closed one." in body
+    payload = ops.pending(w.project, pending["id"])["payload"]["media_pipeline"]
+    assert payload["theme"] == {"source": "default", "reason": "open_block"}
+
+
+def test_the_approval_says_nothing_about_colours_when_they_come_from_the_identity(w):
+    put(w, identity())
+    start(w)
+    finish_review(w)
+    [pending] = [p for p in ops.pending(w.project)["pending"] if p["title"] == "Approve the rendered video"]
+    item = ops.pending(w.project, pending["id"])
+    assert "Colours" not in item["body"] and item["payload"]["media_pipeline"]["theme"] == {"source": "identity", "reason": None}
 
 
 def test_a_bad_colour_and_an_unknown_role_stop_the_step_without_a_word_of_the_file(w):

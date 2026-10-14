@@ -235,13 +235,24 @@ def test_an_oversize_linked_or_unreadable_identity_file_is_refused(tmp_path):
 def test_a_draft_identity_is_refused_with_its_sentence_never_used_silently(tmp_path):
     e = refused(tmp_path, identity(block_with(status="draft"), status="draft"))
     assert (e.code, e.field) == ("theme_draft", "status")
-    assert e.sentence == "the identity is a draft: approve it, or choose the default theme"
-    assert refused(tmp_path, identity(block_with(status="draft"), status="rascunho")).code == "theme_draft", "the block's own status stands in any language"
-    assert refused(tmp_path, identity(BLOCK, status="draft")).code == "theme_draft", "a Status line that says draft is read even when the block says approved"
-    old_but_draft = identity('{"mode_default": "dark"}', status="draft")
+    assert e.sentence.startswith("the identity is a draft: approve it, or choose the default theme (in a terminal: prepare-again --step review, then captions-edit")
+    assert e.sentence.endswith("then captions-done)") and '"choice": "default"' in e.sentence
+    assert refused(tmp_path, identity(block_with(status="draft"), status="rascunho")).code == "theme_draft", "the Portuguese word for draft is read"
+    assert refused(tmp_path, identity(BLOCK, status="rascunho")).code == "theme_draft", "a Status line that says draft is read even when the block says approved"
+    assert refused(tmp_path, identity(BLOCK, status="draft")).code == "theme_draft"
+    assert refused(tmp_path, identity(block_with(status="draft"), status="aprovado (2026-10-01)")).code == "theme_draft", "the block's own status also stops a render"
+    old_but_draft = identity('{"mode_default": "dark"}', status="rascunho")
     assert refused(tmp_path, old_but_draft).code == "theme_draft", "a draft with an open block is refused too"
-    args, _ = theme.theme_args(project(tmp_path, identity(BLOCK, status="aprovado (2026-10-01)"), "pt-approved"))
-    assert args, "an approved identity written in the document's language is read"
+    for k, word in enumerate(("aprovado (2026-10-01)", "aprovada (2026-10-01)", "approved (2026-10-01)")):
+        args, _ = theme.theme_args(project(tmp_path, identity(BLOCK, status=word), "pt-approved%d" % k))
+        assert args, "an approved identity written in the document's language is read"
+
+
+def test_a_status_line_the_list_does_not_have_is_refused_and_never_replaced_by_the_blocks_status(tmp_path):
+    e = refused(tmp_path, identity(BLOCK, status="final (2026-10-01)"))
+    assert (e.code, e.field) == ("theme_status_unknown", "status") and e.sentence == theme.SENTENCES["theme_status_unknown"]
+    assert "choose the default theme" in e.sentence
+    assert refused(tmp_path, identity('{"mode_default": "dark"}', status="borrador")).code == "theme_status_unknown"
 
 
 def test_a_text_pair_under_4_5_to_1_stops_with_the_pair_named_and_nothing_is_picked_for_the_person(tmp_path):
@@ -292,7 +303,7 @@ def test_no_identity_no_block_or_an_open_block_gives_the_default_theme_and_says_
     assert args == [] and (record["source"], record["reason"]) == ("default", "open_block")
     shape_of_a_real_one = {"mode_default": "dark", "color": {"dark": {"bg": "#000000", "text": "#FFFFFF", "accent": "#07B6F0"}},
                            "font": {"display": {"family": "Inter", "weight": 800}, "chip": {"family": "JetBrains Mono", "weight": 500}}}
-    args, record = theme.theme_args(project(tmp_path, identity(shape_of_a_real_one, status="rascunho"), "legacy"))
+    args, record = theme.theme_args(project(tmp_path, identity(shape_of_a_real_one, status="aprovado (2026-10-14)"), "legacy"))
     assert args == [] and record["reason"] == "open_block", "a block with the roles of the first template is open: the default, said plainly"
     
 
@@ -341,3 +352,77 @@ def test_the_block_survives_the_documents_providers_round_trip_and_is_read_the_s
 def test_the_runtime_copy_of_the_checker_is_the_shared_source(tmp_path):
     assert (REPO / "runtime" / "check_brand_tokens.py").read_bytes() == (REPO / "shared" / "scripts" / "check_brand_tokens.py").read_bytes()
     assert (REPO / "skills" / "brand-identity" / "scripts" / "check_brand_tokens.py").read_bytes() == (REPO / "shared" / "scripts" / "check_brand_tokens.py").read_bytes()
+
+
+def test_the_text_on_the_background_is_a_checked_pair_and_the_message_names_the_pair_that_fails(tmp_path):
+    light_bg = block_with(color__bg={"dark": "#D8DEE9"})                 # a light page behind white-ish text: fine on the chip fill, not on the page
+    value = contrast.ratio("#F4F7FB", "#D8DEE9")
+    assert value < 4.5 and contrast.ratio("#F4F7FB", PRESETS["colors"]["chip_fill"]) >= 4.5
+    e = refused(tmp_path, identity(light_bg))
+    assert (e.code, e.field) == ("theme_low_contrast", "text_on_bg")
+    assert e.sentence == theme.LOW_CONTRAST_SENTENCE % ("text on bg", "%.2f" % value) and "text on bg contrast is %.2f:1" % value in e.sentence
+    assert ("text", "bg") in theme.PAIRS and ("chip_text", "chip_fill") in theme.PAIRS
+    e = refused(tmp_path, identity(block_with(color__surface={"dark": "#E6ECF5"})))
+    assert e.field == "text_on_chip_fill" and "text on chip fill" in e.sentence, "the pair that really fails is the one named"
+
+
+def test_every_refusal_sentence_names_the_way_to_the_default_theme_and_the_review_edit_exists():
+    captions = st.load("captions")
+    for code, sentence in theme.SENTENCES.items():
+        assert "choose the default theme" in sentence and "captions-edit" in sentence and "captions-done" in sentence, code
+    assert "choose the default theme" in theme.LOW_CONTRAST_SENTENCE and "captions-edit" in theme.LOW_CONTRAST_SENTENCE
+    assert "theme" in captions.OPS and captions.OPS["theme"] == {"choice"} and captions.THEME_CHOICES == ("identity", "default")
+    edit = json.loads(theme.CHOICE.split("--text '")[1].split("'")[0])
+    assert edit == [{"op": "theme", "choice": "default"}], "the command the sentence shows is the edit the review takes"
+
+
+def test_a_fence_that_is_indented_or_tilde_is_read_and_one_that_is_cut_or_odd_is_refused(tmp_path):
+    base = identity()
+    for k, text in enumerate((base.replace("```brand-tokens", "~~~brand-tokens").replace("\n```\n", "\n~~~\n"),
+                              base.replace("```brand-tokens", "  ```brand-tokens"))):
+        args, record = theme.theme_args(project(tmp_path, text))
+        assert args and record["source"] == "identity", k
+    assert refused(tmp_path, base.replace("\n```\n", "\n")).code == "theme_block_invalid", "an unclosed fence is never ignored"
+    assert refused(tmp_path, base.replace("```brand-tokens", "```brand-tokens json")).code == "theme_block_invalid"
+
+
+def test_a_key_written_twice_in_the_block_is_refused(tmp_path):
+    text = json.dumps(BLOCK).replace('"version": 1', '"version": 1, "version": 1')
+    assert text != json.dumps(BLOCK) and refused(tmp_path, identity(text)).code == "theme_block_invalid"
+
+
+def test_the_sentence_for_a_default_theme_says_why_in_one_fixed_line(tmp_path):
+    for reason in ("no_identity", "no_tokens_block", "open_block", "chosen"):
+        assert theme.describe({"source": "default", "reason": reason}).startswith("default theme: ")
+    assert "old format" in theme.describe({"source": "default", "reason": "open_block"})
+    assert theme.describe({"source": "identity", "reason": None}) == "" and theme.describe({}) == ""
+
+
+PT_BR = """# Identidade visual: Estúdio Pomar
+
+- Responsável: brand-identity
+- Status: %s
+- Data: 2026-10-14
+
+## Em uma frase
+Verde e escuro, uma só cor de destaque.
+
+## Tokens
+```brand-tokens
+%s
+```
+
+## Perguntas em aberto
+1. Nenhuma.
+"""   # validate: allow english-only -- a fictional identity written in Brazilian Portuguese, the shape of a document in the artifact language
+
+
+def test_a_document_in_brazilian_portuguese_is_read_by_its_own_status_words(tmp_path):
+    draft = PT_BR % ("rascunho", json.dumps(block_with(status="draft")))
+    e = refused(tmp_path, draft)
+    assert e.code == "theme_draft"
+    approved = PT_BR % ("aprovado (2026-10-14)", json.dumps(BLOCK))
+    args, record = theme.theme_args(project(tmp_path, approved))
+    assert record["source"] == "identity" and pairs(args, "--color")["accent"] == "#3DDC97"
+    assert tokens.check_text(approved) == [] and [p["code"] for p in tokens.check_text(PT_BR % ("aprovado", json.dumps(block_with(status="draft"))))] == ["status_mismatch"]
+    assert refused(tmp_path, PT_BR % ("pendente", json.dumps(BLOCK))).code == "theme_status_unknown"

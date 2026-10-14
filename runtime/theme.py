@@ -35,16 +35,18 @@ the decision D6 (licence file, hash, glyph test), never by the identity's word.
 What is refused, each with a closed code and one fixed sentence (`ThemeError`), never a word of the file:
 
   identity_unreadable    the file is a link, is not a regular file, is over the limit, leaves the project or is not UTF-8
-  theme_draft            the identity is a draft (the block's `status`, or a `- Status: draft` line)
+  theme_draft            the identity is a draft (the `- Status:` line, or the block's `status`)
+  theme_status_unknown   the `- Status:` line starts with a word that is not draft or approved in a language the checker lists
   theme_block_invalid    a block that is repeated, over the limit, not JSON, not an object, or whose shape is wrong
   theme_bad_color        a colour that is not `#RRGGBB`
   theme_unknown_role     a colour role or a font role the block does not have (a fourth font role, for one)
   theme_bad_font         a font that is not {family, weight} with a plain family name and a weight of 100 to 900
-  theme_low_contrast     a text pair under 4.5:1 on chip_fill: nothing is darkened or picked for the person
+  theme_low_contrast     a text pair under 4.5:1 (text, muted and chip_text on chip_fill; text on bg), named in the sentence: nothing is
+                         darkened or picked for the person
 
 and what is never a refusal but the default theme, said in the record's `reason`: no identity file (`no_identity`), no block in it
 (`no_tokens_block`), an open block written before the closed one existed (`open_block`), and the person's choice of the default
-theme for this render (`chosen`). Nothing here runs a model, reads a network or writes a file.
+theme for this render (`chosen`; the review's `theme` edit, runtime/captions.py). `describe(record)` is the one sentence that says it. Nothing here runs a model, reads a network or writes a file.
 
 Standard library only. Runs on Python 3.9.
 """
@@ -68,20 +70,34 @@ ALLOWLIST = ("providers", "renderer", "assets", "fonts", "allowlist.json")
 MIN_TEXT_RATIO = 4.5               # WCAG 2 AA for text, applied to a card over a moving picture by choice (A6.9, question 9)
 COLOR_MAP = (("bg", "bg"), ("fg", "text"), ("muted", "muted"), ("accent", "accent"))   # (identity role, renderer token)
 FONT_MAP = (("display", "display"), ("body", "text"), ("mono", "mono"))               # (identity role, renderer role)
-PAIRS = (("text", "text_on_chip_fill"), ("muted", "muted_on_chip_fill"), ("chip_text", "chip_text_on_chip_fill"))
-DRAFT_SENTENCE = "the identity is a draft: approve it, or choose the default theme"
+PAIRS = (("text", "chip_fill"), ("muted", "chip_fill"), ("chip_text", "chip_fill"), ("text", "bg"))   # (text token, the token it sits on)
+# The way to the default theme until the page has a control for it: the review is opened again, the choice is a `theme` edit of
+# captions-edit, and the captions are done again (the pipeline then runs `base` again with the choice).
+CHOICE = ("in a terminal: prepare-again --step review, then captions-edit with --text '[{\"op\": \"theme\", \"choice\": \"default\"}]', "
+          "then captions-done")
+DRAFT_SENTENCE = "the identity is a draft: approve it, or choose the default theme (%s)" % CHOICE
 SENTENCES = {
-    "identity_unreadable": "the identity file cannot be read: it must be a regular file of the project, not a link, at most 1 MiB, in UTF-8",
+    "identity_unreadable": "the identity file cannot be read: it must be a regular file of the project, not a link, at most 1 MiB, in UTF-8; "
+                           "fix it, or choose the default theme (%s)" % CHOICE,
     "theme_draft": DRAFT_SENTENCE,
-    "theme_block_invalid": "the brand-tokens block of the identity is not valid: run brand-identity again, or fix the block by hand and check it "
-                           "with check_brand_tokens.py",
-    "theme_bad_color": "a colour of the brand-tokens block is not #RRGGBB: fix it in the identity, or choose the default theme",
-    "theme_unknown_role": "the brand-tokens block has a role the theme does not have: fix it in the identity, or choose the default theme",
+    "theme_status_unknown": "the Status line of the identity does not start with draft or approved (or a translation check_brand_tokens.py lists): "
+                            "fix it, or choose the default theme (%s)" % CHOICE,
+    "theme_block_invalid": "the brand-tokens block of the identity is not valid: run brand-identity again, or fix the block and check it with "
+                           "check_brand_tokens.py, or choose the default theme (%s)" % CHOICE,
+    "theme_bad_color": "a colour of the brand-tokens block is not #RRGGBB: fix it in the identity, or choose the default theme (%s)" % CHOICE,
+    "theme_unknown_role": "the brand-tokens block has a role the theme does not have: fix it in the identity, or choose the default theme (%s)" % CHOICE,
     "theme_bad_font": "a font of the brand-tokens block is not a family name and a weight from 100 to 900: fix it in the identity, "
-                      "or choose the default theme",
+                      "or choose the default theme (%s)" % CHOICE,
 }
-LOW_CONTRAST_SENTENCE = "the %s contrast is %s:1, under 4.5:1: change the colours in the identity, or choose the default theme for this render"
+LOW_CONTRAST_SENTENCE = ("the %s contrast is %s:1, under 4.5:1: change the colours in the identity, or choose the default theme for this render "
+                         "(" + CHOICE + ")")
 REFUSAL_OF = {"bad_color": "theme_bad_color", "unknown_role": "theme_unknown_role", "bad_font": "theme_bad_font"}
+REASONS = {   # what the person is told when the default theme is used (the approval's text and the page): one fixed sentence per reason
+    "no_identity": "default theme: the project has no identity file (docs/brand/identity.md)",
+    "no_tokens_block": "default theme: the identity has no brand-tokens block",
+    "open_block": "default theme: the identity's block is in the old format; run brand-identity again to write the closed one",
+    "chosen": "default theme: chosen for this render",
+}
 FIELD = re.compile(r"[A-Za-z0-9_.\[\]-]{0,40}")
 
 
@@ -188,12 +204,15 @@ def theme_args(project: str, root: str = None, use_default: bool = False):
     text = read_identity(project)
     if text is None:
         return _default("no_identity")
-    if tokens.status_line(text) == "draft":
+    state = tokens.document_status(text)
+    if state == "draft":
         raise ThemeError("theme_draft", "status")
-    if not tokens.blocks(text):
-        return _default("no_tokens_block")
+    if state == "unknown":
+        raise ThemeError("theme_status_unknown", "status")
     obj, found = tokens.parse(text)
-    if found and found[0]["code"] == "block_open" and obj is not None:
+    if found and found[0]["code"] == "block_missing":
+        return _default("no_tokens_block")
+    if found and found[0]["code"] == "block_open":
         return _default("open_block")
     if found:
         first = found[0]
@@ -214,10 +233,11 @@ def _from_block(block: dict, renderer: dict, ids: dict):
     effective_fill = colors.get("chip_fill", palette["chip_fill"])
     colors["chip_text"] = chosen["accent"] if ratio(chosen["accent"], effective_fill) >= MIN_TEXT_RATIO else chosen["fg"]
     shown = dict(colors, chip_fill=effective_fill)
-    for token, field in PAIRS:
-        value = ratio(shown[token], effective_fill)
+    for token, base in PAIRS:
+        value = ratio(shown[token], shown[base])
         if value < MIN_TEXT_RATIO:
-            raise ThemeError("theme_low_contrast", field, LOW_CONTRAST_SENTENCE % (field.replace("_on_", " on ").replace("_", " "), "%.2f" % value))
+            name = "%s on %s" % (token.replace("_", " "), base.replace("_", " "))
+            raise ThemeError("theme_low_contrast", "%s_on_%s" % (token, base), LOW_CONTRAST_SENTENCE % (name, "%.2f" % value))
     fonts, notes = {}, []
     for role, target in FONT_MAP:
         spec = block["font"].get(role)
@@ -234,3 +254,8 @@ def _from_block(block: dict, renderer: dict, ids: dict):
     for role in sorted(fonts):
         args += ["--font", "%s=%s" % (role, fonts[role])]
     return args, _record("identity", None, {t: colors[t] for t in sorted(colors)}, {r: fonts[r] for r in sorted(fonts)}, notes)
+
+
+def describe(record: dict) -> str:
+    """The one sentence for a record that used the default theme (REASONS), else the empty string."""
+    return REASONS.get(record.get("reason"), "") if record.get("source") == "default" else ""

@@ -450,7 +450,7 @@ def _base(ctx: Context, state: dict) -> dict:
     edited = cap.check_edited(read_json(ctx.path(EDITED), EDITED))
     review = load_review(ctx)
     try:   # the project's theme, from its identity (runtime/theme.py); the same arguments reach the run with the confirmed retakes
-        theme_flags, theme_record = theme.theme_args(ctx.project, ctx.root, use_default=review.get("theme") == "default")
+        theme_flags, theme_record = theme.theme_args(ctx.project, ctx.root, use_default=review["theme"] == "default")
     except theme.ThemeError as e:
         raise StepFailure(e.code, e.field, "theme", e.sentence) from None
     args = ["--transcript", ctx.path(EDITED), "--analysis", ctx.path(ANALYSIS), "--out", ctx.path(EDL)] + _face_args(review) + theme_flags
@@ -614,13 +614,22 @@ def review_decision(ctx: Context, state: dict) -> dict:
                                                                                               "below_threshold": below, **counts}}}}
 
 
+def describe_theme(record) -> str:
+    """The sentence that says the default theme was used and why (theme.REASONS), or the empty string."""
+    return theme.describe(record) if isinstance(record, dict) else ""
+
+
 def approval_decision(ctx: Context, state: dict) -> dict:
     render = state["steps"]["render"]["result"]
     body = (f"Recording {ctx.rid}: the video is rendered ({render.get('seconds')} s, {render.get('bytes')} bytes, sha256 {render['sha256']}). "
             "Nothing is approved, scheduled or published yet: the page shows the video and takes the approval of exactly this file.")
+    used = describe_theme(render.get("theme"))
+    if used:
+        body += f" Colours: {used}."
     return {"kind": "question", "title": "Approve the rendered video", "body": body,
             "payload": {"media_pipeline": {"recording": ctx.rid, "step": "approval", "platform": ctx.platform,
                                            "render": {k: render.get(k) for k in ("name", "sha256", "bytes", "seconds")},
+                                           "theme": {k: (render.get("theme") or {}).get(k) for k in ("source", "reason")},
                                            "cover": state["steps"]["cover"]["result"]}}}
 
 

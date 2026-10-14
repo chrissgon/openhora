@@ -211,7 +211,7 @@ captions-read  the caption review of a recording: the transcript as caption chun
           whose timing the renderer adjusted, each beat with its matched words and score (below the threshold flagged), the words left
           out, the asset slots and what you decided. The page answers it on the loopback socket only; no `mcp`, no `messaging`.
 captions-edit  applies your changes to the words (edit, split, merge, delete), your answers on the retakes, anchors, dropped overlays,
-          the choice for an empty asset slot, the face box and the cover offset: --text is a JSON list of those objects, --revision the
+          the choice for an empty asset slot, the face box, the cover offset and the theme (identity or default): --text is a JSON list of those objects, --revision the
           one captions-read gave. Code re-maps the words onto indices and keeps your decisions in the numbering of the transcript; no
           time can be given. Only while the pipeline waits at the review.
 captions-done  you say the captions are right: the decision is answered (no text in it) and the pipeline goes on. Refused while an asset
