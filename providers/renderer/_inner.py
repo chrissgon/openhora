@@ -9,6 +9,7 @@ only writable mount) and /scratch (memory-backed), with no network.
   align    --post FILE --transcript T --checker SCRIPT --vocabulary V --out BEATS ...   the beats, aligned
   check    --edl EDL --beats BEATS --vocabulary V [--platform-file F]        schema, bounds, hardening, credential shapes
   render   --edl EDL --beats BEATS --in VIDEO --out DIR --platform-file F --vocabulary V ...    the video
+  storyboard (--post FILE --checker SCRIPT | --beat FILE) --vocabulary V --out DIR   a still per beat and a contact sheet, no recording
   verify   --in MP4 --platform-file F --sha256 H [--expect-seconds S]   a finished render against the platform's spec
   cover    --in MP4 --offset-ms N --out PNG                  one frame of a render
   still    --in VIDEO --at-ms N --out PNG                    one frame of a recording, framed as the render frames it (1080x1920)
@@ -37,6 +38,7 @@ import _cdp  # noqa: E402
 import _edl  # noqa: E402
 import _frames  # noqa: E402
 import _media  # noqa: E402
+import _preview  # noqa: E402
 import _render  # noqa: E402
 import _timeline  # noqa: E402
 from _text import Refusal  # noqa: E402
@@ -221,6 +223,36 @@ def verb_render(args) -> dict:
                           cover_out=args.cover_out, cover_offset_ms=args.cover_offset_ms, scratch=args.scratch)
 
 
+def verb_storyboard(args) -> dict:
+    """A still per beat and a contact sheet from a post (`--post`, checked by the post-writing skill's own checker) or from one beat as
+    JSON (`--beat`). No recording and no transcript: the words are synthetic (_preview). Everything is refused before a frame is drawn."""
+    data = load_data()
+    vocab = load_vocabulary(args.vocabulary)
+    allow = _frames.font_allowlist()
+    if bool(args.post) == bool(args.beat) or bool(args.post) != bool(args.checker):
+        raise Usage("storyboard takes --post FILE with --checker SCRIPT, or --beat FILE, not both")
+    if args.post:
+        try:
+            with open(args.post, "r", encoding="utf-8") as fh:
+                text = fh.read(2 * 1024 * 1024)
+        except (OSError, UnicodeDecodeError):
+            raise Refusal("unreadable_file", "post") from None
+        fmt = _align.post_format(text)
+        if fmt not in _align.VIDEO_FORMATS:
+            raise Refusal("post_format", "post")
+        _align.run_checker(args.checker, args.post, args.vocabulary, fmt)      # refuses a post it does not pass
+        rows = _align.read_beats(text, vocab)
+    else:
+        rows = [_preview.beat_row(vocab, read_json(args.beat, data["limits"]["json_max_bytes"]))]
+    font_flags = {}
+    for role, spec in pairs(args.font, "--font").items():
+        font_id, _, weight = spec.partition(":")
+        font_flags[role] = (font_id, int(weight) if weight.isdigit() else data["theme"]["default_font_weight"].get(role, 500))
+    face = _edl.parse_face_box(args.face_box) if args.face_box else None
+    return _preview.storyboard(rows=rows, data=data, vocab=vocab, allow=allow, colors=pairs(args.color, "--color"), font_flags=font_flags, face=face,
+                               tools=lambda: (tools(args)[0], browser_path(args)), jobs=args.jobs, out_dir=args.out, scratch=args.scratch)
+
+
 def verb_cover(args) -> dict:
     ffmpeg, ffprobe = tools(args)
     facts = _media.probe(ffprobe, args.input)
@@ -353,6 +385,18 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--cover-out")
     sp.add_argument("--cover-offset-ms", type=int)
     sp.add_argument("--scratch", help="where the frames and work files go (memory-backed in the container)")
+    sp = sub.add_parser("storyboard")
+    common(sp, browser=True)
+    sp.add_argument("--post")
+    sp.add_argument("--checker", help="the post-writing skill's script checker (check_script.py), with --post")
+    sp.add_argument("--beat", help="one beat as JSON: {preset, params, line}")
+    sp.add_argument("--vocabulary", required=True)
+    sp.add_argument("--out", required=True, help="the folder that gets beat-<n>.png and sheet.png")
+    sp.add_argument("--scratch", help="where the work files go (memory-backed in the container)")
+    sp.add_argument("--jobs", type=int, default=3)
+    sp.add_argument("--face-box", help="X,Y,W,H in frame pixels (1080x1920); the default face box otherwise")
+    sp.add_argument("--color", action="append", metavar="TOKEN=#RRGGBB")
+    sp.add_argument("--font", action="append", metavar="ROLE=ID[:WEIGHT]")
     sp = sub.add_parser("verify")
     common(sp)
     sp.add_argument("--in", dest="input", required=True)
@@ -373,7 +417,7 @@ def parser() -> argparse.ArgumentParser:
 
 
 VERBS = {"verify": verb_verify, "selfcheck": verb_selfcheck, "analyse": verb_analyse, "base": verb_base, "align": verb_align, "check": verb_check_documents,
-         "render": verb_render, "cover": verb_cover, "still": verb_still}
+         "render": verb_render, "storyboard": verb_storyboard, "cover": verb_cover, "still": verb_still}
 
 
 def write_result(path, obj) -> None:

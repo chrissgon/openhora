@@ -52,6 +52,7 @@ BUILD_TIMEOUT, PROBE_TIMEOUT, STOP_GRACE = 3600, 60, 120
 MAX_TIMEOUT = 2400                       # seconds, the longest a container may run (the render limit is 1800)
 MAX_OUT_BYTES = 450 * 1024 * 1024        # everything the container may leave in /out
 MAX_OUT_ENTRIES = 8
+STORYBOARD_OUT_ENTRIES = 16               # result.json, sheet.png and a still for each of the vocabulary's 12 beats
 MAX_RESULT_BYTES = 4 * 1024 * 1024
 STDERR_TAIL = 300
 DOCKER_CLIENT_ENV = ("PATH", "HOME", "USER", "TMPDIR", "LANG", "LC_ALL", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME",
@@ -413,9 +414,9 @@ def read_regular(path: str, limit: int, what: str) -> bytes:
         os.close(fd)
 
 
-def check_out_folder(folder: str) -> None:
+def check_out_folder(folder: str, max_entries: int = MAX_OUT_ENTRIES) -> None:
     """What the container left in /out: a few regular files, none a link or a device, together within MAX_OUT_BYTES. The mount
-    is writable, so the host looks before it reads anything."""
+    is writable, so the host looks before it reads anything. `max_entries`: a verb that writes more files says how many."""
     total, count = 0, 0
     for entry in os.scandir(folder):
         found = entry.stat(follow_symlinks=False)
@@ -423,7 +424,7 @@ def check_out_folder(folder: str) -> None:
         if not stat.S_ISREG(found.st_mode):
             raise Refusal("container_left_non_regular_file", "output")
         total += found.st_size
-    if count > MAX_OUT_ENTRIES or total > MAX_OUT_BYTES:
+    if count > max_entries or total > MAX_OUT_BYTES:
         raise Refusal("container_left_too_much", "output")
 
 
@@ -622,6 +623,9 @@ RESULT_SCHEMAS = {
     "cover": dct(ok=B, offset_ms=I, sha256=S),
     "still": dct(ok=B, at_ms=I, sha256=S, width=I, height=I, bytes=I),
     "verify": dct(ok=B, sha256=S, output=OUTPUT),
+    "storyboard": dct(ok=B, beats=lst(dct(beat=I, preset=S, file=S, sha256=S, frame=I), 12), skipped=lst(I, 100), words=I, frame_jobs=I, jobs=I,
+                      sheet=dct(file=S, sha256=S, tiles=I, columns=I, width=I, height=I), face_box=dct(x=I, y=I, w=I, h=I), fonts=mp(S), templates=mp(S),
+                      font_fallbacks=lst(dct(role=S, asked=S, used=S, reason=S), 20), mentions=lst(S, 500), browser=opt(S), browser_sandbox=opt(S)),
     "render": dct(ok=B, dry_run=B, out_seconds=N, out_frames=I, frame_jobs=I, jobs=I, time_limit_seconds=I, layers=lst(S, 4),
                   beats_drawn=lst(dct(id=S, preset=S, start_frame=I, end_frame=I), 100), beats_dropped=lst(S, 100), unmatched_beats=lst(I, 100),
                   mentions=lst(S, 500), fonts=mp(S), templates=mp(S), estimated_bytes=I, sha256=S, bytes=I, output=OUTPUT, seconds=mp(N),

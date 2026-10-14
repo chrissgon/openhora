@@ -274,9 +274,31 @@ def frame_jobs(timeline: dict, out_frames: int) -> tuple:
 
 # ---------------------------------------------------------------- the frame loop
 
+BACKDROP_JS = r"""
+window.__backdrop = (geom, fill, bubble) => {
+  // the storyboard's stand-ins under the pip's ring: the asset's slot as a flat full-frame colour and the speaker's bubble as a disc
+  let a = document.getElementById('__pipfill'), b = document.getElementById('__pipbubble');
+  if (!a) {
+    a = document.createElement('div'); a.id = '__pipfill';
+    b = document.createElement('div'); b.id = '__pipbubble';
+    document.body.insertBefore(b, document.body.firstChild);
+    document.body.insertBefore(a, document.body.firstChild);
+  }
+  a.style.cssText = 'position:absolute;left:0;top:0;width:1080px;height:1920px;background:' + fill;
+  b.style.cssText = 'position:absolute;border-radius:50%;left:' + geom.x + 'px;top:' + geom.y + 'px;width:' + geom.size + 'px;height:' + geom.size + 'px;background:' + bubble;
+  return true;
+};
+"""
+
+
 def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser, jobs_n, frames_dir, workdir, time_limit,
-                templates, png_blank):
+                templates, png_blank, only=None, backdrop=None):
     """Draw every frame of both tracks with `jobs_n` pages at the same time, into `frames_dir`.
+
+    `only` (the storyboard's one use): a set of (track, frame) pairs; just those frames of the jobs are drawn and nothing else is
+    written (no blank frame, no filler). `backdrop` (the same): {color, slot_fill}, the opaque colour the page is drawn over, so the
+    PNG is a picture to look at; a pip beat also gets its asset slot and the speaker's bubble as flat stand-ins. With both left out the
+    loop is the render's, unchanged.
 
     A page is opened once per preset per worker, with the theme's colours and fonts set through CSSOM and every font
     and image awaited before frame 0. A frame whose DOM did not change since the previous frame of the same entry is
@@ -286,10 +308,13 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
     w, h = edl["size"]
     by_index = {x["index"]: x for x in edl["words"]}
     tracks, jobs = frame_jobs(timeline, edl["out_frames"])
+    if only is not None:
+        jobs = [j for j in jobs if (j[1], j[0]) in only]
     os.makedirs(frames_dir, exist_ok=True)
     blank = os.path.join(frames_dir, "blank.png")
-    with open(blank, "wb") as fh:
-        fh.write(png_blank(w, h))
+    if only is None:
+        with open(blank, "wb") as fh:
+            fh.write(png_blank(w, h))
     stats = {"rendered": 0, "reused": 0}
     lock = threading.Lock()
     errors = []
@@ -328,6 +353,9 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
                     if preset not in pages:
                         page = chrome.new_page(w, h)
                         page.open("/t/" + template, setup_cfg(preset))
+                        if backdrop:
+                            page.set_backdrop(backdrop["color"])
+                            page.evaluate(BACKDROP_JS)
                         pages[preset] = page
                     page = pages[preset]
                     payload = caption_data(data, edl, entry, by_index, fps) if track == "caption" else beat_data(data, entry, fps, edl)
@@ -336,6 +364,8 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
                     hit = face_hit(result["boxes"], entry["face"])
                     if hit:
                         raise Refusal("overlay_hits_face", hit)
+                    if backdrop and preset == "pip":
+                        page.evaluate("window.__backdrop(%s, %s, %s)" % (json.dumps(payload["geom"]), json.dumps(backdrop["slot_fill"]), json.dumps(backdrop["color"])))
                     dest = os.path.join(frames_dir, "%s_%06d.png" % ("cap" if track == "caption" else "beat", f))
                     prev = last.get(preset)
                     if prev and prev[0] == k and prev[1] == sig:
@@ -375,7 +405,7 @@ def draw_frames(*, data, edl, timeline, serve, theme_fonts_urls, assets, browser
     for f, track, _ in jobs:
         present[track].add(f)
     for track, prefix in (("caption", "cap"), ("beat", "beat")):
-        if present[track]:
+        if present[track] and only is None:
             for f in range(edl["out_frames"]):
                 if f not in present[track]:
                     os.link(blank, os.path.join(frames_dir, "%s_%06d.png" % (prefix, f)))

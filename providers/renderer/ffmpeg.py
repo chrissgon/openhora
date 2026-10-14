@@ -44,6 +44,12 @@ Verbs (every verb prints one JSON object on stdout; diagnostics on stderr, the f
          [--asset-sha256 SLOT=HEX]... [--jobs 3] [--dry-run] [--time-limit S] [--cover-out PNG --cover-offset-ms N]
         Writes DIR/render-<sha12>.mp4 (mode 0400, never rewritten) and prints its sha256, bytes and seconds. `--out` may name a path
         ending in .mp4: its folder is used, the file name is always content-addressed. --dry-run prints the exact docker command.
+  storyboard (--post FILE --checker SCRIPT | --beat FILE) --vocabulary V --out DIR [--face-box X,Y,W,H] [--color TOKEN=#RRGGBB]... [--font ROLE=ID[:WEIGHT]]...
+        What a script's beats will look like, before any recording: DIR/beat-<n>.png (the beat's overlay at rest, over a flat neutral
+        picture; a layout's asset is a flat colour) for each beat that has a preset, and DIR/sheet.png, a grid of them with no text. No
+        recording and no transcript go in: the beats' lines become synthetic words at 2.5 words a second and the render's own checks
+        (the checker, `check_edl`, `check_beats` with the credential scan) run before a frame is drawn; only those frames are drawn.
+        `--beat` takes one beat as JSON ({preset, params, line}) and gives the same still as the post it came from.
   cover --in MP4 --offset-ms N --out PNG
         One frame of a render.
   still --in VIDEO --at-ms N --out DIR
@@ -145,6 +151,7 @@ class Job:
         self.args, self.timeout, self.verb = args, timeout, verb
         self.recording = None
         self.staged = {}
+        self.max_entries = D.MAX_OUT_ENTRIES
 
     def __enter__(self):
         D.require_docker()
@@ -216,7 +223,7 @@ class Job:
             raise Refusal("no_space", "output")
         name, timeout, argv = self.argv(inner_args)
         rc, _stderr = D.run_container(argv, name, timeout + D.STOP_GRACE)
-        D.check_out_folder(self.out_dir)
+        D.check_out_folder(self.out_dir, self.max_entries)
         try:
             raw = D.read_regular(os.path.join(self.out_dir, "result.json"), D.MAX_RESULT_BYTES, "result.json")
             result = json.loads(raw.decode("utf-8"))
@@ -403,6 +410,48 @@ def verb_render(args) -> dict:
         return result
 
 
+STILL_NAME = re.compile(r"beat-[0-9]{1,2}\.png|sheet\.png")
+STILL_MAX_BYTES = 8 * 1024 * 1024
+
+
+def verb_storyboard(args) -> dict:
+    """A still per beat and a contact sheet. The container gets no recording and no transcript (two mounts: the staged job folder
+    read-only and the output folder); the host reads each PNG as untrusted: size-capped, hashed, its header checked, then named."""
+    if bool(args.post) == bool(args.beat) or bool(args.post) != bool(args.checker):
+        raise Usage("storyboard takes --post FILE with --checker SCRIPT, or --beat FILE, not both")
+    with Job(args, 240, "storyboard") as job:
+        job.max_entries = D.STORYBOARD_OUT_ENTRIES
+        inner = ["storyboard", "--vocabulary", job.stage("vocabulary.json", args.vocabulary), "--out", D.MOUNT_OUT, "--scratch", D.MOUNT_SCRATCH,
+                 "--jobs", str(max(1, min(args.jobs, 2 * max(1, job.limits()[0]))))]
+        if args.post:
+            inner += ["--post", job.stage("post.md", args.post, 2 * 1024 * 1024), "--checker", job.stage("check_script.py", args.checker, 1024 * 1024)]
+        else:
+            inner += ["--beat", job.stage("beat.json", args.beat)]
+        inner += opt("--face-box", args.face_box)
+        for flag, values in (("--color", args.color), ("--font", args.font)):
+            for v in values or []:
+                inner += [flag, v]
+        result = job.run(inner, "storyboard")
+        out_dir = os.path.abspath(args.out)
+        wanted = [(b["file"], b["sha256"], (1080, 1920)) for b in result["beats"]]
+        wanted.append((result["sheet"]["file"], result["sheet"]["sha256"], (result["sheet"]["width"], result["sheet"]["height"])))
+        candidates = os.path.join(job.root, "candidates")
+        os.mkdir(candidates, 0o700)
+        for name, digest, size in wanted:
+            if not STILL_NAME.fullmatch(name) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+                raise Refusal("container_result_invalid", "storyboard")
+            job.collect(name, os.path.join(candidates, name), max_bytes=STILL_MAX_BYTES, expect_sha256=digest)
+            facts = _frames.image_facts(_frames.read_regular(os.path.join(candidates, name), STILL_MAX_BYTES, "container_file_unreadable", name[:40]))
+            if facts is None or facts[0] != "png" or (facts[1], facts[2]) != size:
+                raise Refusal("container_file_not_png", name[:40])
+        os.makedirs(out_dir, mode=0o700, exist_ok=True)
+        replayed = True
+        for name, digest, _ in wanted:
+            outcome = D.copy_out(os.path.join(candidates, name), os.path.join(out_dir, name), max_bytes=STILL_MAX_BYTES, mode=0o400, expect_sha256=digest, exclusive=True)
+            replayed = replayed and outcome == "replayed"
+        return dict(result, out_dir=out_dir, replayed=replayed, image={"id": job.image["id"], "tag": job.image["tag"]})
+
+
 def verb_cover(args) -> dict:
     with Job(args, 120, "cover") as job:
         result = job.run(["cover", "--in", job.mount_recording(args.input), "--offset-ms", str(args.offset_ms), "--out", D.MOUNT_OUT + "/cover.png"], "cover")
@@ -510,6 +559,17 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--time-limit", type=int)
     sp.add_argument("--cover-out")
     sp.add_argument("--cover-offset-ms", type=int)
+    sp = sub.add_parser("storyboard")
+    add_limits(sp)
+    sp.add_argument("--post")
+    sp.add_argument("--checker", help="the post-writing skill's script checker (check_script.py), with --post")
+    sp.add_argument("--beat", help="one beat as JSON: {preset, params, line}")
+    sp.add_argument("--vocabulary", required=True)
+    sp.add_argument("--out", required=True, help="the folder that gets beat-<n>.png and sheet.png")
+    sp.add_argument("--jobs", type=int, default=3)
+    sp.add_argument("--face-box", help="X,Y,W,H in frame pixels (1080x1920); the default face box otherwise")
+    sp.add_argument("--color", action="append", metavar="TOKEN=#RRGGBB")
+    sp.add_argument("--font", action="append", metavar="ROLE=ID[:WEIGHT]")
     sp = sub.add_parser("cover")
     add_limits(sp)
     sp.add_argument("--in", dest="input", required=True)
@@ -525,7 +585,7 @@ def parser() -> argparse.ArgumentParser:
 
 VERBS = {"build": verb_build, "pin-browser": verb_pin_browser, "reap": verb_reap, "pin-templates": verb_pin_templates,
          "analyse": verb_analyse, "base": verb_base, "align": verb_align, "check": verb_check_documents, "render": verb_render,
-         "cover": verb_cover, "still": verb_still}
+         "storyboard": verb_storyboard, "cover": verb_cover, "still": verb_still}
 
 
 def main(argv=None) -> int:
