@@ -1,0 +1,10 @@
+{
+  "name": "hyperframes-spike-pins",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Exact pins for the HyperFrames spike. npm ci installs these and nothing else; no install script runs (--ignore-scripts).",
+  "dependencies": {
+    "hyperframes": "0.8.155",
+    "gsap": "3.14.2"
+  }
+}
