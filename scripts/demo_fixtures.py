@@ -53,11 +53,11 @@ SKILLS = {"demo-asks": "biz-market-analysis", "demo-writes": "mkt-social-copy", 
           "demo-gate": "ops-pull-request", "demo-design": "design-execute"}
 AREA_OF = {"biz": "business", "brand": "brand", "core": "core", "design": "design", "eng": "engineering", "flow": "core",
            "mkt": "marketing", "ops": "delivery", "product": "product", "ai": "ai"}
-PACKS = {"planning": ["demo-asks"], "design": ["demo-design"], "engineering": ["demo-code", "demo-gate"], "marketing": ["demo-writes"]}
+PACKS = {"planning": ["demo-asks"], "design": ["demo-design"], "engineering": ["demo-code", "demo-gate"], "content": ["demo-writes"]}
 AGENTS = {"planning": {"pack": "planning", "mode": "supervised", "max_runs_per_day": 12, "max_usd_per_day": 5},
           "design": {"pack": "design", "mode": "supervised", "max_runs_per_day": 6, "max_usd_per_day": 3},
           "engineering": {"pack": "engineering", "mode": "milestones", "max_runs_per_day": 8, "max_usd_per_day": 4},
-          "marketing": {"pack": "marketing", "mode": "supervised", "max_runs_per_day": 6, "max_usd_per_day": 2}}
+          "content": {"pack": "content", "mode": "supervised", "max_runs_per_day": 6, "max_usd_per_day": 2}}
 PRICES = {"m": {"input_usd_per_mtok": 3.0, "output_usd_per_mtok": 15.0, "cache_read_usd_per_mtok": 0.3,
                 "cache_write_usd_per_mtok": 3.75, "source": "https://prices.example/models", "date": "2026-10-01"}}
 CODE = {"provider": "github", "repo": "example-org/web", "base": "main"}
@@ -169,11 +169,28 @@ def seed(scratch: Path) -> dict:
         run = store.route_run_start(conn, waiting, skill="demo-asks", model="m", adapter="h", skill_version="0.1.0", billing="subscription")
         out["status-routing"] = ops.status(path)
         store.route_run_finish(conn, run["run_id"], status="ok", ending="done", attempts=1)
-        claimed = store.task_claim_next(conn)
+        # the tasks of the code requests belong to the engineering floor, as a routed plan would have set them (a request made with a flow names no agent)
+        conn.execute("UPDATE tasks SET agent = 'engineering' WHERE parent_id IS NOT NULL AND agent IS NULL AND skill = 'demo-code'")
+        conn.commit()
+        ready = conn.execute(store.NEXT_READY_TASK).fetchone()  # the oldest ready task, claimed by its id
+        claimed = store.task_claim(conn, ready["id"]) if ready else {"task": None}
         running = None
         if claimed["task"]:
             running = claimed["task"]["id"]
             store.task_run_start(conn, running, skill="demo-code", model="m", adapter="h", skill_version="0.1.0", billing="subscription")
+        # A second task of another floor runs beside it (tasks of one project run in parallel): a request of the "demo" flow, whose first task is the
+        # planning agent's, claimed the same way.
+        beside = None
+        if claimed["task"]:
+            again = ops.request(path, "Look at the market again.")["request"]
+            plan2 = ops.route(path, again, "demo")
+            ops.approve(path, plan2["pending_id"], ops.pending(path, plan2["pending_id"])["payload"]["plan_sha256"])
+            for other in conn.execute("SELECT id FROM tasks WHERE parent_id IS NOT NULL AND state = 'ready' AND agent IS NOT NULL ORDER BY id").fetchall():
+                taken = store.task_claim(conn, other["id"])
+                if taken["task"]:
+                    beside = taken["task"]["id"]
+                    store.task_run_start(conn, beside, skill="demo-asks", model="m", adapter="h", skill_version="0.1.0", billing="subscription")
+                    break
         out["status-live"] = ops.status(path)
         out["task-live"] = ops.task(path, running) if running else ops.task(path, first)
         live_run = out["task-live"]["runs"][-1]["id"] if running else None

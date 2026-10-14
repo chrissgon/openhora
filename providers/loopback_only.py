@@ -14,6 +14,7 @@ Standard library only; nothing outside the provider test suites imports this fil
 from __future__ import annotations
 
 import ipaddress
+import itertools
 import os
 import socket
 
@@ -97,6 +98,25 @@ def guard(monkeypatch, site: str) -> None:
     monkeypatch.setattr(socket, "getaddrinfo", made["getaddrinfo"])
     paths = [p for p in os.environ.get("PYTHONPATH", "").split(os.pathsep) if p and p != site]
     monkeypatch.setenv("PYTHONPATH", os.pathsep.join([site, *paths]))
+    isolate_secrets_and_state(monkeypatch, site)
+
+
+_STATE_COUNTER = itertools.count()
+
+
+def isolate_secrets_and_state(monkeypatch, site: str) -> None:
+    """No test can reach the OS secret store (even where the keyring library is installed) nor the person's state folder: the
+    null keyring backend, for this process and the subprocesses it starts, and a fresh OPENHORA_STATE_DIR under `site`. A test that
+    needs another state folder sets its own after this."""
+    monkeypatch.setenv("PYTHON_KEYRING_BACKEND", "keyring.backends.null.Keyring")
+    monkeypatch.setenv("OPENHORA_STATE_DIR", os.path.join(site, "isolated-state", str(next(_STATE_COUNTER))))
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    try:
+        import keyring.core
+        from keyring.backends import null
+        monkeypatch.setattr(keyring.core, "_keyring_backend", null.Keyring())
+    except Exception:  # no keyring library here: nothing to isolate in this process
+        pass
 
 
 def install() -> None:

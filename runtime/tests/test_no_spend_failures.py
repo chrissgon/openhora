@@ -50,7 +50,7 @@ MAY_HAVE_SPENT = {
     "refused": "classify: the provider declined the request (content refusal): the request reached the model's provider",
     "adapter": "classify: the adapter failed after it started; the provider may have billed a call",
     "early_end": "classify: the model answered and ended its turn early",
-    "stopped": "providers/store/sqlite.py task_fail_running (a restart) and lab.run_skill (the lab was stopped): mid-run",
+    "stopped": "providers/store/sqlite.py task_fail_orphans (a restart) and lab.run_skill (the lab was stopped): mid-run",
 }
 NO_SPEND = {
     "auth": "classify: the provider refused the key or the credential (a 401), before any model answered",

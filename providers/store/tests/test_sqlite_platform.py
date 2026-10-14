@@ -19,6 +19,12 @@ spec = importlib.util.spec_from_file_location("store_sqlite_platform", SCRIPT)
 store = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(store)
 
+
+def claim_oldest(conn):
+    """Claim the oldest ready task, as the first claim of a database once did, with the store's own query and task_claim."""
+    row = conn.execute(store.NEXT_READY_TASK).fetchone()
+    return store.task_claim(conn, row["id"]) if row else {"task": None}
+
 PLAN = [{"key": "strategy", "skill": "brand-strategy", "title": "Strategy", "text": "write the brand strategy.",
          "depends_on": [], "milestone": True},
         {"key": "name", "skill": "brand-name", "title": "Name", "text": "check the name.", "depends_on": ["strategy"]},
@@ -115,18 +121,19 @@ def test_a_rejected_acceptance_cancels_the_request_and_an_accepted_one_leaves_it
     assert run["request_id"] == kept["request"]
 
 
-def test_a_route_run_is_refused_while_a_task_runs_or_a_plan_is_open(conn):
+def test_a_router_run_is_refused_only_by_another_router_run(conn):
     planned = store.request_add(conn, title="Market", text="Which market?", flow="demo",
                                 tasks=[{"key": "market", "skill": "demo-asks", "title": "Market", "text": "go."}])
     request = a_request(conn)
-    task = store.task_claim_next(conn)["task"]
+    task = claim_oldest(conn)["task"]
     assert task["parent_id"] == planned["request"]
-    with pytest.raises(store.StoreError) as refused:
-        store.route_run_start(conn, request, skill="core-orchestrator", model="m", adapter="h")
-    assert "one run at a time" in str(refused.value)
     run = store.task_run_start(conn, task["id"], skill="demo-asks", model="m", adapter="h")
+    started = store.route_run_start(conn, request, skill="core-orchestrator", model="m", adapter="h")  # a task runs: allowed
+    other = a_request(conn)
+    with pytest.raises(store.StoreError) as refused:
+        store.route_run_start(conn, other, skill="core-orchestrator", model="m", adapter="h")
+    assert "a router run is in progress: one router run at a time per project" in str(refused.value)
     store.task_run_finish(conn, run["run_id"], status="failed", failure="adapter", task_state="failed")
-    started = store.route_run_start(conn, request, skill="core-orchestrator", model="m", adapter="h")
     with pytest.raises(store.StoreError):
         store.route_run_start(conn, request, skill="core-orchestrator", model="m", adapter="h")  # a run row runs
     with pytest.raises(store.StoreError):
@@ -145,7 +152,7 @@ def test_a_route_run_is_refused_while_a_task_runs_or_a_plan_is_open(conn):
 def test_approving_a_plan_creates_its_tasks_and_only_those_with_no_dependency_are_ready(conn):
     request = a_request(conn)
     pending_id = a_plan(conn, request)
-    assert store.task_peek_next(conn) == {"task": None, "running": None}
+    assert conn.execute(store.NEXT_READY_TASK).fetchone() is None  # no task yet
     with pytest.raises(store.StoreError):
         store.pending_resolve(conn, pending_id, resolution="answered", by="user", answer="go")  # approved, not answered
     out = store.plan_approve(conn, pending_id, by="user")
@@ -157,8 +164,8 @@ def test_approving_a_plan_creates_its_tasks_and_only_those_with_no_dependency_ar
     tasks = store.tasks_list(conn, request)[1:]
     assert tasks[1]["depends_on"] == [tasks[0]["id"]] and tasks[0]["milestone"] == 1 and tasks[1]["milestone"] == 0
     assert store.pending_get(conn, pending_id)["resolution"] == "approved"
-    peeked = store.task_peek_next(conn)
-    assert peeked["task"]["key"] == "strategy" and store.task_get(conn, peeked["task"]["id"])["state"] == "ready"
+    peeked = store.task_get(conn, conn.execute(store.NEXT_READY_TASK).fetchone()["id"])
+    assert peeked["key"] == "strategy" and peeked["state"] == "ready"
     with pytest.raises(store.StoreError):
         store.plan_approve(conn, pending_id, by="user")  # resolved already
     one = a_request(conn)
@@ -193,7 +200,7 @@ def test_an_answer_to_a_question_of_a_request_never_makes_the_request_ready(conn
         store.pending_resolve(conn, asked["pending_id"], resolution="released", by="user")
     out = store.pending_resolve(conn, asked["pending_id"], resolution="answered", by="user", answer="Here.")
     assert out["task_state"] == "requested" and store.task_get(conn, request)["state"] == "requested"
-    assert store.task_claim_next(conn) == {"task": None, "running": None}
+    assert claim_oldest(conn) == {"task": None}
     assert store.pending_get(conn, asked["pending_id"])["answer"] == "Here."
     failed = store.route_run_start(conn, request, skill="core-orchestrator", model="m", adapter="h")
     store.route_run_finish(conn, failed["run_id"], status="failed", failure="timeout", error="slow")
@@ -256,7 +263,7 @@ def test_a_persons_edit_is_refused_on_a_running_a_done_and_a_cancelled_task(conn
     for bad in ({"title": ""}, {"text": "x" * (store.TEXT_MAX + 1)}, {}):
         with pytest.raises(store.StoreError):
             store.task_edit(conn, second, by="user", **bad)
-    task = store.task_claim_next(conn)["task"]
+    task = claim_oldest(conn)["task"]
     assert task["id"] == first
     with pytest.raises(store.StoreError):
         store.task_edit(conn, first, by="user", title="while it runs")

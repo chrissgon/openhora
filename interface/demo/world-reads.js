@@ -3,7 +3,7 @@
 
 import { F } from "./fixtures.js";
 import { FLOWS } from "./content.js";
-import { ACTIONS, ADAPTER, MODEL } from "./world-state.js";
+import { ACTIONS, ADAPTER, MAX_PARALLEL_CEILING, MODEL } from "./world-state.js";
 import { MODES, clone, fill, notFound, notInDemo, Refusal } from "./util.js";
 
 const REQUEST = F.status.requests[0];
@@ -14,6 +14,11 @@ export const CLI = "/home/demo/openhora/runtime/cli.py";
 const childrenOf = (P, id) => P.tasks.filter((t) => t.parent_id === id);
 export const requestsOf = (P) => P.tasks.filter((t) => t.parent_id === null);
 const openItems = (P) => P.pending.filter((p) => p.status === "open");
+const taskRows = (P) => P.tasks.filter((t) => t.parent_id !== null);
+/** The tasks that hold a slot of their agent: running, or waiting for the person (the demo has no answered-then-ready case). */
+export const holdsSlot = (t) => t.parent_id !== null && (t.state === "running" || t.state === "waiting");
+/** The tasks that run, lowest number first. */
+export const runningIds = (P) => taskRows(P).filter((t) => t.state === "running").map((t) => t.id).sort((a, b) => a - b);
 
 /** The sentence the service gives every route of a project whose configuration is not accepted (runtime/ops_core.py _accepted), with its command. */
 export function unacceptedRefusal(P) {
@@ -34,15 +39,21 @@ function requestRow(P, request) {
   const live = P.routing && P.routing.request === request.id ? fill(F["status-routing"].requests.find((r) => r.routing).routing, { run_id: P.routing.run_id, skill: P.routing.skill, started_at: P.routing.started_at }) : null;
   return fill(REQUEST, {
     id: request.id, flow: request.flow, state: request.state, title: request.title, on_board: false, open_comments: 0,
-    tasks: childrenOf(P, request.id).map((t) => fill(TASK_ROW, { id: t.id, key: t.key, title: t.title, agent: t.agent, skill: t.skill, state: t.state, note: t.note, on_board: false, open_comments: 0, waiting_for: [] })),
+    tasks: childrenOf(P, request.id).map((t) => fill(TASK_ROW, { id: t.id, key: t.key, title: t.title, agent: t.agent, skill: t.skill, state: t.state, note: t.note, on_board: false, open_comments: 0, holds_slot: holdsSlot(t), waiting_for: [] })),
     after: request.after, routing: request.state === "cancelled" ? null : live,
   });
+}
+
+/** The ready tasks the last dispatch held, as `status` lists them: {task_id, agent, reason, at, next, commands} (P.held maps a task's number to the word). */
+function heldRows(P) {
+  return taskRows(P).filter((t) => t.state === "ready" && P.held && P.held[t.id]).sort((a, b) => a.id - b.id)
+    .map((t) => ({ task_id: t.id, agent: t.agent, reason: P.held[t.id], at: P.changedAt, next: null, commands: [] }));
 }
 
 export function status(P) {
   return fill(F.status, {
     config: { path: `${P.folder}/docs/workbench/runtime.json`, sha256: P.configSha },
-    requests: requestsOf(P).map((r) => requestRow(P, r)), pending: openItems(P).map(listRow), documents: [], board: null, held: [],
+    requests: requestsOf(P).map((r) => requestRow(P, r)), pending: openItems(P).map(listRow), documents: [], board: null, held: heldRows(P),
   });
 }
 
@@ -70,13 +81,15 @@ export function agents(P) {
   return {
     agents: P.agents.map((a) => {
       const queued = P.tasks.filter((t) => t.parent_id !== null && t.state === "ready" && t.agent === a.name).length;
+      const holders = taskRows(P).filter((t) => t.agent === a.name && holdsSlot(t)).map((t) => t.id).sort((x, y) => x - y);
       const index = MODES.indexOf(a.mode);
       const metered = a.usd > 0;
       return fill(template, {
         name: a.name, pack: a.pack, enabled: a.enabled, mode: a.mode, acting_mode: a.enabled && a.mode !== "stopped" ? a.mode : "stopped",
         max_runs_per_day: a.maxRuns, max_usd_per_day: a.maxUsd, runs_today: a.runs, usd_today: a.usd, runs_without_cost: 0, usd_recorded: a.usd,
         usd_reserved: 0, runs_total_today: a.runs + (metered ? 1 : 0), billing: clone(template.billing), caps_in_use: { runs: true, spend: metered },
-        queued, held: 0,
+        max_parallel: a.maxParallel, max_parallel_ceiling: MAX_PARALLEL_CEILING, holders, slots_held: holders.length,
+        queued, held: heldRows(P).filter((h) => h.agent === a.name).length,
         wider: MODES.slice(index + 1).map((mode) => ({ mode, command: `python3 ${CLI} set-mode --project ${P.folder} --agent ${a.name} --mode ${mode} --accept` })),
       });
     }),
@@ -200,13 +213,14 @@ export function projectsList(state) {
         const row = fill(template, { id: P.id, name: P.name, folder: P.folder, config: { sha256: P.configSha, accepted: false } });
         delete row.open_pending;
         delete row.running_task;
+        delete row.running_tasks;
         delete row.routing_request;
         row.message = message;
         return row;
       }
       return fill(template, {
         id: P.id, name: P.name, folder: P.folder, config: { sha256: P.configSha, accepted: true }, open_pending: openItems(P).length,
-        running_task: (P.tasks.find((t) => t.parent_id !== null && t.state === "running") || { id: null }).id,
+        running_tasks: runningIds(P), running_task: runningIds(P).length ? runningIds(P)[0] : null,
         routing_request: P.routing ? P.routing.request : null,
       });
     }),

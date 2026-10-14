@@ -136,7 +136,7 @@ def test_a_run_of_a_task_of_a_plan_is_not_a_routing_run(tree):
     ops.approve(path, said["pending_id"])
     ctx = ops_core.context(path)
     store, conn = ctx["store"], ctx["conn"]
-    task = store.task_claim_next(conn)["task"]
+    task = store.task_claim(conn, conn.execute(store.NEXT_READY_TASK).fetchone()["id"])["task"]
     assert task is not None and task["parent_id"] == said["request_id"]
     run = store.task_run_start(conn, task["id"], skill=task["skill"], model="m", adapter="h")["run_id"]
     row = request_row(tree, said["request_id"])

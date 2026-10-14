@@ -22,18 +22,20 @@
           "note": null,
           "on_board": false,
           "open_comments": 0,
+          "holds_slot": false,
           "waiting_for": []
         },
         {
           "id": 3,
           "key": "profile",
           "title": "Profile",
-          "agent": "marketing",
+          "agent": "content",
           "skill": "mkt-social-copy",
           "state": "done",
           "note": null,
           "on_board": false,
           "open_comments": 0,
+          "holds_slot": false,
           "waiting_for": []
         }
       ],
@@ -58,6 +60,7 @@
           "note": null,
           "on_board": false,
           "open_comments": 0,
+          "holds_slot": false,
           "waiting_for": []
         },
         {
@@ -70,6 +73,7 @@
           "note": null,
           "on_board": false,
           "open_comments": 0,
+          "holds_slot": true,
           "waiting_for": []
         }
       ],
@@ -94,6 +98,7 @@
           "note": null,
           "on_board": false,
           "open_comments": 0,
+          "holds_slot": false,
           "waiting_for": []
         },
         {
@@ -106,6 +111,7 @@
           "note": null,
           "on_board": false,
           "open_comments": 0,
+          "holds_slot": false,
           "waiting_for": []
         }
       ],

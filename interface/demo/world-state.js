@@ -7,6 +7,8 @@ import { PROJECTS } from "./content.js";
 import { clone, fill, sha256Hex } from "./util.js";
 
 export const MODEL = "reference-model";
+export const MAX_RUNNING = 3;               // the project's limit of tasks at once (runtime.json max_running, default 3)
+export const MAX_PARALLEL_CEILING = 4;      // the release's cap of slots on one floor (runtime/autonomy.py MAX_PARALLEL_CEILING)
 export const ADAPTER = "adapter";
 
 /** The words (`actions`) an open decision of each kind takes, as the operations give them (runtime/ops.py actions_of). */
@@ -70,14 +72,14 @@ export function runPayload(kind, run, P, over = {}) {
 }
 
 function agentRow(spec) {
-  return { name: spec.name, pack: spec.pack, enabled: true, mode: spec.mode, maxRuns: spec.maxRuns, maxUsd: spec.maxUsd, runs: spec.runs, usd: spec.usd };
+  return { name: spec.name, pack: spec.pack, enabled: true, mode: spec.mode, maxRuns: spec.maxRuns, maxUsd: spec.maxUsd, runs: spec.runs, usd: spec.usd, maxParallel: spec.maxParallel || 1 };
 }
 
 /** One project, from its spec in content.js. */
 export function buildProject(ctx, spec) {
   const P = {
     id: spec.id, name: spec.name, folder: spec.folder, accepted: true, configSha: "", acceptedSha: "", version: 1, changedAt: iso(ctx),
-    agents: spec.agents.map(agentRow), tasks: [], runs: [], pending: [], messages: [], docs: [], routing: null, verdicts: {}, accept: new Set(), effectDocs: {},
+    agents: spec.agents.map(agentRow), tasks: [], runs: [], pending: [], messages: [], docs: [], routing: null, held: {}, verdicts: {}, accept: new Set(), effectDocs: {},
     next: { task: 1, pending: 1, run: 1, message: 1, approval: 1 }, startedAt: iso(ctx),
   };
   for (const request of spec.requests) {
@@ -95,7 +97,7 @@ export function buildProject(ctx, spec) {
     const task = P.tasks.find((t) => t.id === run.task);
     P.runs.push(runRow(ctx, {
       id: P.next.run++, task_id: run.task, skill: task.skill, status: run.status, ending: run.ending, attempts: 1, started_at: iso(ctx, -run.ago - run.minutes),
-      ended_at: iso(ctx, -run.ago), tokens: run.tokens, duration_ms: run.minutes * 60000, run_dir: runDir(P, P.next.run - 1),
+      ended_at: run.status === "running" ? null : iso(ctx, -run.ago), tokens: run.tokens, duration_ms: run.status === "running" ? null : run.minutes * 60000, run_dir: runDir(P, P.next.run - 1),
     }));
   }
   for (const p of spec.pending) {

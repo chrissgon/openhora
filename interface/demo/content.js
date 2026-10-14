@@ -29,9 +29,9 @@ export const PROJECTS = [
     folder: "/home/demo/northwind-shop",
     agents: [
       { name: "planning", pack: "planning", mode: "supervised", maxRuns: 12, maxUsd: 5, runs: 2, usd: 0 },
-      { name: "design", pack: "design", mode: "supervised", maxRuns: 6, maxUsd: 3, runs: 1, usd: 0 },
-      { name: "engineering", pack: "engineering", mode: "milestones", maxRuns: 8, maxUsd: 4, runs: 1, usd: 0 },
-      { name: "marketing", pack: "marketing", mode: "supervised", maxRuns: 6, maxUsd: 2, runs: 0, usd: 0.35 },
+      { name: "design", pack: "design", mode: "supervised", maxRuns: 6, maxUsd: 3, runs: 1, usd: 0, maxParallel: 3 },
+      { name: "engineering", pack: "engineering", mode: "milestones", maxRuns: 8, maxUsd: 4, runs: 1, usd: 0, maxParallel: 2 },
+      { name: "content", pack: "content", mode: "supervised", maxRuns: 6, maxUsd: 2, runs: 0, usd: 0.35 },
     ],
     requests: [
       {
@@ -63,23 +63,41 @@ export const PROJECTS = [
     folder: "/home/demo/tinykv-docs",
     agents: [
       { name: "planning", pack: "planning", mode: "supervised", maxRuns: 10, maxUsd: 4, runs: 1, usd: 0 },
-      { name: "engineering", pack: "engineering", mode: "supervised", maxRuns: 6, maxUsd: 3, runs: 1, usd: 0 },
+      { name: "engineering", pack: "engineering", mode: "supervised", maxRuns: 6, maxUsd: 3, runs: 1, usd: 0, maxParallel: 4 },
     ],
+    // the engineering floor holds all four of its slots: the oldest task runs and three wait for the person (the scene draws one owl typing and three standing, PAR-7)
     requests: [
       {
         id: 1, title: "Document the TTL option", flow: "write-docs", state: "planned", ago: 180,
         tasks: [
-          { id: 2, key: "draft-ttl", title: "Draft the TTL section", skill: "eng-docs", agent: "engineering", state: "waiting", ago: 175, text: "Write the section that explains the ttl option of the store." },
-          { id: 3, key: "check-examples", title: "Check the examples", skill: "eng-unit-tests", agent: "engineering", state: "planned", after: ["draft-ttl"], ago: 175, text: "Run the examples of the new section." },
+          { id: 2, key: "draft-ttl", title: "Draft the TTL section", skill: "eng-docs", agent: "engineering", state: "running", ago: 175, text: "Write the section that explains the ttl option of the store." },
+          { id: 3, key: "write-examples", title: "Write the expiry examples", skill: "eng-docs", agent: "engineering", state: "waiting", ago: 175, text: "Write three examples of a key that expires." },
+          { id: 4, key: "list-errors", title: "List the error cases", skill: "eng-docs", agent: "engineering", state: "waiting", ago: 175, text: "List what the store answers for a key that has expired." },
+          { id: 5, key: "update-changelog", title: "Update the changelog", skill: "eng-docs", agent: "engineering", state: "waiting", ago: 175, text: "Add the ttl option to the changelog of the next version." },
         ],
       },
     ],
-    runs: [{ task: 2, status: "ok", ending: "done", ago: 40, minutes: 6, tokens: 21400 }],
+    runs: [
+      { task: 2, status: "running", ending: null, ago: 12, minutes: 0, tokens: null },
+      { task: 3, status: "ok", ending: "done", ago: 40, minutes: 6, tokens: 21400 },
+      { task: 4, status: "ok", ending: "done", ago: 30, minutes: 5, tokens: 16800 },
+      { task: 5, status: "ok", ending: "done", ago: 20, minutes: 3, tokens: 9300 },
+    ],
     pending: [
       {
-        id: 1, kind: "review", task: 2, agent: "engineering", ago: 35, run: 1, title: "eng-docs: done",
-        body: "- Section: `docs/ttl.md` (Status: draft)\n- Explains the `ttl` option, its unit (seconds) and what happens to a key that expires while it is read.\n- Next: the examples are run\n",
-        returned: [{ class: "document", path: "docs/ttl.md" }],
+        id: 1, kind: "review", task: 3, agent: "engineering", ago: 35, run: 2, title: "eng-docs: done",
+        body: "- Examples: `docs/ttl-examples.md` (Status: draft)\n- Three examples: a key that expires before it is read, while it is read, and after it was renewed.\n- Next: the examples are run\n",
+        returned: [{ class: "document", path: "docs/ttl-examples.md" }],
+      },
+      {
+        id: 2, kind: "review", task: 4, agent: "engineering", ago: 25, run: 3, title: "eng-docs: done",
+        body: "- Errors: `docs/ttl-errors.md` (Status: draft)\n- Lists the three answers the store gives for an expired key.\n- Next: the section links to the list\n",
+        returned: [{ class: "document", path: "docs/ttl-errors.md" }],
+      },
+      {
+        id: 3, kind: "review", task: 5, agent: "engineering", ago: 15, run: 4, title: "eng-docs: done",
+        body: "- Changelog: `docs/CHANGELOG.md` (Status: draft)\n- Adds one line for the ttl option under the next version.\n- Next: the version is chosen by the maintainer\n",
+        returned: [{ class: "document", path: "docs/CHANGELOG.md" }],
       },
     ],
     messages: [
@@ -116,14 +134,14 @@ export const PROJECTS = [
   },
 ];
 
-// The story of the request "Spring sale page" in northwind-shop (request 4: task numbers 5 and 6).
+// The story of the request "Spring sale page" in northwind-shop (the next request of the project and its two tasks).
 export const SPRING = {
   title: "Spring sale page",
   flow: "launch-page",
   planTasks: [
     { key: "build-page", skill: "eng-implement", agent: "engineering", title: "Build the sale page", milestone: false, web: false, depends_on: [],
       text: "Build the Spring sale page: a banner, three product cards and a countdown to the sale's last day." },
-    { key: "sale-post", skill: "mkt-social-copy", agent: "marketing", title: "Publish the sale post", milestone: true, web: false, depends_on: ["build-page"],
+    { key: "sale-post", skill: "mkt-social-copy", agent: "content", title: "Publish the sale post", milestone: true, web: false, depends_on: ["build-page"],
       text: "Write one short post that announces the sale, and stop at the gate to publish it." },
   ],
   reply: "Recorded as request 4. The planning agent proposes a plan from the flow launch-page: two tasks.",

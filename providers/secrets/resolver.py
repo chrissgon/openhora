@@ -136,6 +136,43 @@ REGISTRY: dict[str, Secret] = {s.name: s for s in (
            "a bot created for this person with the platform's bot service, used only by this bridge",
            ("providers/messenger/telegram.py",),
            store_username="messenger-telegram"),
+    Secret("MESSENGER_DISCORD_BOT_TOKEN",
+           "receive the person's messages and button taps and send the notices of the messaging bridge, as a Discord bot",
+           "a bot of an application created for this person, used only by this bridge; no server permissions needed",
+           ("providers/messenger/discord.py",),
+           store_username="messenger-discord"),
+    Secret("MESSENGER_WHATSAPP_CLOUD_TOKEN",
+           "send the notices of the messaging bridge through the official WhatsApp Cloud API, and check at start that the token works",
+           "a system user's permanent token with whatsapp_business_messaging, whatsapp_business_management and "
+           "business_management, for the one app and phone number the bridge uses",
+           ("providers/messenger/whatsapp-cloud.py",),
+           store_username="messenger-whatsapp-cloud"),
+    Secret("MESSENGER_WHATSAPP_CLOUD_APP_SECRET",
+           "check the signature of every webhook call Meta makes to the bridge's local server",
+           "the app's secret; used only to compute an HMAC, never sent anywhere",
+           ("providers/messenger/whatsapp-cloud.py",),
+           store_username="messenger-whatsapp-cloud-app-secret"),
+    Secret("MESSENGER_WHATSAPP_CLOUD_VERIFY_TOKEN",
+           "answer Meta's webhook handshake (the verify token typed in the app's webhook settings)",
+           "a random string the person generates; it grants nothing but the handshake",
+           ("providers/messenger/whatsapp-cloud.py",),
+           store_username="messenger-whatsapp-cloud-verify-token"),
+    Secret("MESSENGER_WHATSAPP_TWILIO_API_KEY_SID",
+           "name the Restricted API key that sends the notices of the messaging bridge through Twilio's WhatsApp sender",
+           "the SID (SK...) of a Restricted API key made for this bridge, with only the messaging permission (and the Content "
+           "permission, if the console lists one) that Twilio's console offers; its name is copied from the console, not invented",
+           ("providers/messenger/whatsapp-twilio.py",),
+           store_username="messenger-whatsapp-twilio-api-key-sid"),
+    Secret("MESSENGER_WHATSAPP_TWILIO_API_KEY_SECRET",
+           "authenticate the sends of the messaging bridge through Twilio's Messages API, as the Restricted API key",
+           "the secret of that Restricted API key, shown once when the key is created",
+           ("providers/messenger/whatsapp-twilio.py",),
+           store_username="messenger-whatsapp-twilio-api-key-secret"),
+    Secret("MESSENGER_WHATSAPP_TWILIO_AUTH_TOKEN",
+           "check X-Twilio-Signature on every webhook call Twilio makes to the bridge's local server",
+           "the Twilio account's Auth Token; used only to compute an HMAC, never sent anywhere, never used to send",
+           ("providers/messenger/whatsapp-twilio.py",),
+           store_username="messenger-whatsapp-twilio-auth-token"),
 )}
 
 
@@ -220,6 +257,13 @@ def _keyring():
     except ImportError:
         return None
     return keyring
+
+
+def store_available() -> bool:
+    """True when the OS secret store can be asked at all, that is when the keyring library can be imported. False means a
+    secret that is "not found" may only be one that was never looked for in the store (plain python3, no keyring library):
+    callers say so instead of "missing". Read-only: it opens no store and reads no secret."""
+    return _keyring() is not None
 
 
 def _ask(store, service: str, username: str) -> str:

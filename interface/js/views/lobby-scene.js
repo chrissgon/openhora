@@ -34,6 +34,10 @@ export function mountLobbyScene(frame, panelEl, { onDoor, onSelect } = {}) {
     update(model, label) {
       if (engine) engine.show("world", model, label);
     },
+    /** Bracket the owl with that pick id from the owls' twin list (the focus or the pointer on a link); `null` clears it. */
+    highlight(id, source) {
+      if (engine) engine.highlight(id, source);
+    },
     dispose() {
       observer.disconnect();
       engine = null;   // the scene is the frame's

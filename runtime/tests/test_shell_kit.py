@@ -145,6 +145,9 @@ class Ops:
     def stop_runs(self, project=None):
         self.stopped += 1
 
+    def config(self, project):  # the channel policy of a call is read from it (MSG-3b)
+        return {"accepted": True, "channels": None}
+
 
 def registry(log=None):
     return kit.Jobs(Ops(), [{"id": "aaaaaaaaaaaa", "name": "p", "path": "/p"}], log)
@@ -179,8 +182,29 @@ def test_a_second_model_job_is_busy_a_stopping_registry_starts_none_and_a_job_wi
     gate.set()
 
 
+def test_a_row_that_is_not_exclusive_takes_no_slot_and_is_never_refused_for_one():
+    """PAR-4: `dispatch` starts task runs beside one another and beside the router: its row says `exclusive` false, so the
+    registry gives it no model slot, and a job that does hold the slot does not refuse it."""
+    jobs = registry()
+    assert operations.by_name("dispatch")["exclusive"] is False and operations.by_name("route").get("exclusive", True)
+    gate = threading.Event()
+    holder = jobs.start_job("aaaaaaaaaaaa", "route", lambda: gate.wait(5))
+    held = dict(jobs.exclusive)
+    first = jobs.start_job("aaaaaaaaaaaa", "dispatch", lambda: gate.wait(5))
+    second = jobs.start_job("aaaaaaaaaaaa", "dispatch", lambda: 1)                      # no Busy, with the slot held and a dispatch running
+    assert jobs.exclusive == held
+    gate.set()
+    for started in (holder, first, second):
+        started[1].join(5)
+    assert not jobs.exclusive
+    free = jobs.start_job("aaaaaaaaaaaa", "dispatch", lambda: gate.wait(5))              # a dispatch holds no slot a model job needs
+    assert not jobs.exclusive
+    jobs.start_job("aaaaaaaaaaaa", "route", lambda: 1)[1].join(5)
+    free[1].join(5)
+
+
 def test_a_job_that_queues_starts_while_the_slot_is_held_and_leaves_the_slot_to_its_holder():
-    """A-23: the row's `queues` key means the operation itself finds the run lock held and queues the call, so the
+    """A-23: the row's `queues` key means the operation itself finds the route lock held and queues the call, so the
     registry does not refuse it for a held slot; it takes no slot of its own and gives none back."""
     jobs = registry()
     gate = threading.Event()
@@ -250,7 +274,7 @@ def test_the_project_list_shows_each_projects_hash_and_counts_and_a_refused_proj
                                {"id": "3", "name": "half", "path": "/half"}])
     listed = jobs.projects_list()["projects"]
     assert listed[0] == {"id": "1", "name": "ok", "folder": "/ok", "config": {"sha256": "a" * 64, "accepted": True},
-                         "open_pending": 2, "running_task": 7, "routing_request": None}   # R4-L1: the new key, null while no router run holds a request
+                         "open_pending": 2, "running_task": 7, "running_tasks": [7], "routing_request": None}   # R4-L1: the new key, null while no router run holds a request
     assert listed[1] == {"id": "2", "name": "bad", "folder": "/bad", "config": {"accepted": False}, "message": "not accepted"}
     assert [e["folder"] for e in listed] == ["/ok", "/bad", "/half"], "A-34: every entry carries the folder, accepted or not"
     assert listed[2]["message"] == "no state" and "open_pending" not in listed[2] and listed[2]["config"]["accepted"]

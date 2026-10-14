@@ -4,7 +4,9 @@ it still passes its skill's checker, or, with no checker, it loses no word. A ty
 is set to `read_only` in its manifest, never fixed by changing the converter. Offline.
 
 A fixture is a case of fixtures/round-trip.json whose skill and document match the entry, or a case of
-fixtures/types/<skill>.json in the same form: the files a check needs, the document's path, the commands.
+fixtures/types/<skill>.json in the same form: the files a check needs, the document's path, the commands. An entry
+whose path has a placeholder (`docs/marketing/content/<post>.md`) is matched by a case whose document is a concrete
+path of it (each placeholder read as a wildcard of one path segment, as the artifact contract reads it).
 
 Run: uv run --with pytest==9.1.1 pytest providers/documents/tests/test_document_types.py
 """
@@ -36,6 +38,13 @@ def entries(platform: str) -> list:
     return out
 
 
+def same_path(entry_path: str, document: str) -> bool:
+    """Whether a concrete document path is the entry's path, each `<placeholder>` read as one path segment."""
+    pattern = "".join("[^/]+" if part.startswith("<") else re.escape(part)
+                      for part in re.split(r"(<[^<>/]+>)", entry_path) if part)
+    return re.fullmatch(pattern, document) is not None
+
+
 def fixture(skill: str, document: str):
     """The fixture case of a document type, or None."""
     files = [HERE / "fixtures" / "round-trip.json", HERE / "fixtures" / "types" / f"{skill}.json"]
@@ -43,7 +52,7 @@ def fixture(skill: str, document: str):
         if not file.is_file():
             continue
         for case in json.loads(file.read_text(encoding="ascii"))["cases"]:
-            if case["skill"] == skill and case["document"] == document:
+            if case["skill"] == skill and same_path(document, case["document"]):
                 return case
     return None
 
@@ -64,11 +73,12 @@ def write_files(case, folder: Path) -> Path:
     return folder / case["document"]
 
 
-def passes(skill, doc, folder) -> list:
-    """(command, exit code, ok) of every checker of the entry, run from the folder that holds the fixture."""
+def passes(skill, doc, folder, path) -> list:
+    """(command, exit code, ok) of every checker of the entry, run from the folder that holds the fixture, with
+    {path} read as `path`, the fixture's own (concrete) document path."""
     out = []
     for name, *args in doc["checks"]:
-        args = [a.replace("{path}", doc["path"]) for a in args]
+        args = [a.replace("{path}", path) for a in args]
         done = subprocess.run([sys.executable, str(REPO / "skills" / skill / "scripts" / name), *args],
                               capture_output=True, text=True, cwd=folder, timeout=60)
         try:
@@ -95,16 +105,17 @@ def test_an_editable_document_still_passes_its_skills_checker_after_the_trip(ski
     case = fixture(skill, doc["path"])
     document = write_files(case, tmp_path)
     passing = [(name, 0, True) for name, *_ in doc["checks"]]
-    assert passes(skill, doc, tmp_path) == passing, "the fixture itself must pass before the trip"
+    assert passes(skill, doc, tmp_path, case["document"]) == passing, "the fixture itself must pass before the trip"
     after = nb.round_trip(document.read_text(encoding="utf-8"))
     document.write_text(after, encoding="utf-8")
-    assert passes(skill, doc, tmp_path) == passing
+    assert passes(skill, doc, tmp_path, case["document"]) == passing
     assert nb.round_trip(after) == after
 
 
 @pytest.mark.parametrize("skill,doc", UNCHECKED, ids=[f"{s}:{d['path']}" for s, d in UNCHECKED])
 def test_an_editable_document_with_no_checker_loses_no_text_on_the_trip(skill, doc):
-    before = fixture(skill, doc["path"])["files"][doc["path"]]
+    case = fixture(skill, doc["path"])
+    before = case["files"][case["document"]]
     after = nb.round_trip(before)
     assert words(before) == words(after)
     assert nb.round_trip(after) == after

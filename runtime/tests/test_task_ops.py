@@ -232,18 +232,17 @@ def test_a_run_that_wrote_nothing_and_asks_still_opens_a_question_that_cannot_be
     assert ops.status(path)["requests"][0]["tasks"][0]["state"] == "waiting"
 
 
-def test_one_task_at_a_time_per_project_and_an_interrupted_run_is_ended_at_the_next_one(tree):
+def test_a_task_whose_lock_is_held_is_alive_and_one_whose_lock_is_free_is_ended_at_the_next_run(tree):
     path = project_of(tree)
     requested(tree)
-    os.makedirs(tree["data"], exist_ok=True)
-    lock = os.open(os.path.join(tree["data"], "run.lock"), os.O_WRONLY | os.O_CREAT, 0o600)
-    fcntl.flock(lock, fcntl.LOCK_EX)
-    with pytest.raises(ops.OpsError) as busy:
-        ops.run_next(path)
-    assert "one task at a time" in str(busy.value) and st.calls(tree["adapter"]) == []
-    os.close(lock)
     ctx = ops_core.context(path)
-    claimed = ctx["store"].task_claim_next(ctx["conn"])["task"]  # a run that died after it claimed its task
+    store = ctx["store"]
+    claimed = store.task_claim(ctx["conn"], ctx["conn"].execute(store.NEXT_READY_TASK).fetchone()["id"])["task"]  # a run that began
+    held = ops_core._try_lock(ctx["cfg"], f"task-{claimed['id']}.lock")  # its process is alive: it holds the task's lock
+    out = ops.run_next(path)
+    assert out["recovered"] == [] and out["ran"] is None and st.calls(tree["adapter"]) == []
+    assert ops.status(path)["requests"][0]["tasks"][0]["state"] == "running"
+    os.close(held)  # the process died: nobody holds the lock
     out = ops.run_next(path)
     assert out["recovered"] == [claimed["id"]] and out["ran"] is None
     assert ops.status(path)["requests"][0]["tasks"][0]["state"] == "failed"

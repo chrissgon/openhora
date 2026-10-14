@@ -2,7 +2,9 @@
 // they run under a test. Nothing is decided here: a request's state and a decision's actions are the service's own words.
 
 import * as format from "../format.js";
-import { drawersOf, stateTone } from "../floor-model.js";
+import { QUEUED_NOTE, drawersOf, stateTone } from "../floor-model.js";
+import * as router from "../router.js";
+import { routingRequest, routingWords, runningTasks as runningOf } from "../model.js";
 import { windowState } from "../scene/look.js";
 
 export const POLL_BUSY_MS = 2000;     // the conversation is read every 2 seconds while a `say` job runs; otherwise only when the page reloads
@@ -16,14 +18,16 @@ export const TABS = Object.freeze([["conversation", "Conversation"], ["inbox", "
 
 // R-45: the hint under the field; the second hint (`/new --after`) is gone, since "After request" is a field of the form (R-46)
 export const HINT = "Type / to list the commands.";
-// A-23: while a run is in progress a plain line is stored and routed by the service when the run ends; the commands answer at once.
-export const RUN_LINE = "A run is in progress: your line will be routed when it ends; a question about the state is answered now.";
+// A-23, PAR-5: a task run never holds the composer: the service routes a plain line at once beside the running tasks. Only the router's own run does (one at a time per project): then a plain
+// line is stored and routed when it ends; the commands answer at once.
+export const RUN_LINE = "The planning agent is answering another request: your line is routed when it ends; a question about the state is answered now.";
+export const TASKS_LINE = "Your line is routed at once.";      // short: on a phone the line is one line, and the count of running tasks follows it
 export const QUEUED_WORD = "queued";
-// Route it on a request while a run holds the project (another request being routed, or a task that runs): the service does not refuse it, it queues it (A-23)
-export const QUEUE_REASON = "A run is in progress: this request is routed when it ends.";
-export const QUEUED_NOTICE = Object.freeze({ tone: "info", title: "Recorded", text: "A run is in progress. The request is recorded and will be routed when the run ends." });
+// Route it on a request while the router answers another request: the service does not refuse it, it queues it (A-23)
+export const QUEUE_REASON = "The planning agent is answering another request: this one is routed when it ends.";
+export const QUEUED_NOTICE = Object.freeze({ tone: "info", title: "Recorded", text: "The planning agent is answering another request. This request is recorded and will be routed when it ends." });
 export const SENDING_TEXT = "The planning agent is working on this turn. It can take minutes.";
-export const BUSY_NOTICE = Object.freeze({ title: "Not sent", text: "A run is in progress for this project. Your message was not stored." });
+export const BUSY_NOTICE = Object.freeze({ title: "Not sent", text: "The planning agent is answering another request of this project. Your message was not stored." });
 export const NOT_ACCEPTED_TEXT = "Waiting for the configuration to be accepted.";
 export const EMPTY_TEXT = "No messages yet. Describe what you want done.";
 export const AUTO_FLOW = "Let the planning agent route it";
@@ -68,7 +72,7 @@ export function authorOf(role) {
   return role === "user" ? "You" : "Planning agent";
 }
 
-/** The meta line over a message: "You · 4 h ago"; a line stored while a run was in progress adds "· queued" until its reply arrives. */
+/** The meta line over a message: "You · 4 h ago"; a line stored while the router answered another request adds "· queued" until its reply arrives. */
 export function metaOf(message, now) {
   const when = ago(message.created_at, now);
   const line = when ? `${authorOf(message.role)} · ${when}` : authorOf(message.role);
@@ -97,8 +101,8 @@ export function readAfter(messages) {
 }
 
 /**
- * The task a run is in progress for, from a status body: {id, title, agent} of the oldest running task, or null. The composer says so before Send
- * (A-23). A router run holds a request, not a task, so it is not named here: `model.routingRequest` names it (A-51); the service queues the line all the same.
+ * The first running task of a status body in the order of its requests: {id, title, agent}, or null (the composer's note is `runNote`). A router run holds a request, not a task:
+ * `model.routingRequest` names it (A-51).
  */
 export function runningTask(status) {
   for (const request of (Array.isArray(status && status.requests) ? status.requests : [])) {
@@ -107,6 +111,33 @@ export function runningTask(status) {
     }
   }
   return null;
+}
+
+/** Every task a run is in progress for, from a status body: [{id, title, agent, state}], the oldest first. */
+export function runningTasks(status) {
+  return runningOf(status);
+}
+
+/**
+ * Whether the router is answering a request other than `requestId`: only then is "Route it" queued, and said so. A task that runs never queues it (PAR-5): task runs go beside the router.
+ * `requests` are the rows of the status body.
+ */
+export function routerBusy(requests, requestId) {
+  return (Array.isArray(requests) ? requests : []).some((r) => r && r.routing && r.id !== requestId);
+}
+
+/**
+ * The note above the composer (A-23, A-51): {text, href, line} or null. While the router answers a request the note names that run and says a plain line waits for it; while only tasks run it names the
+ * task (or "N tasks running", linking to the Building) and says the line is routed at once. The composer stays on in both.
+ */
+export function runNote(status, now, project) {
+  const routed = routingRequest(status);
+  if (routed) return { text: routingWords(routed, now), href: router.requestHash(project, routed.id), line: RUN_LINE };
+  const tasks = runningTasks(status);
+  if (!tasks.length) return null;
+  if (tasks.length > 1) return { text: `${tasks.length} tasks running`, href: router.buildingHash(project), line: TASKS_LINE };
+  const task = tasks[0];
+  return { text: `Task #${task.id}${task.title || task.key ? ` ${task.title || task.key}` : ""}`, href: router.agentHash(project, task.agent || null), line: TASKS_LINE };
 }
 
 /**
@@ -303,7 +334,7 @@ export function roomModel({ working, decisions, hasMessages, accepted, request, 
   else if (working) state = "working";
   else if (decisions > 0) state = "waiting";
   else if (queued) state = "ready";   // M-24: a task of the planning agent is queued and not held
-  const words = { working: "working", waiting: "waiting for you", ready: "queued · starts when the current run ends", idle: "idle", off: "off" }[state];
+  const words = { working: "working", waiting: "waiting for you", ready: `queued · ${QUEUED_NOTE}`, idle: "idle", off: "off" }[state];
   const docs = Array.isArray(documents) ? documents : null;
   const board = request
     ? { title: request.title || `Request ${request.id}`, lines: [`request #${request.id} · ${request.state}`], dot: DOT[state] }

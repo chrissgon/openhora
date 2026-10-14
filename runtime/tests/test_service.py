@@ -45,10 +45,13 @@ class Standin:
     {"op", "args"}. `calls` is [(function, project, kwargs)] in the order of the calls."""
 
     OpsError = ops.OpsError
+    DispatchBusy = ops.DispatchBusy
     operations = operations
 
     def __init__(self, data_dir):
+        self.reaped = 0
         self.calls = []
+        self.config_reads = []   # the reads of `config` (the service's start, the policy check of a route): not an operation a route performs
         self.answers = {}
         self.data_dir = str(data_dir)
         self.stopped = 0
@@ -76,10 +79,15 @@ class Standin:
 
     def config(self, project):
         with self.lock:
-            self.calls.append(("config", project, {}))
+            self.config_reads.append(project)
         if "config" in self.answers:
             return self.answers["config"]
         return {"path": project + "/docs/workbench/runtime.json", "sha256": "a" * 64, "accepted": True, "data_dir": self.data_dir}
+
+    def reap(self):
+        with self.lock:
+            self.reaped += 1
+        return []
 
     def stop_runs(self, project=None):
         with self.lock:
@@ -460,6 +468,10 @@ def test_every_route_calls_exactly_one_operation_and_returns_what_it_returned(wo
     world.fake.answers.clear()
     row = operations.by_name(route["op"])
     given, expected = sample(row, route)
+    if row["name"] == "approve":  # the page reads the decision's kind before the job exists (the channel policy, MSG-3b)
+        world.fake.answers["pending"] = {"kind": "plan"}
+    if row["name"] == "commands":  # the page filters this answer by its policy: none here, so it comes back whole
+        world.fake.answers["commands"] = {"commands": [{"command": "/status", "arguments": "", "help": "h"}]}
     if row.get("channel_arg"):
         expected = {**expected, "channel": "page"}
     path = path_of(world, route)
@@ -479,8 +491,10 @@ def test_every_route_calls_exactly_one_operation_and_returns_what_it_returned(wo
         body = wait_job(world, body["job"])["result"]
     else:
         assert status == 200
-    assert world.fake.calls == [(row["call"], world.projects[0]["path"], expected)]
-    assert body == {"op": row["call"], "args": expected}
+    performed = [c for c in world.fake.calls if not (row["name"] == "approve" and c[0] == "pending")]  # the kind read, see above
+    assert performed == [(row["call"], world.projects[0]["path"], expected)]
+    assert body == ({"commands": [{"command": "/status", "arguments": "", "help": "h"}]} if row["name"] == "commands"
+                    else {"op": row["call"], "args": expected})
 
 
 def test_every_route_is_built_from_a_row_the_page_may_call_and_names_only_arguments_of_that_row():
@@ -504,6 +518,7 @@ def test_every_route_is_built_from_a_row_the_page_may_call_and_names_only_argume
 
 
 def test_a_route_is_a_job_exactly_when_its_table_row_says_so(world):
+    world.fake.answers["pending"] = {"kind": "plan"}  # the page reads the decision's kind before an approve (MSG-3b)
     jobs, plain = set(), set()
     for route in OP_ROUTES:
         row = operations.by_name(route["op"])
@@ -525,7 +540,7 @@ def test_a_route_is_a_job_exactly_when_its_table_row_says_so(world):
         if row["model"] is not False:
             assert row.get("job") is True, row["name"]
     assert {r["name"] for r in operations.OPERATIONS if r.get("job")} == \
-        {"route", "route-queued", "release", "approve", "run-next", "sync", "contained-run", "dispatch", "handler", "say"}
+        {"route", "route-queued", "release", "approve", "run-next", "run-task", "sync", "contained-run", "dispatch", "handler", "say"}
 
 
 def test_a_refused_operation_becomes_its_documented_status(world):
@@ -545,12 +560,12 @@ def test_a_refused_operation_becomes_its_documented_status(world):
     assert any("Traceback" in line and "RuntimeError" in line for line in world.lines)  # the traceback is on stderr's side
     world.lines.clear()
     # A job that fails ends failed with the same words, and a refusal of a job's operation does not hide in a 202.
-    world.fake.answers["route"] = ops.OpsError("another run is in progress", 1)
+    world.fake.answers["route"] = ops.OpsError("the planning agent is answering another request of this project", 1)
     status, _, job = call(world, "POST", api(world, "/requests/7/route"), {})
     assert status == 202
     failed = wait_job(world, job["job"])
     assert failed["state"] == "failed" and failed["result"] is None
-    assert failed["error"] == {"error": "refused", "message": "another run is in progress", "status": 409}
+    assert failed["error"] == {"error": "refused", "message": "the planning agent is answering another request of this project", "status": 409}
     world.fake.answers["sync"] = RuntimeError("boom")
     failed = wait_job(world, call(world, "POST", api(world, "/sync"), {})[2]["job"])
     assert failed["error"] == {"error": "internal", "message": "internal error", "status": 500}
@@ -578,17 +593,18 @@ def test_a_route_that_calls_a_model_returns_a_job_and_the_job_ends_with_the_oper
 
 
 def test_a_second_turn_while_a_job_that_calls_a_model_runs_is_not_refused_the_operation_queues_it(world):
-    """A-23: `say` and `route` queue their call while a run is in progress (their rows say `queues`), so the service
-    starts the second one without the model slot and the operation itself finds the run lock held; every other job that
-    calls a model is still refused (busy) while the slot is held."""
+    """A-23: `say` and `route` queue their call while the router answers another request (their rows say `queues`), so the
+    service starts the second one without the model slot and the operation itself finds the route lock held. A dispatch
+    takes no slot at all (its rows say `exclusive` false): it starts task runs beside the router."""
     gate = threading.Event()
+    world.fake.answers["pending"] = {"kind": "plan"}  # the page reads the decision's kind before an approve (MSG-3b)
     world.fake.answers["say"] = lambda project, text, channel=None: gate.wait(WAIT) and {"reply": "ok"}
     first = call(world, "POST", api(world, "/conversation"), {"text": "one"})
     assert first[0] == 202
     status, _, second = call(world, "POST", api(world, "/conversation"), {"text": "two"})
     assert status == 202 and second["job"] != first[2]["job"]                     # not 409 busy
     assert call(world, "POST", api(world, "/requests/7/route"), {})[0] == 202    # a request to route is queued the same way
-    assert call(world, "POST", api(world, "/dispatch"), {})[0] == 409            # a job that does not queue is refused
+    assert call(world, "POST", api(world, "/dispatch"), {})[0] == 202            # a dispatch takes no slot: not refused
     deadline = time.monotonic() + WAIT
     while (len(world.fake.named("say")) < 2 or not world.fake.named("route")) and time.monotonic() < deadline:
         time.sleep(0.01)
@@ -610,7 +626,8 @@ def test_the_dispatch_loop_calls_the_dispatcher_for_each_project_and_survives_an
     rounds = {"n": 0}
     done = threading.Event()
 
-    def dispatch(project):
+    def dispatch(project, wait=None):
+        assert wait is False                                                         # the service's loop never waits for the runs
         rounds["n"] += 1
         if rounds["n"] == 1:
             raise RuntimeError("the round failed")
@@ -659,16 +676,16 @@ def test_the_queue_loop_calls_route_queued_for_each_project_holding_the_model_sl
     assert all(s.get(first) == "the route_queued loop" for s in slots) and not world.svc.exclusive.get(first)
     gate.set()
     wait_job(world, job["job"])
-    assert service.QUEUE_EVERY == 5.0 and service.MODEL_LOOPS == ("dispatch", "route_queued")
+    assert service.QUEUE_EVERY == 5.0 and service.MODEL_LOOPS == ("route_queued",)
 
 
-def test_the_dispatch_loop_skips_a_project_that_has_a_job_running_and_the_poll_loop_calls_poll(world):
+def test_the_dispatch_loop_does_not_skip_a_project_that_has_a_job_running_and_the_poll_loop_does(world):
     gate = threading.Event()
     world.fake.answers["say"] = lambda project, text, channel=None: gate.wait(WAIT) and {"reply": "ok"}
     job = call(world, "POST", api(world, "/conversation", 1), {"text": "busy"})[2]
     assert job["state"] == "running"
     seen = threading.Event()
-    world.fake.answers["dispatch"] = lambda project: seen.set() or {"stopped": "x"}
+    world.fake.answers["dispatch"] = lambda project, wait=None: seen.set() or {"stopped": "x"}
     stop = threading.Event()
     runner = threading.Thread(target=service.dispatch_loop, args=(world.svc, 0.01, stop))
     runner.start()
@@ -676,7 +693,8 @@ def test_the_dispatch_loop_skips_a_project_that_has_a_job_running_and_the_poll_l
     time.sleep(0.2)
     stop.set()
     runner.join(WAIT)
-    assert {c[1] for c in world.fake.named("dispatch")} == {world.projects[0]["path"]}   # not the project with a job
+    assert {c[1] for c in world.fake.named("dispatch")} == {p["path"] for p in world.projects}  # the router's job stops no dispatch
+    assert world.fake.reaped >= 2                                                      # and every tick reaps the children
     gate.set()
     wait_job(world, job["job"])
     # poll: the short job, no model slot; a project with a job running is skipped as well
@@ -690,6 +708,24 @@ def test_the_dispatch_loop_skips_a_project_that_has_a_job_running_and_the_poll_l
     runner.join(WAIT)
     assert {c[1] for c in world.fake.named("poll")} == {p["path"] for p in world.projects}
     assert world.fake.named("sync") == [] and not world.svc.exclusive
+
+
+def test_a_dispatch_round_that_is_still_running_is_skipped_without_a_word(world):
+    tries = threading.Event()
+
+    def busy(project, wait=None):
+        tries.set()
+        raise ops.DispatchBusy("a dispatch round of this project is already running", 1)
+
+    world.fake.answers["dispatch"] = busy
+    stop = threading.Event()
+    runner = threading.Thread(target=service.dispatch_loop, args=(world.svc, 0.01, stop))
+    runner.start()
+    assert tries.wait(WAIT)
+    time.sleep(0.1)
+    stop.set()
+    runner.join(WAIT)
+    assert world.lines == []                                                           # a waiting round of the terminal is no error
 
 
 # --- static files -----------------------------------------------------------------------------------------------------
@@ -796,7 +832,7 @@ def test_the_service_reaches_the_store_and_the_facade_only_through_the_operation
         elif isinstance(node, ast.ImportFrom):
             imported.add((node.module or "").split(".")[0])
     siblings = {p.stem for p in st.RUNTIME.glob("*.py")}
-    assert imported & siblings == {"ops", "shell_kit"}, imported & siblings  # of the runtime, the operations layer and the shells' kit only
+    assert imported & siblings == {"ops", "shell_kit", "service_bridge"}, imported & siblings  # of the runtime, the operations layer, the shells' kit and the child process of --messaging (MSG-3a)
     assert not imported & {"providers", "evals", "adapters", "scripts", "sqlite3", "lab", "store"}
     used = {n.id for n in ast.walk(tree_) if isinstance(n, ast.Name)} | {n.attr for n in ast.walk(tree_) if isinstance(n, ast.Attribute)}
     assert not used & {"lab", "store", "store_module", "open_db", "init_db", "context", "project_config", "sqlite3", "stop_all_groups"}
@@ -813,6 +849,7 @@ def test_the_service_reaches_the_store_and_the_facade_only_through_the_operation
     sys.path.insert(0, str(st.REPO / "scripts" / "tests"))
     layer = __import__("test_layer_map")
     assert layer.allowed("runtime/service.py", "runtime/ops.py") and layer.allowed("runtime/service.py", "runtime/shell_kit.py")
+    assert layer.allowed("runtime/service.py", "runtime/service_bridge.py")
     for target in ("runtime/lab.py", "providers/store/sqlite.py", "runtime/plan.py", "providers/resolve.py", "evals/execution.py",
                    "runtime/operations.py"):
         assert not layer.allowed("runtime/service.py", target), target
@@ -833,8 +870,11 @@ def test_the_read_routes_call_their_operations_with_the_query_they_take_and_refu
     for name, tail in (("agents", "/agents"), ("skills", "/skills"), ("connections", "/connections"), ("artifacts", "/artifacts"),
                        ("commands", "/commands")):
         world.fake.calls.clear()
+        if name == "commands":  # the page filters this answer by its policy (MSG-3b): none here, so it is shown whole
+            world.fake.answers["commands"] = {"commands": [{"command": "/status", "arguments": "", "help": "h"}]}
         status, _, body = call(world, "GET", api(world, tail))
-        assert status == 200 and body == {"op": name, "args": {}}, name
+        assert status == 200 and body == ({"commands": [{"command": "/status", "arguments": "", "help": "h"}]} if name == "commands"
+                                          else {"op": name, "args": {}}), name
         assert world.fake.calls == [(name, project, {})]
         world.fake.calls.clear()
         for query in ("?after=1", "?since=7d", "?path=docs/a.md", "?x=1"):
@@ -934,7 +974,8 @@ def test_the_config_operation_never_refuses_an_unaccepted_configuration_and_the_
     assert status == 200
     [entry] = body["projects"]
     assert entry["config"] == {"sha256": digest, "accepted": False}
-    assert "open_pending" not in entry and "running_task" not in entry
+    assert entry["permissions"] is None, "MSG-3b: nothing is permitted to a page whose configuration is not accepted"
+    assert "open_pending" not in entry and "running_task" not in entry and "running_tasks" not in entry
     assert entry["folder"] == real.path, "A-34: the folder is in the entry of a project that is not accepted too: the page cannot read it elsewhere"
     assert "accept-config" in entry["message"] and digest in entry["message"]
     refused = call(real, "GET", api(real, "/status"))
@@ -943,9 +984,10 @@ def test_the_config_operation_never_refuses_an_unaccepted_configuration_and_the_
     ops.accept_config(real.path, digest)
     assert ops.config(real.path)["accepted"] is True
     [entry] = call(real, "GET", "/api/v1/projects")[2]["projects"]
-    assert entry["config"] == {"sha256": digest, "accepted": True} and entry["open_pending"] == 0 and entry["running_task"] is None
+    assert entry["config"] == {"sha256": digest, "accepted": True} and entry["open_pending"] == 0 and entry["running_task"] is None and entry["running_tasks"] == []
     assert entry["routing_request"] is None   # R4-L1: the request a router run holds, null here
-    assert "message" not in entry and set(entry) == {"id", "name", "folder", "config", "open_pending", "running_task", "routing_request"} \
+    assert "message" not in entry and set(entry) == {"id", "name", "folder", "config", "open_pending", "running_task", "running_tasks", "routing_request",
+                                                                  "permissions"} \
         and entry["folder"] == real.path
     # a change of the file makes it unaccepted again, and the list still answers
     with open(ops.project_config.path(real.path), "ab") as f:

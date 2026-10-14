@@ -18,6 +18,12 @@ spec = importlib.util.spec_from_file_location("store_sqlite_approvals", SCRIPT)
 store = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(store)
 
+
+def claim_oldest(conn):
+    """Claim the oldest ready task, as the first claim of a database once did, with the store's own query and task_claim."""
+    row = conn.execute(store.NEXT_READY_TASK).fetchone()
+    return store.task_claim(conn, row["id"]) if row else {"task": None}
+
 HASH = "a" * 64
 OTHER = "b" * 64
 PLAN = [{"key": "implement", "skill": "eng-implement", "title": "Implement", "text": "make the change.",
@@ -37,12 +43,12 @@ def run_to(conn, kind: str, digest: str | None = HASH) -> dict:
     """A request of two tasks whose first task is done and whose second waits on one pending decision of `kind`."""
     request = store.request_add(conn, title="Carry the providers", text="The installer of Lumen Desk.", flow="code-change",
                                 tasks=PLAN)
-    first = store.task_claim_next(conn)["task"]
+    first = claim_oldest(conn)["task"]
     run = store.task_run_start(conn, first["id"], skill=first["skill"], model="m", adapter="h")["run_id"]
     done = store.task_run_finish(conn, run, status="ok", ending="done", task_state="waiting",
                                  pending={"kind": "review", "title": "Review", "body": "Changed two files."})
     store.pending_resolve(conn, done["pending_id"], resolution="released", by="user")
-    second = store.task_claim_next(conn)["task"]
+    second = claim_oldest(conn)["task"]
     run = store.task_run_start(conn, second["id"], skill=second["skill"], model="m", adapter="h")["run_id"]
     pending = {"kind": kind, "title": "Pull request: carry the providers", "body": "Repository, base, head, files."}
     if digest is not None:

@@ -9,7 +9,7 @@ The file is written by the person who sets the project up and holds no secret (c
 task runtime reads three keys the first runtime already defined, with the same meaning:
 
   "workbench"   the absolute path of the workbench checkout the runtime runs from (a reviewed revision)
-  "data_dir"    an absolute folder outside every repository, for run folders and the run lock
+  "data_dir"    an absolute folder outside every repository, for run folders and the locks
   "store_db"    the absolute path of the store database (class store:runtime)
 
 The keys are closed: the file may hold only the keys of TASK_RUNTIME_KEYS and FIRST_RUNTIME_KEYS. The second
@@ -88,7 +88,8 @@ REL = "docs/workbench/runtime.json"
 REQUIRED = ("workbench", "data_dir", "store_db")
 # The top-level keys of the task runtime: the three required ones and every key this module checks or passes on.
 TASK_RUNTIME_KEYS = ("workbench", "data_dir", "store_db", "area_agents", "handlers", "task_board", "documents",
-                     "protected_paths", "code", "dependencies", "max_cost_usd_per_run", "model_prices", "messaging", "channels")
+                     "protected_paths", "code", "dependencies", "max_cost_usd_per_run", "model_prices", "messaging", "channels",
+                     "max_running")
 # The top-level keys scripts/runtime.py, scripts/runtime_vote.py and scripts/vote_job.py read from the same file
 # (the first runtime). Leaves with stage 7.
 FIRST_RUNTIME_KEYS = ("agent", "harness", "model", "mailbox", "publisher", "store", "scheduler", "notification_query",
@@ -158,38 +159,62 @@ def load(project: str) -> dict:
     out["model_prices"] = _model_prices(raw.get("model_prices"))
     out["messaging"] = _messaging(raw.get("messaging"))
     out["channels"] = _channels(raw.get("channels"))
+    out["max_running"] = _max_running(raw)
     return out
 
 
-POLICY_CHANNELS = ("messaging",)  # the channels a policy narrows today (the others are wired by a later package)
+MAX_RUNNING_DEFAULT, MAX_RUNNING_CEILING = 3, 14  # the ceiling is the lab's total_jobs, the machine-wide limit of model calls
+
+
+def _max_running(raw: dict) -> int:
+    """The key "max_running": the most task runs of the project at one time, an integer from 1 to 14; absent means 3."""
+    if "max_running" not in raw:
+        return MAX_RUNNING_DEFAULT
+    value = raw["max_running"]
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= MAX_RUNNING_CEILING:
+        raise ConfigError(f"runtime.json max_running must be an integer from 1 to {MAX_RUNNING_CEILING}")
+    return value
+
+
+POLICY_CHANNELS = operations.POLICY_CHANNELS  # the channels a policy narrows: page, mcp and messaging (chat and the terminal never)
 
 
 def _channels(value) -> dict:
-    """The key "channels" (the channel policy, decision M-8; absent means {}), checked: {"messaging": ["<group>", ...]}.
-    Each group is one of operations.GROUPS and every operation it covers must be listed by the channel's row in the
-    table (the ceiling): a policy narrows what the table allows and never widens it. The terminal is never narrowed.
-    A channel that has no entry keeps the default of operations.DEFAULT_POLICY (messaging: read, talk, answer). Like
-    every key of the file, a change takes effect after accept-config in the terminal."""
+    """The key "channels" (the channel policy, decisions M-8 and M-13; absent means {}), checked: {"page": ["<group>", ...],
+    "mcp": [...], "messaging": [...]}. Each group is one of operations.GROUPS and is valid on a channel when at least one
+    operation it covers is listed by the channel's row in the table (the ceiling): a policy narrows what the table allows
+    and never widens it, and the group then covers the ceiling's share of it. `approve-effects` is valid on the page only.
+    A policy for the page or the MCP mode lists `read`. `chat` and `terminal` are errors: the conversation's input is local
+    access, equal to the terminal, and neither is narrowed. A channel that has no entry keeps its ceiling, except messaging,
+    which keeps operations.DEFAULT_POLICY (read, talk, answer). Like every key of the file, a change takes effect after
+    accept-config in the terminal."""
     if value is None:
         return {}
     if not isinstance(value, dict):
         raise ConfigError("runtime.json channels must be an object from a channel to a list of groups")
     out = {}
     for channel, groups in value.items():
+        if channel in ("chat", "terminal"):
+            raise ConfigError(f"runtime.json channels.{channel}: the {channel} is never narrowed (its input is local access); "
+                              f"the channels with a policy are {', '.join(POLICY_CHANNELS)}")
         if channel not in POLICY_CHANNELS:
             raise ConfigError(f"runtime.json channels: {channel!r} has no policy; the channels with one are {', '.join(POLICY_CHANNELS)} "
-                              "(the terminal is never narrowed)")
+                              "(the terminal and the conversation are never narrowed)")
         if not isinstance(groups, list) or not all(isinstance(g, str) for g in groups):
             raise ConfigError(f"runtime.json channels.{channel} must be a list of group names")
         for group in groups:
             if group not in operations.GROUPS:
                 raise ConfigError(f"runtime.json channels.{channel}: {group!r} is not a group (known: {', '.join(operations.GROUPS)})")
-            for name in operations.GROUPS[group]["operations"]:
-                if channel not in operations.by_name(name)["channels"]:
-                    ceiling = ", ".join(operations.by_name(name)["channels"])
-                    raise ConfigError(f"runtime.json channels.{channel}: the group {group!r} covers {name}, which the table "
-                                      f"of operations does not give the channel {channel} (its ceiling: {ceiling}); "
-                                      "a policy narrows the ceiling and never widens it")
+            if group in operations.PAGE_ONLY_GROUPS and channel != "page":
+                raise ConfigError(f"runtime.json channels.{channel}: the group {group!r} is valid on the page only "
+                                  "(an effect is approved in the terminal or on the page, with its hash)")
+            names = operations.GROUPS[group]["operations"]
+            if not any(channel in operations.by_name(name)["channels"] for name in names):
+                raise ConfigError(f"runtime.json channels.{channel}: the group {group!r} covers {', '.join(names)}, which the table "
+                                  f"of operations does not give the channel {channel}; "
+                                  "a policy narrows the ceiling and never widens it")
+        if channel in operations.MUST_READ and "read" not in groups:
+            raise ConfigError(f"runtime.json channels.{channel} must list the group 'read' (the {channel} reads what it shows)")
         out[channel] = list(dict.fromkeys(groups))
     return out
 

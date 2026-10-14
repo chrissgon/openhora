@@ -51,7 +51,7 @@ jobs:
           version: "0.12.19"
           python-version: "3.11"
       - name: Scanner and provider tests
-        run: uv run --with pytest==9.1.1 pytest -q $(python3 scripts/test_dirs.py)
+        run: uv run --with pytest==9.1.1 pytest -q -o faulthandler_timeout=120 $(python3 scripts/test_dirs.py)
 
   # The scheduler starts the runtime, and the runtime starts these scripts, with the system interpreter
   # (Python 3.9 on macOS): providers/CONTRACT.md, "Python version". Only their tests run here; the rest of
@@ -72,14 +72,18 @@ jobs:
           python-version: "3.9"
       - name: The scripts the scheduler starts, on Python 3.9
         run: >-
-          uv run --python 3.9 --with pytest==8.4.2 pytest -q
+          uv run --python 3.9 --with pytest==8.4.2 pytest -q -o faulthandler_timeout=120
           scripts/tests/test_runtime_python39.py scripts/tests/test_provider_resolve.py
           scripts/tests/test_runtime.py scripts/tests/test_runtime_vote.py
           skills/mkt-engage/scripts/tests skills/mkt-publish/scripts/tests
           skills/mkt-vote-round/scripts/tests skills/brand-identity/scripts/tests
           shared/scripts/tests
           runtime/tests
-          providers/store/tests providers/scheduler/tests
+          providers/store/tests providers/scheduler/tests providers/messenger/tests/test_whatsapp.py
+          providers/messenger/tests/test_whatsapp_cloud.py providers/messenger/tests/test_whatsapp_cloud_webhook.py
+          providers/messenger/tests/test_whatsapp_cloud_send.py providers/messenger/tests/test_whatsapp_cloud_render.py
+          providers/messenger/tests/test_whatsapp_twilio.py providers/messenger/tests/test_whatsapp_twilio_webhook.py
+          providers/messenger/tests/test_whatsapp_twilio_send.py providers/messenger/tests/test_whatsapp_twilio_render.py
 
   container:
     name: container
@@ -95,3 +99,19 @@ jobs:
           python-version: "3.11"
       - name: The eval container, built and exercised (no model call)
         run: WB_EVAL_DOCKER_TESTS=1 uv run --with pytest==9.1.1 pytest -q evals/tests/test_executor_docker.py evals/tests/test_keyproxy_docker.py
+
+  # The WhatsApp program (providers/messenger/whatsapp/): vet and tests, offline once the modules are fetched. The runner's
+  # own Go downloads the toolchain go.mod names (verified by the checksum database); modules are checked against go.sum.
+  go:
+    name: go
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: go mod verify, go vet and go test, modules read-only
+        working-directory: providers/messenger/whatsapp
+        env:
+          GOFLAGS: -mod=readonly
+        run: go mod verify && go vet ./... && go test -count=1 ./...

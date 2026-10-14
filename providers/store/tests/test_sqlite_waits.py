@@ -20,6 +20,12 @@ store = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(store)
 
 
+def claim_oldest(conn):
+    """Claim the oldest ready task, as the first claim of a database once did, with the store's own query and task_claim."""
+    row = conn.execute(store.NEXT_READY_TASK).fetchone()
+    return store.task_claim(conn, row["id"]) if row else {"task": None}
+
+
 @pytest.fixture
 def conn(tmp_path):
     path = tmp_path / "state" / "tasks.sqlite"
@@ -67,13 +73,13 @@ def test_a_task_that_begins_with_a_wait_is_planned_and_no_function_of_the_store_
     _, brand = one(conn, "brand-identity")
     _, design = one(conn, "design-system", waits=[input_wait("design-system", brand)])
     assert state(conn, design) == "planned" and state(conn, brand) == "ready"
-    assert store.task_peek_next(conn)["task"]["id"] == brand
-    assert store.task_claim(conn, design) == {"task": None, "running": None, "reason": "not-ready"}
+    assert conn.execute(store.NEXT_READY_TASK).fetchone()["id"] == brand
+    assert store.task_claim(conn, design) == {"task": None, "reason": "not-ready"}
     # The task is made `ready` by hand, as a bug elsewhere could: the store still refuses to give it out.
     with conn:
         conn.execute("UPDATE tasks SET state = 'ready' WHERE id = ?", (design,))
-    assert store.task_claim(conn, design) == {"task": None, "running": None, "reason": "waiting"}
-    assert store.task_claim_next(conn)["task"]["id"] == brand
+    assert store.task_claim(conn, design) == {"task": None, "reason": "waiting"}
+    assert claim_oldest(conn)["task"]["id"] == brand
 
 
 def test_the_wait_is_read_with_its_reason_and_the_request_of_the_awaited_task(conn):
@@ -177,7 +183,7 @@ def test_waits_sync_opens_a_wait_for_a_task_that_was_ready_and_sends_it_back_to_
              "reason": "docs/brand/identity.md, written by task #%d" % brand}]
     out = store.waits_sync(conn, want, [design, brand])
     assert out["demoted"] == [design] and len(out["opened"]) == 1 and state(conn, design) == "planned"
-    assert store.task_claim_next(conn)["task"]["id"] == brand
+    assert claim_oldest(conn)["task"]["id"] == brand
     # The same derivation again changes nothing.
     again = store.waits_sync(conn, want, [design, brand])
     assert again["opened"] == [] and again["cleared"] == [] and again["demoted"] == []
@@ -258,7 +264,7 @@ def test_an_approved_plan_begins_with_its_waits_in_the_same_transaction(conn):
                                    "depends_on": [], "milestone": False}], "plan_sha256": "0" * 64})
     out = store.plan_approve(conn, opened["pending_id"], by="user", waits=[input_wait("design-system", brand)])
     assert out["ready"] == [] and [t["state"] for t in out["tasks"]] == ["planned"]
-    assert store.task_peek_next(conn)["task"]["id"] == brand
+    assert conn.execute(store.NEXT_READY_TASK).fetchone()["id"] == brand
 
 
 def test_a_request_from_the_board_keeps_the_request_its_words_say_it_runs_after(conn):

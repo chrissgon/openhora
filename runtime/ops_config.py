@@ -34,6 +34,7 @@ import json
 import os
 import sys
 
+import operations
 import ops_core as core
 import autonomy
 import path_rule
@@ -93,20 +94,21 @@ def write_checkpoints(cfg: dict):
     if cfg["raw"].get("area_agents") is None:
         return "no area agents are configured"
     target = os.path.join(cfg["project"], *path_rule.STATE.split("/"))
-    if not os.path.isfile(target) or os.path.islink(target):
-        return "the project has no state file"
-    value = autonomy.state_checkpoints(cfg["area_agents"])
-    before = _sha256(target)
-    text, found = state_merge.with_checkpoints(_read(target), value)
-    if not found:
-        return "no line to write"
-    if _sha256(target) != before:
-        return "the state file changed while the line was being written; it is written at the next acceptance"
-    temporary = f"{target}.{os.getpid()}.tmp"
-    with open(temporary, "w", encoding="utf-8") as f:
-        f.write(text)
-    os.replace(temporary, target)
-    return {"written": True, "value": value}
+    with core._write_lock(cfg):  # inside the config lock when the acceptance calls it: config lock first, then the write lock
+        if not os.path.isfile(target) or os.path.islink(target):
+            return "the project has no state file"
+        value = autonomy.state_checkpoints(cfg["area_agents"])
+        before = _sha256(target)
+        text, found = state_merge.with_checkpoints(_read(target), value)
+        if not found:
+            return "no line to write"
+        if _sha256(target) != before:
+            return "the state file changed while the line was being written; it is written at the next acceptance"
+        temporary = f"{target}.{os.getpid()}.tmp"
+        with open(temporary, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(temporary, target)
+        return {"written": True, "value": value}
 
 
 def set_mode(project: str, agent: str, mode: str, accept: bool = False, channel=None) -> dict:
@@ -125,7 +127,9 @@ def set_mode(project: str, agent: str, mode: str, accept: bool = False, channel=
     "person" or None), "next" (the command, or None)}, with "checkpoints" after an acceptance and "unchanged" true when
     the mode was the one set. Two calls at once, or a call and the terminal, never overlap (_config_lock), and a call
     that finds the file or the accepted hash moved since it began writes nothing and is refused (code 1): code never
-    accepts a widening that a stale copy of the file would bring."""
+    accepts a widening that a stale copy of the file would bring.
+    The channel's policy (operations.refusal): from the page a move down is always done and a move up only when the
+    page's policy lists the group `set-mode` (refused with code 1, before the lock and any write)."""
     if accept and channel not in ACCEPT_CHANNELS:
         raise core.OpsError("a mode is set and accepted in one step only by the person, in the terminal "
                             "(set-mode --accept); here, set the mode and accept it with accept-config in the terminal", 2)
@@ -136,6 +140,11 @@ def set_mode(project: str, agent: str, mode: str, accept: bool = False, channel=
     if agent not in cfg["area_agents"]:
         raise core.OpsError(f"{agent!r} is not an agent of area_agents in {cfg['path']}", 2)
     old = cfg["area_agents"][agent]["mode"]
+    # The page's brake (decisions M-12, M-13): a move DOWN the order of the modes is never withheld, a move up needs the group
+    # `set-mode` in the page's policy. Read before the lock and before any write; the direction is known only here.
+    if channel == "page" and old != mode and not autonomy.narrows(old, mode) \
+            and not operations.policy_allows("set-mode", channel, cfg["channels"]):
+        raise core.OpsError(operations.not_enabled("set-mode", channel), 1)
     with core._config_lock(cfg):
         # Under the lock, the file and the accepted hash are read again: another change (a request at the same time, the
         # terminal) may have finished since context() read them. This call writes the accepted copy plus its one word,

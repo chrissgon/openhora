@@ -103,7 +103,7 @@ def test_receive_maps_a_message_and_a_callback_query_and_skips_the_rest(monkeypa
     assert timeout > 20
 
 
-def test_send_builds_the_inline_keyboard_and_a_url_button_as_plain_text(monkeypatch, capsys, tmp_path):
+def test_send_builds_the_inline_keyboard_and_a_url_button_and_escapes_the_text(monkeypatch, capsys, tmp_path):
     opener = Opener({"message_id": 77})
     path = message_file(tmp_path, text="<b>not markup</b> *x*", actions=[{"id": "7:approve", "label": "Approve"},
                                                                          {"id": "7:reject", "label": "Reject"}],
@@ -112,8 +112,9 @@ def test_send_builds_the_inline_keyboard_and_a_url_button_as_plain_text(monkeypa
     assert code == 0 and json.loads(out) == {"message_id": "77"}
     url, body, _, _ = opener.requests[0]
     sent = json.loads(body)
-    assert url.endswith("/sendMessage") and sent["chat_id"] == 4242 and "parse_mode" not in sent
-    assert sent["text"] == "<b>not markup</b> *x*"
+    assert url.endswith("/sendMessage") and sent["chat_id"] == 4242 and sent["parse_mode"] == "HTML"
+    assert sent["link_preview_options"] == {"is_disabled": True}
+    assert sent["text"] == "&lt;b&gt;not markup&lt;/b&gt; *x*"
     assert sent["reply_markup"] == {"inline_keyboard": [[{"text": "Approve", "callback_data": "7:approve"}],
                                                         [{"text": "Reject", "callback_data": "7:reject"}],
                                                         [{"text": "Open the page", "url": "https://page.example/x"}]]}
@@ -170,6 +171,25 @@ def test_a_409_from_get_updates_tells_the_person_to_remove_the_webhook(monkeypat
     assert code == 3 and "webhook" in err and "deleteWebhook" in err and TOKEN not in err
 
 
+def test_a_getupdates_conflict_409_says_another_program_reads_the_bot_and_a_webhook_409_keeps_its_sentence(monkeypatch, capsys):
+    url = f"https://api.telegram.org/bot{TOKEN}/getUpdates"
+    body = b'{"ok":false,"error_code":409,"description":"Conflict: terminated by other getUpdates request; make sure that only one bot instance is running"}'
+    conflict = urllib.error.HTTPError(url, 409, "Conflict", {}, io.BytesIO(body))
+    code, out, err = run(monkeypatch, capsys, Opener(conflict), "receive", "--platform", "telegram", "--offset", "0", "--timeout", "1")
+    assert code == 3, "the provider has no exit 4 (providers/CONTRACT.md): the bridge's fatal path takes 3"
+    assert "another program is reading this bot's updates" in err and "second bridge" in err
+    assert "webhook" not in err and "deleteWebhook" not in err and TOKEN not in out + err and out == ""
+    hook = b'{"ok":false,"error_code":409,"description":"Conflict: can\'t use getUpdates method while webhook is active; use deleteWebhook to delete the webhook first"}'
+    hooked = urllib.error.HTTPError(url, 409, "Conflict", {}, io.BytesIO(hook))
+    code, out, err = run(monkeypatch, capsys, Opener(hooked), "receive", "--platform", "telegram", "--offset", "0", "--timeout", "1")
+    assert code == 3 and "a webhook is set for this bot" in err and "deleteWebhook" in err and "another program" not in err
+    assert TOKEN not in out + err
+    # an answer with no description keeps the earlier behaviour: the webhook sentence
+    bare = urllib.error.HTTPError(url, 409, "Conflict", {}, io.BytesIO(b"{}"))
+    code, _, err = run(monkeypatch, capsys, Opener(bare), "receive", "--platform", "telegram", "--offset", "0", "--timeout", "1")
+    assert code == 3 and "a webhook is set for this bot" in err
+
+
 def test_ack_answers_the_callback_query(monkeypatch, capsys):
     opener = Opener(True)
     code, out, _ = run(monkeypatch, capsys, opener, "ack", "--platform", "telegram", "--action-ref", "cb9")
@@ -188,7 +208,7 @@ def test_no_token_is_exit_3_and_another_platform_is_exit_2(monkeypatch, capsys):
 
 def test_the_platforms_line_is_the_one_the_resolver_reads_and_the_token_is_never_an_argument():
     text = SCRIPT.read_text()
-    assert 'PLATFORMS = ("telegram",)' in text and '"parse_mode"' not in text
+    assert 'PLATFORMS = ("telegram",)' in text and 'parse_mode="HTML"' in text
     assert "--token" not in text
 
 

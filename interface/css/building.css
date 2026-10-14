@@ -53,14 +53,19 @@
 .wb-plate.is-off .wb-plate-name, .wb-fl-row.is-off .wb-fl-name, .wb-floor-card.is-off .wb-fc-name { color: var(--pui-text-muted); }
 .wb-plate-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .wb-plate-name { font-size: 13px; font-weight: 600; }
-/* F1-D6: building.html keeps the mode word whole and cuts the state badge ("waiting f..."): the mode is a word of at most nine ems and a longer one (autonomous-with-policy) is cut with an
-   ellipsis (its whole text is the title) so that it never pushes the state out; the state is what gives way when the row is full, down to three and a half ems, and is itself cut by an ellipsis */
-.wb-plate-mode { flex: 0 0 auto; min-width: 0; max-width: 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--pui-text-muted); }
-.wb-plate-state { display: flex; justify-content: flex-end; flex: 0 1 auto; min-width: 3.5em; margin-left: auto; }
+/* PAR-7d: the plate shows no mode word (it stays in the floors list and the Agent tab), and its state badge always shows its whole word ("working", "waiting for you"): when the row is full the
+   name is cut by an ellipsis; the dot, the decisions badge and the state badge never shrink. A row that fits is laid out as before. */
+.wb-plate-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-plate-row > .pui-badge, .wb-plate-row > .wb-dot { flex: 0 0 auto; }
+.wb-plate-state { display: flex; justify-content: flex-end; flex: 0 0 auto; margin-left: auto; }
 .wb-st { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.wb-plate-state .wb-st { max-width: none; overflow: visible; text-overflow: clip; }   /* the plate's state is never cut; the floor row's keeps its ellipsis */
 .wb-plate-meters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .wb-plate-meter { display: grid; gap: 1px; font-variant-numeric: tabular-nums; }
 .wb-plate-meter strong { font-weight: 600; }
+/* PAR-7b: the plate's third meter (the slots of a floor with two or more) keeps the three in one row: three columns sized by their text, a tighter gap and 11 px, so that
+   the plate at its narrowest (230 px) holds "$0.35 / $2.00", "1 / 6 runs" and "4 of 4 slots" whole; a plate of two meters is untouched */
+.wb-plate-meters:has(> .wb-plate-meter:nth-child(3)) { grid-template-columns: repeat(3, auto); justify-content: space-between; gap: 8px; font-size: 11px; }
 
 /* the plate at its shortest: the name row alone */
 .wb-plate.is-short, .wb-plate.is-tiny { gap: 0; padding: 6px 12px; }
@@ -124,6 +129,9 @@
 .wb-facts dt { color: var(--pui-text-muted); font-size: 12px; }
 .wb-facts dt, .wb-facts dd { margin: 0; min-width: 0; }
 .wb-facts-links { display: grid; gap: 2px; }
+.wb-running-list { display: grid; gap: 2px; min-width: 0; }      /* PAR-5: up to three running tasks, then "+N more" */
+.wb-running-item { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-running-more { font-size: 12px; }
 .wb-facts a { color: var(--wb-ink-theme); text-decoration: none; overflow-wrap: anywhere; }
 .wb-facts a:hover { text-decoration: underline; }
 .wb-sec { display: grid; gap: 6px; min-width: 0; outline: none; }

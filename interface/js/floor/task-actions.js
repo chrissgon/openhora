@@ -5,8 +5,12 @@
 // beside Retry (A-31), so the person does not retry the same stop. Every value is text.
 
 import { h } from "../dom.js";
+import { fingerprint, reader } from "../permissions.js";
 import { actionsFor, blockedNote } from "./tasks-model.js";
-import { errorText, notice, ring } from "./widgets.js";
+import { errorText, notice, ring, withheldLine } from "./widgets.js";
+
+// kind -> the operation the channel policy is asked about (js/permissions.js): Retry is `retry`, "Go ahead" and "Drop the after" are `go-ahead`.
+const OPERATION = Object.freeze({ retry: "retry", "go-ahead": "go-ahead", "drop-after": "go-ahead" });
 
 // kind -> [the button's word, its "-ing" word, the start of its accessible name]
 const WORDS = Object.freeze({
@@ -19,14 +23,17 @@ export const GO_AHEAD_EFFECT = "The task starts without waiting; it may stop for
 
 /**
  * Create the actions of a tab. env: {project, api: {retry, goAhead}, refresh() (read the page's data again), redraw() (the tab draws again),
- * done(id) (optional: an action succeeded, the tab drops what it held for the task)}.
- * Returns {nodes(task, {pending, links: {inbox(pendingId)}, locked}), failure(id), signature()}.
+ * done(id) (optional: an action succeeded, the tab drops what it held for the task), can(op, kind) (optional: whether the page may do an operation, read at
+ * every draw; all allowed when left out)}. A button the policy withholds is not drawn, `press` refuses it too, and a line under the remaining actions says
+ * which operations are turned off. Returns {nodes(task, {pending, links: {inbox(pendingId)}, locked}), failure(id), signature()}.
  */
 export function createTaskActions(env) {
+  const can = reader(env);
   const busy = new Set();       // "<kind>-<task id>" being sent
   const errors = new Map();     // task id -> the refusal's words
 
   async function press(kind, id) {
+    if (!can(OPERATION[kind])) return;      // a key or a stale button: the policy withholds it
     const key = `${kind}-${id}`;
     if (busy.has(key)) return;
     busy.add(key);
@@ -49,9 +56,14 @@ export function createTaskActions(env) {
     /** The action nodes of a task, in order, then the blocked sentence: [] when its state allows none. */
     nodes(task, { pending = [], links, locked = false } = {}) {
       const out = [];
+      const lacking = [];
       for (const action of actionsFor(task, pending)) {
         if (action.kind === "inbox") {
           out.push(h("a", { class: "pui-btn pui-surface pui-outline wb-small-button wb-task-inbox", href: links.inbox(action.pending), "data-key": `inbox-${task.id}`, text: "Open in the Inbox" }));
+          continue;
+        }
+        if (!can(OPERATION[action.kind])) {
+          if (!lacking.includes(OPERATION[action.kind])) lacking.push(OPERATION[action.kind]);
           continue;
         }
         const [word, doing, label] = WORDS[action.kind];
@@ -69,6 +81,7 @@ export function createTaskActions(env) {
       }
       const note = blockedNote(task);
       if (note && out.length) out.push(h("span", { class: "wb-task-note wb-muted wb-task-blocked-note", text: note }));
+      if (lacking.length) out.push(withheldLine(lacking));
       return out;
     },
     /** The refusal of the last action on the task, as a notice, or null. */
@@ -77,7 +90,7 @@ export function createTaskActions(env) {
     },
     /** What changes the nodes: a tab includes it in the signature of what it draws. */
     signature() {
-      return [[...busy], [...errors]];
+      return [[...busy], [...errors], fingerprint(can)];
     },
   };
 }

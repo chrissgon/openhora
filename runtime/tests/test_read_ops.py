@@ -1,5 +1,5 @@
 """Tests of the read operations of the local interface (stage 9, WP-9.3a): agents, conversation, skills, costs,
-connections, artifacts and artifact of runtime/ops.py, and the run-lock check of say, on the stand-in tree of
+connections, artifacts and artifact of runtime/ops.py, and the route-lock check of say, on the stand-in tree of
 standin_tree.py. Offline; invented names, invented prices, invented secrets.
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_read_ops.py
@@ -168,12 +168,12 @@ def test_a_second_turn_during_a_run_is_queued_on_the_page_and_stores_no_request(
     path = str(tree["project"])
     store, conn = stored(tree)
     cfg = ops.project_config.load(path)
-    with ops_core._run_lock(cfg):  # another run of the project holds the lock
+    with ops_core._route_lock(cfg):  # the router answers another request: it holds the route lock
         for line in ("Which market should the invented studio go after first?", "/new Another invented request."):
             kept = len(store.messages_list(conn, ops.CONVERSATION, limit=500))
             with pytest.raises(ops.OpsError) as raised:        # a shell that drains no queue is refused, as it always was
                 ops.say(path, line)
-            assert raised.value.code == 1 and "in progress" in str(raised.value)
+            assert raised.value.code == 1 and "answering another request" in str(raised.value)
             assert len(store.messages_list(conn, ops.CONVERSATION, limit=500)) == kept   # before anything is stored
             out = ops.say(path, line, channel="page")
             assert out["queued"] is True and out["reply"] is None and out["ran"] is False and out["request_id"] is None
@@ -438,7 +438,7 @@ def test_the_status_task_rows_carry_their_title_and_agent(tree):
     # The additions are the store's own columns and the derived waits (ops_waits.py): a task row carries nothing else
     # new, and a request row the request it runs after.
     assert set(row["tasks"][0]) == {"id", "key", "title", "agent", "skill", "state", "note", "on_board", "open_comments",
-                                    "waiting_for"}
+                                    "waiting_for", "holds_slot"}
     assert set(row) == {"id", "title", "flow", "state", "on_board", "open_comments", "after", "tasks", "routing"}   # R4-L1: routing, the router's run on the request or None
     # Without area agents the agent of a task planned now is None; the title is still there.
     without_area_agents(tree)

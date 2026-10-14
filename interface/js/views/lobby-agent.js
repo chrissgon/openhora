@@ -17,13 +17,13 @@ const MAX_TASK_READS = 40;     // P-6: with the Inbox open the planning agent's 
 export const NO_AGENT_TEXT = "This project has no agents in its configuration.";
 
 /**
- * Create the Agent tab. env: {project, now() (a Date), refresh() (read the screen's data again), changed() (a task was read)}.
+ * Create the Agent tab. env: {project, now() (a Date), refresh() (read the screen's data again), changed() (a task was read), can(op, kind) (optional, js/permissions.js)}.
  * Returns {el, update({snapshot, tab}) -> the Floor's model of the planning agent or null, bodies() -> {task id: body}, reload(), dispose()}.
  */
 export function createLobbyAgent(env) {
   const { project } = env;
   const tab = createAgentTab({
-    project, agent: fm.PLANNING, api: actions, refresh: env.refresh, now: env.now,
+    project, agent: fm.PLANNING, api: actions, refresh: env.refresh, now: env.now, can: env.can,
     links: { inbox: (id) => router.lobbyHash(project, "inbox", id) }, task: (id) => api.task(project, id),
   });
   const none = h("p", { class: "wb-empty-line wb-lobby-none", hidden: true, text: NO_AGENT_TEXT });

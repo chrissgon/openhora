@@ -1,15 +1,17 @@
 // The room of a floor in the round's style (R-21, R-23, R-23b, R-28, R-31, R-41, R-42, R-49): the same room in the City's building, in the Building's cutaway, on the Floor
 // and in the Lobby, because it is the same meshes. A room is the floor's slab, its floor (a tone that says what the agent does: a lit room is a soft warm tone), two back
 // walls (the left one pierced by two windows, or by one window and the Lobby's door) and, in them, the agent's three ways in: the owl, the task board with a note for each
-// task, and the one bookcase with a binder for each document (sixteen at most, M-7). The agent's desk and chair stand along the room's right edge. No tray, no table of sheets, no lamp, no roof; two plants stand by the windows (plants.js, drawn by the tower).
+// task, and the one bookcase with a binder for each document (sixteen at most, M-7). The workstations (a desk, a chair and an owl for each slot of the agent) stand in an L at the room's open
+// front corner (seats-layout.js, PAR-7); a floor that is off keeps its desks and has no owl. No tray, no table of sheets, no lamp, no roof; one plant stands by the windows (plants.js, drawn by the tower).
 // Everything static is baked into a few meshes in the tones of `roomTones` (kit.batch); the tower (tower.js) puts a room in each of its floors and closes the building round
 // them with the walls the City shows. No colour and no name is written here: the page's measures are in room-frame.js and furniture.js.
 
-import { BOARD_RIGHT, CASE_LEFT, DOOR, NOTE_CAPACITY, PLAQUE, SEAT, bindersShown, bookcase, chair, desk, door, taskBoard } from "./furniture.js";
+import { BOARD_RIGHT, CASE_LEFT, DOOR, NOTE_CAPACITY, PLAQUE, bindersShown, bookcase, chair, cornerTop, desk, door, taskBoard } from "./furniture.js";
 import { boxBrackets, planeBrackets } from "./marks.js";
 import { buildOwl, towardCamera } from "./owl-build.js";
 import { roomTones } from "./palette.js";
-import { owlScale, pageBatch, pageFrame } from "./room-frame.js";
+import { owlScale, pageBatch, pageFrame, seatBatch } from "./room-frame.js";
+import * as layout from "./seats-layout.js";
 
 export const W = 6.4;
 export const D = 4.8;
@@ -54,6 +56,16 @@ export function floorTone(tones, { accepted, state, window }) {
 export function owlPose({ accepted, state }) {
   if (!accepted || state === "off") return null;
   return state === "working" ? "working" : state === "waiting" ? "waiting" : state === "ready" ? "ready" : "idle";
+}
+
+/**
+ * The seats a room draws: the row's `seats` ([{seat, pose, taskId}]) when it carries them, else (a caller that passes none, such as an older test) one seat 0 with the pose the
+ * floor's state gives. The row's seats carry no pose for a floor that is off or not accepted: its desks stay and no owl is made.
+ */
+function seatsDrawn(f, accepted) {
+  if (Array.isArray(f.seats)) return f.seats;
+  const pose = owlPose({ accepted, state: f.state });
+  return pose ? [{ seat: 0, pose, taskId: null }] : [];
 }
 
 /** The glass of a window state: warm white while lit, the project's glass otherwise, the wall's own tone for a project that is not accepted. */
@@ -103,8 +115,8 @@ function windows(pb, glassPb, tones, glass, openings) {
 // --- the room --------------------------------------------------------------------------------------------------------------------------------
 
 /**
- * Draw the room of floor `f` into `parent` (a group at the floor's origin). f: {name, state, window, decisions, lobby, notes: ["done" | "run" | "left"], documents}.
- * ctx: {lot, accepted, motions}. Returns the parts a screen points at: {agent (the owl's group, or null), board, shelf, door (or null), marks: {room, agent, board, shelf, door}}
+ * Draw the room of floor `f` into `parent` (a group at the floor's origin). f: {name, state, window, decisions, lobby, notes: ["done" | "run" | "left"], documents, seats: [{seat, pose, taskId}]}.
+ * ctx: {lot, accepted, motions}. Returns the parts a screen points at: {agent (a group of every owl, or null), owls: [{seat, pose, group, marks (the brackets round that owl alone)}], pose (the pose of seat 0, or null), board, shelf, door (or null), marks: {room, agent, board, shelf, door}}
  * and the setters that change the room in place: setWindow(state), setNotes(list), setDocuments(n); `dispose()` frees the geometry and the materials the room made.
  */
 export function fillFloor(kit, parent, f, ctx) {
@@ -128,8 +140,14 @@ export function fillFloor(kit, parent, f, ctx) {
   const pb = make(still);
   const openings = shell(pb, tones, tone, Boolean(f.lobby));
   windows(pb, make(glassBatch), tones, glassOf(tones, accepted, f.window), openings);
-  desk(pb, tones);
-  chair(pb, tones);
+  // the workstations: a desk and a chair for each seat the floor was given, one desk for each place of the agent (a free one has its owl asleep, a stopped floor's has none), and the corner top where the two arms of the L meet
+  const seats = seatsDrawn(f, accepted);
+  for (const s of seats) {
+    const sb = seatBatch(pb, layout.seat(s.seat));
+    desk(sb, tones);
+    chair(sb, tones);
+  }
+  if (seats.some((s) => s.seat === 0) && seats.some((s) => s.seat === 1)) cornerTop(pb, tones);
   still.mesh(room, { cast: false });
   const glass = glassBatch.mesh(room, { cast: false });
 
@@ -185,23 +203,35 @@ export function fillFloor(kit, parent, f, ctx) {
   buildShelf();
   buildBoard();
 
-  // the owl, standing where the page puts it for its state
-  const pose = owlPose({ accepted, state: f.state });
-  let agent = null;
-  let agentMarks = null;
-  let owl = null;
-  if (pose) {
-    owl = buildOwl(kit, pose, { scale: owlScale(FRAME), mix: palette.mix, floorTone: tone, handLift: pose === "working" ? 0.5 : 0 });
-    agent = owl.group;
-    const [px, pz] = SEAT.owl[pose];
-    const lift = towardCamera(THREE).multiplyScalar(pose === "working" || pose === "ready" ? 0.7 : 0.3);
-    agent.position.set(FRAME.X(px), FRAME.Y(0.01), FRAME.Z(pz)).add(lift);
-    room.add(agent);
+  // the owls: one for each seat, at the seat (typing, awake, or asleep in the chair) or standing at the seat's own place (waiting), all the workstation's size
+  const owls = [];
+  const lift = (pose) => towardCamera(THREE).multiplyScalar((pose === "waiting" ? 0.3 : 0.7) * layout.S);
+  for (const s of seats) {
+    if (!s.pose || accepted === false) continue;      // a floor that is off or not accepted keeps its desks and shows no owl
+    const owl = buildOwl(kit, s.pose, { scale: owlScale(FRAME) * layout.S, mix: palette.mix, floorTone: tone, handLift: s.pose === "working" ? 0.5 : 0 });
+    const [px, pz] = layout.footAt(s.seat, s.pose);
+    owl.group.position.set(FRAME.X(px), FRAME.Y(0.01), FRAME.Z(pz)).add(lift(s.pose));
+    // an owl of the left arm looks at its screen: mirrored left to right, but not the sleeper, whose "zz" would read backwards
+    if (layout.seat(s.seat).turn === "swap" && s.pose !== "idle") owl.group.scale.x = -owl.group.scale.x;
     ctx.motions.push(owl.motion);
-    // one size round the owl for every pose, and a corner behind it is hidden by it
-    agentMarks = holder();
-    room.add(agentMarks);
-    agentMarks.add(boxBrackets(kit, make, { x0: px - 0.84, x1: px + 0.84, z0: pz - 0.84, z1: pz + 0.84, y0: 0, y1: 1.82, arm: 0.45, drop: 0.475, tone: tones.bracket }));
+    owls.push({ seat: s.seat, pose: s.pose, group: owl.group, x: px, z: pz, owl });
+  }
+  // each owl is a pick target of its own with its own brackets round it alone (PAR-7e); one group also holds every owl, with one set of brackets round them all, for a caller that gives the
+  // world no words for the owls (it then picks the group, so that one pick still opens the floor)
+  let agent = null;
+  let agentMarks = null;      // the brackets round all the owls: made when a caller asks for them (the world gives them to a hit only when it has no words for the owls), not before
+  const pad = 0.84 * layout.S;
+  const bracketsAround = (xs, zs) => {
+    const marks = holder();
+    room.add(marks);
+    marks.add(boxBrackets(kit, make, { x0: Math.min(...xs) - pad, x1: Math.max(...xs) + pad, z0: Math.min(...zs) - pad, z1: Math.max(...zs) + pad, y0: 0, y1: 1.82 * layout.S, arm: 0.45, drop: 0.475, tone: tones.bracket }));
+    return marks;
+  };
+  if (owls.length) {
+    agent = new THREE.Group();
+    room.add(agent);
+    for (const o of owls) agent.add(o.group);
+    for (const o of owls) o.marks = bracketsAround([o.x], [o.z]);
   }
 
   // the room's own brackets (R-28): round its base and at the top of its walls
@@ -215,8 +245,9 @@ export function fillFloor(kit, parent, f, ctx) {
     attribute.needsUpdate = true;
   };
   return {
-    agent, board, shelf, door: doorGroup, pose, motion: owl ? owl.motion : null,
-    marks: { room: roomMarks, agent: agentMarks, board: boardMarks, shelf: shelfMarks, door: doorMarks },
+    agent, board, shelf, door: doorGroup, pose: owls.length ? owls[0].pose : null, motion: owls.length ? owls[0].owl.motion : null,
+    owls: owls.map(({ seat, pose, group, marks }) => ({ seat, pose, group, marks })),
+    marks: { room: roomMarks, get agent() { if (!agentMarks && owls.length) agentMarks = bracketsAround(owls.map((o) => o.x), owls.map((o) => o.z)); return agentMarks; }, board: boardMarks, shelf: shelfMarks, door: doorMarks },
     get notesShown() { return state.shown; },
     /** How many binders the bookcase shows (M-7: one bookcase, sixteen at most). */
     get binders() { return bindersShown(state.documents); },
@@ -236,7 +267,7 @@ export function fillFloor(kit, parent, f, ctx) {
     capacity: () => NOTE_CAPACITY,
     /** Free the geometry and the materials the room made, and take it out of its floor. */
     dispose() {
-      if (owl) owl.dispose();
+      for (const o of owls) o.owl.dispose();
       room.traverse((node) => { if (node.geometry) kit.release(node.geometry); });
       parent.remove(room);
     },

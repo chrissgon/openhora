@@ -15,13 +15,13 @@ import { pointerLine } from "./lobby-request.js";
 export const ONLY_POINTERS_TEXT = "Nothing else waits for you here.";
 
 /**
- * Create the Lobby's Inbox. env: {project, now(), refresh() (read the screen's data again)}. Returns {el, update({cards, pointers,
+ * Create the Lobby's Inbox. env: {project, now(), refresh() (read the screen's data again), can(op, kind) (optional, js/permissions.js)}. Returns {el, update({cards, pointers,
  * requests, resolved, selected, loading}), busy(), reset()}; cards and pointers come from lobby-model.js `inboxParts`.
  */
 export function createLobbyInbox(env) {
   const { project } = env;
   const inbox = createInbox({
-    project, now: env.now, api: actions, refresh: env.refresh,
+    project, now: env.now, api: actions, refresh: env.refresh, can: env.can,
     links: {
       // the planning agent's own tasks and every decision on a request belong to the Lobby; another agent has a floor
       floor: (agent) => (agent === PLANNING ? router.lobbyHash(project) : router.floorHash(project, agent)),

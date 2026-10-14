@@ -32,8 +32,8 @@ class OpsError(Exception):
         self.code = code
 def poll(project):
     return {"job": "poll", "project": project, "first_on_path": os.environ["PATH"].split(os.pathsep)[0]}
-def dispatch(project):
-    return {"job": "work", "project": project}
+def dispatch(project, wait=False):
+    return {"job": "work", "project": project, "wait": wait}
 '''
 STANDIN_LAB = '''def reference(tier="strong"):
     return {"tier": tier, "model": "m"}

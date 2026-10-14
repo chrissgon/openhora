@@ -127,7 +127,7 @@ def test_the_store_gives_the_waiting_task_to_no_run_and_the_dispatcher_does_not_
     brand = requested(tree, "wk-brand")
     system = requested(tree, "wk-design")["tasks"][0]["id"]
     ctx = ops_core.context(path_of(tree))
-    assert ctx["store"].task_peek_next(ctx["conn"])["task"]["id"] == by_key(brand)["identity"]["id"]
+    assert ctx["conn"].execute(ctx["store"].NEXT_READY_TASK).fetchone()["id"] == by_key(brand)["identity"]["id"]
     snapshot = ops._snapshot(ctx, {})
     assert system not in [t["id"] for t in snapshot["ready"]]
     assert system not in [h["task_id"] for h in ops.status(path_of(tree))["held"]]  # it is waiting, not held ready
@@ -525,5 +525,5 @@ def test_a_retried_task_begins_with_its_waits_and_run_next_says_who_waits_for_wh
     assert row(tree, system)["state"] == "failed"
     out = ops.retry(path_of(tree), system)
     assert out["state"] == "planned" and [w["task_id"] for w in row(tree, system)["waiting_for"]] == [by_key(brand)["identity"]["id"]]
-    claimed = ops._claim_and_run(ops_core.context(path_of(tree)), None, system)
+    claimed = st.load("ops_runs").run_task(path_of(tree), system)
     assert claimed["ran"] is None and claimed["reason"].startswith(f"task {system} is waiting: docs/brand/identity.md")

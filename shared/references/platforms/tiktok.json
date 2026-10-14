@@ -1,0 +1,53 @@
+{
+ "platform": "tiktok",
+ "hosts": ["www.tiktok.com"],
+ "post": {
+  "shape": "video_with_caption",
+  "formats": ["video"],
+  "requires_text": false,
+  "max_characters": 2200,
+  "max_hashtags": null,
+  "max_mentions": null,
+  "unit": "utf-16",
+  "scheduling": false,
+  "first_comment": null,
+  "url": null,
+  "options": {
+   "privacy_level": {"type": "choice", "values": ["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "SELF_ONLY"], "default": null, "when_unset": "refuse", "set_by": "person"}
+  }
+ },
+ "media": {
+  "max_count": 1,
+  "max_bytes": 4000000000,
+  "types": [
+   {"name": "mp4", "extensions": [".mp4"], "magic_hex": ["66747970"], "magic_offset": 4},
+   {"name": "mov", "extensions": [".mov"], "magic_hex": ["6674797071742020"], "magic_offset": 4},
+   {"name": "webm", "extensions": [".webm"], "magic_hex": ["1a45dfa3"], "magic_offset": 0}
+  ]
+ },
+ "video": {
+  "containers": ["mp4", "mov", "webm"],
+  "codecs": ["h264", "h265", "vp8", "vp9"],
+  "audio_codecs": null,
+  "fps_min": 23,
+  "fps_max": 60,
+  "max_width": 4096,
+  "min_side": 360,
+  "max_side": 4096,
+  "min_seconds": null,
+  "max_seconds": 600,
+  "max_bytes": 4000000000,
+  "aspect": {"recommended": null, "min": null, "max": null},
+  "faststart": null
+ },
+ "limits": {
+  "posts_per_24h": [15],
+  "approximate": true,
+  "pending_shares_per_24h": 5,
+  "unaudited_users_per_24h": 5
+ },
+ "reply": null,
+ "comment": null,
+ "identifiers": null,
+ "notification_email": null
+}

@@ -8,12 +8,12 @@
       "acting_mode": "supervised",
       "max_runs_per_day": 12,
       "max_usd_per_day": 5,
-      "runs_today": 2,
+      "runs_today": 3,
       "usd_today": 0.0,
       "runs_without_cost": 0,
       "usd_recorded": 0.0,
       "usd_reserved": 0.0,
-      "runs_total_today": 2,
+      "runs_total_today": 3,
       "billing": {
         "runs": [
           "subscription",
@@ -27,6 +27,12 @@
         "runs": true,
         "spend": true
       },
+      "max_parallel": 1,
+      "max_parallel_ceiling": 4,
+      "holders": [
+        12
+      ],
+      "slots_held": 1,
       "queued": 0,
       "held": 0,
       "wider": [
@@ -71,6 +77,10 @@
         "runs": true,
         "spend": true
       },
+      "max_parallel": 1,
+      "max_parallel_ceiling": 4,
+      "holders": [],
+      "slots_held": 0,
       "queued": 0,
       "held": 0,
       "wider": [
@@ -96,12 +106,12 @@
       "acting_mode": "milestones",
       "max_runs_per_day": 8,
       "max_usd_per_day": 4,
-      "runs_today": 0,
+      "runs_today": 2,
       "usd_today": 0.0,
       "runs_without_cost": 0,
       "usd_recorded": 0.0,
       "usd_reserved": 0.0,
-      "runs_total_today": 0,
+      "runs_total_today": 2,
       "billing": {
         "runs": [
           "subscription",
@@ -115,6 +125,12 @@
         "runs": true,
         "spend": true
       },
+      "max_parallel": 1,
+      "max_parallel_ceiling": 4,
+      "holders": [
+        8
+      ],
+      "slots_held": 1,
       "queued": 0,
       "held": 0,
       "wider": [
@@ -129,8 +145,8 @@
       ]
     },
     {
-      "name": "marketing",
-      "pack": "marketing",
+      "name": "content",
+      "pack": "content",
       "enabled": true,
       "mode": "supervised",
       "acting_mode": "supervised",
@@ -155,20 +171,24 @@
         "runs": true,
         "spend": true
       },
+      "max_parallel": 1,
+      "max_parallel_ceiling": 4,
+      "holders": [],
+      "slots_held": 0,
       "queued": 0,
       "held": 0,
       "wider": [
         {
           "mode": "milestones",
-          "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent marketing --mode milestones --accept"
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent content --mode milestones --accept"
         },
         {
           "mode": "autonomous",
-          "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent marketing --mode autonomous --accept"
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent content --mode autonomous --accept"
         },
         {
           "mode": "autonomous-with-policy",
-          "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent marketing --mode autonomous-with-policy --accept"
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent content --mode autonomous-with-policy --accept"
         }
       ]
     }

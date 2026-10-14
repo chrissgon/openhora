@@ -1,10 +1,10 @@
 // What the City shows, worked out from what the service returned: pure functions with no document and no network, so
 // they run under a test. The inputs are the bodies of the service's reads, kept in one snapshot:
-//   projects  the `projects` list: [{id, name, config: {accepted}, message?, open_pending?, running_task?}]
+//   projects  the `projects` list: [{id, name, config: {accepted}, message?, open_pending?, running_task?, running_tasks?}]
 //   details   {[projectId]: {status, agents}}: the `status` body (its task rows carry `title` and `agent`, its pending
 //             decisions carry `agent`) and the `agents` array of an accepted project
-//   tasks     {["<projectId>:<taskId>"]: the `task` body {task, runs, pending}}: only the running task of the followed
-//             project's open request, for the time its run started (`status` has no run)
+//   tasks     {["<projectId>:<taskId>"]: the `task` body {task, runs, pending}}: only the running tasks of the followed
+//             project (at most six), for the time their runs started (`status` has no run)
 // Nothing is decided here: a count is a count of what came, a state is the service's own word. A decision on a request
 // (a plan, a router question) and a request itself have no agent: they belong to the planning agent, the Lobby.
 
@@ -47,14 +47,16 @@ function rowsOf(status) {
   return out;
 }
 
-/** The reason the dispatcher gives a ready task that only waits its turn behind the one run at a time: it is queued, not held (M-24). */
-export const TURN_REASON = "job running";
+/**
+ * The reasons the dispatcher gives a ready task that only waits its turn (runtime/parallel.py): every slot of its floor is held, the project runs as many tasks as it
+ * allows, another running task writes the same document, a code task of its request runs, or its start failed a moment ago. It is queued, not held (M-24).
+ */
+export const TURN_REASONS = Object.freeze(["agent at max_parallel", "project at max_running", "artifact in use", "a code task of the request runs", "could not start, tried again shortly"]);
 
 /**
  * How many ready tasks of an agent wait their turn and are free to start (M-24, A-65): the agent's `queued` (its ready tasks) less what the page can tell keeps them from starting: the
- * tasks the last round held for a reason of its own (`status.held`, not `TURN_REASON`; the agent's own `held` count when the status lists none), the ready tasks that have an open wait
- * (the status rows), and all of them while the agent is at a daily cap in use (runs or spend, by its billing as the meters read it). The limit: while a run is in progress the dispatcher
- * reports every ready task as `TURN_REASON`, so a hold of another kind is known after the run, not during it. Never under zero.
+ * tasks the last round held for a reason of its own (`status.held`, not one of `TURN_REASONS`; the agent's own `held` count when the status lists none), the ready tasks that have an
+ * open wait (the status rows), and all of them while the agent is at a daily cap in use (runs or spend, by its billing as the meters read it). Never under zero.
  */
 export function queuedFree(agent, status) {
   const name = (agent && agent.name) || "planning";
@@ -64,7 +66,7 @@ export function queuedFree(agent, status) {
   if ((use.runs && runsCap > 0 && format.count(agent.runs_today) >= runsCap) || (use.spend && usdCap > 0 && format.count(agent.usd_today) >= usdCap)) return 0;
   const queued = format.count(agent && agent.queued);
   const listed = status && Array.isArray(status.held);
-  const heldOwn = listed ? status.held.filter((h) => (h.agent || "planning") === name && h.reason !== TURN_REASON) : [];
+  const heldOwn = listed ? status.held.filter((h) => (h.agent || "planning") === name && !TURN_REASONS.includes(h.reason)) : [];
   const own = listed ? heldOwn.length : format.count(agent && agent.held);
   const heldIds = new Set(heldOwn.map((h) => h.task_id));
   const waiting = rowsOf(status).filter((r) => !r.request && r.state === "ready" && (r.agent || "planning") === name && !heldIds.has(r.id) && waitsOf(r).length > 0).length;
@@ -72,8 +74,8 @@ export function queuedFree(agent, status) {
 }
 
 /**
- * The request a run of the planning agent's router holds now (A-51): the request row of a status body whose `routing` is set, or null. One run at a
- * time per project, so at most one. A request that is routed holds no task, so no task of the status is running while it is. A reroute of a
+ * The request a run of the planning agent's router holds now (A-51): the request row of a status body whose `routing` is set, or null. One router run at a
+ * time per project, so at most one; tasks of the project run beside it (it takes no slot). A reroute of a
  * delivery holds a planned or done request: the search takes every request, final or not.
  */
 export function routingRequest(status) {
@@ -138,14 +140,20 @@ export function resetRequestChoices() {
   choices.clear();
 }
 
-/** The tasks whose `task` body the page needs: {project, id, state}. Only the running task of the followed project's shown request (its run's start time). */
+export const MAX_NOW = 3;         // the most "Now" cards of the tracking bar and tasks of "Running now" (then "+N more")
+export const MAX_NEEDED = 6;      // the most running tasks whose `task` body is read for the followed project (the oldest)
+
+/** The running tasks of a status body over every request, oldest first (lowest number first): [{id, title, agent, state, requestId}]. */
+export function runningTasks(status) {
+  return rowsOf(status).filter((r) => !r.request && r.state === "running").sort((a, b) => a.id - b.id);
+}
+
+/** The tasks whose `task` body the page needs: {project, id, state}. The running tasks of the followed project (their runs' start times), at most six, the oldest. */
 export function neededTasks(projects, details, followed) {
   const wanted = [];
   for (const p of projects) {
     if (p.id !== followed) continue;
-    const request = pickRequest(details[p.id] && details[p.id].status, requestChoice(p.id));
-    const running = request && (request.tasks || []).find((t) => t.state === "running");
-    if (running) wanted.push({ project: p.id, id: running.id, state: running.state });
+    for (const t of runningTasks(details[p.id] && details[p.id].status).slice(0, MAX_NEEDED)) wanted.push({ project: p.id, id: t.id, state: t.state });
   }
   return wanted;
 }
@@ -177,6 +185,12 @@ export function heldCount(status) {
   return status && Array.isArray(status.held) ? status.held.length : 0;
 }
 
+/** The numbers of the tasks a project lists as running, lowest first: `running_tasks`, else (an older service) the one `running_task`. */
+export function runningIds(project) {
+  if (project && Array.isArray(project.running_tasks)) return project.running_tasks.filter(Number.isInteger).sort((a, b) => a - b);
+  return project && Number.isInteger(project.running_task) ? [project.running_task] : [];
+}
+
 /** One building of the City from a project, its status, its agents and the loaded tasks. */
 export function buildingOf(project, detail) {
   const { accepted, kept } = acceptance(project, detail);
@@ -196,17 +210,22 @@ export function buildingOf(project, detail) {
     const active = a.enabled !== false && a.acting_mode !== "stopped";   // a stopped or disabled agent is off, whatever it asked (`floor-model.stateOf` says the same)
     // M-24: a queued task that is not held also lights the window (the agent is ready); the same count the floors make (`queuedFree` above)
     const ready = active && queuedFree(a, status) > 0;
-    const window = windowState(accepted && Boolean(a.name) && (running.has(a.name) || ((waits.has(a.name) || ready) && active)));
+    // PAR-7e 12.1: a holder of a slot that is running, waiting or ready has an awake owl, which lights the floor
+    const awake = active && rowsOf(status).some((t) => !t.request && (t.agent || "planning") === a.name && t.holds_slot && (t.state === "running" || t.state === "waiting" || t.state === "ready"));
+    const window = windowState(accepted && Boolean(a.name) && (running.has(a.name) || awake || ((waits.has(a.name) || ready) && active)));
     return { agent: a.name, window, waits: shown && (a.name ? waits.has(a.name) : decided.length > 0) };
   });
   const open = !shown ? 0 : status ? decided.length : format.count(project.open_pending);
-  const runningTask = shown && project.running_task !== null && project.running_task !== undefined ? project.running_task : null;
+  const runningTasks = shown ? runningIds(project) : [];
+  const runningTask = runningTasks.length ? runningTasks[0] : null;      // the oldest: the scene reads this one (a lot is busy, or not)
   const routing = shown && Number.isInteger(project.routing_request) ? project.routing_request : null;      // A-51: the request a router run holds
-  return { id: project.id, name: project.name, accepted, kept, floors, decisions: open, runningTask, routing, held: shown ? heldCount(status) : 0, message: project.message || "" };
+  return { id: project.id, name: project.name, accepted, kept, floors, decisions: open, runningTask, runningTasks, routing, held: shown ? heldCount(status) : 0, message: project.message || "" };
 }
 
-/** What runs in a building: "task #5 running", "routing request #2" (the router's run, A-51) or "no task running". */
+/** What runs in a building: "task #5 running", "3 tasks running", "routing request #2" (the router's run, A-51) or "no task running". */
 function runWords(building) {
+  const count = Array.isArray(building.runningTasks) ? building.runningTasks.length : (building.runningTask !== null ? 1 : 0);
+  if (count > 1) return `${count} tasks running`;
   if (building.runningTask !== null) return `task #${building.runningTask} running`;
   return building.routing !== null && building.routing !== undefined ? `routing request #${building.routing}` : "no task running";
 }
@@ -316,37 +335,46 @@ export function tracking(snapshot, projectId, now) {
       name: `${title}, ${word ? `${word}, ` : ""}${t.state}${waitingLabel(t) ? `, ${waitingLabel(t)}` : ""}`,
     };
   });
-  const current = steps.find((s) => s.state === "running") || steps.find((s) => s.state === "waiting") || null;
-  let nowCard = null;
-  if (current && !(request.routing && current.state !== "running")) {      // a router run on the request wins over a step that only waits (a delivery routed again)
+  // The "Now" cards: one for each running task of the request (the oldest first, at most MAX_NOW), then the router's run on the request when one holds it (it runs beside the tasks); a
+  // request with no running task shows the step that waits for the person, else nothing. `now` stays the first card.
+  const runningSteps = steps.filter((s) => s.state === "running").sort((a, b) => a.id - b.id);
+  const cardOf = (current) => {
     const body = snapshot.tasks[taskKey(project.id, current.id)];
     const floor = current.agent ? floorNumber(ordered, current.agent) : null;
     const running = current.state === "running";
     const runs = (body && Array.isArray(body.runs)) ? body.runs : [];
     const lasted = runs.length ? format.runningFor(runs[runs.length - 1].started_at, now) : "";
     const open = (detail.status.pending || []).filter((p) => p.task_id === current.id).length;
-    nowCard = {
+    return {
       where: `${running ? "Now on" : "Waiting on"}${floor === null ? "" : ` floor ${floor}`}${current.agent ? ` · ${current.agent === "planning" ? "lobby" : current.agent}` : ""}`,
       title: current.title, state: running ? "Running" : "Waiting for you", running,
       sub: `task #${current.id}${running ? (lasted ? ` · ${lasted}` : "") : ` · ${format.decisions(open)}`}`,
       link: current.link,
     };
-  } else if (request.routing) {
-    // A-51: the router works on the request: no task runs, the run row is the one record of it
+  };
+  const routerCard = () => {
+    // A-51: the router works on the request: the run row is the one record of it
     const floor = floorNumber(ordered, "planning");
     const lasted = format.runningFor(request.routing.started_at, now);
-    nowCard = {
+    return {
       where: `Now on${floor === null ? "" : ` floor ${floor}`} · lobby`, title: routingWords(request), state: "Running", running: true,
       sub: lasted || "just started", link: router.requestHash(project.id, request.id),
     };
+  };
+  const nows = runningSteps.slice(0, MAX_NOW).map(cardOf);
+  if (request.routing && nows.length < MAX_NOW) nows.push(routerCard());
+  else if (!nows.length) {
+    const waiting = steps.find((s) => s.state === "waiting") || null;      // a router run on the request wins over a step that only waits (a delivery routed again)
+    if (waiting) nows.push(cardOf(waiting));
   }
+  const nowMore = Math.max(0, runningSteps.length - MAX_NOW);
   const others = openRequests(detail.status).map((r) => ({
     id: r.id, title: r.title || `Request ${r.id}`, state: r.state, running: (r.tasks || []).some((t) => t.state === "running") || Boolean(r.routing), selected: r.id === request.id,
   }));
   return {
     request: { id: request.id, title: request.title || "", state: request.state, project: project.name, projectId: project.id },
     requests: others,
-    steps, doneCount: tasks.filter((t) => t.state === "done").length, total: tasks.length, now: nowCard,
+    steps, doneCount: tasks.filter((t) => t.state === "done").length, total: tasks.length, now: nows.length ? nows[0] : null, nows, nowMore,
   };
 }
 

@@ -392,6 +392,11 @@ a.wb-kpi:focus-visible { outline: 2px solid var(--pui-theme); outline-offset: 2p
 a.wb-now-title:hover { text-decoration: underline; }
 .wb-now-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .wb-now-sub { color: var(--pui-text-muted); font-size: 12px; }
+/* PAR-5: several running tasks: the cards stack in the one column, a rule between them, then "+N more" */
+.wb-nows { display: grid; align-content: center; min-width: 0; border-left: var(--pui-border-width) solid var(--pui-border); background-color: var(--wb-ground); }
+.wb-nows > .wb-now { gap: 2px; padding: 6px 16px; border-left: 0; }
+.wb-nows > .wb-now + .wb-now { border-top: var(--pui-border-width) solid var(--pui-border); }
+.wb-now-more { padding: 2px 16px 6px; color: var(--pui-text-muted); font-size: 12px; }
 
 /* --- tablet width: the 1280 arrangement, scaled; the specification's tablet layout was not drawn (OPEN-12). Round 4 does not draw it either (R4D-6): the frame keeps its
    places and the parts take the narrower widths. From 900 px up only: up to 899 px the page is the phone's (M-3). -------------------------------------------------------------- */

@@ -17,6 +17,12 @@ spec = importlib.util.spec_from_file_location("store_sqlite_billing", SCRIPT)
 store = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(store)
 
+
+def claim_oldest(conn):
+    """Claim the oldest ready task, as the first claim of a database once did, with the store's own query and task_claim."""
+    row = conn.execute(store.NEXT_READY_TASK).fetchone()
+    return store.task_claim(conn, row["id"]) if row else {"task": None}
+
 WORDS = ("subscription", "metered", "free", "unknown")
 PLAN = [{"key": "market", "skill": "biz-market-analysis", "title": "Market", "text": "Do the market analysis."}]
 
@@ -30,7 +36,7 @@ def conn(tmp_path):
 
 def claimed(conn):
     store.request_add(conn, title="Request", text="Invented request.", flow="demo", tasks=PLAN)
-    return store.task_claim_next(conn)["task"]
+    return claim_oldest(conn)["task"]
 
 
 def test_migration_9_adds_the_billing_column_and_a_database_made_today_has_it(tmp_path):

@@ -17,7 +17,7 @@ ops_core = st.load("ops_core")
 ROOT = str(st.REPO)
 BUSINESS = ["biz-icp-positioning", "biz-market-analysis"]
 REQUEST = {"id": 4, "title": "Which market first", "text": "Tell me which market to go after first."}
-LIMITS = {"one_task_at_a_time": True, "timeout_seconds": 1800, "retries": 2}
+LIMITS = {"max_running": 3, "timeout_seconds": 1800, "retries": 2}
 
 
 def market_plan() -> list:

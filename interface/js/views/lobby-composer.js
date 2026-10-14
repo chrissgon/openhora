@@ -1,25 +1,28 @@
 // The composer at the bottom of the Lobby's conversation: the message field, "Send" (the region's one solid button), "New request" beside it (R-44), the
-// hint, the busy line while a turn runs, the line that says a run is in progress (A-23: Send stays on; a plain line is stored and routed when the run ends, a
+// hint, the busy line while a turn runs, the line that says what runs (A-23: Send stays on; while the router answers a request a plain line is stored and routed when it ends, while tasks run it is routed at once; a
 // question about the state is answered now) and the notice when a turn was not sent or failed (R-11: the soft error style). Typing "/" opens the list of the
 // commands over the field (R-45): one row for each command the service gave, narrowing as the person types; the arrows move, Enter or Tab fills the field,
 // Escape closes the list and only the list. It holds no rule: it reports the text the person typed (Enter sends, Shift+Enter makes a new line) and draws
 // the state it is given. A line that starts with "/" is sent unchanged; the page builds no prompt.
 
-import { h } from "../dom.js";
+import { fill, h } from "../dom.js";
 import { icon } from "../frame/icons.js";
+import { withheldLine } from "../floor/widgets.js";
 import * as router from "../router.js";
 import { HINT, RUN_LINE, SENDING_TEXT, commandFill, commandMatches } from "./lobby-model.js";
 
 const LIST_ID = "wb-say-cmds";
 
-/** Create the composer. options: {onSend(text), onNew()}. Returns {el, set(state), focus(), text(), clear(), setCommands(rows)}. */
+/**
+ * Create the composer. options: {onSend(text), onNew()}. Returns {el, set(state), focus(), text(), clear(), setCommands(rows)}. */
 export function createComposer({ onSend, onNew = () => {} }) {
   const busy = h("div", { class: "wb-lobby-busy wb-comp-line", role: "status", "aria-busy": "true", hidden: true }, h("span", { class: "wb-lobby-ring", "aria-hidden": "true" }), h("span", { text: SENDING_TEXT }));
   const noticeTitle = h("strong", { class: "wb-lobby-notice-title", text: "" });
   const noticeText = h("span", { text: "" });
   const notice = h("div", { class: "wb-lobby-notice-card notice pui-soft pui-error wb-comp-line", role: "alert", hidden: true }, noticeTitle, noticeText);
   const runLink = h("a", { class: "pui-link pui-theme wb-lobby-run-link", href: router.cityHash(), hidden: true, text: "" });
-  const runLine = h("p", { class: "wb-lobby-run wb-comp-line", id: "wb-say-run", role: "status", hidden: true }, h("span", { text: RUN_LINE }), " ", runLink);
+  const lineText = h("span", { text: RUN_LINE });
+  const runLine = h("p", { class: "wb-lobby-run wb-comp-line", id: "wb-say-run", role: "status", hidden: true }, lineText, " ", runLink);
   const field = h("textarea", {
     class: "pui-input wb-lobby-field wb-field-input wb-comp-field", id: "wb-say", rows: "1", placeholder: "Describe what you want done", autocomplete: "off",
     role: "combobox", "aria-autocomplete": "list", "aria-controls": LIST_ID, "aria-expanded": "false",
@@ -34,7 +37,11 @@ export function createComposer({ onSend, onNew = () => {} }) {
   const form = h("form", { class: "wb-composer" }, list, field, button, newButton);
   const hint = h("small", { class: "wb-lobby-hint wb-card-hint", id: "wb-say-hint", text: HINT });
   field.setAttribute("aria-describedby", "wb-say-hint");
-  const el = h("div", { class: "wb-composer-wrap" }, busy, runLine, notice, label, form, hint);
+  const offLine = h("div");      // the line under the controls the page's policy withholds (js/permissions.js)
+  const el = h("div", { class: "wb-composer-wrap" }, busy, runLine, notice, label, form, hint, offLine);
+  let mayTalk = true;        // `say`: when it is off the field is read-only and Send is not drawn
+  let offShown = "";
+  let mayRequest = true;     // `request`: when it is off "New request" is not drawn
   let sending = false;
   let blocked = false;       // the project is not accepted
   let commands = [];         // the rows the service gave: {command, arguments, help}
@@ -58,7 +65,7 @@ export function createComposer({ onSend, onNew = () => {} }) {
 
   /** Draw the list for what the field holds now: open when it is one word starting with `/` that some command starts with. */
   function refresh() {
-    const next = closed || sending || blocked ? [] : commandMatches(commands, field.value);
+    const next = closed || sending || blocked || !mayTalk ? [] : commandMatches(commands, field.value);
     const same = next.length === shown.length && next.every((r, i) => r === shown[i]);
     shown = next;
     if (!same) {
@@ -100,14 +107,14 @@ export function createComposer({ onSend, onNew = () => {} }) {
   }
 
   function submit() {
-    if (sending || field.disabled) return;
+    if (sending || field.disabled || !mayTalk) return;      // Enter in the field comes here too
     onSend(field.value);
   }
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     submit();
   });
-  newButton.addEventListener("click", () => onNew());
+  newButton.addEventListener("click", () => { if (mayRequest) onNew(); });
   field.addEventListener("input", () => {
     closed = false;
     refresh();
@@ -146,12 +153,16 @@ export function createComposer({ onSend, onNew = () => {} }) {
   return {
     el,
     /**
-     * state: {sending, notice: {title, text} | null, disabled: bool (the project is not accepted), running: {text, href} | null (a run is in progress:
-     * the task it names and where to read it; the line shows, Send stays on)}.
+     * state: {sending, notice: {title, text} | null, disabled: bool (the project is not accepted), running: {text, href, line} | null (a router run or
+     * running tasks: what they are, where to read it and the sentence about the person's line; the line shows, Send stays on),
+     * say: bool (the page may talk to the planning agent), request: bool (the page may make a request); a key left out keeps its last value, and both start true}.
      */
-    set({ sending: on, notice: shownNotice, disabled, running = null }) {
+    set({ sending: on, notice: shownNotice, disabled, running = null, say, request }) {
+      if (say !== undefined) mayTalk = Boolean(say);
+      if (request !== undefined) mayRequest = Boolean(request);
       runLine.hidden = !running || Boolean(disabled);
-      runLine.title = running && running.text ? `${RUN_LINE} ${running.text}` : "";      // on a phone the line is one line cut by an ellipsis: the title holds all of it
+      lineText.textContent = running && running.line ? running.line : RUN_LINE;
+      runLine.title = running && running.text ? `${lineText.textContent} ${running.text}` : "";      // on a phone the line is one line cut by an ellipsis: the title holds all of it
       runLink.hidden = !running || !running.text;
       runLink.textContent = running && running.text ? running.text : "";
       if (running && running.href) runLink.setAttribute("href", running.href);
@@ -162,6 +173,17 @@ export function createComposer({ onSend, onNew = () => {} }) {
       field.disabled = sending || blocked;
       button.disabled = sending || blocked;
       newButton.disabled = sending || blocked;
+      field.readOnly = !mayTalk;
+      if (!mayTalk) field.setAttribute("aria-readonly", "true");
+      else field.removeAttribute("aria-readonly");
+      button.hidden = !mayTalk;
+      hint.hidden = !mayTalk;
+      newButton.hidden = !mayRequest;
+      const off = [...(mayTalk ? [] : ["say"]), ...(mayRequest ? [] : ["request"])];
+      if (off.join() !== offShown) {      // drawn again only when the words change
+        offShown = off.join();
+        fill(offLine, withheldLine(off));
+      }
       if (sending) button.setAttribute("aria-busy", "true");
       else button.removeAttribute("aria-busy");
       sendIcon.hidden = sending;

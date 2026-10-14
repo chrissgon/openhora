@@ -19,9 +19,19 @@ Reads. The bridge reads `pending` itself, outside the policy's `read` group, to 
 the card the person saw; `read` only decides what a person may ask for (/pending, `status`, and the like), and a policy
 without it also switches the notices off.
 
+Skip and re-check. A project whose configuration is not accepted, or that lists no sender for the platform, is skipped, not
+a reason to stop: the bridge says why in one log line when the project's state changes, looks again every notice period
+(`recheck`, at the start of each tick), and serves the project from its accepted file the moment it is ready. With every
+project skipped it keeps running.
+
 Notices. Each tick, per project, every open decision gets one card per listed sender, once per content (the ledger,
 runtime/messaging_ledger.py). A changed plan, or any decision whose content hash changed, gets a new card. At most 10
 cards per project and tick; the rest are announced in one line.
+
+Deferred. A provider whose platform lets a business write first only inside a window (the official WhatsApp API) answers a send
+`ok: false, kind: "deferred"`. That is not an error: the card is not recorded in the ledger, so it is tried again at the next
+notice period and at once when the person writes (the chat is remembered), and the bridge logs one line for a card and a chat
+at most every 24 hours, never every tick.
 
 Approvals. A tap or /approve is bound to the card the person saw. A plan is approved with the hash the ledger recorded
 (ops.approve refuses a plan that changed). An acceptance has no hash, so the bridge compares the decision's text now with
@@ -45,6 +55,7 @@ import shell_kit
 CHANNEL = "messaging"
 CARDS_PER_TICK = 10
 POLL_SECONDS = 25
+DEFERRED_LOG_EVERY = 86400.0   # seconds between two log lines about one deferred card
 RETRY_SECONDS = 5
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DROPPED = "dropped an update from an unlisted sender"
@@ -52,8 +63,11 @@ STALE = "This button is no longer valid. Send /pending."
 NO_CARD = "Send /pending first, so you see what you approve."
 CHANGED = "This decision changed since you saw it."
 STILL_WORKING = "Still working on the last message."
-RUN_BUSY = "A run is in progress. Send it again when it ends."
+RUN_BUSY = "The planning agent is answering another request. Send it again in a moment."
 NOT_ACCEPTED = "This project's configuration is not accepted: run accept-config in the terminal."
+NOT_ACCEPTED_WHY = "its configuration is not accepted (run accept-config in the terminal)"
+NO_SENDER_WHY = "runtime.json messaging.senders.{platform} lists no sender"
+UNREADABLE_WHY = "its configuration cannot be read"
 EFFECT_REPLY = "An effect is approved on the page or in the terminal, with its hash:"
 
 
@@ -71,8 +85,12 @@ class Bridge(shell_kit.Jobs):
         self.messenger, self.ledger, self.platform = messenger, ledger, platform
         self.clock = clock or shell_kit.now
         self.chosen = {}       # sender -> project id
-        self.more = {}         # project id -> the number last announced as waiting
+        self.more = {}         # (project id, chat) -> the number last announced as waiting to that chat (set once the line went out)
         self.policy_noted = set()
+        self.everyone = list(self.projects)   # every project given; `self.projects` is the part that is ready to serve
+        self.skipped = {}                     # project id -> why it is skipped now (absent: served)
+        self.deferred = {}                    # (project id, pending id, chat) -> when it was last logged as deferred
+        self.deferred_chats = set()           # chats with a card kept for later: an update from one asks for a notice at once
 
     # --- the projects and their settings ---------------------------------------------------------------------
 
@@ -85,6 +103,27 @@ class Bridge(shell_kit.Jobs):
         return {"senders": list((messaging.get("senders") or {}).get(self.platform) or []),
                 "notices": messaging.get("notices") or "text", "page_url": messaging.get("page_url"),
                 "policy": found.get("channels") or {}}
+
+    def recheck(self) -> None:
+        """Look at every project again: serve those with an accepted configuration that lists a sender for the platform,
+        skip the others. One log line when a project's state changes, none otherwise."""
+        ready = []
+        for project in self.everyone:
+            try:
+                found = self.settings(project)
+                why = NOT_ACCEPTED_WHY if found is None else (None if found["senders"] else NO_SENDER_WHY.format(platform=self.platform))
+            except self.ops.OpsError:
+                why = UNREADABLE_WHY
+            if why is None:
+                ready.append(project)
+            if self.skipped.get(project["id"]) != why:
+                if why:
+                    self.log(f"skipping {project['name']}: {why}")
+                    self.skipped[project["id"]] = why
+                else:
+                    self.log(f"{project['name']} is ready: now served")
+                    del self.skipped[project["id"]]
+        self.projects = ready
 
     def projects_for(self, sender: str) -> list:
         out = []
@@ -111,14 +150,19 @@ class Bridge(shell_kit.Jobs):
 
     # --- sending ---------------------------------------------------------------------------------------------
 
-    def reply(self, chat: str, text: str) -> None:
+    def reply(self, chat: str, text: str):
+        """Send a reply. True when every piece went out, False when a send failed (logged), None when the platform deferred it
+        (it cannot take a message yet: not an error, not logged, and the caller may try again)."""
         caps = self.messenger.capabilities()
         for piece in cards.split(text or "(no reply)", caps["max_text"]):
             try:
                 self.messenger.send(chat, {"text": piece, "actions": [], "link": None, "document": None})
             except provider.MessengerError as e:
+                if e.kind == "deferred":
+                    return None
                 self.log(f"a reply could not be sent ({e.kind})")
-                return
+                return False
+        return True
 
     def allow(self, project: dict, op: str, kind=None) -> dict:
         """The project's accepted settings when the policy permits the operation (for this kind of decision), else
@@ -154,6 +198,9 @@ class Bridge(shell_kit.Jobs):
         try:
             message_id = self.messenger.send(chat, message)
         except provider.MessengerError as e:
+            if e.kind == "deferred":
+                self.defer(project, item, chat)
+                return False
             self.log(f"a card could not be sent ({e.kind})")
             if e.kind == "not-configured":
                 raise Fatal(e.reason) from None
@@ -165,6 +212,16 @@ class Bridge(shell_kit.Jobs):
         except OSError as e:  # the card went out and the process keeps the record in memory; it is not sent again
             self.log(f"the ledger could not be written ({e.__class__.__name__})")
         return True
+
+    def defer(self, project: dict, item: dict, chat: str) -> None:
+        """The platform cannot take this card now: keep it (nothing is recorded), remember the chat, and say so once a day."""
+        self.deferred_chats.add(chat)
+        key = (project["id"], item["id"], chat)
+        now = time.monotonic()
+        last = self.deferred.get(key)
+        if last is None or now - last >= DEFERRED_LOG_EVERY:
+            self.deferred[key] = now
+            self.log("a card is kept for later: the platform cannot take it yet (deferred)")
 
     # --- notices ---------------------------------------------------------------------------------------------
 
@@ -198,6 +255,7 @@ class Bridge(shell_kit.Jobs):
         return left
 
     def tick(self) -> None:
+        self.recheck()
         for project in self.projects:
             try:
                 left = self.notify_project(project)
@@ -205,11 +263,12 @@ class Bridge(shell_kit.Jobs):
             except self.ops.OpsError as e:
                 self.log(f"a project could not be read for notices ({e.__class__.__name__})")
                 continue
-            if left != self.more.get(project["id"], 0):
-                self.more[project["id"]] = left
-                if left and settings:
-                    for chat in settings["senders"]:
-                        self.reply(chat, cards.MORE_LINE.format(n=left))
+            for chat in (settings["senders"] if settings else []):
+                key = (project["id"], chat)
+                if not left:
+                    self.more.pop(key, None)
+                elif self.more.get(key) != left and self.reply(chat, cards.MORE_LINE.format(n=left)) is not None:
+                    self.more[key] = left      # a deferred line is not recorded: it is tried again at the next notice period
 
     # --- updates in ------------------------------------------------------------------------------------------
 
@@ -383,23 +442,54 @@ class Bridge(shell_kit.Jobs):
 
     # --- the loop --------------------------------------------------------------------------------------------
 
+    def handle_safely(self, update: dict) -> None:
+        try:
+            self.handle(update)
+        except Fatal:
+            raise
+        except Exception:  # one update never ends the bridge; the class says what failed, never the content
+            self.log("an update failed: " + traceback.format_exc().strip().splitlines()[-1].split(":")[0])
+
     def poll_once(self, timeout: int) -> int:
         """One receive and the handling of what it returned. Returns the number of updates handled."""
         found = self.messenger.receive(self.ledger.offset, timeout)
         for update in found["updates"]:
-            try:
-                self.handle(update)
-            except Fatal:
-                raise
-            except Exception:  # one update never ends the bridge; the class says what failed, never the content
-                self.log("an update failed: " + traceback.format_exc().strip().splitlines()[-1].split(":")[0])
+            self.handle_safely(update)
         try:
             self.ledger.set_offset(found["next_offset"])
         except OSError as e:
             self.log(f"the ledger could not be written ({e.__class__.__name__})")
         return len(found["updates"])
 
+    def listen_loop(self, stop: threading.Event, notice_every: float, session, poll: int = POLL_SECONDS) -> None:
+        """The loop for a provider that listens: updates arrive from the session, never by receive, and the ledger's offset
+        is not touched. Notices wait until the provider is ready (a card is never sent to one that is not) and are looked
+        at again at once when it becomes ready, so a card that failed to go out is sent after a restart."""
+        due, seen = 0.0, 0
+        while not stop.is_set():
+            if session.fatal:
+                raise Fatal(session.fatal)
+            if session.generation != seen:
+                seen, due = session.generation, 0.0
+            now = time.monotonic()
+            if now >= due and session.is_ready():
+                try:
+                    self.tick()
+                except provider.MessengerError as e:
+                    self.log(f"a notice could not be sent ({e.kind})")
+                due = time.monotonic() + notice_every
+            wait = min(poll, 1.0, max(0.0, due - time.monotonic())) if session.is_ready() else min(poll, 1.0)
+            update = session.next_update(max(wait, 0.05))
+            if update is not None:
+                self.handle_safely(update)
+                if update.get("chat") in self.deferred_chats:   # the person wrote: a kept card can go out now
+                    self.deferred_chats.discard(update.get("chat"))
+                    due = 0.0
+
     def serve_loop(self, stop: threading.Event, notice_every: float, poll: int = POLL_SECONDS) -> None:
+        session = getattr(self.messenger, "session", None)
+        if session is not None:
+            return self.listen_loop(stop, notice_every, session, poll)
         due = 0.0
         while not stop.is_set():
             now = time.monotonic()

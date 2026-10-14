@@ -154,9 +154,11 @@ def test_the_python_39_job_runs_the_tests_of_the_runtime_and_of_the_store():
     assert "providers/store/tests" in job
 
 
-# --- the operations layer is six files (CONS-1B, ADJ-R1, R4-C3): runtime/ops.py and its siblings ops_say.py, ops_reads.py, ops_waits.py, ops_config.py, ops_core.py ----------
+# --- the operations layer is seven files (CONS-1B, ADJ-R1, R4-C3, PAR-4): runtime/ops.py and its siblings ops_say.py, ops_reads.py, ops_waits.py, ops_config.py, ops_runs.py, ops_core.py ----------
 
-SHARED_NAMES = ("ROOT", "context", "_stored", "OpsError", "_run_lock", "_config_lock")
+SHARED_NAMES = ("ROOT", "context", "_stored", "OpsError", "_try_lock", "_task_lock", "_route_lock", "_claim_lock",
+                "_write_lock", "_dispatch_lock", "_lock_owner", "_lock_pgid", "_LAB_GUARD", "_config_lock",
+                "_effect_lock", "_effects_running")
 
 
 def ops_modules() -> list:
@@ -220,7 +222,8 @@ def test_ops_core_imports_no_other_file_of_the_operations_layer():
 def test_the_siblings_of_ops_py_do_not_import_ops_py_at_module_level():
     """ops.py imports its siblings; a sibling reaches an operation of ops.py at call time, so that no import cycle
     exists. ops_say.py imports neither sibling above it; ops_reads.py imports ops_say.py (the conversation's name)."""
-    allowed = {"ops_say.py": {"ops_core"}, "ops_reads.py": {"ops_core", "ops_say"}, "ops_config.py": {"ops_core"}}
+    allowed = {"ops_say.py": {"ops_core"}, "ops_reads.py": {"ops_core", "ops_say"}, "ops_config.py": {"ops_core"},
+               "ops_runs.py": {"ops_core", "ops_waits"}}
     for name, may in allowed.items():
         tree = ast.parse((RUNTIME / name).read_text(encoding="utf-8"))
         at_top = set()

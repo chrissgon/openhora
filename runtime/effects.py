@@ -48,7 +48,7 @@ What a kind module exposes, in two groups:
                                                          targets it holds now}, read from a recorded fact through
                                                          resolve_call(class, verb, args), the read-only call of a
                                                          provider; EffectError when the fact cannot be read. The
-                                                         operation calls it before the run lock and hands the sets
+                                                         operation calls it before the write lock and hands the sets
                                                          to autonomy.covers; a kind without it resolves no class
                        policy_judgement(root, project, doc, run_script, policy_file, private, log=None, data_dir=None, now=None)
                                                          optional. (True, "", copies) or (False, why, {}): the checks a

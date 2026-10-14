@@ -36,13 +36,13 @@ ON_SYSTEM_PYTHON = [
     # section 7), and it loads the status script for the form of a field line and the content hash.
     "scripts/evidence.py", "evals/eval_status.py",
     # The task runtime: its shell runs on the system interpreter, and a scheduler will start its dispatcher.
-    "runtime/lab.py", "runtime/ops.py", "runtime/ops_core.py", "runtime/ops_say.py", "runtime/ops_reads.py", "runtime/ops_waits.py", "runtime/ops_config.py", "runtime/cli.py", "runtime/flow_files.py", "runtime/skill_meta.py",
+    "runtime/lab.py", "runtime/ops.py", "runtime/ops_core.py", "runtime/ops_say.py", "runtime/ops_reads.py", "runtime/ops_waits.py", "runtime/ops_config.py", "runtime/ops_runs.py", "runtime/cli.py", "runtime/flow_files.py", "runtime/skill_meta.py",
     "runtime/path_rule.py", "runtime/state_merge.py", "runtime/endings.py", "runtime/project_config.py",
     "runtime/manifest.py", "runtime/workcopy.py", "runtime/proof.py", "runtime/router.py", "runtime/plan.py",
     "runtime/board.py", "runtime/documents.py", "runtime/drop.py", "runtime/deps.py", "runtime/changeset.py", "runtime/effects.py", "runtime/effect_pull_request.py", "runtime/effect_commit.py", "runtime/effect_reply.py",
     "runtime/progress.py", "runtime/autonomy.py", "runtime/dispatcher.py", "runtime/chat.py", "runtime/operations.py",
     # The local service (stage 9): it serves the operations layer, so it runs where the layer runs.
-    "runtime/service.py",
+    "runtime/service.py", "runtime/service_bridge.py",
     # The MCP mode (stage 9): the same operations layer over standard input and output.
     "runtime/mcp.py",
     # The messaging bridge (MSG-1): its shell and its modules, started with the system interpreter like the other shells.
@@ -52,6 +52,8 @@ ON_SYSTEM_PYTHON = [
     "runtime/shell_kit.py",
     # The cost of a run recomputed from its token counts (stage 9): the operations layer imports it.
     "runtime/costs.py",
+    # The rules of tasks that run at once (PAR-2): pure functions the dispatcher's caller passes in.
+    "runtime/parallel.py",
     # How the credential of a run is billed, read from the adapters' manifests (ADJ-R3): the operations layer imports it.
     "runtime/billing.py",
     # The roles of the runtime as data, and the isolated runner of skill code (WP-R.5).
@@ -67,6 +69,12 @@ ON_SYSTEM_PYTHON = [
     "skills/eng-implement/scripts/task.py",
     # The task board's local implementation: the task runtime calls it with its own interpreter (stage 3).
     "providers/issue-tracker/local.py",
+    # The WhatsApp provider: standard library only, so the resolver starts it with the caller's interpreter (MSG-7).
+    "providers/messenger/whatsapp.py",
+    # The official WhatsApp API provider: standard library only, so the resolver starts it with the caller's interpreter (MSG-8).
+    "providers/messenger/whatsapp-cloud.py",
+    # The same API through Twilio, and the module the two official WhatsApp providers share (MSG-9).
+    "providers/messenger/whatsapp-twilio.py", "providers/messenger/whatsapp_meta.py",
     # The documents' local implementation, called the same way (stage 3).
     "providers/documents/local.py",
 ]

@@ -41,6 +41,15 @@ nothing outside them is touched, and a block is never edited by hand. Each table
   flow-files            each flows/*.json: the flow, its title, and its tasks' keys and skills in order
   roles                 runtime/roles.json: each key and its value (names of skills, areas and packs)
   held-reasons          REASONS of runtime/dispatcher.py: its text literals and the module's own text constants
+  channel-groups        GROUPS of runtime/operations.py with the operations and the decision kind of each, where each is
+                        valid and which are in DEFAULT_POLICY; BRAKES and the channel constants in a head line: the
+                        literals are read with ast.literal_eval, runtime/operations.py is never imported
+  messenger-capabilities  each shipped implementation of the class messenger:<platform> (providers/resolve.py) and the
+                        capabilities it declares: a CAPABILITIES literal, else the dict its `capabilities` function
+                        returns, parsed with ast (a value the provider computes from its settings is shown as such);
+                        no provider is imported or run
+  messenger-secrets     the rows of REGISTRY of providers/secrets/resolver.py that a provider of providers/messenger/
+                        reads: name, store username, reader and purpose, parsed with ast (never imported, no value read)
 
 Every source is read as text or parsed with ast (the table of operations is read with ast.literal_eval of its
 two literals; runtime/*.py are never imported, since they import their siblings); nothing is executed but
@@ -183,7 +192,37 @@ def verbs_of(path):
                         verbs = [str(v) for v in ast.literal_eval(kw.value)]
                     except ValueError:
                         pass
+    if not verbs:
+        verbs = _subparser_verbs(tree)
     return check, verbs
+
+
+def _subparser_verbs(tree):
+    """The names of the sub-commands a provider adds with `add_parser(...)`: a string constant, or the loop variable of a
+    `for name in (...)` / `for name, func in ((...), ...)` over literal names. Any other argument is skipped."""
+    verbs = []
+
+    def add(name):
+        if name not in verbs:
+            verbs.append(name)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.For) and isinstance(node.target, (ast.Name, ast.Tuple)) \
+                and isinstance(node.iter, (ast.Tuple, ast.List)):
+            first = node.target if isinstance(node.target, ast.Name) else node.target.elts[0]
+            for call in ast.walk(node):
+                if isinstance(call, ast.Call) and getattr(call.func, "attr", None) == "add_parser" and call.args \
+                        and isinstance(call.args[0], ast.Name) and isinstance(first, ast.Name) \
+                        and call.args[0].id == first.id:
+                    for item in node.iter.elts:
+                        value = item.elts[0] if isinstance(item, (ast.Tuple, ast.List)) and item.elts else item
+                        if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                            add(value.value)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and getattr(node.func, "attr", None) == "add_parser" and node.args \
+                and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+            add(node.args[0].value)
+    return verbs
 
 
 def provider_classes(root):
@@ -620,6 +659,163 @@ def held_reasons(root):
     raise SourceError("runtime/dispatcher.py: no REASONS")
 
 
+def _literal_set(tree, name):
+    """A top-level literal tuple, list or dict as a list of its items (dict keys), or None when it is not one."""
+    value = _constant(tree, name)
+    return list(value) if isinstance(value, (tuple, list, dict)) else None
+
+
+def channel_groups(root):
+    """GROUPS of runtime/operations.py: the operations and the decision kind of each group, the channels it is valid on
+    (an operation of the group is in the channel's ceiling, and a page-only group is valid on the page alone) and the
+    channels whose default policy lists it. Only literals are read."""
+    rows, _ = _operations_table(root)
+    tree = _tree(root, "runtime/operations.py")
+    groups = _constant(tree, "GROUPS")
+    if not isinstance(groups, dict) or not groups:
+        raise SourceError("runtime/operations.py: GROUPS is not a literal dict")
+    default = _constant(tree, "DEFAULT_POLICY")
+    brakes, effect = _literal_set(tree, "BRAKES"), _literal_set(tree, "EFFECT_CHANNELS")
+    policy_channels = _literal_set(tree, "POLICY_CHANNELS")
+    if not isinstance(default, dict) or brakes is None or effect is None or not policy_channels:
+        raise SourceError("runtime/operations.py: DEFAULT_POLICY, BRAKES, EFFECT_CHANNELS and POLICY_CHANNELS must be literals")
+    must_read = _literal_set(tree, "MUST_READ") or []
+    page_only = _literal_set(tree, "PAGE_ONLY_GROUPS") or []
+    never = _literal_set(tree, "NEVER_NARROWED") or []
+    ceiling = {row["name"]: row["channels"] for row in rows}
+    out = []
+    for name, group in groups.items():
+        ops = group["operations"]
+        valid = [c for c in policy_channels if (name not in page_only or c == "page")
+                 and any(c in ceiling.get(op, ()) for op in ops)]
+        listed = [c for c, names in default.items() if name in names]
+        out.append([_code(name), _names(ops), _code(group["kind"]) if group.get("kind") else NONE,
+                    _names(valid), _names(listed)])
+    head = (f"Channels with a policy (`POLICY_CHANNELS`): {_names(policy_channels)}. Never narrowed (`NEVER_NARROWED`): "
+            f"{_names(never)}. A policy for {_names(must_read)} must list `read` (`MUST_READ`). A channel with no entry in the "
+            f"project's `channels` takes its `DEFAULT_POLICY`: "
+            + ("; ".join(f"{_code(c)}: {_names(g)}" for c, g in default.items()) or NONE)
+            + f"; any other channel keeps its whole ceiling. Valid on the page only (`PAGE_ONLY_GROUPS`): {_names(page_only)}. "
+            f"An effect is approved only from (`EFFECT_CHANNELS`): {_names(effect)}. Brakes (`BRAKES`), permitted on the page "
+            f"whatever its policy says: {_names(brakes)}.\n\n")
+    return head + _table(["Group", "Operations", "Decision kind", "Valid on", "In the default policy of"], out)
+
+
+CAPABILITY_KEYS = ("max_text", "buttons", "max_buttons", "max_button_label", "lists", "max_list_rows", "url_buttons",
+                   "reply_context", "documents", "listen")
+
+
+def _capability_text(value):
+    if value is True:
+        return "yes"
+    if value is False or value is None:
+        return "no"
+    return str(value)
+
+
+def _module_constant(tree, name):
+    """The literal value of a top-level `name = <literal>` or of one name of `a, b = <literal>, <literal>`, else None."""
+    found = _constant(tree, name)
+    if found is not None:
+        return found
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Tuple) \
+                and isinstance(node.value, ast.Tuple) and len(node.targets[0].elts) == len(node.value.elts):
+            for target, value in zip(node.targets[0].elts, node.value.elts):
+                if isinstance(target, ast.Name) and target.id == name:
+                    try:
+                        return ast.literal_eval(value)
+                    except ValueError:
+                        return None
+    return None
+
+
+def _capability_value(node, tree, local):
+    """One value of a capabilities dict: a literal, a constant of the module, or (a value the provider computes from its
+    settings) the words `configured` or `<a> if configured, else <b>`."""
+    try:
+        return ast.literal_eval(node)
+    except ValueError:
+        pass
+    if isinstance(node, ast.Name):
+        found = _module_constant(tree, node.id)
+        return found if found is not None else "configured"
+    if isinstance(node, ast.IfExp):
+        return (f"{_capability_text(_capability_value(node.body, tree, local))} if configured, else "
+                f"{_capability_text(_capability_value(node.orelse, tree, local))}")
+    return "configured"
+
+
+def _capabilities_of(root, rel):
+    """The capabilities a provider declares, read from its text: the CAPABILITIES literal, else the dict literal returned
+    by its `capabilities` function. SourceError when it has neither."""
+    tree = _tree(root, rel)
+    found = _constant(tree, "CAPABILITIES")
+    if isinstance(found, dict):
+        return found
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == "capabilities":
+            local = {t.id for n in ast.walk(node) if isinstance(n, ast.Assign) for t in n.targets if isinstance(t, ast.Name)}
+            for ret in ast.walk(node):
+                if isinstance(ret, ast.Return) and isinstance(ret.value, ast.Dict) \
+                        and all(isinstance(k, ast.Constant) and isinstance(k.value, str) for k in ret.value.keys):
+                    return {k.value: _capability_value(v, tree, local) for k, v in zip(ret.value.keys, ret.value.values)}
+    raise SourceError(f"{rel}: no CAPABILITIES literal and no capabilities function that returns a dict literal")
+
+
+def messenger_capabilities(root):
+    resolve = _load("resolve_for_messenger_capabilities", os.path.join(root, "providers", "resolve.py"))
+    names = resolve.implementations_in("messenger", root=root)
+    if not names:
+        raise SourceError("providers/messenger: no implementation")
+    rows = []
+    for name in names:
+        caps = _capabilities_of(root, f"providers/messenger/{name}.py")
+        for platform in resolve.served_platforms("messenger:<platform>", name, root=root) or [NONE]:
+            rows.append([_code(platform), _code(f"{name}.py")] + [_capability_text(caps.get(k)) for k in CAPABILITY_KEYS])
+    head = ("`yes` and `no` are booleans; a key a provider leaves out is `no` (`listen` is optional); `configured` is a value "
+            "the provider computes from its saved settings, not a constant.\n\n")
+    return head + _table(["Platform", "Provider"] + [_code(k) for k in CAPABILITY_KEYS], rows)
+
+
+def _registry_calls(root, rel):
+    """The `Secret(...)` calls of the tuple REGISTRY is built from, as dicts of their literal arguments (name, purpose,
+    permission, readers, and the keywords); parsed, never imported, no value read."""
+    for node in _tree(root, rel).body:
+        named = (isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "REGISTRY" for t in node.targets)) \
+            or (isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == "REGISTRY"
+                and node.value is not None)
+        if named:
+            if not isinstance(node.value, ast.DictComp) or not isinstance(node.value.generators[0].iter, (ast.Tuple, ast.List)):
+                raise SourceError(f"{rel}: REGISTRY is not a dict built from a tuple of Secret(...) calls")
+            out = []
+            for call in node.value.generators[0].iter.elts:
+                if not (isinstance(call, ast.Call) and getattr(call.func, "id", None) == "Secret"):
+                    raise SourceError(f"{rel}: REGISTRY holds something other than a Secret(...) call")
+                try:
+                    args = [ast.literal_eval(a) for a in call.args]
+                    given = {kw.arg: ast.literal_eval(kw.value) for kw in call.keywords}
+                except ValueError:
+                    raise SourceError(f"{rel}:{call.lineno}: an argument of a Secret(...) call is not a constant") from None
+                if len(args) < 4:
+                    raise SourceError(f"{rel}:{call.lineno}: a Secret(...) call needs a name, a purpose, a permission and readers")
+                out.append({"name": args[0], "purpose": args[1], "permission": args[2], "readers": tuple(args[3]), **given})
+            return out
+    raise SourceError(f"{rel}: no REGISTRY")
+
+
+def messenger_secrets(root):
+    rows = []
+    for secret in _registry_calls(root, "providers/secrets/resolver.py"):
+        mine = [r for r in secret["readers"] if r.startswith("providers/messenger/")]
+        if mine:
+            rows.append([_code(secret["name"]), _code(secret["store_username"]) if secret.get("store_username") else NONE,
+                         ", ".join(_code(r) for r in mine), secret["purpose"]])
+    if not rows:
+        raise SourceError("providers/secrets/resolver.py: no secret is read by a provider of providers/messenger/")
+    return _table(["Secret", "Store username", "Read by", "Purpose"], rows)
+
+
 TABLES = {
     "artifacts-by-owner": artifacts_by_owner,
     "provider-classes": provider_classes,
@@ -638,6 +834,9 @@ TABLES = {
     "flow-files": flow_files,
     "roles": roles,
     "held-reasons": held_reasons,
+    "channel-groups": channel_groups,
+    "messenger-capabilities": messenger_capabilities,
+    "messenger-secrets": messenger_secrets,
 }
 
 

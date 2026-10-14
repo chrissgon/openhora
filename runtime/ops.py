@@ -23,6 +23,8 @@ Operations of stage 1 of the platform plan:
   run_next(project[, tier])        run the next ready task: one skill, once, in the eval container, on a copy
                                    of what may enter by limits L1 to L6 (runtime/workcopy.py); bring back what
                                    it left by the path rule; open the pending decision the task then waits on
+  run_task(project, task_id[, tier])   the same for one named task, in this process: what the dispatcher starts for each
+                                   task it runs (several at once, one OS process each; runtime/ops_runs.py)
   pending(project[, pending_id])   what waits for the person
   answer(project, pending_id, text)   answer a pending decision: the task runs again with the answer
   release(project, pending_id)     release a delivery: the task is done, and what depended on it becomes ready
@@ -69,7 +71,7 @@ Operations of stage 6:
   standing(project, policy)        whether an active standing approval covers the policy now: a read
   execute_under_policy(project, policy, effect_file[, replay_log])   the one place a policy effect is executed:
                                    checks the effect document against the standing approval's bounds (autonomy.covers,
-                                   a class of targets resolved from a recorded fact first) holding the run lock, runs
+                                   a class of targets resolved from a recorded fact first) holding the write lock, runs
                                    the kind's judgement, makes the provider's dry run and its confirmed call, records
                                    the action; with replay_log it does every check and nothing else
   set_mode(project, agent, mode[, accept, channel])   set one area agent's autonomy mode in runtime.json (runtime/ops_config.py;
@@ -80,12 +82,13 @@ Operations of stage 6:
                                    one before. Either rewrites the state file's Checkpoints line, a generated copy of the
                                    most careful enabled agent's mode
   route(project, request_id)       a request whose lines starting with "- " list several deliveries gets one router
-                                   run per delivery and one plan of them all, chained in the order listed
-                                   (runtime/plan.py, combine); a route to the brief skill plans one brief task, and
+                                   run per delivery and one plan of them all, a delivery starting after
+                                   an earlier one only when it reads what that one writes (runtime/plan.py, combine); a route to the brief skill plans one brief task, and
                                    the delivery is routed again after the brief is released; every task names its
                                    area agent
-  dispatch(project[, budget_seconds])   the dispatcher's round (runtime/dispatcher.py decides): the handlers' ticks,
-                                   the releases each agent's mode makes, the runs its mode and caps allow, one at a time
+  dispatch(project[, budget_seconds, wait])   the dispatcher's round (runtime/dispatcher.py decides): the handlers' ticks,
+                                   the releases each agent's mode makes, the runs its mode, caps, slots and the files
+                                   in use allow, each a process of its own
   poll(project)                    the short job: mirrors, expired approvals, the state file's generated lines, the
                                    releases a mode makes; it calls no model and starts no task
   handler_call(project, name, verb[, args])   one verb of a handler under runtime/handlers/, its JSON object
@@ -108,7 +111,8 @@ Operations of stage 9 (the local service, runtime/service.py, is one more shell 
                                    folder: the one read that does not refuse a configuration that was not accepted
   task(project, task_id)           one task or request with its runs and its pending decisions of every status
   flows(project)                   the flow files of this checkout: name, title, number of tasks (or the error)
-  stop_runs([project])             end the runs this process started, through the lab's own stop
+  stop_runs([project, every])      end the runs this process started (its children, and the lab's own stop); with every,
+                                   the task runs of the project that a live process holds
   pending, status                  each pending decision carries "actions": the resolution words the store allows for it
                                    now, built from the store's tables (an open effect: approved and rejected)
   approve(..., channel)            an effect is approved from the terminal and from the local page, with its hash; any
@@ -130,8 +134,8 @@ Operations of stage 9 (the local service, runtime/service.py, is one more shell 
                                    service found at its start, null in any other process
   artifacts(project), artifact(project, path)   the project's files under docs/ with their owner skill, and the text
                                    of one of them, read-only
-  say, route                       while another run of the project holds the run lock a line, or a request to route, is
-                                   queued (runtime/ops_say.py) instead of refused; route_queued answers the oldest
+  say, route                       while the router answers another request (it holds the route lock) a line, or a request to
+                                   route, is queued (runtime/ops_say.py) instead of refused; route_queued answers the oldest
 
 Code comes back as a change set (runtime/changeset.py, limits L9 and L11): a run of a code task (its skill is of a
 code area, code_task) whose copy holds versioned files starts only when the project's tracked files have no
@@ -167,7 +171,7 @@ releases it as it stands, its open questions left in it, or answers it, and the 
 stopped on a missing input that another skill writes (ending `blocked`) opens nothing: the task is `blocked`, with
 the start of the reply as its note, until the person retries it.
 
-The layer is six files (CONS-1B; ADJ-R1 added ops_waits.py; R4-C3 added ops_config.py). The names every part shares (the checkout, the refusal, the project's context, the
+The layer is seven files (CONS-1B; ADJ-R1 added ops_waits.py; R4-C3 added ops_config.py; PAR-4 added ops_runs.py, the runs of tasks and the dispatcher's round). The names every part shares (the checkout, the refusal, the project's context, the
 locks, the runtime's own key, the data-folder names) live once in runtime/ops_core.py and are read as `core.<name>`
 at call time, never bound at import, so that a test patching `ops_core.ROOT` reaches every reader. The conversation
 (`say`, `chat_memory`) is runtime/ops_say.py and the reads of the local interface (`version`, `agents`, `skills`,
@@ -193,12 +197,12 @@ import sys
 import shutil
 import subprocess
 import tempfile
-import time
 import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ops_core as core  # noqa: E402  (the shared names: read as core.<name>, never bound at import)
 import ops_reads  # noqa: E402  (the reads of the interface; this file re-exports them at its end)
+import ops_runs  # noqa: E402  (the runs of tasks and the dispatcher's round; this file re-exports `run_task`, `dispatch` and `reap`)
 import ops_say  # noqa: E402  (the conversation and its queue; this file re-exports `say` at its end)
 import ops_config  # noqa: E402  (the configuration's acceptance: accept_config, set_mode; this file re-exports them at its end)
 import ops_waits  # noqa: E402  (the derived waits between requests: rederive, for_plan, annotate, approve_plan)
@@ -217,6 +221,7 @@ import lab  # noqa: E402
 import manifest  # noqa: E402
 from operations import CHAT_OWN, OPERATIONS  # noqa: E402,F401  (re-exported: a shell reads the table through this module)
 import operations  # noqa: E402  (the table of operations; the shells read it through this module: ops.operations)
+import parallel  # noqa: E402
 import path_rule  # noqa: E402
 import plan  # noqa: E402
 import progress as progress_calc  # noqa: E402  (the operation `progress` would hide the module: part 0, F.1, rule 5)
@@ -364,15 +369,19 @@ def _key_in_environment(routing: dict, key: dict):
         yield
         return
     name = lab.reference("floor")["pass_env"][0]
-    before = os.environ.get(name)
-    os.environ[name] = key["value"]
+    with core._ENV_LOCK:  # the table of what is injected, with the variable itself: a child the dispatcher starts reads both
+        before = os.environ.get(name)
+        os.environ[name] = key["value"]
+        core.ENV_INJECTED[name] = before
     try:
         yield
     finally:
-        if before is None:
-            os.environ.pop(name, None)
-        else:
-            os.environ[name] = before
+        with core._ENV_LOCK:
+            core.ENV_INJECTED.pop(name, None)
+            if before is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = before
 
 
 # --- the operations ----------------------------------------------------------------------------------------
@@ -403,60 +412,28 @@ def request(project: str, text: str, flow: str | None = None, title: str | None 
 
 
 def run_next(project: str, tier: str | None = None) -> dict:
-    """Run the next ready task of the project, if no task of it is running: one skill, once, on the model its
-    proof gives (runtime/proof.py: the floor model only where the skill is reliable there and the proof holds on
-    this checkout; the reference model otherwise). tier "strong" asks for the reference model; nothing can ask
-    for the floor model. Returns {"ran": None, "reason"} when there is nothing to run, else {"ran": task id, "skill",
+    """Run the next ready task of the project that the rules of the slots let in, in this process: one skill, once, on the
+    model its proof gives (runtime/proof.py: the floor model only where the skill is reliable there and the proof holds on
+    this checkout; the reference model otherwise). Other tasks may be running meanwhile (runtime/parallel.py decides which
+    may). tier "strong" asks for the reference model; nothing can ask for the floor model. Returns {"ran": None, "reason"}
+    when there is nothing to run, else {"ran": task id, "skill",
     "run_id", "run_dir", "status", "ending" or None, "failure" or None, "task_state", "pending_id" or None,
     "returned", "kept", "left_out", "entered": {"kind", "agents_md", "files"} or None, "routing": the
     choice of proof.route, with "key" (the key of a floor run by name: "runtime" or "lab"; None otherwise), or
     None}; "recovered" names the tasks an interrupted run had left running."""
     if tier not in (None, "strong"):
         raise core.OpsError("tier may only be \"strong\": the person can ask for the reference model, never for the floor model", 2)
-    ctx = core.context(project)
-    return _claim_and_run(ctx, tier)
+    return ops_runs.run_next(project, tier)
 
 
-def _claim_and_run(ctx: dict, tier=None, task_id=None) -> dict:
-    """The body of run_next, shared with dispatch: holding the run lock, end what an interrupted run left, read the
-    documents platform, claim the next ready task (or, with task_id, that task: task_claim), run it, write back the
-    documents it returned. What it returns is what run_next returns."""
-    store = ctx["store"]
-    with core._run_lock(ctx["cfg"]):
-        # This process holds the project's run lock, so a task still `running` is what an interrupted run left.
-        recovered = ops_waits.settled(ctx, core._stored(ctx, store.task_fail_running, "the run was interrupted before it ended; retry the task"))
-        pulled = None
-        if documents.enabled(ctx["cfg"]):
-            # Before the task is claimed, so that a refusal leaves no task running (decision D11).
-            try:
-                pulled = documents.pull(ctx)
-            except documents.DocumentsError as e:
-                return {"ran": None, "reason": "the documents platform could not be read", "detail": str(e),
-                        "recovered": recovered["tasks"]}
-            except store.StoreError as e:
-                raise core.OpsError(str(e), e.code) from None
-            nxt = core._stored(ctx, store.task_peek_next)["task"] if task_id is None else core._stored(ctx, store.task_get, task_id)
-            if nxt is not None and nxt.get("skill"):
-                try:
-                    stopped = documents.blocked(ctx, skill_meta.declared(os.path.join(core.ROOT, "skills", nxt["skill"])))
-                except skill_meta.SkillError:
-                    stopped = []  # the run fails to start below, with its reason
-                if stopped:
-                    return {"ran": None, "reason": "a document was edited on the platform and was not taken",
-                            "task": nxt["id"], "documents": stopped, "pulled": pulled, "recovered": recovered["tasks"]}
-        claimed = core._stored(ctx, store.task_claim_next) if task_id is None else core._stored(ctx, store.task_claim, task_id)
-        task = claimed["task"]
-        if task is None:
-            reason = "no task is ready" if task_id is None or claimed.get("reason") in (None, "not-ready") else \
-                f"task {task_id} is {claimed['reason']}"
-            reason = ops_waits.explain(ctx, task_id, reason)
-            out = {"ran": None, "reason": reason, "recovered": recovered["tasks"],
-                   "pending": len(core._stored(ctx, store.pending_list))}
-            return {**out, "documents": pulled} if pulled is not None else out
-        out = {**_run(ctx, task, tier), "recovered": recovered["tasks"]}
-        if pulled is not None:
-            out["documents"] = documents.merged(pulled, _push_after_run(ctx, out))
-        return out
+def run_task(project: str, task_id: int, tier: str | None = None) -> dict:
+    """Run one named task in this process (what the dispatcher starts as a child process of its own, one per task; a
+    person uses run_next). It takes the task's lock, ends what dead processes left, and admits and claims the task under
+    the claim lock (runtime/ops_runs.py). Returns what run_next returns, or {"ran": None, "reason", "held"} for a task that was
+    refused: the terminal exits 4 for that, unless the reason is a word of the held tasks (runtime/dispatcher.py)."""
+    if tier not in (None, "strong"):
+        raise core.OpsError("tier may only be \"strong\": the person can ask for the reference model, never for the floor model", 2)
+    return ops_runs.run_task(project, task_id, tier=tier)
 
 
 def _push_after_run(ctx: dict, out: dict) -> dict:
@@ -470,21 +447,39 @@ def _push_after_run(ctx: dict, out: dict) -> dict:
         return {**documents.result(), "failed": [{"path": rel, "reason": f"{type(e).__name__}: {e}"} for rel in rels]}
 
 
-def _run(ctx: dict, task: dict, tier: str | None = None) -> dict:
-    cfg, store, skill = ctx["cfg"], ctx["store"], task["skill"]
-    try:
-        meta = skill_meta.declared(os.path.join(core.ROOT, "skills", skill))
-        known = manifest.load(core.ROOT, skill)  # a skill the runtime knows nothing of does not run
-        key = core._floor_key()
-        routing = _route(ctx, skill, meta, tier, key)
-        budget = _budget(ctx, task.get("agent"), routing)  # before the run's own row: its reservation is not in the day's spend yet
-        identity = lab.skill_identity(skill)
-        run_id = core._stored(ctx, store.task_run_start, task["id"], skill=skill, model=routing["model"],
-                         adapter=routing["adapter"], skill_version=identity["version"],
-                         skill_sha256=identity["content_sha256"], web=routing["web"], billing=routing["billing"] or "unknown")["run_id"]
-    except (skill_meta.SkillError, manifest.ManifestError, lab.LabError, core.OpsError, OSError, KeyError) as e:
-        core._stored(ctx, store.task_fail_running, _note(f"the run could not start: {e}"))
-        raise core.OpsError(f"task {task['id']} ({skill}) could not start: {e}", 1) from None
+# What can go wrong before a run has its row: a skill the runtime knows nothing of, a lab that refuses, a store that does.
+PREPARE_ERRORS = (skill_meta.SkillError, manifest.ManifestError, lab.LabError, core.OpsError, OSError, KeyError)
+
+
+def _prepare_run(ctx: dict, task: dict, tier, key: dict) -> dict:
+    """The slow part of a run's start, made before the claim lock: the skill's meta and manifest (a skill the runtime knows
+    nothing of does not run), the routing (proof.route with the key core._floor_key found, which the caller read from the
+    secret store) and the skill's identity."""
+    skill = task["skill"]
+    meta = skill_meta.declared(os.path.join(core.ROOT, "skills", skill))
+    known = manifest.load(core.ROOT, skill)
+    routing = _route(ctx, skill, meta, tier, key)
+    return {"meta": meta, "known": known, "key": key, "routing": routing, "identity": lab.skill_identity(skill)}
+
+
+def _run_start(ctx: dict, task: dict, prepared: dict) -> dict:
+    """The run's start, under the claim lock: its spend limit (before the run's own row: its reservation is not in the
+    day's spend yet) and the run row. Returns what _run_body takes."""
+    routing, identity = prepared["routing"], prepared["identity"]
+    budget = _budget(ctx, task.get("agent"), routing, prepared["key"])
+    run_id = core._stored(ctx, ctx["store"].task_run_start, task["id"], skill=task["skill"], model=routing["model"],
+                          adapter=routing["adapter"], skill_version=identity["version"],
+                          skill_sha256=identity["content_sha256"], web=routing["web"],
+                          billing=routing["billing"] or "unknown")["run_id"]
+    return {**prepared, "task": task, "budget": budget, "run_id": run_id}
+
+
+def _run_body(ctx: dict, started: dict) -> dict:
+    """The run itself, after its row was opened (_run_start): the copy, the lab, the return of what the run left, the
+    pending decision. The return into the project's files is made under the write lock."""
+    cfg, store, task = ctx["cfg"], ctx["store"], started["task"]
+    skill, meta, known, key = task["skill"], started["meta"], started["known"], started["key"]
+    routing, budget, run_id = started["routing"], started["budget"], started["run_id"]
     dest = os.path.join(cfg["data_dir"], core.RUNS_DIR, str(run_id))
     out = {"ran": task["id"], "skill": skill, "run_id": run_id, "run_dir": dest, "status": "failed", "ending": None,
            "failure": None, "task_state": "failed", "pending_id": None, "returned": [], "kept": [], "left_out": [],
@@ -572,9 +567,10 @@ def _run(ctx: dict, task: dict, tier: str | None = None) -> dict:
     left = result["changes"]["created"] + result["changes"]["modified"]
     bound = manifest.bound_among(known, left)
     made = _changeset_of(ctx, task, run_id, dest, result, entered, code, bound) if code is not None else None
-    returned, kept, state_report = workcopy.returning(cfg["project"], result, base, base_state, skill, bound=bound,
-                                                       versioned=(made or {}).get("versioned", ()),
-                                                       tracked=entered.get("tracked") or () if code is None else ())
+    with core._write_lock(cfg, wait=None):  # the return waits for the other writers; their holders are bounded
+        returned, kept, state_report = workcopy.returning(cfg["project"], result, base, base_state, skill, bound=bound,
+                                                           versioned=(made or {}).get("versioned", ()),
+                                                           tracked=entered.get("tracked") or () if code is None else ())
     gate_files = _tmp_files(result.get("tmp"))
     ending, why = _ending(result, meta, skill, [rel for rel, _size in gate_files])
     gate_found = _gate_payload(result, dest, gate_files, kind) if known.get("gate") else None
@@ -723,8 +719,9 @@ def _provider_path(cfg: dict, cls: str, platform: str | None = None) -> str:
 
 
 def _approve_effect(ctx: dict, item: dict, sha256) -> dict:
-    """approve() for an `effect`: the approval row, then, holding the run lock, the checks and the execution by code,
-    then the effect is done and the state file gets the generated row."""
+    """approve() for an `effect`: the approval row, then, holding the write lock, the checks and the execution by code,
+    then the effect is done and the state file gets the generated row. Refused, before anything is executed, while a code
+    task of the effect's request is running (the checks read the project's tracked files and the request's change set)."""
     store, cfg, pending_id = ctx["store"], ctx["cfg"], item["id"]
     if sha256 is None:
         raise core.OpsError(f"pending decision {pending_id} is an effect: approve it with --sha256 <the hash shown with it>", 2)
@@ -732,6 +729,26 @@ def _approve_effect(ctx: dict, item: dict, sha256) -> dict:
         raise core.OpsError(f"the effect's hash is {item['payload_sha256']} and you typed {sha256}: nothing was approved", 1)
     if item["status"] != "open":
         raise core.OpsError(f"pending decision {pending_id} is {item['status']}, not open", 1)
+    request_id = core._stored(ctx, store.task_get, item["task_id"])["parent_id"]
+    with core._effect_lock(cfg, request_id):
+        try:  # a second queued approval of the same effect must not execute it again: read the decision now, under the lock
+            fresh = core._stored(ctx, store.pending_get, pending_id)
+        except core.OpsError:
+            fresh = item
+        if fresh["status"] != "open":
+            raise core.OpsError(f"pending decision {pending_id} is {fresh['status']}, not open: nothing was executed", 1)
+        # from here a code task of the request is not claimed (admit reads this lock)
+        if request_id is not None:
+            with core._claim_lock(cfg):  # a claim happens under this lock: either the code task is seen here or the lock is seen there
+                if ops_runs.code_running(ctx, request_id):
+                    raise core.OpsError("a code task of this request is running; approve when it ends", 1)
+        return _execute_effect(ctx, item, sha256)
+
+
+def _execute_effect(ctx: dict, item: dict, sha256) -> dict:
+    """The rest of _approve_effect, with the request's effect lock held: the document, the approval row, the checks and the
+    execution under the write lock."""
+    store, cfg, pending_id = ctx["store"], ctx["cfg"], item["id"]
     payload = item.get("payload") or {}
     try:
         with open(payload["effect_file"], "rb") as f:
@@ -748,7 +765,7 @@ def _approve_effect(ctx: dict, item: dict, sha256) -> dict:
     what = kind.describe(doc)
     approval = core._stored(ctx, store.approval_add, scope="action", what=" ".join(what.split())[:1000], by="user",
                        payload_sha256=sha256, pending_id=pending_id)
-    with core._run_lock(cfg):
+    with core._write_lock(cfg):
         try:
             made = changeset.load(os.path.dirname(payload["changeset_dir"]))
             if made is None:
@@ -772,20 +789,21 @@ def _write_approval_row(cfg: dict, row: list) -> dict:
     """The generated row in the state file's ## Approvals table (state_merge.write_generated), only when the file did
     not change between its read and the write (L12); otherwise it is written at the next write."""
     target = os.path.join(cfg["project"], *path_rule.STATE.split("/"))
-    if not os.path.isfile(target) or os.path.islink(target):
-        return {"written": False, "reason": "the project has no state file"}
-    before = _sha256(target)
-    try:
-        text = state_merge.write_generated(_read(target), [row])
-    except state_merge.Conflict as e:
-        return {"written": False, "reason": str(e)}
-    if _sha256(target) != before:
-        return {"written": False, "reason": "the state file changed while the row was being written; it is written at the next write"}
-    temporary = f"{target}.{os.getpid()}.tmp"
-    with open(temporary, "w", encoding="utf-8") as f:
-        f.write(text)
-    os.replace(temporary, target)
-    return {"written": True}
+    with core._write_lock(cfg):
+        if not os.path.isfile(target) or os.path.islink(target):
+            return {"written": False, "reason": "the project has no state file"}
+        before = _sha256(target)
+        try:
+            text = state_merge.write_generated(_read(target), [row])
+        except state_merge.Conflict as e:
+            return {"written": False, "reason": str(e)}
+        if _sha256(target) != before:
+            return {"written": False, "reason": "the state file changed while the row was being written; it is written at the next write"}
+        temporary = f"{target}.{os.getpid()}.tmp"
+        with open(temporary, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(temporary, target)
+        return {"written": True}
 
 
 def _tmp_files(tmp) -> list:
@@ -941,22 +959,22 @@ def _dependencies(cfg: dict, entered: dict, read=None) -> list:
 def deps(project: str) -> dict:
     """Install every dependency set the project's configuration declares, by code, with no model: {"dependencies":
     [{"recipe", "file", "applies", and when it applies "key", "cached", "duration_ms"}]}. A set whose files are not
-    all in the project does not apply and installs nothing. Holds the run lock, so no run starts meanwhile."""
+    all in the project does not apply and installs nothing. It takes no project lock: an install that a run makes at the
+    same time takes the same lock per cache key (runtime/deps.py), so the two never install one set twice."""
     ctx = core.context(project)
     cfg, out = ctx["cfg"], []
-    with core._run_lock(cfg):
-        for entry in cfg.get("dependencies") or []:
-            files = deps_sets.files_for(entry, lambda rel: _project_bytes(cfg["project"], rel))
-            row = {"recipe": entry["recipe"], "file": entry["file"], "applies": files is not None}
-            if files is not None:
-                try:
-                    done = deps_sets.ensure(cfg["data_dir"], entry, files, lab.image()["digest"])
-                except deps_sets.DepsError as e:
-                    raise core.OpsError(f"dependencies: {e.reason}", 1) from None
-                except lab.LabError as e:
-                    raise core.OpsError(f"dependencies: {e.kind}: {e.reason}", 1) from None
-                row.update(key=done["key"], cached=done["cached"], duration_ms=done["duration_ms"])
-            out.append(row)
+    for entry in cfg.get("dependencies") or []:
+        files = deps_sets.files_for(entry, lambda rel: _project_bytes(cfg["project"], rel))
+        row = {"recipe": entry["recipe"], "file": entry["file"], "applies": files is not None}
+        if files is not None:
+            try:
+                done = deps_sets.ensure(cfg["data_dir"], entry, files, lab.image()["digest"])
+            except deps_sets.DepsError as e:
+                raise core.OpsError(f"dependencies: {e.reason}", 1) from None
+            except lab.LabError as e:
+                raise core.OpsError(f"dependencies: {e.kind}: {e.reason}", 1) from None
+            row.update(key=done["key"], cached=done["cached"], duration_ms=done["duration_ms"])
+        out.append(row)
     return {"dependencies": out}
 
 
@@ -1071,19 +1089,23 @@ def answer(project: str, pending_id: int, text: str, with_comments: bool = False
         return {**out, "state": {"written": False, "reason": "an answer to the router is given to its next run, "
                                                                "not recorded as a decision"}}
     target = os.path.join(ctx["cfg"]["project"], *path_rule.STATE.split("/"))
-    current = _read(target) if os.path.isfile(target) and not os.path.islink(target) else None
-    if current is None:
-        return {**out, "state": {"written": False, "reason": "the project has no state file"}}
     skill = core._stored(ctx, ctx["store"].task_get, item["task_id"])["skill"]
     try:
-        text_after = state_merge.with_answer(current, date=datetime.date.today().isoformat(), skill=skill,
-                                             pending_id=pending_id, answer=said)
-    except state_merge.Conflict as e:
+        with core._write_lock(ctx["cfg"]):
+            current = _read(target) if os.path.isfile(target) and not os.path.islink(target) else None
+            if current is None:
+                return {**out, "state": {"written": False, "reason": "the project has no state file"}}
+            try:
+                text_after = state_merge.with_answer(current, date=datetime.date.today().isoformat(), skill=skill,
+                                                     pending_id=pending_id, answer=said)
+            except state_merge.Conflict as e:
+                return {**out, "state": {"written": False, "reason": str(e)}}
+            temporary = f"{target}.{os.getpid()}.tmp"
+            with open(temporary, "w", encoding="utf-8") as f:
+                f.write(text_after)
+            os.replace(temporary, target)
+    except core.OpsError as e:  # the files stayed busy: the answer is in the store and the next run's prompt carries it
         return {**out, "state": {"written": False, "reason": str(e)}}
-    temporary = f"{target}.{os.getpid()}.tmp"
-    with open(temporary, "w", encoding="utf-8") as f:
-        f.write(text_after)
-    os.replace(temporary, target)
     return {**out, "state": {"written": True}}
 
 
@@ -1091,7 +1113,7 @@ def release(project: str, pending_id: int) -> dict:
     """Release a delivery (a pending decision of kind review). The task is done; the tasks that depended on it
     become ready. The delivery stays a draft: releasing is not approving. What a release starts (stage 6,
     _after_release) follows in the same call: the brief's delivery routed again (one run of the router, holding the
-    run lock, so the release is refused while another run is in progress), the backlog's sub-tasks; its result is
+    route lock, so the release is refused while the router answers another request), the backlog's sub-tasks; its result is
     under "after"."""
     ctx = core.context(project)
     return _release(ctx, pending_id, by="user")
@@ -1106,7 +1128,7 @@ def _release(ctx: dict, pending_id: int, by: str) -> dict:
         raise core.OpsError(f"pending decision {pending_id}: its change set is blocked ({refused}): answer with what to change, "
                        "or cancel the request", 1)
     task = core._stored(ctx, ctx["store"].task_get, item["task_id"])
-    lock = core._run_lock(ctx["cfg"]) if item["kind"] == "review" and _brief_delivery(ctx, task) else contextlib.nullcontext()
+    lock = core._route_lock(ctx["cfg"]) if item["kind"] == "review" and _brief_delivery(ctx, task) else contextlib.nullcontext()
     with lock:
         out = ops_waits.settled(ctx, core._stored(ctx, ctx["store"].pending_resolve, pending_id, resolution="released", by=by))
         after = _after_release(ctx, item)
@@ -1228,34 +1250,35 @@ def _standing_rows(ctx: dict) -> dict:
     # T23: workaround 5, the copy a skill's gate reads until it reads the runtime's record
     cfg = ctx["cfg"]
     target = os.path.join(cfg["project"], *path_rule.STATE.split("/"))
-    if not os.path.isfile(target) or os.path.islink(target):
-        return {"written": False, "reason": "the project has no state file"}
-    every = core._stored(ctx, ctx["store"].approvals_list, scope="standing")
-    chosen = {}
-    for row in every:
-        if row["status"] not in ("active", "expired"):
-            continue
-        held = chosen.get(row["policy_sha256"])
-        rank = lambda r: (r["status"] == "active", r["id"])  # the active one, else the newest
-        if held is None or rank(row) > rank(held):
-            chosen[row["policy_sha256"]] = row
-    rows = [["standing", f"{row['what']} (runtime #{row['id']})", f"policy:{row['policy_sha256']}",
-             row["approved_at"][:10], (row["expires_at"] or "")[:10], row["status"]]
-            for row in sorted(chosen.values(), key=lambda r: r["id"])]
-    before = _sha256(target)
-    try:
-        text, written, superseded = state_merge.write_standing(
-            _read(target), rows, {f"policy:{row['policy_sha256']}" for row in every if row["policy_sha256"]})
-    except state_merge.Conflict as e:
-        return {"written": False, "reason": str(e)}
-    if _sha256(target) != before:
-        return {"written": False, "reason": "the state file changed while the rows were being written; they are written at "
-                                            "the next write"}
-    temporary = f"{target}.{os.getpid()}.tmp"
-    with open(temporary, "w", encoding="utf-8") as f:
-        f.write(text)
-    os.replace(temporary, target)
-    return {"state_rows": written, "superseded_rows": superseded}
+    with core._write_lock(cfg):
+        if not os.path.isfile(target) or os.path.islink(target):
+            return {"written": False, "reason": "the project has no state file"}
+        every = core._stored(ctx, ctx["store"].approvals_list, scope="standing")
+        chosen = {}
+        for row in every:
+            if row["status"] not in ("active", "expired"):
+                continue
+            held = chosen.get(row["policy_sha256"])
+            rank = lambda r: (r["status"] == "active", r["id"])  # the active one, else the newest
+            if held is None or rank(row) > rank(held):
+                chosen[row["policy_sha256"]] = row
+        rows = [["standing", f"{row['what']} (runtime #{row['id']})", f"policy:{row['policy_sha256']}",
+                 row["approved_at"][:10], (row["expires_at"] or "")[:10], row["status"]]
+                for row in sorted(chosen.values(), key=lambda r: r["id"])]
+        before = _sha256(target)
+        try:
+            text, written, superseded = state_merge.write_standing(
+                _read(target), rows, {f"policy:{row['policy_sha256']}" for row in every if row["policy_sha256"]})
+        except state_merge.Conflict as e:
+            return {"written": False, "reason": str(e)}
+        if _sha256(target) != before:
+            return {"written": False, "reason": "the state file changed while the rows were being written; they are written at "
+                                                "the next write"}
+        temporary = f"{target}.{os.getpid()}.tmp"
+        with open(temporary, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(temporary, target)
+        return {"state_rows": written, "superseded_rows": superseded}
 
 
 def approve_policy(project: str, file: str, agent: str, sha256: str | None = None, expires: str | None = None,
@@ -1398,7 +1421,7 @@ def execute_under_policy(project: str, policy: str, effect_file: str, replay_log
     """The one place an effect under a standing approval is executed (limit L15). A handler prepares the effect
     document and hands it over; it confirms nothing itself. The document is checked, the approval is checked
     (_standing; a class of targets in its bounds resolved from the kind's recorded fact, before the lock; then
-    autonomy.covers on the whole row, the policy file's hash now, and today's count read again under the run lock),
+    autonomy.covers on the whole row, the policy file's hash now, and today's count read again under the write lock),
     the kind's judgement is made on the exact content (policy_judgement; the bytes it judged are written to a private
     folder the operation removes, and the provider is given that file, so what is sent is what was judged), and only
     then the provider's verb runs: a dry run, then the confirmed call, with --allow for exactly the approval's file globs and the document's idempotency
@@ -1426,7 +1449,7 @@ def execute_under_policy(project: str, policy: str, effect_file: str, replay_log
             return refuse(f"the target class could not be resolved, so nothing is covered: {e.reason}")
     private = tempfile.mkdtemp(prefix="wb-policy-")  # 0700: the bytes a kind judged, which the provider is then given
     try:
-        with core._run_lock(cfg):
+        with core._write_lock(cfg):
             row = core._stored(ctx, store.approval_get, answer["approval"]["id"])
             executed = core._stored(ctx, store.action_count, kind=policy, since=core._midnight())
             effect = module.policy_effect(doc)
@@ -1476,7 +1499,8 @@ def status(project: str) -> dict:
     """{"config": {"path", "sha256"}, "requests": [{"id", "title", "flow", "state", "tasks": [{"id", "key", "title",
     "agent", "skill", "state", "note", "waiting_for"}], "after", "routing"}], "pending": [... each with "agent" and "actions"], "documents": [{"path", "status", "note", "on_platform"}],
     "board": {"left_out_final"} or None, "held": [{"task_id", "agent", "reason", "at", "next"}]}: everything from the
-    store's records. "left_out_final" is the number of tasks the board never mirrors because they were final when it
+    store's records. A task's "holds_slot" says whether it holds a slot of its agent now (running, waiting for the person, or
+    ready after the person answered: runtime/parallel.py). "left_out_final" is the number of tasks the board never mirrors because they were final when it
     was configured (runtime/board.py). A task's "title" and "agent" are the store's: the agent is None when the project
     has no area agents. A request's "title" is plan.request_title: the one given, else its first sentence, else its
     first line cut at a word. "held" lists the ready tasks the last dispatcher round did not start, each with its
@@ -1490,8 +1514,10 @@ def status(project: str) -> dict:
         if c.get("task_id") is not None:
             comments[c["task_id"]] = comments.get(c["task_id"], 0) + 1
     board_of = lambda t: {"on_board": bool(t.get("remote_id")), "open_comments": comments.get(t["id"], 0)}
+    holders = {h["id"] for h in core._stored(ctx, ctx["store"].task_slot_holders)}
     requests = [{**{key: r[key] for key in ("id", "flow", "state")}, "title": plan.request_title(r), **board_of(r),
-                 "tasks": [{**{key: t[key] for key in ("id", "key", "title", "agent", "skill", "state", "note")}, **board_of(t)}
+                 "tasks": [{**{key: t[key] for key in ("id", "key", "title", "agent", "skill", "state", "note")}, **board_of(t),
+                            "holds_slot": t["id"] in holders}
                            for t in rows if t["parent_id"] == r["id"]]}
                 for r in rows if r["parent_id"] is None]
     return {"config": {"path": ctx["cfg"]["path"], "sha256": ctx["cfg"]["sha256"]}, "requests": ops_reads.with_routing(ctx, ops_waits.in_status(ctx, requests, rows)),
@@ -1580,7 +1606,7 @@ def _plan_pending(ctx: dict, request: dict, tasks: list, route_read, source: str
     """The pending decision of kind `plan` for these tasks: plan.build with the limits of the gate file and the past
     runs of the plan's skills in this store."""
     reference = lab.reference("strong")
-    limits = {"one_task_at_a_time": True, "timeout_seconds": reference["timeout_seconds"],
+    limits = {"max_running": ctx["cfg"]["max_running"], "timeout_seconds": reference["timeout_seconds"],
               "retries": reference["retries"]}
     past = []
     for skill in dict.fromkeys(t["skill"] for t in tasks):
@@ -1591,12 +1617,12 @@ def _plan_pending(ctx: dict, request: dict, tasks: list, route_read, source: str
 
 def route(project: str, request_id: int, flow: str | None = None, channel: str | None = None) -> dict:
     """Plan a request that waits for its route. With flow, the flow the person names: its plan is opened at once,
-    with no run and no run lock (it only opens a plan; an open question of the router is cancelled). Without, one run
+    with no run and no route lock (it only opens a plan; an open question of the router is cancelled). Without, one run
     of the router skill (router.ROUTER_SKILL), as it is, asked only for the route: the reply's route line is checked
     against the flow files and the pack in scope, and a valid route becomes a plan; a reply that asks becomes a
     question; a direct turn (route none, shape direct) opens nothing and returns kind "direct" with the router's
-    "next"; anything else opens a question with a sentence and the reply whole in its payload. While another run of
-    the project holds the run lock the request is queued, not refused, when `channel` is one that drains the queue
+    "next"; anything else opens a question with a sentence and the reply whole in its payload. While the router answers
+    another request of the project (it holds the route lock; a run of a task never does) the request is queued, not refused, when `channel` is one that drains the queue
     (ops_say.QUEUING_CHANNELS, the local service): {"routed": false, "queued": true}, routed by route_queued when the
     lock is free; any other channel is refused (RunBusy) as it always was. Nothing the router's run left comes back. No task is created before the
     person approves the plan (approve()). Returns {"routed": true or false, "pending_id", "source", ...}."""
@@ -1637,11 +1663,10 @@ def _routable(ctx: dict, request_id: int) -> dict:
 
 
 def _route_request(ctx: dict, request_id: int) -> dict:
-    """The router's run on a request, holding the run lock (RunBusy when another run holds it): the body of route()
-    without a flow, and what route_queued calls."""
-    store = ctx["store"]
-    with core._run_lock(ctx["cfg"]):
-        recovered = core._stored(ctx, store.task_fail_running, "the run was interrupted before it ended; retry the task")
+    """The router's run on a request, holding the route lock (RunBusy when the router answers another request): the body
+    of route() without a flow, and what route_queued calls."""
+    with core._route_lock(ctx["cfg"]):
+        recovered = ops_runs._recover(ctx, holding_route=True)
         request = _routable(ctx, request_id)
         try:
             parts = plan.split(request["text"])
@@ -1662,13 +1687,15 @@ def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False) 
         meta = skill_meta.declared(os.path.join(core.ROOT, "skills", skill))
         key = core._floor_key()
         routing = _route(ctx, skill, meta, None, key)
-        budget = _budget(ctx, plan.PLANNING, routing)
         identity = lab.skill_identity(skill)
+        with core._claim_lock(cfg):  # the budget and the run row are one step: two starts cannot pass the same cap
+            budget = _budget(ctx, plan.PLANNING, routing, key)
+            run_id = core._stored(ctx, store.route_run_start, request["id"], skill=skill, model=routing["model"],
+                                  adapter=routing["adapter"], skill_version=identity["version"],
+                                  skill_sha256=identity["content_sha256"], web=False, reroute=reroute,
+                                  billing=routing["billing"] or "unknown")["run_id"]
     except (skill_meta.SkillError, lab.LabError, OSError, KeyError) as e:
         raise core.OpsError(f"the router ({skill}) could not start: {e}", 1) from None
-    run_id = core._stored(ctx, store.route_run_start, request["id"], skill=skill, model=routing["model"],
-                     adapter=routing["adapter"], skill_version=identity["version"],
-                     skill_sha256=identity["content_sha256"], web=False, reroute=reroute, billing=routing["billing"] or "unknown")["run_id"]
     dest = os.path.join(cfg["data_dir"], core.RUNS_DIR, str(run_id))
     out = {"routed": False, "request": request["id"], "source": "router", "run_id": run_id, "run_dir": dest,
            "status": "failed", "ending": None, "failure": None, "pending_id": None, "kind": None, "kept": [],
@@ -1694,7 +1721,10 @@ def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False) 
         answered = [] if reroute else [p for p in core._stored(ctx, store.pending_list, "resolved", request["id"])
                                        if p["kind"] == "question" and p["resolution"] == "answered"]
         prompt = task_prompt(text, router.ROUTE_TASK_TEXT, answered)
-        with lab.session(), _key_in_environment(routing, key):
+        # Two router runs of two projects in one service process share the lab's process-wide session (lab.session ends
+        # every container of the process when it closes): the whole session is held under one guard. Task runs are
+        # processes of their own and never take it.
+        with core._LAB_GUARD, lab.session(), _key_in_environment(routing, key):
             result = lab.run_skill(skill, prompt, entered["files"], dest, web=False, tier=routing["tier"],
                                    max_cost=budget)
     except lab.LabError as e:
@@ -1746,7 +1776,7 @@ def _combined(ctx: dict, request: dict, routed: list) -> dict:
         if flow and flow not in flows:
             flows[flow] = flow_files.load(flow, core.ROOT)
     reference = lab.reference("strong")
-    limits = {"one_task_at_a_time": True, "timeout_seconds": reference["timeout_seconds"],
+    limits = {"max_running": cfg["max_running"], "timeout_seconds": reference["timeout_seconds"],
               "retries": reference["retries"]}
     skills = plan.agent_skills(cfg, core.ROOT)
     pack = plan.pack_skills(cfg, core.ROOT)
@@ -1814,7 +1844,7 @@ def _item_text(preamble: str, item: str) -> str:
 
 def _route_deliveries(ctx: dict, request: dict, parts: dict) -> dict:
     """A request that lists several deliveries (decision P3): one router run per item, each with the text
-    "<preamble>\n\n<item>"; then one plan of every routed delivery, chained in the order listed (plan.combine),
+    "<preamble>\n\n<item>"; then one plan of every routed delivery, a delivery starting after an earlier one only when it reads what that one writes (plan.combine),
     opened with the last run. An item whose reply asks, names no valid route or cannot be planned goes to the plan's
     "unrouted" with the whole reply. When no item was routed, the last run opens one question with every reply."""
     store = ctx["store"]
@@ -1889,7 +1919,7 @@ def _after_release(ctx: dict, item: dict) -> dict:
     """What a release of a review starts, by the person or by a mode (WP-6.5): (a) the brief's delivery routed again,
     with the brief's path from the files the run returned (never from the reply); (b) the backlog's sub-tasks, when the
     task's skill owns the product backlog and the run returned it. Returns {"reroute": ..., "subtasks": ...}, each only
-    when it applied. The caller holds the run lock when (a) applies."""
+    when it applied. The caller holds the route lock when (a) applies."""
     out = {}
     if item["kind"] != "review":
         return out
@@ -2015,7 +2045,7 @@ def _backlog_subtasks(ctx: dict, task: dict) -> dict:
     return {"created": [t["id"] for t in created], "pending_id": pending_id}
 
 
-EFFECT_CHANNELS = ("terminal", "page")  # the channels an effect may be approved from (decision D8, extended)
+EFFECT_CHANNELS = operations.EFFECT_CHANNELS  # the channels an effect may be approved from (decision D8, extended); the source is operations.py
 
 
 def approve(project: str, pending_id: int, sha256: str | None = None, channel: str | None = None, go_ahead=None) -> dict:
@@ -2051,9 +2081,9 @@ def approve(project: str, pending_id: int, sha256: str | None = None, channel: s
 
 
 def sync(project: str, dry_run: bool = False, take: str | None = None, path: str | None = None) -> dict:
-    """Mirror the project's task board (runtime/board.py) and its documents (runtime/documents.py), holding the run
-    lock. The board: pull (the board to the store; not on a dry run, which reads nothing), then push (the store to
-    the board; with dry_run, every write the provider would make, and nothing changes). The documents, after the
+    """Mirror the project's task board (runtime/board.py) and its documents (runtime/documents.py), holding the write
+    lock (every provider call has its timeout: board.TIMEOUT, documents.TIMEOUT). The board: pull (the board to the
+    store; not on a dry run, which reads nothing), then push (the store to the board; with dry_run, every write the provider would make, and nothing changes). The documents, after the
     board: pull (the platform to the project; not on a dry run), then push of every project document a manifest
     entry mirrors. take ("page" or "project") with path settles a document that was not taken (documents.take),
     and does nothing else. Returns {"board": {"pulled", "created", "edited", "refused", "gone", "comments",
@@ -2065,7 +2095,7 @@ def sync(project: str, dry_run: bool = False, take: str | None = None, path: str
         raise core.OpsError("take and path go together", 2)
     ctx = core.context(project)
     out = {"board": None, "documents": None}
-    with core._run_lock(ctx["cfg"]):
+    with core._write_lock(ctx["cfg"]):
         if take is not None:
             if not documents.enabled(ctx["cfg"]):
                 raise core.OpsError("take settles a document of the documents platform, and none is configured", 3)
@@ -2099,13 +2129,15 @@ def _documents(ctx: dict, function, *args, **kwargs):
 
 def hand_over(project: str, task_id: int, file: str) -> dict:
     """Put one file of the person's in a task's file drop, <project>/.workbench-local/drop/<task id>/ (runtime/drop.py):
-    it enters the runs of that task only, and their prompt lists it. Holds the run lock, so no run of the task is in
-    progress. Returns {"task", "path", "bytes", "sha256"}; refused (drop.DropError) with the reason."""
+    it enters the runs of that task only, and their prompt lists it. Holds the write lock, and is refused while the task is
+    running. Returns {"task", "path", "bytes", "sha256"}; refused (drop.DropError) with the reason."""
     ctx = core.context(project)
-    with core._run_lock(ctx["cfg"]):
+    with core._write_lock(ctx["cfg"]):
         task = core._stored(ctx, ctx["store"].task_get, task_id)
         if task["parent_id"] is None or not task.get("skill"):
             raise core.OpsError(f"{task_id} is a request: a file is handed to one of its tasks", 1)
+        if task["state"] == "running":
+            raise core.OpsError(f"task {task_id} is running: hand the file over when its run ends", 1)
         try:
             meta = skill_meta.declared(os.path.join(core.ROOT, "skills", task["skill"]))
         except skill_meta.SkillError as e:
@@ -2150,11 +2182,11 @@ def _midnight_utc() -> str:
     return local.astimezone(datetime.timezone.utc).isoformat()
 
 
-def _budget(ctx: dict, agent, routing: dict):
+def _budget(ctx: dict, agent, routing: dict, key=None):
     """lab.run_skill's max_cost: the spend limit of a run on a metered credential, or one no manifest could bill (autonomy.run_budget
     of the agent's day; the per-run limit when the agent has no caps or less is left, a start by hand not being capped); None else."""
     per_run = ctx["cfg"]["raw"].get("max_cost_usd_per_run", PER_RUN_USD)
-    found = _agents_of_the_day(ctx).get(agent)
+    found = _agents_of_the_day(ctx, key).get(agent)
     return None if routing["billing"] not in (None, "metered") else (found and autonomy.run_budget(found["entry"], found["spent"], per_run)) or per_run
 
 
@@ -2181,10 +2213,11 @@ def _agents_of_the_day(ctx: dict, key=None) -> dict:
 
 def _snapshot(ctx: dict, key: dict) -> dict:
     """What dispatcher.decide reads, from the store, the proof (proof.route through _route) and the runtime manifests:
-    the running task, the ready tasks oldest first with the tier each would run on, the open reviews with their
-    agent, proof and mandatory flag, and each area agent's facts, a day's spend and its entry
-    (_agents_of_the_day). A run of the router (its task is a request, so its agent is None) counts against the
-    planning agent."""
+    the tasks running (with the children started and not yet claimed), the slot holders, the ready tasks oldest first with
+    the tier each would run on and the code flag and footprint of their skill, the open reviews with their agent, proof and
+    mandatory flag, the tasks a child could not start lately (`refused`), the project's `max_running`, and each area
+    agent's facts, a day's spend and its entry (_agents_of_the_day). A run of the router (its task is a request, so its
+    agent is None) counts against the planning agent."""
     store, cfg = ctx["store"], ctx["cfg"]
     agents = cfg["area_agents"]
     tasks = ops_waits.current_tasks(ctx)  # the waits derived again first: a round decides from what is now
@@ -2196,9 +2229,15 @@ def _snapshot(ctx: dict, key: dict) -> dict:
             proofs[skill] = _route(ctx, skill, skill_meta.declared(os.path.join(core.ROOT, "skills", skill)), None, key)
         return proofs[skill]
 
-    out = {"running": next((t for t in tasks if t["state"] == "running"), None),
-           "ready": [t for t in tasks if t["state"] == "ready" and t["parent_id"] is not None],
-           "reviews": [], "agents": _agents_of_the_day(ctx, key), "tier": {}, "billing": {}}
+    cache = {}
+    parallel_part = ops_runs.parallel_state(ctx, tasks, cache)
+    starting = parallel_part.pop("starting")  # started and not yet claimed: counted as running, not decided again
+    out = {**parallel_part,
+           "ready": [{**t, "code": ops_runs.skill_facts(t.get("skill"), cache)[1],
+                      "footprint": ops_runs.skill_facts(t.get("skill"), cache)[0]}
+                     for t in tasks if t["state"] == "ready" and t["parent_id"] is not None and t["id"] not in starting],
+           "reviews": [], "agents": _agents_of_the_day(ctx, key), "tier": {}, "billing": {},
+           "max_running": cfg["max_running"], "per_run_usd": cfg["raw"].get("max_cost_usd_per_run", PER_RUN_USD)}
     for item in core._stored(ctx, store.pending_list):
         task = by_id.get(item["task_id"])
         if item["kind"] != "review" or task is None or not task.get("skill"):
@@ -2265,68 +2304,25 @@ def _stops_the_round(ran: dict):
     return None
 
 
-def dispatch(project: str, budget_seconds=None) -> dict:
-    """The dispatcher (decision P5): one round. The handlers whose `dispatch` is true and whose agent is enabled get
-    their tick; then, until nothing may start: the reviews each agent's mode releases are released (with what a release
-    starts), and the oldest ready task whose agent may start (its mode, its daily caps by the billing of its route's credential) runs,
-    as run_next runs a task. No new run starts once budget_seconds (default DISPATCH_BUDGET) have passed, and a failure
-    the next run would repeat stops the round. Returns {"handlers", "released", "ran", "held", "stopped"}. Before a
-    run starts, the reference model's credential (for a run on it) and the eval image are checked: a round that cannot
-    start for either stops, and no task fails for it. The ready tasks the round held, each with its reason
-    (dispatcher.held_of), are kept for `status` (HELD_CURSOR)."""
-    started = time.monotonic()
-    ctx = core.context(project)
-    cfg = ctx["cfg"]
-    budget = DISPATCH_BUDGET if budget_seconds is None else budget_seconds
-    if not cfg["area_agents"]:
-        rows = core._stored(ctx, ctx["store"].tasks_list)
-        _record_held(ctx, [{"task_id": t["id"], "agent": t.get("agent"), "reason": dispatcher.NO_AGENT}
-                           for t in rows if t["state"] == "ready" and t["parent_id"] is not None], [])
-        return {"stopped": "no area agent is configured"}
-    out = {"handlers": _ticks(ctx, project), "released": [], "ran": [], "held": [], "stopped": None}
-    key = core._floor_key()
-    released, checked, held, missing = [], {}, [], []
-    while out["stopped"] is None:
-        if _configuration_moved(ctx):  # accepted again, or edited, since the round began: a mode may have been narrowed
-            out["stopped"] = ("the configuration changed during the round (a mode, a cap or an agent): no new run "
-                              "starts; the next round reads it")
-            break
-        snapshot = _snapshot(ctx, key)
-        decided = dispatcher.decide(snapshot, autonomy.review_action, autonomy.may_start)
-        out["held"] = decided["held"]
-        held = dispatcher.held_of(snapshot, decided)
-        did = _mode_releases(ctx, released, snapshot, decided)
-        out["released"] += did
-        if decided["start"] is None:
-            if did:
-                continue  # a release may have made a task ready
-            out["stopped"] = "nothing may start" if decided["held"] or snapshot["ready"] else "no task is ready"
-            break
-        if time.monotonic() - started > budget:
-            out["stopped"] = f"the round's budget of {budget} s is spent: no new run starts"
-            break
-        if snapshot["tier"].get(decided["start"]) == "strong" and "credential" not in checked:
-            checked["credential"] = _credential_stop()
-        if "image" not in checked:
-            checked["image"] = _image_stop()
-        stopper = (checked["credential"] if snapshot["tier"].get(decided["start"]) == "strong" else None) or checked["image"]
-        if stopper:
-            reason, out["stopped"], missing = stopper
-            held = dispatcher.held_of(snapshot, decided, {decided["start"]: reason})
-            break
-        try:
-            ran = _claim_and_run(ctx, None, decided["start"])
-        except core.OpsError as e:
-            out["stopped"] = f"task {decided['start']} could not run: {e}"
-            break
-        if ran.get("ran") is None:
-            out["stopped"] = ran.get("reason") or "nothing ran"
-            break
-        out["ran"].append({"task_id": ran["ran"], "run_id": ran["run_id"], "status": ran["status"],
-                           "ending": ran["ending"], "model": (ran.get("routing") or {}).get("model")})
-        out["stopped"] = _stops_the_round(ran)
-    _record_held(ctx, held, missing)
-    return out
+def dispatch(project: str, budget_seconds=None, wait: bool | None = None, channel: str | None = None) -> dict:
+    """The dispatcher (decision P5): one round (runtime/ops_runs.py). The handlers whose `dispatch` is true and whose agent
+    is enabled get their tick; then the reviews each agent's mode releases are released (with what a release starts), and
+    every ready task that the rules allow (its agent's mode and daily caps by the billing of its route's credential, the
+    slots of its agent and of the project, the artifacts in use, one code task per request) is started as a child process
+    of its own (`run-task`, one OS process per task run). No new run starts once budget_seconds (default DISPATCH_BUDGET)
+    have passed, and a failure the next run would repeat stops the round. With wait (the default, and the terminal's and
+    the scheduler's: their job kills what it leaves) the round keeps reaping and deciding until none of its children is
+    alive; without it (the local service, whose loop and page start runs and return) it returns at once and the next round
+    reports what ended. `wait` is taken from the channel when it is not given: the page does not wait. Returns
+    {"handlers", "released", "started": [{"task_id", "started_at"}], "ran": [the runs that ended since the last report],
+    "held", "stopped"}. Before a run starts, the reference model's credential (for a run on it) and the eval image are
+    checked: a round that cannot start for either stops, and no task fails for it. The ready tasks the round held, each
+    with its reason (dispatcher.held_of), are kept for `status` (HELD_CURSOR). One round of a project at a time
+    (DispatchBusy)."""
+    return ops_runs.dispatch(project, budget_seconds=budget_seconds, wait=(channel != "page") if wait is None else wait)
+
+
+reap = ops_runs.reap  # an assignment, not a def: it is no operation (the local service reaps its children on every tick)
 
 
 PIN_NAME = "dispatch-pin.json"
@@ -2490,7 +2486,7 @@ def poll(project: str) -> dict:
     released = []
     if cfg["area_agents"]:
         snapshot = _snapshot(ctx, core._floor_key())
-        decided = dispatcher.decide(snapshot, autonomy.review_action, autonomy.may_start)
+        decided = dispatcher.decide(snapshot, autonomy.review_action, autonomy.may_start, parallel.admit)
         released = _mode_releases(ctx, [], snapshot, decided, skip=lambda task: _brief_delivery(ctx, task) is not None)
     return {"synced": synced, "expired": expired, "released": released, "state": state}
 
@@ -2637,10 +2633,10 @@ def contained_run(project: str, skill: str, prompt: str, out_dir: str, platforms
         except workcopy.CopyError as e:
             raise core.OpsError(f"the copy could not be built: {e}", 1) from None
         try:
-            with lab.session(), _key_in_environment(routing, key):
+            with core._LAB_GUARD, lab.session(), _key_in_environment(routing, key):  # the lab's process-wide session: one at a time
                 result = lab.run_skill(skill, prompt, entered["files"], dest, web=False, tier=routing["tier"],
                                        timeout=timeout, retries=0, platforms=list(platforms or ()),
-                                       max_cost=_budget(ctx, None, routing))
+                                       max_cost=_budget(ctx, None, routing, key))
         except lab.LabError as e:
             with contextlib.suppress(OSError):
                 os.rmdir(dest)  # no run was made: the folder claimed for it is empty, and goes
@@ -2676,6 +2672,7 @@ def contained_run(project: str, skill: str, prompt: str, out_dir: str, platforms
 # --- the facade: what the sibling modules hold, under the names a shell and a test read ---------------------------------
 
 OpsError = core.OpsError  # a shell catches ops.OpsError; the class has one home, runtime/ops_core.py
+DispatchBusy = core.DispatchBusy  # the local service's loop catches it by this name
 
 # The conversation (runtime/ops_say.py): the two operations, and the constants the shells and the tests read.
 from ops_say import chat_memory, route_queued, say  # noqa: E402,F401

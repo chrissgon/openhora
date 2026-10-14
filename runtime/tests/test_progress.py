@@ -182,7 +182,7 @@ def test_the_progress_operation_reads_the_store_and_calls_no_model(tree, capsys,
     request = ops.request(project, "Tell me which market to go after first.", "demo")
     store = ops_core.store_module()
     conn = store.open_db(str(tree["db"]))
-    task = store.task_claim_next(conn)["task"]
+    task = store.task_claim(conn, conn.execute(store.NEXT_READY_TASK).fetchone()["id"])["task"]
     run = store.task_run_start(conn, task["id"], skill=task["skill"], model="m", adapter="h")["run_id"]
     store.task_run_finish(conn, run, status="ok", ending="done", task_state="waiting", cost_usd=None,
                           pending={"kind": "review", "title": "Market", "body": "Wrote it."})

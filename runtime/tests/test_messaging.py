@@ -31,7 +31,7 @@ shell_kit = st.load("shell_kit")
 
 FIXTURE = st.RUNTIME / "tests" / "fixtures" / "messenger_standin.py"
 SENDER = "4242"
-OPEN_POLICY = ["read", "talk", "answer", "release", "approve-plans", "approve-acceptances", "reject-cancel-retry"]
+OPEN_POLICY = ["read", "talk", "answer", "release", "approve-plans", "approve-acceptances", "reject-cancel", "retry"]
 PLAN_HASH = "p" * 64
 SECRET_TEXT = "Northwind shop launch plan, the private paragraph"
 
@@ -70,6 +70,7 @@ def world(tmp_path, monkeypatch):
     folder = tmp_path / "standin"
     folder.mkdir()
     monkeypatch.setenv("STANDIN_DIR", str(folder))
+    monkeypatch.setenv("OPENHORA_STATE_DIR", str(tmp_path / "state"))  # no test reaches the real state folder
     w = World()
     w.tmp, w.root, w.standin = tmp_path, root, folder
     w.items = {}
@@ -213,7 +214,8 @@ def test_an_effect_card_has_no_approve_and_carries_the_exact_command_and_the_lin
     assert [a["label"] for a in message["actions"]] == ["Reject"]
     assert "Approve it on the page or in the terminal:" in message["text"]
     command = operations.command_line("approve", world.projects[0]["path"], checkout=bridge.ROOT, pending_id=7, sha256="e" * 64)
-    assert message["text"].rstrip().endswith(command) and "e" * 64 in command
+    assert message["text"].rstrip().endswith(f"`{command}`") and "e" * 64 in command  # on its own line, tap-to-copy
+    assert message["text"].rstrip().splitlines()[-1] == f"`{command}`"
     assert message["link"]["url"] == "https://page.example/open"
     world.say("/approve 7")  # typed: no operation, the command again
     assert world.calls("approve") == [] and command in world.texts()[-1]
@@ -380,9 +382,9 @@ def test_a_second_model_call_during_the_first_gets_still_working(world):
 
 
 def test_a_run_in_progress_gets_its_sentence_and_every_reply_is_split_to_the_text_limit(world):
-    world.fake.answers["say"] = ops.OpsError("another run of this project is in progress: one task at a time per project", 1)
+    world.fake.answers["say"] = ops.OpsError("the planning agent is answering another request of this project", 1)
     world.say("hello")
-    assert wait_for(lambda: world.texts() and world.texts()[-1].startswith("error: another run"))
+    assert wait_for(lambda: world.texts() and world.texts()[-1].startswith("error: the planning agent"))
     assert wait_for(lambda: not world.bridge.exclusive)  # the first job has released the project's model slot
     world.fake.answers["say"] = {"reply": "w" * 9000}
     world.caps(max_text=4000)

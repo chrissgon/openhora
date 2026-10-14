@@ -141,8 +141,8 @@ def test_a_title_a_person_edited_on_the_board_reaches_the_store_and_is_never_wri
 def test_a_failed_task_set_to_ready_on_the_board_is_retried(tree):
     ids = planned(tree)
     s, conn = store(tree)
-    s.task_claim_next(conn)
-    s.task_fail_running(conn, "the run was interrupted")
+    s.task_claim(conn, ids["market"])
+    s.task_fail_orphans(conn, [ids["market"]], [], "the run was interrupted")
     ops.sync(project_of(tree))
     assert "State: failed" in item_file(tree, ids["market"]).read_text(encoding="utf-8")
     edit_item(tree, ids["market"], "State: failed", "State: ready")

@@ -169,9 +169,12 @@ def test_deliveries_are_chained_in_the_order_listed(tree):
     out = routed(tree, TWO)
     item = ops.pending(path, out["pending_id"])
     payload = item["payload"]
+    # The deliveries keep their order, but no longer wait for each other by position: the second one depends on the
+    # first one's task only because the stand-in skill demo-writes reads what the market task's skill writes (the
+    # artifact contract, plan._contract_deps).
     assert [(t["key"], t["depends_on"], t["agent"]) for t in payload["tasks"]] == [
         ("d1-market", [], "business"), ("d1-profile", ["d1-market"], "business"),
-        ("d2-demo-writes", ["d1-profile"], "business")]
+        ("d2-demo-writes", ["d1-market"], "business")]
     assert [d["tasks"] for d in payload["deliveries"]] == [["d1-market", "d1-profile"], ["d2-demo-writes"]]
     assert payload["flow"] == plan.DELIVERIES_FLOW and item["title"] == "Plan: 2 deliveries (3 tasks)"
     assert "flows/deliveries.json" not in item["body"] and "Estimate: 6 runs" in item["body"]

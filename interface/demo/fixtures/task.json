@@ -29,7 +29,7 @@
       "run_id": null,
       "kind": "plan",
       "title": "Plan: demo (2 tasks)",
-      "body": "Plan for request 1: Do the market analysis.\nSource: the flow you named; flow file flows/demo.json\n\n| # | Task | Skill | After | Milestone | Web |\n|---|---|---|---|---|---|\n| 1 | Market | biz-market-analysis | - | no | no |\n| 2 | Profile | mkt-social-copy | 1 | yes | no |\n\nOne task at a time; each run at most 60 s, retried at most 2 times. At least 2 runs.\nPast runs of these skills here: biz-market-analysis 0; mkt-social-copy 0.\nPlan hash: 042896dc1966b8a6214e5383aba5b8b931cfa049d17aafa37eb8a77c859b95da",
+      "body": "Plan for request 1: Do the market analysis.\nSource: the flow you named; flow file flows/demo.json\n\n| # | Task | Skill | After | Milestone | Web |\n|---|---|---|---|---|---|\n| 1 | Market | biz-market-analysis | - | no | no |\n| 2 | Profile | mkt-social-copy | 1 | yes | no |\n\nUp to 3 tasks at a time; each run at most 60 s, retried at most 2 times. At least 2 runs.\nPast runs of these skills here: biz-market-analysis 0; mkt-social-copy 0.\nPlan hash: 042896dc1966b8a6214e5383aba5b8b931cfa049d17aafa37eb8a77c859b95da",
       "payload": {
         "cycles": [],
         "estimate": {
@@ -50,7 +50,7 @@
         },
         "flow": "demo",
         "limits": {
-          "one_task_at_a_time": true,
+          "max_running": 3,
           "retries": 2,
           "timeout_seconds": 60
         },
@@ -71,7 +71,7 @@
             "web": false
           },
           {
-            "agent": "marketing",
+            "agent": "content",
             "depends_on": [
               "market"
             ],

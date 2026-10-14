@@ -898,7 +898,7 @@ console.log(JSON.stringify(out));
         assert got[f"{kind}0"]["vertices"] < got[f"{kind}16"]["vertices"], "an empty bookcase has no binders"
 
 
-# --- two potted plants in every room, not in the server room (A-45, M-6) -------------------------------------------------------------------------
+# --- one potted plant in every room, not in the server room (A-45, M-6; PAR-7: the second plant is gone, the L's desks stand where it was) -------------------------------------------------------------------------
 
 PLANTS_JS = ROOMS_JS + r"""
 import { PLANTS, POT, CROWN, plantGeometry } from "@JS@/scene/plants.js";
@@ -912,7 +912,7 @@ const apart = (a, b) => a[1] <= b[0] || b[1] <= a[0] || a[3] <= b[2] || b[3] <= 
 
 
 @needs_node
-def test_every_room_has_two_potted_plants_drawn_by_the_tower_in_the_tokens_never_picked_and_the_server_room_has_none(tmp_path):
+def test_every_room_has_one_potted_plant_drawn_by_the_tower_in_the_tokens_never_picked_and_the_server_room_has_none(tmp_path):
     got = run_node(tmp_path, PLANTS_JS + r"""
 const out = {};
 const crownSet = (p) => new Set(cityTones(p).crown.map(hex));
@@ -938,12 +938,12 @@ out.tokens = [t.crown.every((v, i) => hex(v) === hex(cityTones(palette).crown[i]
 out.plants = [PLANTS.length, POT.sides];
 console.log(JSON.stringify(out));
 """)
-    assert got["instanced"] == [True, 8, 4, False, True], "one instanced mesh for the tower, two plants for each of its four rooms, casting no shadow, in the tower's overlay (never squashed) and in no room (M-16)"
+    assert got["instanced"] == [True, 4, 4, False, True], "one instanced mesh for the tower, one plant for each of its four rooms, casting no shadow, in the tower's overlay (never squashed) and in no room (M-16)"
     assert got["crownVertices"][0] == 60 * 1 and got["crownVertices"][1] > 60, "a plant is the trees' crown of twenty facets (60 vertices in the crown tones) on a pot"
     assert got["inRooms"] == [0] * 4 and got["meshesPerRoom"] == [2] * 4, "no room's still mesh holds a plant: a room is its still mesh and its glass, and the plants add no draw call a room"
     assert got["plantsPicked"] is False and "tasks" in got["hits"] and "desk" in got["hits"], "the ways in are picked; the plants are in no hit (not pickable, no tooltip)"
     assert got["tokens"] == [True, True, True], "the crown is the trees' tones, the pot a token mix that follows the palette"
-    assert got["plants"] == [2, 6], "two plants, each a six-sided pot"
+    assert got["plants"] == [1, 6], "one plant, a six-sided pot"
     plants_js = (SCENE / "plants.js").read_text(encoding="utf-8")
     assert not re.search(r"#[0-9A-Fa-f]{3,8}\b|rgb\(|hsl\(|0x[0-9a-fA-F]{6}", plants_js), "plants.js writes no colour literal"
     assert "castShadow" not in plants_js and "motion" not in plants_js.lower() and "userData" not in plants_js, "no real-time shadow, no animation, nothing for the pick"
@@ -1091,8 +1091,9 @@ console.log(JSON.stringify(out));
 
 
 @needs_node
-def test_the_plants_stand_against_the_window_wall_clear_of_the_owl_the_board_the_bookcase_and_the_lobbys_door(tmp_path):
+def test_the_plant_stands_against_the_window_wall_clear_of_the_owls_the_desks_of_the_l_the_board_the_bookcase_and_the_lobbys_door(tmp_path):
     got = run_node(tmp_path, PLANTS_JS + r"""
+import * as layout from "@JS@/scene/seats-layout.js";
 const out = {};
 // each plant's true silhouette: the convex hull of the vertices `plants()` draws for it, seen by the camera; the other objects' too (a box or a rectangle on a wall)
 const hull = (points) => { const p = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1]); const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]); const lo = []; for (const q of p) { while (lo.length >= 2 && cross(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); } const up = []; for (const q of [...p].reverse()) { while (up.length >= 2 && cross(up[up.length - 2], up[up.length - 1], q) <= 0) up.pop(); up.push(q); } return [...lo.slice(0, -1), ...up.slice(0, -1)]; };
@@ -1104,16 +1105,19 @@ const silhouette = (place) => { const geo = plantGeometry(THREE, FRAME, roomTone
 const board = boxHull(0.535, 4.93, 0.565, 2.37, 0.2, 0.2);
 const bookcase = boxHull(5.38, 6.83, 0, 2.2, 0.2, 0.82);
 const door = boxHull(0.2, 0.2, 0, DOOR.top, DOOR.z0, DOOR.z1);
-const owls = Object.values(SEAT.owl).map(([x, z]) => boxHull(x - 0.5, x + 0.5, 0, 1.4, z - 0.5, z + 0.5));
-out.gaps = PLANTS.map((place) => { const s = silhouette(place); return { board: gap(s, board), bookcase: gap(s, bookcase), door: gap(s, door), owls: owls.map((o) => gap(s, o)) }; });
+// every owl of the L at its seat or at its standing place (a workstation is 0.68 of today's), every desk of the L and its corner top
+const S = layout.S;
+const owls = [0, 1, 2, 3].flatMap((i) => ["working", "waiting"].map((pose) => { const [x, z] = layout.footAt(i, pose); return boxHull(x - 0.5 * S, x + 0.5 * S, 0, 1.4 * S, z - 0.5 * S, z + 0.5 * S); }));
+const desks = [...layout.seats().map((s) => s.desk), layout.corner()].map((d) => boxHull(d.x0, d.x1, 0, 1.4 * S, d.z0, d.z1));
+out.gaps = PLANTS.map((place) => { const s = silhouette(place); return { board: gap(s, board), bookcase: gap(s, bookcase), door: gap(s, door), owls: [...owls, ...desks].map((o) => gap(s, o)) }; });
 out.wall = PLANTS.map(([x]) => x);
 out.ends = PLANTS.map(([, z]) => z);
 console.log(JSON.stringify(out));
 """)
     for r in got["gaps"]:
-        assert min(r["board"], r["bookcase"], r["door"], *r["owls"]) > 0, "a plant covers neither the board of notes, nor the bookcase, nor the Lobby's door, nor the owl in any of its three places"
-    assert got["wall"][0] < 1.0 and got["wall"][1] < 2.0, "near the left wall, the one that carries the windows, inward from the corner (A-74)"
-    assert abs(got["ends"][0] - 0.916) < 0.3 and 4.976 <= got["ends"][1] < 5.12, "one at the first end of the window run (z 0.916), one past its last end (z 4.976), the crown inside the front wall (A-74)"
+        assert min(r["board"], r["bookcase"], r["door"], *r["owls"]) > 0, "the plant covers neither the board of notes, nor the bookcase, nor the Lobby's door, nor an owl of the L at any seat or standing place, nor a desk of the L or its corner"
+    assert len(got["gaps"]) == 1 and got["wall"][0] < 1.0, "one plant (PAR-7), near the left wall, the one that carries the windows, inward from the corner (A-74)"
+    assert abs(got["ends"][0] - 0.916) < 0.3, "by the first end of the window run (z 0.916)"
 
 
 # --- the plaque on the Lobby's door and the label fitted on it (A-59, M-17) ------------------------------------------------------------------------

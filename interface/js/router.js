@@ -2,8 +2,8 @@
 //   #/                                   the City, the page's first screen whatever the number of projects (M-1); nothing replaces it
 //   #/city                               the City too: the alias the crumb, Back and Escape link to
 //   #/p/<id>                             a project's building
-//   #/p/<id>/floor/<agent>[/<tab>[/<pending id>]]   an agent's floor (tab: agent, inbox, desk, tasks; the desk takes a document: /desk/<percent-encoded path>)
-//   #/p/<id>/lobby[/<tab>[/<pending id>]]            the planning agent's floor (tab: conversation, inbox, desk, tasks, agent; the desk takes a document like a floor's)
+//   #/p/<id>/floor/<agent>[/<tab>[/<pending id>]]   an agent's floor (tab: agent, inbox, desk, tasks; the desk takes a document: /desk/<percent-encoded path>; the tasks tab reuses the number slot for a task id: /tasks/<task id>, the task opened, where the inbox's is a decision id; Escape on it goes back to /tasks)
+//   #/p/<id>/lobby[/<tab>[/<pending id>]]            the planning agent's floor (tab: conversation, inbox, desk, tasks, agent; the desk takes a document and the tasks tab a task like a floor's)
 //   #/p/<id>/lobby/conversation/request/<n>          the Conversation at request n's line (a bare number after the tab is a decision, so the word `request` is a segment)
 //   #/p/<id>/control[/<tab>]             the control room (tab: skills, costs, connections)
 // <id> is the 12-character id the service gives a project. An unknown hash is the City. Nothing here touches the document.

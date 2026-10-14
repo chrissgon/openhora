@@ -54,7 +54,7 @@
     "completed": []
   },
   "say": {
-    "reply": "{\n \"config\": {\n  \"path\": \"/home/demo/northwind-shop/docs/workbench/runtime.json\",\n  \"sha256\": \"1bbcad29320f20847a515cc854063cda0ddaea20cdcff45eb6b5e0e9ee15fbd4\"\n },\n \"requests\": [\n  {\n   \"id\": 1,\n   \"flow\": \"demo\",\n   \"state\": \"done\",\n   \"title\": \"Do the market analysis.\",\n   \"on_board\": false,\n   \"open_comments\": 0,\n   \"tasks\": [\n    {\n     \"id\": 2,\n     \"key\": \"market\",\n     \"title\": \"Market\",\n     \"agent\": \"planning\",\n     \"skill\": \"biz-market-analysis\",\n     \"state\": \"done\",\n     \"note\": null,\n     \"on_board\": false,\n     \"open_comments\": 0,\n     \"waiting_for\": []\n    },\n    {\n     \"id\": 3,\n     \"key\": \"profile\",\n     \"title\": \"Profile\",\n     \"agent\": \"marketing\",\n     \"skill\": \"mkt-social-copy\",\n     \"state\": \"done\",\n     \"note\": null,\n     \"on_board\": false,\n     \"open_comments\": 0,\n     \"waiting_for\": []\n    }\n   ],\n   \"after\": null,\n   \"routing\": null\n  }\n ],\n \"pending\": [],\n \"documents\": [],\n \"board\": null,\n \"held\": []\n}",
+    "reply": "{\n \"config\": {\n  \"path\": \"/home/demo/northwind-shop/docs/workbench/runtime.json\",\n  \"sha256\": \"1bbcad29320f20847a515cc854063cda0ddaea20cdcff45eb6b5e0e9ee15fbd4\"\n },\n \"requests\": [\n  {\n   \"id\": 1,\n   \"flow\": \"demo\",\n   \"state\": \"done\",\n   \"title\": \"Do the market analysis.\",\n   \"on_board\": false,\n   \"open_comments\": 0,\n   \"tasks\": [\n    {\n     \"id\": 2,\n     \"key\": \"market\",\n     \"title\": \"Market\",\n     \"agent\": \"planning\",\n     \"skill\": \"biz-market-analysis\",\n     \"state\": \"done\",\n     \"note\": null,\n     \"on_board\": false,\n     \"open_comments\": 0,\n     \"holds_slot\": false,\n     \"waiting_for\": []\n    },\n    {\n     \"id\": 3,\n     \"key\": \"profile\",\n     \"title\": \"Profile\",\n     \"agent\": \"content\",\n     \"skill\": \"mkt-social-copy\",\n     \"state\": \"done\",\n     \"note\": null,\n     \"on_board\": false,\n     \"open_comments\": 0,\n     \"holds_slot\": false,\n     \"waiting_for\": []\n    }\n   ],\n   \"after\": null,\n   \"routing\": null\n  }\n ],\n \"pending\": [],\n \"documents\": [],\n \"board\": null,\n \"held\": []\n}",
     "request_id": null,
     "pending_id": null,
     "ran": false,
@@ -99,10 +99,10 @@
     "previous": "failed"
   },
   "reject": {
-    "pending_id": 8,
-    "request": 11,
+    "pending_id": 9,
+    "request": 14,
     "cancelled": [
-      11
+      14
     ],
     "pending": []
   },

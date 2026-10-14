@@ -271,15 +271,21 @@ def ready(task_id):
     return {"id": task_id, "agent": "a", "state": "ready", "milestone": 0, "parent_id": 1}
 
 
+def decide_one(snapshot, may_start):
+    """The decision with every task admitted (these tests are about waits), and `start` as the first task started or None."""
+    got = dispatcher.decide(snapshot, autonomy.review_action, may_start, lambda *given: (True, ""))
+    return {**got, "start": got["start"][0] if got["start"] else None}
+
+
 def test_the_dispatcher_never_starts_a_task_with_an_open_wait_and_starts_the_next_one():
     snapshot = {"running": None, "ready": [ready(4), ready(5)], "reviews": [], "agents": {"a": agent()},
                 "tier": {4: "strong", 5: "strong"}, "billing": {4: "subscription", 5: "subscription"},
                 "waits": {4: [{"task_id": 2, "request_id": 1, "reason": "docs/brand/identity.md, written by task #2"}]}}
-    decided = dispatcher.decide(snapshot, autonomy.review_action, autonomy.may_start)
+    decided = decide_one(snapshot, autonomy.may_start)
     assert decided["start"] == 5 and decided["held"] == [{"task_id": 4, "why": dispatcher.WAITING}]
     only = dict(snapshot, ready=[ready(4)])
-    assert dispatcher.decide(only, autonomy.review_action, autonomy.may_start)["start"] is None
-    assert dispatcher.held_of(only, dispatcher.decide(only, autonomy.review_action, autonomy.may_start)) == [
+    assert decide_one(only, autonomy.may_start)["start"] is None
+    assert dispatcher.held_of(only, decide_one(only, autonomy.may_start)) == [
         {"task_id": 4, "agent": "a", "reason": "waiting"}]
     assert dispatcher.WAITING in dispatcher.REASONS
 
@@ -287,5 +293,5 @@ def test_the_dispatcher_never_starts_a_task_with_an_open_wait_and_starts_the_nex
 def test_a_snapshot_without_waits_decides_as_it_did():
     snapshot = {"running": None, "ready": [ready(4)], "reviews": [], "agents": {"a": agent()}, "tier": {4: "strong"},
                 "billing": {4: "subscription"}}
-    assert dispatcher.decide(snapshot, autonomy.review_action, autonomy.may_start)["start"] == 4
-    assert dispatcher.decide(dict(snapshot, waits={4: []}), autonomy.review_action, autonomy.may_start)["start"] == 4
+    assert decide_one(snapshot, autonomy.may_start)["start"] == 4
+    assert decide_one(dict(snapshot, waits={4: []}), autonomy.may_start)["start"] == 4

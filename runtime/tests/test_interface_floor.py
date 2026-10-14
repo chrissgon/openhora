@@ -223,7 +223,8 @@ def test_the_model_derives_each_floors_state_and_facts_from_what_the_service_ret
     assert got["lobby"] == {"link": "#/p/0123456789ab/lobby", "label": "Lobby", "lobby": True}
     assert got["tag"] == {"floor": "engineering", "text": "#1", "request": 1}, "the work-order tag rests on the floor of the request's current task"
     assert got["facts"] == {"configuration": "Accepted", "accepted": True, "request": {"id": 1, "title": "Spring"}, "waiting": 2,
-                            "running": {"id": 4, "title": "Task 4", "link": "#/p/0123456789ab/floor/engineering"}}
+                            "running": {"id": 4, "title": "Task 4", "link": "#/p/0123456789ab/floor/engineering"},
+                            "runningList": [{"id": 4, "title": "Task 4", "link": "#/p/0123456789ab/floor/engineering"}], "runningCount": 1, "runningMore": 0}
     assert got["plate"]["runsText"] == "2 / 8" and got["plate"]["usdText"] == "$0.50 / $4.00" and got["plate"]["acting"] == "autonomous" \
         and got["plate"]["selected"] is True and got["plate"]["mode"] == "autonomous-with-policy" and got["plate"]["pips"] == 4, "the plate of the desktop and the tablet"
     assert got["card"] == {"name": "engineering", "label": "Engineering", "dot": "theme", "decisions": 0, "word": "Running", "tone": "pui-theme", "mode": "autonomous-with-policy",
@@ -500,7 +501,7 @@ await settle();
 out.emptyComment = { calls: calls.length, hint: all(comment.el, ".wb-hint").map((n) => n.textContent) };
 
 // a plan: the table from payload.tasks, the limits line and the hash from the payload, approve with the displayed plan hash
-const payload = { limits: { one_task_at_a_time: true, timeout_seconds: 1800, retries: 2 }, estimate: { runs_at_least: 3 }, plan_sha256: PLAN_HASH,
+const payload = { limits: { max_running: 3, timeout_seconds: 1800, retries: 2 }, estimate: { runs_at_least: 3 }, plan_sha256: PLAN_HASH,
   tasks: [{ key: "a", title: "Build the sale page", skill: "eng-implement", depends_on: [], milestone: false, web: false, agent: "engineering" },
           { key: "b", title: "Review it", skill: "eng-code-review", depends_on: ["a"], milestone: true, mandatory_milestone: true, web: true },
           { key: "c", title: "Announce", skill: "mkt-social-copy", depends_on: ["a", "b"], milestone: true, web: false }] };
@@ -586,7 +587,7 @@ def test_the_questions_and_the_reviews_send_what_was_typed_and_a_blocked_release
 def test_the_plan_card_builds_its_table_limits_and_hash_from_the_payload_and_the_cancel_dialog_counts_the_requests_tasks(tmp_path):
     got = run_node(tmp_path, CARDS)
     assert got["rows"] == [["1", "Build the sale page", "engineering", "-", "no", "no"], ["2", "Review it", "-", "1", "yes (mandatory)", "yes"], ["3", "Announce", "-", "1, 2", "yes", "no"]]
-    assert got["limits"] == ["One task at a time; each run at most 1800 s, retried at most 2 times. At least 3 runs.", "Each run at most 5 s, retried at most 0 times."]
+    assert got["limits"] == ["Up to 3 tasks at a time; each run at most 1800 s, retried at most 2 times. At least 3 runs.", "Each run at most 5 s, retried at most 0 times."]
     assert got["plan"]["columns"] == ["#", "Task", "Skill", "Agent", "After", "Milestone", "Web"] and got["plan"]["cells"] == 3
     assert got["plan"]["hash"] == "b" * 64 and got["plan"]["line"][0] == got["limits"][0] and got["plan"]["asText"].startswith("Plan for request 1")
     assert "wb-skill" in got["plan"]["skillCell"], "the skill cell breaks at hyphens only"

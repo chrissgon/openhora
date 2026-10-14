@@ -8,6 +8,10 @@ file. The channel rule is a column: a row lists the channels that may call it, a
 channel (`channel_arg`) is told which one called it, so that code, not a prompt, refuses what a channel may not do
 (an effect is approved only from the terminal or from the local page, with its hash; never from the conversation).
 
+The channel policy (decisions M-8, M-12, M-13) is the second half of the file: GROUPS, DEFAULT_POLICY, BRAKES, EFFECT_CHANNELS
+and the pure functions permitted, policy_allows, refusal and permissions. A project narrows a channel's ceiling with named
+groups; `refusal` is the one helper every shell and the operations layer call, and contracts/runtime.md says where.
+
 OPERATIONS and CHAT_OWN are pure literals (`ast.literal_eval` reads them: scripts/architecture_tables.py and a test
 do, so that the generated tables and the shells cannot differ). A row:
 
@@ -33,6 +37,9 @@ do, so that the generated tables and the shells cannot differ). A row:
   help         one line: what it does
   channel_arg  (optional) the function takes `channel=<name>` and decides what that channel may do
   chat_reply   (optional) the key of the result the conversation shows instead of the whole result
+  exclusive    (optional) whether a shell gives the operation the project's model slot (one job that calls a model at a
+               time); default `bool(model)`. False for `dispatch` and `run-task`, which start task runs beside one another
+               and beside the router's run
   job          (optional) true when the operation calls a model or a platform, so that it may take minutes: the local
                service starts it in a thread and answers at once with a job to ask for again, instead of holding the
                request open. It is the one source of "returns a job"; every row whose `model` is not False has it
@@ -40,8 +47,8 @@ do, so that the generated tables and the shells cannot differ). A row:
                answers `{"queued": true}` instead of refusing, and the local service routes it when the run ends
                (`say`, `route`); only for a channel that drains the queue (ops_say.QUEUING_CHANNELS: the page), every
                other channel is refused as before, so such a row also takes the channel (`channel_arg`). The service
-               lets such a job start while another job holds the model slot, so the operation itself finds the run
-               lock held and queues
+               lets such a job start while another job holds the model slot, so the operation itself finds the
+               router's lock held and queues
   exit_unless  (optional) [key, value]: the terminal prints the result and exits 1 unless result[key] == value (a
                result that says the model did not answer is not a failure of the operation, and is still printed)
 
@@ -128,6 +135,11 @@ OPERATIONS = (
     {"name": "run-next", "call": "run_next", "args": ({"name": "tier", "kind": "str"},),
      "channels": ("terminal",), "model": True, "job": True,
      "help": "run the next ready task: one skill, once, on the model its proof gives"},
+    {"name": "run-task", "call": "run_task",
+     "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"},
+              {"name": "tier", "kind": "str"}),
+     "channels": ("terminal",), "model": True, "job": True, "exclusive": False,
+     "help": "run one named task in this process; the dispatcher starts it, a person uses run-next"},
     {"name": "accept-config", "call": "accept_config",
      "args": ({"name": "sha256", "kind": "str", "required": True},),
      "channels": ("terminal",), "model": False,
@@ -183,7 +195,8 @@ OPERATIONS = (
      "channels": ("terminal",), "model": True, "job": True, "exit_unless": ("status", "ok"),
      "help": "run one skill of an area agent's pack in the container on the artifacts it declares; only its reply comes out"},
     {"name": "dispatch", "call": "dispatch", "args": (), "channels": ("terminal", "page"), "model": True, "job": True,
-     "help": "one round of the dispatcher: the handlers' ticks, the releases by a mode, the next ready tasks"},
+     "channel_arg": True, "exclusive": False,
+     "help": "one round of the dispatcher: the handlers' ticks, the releases by a mode, the ready tasks the rules allow, each a process of its own; the terminal waits for them, the page returns at once"},
     {"name": "poll", "call": "poll", "args": (), "channels": ("terminal",), "model": False,
      "help": "the short job: mirrors, expired approvals, the state file's generated lines, the releases"},
     {"name": "handler", "call": "handler_call",
@@ -223,8 +236,9 @@ OPERATIONS = (
      "help": "the change signal of the project's store: a number that grows on every write, and when the file was last written"},
     {"name": "commands", "call": "commands", "args": (), "channels": ("page",), "model": False,
      "help": "the commands of the conversation as rows, command, arguments and help line, in the order /help prints them (the page lists them when the person types /)"},
-    {"name": "stop-runs", "call": "stop_runs", "args": (), "channels": ("terminal",), "model": False,
-     "help": "end the runs this process started (the local service calls it before it exits)"},
+    {"name": "stop-runs", "call": "stop_runs", "args": ({"name": "every", "kind": "flag", "flag": "all"},),
+     "channels": ("terminal",), "model": False,
+     "help": "end the runs this process started (the local service calls it before it exits); with --all, every task run of the project that a live process holds"},
     {"name": "service-check", "call": "service_check", "args": ({"name": "dispatch_every", "kind": "int", "flag": "dispatch-every"},),
      "channels": ("terminal",), "model": False,
      "help": "what the local service checks at its start: the secret store, the credential, docker, the eval image and whether it dispatches (the service calls it for each project)"},
@@ -236,26 +250,41 @@ CHAT_OWN = (
     {"name": "new", "args": "text", "help": "start a new request, whatever is open (--after <id> before the text: run it after that request)", "order": "last"},
 )
 
-# The channel policy (decision M-8). The `channels` column of the table is the ceiling of a channel; a project's
-# runtime.json (`channels.<channel>`, a list of these group names) narrows it, never widens it. A group names the
-# operations it covers, and, for `approve`, the kind of decision (a group with no kind covers every kind its
-# operations take). Pure literals, like the table.
+# The channel policy (decisions M-8, M-12, M-13). The `channels` column of the table is the ceiling of a channel; a
+# project's runtime.json (`channels.<channel>`, a list of these group names) narrows it, never widens it. A group names
+# the operations it covers, and, for `approve`, the kind of decision (a group with no kind covers every kind its
+# operations take). Every operation that the page, the MCP mode or the messaging channel may call is in exactly one group
+# (a test walks the table). A group is valid on a channel when one of its operations is in that channel's ceiling; it then
+# covers the ceiling's share of it. Pure literals, like the table.
 GROUPS = {
-    "read": {"operations": ("status", "progress", "pending", "task", "agents", "costs", "skills", "artifacts", "artifact"), "kind": None},
+    "read": {"operations": ("status", "progress", "pending", "task", "agents", "costs", "skills", "artifacts", "artifact",
+                            "flows", "conversation", "connections", "version", "config", "commands", "artifact-raw"),
+             "kind": None},
     "talk": {"operations": ("say",), "kind": None},
     "answer": {"operations": ("answer",), "kind": None},
     "release": {"operations": ("release",), "kind": None},
+    "request": {"operations": ("request", "route"), "kind": None},
     "approve-plans": {"operations": ("approve",), "kind": "plan"},
     "approve-acceptances": {"operations": ("approve",), "kind": "acceptance"},
-    "reject-cancel-retry": {"operations": ("reject", "cancel", "retry"), "kind": None},
+    "approve-effects": {"operations": ("approve",), "kind": "effect"},
+    "go-ahead": {"operations": ("go-ahead",), "kind": None},
+    "reject-cancel": {"operations": ("reject", "cancel"), "kind": None},
+    "retry": {"operations": ("retry",), "kind": None},
+    "set-mode": {"operations": ("set-mode",), "kind": None},
+    "dispatch": {"operations": ("dispatch",), "kind": None},
+    "documents": {"operations": ("sync", "hand-over"), "kind": None},
+    "verdict": {"operations": ("verdict",), "kind": None},
 }
 # The policy of a channel that has no entry in the project's configuration. A channel absent from this table keeps its
 # whole ceiling; the terminal is never narrowed. The messaging channel is closed: what changes the work other than a
 # line to the planning agent and an answer is turned on explicitly.
 DEFAULT_POLICY = {"messaging": ("read", "talk", "answer")}
 NEVER_NARROWED = ("terminal",)
-
-POSITIONAL = ("int", "str", "text")  # the kinds the conversation reads from a line
+POLICY_CHANNELS = ("page", "mcp", "messaging")     # the channels a project's configuration narrows; `chat` (local access, equal to the terminal) and `terminal` never are
+MUST_READ = ("page", "mcp")                        # a policy for these lists `read`
+PAGE_ONLY_GROUPS = ("approve-effects",)            # valid on the page alone (an effect is approved nowhere else, by EFFECT_CHANNELS)
+EFFECT_CHANNELS = ("terminal", "page")             # the channels an effect may be approved from (decision D8, extended)
+BRAKES = ("cancel", "set-mode")                    # never withheld from the page: cancel, and a move of a mode DOWN (the direction is checked by ops_config.set_mode)
 
 
 def by_name(name: str) -> dict:
@@ -273,11 +302,16 @@ def policy_groups(channel: str, policy) -> tuple:
     return tuple(given) if given is not None else DEFAULT_POLICY.get(channel)
 
 
-def permitted(op_name: str, channel: str, policy, kind: str | None = None) -> bool:
-    """Whether a channel may call an operation under a project's policy (pure). False when the row does not list the
-    channel (the ceiling). The terminal is never narrowed. For any other channel with groups (the project's entry, else
-    the default), true only when a group covers the operation and, for a group with a kind, the decision's kind (`kind`
-    None asks whether any group covers the operation). A channel with no groups keeps its ceiling."""
+def is_read(op_name: str) -> bool:
+    """Whether an operation is in the group `read`: a read, which the page and the MCP mode always keep (their policy
+    must list `read`), so a shell asks nothing of the configuration for it."""
+    return op_name in GROUPS["read"]["operations"]
+
+
+def policy_allows(op_name: str, channel: str, policy, kind: str | None = None) -> bool:
+    """Whether the channel's ceiling lists the operation and the project's groups cover it (pure), without the brakes.
+    The terminal is never narrowed; a channel with no groups keeps its ceiling. For a group with a kind, the decision's
+    kind must equal it (`kind` None asks whether any group covers the operation)."""
     try:
         row = by_name(op_name)
     except KeyError:
@@ -286,6 +320,8 @@ def permitted(op_name: str, channel: str, policy, kind: str | None = None) -> bo
         return False
     if channel in NEVER_NARROWED:
         return True
+    if op_name == "approve" and kind == "effect" and channel not in EFFECT_CHANNELS:
+        return False
     groups = policy_groups(channel, policy)
     if groups is None:
         return True
@@ -296,9 +332,60 @@ def permitted(op_name: str, channel: str, policy, kind: str | None = None) -> bo
     return False
 
 
+def permitted(op_name: str, channel: str, policy, kind: str | None = None) -> bool:
+    """Whether a channel may call an operation under a project's policy (pure): `policy_allows`, and, on the page, the
+    BRAKES whatever the policy says (cancel, and set-mode, whose direction ops_config.set_mode checks: a move down is
+    never withheld, a move up needs the group). Never the only guard of an effect: an effect is approved only from
+    EFFECT_CHANNELS, with its hash, and a line typed into any channel never approves one (ops.approve, ops_say)."""
+    if channel == "page" and op_name in BRAKES and policy_allows(op_name, channel, None):
+        return True
+    return policy_allows(op_name, channel, policy, kind)
+
+
 def not_enabled(name: str, channel: str) -> str:
     """The sentence of an operation the channel's ceiling lists and the project's policy does not turn on."""
     return f"/{name} is not enabled for this channel; the project's configuration (channels.{channel}) turns it on"
+
+
+def refusal(op_name: str, channel: str, policy, kind: str | None = None, go_ahead: bool = False):
+    """The sentence that refuses a call, or None when the channel's policy lets it through (pure; the one helper the
+    page, the MCP mode, a typed line, the approve rule and the queue's drain call). `kind` is the decision's kind for
+    approve; `go_ahead` is true when approve carries task keys, which needs the group `go-ahead` too (on a channel with
+    a policy). The caller raises OpsError(sentence, 1). A channel with no policy entry keeps its ceiling, so this
+    refuses only what the ceiling or the project's groups refuse; the terminal and the conversation are never refused."""
+    if not permitted(op_name, channel, policy, kind):
+        return not_enabled(op_name, channel)
+    if go_ahead and channel in POLICY_CHANNELS and not permitted("go-ahead", channel, policy):
+        return not_enabled("go-ahead", channel)
+    return None
+
+
+def permissions(channel: str, policy) -> list:
+    """What the channel may do under the policy, as the names the page reads (a list in the table's order): the plain
+    name of every operation the channel's row lists and `permitted` allows, except `approve` and `set-mode`, which are
+    pairs: approve:plan, approve:acceptance, approve:effect, approve:go-ahead (a plan's task keys: the kind plan and the
+    group go-ahead) and set-mode:down, set-mode:up. On the page cancel and set-mode:down are always there (the brakes)."""
+    out = []
+    for row in OPERATIONS:
+        name = row["name"]
+        if channel not in row["channels"]:
+            continue
+        if name == "approve":
+            kinds = [k for k in ("plan", "acceptance", "effect") if permitted("approve", channel, policy, k)]
+            out += ["approve:" + k for k in kinds]
+            if "plan" in kinds and permitted("go-ahead", channel, policy):
+                out.append("approve:go-ahead")
+        elif name == "set-mode":
+            if permitted(name, channel, policy):
+                out.append("set-mode:down")
+            if policy_allows(name, channel, policy):
+                out.append("set-mode:up")
+        elif permitted(name, channel, policy):
+            out.append(name)
+    return out
+
+
+POSITIONAL = ("int", "str", "text")  # the kinds the conversation reads from a line
 
 
 def terminal_verbs() -> tuple:
