@@ -11,8 +11,11 @@ under its name; no shell imports this file. The names every module of the layer 
                                    steps up to its rendered video and its cover, and stop with the task waiting. A code task
                                    (a task of a request with no skill, key `media:<recording id>`) carries it and the
                                    decisions. A step already done is not run again; a failed one is run again from there.
-                                   The first call links the post file to the platform when `post` is given. A job: it takes
-                                   minutes. No model is called.
+                                   The first call links the post file to the platform when `post` is given. A start that
+                                   cannot work is refused before any task, state or link is made (the platform has no data file
+                                   under shared/references/platforms/, the post file is not a regular file under docs/ or has no
+                                   ```script block), so the recording is still one that has not started. A job: it takes
+                                   minutes. No model is called. media-list also names these platforms (`platforms`).
   captions_read(project, recording)   the caption review the page shows: the transcript as caption chunks, the retakes
                                    proposed, the words whose timing was adjusted, each beat with its matched words and
                                    score, the words left out. The person's own words leave here, so it answers the
@@ -167,6 +170,37 @@ def _load_state(ctx: dict, rid: str):
         raise _refusal(e) from None
 
 
+def known_platforms() -> list:
+    """The platforms this checkout has a data file for (shared/references/platforms/<platform>.json): the only networks a pipeline can be started for."""
+    folder = os.path.join(core.ROOT, "shared", "references", "platforms")
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return []
+    return sorted(n[:-5] for n in names if n.endswith(".json") and media.PLATFORM.fullmatch(n[:-5]))
+
+
+def _check_start(ctx: dict, platform: str, post: str) -> None:
+    """What a start must hold before any task or state is made, so that a refused start leaves the recording as it was: the platform has a data file,
+    and the post file is a regular file of the project (not a link) that has a ```script block."""
+    known = known_platforms()
+    if platform not in known:
+        raise core.OpsError(f"{platform} is not a platform with a data file here ({', '.join(known) or 'none'}): name one of them with --network", 2)
+    try:
+        fd = os.open(pipeline.post_file(ctx["cfg"]["project"], post), os.O_RDONLY | os.O_NOFOLLOW)
+    except (OSError, pipeline.StepFailure):
+        raise core.OpsError("the post file cannot be read: it is a regular Markdown file under docs/ of the project", 2) from None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise core.OpsError("the post file cannot be read: it is a regular Markdown file under docs/ of the project", 2)
+        with os.fdopen(fd, "rb", closefd=False) as f:
+            text = f.read(pipeline.POST_LIMIT).decode("utf-8", "replace")
+    finally:
+        os.close(fd)
+    if not pipeline.has_script(text):
+        raise core.OpsError("the post file has no ```script block: a short video needs the script of its beats", 2)
+
+
 def _platform_of(ctx: dict, record: dict, platform, post) -> tuple:
     """(platform, post path) for a pipeline that starts now: the post file the person names (linked to the recording here),
     or the one the recording has. The platform is the one given, else the one the post file's `- Network:` line names, else
@@ -179,6 +213,7 @@ def _platform_of(ctx: dict, record: dict, platform, post) -> tuple:
             platform = _network_of(ctx["cfg"]["project"], post)
             if platform is None:
                 raise core.OpsError("name the network with --network: the post file has no `- Network:` line to say it", 2)
+        _check_start(ctx, platform, post)
         try:
             record = media.link_posts(data, record["id"], {platform: post})
         except media.MediaError as e:
@@ -192,6 +227,8 @@ def _platform_of(ctx: dict, record: dict, platform, post) -> tuple:
                                 + ": name the network with --network and the post file with --post", 2)
     if platform not in posts:
         raise core.OpsError(f"the recording has no post file for {platform}: give it with --post", 2)
+    if post is None:
+        _check_start(ctx, platform, posts[platform])      # a post file the recording had was checked when it was linked by a start; a link made elsewhere is not
     return platform, posts[platform]
 
 

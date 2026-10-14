@@ -96,6 +96,7 @@ export function createLobbyAgent(env) {
     reload() {
       changes += 1;
       for (const entry of bodies.values()) entry.at = 0;
+      tab.reload();
     },
     dispose() {
       disposed = true;

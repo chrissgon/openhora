@@ -280,6 +280,15 @@ export function uploadMedia(p, file, { recording, slot, onProgress, signal } = {
   return send("POST", `/projects/${enc(p)}/media`, { blob: file, headers, progress: typeof onProgress === "function" ? onProgress : () => {}, signal });
 }
 
+/**
+ * POST /projects/{p}/media/{recording}/pipeline (job): take a stored recording through the media pipeline (transcribe, analyse, retakes, align) up to the decision "Check the captions".
+ * `post` is the project-relative path of the Markdown post file under docs/ (linked to the recording on the first call), `network` the network its text is for (the post file's
+ * `- Network:` line when it has one), `request` an optional planned request to hang the task on. No model is called. The service answers on the loopback socket only.
+ */
+export function mediaPipeline(p, recording, { post, network, request, signal } = {}) {
+  return send("POST", `/projects/${enc(p)}/media/${enc(recording)}/pipeline`, { body: { post, network, request }, signal });
+}
+
 /** GET /projects/{p}/media: {recordings: [...], usage, retention, limits}; with `recording`, that one. */
 export function mediaList(p, { recording, signal } = {}) {
   return send("GET", `/projects/${enc(p)}/media`, { query: { recording }, signal });

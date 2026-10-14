@@ -731,7 +731,7 @@ def test_the_agent_tabs_sections_keep_the_tabs_gap_above_the_runs_total_the_othe
     assert rules[".wb-agent-body > :empty"].get("display") == "none", "an empty section adds no gap"
     assert rules[".wb-section"].get("gap") == "6px", "a section's heading keeps the smaller gap to its own rows"
     source = (INTERFACE / "js" / "floor" / "agent-tab.js").read_text(encoding="utf-8")
-    assert 'h("div", { class: "wb-agent-body" }, waitingLine, metersBox, runsTotalLine, currentBox, othersBox, handBox)' in source, "the three gaps are above the runs total, the others (a .wb-section: heading and rows) and the hand-over box"
+    assert 'h("div", { class: "wb-agent-body" }, waitingLine, metersBox, runsTotalLine, currentBox, othersBox, handBox, startBox)' in source, "the three gaps are above the runs total, the others (a .wb-section: heading and rows) and the hand-over box"
     assert 'const othersBox = h("div", { class: "wb-section" })' in source
 
 

@@ -17,6 +17,7 @@ import { runsSection } from "./run-block.js";
 import { createTaskActions } from "./task-actions.js";
 import { groupTasks, rowOf } from "./tasks-model.js";
 import { createCaptionsView } from "./captions-view.js";
+import { createMediaStart } from "./media-start.js";
 import { createVideoCard } from "./video-card.js";
 import { busyLine, chip } from "./widgets.js";
 
@@ -43,6 +44,11 @@ function keepFocus(container, render) {
  */
 export function createTasksTab(env) {
   const el = h("div", { class: "wb-tasks-tab" });
+  const listEl = h("div", { class: "wb-tasks-list" });       // what the tab draws of its tasks: loading, none, or the groups; "New short video" stands above it and needs no task
+  const mediaStart = createMediaStart({ project: env.project, api: env.api, can: env.can, refresh: () => env.refresh(), title: false, loaded: (count) => { if (count > 0 && newVideo.getAttribute("data-asked") === null) { newVideo.setAttribute("data-asked", ""); newVideo.open = true; } } });
+  const newVideo = h("details", { class: "wb-sv-details", "data-key": "new-short-video" }, h("summary", { text: "New short video" }), mediaStart.el);
+  fill(el, newVideo, listEl);
+  let startLoaded = false;
   const groupsBox = h("div", { class: "wb-tasks-groups" });
   arrowNav(groupsBox, "button.wb-task-toggle");
   let last = { tasks: [], requests: [], pending: [], loading: true };
@@ -243,7 +249,7 @@ export function createTasksTab(env) {
     if (last.loading) {
       if (shown !== "loading") {
         shown = "loading";
-        fill(el, busyLine("Loading the tasks..."));
+        fill(listEl, busyLine("Loading the tasks..."));
       }
       return;
     }
@@ -258,7 +264,7 @@ export function createTasksTab(env) {
     if (!last.tasks.length) {
       rows.clear();
       groupNodes.clear();
-      fill(el, h("p", { class: "wb-empty-line", text: NONE_TEXT }));
+      fill(listEl, h("p", { class: "wb-empty-line", text: NONE_TEXT }));
       return;
     }
     // the nodes of a row that did not change stay where they are; the scroll position of the panel is put back whatever was replaced
@@ -266,7 +272,7 @@ export function createTasksTab(env) {
       sync(groupsBox, groups.map(groupNode));
       for (const id of [...rows.keys()]) if (!last.tasks.some((t) => t.id === id)) rows.delete(id);
     }));
-    if (el.children[0] !== groupsBox) fill(el, groupsBox);
+    if (listEl.children[0] !== groupsBox) fill(listEl, groupsBox);
   }
 
   function draw() {
@@ -299,6 +305,7 @@ export function createTasksTab(env) {
           changes += 1;
           for (const entry of bodies.values()) entry.at = 0;
           for (const card of videos.values()) card.load({ quiet: true });
+          mediaStart.load();
         }
         reloaded = data.reload;
       }
@@ -308,6 +315,10 @@ export function createTasksTab(env) {
           card.close();
           videos.delete(recording);
         }
+      }
+      if (!startLoaded && !data.unaccepted) {
+        startLoaded = true;
+        mediaStart.load();
       }
       if (!last.loading) select(data.selected);
       if (!data.unaccepted) read();

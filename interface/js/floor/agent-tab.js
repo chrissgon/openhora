@@ -16,6 +16,7 @@ import { icon } from "../frame/icons.js";
 import { trackNode } from "../scene/plates.js";
 import { runsSection } from "./run-block.js";
 import { fileRefusal, handChooser, handOverStep, toBase64 } from "./hand-file.js";
+import { createMediaStart } from "./media-start.js";
 import { MEDIA_LABEL, asFileNote, mediaHintText, pickRefusal, progressBar, storedLine, uploadRecording, usesMedia } from "./media-upload.js";
 import { createTaskActions } from "./task-actions.js";
 import { busyLine, chip, errorText, notice, ring, withheldLine } from "./widgets.js";
@@ -64,7 +65,9 @@ export function createAgentTab(env) {
   const othersBox = h("div", { class: "wb-section" });
   const handBox = h("div", { class: "wb-hand" });
   const handLine = h("div");      // the line under the hand-over when the policy withholds it
-  const body = h("div", { class: "wb-agent-body" }, waitingLine, metersBox, runsTotalLine, currentBox, othersBox, handBox);
+  const mediaStart = createMediaStart({ project: env.project, api: env.api, can: env.can, refresh: () => env.refresh(), upload: false, title: "Edit a recording" });       // the recordings stored and not started; the upload is "Hand a file over"
+  const startBox = h("div", { class: "wb-sv-box" }, mediaStart.el);
+  const body = h("div", { class: "wb-agent-body" }, waitingLine, metersBox, runsTotalLine, currentBox, othersBox, handBox, startBox);
   const widerBox = h("div", { class: "wb-wider-modes" });
   fill(el, stateBox, plateBox, formBox, standing, resultBox, widerBox, body);
 
@@ -349,6 +352,7 @@ export function createAgentTab(env) {
       picked = null;
       pickedFor = null;
       fileInput.value = "";
+      if (media) mediaStart.load({ again: true });      // a stored recording is offered at once: choose its post file and edit it
       env.refresh();
     } catch (e) {
       fill(handResult, notice(errorText(e), "error"));      // the file stays held: the button can be pressed again
@@ -402,14 +406,23 @@ export function createAgentTab(env) {
   }
 
   let lastView = null;
+  let startLoaded = false;
   return {
     el,
     focusSelect() {
       stopButton.focus();
     },
+    /** The store changed (the page's reload stamp moved): a recording another tab or another part of the page started is no longer offered here. */
+    reload() {
+      if (startLoaded) mediaStart.load();
+    },
     /** view: floor-model.floor(...) with found true; {notAccepted: true, ...} draws the waiting line only; null while loading. */
     update(view) {
       lastView = view;
+      if (!startLoaded && view && !view.notAccepted && !view.unaccepted) {
+        startLoaded = true;
+        mediaStart.load();
+      }
       if (view && (view.notAccepted || view.unaccepted)) sawUnaccepted = true;
       else if (view && sawUnaccepted && modeResult) {
         modeResult = null;

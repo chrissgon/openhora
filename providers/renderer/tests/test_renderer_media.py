@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 import os
+import time
 import subprocess
 import tempfile
 
@@ -185,5 +186,16 @@ def test_a_command_past_its_time_limit_is_killed_with_its_group(tmp_path):
         _media.run(["/bin/sh", "-c", "sleep 30 & echo $! > %s; wait" % marker], 1)  # security-scan: allow shell-string -- a fixed test command: a sleep, its pid in a temporary file
     assert e.value.code == "time_limit"
     pid = int(marker.read_text())
+    # The group is killed by the time run() returns, but the kernel removes the process only when its parent (init, once the
+    # shell is gone) has reaped it: on a busy machine that is a moment later, and until then kill(pid, 0) still succeeds.
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        except PermissionError:  # a zombie not reaped yet, on macOS
+            pass
+        time.sleep(0.05)
     with pytest.raises(ProcessLookupError):
         os.kill(pid, 0)
