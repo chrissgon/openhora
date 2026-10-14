@@ -384,6 +384,8 @@ def kept_ranges(words: list, duration: float, fps: int, silences=None, pad_head:
     def to_frames(item):
         (lo, hi), is_forced = item
         a, b = int(math.ceil(lo * fps - 1e-6)), int(math.floor(hi * fps + 1e-6))   # inward: the kept side keeps the margin
+        if is_forced:
+            a = int(math.floor(lo * fps + 1e-6))     # a confirmed retake's cut starts on or before the frame its first word starts in: none of it leaks
         return (max(0, a), min(total, b), is_forced)
 
     grid = sorted(c for c in map(to_frames, cuts) if c[1] > c[0])

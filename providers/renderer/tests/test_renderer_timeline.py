@@ -560,3 +560,9 @@ def test_a_confirmed_retake_right_after_a_word_is_cut_at_its_first_word_start_no
     assert edl["proposals"][0]["confirmed"]
     assert edl["kept"][0][1] <= int(math.ceil(1.65 * FPS - 1e-6))                                # the first range ends at the retake's first word
     assert edl["kept"][1][0] / FPS == pytest.approx(4.1, abs=0.04)
+
+
+def test_a_forced_cut_starts_on_the_frame_that_holds_its_start_so_a_retakes_first_word_never_leaks_past_the_grid():
+    ws = [lw(0, "before", 1.0, 1.4)]
+    kept = T.kept_ranges(ws, 6.0, FPS, [(0.0, 0.9), (4.0, 6.0)], forced=[(2.51, 3.0)], long_cut=0)       # 2.51 s is inside frame 75 (2.5 to 2.533)
+    assert [r for r in kept if r[1] / FPS > 2.4 and r[0] / FPS < 3.1][0][1] == 75                         # the range ends where the frame starts
