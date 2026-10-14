@@ -57,6 +57,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/captions.py` | The caption review of a recording (amendment A4 of the short-video plan): what the person sees of the transcript, and how the words they change are re-mapped onto word indices. |
 | `runtime/changeset.py` | The change set: how code a run changed comes back (limit L9), and why a working document never enters a commit (limit L11). |
 | `runtime/chat.py` | The conversation with the planning agent, in the terminal: one more shell of the operations layer (runtime/ops.py, say). |
+| `runtime/check_brand_tokens.py` | Check the closed `brand-tokens` block of a visual identity (docs/brand/identity.md). |
 | `runtime/cli.py` | The terminal shell of the task runtime: one command per operation of runtime/ops.py, nothing else. |
 | `runtime/costs.py` | The cost of the runs, recomputed from the token counts the adapter left in a run folder and the prices the person typed into the project's configuration (model_prices, runtime/project_config.py). |
 | `runtime/deps.py` | A project's dependencies, installed by code: in the eval image, in a step with no model that sees only the dependency files, and copied into each run that needs them. |
@@ -105,6 +106,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/shell_kit.py` | What the two network-free shells of the operations layer share: the local service (runtime/service.py) and the MCP mode (runtime/mcp.py). |
 | `runtime/skill_meta.py` | What a skill declares in its frontmatter, read for the runtime: the artifact lists, the requirement classes, the side effects and the version. |
 | `runtime/state_merge.py` | The one module that decides what a run may change in the project's state file (docs/workbench/state.md), limit L10 of the platform plan. |
+| `runtime/theme.py` | The project's theme for the renderer (package P4g of the short-video plan, amendment A6.3, decision D32 option (i)). |
 | `runtime/video.py` | The rendered video of a short post, as the page sees it: which file it is, whether its bytes are the ones its name says, and what the person's approval of it binds. |
 | `runtime/workcopy.py` | What enters a run copy, and what comes back from it: the limits of the task runtime that decide which files of a project a run sees (L1 to L6) and which files a run leaves come back (L7, L8, L12, L14). |
 | `runtime/handlers/published_posts.py` | The weekly routine that lists the published posts (backlog item PB16): the first handler of the task runtime. |

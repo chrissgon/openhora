@@ -31,7 +31,7 @@ ON_SYSTEM_PYTHON = [
     # The sources of the four above that are generated copies (shared/scripts/copies.json): a copy is adopted
     # from its source, so the source runs on the system interpreter too.
     "shared/scripts/check_post.py", "shared/scripts/contrast.py", "shared/scripts/voice_stats.py",
-    "shared/scripts/sensitive_topics.py", "shared/scripts/redact.py",
+    "shared/scripts/sensitive_topics.py", "shared/scripts/redact.py", "shared/scripts/check_brand_tokens.py",
     # The field recorder: the runtime calls `record --start` before it starts an agent (the reliability model,
     # section 7), and it loads the status script for the form of a field line and the content hash.
     "scripts/evidence.py", "evals/eval_status.py",
@@ -48,7 +48,7 @@ ON_SYSTEM_PYTHON = [
     # The rendered video (M1 P7): the file checks, the approval and their operations.
     "runtime/video.py", "runtime/ops_video.py",
     # The media pipeline and the caption review (M1 P4b): the steps, the re-mapping of words, and their operations.
-    "runtime/pipeline.py", "runtime/captions.py", "runtime/ops_pipeline.py",
+    "runtime/pipeline.py", "runtime/captions.py", "runtime/ops_pipeline.py", "runtime/theme.py", "runtime/check_brand_tokens.py",
     # The MCP mode (stage 9): the same operations layer over standard input and output.
     "runtime/mcp.py",
     # The messaging bridge (MSG-1): its shell and its modules, started with the system interpreter like the other shells.

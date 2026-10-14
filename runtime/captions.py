@@ -65,9 +65,11 @@ OPS = {
     "slot": {"slot", "choice"},
     "face_box": {"x", "y", "w", "h", "clear"},
     "cover": {"offset_ms"},
+    "theme": {"choice"},
 }
 WORD_OPS = ("edit", "delete", "merge", "split")
 SLOT_CHOICES = ("keyword", "none")
+THEME_CHOICES = ("identity", "default")   # the colours and fonts of the project's identity (runtime/theme.py), or the renderer's own default
 
 
 class CaptionError(Exception):
@@ -89,7 +91,8 @@ def _is_int(value) -> bool:
 def new_review() -> dict:
     """The review state of a recording nobody has reviewed yet."""
     return {"version": REVIEW_VERSION, "revision": 0, "confirmed_retakes": [], "anchors": {}, "dropped_beats": [],
-            "empty_slots": {}, "face_box": None, "cover_offset_ms": 0}
+            "empty_slots": {}, "face_box": None, "cover_offset_ms": 0,
+            "theme": "identity"}
 
 
 def check_review(value) -> dict:
@@ -118,6 +121,8 @@ def check_review(value) -> dict:
         check_face_box(out["face_box"], "face_box")
     if not _is_int(out["cover_offset_ms"]) or not 0 <= out["cover_offset_ms"] <= COVER_MAX_MS:
         raise CaptionError("review_unreadable", "cover_offset_ms")
+    if out["theme"] not in THEME_CHOICES:
+        raise CaptionError("review_unreadable", "theme")
     return out
 
 
@@ -357,6 +362,10 @@ def _decide(op: str, edit: dict, where: str, words: list, review: dict, proposal
         if not _is_int(offset) or not 0 <= offset <= COVER_MAX_MS:
             raise CaptionError("bad_cover", f"{where}.offset_ms")
         review["cover_offset_ms"] = offset
+    elif op == "theme":
+        if edit.get("choice") not in THEME_CHOICES:
+            raise CaptionError("bad_choice", f"{where}.choice")
+        review["theme"] = edit["choice"]
 
 
 def _share(start: float, end: float, parts: list) -> list:
@@ -510,7 +519,7 @@ def view(edited: dict, review: dict, proposal_edl: dict, proposal_beats: dict, a
                       "end": u["end"]} for u in unplaced.values()]
     return {"revision": review["revision"], "words": shown, "chunks": chunks, "segments": segments, "retakes": retakes,
             "beats": beats, "slots": slot_rows, "unplaced": unplaced_rows, "threshold": threshold, "face_box": review["face_box"],
-            "cover_offset_ms": review["cover_offset_ms"],
+            "cover_offset_ms": review["cover_offset_ms"], "theme": review["theme"],
             "counts": {"words": len(words), "edited": sum(1 for w in shown if w["edited"]), "estimated": sum(1 for w in shown if w["estimated"]),
                        "timing_adjusted": sum(1 for w in shown if w["timing_adjusted"]), "unplaced": len(unplaced_rows),
                        "retakes": len(retakes), "confirmed": len(confirmed), "beats": len(beats),
