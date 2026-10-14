@@ -210,7 +210,10 @@ def main(argv=None) -> int:
         signal.signal(sig, on_signal)
     if given["stop_on_stdin_eof"]:
         watch_stdin(sys.stdin, lambda: os.kill(os.getpid(), signal.SIGTERM))
-    return serve(given["projects"], given["platform"], given["notice_every"], state_dir=folder)
+    try:
+        return serve(given["projects"], given["platform"], given["notice_every"], state_dir=folder)
+    except Stop:
+        return 0   # a signal that landed outside serve's own try (just after the start line, say): nothing was started, so there is nothing to end
 
 
 if __name__ == "__main__":

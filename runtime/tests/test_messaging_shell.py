@@ -92,6 +92,21 @@ def test_a_project_without_senders_or_not_accepted_is_skipped_and_the_bridge_kee
         assert (tmp_path / "out").read_text() == "" or "skipping" not in (tmp_path / "out").read_text()
 
 
+def test_a_stop_signal_that_lands_outside_the_loop_still_ends_with_code_zero(tmp_path, monkeypatch):
+    # The signal handler raises Stop in the main thread wherever it is. Right after the start line it can land before
+    # serve's own try (a slow machine, a signal sent as soon as the line is read): that was a traceback and exit code 1.
+    def stopped(*args, **kwargs):
+        raise messaging.Stop()
+
+    monkeypatch.setattr(messaging, "serve", stopped)
+    handlers = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
+    try:
+        assert messaging.main(["--project", str(tmp_path), "--platform", "telegram"]) == 0
+    finally:
+        for sig, handler in handlers.items():
+            signal.signal(sig, handler)
+
+
 def test_sigterm_stops_the_loop_and_ends_the_runs(tmp_path):
     folder = tmp_path / "project"
     folder.mkdir()
@@ -136,5 +151,6 @@ def test_sigterm_stops_the_loop_and_ends_the_runs(tmp_path):
     finally:
         if proc.poll() is None:
             proc.kill()
-    assert code == 0 and marker.read_text() == "stopped"
-    assert b"4242" not in proc.stderr.read()
+    err = proc.stderr.read()
+    assert code == 0 and marker.read_text() == "stopped", (code, err)
+    assert b"4242" not in err
