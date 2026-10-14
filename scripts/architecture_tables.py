@@ -192,7 +192,37 @@ def verbs_of(path):
                         verbs = [str(v) for v in ast.literal_eval(kw.value)]
                     except ValueError:
                         pass
+    if not verbs:
+        verbs = _subparser_verbs(tree)
     return check, verbs
+
+
+def _subparser_verbs(tree):
+    """The names of the sub-commands a provider adds with `add_parser(...)`: a string constant, or the loop variable of a
+    `for name in (...)` / `for name, func in ((...), ...)` over literal names. Any other argument is skipped."""
+    verbs = []
+
+    def add(name):
+        if name not in verbs:
+            verbs.append(name)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.For) and isinstance(node.target, (ast.Name, ast.Tuple)) \
+                and isinstance(node.iter, (ast.Tuple, ast.List)):
+            first = node.target if isinstance(node.target, ast.Name) else node.target.elts[0]
+            for call in ast.walk(node):
+                if isinstance(call, ast.Call) and getattr(call.func, "attr", None) == "add_parser" and call.args \
+                        and isinstance(call.args[0], ast.Name) and isinstance(first, ast.Name) \
+                        and call.args[0].id == first.id:
+                    for item in node.iter.elts:
+                        value = item.elts[0] if isinstance(item, (ast.Tuple, ast.List)) and item.elts else item
+                        if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                            add(value.value)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and getattr(node.func, "attr", None) == "add_parser" and node.args \
+                and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+            add(node.args[0].value)
+    return verbs
 
 
 def provider_classes(root):

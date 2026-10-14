@@ -834,7 +834,6 @@ How to add a platform: add one file, `providers/messenger/<impl>.py`, that decla
 - **Restarting a crashed bridge** and **queuing a line while a run holds the project** are not built; so is **editing a sent card** when a decision is resolved elsewhere, and **approving effects from the messaging channel** (decision M-3, an opt-in for later).
 - **A Go job in CI** uses the runner's own Go instead of a pinned setup action; moving it to a pinned action is open.
 - **The ledger is never pruned**: one entry stays for each card ever sent (`messaging_ledger.py:205-208`).
-- **The messenger verbs row of `providers/CONTRACT.md` sits in the table "From a class to a folder"** and not in "Verbs per class", so the generated `provider-classes` block of [providers.md](providers.md) shows no `messenger:<platform>` row; the verbs are read from `messenger-capabilities` and from the provider's own text instead. A contract change, outside this page.
 
 **Residual risks, stated plainly.**
 
@@ -853,5 +852,6 @@ How to add a platform: add one file, `providers/messenger/<impl>.py`, that decla
 - 2026-10-13: the listen mode, a messenger that stays connected (MSG-5, #359); Discord with buttons (MSG-6, #360); WhatsApp through a Go program built from source (MSG-7, #364); the official WhatsApp Cloud API (MSG-8, #365); WhatsApp through Twilio (MSG-9, #367); the WhatsApp reminder template is optional (MSG-10, #371); any HTTPS tunnel for the official providers (MSG-11, #372).
 - 2026-10-14: first version of this page, written from the code at the head of the integration branch after MSG-1 to MSG-11 and the supervisor's record of decisions M-1 to M-37 (MSG-12, #373); several bridges from one service, `--messaging a,b` (MSG-13, #374; decision M-38).
 - 2026-10-14: the page in the eight-section shape of the platform map, with the objects, their properties and relations, a sequence, a state machine and a class diagram, numbered rules with file and line, the generated tables `channel-groups`, `messenger-capabilities` and `messenger-secrets`, and the layer pages brought up to date (MSG-14, #390; decision M-39).
+- 2026-10-14: the messenger verbs moved from the table "From a class to a folder" into "Verbs per class" of `providers/CONTRACT.md`, in the form of the other classes (MSG-15): the generated `provider-classes` block shows the five `messenger:<platform>` rows, with the verbs the generator now also reads from `add_parser(...)` calls, and the known limit that the block had no messenger row is removed.
 
 Dates are the UTC merge date of each pull request (`gh pr view <n> --json mergedAt`); MSG-14 is dated the day it was written.

@@ -39,6 +39,11 @@ Where: **repo** is this repository, **data** is the provider's data folder on th
 | `publisher:<platform>` | `publisher/` | `linkedin.py` (PLATFORMS: linkedin) | `--check`, `publish`, `comment`, `resolve`, `posts` |
 | `sender:email` | `mailer/` | none ships | - |
 | `reader:email` | `mailbox/` | `gmail.py` | `--check`, `search`, `get`, `read-eml` |
+| `messenger:<platform>` | `messenger/` | `discord.py` (PLATFORMS: discord) | `--check`, `capabilities`, `listen`, `receive`, `send`, `ack` |
+| `messenger:<platform>` | `messenger/` | `telegram.py` (PLATFORMS: telegram) | `--check`, `capabilities`, `receive`, `send`, `ack` |
+| `messenger:<platform>` | `messenger/` | `whatsapp.py` (PLATFORMS: whatsapp) | `capabilities`, `build`, `status`, `listen`, `receive`, `send`, `ack`, `pair`, `whoami` |
+| `messenger:<platform>` | `messenger/` | `whatsapp-cloud.py` (PLATFORMS: whatsapp-cloud) | `capabilities`, `listen`, `receive`, `send`, `ack`, `setup`, `whoami` |
+| `messenger:<platform>` | `messenger/` | `whatsapp-twilio.py` (PLATFORMS: whatsapp-twilio) | `capabilities`, `listen`, `receive`, `send`, `ack`, `setup`, `whoami` |
 | `generator:image` | `generator/` | none ships | - |
 | `generator:video` | `generator/` | none ships | - |
 | `search:web` | `search/` | none ships | - |
@@ -261,7 +266,6 @@ Every provider takes `--help` and `--check`. Side-effect verbs take `--dry-run` 
 | No contract suite for a class with one implementation (`integration:vcs`, `publisher:<platform>`, `reader:email`): a second implementation has nothing to run against | "Business rules" above |
 | The systemd scheduler was written on a machine without systemd and is tested against a fake `systemctl` | [providers/scheduler/README.md](../../../providers/scheduler/README.md), "Not verified yet" |
 | The platform's comment endpoint for a member is an undocumented path; its behaviour may change | [providers/publisher/README.md](../../../providers/publisher/README.md), "To verify on first use" |
-| The `provider-classes` block above shows no `messenger:<platform>` row: its row of the verbs table of `providers/CONTRACT.md` sits in the table "From a class to a folder" and not under "Verbs per class", where the generator reads it; the messenger's verbs are in the `messenger-capabilities` block and in [messaging.md](messaging.md) | `providers/CONTRACT.md` (a contract change); `scripts/architecture_tables.py` (`provider_classes`) |
 | No test runs one contract over every messenger implementation: each provider has its own suite, and only the two WhatsApp renderers share a corpus; none of the five has been run against its live platform for every verb (the unofficial WhatsApp client and the Meta Cloud API not at all) | [messaging.md](messaging.md), "Known limits and improvements"; `providers/messenger/README.md` |
 | `sender:email`, `generator:*`, `search:web` and `integration:design-tool` have no implementation | [providers/CONTRACT.md](../../../providers/CONTRACT.md), "Verbs per class" |
 | A password manager as a secrets backend | [backlog](../../backlog.md), S16 |
@@ -280,3 +284,4 @@ Every provider takes `--help` and `--check`. Side-effect verbs take `--dry-run` 
 - 2026-10-09: the page is brought to the code of the central branch: the callers of the resolver and of the secrets resolver are listed as they are, the layer map guards the provider boundary, the three statements that no guard was found now name the loopback guard and the two tests, the store's test files, delete triggers and change counter are described, the resolver's flags are corrected, and the row that the stand-in still moved the version on a comment is deleted.
 - 2026-10-09: the workbench is called openhora: the secret store's service and the command that stores a token name `openhora`, the old service is read as a fallback (the resolver's `--list` says `ai-workbench (legacy)`); the provider's data folder, its cache folder and the scheduler's labels keep the old name, and renaming them waits for a decision.
 - 2026-10-14: the page follows the messenger class (MSG-14): `messenger:<platform>` is the second class with a parameter, its five implementations, the Go program, the lockfile and the state-folder files of the providers are artifacts, the two modes and the capabilities (generated) are abstractions, the messenger rules have their tests, the class has its row among the verbs, and two limits are added.
+- 2026-10-14: the messenger verbs moved from the table "From a class to a folder" into "Verbs per class" of `providers/CONTRACT.md`, in the form of the other classes (MSG-15): the generated `provider-classes` block shows the five `messenger:<platform>` rows, with the verbs the generator now also reads from `add_parser(...)` calls, and the known limit that the block had no messenger row is removed.
