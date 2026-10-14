@@ -46,6 +46,7 @@ export function createCaptionsView(env) {
   };
   let closed = false;
   let controller = null;
+  const closing = new AbortController();      // aborted when the view closes: what is waiting (a job, a write) stops and says nothing
 
   const editing = () => state.mode === "review" && loopback && can("captions-edit");
 
@@ -86,6 +87,10 @@ export function createCaptionsView(env) {
             throw view;
           }
         } else {
+          if (state.view && state.view.revision !== view.revision) {      // the words moved under the person: a selection or typed text would land on another word
+            state.selection = null;
+            state.typed = { key: "", word: "", merge: "" };
+          }
           state.view = view;
           state.mode = state.job ? "running" : (view.editable ? "review" : "after");
           state.selection = model.selectionWithin(state.selection, view.words.length);
@@ -109,7 +114,8 @@ export function createCaptionsView(env) {
     state.message = null;
     setBusy();
     try {
-      const answer = await api.captionsEdit(env.project, env.recording, { revision: state.view.revision, edits });
+      const answer = await api.captionsEdit(env.project, env.recording, { revision: state.view.revision, edits, signal: closing.signal });
+      if (closed) return false;
       state.view = { ...state.view, ...answer };
       state.error = null;
       state.selection = null;      // an accepted change ends the selection: the next click starts a new one, so a click never stretches an old range by surprise
@@ -118,6 +124,7 @@ export function createCaptionsView(env) {
       draw();
       return true;
     } catch (e) {
+      if (closed) return false;
       state.error = model.reasonOf(e);
       state.busy = null;
       draw();
@@ -125,9 +132,19 @@ export function createCaptionsView(env) {
     }
   }
 
+  /** What a pipeline job left, as an error to show: the job failed, or the pipeline stopped at a step (a closed code). Null when it went well. */
+  function jobProblem(last) {
+    if (last.state === "failed") return { text: (last.error && last.error.message) || "The pipeline stopped.", code: "", field: "" };
+    if (last.result && last.result.ok === false && last.result.code) {
+      return { text: model.failureText({ step: last.result.failed, code: last.result.code, field: last.result.field, next: last.result.next }), code: last.result.code, field: "" };
+    }
+    return null;
+  }
+
+  /** Done sends the revision and nothing of the words, so it needs `captions-done` and the review, not the right to edit. */
   async function done() {
     const view = state.view;
-    if (state.busy || !view || !editing() || !can("captions-done") || model.doneBlock(view)) return;
+    if (state.busy || !view || state.mode !== "review" || !loopback || !can("captions-done") || model.doneBlock(view)) return;
     state.busy = "done";
     state.job = true;
     state.message = null;
@@ -135,18 +152,18 @@ export function createCaptionsView(env) {
     state.mode = "running";
     draw();
     try {
-      const job = await api.captionsDone(env.project, env.recording, { revision: view.revision });
+      const job = await api.captionsDone(env.project, env.recording, { revision: view.revision, signal: closing.signal });
       const every = env.pollEvery || 1500;
-      const last = await api.pollJob(job.job, every, { onUpdate: () => { readMedia().then(() => { if (!closed) draw(); }); } });
-      if (last.state === "failed") state.error = { text: (last.error && last.error.message) || "The pipeline stopped.", code: "", field: "" };
-      else if (last.result && last.result.ok === false && last.result.code) state.error = { text: model.failureText({ step: last.result.failed, code: last.result.code, field: last.result.field, next: last.result.next }), code: last.result.code, field: "" };
+      const last = await api.pollJob(job.job, every, { signal: closing.signal, onUpdate: () => { readMedia().then(() => { if (!closed) draw(); }).catch(() => {}); } });
+      state.error = jobProblem(last);
     } catch (e) {
+      if (closed) return;
       state.error = model.reasonOf(e);
     }
     state.busy = null;
     state.job = false;
     await load({ quiet: true });
-    if (env.changed) env.changed();
+    if (!closed && env.changed) env.changed();
   }
 
   async function reopen() {
@@ -155,14 +172,16 @@ export function createCaptionsView(env) {
     state.error = null;
     draw();
     try {
-      const job = await api.prepareAgain(env.project, env.recording, "review");
-      await api.pollJob(job.job, env.pollEvery || 1500, {});
+      const job = await api.prepareAgain(env.project, env.recording, "review", { signal: closing.signal });
+      const last = await api.pollJob(job.job, env.pollEvery || 1500, { signal: closing.signal });
+      state.error = jobProblem(last);
     } catch (e) {
+      if (closed) return;
       state.error = model.reasonOf(e);
     }
     state.busy = null;
     await load({ quiet: true });
-    if (env.changed) env.changed();
+    if (!closed && env.changed) env.changed();
   }
 
   /** A file chosen for an asset slot goes to the media store by the same route as a recording, bound to the slot's id; then the review is read again. */
@@ -241,10 +260,18 @@ export function createCaptionsView(env) {
     if (word.left_out) classes.push("is-left-out");
     const marks = model.marks(word);
     const name = `${word.text}${marks.length ? `, ${marks.join(", ")}` : ""}`;
-    if (!editing()) return h("span", { class: classes.join(" "), "data-index": String(word.index), title: marks.join(", ") || null, text: word.text });
+    // a word that is only read carries its marks in words after it (a CSS rule shows `data-marks`), so that they are seen and not only in a tooltip
+    if (!editing()) return h("span", { class: classes.join(" "), "data-index": String(word.index), "data-marks": marks.join(", ") || null, "aria-label": marks.length ? name : null, title: marks.join(", ") || null, text: word.text });
     const node = h("button", { class: classes.join(" "), type: "button", "data-index": String(word.index), "aria-pressed": selected ? "true" : "false", "aria-label": name, title: marks.join(", ") || null, text: word.text });
     node.addEventListener("click", (event) => {
-      state.selection = model.selectionAfter(state.selection, word.index, Boolean(event && event.shiftKey));
+      const next = model.selectionAfter(state.selection, word.index, Boolean(event && event.shiftKey));
+      const problem = model.rangeProblem(model.outsideSet(state.view), next);
+      if (problem) {      // a range over words that are drawn apart is refused with a sentence, and the selection stays as it was
+        state.error = { text: problem, code: "mixed_range", field: "" };
+        draw();
+        return;
+      }
+      state.selection = next;
       draw();
     });
     return node;
@@ -256,7 +283,18 @@ export function createCaptionsView(env) {
       groups.map((group) => h("div", { class: `wb-rev-chunk${group.chunk === null ? " is-outside" : ""}`, "data-chunk": group.chunk === null ? "outside" : String(group.chunk) },
         h("span", { class: "wb-rev-clock mono", text: group.chunk === null ? "Not in the captions" : model.clock(group.start) }),
         h("span", { class: "wb-rev-words" }, group.words.map(wordNode)))),
-      h("p", { class: "wb-card-hint wb-rev-legend", text: "Struck through: a retake (a repeat the code proposes cutting; bold when you confirmed it). Dotted underline: the code adjusted the timing. Slanted: the time is an estimate. Dashed: you changed it." }));
+      h("p", { class: "wb-card-hint wb-rev-legend", text: "Dashed strike-through: a retake the code proposes cutting. Red double strike-through on a tint: a retake you confirmed, cut. Dotted underline: the code adjusted the timing. Slanted: the time is an estimate. Dashed: you changed it." }));
+  }
+
+  /** A delete of the selected words: one edit for each word, at most MAX_EDITS in a call; more is refused with a sentence and nothing is sent. */
+  function removeWords(sel, words) {
+    const edits = model.edit.remove(sel.from, sel.to);
+    if (!edits) {
+      state.error = { text: model.REASONS.too_many_edits, code: "too_many_edits", field: "" };
+      draw();
+      return;
+    }
+    send(edits, words);
   }
 
   function selectionNode(view) {
@@ -279,7 +317,7 @@ export function createCaptionsView(env) {
             if (parts.length < 2) { state.error = { text: "Type the parts of the word with a space between them, then split.", code: "", field: "" }; draw(); return; }
             send([model.edit.split(sel.from, parts)], "Split the word.");
           }),
-          act("Delete the word", "delete-word", () => send(model.edit.remove(sel.from, sel.to), "Deleted the word.")), clear),
+          act("Delete the word", "delete-word", () => removeWords(sel, "Deleted the word.")), clear),
       ];
     }
     const input = textField("merge", "One word for the whole range (optional)", state.typed.merge, (v) => { state.typed.merge = v; });
@@ -287,7 +325,7 @@ export function createCaptionsView(env) {
       labelled("One word for the whole range (optional; else the words are joined)", input),
       h("div", { class: "wb-card-actions" },
         act("Merge into one word", "merge-words", () => send([model.edit.merge(sel.from, sel.to, state.typed.merge.trim())], "Merged the words."), { primary: true }),
-        act(`Delete these ${count} words`, "delete-words", () => send(model.edit.remove(sel.from, sel.to), `Deleted ${count} words.`)), clear),
+        act(`Delete these ${count} words`, "delete-words", () => removeWords(sel, `Deleted ${count} words.`)), clear),
     ];
   }
 
@@ -297,7 +335,7 @@ export function createCaptionsView(env) {
     return h("ul", { class: "wb-rev-list", "data-key": "retakes" }, rows.map((r) => h("li", { class: `wb-rev-row${r.confirmed ? " is-confirmed" : ""}`, "data-retake": r.id },
       h("p", { class: "wb-rev-struck", text: r.gone ? "(every word of this repeat was deleted)" : r.text }),
       h("p", { class: "wb-card-hint", text: [r.span, `${model.seconds(r.seconds)} dropped`, r.kind].filter(Boolean).join(" · ") }),
-      chip(r.confirmed ? "Cut" : "Proposed", r.confirmed ? "pui-theme pui-soft" : "pui-muted pui-soft"),
+      chip(r.confirmed ? "cut" : "proposed", r.confirmed ? "pui-error pui-soft" : "pui-muted pui-outline"),
       editing() ? h("div", { class: "wb-card-actions" }, act(r.confirmed ? "Undo" : "Confirm the cut", `retake-${r.id}`, () => send([model.edit.retake(r.id, !r.confirmed)], r.confirmed ? "Kept the words." : "Will cut the repeat."))) : null)));
   }
 
@@ -363,9 +401,33 @@ export function createCaptionsView(env) {
           input,
           handOverStep(picked, null, () => upload(s), { disabled: Boolean(sending), label: "Upload for this slot" }),
           sending ? h("progress", { class: "wb-media-progress", max: "100", value: "0", "data-slot": s.slot, "aria-label": "Upload progress" }) : null,
-          state.uploadError[s.slot] ? h("p", { class: "wb-card-error", role: "alert", text: state.uploadError[s.slot] }) : null,
-          !s.file ? labelled("Or, with no file", select) : null) : null);
+          state.uploadError[s.slot] ? h("p", { class: "wb-card-error", role: "alert", text: state.uploadError[s.slot] }) : null) : null,
+        editing() && !can("media-in") ? h("p", { class: "wb-card-hint", "data-key": `upload-off-${s.slot}`, text: "Uploading a file is turned off for the page (media-in): choose below, or upload in the terminal." }) : null,
+        // a slot with no file, or whose file went stale, can always be answered with a choice: neither an upload that is turned off nor a stale file blocks Done
+        editing() && (!s.file || s.file.stale) ? labelled(s.file ? "Or, instead of a new file" : "Or, with no file", select) : null);
     }));
+  }
+
+  /** The recording's length in seconds when `media-list` gave it, else null. The cover is a frame of the finished video, which is no longer than the recording. */
+  function recordingSeconds() {
+    const found = state.media && state.media.raw ? Number(state.media.raw.duration) : NaN;
+    return Number.isFinite(found) && found > 0 ? found : null;
+  }
+
+  /** A face box edit; what the person typed in the four numbers is dropped only when the service accepted it, so a refusal leaves their numbers to correct. */
+  async function faceEdit(edit, words) {
+    if (await send([edit], words)) {
+      state.face.fields = { x: "", y: "", w: "", h: "" };
+      draw();
+    }
+  }
+
+  /** A cover edit; the typed seconds are dropped only when the service accepted it. */
+  async function coverEdit(offsetMs, words) {
+    if (await send([model.edit.cover(offsetMs)], words)) {
+      state.coverText = "";
+      draw();
+    }
   }
 
   function frameNode(view) {
@@ -378,13 +440,13 @@ export function createCaptionsView(env) {
         const rect = frame.getBoundingClientRect ? frame.getBoundingClientRect() : null;
         if (!rect || !rect.width || !rect.height || !event) return;
         const next = model.faceBoxAt((event.clientX - rect.left) / rect.width, (event.clientY - rect.top) / rect.height, model.FACE_SIZES[state.face.size]);
-        send([model.edit.faceBox(next)], "Chose the face box.");
+        faceEdit(model.edit.faceBox(next), "Chose the face box.");
       });
     }
-    const f = state.face.fields;
+    const f0 = state.face.fields;
     const fields = ["x", "y", "w", "h"].map((k) => {
       const input = h("input", { class: "pui-input wb-rev-number", type: "text", inputmode: "numeric", "data-key": `face-${k}`, "aria-label": `Face box ${k}, in pixels`, autocomplete: "off" });
-      input.value = f[k] !== "" ? f[k] : box ? String(box[k]) : "";
+      input.value = f0[k] !== "" ? f0[k] : box ? String(box[k]) : "";
       input.addEventListener("input", () => { state.face.fields[k] = input.value; });
       return labelled(k, input);
     });
@@ -402,18 +464,18 @@ export function createCaptionsView(env) {
         h("div", { class: "wb-rev-numbers" }, fields),
         h("div", { class: "wb-card-actions" },
           act("Set the face box", "set-face", () => {
+            const f = state.face.fields;      // read now: the object is replaced when a face box edit was accepted
             const got = model.faceBoxFromFields({ x: f.x !== "" ? f.x : box ? box.x : "", y: f.y !== "" ? f.y : box ? box.y : "", w: f.w !== "" ? f.w : box ? box.w : "", h: f.h !== "" ? f.h : box ? box.h : "" });
             if (got.reason) { state.error = { text: got.reason, code: "", field: "" }; draw(); return; }
-            send([model.edit.faceBox(got.box)], "Chose the face box.");
+            faceEdit(model.edit.faceBox(got.box), "Chose the face box.");
           }),
-          box ? act("Clear the face box", "clear-face", () => { state.face.fields = { x: "", y: "", w: "", h: "" }; send([model.edit.clearFaceBox()], "Cleared the face box."); }) : null),
+          box ? act("Clear the face box", "clear-face", () => faceEdit(model.edit.clearFaceBox(), "Cleared the face box.")) : null),
         labelled("Cover: seconds into the finished video", cover),
         h("div", { class: "wb-card-actions" }, act("Set the cover", "set-cover", () => {
-          const got = model.coverFromSeconds(state.coverText !== "" ? state.coverText : String(view.cover_offset_ms / 1000));
+          const got = model.coverFromSeconds(state.coverText !== "" ? state.coverText : String(view.cover_offset_ms / 1000), recordingSeconds());
           if (got.reason) { state.error = { text: got.reason, code: "", field: "" }; draw(); return; }
-          state.coverText = "";
-          send([model.edit.cover(got.offsetMs)], "Chose the cover.");
-        }), act("First frame", "cover-first", () => { state.coverText = ""; send([model.edit.cover(0)], "The cover is the first frame."); })),
+          coverEdit(got.offsetMs, "Chose the cover.");
+        }), act("First frame", "cover-first", () => coverEdit(0, "The cover is the first frame."))),
       ] : null,
       h("p", { class: "wb-card-note", "data-key": "cover-line", text: model.coverText(view.cover_offset_ms) }),
       h("p", { class: "wb-card-hint", text: COVER_WORDS }));
@@ -434,7 +496,7 @@ export function createCaptionsView(env) {
       const block = model.doneBlock(view);
       return h("div", { class: "wb-rev-done" },
         block ? h("p", { class: "wb-card-note", "data-key": "done-block", role: "status", text: block }) : null,
-        can("captions-done") ? h("div", { class: "wb-card-actions" }, act("Done: the captions are right", "done", done, { primary: true, small: false, disabled: Boolean(block) })) : null,
+        loopback && can("captions-done") ? h("div", { class: "wb-card-actions" }, act("Done: the captions are right", "done", done, { primary: true, small: false, disabled: Boolean(block) })) : null,
         h("p", { class: "wb-card-hint", text: DONE_WORDS }));
     }
     if (state.mode === "after" && loopback && can("prepare-again")) {
@@ -496,8 +558,7 @@ export function createCaptionsView(env) {
     const view = state.view;
     const mode = state.mode;
     const withheld = [];
-    if (!can("captions-edit")) withheld.push("captions-edit");
-    if (!can("captions-done")) withheld.push("captions-done");
+    for (const op of ["captions-edit", "captions-done", "prepare-again", "media-in"]) if (!can(op)) withheld.push(op);
     const stateWord = { review: ["Waiting for you", "pui-muted pui-soft"], after: ["Checked", "pui-theme pui-soft"], running: ["Running", "pui-muted pui-soft"], progress: ["Not at the review yet", "pui-muted pui-soft"], mac: ["On the Mac", "pui-warn pui-soft"] }[mode] || ["", ""];
     paint("head", [mode], () => [h("strong", { class: "wb-card-title", text: "Check the captions" }), chip(stateWord[0], stateWord[1])]);
     paint("notes", [mode, state.error, state.message, view && view.sent_back], noteNodes);
@@ -509,10 +570,10 @@ export function createCaptionsView(env) {
     paint("retakes", [mode, open && view.retakes, open && view.words.length, can("captions-edit")], () => (open ? section("Retakes", retakesNode(view)) : null));
     paint("beats", [mode, open && view.beats, open && view.threshold, state.selection, open && view.words.length, can("captions-edit")], () => (open ? section(`Beats of the script${Number.isFinite(view.threshold) ? ` (a match below ${view.threshold} is flagged)` : ""}`, beatsNode(view)) : null));
     paint("words", [open && view.words.filter((w) => w.timing_adjusted).map((w) => w.index), open && view.unplaced, open && view.words.length], () => (open ? wordsNode(view) : null));
-    paint("slots", [mode, open && view.slots, open && state.media && state.media.slots, Object.keys(state.picked).map((k) => [k, state.picked[k] && state.picked[k].name]), state.uploading, state.uploadError, can("captions-edit")], () => (open ? section("Asset slots", slotsNode(view)) : null));
+    paint("slots", [mode, open && view.slots, open && state.media && state.media.slots, Object.keys(state.picked).map((k) => [k, state.picked[k] && state.picked[k].name]), state.uploading, state.uploadError, can("captions-edit"), can("media-in")], () => (open ? section("Asset slots", slotsNode(view)) : null));
     paint("frame", [mode, open && view.face_box, open && view.cover_offset_ms, state.face, state.coverText, can("captions-edit")], () => (open ? section("Face box and cover", frameNode(view)) : null));
     paint("done", [mode, open && view && model.doneBlock(view), can("captions-done"), can("prepare-again")], () => doneNode(view));
-    paint("actions", [mode], () => h("div", { class: "wb-card-actions" }, act("Check again", "reload", () => load({ quiet: true }))));
+    paint("actions", [mode], () => h("div", { class: "wb-card-actions" }, act("Check again", "reload", () => { state.error = null; state.message = null; load({ quiet: true }); })));
     paint("withheld", [withheld], () => withheldLine(withheld));
     setBusy();
   }
@@ -528,6 +589,7 @@ export function createCaptionsView(env) {
     /** The row closed or the task went away: stop what is going. */
     close() {
       closed = true;
+      closing.abort();
       if (controller) controller.abort();
     },
     /** For a test: what the last draw was made from. */

@@ -5,6 +5,7 @@
 
 export const FRAME = Object.freeze({ w: 1080, h: 1920 });       // runtime/captions.py FRAME: the output frame the face box is given in
 export const COVER_MAX_MS = 600000;                              // runtime/captions.py COVER_MAX_MS
+export const MAX_EDITS = 500;                                    // runtime/captions.py MAX_EDITS: edits in one call; a delete is one edit a word
 export const WORD_CHARS_MAX = 40;                                // runtime/captions.py WORD_CHARS_MAX, shown in the hint; the service checks it
 
 /** The closed refusals of runtime/captions.py and runtime/ops_pipeline.py, each in a sentence for the person. A code that is not here is shown as it came. */
@@ -33,6 +34,9 @@ export const REASONS = Object.freeze({
   slot_needs_a_choice: "An asset slot has no file and no choice: give it a file, or choose to use a keyword or nothing.",
   space_in_word: "A word cannot hold a space: split it into words, or give the merge a single word.",
   review_disagrees: "The edited words and your decisions no longer agree (a write was cut short): open the captions again.",
+  too_many_edits: `A change takes at most ${MAX_EDITS} words: select fewer words and do it in more than one go.`,
+  mixed_range: "That range would take in words that are shown somewhere else (the ones not in the captions): select words that sit together.",
+  cover_past_end: "The cover cannot be later than the recording.",
   review_unreadable: "The review's file cannot be read: open the captions again.",
   edited_unreadable: "The edited words cannot be read: open the captions again.",
 });
@@ -208,10 +212,27 @@ export function selectionAfter(selection, index, extend = false) {
   if (!selection) return { from: index, to: index };
   if (extend || selection.from === selection.to) {
     if (selection.from === selection.to && selection.from === index) return null;
-    return { from: Math.min(selection.from, index), to: Math.max(selection.from, index) };
+    return { from: Math.min(selection.from, index), to: Math.max(selection.to, index) };      // an extension never shrinks a range
   }
   if (index >= selection.from && index <= selection.to) return null;
   return { from: index, to: index };
+}
+
+/**
+ * Why a range cannot be selected, or "": the words of a range must all be drawn in the same place. The words in a caption chunk and the words left out of the captions are drawn
+ * apart, so a range that runs over both would take in words the person cannot see in it. `outside` is the Set of indices drawn in the group of words that are in no chunk.
+ */
+export function rangeProblem(outside, selection) {
+  if (!selection || selection.from === selection.to || !outside || !outside.size) return "";
+  let inside = 0;
+  for (let i = selection.from; i <= selection.to; i += 1) if (outside.has(i)) inside += 1;
+  return inside === 0 || inside === selection.to - selection.from + 1 ? "" : REASONS.mixed_range;
+}
+
+/** The indices drawn in the group of words that are in no caption chunk. */
+export function outsideSet(view) {
+  const found = groups(view).find((g) => g.chunk === null);
+  return new Set(found ? found.words.map((w) => w.index) : []);
 }
 
 /** The selection kept inside the words of a view after the words changed (an edit moved the numbering): null when it no longer names words. */
@@ -234,7 +255,7 @@ export const edit = Object.freeze({
   word: (index, text) => ({ op: "edit", index, text }),
   split: (index, parts) => ({ op: "split", index, parts }),
   merge: (from, to, text) => (text ? { op: "merge", from, to, text } : { op: "merge", from, to }),
-  remove: (from, to) => Array.from({ length: to - from + 1 }, (_, k) => ({ op: "delete", index: from + k })),
+  remove: (from, to) => (to - from + 1 > MAX_EDITS ? null : Array.from({ length: to - from + 1 }, (_, k) => ({ op: "delete", index: from + k }))),
   retake: (id, confirmed) => ({ op: "retake", id, confirmed }),
   anchor: (beat, from, to) => ({ op: "anchor", beat, word_from: from, word_to: to }),
   clearAnchor: (beat) => ({ op: "anchor", beat, clear: true }),
@@ -285,10 +306,11 @@ export function faceBoxFromFields(fields) {
   return { box };
 }
 
-/** The offset in milliseconds of seconds a person typed, or the reason there is none. */
-export function coverFromSeconds(text) {
+/** The offset in milliseconds of seconds a person typed, or the reason there is none. With the recording's length (`limitSeconds`) a later one is refused too. */
+export function coverFromSeconds(text, limitSeconds = null) {
   const value = Number(String(text).trim().replace(",", "."));
   if (!Number.isFinite(value) || value < 0 || value * 1000 > COVER_MAX_MS || String(text).trim() === "") return { reason: REASONS.bad_cover };
+  if (Number.isFinite(limitSeconds) && limitSeconds > 0 && value > limitSeconds) return { reason: `${REASONS.cover_past_end} It is ${limitSeconds.toFixed(1)} s long.` };
   return { offsetMs: Math.round(value * 1000) };
 }
 

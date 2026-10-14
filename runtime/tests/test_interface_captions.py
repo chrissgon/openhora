@@ -94,7 +94,7 @@ const api = {
     if (script.editError) throw script.editError;
     return script.next ? script.next(o) : { ...clone(script.view), revision: o.revision + 1, applied: { edited: 0, split: 0, merged: 0, deleted: 0 } };
   },
-  captionsDone: async (p, rid, o) => { calls.push(["done", clone(o)]); return { job: 7, state: "running", op: "captions-done" }; },
+  captionsDone: async (p, rid, o) => { calls.push(["done", { revision: o.revision, keys: Object.keys(o).filter((k) => k !== "signal").sort() }]); return { job: 7, state: "running", op: "captions-done" }; },
   prepareAgain: async (p, rid, step) => { calls.push(["again", rid, step]); return { job: 8, state: "running" }; },
   pollJob: async (id, every, o) => { calls.push(["poll", id]); if (o && o.onUpdate) o.onUpdate({ state: "running" }); await settle(); return { state: "done", result: { ok: true } }; },
   uploadMedia: async (p, file, o) => { calls.push(["upload", o.recording, o.slot, file.name]); o.onProgress(5, 10); return { recording: o.recording, kind: "asset", slot: o.slot, bytes: file.size }; },
@@ -651,7 +651,7 @@ process.exit(0);
 def test_done_sends_the_revision_and_nothing_of_the_words_then_the_pipelines_steps_show_and_the_captions_can_be_opened_again(tmp_path):
     got = run(tmp_path, DONE)
     assert got["ready"]["off"] is False and "Done" in got["ready"]["label"] and got["ready"]["hint"] is True
-    assert got["sent"] == [{"revision": 0}] and got["noText"] is False, "Done carries the revision and no text"
+    assert got["sent"] == [{"revision": 0, "keys": ["revision"]}] and got["noText"] is False, "Done carries the revision and no text"
     assert got["polled"] == 1
     assert got["after"]["chip"] == "Checked" and got["after"]["editButtons"] == 0 and got["after"]["steps"] == 12 and got["after"]["reopen"] is True and got["after"]["changed"] == 1
     assert got["reopen"] == [[RID, "review"]]
@@ -737,7 +737,7 @@ process.exit(0);
 def test_a_project_that_turns_the_writes_off_for_the_page_leaves_the_words_to_read_and_no_control(tmp_path):
     got = run(tmp_path, POLICY)["policy"]
     assert got["buttons"] == 0 and got["words"] == 85 and got["actions"] == ["reload"] and got["retakes"] == 1
-    assert got["line"] == "Turned off for the page: captions-edit, captions-done. Use the terminal."
+    assert got["line"] == "Turned off for the page: captions-edit, captions-done, prepare-again. Use the terminal."
 
 
 KEEPS = r"""
@@ -855,7 +855,7 @@ def test_the_review_reads_well_at_a_phones_width_and_nothing_scrolls_sideways():
     floor = css_file("floor")
     phone = "\n".join(media_blocks(floor, "max-width: 899px"))
     assert ".wb-rev-word, .wb-rev-matched, .wb-rev-plain, .wb-rev-beat-head, .wb-rev-steps, .wb-rev-heading, .wb-rev-details > summary { font-size: 16px; }" in phone
-    assert "button.wb-rev-word { min-height: 40px; }" in phone and ".wb-rev-sizes .pui-btn { flex: 1 1 auto; min-height: 44px; }" in phone
+    assert "button.wb-rev-word { min-height: 44px; }" in phone and ".wb-rev-sizes .pui-btn { flex: 1 1 auto; min-height: 44px; }" in phone
     assert ".wb-card-actions .pui-btn { flex: 1 1 100%; min-height: 44px; }" in phone, "the buttons are full width and tall enough to touch"
     words = re.search(r"^\.wb-rev-words \{([^}]*)\}", floor, re.M).group(1)
     assert "flex-wrap: wrap" in words and "min-width: 0" in words, "the words wrap onto the next line"
@@ -887,3 +887,333 @@ def test_a_pipeline_that_stops_after_done_says_why_in_the_sentence_of_its_code_w
     got = run(tmp_path, DONE_FAILS)["failed"]
     assert got["notice"].startswith("Cut and caption stopped: A retake you confirmed no longer matches a repeat") and "retakes" in got["notice"] and "Run: open the caption review again" in got["notice"]
     assert "retake_lost" in got["code"] and got["chip"] == "Checked"
+
+
+# --- the review round: policy, slots, retakes, typed fields, the selection, leaks ------------------------------------------------------------------
+
+POLICY_EDIT_ONLY = r"""
+const done = clone(VIEW); done.slots[0].choice = "none"; script.view = done;
+const view = make({ can: (op) => op !== "captions-edit" });
+const root = view.el;
+await view.load(); await settle();
+out.shown = { words: all(root, "button.wb-rev-word").length, done: find(root, "[data-key=done]") ? off(find(root, "[data-key=done]")) : "none", save: find(root, "[data-key=save-word]"), line: text(find(root, "[data-key=withheld]")) };
+script.view = { ...clone(done), editable: false };
+await press(find(root, "[data-key=done]")); await settle(); await settle(); await settle();
+out.sent = calls.filter((c) => c[0] === "done").map((c) => c[1]);
+out.after = text(find(root, ".pui-chip"));
+console.log(JSON.stringify(out));
+process.exit(0);
+"""
+
+
+@needs_node
+def test_done_works_when_only_the_right_to_edit_is_withheld_because_it_sends_no_words(tmp_path):
+    got = run(tmp_path, POLICY_EDIT_ONLY)
+    assert got["shown"]["words"] == 0 and got["shown"]["done"] is False and got["shown"]["save"] is None
+    assert got["shown"]["line"] == "Turned off for the page: captions-edit. Use the terminal."
+    assert got["sent"] == [{"revision": 0, "keys": ["revision"]}] and got["after"] == "Checked", "Done sent the revision, and the pipeline went on"
+
+
+SLOT_CHOICES = r"""
+// media-in turned off: the slot can still be answered with a choice, and Done waits for it
+let view = make({ can: (op) => op !== "media-in" });
+let root = view.el;
+await view.load(); await settle();
+out.noUpload = { choose: find(root, "[data-key=choose-beat7]"), select: find(root, "[data-key=choice-beat7]") !== null, note: text(find(root, '[data-key="upload-off-beat7"]')), done: off(find(root, "[data-key=done]")) };
+const select = find(root, "[data-key=choice-beat7]");
+script.next = () => ({ ...clone(VIEW), revision: 1, slots: [{ ...clone(VIEW.slots[0]), choice: "none" }], applied: {} });
+select.value = "none"; select.listeners.change.forEach((fn) => fn());
+await settle();
+out.chosen = { done: off(find(root, "[data-key=done]")), block: find(root, "[data-key=done-block]") };
+view.close();
+// a stale file does not answer the slot either: the choice is offered and Done waits
+const stale = clone(VIEW); stale.slots[0].file = { name: "painel.png", type: "png", sha256: "ab", stale: true };
+script.view = stale; script.next = null;
+view = make(); root = view.el;
+await view.load(); await settle();
+out.stale = { state: text(find(root, '[data-key="slot-state-beat7"]')), select: find(root, "[data-key=choice-beat7]") !== null, done: off(find(root, "[data-key=done]")), block: text(find(root, "[data-key=done-block]")) };
+// a file that is current is answered by itself: no choice is offered
+const held = clone(VIEW); held.slots[0].file = { name: "painel.png", type: "png", sha256: "ab", stale: false };
+script.view = held;
+const view2 = make(); await view2.load(); await settle();
+out.held = { select: find(view2.el, "[data-key=choice-beat7]"), done: off(find(view2.el, "[data-key=done]")) };
+console.log(JSON.stringify(out));
+process.exit(0);
+"""
+
+
+@needs_node
+def test_an_asset_slot_can_always_be_answered_with_a_choice_so_neither_media_in_off_nor_a_stale_file_blocks_done(tmp_path):
+    got = run(tmp_path, SLOT_CHOICES)
+    assert got["noUpload"]["choose"] is None and got["noUpload"]["select"] is True and "media-in" in got["noUpload"]["note"] and got["noUpload"]["done"] is True
+    assert got["chosen"] == {"done": False, "block": None}
+    assert "description changed" in got["stale"]["state"] and got["stale"]["select"] is True and got["stale"]["done"] is True and "no file and no choice" in got["stale"]["block"]
+    assert got["held"] == {"select": None, "done": False}
+
+
+RETAKES2 = r"""
+const two = clone(VIEW);
+two.retakes.push({ id: "retake-2", kind: "repeat", seconds: 1.1, word_from: 60, word_to: 62, keep_from: 63, confirmed: true });
+script.view = two;
+const view = make();
+const root = view.el;
+await view.load(); await settle();
+const rows = all(root, "[data-retake]").map((n) => ({ id: n.attrs["data-retake"], chip: text(find(n, ".pui-chip")), chipClass: find(n, ".pui-chip").attrs.class, confirmed: n.cls().includes("is-confirmed"), struck: find(n, ".wb-rev-struck").cls().join(" "), button: text(find(n, "button")) }));
+out.rows = rows;
+out.words = { proposed: all(root, ".wb-rev-word.is-retake").map((n) => n.attrs["data-index"]).join(","), cut: all(root, ".wb-rev-word.is-cut").map((n) => n.attrs["data-index"]).join(","), both: all(root, ".wb-rev-word.is-retake.is-cut").length };
+out.aria = word(root, 35).attrs["aria-label"] + " | " + word(root, 61).attrs["aria-label"];
+console.log(JSON.stringify(out));
+process.exit(0);
+"""
+
+
+@needs_node
+def test_a_confirmed_cut_and_a_proposed_retake_are_told_apart_by_a_chip_a_decoration_and_a_colour_not_by_weight(tmp_path):
+    got = run(tmp_path, RETAKES2)
+    proposed, cut = got["rows"]
+    assert (proposed["chip"], cut["chip"]) == ("proposed", "cut") and "pui-error" in cut["chipClass"] and "pui-error" not in proposed["chipClass"]
+    assert (proposed["confirmed"], cut["confirmed"]) == (False, True) and (proposed["button"], cut["button"]) == ("Confirm the cut", "Undo")
+    assert got["words"]["proposed"] == ",".join(str(i) for i in range(34, 41)) and got["words"]["cut"] == "60,61,62" and got["words"]["both"] == 0
+    assert "retake proposed" in got["aria"].split(" | ")[0] and "retake, cut" in got["aria"].split(" | ")[1]
+    css = css_file("floor")
+    cut_rule = re.search(r"^\.wb-rev-word\.is-cut \{([^}]*)\}", css, re.M).group(1)
+    proposed_rule = re.search(r"^\.wb-rev-word\.is-retake \{([^}]*)\}", css, re.M).group(1)
+    assert "text-decoration-style: double" in cut_rule and "var(--pui-error)" in cut_rule and "background-color" in cut_rule and "font-weight" not in cut_rule
+    assert "text-decoration-style: dashed" in proposed_rule and "background-color" not in proposed_rule and "var(--pui-error)" not in proposed_rule
+
+
+TYPED = r"""
+const view = make();
+const root = view.el;
+await view.load(); await settle();
+const sent = () => calls.filter((c) => c[0] === "edit");
+typeInto(find(root, "[data-key=cover]"), "2.5");
+typeInto(find(root, "[data-key=face-w]"), "300"); typeInto(find(root, "[data-key=face-h]"), "320"); typeInto(find(root, "[data-key=face-x]"), "40"); typeInto(find(root, "[data-key=face-y]"), "60");
+// refused (stale revision): nothing typed is lost
+script.editError = new ApiError(409, "refused", "refused: stale_revision revision");
+await press(find(root, "[data-key=set-cover]"));
+out.refusedCover = { cover: find(root, "[data-key=cover]").value, error: text(find(root, ".wb-notice-card")).slice(0, 30) };
+await press(find(root, "[data-key=set-face]"));
+out.refusedFace = ["x", "y", "w", "h"].map((k) => find(root, `[data-key=face-${k}]`).value).join(",");
+await press(find(root, "[data-key=cover-first]"));
+out.refusedFirst = find(root, "[data-key=cover]").value;
+script.editError = null;
+// accepted: the numbers are dropped and show the new box; the typed seconds show the new cover
+const placed = clone(VIEW); placed.revision = 1; placed.face_box = { x: 40, y: 60, w: 300, h: 320 };
+script.next = () => ({ ...clone(placed), applied: {} });
+await press(find(root, "[data-key=set-face]"));
+out.acceptedFace = ["x", "y", "w", "h"].map((k) => find(root, `[data-key=face-${k}]`).value).join(",");
+// a tap after the numbers sends the tap's box, not the old numbers
+const tapped = clone(VIEW); tapped.revision = 2; tapped.face_box = { x: 330, y: 750, w: 420, h: 420 };
+script.next = () => ({ ...clone(tapped), applied: {} });
+const frame = find(root, "[data-key=frame]");
+frame.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 178 });
+typeInto(find(root, "[data-key=face-w]"), "111");
+frame.listeners.click.forEach((fn) => fn({ clientX: 50, clientY: 89 }));
+await settle();
+out.tap = { sent: sent()[sent().length - 1][2], fields: ["x", "y", "w", "h"].map((k) => find(root, `[data-key=face-${k}]`).value).join(",") };
+const covered = clone(tapped); covered.revision = 3; covered.cover_offset_ms = 2500;
+script.next = () => ({ ...clone(covered), applied: {} });
+typeInto(find(root, "[data-key=cover]"), "2.5");
+await press(find(root, "[data-key=set-cover]"));
+out.cover = { value: find(root, "[data-key=cover]").value, sent: sent()[sent().length - 1][2] };
+console.log(JSON.stringify(out));
+process.exit(0);
+"""
+
+
+@needs_node
+def test_a_refused_edit_keeps_the_typed_cover_and_face_numbers_and_an_accepted_one_replaces_them(tmp_path):
+    got = run(tmp_path, TYPED)
+    assert got["refusedCover"]["cover"] == "2.5" and got["refusedCover"]["error"].startswith("The captions changed")
+    assert got["refusedFace"] == "40,60,300,320" and got["refusedFirst"] == "2.5", "the numbers and the seconds typed are still there to correct"
+    assert got["acceptedFace"] == "40,60,300,320", "after an accepted edit the fields show the box that was chosen"
+    assert got["tap"]["sent"] == [{"op": "face_box", "x": 330, "y": 750, "w": 420, "h": 420}] and got["tap"]["fields"] == "330,750,420,420"
+    assert got["cover"] == {"value": "2.5", "sent": [{"op": "cover", "offset_ms": 2500}]}
+
+
+REREAD = r"""
+const view = make();
+const root = view.el;
+await view.load(); await settle();
+await press(word(root, 3));
+typeInto(find(root, "[data-key=word]"), "typed for word four");
+script.editError = new ApiError(409, "refused", "refused: stale_revision revision");
+await press(find(root, "[data-key=save-word]"));
+out.stale = { line: text(find(root, "[data-key=selection-line]")), input: find(root, "[data-key=word]").value };
+// the words moved while the person looked away: the revision read is another one
+const moved = clone(VIEW); moved.revision = 7; moved.words[3].text = "changed elsewhere";
+script.view = moved; script.editError = null;
+await press(find(root, "[data-key=reread]"));
+out.after = { revision: view.snapshot().view.revision, selection: view.snapshot().selection, line: text(find(root, "[data-key=selection-line]")), input: find(root, "[data-key=word]"), word: text(word(root, 3)) };
+// reading again with the same revision keeps the selection and what is typed
+await press(word(root, 5));
+typeInto(find(root, "[data-key=word]"), "kept");
+await view.load({ quiet: true }); await settle();
+out.same = { selection: view.snapshot().selection, input: find(root, "[data-key=word]").value };
+console.log(JSON.stringify(out));
+process.exit(0);
+"""
+
+
+@needs_node
+def test_reading_again_after_the_words_moved_clears_the_selection_and_the_typed_text_so_it_cannot_land_on_another_word(tmp_path):
+    got = run(tmp_path, REREAD)
+    assert got["stale"]["line"].startswith("Word 4 selected") and got["stale"]["input"] == "typed for word four"
+    assert got["after"] == {"revision": 7, "selection": None, "line": "Select a word to change it; select a second word to take the words between them.", "input": None, "word": "changed elsewhere"}
+    assert got["same"] == {"selection": {"from": 5, "to": 5}, "input": "kept"}
+
+
+CLOSED = r"""
+let unhandled = 0;
+process.on("unhandledRejection", () => { unhandled += 1; });
+const done = clone(VIEW); done.slots[0].choice = "none"; script.view = done;
+let changed = 0; let seen = null;
+api.pollJob = (id, every, o) => { seen = o; return new Promise((resolve, reject) => { o.signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" }))); o.onUpdate({ state: "running" }); }); };
+api.mediaList = async () => { if (seen && seen.signal.aborted) throw Object.assign(new Error("aborted"), { name: "AbortError" }); return { recordings: [clone(script.media)] }; };
+const view = make({ changed: () => { changed += 1; } });
+const root = view.el;
+await view.load(); await settle();
+const pressing = press(find(root, "[data-key=done]"));
+await settle(); await settle();
+out.signal = { given: Boolean(seen && seen.signal), aborted: seen.signal.aborted };
+view.close();
+seen.onUpdate({ state: "running" });                   // a late update after close reads the media list, which fails: nobody is left to hear it
+await pressing; await settle(); await settle();
+out.closed = { aborted: seen.signal.aborted, changed, unhandled, mode: view.snapshot().mode };
+const again = make({ changed: () => { changed += 1; } });
+again.close();
+await again.load(); await settle();
+out.afterClose = { changed, unhandled };
+console.log(JSON.stringify(out));
+process.exit(0);
+"""
+
+
+@needs_node
+def test_a_view_that_closed_while_a_job_ran_aborts_it_hears_nothing_after_and_tells_nobody(tmp_path):
+    got = run(tmp_path, CLOSED)
+    assert got["signal"] == {"given": True, "aborted": False}
+    assert got["closed"]["aborted"] is True and got["closed"]["changed"] == 0 and got["closed"]["unhandled"] == 0
+    assert got["afterClose"] == {"changed": 0, "unhandled": 0}
+
+
+RANGES = r"""
+const mixed = clone(VIEW);
+mixed.chunks = mixed.chunks.filter((c) => !c.words.some((i) => i >= 12 && i <= 15));      // the words 12 to 15 are in no chunk: they are drawn in the group of words left out
+script.view = mixed;
+const view = make();
+const root = view.el;
+await view.load(); await settle();
+out.drawn = { outside: text(find(root, ".wb-rev-chunk.is-outside")).includes(mixed.words[12].text), inChunk: find(root, ".wb-rev-chunk:not(.is-outside)") !== null };
+await press(word(root, 11));
+await press(word(root, 17));
+out.mixed = { error: text(find(root, ".wb-notice-card")), selection: view.snapshot().selection, code: text(find(root, ".wb-rev-code")) };
+// a range of words drawn together is fine, inside the group left out too
+await press(find(root, "[data-key=clear-selection]"));
+await press(word(root, 8)); await press(word(root, 10));
+out.together = view.snapshot().selection;
+await press(find(root, "[data-key=clear-selection]"));
+await press(word(root, 12)); await press(word(root, 15));
+out.outside = view.snapshot().selection;
+// shift-click on a range extends it; it never shrinks it or starts from its far end
+await press(find(root, "[data-key=clear-selection]"));
+await press(word(root, 3)); await press(word(root, 6));
+word(root, 9).listeners.click[0]({ shiftKey: true }); await settle();
+out.shiftRight = view.snapshot().selection;
+word(root, 1).listeners.click[0]({ shiftKey: true }); await settle();
+out.shiftLeft = view.snapshot().selection;
+word(root, 5).listeners.click[0]({ shiftKey: true }); await settle();
+out.shiftInside = view.snapshot().selection;
+console.log(JSON.stringify(out));
+process.exit(0);
+"""
+
+
+@needs_node
+def test_a_range_never_takes_in_a_word_drawn_elsewhere_and_shift_click_extends_a_range_from_either_end(tmp_path):
+    got = run(tmp_path, RANGES)
+    assert got["drawn"] == {"outside": True, "inChunk": True}
+    assert "shown somewhere else" in got["mixed"]["error"] and got["mixed"]["code"].strip() == "mixed_range" and got["mixed"]["selection"] == {"from": 11, "to": 11}, "refused with a sentence; the selection stays"
+    assert got["together"] == {"from": 8, "to": 10}
+    assert got["outside"] == {"from": 12, "to": 15}
+    assert got["shiftRight"] == {"from": 3, "to": 9} and got["shiftLeft"] == {"from": 1, "to": 9} and got["shiftInside"] == {"from": 1, "to": 9}
+
+
+BIG = r"""
+const big = clone(VIEW);
+big.words = Array.from({ length: 600 }, (_, i) => ({ index: i, text: `w${i}`, start: i, end: i + 0.5, segment: 0, estimated: false, edited: false, origin: [i, i], timing_adjusted: false, chunk: 0, left_out: null }));
+big.chunks = [{ chunk: 0, words: big.words.map((w) => w.index) }];
+big.retakes = []; big.beats = []; big.unplaced = []; big.slots = []; big.counts = { ...big.counts, words: 600 };
+script.view = big;
+const view = make();
+const root = view.el;
+await view.load(); await settle();
+await press(word(root, 0)); await press(word(root, 599));
+await press(find(root, "[data-key=delete-words]"));
+out.refused = { text: text(find(root, ".wb-notice-card")), sent: calls.filter((c) => c[0] === "edit").length, selection: view.snapshot().selection };
+await press(find(root, "[data-key=clear-selection]"));
+await press(word(root, 0)); await press(word(root, 499));
+await press(find(root, "[data-key=delete-words]"));
+out.allowed = { sent: calls.filter((c) => c[0] === "edit").map((c) => c[2].length) };
+console.log(JSON.stringify(out));
+process.exit(0);
+"""
+
+
+@needs_node
+def test_a_delete_over_the_services_cap_is_refused_with_a_sentence_and_sends_nothing(tmp_path):
+    got = run(tmp_path, BIG)
+    assert "at most 500 words" in got["refused"]["text"] and got["refused"]["sent"] == 0 and got["refused"]["selection"] == {"from": 0, "to": 599}
+    assert got["allowed"]["sent"] == [500]
+
+
+def test_the_edit_cap_the_page_knows_is_the_services():
+    assert int(re.search(r"export const MAX_EDITS = (\d+);", MODEL_FILE.read_text(encoding="utf-8")).group(1)) == cap.MAX_EDITS
+
+
+SMALL = r"""
+// reopen: a failed job, and a pipeline that stops, are told
+let view = make();
+let root = view.el;
+const after = clone(VIEW); after.editable = false; script.view = after;
+await view.load(); await settle();
+api.pollJob = async () => ({ state: "failed", error: { message: "the job could not start" } });
+await press(find(root, "[data-key=reopen]")); await settle();
+out.failedJob = text(find(root, ".wb-notice-card.is-error"));
+api.pollJob = async () => ({ state: "done", result: { ok: false, failed: "review", code: "retake_lost", field: "", next: "" } });
+await press(find(root, "[data-key=reopen]")); await settle();
+out.stopped = text(find(root, ".wb-notice-card.is-error")).slice(0, 90);
+// "Check again" clears an old error
+await press(find(root, "[data-key=reload]")); await settle();
+out.cleared = find(root, ".wb-notice-card.is-error");
+view.close();
+// the cover cannot be later than the recording when its length is known
+const rec = clone(MEDIA); rec.raw = { duration: 30 };
+script.media = rec; script.view = clone(VIEW);
+view = make(); root = view.el;
+await view.load(); await settle();
+typeInto(find(root, "[data-key=cover]"), "45");
+await press(find(root, "[data-key=set-cover]"));
+out.late = { text: text(find(root, ".wb-notice-card")), sent: calls.filter((c) => c[0] === "edit").length };
+typeInto(find(root, "[data-key=cover]"), "30");
+await press(find(root, "[data-key=set-cover]"));
+out.limit = calls.filter((c) => c[0] === "edit").map((c) => c[2]);
+// marks of a word that is only read are in the page: a data-marks attribute that a CSS rule shows after the word
+const reading = make({ can: (op) => op !== "captions-edit" });
+await reading.load(); await settle();
+out.marks = { adjusted: word(reading.el, 0).attrs["data-marks"], retake: word(reading.el, 34).attrs["data-marks"], none: word(reading.el, 20).attrs["data-marks"] === undefined, tag: word(reading.el, 0).tagName };
+console.log(JSON.stringify(out));
+process.exit(0);
+"""
+
+
+@needs_node
+def test_small_things_of_the_review_a_failed_reopen_check_again_the_cover_bound_and_visible_marks(tmp_path):
+    got = run(tmp_path, SMALL)
+    assert got["failedJob"] == "the job could not start" and got["stopped"].startswith("Check the captions stopped: A retake you confirmed")
+    assert got["cleared"] is None
+    assert "later than the recording" in got["late"]["text"] and "30.0 s" in got["late"]["text"] and got["late"]["sent"] == 0 and got["limit"] == [[{"op": "cover", "offset_ms": 30000}]]
+    assert got["marks"] == {"adjusted": "timing adjusted", "retake": "retake proposed", "none": True, "tag": "SPAN"}
+    css = css_file("floor")
+    assert re.search(r"^span\.wb-rev-word\[data-marks\]::after \{[^}]*attr\(data-marks\)", css, re.M)

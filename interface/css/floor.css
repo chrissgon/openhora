@@ -163,10 +163,11 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
 button.wb-rev-word { cursor: pointer; }
 button.wb-rev-word:focus-visible { outline: 2px solid var(--pui-theme); outline-offset: 1px; }
 .wb-rev-word.is-selected { border-color: var(--pui-theme); background-color: var(--wb-tint-selected); }
-.wb-rev-word.is-retake { text-decoration-line: line-through; color: var(--pui-text-muted); }
-.wb-rev-word.is-cut { text-decoration-line: line-through; color: var(--pui-text-muted); font-weight: 700; }
+.wb-rev-word.is-retake { text-decoration-line: line-through; text-decoration-style: dashed; color: var(--pui-text-muted); }     /* a proposal: dashed strike-through, muted */
+.wb-rev-word.is-cut { text-decoration-line: line-through; text-decoration-style: double; text-decoration-color: var(--pui-error); color: var(--pui-text-muted); background-color: color-mix(in oklab, var(--pui-error) 16%, var(--wb-raised)); border-color: var(--pui-error); }     /* confirmed: a double red strike-through on a red tint, not only weight */
 .wb-rev-word.is-adjusted { text-decoration-line: underline; text-decoration-style: dotted; }
 .wb-rev-word.is-retake.is-adjusted, .wb-rev-word.is-cut.is-adjusted { text-decoration-line: line-through underline; }
+span.wb-rev-word[data-marks]::after { content: " (" attr(data-marks) ")"; color: var(--pui-text-muted); font-size: 12px; font-style: normal; text-decoration: none; }     /* marks of a word that is only read: seen, not only in a tooltip */
 .wb-rev-word.is-estimated { font-style: italic; }
 .wb-rev-word.is-edited { border-style: dashed; }
 .wb-rev-word.is-left-out { opacity: 0.65; }
@@ -176,9 +177,11 @@ button.wb-rev-word:focus-visible { outline: 2px solid var(--pui-theme); outline-
 .wb-rev-row { display: grid; gap: 4px; padding: 8px 10px; border: var(--pui-border-width) solid var(--pui-border); border-radius: var(--pui-radius); background-color: var(--wb-raised); min-width: 0; }
 .wb-rev-row.is-flagged { border-color: var(--pui-warn); }
 .wb-rev-row.is-dropped { opacity: 0.7; }
-.wb-rev-row.is-confirmed { border-color: var(--pui-theme); }
+.wb-rev-row.is-confirmed { border-color: var(--pui-error); }
+.wb-rev-row.is-confirmed .wb-rev-struck { text-decoration-style: double; text-decoration-color: var(--pui-error); }
 .wb-rev-row > * { margin: 0; min-width: 0; overflow-wrap: anywhere; }
-.wb-rev-struck { text-decoration: line-through; color: var(--pui-text-muted); }
+.wb-rev-row > .pui-chip { justify-self: start; }
+.wb-rev-struck { text-decoration: line-through; text-decoration-style: dashed; color: var(--pui-text-muted); }
 .wb-rev-beat-head { font-size: 13px; }
 .wb-rev-matched, .wb-rev-plain { font-size: 13px; overflow-wrap: anywhere; white-space: pre-wrap; }
 .wb-rev-flags { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -458,7 +461,7 @@ button.wb-rev-word:focus-visible { outline: 2px solid var(--pui-theme); outline-
   .wb-rev-clock, .wb-rev-code { font-size: 12px; }
   .wb-rev-numbers { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .wb-rev-sizes .pui-btn { flex: 1 1 auto; min-height: 44px; }
-  button.wb-rev-word { min-height: 40px; }
+  button.wb-rev-word { min-height: 44px; }
   .wb-rev-frame { max-width: 180px; }
   .wb-mode-plate, .wb-chip-11, .wb-acting-plate, .wb-skill, .wb-desk-agent, .wb-wb-line, .wb-plan-table .wb-cell-skill, .wb-plan-stacked-skill, .wb-plan-stacked-skill code,
   .wb-task-group-name, .wb-group-name, .wb-meter-cell > .wb-note { font-size: 12px; }
