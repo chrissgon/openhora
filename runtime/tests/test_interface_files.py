@@ -343,8 +343,8 @@ def test_only_the_floor_folder_sends_a_write_and_it_takes_every_write_from_one_o
     # ADJ-I2: `goAhead` (a task that waits) and `route` (the unrecognised-route card routes a request with a flow) are writes; `flows` is the one read the
     # same object carries, for the flow list of that card.
     writes = {"answer", "release", "approve", "reject", "verdict", "cancel", "setMode", "retry", "handOver", "goAhead", "route", "videoApprove", "videoSendBack",
-              "captionsEdit", "captionsDone", "prepareAgain", "uploadMedia"}
-    reads = {"pollJob", "flows", "videoCard", "videoRaw", "videoCover", "videoDownload", "captionsRead", "mediaList"}      # M1 P7: the rendered video's card, bytes and download
+              "captionsEdit", "captionsDone", "prepareAgain", "uploadMedia", "mediaPipeline"}
+    reads = {"pollJob", "flows", "videoCard", "videoRaw", "videoCover", "videoDownload", "captionsRead", "mediaList", "artifacts", "artifact"}      # M1 P7: the rendered video's card, bytes and download
     actions = (INTERFACE / "js" / "floor" / "actions.js").read_text(encoding="utf-8")
     assert set(re.findall(r"^\s+(\w+): api\.(\w+),$", actions, re.M)) == {(w, w) for w in writes | reads}, "actions.js names each write once"
     for name in FLOOR_FILES:
