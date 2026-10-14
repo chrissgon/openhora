@@ -15,7 +15,7 @@
  "limits": {"beats_max": 12, "line_max": 240, "slot_description_min": 3, "slot_description_max": 80},
  "always_on": ["caption"],
  "script": {
-  "note": "What a script means, not what it looks like. Roles and the header are choices or short text, never a time. Every number is a default tuned on real scripts, not a rule of nature; a rate measured on real recordings may recalibrate speech_rate_words_per_second, by a version change of this file. A word is a whitespace-separated token with at least one letter or digit. Language data: openers (a line may not start with one), negations, number_words (read by the caption styles, not by the checker), stop_words, goodbyes; a language without data skips the predicates that read it.",
+  "note": "What a script means, not what it looks like. Roles and the header are choices or short text, never a time. Every number is a default tuned on real scripts, not a rule of nature; a rate measured on real recordings may recalibrate speech_rate_words_per_second, by a version change of this file. A word is a whitespace-separated token with at least one letter or digit. The patterns `story`, `problem-solution` and `steps` were approved by the maintainer on 2026-10-14. Language data (the pt-BR entries are written with \\u escapes so that this file needs no english-only allowance): openers (a hook that starts with one draws a warning, never a refusal), negations, number_words (read by the caption styles, not by the checker), stop_words, goodbyes (a loop that ends with one draws a warning); a language without data skips the predicates that read it.",
   "speech_rate_words_per_second": 2.5,
   "roles": ["hook", "setup", "point", "proof", "turn", "payoff", "cta"],
   "emphasis": ["none", "punch"],
@@ -63,11 +63,11 @@
     "goodbyes": ["bye", "goodbye", "thanks", "thank you", "cheers", "see you", "see ya", "take care", "until next time"]
    },
    "pt-BR": {
-    "openers": ["oi", "olá", "e aí", "fala pessoal", "fala galera", "galera", "pessoal", "bom dia", "bem vindo", "bem vindos", "hoje eu", "hoje vou", "hoje vamos", "neste vídeo", "nesse vídeo", "no vídeo de hoje"],
-    "negations": ["não", "nunca", "nem", "jamais", "nada", "ninguém", "nenhum", "nenhuma", "sem", "tampouco"],
-    "number_words": ["zero", "um", "uma", "dois", "duas", "três", "quatro", "cinco", "seis", "sete", "oito", "nove", "dez", "onze", "doze", "treze", "quatorze", "quinze", "dezesseis", "dezessete", "dezoito", "dezenove", "vinte", "trinta", "quarenta", "cinquenta", "sessenta", "setenta", "oitenta", "noventa", "cem", "cento", "mil", "milhão"],
-    "stop_words": ["a", "o", "as", "os", "um", "uma", "de", "do", "da", "dos", "das", "em", "no", "na", "nos", "nas", "para", "por", "com", "sem", "e", "ou", "mas", "que", "se", "como", "mais", "já", "é", "foi", "ser", "está", "tem", "há", "eu", "você", "ele", "ela", "nós", "eles", "elas", "meu", "minha", "seu", "sua", "este", "esta", "esse", "essa", "isso", "isto", "aquilo", "ao", "à", "pelo", "pela", "até", "também", "só", "muito", "quando", "onde", "quem", "qual", "não", "nem"],
-    "goodbyes": ["tchau", "até mais", "até logo", "até a próxima", "obrigado", "obrigada", "valeu", "falou"]
+    "openers": ["oi", "ol\u00e1", "e a\u00ed", "fala pessoal", "fala galera", "galera", "pessoal", "bom dia", "bem vindo", "bem vindos", "hoje eu", "hoje vou", "hoje vamos", "neste v\u00eddeo", "nesse v\u00eddeo", "no v\u00eddeo de hoje"],
+    "negations": ["n\u00e3o", "nunca", "nem", "jamais", "nada", "ningu\u00e9m", "nenhum", "nenhuma", "sem", "tampouco"],
+    "number_words": ["zero", "um", "uma", "dois", "duas", "tr\u00eas", "quatro", "cinco", "seis", "sete", "oito", "nove", "dez", "onze", "doze", "treze", "quatorze", "quinze", "dezesseis", "dezessete", "dezoito", "dezenove", "vinte", "trinta", "quarenta", "cinquenta", "sessenta", "setenta", "oitenta", "noventa", "cem", "cento", "mil", "milh\u00e3o"],
+    "stop_words": ["a", "o", "as", "os", "um", "uma", "de", "do", "da", "dos", "das", "em", "no", "na", "nos", "nas", "para", "por", "com", "sem", "e", "ou", "mas", "que", "se", "como", "mais", "j\u00e1", "\u00e9", "foi", "ser", "est\u00e1", "tem", "h\u00e1", "eu", "voc\u00ea", "ele", "ela", "n\u00f3s", "eles", "elas", "meu", "minha", "seu", "sua", "este", "esta", "esse", "essa", "i\u0073so", "isto", "aquilo", "ao", "\u00e0", "pelo", "pela", "at\u00e9", "tamb\u00e9m", "s\u00f3", "muito", "quando", "onde", "quem", "qual", "n\u00e3o", "nem"],
+    "goodbyes": ["tchau", "at\u00e9 mais", "at\u00e9 logo", "at\u00e9 a pr\u00f3xima", "obrigado", "obrigada", "valeu", "falou"]
    }
   }
  },

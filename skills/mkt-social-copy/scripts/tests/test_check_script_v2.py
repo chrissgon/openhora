@@ -116,6 +116,7 @@ def test_the_cli_prints_mode_header_roles_and_warnings(tmp_path):
     assert out["beats"][0]["role"] == "hook" and any(w["code"] == "length_short" for w in out["warnings"])
     r = subprocess.run([sys.executable, str(SCRIPT), "--content", str(post), "--presets", str(PRESETS), "--figure", "340"], capture_output=True, text=True, timeout=60)
     assert r.returncode == 1 and (1, "line", "invented_figure") in codes(json.loads(r.stdout))   # the 3 of the hook is not among the figures given
+    assert (None, "figure", "figure_without_claims_row") in codes(json.loads(r.stdout))          # and 340 has no row of Claims and sources
 
 
 # ---------------------------------------------------------------- the header
@@ -194,25 +195,25 @@ def test_rule_1_the_hook_has_at_most_18_words():
 
 @pytest.mark.parametrize("opener", ["Hey everyone, 3 habits cut my spending by 340 euros.", "Welcome back, 3 habits cut my spending by 340 euros.",
                                     "Today I show 3 habits that cut my spending by 340 euros.", "Hi, 3 habits cut my spending by 340 euros."])
-def test_rule_1_a_hook_does_not_start_with_an_opener_phrase(opener):
+def test_rule_1_a_hook_that_starts_with_an_opener_phrase_draws_a_warning(opener):
     out = run(edit("3 habits cut my spending by 340 euros in one month.", opener))
-    assert has(out, 1, "line", "hook_opener")
+    assert has(out, 1, "line", "hook_opener", "warnings") and not has(out, 1, "line", "hook_opener") and out["ok"] is True      # a warning, never a refusal
 
 
 def test_rule_1_without_a_language_the_word_lists_are_skipped_with_a_warning():
     greeting = "Hey everyone, 3 habits cut my spending by 340 euros."
     out = run(edit("3 habits cut my spending by 340 euros in one month.", greeting), language=None)
-    assert not has(out, 1, "line", "hook_opener") and has(out, None, "language", "language_unset", "warnings")
+    assert not has(out, 1, "line", "hook_opener", "warnings") and has(out, None, "language", "language_unset", "warnings")
     out = run(edit("3 habits cut my spending by 340 euros in one month.", greeting), language="xx")
     assert has(out, None, "language", "language_data_missing", "warnings")
 
 
 def test_rule_1_the_language_is_matched_by_code():
     greeting = "Oi pessoal, 3 habitos cortaram meu gasto em 340 euros."
-    assert has(run(edit("3 habits cut my spending by 340 euros in one month.", greeting), language="pt-BR"), 1, "line", "hook_opener")
-    assert has(run(edit("3 habits cut my spending by 340 euros in one month.", greeting), language="PT"), 1, "line", "hook_opener")
-    assert has(run(edit("3 habits cut my spending by 340 euros in one month.", greeting), language="pt_br"), 1, "line", "hook_opener")
-    assert not has(run(GOOD, language="en-US"), 1, "line", "hook_opener")
+    assert has(run(edit("3 habits cut my spending by 340 euros in one month.", greeting), language="pt-BR"), 1, "line", "hook_opener", "warnings")
+    assert has(run(edit("3 habits cut my spending by 340 euros in one month.", greeting), language="PT"), 1, "line", "hook_opener", "warnings")
+    assert has(run(edit("3 habits cut my spending by 340 euros in one month.", greeting), language="pt_br"), 1, "line", "hook_opener", "warnings")
+    assert not has(run(GOOD, language="en-US"), 1, "line", "hook_opener", "warnings")
 
 
 def test_rule_1_a_number_hook_has_a_digit_token_in_its_first_sentence():
@@ -276,13 +277,13 @@ def test_rule_3_a_payoff_exists_after_half_of_the_beats_and_holds_a_word_of_the_
     assert not has(run(), 7, "line", "payoff_misses_title")
 
 
-def test_rule_3_exactly_half_is_too_early_so_a_script_with_a_cta_last_needs_five_beats():
+def test_rule_3_only_the_beats_before_the_cta_count():
     four = "beat: 1\nrole: hook\nline: 3 habits cut my spending by 340 euros in one month.\n\nbeat: 2\nrole: payoff\nline: Habits cut spending because each decision gets removed.\n\n" \
            "beat: 3\nrole: point\nline: Name every euro on the first of the month so each has a job.\n\nbeat: 4\nrole: cta\nline: Send this to a friend who wants to spend with intention.\n"
     block = HEADER.replace("pattern: list\n", "") + "\n" + four
     assert has(run(block), 2, "role", "payoff_too_early")
     swapped = block.replace("role: payoff", "role: TMP").replace("role: point", "role: payoff").replace("role: TMP", "role: point")
-    assert has(run(swapped), 3, "role", "payoff_too_early")          # beat 3 of 4: two beats before it, exactly half, not more than half
+    assert not has(run(swapped), 3, "role", "payoff_too_early")      # beat 3 of 4: two of the three beats before the cta come before it
     assert not has(run(), 7, "role", "payoff_too_early")             # beat 7 of 8
 
 
@@ -506,8 +507,8 @@ def test_rule_10_without_material_it_is_skipped_with_a_warning():
 def test_rule_10_material_files_and_figure_tokens(tmp_path):
     f = tmp_path / "m.txt"
     f.write_text("I spent 1,860 euros and then 1,520 euros.", encoding="utf-8")
-    assert cs.read_figures([str(f)], ["340"]) == {"1,860", "1,520", "340"}
-    assert cs.read_figures([], []) is None
+    assert cs.read_figures([str(f)], ["340"]) == ({"1860", "1520", "340"}, [])
+    assert cs.read_figures([], []) == (None, [])
     with pytest.raises(OSError):
         cs.read_figures([str(tmp_path / "absent.txt")], [])
 
@@ -553,12 +554,52 @@ def test_emphasis_punches_are_spaced_by_three_beats_and_25_words():
 
 # ---------------------------------------------------------------- a loop ends with no goodbye
 
-def test_a_loop_has_no_goodbye_in_its_last_line():
+def test_a_loop_that_ends_with_a_goodbye_word_draws_a_warning_never_a_refusal():
     looped = edit("pattern: list", "loop: yes")
-    assert run(looped)["ok"] is True
+    assert run(looped)["ok"] is True and not has(run(looped), 8, "line", "loop_goodbye", "warnings")
     bye = edit("Send this to a friend who wants to spend with intention.", "Send this to a friend, thanks for watching and see you soon.", looped)
-    assert has(run(bye), 8, "line", "loop_goodbye")
-    assert not has(run(edit("loop: yes", "loop: no", bye)), 8, "line", "loop_goodbye")
+    out = run(bye)
+    assert out["ok"] is True and has(out, 8, "line", "loop_goodbye", "warnings") and not has(out, 8, "line", "loop_goodbye")
+    assert not has(run(edit("loop: yes", "loop: no", bye)), 8, "line", "loop_goodbye", "warnings")
+
+
+PT_SCRIPT = """hook_type: number
+title: habitos cortaram meu gasto
+cta_kind: save
+loop: {loop}
+
+beat: 1
+role: hook
+line: {hook}
+
+beat: 2
+role: setup
+line: Eu anotei cada euro que gastei durante trinta dias num caderno simples.
+
+beat: 3
+role: point
+line: Primeiro, dou um trabalho para cada euro no primeiro dia do mes.
+
+beat: 4
+role: payoff
+line: Esses habitos cortaram meu gasto porque cada um tira uma decisao que eu evitava.
+
+beat: 5
+role: cta
+line: {last}
+"""
+
+
+def test_the_word_lists_never_refuse_in_portuguese_either():
+    calm_end = "Salve este video para o primeiro dia do seu proximo mes."
+    plain_hook = "3 habitos cortaram meu gasto em 340 euros neste mes."
+    ok = run(PT_SCRIPT.format(loop="no", hook=plain_hook, last=calm_end), language="pt-BR", figures={"3", "340"})
+    assert ok["ok"] is True and not has(ok, 1, "line", "hook_opener", "warnings") and not has(ok, 5, "line", "loop_goodbye", "warnings"), ok["problems"]
+    goodbye = run(PT_SCRIPT.format(loop="yes", hook=plain_hook, last="Salve este video, valeu a pena."), language="pt-BR", figures={"3", "340"})
+    assert goodbye["ok"] is True and goodbye["problems"] == [] and has(goodbye, 5, "line", "loop_goodbye", "warnings")
+    opener = run(PT_SCRIPT.format(loop="no", hook="Hoje eu sei que 3 habitos cortaram meu gasto em 340 euros.", last=calm_end), language="pt-BR", figures={"3", "340"})
+    assert opener["ok"] is True and opener["problems"] == [] and has(opener, 1, "line", "hook_opener", "warnings")
+
 
 
 # ---------------------------------------------------------------- --beat-only
@@ -583,9 +624,16 @@ def test_beat_only_still_refuses_what_is_wrong_with_the_beat():
     assert has(run(ONE_BEAT.replace("on-screen: saved in one month", "on-screen: " + "x" * 41), beat_only=True), 1, "on-screen", "text_too_long")
 
 
-def test_beat_only_applies_the_beat_level_rules_of_version_2():
-    assert has(run("beat: 1\nline: A list of things I do each week.\non-screen: Only one\npreset: list\n", beat_only=True), 1, "on-screen", "list_items")
-    assert has(run("beat: 1\nline: " + " ".join(["word"] * 31) + "\n", beat_only=True), 1, "line", "line_too_long_words")
+def test_beat_only_skips_rules_4_and_6_but_the_full_check_keeps_them():
+    long_line = "beat: 1\nline: " + " ".join(["word"] * 31) + "\n"
+    one_item = "beat: 1\nline: A list of things I do each week.\non-screen: Only one\npreset: list\n"
+    for block, code in ((long_line, "line_too_long_words"), (one_item, "list_items")):
+        out = run(block, beat_only=True, figures=None, language=None)
+        assert out["ok"] is True and out["problems"] == [] and out["warnings"] == [], out
+        assert any(p["code"] == code for p in run(block, beat_only=False, figures=None, language=None, register="neutral")["warnings"]), code   # a legacy script of its own: a warning
+        assert any(p["code"] == code for p in run("hook_type: result\ntitle: a b c\n\n" + block.replace("beat: 1\n", "beat: 1\nrole: setup\n"))["problems"]), code
+    short = run("beat: 1\nline: Okay.\n", beat_only=True)
+    assert short["warnings"] == []                                          # a short line warns only in a whole script
 
 
 def test_beat_only_ignores_a_header_and_does_not_need_roles_or_a_hook():
@@ -798,3 +846,161 @@ def test_the_reference_of_the_skill_names_the_roles_the_rules_and_the_flags():
     for flag in ("--language", "--register", "--material", "--figure", "What to pass to the checker"):
         assert flag in skill or flag in ref, flag
     assert "What to pass to the checker" in skill and "## What to pass to the checker" in ref
+
+
+# ---------------------------------------------------------------- figures are compared in one normal form
+
+@pytest.mark.parametrize("token, expected", [("1.520", "1520"), ("1,520", "1520"), ("1520", "1520"), ("1.234.567", "1234567"),
+                                             ("3,5", "3.5"), ("3.5", "3.5"), ("340.", "340"), ("0,25", "0.25"), ("10", "10")])
+def test_a_figure_is_normalised_before_it_is_compared(token, expected):
+    assert cs.norm_figure(token) == expected
+
+
+def test_one_figure_written_two_ways_is_one_figure(tmp_path):
+    out = run(edit("for thirty days", "for 1.520 days"), figures={"3", "340", "1520"})
+    assert not has(out, 2, "line", "invented_figure")
+    f = tmp_path / "m.txt"
+    f.write_text("It cost 1,520 euros and 3,5 percent.", encoding="utf-8")
+    figures, _ = cs.read_figures([str(f)], [])
+    assert not has(run(edit("for thirty days", "for 1.520 days"), figures=figures | {"3", "340"}), 2, "line", "invented_figure")
+    assert has(run(edit("for thirty days", "for 1.521 days"), figures=figures | {"3", "340"}), 2, "line", "invented_figure")
+    assert has(run(edit("for thirty days", "for 35 days"), figures=figures | {"3", "340"}), 2, "line", "invented_figure")     # 3,5 is not 35
+    out = run(edit("value: 340", "value: 3,4").replace("saved me 340 euros", "saved me 3.4 euros"), figures={"3", "3.4"})
+    assert not has(out, 6, "value", "number_value_not_in_line")
+
+
+# ---------------------------------------------------------------- material files that are not clean text
+
+def test_a_material_file_that_is_not_utf8_text_is_skipped_with_a_warning(tmp_path):
+    good = tmp_path / "good.txt"
+    good.write_text("340 euros", encoding="utf-8")
+    binary = tmp_path / "scan.pdf"
+    binary.write_bytes(b"%PDF-1.4\xff\xfe\x00\x01 binary 777")
+    figures, warnings = cs.read_figures([str(good), str(binary)], [])
+    assert figures == {"340"} and [w["code"] for w in warnings] == ["material_unreadable"]
+    nul = tmp_path / "nul.txt"
+    nul.write_bytes(b"abc\x00 555")
+    assert cs.read_figures([str(nul)], []) == (None, [{"beat": None, "field": "material", "code": "material_unreadable"}])
+
+
+def test_the_cli_skips_an_unreadable_material_file_and_never_exits_2(tmp_path):
+    post = tmp_path / "post.md"
+    post.write_text("```script\n" + GOOD + "```\n\n| 3 | the user's words |\n| 340 | the user's words |\n", encoding="utf-8")
+    binary = tmp_path / "scan.bin"
+    binary.write_bytes(b"\xff\xfe\xfd")
+    r = subprocess.run([sys.executable, str(SCRIPT), "--content", str(post), "--presets", str(PRESETS), "--language", "en",
+                        "--material", str(binary), "--figure", "3", "--figure", "340"], capture_output=True, text=True, timeout=60)
+    out = json.loads(r.stdout)
+    assert r.returncode == 0 and out["ok"] and any(w["code"] == "material_unreadable" for w in out["warnings"])
+    r = subprocess.run([sys.executable, str(SCRIPT), "--content", str(post), "--presets", str(PRESETS), "--material", str(tmp_path / "absent.txt")],
+                       capture_output=True, text=True, timeout=60)
+    assert r.returncode == 2 and "Traceback" not in r.stderr          # a file that does not exist is still a usage error
+
+
+def test_a_long_text_file_is_cut_on_a_character_and_a_word_boundary_with_a_warning(tmp_path, monkeypatch):
+    monkeypatch.setattr(cs, "MATERIAL_MAX_BYTES", 40)
+    f = tmp_path / "long.txt"
+    # 2-byte letters across the limit; the last whole word before byte 40 is kept, and a figure the cut would split is not read
+    f.write_text("caf\u00e9 340 euros \u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9 12345678 and 999", encoding="utf-8")
+    figures, warnings = cs.read_figures([str(f)], [])
+    assert [w["code"] for w in warnings] == ["material_truncated"] and figures == {"340"}
+    f.write_bytes(("a " * 19 + "\u00e9").encode("utf-8") + b"\xc3")             # the cut falls inside a character
+    assert cs.read_figures([str(f)], [])[1] == [{"beat": None, "field": "material", "code": "material_truncated"}]
+    short = tmp_path / "short.txt"
+    short.write_text("340 euros", encoding="utf-8")
+    assert cs.read_figures([str(short)], []) == ({"340"}, [])           # under the limit: read whole, no warning
+
+
+def test_a_text_file_over_the_default_limit_is_read_to_its_last_whole_word(tmp_path):
+    f = tmp_path / "big.txt"
+    f.write_text("340 " + "word " * (cs.MATERIAL_MAX_BYTES // 5 + 10) + "999", encoding="utf-8")
+    figures, warnings = cs.read_figures([str(f)], [])
+    assert figures == {"340"} and [w["code"] for w in warnings] == ["material_truncated"]
+
+
+# ---------------------------------------------------------------- the template of the reference passes the checker
+
+def template_block():
+    ref = (REPO / "skills/mkt-social-copy/references/video-script.md").read_text(encoding="utf-8")
+    section = ref[ref.index("## The block's template"):]
+    return section.split("```script\n", 1)[1].split("```", 1)[0]
+
+
+def test_the_template_of_the_reference_passes_the_checker_as_written():
+    block = template_block()
+    out = run(block, figures={"3", "340"})
+    assert out["ok"] is True and out["problems"] == [] and out["mode"] == "v2", out["problems"]
+    assert [b["role"] for b in out["beats"]] == ["hook", "point", "proof", "payoff", "cta"]
+    assert out["header"]["hook_type"] == "number" and out["header"]["loop"] == "no" and out["header"]["pattern"] == "problem-solution"
+    assert [b["emphasis"] for b in out["beats"]] == [None, None, "punch", None, None]
+    assert {w["code"] for w in out["warnings"]} <= {"visual_gap", "length_short"}
+
+
+def test_the_template_shows_every_optional_line_the_reference_talks_about():
+    ref = (REPO / "skills/mkt-social-copy/references/video-script.md").read_text(encoding="utf-8")
+    block = template_block()
+    for line in ("loop:", "pattern:", "emphasis:", "send_to:"):
+        assert line in block, line
+    assert "loop: no" in ref and "pattern: problem-solution" in ref and "emphasis: punch" in ref
+
+
+def test_the_title_of_the_schema_is_bounded_like_the_vocabulary():
+    schema = json.loads((REPO / "providers/renderer/edl.schema.json").read_text(encoding="utf-8"))
+    assert schema["$defs"]["beats"]["properties"]["script"]["properties"]["title"]["maxLength"] == VOCAB["script"]["limits"]["title_max"]
+
+
+def test_a_script_of_hook_setup_payoff_cta_passes_the_payoff_position():
+    block = ("hook_type: number\ntitle: Habits cut my spending\ncta_kind: save\n\n"
+             "beat: 1\nrole: hook\nline: 3 habits cut my spending by 340 euros in one month.\n\n"
+             "beat: 2\nrole: setup\nline: I tracked every euro I spent for thirty days in a plain notebook.\n\n"
+             "beat: 3\nrole: payoff\nline: Small habits cut my spending because each one removes a decision I used to avoid.\n\n"
+             "beat: 4\nrole: cta\nline: Save this for the first day of your next month.\n")
+    out = run(block, figures={"3", "340"})
+    assert out["ok"] is True, out["problems"]
+    early = block.replace("role: setup", "role: payoff").replace("role: payoff\nline: Small", "role: point\nline: Small")
+    assert has(run(early, figures={"3", "340"}), 2, "role", "payoff_too_early")
+    three = ("hook_type: result\ntitle: a b c\ncta_kind: save\n\nbeat: 1\nrole: hook\nline: A claim that is long enough to pass here.\n\n"
+             "beat: 2\nrole: payoff\nline: The answer that comes right after the claim, a bit too soon.\n\nbeat: 3\nrole: cta\nline: Save this for later.\n")
+    assert has(run(three), 2, "role", "payoff_too_early")                # one beat before the payoff is not more than half of the two before the cta
+
+
+# ---------------------------------------------------------------- --figure needs a row of Claims and sources
+
+def post_with(table):
+    return "# Post: demo\n\n- Network: instagram\n\n## Script\n\n```script\n" + GOOD + "```\n\n## Claims and sources\n\n| Claim or number | Source |\n|-----|-----|\n" + table + "\n"
+
+
+def run_cli(tmp_path, text, *flags):
+    post = tmp_path / "post.md"
+    post.write_text(text, encoding="utf-8")
+    r = subprocess.run([sys.executable, str(SCRIPT), "--content", str(post), "--presets", str(PRESETS), "--format", "reel", "--language", "en", *flags],
+                       capture_output=True, text=True, timeout=60)
+    return r, json.loads(r.stdout)
+
+
+def test_a_figure_flag_needs_a_row_in_claims_and_sources_with_the_users_words(tmp_path):
+    rows = "| 3 habits | the user's words |\n| 340 euros saved | The user\u2019s words, in the chat |\n"
+    r, out = run_cli(tmp_path, post_with(rows), "--figure", "3", "--figure", "340")
+    assert r.returncode == 0 and out["ok"] is True, out["problems"]
+    r, out = run_cli(tmp_path, post_with("| 3 habits | docs/notes/month.md |\n| 340 euros saved | the user's words |\n"), "--figure", "3", "--figure", "340")
+    assert r.returncode == 1 and (None, "figure", "figure_without_claims_row") in codes(out)       # 3 has a row, but not from the user's words
+    r, out = run_cli(tmp_path, post_with("| 3 habits | the user's words |\n"), "--figure", "3", "--figure", "340")
+    assert r.returncode == 1 and sum(1 for p in out["problems"] if p["code"] == "figure_without_claims_row") == 1
+    r, out = run_cli(tmp_path, post_with(""), "--figure", "340")
+    assert (None, "figure", "figure_without_claims_row") in codes(out)
+    r, out = run_cli(tmp_path, post_with("| 1.520 euros | the user's words |\n"), "--figure", "1,520")
+    assert (None, "figure", "figure_without_claims_row") not in codes(out)                          # one figure, written two ways
+    r, out = run_cli(tmp_path, post_with("| 340 | the user's words |\n"), "--figure", "no digits here")
+    assert (None, "figure", "figure_without_claims_row") in codes(out)
+
+
+def test_a_figure_that_comes_from_a_material_file_needs_no_row(tmp_path):
+    material = tmp_path / "m.txt"
+    material.write_text("3 habits, 340 euros", encoding="utf-8")
+    r, out = run_cli(tmp_path, post_with(""), "--material", str(material))
+    assert r.returncode == 0 and out["ok"] is True
+
+
+def test_the_claim_figures_are_read_from_the_source_cell_only():
+    text = "| claim | source |\n|--|--|\n| 340 euros | the user's words |\n| 12 | notes |\n| the user's words 99 | notes |\n| only one cell |\n"
+    assert cs.claim_figures(text) == {"340"}

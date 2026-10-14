@@ -390,7 +390,8 @@
           "properties": {
             "title": {
               "type": "string",
-              "description": "The header's `title`: bounded, hardened text (at most the vocabulary's `script.limits.title_max` characters)."
+              "description": "The header's `title`: bounded, hardened text (at most the vocabulary's `script.limits.title_max` characters).",
+              "maxLength": 40
             },
             "loop": {
               "type": "boolean",

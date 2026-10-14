@@ -30,7 +30,8 @@ written as a short description of what to show, never as a path or a link. A bea
 Two modes, decided by the script: a script with a header or with any `role` or `emphasis` is a version 2 script, and every
 rule below is a refusal; a script with none of them is a legacy (version 1) script, which keeps passing: every rule that
 is new in version 2 is then a warning with the same code, and `legacy_script` says the header and roles are missing.
-`--beat-only` checks one beat's parameters and text only and skips the header, the roles and the script-level rules.
+`--beat-only` checks one beat's parameters and text only and skips the header, the roles and the script-level rules, and
+rules 4 and 6 (the length of a line, the items of a list); it keeps the number beat's value against its line.
 
 What it checks, against the vocabulary file (the one source of the presets and of the script rules):
   - exactly one script block; beat numbers in order; at most the vocabulary's number of beats;
@@ -45,13 +46,15 @@ What it checks, against the vocabulary file (the one source of the presets and o
   - text hardening: every character outside the Unicode categories Cc, Cf, Zl and Zp, and text in NFC form;
   - role and emphasis are closed values; a `number` beat's `value` is a digit token of its `line`; a `list` has 2 to 4 items;
   - version 2, the eleven rules (the quality half of each is for the reader, see the skill): the header and its values;
-    1 beat 1 is the hook, at most 18 words, no opener phrase, and its hook_type's predicate; 2 the title mirrors the hook;
-    3 a payoff after more than half of the beats holds a content word of the title; 4 a line over 30 words is refused;
+    1 beat 1 is the hook, at most 18 words, and its hook_type's predicate; 2 the title mirrors the hook;
+    3 a payoff after more than half of the beats that come before the cta holds a content word of the title; 4 a line over 30 words is refused;
     6 no preset on more than half of the beats, a number figure is a digit token of the material; 7 the roles of the
     declared pattern are present; 8 exactly one cta, last, at most 20 words, with cta_kind and, for send, send_to;
     9 with --register calm, room is left; 10 every digit token of a line is a digit token of the material
-    (--material files and --figure tokens); emphasis `punch` at most one per three beats and 25 words apart;
-  - warnings, never refusals: 4 a line under 8 words (except a turn), 5 a run of beats with no preset or punch over
+    (--material files and --figure tokens; each --figure needs a row of the post's Claims and sources table whose source is
+    the user's words); emphasis `punch` at most one per three beats and 25 words apart;
+  - warnings, never refusals: 1 a hook that starts with an opener phrase, a loop that ends with a goodbye word (the word
+    lists are a heuristic), 4 a line under 8 words (except a turn), 5 a run of beats with no preset or punch over
     15 words, 11 the spoken words outside 150 to 225 (300 is the most, 2.5 words a second), a missing language or material.
 
 Prints JSON: {"ok", "mode", "header", "beats": [{"beat", "preset", "on_screen", "role", "emphasis"}], "slots": [...],
@@ -61,6 +64,7 @@ Exit 0 when ok, 1 when a check failed, 2 on a bad content file, a bad vocabulary
 Standard library only; no network.
 """
 import argparse
+import codecs
 import json
 import re
 import sys
@@ -264,6 +268,18 @@ def digit_tokens(text: str) -> list:
     return [t.rstrip(".,") for t in re.findall(r"\d[\d.,]*", text)]
 
 
+def norm_figure(token: str) -> str:
+    """A digit token with its thousand separators dropped, so that 1.520, 1,520 and 1520 are one figure: a `.` or `,` that is
+    followed by exactly three digits, in groups, is a thousand separator; any other single separator is a decimal point
+    (3,5 and 3.5 are one figure); anything else is left as written."""
+    token = token.rstrip(".,")
+    if re.fullmatch(r"\d{1,3}(?:[.,]\d{3})+", token):
+        return re.sub(r"[.,]", "", token)
+    if re.fullmatch(r"\d+[.,]\d+", token):
+        return token.replace(",", ".")
+    return token
+
+
 def first_sentence(text: str) -> str:
     return re.split(r"(?<=[.!?])\s+", text.strip(), maxsplit=1)[0]
 
@@ -431,12 +447,15 @@ def check(block: str, vocab: dict, fmt=None, max_items=None, register="neutral",
     if images or not script or not beats:
         return out_beats, slots, problems, warnings, {"mode": mode, "header": {}}
 
-    # ---- the beat-level rules of version 2 (also in --beat-only)
+    # ---- the beat-level rules of version 2. --beat-only keeps only the number predicate (A6): rules 4 and 6 are about the
+    # shape of a whole script, so a one-beat check skips the line length and the number of list items.
     for b in beats:
         n = b["n"]
         if b["preset"] == "number" and "value" in b["accepted"] and b["ok_line"]:
-            if b["accepted"]["value"].rstrip(".,") not in digit_tokens(b["line"]):
+            if norm_figure(b["accepted"]["value"]) not in {norm_figure(t) for t in digit_tokens(b["line"])}:
                 emit(n, "value", "number_value_not_in_line")
+        if beat_only:
+            continue
         if b["preset"] == "list" and "items" in b["accepted"]:
             count = len(b["accepted"]["items"].split(" | "))
             low, high = script["limits"]["list_items"]
@@ -507,7 +526,7 @@ def check(block: str, vocab: dict, fmt=None, max_items=None, register="neutral",
             if len(words(first["line"])) > lim["hook_words_max"]:
                 problems.append({"beat": 1, "field": "line", "code": "hook_too_long"})
             if need_language(1, "line") and any(phrase_at_start(hook_toks, o) for o in lang["openers"]):
-                problems.append({"beat": 1, "field": "line", "code": "hook_opener"})
+                warn(1, "line", "hook_opener")
             kind = hdr.get("hook_type")
             if kind == "number" and not digit_tokens(first_sentence(first["line"])):
                 problems.append({"beat": 1, "field": "line", "code": "hook_type_number"})
@@ -534,10 +553,11 @@ def check(block: str, vocab: dict, fmt=None, max_items=None, register="neutral",
 
         # rule 3: open a loop, close it late
         payoffs = [b for b in beats if b["role"] == "payoff"]
+        before_cta = len(beats) if not ctas else min(b["n"] for b in ctas) - 1      # only the beats before the CTA count
         if not payoffs:
             problems.append({"beat": None, "field": "role", "code": "no_payoff"})
         else:
-            late = [b for b in payoffs if b["n"] - 1 > len(beats) * lim["payoff_after_share"]]
+            late = [b for b in payoffs if b["n"] - 1 > before_cta * lim["payoff_after_share"]]
             if not late:
                 problems.append({"beat": payoffs[0]["n"], "field": "role", "code": "payoff_too_early"})
             elif "title" in hdr and need_language(None, "title"):
@@ -558,7 +578,7 @@ def check(block: str, vocab: dict, fmt=None, max_items=None, register="neutral",
         # a loop ends with no goodbye
         if hdr.get("loop") == "yes" and beats[-1]["ok_line"] and need_language(len(beats), "line") \
                 and any(phrase_inside(tokens(beats[-1]["line"]), g) for g in lang["goodbyes"]):
-            problems.append({"beat": len(beats), "field": "line", "code": "loop_goodbye"})
+            warn(len(beats), "line", "loop_goodbye")
 
         # emphasis: at most one punch in three beats, and a pause between two
         punches = [b["n"] for b in beats if b["emphasis"] == "punch"]
@@ -626,9 +646,9 @@ def check(block: str, vocab: dict, fmt=None, max_items=None, register="neutral",
         warn(None, "material", "material_missing")
     else:
         for b in beats:
-            if b["ok_line"] and any(t not in figures for t in digit_tokens(b["line"])):
+            if b["ok_line"] and any(norm_figure(t) not in figures for t in digit_tokens(b["line"])):
                 emit(b["n"], "line", "invented_figure")
-            if b["preset"] == "number" and "value" in b["accepted"] and b["accepted"]["value"].rstrip(".,") not in figures:
+            if b["preset"] == "number" and "value" in b["accepted"] and norm_figure(b["accepted"]["value"]) not in figures:
                 emit(b["n"], "value", "figure_not_in_material")
 
     # rule 11: length (a warning, never a refusal)
@@ -674,17 +694,53 @@ def load_vocabulary(path: str) -> dict:
     return vocab
 
 
-def read_figures(paths, tokens_given):
-    """The digit tokens of the material files and of the --figure values; None when neither was given."""
-    if not paths and not tokens_given:
-        return None
+MATERIAL_MAX_BYTES = 2 * 1024 * 1024
+
+
+def claim_figures(text: str) -> set:
+    """The normalised figures of the rows of a Markdown table (in the post file) whose source cell says `the user's words`:
+    the row is `| claim | source |`, the figures are the digit tokens of the claim cell."""
     found = set()
+    for line in text.splitlines():
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if line.strip().startswith("|") and len(cells) >= 2 and "user's words" in cells[-1].replace("\u2019", "'").casefold():
+            found.update(norm_figure(t) for t in digit_tokens(cells[0]))
+    return found
+
+
+def read_figures(paths, tokens_given):
+    """(figures, warnings): the normalised digit tokens of the material files and of the --figure values, None when neither
+    was given. A file that is not UTF-8 text is skipped with `material_unreadable`; a file over MATERIAL_MAX_BYTES is read up to
+    the last whitespace before the limit (never inside a character or a figure) with `material_truncated`. A file that cannot
+    be opened at all raises OSError."""
+    warnings, found, used = [], set(), False
     for path in paths:
         with open(path, "rb") as fh:
-            found.update(digit_tokens(fh.read(2 * 1024 * 1024).decode("utf-8")))
+            raw = fh.read(MATERIAL_MAX_BYTES + 1)
+        cut = len(raw) > MATERIAL_MAX_BYTES
+        if cut:
+            raw = raw[:MATERIAL_MAX_BYTES]
+        try:
+            if cut:
+                # stop before a character that the cut split, then before a word the cut split
+                text = codecs.getincrementaldecoder("utf-8")().decode(raw, final=False)
+                text = text[:max(text.rfind(" "), text.rfind("\n"), text.rfind("\t"), 0)]
+            else:
+                text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            warnings.append({"beat": None, "field": "material", "code": "material_unreadable"})
+            continue
+        if cut:
+            warnings.append({"beat": None, "field": "material", "code": "material_truncated"})
+        if "\x00" in text:
+            warnings.append({"beat": None, "field": "material", "code": "material_unreadable"})
+            continue
+        used = True
+        found.update(norm_figure(t) for t in digit_tokens(text))
     for value in tokens_given:
-        found.update(digit_tokens(value))
-    return found
+        used = True
+        found.update(norm_figure(t) for t in digit_tokens(value))
+    return (found if used else None), warnings
 
 
 def main(argv=None) -> int:
@@ -708,15 +764,21 @@ def main(argv=None) -> int:
     a = p.parse_args(argv)
     try:
         vocab = load_vocabulary(a.presets)
-        block = script_block(Path(a.content).read_text(encoding="utf-8"))
-        figures = read_figures(a.material, a.figure)
+        post_text = Path(a.content).read_text(encoding="utf-8")
+        block = script_block(post_text)
+        figures, extra_warnings = read_figures(a.material, a.figure)
     except (OSError, ValueError) as e:  # a missing file, bytes that are not UTF-8, no or a broken block
         print(f"error: {e}", file=sys.stderr)
         return 2
     beats, slots, problems, warnings, extra = check(block, vocab, a.format, a.max_items, a.register, a.language,
                                                     figures, a.beat_only)
+    claimed = claim_figures(post_text)
+    for value in a.figure:
+        tokens = digit_tokens(value)
+        if not tokens or any(norm_figure(t) not in claimed for t in tokens):
+            problems.append({"beat": None, "field": "figure", "code": "figure_without_claims_row"})
     json.dump({"ok": not problems, "mode": extra["mode"], "header": extra["header"], "beats": beats, "slots": slots,
-               "problems": problems, "warnings": warnings}, sys.stdout, ensure_ascii=False, indent=1)
+               "problems": problems, "warnings": extra_warnings + warnings}, sys.stdout, ensure_ascii=False, indent=1)
     print()
     return 0 if not problems else 1
 
