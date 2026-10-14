@@ -111,7 +111,13 @@ def world(tmp_path, monkeypatch):
         w.bridge.handle(update)
     w.say = say
     w.calls = lambda name: [c for c in w.fake.calls if c[0] == name]
-    return w
+    yield w
+    # A release, a say or an answer runs in a job thread of the bridge and replies from it. A thread a test did not wait
+    # for would send its reply after the test, through the provider of whichever test runs next (the provider reads
+    # STANDIN_DIR when it is started), and that test would find a stranger's message in its folder.
+    w.bridge.stopping.set()
+    for thread in list(w.bridge.threads):
+        thread.join(WAIT)
 
 
 def wait_for(condition, seconds=WAIT):
@@ -326,9 +332,11 @@ def test_the_closed_default_refuses_every_acting_command_in_the_bridge_and_calls
     world.items[1] = decision("plan", 1)
     world.items[2] = decision("review", 2)
     world.bridge.tick()
-    for line in ("/approve 1", "/reject 1", "/release 2"):
-        world.say(line)
-        assert wait_for(lambda: "is not enabled for this channel" in world.texts()[-1]), line
+    before = len(world.texts())  # what the tick sent
+    for count, line in enumerate(("/approve 1", "/reject 1", "/release 2"), start=1):
+        world.say(line)  # a release replies from a job thread: wait for this line's own reply, not the last one's
+        assert wait_for(lambda: len(world.texts()) >= before + count), line
+        assert "is not enabled for this channel" in world.texts()[-1] and f"/{line[1:].split()[0]} is not enabled" in world.texts()[-1], line
         assert "(channels.messaging) turns it on" in world.texts()[-1]
     assert world.calls("approve") == world.calls("reject") == world.calls("release") == []
     world.say("/status")  # a typed command the bridge does not handle goes to say, where the operations layer decides

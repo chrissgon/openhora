@@ -168,7 +168,20 @@ def test_a_hung_browser_is_killed_with_its_whole_group_past_the_limit(tmp_path):
     assert time.time() - started < 15
     c.close()
     child = int(pidfile.read_text())
-    time.sleep(0.3)
+    # killed, but gone only once init has reaped it: poll for that, as a busy machine reaps a moment later
+    # (a zombie that is not reaped yet answers PermissionError on macOS, ProcessLookupError once it is gone)
+    def gone(signal_to, number):
+        try:
+            signal_to(number, 0)
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            return False
+        return False
+
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and not (gone(os.kill, child) and gone(os.killpg, c.proc.pid)):
+        time.sleep(0.05)
     with pytest.raises(ProcessLookupError):
         os.kill(child, 0)
     with pytest.raises(ProcessLookupError):
