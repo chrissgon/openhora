@@ -312,3 +312,182 @@ def test_the_childs_stop_is_by_group_id_and_never_by_a_name():
     code = "\n".join(line for line in source.splitlines() if not line.lstrip().startswith("#"))
     for banned in ("pkill", "killall", "pgrep", "os.kill(", "psutil"):
         assert banned not in code.split('"""', 2)[2], banned
+
+
+# MSG-13: several platforms from one service
+
+def records_of(world, count):
+    """Several children: each stand-in writes rec-<platform>.json; wait until `count` of them exist and read them."""
+    end = time.monotonic() + WAIT
+    found = {}
+    while time.monotonic() < end and len(found) < count:
+        for path in world.tmp.glob("rec-*.json"):
+            found[path.name] = json.loads(path.read_text())
+        time.sleep(0.02)
+    assert len(found) == count, found
+    return found
+
+
+@pytest.fixture
+def many(world):
+    """The stand-in with its record named by platform (rec-<platform>.json) and per-platform behaviour by BRIDGE_MODE_<platform>."""
+    script = '''
+import json, os, signal, subprocess, sys, time
+platform = sys.argv[sys.argv.index("--platform") + 1]
+mode = os.environ.get("BRIDGE_MODE_" + platform.upper().replace("-", "_"), "wait")
+stopped = []
+if mode == "wait":
+    signal.signal(signal.SIGTERM, lambda *a: stopped.append(1))
+if mode == "ignore":
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+rec = {"argv": sys.argv[1:], "pid": os.getpid(), "sid": os.getsid(0), "pgid": os.getpgrp(), "mode": mode}
+path = os.environ["BRIDGE_DIR"] + "/rec-" + platform + ".json"
+with open(path + ".tmp", "w") as f:
+    json.dump(rec, f)
+os.rename(path + ".tmp", path)
+if mode == "exit3":
+    print("error: not configured", file=sys.stderr)
+    sys.exit(3)
+if mode == "ignore":
+    while True:
+        time.sleep(1)
+while not stopped:
+    time.sleep(0.02)
+sys.exit(0)
+'''
+    world.script.write_text(script, encoding="utf-8")
+    world.environment = lambda **modes: {**os.environ, "BRIDGE_DIR": str(world.tmp), **{"BRIDGE_MODE_" + k.upper().replace("-", "_"): v for k, v in modes.items()}}
+    return world
+
+
+def serve_set(world, platforms, modes=None, **kwargs):
+    return run_serve(world.fake, world.projects, FakeServer, messaging=platforms, environment=world.environment(**(modes or {})),
+                     bridge_argv=world.program, **kwargs)
+
+
+def test_parse_takes_a_comma_list_or_a_repeated_option_in_order_and_one_platform_keeps_its_shape():
+    base = ["--project", "a"]
+    assert service.parse(base + ["--messaging", "telegram"])["messaging"] == "telegram"
+    assert service.parse(base + ["--messaging", "telegram,whatsapp-twilio"])["messaging"] == ["telegram", "whatsapp-twilio"]
+    assert service.parse(base + ["--messaging", "telegram", "--messaging", "whatsapp-twilio,signal"])["messaging"] == \
+        ["telegram", "whatsapp-twilio", "signal"]
+    assert service.parse(base + ["--messaging", ",".join(f"p{i}" for i in range(6))])["messaging"] == [f"p{i}" for i in range(6)]
+
+
+@pytest.mark.parametrize("argv", [
+    ["--messaging", "telegram,telegram"],
+    ["--messaging", "telegram", "--messaging", "telegram"],
+    ["--messaging", "telegram,"],
+    ["--messaging", ",telegram"],
+    ["--messaging", "telegram,,signal"],
+    ["--messaging", "telegram,Signal"],
+    ["--messaging", "telegram,../x"],
+    ["--messaging", "a,b,c,d,e,f,g"],
+    ["--messaging", "a", "--messaging", "b,c,d", "--messaging", "e,f,g"],
+])
+def test_a_duplicate_a_malformed_name_or_more_than_six_is_refused(argv):
+    with pytest.raises(service.Refused):
+        service.parse(["--project", "a"] + argv)
+
+
+def test_main_exits_2_for_those_refusals(tmp_path, capsys):
+    for value in ("telegram,telegram", "a,b,c,d,e,f,g", "telegram,Bad"):
+        assert service.main(["--project", str(tmp_path), "--messaging", value]) == 2
+    assert "error:" in capsys.readouterr().err
+
+
+def test_main_hands_the_list_over_when_several(monkeypatch, tmp_path):
+    seen = []
+    monkeypatch.setattr(service, "serve", lambda projects, port, poll_every, dispatch_every, token_file, **extra: seen.append(extra) or 0)
+    assert service.main(["--project", str(tmp_path), "--messaging", "telegram,whatsapp-twilio", "--notice-every", "9"]) == 0
+    assert seen[-1]["messaging"] == ["telegram", "whatsapp-twilio"] and seen[-1]["notice_every"] == 9
+
+
+@pytest.mark.parametrize("platforms", [["telegram", "whatsapp-twilio"], ["telegram", "whatsapp-twilio", "signal"]])
+def test_several_platforms_start_one_child_each_with_its_arguments_in_its_own_session(many, platforms):
+    run = serve_set(many, platforms, notice_every=7)
+    try:
+        found = records_of(many, len(platforms))
+        sessions = set()
+        for platform in platforms:
+            record = found[f"rec-{platform}.json"]
+            assert record["argv"] == ["--project", many.projects[0], "--project", many.projects[1], "--platform", platform,
+                                      "--stop-on-stdin-eof", "--notice-every", "7"]
+            assert record["sid"] == record["pid"] == record["pgid"] != os.getsid(0)
+            sessions.add(record["sid"])
+        assert len(sessions) == len(platforms), "each child has its own session"
+        assert json.loads(run.out.getvalue())["messaging"] == platforms
+        assert listing(run)["messaging"] == [{"platform": p, "state": "running", "exit_code": None} for p in platforms]
+        assert listing(run)["projects"]
+    finally:
+        assert run.finish() == 0
+    for record in found.values():
+        assert gone(record["pid"])
+
+
+def test_one_platform_in_a_list_of_one_keeps_the_object_shape(many):
+    run = serve_set(many, ["telegram"])
+    try:
+        records_of(many, 1)
+        assert listing(run)["messaging"] == {"platform": "telegram", "state": "running", "exit_code": None}
+        assert json.loads(run.out.getvalue())["messaging"] == ["telegram"]
+    finally:
+        assert run.finish() == 0
+
+
+def test_one_child_exiting_3_leaves_the_others_running_and_is_named(many):
+    run = serve_set(many, ["telegram", "whatsapp-twilio", "signal"], {"whatsapp-twilio": "exit3"})
+    try:
+        records_of(many, 3)
+        end = time.monotonic() + WAIT
+        while time.monotonic() < end and listing(run)["messaging"][1]["state"] != "stopped":
+            time.sleep(0.05)
+        states = listing(run)["messaging"]
+        assert states == [{"platform": "telegram", "state": "running", "exit_code": None},
+                          {"platform": "whatsapp-twilio", "state": "stopped", "exit_code": 3},
+                          {"platform": "signal", "state": "running", "exit_code": None}]
+        [line] = [line for line in run.logs if "exited" in line]
+        assert "(whatsapp-twilio)" in line and "code 3" in line
+        assert run.thread.is_alive()
+    finally:
+        assert run.finish() == 0
+
+
+def test_the_stop_ends_all_children_within_one_bound_and_kills_only_the_stubborn(many):
+    bound = 1.0
+    run = serve_set(many, ["telegram", "whatsapp-twilio", "signal"], {"telegram": "ignore", "signal": "ignore"}, bridge_stop_wait=bound)
+    found = records_of(many, 3)
+    began = time.monotonic()
+    assert run.finish() == 0
+    took = time.monotonic() - began
+    assert bound - 0.2 <= took < 2 * bound, f"one bound for both stubborn children together, not {bound} s each ({took:.2f} s)"
+    for record in found.values():
+        assert gone(record["pid"])
+    killed = [line for line in run.logs if "did not stop" in line]
+    assert len(killed) == 2 and any("(telegram)" in line for line in killed) and any("(signal)" in line for line in killed)
+    assert not any("(whatsapp-twilio)" in line for line in killed), "the child that stops on SIGTERM is not killed"
+
+
+def test_every_child_is_signalled_before_the_first_is_waited_for(many):
+    run = serve_set(many, ["telegram", "whatsapp-twilio"], {"telegram": "ignore"}, bridge_stop_wait=1.5)
+    found = records_of(many, 2)
+    world = many
+    world.fake.stop_release.clear()
+    run.stop.set()
+    assert world.fake.stop_entered.wait(WAIT)
+    assert gone(found["rec-whatsapp-twilio.json"]["pid"]), "the second child was stopped while runs were still ending, though the first ignores SIGTERM"
+    world.fake.stop_release.set()
+    run.thread.join(WAIT * 3)
+    assert run.code == 0 and gone(found["rec-telegram.json"]["pid"])
+
+
+def test_a_child_that_cannot_be_started_is_named_and_the_others_still_start(many):
+    run = run_serve(many.fake, many.projects, FakeServer, messaging=["telegram", "signal"], environment=many.environment(),
+                    bridge_argv=[str(many.tmp / "no-such-interpreter")])
+    try:
+        assert [s["state"] for s in listing(run)["messaging"]] == ["stopped", "stopped"]
+        assert [s["exit_code"] for s in listing(run)["messaging"]] == [-1, -1]
+        assert any("(telegram)" in line and "could not be started" in line for line in run.logs)
+        assert any("(signal)" in line and "could not be started" in line for line in run.logs)
+    finally:
+        assert run.finish() == 0

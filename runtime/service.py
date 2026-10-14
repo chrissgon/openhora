@@ -21,7 +21,7 @@ service runs on its own timer.
 Usage:
   uv run --with keyring==25.7.0 python3 runtime/service.py --project <dir> [--project <dir>]... [--port 8765]
                              [--poll-every 60] [--dispatch-every 30 | --no-dispatch] [--token-file <path>] [--lan [<ip>]]
-                             [--messaging <platform> [--notice-every 60]]
+                             [--messaging <platform>[,<platform>]... [--notice-every 60]]
   python3 runtime/service.py --help
 
 Start it with the `uv run --with keyring==25.7.0` form: the secret store is read through that library, and a service
@@ -57,10 +57,18 @@ serves the pages and the reads all the same.
                    service when you are done. Host and Origin are then the loopback's on the loopback socket and
                    that address's on the LAN socket, and GET /token-file answers the path to the loopback socket only (rules
                    2, 3 and "Before the token")
-  --messaging <platform>
+  --messaging <platform>[,<platform>]...
                    off by default: after the sockets are bound and the line below is printed, start the messaging bridge
                    (runtime/messaging.py, for the platform, with every --project given here) as a child process, so that
-                   one start brings up the page and the bridge. The child has its own session, its standard input is a pipe
+                   one start brings up the page and the bridge. Several platforms start several bridges from one start:
+                   give a comma list (--messaging telegram,whatsapp-twilio) or repeat the option; at most 6, no name twice
+                   (a duplicate or a malformed name is exit 2), one child per platform in the order given, each as described
+                   here; every app gets its own card, a decision resolved in one app is refused in the others, conversations
+                   are per app, and the bridges share the router's lock (writing in two apps at once may answer "busy" in
+                   one). Two official WhatsApp providers both listen on port 8787 by default: give them different ports in
+                   `setup`; a bridge whose provider cannot bind its port exits with a reason, reported for that child only.
+                   Each child's exit is reported with its platform and the others keep running; "messaging" in GET /projects
+                   is then a list of the objects below, and the start line's "messaging" a list of platforms. The child has its own session, its standard input is a pipe
                    this service holds open (the bridge stops when it closes: --stop-on-stdin-eof), its standard output goes
                    to /dev/null and its standard error is this service's; its environment is the one this service had at the
                    very start of main (a key written later into this process never reaches it). When it exits, at any time,
@@ -69,13 +77,13 @@ serves the pages and the reads all the same.
                    the page; nothing restarts it. GET /api/v1/projects then has a top-level "messaging":
                    {"platform", "state": "running" | "stopped", "exit_code"} (null without the option). When the service stops
                    it closes the child's input, sends SIGTERM to the child's process group, and after it ended its own runs
-                   waits up to 150 s before SIGKILL to that group. The service and the bridge each have their own model slot:
+                   waits up to 150 s (one bound for all the children together) before SIGKILL to the group of each one left. The service and the bridge each have their own model slot:
                    only the project's file locks keep two router runs apart (contracts/runtime.md, "The messaging bridge")
   --notice-every   seconds between two looks of the bridge at what waits for the person (passed to the bridge only; default
                    60, at least 5); it needs --messaging
 
 It prints one JSON line, {"url", "token_file", "projects": [{"id", "name"}]} ("lan_url" too, after "url", with --lan;
-"messaging": "<platform>" last, with --messaging), and never the token. After it, on
+"messaging": "<platform>" last, with --messaging; a list of platforms when several), and never the token. After it, on
 standard error, it says what it found at its start for each project (operation `service-check`: the secret store, the
 credential, docker, the eval image, whether it dispatches); when the secret store cannot be read, the first lines give
 the `uv run --with keyring==25.7.0` command that starts the service. The token is
@@ -197,6 +205,7 @@ DISPATCH_EVERY = 30.0                     # seconds between two rounds of `dispa
 QUEUE_EVERY = 5.0                         # seconds between two looks of `route_queued` at the lines and requests that wait for the end of a run
 MODEL_LOOPS = ("route_queued",)  # the loops that hold the project's model slot while they run (`dispatch` starts processes and holds none)
 PLATFORM = re.compile(r"[a-z0-9][a-z0-9-]*")  # --messaging names a lock and a ledger file: a lowercase word
+MAX_MESSAGING = 6  # platforms one service starts bridges for
 MIN_NOTICE_EVERY = 5
 PREFIX = "/api/v1"
 JSON_LIMIT = 1024 * 1024                  # bytes of a request body
@@ -541,7 +550,7 @@ class Service(shell_kit.Jobs):
         self.token_file = token_file   # the absolute path of the token file, or None (then GET /token-file is not a route)
         self.address = None      # (host, port) the socket is bound to, set by serve()
         self.lan_ip = lan_ip     # the private address of --lan (a second socket, the same port), or None: the default
-        self.bridge = None       # the child of --messaging (service_bridge.Child), or None: the default
+        self.bridge = None       # the child of --messaging (service_bridge.Child; service_bridge.Bridges for several), or None
 
     def messaging_state(self):
         """The service's own field of GET /projects: the bridge child's state, or None without --messaging."""
@@ -1009,8 +1018,11 @@ def serve(projects, port=8765, poll_every=60.0, dispatch_every=DISPATCH_EVERY, t
     service.address = tuple(server.server_address[:2])
     child = None
     if messaging:
-        child = service_bridge.Child(messaging, [p["path"] for p in found], environment if environment is not None else dict(os.environ),
-                                     log, notice_every=notice_every, program=bridge_argv, stop_wait=bridge_stop_wait)
+        platforms = [messaging] if isinstance(messaging, str) else list(messaging)
+        make = service_bridge.Child if len(platforms) == 1 else service_bridge.Bridges
+        child = make(platforms[0] if len(platforms) == 1 else platforms, [p["path"] for p in found],
+                     environment if environment is not None else dict(os.environ),
+                     log, notice_every=notice_every, program=bridge_argv, stop_wait=bridge_stop_wait)
         service.bridge = child
     for one in servers:
         one.RequestHandlerClass = make_handler(service)
@@ -1055,7 +1067,7 @@ def serve(projects, port=8765, poll_every=60.0, dispatch_every=DISPATCH_EVERY, t
             thread.start()
         print(json.dumps({**shown, "token_file": target,
                           "projects": [{"id": p["id"], "name": p["name"]} for p in found],
-                          **({"messaging": messaging} if messaging else {})}), file=out, flush=True)
+                          **({"messaging": messaging if isinstance(messaging, str) else list(messaging)} if messaging else {})}), file=out, flush=True)
         if child is not None:  # after the sockets are bound and the line is printed
             child.start()
         check_projects(ops_module, found, dispatch_every, log)
@@ -1148,14 +1160,15 @@ def _number(text: str, flag: str, low: float, high: float) -> float:
 
 def parse(argv) -> dict:
     """The command line as {"projects", "port", "poll_every", "dispatch_every", "token_file"}. dispatch_every is
-    DISPATCH_EVERY unless --dispatch-every gives another or --no-dispatch makes it None. The keys "messaging" (the platform)
+    DISPATCH_EVERY unless --dispatch-every gives another or --no-dispatch makes it None. The keys "messaging" (the platform, or
+    the list of platforms when several are given: a comma list or the option repeated, at most 6, no name twice)
     and "notice_every" are there only when --messaging (and --notice-every) is given, as "lan" is only when --lan is given
      ("auto" alone, else the private address that follows it, which is checked here). Refused (Refused) for an unknown flag,
     a flag without its value, a number out of range, no project, --no-dispatch with --dispatch-every, or an address --lan
     may not take. There is no other flag for an address."""
     out = {"projects": [], "port": 8765, "poll_every": 60.0, "dispatch_every": DISPATCH_EVERY, "token_file": None}
     flags = {"--project", "--port", "--poll-every", "--dispatch-every", "--token-file", "--messaging", "--notice-every"}
-    args, said_every, no_dispatch = list(argv), False, False
+    args, said_every, no_dispatch, platforms = list(argv), False, False, []
     while args:
         flag = args.pop(0)
         if flag == "--no-dispatch":
@@ -1170,9 +1183,11 @@ def parse(argv) -> dict:
             raise Refused(f"{flag} needs a value")
         value = args.pop(0)
         if flag == "--messaging":
-            if not PLATFORM.fullmatch(value):
-                raise Refused("--messaging takes a platform: a lowercase word of letters, digits and hyphens, such as telegram")
-            out["messaging"] = value
+            names = value.split(",")
+            if not all(PLATFORM.fullmatch(n) for n in names):
+                raise Refused("--messaging takes platforms: lowercase words of letters, digits and hyphens, such as telegram, "
+                              "or a comma list such as telegram,whatsapp-twilio")
+            platforms += names
         elif flag == "--notice-every":
             if not (value.isascii() and value.isdigit()) or int(value) < MIN_NOTICE_EVERY:
                 raise Refused(f"--notice-every is a whole number of seconds, {MIN_NOTICE_EVERY} or more")
@@ -1191,6 +1206,12 @@ def parse(argv) -> dict:
             out["token_file"] = value
     if not out["projects"]:
         raise Refused("give at least one --project <dir>")
+    if platforms:
+        if len(set(platforms)) != len(platforms):
+            raise Refused("--messaging names a platform twice: one bridge serves one platform")
+        if len(platforms) > MAX_MESSAGING:
+            raise Refused(f"--messaging takes at most {MAX_MESSAGING} platforms")
+        out["messaging"] = platforms[0] if len(platforms) == 1 else platforms
     if "notice_every" in out and "messaging" not in out:
         raise Refused("--notice-every is for the bridge: it needs --messaging <platform>")
     if no_dispatch:
