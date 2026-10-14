@@ -88,6 +88,9 @@ elif cmd == "run":
             kind = spec.get("kind", "text")
             if kind == "text":
                 open(path, "w").write(spec["text"])
+            elif kind == "bytes":
+                with open(path, "wb") as fh:
+                    fh.write(bytes.fromhex(spec["hex"]))
             elif kind == "link":
                 os.symlink(spec["target"], path)
             elif kind == "fifo":

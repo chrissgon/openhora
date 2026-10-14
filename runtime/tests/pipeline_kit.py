@@ -268,6 +268,16 @@ elif verb == "cover":
     with open(arg("--out"), "wb") as f:
         f.write(PNG)
     print(json.dumps({"ok": True, "path": arg("--out")}))
+elif verb == "still":
+    body = PNG + b"still at " + arg("--at-ms").encode()      # a 1x1 PNG with the offset after its end: one name per offset, like the real hash
+    digest = hashlib.sha256(body).hexdigest()
+    path = os.path.join(arg("--out"), "still-%%s.png" %% digest[:12])
+    if not os.path.exists(path):
+        with open(path, "wb") as f:
+            f.write(body)
+        os.chmod(path, 0o400)
+    print(json.dumps({"ok": True, "path": path, "name": os.path.basename(path), "sha256": digest, "at_ms": int(arg("--at-ms")), "width": 1080,
+                      "height": 1920, "bytes": len(body), "replayed": False, "image": {"id": "sha256:renderer", "tag": "fixture"}}))
 else:
     print(json.dumps({"ok": True}))
 '''

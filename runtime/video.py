@@ -10,7 +10,8 @@ file outside <data_dir>/media/<recording>/ is opened (D7: the store is outside e
 What a render is (providers/renderer/README.md): `render-<sha12>.mp4`, written once by the renderer, mode 0400, never
 rewritten, its name the first 12 hex characters of the sha256 of its bytes. A later render of the same recording is another
 file with another name. The renderer's result for the recording (its `render` verb's JSON: `sha256`, `bytes`, `output`,
-`cover`) is kept beside it as `render.json`, and the cover frame as `cover-<sha12>.png`; the media pipeline (a later package)
+`cover`) is kept beside it as `render.json`, and the cover frame as `cover-<sha12>.png`; the still frame of a recording (the face-box picker's picture) is `still-<sha12>.png`, read the same way
+(`open_still`); the media pipeline (a later package)
 writes both. This module reads them and trusts neither: the file's bytes are hashed through the open descriptor.
 
 Reading a file, `open_render` / `open_cover`:
@@ -53,6 +54,7 @@ RENDER_RESULT = "render.json"          # the renderer's `render` result for the 
 RESULT_MAX_BYTES = 256 * 1024
 VIDEO_MAX_BYTES = media.MEDIA_MAX_BYTES  # a render is never larger than a recording may be
 COVER_MAX_BYTES = 8 * 1024 * 1024
+STILL_MAX_BYTES = 8 * 1024 * 1024        # a still frame of a recording (the renderer's `still`), the same limit as a cover
 HASH_CHUNK = 1024 * 1024
 SHA256 = re.compile(r"[0-9a-f]{64}")
 RENDER_NAME = re.compile(r"render-([0-9a-f]{12})\.mp4")
@@ -92,6 +94,10 @@ def render_name(sha256: str) -> str:
 
 def cover_name(sha256: str) -> str:
     return f"cover-{check_sha(sha256)[:12]}.png"
+
+
+def still_name(sha256: str) -> str:
+    return f"still-{check_sha(sha256)[:12]}.png"
 
 
 def download_name(platform: str, sha256: str) -> str:
@@ -227,6 +233,24 @@ def open_cover(data_dir: str, recording: str, render_sha256: str, expected_sha25
         if expected_sha256 is not None and got != expected_sha256:
             raise VideoError("the bytes of the cover are not the ones the renderer reported", "refused")
         return Opened(f, info.st_size, got, name)
+    except BaseException:
+        f.close()
+        raise
+
+
+def open_still(data_dir: str, recording: str, sha256: str) -> Opened:
+    """The still frame of the recording whose own bytes hash to `sha256`: `still-<sha12>.png`, a PNG, opened as a plain file inside the
+    recording's folder (no link, one name, at most STILL_MAX_BYTES). The sha256 is the PNG's, as the renderer reported it and the pipeline
+    recorded it: the open descriptor is hashed and must equal it, and the bytes are read from that same descriptor. VideoError: not_found,
+    usage (a malformed id or hash), too_large, type (not a PNG), refused (a link, another kind of file, or bytes whose hash differs)."""
+    name = still_name(sha256)
+    f, info = _open_in(data_dir, recording, name, STILL_MAX_BYTES, "still")
+    try:
+        if media.sniff(f.read(media.SNIFF_BYTES)) != ("image", "png"):
+            raise VideoError("this file is not a PNG image", "type")
+        f.seek(0)
+        _verified(f, info, sha256, False)
+        return Opened(f, info.st_size, sha256, name)
     except BaseException:
         f.close()
         raise

@@ -276,6 +276,10 @@ OPERATIONS = (
      "args": ({"name": "recording", "kind": "str", "required": True}, {"name": "sha256", "kind": "str", "required": True}),
      "channels": ("page",), "model": False,
      "help": "the cover frame (a PNG) of one rendered video, chosen by its recording and the video's hash; the loopback socket only"},
+    {"name": "media-still", "call": "media_still",
+     "args": ({"name": "recording", "kind": "str", "required": True}, {"name": "sha256", "kind": "str", "required": True}),
+     "channels": ("page",), "model": False,
+     "help": "the still frame (a PNG) of a recording that the pipeline made for the face-box picker, chosen by the recording and the PNG's own hash (never a path); the loopback socket only"},
     {"name": "video-download", "call": "video_download",
      "args": ({"name": "recording", "kind": "str", "required": True}, {"name": "platform", "kind": "str", "flag": "post-platform"}),
      "channels": ("page",), "model": False,
@@ -300,7 +304,7 @@ OPERATIONS = (
     {"name": "prepare-again", "call": "prepare_again",
      "args": ({"name": "recording", "kind": "str", "required": True},
               {"name": "step", "kind": "choice", "required": True,
-               "choices": ("transcribe", "analyse", "retakes", "align-proposal", "review", "remap", "base", "align", "check", "render", "cover")}),
+               "choices": ("transcribe", "analyse", "still", "retakes", "align-proposal", "review", "remap", "base", "align", "check", "render", "cover")}),
      "channels": ("terminal", "page"), "model": False, "job": True, "exit_unless": ("ok", True),
      "help": "start a recording's pipeline over from a named step and run it: review opens the captions again as you left them; align-proposal or before makes the words new; later steps keep your decisions"},
 )
@@ -320,7 +324,7 @@ CHAT_OWN = (
 GROUPS = {
     "read": {"operations": ("status", "progress", "pending", "task", "agents", "costs", "skills", "artifacts", "artifact",
                             "flows", "conversation", "connections", "version", "config", "commands", "artifact-raw", "media-list", "video-card", "video-raw",
-                            "video-cover", "video-download"),
+                            "video-cover", "media-still", "video-download"),
              "kind": None},
     "talk": {"operations": ("say",), "kind": None},
     "answer": {"operations": ("answer",), "kind": None},

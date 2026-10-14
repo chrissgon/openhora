@@ -620,6 +620,7 @@ RESULT_SCHEMAS = {
                  scores=mp(N), reordered=lst(I, 100)),
     "check": dct(ok=B, mentions=lst(S, 500), out_seconds=N, words=I, overlays=I, layouts=I),
     "cover": dct(ok=B, offset_ms=I, sha256=S),
+    "still": dct(ok=B, at_ms=I, sha256=S, width=I, height=I, bytes=I),
     "verify": dct(ok=B, sha256=S, output=OUTPUT),
     "render": dct(ok=B, dry_run=B, out_seconds=N, out_frames=I, frame_jobs=I, jobs=I, time_limit_seconds=I, layers=lst(S, 4),
                   beats_drawn=lst(dct(id=S, preset=S, start_frame=I, end_frame=I), 100), beats_dropped=lst(S, 100), unmatched_beats=lst(I, 100),

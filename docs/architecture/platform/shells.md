@@ -385,6 +385,7 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | GET | `/projects/{p}/video/{rid}` | `video-card` | `recording` from `{rid}` | `platform` | - | - |
 | GET | `/projects/{p}/video/{rid}/render/{sha}` | `video-raw` | `recording` from `{rid}`, `sha256` from `{sha}` | none | - | streams a file in ranges, loopback socket only |
 | GET | `/projects/{p}/video/{rid}/cover/{sha}` | `video-cover` | `recording` from `{rid}`, `sha256` from `{sha}` | none | - | streams a file in ranges, loopback socket only |
+| GET | `/projects/{p}/media/{rid}/still/{sha}` | `media-still` | `recording` from `{rid}`, `sha256` from `{sha}` | none | - | streams a file in ranges, loopback socket only |
 | GET | `/projects/{p}/video/{rid}/download/{platform}` | `video-download` | `recording` from `{rid}`, `platform` from `{platform}` | none | - | streams a file in ranges, loopback socket only |
 | POST | `/projects/{p}/video/{rid}/approve` | `video-approve` | `recording` from `{rid}` | every other argument | - | loopback socket only |
 | POST | `/projects/{p}/video/{rid}/send-back` | `video-send-back` | `recording` from `{rid}` | every other argument | - | loopback socket only |

@@ -365,6 +365,7 @@ ROUTES = (
     _route("GET", "/projects/{p}/video/{rid}", "video-card", bind={"recording": "rid"}, take=("platform",)),
     _route("GET", "/projects/{p}/video/{rid}/render/{sha}", "video-raw", bind={"recording": "rid", "sha256": "sha"}, take=(), file=True, loopback=True),
     _route("GET", "/projects/{p}/video/{rid}/cover/{sha}", "video-cover", bind={"recording": "rid", "sha256": "sha"}, take=(), file=True, loopback=True),
+    _route("GET", "/projects/{p}/media/{rid}/still/{sha}", "media-still", bind={"recording": "rid", "sha256": "sha"}, take=(), file=True, loopback=True),
     _route("GET", "/projects/{p}/video/{rid}/download/{platform}", "video-download", bind={"recording": "rid", "platform": "platform"}, take=(), file=True, loopback=True),
     _route("POST", "/projects/{p}/video/{rid}/approve", "video-approve", bind={"recording": "rid"}, loopback=True),
     _route("POST", "/projects/{p}/video/{rid}/send-back", "video-send-back", bind={"recording": "rid"}, loopback=True),

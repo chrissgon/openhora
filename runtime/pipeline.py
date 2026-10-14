@@ -10,6 +10,8 @@ or a check. The steps, in order, each result recorded and each resumable:
 
   transcribe       transcriber:speech transcribe (`--timestamps dtw`, recorded)       -> transcript.json
   analyse          renderer analyse (ffprobe, silencedetect)                          -> analysis.json
+  still            renderer still: one frame of the recording at about 1.5 s, framed  -> still-<sha12>.png
+                   as the render frames it, for the face-box picker of the review. A SIDE step (see below)
   retakes          renderer base, no retake confirmed: the retakes found by rule,    -> proposal.edl.json
                    the words the renderer re-timed or left out (a proposal)
   align-proposal   renderer align on the transcript: each beat of the script with    -> proposal.beats.json
@@ -24,6 +26,12 @@ or a check. The steps, in order, each result recorded and each resumable:
   render           renderer render, then the render is verified in a fresh container     -> render-<sha12>.mp4
   cover            renderer cover                                                        -> cover-<sha12>.png, render.json
   approval         STOP: the task waits for the approval of the rendered file (P7, P8)
+
+The `still` step is a side step: it sits after `analyse` in the order the steps run, but it is not one of the steps the page lists
+(`summary`, `next_step`, the review's readiness), and its failure never fails the pipeline: it is recorded as `skipped` with a closed
+code, the task is not moved, and the next `media-pipeline` or `prepare-again` call tries it again. It is made only while the review is
+not answered (the picture is for placing the face box), so a recording that was already past `analyse` before this step existed, even
+one waiting at its review, gets its still on its next call without any other step running again.
 
 Deferred to later packages, on purpose: the payload builder, the publisher's and the scheduler's dry runs, and the effect.
 
@@ -60,8 +68,10 @@ import captions as cap
 import media
 import theme
 
-STEPS = ("transcribe", "analyse", "retakes", "align-proposal", "review", "remap", "base", "align", "check", "render", "cover",
-         "approval")
+ORDER = ("transcribe", "analyse", "still", "retakes", "align-proposal", "review", "remap", "base", "align", "check", "render", "cover",
+         "approval")                     # the order the steps run in
+SIDE_STEPS = ("still",)                  # run, recorded and prepared again like the others, but never listed, never failing the pipeline
+STEPS = tuple(n for n in ORDER if n not in SIDE_STEPS)       # the steps of the pipeline the page lists and the review waits on
 STOPS = ("review", "approval")
 STATE_FILE = "pipeline.json"
 STATE_VERSION = 1
@@ -69,13 +79,18 @@ TRANSCRIPT, ANALYSIS = "transcript.json", "analysis.json"
 EDITED, REVIEW = "transcript.edited.json", "review.json"
 PROPOSAL_EDL, PROPOSAL_BEATS = "proposal.edl.json", "proposal.beats.json"
 EDL, BEATS = "edl.json", "beats.json"
+STILL_FILE = re.compile(r"still-([0-9a-f]{12})\.png")
+STILL_DEFAULT_MS = 1500                  # about a second and a half in: the speaker is in place and looking at the camera
+STILL_LONG_SILENCE = 2.0                 # a leading silence this long (seconds) means the speaker is not yet talking: the still is taken
+STILL_BEFORE_SPEECH_MS = 300             # this long before the first speech, when the silence is long
+STILL_EDGE_MS = 100                      # and never nearer the end of the recording than this
 RENDER_RESULT = "render.json"             # the renderer's result for the recording, read by the page (runtime/video.py)
 TIMESTAMPS = "dtw"                       # check C3: far fewer words misplaced into silences than the word mode
 JSON_LIMIT = 5 * 1024 * 1024
 POST_LIMIT = 2 * 1024 * 1024
 # Seconds a provider verb may run before the call is given up; the providers have timeouts of their own inside.
 TIMEOUTS = {"transcribe": 1800 + 120, "analyse": 900 + 60, "retakes": 300, "align-proposal": 300, "base": 300, "align": 300,
-            "check": 300, "render": 2400 + 300, "cover": 300}
+            "check": 300, "render": 2400 + 300, "cover": 300, "still": 300}
 # The files a step makes, removed when the step is prepared again. remap, check and render make none that goes: the edited
 # transcript holds the person's work, and a render is content-addressed and kept until retention.
 STEP_FILES = {"transcribe": (TRANSCRIPT,), "analyse": (ANALYSIS,), "retakes": (PROPOSAL_EDL,), "align-proposal": (PROPOSAL_BEATS,),
@@ -343,6 +358,10 @@ def _remove_outputs(ctx: Context, name: str, state: dict) -> None:
         remove(ctx.path(file))
     if name == "render":
         remove(ctx.path(RENDER_RESULT))
+    if name == "still":
+        made = (state["steps"].get("still") or {}).get("result") or {}
+        if isinstance(made.get("name"), str) and STILL_FILE.fullmatch(made["name"]):
+            remove(ctx.path(made["name"]))
     if name == "cover":
         made = (state["steps"].get("cover") or {}).get("result") or {}
         if isinstance(made.get("name"), str) and re.fullmatch(r"cover-[0-9a-f]{12}\.png", made["name"]):
@@ -373,6 +392,48 @@ def _analyse(ctx: Context, state: dict) -> dict:
         raise StepFailure("recording_changed", "raw")
     return {"duration": done.get("duration"), "silences": done.get("silences"), "has_audio": done.get("has_audio"),
             "sha256": done.get("sha256")}
+
+
+def still_offset(analysis: dict) -> int:
+    """Where in the recording the still is taken, in milliseconds: STILL_DEFAULT_MS, but just before the first speech when the
+    analysis shows the recording opens with a long silence (the speaker is not talking yet: a moment before the first word is when
+    they are in place), and always inside the recording, STILL_EDGE_MS from its end. Pure; every field is checked, and a field of
+    the wrong shape is a ValueError (the step's failure `provider_output_invalid`)."""
+    duration = analysis["facts"]["duration"]
+    if type(duration) not in (int, float) or not 0 < duration < 10 ** 6:
+        raise ValueError("duration")
+    at = STILL_DEFAULT_MS
+    for silence in analysis.get("silences") or []:
+        start, end = silence["start"], silence["end"]
+        if type(start) not in (int, float) or type(end) not in (int, float):
+            raise ValueError("silences")
+        if start <= 0.1:                          # the one that opens the recording
+            if end - start >= STILL_LONG_SILENCE - 1e-6 and end < duration:
+                at = int(end * 1000) - STILL_BEFORE_SPEECH_MS
+            break
+    return max(0, min(at, int(duration * 1000) - STILL_EDGE_MS))
+
+
+def _still(ctx: Context, state: dict) -> dict:
+    raw = _raw(ctx)
+    at = still_offset(read_json(ctx.path(ANALYSIS), ANALYSIS))
+    done = ctx.call("renderer:video", "still", ["--in", raw, "--at-ms", str(at), "--out", ctx.path("")], TIMEOUTS["still"])
+    name, digest = os.path.basename(str(done.get("name") or "")), done.get("sha256")
+    ints = [done.get(k) for k in ("at_ms", "width", "height", "bytes")]
+    if not STILL_FILE.fullmatch(name) or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest) or name[6:18] != digest[:12] \
+            or any(type(v) is not int or v < 0 for v in ints) or not exists(ctx.path(name)):
+        raise StepFailure("provider_output_invalid", "still")
+    return {"name": name, "sha256": digest, "at_ms": ints[0], "width": ints[1], "height": ints[2], "bytes": ints[3]}
+
+
+def still_of(state: dict):
+    """The still the pipeline made, as the page and `media-list` show it: {"sha256", "name", "at_ms"}, or None (not made yet, or skipped)."""
+    step = (state.get("steps") or {}).get("still") or {}
+    made = step.get("result") or {}
+    if step.get("status") != "done" or not isinstance(made.get("name"), str) or not STILL_FILE.fullmatch(made["name"]) \
+            or not isinstance(made.get("sha256"), str) or type(made.get("at_ms")) is not int:
+        return None
+    return {"sha256": made["sha256"], "name": made["name"], "at_ms": made["at_ms"]}
 
 
 def _face_args(review) -> list:
@@ -590,7 +651,7 @@ def _cover(ctx: Context, state: dict) -> dict:
     return result
 
 
-EXECUTORS = {"transcribe": _transcribe, "analyse": _analyse, "retakes": _retakes, "align-proposal": _align_proposal, "remap": _remap,
+EXECUTORS = {"transcribe": _transcribe, "analyse": _analyse, "still": _still, "retakes": _retakes, "align-proposal": _align_proposal, "remap": _remap,
              "base": _base, "align": _align, "check": _check, "render": _render, "cover": _cover}
 
 
@@ -652,17 +713,57 @@ def failure_record(name: str, failure: StepFailure, at: str) -> dict:
             "next": failure.next, "at": at}
 
 
+def _execute(ctx: Context, state: dict, name: str) -> dict:
+    """One step's executor; whatever goes wrong inside it is a StepFailure with a closed code."""
+    try:
+        return EXECUTORS[name](ctx, state)
+    except (cap.CaptionError, media.MediaError) as e:
+        raise StepFailure(getattr(e, "code", "failed"), getattr(e, "field", "")) from None
+    except OSError:   # a full disk, a folder that cannot be written: a closed word, never the system's message
+        raise StepFailure("io_error", "") from None
+    except (KeyError, TypeError, AttributeError, ValueError, IndexError, RecursionError):   # a provider's JSON that has not the shape its verb promises
+        raise StepFailure("provider_output_invalid", name) from None
+
+
+def side_step(ctx: Context, state: dict, name: str) -> None:
+    """Run a side step (the still) when it is due: the recording is analysed, the review is not answered, and the step is not done.
+    A failure is recorded as `skipped` with its closed code and field and nothing else moves: not the task, not the decision that
+    may be open, not the pipeline's failure. Cancelled passes through."""
+    if step_status(state, name) == "done" or step_status(state, "analyse") != "done" or step_status(state, "review") == "done":
+        return
+    ctx.alive()
+    try:
+        outcome = _execute(ctx, state, name)
+    except StepFailure as failure:
+        state["steps"][name] = {"status": "skipped", "at": ctx.now(), "result": {"code": failure.code, "field": failure.field if FIELD.fullmatch(failure.field) else ""}}
+    else:
+        state["steps"][name] = {"status": "done", "at": ctx.now(), "result": outcome}
+    try:
+        save_state(ctx, state)
+    except OSError:   # the recording's folder is gone: the main steps say so
+        pass
+
+
 def run(ctx: Context, state: dict) -> dict:
     """Run the steps from the first that is not done, until the review, the approval or a failure. The code task is
     `running` while this runs. Returns {"ok", "stopped" or "failed"/"code"..., "steps"}; never raises for a step."""
     waiting = next_step(state)
     if waiting in STOPS and step_status(state, waiting) == "waiting" and state["decisions"].get(waiting):
-        # already stopped there with its decision open: nothing moves, nothing is opened a second time
+        # already stopped there with its decision open: nothing moves, nothing is opened a second time. A side step that is due (a
+        # recording that was at its review before the step existed) is made now, and the task is left as it is.
+        try:
+            for name in SIDE_STEPS:
+                side_step(ctx, state, name)
+        except Cancelled:
+            return {"ok": False, "failed": None, "code": "cancelled", "field": "", "next": "", "steps": summary(state)}
         return {"ok": True, "stopped": waiting, "pending": state["decisions"][waiting], "steps": summary(state)}
     result, name = {"ok": True}, None
     try:
         ctx.move("running", None, None, None)
-        for name in STEPS:
+        for name in ORDER:
+            if name in SIDE_STEPS:
+                side_step(ctx, state, name)
+                continue
             if step_status(state, name) == "done":
                 continue
             ctx.alive()
@@ -672,14 +773,7 @@ def run(ctx: Context, state: dict) -> dict:
             if name == "approval":
                 result = _stop_at(ctx, state, name, approval_decision)
                 break
-            try:
-                outcome = EXECUTORS[name](ctx, state)
-            except (cap.CaptionError, media.MediaError) as e:
-                raise StepFailure(getattr(e, "code", "failed"), getattr(e, "field", "")) from None
-            except OSError:   # a full disk, a folder that cannot be written: a closed word, never the system's message
-                raise StepFailure("io_error", "") from None
-            except (KeyError, TypeError, AttributeError, ValueError, IndexError, RecursionError):   # a provider's JSON that has not the shape its verb promises
-                raise StepFailure("provider_output_invalid", name) from None
+            outcome = _execute(ctx, state, name)
             state["steps"][name] = {"status": "done", "at": ctx.now(), "result": outcome}
             state["failure"] = None
             save_state(ctx, state)
@@ -715,16 +809,18 @@ def prepare_again(ctx: Context, state: dict, step: str) -> dict:
     """Start the pipeline over from `step`: that step and every later one become pending and the files they made are removed.
     From the review or before, the person's decision on a step is kept, so the captions open again as they were left;
     from `align-proposal` or before, the words are new, and the review starts over. A render stays (it is named by its
-    bytes); retention removes it. Returns the steps that were reset."""
-    if step not in STEPS or step == "approval":
+    bytes); retention removes it. A side step (the still) is prepared alone: nothing after it is reset. Returns the steps that
+    were reset."""
+    if step not in ORDER or step == "approval":
         raise StepFailure("unknown_step", "step")
-    start = STEPS.index(step)
-    reset = [n for n in STEPS[start:] if n in state["steps"]]
-    for name in STEPS[start:]:
+    start = ORDER.index(step)
+    names = (step,) if step in SIDE_STEPS else ORDER[start:]
+    reset = [n for n in names if n in state["steps"]]
+    for name in names:
         _remove_outputs(ctx, name, state)
         state["steps"].pop(name, None)
         state["decisions"].pop(name, None)
-    if start <= STEPS.index(REVIEW_FILES_RESET_UP_TO):
+    if step not in SIDE_STEPS and start <= ORDER.index(REVIEW_FILES_RESET_UP_TO):
         remove(ctx.path(EDITED))
         remove(ctx.path(REVIEW))
     state["failure"] = None

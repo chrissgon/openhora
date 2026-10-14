@@ -443,7 +443,7 @@ def captions_read(project: str, recording: str) -> dict:
     record = _record(ctx, rid)
     shown = cap.view(docs["edited"], docs["review"], docs["edl"], docs["beats"], _assets(pc, record, docs["beats"]))
     return {"recording": rid, "platform": state["platform"], "task": state["task"], "steps": pipeline.summary(state),
-            "editable": pipeline.step_status(state, "review") == "waiting", "language": docs["edited"].get("language"),
+            "still": pipeline.still_of(state), "editable": pipeline.step_status(state, "review") == "waiting", "language": docs["edited"].get("language"),
             "failure": state.get("failure"), "sent_back": _sent_back(_record(ctx, rid), state), **shown}
 
 
@@ -558,7 +558,7 @@ def prepare_again(project: str, recording: str, step: str) -> dict:
         _refuse_cancelled(ctx, state)
         pc = _make_context(ctx, rid, state)
         marker = _resume_marker(ctx, rid, state)
-        if marker is not None and pipeline.STEPS.index(step) > pipeline.STEPS.index("review"):
+        if marker is not None and pipeline.ORDER.index(step) > pipeline.ORDER.index("review"):
             step = "review"      # a video sent back from the page reopens the captions, whatever later step was asked
         try:
             reset = pipeline.prepare_again(pc, state, step)
@@ -594,7 +594,7 @@ def pipeline_summary(data_dir: str, rid: str, ctx: dict | None = None):
     if state is None:
         return None
     shown = {"task": state["task"], "request": state["request"], "platform": state["platform"], "steps": pipeline.summary(state),
-             "next": pipeline.next_step(state), "failure": state.get("failure")}
+             "next": pipeline.next_step(state), "failure": state.get("failure"), "still": pipeline.still_of(state)}
     if ctx is not None:
         shown["active"] = run_active(ctx, state["task"])
     return shown
