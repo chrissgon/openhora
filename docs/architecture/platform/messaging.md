@@ -424,6 +424,8 @@ stateDiagram-v2
     Paused --> Starting: after 300 s, the start is not charged
     Ready --> Closing: the bridge closes the session
     NotReady --> Closing: the bridge closes the session
+    Paused --> Closing: the bridge closes the session
+    Backoff --> Closing: the bridge closes the session
     Closing --> [*]: stdin closed, 10 s, SIGTERM, 5 s, SIGKILL
     BridgeStops --> [*]: the bridge raises Fatal, exit 3
 ```
@@ -682,7 +684,7 @@ Principle 11 of [AGENTS.md](../../../AGENTS.md): what must never happen is preve
 |---|---|---|
 | 37 | A provider builds errors from the class of an exception, the status and the service's description, never a body or a token; `scripts/redact.py` masks credential formats in the reason of a stopped listen provider and in the paused line; `whatsapp_meta.redact` masks secrets, long tokens and runs of eight digits; Discord masks the exact token and token shapes; Telegram removes anything shaped like a token | `runtime/messaging_provider.py:403,420`, `providers/messenger/whatsapp_meta.py:95-107`, `providers/messenger/discord.py:138`, `providers/messenger/telegram.py:105` |
 | 38 | No credential in a run: the bridge never reads or passes a credential (`Messenger._call` passes none); a model run is the container's, which holds no credential | `runtime/messaging_provider.py:82-87` |
-| 39 | The service's child gets the environment snapshot taken before any thread or run, so a floor-model key written into the service's own environment never reaches it | `runtime/service.py:1228,1241`, `runtime/service_bridge.py:84-101` |
+| 39 | The service's child gets the environment snapshot taken before any thread or run, so a floor-model key written into the service's own environment never reaches it | `runtime/service.py:1228,1241`, `runtime/service_bridge.py:86-101` (`Child.__init__`, `start`) |
 | 40 | The bridge's log carries no sender id, no text and no result; the start line names the platform and the projects' ids and names, never a sender or a token | `runtime/messaging.py:147`, `runtime/messaging_bridge.py:61,279` |
 
 **The service's child.**
@@ -847,8 +849,9 @@ How to add a platform: add one file, `providers/messenger/<impl>.py`, that decla
 ## Changes
 
 - 2026-10-11: the bridge, the channel `messaging` and Telegram (MSG-1, #328); the MCP route for a gateway documented outside the core (MSG-2, #326).
-- 2026-10-12: `service.py --messaging`, the state folder, the lock, the ledger in the state folder and a bridge that skips a project until it is ready (MSG-3a, #340); the channel policy on the server for the page and the MCP mode (MSG-3b, #346); the page draws only what its policy allows (MSG-3c, #351); Telegram renders a message's Markdown, escaped first (MSG-4, #354); the listen mode, a messenger that stays connected (MSG-5, #359).
-- 2026-10-13: Discord with buttons (MSG-6, #360); WhatsApp through a Go program built from source (MSG-7, #364); the official WhatsApp Cloud API (MSG-8, #365); WhatsApp through Twilio (MSG-9, #367); the WhatsApp reminder template is optional (MSG-10, #371); any HTTPS tunnel for the official providers (MSG-11, #372).
-- 2026-10-13: first version of this page, written from the code at the head of the integration branch after MSG-1 to MSG-11 and the supervisor's record of decisions M-1 to M-37 (MSG-12, #373).
-- 2026-10-14: several bridges from one service, `--messaging a,b` (MSG-13, #374; decision M-38).
+- 2026-10-12: `service.py --messaging`, the state folder, the lock, the ledger in the state folder and a bridge that skips a project until it is ready (MSG-3a, #340); the channel policy on the server for the page and the MCP mode (MSG-3b, #346); the page draws only what its policy allows (MSG-3c, #351); Telegram renders a message's Markdown, escaped first (MSG-4, #354).
+- 2026-10-13: the listen mode, a messenger that stays connected (MSG-5, #359); Discord with buttons (MSG-6, #360); WhatsApp through a Go program built from source (MSG-7, #364); the official WhatsApp Cloud API (MSG-8, #365); WhatsApp through Twilio (MSG-9, #367); the WhatsApp reminder template is optional (MSG-10, #371); any HTTPS tunnel for the official providers (MSG-11, #372).
+- 2026-10-14: first version of this page, written from the code at the head of the integration branch after MSG-1 to MSG-11 and the supervisor's record of decisions M-1 to M-37 (MSG-12, #373); several bridges from one service, `--messaging a,b` (MSG-13, #374; decision M-38).
 - 2026-10-14: the page in the eight-section shape of the platform map, with the objects, their properties and relations, a sequence, a state machine and a class diagram, numbered rules with file and line, the generated tables `channel-groups`, `messenger-capabilities` and `messenger-secrets`, and the layer pages brought up to date (MSG-14, #390; decision M-39).
+
+Dates are the UTC merge date of each pull request (`gh pr view <n> --json mergedAt`); MSG-14 is dated the day it was written.
