@@ -142,6 +142,12 @@ Operations of the media store (runtime/ops_media.py; the page's streaming intake
   media_list(project[, recording])   the store's recordings, their facts and retention dates, and its use of its limits
   media_purge(project[, recording])  the retention (D7) now, in code; a dispatcher round runs it too (media_purge_round)
 
+Operations of the rendered video (runtime/ops_video.py, runtime/video.py; the page's reads of bytes are routes of the local service):
+  video_card(project, recording[, platform])   the render, cover, caption, approval and send-back of one post of a recording
+  video_approve(project, recording, video_sha256, caption_sha256[, platform])   the person's approval of the exact file and caption
+  video_send_back(project, recording, comment[, platform])   the post returns to the review step, its approval removed
+  video_raw, video_cover, video_download   a file opened and verified for the service to stream (the loopback socket only)
+
 Code comes back as a change set (runtime/changeset.py, limits L9 and L11): a run of a code task (its skill is of a
 code area, code_task) whose copy holds versioned files starts only when the project's tracked files have no
 uncommitted change, from the project's files plus the newest unblocked change set of its request; what it did to
@@ -2691,6 +2697,9 @@ from ops_reads import ARTIFACT_MAX_BYTES  # noqa: E402,F401
 # The media store (runtime/ops_media.py, runtime/media.py): the operations media-in, media-list and media-purge, the local
 # service's streaming intake and the dispatcher round's retention.
 from ops_media import media_in, media_list, media_purge, media_receive, purge_round as media_purge_round  # noqa: E402,F401
+# The rendered video (runtime/ops_video.py, runtime/video.py): the card, the approval of the exact file and caption, the send-back, and the
+# three reads of bytes the local service streams.
+from ops_video import video_approve, video_card, video_cover, video_download, video_raw, video_send_back  # noqa: E402,F401
 
 
 if __name__ == "__main__":

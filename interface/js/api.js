@@ -82,7 +82,7 @@ async function send(method, path, options = {}) {
     const text = query.toString();
     if (text) url += "?" + text;
   }
-  const headers = { Accept: options.raw ? "image/*" : "application/json" };
+  const headers = { Accept: options.raw ? (options.accept || "image/*") : "application/json" };
   if (!open) headers.Authorization = `Bearer ${token}`;
   const init = {
     method, headers, credentials: "omit", cache: "no-store", redirect: "error", mode: "same-origin",
@@ -109,11 +109,14 @@ async function send(method, path, options = {}) {
     if (options.blob) throw new ApiError(0, "network", "The upload was refused or the connection closed before the service answered.");
     throw new ApiError(0, "network", "The service could not be reached. Is it still running?");
   }
-  // A route marked `raw` answers bytes: read them as a Blob on success; a refusal is JSON as everywhere else.
+  // A route marked `raw` answers bytes: read them as a Blob on success; a refusal is JSON as everywhere else. With `progress` (a video) the body is read in
+  // pieces so that the page can say how much has come.
   if (options.raw && response.ok) {
     try {
+      if (typeof options.onBytes === "function" && response.body && typeof response.body.getReader === "function") return await readWithProgress(response, options.onBytes);
       return await response.blob();
     } catch (e) {
+      if (e && e.name === "AbortError") throw e;
       throw new ApiError(response.status, "internal", "The service answered with bytes this page could not read.");
     }
   }
@@ -140,6 +143,22 @@ async function send(method, path, options = {}) {
   }
   if (data === null || typeof data !== "object") throw new ApiError(response.status, "internal", "The service answered with something that is not JSON.");
   return data;
+}
+
+/** The body of a response read piece by piece into a Blob of its own type; `onBytes(received, total)` is told as the pieces arrive (total is 0 when the length is not known). */
+async function readWithProgress(response, onBytes) {
+  const total = Number(response.headers.get("Content-Length")) || 0;
+  const reader = response.body.getReader();
+  const parts = [];
+  let received = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    parts.push(value);
+    received += value.length;
+    onBytes(received, total);
+  }
+  return new Blob(parts, { type: response.headers.get("Content-Type") || "application/octet-stream" });
 }
 
 /**
@@ -264,6 +283,46 @@ export function uploadMedia(p, file, { recording, slot, onProgress, signal } = {
 /** GET /projects/{p}/media: {recordings: [...], usage, retention, limits}; with `recording`, that one. */
 export function mediaList(p, { recording, signal } = {}) {
   return send("GET", `/projects/${enc(p)}/media`, { query: { recording }, signal });
+}
+
+/**
+ * GET /projects/{p}/video/{recording}?platform=: what the page shows for the rendered video of a post: {recording, status, platform, platforms, render: {sha256, bytes,
+ * duration, width, height, ...}, cover, caption: {text, sha256, chars, post_file}, approval: {state: "approved" | "stale", reasons, video_sha256, caption_sha256, approved_at}
+ * or null, sent_back, can_download, download_name, problems}.
+ */
+export function videoCard(p, recording, { platform, signal } = {}) {
+  return send("GET", `/projects/${enc(p)}/video/${enc(recording)}`, { query: { platform }, signal });
+}
+
+/**
+ * POST /projects/{p}/video/{recording}/approve: {video_sha256, caption_sha256, platform?}, the hashes of the render and of the caption the page showed. The service answers
+ * on the loopback socket only; it returns the card again.
+ */
+export function videoApprove(p, recording, { videoSha256, captionSha256, platform, signal } = {}) {
+  return send("POST", `/projects/${enc(p)}/video/${enc(recording)}/approve`, { body: { video_sha256: videoSha256, caption_sha256: captionSha256, platform }, signal });
+}
+
+/** POST /projects/{p}/video/{recording}/send-back: {comment, platform?}; the post returns to the review step and its approval is removed. Returns the card again. */
+export function videoSendBack(p, recording, comment, { platform, signal } = {}) {
+  return send("POST", `/projects/${enc(p)}/video/${enc(recording)}/send-back`, { body: { comment, platform }, signal });
+}
+
+/**
+ * GET /projects/{p}/video/{recording}/render/{sha256}: the bytes of one rendered video as a Blob (video/mp4), fetched with the bearer header (a `<video src>` cannot send
+ * one) and played from a `blob:` URL; `onBytes(received, total)` reports the download. The service answers on the loopback socket only.
+ */
+export function videoRaw(p, recording, sha256, { signal, onBytes } = {}) {
+  return send("GET", `/projects/${enc(p)}/video/${enc(recording)}/render/${enc(sha256)}`, { signal, raw: true, accept: "video/mp4", onBytes });
+}
+
+/** GET /projects/{p}/video/{recording}/cover/{sha256}: the cover frame of that render, as a Blob (image/png). */
+export function videoCover(p, recording, sha256, { signal } = {}) {
+  return send("GET", `/projects/${enc(p)}/video/${enc(recording)}/cover/${enc(sha256)}`, { signal, raw: true });
+}
+
+/** GET /projects/{p}/video/{recording}/download/{platform}: the approved file as a Blob, for the person to save; refused (409) while no approval holds. */
+export function videoDownload(p, recording, platform, { signal, onBytes } = {}) {
+  return send("GET", `/projects/${enc(p)}/video/${enc(recording)}/download/${enc(platform)}`, { signal, raw: true, accept: "video/mp4", onBytes });
 }
 
 /** POST /projects/{p}/runs/{id}/verdict: {word}. */

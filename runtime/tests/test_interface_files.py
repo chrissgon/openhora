@@ -342,8 +342,8 @@ def test_the_building_and_the_floor_are_files_of_the_page_and_the_page_routes_to
 def test_only_the_floor_folder_sends_a_write_and_it_takes_every_write_from_one_object():
     # ADJ-I2: `goAhead` (a task that waits) and `route` (the unrecognised-route card routes a request with a flow) are writes; `flows` is the one read the
     # same object carries, for the flow list of that card.
-    writes = {"answer", "release", "approve", "reject", "verdict", "cancel", "setMode", "retry", "handOver", "goAhead", "route"}
-    reads = {"pollJob", "flows"}
+    writes = {"answer", "release", "approve", "reject", "verdict", "cancel", "setMode", "retry", "handOver", "goAhead", "route", "videoApprove", "videoSendBack"}
+    reads = {"pollJob", "flows", "videoCard", "videoRaw", "videoCover", "videoDownload"}      # M1 P7: the rendered video's card, bytes and download
     actions = (INTERFACE / "js" / "floor" / "actions.js").read_text(encoding="utf-8")
     assert set(re.findall(r"^\s+(\w+): api\.(\w+),$", actions, re.M)) == {(w, w) for w in writes | reads}, "actions.js names each write once"
     for name in FLOOR_FILES:
@@ -547,7 +547,7 @@ def test_the_control_room_imports_the_client_only_as_a_namespace_and_escape_leav
 # The globals a page module may call without declaring them: the language's, the browser's. A name that is not here and not declared in
 # the file is a call to nothing.
 KNOWN_GLOBALS = frozenset("""
-Array Boolean Date Error Event Map Number Object Promise RangeError RegExp Set String Symbol TypeError Uint8Array Float32Array Float64Array
+Array Blob Boolean Date Error Event Map Number Object Promise RangeError RegExp Set String Symbol TypeError Uint8Array Float32Array Float64Array
 Uint16Array Uint32Array Int32Array ArrayBuffer WeakMap WeakSet BigInt Intl JSON Math Reflect Proxy
 AbortController CustomEvent XMLHttpRequest Response KeyboardEvent MouseEvent MutationObserver ResizeObserver IntersectionObserver URL URLSearchParams Image TextEncoder TextDecoder
 fetch setTimeout clearTimeout setInterval clearInterval requestAnimationFrame cancelAnimationFrame requestIdleCallback queueMicrotask structuredClone

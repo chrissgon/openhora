@@ -16,9 +16,11 @@ import { icon } from "../frame/icons.js";
 import { runsSection } from "./run-block.js";
 import { createTaskActions } from "./task-actions.js";
 import { groupTasks, rowOf } from "./tasks-model.js";
+import { createVideoCard } from "./video-card.js";
 import { busyLine, chip } from "./widgets.js";
 
 const MAX_READS = 12;       // the first rows read without being expanded (the Inbox reads twelve too)
+const MEDIA_KEY = /^media:([0-9a-f]{16})$/;     // the code task of a recording carries the key media:<recording id> (runtime/media.py); its row shows the rendered video
 export const NONE_TEXT = "This agent has no task yet.";
 
 /** Run `render`, then put the keyboard focus back on the control with the same `data-key` when it was inside `container`. */
@@ -47,6 +49,7 @@ export function createTasksTab(env) {
   const reading = new Set();
   const expanded = new Set();
   const earlierOpen = new Set();   // task ids whose "Earlier attempts" disclosure is open (closed by default)
+  const videos = new Map();        // recording id -> the rendered-video card of an open row (closed, with its blob URLs revoked, when the row closes)
   const opened = new Map();        // group id -> the person's choice, over "open when it holds a task"
   const actions = createTaskActions({ project: env.project, api: env.api, refresh: () => env.refresh(), redraw: () => draw(), done: (id) => bodies.delete(id), can: env.can });
   let shown = "";
@@ -97,7 +100,34 @@ export function createTasksTab(env) {
     if (expanded.has(task.id)) expanded.delete(task.id);
     else expanded.add(task.id);
     if (expanded.has(task.id)) ensure(task);
+    else closeVideo(task);
     draw();
+  }
+
+  function recordingOf(task) {
+    const found = MEDIA_KEY.exec(typeof task.key === "string" ? task.key : "");
+    return found ? found[1] : null;
+  }
+
+  function closeVideo(task) {
+    const recording = recordingOf(task);
+    const card = recording ? videos.get(recording) : null;
+    if (!card) return;
+    card.close();
+    videos.delete(recording);
+  }
+
+  /** The rendered-video card of a code task of a recording: made once when its row opens, read again when the store changed. */
+  function videoOf(task) {
+    const recording = recordingOf(task);
+    if (!recording) return null;
+    let card = videos.get(recording);
+    if (!card) {
+      card = createVideoCard({ project: env.project, recording, api: env.api, can: env.can, now: env.now });
+      videos.set(recording, card);
+      card.load();
+    }
+    return card.el;
   }
 
   function pathRow(file) {
@@ -149,6 +179,7 @@ export function createTasksTab(env) {
         row.returned.length ? h("ul", { class: "wb-paths wb-task-paths" }, row.returned.map(pathRow)) : null,
         buttons.length ? h("div", { class: "wb-task-actions" }, buttons) : null,
         actions.failure(task.id),
+        isOpen ? videoOf(task) : null,
         h("div", { class: "wb-task-detail", id: detailId, hidden: !isOpen }, isOpen ? detailOf(task, row) : null)));
   }
 
@@ -221,10 +252,17 @@ export function createTasksTab(env) {
         if (reloaded !== null && data.reload !== reloaded) {     // the store changed: every body held is stale, whatever its age
           changes += 1;
           for (const entry of bodies.values()) entry.at = 0;
+          for (const card of videos.values()) card.load({ quiet: true });
         }
         reloaded = data.reload;
       }
       last = { tasks: data.tasks || [], requests: data.requests || [], pending: data.pending || [], loading: Boolean(data.loading) };
+      for (const [recording, card] of [...videos]) {      // a task that is no longer listed (cancelled, purged) takes its card with it
+        if (!last.loading && !last.tasks.some((t) => recordingOf(t) === recording)) {
+          card.close();
+          videos.delete(recording);
+        }
+      }
       if (!last.loading) select(data.selected);
       if (!data.unaccepted) read();
       draw();

@@ -122,6 +122,28 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
 .wb-pre { margin: 0; padding: 10px 12px; border: var(--pui-border-width) solid var(--pui-border); border-radius: var(--pui-radius); font-family: var(--wb-font-mono); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap; }
 .wb-hash { display: block; padding: 8px 10px; border: 1px dashed var(--pui-muted); border-radius: var(--pui-radius); font-family: var(--wb-font-mono); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; user-select: all; }
 .wb-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+/* the rendered video of a recording's code task and the person's approval of it (floor/video-card.js): one column, the video as wide as the card up to a phone-sized frame
+   so that a tall video does not push the caption and the buttons off the screen; the caption and the hashes wrap, nothing scrolls sideways */
+.wb-video { min-width: 0; }
+.wb-video-content { grid-template-columns: minmax(0, 1fr); }     /* a grid's column otherwise grows to its longest unbroken line: a hash or a file name would push the card past the screen */
+.wb-video-content > * { min-width: 0; }
+.wb-video-slot { display: contents; }     /* a part of the card that is drawn on its own: no box of its own, so an empty one leaves no gap */
+.wb-video-button { max-width: 100%; height: auto; white-space: normal; overflow-wrap: anywhere; text-align: center; }
+.wb-video-head { flex-wrap: wrap; justify-content: space-between; }
+.wb-video-figure { display: grid; justify-items: center; padding: 6px; border-radius: var(--pui-radius); background-color: var(--wb-raised); }
+.wb-video-player { display: block; width: 100%; max-width: 360px; max-height: 70vh; height: auto; border-radius: var(--pui-radius); }
+.wb-video-loadbox { display: grid; gap: 6px; }
+.wb-video-loading { margin: 0; font-size: 13px; }
+.wb-video-progress { width: 100%; height: 10px; accent-color: var(--pui-accent, currentColor); }
+.wb-video-facts, .wb-video-caption-box, .wb-video-approval, .wb-video-back, .wb-video-hash { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.wb-video-hash { gap: 2px; }
+.wb-video-heading { margin: 0; font-size: 13px; font-weight: 600; }
+.wb-video-line { margin: 0; }
+.wb-video-caption { max-height: 40vh; overflow-y: auto; }
+.wb-video-approved { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.wb-video-comment { width: 100%; box-sizing: border-box; resize: vertical; }
+.wb-video-platforms { display: flex; flex-wrap: wrap; gap: 6px; }
 .wb-card-actions.is-end { justify-content: flex-end; }
 .wb-working { color: var(--pui-text-muted); font-size: 12px; }
 .wb-paths { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
@@ -213,6 +235,8 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
 
 @media (max-width: 899px) {
   .wb-card-actions .pui-btn { flex: 1 1 100%; min-height: 44px; }
+  .wb-video-platforms .pui-btn { flex: 1 1 auto; min-height: 44px; }
+  .wb-video-player { max-width: 100%; }
   .wb-verdicts .pui-btn { flex: 1; min-height: 44px; }
   .wb-mode-controls > .pui-btn { min-height: 44px; }
   .wb-hand-send, .wb-hand-choose { min-height: 44px; }
@@ -370,6 +394,7 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
   .wb-res-said, .wb-state-block, .wb-resolved, .wb-card-result, .wb-ret, .wb-path, .wb-path-button, .wb-task-toggle, .wb-task-head, .wb-task-title, .wb-task-failure,
   .wb-task-note, .wb-task-waits, .wb-waits, .wb-waits-title, .wb-waits-reasons, .wb-runs-total, .wb-drop-line, .wb-hand-name, .wb-plan-table, .wb-plan-stacked { font-size: 16px; }
   .wb-pre, .wb-hash, .wb-plan-hash, .wb-plan-body, .wb-plan-pre, .wb-wider-code { font-size: 14px; }
+  .wb-video-loading, .wb-video-approved, .wb-video-heading, .wb-video-line { font-size: 16px; }
   .wb-mode-plate, .wb-chip-11, .wb-acting-plate, .wb-skill, .wb-desk-agent, .wb-wb-line, .wb-plan-table .wb-cell-skill, .wb-plan-stacked-skill, .wb-plan-stacked-skill code,
   .wb-task-group-name, .wb-group-name, .wb-meter-cell > .wb-note { font-size: 12px; }
 }
