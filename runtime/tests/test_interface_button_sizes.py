@@ -8,8 +8,8 @@ What the test reads. A rule is checked when its last compound selector names a l
 the same element as one of them: `.wb-tab` on a `pui-btn` is as much an override of the button as `.pui-btn { padding }` is. The properties are padding, font and font size, and the
 library's own tokens for them (`--pui-space*`, `--pui-font-size*`). No browser here: the rules and the class lists are read from the files.
 
-PENDING below is a list of what is NOT settled: custom controls that sit on a library element and override its size on purpose. The maintainer has not decided whether each is a
-button, a tab or a row that follows PerfectUI, so they are listed with that, one reason each, and the test fails when a class outside the list gets such a rule or when an entry no
+PENDING below is the backlog: custom controls that sit on a library element and override its size. The maintainer decided (2026-10-14) that a custom control uses only PerfectUI's
+options wherever the library has one, so each entry is to be removed by using the library's option; the test fails when a class outside the list gets such a rule or when an entry no
 longer has one (so the list only shrinks). Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_interface_button_sizes.py
 """
 from __future__ import annotations
@@ -22,19 +22,18 @@ OLD = ("wb-small-button", "wb-chip-small", "wb-chip-11", "wb-chip-12")
 LIBRARY = ("pui-btn", "pui-chip", "pui-badge")
 SIZE = re.compile(r"(?<![\w-])(padding(?:-[a-z]+)*|font-size|font|--pui-space[a-z0-9-]*|--pui-font-size[a-z0-9-]*)\s*:")
 
-TABS = "PENDING DECISION, tabs: the tab bar is a segmented control with its own metrics (not a plain button); is a tab a PerfectUI button or its own component?"
-LINKS = "PENDING DECISION, link-style buttons (`pui-link`): a disclosure row or a text link drawn as a button with no padding of its own; do they follow the button's size?"
-FRAME = "PENDING DECISION, frame controls: an icon or square button of the top bar, the bottom bar or the switcher, sized to the bar; do they follow the button's size?"
+REASON = "PENDING: use PerfectUI's option (decided 2026-10-14, backlog)"
+TABS = LINKS = FRAME = REASON      # tabs, link-style (`pui-link`) buttons and the frame's icon buttons: one reason, the maintainer's decision
 PENDING = {
     "wb-tab": TABS,
     "wb-reply-toggle": LINKS, "wb-task-head": LINKS, "wb-task-toggle": LINKS, "wb-earlier-toggle": LINKS, "wb-path-btn": LINKS, "wb-path-button": LINKS,
     "wb-cancel-link": LINKS, "wb-lobby-cancel-link": LINKS, "wb-track-open": LINKS, "wb-req-step": LINKS, "wb-rq-cancel": LINKS, "wb-rq-open": LINKS,
-    "wb-lobby-request-title": "PENDING DECISION, the Lobby's request title: a `pui-link` button cut to one line with an ellipsis, not an action; is it a row?",
-    "wb-lobby-tab-count": "PENDING DECISION, the count in a Lobby tab: a badge drawn as a bare number inside the tab; is it a badge?",
-    "wb-req-chip": "PENDING DECISION, the request chip of the tracking bar: a clickable chip with its own size; is it a chip, a button or a row?",
+    "wb-lobby-request-title": REASON,
+    "wb-lobby-tab-count": REASON,
+    "wb-req-chip": REASON,
     "wb-back": FRAME, "wb-camera-btn": FRAME, "wb-door": FRAME, "wb-mode-btn": FRAME, "wb-state-btn": FRAME, "wb-switch-chevron": FRAME, "wb-switch-main": FRAME,
     "wb-wait-btn": FRAME, "wb-foot-row": FRAME, "wb-floor-step": FRAME,
-    "wb-muted": "PENDING DECISION, a text helper that the scripts also put on a badge in one table cell: only its font size in `.wb-cap-agent` is in question",
+    "wb-muted": REASON,
 }
 
 
@@ -101,7 +100,7 @@ def test_the_pending_list_only_shrinks_every_entry_still_has_a_rule_and_says_it_
     found = overrides()
     stale = sorted(set(PENDING) - set(found))
     assert not stale, f"these classes no longer override a size: take them off the pending list: {stale}"
-    assert all(reason.startswith("PENDING DECISION") for reason in PENDING.values())
+    assert set(PENDING.values()) == {REASON}, "one reason for all: the maintainer decided that custom controls use only PerfectUI's options wherever it has one; the entries are backlog"
 
 
 def test_the_old_size_classes_are_gone_from_the_scripts_and_the_stylesheets():
