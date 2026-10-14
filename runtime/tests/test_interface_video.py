@@ -458,3 +458,23 @@ def test_the_card_fits_a_phone_its_video_and_buttons_take_the_width_and_nothing_
     assert ".wb-video-loading, .wb-video-approved, .wb-video-heading, .wb-video-line { font-size: 16px; }" in phone
     assert not re.search(r"#[0-9a-fA-F]{3,8}\b|\brgba?\(", "\n".join(re.findall(r"[^\n]*wb-video[^\n]*", css))), "tokens only: no colour literal"
     assert "min-width: 0" in re.search(r"\.wb-video \{([^}]*)\}", floor).group(1)
+
+
+PROBLEMS = r"""
+import { FakeNode, settle, find, all } from "@FAKE@";
+import { createVideoCard } from "@JS@/floor/video-card.js";
+const card = { recording: "0123456789abcdef", status: "open", platforms: ["instagram"], platform: "instagram", render: null, cover: null, caption: null, approval: null, sent_back: null,
+  can_download: false, download_name: null, problems: ["there is no render yet", "the post file has no single ```post block"] };
+const api = { videoCard: async () => card };
+const view = createVideoCard({ project: "0123456789ab", recording: "0123456789abcdef", api, loopback: true });
+await view.load(); await settle();
+const notices = all(view.el, ".wb-notice-card");
+console.log(JSON.stringify({ count: notices.length, texts: notices.map((n) => n.textContent), stray: view.el.textContent.includes("object") }));
+process.exit(0);
+"""
+
+
+@needs_node
+def test_every_problem_of_the_card_is_a_notice_of_its_own_never_a_list_turned_into_text(tmp_path):
+    got = run_node(tmp_path, PROBLEMS)
+    assert got["count"] == 2 and got["texts"] == ["there is no render yet", "the post file has no single ```post block"] and got["stray"] is False
