@@ -25,6 +25,9 @@ export const OPS = Object.freeze({
   goAhead: "go-ahead",
   handOver: "hand-over",
   uploadMedia: "media-in",
+  captionsEdit: "captions-edit",
+  captionsDone: "captions-done",
+  prepareAgain: "prepare-again",
   videoApprove: "video-approve",
   videoSendBack: "video-send-back",
   verdict: "verdict",
@@ -41,7 +44,7 @@ export const EXEMPT = Object.freeze({
 
 /** Every plain name and pair that the controls ask about (the redraw key of a part is built from these). */
 export const ASKED = Object.freeze([
-  ["answer"], ["release"], ["reject"], ["retry"], ["go-ahead"], ["hand-over"], ["media-in"], ["video-approve"], ["video-send-back"], ["verdict"], ["say"], ["request"], ["route"],
+  ["answer"], ["release"], ["reject"], ["retry"], ["go-ahead"], ["hand-over"], ["media-in"], ["captions-edit"], ["captions-done"], ["prepare-again"], ["video-approve"], ["video-send-back"], ["verdict"], ["say"], ["request"], ["route"],
   ["approve", "plan"], ["approve", "acceptance"], ["approve", "effect"], ["approve", "go-ahead"],
 ]);
 
@@ -86,7 +89,7 @@ export function withheld(project, asked) {
 }
 
 // The order the line names the operations in, whatever order a card drew its controls in.
-const LINE_ORDER = Object.freeze(["approve", "video-approve", "reject", "video-send-back", "answer", "release", "verdict", "hand-over", "media-in", "retry", "go-ahead", "say", "request", "route"]);
+const LINE_ORDER = Object.freeze(["approve", "video-approve", "reject", "video-send-back", "answer", "release", "verdict", "hand-over", "media-in", "captions-edit", "captions-done", "prepare-again", "retry", "go-ahead", "say", "request", "route"]);
 
 /** The line a card or panel shows under its remaining controls when `words` is not empty: the words in a fixed order, each once. */
 export function lineText(words) {

@@ -16,6 +16,7 @@ import { icon } from "../frame/icons.js";
 import { runsSection } from "./run-block.js";
 import { createTaskActions } from "./task-actions.js";
 import { groupTasks, rowOf } from "./tasks-model.js";
+import { createCaptionsView } from "./captions-view.js";
 import { createVideoCard } from "./video-card.js";
 import { busyLine, chip } from "./widgets.js";
 
@@ -49,7 +50,7 @@ export function createTasksTab(env) {
   const reading = new Set();
   const expanded = new Set();
   const earlierOpen = new Set();   // task ids whose "Earlier attempts" disclosure is open (closed by default)
-  const videos = new Map();        // recording id -> the rendered-video card of an open row (closed, with its blob URLs revoked, when the row closes)
+  const videos = new Map();        // recording id -> what an open row of a recording's code task shows: the caption review and the rendered-video card (closed, with the blob URLs revoked, when the row closes)
   const opened = new Map();        // group id -> the person's choice, over "open when it holds a task"
   const actions = createTaskActions({ project: env.project, api: env.api, refresh: () => env.refresh(), redraw: () => draw(), done: (id) => bodies.delete(id), can: env.can });
   let shown = "";
@@ -117,17 +118,26 @@ export function createTasksTab(env) {
     videos.delete(recording);
   }
 
-  /** The rendered-video card of a code task of a recording: made once when its row opens, read again when the store changed. */
+  /**
+   * What the row of a code task of a recording shows: the caption review (floor/captions-view.js) above the rendered-video card (floor/video-card.js), made once when the row
+   * opens and read again when the store changed. The review tells the card when the pipeline moved, so that the card reads again at once.
+   */
   function videoOf(task) {
     const recording = recordingOf(task);
     if (!recording) return null;
-    let card = videos.get(recording);
-    if (!card) {
-      card = createVideoCard({ project: env.project, recording, api: env.api, can: env.can, now: env.now });
-      videos.set(recording, card);
-      card.load();
+    let entry = videos.get(recording);
+    if (!entry) {
+      const card = createVideoCard({ project: env.project, recording, api: env.api, can: env.can, now: env.now });
+      const captions = createCaptionsView({ project: env.project, recording, api: env.api, can: env.can, changed: () => card.load({ quiet: true }) });
+      entry = {
+        el: h("div", { class: "wb-media-task" }, captions.el, card.el),
+        load: (options) => { captions.load(options); card.load(options); },
+        close: () => { captions.close(); card.close(); },
+      };
+      videos.set(recording, entry);
+      entry.load();
     }
-    return card.el;
+    return entry.el;
   }
 
   function pathRow(file) {

@@ -325,6 +325,33 @@ export function videoDownload(p, recording, platform, { signal, onBytes } = {}) 
   return send("GET", `/projects/${enc(p)}/video/${enc(recording)}/download/${enc(platform)}`, { signal, raw: true, accept: "video/mp4", onBytes });
 }
 
+/**
+ * GET /projects/{p}/media/{recording}/captions: the caption review of a recording: {recording, platform, task, steps, editable, language, failure, sent_back, revision, words, chunks,
+ * segments, retakes, beats, slots, unplaced, threshold, face_box, cover_offset_ms, counts}. The person's own words leave here, so the service answers it on the loopback socket only; a
+ * pipeline that is not at the review yet is a 409 whose sentence starts "the captions are not ready".
+ */
+export function captionsRead(p, recording, { signal } = {}) {
+  return send("GET", `/projects/${enc(p)}/media/${enc(recording)}/captions`, { signal });
+}
+
+/**
+ * POST /projects/{p}/media/{recording}/captions: the person's changes, {revision, text}: `edits` is the list of closed edit objects (js/floor/captions-model.js `edit`), sent as the JSON text the
+ * operation takes; `revision` is the one the page last read. There is no field for a time. Returns the review again, with `applied` (counts).
+ */
+export function captionsEdit(p, recording, { revision, edits, signal } = {}) {
+  return send("POST", `/projects/${enc(p)}/media/${enc(recording)}/captions`, { body: { revision, text: JSON.stringify(edits) }, signal });
+}
+
+/** POST /projects/{p}/media/{recording}/captions/done (job): the person says the captions are right; {revision}. No text goes with it. The pipeline goes on from the re-map. */
+export function captionsDone(p, recording, { revision, signal } = {}) {
+  return send("POST", `/projects/${enc(p)}/media/${enc(recording)}/captions/done`, { body: { revision }, signal });
+}
+
+/** POST /projects/{p}/media/{recording}/prepare-again (job): start the pipeline over from a named step (the review: "review" opens the captions again as the person left them). */
+export function prepareAgain(p, recording, step, options = {}) {
+  return send("POST", `/projects/${enc(p)}/media/${enc(recording)}/prepare-again`, { body: { step }, signal: options.signal });
+}
+
 /** POST /projects/{p}/runs/{id}/verdict: {word}. */
 export function verdict(p, id, word, options = {}) {
   return send("POST", `/projects/${enc(p)}/runs/${enc(id)}/verdict`, { body: { word }, signal: options.signal });

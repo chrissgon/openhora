@@ -312,7 +312,7 @@ export function createVideoCard(env) {
     const key = JSON.stringify(signature);
     if (part.sig === key) return;
     part.sig = key;
-    fill(part.node, build());
+    fill(part.node, [build()].flat(Infinity));
   }
 
   function draw() {

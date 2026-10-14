@@ -144,6 +144,65 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
 .wb-video-approved { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
 .wb-video-comment { width: 100%; box-sizing: border-box; resize: vertical; }
 .wb-video-platforms { display: flex; flex-wrap: wrap; gap: 6px; }
+/* the caption review of a recording's code task (floor/captions-view.js): the words as chips in caption chunks, the retakes, beats and asset slots as rows, a schematic frame for the face box.
+   One column that wraps; nothing scrolls sideways. A part of the view is drawn on its own and has no box, so an empty one leaves no gap. */
+.wb-media-task { display: grid; gap: 12px; min-width: 0; }
+.wb-rev { min-width: 0; }
+.wb-rev-head { flex-wrap: wrap; justify-content: space-between; }
+.wb-rev-content { grid-template-columns: minmax(0, 1fr); }
+.wb-rev-content > *, .wb-rev-part > * { min-width: 0; }
+.wb-rev-part { display: contents; }
+.wb-rev-section { display: grid; gap: 8px; min-width: 0; }
+.wb-rev-heading { margin: 0; font-size: 13px; font-weight: 600; }
+.wb-rev-transcript { display: grid; gap: 8px; }
+.wb-rev-chunk { display: grid; grid-template-columns: 3.2em minmax(0, 1fr); align-items: start; gap: 6px; }
+.wb-rev-chunk.is-outside { grid-template-columns: minmax(0, 1fr); }
+.wb-rev-clock { color: var(--pui-text-muted); font-size: 11px; padding-top: 8px; }
+.wb-rev-words { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.wb-rev-word { display: inline-block; max-width: 100%; padding: 5px 8px; border: 1px solid var(--pui-border); border-radius: var(--pui-radius); background-color: var(--wb-raised); color: inherit; font: inherit; font-size: 14px; line-height: 1.25; overflow-wrap: anywhere; text-align: left; }
+button.wb-rev-word { cursor: pointer; }
+button.wb-rev-word:focus-visible { outline: 2px solid var(--pui-theme); outline-offset: 1px; }
+.wb-rev-word.is-selected { border-color: var(--pui-theme); background-color: var(--wb-tint-selected); }
+.wb-rev-word.is-retake { text-decoration-line: line-through; color: var(--pui-text-muted); }
+.wb-rev-word.is-cut { text-decoration-line: line-through; color: var(--pui-text-muted); font-weight: 700; }
+.wb-rev-word.is-adjusted { text-decoration-line: underline; text-decoration-style: dotted; }
+.wb-rev-word.is-retake.is-adjusted, .wb-rev-word.is-cut.is-adjusted { text-decoration-line: line-through underline; }
+.wb-rev-word.is-estimated { font-style: italic; }
+.wb-rev-word.is-edited { border-style: dashed; }
+.wb-rev-word.is-left-out { opacity: 0.65; }
+.wb-rev-legend { margin: 0; }
+.wb-rev-selection { margin: 0; }
+.wb-rev-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.wb-rev-row { display: grid; gap: 4px; padding: 8px 10px; border: var(--pui-border-width) solid var(--pui-border); border-radius: var(--pui-radius); background-color: var(--wb-raised); min-width: 0; }
+.wb-rev-row.is-flagged { border-color: var(--pui-warn); }
+.wb-rev-row.is-dropped { opacity: 0.7; }
+.wb-rev-row.is-confirmed { border-color: var(--pui-theme); }
+.wb-rev-row > * { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.wb-rev-struck { text-decoration: line-through; color: var(--pui-text-muted); }
+.wb-rev-beat-head { font-size: 13px; }
+.wb-rev-matched, .wb-rev-plain { font-size: 13px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.wb-rev-flags { display: flex; flex-wrap: wrap; gap: 4px; }
+.wb-rev-details { display: grid; gap: 6px; }
+.wb-rev-details > summary { cursor: pointer; font-size: 13px; }
+.wb-rev-sentback { display: grid; gap: 4px; padding: 8px 10px; border-radius: var(--pui-radius); background-color: color-mix(in oklab, var(--pui-warn) 15%, var(--wb-raised)); }
+.wb-rev-sentback > * { margin: 0; overflow-wrap: anywhere; }
+.wb-rev-steps { display: grid; gap: 4px; margin: 0; padding-left: 1.4em; font-size: 13px; }
+.wb-rev-step.is-done { color: var(--pui-text-muted); }
+.wb-rev-step.is-waiting { font-weight: 600; }
+.wb-rev-step.is-failed { color: var(--pui-error); }
+.wb-rev-frame-box { display: grid; gap: 8px; min-width: 0; }
+.wb-rev-frame { display: block; width: 100%; max-width: 200px; height: auto; border: var(--pui-border-width) solid var(--pui-border); border-radius: var(--pui-radius); cursor: crosshair; }
+.wb-rev-frame-bg { fill: var(--wb-sunken); }
+.wb-rev-facebox { fill: color-mix(in oklab, var(--pui-theme) 30%, transparent); stroke: var(--pui-theme); stroke-width: 6px; }
+.wb-rev-sizes { display: flex; flex-wrap: wrap; gap: 6px; }
+.wb-rev-numbers { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.wb-rev-input, .wb-rev-number, .wb-rev-select { width: 100%; box-sizing: border-box; }
+.wb-rev-hand { grid-template-columns: auto minmax(0, 1fr); }
+.wb-rev-button, .wb-rev-hand .pui-btn { max-width: 100%; height: auto; white-space: normal; overflow-wrap: anywhere; text-align: center; }     /* a button's words wrap: a long label never pushes the card past the screen */
+.wb-rev-hand .wb-hand-name { white-space: normal; overflow-wrap: anywhere; }
+.wb-rev-code { font-size: 12px; }
+.wb-rev-done { display: grid; gap: 6px; }
+.wb-rev-done > * { margin: 0; }
 .wb-card-actions.is-end { justify-content: flex-end; }
 .wb-working { color: var(--pui-text-muted); font-size: 12px; }
 .wb-paths { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
@@ -395,6 +454,12 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
   .wb-task-note, .wb-task-waits, .wb-waits, .wb-waits-title, .wb-waits-reasons, .wb-runs-total, .wb-drop-line, .wb-hand-name, .wb-plan-table, .wb-plan-stacked { font-size: 16px; }
   .wb-pre, .wb-hash, .wb-plan-hash, .wb-plan-body, .wb-plan-pre, .wb-wider-code { font-size: 14px; }
   .wb-video-loading, .wb-video-approved, .wb-video-heading, .wb-video-line { font-size: 16px; }
+  .wb-rev-word, .wb-rev-matched, .wb-rev-plain, .wb-rev-beat-head, .wb-rev-steps, .wb-rev-heading, .wb-rev-details > summary { font-size: 16px; }
+  .wb-rev-clock, .wb-rev-code { font-size: 12px; }
+  .wb-rev-numbers { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wb-rev-sizes .pui-btn { flex: 1 1 auto; min-height: 44px; }
+  button.wb-rev-word { min-height: 40px; }
+  .wb-rev-frame { max-width: 180px; }
   .wb-mode-plate, .wb-chip-11, .wb-acting-plate, .wb-skill, .wb-desk-agent, .wb-wb-line, .wb-plan-table .wb-cell-skill, .wb-plan-stacked-skill, .wb-plan-stacked-skill code,
   .wb-task-group-name, .wb-group-name, .wb-meter-cell > .wb-note { font-size: 12px; }
 }
