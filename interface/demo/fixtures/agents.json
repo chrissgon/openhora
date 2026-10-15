@@ -54,7 +54,7 @@
       "config_sha256": "1bbcad29320f20847a515cc854063cda0ddaea20cdcff45eb6b5e0e9ee15fbd4",
       "consent_in_force": false,
       "consent_needed": false,
-      "consent_warning": "Your consent releases this agent's reviews without you on this model for every skill of the agent that is not proven on it by the lab's evidence or your own tests; the skills that are proven on it are released by the mode as for any proven model. Each run released because of your consent is recorded as autonomy by consent.",
+      "consent_warning": "Each run of this agent on its fixed model, of a skill not proven on that model by the lab's evidence or your own tests, will be recorded as autonomy by consent, including a run that a milestone later holds for your review. In this mode those runs' reviews are released without you; skills proven on the model are released by the mode as for any proven model.",
       "model_commands": [
         {
           "model": "m",
@@ -152,7 +152,7 @@
       "config_sha256": "1bbcad29320f20847a515cc854063cda0ddaea20cdcff45eb6b5e0e9ee15fbd4",
       "consent_in_force": false,
       "consent_needed": false,
-      "consent_warning": "Your consent releases this agent's reviews without you on this model for every skill of the agent that is not proven on it by the lab's evidence or your own tests; the skills that are proven on it are released by the mode as for any proven model. Each run released because of your consent is recorded as autonomy by consent.",
+      "consent_warning": "Each run of this agent on its fixed model, of a skill not proven on that model by the lab's evidence or your own tests, will be recorded as autonomy by consent, including a run that a milestone later holds for your review. In this mode those runs' reviews are released without you; skills proven on the model are released by the mode as for any proven model.",
       "model_commands": [
         {
           "model": "m",
@@ -248,7 +248,7 @@
       "config_sha256": "1bbcad29320f20847a515cc854063cda0ddaea20cdcff45eb6b5e0e9ee15fbd4",
       "consent_in_force": false,
       "consent_needed": false,
-      "consent_warning": "Your consent releases this agent's reviews without you on this model for every skill of the agent that is not proven on it by the lab's evidence or your own tests; the skills that are proven on it are released by the mode as for any proven model. Each run released because of your consent is recorded as autonomy by consent.",
+      "consent_warning": "Each run of this agent on its fixed model, of a skill not proven on that model by the lab's evidence or your own tests, will be recorded as autonomy by consent, including a run that a milestone later holds for your review. In this mode those runs' reviews are released without you; skills proven on the model are released by the mode as for any proven model.",
       "model_commands": [
         {
           "model": "m",
@@ -346,7 +346,7 @@
       "config_sha256": "1bbcad29320f20847a515cc854063cda0ddaea20cdcff45eb6b5e0e9ee15fbd4",
       "consent_in_force": false,
       "consent_needed": false,
-      "consent_warning": "Your consent releases this agent's reviews without you on this model for every skill of the agent that is not proven on it by the lab's evidence or your own tests; the skills that are proven on it are released by the mode as for any proven model. Each run released because of your consent is recorded as autonomy by consent.",
+      "consent_warning": "Each run of this agent on its fixed model, of a skill not proven on that model by the lab's evidence or your own tests, will be recorded as autonomy by consent, including a run that a milestone later holds for your review. In this mode those runs' reviews are released without you; skills proven on the model are released by the mode as for any proven model.",
       "model_commands": [
         {
           "model": "m",
@@ -393,7 +393,7 @@
       "recommended_model": "m"
     }
   ],
-  "consent_warning": "Your consent releases this agent's reviews without you on this model for every skill of the agent that is not proven on it by the lab's evidence or your own tests; the skills that are proven on it are released by the mode as for any proven model. Each run released because of your consent is recorded as autonomy by consent.",
+  "consent_warning": "Each run of this agent on its fixed model, of a skill not proven on that model by the lab's evidence or your own tests, will be recorded as autonomy by consent, including a run that a milestone later holds for your review. In this mode those runs' reviews are released without you; skills proven on the model are released by the mode as for any proven model.",
   "default_model": null,
   "models": [
     "m",

@@ -3382,7 +3382,7 @@
   "default_model": null,
   "recommended_model": null,
   "snapshot": {
-    "commit": "55fb026c55ed",
+    "commit": "54f08b5f0417",
     "source": "docs/inventory.md"
   }
 }
