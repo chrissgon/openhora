@@ -17,7 +17,7 @@ let counter = 0;
 
 /** A workflow name from a title: lowercase words joined by hyphens, at most 40 characters, "workflow" when nothing is left. */
 export function suggestName(title) {
-  const words = String(title || "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const words = String(title || "").toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   const cut = words.slice(0, NAME_MAX).replace(/-+$/g, "");
   return cut || "workflow";
 }
@@ -77,7 +77,7 @@ export function createSaveFlow({ api, project, item, can = () => true, signal, o
       const text = failureText(e);
       error.textContent = text;
       error.hidden = false;
-      split.hidden = !(e && e.refused && OFFER.test(text));
+      split.hidden = !(e && e.status === 409 && OFFER.test(text));
     }
     lock(false);
   }

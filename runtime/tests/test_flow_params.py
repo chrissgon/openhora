@@ -94,7 +94,7 @@ def test_a_workbench_flow_keeps_its_form_and_the_workbench_wins_over_a_project_f
     ({"params": {"topic": {"description": "t"}}, "tasks": [{"key": "a", "skill": "demo-skill", "title": "A", "text": "x"}]},
      "declared and no task uses it"),
     ({"params": {"today": {"description": "t"}}, "tasks": [{"key": "a", "skill": "demo-skill", "title": "A", "text": "{today}"}]},
-     "not today or week".replace("not today or week", "and not today or week")),
+     "not today or week"),
     ({"params": {"topic": {"description": "t"}}, "tasks": [{"key": "a", "skill": "demo-skill", "title": "A", "text": "{topic.sha256}"}]},
      "only a file parameter has a hash"),
     ({"params": {"f": {"description": "t", "type": "file", "default": "x.csv"}}, "tasks": [{"key": "a", "skill": "demo-skill", "title": "A", "text": "{f}"}]},
@@ -105,7 +105,7 @@ def test_a_flow_file_with_a_malformed_task_parameter_or_placeholder_is_refused_w
     root, _ = tree
     base = {"flow": "demo", "title": "Demo", "tasks": [{"key": "a", "skill": "demo-skill", "title": "A", "text": "x"}]}
     found = flow_files.problems({**base, **change}, "demo", str(root))
-    assert any(word.split(" and not ")[-1] in line or word in line for line in found), found
+    assert any(word in line for line in found), found
 
 
 def test_bind_fills_parameters_files_and_dates_in_titles_texts_and_arguments_and_reports_what_it_used(tree):
