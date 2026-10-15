@@ -461,6 +461,7 @@ MIGRATIONS = {
             approved_content TEXT,
             approved_at TEXT,
             approved_by TEXT,
+            resumed_at TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL)""",
         """CREATE TABLE routine_fires (
@@ -3037,7 +3038,8 @@ ROUTINE_MOVES = {"pause": (("active",), "paused"), "resume": (("paused",), "acti
 
 
 def routine_move(conn: sqlite3.Connection, routine_id: int, move: str) -> dict:
-    """pause (active to paused), resume (paused to active: its approval stays), stop (the runtime stops it when a fire finds its content
+    """pause (active to paused), resume (paused to active: its approval stays, and `resumed_at` is the moment from which its slots count
+    again: what passed while it was paused is not made up), stop (the runtime stops it when a fire finds its content
     changed) or cancel (a routine is never deleted). The approval is kept by all of them."""
     if move not in ROUTINE_MOVES:
         raise StoreError(f"a routine move is one of {', '.join(ROUTINE_MOVES)}", EXIT_USAGE)
@@ -3047,17 +3049,21 @@ def routine_move(conn: sqlite3.Connection, routine_id: int, move: str) -> dict:
         row = _routine_row(conn, routine_id)
         if row["state"] not in allowed:
             raise StoreError(f"routine {routine_id} is {row['state']}: it is {move}d only from {' or '.join(allowed)}")
-        conn.execute("UPDATE routines SET state = ?, updated_at = ? WHERE id = ?", (state, now, routine_id))
+        conn.execute("UPDATE routines SET state = ?, resumed_at = CASE WHEN ? = 'resume' THEN ? ELSE resumed_at END, updated_at = ? "
+                     "WHERE id = ?", (state, move, now, now, routine_id))
         return _routine_row(conn, routine_id)
 
 
 def routine_fire(conn: sqlite3.Connection, *, routine_id: int, slot: str, status: str, reason: str | None = None,
-                 request: dict | None = None, question: dict | None = None, state: str | None = None) -> dict:
+                 request: dict | None = None, question: dict | None = None, state: str | None = None,
+                 approved_sha256: str | None = None) -> dict:
     """Write the fire of one slot, once: the row (routine, slot) and, in the same transaction, what it created. status `created`
     carries `request` ({"title", "text", "flow", "tasks", "waits", "model"}: the request and its plan, as request_add makes them);
     `asked` carries `question` ({"title", "body", "payload"}: a request that waits for its route with one question on it, which the
     person answers) and may move the routine to `state` (stopped); `skipped` carries neither. A slot already recorded creates nothing:
-    {"fired": False, "duplicate": True}. Returns {"fired": True, "fire": the row, "request": id or None, "tasks": [...],
+    {"fired": False, "duplicate": True}. Inside the transaction the routine must still be `active`, and, when approved_sha256 is given, still
+    approved with that hash: a pause, a change or a new approval made between the caller's read and this write wins, and nothing is written
+    ({"fired": False, "inactive": True}). Returns {"fired": True, "fire": the row, "request": id or None, "tasks": [...],
     "pending_id": id or None}."""
     if status not in FIRE_STATUSES:
         raise StoreError(f"a fire's status is one of {', '.join(FIRE_STATUSES)}", EXIT_USAGE)
@@ -3079,6 +3085,8 @@ def routine_fire(conn: sqlite3.Connection, *, routine_id: int, slot: str, status
     now = iso(utcnow())
     with write(conn):
         routine = _routine_row(conn, routine_id)
+        if routine["state"] != "active" or not routine["approved_sha256"] or (approved_sha256 is not None and routine["approved_sha256"] != approved_sha256):
+            return {"fired": False, "inactive": True}
         if conn.execute("SELECT 1 FROM routine_fires WHERE routine_id = ? AND slot = ?", (routine_id, slot)).fetchone():
             return {"fired": False, "duplicate": True}
         result, request_id, pending_id = None, None, None

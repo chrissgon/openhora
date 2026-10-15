@@ -119,9 +119,9 @@ def previous_slot(schedule: dict, slot: datetime.datetime) -> datetime.datetime:
 
 def due(schedule: dict, last_slot, since: datetime.datetime, now: datetime.datetime, window_seconds=None) -> dict:
     """What a tick does for one routine. schedule is checked; last_slot is the name of the newest slot the routine has a row for, or
-    None; since is the local time (naive) its approval was recorded, from which a routine that never fired counts; now is the local
-    time (naive). Returns {"fire": the slot's name or None, "skipped": [names, oldest first], "skipped_count", "window"}."""
-    lower = parse_slot(last_slot) if last_slot else since
+    None; since is the local time (naive) of its approval or of its last resume, whichever is later: no slot at or before it is owed,
+    so what passed while the routine was paused or a draft is not made up; now is the local time (naive). Returns {"fire": the slot's name or None, "skipped": [names, oldest first], "skipped_count", "window"}."""
+    lower = max(t for t in (since, parse_slot(last_slot) if last_slot else None) if t is not None)       # never from before the approval or the resume
     window = window_of(schedule, window_seconds)
     slots, slot = [], newest_slot(schedule, now)
     while slot > lower and len(slots) < LOOK_BACK:

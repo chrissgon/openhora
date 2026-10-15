@@ -163,7 +163,7 @@ The task runtime's tables, those that migration 2 and later create, with their c
 | `source_versions` | 11 | source_id, version, label, by, kind, original_name, original_sha256, original_bytes, converted_name, converted_sha256, converted_bytes, converter, converter_version, hidden_text, warnings, catalog, origin_version, imported_at |
 | `task_sources` | 11 | run_id, task_id, source_id, version, sha256, copied_at |
 | `sources` | 14 | id, type, origin, description, created_at, updated_at |
-| `routines` | 14 | id, name, flow, params, schedule, model, consent, providers, window_seconds, state, approved_sha256, approved_content, approved_at, approved_by, created_at, updated_at |
+| `routines` | 14 | id, name, flow, params, schedule, model, consent, providers, window_seconds, state, approved_sha256, approved_content, approved_at, approved_by, resumed_at, created_at, updated_at |
 | `routine_fires` | 14 | id, routine_id, slot, status, reason, request_id, fired_at |
 <!-- /generated -->
 

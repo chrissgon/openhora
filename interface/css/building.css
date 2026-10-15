@@ -147,6 +147,9 @@
 .wb-rt-actions { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 4px; }
 .wb-rt-preview { display: grid; gap: 6px; min-width: 0; overflow-wrap: anywhere; padding: 6px 4px; border-top: 1px solid var(--pui-border, currentColor); }
 .wb-rt-preview .wb-hash { overflow-wrap: anywhere; }
+.wb-rt-content { display: grid; grid-template-columns: max-content 1fr; gap: 2px 8px; margin: 0; font-size: 12px; min-width: 0; }
+.wb-rt-content dt { color: var(--pui-muted, inherit); }
+.wb-rt-content dd { margin: 0; overflow-wrap: anywhere; }
 .wb-sec-head { margin: 0; padding: 0 4px; font-size: 12px; font-weight: 600; }
 .wb-sec-empty { margin: 0; padding: 0 4px; font-size: 12px; }
 .wb-rq-list, .wb-fl-list { display: grid; gap: 2px; min-width: 0; margin: 0; padding: 0; list-style: none; }

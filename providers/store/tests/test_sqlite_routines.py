@@ -165,3 +165,24 @@ def test_a_skipped_fire_has_no_request_and_an_asked_one_has_a_request_with_a_que
     with pytest.raises(store.StoreError, match="status is one of"):
         store.routine_fire(conn, routine_id=made["id"], slot="2026-10-18T08:00", status="done")
     assert store.routine_move(conn, made["id"], "cancel")["state"] == "cancelled"
+
+
+def test_a_resume_records_when_it_happened_and_a_fire_of_a_routine_no_longer_active_or_approved_otherwise_writes_nothing(conn):
+    made = add(conn)
+    assert made["resumed_at"] is None
+    store.routine_approve(conn, made["id"], sha256=SHA, by="user")
+    store.routine_move(conn, made["id"], "pause")
+    resumed = store.routine_move(conn, made["id"], "resume")
+    assert resumed["resumed_at"] and resumed["resumed_at"] >= resumed["approved_at"]
+    request = {"title": "morning", "text": "Routine morning.", "flow": "demo", "model": "m", "waits": [],
+               "tasks": [{"key": "market", "skill": "biz-market-analysis", "title": "Market", "text": "Do it.", "depends_on": []}]}
+    # the caller read the routine as active with SHA; a pause, a change or another approval since wins
+    store.routine_move(conn, made["id"], "pause")
+    assert store.routine_fire(conn, routine_id=made["id"], slot="2026-10-15T08:00", status="created", request=request, approved_sha256=SHA) == \
+        {"fired": False, "inactive": True}
+    store.routine_move(conn, made["id"], "resume")
+    assert store.routine_fire(conn, routine_id=made["id"], slot="2026-10-15T08:00", status="skipped", reason="x", approved_sha256="b" * 64) == \
+        {"fired": False, "inactive": True}, "the approval changed since the caller read it"
+    store.routine_change(conn, made["id"], model="fm")
+    assert store.routine_fire(conn, routine_id=made["id"], slot="2026-10-15T08:00", status="skipped", reason="x") == {"fired": False, "inactive": True}
+    assert store.routine_fires_list(conn, made["id"]) == [] and [t for t in store.tasks_list(conn) if t["parent_id"] is None] == []

@@ -76,9 +76,15 @@ def _flow(ctx: dict, name: str) -> dict:
 
 
 def effective_model(ctx: dict, record: dict) -> str:
-    """The word that chooses the model of a routine's tasks: its own, else the project's default_model, else `auto`. Written into
-    every request a fire makes, so that no agent's fixed model decides for a routine."""
-    return record.get("model") or ctx["cfg"].get("default_model") or AUTO
+    """The word that chooses the model of a routine's tasks: its own, else the project's default_model, else `auto`; an alias is written
+    as the id it names (the hash covers the id). Written into every request a fire makes, so that no agent's fixed model decides for a
+    routine. OpsError (2) when the word is no model of the gate file."""
+    return ops_models.check_word(record.get("model") or ctx["cfg"].get("default_model") or AUTO) or AUTO
+
+
+class ImageUnavailable(core.OpsError):
+    """The eval image cannot be looked up or is not on this machine: its digest is unknown, so a hash cannot be computed or approved.
+    A fire defers its slot for it, never stops the routine."""
 
 
 def _xy(skill: str) -> str:
@@ -95,9 +101,13 @@ def content_of(ctx: dict, record: dict, loaded: dict | None = None) -> dict:
     loaded = loaded or _flow(ctx, record["flow"])
     word = effective_model(ctx, record)
     skills = {t["skill"]: _xy(t["skill"]) for t in loaded["tasks"] if "skill" in t}
+    seen = lab.image()
+    if not seen.get("digest"):      # docker is down, or the image is not pulled yet: a digest of None must never be hashed or approved
+        raise ImageUnavailable("the eval image cannot be looked up (" + str(seen.get("problem") or "it is not on this machine; pull it: the setup step of the doctor")
+                               + "): the routine's content cannot be hashed now", 3)
     return routines.content(
         schedule=record["schedule"], window_seconds=record.get("window_seconds"), flow=loaded["flow"],
-        template_sha256=flow_files.template_sha256(loaded), params=record["params"], skills=skills, image=lab.image().get("digest"),
+        template_sha256=flow_files.template_sha256(loaded), params=record["params"], skills=skills, image=seen["digest"],
         model=word, consent=bool(record.get("consent")) and word != AUTO, warning_sha256=autonomy.CONSENT_WARNING_SHA256,
         providers=record.get("providers") or [] if word == AUTO else [])
 
@@ -119,8 +129,8 @@ def local_reason(ctx: dict, loaded: dict):
             try:
                 if steps.kind_of(t["step"]).networked:
                     return f"the task {t['key']} is a {t['step']} step, which reaches the network"
-            except steps.StepFailure:
-                continue
+            except steps.StepFailure:      # a limit refuses what it cannot read, never skips it
+                return f"the task {t['key']} is a step of a kind ({t['step']}) this checkout does not have, so it cannot be shown not to reach the network"
     cfg = ctx["cfg"]
     if not cfg.get("area_agents"):
         return None
@@ -156,6 +166,12 @@ def _require_local(ctx: dict, channel, *flows) -> None:
 
 def _check_workflow(ctx: dict, name: str, params: dict) -> dict:
     loaded = _flow(ctx, name)
+    for t in loaded["tasks"]:
+        if "step" in t:
+            try:
+                steps.kind_of(t["step"])
+            except steps.StepFailure:
+                raise core.OpsError(f"the task {t['key']} of the workflow {name} is a step of a kind ({t['step']}) this checkout does not have", 2) from None
     if flow_files.file_params(loaded):
         raise core.OpsError(f"the workflow {name} takes a file ({', '.join(flow_files.file_params(loaded))}): nobody is there to hand a "
                             "file over when a routine fires, so it cannot be a routine's target", 2)
@@ -168,6 +184,11 @@ def _check_workflow(ctx: dict, name: str, params: dict) -> dict:
         raise core.OpsError("the flow check refuses this workflow as a routine's target: " + " ".join(f["sentence"] + "." for f in found["findings"])
                             + " Save a split of it (flow-save --split) or change it.", 1)
     return loaded
+
+
+def _default(ctx: dict) -> str:
+    """The project's default model as an id of the gate file, or `auto`."""
+    return ops_models.check_word(ctx["cfg"].get("default_model") or AUTO) or AUTO
 
 
 def _providers_known() -> set:
@@ -279,8 +300,10 @@ def routine_create(project: str, name: str, flow: str, params: list | None = Non
     _require_local(ctx, channel, loaded)
     schedule = _schedule(None, {"every": every, "at": at, "weekday": weekday, "minutes": minutes})
     chosen = ops_models.check_word(model)
-    word = chosen or ctx["cfg"].get("default_model") or AUTO
+    word = chosen or _default(ctx)
     given = _consent_given(channel, consent, warning_sha256, word)
+    if given and chosen is None:      # the consent is for a model: the one the project's default names is written on the record
+        chosen = word
     record = core._stored(ctx, ctx["store"].routine_add, name=name, flow=flow, params=fixed, schedule=schedule, model=chosen, consent=given,
                           providers=_check_providers(word, providers) if word == AUTO else [], window_seconds=window_seconds)
     return routines_read(project, record["id"])
@@ -305,11 +328,14 @@ def routine_change(project: str, routine_id: int, flow: str | None = None, param
         fields["model"] = ops_models.check_word(model)
     if window_seconds is not None:
         fields["window_seconds"] = window_seconds
-    word = fields.get("model", old["model"]) or ctx["cfg"].get("default_model") or AUTO
+    word = fields.get("model", old["model"]) or _default(ctx)
     changed_model = "model" in fields and fields["model"] != old["model"]
     fields["consent"] = _consent_given(channel, consent, warning_sha256, word) or (bool(old["consent"]) and not changed_model and word != AUTO)
+    if fields["consent"] and fields.get("model", old["model"]) is None:      # the consent is for a model: the project's default is written on the record
+        fields["model"] = word
     fields["providers"] = _check_providers(word, providers if providers is not None else old["providers"]) if word == AUTO else []
     core._stored(ctx, ctx["store"].routine_change, routine_id, **fields)
+    _close_stops(ctx, routine_id)
     return routines_read(project, routine_id)
 
 
@@ -326,13 +352,19 @@ def routine_approve(project: str, routine_id: int, sha256: str | None = None) ->
     if sha256 != shown["sha256"]:
         raise core.OpsError(f"the routine's content has the hash {shown['sha256']} now, not {sha256}: nothing was approved", 1)
     core._stored(ctx, ctx["store"].routine_approve, routine_id, sha256=sha256, by="user", content=shown["content"])
+    _close_stops(ctx, routine_id)
+    return routines_read(project, routine_id)
+
+
+def _close_stops(ctx: dict, routine_id: int) -> None:
+    """Cancel the requests that earlier stops of the routine left open (the question of a stop): approving, changing or cancelling the
+    routine answers them."""
     for fire in core._stored(ctx, ctx["store"].routine_fires_list, routine_id, 20):
         if fire["status"] == "asked" and fire["request_id"]:
             try:
                 core._stored(ctx, ctx["store"].request_cancel, fire["request_id"], by="user")
             except core.OpsError:
                 pass      # already answered, cancelled or gone
-    return routines_read(project, routine_id)
 
 
 def routine_pause(project: str, routine_id: int) -> dict:
@@ -353,6 +385,7 @@ def routine_cancel(project: str, routine_id: int) -> dict:
     """Cancel a routine for good (a routine is never deleted; its fires stay on record)."""
     ctx = core.context(project)
     core._stored(ctx, ctx["store"].routine_move, routine_id, "cancel")
+    _close_stops(ctx, routine_id)
     return routines_read(project, routine_id)
 
 
@@ -360,55 +393,79 @@ def routine_cancel(project: str, routine_id: int) -> dict:
 
 
 def _since(record: dict):
-    """The local time (naive) from which an unfired routine counts its slots: its approval."""
+    """The local time (naive) from which a routine counts its slots: its approval or its last resume, whichever is later. What passed
+    while it was paused or a draft is not owed."""
     import datetime
-    text = (record.get("approved_at") or record["created_at"]).replace("Z", "+00:00")
-    moment = datetime.datetime.fromisoformat(text)
-    return moment.astimezone(ops_flows.now().tzinfo).replace(tzinfo=None) if moment.tzinfo else moment
+    zone = ops_flows.now().tzinfo
+    moments = []
+    for key in ("approved_at", "resumed_at"):
+        if record.get(key):
+            moment = datetime.datetime.fromisoformat(record[key].replace("Z", "+00:00"))
+            moments.append(moment.astimezone(zone).replace(tzinfo=None) if moment.tzinfo else moment)
+    return max(moments) if moments else datetime.datetime.fromisoformat(record["created_at"].replace("Z", "+00:00")).astimezone(zone).replace(tzinfo=None)
 
 
 def tick(ctx: dict, now=None) -> list:
-    """Fire what is due. For each active routine: the slots after its newest fire row (after its approval for a routine that never
-    fired) up to now; the newest is fired if it is younger than the window and every older one is recorded skipped (the catch-up rule);
-    all are skipped otherwise. Returns [{"routine", "slot", "status", "reason", "request"}]; a failure of one routine is recorded as
-    its stop and never raised."""
+    """Fire what is due. For each active routine: the slots after its newest fire row, its approval or its last resume, whichever is
+    latest, up to now; the newest is fired if it is younger than the window and every older one is recorded skipped (the catch-up rule);
+    all are skipped otherwise. Returns [{"routine", "slot", "status", "reason", "request"}] with status created, asked, skipped,
+    deferred (the eval image cannot be looked up: no row is written, the next tick tries again) or inactive (the routine was paused,
+    changed or approved again while this tick worked: nothing is written); a routine whose handling raises gives one
+    {"routine", "error"} line and never keeps the others from firing."""
     now = now or ops_flows.now()
     local = now.replace(tzinfo=None)
     out = []
     for record in core._stored(ctx, ctx["store"].routines_list):
         if record["state"] != "active" or not record.get("approved_sha256"):
             continue
-        last = record.get("last_fire") or {}
-        found = routines.due(record["schedule"], last.get("slot"), _since(record), local, record.get("window_seconds"))
-        if not found["fire"] and not found["skipped"]:
-            continue
-        for slot in found["skipped"]:
-            with core._claim_lock(ctx["cfg"]):
-                core._stored(ctx, ctx["store"].routine_fire, routine_id=record["id"], slot=slot, status="skipped",
-                             reason=f"missed: not made up (the newest slot is {'fired' if found['fire'] else 'older than the window of ' + str(found['window']) + ' s'}"
-                                    + (f"; {found['skipped_count']} slots were missed in all" if found["skipped_count"] > len(found["skipped"]) else "") + ")")
-            out.append({"routine": record["name"], "slot": slot, "status": "skipped", "reason": "missed", "request": None})
-        if found["fire"]:
-            out.append(fire(ctx, record, found["fire"], now))
+        try:
+            out += _tick_one(ctx, record, now, local)
+        except Exception as e:      # one routine's failure is its own line; the others still fire
+            out.append({"routine": record["name"], "error": f"{type(e).__name__}: {e}"[:300]})
+    return out
+
+
+def _tick_one(ctx: dict, record: dict, now, local) -> list:
+    out = []
+    last = record.get("last_fire") or {}
+    found = routines.due(record["schedule"], last.get("slot"), _since(record), local, record.get("window_seconds"))
+    if not found["fire"] and not found["skipped"]:
+        return out
+    for slot in found["skipped"]:
+        with core._claim_lock(ctx["cfg"]):
+            made = core._stored(ctx, ctx["store"].routine_fire, routine_id=record["id"], slot=slot, status="skipped",
+                                approved_sha256=record["approved_sha256"],
+                                reason=f"missed: not made up (the newest slot is {'fired' if found['fire'] else 'older than the window of ' + str(found['window']) + ' s'}"
+                                       + (f"; {found['skipped_count']} slots were missed in all" if found["skipped_count"] > len(found["skipped"]) else "") + ")")
+        if made.get("inactive"):
+            return out + [{"routine": record["name"], "slot": slot, "status": "inactive", "reason": "the routine changed while this tick worked", "request": None}]
+        out.append({"routine": record["name"], "slot": slot, "status": "skipped", "reason": "missed", "request": None})
+    if found["fire"]:
+        out.append(fire(ctx, record, found["fire"], now))
     return out
 
 
 def _ask(ctx: dict, record: dict, slot: str, why: str, extra: dict | None = None) -> dict:
-    """Stop the routine and ask: one fire row `asked`, one request with a question, the routine `stopped`."""
+    """Stop the routine and ask: one fire row `asked`, one request with a question, the routine `stopped`; under the claim lock."""
     title = f"Routine {record['name']} stopped at {slot}"[:200]
     command = core._command("routine-approve", ctx["cfg"]["project"], routine_id=record["id"])
     body = (f"The routine {record['name']} did not start its tasks for the slot {slot}: {why}.\n\nIt is stopped. Read it with "
             f"`routines --id {record['id']}`, and when you accept its content as it is now, approve it: {command} (then --sha256 with the hash it prints). "
             "Answering this question only closes it; approving the routine cancels this request.")
-    made = core._stored(ctx, ctx["store"].routine_fire, routine_id=record["id"], slot=slot, status="asked", reason=why[:900],
-                        question={"title": title, "body": body, "payload": {"routine": record["id"], "slot": slot, **(extra or {})}},
-                        state="stopped")
+    with core._claim_lock(ctx["cfg"]):
+        made = core._stored(ctx, ctx["store"].routine_fire, routine_id=record["id"], slot=slot, status="asked", reason=why[:900],
+                            approved_sha256=record["approved_sha256"],
+                            question={"title": title, "body": body, "payload": {"routine": record["id"], "slot": slot, **(extra or {})}},
+                            state="stopped")
+    if made.get("inactive"):
+        return {"routine": record["name"], "slot": slot, "status": "inactive", "reason": "the routine changed while this tick worked", "request": None}
     return {"routine": record["name"], "slot": slot, "status": "asked", "reason": why, "request": made.get("request")}
 
 
 def _models_for(ctx: dict, record: dict, tasks: list):
-    """For `auto`: the model of each skill task, the cheapest reliable pair inside the approved providers (a task's `model` is set), or
-    the sentence of a better candidate outside them. Returns (tasks, None) or (None, why)."""
+    """For `auto`: every skill task is pinned to the cheapest reliable pair inside the approved providers (its `model` is set, so that no
+    default of the project or of an agent can send it elsewhere), or the sentence of why none can be: no reliable pair inside the set,
+    or a better candidate that only a provider outside it offers. Returns (tasks, None) or (None, why)."""
     approved = {None if p == DIRECT else p for p in record.get("providers") or []}
     keys, chosen = core._keys(), {}
     for skill in sorted({t["skill"] for t in tasks if t.get("skill")}):
@@ -418,12 +475,16 @@ def _models_for(ctx: dict, record: dict, tasks: list):
         if open_["mode"] == AUTO and open_["model"] != inside["model"] and open_["model"] in (inside.get("outside_provider") or []):
             return None, (f"for {skill} a better candidate is {open_['model']}, from a provider the routine was not approved for "
                           f"(it may use: {', '.join(record.get('providers') or [])})")
-        chosen[skill] = inside["model"] if inside["mode"] == AUTO else None
-    return [dict(t, model=chosen[t["skill"]]) if t.get("skill") and chosen.get(t["skill"]) else t for t in tasks], None
+        if inside["mode"] != AUTO:
+            return None, (f"for {skill} no reliable pair with a key and a price is inside the providers the routine was approved for "
+                          f"({', '.join(record.get('providers') or [])}); the model that would run otherwise is {inside['model']}")
+        chosen[skill] = inside["model"]
+    return [dict(t, model=chosen[t["skill"]]) if t.get("skill") else t for t in tasks], None
 
 
 def fire(ctx: dict, record: dict, slot: str, now) -> dict:
-    """Fire one slot of one routine, once (module text). Returns {"routine", "slot", "status": created|asked, "reason", "request"}."""
+    """Fire one slot of one routine, once (module text). Returns {"routine", "slot", "status": created|asked|deferred|inactive|duplicate,
+    "reason", "request"}."""
     store, cfg = ctx["store"], ctx["cfg"]
     try:
         loaded = _flow(ctx, record["flow"])
@@ -447,13 +508,18 @@ def fire(ctx: dict, record: dict, slot: str, now) -> dict:
             if why:
                 return _ask(ctx, record, slot, why)
         waits = ops_waits.for_plan(ctx, tasks, None)["store"]
+    except ImageUnavailable as e:      # not the routine's fault: the slot is tried again at the next tick (and skipped if the window passes first)
+        return {"routine": record["name"], "slot": slot, "status": "deferred", "reason": str(e), "request": None}
     except (core.OpsError, flow_files.FlowError, plan.PlanError, ValueError, skill_meta.SkillError, lab.LabError) as e:
         return _ask(ctx, record, slot, f"it cannot be planned now ({type(e).__name__}): {e}")
     request = {"title": f"{record['name']} · {slot}"[:200], "text": f"Routine {record['name']}, slot {slot}. Dates: today {bound['bound']['dates']['today']}, "
                                                                 f"week {bound['bound']['dates']['week']} ({bound['bound']['dates']['zone']}).",
                "flow": bound["flow"]["flow"], "tasks": tasks, "waits": waits, "model": None if word == AUTO else word}
     with core._claim_lock(cfg):
-        made = core._stored(ctx, store.routine_fire, routine_id=record["id"], slot=slot, status="created", reason=None, request=request)
+        made = core._stored(ctx, store.routine_fire, routine_id=record["id"], slot=slot, status="created", reason=None, request=request,
+                            approved_sha256=record["approved_sha256"])
+    if made.get("inactive"):
+        return {"routine": record["name"], "slot": slot, "status": "inactive", "reason": "the routine was paused, changed or approved again while this tick worked", "request": None}
     if not made.get("fired"):
         return {"routine": record["name"], "slot": slot, "status": "duplicate", "reason": "this slot was already fired", "request": None}
     ops_waits.rederive(ctx)

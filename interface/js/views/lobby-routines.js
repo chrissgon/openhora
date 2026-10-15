@@ -29,6 +29,28 @@ export function stateWords(r) {
   return { draft: "draft: not approved", paused: "paused", stopped: "stopped: approve its new content", cancelled: "cancelled" }[r.state] || String(r.state);
 }
 
+/**
+ * The lines of a routine's content as the person approves it, next to the hash: the schedule, the workflow with its template hash, the fixed arguments, the skills with
+ * their X.Y, the eval image's digest, the model and the consent, the providers. `content` is the service's (`routines --id`), shown as it is.
+ */
+export function contentLines(content) {
+  const c = content && typeof content === "object" ? content : {};
+  const workflow = c.workflow || {};
+  const args = workflow.params && typeof workflow.params === "object" ? Object.entries(workflow.params).map(([k, v]) => `${k}=${v}`).join(", ") : "";
+  const skills = c.skills && typeof c.skills === "object" ? Object.entries(c.skills).map(([k, v]) => `${k} ${v}`).join(", ") : "";
+  const consent = c.consent && c.consent.given ? "given by you for this model" : "not given";
+  return [
+    ["Schedule", `${scheduleWords(c.schedule)}${c.schedule && c.schedule.window_seconds ? `, a missed slot is made up for ${c.schedule.window_seconds} s` : ""}`],
+    ["Workflow", `${workflow.name || ""} (template ${workflow.template_sha256 || ""})`],
+    ["Fixed arguments", args || "none"],
+    ["Skills", skills || "none"],
+    ["Eval image", String(c.image || "")],
+    ["Model", String(c.model || "")],
+    ["Consent", consent],
+    ["Providers", Array.isArray(c.providers) && c.providers.length ? c.providers.join(", ") : "none"],
+  ];
+}
+
 /** The fire line: the last slot and what became of it. */
 export function fireWords(fire) {
   if (!fire) return "not fired yet";
@@ -78,10 +100,8 @@ export function createRoutines(env) {
     try {
       const got = await env.api.routines(env.project);
       items = Array.isArray(got && got.routines) ? got.routines : [];
-      if (!flows.length) {
-        const known = await env.api.flows(env.project);
-        flows = (Array.isArray(known && known.flows) ? known.flows : []).filter((f) => f && !f.error && !(f.params || []).some((p) => p.type === "file"));
-      }
+      const known = await env.api.flows(env.project);      // read again each time: a workflow saved since is offered
+      flows = (Array.isArray(known && known.flows) ? known.flows : []).filter((f) => f && !f.error && !(f.params || []).some((p) => p.type === "file"));
       readAt = Date.now();
     } catch (e) {
       fail(e);
@@ -113,7 +133,8 @@ export function createRoutines(env) {
     preview.hidden = !a;
     if (!a) return;
     const rows = [h("strong", { text: `Approve ${got.name}` }), h("p", { class: "wb-steps-line", text: `${scheduleWords(got.schedule)} · workflow ${got.flow} · model ${got.model_word}` }),
-      h("span", { class: "wb-card-label", text: "Hash of its exact content" }), h("code", { class: "wb-hash mono", "data-hash": "routine", tabindex: "0", text: a.sha256 })];
+      h("span", { class: "wb-card-label", text: "Hash of its exact content" }), h("code", { class: "wb-hash mono", "data-hash": "routine", tabindex: "0", text: a.sha256 }),
+      h("dl", { class: "wb-rt-content", "aria-label": "What the hash covers" }, contentLines(got.content).flatMap(([k, v]) => [h("dt", { text: k }), h("dd", { class: "mono", text: v })]))];
     if (a.consent_needed && may("routine-change")) {
       rows.push(h("p", { class: "wb-steps-line", "data-key": "warning", text: a.warning }));
       rows.push(button("Give this routine's consent", () => act(async () => {

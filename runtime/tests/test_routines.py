@@ -82,6 +82,14 @@ def test_never_one_run_per_missed_slot_and_only_the_last_skipped_get_rows():
     assert len(got["skipped"]) == routines.KEEP_SKIPPED and got["skipped"] == sorted(got["skipped"])
 
 
+def test_what_passed_while_the_routine_was_paused_or_a_draft_is_not_owed_whatever_the_last_slot_was():
+    # fired on the 10th, paused, the 11th to the 13th passed, resumed on the 14th at noon: the 14th at 08:00 is before the resume
+    assert due("2026-10-10T08:00", D(2026, 10, 14, 12, 0), D(2026, 10, 14, 13, 0)) == {"fire": None, "skipped": [], "skipped_count": 0, "window": 86400}
+    got = due("2026-10-10T08:00", D(2026, 10, 14, 12, 0), D(2026, 10, 15, 8, 5))
+    assert got["fire"] == "2026-10-15T08:00" and got["skipped"] == [], "the next slot after the resume fires, and no slot of the pause is skipped or noted"
+    assert due(None, D(2026, 10, 15, 9, 0), D(2026, 10, 15, 9, 30))["fire"] is None
+
+
 def test_the_window_is_the_records_or_the_period():
     assert routines.window_of(DAILY, None) == 86400 and routines.window_of({"every": "week", "weekday": 1, "at": "08:00"}, None) == 604800
     assert routines.window_of({"every": "minutes", "minutes": 30}, None) == 1800 and routines.window_of(DAILY, 7200) == 7200

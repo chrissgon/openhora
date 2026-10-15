@@ -367,13 +367,13 @@ GROUPS = {
     "consent": {"operations": ("give-consent",), "kind": None},   # the page's consent for an autonomous agent (D38): a group of its own, so granting set-mode never grants it
     "dispatch": {"operations": ("dispatch",), "kind": None},
     "documents": {"operations": ("sync", "hand-over"), "kind": None},
-    "workflows": {"operations": ("flow-save", "stage-file"), "kind": None},
+    "workflows": {"operations": ("flow-save", "stage-file"), "kind": None},   # saving a workflow of the project, and handing a file over for the plan of one
     # routines (P6b): the brakes reach the messaging channel by default; making and changing one is a grant of `channels.messaging`
     # (and never for a workflow that holds a networked script or that a standing policy covers: ROUTINE_LOCAL_CHANNELS); approving one
     # (by the hash of its content) and resuming it are the terminal's and the page's
     "routine-brakes": {"operations": ("routine-pause", "routine-cancel"), "kind": None},
     "routine-edit": {"operations": ("routine-create", "routine-change"), "kind": None},
-    "routine-approve": {"operations": ("routine-approve", "routine-resume"), "kind": None},   # saving a workflow of the project, and handing a file over for the plan of one
+    "routine-approve": {"operations": ("routine-approve", "routine-resume"), "kind": None},   # the approval of a routine's exact content by its hash, and the lifting of a pause
     "verdict": {"operations": ("verdict",), "kind": None},
     "sources": {"operations": ("source-add", "source-import", "source-refresh", "source-describe", "sources"), "kind": None},
 }

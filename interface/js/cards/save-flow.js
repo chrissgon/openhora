@@ -95,12 +95,16 @@ export function createSaveFlow({ api, project, item, can = () => true, signal, o
     const every = h("select", { class: "pui-input wb-select", "aria-label": "Every" }, ["day", "week"].map((w) => h("option", { value: w, text: w })));
     const at = h("input", { class: "pui-input wb-field-input", type: "text", value: "08:00", "aria-label": "At (HH:MM)" });
     const weekday = h("input", { class: "pui-input wb-field-input", type: "text", value: "1", "aria-label": "Weekday (1 Monday to 7 Sunday)" });
+    const model = h("input", { class: "pui-input wb-field-input", type: "text", "aria-label": "Model (an id, auto, or empty for the project's default)" });
+    const providers = h("input", { class: "pui-input wb-field-input", type: "text", "aria-label": "Providers for auto, separated by commas" });
     const make = h("button", { class: "pui-btn pui-surface pui-outline wb-small-button wb-save-flow-schedule", type: "button", text: "Create the routine (a draft)" });
     const said = h("p", { class: "wb-card-line", role: "status", hidden: true });
     const fail = h("div", { class: "notice pui-soft pui-error wb-card-error", role: "alert", hidden: true });
     const box = h("div", { class: "wb-save-flow-scheduler", hidden: true }, h("span", { class: "wb-card-label", text: "Schedule it" }),
       h("label", { class: "pui-field-group wb-field" }, h("span", { text: "Every" }), every), h("label", { class: "pui-field-group wb-field" }, h("span", { text: "At" }), at),
-      h("label", { class: "pui-field-group wb-field" }, h("span", { text: "Weekday (for week)" }), weekday), fail, said, make);
+      h("label", { class: "pui-field-group wb-field" }, h("span", { text: "Weekday (for week)" }), weekday),
+      h("label", { class: "pui-field-group wb-field" }, h("span", { text: "Model (empty: the project's default)" }), model),
+      h("label", { class: "pui-field-group wb-field" }, h("span", { text: "Providers (for auto)" }), providers), fail, said, make);
     box.reveal = () => { box.hidden = false; };
     make.addEventListener("click", async () => {
       if (!saved || busy) return;
@@ -109,6 +113,9 @@ export function createSaveFlow({ api, project, item, can = () => true, signal, o
       make.disabled = true;
       const fields = { name: saved, flow: saved, every: every.value, at: at.value.trim() };
       if (every.value === "week") fields.weekday = Number(weekday.value);
+      if (model.value.trim()) fields.model = model.value.trim();
+      const chosen = providers.value.split(",").map((t) => t.trim()).filter(Boolean);
+      if (chosen.length) fields.providers = chosen;
       try {
         await api.routineCreate(project, fields, { signal });
         said.textContent = `The routine ${saved} is a draft. Review and approve its exact content in the Building's Routines section; it fires nothing before.`;

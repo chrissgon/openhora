@@ -52,11 +52,13 @@ let list = [
   { id: 2, name: "weekly", flow: "report", schedule: { every: "week", weekday: 1, at: "09:30" }, state: "active", current: true, model_word: "m", last_fire: { slot: "2026-10-12T09:30", status: "created" } },
   { id: 3, name: "changed", flow: "report", schedule: { every: "minutes", minutes: 30 }, state: "active", current: false, model_word: "m", last_fire: { slot: "x", status: "asked", reason: "its content changed" } },
   { id: 4, name: "held", flow: "report", schedule: { every: "day", at: "01:00" }, state: "paused", current: true, model_word: "m", last_fire: null }];
+const CONTENT = { schedule: { every: "day", at: "08:00", window_seconds: 86400 }, workflow: { name: "demo", template_sha256: "t".repeat(64), params: { topic: "dental" } },
+  skills: { "demo-asks": "0.1", "demo-writes": "0.1" }, image: "sha256:" + "1".repeat(64), model: "fm", consent: { given: false }, providers: [] };
 let needed = true;
 const calls = [];
 const api = {
   routines: async (p, o) => {
-    if (o && o.id) return { ...list.find((r) => r.id === o.id), approve: { sha256: HASH, consent_needed: needed, warning: WARNING, warning_sha256: "w".repeat(64), command: "routine-approve --id 1 --sha256 " + HASH } };
+    if (o && o.id) return { ...list.find((r) => r.id === o.id), content: CONTENT, approve: { sha256: HASH, consent_needed: needed, warning: WARNING, warning_sha256: "w".repeat(64), command: "routine-approve --id 1 --sha256 " + HASH } };
     return { routines: list };
   },
   flows: async () => ({ flows: [{ flow: "demo", title: "Demo" }, { flow: "survey", title: "Survey", params: [{ name: "f", type: "file" }] }, { flow: "bad", error: "x" }] }),
@@ -81,6 +83,7 @@ out.buttons = items.map((i) => tag(i, "button").map(textOf));
 out.shown = [section.el.hidden, byClass(section.el, "wb-rt-new").length];
 await (async () => { click(labelled(items[0], "Review and approve")); await settle(); })();
 const preview = byClass(section.el, "wb-rt-preview")[0];
+out.content = tag(preview, "dd").map(textOf);
 out.preview = { hidden: preview.hidden, hash: textOf(byClass(preview, "wb-hash")[0]), warning: textOf(tag(preview, "p").find((p) => p.attrs["data-key"] === "warning")), buttons: tag(preview, "button").map(textOf) };
 click(labelled(preview, "Give this routine's consent")); await settle();
 out.afterConsent = { calls: calls.slice(), warning: tag(byClass(section.el, "wb-rt-preview")[0], "p").some((p) => p.attrs["data-key"] === "warning") };
@@ -111,6 +114,8 @@ def test_the_routines_section_lists_previews_the_whole_hash_with_the_consent_war
     assert len(got["items"]) == 4 and "morning" in got["items"][0] and "every Monday at 09:30" in got["items"][1] and "2026-10-12T09:30: created" in got["items"][1]
     assert got["buttons"] == [["Review and approve", "Cancel"], ["Pause", "Cancel"], ["Pause", "Cancel"], ["Resume", "Cancel"]]
     assert got["preview"]["hidden"] is False and got["preview"]["hash"] == "ab" * 32, "the hash is shown whole"
+    assert got["content"] == ["every day at 08:00, a missed slot is made up for 86400 s", "demo (template " + "t" * 64 + ")", "topic=dental",
+                              "demo-asks 0.1, demo-writes 0.1", "sha256:" + "1" * 64, "fm", "not given", "none"], "what the hash covers is shown beside it"
     assert got["preview"]["warning"].startswith("Each run of this agent") and "Give this routine's consent" in got["preview"]["buttons"]
     assert got["afterConsent"]["calls"] == [["change", 1, {"consent": True, "warning_sha256": "w" * 64}]] and got["afterConsent"]["warning"] is False
     assert got["afterApprove"]["calls"] == [["approve", 1, "ab" * 32]] and got["afterApprove"]["hidden"] is True

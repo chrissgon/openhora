@@ -30,12 +30,19 @@ REAL = datetime.datetime.now().astimezone().replace(second=0, microsecond=0)
 
 
 class Clock:
-    """The fake clock: ops_flows.now() answers REAL plus an offset the test moves. The store stamps the approval with the real time, so a
-    routine's slots are counted from REAL; the schedule is `daily at (REAL + 1 hour)`, so the first slot is one hour ahead."""
+    """The fake clock: ops_flows.now() and the store's own stamps answer REAL plus an offset the test moves. The schedule is `daily at
+    (REAL + 1 hour)`, so the first slot is one hour ahead of the start."""
 
     def __init__(self, monkeypatch):
         self.offset = datetime.timedelta(0)
         monkeypatch.setattr(ops_flows, "now", lambda: REAL + self.offset)
+        real = ops_core.store_module
+
+        def patched():      # the store stamps what it writes (an approval, a resume) with this clock, so the tests can move through days
+            module = real()
+            monkeypatch.setattr(module, "utcnow", lambda: (REAL + self.offset).astimezone(datetime.timezone.utc))      # undone with the test: the module is shared
+            return module
+        monkeypatch.setattr(ops_core, "store_module", patched)
 
     def to(self, **delta):
         self.offset = datetime.timedelta(**delta)
@@ -156,17 +163,17 @@ def test_two_fires_of_one_slot_create_tasks_once(world, clock):
 
 def test_a_missed_slot_is_run_once_inside_the_window_skipped_and_noted_outside_it_and_never_once_per_missed_slot(world, clock):
     made = make(world, name="inside")
+    late = make(world, name="outside", window_seconds=3600)
     approve(world, made["id"])
-    out = tick(world, clock.to(days=3, minutes=61))                                     # a three-day outage
-    assert [o["status"] for o in out].count("created") == 1 and [o["status"] for o in out].count("skipped") == 3
+    approve(world, late["id"])
+    out = tick(world, clock.to(days=3, hours=3))                                        # a three-day outage; the newest slot is two hours old
+    mine = [o for o in out if o["routine"] == "inside"]
+    assert [o["status"] for o in mine].count("created") == 1 and [o["status"] for o in mine].count("skipped") == 3
     rows = fires(world, made["id"])
     assert sorted(f["status"] for f in rows) == ["created", "skipped", "skipped", "skipped"] and "missed" in rows[1]["reason"]
     assert len([t for t in ctx_of(world)["store"].tasks_list(ctx_of(world)["conn"]) if t["parent_id"] is None]) == 1
-    late = make(world, name="outside", window_seconds=3600)
-    approve(world, late["id"])
-    out = tick(world, clock.to(days=3, hours=3))                                        # the newest slot is 2 hours old, the window an hour
-    mine = [o for o in out if o["routine"] == "outside"]
-    assert mine and {o["status"] for o in mine} == {"skipped"}
+    outside = [o for o in out if o["routine"] == "outside"]                             # its window is an hour: nothing is made up
+    assert outside and {o["status"] for o in outside} == {"skipped"}
     assert all(f["status"] == "skipped" for f in fires(world, late["id"])) and "older than the window of 3600 s" in fires(world, late["id"])[0]["reason"]
     assert tick(world, clock.to(days=3, hours=4)) == [], "what was skipped is not tried again"
 
@@ -221,7 +228,7 @@ def test_a_changed_workflow_template_stops_the_routine_and_asks_with_a_question_
     ops.routine_approve(world["path"], rid, shown["approve"]["sha256"])
     assert routine(world, rid)["state"] == "active"
     assert ctx["store"].task_get(ctx["conn"], one["request"])["state"] == "cancelled", "approving cancels the request of the stop"
-    assert [o["status"] for o in tick(world, clock.to(days=1, minutes=61))] == ["created"]
+    assert [o["status"] for o in tick(world, clock.to(days=3, minutes=61))] == ["created"]
 
 
 def set_version(world, skill, version):
@@ -452,3 +459,177 @@ def test_the_tasks_a_fire_creates_belong_to_the_area_agents_and_so_count_against
     ctx = ctx_of(world)
     assert {t["agent"] for t in ctx["store"].tasks_list(ctx["conn"]) if t["parent_id"] == one["request"]} == {"business"}
     assert "mode" not in routine(world, rid) and "max_runs_per_day" not in routine(world, rid), "a routine carries no mode or cap of its own"
+
+
+# --- the review of P6b ---------------------------------------------------------------------------------------------------------------------
+
+
+def test_slots_that_passed_while_a_routine_was_paused_or_a_draft_are_not_made_up_after_the_resume_or_the_new_approval(world, clock):
+    rid = approved_routine(world)
+    [one] = tick(world, clock.to(minutes=61))
+    assert one["status"] == "created"
+    clock.to(hours=2)
+    ops.routine_pause(world["path"], rid)
+    clock.to(days=3, hours=1)                                                          # the slots of three days pass while it is paused
+    ops.routine_resume(world["path"], rid)
+    assert routine(world, rid)["resumed_at"] is not None
+    assert tick(world, clock.to(days=3, hours=2)) == [], "the paused slots are not made up on the resume"
+    [next_slot] = tick(world, clock.to(days=4, minutes=61))
+    assert next_slot["status"] == "created" and next_slot["slot"] == (REAL + datetime.timedelta(days=4, hours=1)).strftime("%Y-%m-%dT%H:%M")
+    # a change turns it into a draft; the days it stays one are not owed after the new approval either
+    clock.to(days=4, hours=3)
+    ops.routine_change(world["path"], rid, at=(REAL + datetime.timedelta(days=4, hours=4)).strftime("%H:%M"))
+    clock.to(days=8, hours=5)
+    approve(world, rid)
+    assert tick(world, clock.to(days=8, hours=6)) == []
+    assert [o["status"] for o in tick(world, clock.to(days=9, hours=5))] == ["created"]
+
+
+def test_an_auto_routine_pins_every_task_inside_its_providers_and_stops_when_none_qualifies_whatever_the_default_model_is(world, clock, monkeypatch):
+    path = world["project"] / "docs" / "workbench" / "runtime.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["default_model"] = "fm"                                                         # a model on another provider than the approved set
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    ops.accept_config(world["path"], ops.project_config.load(world["path"])["sha256"])
+    made = make(world, model="auto", providers=["direct"])
+    approve(world, made["id"])
+    seen = []
+
+    def nothing_inside(ctx, skill, meta, keys, task=None, requested=None, approved=None):
+        seen.append((skill, approved))
+        if approved is not None:      # no pair is reliable inside the set: the fallback model (outside it) is what would run
+            return {"mode": "fallback", "model": "fm", "outside_provider": [], "autonomy": "supervised"}
+        return {"mode": "fallback", "model": "fm", "outside_provider": [], "autonomy": "supervised"}
+    monkeypatch.setattr(ops_models, "route", nothing_inside)
+    [asked] = tick(world, clock.to(minutes=61))
+    assert asked["status"] == "asked" and "no reliable pair with a key and a price is inside the providers the routine was approved for" in asked["reason"]
+    assert "the model that would run otherwise is fm" in asked["reason"] and routine(world, made["id"])["state"] == "stopped"
+    ctx = ctx_of(world)
+    assert [t for t in ctx["store"].tasks_list(ctx["conn"]) if t["parent_id"] and t["state"] != "cancelled"] == [], "no task was created to run elsewhere"
+
+
+def test_the_consent_of_a_routine_that_follows_the_project_default_fixes_that_model_on_its_record_and_works_end_to_end(world, clock):
+    path = world["project"] / "docs" / "workbench" / "runtime.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["default_model"] = "fm"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    ops.accept_config(world["path"], ops.project_config.load(world["path"])["sha256"])
+    made = make(world, model=None)                                                      # the page's "New routine" with an empty model
+    assert made["model_word"] == "fm" and made["content"]["model"] == "fm" and made["approve"]["consent_needed"] is True
+    given = ops.routine_change(world["path"], made["id"], consent=True, warning_sha256=autonomy.CONSENT_WARNING_SHA256, channel="page")
+    assert given["model"] == "fm" and given["consent"] == 1 and given["content"]["consent"]["given"] is True, "the record names the model the consent is for"
+    approve(world, made["id"])
+    [one] = tick(world, clock.to(minutes=61))
+    ctx = ctx_of(world)
+    task = next(t for t in ctx["store"].tasks_list(ctx["conn"]) if t["parent_id"] == one["request"])
+    meta = skill_meta.declared(os.path.join(str(world["tree"]), "skills", task["skill"]))
+    routing = ops_models.route(ctx, task["skill"], meta, None, task)
+    assert routing["model"] == "fm" and routing["autonomy"] == "consent" and routing["consent"] is True
+    assert ops_models.consent_for_review(ctx, {"task_id": task["id"], "autonomy": "consent", "model": "fm"}, None, False) == (False, True)
+    # a consent asked for with nothing to fix it on (the default is auto) is refused
+    raw["default_model"] = "auto"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    ops.accept_config(world["path"], ops.project_config.load(world["path"])["sha256"])
+    with pytest.raises(ops_core.OpsError, match="needs no consent"):
+        make(world, name="other", model=None, consent=True)
+
+
+def test_an_alias_of_the_default_model_is_hashed_as_the_id_it_names(world):
+    ctx = ctx_of(world)
+    assert ops_routines.effective_model(ctx, {"model": None}) == "auto"
+    assert ops_routines.effective_model(ctx, {"model": "m"}) == "m"
+
+
+def test_an_image_that_cannot_be_looked_up_defers_the_slot_and_never_stops_the_routine_and_is_never_approved_as_none(world, clock, monkeypatch):
+    made = make(world)
+    approve(world, made["id"])
+    down = {"name": "standin", "digest": None, "platform": "linux/arm64", "problem": "docker is not running"}
+    real = lab.image
+    monkeypatch.setattr(lab, "image", lambda: down)
+    [one] = tick(world, clock.to(minutes=61))
+    assert one["status"] == "deferred" and "docker is not running" in one["reason"] and one["request"] is None
+    assert fires(world, made["id"]) == [] and routine(world, made["id"])["state"] == "active", "no row, no stop"
+    monkeypatch.setattr(lab, "image", real)
+    [again] = tick(world, clock.to(minutes=62))
+    assert again["status"] == "created" and again["slot"] == SLOT, "the next tick fires the same slot"
+    # the image not pulled yet (a name and no digest) is the same
+    monkeypatch.setattr(lab, "image", lambda: {"name": "standin", "digest": None, "platform": "linux/arm64"})
+    shown = ops.routines_read(world["path"])["routines"][0]
+    assert shown["sha256"] is None and "cannot be looked up" in shown["problem"]
+    # an approval records a digest, never None
+    other = make(world, name="second")
+    with pytest.raises(ops_core.OpsError, match="the eval image cannot be looked up"):
+        ops.routine_approve(world["path"], other["id"], "0" * 64)
+    preview = ops.routine_approve(world["path"], other["id"])      # the preview says why there is nothing to approve now
+    assert "approve" not in preview and "cannot be looked up" in preview["problem"]
+    assert routine(world, other["id"])["approved_sha256"] is None
+
+
+def test_a_pause_or_a_change_between_the_read_of_a_routine_and_its_fire_wins(world, clock):
+    made = make(world)
+    approve(world, made["id"])
+    ctx = ctx_of(world)
+    stale = {**routine(world, made["id"]), "last_fire": None}
+    ops.routine_pause(world["path"], made["id"])
+    out = ops_routines.fire(ctx, stale, SLOT, clock.to(minutes=61))
+    assert out["status"] == "inactive" and fires(world, made["id"]) == []
+    requests = [t for t in ctx["store"].tasks_list(ctx["conn"]) if t["parent_id"] is None]
+    assert requests == []
+    ops.routine_resume(world["path"], made["id"])
+    ops.routine_change(world["path"], made["id"], at="23:59")                           # a change: a draft, approval cleared
+    again = ops_routines.fire(ctx, stale, SLOT, clock.to(minutes=62))
+    assert again["status"] == "inactive" and fires(world, made["id"]) == []
+    # approved again with another content: the stale hash does not fire
+    approve(world, made["id"])
+    assert ops_routines.fire(ctx, stale, SLOT, clock.to(minutes=63))["status"] == "inactive"
+
+
+def test_one_routines_error_never_keeps_the_others_from_firing(world, clock, monkeypatch):
+    first = make(world, name="first")
+    second = make(world, name="second")
+    approve(world, first["id"])
+    approve(world, second["id"])
+    real = ops_routines.fire
+
+    def fire(ctx, record, slot, now):
+        if record["name"] == "first":
+            raise RuntimeError("boom")
+        return real(ctx, record, slot, now)
+    monkeypatch.setattr(ops_routines, "fire", fire)
+    out = tick(world, clock.to(minutes=61))
+    assert {"routine": "first", "error": "RuntimeError: boom"} in out
+    assert [o["status"] for o in out if o.get("routine") == "second"] == ["created"]
+
+
+def test_an_unknown_step_kind_is_refused_by_the_limit_and_by_the_routine(world, clock):
+    write_flow(world, "vanished", {"flow": "vanished", "title": "Vanished", "tasks": [{"key": "go", "step": "no-such-kind", "title": "Go", "args": {}}]})
+    with pytest.raises(ops_core.OpsError, match="a step of a kind \\(no-such-kind\\) this checkout does not have"):
+        make(world, flow="vanished")
+    loaded = flow_files_load(world, "vanished")
+    reason = ops_routines.local_reason(ctx_of(world), loaded)
+    assert reason and "cannot be shown not to reach the network" in reason, "a limit refuses what it cannot read"
+
+
+def flow_files_load(world, name):
+    return st.load("flow_files").load(name, str(world["tree"]), str(world["project"]))
+
+
+def test_changing_or_cancelling_a_routine_closes_the_request_of_its_stop_as_approving_does(world, clock):
+    write_flow(world, "daily-demo", {"flow": "daily-demo", "title": "Daily", "tasks": [
+        {"key": "market", "skill": "demo-asks", "title": "Market", "text": "Do it."}]})
+    for how in ("change", "cancel"):
+        rid = approved_routine(world, flow="daily-demo", name=f"r-{how}")
+        write_flow(world, "daily-demo", {"flow": "daily-demo", "title": "Daily", "tasks": [
+            {"key": "market", "skill": "demo-asks", "title": "Market", "text": f"Do it, {how}."}]})
+        [asked] = tick(world, clock.to(days=1 if how == "cancel" else 0, minutes=61))
+        assert asked["status"] == "asked"
+        ctx = ctx_of(world)
+        assert ctx["store"].task_get(ctx["conn"], asked["request"])["state"] == "requested"
+        if how == "change":
+            ops.routine_change(world["path"], rid, at="23:58")
+        else:
+            ops.routine_cancel(world["path"], rid)
+        assert ctx["store"].task_get(ctx["conn"], asked["request"])["state"] == "cancelled"
+        write_flow(world, "daily-demo", {"flow": "daily-demo", "title": "Daily", "tasks": [
+            {"key": "market", "skill": "demo-asks", "title": "Market", "text": "Do it."}]})
+
