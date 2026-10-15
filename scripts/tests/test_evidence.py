@@ -35,6 +35,7 @@ def tree(tmp_path):
     (wb / "evals").mkdir()
     shutil.copy(REPO / "scripts" / "evidence.py", wb / "scripts" / "evidence.py")
     shutil.copy(REPO / "evals" / "eval_status.py", wb / "evals" / "eval_status.py")
+    shutil.copy(REPO / "evals" / "evidence_lines.py", wb / "evals" / "evidence_lines.py")  # eval_status.py loads it by path
     (wb / "evals" / "eval-gate.json").write_text(json.dumps(GATE))
     (wb / "adapters" / "demo-harness").mkdir(parents=True)
     skill = wb / "skills" / "core-demo"

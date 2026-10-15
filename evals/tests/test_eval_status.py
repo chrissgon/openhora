@@ -532,7 +532,8 @@ def test_a_well_formed_evidence_file_is_valid_and_changes_no_status(root, capsys
     ({"skill": "Core Demo"}, "skill must be a skill name"),
     ({"version": "1.0"}, "version must be X.Y.Z"),
     ({"content_sha256": "abc"}, "content_sha256 must be 64 hexadecimal characters"),
-    ({"model": "a-private-model"}, "model must be an id of the gate file's model list"),
+    ({"model": "a private model"}, "model must be a well-formed model id"),
+    ({"model": "a-private-model"}, "model is not one of the event's models"),
     ({"adapter": "../h"}, "adapter must be an adapter's folder name"),
     ({"kind": "smoke"}, "kind must be full or partial"),
     ({"date": "2030-13-01"}, "date must be YYYY-MM-DD"),
@@ -557,7 +558,6 @@ def test_a_well_formed_evidence_file_is_valid_and_changes_no_status(root, capsys
     ({"test": "20300102T030405Z-ffffffff"}, "test differs from the event line of the file"),
     ({"kind": "partial"}, "kind differs from the event line of the file"),
     ({"measurement_sha256": H["a"]}, "measurement_sha256 differs from the event line of the file"),
-    ({"model": "unknown"}, "model is not one of the event's models"),
     ({"adapter": "other"}, "adapter is not one of the event's adapters"),
     ({"case": 3}, "case and case_sha256 are not a case of the event line"),
     ({"case_sha256": H["f"]}, "case and case_sha256 are not a case of the event line"),
@@ -576,10 +576,10 @@ def test_a_run_line_with_an_unknown_key_or_a_value_outside_its_form_is_an_error(
     ({"record": "run"}, "record must be \"test\""),
     ({"test": "yesterday"}, "test must be a test id"),
     ({"models": {"floor": "f-model"}}, "models must be"),
-    ({"models": {"strong": "a-private-model", "floor": "f-model"}}, "models must be"),
+    ({"models": {"strong": "a private model", "floor": "f-model"}}, "models must be"),
     ({"adapters": {"strong": "h"}}, "adapters must be an adapter's folder name for each tier"),
     ({"adapter_sha256": {"h": H["b"]}}, "adapter_sha256 must be the sha256 of the run-prompt.sh of each adapter"),
-    ({"grader": "a-private-grader"}, "grader must be a listed model id"),
+    ({"grader": "a private grader"}, "grader must be a well-formed model id"),
     ({"runs": 0}, "runs must be a whole number, 1 or more"),
     ({"retries": -1}, "retries must be a whole number, 0 or more"),
     ({"image_digest": None}, "image_digest must be sha256:"),
@@ -610,19 +610,24 @@ def test_an_event_line_with_an_unknown_key_or_a_value_outside_its_form_is_an_err
     assert problems and problems[0].startswith("line 1: ") and why in problems[0], problems
 
 
-def test_an_event_with_another_number_of_runs_than_the_configured_one_is_no_evidence(root, capsys):
-    """A trial of 2 runs per case, copied into a skill by hand, is refused: evidence comes only from an event
-    that used the configured values, and its score and gate would otherwise be computed from it."""
+def test_an_event_is_judged_by_its_own_runs_never_by_the_configured_number(root):
+    """Backlog T24: a later change of the gate file's "runs" invalidates no committed file. The event's "runs"
+    is checked against its range and against its own lines."""
     configure(root)  # no "runs" key: the default, 3
     path = evidence(root, [event_line(runs=2), run_line()])
-    assert es.evidence_file_problems(str(path), str(root)) == [
-        'line 1: runs is 2, and the configured number is 3 ("runs" of evals/eval-gate.json): an event with another '
-        "number of runs is a trial, and writes no evidence"]
-    assert es.main(["evidence"], root=str(root)) == 1 and "runs is 2, and the configured number is 3" in capsys.readouterr().err
-    configure(root, runs=2)  # the number the gate file configures is the one an event line must carry
     assert es.evidence_file_problems(str(path), str(root)) == []
-    path = evidence(root, [event_line(), run_line()])
-    assert "runs is 3, and the configured number is 2" in es.evidence_file_problems(str(path), str(root))[0]
+    configure(root, runs=5)
+    assert es.evidence_file_problems(str(path), str(root)) == []
+    assert "runs must be a whole number, 1 or more" in es.evidence_file_problems(
+        str(evidence(root, [event_line(runs=0), run_line()])), str(root))[0]
+    assert "runs must be a whole number from 1 to 10" in es.evidence_file_problems(
+        str(evidence(root, [event_line(runs=11), run_line()])), str(root))[0]
+    # No case has more lines with the skill, on one model, than the event's own runs.
+    path = evidence(root, [event_line(runs=2), run_line(), run_line(), run_line()])
+    problems = es.evidence_file_problems(str(path), str(root))
+    assert len(problems) == 1 and "case 1 has 3 lines with the skill on s-model, more than the 2 the event allows" in problems[0]
+    path = evidence(root, [event_line(runs=2)] + [run_line(variant="without", score=0.0, results=[0, 0])] * 3)
+    assert es.evidence_file_problems(str(path), str(root)) == []  # a baseline has a number of runs of its own
 
 
 def test_the_forms_that_are_optional_or_depend_on_the_kind(root):
@@ -633,6 +638,7 @@ def test_the_forms_that_are_optional_or_depend_on_the_kind(root):
                                                                             adapter_sha256={"h": H["b"]}, counts={})):
         assert es.event_line_problems(line, {"s-model", "f-model"}) == [], line
     assert es.run_line_problems(run_line(model="unknown")) == [] and es.run_line_problems(run_line(case="a-case"), None, None) == []
+    assert es.run_line_problems(run_line(model="unknown"), event_line()) == []  # "unknown" is always a model the line may name
 
 
 def test_a_file_that_is_no_evidence_file_is_an_error(root, capsys):
