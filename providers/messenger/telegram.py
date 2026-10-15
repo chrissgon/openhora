@@ -139,6 +139,15 @@ def api_base() -> tuple:
 def store_missing_note(resolver, test_mode: bool = False) -> str:
     """The sentence that tells the OS secret store cannot be read in this Python (no keyring library), with its trailing space,
     or "" (also in test mode, where the store is not asked on purpose, and for a resolver without the check)."""
+    if test_mode:
+        return ""
+    locked = getattr(resolver, "store_locked_note", None)   # a locked store is not a missing token (package P-OPS)
+    try:
+        said = "" if locked is None else locked()
+    except Exception:  # a broken check must not hide the real error
+        said = ""
+    if isinstance(said, str) and said:
+        return said + ". "
     available = getattr(resolver, "store_available", None)
     try:
         if test_mode or available is None or available():

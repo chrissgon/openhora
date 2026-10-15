@@ -8,12 +8,29 @@
 Every script asks for a secret by name; the resolver looks in the same places, in the same order:
   1. environment variables: the name, then its aliases (a cloud environment's settings, CI secrets,
      or an export in the shell);
-  2. the OS secret store (keyring): service "openhora", the username listed below; a name not found
+  2. the credentials directory, the one supported backend for a machine with no desktop session (see
+     "The credentials directory" below);
+  3. the OS secret store (keyring): service "openhora", the username listed below; a name not found
      there is looked up under the service the workbench used before it was renamed, "ai-workbench"
      (LEGACY_SERVICE), for one stage (removed with the next change of the lab models, T23).
 The first non-empty value wins. Values are never printed, logged or written, not even partially.
-Adding a backend (a password manager) means adding one lookup function to BACKENDS; callers do
-not change.
+Adding a backend (a password manager) means adding one lookup function to the chain in resolve_state;
+callers do not change.
+
+A locked store is not a missing secret. When the OS secret store raises instead of answering (a locked
+keychain or collection, no backend on a machine with no desktop session), the answer is "locked" and not
+"missing": resolve_state says so (state "locked"), --check exits 4, --list prints "locked", and
+store_locked_note() gives the sentence a caller shows. resolve and resolve_detail keep returning None, as
+for a missing secret, so a caller that reads only None is unchanged; one that wants to tell the two apart
+asks resolve_state. A store that answers with nothing is "missing".
+
+The credentials directory. A folder with one file per secret, named exactly like the secret
+(VCS_GITHUB_TOKEN), holding its value. It is looked for in OPENHORA_CREDENTIALS_DIR, then in
+CREDENTIALS_DIRECTORY (what a systemd unit sets for LoadCredential= and LoadCredentialEncrypted=; a
+container's mounted secrets work the same way), then in ~/.config/openhora/credentials when that folder
+exists. It is read, never written, with checks that refuse an unsafe one (state "unsafe", and the reason): the
+folder and each file must be this user's and not readable by anyone else (folder 0700, file 0600 or 0400),
+neither may be a symbolic link, and a file is at most 64 KiB.
 
 The registry below holds the secrets the core reads: the providers' credentials. An adapter
 registers the secrets its own runs need in the "secrets" list of adapters/<harness>/adapter.json.
@@ -27,8 +44,9 @@ Usage:
   --list      every registered secret: purpose, minimum permission, readers, whether it is found
               and where (environment or store, and which store service answered: "openhora" or
               "ai-workbench (legacy)", the name to move), and how to set it; never the value
-  --check     exit 0 when <NAME> is found, 3 when not, 2 when <NAME> is not registered; the line
-              printed carries "service" when the store answered
+  --check     exit 0 when <NAME> is found, 3 when not, 4 when the store is locked or unavailable or the
+              credentials directory is unsafe (the answer is not "missing"), 2 when <NAME> is not
+              registered; the line printed carries "service" when the store answered
   --registry  a JSON file whose "secrets" list is merged into the registry first (repeatable);
               each entry has name, purpose, permission and readers, and optionally
               store_username, aliases, note and set_local
@@ -41,14 +59,16 @@ Setting a secret:
                  workflow (env: NAME: ${{ secrets.NAME }})
   local          uv run --with keyring==25.7.0 keyring set openhora <username>
                  (typed at a hidden prompt, never on the command line), or an export in the shell
+  headless       a file in the credentials directory (chmod 600), see docs/architecture/platform/unattended.md
 
 Without the keyring package (plain python3), the store is reported as unavailable and only the
-environment is read. Exit codes: 0 ok, 2 usage error, 3 not found.
+environment is read. Exit codes: 0 ok, 2 usage error, 3 not found, 4 the store is locked or unavailable.
 """
 from __future__ import annotations
 
 import json
 import os
+import stat
 import sys
 from dataclasses import dataclass, field
 
@@ -57,6 +77,14 @@ LEGACY_SERVICE = "ai-workbench"  # T23: what the store held before the rename; r
 LEGACY_LABEL = f"{LEGACY_SERVICE} (legacy)"
 EXIT_USAGE = 2
 EXIT_NOT_FOUND = 3
+EXIT_LOCKED = 4
+CREDENTIALS_DIR_VARS = ("OPENHORA_CREDENTIALS_DIR", "CREDENTIALS_DIRECTORY")   # looked at in this order
+CREDENTIALS_DEFAULT = (".config", "openhora", "credentials")                  # under the home folder, used only when it exists
+CREDENTIAL_MAX_BYTES = 64 * 1024
+PROBE_USERNAME = "__store-probe__"                                            # a name nothing stores: asking for it reads no secret
+LOCKED_SENTENCE = ("the secret store is locked or unavailable: unlock it (a locked keychain or collection), or, on a machine with "
+                   "no desktop session, put the secret in the credentials directory "
+                   "(docs/architecture/platform/unattended.md). The secret may be stored; it cannot be read now")
 
 
 @dataclass(frozen=True)
@@ -268,41 +296,204 @@ def _keyring():
 def store_available() -> bool:
     """True when the OS secret store can be asked at all, that is when the keyring library can be imported. False means a
     secret that is "not found" may only be one that was never looked for in the store (plain python3, no keyring library):
-    callers say so instead of "missing". Read-only: it opens no store and reads no secret."""
+    callers say so instead of "missing". Read-only: it opens no store and reads no secret. It does not say whether the store
+    is locked: see store_locked_note and resolve_state."""
     return _keyring() is not None
 
 
+class StoreLocked(Exception):
+    """The OS secret store raised instead of answering: locked (kind "locked") or unavailable (kind "unavailable": no backend,
+    a daemon that is not running). Not "not found". The message holds no text of the underlying error."""
+
+    def __init__(self, kind: str = "unavailable"):
+        super().__init__(LOCKED_SENTENCE)
+        self.kind = kind
+
+
+class CredentialsUnsafe(Exception):
+    """The credentials directory, or a file in it, is not safe to read; the message says which and how to fix it."""
+
+
+_FAILURE = {"kind": None}   # the last read of the store: the kind of its failure, or None when it answered (found or not)
+
+
+def store_failure():
+    """The kind ("locked" or "unavailable") of the failure of the last read of the OS secret store in this process, or None
+    when the last read answered. Never a message of the backend."""
+    return _FAILURE["kind"]
+
+
+def store_locked_note() -> str:
+    """LOCKED_SENTENCE when the last read of the OS secret store in this process failed, else "". A caller that found a secret
+    missing adds it first, so that a locked store is not reported as an absent secret."""
+    return LOCKED_SENTENCE if _FAILURE["kind"] else ""
+
+
 def _ask(store, service: str, username: str) -> str:
+    """The value the store holds, "" when it holds nothing there ("not found"). StoreLocked when the store raises instead of
+    answering: that is not "not found"."""
     try:
-        return (store.get_password(service, username) or "").strip()
-    except Exception:  # a locked or missing backend is "not found here", never a crash
-        return ""
+        value = (store.get_password(service, username) or "").strip()
+    except Exception as e:  # a locked or failing backend is told apart from an absent secret
+        _FAILURE["kind"] = "locked" if "locked" in type(e).__name__.lower() else "unavailable"
+        raise StoreLocked(_FAILURE["kind"]) from None
+    _FAILURE["kind"] = None
+    return value
 
 
 def _from_store(secret: Secret, store) -> tuple[str, str, str] | None:
-    """(value, "secret store", the service that answered): SERVICE first, then LEGACY_SERVICE."""
+    """(value, "secret store", the service that answered): SERVICE first, then LEGACY_SERVICE. A service that raises does not stop
+    the other from answering; StoreLocked when nothing was found and one of them raised (the secret may be in the one that could not
+    be read)."""
     if not secret.store_username or store is None:
         return None
-    value = _ask(store, SERVICE, secret.store_username)
-    if value:
-        return value, "secret store", SERVICE
-    value = _ask(store, LEGACY_SERVICE, secret.store_username)
-    return (value, "secret store", LEGACY_LABEL) if value else None
+    failed = None
+    for service, label in ((SERVICE, SERVICE), (LEGACY_SERVICE, LEGACY_LABEL)):
+        try:
+            value = _ask(store, service, secret.store_username)
+        except StoreLocked as e:
+            failed = failed or e
+            continue
+        if value:
+            _FAILURE["kind"] = None
+            return value, "secret store", label
+    if failed is not None:
+        _FAILURE["kind"] = failed.kind
+        raise failed
+    return None
 
 
-def resolve_detail(name: str, *, allow_store: bool = True, environ=None, store="default") -> tuple[str, str, str | None] | None:
-    """Return (value, source, service) for a registered secret, or None. The service is None for the
-    environment, and for the store "openhora" or "ai-workbench (legacy)". Never prints the value."""
+def probe_store(store="default") -> dict:
+    """Whether the OS secret store can be read at all, by asking it for a name nothing stores (it reads no secret):
+    {"state": "ok" | "no-library" | "locked" | "unavailable", "detail"}. A store that is locked may ask the person to unlock it,
+    as any read would."""
+    store = _keyring() if store == "default" else store
+    if store is None:
+        return {"state": "no-library", "detail": "the keyring library is not available in this Python"}
+    try:
+        _ask(store, SERVICE, PROBE_USERNAME)
+    except StoreLocked as e:
+        return {"state": e.kind, "detail": LOCKED_SENTENCE}
+    return {"state": "ok", "detail": "the store answered"}
+
+
+def credentials_dir(environ=None) -> str | None:
+    """The credentials directory: OPENHORA_CREDENTIALS_DIR, then CREDENTIALS_DIRECTORY, then ~/.config/openhora/credentials when it
+    exists; None when none is set or there. It is not checked here: _from_directory refuses an unsafe one."""
+    environ = os.environ if environ is None else environ
+    for var in CREDENTIALS_DIR_VARS:
+        value = (environ.get(var) or "").strip()
+        if value:
+            return value
+    home = (environ.get("HOME") or "").strip()
+    if home:
+        path = os.path.join(home, *CREDENTIALS_DEFAULT)
+        if os.path.isdir(path):
+            return path
+    return None
+
+
+def _owned_private(info, what: str, wanted: str) -> None:
+    if hasattr(os, "getuid") and info.st_uid != os.getuid():
+        raise CredentialsUnsafe(f"{what} is not owned by this user")
+    if stat.S_IMODE(info.st_mode) & 0o077:
+        raise CredentialsUnsafe(f"{what} can be read by others (mode {stat.S_IMODE(info.st_mode):04o}): chmod {wanted}")
+
+
+def _from_directory(secret: Secret, environ) -> tuple[str, str] | None:
+    """(value, "credentials directory") from the file named like the secret in the credentials directory, or None when there is no
+    such directory or file. CredentialsUnsafe when the folder or the file is a link, not this user's, readable by others, not
+    a regular file or too large: it is read with O_NOFOLLOW from the open descriptor of the folder."""
+    path = credentials_dir(environ)
+    if path is None:
+        return None
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    try:
+        if stat.S_ISLNK(os.lstat(path).st_mode):
+            raise CredentialsUnsafe(f"the credentials directory {path} is a symbolic link: name the folder itself")
+        dir_fd = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | nofollow)
+    except FileNotFoundError:
+        return None
+    except CredentialsUnsafe:
+        raise
+    except OSError as e:
+        raise CredentialsUnsafe(f"the credentials directory {path} cannot be opened: {e.strerror}") from None
+    try:
+        info = os.fstat(dir_fd)
+        if not stat.S_ISDIR(info.st_mode):
+            raise CredentialsUnsafe(f"{path} is not a folder")
+        _owned_private(info, f"the credentials directory {path}", "700")
+        try:
+            file_fd = os.open(secret.name, os.O_RDONLY | nofollow | getattr(os, "O_NONBLOCK", 0), dir_fd=dir_fd)
+        except FileNotFoundError:
+            return None
+        except OSError as e:
+            raise CredentialsUnsafe(f"{secret.name} in the credentials directory cannot be read as a plain file: {e.strerror}") from None
+        try:
+            finfo = os.fstat(file_fd)
+            if not stat.S_ISREG(finfo.st_mode):
+                raise CredentialsUnsafe(f"{secret.name} in the credentials directory is not a regular file")
+            _owned_private(finfo, f"{secret.name} in the credentials directory", "600")
+            if finfo.st_size > CREDENTIAL_MAX_BYTES:
+                raise CredentialsUnsafe(f"{secret.name} in the credentials directory is larger than {CREDENTIAL_MAX_BYTES} bytes")
+            with os.fdopen(file_fd, "rb", closefd=False) as f:
+                value = f.read(CREDENTIAL_MAX_BYTES + 1).decode("utf-8", errors="replace").strip()
+        finally:
+            os.close(file_fd)
+    finally:
+        os.close(dir_fd)
+    return (value, "credentials directory") if value else None
+
+
+@dataclass(frozen=True)
+class Lookup:
+    """The answer of resolve_state. state is "found" (value, source and, for the store, service are set), "missing" (nothing holds it),
+    "locked" (the OS secret store raised: the secret may be stored, it cannot be read now; detail says what to do) or "unsafe" (the
+    credentials directory, or its file, is not safe to read; detail says why). `library` is False when the keyring library cannot be
+    imported (a plain python3): a "missing" may then only be a store that was not asked."""
+    state: str
+    value: str = ""
+    source: str | None = None
+    service: str | None = None
+    detail: str = ""
+    library: bool = True
+
+
+def resolve_state(name: str, *, allow_store: bool = True, environ=None, store="default") -> Lookup:
+    """The full answer for a registered secret, in order: the environment, the credentials directory, the OS secret store. Unlike
+    resolve and resolve_detail, which read a locked store as None, this one says "locked". Never prints the value."""
     secret = REGISTRY.get(name)
     if secret is None:
         raise NotRegistered(name)
     environ = os.environ if environ is None else environ
     found = _from_env(secret, environ)
     if found:
-        return found[0], found[1], None
+        return Lookup("found", found[0], found[1])
+    try:
+        in_dir = _from_directory(secret, environ)
+    except CredentialsUnsafe as e:
+        return Lookup("unsafe", detail=str(e))
+    if in_dir:
+        return Lookup("found", in_dir[0], in_dir[1])
     if not allow_store:
-        return None
-    return _from_store(secret, _keyring() if store == "default" else store)
+        return Lookup("missing")
+    store = _keyring() if store == "default" else store
+    try:
+        hit = _from_store(secret, store)
+    except StoreLocked as e:
+        return Lookup("locked", detail=str(e), library=True)
+    if hit:
+        return Lookup("found", hit[0], hit[1], hit[2])
+    return Lookup("missing", library=store is not None)
+
+
+def resolve_detail(name: str, *, allow_store: bool = True, environ=None, store="default") -> tuple[str, str, str | None] | None:
+    """Return (value, source, service) for a registered secret, or None. The service is None for the environment and the credentials
+    directory, and for the store "openhora" or "ai-workbench (legacy)". A locked store, an unsafe credentials directory and an absent
+    secret are all None here: resolve_state tells them apart (and store_failure / store_locked_note say whether the last read of the
+    store failed). Never prints the value."""
+    got = resolve_state(name, allow_store=allow_store, environ=environ, store=store)
+    return (got.value, got.source, got.service) if got.state == "found" else None
 
 
 def resolve(name: str, *, allow_store: bool = True, environ=None, store="default") -> tuple[str, str] | None:
@@ -318,18 +509,25 @@ def how_to_set(secret: Secret) -> str:
 
 
 def report(environ=None, store="default") -> list[dict]:
+    """One row for each registered secret: whether it is found and where, and "state" (found, missing, locked or unsafe). Once the
+    store has raised, it is not asked again for the other secrets of the report (each ask may prompt the person to unlock it):
+    those not found elsewhere are "locked"."""
     environ = os.environ if environ is None else environ
     store = _keyring() if store == "default" else store
-    rows = []
+    rows, locked = [], False
     for secret in REGISTRY.values():
-        env_hit = _from_env(secret, environ)
-        store_hit = None if env_hit else _from_store(secret, store)
+        got = resolve_state(secret.name, environ=environ, store=None if locked else store)
+        if got.state == "missing" and locked and secret.store_username:
+            got = Lookup("locked", detail=LOCKED_SENTENCE)
+        locked = locked or got.state == "locked"
         rows.append({
             "name": secret.name,
-            "found": bool(env_hit or store_hit),
-            "source": (env_hit or store_hit or (None, None))[1],
-            "service": store_hit[2] if store_hit else None,
-            "store": "unavailable" if store is None else "available",
+            "found": got.state == "found",
+            "state": got.state,
+            "source": got.source if got.state == "found" else None,
+            "service": got.service,
+            "store": "unavailable" if store is None else ("locked" if locked else "available"),
+            "detail": got.detail,
             "purpose": secret.purpose,
             "permission": secret.permission,
             "readers": list(secret.readers),
@@ -362,23 +560,31 @@ def main(argv: list[str]) -> int:
             print(json.dumps(rows, indent=2))
         else:
             for r in rows:
-                state = (f"found ({r['source']}" + (f", {r['service']}" if r["service"] else "") + ")") if r["found"] else "missing"
+                state = (f"found ({r['source']}" + (f", {r['service']}" if r["service"] else "") + ")") if r["found"] else (
+                    r["state"] if r["state"] in ("locked", "unsafe") else "missing")
                 print(f"{r['name']:<24} {state:<34} {r['purpose']}")
-                if not r["found"]:
+                if r["state"] == "locked":
+                    print(f"{'':<24} {LOCKED_SENTENCE}")
+                elif r["state"] == "unsafe":
+                    print(f"{'':<24} {r['detail']}")
+                elif not r["found"]:
                     print(f"{'':<24} set it: {r['set']}")
         return 0
     if argv[0] == "--check" and len(argv) == 2:
         try:
-            found = resolve_detail(argv[1])
+            found = resolve_state(argv[1])
         except NotRegistered:
             print(f"error: {argv[1]!r} is not a registered secret; see --list", file=sys.stderr)
             return EXIT_USAGE
-        if found:
-            out = {"name": argv[1], "found": True, "source": found[1]}
-            if found[2]:
-                out["service"] = found[2]
+        if found.state == "found":
+            out = {"name": argv[1], "found": True, "source": found.source}
+            if found.service:
+                out["service"] = found.service
             print(json.dumps(out))
             return 0
+        if found.state in ("locked", "unsafe"):
+            print(f"{argv[1]} cannot be read: {found.detail}", file=sys.stderr)
+            return EXIT_LOCKED
         print(f"{argv[1]} not found: {how_to_set(REGISTRY[argv[1]])}", file=sys.stderr)
         return EXIT_NOT_FOUND
     print("error: unknown arguments; see --help", file=sys.stderr)

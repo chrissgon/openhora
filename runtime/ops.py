@@ -231,6 +231,7 @@ import progress as progress_calc  # noqa: E402  (the operation `progress` would 
 import proof as proof_rules  # noqa: E402  (the operation `proof` would hide the module: part 0, F.1, rule 5)
 import project_config  # noqa: E402
 import router  # noqa: E402
+import secret_state  # noqa: E402  (a locked secret store is told apart from a missing key)
 import skill_meta  # noqa: E402
 import state_merge  # noqa: E402
 import workcopy  # noqa: E402
@@ -2417,8 +2418,10 @@ def _credential_stop(model: str | None = None):
     if not missing:
         return None
     reason = "credential" if dispatcher.store_readable() == "ok" else "secret store"
-    return reason, (f"the credential of {model} ({', '.join(missing)}) is neither set nor found in the secret store "
-                    f"from {sys.executable} (Python {sys.version.split()[0]}): no run starts. See contracts/runtime.md, "
+    locked = secret_state.locked_sentence(core.ROOT) if reason == "credential" else ""   # a locked store is not a missing key (I3)
+    return reason, (f"{locked}; the credential of {model} ({', '.join(missing)}) cannot be read" if locked else
+                    f"the credential of {model} ({', '.join(missing)}) is neither set nor found in the secret store") + (
+                    f" from {sys.executable} (Python {sys.version.split()[0]}): no run starts. See contracts/runtime.md, "
                     "\"The dispatcher's two jobs\""), list(missing)
 
 
