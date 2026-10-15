@@ -290,6 +290,7 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `deps` | - | `deps` |
 | `run-next` | `[--model]` | `run_next` |
 | `run-task` | `--task` `[--model]` | `run_task` |
+| `run-step` | `--task` | `run_step` |
 | `accept-config` | `--sha256` `[--adopt-sources]` | `accept_config` |
 | `proof` | `[--skill]` | `proof` |
 | `verdict` | `--run` `--word` | `verdict` |

@@ -26,9 +26,10 @@ Rules: (1) release holds every review the agent's mode releases; (2) the slots o
 the code task of a request and the footprints (the files tasks write) are admit's: tasks run at once, and what may not
 is held with its word; (3) the ready tasks are walked oldest first: a task with an
 open wait (a derived dependency on another request's task, runtime/plan.py) is held and never starts, a task no enabled
-area agent owns is held, a task a child could not start a moment ago (`refused`) is held, a task whose agent may not
-start is held with the reason, and every task that may start is started, each one counted as a run of its agent's day
-and as running before the next is asked; (4) nothing else, and no state is changed here: runtime/ops.py applies the decision. The store keeps a
+area agent owns is held (a step task is owned by the runtime, RUNTIME: it has no area agent, no mode, no daily cap and no
+credential, so it is held only by its slots and the files in use), a task a child could not start a moment ago (`refused`)
+is held, a task whose agent may not start is held with the reason, and every task that may start is started, each one counted
+as a run of its agent's day (a step task is not) and as running before the next is asked; (4) nothing else, and no state is changed here: runtime/ops.py applies the decision. The store keeps a
 waiting task `planned` and gives it to no one, so a waiting task is not in `ready` in practice; rule (3) is the
 second lock, and the word a person reads ("waiting for task #n") is the wait's own reason.
 
@@ -77,6 +78,10 @@ AGENT_FULL = "agent at max_parallel"
 CODE_IN_REQUEST = "a code task of the request runs"
 IN_USE = "artifact in use"
 RETRY_SOON = "could not start, tried again shortly"
+# The owner of a step task (package P5), copied by value from runtime/parallel.py (a test holds them equal): the runtime's own
+# pseudo-agent. It is no area agent: it is not in `agents`, and a task it owns is never held for lack of an agent (NO_AGENT) or for an
+# agent's stopped mode, daily caps or credential, because it calls no model. Only its slots (parallel.admit) and the files in use hold it.
+RUNTIME = "runtime"
 # The words a held ready task carries (contracts/runtime.md, "The local service"): the three of runtime/autonomy.py
 # (may_start), those of this file, those of a round's checks before a start (runtime/ops.py) and the service's.
 OTHER = "other"                      # any reason a rule function gives that is not in the list: free text never reaches a page
@@ -117,17 +122,19 @@ def _decide_parallel(snapshot: dict, release: list, agents: dict, entries: dict,
             held.append({"task_id": tid, "why": WAITING})
             continue
         name = task.get("agent")
-        if name is None or name not in agents:
+        step = name == RUNTIME     # a step task: its owner is the runtime, which has no entry, no day and no billing
+        if not step and (name is None or name not in agents):
             held.append({"task_id": tid, "why": NO_AGENT})
             continue
         if tid in refused or str(tid) in refused:
             held.append({"task_id": tid, "why": RETRY_SOON})
             continue
         billing = billings.get(tid, billings.get(str(tid)))
-        ok, why = may_start(name, entries, agents[name]["facts"], spent[name], billing)
-        if not ok:
-            held.append({"task_id": tid, "why": why})
-            continue
+        if not step:
+            ok, why = may_start(name, entries, agents[name]["facts"], spent[name], billing)
+            if not ok:
+                held.append({"task_id": tid, "why": why})
+                continue
         # a ready task names its request as parent_id; admit reads request_id, as the running items do
         item = {"id": tid, "agent": name, "request_id": task.get("request_id", task.get("parent_id")),
                 "code": bool(task.get("code")), "footprint": task.get("footprint") or ()}
@@ -139,6 +146,8 @@ def _decide_parallel(snapshot: dict, release: list, agents: dict, entries: dict,
         taken.append(item)
         if not any(h["id"] == tid for h in holding):
             holding.append({"id": tid, "agent": name})
+        if step:
+            continue    # no run of an agent's day, no dollar: a step calls no model
         if billing in ("subscription", "free"):
             spent[name]["runs_counted"] = spent[name].get("runs_counted", 0) + 1
         else:

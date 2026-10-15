@@ -19,6 +19,10 @@
     "remote_written_sha256": null,
     "model": null,
     "sources": null,
+    "step_kind": null,
+    "step_args": null,
+    "step_footprint": null,
+    "step_state": null,
     "after": null,
     "waiting_for": []
   },

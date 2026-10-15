@@ -150,6 +150,9 @@ def narrows(old: str, new: str) -> bool:
     return MODES.index(new) < MODES.index(old)
 
 
+RESERVED_AGENTS = ("runtime",)   # the pseudo-agent that owns step tasks (runtime/parallel.py RUNTIME): not a name for an area agent
+
+
 def agents(raw) -> dict:
     """The checked "area_agents" of a configuration: {name: {"pack", "enabled", "mode", "max_runs_per_day",
     "max_usd_per_day", "max_parallel"}}. Absent: {}. Defaults: enabled true, mode milestones, both caps 0 (an absent cap
@@ -163,6 +166,8 @@ def agents(raw) -> dict:
     for name, entry in raw.items():
         if not isinstance(name, str) or not name:
             raise ValueError("an area agent has a name")
+        if name in RESERVED_AGENTS:
+            raise ValueError(f"area agent {name}: that name is the runtime's own, the owner of step tasks; give the agent another name")
         if not isinstance(entry, dict):
             raise ValueError(f"area agent {name}: its entry is an object")
         unknown = sorted(set(entry) - set(AGENT_KEYS))

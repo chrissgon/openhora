@@ -7,7 +7,7 @@
 set a description; and the three small pieces the rest of the operations layer asks of them: the catalog block the planner
 reads, the sources a request's @mentions force, and the copies a task receives when it starts.
 
-An ingest is not a task: there is no task row before the step engine exists (P5). Each operation here is synchronous, takes the
+Each operation here is synchronous (an ingest as a task is the step kind `ingest` of runtime/step_ingest.py, which calls source_import and source_refresh), takes the
 project first like every other, and returns a JSON object. The work is runtime/sources.py's (the registry, the versions, the
 catalog, the guardrails of the folder); the converter is the provider of the class converter:document, called through
 providers/resolve.py; a Notion page is read through the documents provider with its separate read-only secret. This file

@@ -270,9 +270,9 @@ def serial_spawn(runs):
     """The seam ops_runs.spawn replaced by a run made in the calling thread, one after the other: the task runs to its end
     inside the call and the child it returns has ended. The tests of the dispatcher that predate the parallel runs read a
     round as 'the runs it made'; a test of the runs that overlap installs its own spawn (test_parallel_runs.py)."""
-    def spawn(cfg, project, task_id):
+    def spawn(cfg, project, task_id, verb="run-task"):
         try:
-            out = runs.run_task(project, task_id)
+            out = runs.run_task(project, task_id)   # a step task is delegated by run_task itself (runtime/ops_steps.py)
             code = 4 if out.get("ran") is None and not out.get("held") else 0
         except Exception as e:  # the process would have exited with the refusal's code, or 1
             code = getattr(e, "code", 1)
