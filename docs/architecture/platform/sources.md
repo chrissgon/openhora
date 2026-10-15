@@ -4,7 +4,7 @@ What a person gives a project to read, how it becomes clean text a task can use,
 
 ## Purpose
 
-A project declares **sources**: an uploaded file (a PDF, a Word document, a spreadsheet, a CSV, an HTML page, a text file) or a Notion page chosen by its address. Each import is an **immutable version** kept in the project's **sources folder** (`sources_dir`), as the original, the converted text and a manifest. A **catalog**, built by code from the converted text alone, tells the planning run what each source holds, so that the **plan** can name, for each task, the sources it needs; the person approves that plan by its hash, and a task **receives copies** of the newest version of each source at the moment it starts. The sources folder itself never enters a run.
+A project declares **sources**: an uploaded file (a PDF, a Word document, a spreadsheet, a presentation, a CSV, an HTML page, a text file) or a Notion page chosen by its address. Each import is an **immutable version** kept in the project's **sources folder** (`sources_dir`), as the original, the converted text and a manifest. A **catalog**, built by code from the converted text alone, tells the planning run what each source holds, so that the **plan** can name, for each task, the sources it needs; the person approves that plan by its hash, and a task **receives copies** of the newest version of each source at the moment it starts. The sources folder itself never enters a run.
 
 The idea behind each piece, in one line each:
 
@@ -85,14 +85,17 @@ Beside them:
 - A Drive folder as a source is not built (`drive.file` does not reach a picked folder's files; it would need `drive.readonly`, a wider scope, and the maintainer's decision). Drive write-back is P8; the hidden-text flag of a converted HTML or PDF is P8 (`hidden_text` is null today).
 - A Drive source is stored as a `file` row with a `drive:` origin until a migration lets the registry's type column say `drive`. The Markdown export of a Google Doc, Google's 10 MB export limit and the Picker's behaviour with the page's headers are not verified against the live service (`providers/documents/README.md`, "Google Drive").
 - A PDF of scanned pages has no text layer; no OCR is made, and the manifest notes it.
+- A table in a PDF comes out as the lines of its cells (`pdftotext`), not as a Markdown table; the MarkItDown measured recovers the table but drops the page marks and writes `(cid:n)` for a bullet, so `pdftotext` was kept (the comparison in `docs/decisions.md`).
+- Text a Word document marks as hidden still comes out (pandoc keeps it); like the text hidden by CSS in HTML it waits for the hidden-text flag of P8.
 - A formula cell with no stored value in a workbook comes out empty (the converter reads stored values, it calculates nothing).
 - A source over the converted cap is refused, not indexed: indexing and retrieval wait for a real case.
 - A folder synced between machines is written by one host at a time: every writer takes the folder's lease (`.openhora-lease`, limit L28), and a live lease of another host refuses the write and names that host; the sources lock stays a file under `data_dir`, never inside the folder. Old versions are pruned beyond `source_versions_kept` ([unattended.md](unattended.md)).
-- The converter image is built from a pinned definition by a step the person starts (`providers/converter/container.py build --confirmed`); the base image is pinned by digest and the packages by a dated snapshot of the Debian archive. The tools it holds are the Debian versions of that snapshot: poppler's `pdftotext`, `pandoc` and `python3-openpyxl`.
+- The converter image is built from a pinned definition by a step the person starts (`providers/converter/container.py build --confirmed`); the base image is pinned by digest, the Debian packages by a dated snapshot of the Debian archive and the Python packages by a lock of exact versions and sha256 hashes (`providers/converter/requirements.lock`, installed with `--require-hashes`). The tools it holds are poppler's `pdftotext` and `pandoc` (the Debian versions of that snapshot), `openpyxl`, and `python-pptx` 1.0.2 for presentations; which tool converts which format was chosen by a measured comparison in which Microsoft's MarkItDown was measured and not adopted (`providers/converter/README.md`, `docs/decisions.md` 2026-10-15).
 
 ## Changes
 
 - 2026-10-15: the lease and the retention of old versions, with package P-OPS (limits L28 and L29; [unattended.md](unattended.md)).
 - 2026-10-15: Google Drive files as sources (P7): `providers/documents/gdrive.py`, its authorization and the one-shot Picker page, `source-drive`, the refresh by version, `public_row`; files only, one scope.
 - 2026-10-15: first version, with package P4 (the sources folder and limits L21 to L27, the registry and versions of migration 11, the catalog, `converter:document`, Notion pages by address, the planner's choice in `core-orchestrator` 3.0.0, the plan card, the copies a task receives).
+- 2026-10-15: package P4b: presentations (pptx) are a source, converted by python-pptx (a hidden slide is not read); MarkItDown was measured and not adopted; the other formats keep their tools (`docs/decisions.md`).
 - 2026-10-15: the step kind `ingest` (P5): an import or a refresh as a step task of a plan, run by `run-step`; its failures are closed codes, and it writes nothing in the project or in the sources folder but the version.

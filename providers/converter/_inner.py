@@ -4,11 +4,12 @@ converts one document to text with adopted open tools and prints the result on i
 imported by the host except in the tests, and it never runs on the host in production.
 
 What it uses, all of it adopted and none of it written here: poppler's `pdftotext` for a PDF, pandoc for a Word document and
-an HTML page, openpyxl for a spreadsheet, and the standard library for CSV and plain text. Each tool reads the one input file;
+an HTML page, openpyxl for a spreadsheet, python-pptx for a presentation (a small function here writes its slides as Markdown), and the
+standard library for CSV and plain text. Each tool reads the one input file;
 the container has no network, a read-only root file system, no capability, and a memory-backed /scratch, and the host copies
 back only what this program prints.
 
-  python3 -I _inner.py --type <pdf|docx|xlsx|ooxml|html|csv|text> --input <file> [--work <folder>]
+  python3 -I _inner.py --type <pdf|docx|xlsx|pptx|ooxml|html|csv|text> --input <file> [--work <folder>]
 
 The frames (standard output only, nothing else is ever printed there):
 
@@ -21,7 +22,7 @@ there, not trusted from here. A conversion that fails prints nothing on standard
 with a code that is not 0.
 
 The converted text is cut at CAP + 1 bytes, so that the host sees it is over the cap and refuses the file; the host's cap is the
-one that counts. Standard library, plus openpyxl for a spreadsheet.
+one that counts. Standard library, plus openpyxl for a spreadsheet and python-pptx for a presentation (both in the image's virtual environment).
 """
 from __future__ import annotations
 
@@ -31,6 +32,7 @@ import io
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -41,10 +43,16 @@ INFO_CAP = 16 * 1024
 TOOL_SECONDS = 120
 ZIP_ENTRIES_MAX = 5000
 ZIP_BYTES_MAX = 300 * 1024 * 1024     # the sum of the uncompressed sizes a package may declare: a zip bomb is refused before any tool reads it
+PPTX_BYTES_MAX = 150 * 1024 * 1024     # a presentation: python-pptx keeps every part in memory (the container has 1024 MiB), so its caps are lower
+PPTX_XML_MAX = 24 * 1024 * 1024        # and the XML a library parses into a tree costs tens of times its size: a named error for most oversized decks
+MEDIA_SUFFIXES = (".png", ".jpg", ".jpeg", ".jpe", ".gif", ".bmp", ".tif", ".tiff", ".emf", ".wmf", ".wdp", ".jxr", ".webp", ".heic",
+                  ".mp3", ".mp4", ".m4a", ".m4v", ".wav", ".wma", ".wmv", ".avi", ".mov", ".mpg", ".mpeg", ".ogg",
+                  ".xlsx", ".docx", ".pptx")   # what is not XML by its name; a part with any other name is counted as XML, whatever its name says
 TEXT_CAP = 8 * 1024 * 1024            # what a tool's text is read up to before it is cut
 CSV_DELIMITERS = ",;\t|"
 SCRIPTLIKE = re.compile(r"(?is)<(script|style|noscript|template)\b.*?</\1\s*>")
 PAGE_BREAK = "\f"
+HIDDEN = ("0", "false")                  # the two spellings of a false xsd:boolean (a slide's show attribute)
 # The tools are found on this PATH. In the container nothing sets CONVERTER_TOOL_PATH (no environment variable of the host passes), so
 # it is always the default; a test on a machine that keeps pandoc elsewhere sets it.
 ENV = {"PATH": os.environ.get("CONVERTER_TOOL_PATH") or "/usr/local/bin:/usr/bin:/bin", "HOME": "/tmp", "LANG": "C.UTF-8",
@@ -88,32 +96,34 @@ def utf8(data: bytes) -> str:
     return text.replace("\x00", "")
 
 
-def check_package(path: str) -> list:
-    """The names in an Office package, refusing a zip bomb (too many entries, or a declared size that is too large)."""
+def check_package(path: str, bytes_max: int = 0, xml_max: int = 0) -> list:
+    """The names in an Office package, refusing a zip bomb (too many entries, or a declared size that is too large; `xml_max`, when
+    given, also caps the declared size of every part that is not a known kind of media or an embedded package: a part is judged by what it
+    could be, not by its name, because a part saved as slide2.bin can be typed XML by an Override of [Content_Types].xml)."""
     try:
         with zipfile.ZipFile(path) as z:
             infos = z.infolist()
             if len(infos) > ZIP_ENTRIES_MAX:
                 raise Failed(f"the package holds {len(infos)} entries")
-            if sum(i.file_size for i in infos) > ZIP_BYTES_MAX:
+            if sum(i.file_size for i in infos) > (bytes_max or ZIP_BYTES_MAX):
                 raise Failed("the package declares too much data")
+            if xml_max and sum(i.file_size for i in infos if not i.filename.lower().endswith(MEDIA_SUFFIXES)) > xml_max:
+                raise Failed("the package declares too much XML")
             return [i.filename for i in infos]
     except zipfile.BadZipFile:
         raise Failed("the file is not a valid Office package") from None
 
 
 def ooxml_kind(path: str) -> str:
-    """docx or xlsx, from the package's [Content_Types].xml (read in the container, never on the host)."""
-    names = check_package(path)
+    """docx, xlsx or pptx, from the names of the package's main parts (read in the container, never on the host). The main part decides:
+    a presentation with a chart holds an embedded workbook, a document may hold a spreadsheet, so no type string is searched."""
+    names = set(check_package(path))
     if "[Content_Types].xml" not in names:
         raise Failed("the package has no [Content_Types].xml")
-    with zipfile.ZipFile(path) as z:
-        types = z.read("[Content_Types].xml")[:200000].decode("utf-8", "replace")
-    if "wordprocessingml" in types:
-        return "docx"
-    if "spreadsheetml" in types:
-        return "xlsx"
-    raise Failed("the package is neither a Word document nor a spreadsheet")
+    for main, kind in (("word/document.xml", "docx"), ("ppt/presentation.xml", "pptx"), ("xl/workbook.xml", "xlsx")):
+        if main in names:
+            return kind
+    raise Failed("the package is not a Word document, a spreadsheet or a presentation")
 
 
 def convert_pdf(path: str, work: str):
@@ -200,10 +210,11 @@ def convert_xlsx(path: str, work: str):
         import openpyxl
     except ImportError:
         raise Failed("openpyxl is not in the image") from None
-    named = os.path.join(work, "book.xlsx")   # openpyxl refuses a file whose name does not end in .xlsx (the input is mounted as /in/input)
+    # openpyxl refuses a file whose name does not end in .xlsx (the input is mounted as /in/input); the link has a name of its own for each
+    # conversion, so that a folder shared by two conversions never hands the second the first's file
+    named = os.path.join(work, f"book-{secrets.token_hex(6)}.xlsx")
     os.makedirs(work, mode=0o700, exist_ok=True)
-    if not os.path.lexists(named):
-        os.symlink(path, named)
+    os.symlink(path, named)
     try:
         book = openpyxl.load_workbook(named, read_only=True, data_only=True)
     except Exception as e:  # openpyxl raises its own and zipfile's errors for a file it cannot read
@@ -240,11 +251,102 @@ def convert_xlsx(path: str, work: str):
     return "converted.md", "\n\n".join(parts) + "\n", tools, notes
 
 
+def forbid_network() -> None:
+    """A second wall behind the container's missing network: in this process nothing can open a connection or resolve a name, so a
+    converter library that tried (a URL converter, an update check) fails here before it fails there."""
+    import socket
+
+    def refuse(*args, **kwargs):
+        raise OSError("the converter makes no network connection")
+
+    socket.socket.connect = refuse
+    socket.socket.connect_ex = refuse
+    socket.create_connection = refuse
+    socket.getaddrinfo = refuse
+
+
+def table_rows(table) -> list:
+    """The rows of a presentation's table as lists of cell text (a line break in a cell becomes a space, a pipe is escaped)."""
+    rows = []
+    for row in table.rows:
+        rows.append([" ".join(c.text_frame.text.split()).replace("|", "\\|") if c.text_frame is not None else "" for c in row.cells])
+    return rows
+
+
+def markdown_table(rows: list) -> list:
+    width = max((len(r) for r in rows), default=0)
+    if not width:
+        return []
+    rows = [r + [""] * (width - len(r)) for r in rows]
+    lines = ["| " + " | ".join(rows[0]) + " |", "|" + " --- |" * width]
+    lines += ["| " + " | ".join(r) + " |" for r in rows[1:]]
+    return lines
+
+
+def shape_blocks(shapes, title, out: list) -> None:
+    """The text of the shapes of a slide in the order they are stored: a text frame as paragraphs (a placeholder of the body as list
+    items, indented by level), a table as a Markdown table, a group by its members. The title shape is the heading; pictures, charts
+    and other objects hold no text that is read."""
+    for shape in shapes:
+        if getattr(shape, "shape_type", None) == 6 and hasattr(shape, "shapes"):    # a group of shapes
+            shape_blocks(shape.shapes, title, out)
+            continue
+        if getattr(shape, "has_table", False) and shape.has_table:
+            out.append("\n".join(markdown_table(table_rows(shape.table))))
+            continue
+        if (title is not None and shape.shape_id == title.shape_id) or not getattr(shape, "has_text_frame", False) or not shape.has_text_frame:
+            continue
+        body = shape.is_placeholder and shape.placeholder_format.type is not None and int(shape.placeholder_format.type) in (2, 7)
+        lines = []
+        for paragraph in shape.text_frame.paragraphs:
+            text = " ".join(paragraph.text.split())
+            if text:
+                lines.append(("  " * paragraph.level + "- " + text) if body else text)
+        if lines:
+            out.append("\n".join(lines))
+
+
+def convert_pptx(path: str, work: str):
+    """A presentation as Markdown with python-pptx: one section per slide, headed by the slide's title (`# Slide n` when it has none),
+    then its text frames, tables and, under `### Notes`, its speaker notes. A hidden slide is not read and the manifest says so.
+    Nothing is fetched: python-pptx reads the one package, the process cannot open a connection (forbid_network), and a failure of the
+    library is a conversion error that names the exception class and nothing else."""
+    forbid_network()
+    check_package(path, PPTX_BYTES_MAX, PPTX_XML_MAX)
+    try:
+        import pptx
+        deck = pptx.Presentation(path)
+        parts, notes = [], []
+        for number, slide in enumerate(deck.slides, 1):
+            if slide._element.get("show") in HIDDEN:    # xsd:boolean: 0 and false
+                notes.append(f"the hidden slide {number} was not read")
+                continue
+            title = slide.shapes.title
+            heading = " ".join(title.text_frame.text.split()) if title is not None and title.has_text_frame else ""
+            blocks = ["# " + (heading or f"Slide {number}")]
+            shape_blocks(slide.shapes, title, blocks)
+            if slide.has_notes_slide and slide.notes_slide.notes_text_frame is not None:
+                spoken = slide.notes_slide.notes_text_frame.text.strip()
+                if spoken:
+                    blocks.append("### Notes\n\n" + spoken)
+            parts.append("\n\n".join(blocks))
+            if sum(len(p) for p in parts) > CAP:
+                notes.append(f"the presentation was cut after slide {number}")
+                break
+        text = "\n\n".join(parts).replace("\x00", "")
+        version = getattr(pptx, "__version__", None)
+    except Failed:
+        raise
+    except Exception as e:  # the library raises its own errors and its dependencies': one closed message, the class name only
+        raise Failed(f"python-pptx could not convert the pptx file: {type(e).__name__}") from None
+    return "converted.md", text.strip() + "\n", {"python-pptx": version}, notes
+
+
 def convert(kind: str, path: str, work: str):
     if kind == "ooxml":
         kind = ooxml_kind(path)
     table = {"pdf": convert_pdf, "docx": convert_docx, "xlsx": convert_xlsx, "html": convert_html, "csv": convert_csv,
-             "text": convert_text}
+             "text": convert_text, "pptx": convert_pptx}
     if kind not in table:
         raise Failed(f"the type {kind!r} is not converted")
     name, text, tools, notes = table[kind](path, work)
@@ -267,6 +369,9 @@ def main(argv=None) -> int:
     parser.add_argument("--input", required=True)
     parser.add_argument("--work", default="/scratch/work")
     args = parser.parse_args(argv)
+    if not args.input.startswith("/"):    # a path in the container; an address (http://, file:, data:) is never an input
+        print("error: the input is a file path, never an address", file=sys.stderr)
+        return 3
     os.makedirs(args.work, mode=0o700, exist_ok=True)
     try:
         kind, name, data, tools, notes = convert(args.type, args.input, args.work)
