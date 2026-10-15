@@ -326,6 +326,8 @@ def run_line_problems(line, event=None, models=None):
         bad("run_sha256", "64 hexadecimal characters")
     if "cpu_platform" in line and not (isinstance(line["cpu_platform"], str) and CPU_PLATFORM_RE.fullmatch(line["cpu_platform"])):
         bad("cpu_platform", "the CPU platform the run's container ran on, such as linux/arm64 or linux/amd64")
+    elif "cpu_platform" in line and event is not None and line["cpu_platform"] != event.get("image_platform"):
+        out.append("cpu_platform must equal the image_platform of the event line: the run ran in that image")
     if "platform" in line and not _is(NAME_RE, line["platform"]):
         bad("platform", "a platform name")
     elif "platform" in line and (line["kind"] != "partial" or line["variant"] != "with"):

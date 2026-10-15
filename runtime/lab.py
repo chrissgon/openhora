@@ -404,8 +404,8 @@ def reported_usage(dest: str) -> dict:
             if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
                 sums[key] = (sums[key] or 0) + value
     metered = costs.metered_usage(dest)  # the key proxy's own count, which the run could not change, when it has one
-    if metered is not None:
-        sums["total_tokens"] = sum(metered.values())
+    if metered is not None:  # a lower bound when the proxy could not count every answer (metered["unknown_responses"])
+        sums["total_tokens"] = sum(metered[kind] for kind in costs.KINDS)
     return sums
 
 

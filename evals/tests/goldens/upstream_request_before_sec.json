@@ -52,7 +52,6 @@
           "content-type": "application/json",
           "user-agent": "claude-cli/2.1.283 (external, sdk-cli)",
           "x-app": "cli",
-          "x-stainless-arch": "arm64",
           "x-stainless-lang": "js",
           "x-stainless-os": "Linux",
           "x-stainless-package-version": "0.112.1",
@@ -63,7 +62,8 @@
         "method": "POST",
         "model": "claude-sonnet-5-5",
         "path": "/v1/messages?beta=true",
-        "stream": true
+        "stream": true,
+        "usage_field": null
       }
     ],
     "runner": "claude"
@@ -112,7 +112,8 @@
         "method": "POST",
         "model": "google/gemini-3.8-flash",
         "path": "/api/v1/chat/completions",
-        "stream": true
+        "stream": true,
+        "usage_field": null
       },
       {
         "authorization": "the one key the key proxy holds",
@@ -150,7 +151,10 @@
         "method": "POST",
         "model": "deepseek/deepseek-v4.1-flash",
         "path": "/api/v1/chat/completions",
-        "stream": true
+        "stream": true,
+        "usage_field": {
+          "include": true
+        }
       }
     ],
     "runner": "opencode"

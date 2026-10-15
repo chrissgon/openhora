@@ -122,6 +122,7 @@ PIDS_LIMIT = 4096
 CONFINED = ("--cap-drop", "ALL", "--security-opt", "no-new-privileges")
 # The size of the log a long-lived container keeps: three files of 10 MB at most.
 LOG_OPTS = ("--log-opt", "max-size=10m", "--log-opt", "max-file=3")
+NO_PULL = "--pull=never"  # no `docker run` of the harness fetches an image: a missing one is an error, never a download
 LABEL_ALL, LABEL_RUN = "wb.eval", "wb.eval.run"  # on every container and network of the harness; the run's id on a run's own
 KEYPROXY_READY_SECONDS = 20
 RUN_ID_RE = re.compile(r"[0-9a-f]{16}")
@@ -315,6 +316,12 @@ def labels(run_id=None):
     return ["--label", f"{LABEL_ALL}=1", *(["--label", f"{LABEL_RUN}={run_id}"] if run_id else [])]
 
 
+def user():
+    """The docker arguments that run a container as the caller on Linux, where a bind mount keeps numeric owners (a run's
+    folder, and the meter folder only a key proxy writes in); none elsewhere, where the runtime maps them."""
+    return ["--user", f"{os.getuid()}:{os.getgid()}"] if sys.platform.startswith("linux") else []
+
+
 def keyproxy_url(run_id, name):
     """The base URL a run gives its provider calls: the key proxy of its own, by its name on the run's network."""
     r = route(name=name)
@@ -342,6 +349,16 @@ def repo_digests(image, env=None):
     return [d for d in found or [] if isinstance(d, str)]
 
 
+HOST_ARCHITECTURES = {"aarch64": "linux/arm64", "arm64": "linux/arm64", "x86_64": "linux/amd64", "amd64": "linux/amd64"}
+
+
+def host_platform(env=None):
+    """The CPU platform of the docker host (`docker info`, mapped to linux/arm64 or linux/amd64), or None when docker
+    does not say or says another. An image of another platform than this runs emulated: that run is a trial."""
+    r = docker("info", "--format", "{{.Architecture}}", env=env, check=False)
+    return HOST_ARCHITECTURES.get(r.stdout.strip().lower()) if r.returncode == 0 else None
+
+
 def ensure(env=None):
     """Build the local images that are missing, check that the published image the lock names is present, create
     the eval's networks (the run network, and an internal network per provider route where each key proxy and the
@@ -350,7 +367,9 @@ def ensure(env=None):
     runners call it at once (a second create of the same name is not an error).
     Never pulls and never builds a published image: when the lock names one for this definition and platform and it
     is not present, it raises with the command to run (pull()).
-    Returns the environment a record names: the definition's hash, the image, its digest, its source and its platform."""
+    Returns the environment a record names: the definition's hash, the image, its digest, its source and its platform,
+    and the docker host's own platform ("host_platform": evidence needs the two to be the same, since an emulated run is
+    not the platform it says)."""
     n, platform = names(), image_platform()
     if docker("info", "--format", "{{.ServerVersion}}", env=env, check=False).returncode != 0:
         raise ExecutorError("the docker daemon is not running: start it; evals run only in a container")
@@ -370,7 +389,7 @@ def ensure(env=None):
     state = docker("inspect", "--format", "{{.State.Running}}", n["proxy"], env=env, check=False)
     if state.returncode != 0 or state.stdout.strip() != "true":
         docker("rm", "-f", n["proxy"], env=env, check=False)
-        r = docker("run", "-d", "--restart", "unless-stopped", "--platform", platform, *CONFINED, *LOG_OPTS, *labels(),
+        r = docker("run", "-d", NO_PULL, "--restart", "unless-stopped", "--platform", platform, *CONFINED, *LOG_OPTS, *labels(),
                    "--name", n["proxy"], n["proxy_image"], env=env, check=False)
         if r.returncode != 0 and "already in use" not in r.stderr:
             raise ExecutorError(f"cannot start the eval proxy: {r.stderr.strip()[-300:]}")
@@ -386,13 +405,14 @@ def ensure(env=None):
         # The identity of a published image is its repo digest, the platform manifest's: the local image id differs
         # from one image store to another and is never read.
         return {"kind": "container", "definition_sha256": definition_hash(), "image": n["image"], "image_id": None,
-                "image_digest": published["manifest_digest"], "image_platform": platform, "image_source": "published"}
+                "image_digest": published["manifest_digest"], "image_platform": platform, "image_source": "published",
+                "host_platform": host_platform(env)}
     image_id = docker("image", "inspect", "--format", "{{.Id}}", n["image"], env=env).stdout.strip()
     # image_digest is the id of the built image: it survives `docker save` and `docker load`, so the kept
     # archive and the image a run executed in can be told to be the same. image_id is the same value under
     # the name the records of the first round use.
     return {"kind": "container", "definition_sha256": definition_hash(), "image": n["image"], "image_id": image_id,
-            "image_digest": image_id, "image_platform": platform, "image_source": "local"}
+            "image_digest": image_id, "image_platform": platform, "image_source": "local", "host_platform": host_platform(env)}
 
 
 def verify_published(published, env=None):
@@ -445,7 +465,7 @@ def hold(run_id, model, env, network="proxy", meter_dir=None, upstream=None, caf
         raise ExecutorError(f"the entry of {entry['id']!r} has no run_token_budget")
     if not meter_dir or not os.path.isdir(meter_dir):
         raise ExecutorError("hold() needs the folder the key proxy writes its meter file in")
-    os.chmod(meter_dir, 0o777)  # the key proxy's user is not the caller's; the folder holds nothing else
+    os.chmod(meter_dir, 0o700)  # only the caller, and on Linux the key proxy running as the caller (user()); never world-writable
     meter = os.path.join(meter_dir, f"{run_id}.json")
     try:
         created = docker("network", "create", *(["--internal"] if network == "proxy" else []), *labels(run_id),
@@ -455,8 +475,8 @@ def hold(run_id, model, env, network="proxy", meter_dir=None, upstream=None, caf
             hint = (" (docker's address pools are used up: about 31 networks fit; run fewer runs at a time, or remove "
                     "networks nothing uses)" if "pool" in why.lower() else "")
             raise ExecutorError(f"cannot create the run's network {names_['network']}: {why}{hint}")
-        argv = ["run", "-d", "--rm", "--init", "--platform", platform, *CONFINED, "--pids-limit", "256", *LOG_OPTS,
-                *labels(run_id), "--name", names_["keys"], "--network", route_network(name, n), "-e", r["secret"]]
+        argv = ["run", "-d", NO_PULL, "--rm", "--init", "--platform", platform, *CONFINED, "--pids-limit", "256", *LOG_OPTS,
+                *labels(run_id), *user(), "--name", names_["keys"], "--network", route_network(name, n), "-e", r["secret"]]
         if egress:
             argv += ["-e", f"HTTPS_PROXY=http://{n['proxy']}:{PROXY_PORT}"]
         if cafile:
@@ -554,12 +574,12 @@ def command(cmd, root, cwd=None, env=None, runner=None, pass_names=(), network="
     pairs = mounts(root, runner)
     run_id = run_id or new_run_id()
     run = run_names(run_id)
-    argv = ["docker", "run", "--rm", "--init", "--platform", image_platform(), *CONFINED,
+    argv = ["docker", "run", NO_PULL, "--rm", "--init", "--platform", image_platform(), *CONFINED,
             "--pids-limit", str(PIDS_LIMIT), *labels(run_id), "--name", run["container"], "-w", translate(cwd or root, pairs),
             "-e", "ENABLE_CLAUDEAI_MCP_SERVERS=false",
             "-e", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1"]
     if sys.platform.startswith("linux"):  # a bind mount keeps numeric owners there; elsewhere the runtime maps them
-        argv += ["--user", f"{os.getuid()}:{os.getgid()}", "-e", "HOME=/home/eval"]
+        argv += [*user(), "-e", "HOME=/home/eval"]
     for host, inside, read_only in pairs:
         if os.path.exists(host):
             argv += ["-v", f"{os.path.realpath(host)}:{inside}" + (":ro" if read_only else "")]

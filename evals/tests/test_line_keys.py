@@ -118,3 +118,12 @@ def test_lines_of_a_social_platform_and_of_a_cpu_platform_do_not_mix():
     assert es.run_line_problems(line) == []
     assert es.run_line_problems(run_line(platform="linux/amd64")) == ["platform must be a platform name",
                                                                        "a line of a platform's case runs in a partial test, with the skill only"][:1]
+
+
+def test_a_run_lines_cpu_platform_must_be_the_image_platform_of_its_event_line():
+    event = {"image_platform": "linux/amd64", "models": ["s-model"], "adapters": {"s-model": "h"}}
+    message = "cpu_platform must equal the image_platform of the event line: the run ran in that image"
+    about = lambda line: [p for p in es.run_line_problems(line, event) if p.startswith("cpu_platform")]  # the event is a stub: other keys differ
+    assert about(run_line(cpu_platform="linux/amd64")) == []
+    assert about(run_line(cpu_platform="linux/arm64")) == [message]
+    assert about(run_line()) == []  # a line written before the key

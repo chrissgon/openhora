@@ -551,48 +551,50 @@ def run_group(cmd, timeout, cwd=None, env=None, box=None):
     and the proxy's count of the run's tokens is read when the run ends into box["meter"] (None when there is none,
     which the key proxy not writing it or a command that holds no key both mean); when they cannot start, or the
     model has no route, the command fails as an infrastructure failure, before any container runs."""
-    container = held = run_id = None
-    if box is not None and EXECUTOR == "container":
-        executor = load_executor()
-        box["meter"] = None
-        model, network = box.get("model"), box.get("network") or "none"
-        meter_dir = None
-        try:
-            route = executor.held_route(box.get("pass") or (), env, network, model)
-            run_id = executor.new_run_id()
-            if route:  # the key stays there; the run gets a placeholder and its own proxy's address
-                meter_dir = executor.meter_folder(temp_base())
-                with GROUPS_LOCK:
-                    HELD.add(run_id)  # before it starts: a stop in the meantime releases what hold() has made so far
-                try:
-                    held = executor.hold(run_id, model, env, network, meter_dir=meter_dir)
-                except BaseException:
-                    with GROUPS_LOCK:
-                        HELD.discard(run_id)
-                    raise
-            cmd, container = executor.command(cmd, box["root"], cwd=cwd, env=env, runner=box.get("runner"),
-                                              pass_names=box.get("pass") or (), network=network, model=model, run_id=run_id)
-        except executor.ExecutorError as e:  # an infrastructure failure of this command, never a score
-            if meter_dir:
-                shutil.rmtree(meter_dir, ignore_errors=True)
-            return subprocess.CompletedProcess(cmd, 1, "", f"Error: {e}\n")
-        cwd = None
+    container = held = run_id = meter_dir = None
+    started = False  # hold() was called: what it made is released, whatever fails after it
     try:
+        if box is not None and EXECUTOR == "container":
+            executor = load_executor()
+            box["meter"] = None
+            model, network = box.get("model"), box.get("network") or "none"
+            try:
+                route = executor.held_route(box.get("pass") or (), env, network, model)
+                run_id = executor.new_run_id()
+                if route:  # the key stays there; the run gets a placeholder and its own proxy's address
+                    meter_dir = executor.meter_folder(temp_base())
+                    with GROUPS_LOCK:
+                        HELD.add(run_id)  # before it starts: a stop in the meantime releases what hold() has made so far
+                    started = True
+                    held = executor.hold(run_id, model, env, network, meter_dir=meter_dir)
+                cmd, container = executor.command(cmd, box["root"], cwd=cwd, env=env, runner=box.get("runner"),
+                                                  pass_names=box.get("pass") or (), network=network, model=model, run_id=run_id)
+            except executor.ExecutorError as e:  # an infrastructure failure of this command, never a score
+                return subprocess.CompletedProcess(cmd, 1, "", f"Error: {e}\n")
+            cwd = None
         return _run_group(cmd, timeout, cwd, env, container)
     finally:
-        if container:
-            load_executor().remove(container, env=env)
-            with GROUPS_LOCK:
-                CONTAINERS.discard(container)
-        if held:
-            executor = load_executor()
-            try:
-                box["meter"] = stable_meter(executor, held["meter"])
-            finally:
-                executor.release(run_id, env=env)
+        # Everything from hold() to here is undone on every way out, an exception of anything after hold() included.
+        try:
+            if container:
+                load_executor().remove(container, env=env)
                 with GROUPS_LOCK:
-                    HELD.discard(run_id)
-                shutil.rmtree(os.path.dirname(held["meter"]), ignore_errors=True)
+                    CONTAINERS.discard(container)
+        finally:
+            try:
+                if held:
+                    box["meter"] = stable_meter(load_executor(), held["meter"])
+            finally:
+                if started:
+                    try:
+                        load_executor().release(run_id, env=env)
+                    except load_executor().ExecutorError:
+                        pass  # best effort: an orphan is found by its label (wb.eval.run=<run id>), and the first failure is the one reported
+                    finally:
+                        with GROUPS_LOCK:
+                            HELD.discard(run_id)
+                if meter_dir:
+                    shutil.rmtree(meter_dir, ignore_errors=True)
 
 
 def stable_meter(executor, path):

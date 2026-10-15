@@ -149,3 +149,15 @@ def test_lab_models_names_known_models_only(tmp_path):
     for i, bad in enumerate(([], "claude-sonnet-5-5", ["claude-sonnet-5-5", "claude-sonnet-5-5"])):
         cfg["lab_models"] = bad
         assert any("lab_models must be" in p for p in es.gate_problems(str(tree_with_gate(tmp_path / f"b{i}", cfg))))
+
+
+def test_a_model_must_name_a_route_that_has_a_file_and_pass_the_routes_key(tmp_path):
+    cfg = copy.deepcopy(GATE)
+    cfg["models"]["openrouter/deepseek/deepseek-v4.1-flash"]["route"] = "nonesuch"
+    problems = es.gate_problems(str(tree_with_gate(tmp_path / "a", cfg)))
+    assert any("names the route 'nonesuch', which has no readable route-nonesuch.json" in p for p in problems), problems
+    cfg = copy.deepcopy(GATE)
+    cfg["models"]["openrouter/deepseek/deepseek-v4.1-flash"]["pass_env"] = ["SOMETHING_ELSE"]
+    cfg["floor_pass_env"] = ["SOMETHING_ELSE"]
+    problems = es.gate_problems(str(tree_with_gate(tmp_path / "b", cfg)))
+    assert any("whose key is OPENROUTER_API_KEY, and does not pass it in pass_env" in p for p in problems), problems

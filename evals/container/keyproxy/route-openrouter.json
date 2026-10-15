@@ -7,6 +7,8 @@
   "paths": ["/api/v1/chat/completions"],
   "usage": "openrouter-chat",
   "metered": ["/api/v1/chat/completions"],
+  "default_reserve_tokens": 32000,
+  "refuse_body_keys": ["models", "route"],
   "port": 8890,
   "timeout_seconds": 600,
   "max_body_bytes": 67108864

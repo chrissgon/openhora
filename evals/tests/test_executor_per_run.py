@@ -10,6 +10,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -78,6 +79,7 @@ def test_a_run_gets_a_network_and_a_key_proxy_named_after_its_id_with_the_models
     assert "--internal" in created and created[-1] == f"wb-eval-held-{run_id}"
     assert ["--label", "wb.eval=1"] in pairs(created) and ["--label", f"wb.eval.run={run_id}"] in pairs(created)
     run = docker.named("run")[0]
+    assert ex.NO_PULL in run and run.index(ex.NO_PULL) < run.index(n["keys_image"])  # an image is never fetched in a run's path
     assert run[run.index("--network") + 1] == ex.route_network("openrouter", n)  # first on its provider's route network
     assert ["--name", f"wb-eval-keys-{run_id}"] in pairs(run) and ["--cap-drop", "ALL"] in pairs(run)
     assert ["--label", "wb.eval=1"] in pairs(run) and ["--label", f"wb.eval.run={run_id}"] in pairs(run)
@@ -92,7 +94,11 @@ def test_a_run_gets_a_network_and_a_key_proxy_named_after_its_id_with_the_models
                           f"--meter=/meter/{run_id}.json", "--budget-tokens=4321",
                           "--upstream-model=vendor/floor-1", "--upstream-model=vendor/floor-2", "--pin=deepinfra"]
     assert ("network", "connect", f"wb-eval-held-{run_id}", f"wb-eval-keys-{run_id}") in docker.calls  # and then on the run's own
-    assert oct(os.stat(folder).st_mode & 0o777) == "0o777"
+    assert oct(os.stat(folder).st_mode & 0o777) == "0o700"  # the caller's alone, never world-writable
+    if sys.platform.startswith("linux"):  # a bind mount keeps numeric owners there: the proxy writes as the caller
+        assert ["--user", f"{os.getuid()}:{os.getgid()}"] in pairs(run)
+    else:
+        assert "--user" not in run
 
 
 def test_a_web_runs_network_is_not_internal_and_the_anthropic_route_has_no_pin(tmp_path, monkeypatch):
@@ -198,6 +204,7 @@ def test_every_run_container_carries_the_labels_of_the_harness_and_of_its_run(tm
         argv, name = ex.command(["true"], str(root), network=network, run_id=run_id)
         assert ["--label", "wb.eval=1"] in pairs(argv) and ["--label", f"wb.eval.run={run_id}"] in pairs(argv)
         assert name == f"wb-eval-run-{run_id}" and ex.run_id_of(name) == run_id
+        assert argv[argv.index("run") + 1] == ex.NO_PULL  # a run never makes docker fetch an image
     other, _ = ex.command(["true"], str(root))
     assert ["--label", f"wb.eval.run={run_id}"] not in pairs(other)  # a run's label is its own
 
@@ -230,6 +237,7 @@ def test_the_egress_proxy_starts_with_a_log_limit_and_the_labels(monkeypatch):
     run = next(c for c in docker.calls if c[0] == "run")
     assert ["--log-opt", "max-size=10m"] in pairs(run) and ["--log-opt", "max-file=3"] in pairs(run)
     assert ["--label", "wb.eval=1"] in pairs(run) and ["--name", ex.names()["proxy"]] in pairs(run)
+    assert ex.NO_PULL in run
 
 
 # --- what is read back from the run's meter --------------------------------------------------------------------------
@@ -246,3 +254,36 @@ def test_the_meter_a_key_proxy_wrote_is_read_back_and_one_that_is_not_in_its_for
         assert ex.read_meter(str(path)) is None
     path.write_text("{")
     assert ex.read_meter(str(path)) is None and ex.read_meter(str(tmp_path / "missing.json")) is None
+
+
+# --- the platform of the docker host: an emulated image is a trial ----------------------------------------------------
+
+
+@pytest.mark.parametrize("answer, expected", [("aarch64", "linux/arm64"), ("arm64", "linux/arm64"), ("x86_64", "linux/amd64"),
+                                              ("amd64", "linux/amd64"), ("riscv64", None), ("", None)])
+def test_the_hosts_platform_is_read_from_docker_and_mapped(monkeypatch, answer, expected):
+    def docker(*args, env=None, check=True, timeout=1800):
+        assert args == ("info", "--format", "{{.Architecture}}")
+        return subprocess.CompletedProcess(["docker", *args], 0, answer + "\n", "")
+    monkeypatch.setattr(ex, "docker", docker)
+    assert ex.host_platform() == expected
+
+
+def test_ensure_names_the_hosts_platform_beside_the_images(monkeypatch):
+    class Daemon:
+        def __init__(self):
+            self.calls = []
+
+        def __call__(self, *args, env=None, check=True, timeout=1800):
+            self.calls.append(args)
+            out, code = "", 0
+            if args[:2] == ("info", "--format"):
+                out = "x86_64\n" if "{{.Architecture}}" in args else "29.0\n"
+            elif args[:2] == ("image", "inspect") and "--format" in args:
+                out = "sha256:abc\n"
+            elif args[0] == "inspect" or args[:2] in (("network", "inspect"), ("image", "inspect")):
+                code = 1
+            return subprocess.CompletedProcess(["docker", *args], code, out, "No such object" if code else "")
+    monkeypatch.setattr(ex, "docker", Daemon())
+    environment = ex.ensure()
+    assert environment["host_platform"] == "linux/amd64" and environment["image_platform"] in ex.IMAGE_PLATFORMS

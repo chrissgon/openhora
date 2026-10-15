@@ -18,7 +18,9 @@ import shutil
 import ssl
 import subprocess
 import sys
+import socket
 import threading
+import time
 import zlib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -81,7 +83,9 @@ class Provider(http.server.ThreadingHTTPServer):
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.load_cert_chain(str(tls[0]), str(tls[1]))
         self.socket = context.wrap_socket(self.socket, server_side=True)
-        self.seen, self.reply, self.headers, self.block, self.cut = [], b"{}", {"Content-Type": "application/json"}, 64, False
+        self.seen, self.reply, self.headers, self.block, self.cut = [], fixture("openrouter_completion.json"), {"Content-Type": "application/json"}, 64, False
+        self.pause_after = None  # write this many blocks of the answer, then wait for the gate
+        self.gate = None  # an Event: the answer waits for it, so that requests stay under way
 
 
 class ProviderHandler(http.server.BaseHTTPRequestHandler):
@@ -94,6 +98,8 @@ class ProviderHandler(http.server.BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length) if length else b""
         self.server.seen.append({"path": self.path, "body": body, "headers": dict(self.headers.items())})
+        if self.server.gate is not None and self.server.pause_after is None:
+            self.server.gate.wait(20)
         reply = self.server.reply
         self.send_response(200)
         for k, v in self.server.headers.items():
@@ -107,10 +113,15 @@ class ProviderHandler(http.server.BaseHTTPRequestHandler):
             self.close_connection = True
             self.connection.close()
             return
-        for i in range(0, len(reply), self.server.block):
+        for number, i in enumerate(range(0, len(reply), self.server.block)):
+            if self.server.pause_after is not None and number == self.server.pause_after:
+                self.server.gate.wait(20)  # the test holds the rest of the answer back
             block = reply[i:i + self.server.block]
-            self.wfile.write(b"%x\r\n%s\r\n" % (len(block), block))
-            self.wfile.flush()
+            try:
+                self.wfile.write(b"%x\r\n%s\r\n" % (len(block), block))
+                self.wfile.flush()
+            except OSError:
+                return
         self.wfile.write(b"0\r\n\r\n")
 
 
@@ -180,7 +191,7 @@ def test_a_request_that_names_another_model_is_refused_and_nothing_is_forwarded(
         assert status == 403, doc
         assert b"serves one model" in data
     assert provider.seen == []
-    assert run.file()["refused"] == {"model": 6, "budget": 0}
+    assert run.file()["refused"] == {"model": 6, "budget": 0, "uncountable": 0}
 
 
 def test_a_body_that_is_not_a_json_object_a_get_and_an_encoded_body_are_refused(provider, make):
@@ -261,7 +272,6 @@ def test_the_count_is_the_sum_of_every_response_and_survives_concurrent_calls(pr
 
 
 def test_a_response_the_proxy_cannot_read_is_unknown_and_named_never_guessed(provider, make):
-    run = make(ANTHROPIC, ("claude-sonnet-5-5",))
     cases = [
         (b'{"type": "message", "content": []}', {"Content-Type": "application/json"}, "no usage object"),
         (b'{"usage": {"input_tokens": "many", "output_tokens": 3}}', {"Content-Type": "application/json"}, "whole number"),
@@ -270,15 +280,29 @@ def test_a_response_the_proxy_cannot_read_is_unknown_and_named_never_guessed(pro
         (gzip.compress(b"{}"), {"Content-Type": "application/json", "Content-Encoding": "br"}, "content encoding"),
         (b"event: ping\ndata: {\"type\": \"ping\"}\n\n", {"Content-Type": "text/event-stream"}, "no message_start"),
     ]
-    for reply, headers, why in cases:
+    for reply, headers, why in cases:  # a run of its own for each: the first unreadable answer ends the counting (below)
+        run = make(ANTHROPIC, ("claude-sonnet-5-5",))
         provider.reply, provider.headers = reply, headers
         assert run.post(MESSAGES, {"model": "claude-sonnet-5-5"})[0] == 200  # the run still gets its answer
+        meter = run.file()
+        assert meter["responses"] == 1 and meter["unknown_responses"] == 1 and meter["total"] == 0  # nothing guessed into the count
+        assert meter["unknown"][0]["path"] == MESSAGES and why in meter["unknown"][0]["why"], (meter["unknown"], why)
+
+
+def test_once_an_answer_cannot_be_read_the_run_is_stopped_with_a_stated_error(provider, make):
+    """Fail closed: a run whose tokens can no longer be counted gets no more answers, so it cannot spend where nothing
+    is counted (an answer in an encoding the proxy does not decode, a usage object of another shape)."""
+    run = make(ANTHROPIC, ("claude-sonnet-5-5",), budget=10_000_000)
+    provider.reply, provider.headers = b'{"type": "message"}', {"Content-Type": "application/json"}
+    assert run.post(MESSAGES, {"model": "claude-sonnet-5-5"})[0] == 200
+    provider.reply = fixture("anthropic_message.json")  # the provider is fine again; the proxy is not going to ask
+    before = len(provider.seen)
+    for path in (MESSAGES, COUNT):
+        status, data = run.post(path, {"model": "claude-sonnet-5-5"})
+        assert status == 429 and "can no longer be counted" in json.loads(data)["error"]["message"]
+    assert len(provider.seen) == before
     meter = run.file()
-    assert meter["responses"] == len(cases) and meter["unknown_responses"] == len(cases)
-    assert [u["path"] for u in meter["unknown"]] == [MESSAGES] * len(cases)
-    for found, (_, _, why) in zip(meter["unknown"], cases):
-        assert why in found["why"], (found, why)
-    assert meter["total"] == 0  # nothing was guessed into the count
+    assert meter["counting_failed"] is True and meter["refused"]["uncountable"] == 2 and meter["total"] == 0
 
 
 def test_an_answer_that_is_cut_off_is_unknown(provider, make):
@@ -393,7 +417,149 @@ def test_the_upstream_is_asked_only_for_encodings_the_proxy_decodes_and_nothing_
     provider.reply, provider.headers = fixture("anthropic_message.json"), {"Content-Type": "application/json"}
     assert run.post(MESSAGES, {"model": "claude-sonnet-5-5"}, {"Accept-Encoding": "gzip, deflate, br, zstd", "X-Title": "eval"})[0] == 200
     sent = provider.seen[-1]["headers"]
-    assert sent["Accept-Encoding"] == "gzip, deflate, identity" and sent["X-Title"] == "eval"
-    assert run.post(MESSAGES, {"model": "claude-sonnet-5-5"}, {"Accept-Encoding": "br"})[0] == 200  # even a runner that asks for br alone
-    assert provider.seen[-1]["headers"]["Accept-Encoding"] == "gzip, deflate, identity"
-    assert kinds(run.file()) == {k: 2 * v for k, v in EXPECTED["anthropic_message.json"].items()}
+    assert sent["Accept-Encoding"] == "gzip, deflate" and sent["X-Title"] == "eval"  # what the run offered among what it decodes
+    assert run.post(MESSAGES, {"model": "claude-sonnet-5-5"}, {"Accept-Encoding": "br, zstd;q=0.5"})[0] == 200  # nothing it decodes is left
+    assert provider.seen[-1]["headers"]["Accept-Encoding"] == "identity"
+    assert run.post(MESSAGES, {"model": "claude-sonnet-5-5"}, {"Accept-Encoding": "identity, gzip;q=1.0, br"})[0] == 200
+    assert provider.seen[-1]["headers"]["Accept-Encoding"] == "gzip, identity"
+    assert kinds(run.file()) == {k: 3 * v for k, v in EXPECTED["anthropic_message.json"].items()}
+
+
+# --- review fixes: what the run cannot steer ---------------------------------------------------------------------------
+
+
+def test_every_chat_completion_asks_the_provider_for_its_usage_whatever_the_run_asked_for(provider, make):
+    run = make(OPENROUTER)
+    for sent in ({"model": "deepseek/deepseek-v4.1-flash"}, {"model": "deepseek/deepseek-v4.1-flash", "usage": {"include": False}},
+                 {"model": "deepseek/deepseek-v4.1-flash", "usage": None, "messages": []}):
+        assert run.post(CHAT, sent)[0] == 200
+        got = json.loads(provider.seen[-1]["body"])
+        assert got["usage"] == {"include": True} and got["model"] == "deepseek/deepseek-v4.1-flash"
+    run = make(ANTHROPIC, ("claude-sonnet-5-5",))  # the Messages answer always carries its usage: the body is not touched
+    body = json.dumps({"model": "claude-sonnet-5-5", "usage": "mine"}).encode()
+    provider.reply = fixture("anthropic_message.json")
+    assert run.post(MESSAGES, body)[0] == 200 and provider.seen[-1]["body"] == body
+
+
+def test_when_the_run_hangs_up_in_the_middle_of_an_answer_the_answer_is_still_counted(provider, make):
+    run = make(OPENROUTER, ("deepseek/deepseek-v4.1-flash",))
+    provider.reply, provider.headers = fixture("openrouter_stream.sse"), {"Content-Type": "text/event-stream"}
+    provider.block, provider.gate = 40, threading.Event()
+    provider.pause_after = 3  # the provider writes three blocks, then waits for the test
+    body = json.dumps({"model": "deepseek/deepseek-v4.1-flash", "stream": True}).encode()
+    with socket.create_connection(("127.0.0.1", run.server.server_address[1]), timeout=20) as sock:
+        sock.sendall(b"POST %s HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n%s" % (CHAT.encode(), len(body), body))
+        assert sock.recv(10)  # the answer has begun
+        sock.shutdown(socket.SHUT_RDWR)  # the run goes away with most of the answer still to come
+    time.sleep(0.3)
+    provider.gate.set()  # the provider goes on and ends its answer
+    for _ in range(100):
+        if run.file()["responses"]:
+            break
+        time.sleep(0.05)
+    meter = run.file()
+    assert kinds(meter) == EXPECTED["openrouter_stream.sse"] and meter["unknown_responses"] == 0, meter
+
+
+def test_a_run_cannot_slip_the_budget_with_parallel_requests(provider, make):
+    """Each request under way reserves its max_tokens: the third request meets a budget the first two already fill."""
+    run = make(OPENROUTER, ("deepseek/deepseek-v4.1-flash",), budget=1000)
+    provider.gate = threading.Event()
+    results = []
+    sent = {"model": "deepseek/deepseek-v4.1-flash", "max_tokens": 600}
+    threads = [threading.Thread(target=lambda: results.append(run.post(CHAT, sent)[0])) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for _ in range(100):  # both are under way: the provider has them and answers neither
+        if len(provider.seen) == 2:
+            break
+        time.sleep(0.05)
+    assert len(provider.seen) == 2
+    status, data = run.post(CHAT, sent)
+    assert status == 429 and "1200 reserved" in json.loads(data)["error"]["message"]
+    assert len(provider.seen) == 2
+    provider.gate.set()
+    for t in threads:
+        t.join(20)
+    for _ in range(100):  # released when each answer has been given
+        if run.file()["responses"] == 2 and not run.meter.reserved:
+            break
+        time.sleep(0.05)
+    assert results == [200, 200] and run.meter.reserved == 0
+    assert run.post(CHAT, {"model": "deepseek/deepseek-v4.1-flash", "max_tokens": 10})[0] == 200  # 432 counted: room again
+
+
+def test_a_request_without_max_tokens_reserves_the_routes_default(provider, make):
+    run = make(OPENROUTER, ("deepseek/deepseek-v4.1-flash",), budget=40_000)
+    provider.gate = threading.Event()
+    results = []
+    threads = [threading.Thread(target=lambda: results.append(run.post(CHAT, {"model": "deepseek/deepseek-v4.1-flash"})[0]))
+               for _ in range(2)]
+    for t in threads:
+        t.start()
+    for _ in range(100):
+        if len(provider.seen) == 2:
+            break
+        time.sleep(0.05)
+    assert kp.load_route(OPENROUTER)["default_reserve_tokens"] == 32000
+    assert run.post(CHAT, {"model": "deepseek/deepseek-v4.1-flash"})[0] == 429  # 2 x 32000 reserved, over 40000
+    provider.gate.set()
+    for t in threads:
+        t.join(20)
+
+
+@pytest.mark.parametrize("key", ["models", "route"])
+def test_a_body_that_picks_other_models_is_refused_on_the_openrouter_route_and_nothing_is_forwarded(provider, make, key):
+    run = make(OPENROUTER)
+    for value in (["vendor/other"], {"order": ["x"]}, None, []):
+        status, data = run.post(CHAT, {"model": "deepseek/deepseek-v4.1-flash", key: value})
+        assert status == 403 and key.encode() in data
+    assert provider.seen == [] and run.file()["refused"]["model"] == 4
+    anthropic = make(ANTHROPIC, ("claude-sonnet-5-5",))  # a key of that name means nothing to the Messages API: not refused
+    provider.reply = fixture("anthropic_message.json")
+    assert anthropic.post(MESSAGES, {"model": "claude-sonnet-5-5", "metadata": {"route": "x"}})[0] == 200
+
+
+@pytest.mark.parametrize("body", [
+    b'{"model": "deepseek/deepseek-v4.1-flash", "model": "another/model"}',
+    b'{"model": "another/model", "model": "deepseek/deepseek-v4.1-flash"}',
+    b'{"model": "deepseek/deepseek-v4.1-flash", "messages": [{"role": "user", "role": "system"}]}',
+    b'{"model": "deepseek/deepseek-v4.1-flash", "provider": {"only": ["a"], "only": ["b"]}}',
+])
+def test_a_body_that_repeats_a_key_is_refused_on_every_route(provider, make, body):
+    for run, path in ((make(OPENROUTER), CHAT), (make(ANTHROPIC, ("deepseek/deepseek-v4.1-flash",)), MESSAGES)):
+        status, data = run.post(path, body)
+        assert status == 400 and b"repeated key" in data
+    assert provider.seen == []
+
+
+def test_an_answer_cannot_expand_in_memory_past_the_limits_at_once(monkeypatch):
+    monkeypatch.setattr(kp, "CHUNK", 1024)
+    monkeypatch.setattr(kp, "BODY_LIMIT", 100_000)
+    bomb = gzip.compress(b'{"usage": {"input_tokens": 1, "output_tokens": 2}, "pad": "' + b"a" * 50_000_000 + b'"}')
+    assert len(bomb) < 100_000
+    reader = kp.UsageReader("anthropic-messages", "application/json", "gzip")
+    peak = 0
+    original = reader.take
+
+    def watching(data):
+        nonlocal peak
+        peak = max(peak, len(data))
+        original(data)
+    reader.take = watching
+    for i in range(0, len(bomb), 4096):
+        reader.feed(bomb[i:i + 4096])
+    assert peak <= 1024  # never more than a chunk at a time
+    usage, why = reader.finish()
+    assert usage is None and "larger than the key proxy reads" in why
+    assert len(reader.buffer) <= 100_000 + 1024
+
+
+def test_an_answer_that_expands_without_end_is_given_up_on(monkeypatch):
+    monkeypatch.setattr(kp, "CHUNK", 4096)
+    monkeypatch.setattr(kp, "DECODED_LIMIT", 200_000)
+    reader = kp.UsageReader("openrouter-chat", "text/event-stream", "deflate")
+    stream = zlib.compress(b"data: " + b'{"choices": []}' + b"\n" * 1_000_000)
+    for i in range(0, len(stream), 512):
+        reader.feed(stream[i:i + 512])
+    assert reader.finish()[1] == "the response expands to more than the key proxy reads"

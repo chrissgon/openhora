@@ -45,14 +45,13 @@
         ],
         "header_values": {
           "accept": "application/json",
-          "accept-encoding": "gzip, deflate, identity",
+          "accept-encoding": "gzip, deflate",
           "anthropic-beta": "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,mid-conversation-tool-changes-2026-07-01,effort-2025-11-24,extended-cache-ttl-2025-04-11",
           "anthropic-dangerous-direct-browser-access": "true",
           "anthropic-version": "2023-06-01",
           "content-type": "application/json",
           "user-agent": "claude-cli/2.1.283 (external, sdk-cli)",
           "x-app": "cli",
-          "x-stainless-arch": "arm64",
           "x-stainless-lang": "js",
           "x-stainless-os": "Linux",
           "x-stainless-package-version": "0.112.1",
@@ -63,7 +62,8 @@
         "method": "POST",
         "model": "claude-sonnet-5-5",
         "path": "/v1/messages?beta=true",
-        "stream": true
+        "stream": true,
+        "usage_field": null
       }
     ],
     "runner": "claude"
@@ -86,7 +86,8 @@
           "provider",
           "reasoning",
           "stream",
-          "temperature"
+          "temperature",
+          "usage"
         ],
         "header_names": [
           "accept",
@@ -103,7 +104,7 @@
         ],
         "header_values": {
           "accept": "*/*",
-          "accept-encoding": "gzip, deflate, identity",
+          "accept-encoding": "gzip, deflate",
           "content-type": "application/json",
           "http-referer": "https://opencode.ai/",
           "user-agent": "opencode/1.18.32 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14",
@@ -112,7 +113,10 @@
         "method": "POST",
         "model": "google/gemini-3.8-flash",
         "path": "/api/v1/chat/completions",
-        "stream": true
+        "stream": true,
+        "usage_field": {
+          "include": true
+        }
       },
       {
         "authorization": "the one key the key proxy holds",
@@ -141,7 +145,7 @@
         ],
         "header_values": {
           "accept": "*/*",
-          "accept-encoding": "gzip, deflate, identity",
+          "accept-encoding": "gzip, deflate",
           "content-type": "application/json",
           "http-referer": "https://opencode.ai/",
           "user-agent": "opencode/1.18.32 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14",
@@ -150,7 +154,10 @@
         "method": "POST",
         "model": "deepseek/deepseek-v4.1-flash",
         "path": "/api/v1/chat/completions",
-        "stream": true
+        "stream": true,
+        "usage_field": {
+          "include": true
+        }
       }
     ],
     "runner": "opencode"

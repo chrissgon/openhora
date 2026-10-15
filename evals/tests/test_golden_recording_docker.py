@@ -46,7 +46,8 @@ RUNNERS = {
 # Values that are different on every run (a session, a request, a clock, a length that follows them) or that name the
 # stand-in: recorded as names only. The Authorization the key proxy adds is compared as "the one key it holds".
 VOLATILE = {"host", "content-length", "x-claude-code-session-id", "x-session-id", "x-session-affinity", "x-parent-session-id",
-            "idempotency-key", "x-request-id", "x-client-request-id", "traceparent", "x-stainless-timeout"}
+            "idempotency-key", "x-request-id", "x-client-request-id", "traceparent", "x-stainless-timeout",
+            "x-stainless-arch"}  # the last follows the CPU the test runs on (arm64 or x64): the name is recorded, not the value
 
 # The headers package SEC removes from what a runner sends, by their names (the key proxy drops every header whose name
 # can carry a credential). A recording through the key proxy before SEC may hold these; the one after never does.
@@ -63,12 +64,14 @@ def shape(item):
         "header_names": sorted({k.lower() for k, _ in headers}),
         "header_values": {k.lower(): v for k, v in sorted(headers) if k.lower() not in VOLATILE and v != "<credential>"},
         "authorization": "the one key the key proxy holds" if item["authorized"] and item["authorizations"] == 1 else f"WRONG: {item['authorizations']}",
-        "body_keys": item["body_keys"], "model": item["model"], "stream": item["stream"],
+        "body_keys": item["body_keys"], "model": item["model"], "stream": item["stream"], "usage_field": item.get("usage"),
     }
 
 
-def unique(shapes):
-    return sorted({json.dumps(s, sort_keys=True): s for s in shapes}.values(), key=lambda s: json.dumps(s, sort_keys=True))
+def ordered(shapes):
+    """The requests, every one of them (a repeated request is a repeated request), in a fixed order: the order they arrive in
+    is not, since a runner's side call and its main call go out together."""
+    return sorted(shapes, key=lambda s: json.dumps(s, sort_keys=True))
 
 
 def old_proxy_files(folder, route_file):
@@ -121,7 +124,7 @@ def record(ex, standin, tmp_path, which, proxy):
         proxy_log = ds.docker("logs", names["keys"], check=False).stderr
     finally:
         ex.release(run_id)
-    shapes = unique(shape(item) for item in standin.seen()[before:])
+    shapes = ordered(shape(item) for item in standin.seen()[before:])
     return shapes, sorted({s["model"] for s in shapes if s["model"]}), proxy_log
 
 
@@ -191,7 +194,11 @@ def test_the_request_the_key_proxy_of_the_last_commit_before_sec_forwarded_is_th
 # The one header that is not a credential and that the key proxy changes (package P2b, decision of 2026-10-15): the
 # upstream is asked only for the encodings the proxy decodes, so that the usage of every response can be read and a run's
 # tokens are never taken from what the run reports instead. The value the runners send, and the one the proxy sends.
-ENCODING = {"accept-encoding": ("gzip, deflate, br, zstd", "gzip, deflate, identity")}
+ENCODING = {"accept-encoding": ("gzip, deflate, br, zstd", "gzip, deflate")}
+# The other change to a request (package P2b, review fix): on the OpenRouter route the key proxy sets "usage": {"include": true}
+# in every chat completion, so that the final chunk of every answer reports its tokens whatever the run asked for. A body key
+# and its value; the runner's own main call already carries it, its side call does not.
+USAGE_FIELD = {"include": True}
 
 
 def without_credentials(requests, before=None):
@@ -201,7 +208,8 @@ def without_credentials(requests, before=None):
     for request in requests:
         dropped = set(CREDENTIAL_DIFFERENCES) | set(ENCODING)
         out.append({**request, "header_names": [h for h in request["header_names"] if h not in dropped],
-                    "header_values": {k: v for k, v in request["header_values"].items() if k not in dropped}})
+                    "header_values": {k: v for k, v in request["header_values"].items() if k not in dropped},
+                    "body_keys": [k for k in request["body_keys"] if k != "usage"], "usage_field": None})
     return out
 
 
@@ -220,6 +228,8 @@ def test_the_two_recordings_differ_in_the_credential_headers_package_sec_removes
     names_after = {h for r in after["requests"] for h in r["header_names"]}
     assert names_before - names_after <= set(CREDENTIAL_DIFFERENCES) and not names_after - names_before
     for request in after["requests"]:
+        if which == "opencode":  # the OpenRouter route: every chat completion asks for its usage, whatever the run asked
+            assert "usage" in request["body_keys"] and request["usage_field"] == USAGE_FIELD, request
         assert request["authorization"] == "the one key the key proxy holds"  # exactly one Authorization, the key proxy's own
         assert not set(request["header_names"]) & set(CREDENTIAL_DIFFERENCES)
 

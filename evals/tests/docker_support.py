@@ -52,7 +52,7 @@ class H(http.server.BaseHTTPRequestHandler):
         headers = [[k, "<credential>" if CREDENTIAL.search(k) else v] for k, v in self.headers.items()]
         path = self.path.split("?", 1)[0]
         print("seen " + json.dumps({"method": self.command, "path": self.path, "headers": headers, "body_keys": sorted(doc),
-                                    "model": doc.get("model"), "stream": doc.get("stream") is True,
+                                    "model": doc.get("model"), "stream": doc.get("stream") is True, "usage": doc.get("usage"),
                                     "authorized": auth == [EXPECTED], "authorizations": len(auth)}), flush=True)
         stream = doc.get("stream") is True
         if path == "/v1/messages":
@@ -124,7 +124,7 @@ class Standin:
 
     def start(self):
         n = self.ex.names()
-        docker("run", "-d", "--rm", "--platform", self.ex.image_platform(), *self.ex.labels(), "--name", self.name,
+        docker("run", "-d", self.ex.NO_PULL, "--rm", "--platform", self.ex.image_platform(), *self.ex.labels(), "--name", self.name,
                "--network", self.networks[0], "-e", "STANDIN_EXPECTED_KEY", "-v", f"{os.path.realpath(self.folder)}:/standin:ro",
                n["image"], "python3", "/standin/server.py", env={"STANDIN_EXPECTED_KEY": self.key})
         for network in self.networks[1:]:

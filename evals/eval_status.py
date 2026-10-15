@@ -343,7 +343,31 @@ def gate_problems(root=ROOT):
     if not out and "measurement_sha256" in cfg and not (isinstance(cfg["measurement_sha256"], str)
                                                         and re.fullmatch(r"[0-9a-f]{64}", cfg["measurement_sha256"])):
         out.append("measurement_sha256 must be 64 hexadecimal characters")
-    return out or event_problems(cfg)
+    return out or event_problems(cfg) or route_problems(cfg, root)
+
+
+def route_problems(cfg, root):
+    """Where a model's entry names a route the key proxy's folder has no file for, or a route whose key the entry does not
+    pass. Looked at only in a tree that has the folder (evals/container/keyproxy/), which holds the route files."""
+    folder = os.path.join(root, "evals", "container", "keyproxy")
+    models = cfg.get("models")
+    if not (os.path.isdir(folder) and isinstance(models, dict)):
+        return []
+    out = []
+    for model, entry in models.items():
+        route = entry.get("route") if isinstance(entry, dict) else None
+        if not route:
+            continue
+        path = os.path.join(folder, f"route-{route}.json")
+        try:
+            with open(path, encoding="utf-8") as f:
+                secret = json.load(f).get("secret")
+        except (OSError, ValueError, AttributeError):
+            out.append(f"models[{model!r}] names the route {route!r}, which has no readable route-{route}.json in evals/container/keyproxy/")
+            continue
+        if secret not in entry.get("pass_env", []):
+            out.append(f"models[{model!r}] names the route {route!r}, whose key is {secret}, and does not pass it in pass_env")
+    return out
 
 
 def whole(value, low, high):

@@ -349,3 +349,20 @@ def test_a_refused_key_that_reported_tokens_keeps_its_reservation_end_to_end(tre
     assert (runs[0]["failure"], runs[0]["attempts"], runs[0]["tokens"]) == ("auth", 1, 100)
     assert autonomy.never_reached_the_model(runs[0]) is False
     assert autonomy.spend_split([dict(r, billing="metered") for r in runs], runs[0]["agent"], PER_RUN)["usd_reserved"] == PER_RUN
+
+
+def test_reported_usage_takes_the_tokens_from_the_key_proxys_count_when_the_run_has_one(tmp_path):
+    """The run's own timing.json is what the run wrote; the meter is what its key proxy counted. The cost stays the adapter's."""
+    import json
+    import os
+    dest = str(tmp_path / "run")
+    write_timing(dest, 100, 0.01)
+    write_timing(dest + "/failed-1", 100, 0.02)
+    for folder, counts in ((dest, (10, 20, 30, 40)), (dest + "/failed-1", (1, 2, 3, 4))):
+        with open(os.path.join(folder, "outputs", "meter.json"), "w") as f:
+            json.dump(dict(zip(("input", "output", "cache_read", "cache_write"), counts), unknown_responses=0), f)
+    got = lab.reported_usage(dest)
+    assert got["total_tokens"] == 110 and got["cost_usd"] == pytest.approx(0.03)  # 100 + 10: the counted tokens, not the reported 200
+    with open(os.path.join(dest, "outputs", "meter.json"), "w") as f:
+        json.dump({"input": 10, "output": 20, "cache_read": 30, "cache_write": 40, "unknown_responses": 3}, f)
+    assert lab.reported_usage(dest)["total_tokens"] == 110  # a lower bound, still the proxy's: never the run's own 200

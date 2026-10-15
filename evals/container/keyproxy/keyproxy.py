@@ -14,24 +14,36 @@ provider host the route names, over HTTPS, with an Authorization header made fro
     model endpoints the runner uses; an absolute URL, another path, a path with a "." or ".." segment and CONNECT
     are refused, and nothing of them is forwarded;
   - serves one model: it reads the JSON body of every POST to a model endpoint and refuses (403, with the reason)
-    a request whose "model" is not one of the names given with --upstream-model, or that has none; a body that is
-    not a JSON object is refused (400), and so is any other method on a model endpoint (405);
+    a request whose "model" is not one of the names given with --upstream-model, or that has none, or that carries a
+    key the route lists in "refuse_body_keys" (OpenRouter: "models" and "route", which pick other models); a body
+    that is not a JSON object, or that repeats a key (two readers could take different ones), is refused (400), and
+    so is any other method on a model endpoint (405);
   - never routes by the Host header: the upstream is fixed when the proxy starts;
   - removes every header that can carry a credential a run sends or makes up (Authorization,
     Proxy-Authorization, x-api-key, api-key, x-goog-api-key, anthropic-auth-token, cookie, and any header
     whose name has auth, api-key (or api_key), token, secret, cookie, credential or password in it), forwards
     every other header unchanged (a session id or an idempotency key is not a credential), and adds one Authorization of its own;
   - when started with --pin, sets "provider": {"only": [that name], "allow_fallbacks": false} in the body of every POST to a path that ends in /chat/completions;
-  - sets Accept-Encoding, when a run sends one, to the encodings it can decode (gzip, deflate, identity), so that the usage
-    of every response can be read: the one header besides the credential ones that it changes;
+  - sets Accept-Encoding, when a run sends one, to what the run offered among the encodings it can decode (gzip,
+    deflate, identity; identity when none is left), so that the usage of every response can be read: the one header
+    besides the credential ones that it changes;
+  - on the OpenRouter route sets "usage": {"include": true} in the body of every chat completion, so that the final
+    chunk of every answer reports its tokens, whatever the run asked for;
   - counts the tokens of every response of its run by the four kinds the runtime prices (input, output,
     cache_read, cache_write) from the "usage" the provider reports (the Anthropic Messages response, streamed or
     not; the OpenRouter chat completion, streamed or not: a streamed one reports its usage in its last chunk),
     and writes the count to the file --meter names, after each response, in a folder that only this container
     mounts: a run never sees it. A response it cannot read is counted as unknown and named there, never guessed.
     Counting never logs or keeps content: only the usage object is read out of a response as it passes;
-  - answers every request to a model endpoint with 429 and a body that names the budget once the tokens counted
-    reach --budget-tokens (a request already under way is not cut off: the count can pass the budget by one response);
+  - answers a request to a model endpoint with 429 and a body that names the budget when the tokens counted plus the
+    ones reserved by the requests under way reach --budget-tokens: each request under way reserves its body's
+    max_tokens (the route's "default_reserve_tokens" when it has none) until its answer is counted. Input tokens are
+    not reserved, so the count can pass the budget by the input of the requests that were under way, and a request
+    already under way is never cut off;
+  - fails closed: once a metered answer could not be read, so that the run's tokens can no longer be counted, it
+    answers every later request to a model endpoint with 429 saying so;
+  - when the run hangs up in the middle of an answer, keeps reading the provider's answer to its end (at most the
+    route's timeout and DRAIN_LIMIT bytes) and counts it: a run cannot leave an answer uncounted by leaving;
   - passes the response through as it arrives, so a streamed answer streams, with the route's timeout
     ("timeout_seconds", the egress proxy's own) on the run's side and on the provider's;
   - logs one line per request (method, path without its query, status, bytes, milliseconds): never a
@@ -83,7 +95,10 @@ USAGE_STYLES = ("anthropic-messages", "openrouter-chat")  # how a route's respon
 KINDS = ("input", "output", "cache_read", "cache_write")  # the four kinds runtime/costs.py prices
 BODY_LIMIT = 32 * 1024 * 1024  # the most of one non-streamed response the meter will read to find its usage
 EVENT_LIMIT = 8 * 1024 * 1024  # the most of one streamed event it will hold
-DECODABLE = "gzip, deflate, identity"  # the Accept-Encoding the upstream is given: what UsageReader decodes
+ACCEPTED = ("gzip", "deflate", "identity")  # the encodings UsageReader decodes: all the upstream is asked for
+CHUNK = 65536  # the most of a compressed answer expanded at once
+DECODED_LIMIT = 1 << 30  # the most one answer may expand to before it is given up on as unreadable
+DRAIN_LIMIT = 64 * 1024 * 1024  # the most of an answer read on after the run hung up
 UNKNOWN_LISTED = 20  # the unreadable responses the meter file names one by one (the count is always whole)
 
 
@@ -135,6 +150,12 @@ def load_route(path, upstream=None):
     metered = route.get("metered")
     if not (isinstance(metered, list) and metered and all(p in paths for p in metered)):
         raise RouteError("metered must list the paths, among the route's paths, whose responses carry the usage to count")
+    reserve = route.get("default_reserve_tokens")
+    if not (isinstance(reserve, int) and not isinstance(reserve, bool) and reserve > 0):
+        raise RouteError("default_reserve_tokens must be a positive number: what a request without max_tokens reserves")
+    refused = route.get("refuse_body_keys", [])
+    if not (isinstance(refused, list) and all(isinstance(k, str) and k for k in refused)):
+        raise RouteError("refuse_body_keys must list the body keys the route refuses")
     base_path = route.get("base_path")
     if base_path is not None and not (isinstance(base_path, str) and (base_path == "" or base_path.startswith("/"))):
         raise RouteError("base_path must be empty or a path that starts with /")
@@ -150,6 +171,22 @@ def allowed(target, prefix):
         if any(segment in (".", "..") for segment in form.split("/")):
             return False
     return True
+
+
+def no_duplicates(pairs):
+    """object_pairs_hook: an object that repeats a key is refused, since two readers could take different ones."""
+    found = {}
+    for key, value in pairs:
+        if key in found:
+            raise ValueError(f"duplicate key {key!r}")
+        found[key] = value
+    return found
+
+
+def decodable(value):
+    """The Accept-Encoding to give the upstream: what a run offered among ACCEPTED, in their order, else identity."""
+    offered = {t.split(";")[0].strip().lower() for t in str(value).split(",")}
+    return ", ".join(e for e in ACCEPTED if e in offered) or "identity"
 
 
 def egress_of(value):
@@ -215,18 +252,28 @@ class UsageReader:
             self.problem = self.problem or "the response uses a content encoding the key proxy does not decode"
         self.buffer = bytearray()
         self.start = self.delta = self.last = None
+        self.decoded = 0
 
     def feed(self, block):
         if self.problem:
             return
+        if not self.decoder:
+            return self.take(block)
         try:
-            data = self.decoder.decompress(block) if self.decoder else block
+            # Expanded CHUNK bytes at a time, each taken (and bounded) before the next: a small answer cannot expand in
+            # memory past the limits all at once.
+            self.take(self.decoder.decompress(block, CHUNK))
+            while self.decoder.unconsumed_tail and not self.problem:
+                self.take(self.decoder.decompress(self.decoder.unconsumed_tail, CHUNK))
         except zlib.error:
             self.problem = "the response could not be decoded"
-            return
-        self.take(data)
 
     def take(self, data):
+        self.decoded += len(data)
+        if self.decoded > DECODED_LIMIT:
+            self.problem = "the response expands to more than the key proxy reads"
+            self.buffer.clear()
+            return
         if self.stream:
             self.buffer += data
             while True:
@@ -273,6 +320,11 @@ class UsageReader:
     def finish(self, complete=True):
         if self.decoder and not self.problem:
             try:
+                while not self.problem:  # what the decoder still holds, a chunk at a time
+                    data = self.decoder.decompress(self.decoder.unconsumed_tail, CHUNK)
+                    if not data:
+                        break
+                    self.take(data)
                 self.take(self.decoder.flush())
             except zlib.error:
                 self.problem = "the response could not be decoded"
@@ -305,7 +357,8 @@ class Meter:
         self.path, self.run, self.model, self.budget = path, run, model, budget
         self.counts = {kind: 0 for kind in KINDS}
         self.responses, self.unknown, self.unknown_responses = 0, [], 0
-        self.refused = {"model": 0, "budget": 0}
+        self.refused = {"model": 0, "budget": 0, "uncountable": 0}
+        self.reserved = 0  # the max_tokens of the requests under way
         self.lock = threading.Lock()
         self.failed = False
 
@@ -313,7 +366,27 @@ class Meter:
         return sum(self.counts.values())
 
     def exhausted(self):
-        return self.budget is not None and self.total() >= self.budget
+        return self.budget is not None and self.total() + self.reserved >= self.budget
+
+    def uncountable(self):
+        """True once a metered answer could not be read: the run's tokens can no longer be counted."""
+        return self.unknown_responses > 0
+
+    def admit(self, reserve):
+        """Let a request in, reserving `reserve` tokens for it, unless the tokens counted and the ones reserved by the
+        requests under way already reach the budget. The check and the reservation are one step, so parallel
+        requests cannot all pass it."""
+        with self.lock:
+            if self.budget is not None and self.total() + self.reserved >= self.budget:
+                self.refused["budget"] += 1
+                self.write()
+                return False
+            self.reserved += reserve
+            return True
+
+    def release(self, reserve):
+        with self.lock:
+            self.reserved = max(0, self.reserved - reserve)
 
     def add(self, usage):
         with self.lock:
@@ -338,7 +411,9 @@ class Meter:
     def snapshot(self):
         return {"run": self.run, "model": self.model, "responses": self.responses, **self.counts, "total": self.total(),
                 "unknown_responses": self.unknown_responses, "unknown": self.unknown, "refused": self.refused,
-                "budget_tokens": self.budget, "budget_reached": self.exhausted()}
+                "budget_tokens": self.budget, "reserved": self.reserved,
+                "budget_reached": self.budget is not None and self.total() >= self.budget,
+                "counting_failed": self.uncountable()}
 
     def write(self):
         """The meter file, replaced whole (a reader never sees half of it). Returns False when it could not be written."""
@@ -428,7 +503,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def budget_error(self, started):
         meter = self.server.meter
         text = (f"the eval key proxy stopped this run: its budget of {meter.budget} tokens is reached "
-                f"({meter.total()} counted)")
+                f"({meter.total()} counted, {meter.reserved} reserved by requests under way)")
+        body = json.dumps({"type": "error", "error": {"type": "rate_limit_error", "code": 429, "message": text}}).encode("utf-8")
+        self.refuse(429, text, started, body=body, kind="application/json")
+
+    def uncountable_error(self, started):
+        text = "the eval key proxy stopped this run: an answer could not be read, so its tokens can no longer be counted"
         body = json.dumps({"type": "error", "error": {"type": "rate_limit_error", "code": 429, "message": text}}).encode("utf-8")
         self.refuse(429, text, started, body=body, kind="application/json")
 
@@ -448,22 +528,45 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except BodyError as e:
             return self.refuse(e.status, str(e), started)
         try:
-            doc = json.loads(body or b"")
+            doc = json.loads(body or b"", object_pairs_hook=no_duplicates)
             if not isinstance(doc, dict):
                 raise ValueError("not an object")
         except ValueError:
-            return self.refuse(400, "the key proxy could not read the request body as a JSON object", started)
+            return self.refuse(400, "the key proxy could not read the request body as a JSON object without a repeated key", started)
         model = doc.get("model")
         if not (isinstance(model, str) and model in self.server.upstream_models):
             if self.server.meter:
                 self.server.meter.refuse("model")
             return self.refuse(403, "the key proxy of this run serves one model; this request names another, or none", started)
-        if self.server.meter and self.server.meter.exhausted():
-            self.server.meter.refuse("budget")
+        picked = [k for k in route.get("refuse_body_keys", ()) if k in doc]
+        if picked:  # a fallback list or a route picks other models than the one this proxy serves
+            if self.server.meter:
+                self.server.meter.refuse("model")
+            return self.refuse(403, f"the key proxy of this run serves one model; a request that carries {picked[0]!r} may pick another", started)
+        meter = self.server.meter
+        if meter and meter.uncountable():
+            meter.refuse("uncountable")
+            return self.uncountable_error(started)
+        wants = doc.get("max_tokens")
+        reserve = wants if isinstance(wants, int) and not isinstance(wants, bool) and wants >= 0 else route["default_reserve_tokens"]
+        if meter and not meter.admit(reserve):
             return self.budget_error(started)
+        try:
+            self.send_upstream(rpath, doc, body, started, route)
+        finally:
+            if meter:
+                meter.release(reserve)
+
+    def send_upstream(self, rpath, doc, body, started, route):
+        changed = False
         if self.server.pin and rpath.endswith("/chat/completions"):
             # The model's entry pins one upstream provider: the request says so, whatever the run asked for.
             doc["provider"] = {"only": [self.server.pin], "allow_fallbacks": False}
+            changed = True
+        if self.server.meter and route["usage"] == "openrouter-chat" and rpath in route["metered"]:
+            doc["usage"] = {"include": True}  # every answer reports its tokens, whatever the run asked for
+            changed = True
+        if changed:
             body = json.dumps(doc).encode("utf-8")
         listed = {t.strip().lower() for v in self.headers.get_all("Connection") or [] for t in v.split(",")}
         headers = [(k, v) for k, v in self.headers.items()
@@ -472,7 +575,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             # The one header besides the credentials this proxy changes: the encodings it can decode. A response in
             # another encoding (br, zstd) could not be read for its usage, and a run's tokens must be counted where
             # the run cannot change them, never fall back to what the run reports.
-            headers = [(k, DECODABLE if k.lower() == "accept-encoding" else v) for k, v in headers]
+            headers = [(k, decodable(v) if k.lower() == "accept-encoding" else v) for k, v in headers]
         conn = None
         try:
             conn = self.server.connect()
@@ -537,6 +640,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if no_body:
             return resp.status, 0
         expected = int(length) if length is not None and length.strip().isdigit() else None
+        read, gone, deadline = 0, False, None
         while True:
             block = resp.read1(BLOCK)
             if not block:
@@ -546,17 +650,29 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     reader.feed(block)
                 except Exception:  # noqa: BLE001 - counting must never break the run's answer
                     reader.problem = reader.problem or "the key proxy could not read the response"
-            sent += len(block)
-            if settle is not None and expected is not None and sent >= expected:
+            read += len(block)
+            if settle is not None and expected is not None and read >= expected:
                 settle(True)  # the last block: counted before the run has it
-            self.wfile.write(block if length is not None else b"%x\r\n%s\r\n" % (len(block), block))
-        if expected is not None and sent < expected:
-            raise http.client.IncompleteRead(b"", expected - sent)
+            if gone:  # the run hung up: the answer is still read to its end, and counted
+                if read > DRAIN_LIMIT or time.monotonic() > deadline:
+                    raise OSError("the answer went on after the run hung up for longer than the key proxy reads")
+                continue
+            try:
+                self.wfile.write(block if length is not None else b"%x\r\n%s\r\n" % (len(block), block))
+                sent += len(block)
+            except OSError:
+                gone, self.close_connection = True, True
+                deadline = time.monotonic() + self.server.route["timeout_seconds"]
+        if expected is not None and read < expected:
+            raise http.client.IncompleteRead(b"", expected - read)
         if settle is not None:
             settle(True)  # a chunked answer ends here, before its closing chunk
-        if length is None:
-            self.wfile.write(b"0\r\n\r\n")
-        return resp.status, sent
+        if length is None and not gone:
+            try:
+                self.wfile.write(b"0\r\n\r\n")
+            except OSError:
+                gone = True
+        return (f"{resp.status} (the run hung up)" if gone else resp.status), sent
 
     do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = do_HEAD = do_OPTIONS = forward  # noqa: N815
 

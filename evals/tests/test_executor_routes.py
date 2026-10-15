@@ -217,6 +217,8 @@ def like_a_golden(argv, root, name, run_id=None):
             skip -= 1
         elif a in ("--user", "--label"):
             skip = 1
+        elif a == ex.NO_PULL:
+            continue
         elif a == "HOME=/home/eval" and argv[i - 1] == "-e":
             kept.pop()
         else:

@@ -1877,6 +1877,10 @@ def scratch_reason(o, gate, environment, version=None, fingerprint=None):
     if environment and environment.get("image_platform") not in load_executor().IMAGE_PLATFORMS:
         return (f"the image was built for {environment.get('image_platform')}, and evidence is made on "
                 f"{' or '.join(load_executor().IMAGE_PLATFORMS)} only")
+    host = (environment or {}).get("host_platform")
+    if host and host != environment.get("image_platform"):
+        return (f"the image is for {environment.get('image_platform')} and the docker host is {host}: the runs were emulated, "
+                "and a run on an emulated platform is not a run on the platform it says")
     if o["extra_pass_env"]:
         return (f"extra variables were passed into the runs ({', '.join(o['extra_pass_env'])}): they change what a "
                 "run is, so the event is a trial")

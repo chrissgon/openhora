@@ -13,7 +13,8 @@ that kind per million, summed. Arithmetic only. Nothing here guesses: a run whos
 has no price, has no recomputed cost; it is `unknown`, and the summary counts it (`unknown_runs`).
 
   usage_of(run_dir)               the token counts of one run by kind, or None: the key proxy's count when the run has one
-  metered_usage(run_dir)          the key proxy's count alone (the run could not change it), or None
+  metered_usage(run_dir)          the key proxy's count alone (the run could not change it), a lower bound when it
+                                  names answers it could not count ("unknown_responses" above 0), or None
   recompute(usage, price)         the cost in dollars of one usage at one price
   summary(runs, prices, since)    rows by day, agent, model and adapter
 
@@ -57,7 +58,8 @@ def usage_of(run_dir) -> dict | None:
     sums it; the input and output counts must be there. Never a guess.
 
     The key proxy's own count comes first (metered_usage): when the run has one, the usage is that count, which the
-    run could not change; only without it is the run's own output read."""
+    run could not change, with "unknown_responses" above 0 when it is a lower bound; only a run without a meter has
+    its own output read."""
     if not isinstance(run_dir, str) or not run_dir or not os.path.isabs(run_dir):
         return None
     metered = metered_usage(run_dir)
@@ -80,39 +82,40 @@ METER_MAX = 1024 * 1024
 def metered_usage(run_dir) -> dict | None:
     """The token counts of one run by kind as its key proxy counted them: the sum of <run_dir>/outputs/meter.json and
     of the meter of each attempt the run set aside (failed-<n>/, early-end-<n>/, paused-<n>/ under run_dir), which spent
-    too. {"input", "output", "cache_read", "cache_write"}, or None unless every one of those folders holds a meter that
-    counted every response of its attempt: a run without a key proxy has no meter; a meter that names an unreadable
-    response (unknown_responses above 0), is not a regular file, is over its size limit or is not in its form is not
-    used, and the caller reads the run's own output as before. The set-aside folders are looked at only when the run's
-    own outputs hold a meter. Never a guess."""
+    too. {"input", "output", "cache_read", "cache_write", "unknown_responses"}, or None when the run has no meter
+    file at all (a run without a key proxy).
+
+    Once the run has a meter file it is the count, and the run's own report is never read in its place, since the run
+    could have written that one. What the proxy could not count is not guessed: the counts are then a LOWER BOUND, and
+    "unknown_responses" says how many answers (and set-aside attempts with no readable meter) are not in them; it is 0
+    when the count is whole. The set-aside folders are looked at only when the run's own outputs hold a meter."""
     if not isinstance(run_dir, str) or not run_dir or not os.path.isabs(run_dir):
         return None
-    folders = [os.path.join(run_dir, "outputs")]
-    if _text(os.path.join(folders[0], METER), METER_MAX) is None:
+    main = os.path.join(run_dir, "outputs")
+    if not os.path.lexists(os.path.join(main, METER)):
         return None
     try:
         names = sorted(os.listdir(run_dir))
     except OSError:
-        return None
-    folders += [os.path.join(run_dir, n, "outputs") for n in names if n.startswith(ATTEMPT_PREFIXES) and not os.path.islink(os.path.join(run_dir, n))
-                and os.path.isdir(os.path.join(run_dir, n, "outputs"))]
-    total = {kind: 0 for kind in KINDS}
+        names = []
+    folders = [main] + [os.path.join(run_dir, n, "outputs") for n in names if n.startswith(ATTEMPT_PREFIXES)
+                        and not os.path.islink(os.path.join(run_dir, n)) and os.path.isdir(os.path.join(run_dir, n, "outputs"))]
+    total, unknown = {kind: 0 for kind in KINDS}, 0
     for folder in folders:
         text = _text(os.path.join(folder, METER), METER_MAX)
-        if text is None:
-            return None
         try:
-            meter = json.loads(text)
+            meter = json.loads(text) if text is not None else None
         except ValueError:
-            return None
-        if not isinstance(meter, dict) or meter.get("unknown_responses") != 0:
-            return None
-        for kind in KINDS:
-            value = _count(meter.get(kind))
-            if value is None:
-                return None
+            meter = None
+        counts = [_count(meter.get(kind)) for kind in KINDS] if isinstance(meter, dict) else [None]
+        if None in counts:  # no readable meter for this attempt: its spend is not in the counts
+            unknown += 1
+            continue
+        for kind, value in zip(KINDS, counts):
             total[kind] += value
-    return total
+        said = _count(meter.get("unknown_responses"))
+        unknown += said if said is not None else 1
+    return {**total, "unknown_responses": unknown}
 
 
 def _text(path: str, limit: int):
@@ -196,14 +199,15 @@ def day_of(started_at) -> str:
 
 def summary(runs, prices: dict, since=None) -> list:
     """Rows by day, agent, model and adapter, oldest day first: {"day", "agent", "model", "adapter", "runs",
-    "tokens", "recorded_usd", "recomputed_usd", "unknown_runs", "price"}.
+    "tokens", "recorded_usd", "recomputed_usd", "unknown_runs", "lower_bound_runs", "price"}.
 
     runs are rows of task_runs with an "agent" (the task's); a row needs started_at, model, adapter, cost_usd,
     tokens and run_dir. prices is the configuration's model_prices. since is None or a day YYYY-MM-DD: earlier days
     are left out. `tokens` is the sum of the recorded totals (None when none was recorded); `recorded_usd` the sum of
     the recorded costs, None when every one is NULL; `recomputed_usd` the sum of recompute() over the group's runs,
     None when the model has no price or any run of the group has no usage (usage_of); `unknown_runs` is the number
-    of runs of the group with no usage; `price` is the entry's source and date when the model has one, else None."""
+    of runs of the group with no usage; `lower_bound_runs` the number whose key proxy could not count every answer (their
+    tokens are a lower bound, and the run's own report is never read in their place); `price` is the entry's source and date when the model has one, else None."""
     groups = {}
     for run in runs:
         day = day_of(run["started_at"])
@@ -218,12 +222,13 @@ def summary(runs, prices: dict, since=None) -> list:
         tokens = [r["tokens"] for r in members if r.get("tokens") is not None]
         usages = [usage_of(r.get("run_dir")) for r in members]
         unknown = sum(1 for u in usages if u is None)
+        lower_bound = sum(1 for u in usages if u is not None and u.get("unknown_responses"))
         price = prices.get(model)
         recomputed = None if price is None or unknown else round(sum(recompute(u, price) for u in usages), 6)
         rows.append({"day": day, "agent": agent, "model": model, "adapter": adapter, "runs": len(members),
                      "tokens": sum(tokens) if tokens else None,
                      "recorded_usd": round(sum(costs), 6) if costs else None, "recomputed_usd": recomputed,
-                     "unknown_runs": unknown,
+                     "unknown_runs": unknown, "lower_bound_runs": lower_bound,
                      "price": {"source": price["source"], "date": price["date"]} if price else None})
     return rows
 

@@ -65,7 +65,6 @@ Measurement version 9, measurement floor 6.
 | `models` | 2 keys: `claude-sonnet-5-5`, `openrouter/deepseek/deepseek-v4.1-flash` |
 | `lab_models` | 2 names, not shown |
 | `epochs` | 3 entries, each with `date`, `models`, `skills`, `cause` |
-| `measurement_sha256` | text, not shown |
 <!-- /generated -->
 
 ## Abstractions
@@ -103,7 +102,7 @@ Measurement version 9, measurement floor 6.
 
 **The slots and the shared lock.** `--jobs` (at most 8) runs in one process; across processes a folder of slot files limits model calls in progress to `total_jobs` and open-network runs to `web_jobs` per tier; the account-limit pause lives under the same lock.
 
-**The key proxy per run.** A run whose credential is held gets a key proxy of its own and an internal network of its own (`wb-eval-keys-<run id>`, `wb-eval-held-<run id>`), started with the one model of the run: a route file describes a provider (`route-openrouter.json`, `route-anthropic.json`), and the gate file's entry of the model (`route`, `provider_pin`, `upstream_models`, `run_token_budget`) gives the pin, the model names the proxy lets through and the token budget, so that adding a model changes no fingerprinted file. A run gets a placeholder and its own proxy's base URL; the proxy forwards the provider's model endpoints only, to its one host, over HTTPS through the egress proxy, refuses a request that names another model, adds the credential, logs no header, counts the tokens of each response into a meter file the run cannot see, answers 429 at the budget, and for a pinned model sets one upstream provider with fallbacks off. The proxy and the network are removed when the run ends; both carry the labels `wb.eval=1` and `wb.eval.run=<run id>`.
+**The key proxy per run.** A run whose credential is held gets a key proxy of its own and an internal network of its own (`wb-eval-keys-<run id>`, `wb-eval-held-<run id>`), started with the one model of the run: a route file describes a provider (`route-openrouter.json`, `route-anthropic.json`), and the gate file's entry of the model (`route`, `provider_pin`, `upstream_models`, `run_token_budget`) gives the pin, the model names the proxy lets through and the token budget, so that adding a model changes no fingerprinted file. A run gets a placeholder and its own proxy's base URL; the proxy forwards the provider's model endpoints only, to its one host, over HTTPS through the egress proxy, refuses a request that names another model, adds the credential, logs no header, counts the tokens of each response (also when the run hangs up) into a meter file the run cannot see, answers 429 when the counted and the reserved tokens reach the budget and, for good, once an answer could not be read, refuses a body that picks other models or repeats a key, and for a pinned model sets one upstream provider with fallbacks off. The proxy and the network are removed when the run ends; both carry the labels `wb.eval=1` and `wb.eval.run=<run id>`.
 
 ```mermaid
 flowchart LR

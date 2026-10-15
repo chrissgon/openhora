@@ -3555,6 +3555,37 @@ def test_a_command_passed_the_held_key_gets_a_key_proxy_and_a_network_of_its_own
     assert len(held) == 1 and len(ran) == 3 and released == [run_id]
 
 
+@pytest.mark.parametrize("failure", ["executor", "other"])
+def test_a_key_proxy_and_its_network_are_released_when_anything_after_hold_fails(tmp_path, monkeypatch, failure):
+    """command() (or anything else after hold()) failing must not leak the run's key proxy, its network or its meter folder."""
+    executor = held_gate(tmp_path, monkeypatch)
+    secret, key = "OPENROUTER_API_KEY", "fake-floor-key-for-the-runner-tests-0004"
+    held, released, folders = [], [], []
+    monkeypatch.setattr(er, "EXECUTOR", "container")
+    monkeypatch.setattr(er.KIT, "EXECUTOR", "container")
+
+    def hold(run_id, model, env, network="proxy", meter_dir=None, **kw):
+        held.append(run_id)
+        folders.append(meter_dir)
+        return {"keys": "k", "network": "n", "route": "openrouter", "meter": os.path.join(meter_dir, run_id + ".json"), "model": model}
+
+    def command(*a, **kw):
+        raise (executor.ExecutorError("cannot build the command") if failure == "executor" else RuntimeError("something else broke"))
+    monkeypatch.setattr(executor, "hold", hold)
+    monkeypatch.setattr(executor, "command", command)
+    monkeypatch.setattr(executor, "release", lambda run_id, env=None: released.append(run_id))
+    monkeypatch.setattr(er.KIT, "METER_POLL", 0)
+    box = {"root": str(tmp_path), "pass": [secret], "network": "proxy", "model": "m"}
+    if failure == "executor":
+        r = er.run_group(["true"], 10, env={secret: key}, box=box)
+        assert r.returncode == 1 and "cannot build the command" in r.stderr
+    else:
+        with pytest.raises(RuntimeError):
+            er.run_group(["true"], 10, env={secret: key}, box=box)
+    assert held and released == held  # released, once, whichever way hold's caller failed
+    assert er.KIT.HELD == set() and not os.path.exists(folders[0])
+
+
 def test_a_held_command_fails_as_infrastructure_when_its_key_proxy_cannot_start_and_nothing_runs(tmp_path, monkeypatch):
     executor = held_gate(tmp_path, monkeypatch)
     secret, key = "OPENROUTER_API_KEY", "fake-floor-key-for-the-runner-tests-0004"
@@ -3568,6 +3599,7 @@ def test_a_held_command_fails_as_infrastructure_when_its_key_proxy_cannot_start_
     def down(*a, **kw):
         raise executor.ExecutorError("the key proxy did not start: cannot start")
     monkeypatch.setattr(executor, "hold", down)
+    monkeypatch.setattr(executor, "release", lambda run_id, env=None: None)
     box = {"root": str(tmp_path), "pass": [secret], "network": "proxy", "model": "m"}
     r = er.run_group(["true"], 10, env={secret: key}, box=box)
     assert r.returncode == 1 and "key proxy did not start" in r.stderr and ran == [] and key not in r.stderr
@@ -3644,3 +3676,19 @@ def test_a_run_makes_its_attempts_through_the_shared_module(tmp_path, monkeypatc
     for case in (1, 2):
         run = tmp_path / "evals-workspace" / "demo" / "iteration-1" / f"eval-{case}" / "with_skill"
         assert (run / "outputs" / "response.md").read_text().strip() == "ok" and (run / "prompt.md").is_file()
+
+
+def test_an_emulated_platform_stays_a_trial(tmp_path, monkeypatch, capsys):
+    """An image for linux/amd64 on a linux/arm64 docker host runs emulated: the line would say a platform it did not run on."""
+    skill = write_demo(tmp_path, monkeypatch, FAKE)
+    executor = er.load_executor()
+    monkeypatch.setattr(executor, "ensure", lambda: {"kind": "container", "image": "wb-eval:test", "image_digest": "sha256:" + "4" * 64,
+                                                     "image_platform": "linux/amd64", "host_platform": "linux/arm64"})
+    assert er.main(FULL) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["evidence"]["written"] is False and "emulated" in out["evidence"]["reason"]
+    assert "linux/amd64" in out["evidence"]["reason"] and "linux/arm64" in out["evidence"]["reason"] and evidence_of(skill) == []
+    monkeypatch.setattr(executor, "ensure", lambda: {"kind": "container", "image": "wb-eval:test", "image_digest": "sha256:" + "4" * 64,
+                                                     "image_platform": "linux/amd64", "host_platform": "linux/amd64"})
+    assert er.main(FULL) == 0
+    assert json.loads(capsys.readouterr().out)["evidence"]["written"] is True  # the same platform: evidence
