@@ -10,6 +10,7 @@ import io
 import json
 import os
 import sys
+import types
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
@@ -205,6 +206,45 @@ def test_the_listing_never_carries_a_value_and_says_where(tmp_path):
     assert rows[NAME]["found"] and rows[NAME]["source"] == "credentials directory"
     assert SENTINEL not in json.dumps(list(rows.values()))
     assert os.path.exists(folder / NAME)
+
+
+# --- an unsafe directory is told, not called missing; and root-provisioned read-only secrets are accepted ----------------------------
+
+
+def stat_of(uid, mode):
+    return types.SimpleNamespace(st_uid=uid, st_mode=mode)
+
+
+def test_a_credentials_directory_provisioned_by_root_and_read_only_is_accepted_and_one_a_user_left_open_is_not(monkeypatch):
+    monkeypatch.setattr(res.os, "getuid", lambda: 501)
+    # systemd's LoadCredential and Docker or Kubernetes secrets: owned by root, not writable by others, readable
+    res._owned_private(stat_of(0, 0o40755), "the folder", "700")
+    res._owned_private(stat_of(0, 0o100444), "the file", "600")
+    res._owned_private(stat_of(501, 0o40700), "the folder", "700")
+    res._owned_private(stat_of(501, 0o100400), "the file", "600")
+    for uid, mode, text in ((501, 0o40755, "can be read by others"), (501, 0o100644, "can be read by others"),
+                            (0, 0o100666, "can be written by others"), (0, 0o40777, "can be written by others"),
+                            (501, 0o100620, "can be written by others"), (777, 0o100400, "neither this user nor root")):
+        with pytest.raises(res.CredentialsUnsafe) as refused:
+            res._owned_private(stat_of(uid, mode), "the thing", "600")
+        assert text in str(refused.value), (uid, oct(mode))
+
+
+def test_the_credentials_status_says_absent_ok_or_unsafe_with_the_fix_and_the_note_is_what_a_reporter_adds(tmp_path):
+    assert res.credentials_status({})["state"] == "absent"
+    assert res.credentials_status({"OPENHORA_CREDENTIALS_DIR": str(tmp_path / "none")})["state"] == "absent"
+    folder = make_dir(tmp_path, {NAME: SENTINEL})
+    assert res.credentials_status({"OPENHORA_CREDENTIALS_DIR": str(folder)})["state"] == "ok"
+    folder.chmod(0o755)
+    got = res.credentials_status({"OPENHORA_CREDENTIALS_DIR": str(folder)})
+    assert got["state"] == "unsafe" and "chmod 700" in got["detail"] and got["path"] == str(folder) and SENTINEL not in json.dumps(got)
+    # a refused directory hides every secret from the lookup, and the lookup remembers why
+    res._UNSAFE["detail"] = ""
+    assert res.resolve_state("NOTION_TOKEN", environ={"OPENHORA_CREDENTIALS_DIR": str(folder)}, store=FakeStore()).state == "unsafe"
+    assert "chmod 700" in res.unsafe_note()
+    folder.chmod(0o700)
+    assert res.resolve_state("NOTION_TOKEN", environ={"OPENHORA_CREDENTIALS_DIR": str(folder)}, store=FakeStore()).state == "missing"
+    assert res.unsafe_note() == ""
 
 
 if __name__ == "__main__":

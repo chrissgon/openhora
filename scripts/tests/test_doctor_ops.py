@@ -220,7 +220,7 @@ def test_run_all_reads_the_project_and_gives_every_check(tmp_path):
     cfg = {"data_dir": str(tmp_path / "data"), "sources_dir": str(tmp_path / "sources")}
     got = ops.run_all(project="/p", load_config=lambda p: cfg, tool=FakeDocker([], {}), run=runner(out="yes"), system="Linux",
                       usage=usage_of({str(tmp_path): 30 * GIB}), probe=lambda: {"state": "ok", "detail": ""}, image={"state": "published-present"})
-    assert set(got) == {"linger", "sources_access", "disk", "proxy_logs", "secret_store", "image", "project"}
+    assert set(got) == {"linger", "sources_access", "disk", "proxy_logs", "lease", "secret_store", "image", "project"}
     assert got["linger"]["status"] == "ok" and got["disk"]["status"] == "ok" and got["sources_access"]["status"] == "na"
     assert got["project"]["status"] == "ok"
     bad = ops.run_all(project="/p", load_config=lambda p: (_ for _ in ()).throw(ValueError("runtime.json not found")), tool=FakeDocker([], {}),
@@ -279,7 +279,7 @@ def test_the_json_carries_the_unattended_key_the_image_setup_and_the_state_of_ea
     stub_doctor(monkeypatch, tmp_path, linger="yes")
     assert doctor.main(["--unattended", "--project", str(tmp_path), "--json", "--min-free-gib", "3"]) == 0
     report = json.loads(capsys.readouterr().out)
-    assert set(report["unattended"]) == {"linger", "sources_access", "disk", "proxy_logs", "secret_store", "image", "project"}
+    assert set(report["unattended"]) == {"linger", "sources_access", "disk", "proxy_logs", "lease", "secret_store", "image", "project"}
     assert report["unattended"]["linger"]["status"] == "ok" and report["unattended"]["secret_store"]["status"] == "warn"
     assert report["image"]["setup"].startswith("python3 scripts/image_lock.py pull")
     assert {s["name"]: s["state"] for s in report["secrets"]} == {"A": "locked", "B": "missing"}
@@ -314,3 +314,18 @@ def test_the_project_folders_are_read_from_runtime_json_and_only_absolute_paths_
         doctor.load_project_config(str(tmp_path))
     with pytest.raises(OSError):
         doctor.load_project_config(str(tmp_path / "nowhere"))
+
+
+def test_an_unsafe_credentials_directory_is_a_warning_of_the_secret_store_check_and_not_a_missing_secret():
+    got = ops.secret_store_check(lambda: {"state": "credentials-unsafe", "detail": "the credentials directory /x can be read by others (mode 0755): chmod 700"})
+    assert got["status"] == "warn" and "not missing" in got["detail"] and "chmod 700" in got["detail"]
+
+
+def test_a_takeover_of_another_hosts_lease_is_a_warning_with_the_way_to_clear_it(tmp_path):
+    assert ops.lease_check(None)["status"] == "unverified"
+    assert ops.lease_check(str(tmp_path))["status"] == "ok"
+    (tmp_path / "lease-takeover.json").write_text(json.dumps({"at": "2027-01-15 08:00:00 UTC", "from_host": "old-desktop"}))
+    got = ops.lease_check(str(tmp_path))
+    assert got["status"] == "warn" and "old-desktop" in got["detail"] and "2027-01-15" in got["detail"] and "delete" in got["fix"]
+    (tmp_path / "lease-takeover.json").write_text("{not json")
+    assert ops.lease_check(str(tmp_path))["status"] == "unverified"

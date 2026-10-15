@@ -68,6 +68,19 @@ def locked_sentence(root=None, *, store="default", clock=time.monotonic, fresh: 
     return ""
 
 
+def unreadable_sentence(root=None, *, store="default", fresh: bool = False) -> str:
+    """The sentence that tells why a credential cannot be read although it may be stored: the credentials directory is refused as unsafe
+    (with the fix), else the OS secret store is locked or unavailable; "" when neither. A locked store and an unsafe directory are
+    not an absent key."""
+    try:
+        status = _resolver(root or ROOT).credentials_status()
+    except Exception:  # a resolver that does not run here: the store's answer alone
+        status = {"state": "absent"}
+    if status["state"] == "unsafe":
+        return f"the credentials directory is unsafe, so no secret is read from it: {status['detail']}"
+    return locked_sentence(root, store=store, fresh=fresh)
+
+
 def forget() -> None:
     """Drop the kept answers (a test, or after the person unlocks the store)."""
     _CACHE.clear()

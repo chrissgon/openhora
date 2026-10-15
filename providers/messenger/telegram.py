@@ -141,6 +141,13 @@ def store_missing_note(resolver, test_mode: bool = False) -> str:
     or "" (also in test mode, where the store is not asked on purpose, and for a resolver without the check)."""
     if test_mode:
         return ""
+    unsafe = getattr(resolver, "unsafe_note", None)   # a credentials directory that is refused is not a token that is absent (package P-OPS)
+    try:
+        refused = "" if unsafe is None else unsafe()
+    except Exception:  # a broken check must not hide the real error
+        refused = ""
+    if isinstance(refused, str) and refused:
+        return f"the credentials directory is unsafe, so no secret is read from it: {refused}. "
     locked = getattr(resolver, "store_locked_note", None)   # a locked store is not a missing token (package P-OPS)
     try:
         said = "" if locked is None else locked()

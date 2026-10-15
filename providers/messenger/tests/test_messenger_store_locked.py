@@ -105,6 +105,25 @@ def test_whatsapp_cloud_and_twilio_say_the_store_is_locked_first(clean_env):
         assert SAY not in str(e.value) and str(e.value).startswith("missing or malformed")
 
 
+def test_an_unsafe_credentials_directory_is_told_not_called_a_missing_token(clean_env, monkeypatch, tmp_path):
+    folder = tmp_path / "credentials"
+    folder.mkdir()
+    folder.chmod(0o755)
+    monkeypatch.setenv("OPENHORA_CREDENTIALS_DIR", str(folder))
+    monkeypatch.setattr(telegram, "secret_resolver", lambda: resolver(Absent))
+    with pytest.raises(telegram.ProviderError) as e:
+        telegram.load_token(False)
+    assert str(e.value).startswith("the credentials directory is unsafe") and "chmod 700" in str(e.value) and str(folder) in str(e.value)
+    monkeypatch.setattr(discord, "secret_resolver", lambda: resolver(Absent))
+    with pytest.raises(discord.ProviderError) as e:
+        discord.load_token()
+    assert str(e.value).startswith("the credentials directory is unsafe")
+    for module in (wc, wt):
+        with pytest.raises(module.ProviderError) as e:
+            module.load_secrets(resolver=resolver(Absent))
+        assert str(e.value).startswith("the credentials directory is unsafe")
+
+
 def test_a_resolver_without_the_locked_check_gives_the_old_sentence(clean_env):
     class Old:
         @staticmethod

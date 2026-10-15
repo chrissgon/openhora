@@ -90,22 +90,28 @@ class StoreError(Exception):
 
 
 class FakeStore:
-    """Only what the retention of run folders asks of the store: one row of task_runs."""
+    """Only what the retention of run folders asks of the store: rows of task_runs and tasks, and the open pending decisions."""
     StoreError = StoreError
 
-    def __init__(self, rows=None):
-        self.rows = rows or {}
+    def __init__(self, rows=None, tasks=None, pendings=None):
+        self.rows, self.tasks, self.pendings = rows or {}, tasks or {}, pendings or []
 
     def task_run_get(self, conn, run_id):
         if run_id not in self.rows:
             raise StoreError(f"no task run {run_id}")
         return self.rows[run_id]
 
+    def task_get(self, conn, task_id):
+        return self.tasks.get(task_id, {"state": "done", "parent_id": None})   # a task nobody described is finished
 
-def fake_ctx(tmp_path, rows=None, **cfg):
+    def pending_list(self, conn, status="open", task_id=None):
+        return self.pendings
+
+
+def fake_ctx(tmp_path, rows=None, tasks=None, pendings=None, **cfg):
     data = tmp_path / "data"
     data.mkdir(parents=True, exist_ok=True)
-    return {"cfg": {"data_dir": str(data), **cfg}, "store": FakeStore(rows), "conn": None}
+    return {"cfg": {"data_dir": str(data), **cfg}, "store": FakeStore(rows, tasks, pendings), "conn": None}
 
 
 # --- run folders -----------------------------------------------------------------------------------------------------------------
@@ -198,6 +204,45 @@ def test_a_link_in_place_of_a_run_folder_is_not_followed_and_not_removed(tmp_pat
 def test_a_data_folder_that_does_not_exist_yet_is_not_an_error(tmp_path):
     ctx = {"cfg": {"data_dir": str(tmp_path / "none")}, "store": FakeStore(), "conn": None}
     assert upkeep.sweep_runs(ctx, now=time.time(), days=30) == {"removed": [], "kept": []}
+
+
+def test_the_folder_of_a_run_that_ended_at_a_gate_is_kept_while_its_task_or_request_is_open_or_a_pending_decision_names_it(tmp_path):
+    """The reviewer's case: a run that ended ok at a confirmation gate, 31 days ago, its task waiting, its lock file present and not held.
+    Its effect document and its change set live in the folder; approving, and the next code task of the request, need them."""
+    rows = {n: {"status": "ok", "task_id": n} for n in (1, 2, 3, 4, 5)}
+    tasks = {1: {"state": "waiting", "parent_id": 90},      # waiting at the gate, in an open request
+             2: {"state": "done", "parent_id": 91},         # finished itself, in a request still open (the next code task builds on it)
+             3: {"state": "failed", "parent_id": 92},       # can be retried
+             4: {"state": "done", "parent_id": 93},         # finished, in a finished request
+             5: {"state": "cancelled", "parent_id": 93},    # finished, but a pending decision still names its run
+             91: {"state": "ready", "parent_id": None}, 93: {"state": "done", "parent_id": None}}
+    ctx = fake_ctx(tmp_path, rows, tasks, pendings=[{"run_id": 5, "task_id": 5}])
+    base = Path(ctx["cfg"]["data_dir"]) / "task-runs"
+    folders = {n: make_run(base, str(n), 31) for n in rows}
+    locks = Path(ctx["cfg"]["data_dir"]) / "locks"
+    locks.mkdir(mode=0o700)
+    (locks / "task-1.lock").write_text("")        # present and not held
+    result = upkeep.sweep_runs(ctx, now=time.time(), days=30)
+    assert [folders[n].exists() for n in (1, 2, 3, 4, 5)] == [True, True, True, False, True]
+    why = {Path(k["path"]).name: k["why"] for k in result["kept"]}
+    assert why == {"1": "its task is waiting, not finished", "2": "its request is not finished", "3": "its task is failed, not finished",
+                   "5": "an open pending decision references the run"}
+
+
+def test_a_real_run_that_ended_at_a_gate_keeps_its_folder_until_the_request_is_cancelled(case):
+    store, conn = case.ctx["store"], case.ctx["conn"]
+    made = store.request_add(conn, title="Study", text="Study.", flow="demo", tasks=[
+        {"key": "market", "skill": "demo-asks", "title": "Market", "text": "do it.", "depends_on": [], "milestone": False}])
+    task = made["tasks"][0]["id"]
+    store.task_claim(conn, task)
+    run = store.task_run_start(conn, task, skill="demo-asks", model="m", adapter="a")["run_id"]
+    store.task_run_finish(conn, run, status="ok", task_state="waiting",
+                          pending={"kind": "effect", "title": "Open a pull request", "body": "x"})
+    folder = make_run(case.data / "task-runs", str(run), 31)
+    (case.data / "effects").mkdir(exist_ok=True)
+    assert upkeep.sweep_runs(case.ctx, now=time.time(), days=30)["removed"] == [] and folder.exists()
+    store.request_cancel(conn, made["request"], by="person")
+    assert upkeep.sweep_runs(case.ctx, now=time.time(), days=30)["removed"] == [str(folder)]
 
 
 # --- source versions -------------------------------------------------------------------------------------------------------------
@@ -336,14 +381,14 @@ def test_a_pass_does_the_three_parts_once_an_hour_and_records_it(case):
     tool = RecordingDocker()
     cfg = {**case.cfg, "run_retention_days": 30, "source_versions_kept": 2}
     ctx = {**case.ctx, "cfg": cfg}
-    now, locks = time.time(), str(case.tmp / "no-locks")
-    first = upkeep.run(ctx, now=now, tool=tool, lab_locks=locks)
+    now = time.time()
+    first = upkeep.run(ctx, now=now, tool=tool)
     assert "skipped" not in first and [Path(p).name for p in first["runs"]["removed"]] == ["1"]
     assert [v["version"] for v in first["versions"]["removed"]] == [1, 2] and folders(case) == [3, 4]
     assert json.loads((case.data / upkeep.STATE_FILE).read_text())["at"] == now
-    assert upkeep.run(ctx, now=now + 3599, tool=tool, lab_locks=locks) == {"skipped": "done less than an hour ago"}
-    assert "skipped" not in upkeep.run(ctx, now=now + 3601, tool=tool, lab_locks=locks)
-    assert "skipped" not in upkeep.run(ctx, now=now + 3602, tool=tool, force=True, lab_locks=locks)
+    assert upkeep.run(ctx, now=now + 3599, tool=tool) == {"skipped": "done less than an hour ago"}
+    assert "skipped" not in upkeep.run(ctx, now=now + 3601, tool=tool)
+    assert "skipped" not in upkeep.run(ctx, now=now + 3602, tool=tool, force=True)
 
 
 def test_two_processes_do_not_run_the_pass_together(case):
@@ -351,7 +396,7 @@ def test_two_processes_do_not_run_the_pass_together(case):
     held = os.open(case.data / "locks" / upkeep.LOCK_FILE, os.O_RDWR | os.O_CREAT, 0o600)
     fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
     try:
-        assert upkeep.run(case.ctx, now=time.time(), tool=RecordingDocker(), lab_locks=None) == {"skipped": "another process is doing the upkeep"}
+        assert upkeep.run(case.ctx, now=time.time(), tool=RecordingDocker()) == {"skipped": "another process is doing the upkeep"}
     finally:
         os.close(held)
 
@@ -361,7 +406,7 @@ def test_a_part_that_fails_does_not_stop_the_others_and_nothing_is_raised(case, 
         raise RuntimeError("the disk said no")
     monkeypatch.setattr(upkeep, "sweep_runs", explode)
     old = make_run(case.data / "task-runs", "3", 80)
-    result = upkeep.run(case.ctx, now=time.time(), tool=RecordingDocker(), lab_locks=None)
+    result = upkeep.run(case.ctx, now=time.time(), tool=RecordingDocker())
     assert result["runs"]["problem"] == "RuntimeError: the disk said no" and "removed" in result["versions"]
     monkeypatch.setattr(upkeep, "run", explode)
     assert upkeep.run_quietly(case.ctx) == {"skipped": "RuntimeError: the disk said no"}
@@ -370,35 +415,11 @@ def test_a_part_that_fails_does_not_stop_the_others_and_nothing_is_raised(case, 
 
 def test_the_pass_sweeps_containers_with_the_tool_it_is_given_and_not_at_all_when_it_is_switched_off(case, monkeypatch):
     tool = RecordingDocker()
-    result = upkeep.run(case.ctx, now=time.time(), tool=tool, lab_locks=str(case.tmp / "no-locks"), force=True)
+    result = upkeep.run(case.ctx, now=time.time(), tool=tool, force=True)
     assert [c[0] for c in tool.calls] == ["ps", "network"] and result["containers"]["removed"] == []
     monkeypatch.setenv(upkeep.CONTAINERS_ENV, "off")
-    off = upkeep.run(case.ctx, now=time.time() + 7200, lab_locks=None)
+    off = upkeep.run(case.ctx, now=time.time() + 7200)
     assert off["containers"]["disabled"] is True
-
-
-def test_busy_reads_the_locks_a_live_run_holds_and_reads_a_missing_lab_folder_as_busy(tmp_path):
-    data = tmp_path / "data"
-    (data / "locks").mkdir(parents=True, mode=0o700)
-    labs = tmp_path / "lab-locks"
-    labs.mkdir()
-    assert upkeep.busy(str(data), str(labs)) is False
-    assert upkeep.busy(str(data), None) is True, "in doubt, a run is live"
-    for name, folder in (("task-5.lock", data / "locks"), ("route.lock", data / "locks"), ("total-0.lock", labs)):
-        fd = os.open(folder / name, os.O_RDWR | os.O_CREAT, 0o600)
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            assert upkeep.busy(str(data), str(labs)) is True, name
-        finally:
-            os.close(fd)
-        assert upkeep.busy(str(data), str(labs)) is False, f"{name} let go: a dead process holds nothing"
-    # a lock that is not a run's (the claim, the write) does not make the machine busy
-    fd = os.open(data / "locks" / "claim.lock", os.O_RDWR | os.O_CREAT, 0o600)
-    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    try:
-        assert upkeep.busy(str(data), str(labs)) is False
-    finally:
-        os.close(fd)
 
 
 # --- L29 -------------------------------------------------------------------------------------------------------------------------
@@ -428,7 +449,7 @@ def test_limit_29_upkeep_removes_only_inside_the_data_and_sources_folders_never_
                 return 0, "\n".join(json.dumps(r) for r in rows)
             return 0, ""
     tool = Docker()
-    result = upkeep.run(ctx, now=time.time(), tool=tool, lab_locks=str(case.tmp / "no-locks"), force=True)
+    result = upkeep.run(ctx, now=time.time(), tool=tool, force=True)
     # run `run` is `running` (its task was claimed and the run opened): kept whatever its age; the run with no row goes by age
     assert old.exists() and not live_row.exists()
     assert (runs / "98").is_symlink() and (outside / "precious.txt").read_text() == "keep"
@@ -439,6 +460,29 @@ def test_limit_29_upkeep_removes_only_inside_the_data_and_sources_folders_never_
     assert result["containers"]["removed"][0]["name"] == f"wb-eval-keys-{RUN_A}"
     # nothing outside the two folders was reached
     assert sorted(p.name for p in outside.iterdir()) == ["precious.txt", "task-runs"]
+
+
+def test_a_pass_that_removes_nothing_takes_no_lease_and_one_that_removes_takes_it_and_tells_a_takeover(case):
+    for n in range(1, 4):
+        import_version(case, n)
+    (case.folder / lease.LEASE_NAME).unlink()
+    assert upkeep.sweep_versions(case.ctx, kept=5)["removed"] == [] and not (case.folder / lease.LEASE_NAME).exists()
+    assert upkeep.sweep_versions(case.ctx, kept=2, dry_run=True)["removed"] and not (case.folder / lease.LEASE_NAME).exists()
+    (case.folder / lease.LEASE_NAME).write_text(json.dumps(
+        {"host_id": "00ff00ff00ff00ff", "host_name": "old-desktop", "pid": 1, "taken_at": "x", "expires_at": time.time() - 5}), encoding="utf-8")
+    result = upkeep.sweep_versions(case.ctx, kept=2)
+    assert [r["version"] for r in result["removed"]] == [1] and result["lease_took_over"] == "old-desktop"
+    assert json.loads((case.folder / lease.LEASE_NAME).read_text())["host_id"] == lease.host_identity(case.cfg["data_dir"])["id"]
+    assert upkeep._counts(result)["lease_took_over"] == "old-desktop"
+
+
+def test_the_switch_of_the_automatic_container_sweep_is_a_key_of_runtime_json(tmp_path):
+    assert project_config.load(write_config(tmp_path))["sweep_orphan_containers"] is True
+    assert project_config.load(write_config(tmp_path, sweep_orphan_containers=False))["sweep_orphan_containers"] is False
+    with pytest.raises(project_config.ConfigError) as refused:
+        project_config.load(write_config(tmp_path, sweep_orphan_containers="no"))
+    assert "sweep_orphan_containers" in str(refused.value)
+    assert "sweep_orphan_containers" in project_config.TASK_RUNTIME_KEYS
 
 
 if __name__ == "__main__":

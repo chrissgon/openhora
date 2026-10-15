@@ -28,9 +28,12 @@ The credentials directory. A folder with one file per secret, named exactly like
 (VCS_GITHUB_TOKEN), holding its value. It is looked for in OPENHORA_CREDENTIALS_DIR, then in
 CREDENTIALS_DIRECTORY (what a systemd unit sets for LoadCredential= and LoadCredentialEncrypted=; a
 container's mounted secrets work the same way), then in ~/.config/openhora/credentials when that folder
-exists. It is read, never written, with checks that refuse an unsafe one (state "unsafe", and the reason): the
-folder and each file must be this user's and not readable by anyone else (folder 0700, file 0600 or 0400),
-neither may be a symbolic link, and a file is at most 64 KiB.
+exists. It is read, never written, with checks that refuse an unsafe one (state "unsafe", and the reason; every message
+that would say "missing" says "unsafe" instead, and --check exits 4): neither the folder nor a file may be a symbolic
+link, a file is at most 64 KiB, each is owned by this user or by root, and neither is writable by group or others.
+One this user owns must also be unreadable by anyone else (folder 0700, file 0600 or 0400). One root owns may be
+readable by others (0755 and 0444): that is how an administrator or an orchestrator provisions it (systemd
+credentials, Docker or Kubernetes secrets), and who may read it is then their decision, not a leak this user made.
 
 The registry below holds the secrets the core reads: the providers' credentials. An adapter
 registers the secrets its own runs need in the "secrets" list of adapters/<harness>/adapter.json.
@@ -314,6 +317,7 @@ class CredentialsUnsafe(Exception):
     """The credentials directory, or a file in it, is not safe to read; the message says which and how to fix it."""
 
 
+_UNSAFE = {"detail": ""}    # the last credentials directory found unsafe in this process ("" when the last look found it fine or absent)
 _FAILURE = {"kind": None}   # the last read of the store: the kind of its failure, or None when it answered (found or not)
 
 
@@ -321,6 +325,26 @@ def store_failure():
     """The kind ("locked" or "unavailable") of the failure of the last read of the OS secret store in this process, or None
     when the last read answered. Never a message of the backend."""
     return _FAILURE["kind"]
+
+
+def unsafe_note() -> str:
+    """The reason the last credentials directory this process looked at was refused (with the fix), or "". A caller that found a secret
+    missing adds it first: a directory that is refused is not a secret that is absent."""
+    return _UNSAFE["detail"]
+
+
+def credentials_status(environ=None) -> dict:
+    """The credentials directory as a whole, returning no value: {"state": "absent" | "ok" | "unsafe", "path", "detail"}. It checks
+    the folder and the mode, owner and kind of each registered secret's file in it; the doctor and the runtime's messages ask it."""
+    path = credentials_dir(environ)
+    if path is None or not os.path.lexists(path):
+        return {"state": "absent", "path": path, "detail": "no credentials directory is set or present"}
+    try:
+        for secret in REGISTRY.values():
+            _from_directory(secret, {"OPENHORA_CREDENTIALS_DIR": path})
+    except CredentialsUnsafe as e:
+        return {"state": "unsafe", "path": path, "detail": str(e)}
+    return {"state": "ok", "path": path, "detail": f"{path} is safe to read"}
 
 
 def store_locked_note() -> str:
@@ -394,10 +418,16 @@ def credentials_dir(environ=None) -> str | None:
 
 
 def _owned_private(info, what: str, wanted: str) -> None:
-    if hasattr(os, "getuid") and info.st_uid != os.getuid():
-        raise CredentialsUnsafe(f"{what} is not owned by this user")
-    if stat.S_IMODE(info.st_mode) & 0o077:
-        raise CredentialsUnsafe(f"{what} can be read by others (mode {stat.S_IMODE(info.st_mode):04o}): chmod {wanted}")
+    """Refuse `what` (an open folder or file) unless this user or root owns it and group and others cannot write it; one this user owns
+    must also be unreadable by group and others (`wanted` is the mode to give it). One root owns may be readable by others."""
+    mode = stat.S_IMODE(info.st_mode)
+    me = os.getuid() if hasattr(os, "getuid") else None
+    if me is not None and info.st_uid not in (me, 0):
+        raise CredentialsUnsafe(f"{what} is owned by neither this user nor root")
+    if mode & 0o022:
+        raise CredentialsUnsafe(f"{what} can be written by others (mode {mode:04o}): chmod {wanted}")
+    if mode & 0o077 and (me is None or info.st_uid == me):
+        raise CredentialsUnsafe(f"{what} can be read by others (mode {mode:04o}): chmod {wanted}")
 
 
 def _from_directory(secret: Secret, environ) -> tuple[str, str] | None:
@@ -472,7 +502,9 @@ def resolve_state(name: str, *, allow_store: bool = True, environ=None, store="d
     try:
         in_dir = _from_directory(secret, environ)
     except CredentialsUnsafe as e:
+        _UNSAFE["detail"] = str(e)
         return Lookup("unsafe", detail=str(e))
+    _UNSAFE["detail"] = ""
     if in_dir:
         return Lookup("found", in_dir[0], in_dir[1])
     if not allow_store:

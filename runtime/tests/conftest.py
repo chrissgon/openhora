@@ -29,12 +29,12 @@ def a_stopping_flag_does_not_outlive_its_test():
 
 
 @pytest.fixture(autouse=True)
-def no_test_reaches_the_real_secret_store(monkeypatch):
+def no_test_reaches_the_real_secret_store(monkeypatch, tmp_path):
     """A message of the runtime that tells a locked secret store from a missing key asks the store for a name nothing stores
     (runtime/secret_state.py). No test may reach the real keyring or the real credentials directory: the keyring library, when it
     is installed, gets its null backend, and the answer kept between two tests is dropped."""
     monkeypatch.setenv("PYTHON_KEYRING_BACKEND", "keyring.backends.null.Keyring")
-    monkeypatch.delenv("OPENHORA_CREDENTIALS_DIR", raising=False)
+    monkeypatch.setenv("OPENHORA_CREDENTIALS_DIR", str(tmp_path / "no-credentials-directory"))   # never the home folder's real one
     monkeypatch.delenv("CREDENTIALS_DIRECTORY", raising=False)
     monkeypatch.setenv("OPENHORA_UPKEEP_CONTAINERS", "off")   # the sweep of orphan containers never reaches the real docker from a test
     kept = getattr(sys.modules.get("secret_state"), "forget", None)

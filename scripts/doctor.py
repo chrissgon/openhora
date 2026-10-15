@@ -223,7 +223,11 @@ def image_setup(image):
 def store_probe():
     """The state of the OS secret store, by the resolver's probe_store (it asks for a name nothing stores): {"state", "detail"}."""
     path = str(resolution.secret_resolver(root=ROOT))
-    return _load("workbench_secret_resolver_probe", path).probe_store()
+    resolver = _load("workbench_secret_resolver_probe", path)
+    folder = resolver.credentials_status()
+    if folder["state"] == "unsafe":   # a refused directory hides every secret: said before the store is asked
+        return {"state": "credentials-unsafe", "detail": folder["detail"]}
+    return resolver.probe_store()
 
 
 def load_project_config(project):
@@ -359,7 +363,7 @@ def main(argv):
                 state = f"missing   {sec['name']:<28} set it: {sec['set']}"
             print(f"{state}  <- {', '.join(sec['classes'] or sec['readers'])}", file=sys.stderr)
         if checks is not None:
-            for name in ("linger", "sources_access", "disk", "proxy_logs", "secret_store", "project"):
+            for name in ("linger", "sources_access", "disk", "proxy_logs", "lease", "secret_store", "project"):
                 c = checks[name]
                 print(f"{c['status']:<10} {name:<28} {c['detail']}", file=sys.stderr)
                 if c.get("fix") and c["status"] in ("warn", "unverified"):

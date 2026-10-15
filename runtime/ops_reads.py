@@ -299,9 +299,10 @@ def held_next(project: str, reason: str, missing=None):
         return operations.service_line(core.ROOT, [project], uv=True)
     if reason != "credential":
         return None
-    locked = secret_state.locked_sentence(core.ROOT)   # a locked store is not a key that is not stored (finding I3)
+    locked = secret_state.unreadable_sentence(core.ROOT)   # a locked store or an unsafe credentials directory is not a key that is not stored (I3)
     if locked:
-        return f"{locked[0].upper()}{locked[1:]}. Unlock it; nothing needs to be stored again."
+        return (f"{locked[0].upper()}{locked[1:]}. Clear that first: the key may be stored and unreadable, or it may be missing, and the "
+                "connections read says which once the secrets can be read.")
     first = "The credential is in neither the environment nor the secret store."
     commands = held_commands(project, reason, missing)
     if commands and all(c["command"] for c in commands):
@@ -481,7 +482,7 @@ def _secret_rows() -> tuple:
         rows = [{"name": r["name"], "found": bool(r["found"]), "where": r["source"] if r["found"] else None} for r in report]
         if any(r.get("state") == "locked" for r in report):
             notes.append(secret_state.LOCKED_NOTE)
-        notes.extend(f"{r['name']}: {r['detail']}" for r in report if r.get("state") == "unsafe")
+        notes.extend(sorted({f"the credentials directory is unsafe: {r['detail']}" for r in report if r.get("state") == "unsafe"}))
     except Exception as e:  # an interpreter the resolver does not run on, a bad registry
         sys.modules.pop("workbench_secret_resolver_runtime", None)
         notes.append(f"the secret resolver could not be used: {type(e).__name__}")

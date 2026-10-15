@@ -68,8 +68,6 @@ __all__ = (
     "account_limit", "provider_refusal", "auth_refusal",
     # the control of the loop that is shared with every runner process of the machine
     "Slots", "start_pause", "wait_while_paused", "RETRY_KINDS", "RETRY_PAUSE", "KEPT_PREFIXES",
-    # where the places of that lock are: the runtime's upkeep probes them to know whether a run is live (it measures nothing)
-    "lock_dir",
     # one command in the container of a run, with no model and no credential
     "run_group", "SETUP_TIMEOUT",
 )

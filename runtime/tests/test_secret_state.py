@@ -100,7 +100,7 @@ def test_the_reason_a_task_is_held_names_a_locked_store_and_keeps_the_old_words_
 def test_what_gets_past_a_held_credential_says_to_unlock_the_store_when_it_is_locked(monkeypatch):
     monkeypatch.setattr(ops_reads.secret_state, "locked_sentence", lambda *a, **k: "the secret store is locked or unavailable: unlock it")
     line = ops_reads.held_next("/nonexistent-project", "credential", [VARIABLE])
-    assert line.startswith("The secret store is locked or unavailable: unlock it") and "stored again" in line
+    assert line.startswith("The secret store is locked or unavailable: unlock it") and "may be missing" in line and "nothing needs to be stored" not in line
     monkeypatch.setattr(ops_reads.secret_state, "locked_sentence", lambda *a, **k: "")
     assert ops_reads.held_next("/nonexistent-project", "credential", [VARIABLE]).startswith("The credential is in neither")
 
@@ -110,6 +110,27 @@ def test_the_secrets_read_of_the_connections_says_the_store_is_locked_and_lists_
     rows, note = ops_reads._secret_rows()
     assert note and secret_state.LOCKED_NOTE in note
     assert all("value" not in row for row in rows)
+
+
+def test_an_unsafe_credentials_directory_is_told_by_the_runtime_and_is_not_a_missing_key(monkeypatch, tmp_path):
+    folder = tmp_path / "credentials"
+    folder.mkdir()
+    folder.chmod(0o755)
+    monkeypatch.setenv("OPENHORA_CREDENTIALS_DIR", str(folder))
+    fake_keyring(monkeypatch, Absent)
+    said = secret_state.unreadable_sentence(fresh=True)
+    assert said.startswith("the credentials directory is unsafe") and "chmod 700" in said and str(folder) in said
+    value, reason = ops_core._own_key(VARIABLE)
+    assert value is None and "chmod 700" in reason
+    line = ops_reads.held_next("/nonexistent-project", "credential", [VARIABLE])
+    assert line.startswith("The credentials directory is unsafe") and "may be missing" in line and "nothing needs to be stored" not in line
+    monkeypatch.setattr(lab, "credential_missing", lambda model=None: [VARIABLE])
+    monkeypatch.setattr(lab, "resolve_model", lambda model=None: "model-one")
+    monkeypatch.setattr(ops.dispatcher, "store_readable", lambda: "ok")
+    reason, why, missing = ops._credential_stop("model-one")
+    assert "credentials directory is unsafe" in why and "is neither set nor found" not in why
+    folder.chmod(0o700)
+    assert secret_state.unreadable_sentence(fresh=True) == ""
 
 
 if __name__ == "__main__":

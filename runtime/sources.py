@@ -25,8 +25,9 @@ The sources folder (`sources_dir` of runtime.json, mandatory, accepted only in t
        unattended never receives it (task_copies)
   L26  the work copy excludes the folder, even inside a tracked tree (runtime/workcopy.py asks `inside`)
   L27  the catalog is built only from the converted output (catalog_entry), never by parsing a raw file on this machine
-  L28  one host writes the folder at a time (package P-OPS): a writer takes the folder's lease (take_lease, runtime/lease.py) and a
-       live lease of another host refuses the write, naming that host
+  L28  concurrent writes from two hosts are refused (package P-OPS): a writer takes the folder's lease (take_lease, runtime/lease.py)
+       right before it writes, and a live lease of another host (5 minutes after that host's last write) refuses the write, naming that
+       host; taking over an expired lease of another host is told
 
 Layout, under the folder:   .openhora-sources (the marker)   .incoming/ (assembly)   <source id>/<version>/
 original.<ext>, converted.md or converted.csv, manifest.json. A version is written whole into staging and moved into
@@ -973,7 +974,8 @@ def _stream_of(data):
 def take_lease(folder: Folder, cfg: dict, clock=None) -> dict:
     """Limit L28. Take or renew this host's lease on the open sources folder before anything is written in it (runtime/lease.py),
     or refuse: SourcesError (code `lease`) naming the other host whose lease is live. Every writer of the folder calls it: an import,
-    and the removal of old versions (runtime/upkeep.py)."""
+    and the removal of old versions (runtime/upkeep.py), each right before its first write. The answer carries "took_over": the name of the
+    other host whose expired lease this host took over, or None; the takeover is also recorded (lease.record_takeover) for the doctor."""
     now = clock() if clock is not None else datetime.datetime.now(datetime.timezone.utc).timestamp()
     try:
         return lease.take(folder.fd, cfg["data_dir"], now=now)
@@ -1003,8 +1005,6 @@ def import_version(ctx, source: dict, data, *, convert, label: str = "import", b
     stream, length, closer = _stream_of(data)
     try:
         with Folder(cfg, evidence_base) as folder:
-            take_lease(folder, cfg)   # limit L28: another host's live lease refuses the write, naming that host
-            folder.incoming()   # the assembly area of a version, inside the folder, and the leftovers of a crash removed
             token = secrets.token_hex(8)
             # The bytes are staged OUTSIDE the sources folder, in the runtime's own private data folder: the intake, the
             # container and the converter work on paths there, and nothing is written by path inside the sources folder (limit
@@ -1168,6 +1168,10 @@ def _import_in(ctx, folder, source, stream, length, stage_path, token, *, conver
                                   "tools": (info or {}).get("tool_versions") or {}},
                     "hidden_text": None, "origin_version": origin_version, "warnings": warnings}
         manifest_bytes = (json.dumps(manifest, indent=1, sort_keys=True) + "\n").encode("utf-8")
+        # Limit L28, right before the first write into the folder (an import that finds the bytes already held writes nothing and takes no
+        # lease): another host's live lease refuses it, naming that host. The assembly area and the leftovers of a crash are looked after here too.
+        leased = take_lease(folder, cfg)
+        folder.incoming()
         _place(folder, token, source["id"], version, input_path, original_name, converted_name, converted, manifest_bytes, original_sha)
         try:
             _stored(ctx, "source_version_add", source_id=source["id"], version=version, label=label, by=by, kind=subtype,
@@ -1182,9 +1186,12 @@ def _import_in(ctx, folder, source, stream, length, stage_path, token, *, conver
             finally:
                 os.close(fd)
             raise
-    return {"imported": True, "source": source["id"], "version": version, "kind": subtype, "by": by, "label": label,
+    done = {"imported": True, "source": source["id"], "version": version, "kind": subtype, "by": by, "label": label,
             "original_sha256": original_sha, "converted_sha256": converted_sha, "converted_bytes": len(converted),
             "warnings": warnings, "catalog": catalog, "date": when}
+    if leased.get("took_over"):   # the lease of another host had expired and this host took it over: said, never silent
+        done["lease_took_over"] = leased["took_over"]
+    return done
 
 
 def _next_version(ctx, folder: Folder, source_id: str, latest) -> int:

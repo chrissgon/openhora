@@ -235,15 +235,6 @@ def container_tool(*args) -> tuple:
     return done.returncode, done.stdout
 
 
-def lock_folder():
-    """The folder that holds the places of the lab's shared lock (one file per place), created when it is not there; None when it
-    cannot be found. The upkeep probes the files to know whether a run is in progress on this machine."""
-    try:
-        return LAB.lock_dir()
-    except Exception:
-        return None
-
-
 def credential_usernames(names) -> dict:
     """{variable: the username it is stored under in the OS secret store} for the names the adapters register in the
     "secrets" list of their manifests, read with the workbench's secret resolver (a name nobody registers, or no

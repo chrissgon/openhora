@@ -63,6 +63,8 @@ from a recipe of the closed table of runtime/deps.py, checked there (deps.declar
 It also reads two optional integers for retention (runtime/upkeep.py): "run_retention_days" (absent means 30; 1 to 3650), the age after
 which the folder of a finished run under data_dir is removed; and "source_versions_kept" (absent means 5; 2 to 1000), how many
 versions of each source stay in the sources folder, the oldest beyond it removed except one a task that is not finished received.
+"sweep_orphan_containers" (absent means true) lets the dispatcher's round remove the eval harness's orphan containers that cannot belong
+to a run in progress (runtime/orphans.py); false turns that off. Accepted in the terminal like every key, so it reaches a scheduler's job.
 
 It also reads "default_model" (absent means auto): the model a request or a task is routed to when nothing else chooses
 one (not the request, not the task, not the agent's fixed model): a model id of the gate file, or "auto" (the cheapest
@@ -108,7 +110,8 @@ REQUIRED = ("workbench", "data_dir", "store_db", "sources_dir")
 # The top-level keys of the task runtime: the three required ones and every key this module checks or passes on.
 TASK_RUNTIME_KEYS = ("workbench", "data_dir", "store_db", "sources_dir", "area_agents", "handlers", "task_board", "documents",
                      "protected_paths", "code", "dependencies", "max_cost_usd_per_run", "model_prices", "messaging", "channels",
-                     "max_running", "default_model", "price_max_age_days", "run_retention_days", "source_versions_kept")
+                     "max_running", "default_model", "price_max_age_days", "run_retention_days", "source_versions_kept",
+                     "sweep_orphan_containers")
 # The top-level keys scripts/runtime.py, scripts/runtime_vote.py and scripts/vote_job.py read from the same file
 # (the first runtime). Leaves with stage 7.
 FIRST_RUNTIME_KEYS = ("agent", "harness", "model", "mailbox", "publisher", "store", "scheduler", "notification_query",
@@ -196,6 +199,10 @@ def load(project: str) -> dict:
     out["max_running"] = _max_running(raw)
     out["run_retention_days"] = _bounded(raw, "run_retention_days", RUN_RETENTION_DEFAULT, 1, RUN_RETENTION_MAX)
     out["source_versions_kept"] = _bounded(raw, "source_versions_kept", SOURCE_VERSIONS_DEFAULT, SOURCE_VERSIONS_MIN, SOURCE_VERSIONS_MAX)
+    sweep = raw.get("sweep_orphan_containers", True)
+    if not isinstance(sweep, bool):
+        raise ConfigError("runtime.json sweep_orphan_containers must be true or false")
+    out["sweep_orphan_containers"] = sweep
     return out
 
 

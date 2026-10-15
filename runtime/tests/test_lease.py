@@ -182,5 +182,72 @@ def test_the_folder_of_a_link_into_a_synced_drive_is_in_it(tmp_path):
     assert lease.synced_reason(str(tmp_path / "ordinary")) is None
 
 
+# --- the lease is taken only right before a write, and a takeover is told ------------------------------------------------------------
+
+
+def test_an_import_that_finds_the_bytes_already_held_writes_nothing_and_takes_no_lease(case):
+    sources.import_version(case.ctx, case.row, case.file, convert=standin_convert)
+    (case.folder / lease.LEASE_NAME).unlink()
+    again = sources.import_version(case.ctx, case.row, case.file, convert=standin_convert, label="refresh")
+    assert again["unchanged"] is True and not (case.folder / lease.LEASE_NAME).exists()
+
+
+def test_a_refused_import_leaves_neither_a_lease_nor_a_trace_in_the_folder(case):
+    (case.tmp / "files" / "bad.bin").write_bytes(b"\x00\x01\x02 not a document")
+    bad = sources.register(case.ctx, "bad", "file", "bad.bin")
+    with pytest.raises(sources.SourcesError):
+        sources.import_version(case.ctx, bad, str(case.tmp / "files" / "bad.bin"), convert=standin_convert)
+    assert not (case.folder / lease.LEASE_NAME).exists()
+
+
+def test_taking_over_the_expired_lease_of_another_host_is_told_in_the_answer_and_recorded_for_the_doctor(case):
+    assert lease.read_takeover(case.cfg["data_dir"]) is None
+    another_host(case, expires_in=-30, name="old-desktop")
+    done = sources.import_version(case.ctx, case.row, case.file, convert=standin_convert)
+    assert done["lease_took_over"] == "old-desktop"
+    recorded = lease.read_takeover(case.cfg["data_dir"])
+    assert recorded["from_host"] == "old-desktop" and recorded["at"].endswith("UTC")
+    # renewing this host's own lease says nothing
+    (case.tmp / "files" / "survey.csv").write_text(CSV + "fig,9.00\n", encoding="utf-8")
+    assert "lease_took_over" not in sources.import_version(case.ctx, case.row, case.file, convert=standin_convert, label="refresh")
+
+
+def test_the_host_id_is_made_once_even_when_several_processes_start_together(tmp_path):
+    import concurrent.futures
+    data = str(tmp_path / "fresh-data")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=16) as pool:
+        ids = list(pool.map(lambda _: lease.host_identity(data)["id"], range(64)))
+    assert len(set(ids)) == 1 and (Path(data) / lease.HOST_ID_NAME).read_text().strip() == ids[0]
+
+
+def test_a_host_id_file_still_being_written_is_waited_for_and_a_damaged_one_is_made_again(tmp_path):
+    import threading
+    data = tmp_path / "data"
+    data.mkdir()
+    path = data / lease.HOST_ID_NAME
+    path.write_text("")   # the winner has created it and not yet written
+    threading.Timer(0.1, lambda: path.write_text("0123456789abcdef\n")).start()
+    assert lease.host_identity(str(data))["id"] == "0123456789abcdef"
+    path.write_text("damaged\n")
+    made = lease.host_identity(str(data))["id"]
+    assert made != "damaged" and len(made) == 16 and lease.host_identity(str(data))["id"] == made
+
+
+@pytest.mark.parametrize("folder", ["dropbox-backup-tool", "icloud-notes", "pcloud-sdk", "onedrive_cleanup", "Nextcloud-client-src", "googledrive-api-notes",
+                                    "my-dropbox", "boxsync-old", "Documents", "Desktop"])
+def test_a_folder_that_only_starts_like_a_sync_clients_is_not_taken_for_one(tmp_path, folder):
+    inside = tmp_path / folder
+    inside.mkdir()
+    assert lease.synced_reason(str(inside)) is None
+    path = write_config(tmp_path, data_dir=str(inside / "data"), store_db=str(inside / "store" / "tasks.sqlite"))
+    assert project_config.load(path)["data_dir"].endswith(f"{folder}/data")
+
+
+def test_the_names_a_sync_client_gives_its_folder_with_an_account_are_still_found(tmp_path):
+    for name in ("Dropbox (Personal)", "Dropbox (Example Team)", "OneDrive - Example Ltd", "OneDrive", "Google Drive", "GoogleDrive", "iCloud Drive",
+                 "iCloud Drive (Archive)", "pCloud Drive", "Nextcloud", "Box Sync", "MEGAsync"):
+        assert lease.synced_reason(str(tmp_path / name / "data")), name
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))

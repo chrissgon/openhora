@@ -210,6 +210,9 @@ def secret_store_check(probe) -> dict:
                                               "needs a key it holds fails until then, and the key is not missing",
                 "fix": "unlock the store, or on a machine with no desktop session put the secrets in the credentials directory "
                        "(docs/architecture/platform/unattended.md)"}
+    if state == "credentials-unsafe":
+        return {"status": "warn", "detail": f"the credentials directory is unsafe, so no secret is read from it (a secret there is not missing): "
+                                              f"{answer.get('detail')}", "fix": "give the folder and its files the mode the message names"}
     if state == "no-library":
         return {"status": "unverified", "detail": "the keyring library is not available in this Python, so the store was not asked: run with "
                                                     "`uv run --with keyring==25.7.0 python3 ...`, or use the credentials directory"}
@@ -229,6 +232,25 @@ def image_check(image) -> dict:
             "fix": image.get("setup")}
 
 
+def lease_check(data_dir) -> dict:
+    """Whether this host took over the expired lease of another host's write of the sources folder (the runtime records it in
+    `<data_dir>/lease-takeover.json`). A takeover is not an error, but two machines were writing one folder not long ago, so it is told."""
+    if not data_dir:
+        return {"status": "unverified", "detail": "no project was given (--project), so the lease record is not known"}
+    import json
+    path = os.path.join(data_dir, "lease-takeover.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            record = json.load(f)
+    except OSError:
+        return {"status": "ok", "detail": "this host has not taken over another host's lease of the sources folder"}
+    except ValueError:
+        return {"status": "unverified", "detail": f"{path} cannot be read"}
+    return {"status": "warn", "detail": f"on {record.get('at')} this host took over the expired lease of the host {record.get('from_host')!r}: "
+                                          "another machine wrote the sources folder shortly before. Check that only one runtime writes it",
+            "fix": f"if that is expected, delete {path} to clear this warning"}
+
+
 def run_all(*, project=None, min_free_gib=MIN_FREE_GIB, image=None, probe=None, load_config=None, tool=None, run=None,
             system=None, usage=shutil.disk_usage, listdir=os.listdir, home=None, user=None) -> dict:
     """Every check, as {"linger", "sources_access", "disk", "proxy_logs", "secret_store", "image", "project"}. `load_config(project)` gives
@@ -245,6 +267,7 @@ def run_all(*, project=None, min_free_gib=MIN_FREE_GIB, image=None, probe=None, 
         "sources_access": sources_access_check(paths.get("sources_dir"), system=system, home=home, listdir=listdir),
         "disk": disk_check(paths, min_free_gib, usage),
         "proxy_logs": proxy_logs_check(tool),
+        "lease": lease_check(paths.get("data_dir")),
         "secret_store": secret_store_check(probe) if probe else {"status": "unverified", "detail": "no probe was given"},
         "image": image_check(image),
         "project": {"status": "warn" if note else ("ok" if project else "na"), "detail": note or (project or "no --project given")},
