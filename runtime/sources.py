@@ -25,6 +25,8 @@ The sources folder (`sources_dir` of runtime.json, mandatory, accepted only in t
        unattended never receives it (task_copies)
   L26  the work copy excludes the folder, even inside a tracked tree (runtime/workcopy.py asks `inside`)
   L27  the catalog is built only from the converted output (catalog_entry), never by parsing a raw file on this machine
+  L28  one host writes the folder at a time (package P-OPS): a writer takes the folder's lease (take_lease, runtime/lease.py) and a
+       live lease of another host refuses the write, naming that host
 
 Layout, under the folder:   .openhora-sources (the marker)   .incoming/ (assembly)   <source id>/<version>/
 original.<ext>, converted.md or converted.csv, manifest.json. A version is written whole into staging and moved into
@@ -71,6 +73,7 @@ import urllib.parse
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import intake  # noqa: E402  (the same folder: the generic streaming intake)
+import lease  # noqa: E402  (the same folder: one host writes the folder at a time, limit L28)
 
 SOURCE_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
 TYPES = ("file", "notion")
@@ -967,6 +970,19 @@ def _stream_of(data):
     return stream, info.st_size, stream
 
 
+def take_lease(folder: Folder, cfg: dict, clock=None) -> dict:
+    """Limit L28. Take or renew this host's lease on the open sources folder before anything is written in it (runtime/lease.py),
+    or refuse: SourcesError (code `lease`) naming the other host whose lease is live. Every writer of the folder calls it: an import,
+    and the removal of old versions (runtime/upkeep.py)."""
+    now = clock() if clock is not None else datetime.datetime.now(datetime.timezone.utc).timestamp()
+    try:
+        return lease.take(folder.fd, cfg["data_dir"], now=now)
+    except lease.LeaseError as e:
+        raise SourcesError(str(e), "lease") from None
+    except OSError as e:
+        raise SourcesError(f"the lease of the sources folder cannot be written: {e.strerror}", "folder") from None
+
+
 def _refuse_intake(e: "intake.IntakeError") -> "SourcesError":
     return SourcesError(str(e), {"type": "type", "too_large": "size", "too_small": "size"}.get(e.code, "usage"))
 
@@ -987,6 +1003,7 @@ def import_version(ctx, source: dict, data, *, convert, label: str = "import", b
     stream, length, closer = _stream_of(data)
     try:
         with Folder(cfg, evidence_base) as folder:
+            take_lease(folder, cfg)   # limit L28: another host's live lease refuses the write, naming that host
             folder.incoming()   # the assembly area of a version, inside the folder, and the leftovers of a crash removed
             token = secrets.token_hex(8)
             # The bytes are staged OUTSIDE the sources folder, in the runtime's own private data folder: the intake, the

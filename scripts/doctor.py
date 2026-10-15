@@ -2,6 +2,7 @@
 """Report which environment requirement classes are satisfied.
 
 Usage: python3 scripts/doctor.py [--harness <name>] [--json] [--strict]
+       python3 scripts/doctor.py --unattended [--project <dir>] [--min-free-gib <n>] [--json] [--strict]
 
 Collects `metadata.requires` from every skill, then checks each class against:
   1. connectors declared by the chosen adapter in adapters/<harness>/connectors.json
@@ -21,7 +22,15 @@ yet). An unknown class counts as missing. A class written with one of the four o
 Options:
   --harness <name>  include connectors declared by that adapter
   --json            machine-readable report on stdout
-  --strict          exit 1 when any required class is missing
+  --strict          exit 1 when any required class is missing (with --unattended: or when an unattended check warns)
+  --unattended      also run the checks for a machine that runs the task runtime for weeks with nobody logged in (package P-OPS,
+                    scripts/doctor_ops.py): the user manager's linger on Linux, whether a macOS scheduler job can read the sources
+                    folder, free disk on data_dir and sources_dir, the log limits of the harness's proxy containers, whether the
+                    OS secret store answers, and the eval image with the command that sets it up. Each check says what it can and
+                    cannot verify (see the text of scripts/doctor_ops.py); in --json they are the "unattended" key. It asks docker
+                    to list and inspect the harness's containers, which no other mode does.
+  --project <dir>   with --unattended: the project whose runtime.json names data_dir and sources_dir
+  --min-free-gib <n>  with --unattended: the free space under which a disk warns (default 5)
   --help            show this text
 
 It also reports the eval image (evals/image-lock.json, evals/executor.py), in one of four states, and never pulls or
@@ -35,12 +44,15 @@ builds it:
   missing                   nothing is here (run `python3 evals/executor.py ensure`), docker cannot be reached,
                             or the lock file is not well formed ("lock unreadable": a lock that cannot be read is
                             never taken for an empty one)
-The image does not change the exit code. In --json it is the "image" key: {"state", "detail"}.
+The image does not change the exit code. In --json it is the "image" key: {"state", "detail"}, and, when it is not present, "setup": the
+command to run (the first pull of the published image is an explicit step, never automatic: decision D39).
 
 It also lists every secret registered in providers/secrets/resolver.py or by an adapter (the
-"secrets" list of its adapter.json): found or missing, where
-it was found (environment or OS secret store), which classes read it and how to set it. It never
-prints a value. Missing secrets do not change the exit code; see contracts/secrets.md.
+"secrets" list of its adapter.json): found, missing, locked or unsafe, where
+it was found (environment, the credentials directory or the OS secret store), which classes read it and how to set it. "locked" means the OS
+secret store raised instead of answering (a locked keychain or collection, or no backend on a machine with no desktop session): the secret
+may be stored, and unlocking the store clears it; "unsafe" means the credentials directory or its file is readable by others or is a link.
+It never prints a value. Missing secrets do not change the exit code; see contracts/secrets.md.
 
 Exit codes: 0 ok, 1 missing classes with --strict, 2 usage error.
 """
@@ -193,6 +205,43 @@ def image_state(inspect=docker_inspect, root=ROOT):
     return {"state": "missing", "detail": f"{local} is not built: run `python3 evals/executor.py ensure`"}
 
 
+def image_setup(image):
+    """The command that sets the eval image up when it is not present, or None (decision D39: an explicit step, never automatic and never
+    in the middle of a dispatch). A published image is pulled by digest with the provenance check; a local build is the other way."""
+    state, detail = image["state"], image.get("detail") or ""
+    if state in ("published-present", "local-only"):
+        return None
+    if state == "published-not-pulled":
+        return "python3 scripts/image_lock.py pull"
+    if "daemon" in detail or "docker cannot be run" in detail:
+        return "start docker (its client or daemon cannot be reached), then run the doctor again"
+    if detail.startswith("lock unreadable"):
+        return "repair evals/image-lock.json (git checkout -- evals/image-lock.json), then python3 scripts/image_lock.py pull"
+    return "python3 scripts/image_lock.py pull (a published image), or python3 evals/executor.py ensure (build it here)"
+
+
+def store_probe():
+    """The state of the OS secret store, by the resolver's probe_store (it asks for a name nothing stores): {"state", "detail"}."""
+    path = str(resolution.secret_resolver(root=ROOT))
+    return _load("workbench_secret_resolver_probe", path).probe_store()
+
+
+def load_project_config(project):
+    """The two folders the unattended checks look at, from the project's docs/workbench/runtime.json: {"data_dir", "sources_dir"}, each an
+    absolute path. Only these two keys are read (the file is checked as a whole by the task runtime, not here); raises when the file or a
+    key is missing."""
+    path = os.path.join(os.path.abspath(project), "docs", "workbench", "runtime.json")
+    with open(path, encoding="utf-8") as f:
+        raw = json.load(f)
+    out = {}
+    for key in ("data_dir", "sources_dir"):
+        value = raw.get(key) if isinstance(raw, dict) else None
+        if not isinstance(value, str) or not os.path.isabs(value):
+            raise ValueError(f"{path} needs {key}: an absolute path")
+        out[key] = value
+    return out
+
+
 def load_connectors(harness):
     if not harness:
         return {}
@@ -220,7 +269,7 @@ def secrets_report(classes):
     for row in resolver.report():
         folders = {r.split("/")[1] for r in row["readers"] if r.startswith("providers/")}
         row["classes"] = sorted(c for c in classes if provider_folder(c) in folders)
-        rows.append({k: row[k] for k in ("name", "found", "source", "service", "store", "classes", "readers", "set")})
+        rows.append({k: row[k] for k in ("name", "found", "state", "source", "service", "store", "detail", "classes", "readers", "set")})
     return rows
 
 
@@ -229,9 +278,26 @@ def main(argv):
         print(__doc__)
         return 0
     harness, as_json, strict = None, "--json" in argv, "--strict" in argv
+    unattended, project, min_free = "--unattended" in argv, None, None
     i = 0
     while i < len(argv):
         a = argv[i]
+        if a in ("--project", "--min-free-gib"):
+            if i + 1 >= len(argv):
+                print(f"Error: {a} needs a value.", file=sys.stderr)
+                return 2
+            if a == "--project":
+                project = argv[i + 1]
+            else:
+                try:
+                    min_free = float(argv[i + 1])
+                except ValueError:
+                    min_free = -1.0
+                if min_free <= 0:
+                    print("Error: --min-free-gib needs a number above 0.", file=sys.stderr)
+                    return 2
+            i += 2
+            continue
         if a == "--harness":
             if i + 1 >= len(argv):
                 print("Error: --harness needs a value, e.g. --harness claude-code", file=sys.stderr)
@@ -239,7 +305,7 @@ def main(argv):
             harness = argv[i + 1]
             i += 2
             continue
-        if a not in ("--json", "--strict"):
+        if a not in ("--json", "--strict", "--unattended"):
             print(f"Error: unknown option {a!r}. See --help.", file=sys.stderr)
             return 2
         i += 1
@@ -259,22 +325,52 @@ def main(argv):
         report[cls] = {"status": status, "detail": detail, "skills": skills}
 
     image = image_state()
+    setup = image_setup(image)
+    if setup:
+        image = {**image, "setup": setup}
     secrets = secrets_report(report)
-    secrets_missing = [s["name"] for s in secrets if not s["found"]]
+    secrets_missing = [s["name"] for s in secrets if not s["found"] and s["state"] == "missing"]
+    secrets_locked = [s["name"] for s in secrets if s["state"] in ("locked", "unsafe")]
+    checks = None
+    if unattended:
+        import doctor_ops
+        checks = doctor_ops.run_all(project=project, min_free_gib=min_free or doctor_ops.MIN_FREE_GIB, image=image,
+                                    probe=store_probe, load_config=load_project_config)
     if as_json:
-        print(json.dumps({"harness": harness, "classes": report, "missing": missing, "image": image, "secrets": secrets}, indent=2))
+        out = {"harness": harness, "classes": report, "missing": missing, "image": image, "secrets": secrets}
+        if checks is not None:
+            out["unattended"] = checks
+        print(json.dumps(out, indent=2))
     else:
         for cls, r in report.items():
             print(f"{r['status']:<9} {cls:<28} {r['detail']}  <- {', '.join(r['skills'])}", file=sys.stderr)
         shown = IMAGE_STATES[image["state"]] + ("" if image["state"] == "published-not-pulled" else f" ({image['detail']})")
         print(f"{'image':<9} {'eval image':<28} {shown}", file=sys.stderr)
+        if setup:
+            print(f"{'':<9} {'':<28} setup: {setup}", file=sys.stderr)
         for sec in secrets:
-            state = f"found     {sec['name']:<28} {sec['source']}{' (' + sec['service'] + ')' if sec['service'] else ''}" if sec["found"] else \
-                f"missing   {sec['name']:<28} set it: {sec['set']}"
+            if sec["found"]:
+                state = f"found     {sec['name']:<28} {sec['source']}{' (' + sec['service'] + ')' if sec['service'] else ''}"
+            elif sec["state"] == "locked":
+                state = f"locked    {sec['name']:<28} the secret store is locked or unavailable: unlock it (it may hold this secret)"
+            elif sec["state"] == "unsafe":
+                state = f"unsafe    {sec['name']:<28} {sec['detail']}"
+            else:
+                state = f"missing   {sec['name']:<28} set it: {sec['set']}"
             print(f"{state}  <- {', '.join(sec['classes'] or sec['readers'])}", file=sys.stderr)
-        print(json.dumps({"harness": harness, "classes": len(report), "missing": missing,
-                          "image": image["state"], "secrets_missing": secrets_missing}))
-    return 1 if (strict and missing) else 0
+        if checks is not None:
+            for name in ("linger", "sources_access", "disk", "proxy_logs", "secret_store", "project"):
+                c = checks[name]
+                print(f"{c['status']:<10} {name:<28} {c['detail']}", file=sys.stderr)
+                if c.get("fix") and c["status"] in ("warn", "unverified"):
+                    print(f"{'':<10} {'':<28} fix: {c['fix']}", file=sys.stderr)
+        summary = {"harness": harness, "classes": len(report), "missing": missing, "image": image["state"],
+                   "secrets_missing": secrets_missing, "secrets_locked": secrets_locked}
+        if checks is not None:
+            summary["unattended_warnings"] = sorted(n for n, c in checks.items() if c["status"] == "warn")
+        print(json.dumps(summary))
+    warned = bool(checks) and any(c["status"] == "warn" for c in checks.values())
+    return 1 if (strict and (missing or warned)) else 0
 
 
 if __name__ == "__main__":
