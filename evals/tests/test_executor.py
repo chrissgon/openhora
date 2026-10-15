@@ -368,6 +368,44 @@ def test_without_a_lock_entry_the_image_is_built_here_and_its_identity_is_the_lo
     assert not any(c[0] == "pull" for c in daemon.calls)
 
 
+@pytest.mark.parametrize("how", ["timeout", "failure"])
+def test_ensure_refuses_when_docker_does_not_say_its_platform_so_no_run_starts_with_an_unknown_host(tmp_path, monkeypatch, how):
+    """A slow docker must not let the image default to arm64 (emulated on an amd64 host) with host_platform recorded as
+    None, which the evidence check would let pass."""
+    import subprocess
+    write_lock(tmp_path, monkeypatch)
+    monkeypatch.delenv(ex.PLATFORM_ENV, raising=False)
+    ex._NATIVE.clear()
+    daemon = Daemon()
+
+    def docker(*args, env=None, check=True, timeout=1800):
+        if args == ("info", "--format", "{{.Architecture}}"):
+            daemon.calls.append(args)
+            if how == "timeout":
+                raise subprocess.TimeoutExpired(["docker", *args], timeout)
+            return subprocess.CompletedProcess(["docker", *args], 1, "", "error")
+        return daemon(*args, env=env, check=check, timeout=timeout)
+    monkeypatch.setattr(ex, "docker", docker)
+    with pytest.raises(ex.ExecutorError) as e:
+        ex.ensure()
+    assert "did not say its platform" in str(e.value)
+    assert not any(c[0] in ("build", "network", "run") for c in daemon.calls)  # nothing was built or started
+    assert ex._NATIVE == {}
+
+
+def test_image_platform_asks_docker_once_per_call(monkeypatch):
+    monkeypatch.delenv(ex.PLATFORM_ENV, raising=False)
+    ex._NATIVE.clear()
+    asked = []
+
+    def docker(*args, env=None, check=True, timeout=1800):
+        import subprocess
+        asked.append(args)
+        return subprocess.CompletedProcess(["docker", *args], 1, "", "no daemon")
+    monkeypatch.setattr(ex, "docker", docker)
+    assert ex.image_platform() == "linux/arm64" and len(asked) == 1  # a hung daemon costs one timeout, not two
+
+
 @pytest.mark.parametrize("platform", ["linux/arm64", "linux/amd64"])
 def test_with_a_lock_entry_the_image_is_the_published_one_by_digest_and_ensure_never_pulls_or_builds_it(tmp_path, monkeypatch, platform):
     write_lock(tmp_path, monkeypatch, ex.definition_hash())
@@ -508,3 +546,40 @@ def test_the_environment_variable_still_wins_and_a_docker_that_says_nothing_leav
     monkeypatch.delenv(ex.PLATFORM_ENV)
     fake_info(monkeypatch, "", fail=True)  # docker is not installed: the default stays as it was
     assert ex.image_platform() == "linux/arm64" and ex.native_platform() is None
+
+
+def test_a_docker_that_does_not_answer_yet_is_not_remembered_as_an_answer(monkeypatch):
+    """A runtime started before the docker daemon must not default to arm64 for its life on an amd64 host."""
+    import subprocess
+    monkeypatch.delenv(ex.PLATFORM_ENV, raising=False)
+    state, calls = {"now": None}, []
+
+    def docker(*args, env=None, check=True, timeout=1800):
+        calls.append(timeout)
+        if isinstance(state["now"], BaseException):
+            raise state["now"]
+        return state["now"]
+    monkeypatch.setattr(ex, "docker", docker)
+    ex._NATIVE.clear()
+    for state["now"] in (subprocess.CompletedProcess(["docker"], 1, "", "Cannot connect to the Docker daemon"),
+                         ex.ExecutorError("docker is not installed or not on PATH"),
+                         subprocess.TimeoutExpired(["docker", "info"], 15)):  # the daemon is not up
+        assert ex.native_platform() is None and ex.image_platform() == "linux/arm64"
+        assert ex._NATIVE == {}  # and nothing is kept
+    state["now"] = subprocess.CompletedProcess(["docker"], 0, "x86_64\n", "")  # the daemon is up: a real answer
+    assert ex.native_platform() == "linux/amd64" and ex.image_platform() == "linux/amd64"
+    asked = len(calls)
+    assert ex.native_platform() == "linux/amd64" and len(calls) == asked  # and kept
+    assert set(calls) == {ex.HOST_INFO_TIMEOUT}
+
+
+def test_docker_info_has_a_short_timeout_and_a_timeout_reads_as_unknown(monkeypatch):
+    import subprocess
+    seen = {}
+
+    def run(argv, **kw):
+        seen.update(kw, argv=argv)
+        raise subprocess.TimeoutExpired(argv, kw["timeout"])
+    monkeypatch.setattr(ex.subprocess, "run", run)
+    assert ex.host_platform() is None
+    assert seen["argv"][:2] == ["docker", "info"] and 0 < seen["timeout"] <= 30
