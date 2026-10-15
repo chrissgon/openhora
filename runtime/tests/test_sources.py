@@ -89,7 +89,7 @@ def test_the_sniffers_read_the_document_types_from_the_bytes_and_leave_the_other
     # a package with only the content types is Office, and the converter says which
     only_types = make_docx([])[:300]
     assert sniff(only_types)[0] == "document"
-    # what is not a document: an image, a plain archive, a binary body with a NUL, a presentation
+    # what is not a document: an image, a plain archive, a binary body with a NUL
     assert sniff(b"\x89PNG\r\n\x1a\n" + b"\x00" * 24) == ("image", "png")
     assert sniff(b"PK\x03\x04\x14\x00\x00\x00\x00\x00" + b"\x00" * 20 + b"\x05\x00\x00\x00a.txt" + b"x" * 40) is None
     assert sniff(b"\x00\x01\x02\x03 not text at all") is None
@@ -99,10 +99,8 @@ def test_the_sniffers_read_the_document_types_from_the_bytes_and_leave_the_other
     with zipfile.ZipFile(buffer, "w") as z:
         z.writestr("[Content_Types].xml", "<Types/>")
         z.writestr("ppt/presentation.xml", "<p/>")
-    assert sniff(buffer.getvalue()) == ("document", "pptx")
-    with pytest.raises(intake.IntakeError) as refused:
-        sources.accept_type(("document", "pptx"))
-    assert refused.value.code == "type"
+    assert sniff(buffer.getvalue()) == ("document", "pptx")   # a presentation is a document the converter takes (MarkItDown)
+    sources.accept_type(("document", "pptx"))
     with pytest.raises(intake.IntakeError):
         sources.accept_type(("image", "png"))
     with pytest.raises(intake.IntakeError):

@@ -709,3 +709,51 @@ Package P4 of the delegation platform plan (decisions D9, D10, D11, D13, D16, D2
 - **Storage.** Migration 11: tables `sources`, `source_versions`, `task_sources` and the column `tasks.sources`.
 - **The group.** The five operations are the group `sources`; the catalog read is also for the MCP mode and messaging, in no default policy, because it shows samples of the person's data.
 - **What changed no band:** no skill other than `core-orchestrator` was bumped, and no fingerprinted file changed.
+
+## 2026-10-15: the converter adopts MarkItDown where it is as good as the tool already there: presentations only (P4b)
+
+Package P4b of the delegation platform plan, on the maintainer's decision of 2026-10-15 ("a small package now": adopt MarkItDown in P4's converter, compared with the current tools on the same fixtures before switching). Principle 14 (adopt before building) and principle 11 (the container's isolation is a hard limit: L24, L27). Nothing here changes a decision of the plan; no fingerprinted file changed and no lab run was made.
+
+- **The comparison.** `providers/converter/tests/compare_tools.py` ran the tool already in the image (pandoc, `pdftotext`, openpyxl, the standard library) and MarkItDown 0.1.8 on the same 15 fixtures inside the image, each conversion in its own process (median of 5 runs; the wall time includes the imports). It measures by script: the words the document holds that the output lacks, phrases that must come out whole and in order, text that must never come out, Markdown headings, table rows and whether the table keeps its header, list items, `(cid:n)` noise, `[page n]` marks, size and time. Read each cell as `found/expected`. The image of the comparison held the extras for docx, pdf, xlsx and pptx; the production image holds the presentation's only.
+
+| fixture | tool | lost words | phrases whole | forbidden | headings | table rows | table header | list items | noise | page marks | bytes | ms |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| answers.xlsx | current | 0 | 0/0 | 0 | 0/0 | 0/0 | - | 0/0 | 0 | 0 | 53 | 141 |
+| answers.xlsx | markitdown | 0 | 0/0 | 0 | 1/0 | 3/0 | ok | 0/0 | 0 | 0 | 95 | 418 |
+| brief.pdf | current | 0 | 0/0 | 0 | 0/0 | 0/0 | - | 0/0 | 0 | 2 | 72 | 19 |
+| brief.pdf | markitdown | 0 | 0/0 | 0 | 0/0 | 0/0 | - | 0/0 | 0 | 0 | 54 | 417 |
+| columns.pdf | current | 0 | 6/6 | 0 | 0/0 | 0/0 | - | 0/0 | 0 | 2 | 618 | 24 |
+| columns.pdf | markitdown | 0 | 6/6 | 0 | 0/0 | 0/0 | - | 0/0 | 0 | 0 | 600 | 417 |
+| notes.docx | current | 0 | 0/0 | 0 | 2/2 | 0/0 | - | 2/2 | 0 | 0 | 104 | 58 |
+| notes.docx | markitdown | 0 | 0/0 | 0 | 2/2 | 0/0 | - | 2/2 | 0 | 0 | 99 | 404 |
+| page.html | current | 0 | 0/0 | 0 | 1/1 | 2/2 | ok | 0/0 | 0 | 0 | 99 | 42 |
+| page.html | markitdown | 0 | 0/0 | 0 | 1/1 | 2/2 | ok | 0/0 | 0 | 0 | 92 | 393 |
+| review.docx | current | 0 | 0/0 | 0 | 4/4 | 3/3 | ok | 6/6 | 0 | 0 | 521 | 127 |
+| review.docx | markitdown | 0 | 0/0 | 0 | 4/4 | 3/3 | empty | 6/6 | 0 | 0 | 486 | 510 |
+| review.html | current | 0 | 0/0 | 0 | 4/4 | 3/3 | ok | 6/6 | 0 | 0 | 571 | 41 |
+| review.html | markitdown | 0 | 0/0 | 0 | 4/4 | 3/3 | ok | 6/6 | 0 | 0 | 529 | 389 |
+| review.pdf | current | 0 | 0/0 | 0 | 0/0 | 0/3 | - | 0/6 | 0 | 2 | 445 | 23 |
+| review.pdf | markitdown | 0 | 0/0 | 0 | 0/0 | 3/3 | ok | 0/6 | 3 | 0 | 507 | 369 |
+| review.pptx | current | - | - | - | - | - | - | - | - | - | - | no tool |
+| review.pptx | markitdown | 0 | 0/0 | 0 | 4/3 | 3/3 | ok | 0/3 | 0 | 0 | 427 | 405 |
+| review.xlsx | current | 0 | 0/0 | 0 | 2/0 | 0/0 | - | 0/0 | 0 | 0 | 246 | 115 |
+| review.xlsx | markitdown | 0 | 0/0 | 0 | 2/0 | 8/0 | ok | 0/0 | 0 | 0 | 283 | 384 |
+| rich.docx | current | 0 | 1/1 | ['hidden docx text'] | 2/2 | 3/3 | ok | 3/3 | 0 | 0 | 272 | 130 |
+| rich.docx | markitdown | 0 | 1/1 | ['hidden docx text'] | 2/2 | 3/3 | empty | 3/3 | 0 | 0 | 243 | 496 |
+| rich.html | current | 0 | 2/2 | 0 | 1/1 | 0/0 | - | 4/4 | 0 | 0 | 255 | 45 |
+| rich.html | markitdown | 0 | 2/2 | ['noscript text', 'template text'] | 1/1 | 0/0 | - | 4/4 | 0 | 0 | 272 | 431 |
+| survey.xlsx | current | 0 | 0/0 | 0 | 2/0 | 0/0 | - | 0/0 | 0 | 0 | 134 | 134 |
+| survey.xlsx | markitdown | 2 ['10', '4'] | 0/0 | ['hidden sheet text', 'Internal', 'NaN'] | 3/0 | 9/0 | ok | 0/0 | 0 | 0 | 241 | 394 |
+
+- **The choice, format by format, by those numbers.**
+  - **Presentation (pptx): MarkItDown.** No tool was there; every word, the three slide titles, the table and the speaker note come out, one section per slide.
+  - **Word (docx): pandoc stays.** Equal on words, headings, lists and phrases, but MarkItDown writes the table's first row as an empty header (`table header: empty` on both fixtures with a table).
+  - **HTML: pandoc stays.** MarkItDown leaves the text of `<noscript>` and `<template>` in the output (`forbidden` is not 0 on `rich.html`); with the pre-filter that removes them for pandoc it would only tie, and it is about ten times slower (0.4 s against 0.04 s).
+  - **Spreadsheet (xlsx): openpyxl stays.** MarkItDown reads hidden sheets (the hidden sheet's text came out of `survey.xlsx`), writes `NaN` for a cell with no stored value and `10.0` for `10` (two words lost).
+  - **PDF: `pdftotext` stays.** Equal on words and on two-column reading order (6 of 6 phrases whole). MarkItDown recovers a table as a Markdown table (3 of 3 rows against none), but drops the `[page n]` marks the converter documents (0 of 2) and writes `(cid:127)` for each bullet (3 noise tokens). A table in a PDF is a known limit of this choice, written in `docs/architecture/platform/sources.md`.
+  - **CSV and plain text: the standard library**, as before (the maintainer's instruction; not compared).
+  - The rule used for a tie or a mixed result: the tool already in the image stays, because it is measured, faster and adds no dependency to that format. Hidden Word text (a `vanish` run) comes out of both tools; it waits for the hidden-text flag of P8, like text hidden by CSS.
+- **The pin.** MarkItDown 0.1.8, the newest stable release (published 2026-09-21; 0.1.7 is from 2026-07-29, 0.1.8 betas from 2026-09-04), which needs Python 3.10 to 3.14 (Debian bookworm's is 3.11.2). `requirements.in` names `markitdown[pptx]==0.1.8` and `openpyxl==3.1.5` (openpyxl moved from the Debian package, 3.0.10, into the lock so that the image has one Python environment; the xlsx column above was measured on 3.1.5). `requirements.lock` is made by `uv pip compile --universal --python-version 3.11 --generate-hashes --only-binary :all:`: 31 packages, every wheel of every platform by sha256 (so the one lock serves the amd64 and arm64 images). The Dockerfile installs it into `/opt/venv` with `pip install --require-hashes --only-binary=:all: --no-deps`, then removes pip; no resolution at build time, no compiler. MarkItDown's own dependencies include `magika` (and so `onnxruntime` and `numpy`), `requests`, `beautifulsoup4`, `markdownify`, `charset-normalizer` and `defusedxml`; the presentation extra adds `python-pptx`, `lxml`, `pillow` and `xlsxwriter`. The image went from 440 MB to 653 MB.
+- **What is off, and how it is tested.** The program calls `convert_stream` on the open file and never `convert`, `convert_uri` or `convert_url`; it builds `MarkItDown(enable_builtins=False, enable_plugins=False)` and registers the one converter of the kind by hand, so the YouTube, Wikipedia, RSS, audio, image-description, Outlook, EPUB, notebook, ZIP and CSV converters, Document Intelligence, Content Understanding and any language-model client are never created. Before the library is imported `socket.connect`, `create_connection` and `getaddrinfo` raise, behind `--network none`. An input that is not an absolute path (`http:`, `file:`, `data:`, `ftp:`, a relative path) is refused with exit 3 and nothing on standard output. Tests: the reader holds exactly one converter, `PptxConverter`, with plugins and built-ins off, and no entry point of the group `markitdown.plugin` is read (a spy on `importlib.metadata.entry_points`); a stream of any other type (a YouTube address in a text file, HTML, audio, an image, RSS, CSV) is refused as unsupported; the socket guard raises; each address form is refused; a broken presentation is a closed conversion error with no path in it; the lock holds a hash for every package and none of the extras that reach out or call a model; and the same checks run in the built image (version `0.1.8`, no pip, an address refused, the `ooxml` type resolved to `pptx`).
+- **Limits unchanged.** L24 (the frames, the closed names, the caps), L27 (the catalog from converted output only), the credential scan after the conversion: a key in a PDF's compressed text and another in a slide's XML are in the converted text and refused by the scan. A MarkItDown failure is `error: MarkItDown could not convert the pptx file: <ExceptionName>` and exit 3, which `container.py` reports as a failed conversion; the host does not crash. `runtime/sources.py` changed in a few lines only: `SUBTYPES` and `EXTENSION` gain `pptx`, the `ooxml` resolution accepts it, and the messages name a presentation (the sniffer already answered `pptx`; it was refused by name until now).
+- **What changed no band:** no skill, no evidence and no fingerprinted file changed. The definition's hash, and so the image tag, changed (`openhora-converter:607d179e54e1`); the next conversion asks for `build --confirmed`.

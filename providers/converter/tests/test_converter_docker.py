@@ -17,6 +17,7 @@ import os
 import re
 import sys
 import uuid
+import zipfile
 import zlib
 from pathlib import Path
 
@@ -38,6 +39,9 @@ def load(name: str, path: Path):
     spec.loader.exec_module(module)
     return module
 
+
+sys.path.insert(0, str(REPO / "runtime"))
+import workcopy  # noqa: E402  (limit L14's scan, the one the sources import runs on the converted text)
 
 container = load("converter_container_docker_test", REPO / "providers" / "converter" / "container.py")
 box = sys.modules["_container"]
@@ -64,6 +68,12 @@ def convert(tmp_path, image, name, kind):
     ("brief.pdf", "pdf", ["[page 1]\n\nClinics want shorter forms.", "[page 2]\n\nPrices vary by region."]),
     ("notes.docx", "docx", ["# Interview notes", "**shorter forms**", "pear 3.1"]),
     ("notes.docx", "ooxml", ["# Interview notes"]),
+    ("review.pptx", "pptx", ["# Harbor Cafe Quarterly Review", "# Highlights", "Staff turnover fell to 8 percent",
+                             "| Dock Street | 48200 | 9100 |", "Speaker note: thank the Dock Street team."]),
+    ("review.pptx", "ooxml", ["# Sites"]),
+    ("review.docx", "docx", ["# Harbor Cafe Quarterly Review", "## Next steps", "| Site        | Revenue | Visits |"]),
+    ("review.html", "html", ["## Highlights", "[the loyalty page](https://cafe.example/loyalty)", "| Mill Lane   | 39750   | 7400   |"]),
+    ("review.pdf", "pdf", ["[page 1]", "[page 2]", "Dock Street"]),
     ("page.html", "html", ["# Fruit market", "Apples sell best in autumn.", "| apple | 1.2"]),
     ("plain.txt", "text", ["A second paragraph with an accent: caf\u00e9."]),
 ])
@@ -75,8 +85,11 @@ def test_each_text_format_comes_out_as_markdown(tmp_path, image, name, kind, exp
         assert expected in text, expected
     assert "alert" not in text and "hidden script text" not in text
     info = json.loads(files["info.json"])
-    assert info["converter"] == "document" and info["kind"] == ("docx" if kind == "ooxml" else kind)
+    ooxml = {"notes.docx": "docx", "review.pptx": "pptx"}
+    assert info["converter"] == "document" and info["kind"] == (ooxml[name] if kind == "ooxml" else kind)
     assert done["image"] == image and (done["tool_versions"] or kind == "text"), "the tools that ran are recorded"
+    if kind == "pptx" or (kind == "ooxml" and name == "review.pptx"):
+        assert done["tool_versions"] == {"markitdown": "0.1.8"}
 
 
 def test_a_csv_with_semicolons_and_a_workbook_come_out_as_csv_or_as_markdown_with_a_section_per_sheet(tmp_path, image):
@@ -104,6 +117,28 @@ def test_a_key_in_the_compressed_text_of_a_pdf_is_in_the_converted_text_and_not_
     out.mkdir(mode=0o700)
     container.convert(str(path), "pdf", str(out), image=image)
     assert key in (out / "converted.md").read_text()
+    reason = workcopy.scan((out / "converted.md").read_bytes())
+    assert reason and "credential" in reason and key not in reason, "the credential scan after the conversion refuses it"
+
+
+def test_a_key_in_a_slide_is_in_the_converted_text_and_the_credential_scan_refuses_it(tmp_path, image):
+    key = "sk-" + "ant-" + "api03-" + "Z9y8X7w6V5u4T3s2R1q0P9o8N7m6L5k4"
+    planted = tmp_path / "planted.pptx"
+    with zipfile.ZipFile(FIXTURES / "review.pptx") as source, zipfile.ZipFile(planted, "w", zipfile.ZIP_DEFLATED) as target:
+        for member in source.infolist():
+            data = source.read(member.filename)
+            if member.filename == "ppt/slides/slide2.xml":
+                assert b"Supplier costs stayed flat" in data
+                data = data.replace(b"Supplier costs stayed flat", key.encode())
+            target.writestr(member.filename, data)
+    assert key.encode() not in planted.read_bytes()
+    out = tmp_path / "out"
+    out.mkdir(mode=0o700)
+    container.convert(str(planted), "pptx", str(out), image=image)
+    text = (out / "converted.md").read_text()
+    assert key in text
+    reason = workcopy.scan(text.encode())
+    assert reason and "credential" in reason and key not in reason
 
 
 def test_a_file_that_is_not_what_it_says_fails_in_the_container_and_leaves_nothing(tmp_path, image):
@@ -125,7 +160,7 @@ def probe(image, tmp_path, code: str):
     name = "openhora-converter-test-" + uuid.uuid4().hex[:12]
     source = tmp_path / "input"
     source.write_bytes(b"x")
-    command = box.argv(name, image, ["python3", "-I", "-c", code], label=container.LABEL_RUN, deadline=2 ** 31,
+    command = box.argv(name, image, [container.PYTHON, "-I", "-c", code], label=container.LABEL_RUN, deadline=2 ** 31,
                        mounts=[(str(source), "/in/input", "ro")], memory_mb=container.MEMORY_MB, cpus=container.CPUS,
                        scratch_mb=container.SCRATCH_MB, pids_limit=container.PIDS)
     done = box.run(command, name, 60, stdout_cap=65536)
@@ -149,6 +184,28 @@ def test_the_image_really_has_no_network_a_read_only_root_a_scratch_with_no_exec
     assert out.strip() == "True", "an unprivileged user"
     tools = probe(image, tmp_path, "import shutil\nprint([shutil.which(t) is not None for t in ('pdftotext', 'pandoc')])")[2].strip()
     assert tools == "[True, True]"
+
+
+def test_markitdown_in_the_image_is_the_pinned_version_with_no_plugin_no_address_and_no_converter_but_the_presentations(tmp_path, image):
+    code = ("import sys, importlib.metadata as m\nsys.path.insert(0, '/opt/converter')\nimport markitdown, _inner\n"
+            "asked = []\nreal = m.entry_points\n"
+            "def spy(*a, **k):\n asked.append(str(k.get('group') or a))\n return real(*a, **k)\n"
+            "m.entry_points = spy\n"
+            "reader = _inner.markitdown_reader('pptx')\n"
+            "print(markitdown.__version__, [type(r.converter).__name__ for r in reader._converters], reader._plugins_enabled, "
+            "any('markitdown' in a for a in asked))\n"
+            "try:\n import pip\n print('pip present')\nexcept ImportError:\n print('no pip')")
+    code_, err, out = probe(image, tmp_path, code)
+    assert code_ == 0, err
+    assert out.splitlines() == ["0.1.8 ['PptxConverter'] False False", "no pip"]
+    for address in ("https://cafe.example/menu.pptx", "file:///etc/passwd", "data:text/plain;base64,aGk="):
+        code_, err, out = probe(image, tmp_path, "import subprocess, sys\nr = subprocess.run([sys.executable, '-I', '/opt/converter/_inner.py', "
+                                                  f"'--type', 'pptx', '--input', {address!r}], capture_output=True)\n"
+                                                  "print(r.returncode, r.stdout, r.stderr)")
+        assert out.strip().startswith("3 b'' b'error: the input is a file path, never an address"), out
+    code_, err, out = probe(image, tmp_path, "import sys\nsys.path.insert(0, '/opt/converter')\nimport _inner\n"
+                                              "try:\n _inner.markitdown_text('pptx', '/in/input')\nexcept _inner.Failed as e:\n print('FAILED', e)")
+    assert out.startswith("FAILED MarkItDown could not convert the pptx file")
 
 
 def test_the_label_that_marks_the_containers_leaves_none_behind(image):

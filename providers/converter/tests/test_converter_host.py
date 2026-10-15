@@ -97,7 +97,7 @@ def test_the_outputs_are_written_as_new_regular_files_with_mode_0600_and_never_o
 
 
 def test_the_image_is_named_by_the_hash_of_its_definition_and_a_change_to_a_file_of_it_changes_the_name(tmp_path):
-    assert set(container.DEFINITION_FILES) == {"Dockerfile", ".dockerignore", "_inner.py"}
+    assert set(container.DEFINITION_FILES) == {"Dockerfile", ".dockerignore", "_inner.py", "requirements.lock"}
     first = container.image_tag()
     assert first.startswith("openhora-converter:") and len(first.split(":")[1]) == 12 and container.image_tag() == first
     copy = tmp_path / "definition"
@@ -114,10 +114,49 @@ def test_the_dockerfile_pins_its_base_by_digest_and_its_packages_by_a_dated_snap
     import re
     assert re.search(r"^FROM debian@sha256:[0-9a-f]{64}$", text, re.M), "the base is pinned by digest"
     assert re.search(r"^ARG DEBIAN_SNAPSHOT=\d{8}T\d{6}Z$", text, re.M) and "snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}" in text
-    for tool in ("poppler-utils", "pandoc", "python3-openpyxl"):
+    for tool in ("poppler-utils", "pandoc", "python3-venv"):
         assert tool in text
     assert "USER 65534:65534" in text and "COPY _inner.py /opt/converter/_inner.py" in text
-    assert (HERE.parent / ".dockerignore").read_text().split() == ["*", "!_inner.py"]
+    assert (HERE.parent / ".dockerignore").read_text().split() == ["*", "!_inner.py", "!requirements.lock"]
+    install = next(line for line in text.splitlines() if "pip install" in line)
+    assert "--require-hashes" in install and "--only-binary=:all:" in install and "--no-deps" in install and "requirements.lock" in install
+    assert "pip uninstall" in text, "pip is removed from the environment after the install"
+
+
+def lock_entries():
+    """The packages of providers/converter/requirements.lock: [{name, version, hashes}]."""
+    import re
+    entries, current = [], None
+    for line in (HERE.parent / "requirements.lock").read_text().splitlines():
+        head = re.match(r"^([A-Za-z0-9_.\-]+)==(\S+)", line)
+        if head:
+            current = {"name": head.group(1).lower(), "version": head.group(2), "hashes": []}
+            entries.append(current)
+        elif line.strip().startswith("--hash=sha256:"):
+            current["hashes"].append(re.fullmatch(r"\s*--hash=sha256:([0-9a-f]{64})( \\)?", line).group(1))
+    return entries
+
+
+def test_the_lock_names_every_package_by_an_exact_version_and_checks_every_file_by_sha256():
+    entries = lock_entries()
+    names = {e["name"] for e in entries}
+    assert {"markitdown", "python-pptx", "openpyxl", "magika", "lxml"} <= names
+    assert all(e["hashes"] for e in entries), "a package without a hash would not install under --require-hashes"
+    text = (HERE.parent / "requirements.lock").read_text()
+    for forbidden in ("git+", "http://", "https://", "--index-url", "--find-links", "-e "):
+        assert forbidden not in text, forbidden
+    package_lines = [ln for ln in text.splitlines() if ln and not ln.startswith((" ", "#"))]
+    assert len(package_lines) == len(entries) and all("==" in ln for ln in package_lines), "every package line is pinned with =="
+
+
+def test_the_lock_holds_no_converter_that_reaches_out_or_calls_a_model():
+    """MarkItDown's extras for YouTube, audio, Azure, Outlook, PDF, Word and Excel are not installed: only the presentation's and openpyxl."""
+    names = {e["name"] for e in lock_entries()}
+    for reaches in ("youtube-transcript-api", "azure-ai-documentintelligence", "azure-ai-contentunderstanding", "azure-identity",
+                    "speechrecognition", "pydub", "openai", "anthropic", "olefile", "pandas", "pdfminer-six", "pdfplumber", "mammoth"):
+        assert reaches not in names, reaches
+    lines = [ln for ln in (HERE.parent / "requirements.in").read_text().splitlines() if ln and not ln.startswith("#")]
+    assert lines == ["markitdown[pptx]==0.1.8", "openpyxl==3.1.5"]
 
 
 @pytest.mark.parametrize("platform", ["linux", "darwin"])
@@ -130,8 +169,7 @@ def test_the_command_of_a_conversion_carries_every_limit_of_the_shared_helper(mo
         assert flag in joined, flag
     assert f"/scratch:rw,noexec,nosuid,nodev,size={container.SCRATCH_MB}m,mode=1777" in joined
     assert "-v /work/in/input:/in/input:ro" in joined and joined.count("-v ") == 1, "the input is the only mount, and read-only"
-    assert command[-9:] == ["sha256:" + "a" * 64, "python3", "-I", "/opt/converter/_inner.py", "--type", "pdf", "--input", "/in/input"][-9:] \
-        or command[-8:] == ["sha256:" + "a" * 64, "python3", "-I", "/opt/converter/_inner.py", "--type", "pdf", "--input", "/in/input"]
+    assert command[-8:] == ["sha256:" + "a" * 64, "/opt/venv/bin/python", "-I", "/opt/converter/_inner.py", "--type", "pdf", "--input", "/in/input"]
     assert "--env" not in joined and "-e " not in joined and "--privileged" not in joined and "--network host" not in joined
     assert ("--user" in command) == (platform == "linux")
 

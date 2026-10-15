@@ -4,11 +4,12 @@ converts one document to text with adopted open tools and prints the result on i
 imported by the host except in the tests, and it never runs on the host in production.
 
 What it uses, all of it adopted and none of it written here: poppler's `pdftotext` for a PDF, pandoc for a Word document and
-an HTML page, openpyxl for a spreadsheet, and the standard library for CSV and plain text. Each tool reads the one input file;
+an HTML page, openpyxl for a spreadsheet, Microsoft's MarkItDown for a presentation (local files only, plugins and every converter
+but the presentation's off), and the standard library for CSV and plain text. Each tool reads the one input file;
 the container has no network, a read-only root file system, no capability, and a memory-backed /scratch, and the host copies
 back only what this program prints.
 
-  python3 -I _inner.py --type <pdf|docx|xlsx|ooxml|html|csv|text> --input <file> [--work <folder>]
+  python3 -I _inner.py --type <pdf|docx|xlsx|pptx|ooxml|html|csv|text> --input <file> [--work <folder>]
 
 The frames (standard output only, nothing else is ever printed there):
 
@@ -21,7 +22,7 @@ there, not trusted from here. A conversion that fails prints nothing on standard
 with a code that is not 0.
 
 The converted text is cut at CAP + 1 bytes, so that the host sees it is over the cap and refuses the file; the host's cap is the
-one that counts. Standard library, plus openpyxl for a spreadsheet.
+one that counts. Standard library, plus openpyxl for a spreadsheet and MarkItDown for a presentation (both in the image's virtual environment).
 """
 from __future__ import annotations
 
@@ -45,6 +46,9 @@ TEXT_CAP = 8 * 1024 * 1024            # what a tool's text is read up to before 
 CSV_DELIMITERS = ",;\t|"
 SCRIPTLIKE = re.compile(r"(?is)<(script|style|noscript|template)\b.*?</\1\s*>")
 PAGE_BREAK = "\f"
+# The MarkItDown converter registered for a kind, and the extension it is told. A kind not listed is not converted by MarkItDown: the
+# comparison of docs/decisions.md kept the other tools for the other formats (providers/converter/tests/compare_tools.py).
+MARKITDOWN_CONVERTERS = {"pptx": ("PptxConverter", ".pptx")}
 # The tools are found on this PATH. In the container nothing sets CONVERTER_TOOL_PATH (no environment variable of the host passes), so
 # it is always the default; a test on a machine that keeps pandoc elsewhere sets it.
 ENV = {"PATH": os.environ.get("CONVERTER_TOOL_PATH") or "/usr/local/bin:/usr/bin:/bin", "HOME": "/tmp", "LANG": "C.UTF-8",
@@ -103,7 +107,7 @@ def check_package(path: str) -> list:
 
 
 def ooxml_kind(path: str) -> str:
-    """docx or xlsx, from the package's [Content_Types].xml (read in the container, never on the host)."""
+    """docx, xlsx or pptx, from the package's [Content_Types].xml (read in the container, never on the host)."""
     names = check_package(path)
     if "[Content_Types].xml" not in names:
         raise Failed("the package has no [Content_Types].xml")
@@ -113,7 +117,9 @@ def ooxml_kind(path: str) -> str:
         return "docx"
     if "spreadsheetml" in types:
         return "xlsx"
-    raise Failed("the package is neither a Word document nor a spreadsheet")
+    if "presentationml" in types:
+        return "pptx"
+    raise Failed("the package is not a Word document, a spreadsheet or a presentation")
 
 
 def convert_pdf(path: str, work: str):
@@ -240,11 +246,65 @@ def convert_xlsx(path: str, work: str):
     return "converted.md", "\n\n".join(parts) + "\n", tools, notes
 
 
+def forbid_network() -> None:
+    """A second wall behind the container's missing network: in this process nothing can open a connection or resolve a name, so a
+    converter library that tried (a URL converter, an update check) fails here before it fails there."""
+    import socket
+
+    def refuse(*args, **kwargs):
+        raise OSError("the converter makes no network connection")
+
+    socket.socket.connect = refuse
+    socket.socket.connect_ex = refuse
+    socket.create_connection = refuse
+    socket.getaddrinfo = refuse
+
+
+def markitdown_reader(kind: str):
+    """A MarkItDown with its built-in converters and its plugins off and ONE converter registered by hand, the one for this kind
+    (MARKITDOWN_CONVERTERS). The YouTube, Wikipedia, RSS, audio, image-description, Outlook, EPUB, notebook, ZIP and CSV converters,
+    Azure Document Intelligence and Content Understanding, and any language-model client are never registered, so a type that is
+    not the kind's is refused as unsupported; plugins are never loaded (no entry point is read)."""
+    wanted = MARKITDOWN_CONVERTERS.get(kind)
+    if wanted is None:
+        raise Failed(f"MarkItDown does not convert the type {kind!r} here")
+    from markitdown import MarkItDown
+    from markitdown import converters as available
+    reader = MarkItDown(enable_builtins=False, enable_plugins=False)
+    reader.register_converter(getattr(available, wanted[0])())
+    return reader
+
+
+def markitdown_text(kind: str, path: str):
+    """Markdown from MarkItDown (Microsoft's open converter) for one local file, and its version. Only the local, stream API is
+    used: `convert_stream` on the open file, never `convert`, `convert_uri` or `convert_url`, so a string that looks like an address
+    is never fetched. A failure of the library is a conversion error with a closed message, never a crash."""
+    forbid_network()
+    try:
+        reader = markitdown_reader(kind)
+        from markitdown import StreamInfo
+        import markitdown
+        with open(path, "rb") as stream:
+            result = reader.convert_stream(stream, stream_info=StreamInfo(extension=MARKITDOWN_CONVERTERS[kind][1]))
+        text, version = result.markdown, getattr(markitdown, "__version__", None)
+    except Failed:
+        raise
+    except Exception as e:  # the library raises its own errors, its dependencies' and the stream's: one closed message
+        raise Failed(f"MarkItDown could not convert the {kind} file: {type(e).__name__}") from None
+    return text.replace("\x00", ""), version
+
+
+def convert_pptx(path: str, work: str):
+    check_package(path)
+    text, version = markitdown_text("pptx", path)
+    return "converted.md", text.strip() + "\n", {"markitdown": version}, []
+
+
 def convert(kind: str, path: str, work: str):
     if kind == "ooxml":
         kind = ooxml_kind(path)
     table = {"pdf": convert_pdf, "docx": convert_docx, "xlsx": convert_xlsx, "html": convert_html, "csv": convert_csv,
-             "text": convert_text}
+             "text": convert_text, "pptx": convert_pptx}
     if kind not in table:
         raise Failed(f"the type {kind!r} is not converted")
     name, text, tools, notes = table[kind](path, work)
@@ -267,6 +327,9 @@ def main(argv=None) -> int:
     parser.add_argument("--input", required=True)
     parser.add_argument("--work", default="/scratch/work")
     args = parser.parse_args(argv)
+    if not args.input.startswith("/"):    # a path in the container; an address (http://, file:, data:) is never an input
+        print("error: the input is a file path, never an address", file=sys.stderr)
+        return 3
     os.makedirs(args.work, mode=0o700, exist_ok=True)
     try:
         kind, name, data, tools, notes = convert(args.type, args.input, args.work)

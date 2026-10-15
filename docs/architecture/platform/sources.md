@@ -4,7 +4,7 @@ What a person gives a project to read, how it becomes clean text a task can use,
 
 ## Purpose
 
-A project declares **sources**: an uploaded file (a PDF, a Word document, a spreadsheet, a CSV, an HTML page, a text file) or a Notion page chosen by its address. Each import is an **immutable version** kept in the project's **sources folder** (`sources_dir`), as the original, the converted text and a manifest. A **catalog**, built by code from the converted text alone, tells the planning run what each source holds, so that the **plan** can name, for each task, the sources it needs; the person approves that plan by its hash, and a task **receives copies** of the newest version of each source at the moment it starts. The sources folder itself never enters a run.
+A project declares **sources**: an uploaded file (a PDF, a Word document, a spreadsheet, a presentation, a CSV, an HTML page, a text file) or a Notion page chosen by its address. Each import is an **immutable version** kept in the project's **sources folder** (`sources_dir`), as the original, the converted text and a manifest. A **catalog**, built by code from the converted text alone, tells the planning run what each source holds, so that the **plan** can name, for each task, the sources it needs; the person approves that plan by its hash, and a task **receives copies** of the newest version of each source at the moment it starts. The sources folder itself never enters a run.
 
 The idea behind each piece, in one line each:
 
@@ -80,11 +80,14 @@ Beside them:
 - There is no screen for the sources yet; the page's routes exist and the plan card shows each task's sources (and highlights a web task that receives them). An ingest is not a task before the step engine (P5).
 - Google Drive and write-back are P7 and P8; the hidden-text flag of a converted HTML or PDF is P8 (`hidden_text` is null today).
 - A PDF of scanned pages has no text layer; no OCR is made, and the manifest notes it.
+- A table in a PDF comes out as the lines of its cells (`pdftotext`), not as a Markdown table; MarkItDown recovers the table but drops the page marks and writes `(cid:n)` for a bullet, so `pdftotext` was kept (the comparison in `docs/decisions.md`).
+- Text a Word document marks as hidden still comes out (pandoc and MarkItDown both keep it); like the text hidden by CSS in HTML it waits for the hidden-text flag of P8.
 - A formula cell with no stored value in a workbook comes out empty (the converter reads stored values, it calculates nothing).
 - A source over the converted cap is refused, not indexed: indexing and retrieval wait for a real case.
 - A folder synced between machines needs the lease file of P-OPS; until then the sources lock is a file under `data_dir`, never inside the folder.
-- The converter image is built from a pinned definition by a step the person starts (`providers/converter/container.py build --confirmed`); the base image is pinned by digest and the packages by a dated snapshot of the Debian archive. The tools it holds are the Debian versions of that snapshot: poppler's `pdftotext`, `pandoc` and `python3-openpyxl`.
+- The converter image is built from a pinned definition by a step the person starts (`providers/converter/container.py build --confirmed`); the base image is pinned by digest, the Debian packages by a dated snapshot of the Debian archive and the Python packages by a lock of exact versions and sha256 hashes (`providers/converter/requirements.lock`, installed with `--require-hashes`). The tools it holds are poppler's `pdftotext` and `pandoc` (the Debian versions of that snapshot), `openpyxl`, and Microsoft's MarkItDown 0.1.8 for presentations only; which tool converts which format was chosen by a measured comparison (`providers/converter/README.md`, `docs/decisions.md` 2026-10-15). MarkItDown runs with its plugins and every converter but the presentation's off, on local files only.
 
 ## Changes
 
 - 2026-10-15: first version, with package P4 (the sources folder and limits L21 to L27, the registry and versions of migration 11, the catalog, `converter:document`, Notion pages by address, the planner's choice in `core-orchestrator` 3.0.0, the plan card, the copies a task receives).
+- 2026-10-15: package P4b: presentations (pptx) are a source, converted by Microsoft's MarkItDown 0.1.8 (local files only, plugins off, one converter registered, pinned by a hash-checked lock); the other formats keep their tools, chosen by a measured comparison (`docs/decisions.md`).
