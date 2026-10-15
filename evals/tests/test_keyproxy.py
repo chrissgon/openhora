@@ -71,7 +71,7 @@ class ProviderHandler(http.server.BaseHTTPRequestHandler):
         body = self.rfile.read(length) if length else b""
         self.server.seen.append({"method": self.command, "path": self.path, "headers": dict(self.headers.items()),
                                  "authorization": self.headers.get_all("Authorization"), "body": body})
-        if self.path.startswith("/api/v1/stream"):  # an answer in two events, the second held until the test says
+        if self.path.startswith("/api/v1/chat/completions") and b'"stream"' in body:  # two events, the second held until the test says
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Transfer-Encoding", "chunked")
@@ -157,6 +157,7 @@ def test_the_proxy_adds_the_key_and_removes_the_authorization_a_run_sends(provid
 
 @pytest.mark.parametrize("request_line, status", [
     ("GET /api/v2/models HTTP/1.1", 403),
+    ("GET /api/v1/models HTTP/1.1", 403),  # under the prefix, but not one of the route's paths
     ("GET / HTTP/1.1", 403),
     ("GET /api/v1/../../admin HTTP/1.1", 403),
     ("GET /api/v1/%2e%2e/admin HTTP/1.1", 403),
@@ -174,7 +175,7 @@ def test_another_path_another_host_and_a_tunnel_are_refused_and_nothing_is_forwa
 
 def test_the_host_a_run_names_never_moves_the_call(provider, proxied):
     server, _ = proxied
-    line = raw(server, "GET /api/v1/models HTTP/1.1\r\nHost: elsewhere.example\r\n\r\n")
+    line = raw(server, "POST /api/v1/chat/completions HTTP/1.1\r\nHost: elsewhere.example\r\nContent-Length: 2\r\n\r\n{}")
     assert line.split()[1] == "200" and len(provider.seen) == 1
     assert provider.seen[0]["headers"]["Host"] == f"127.0.0.1:{provider.server_address[1]}"
 
@@ -200,7 +201,7 @@ def test_the_log_holds_no_header_and_no_key(provider, proxied, tls):
 def test_a_streamed_answer_passes_through_as_it_arrives(provider, proxied):
     server, _ = proxied
     conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=20)
-    conn.request("POST", "/api/v1/stream", body=b"{}", headers={"Content-Type": "application/json"})
+    conn.request("POST", "/api/v1/chat/completions", body=b'{"stream": true}', headers={"Content-Type": "application/json"})
     resp = conn.getresponse()
     assert resp.status == 200 and resp.getheader("Content-Type") == "text/event-stream"
     got = b""
@@ -258,7 +259,7 @@ def test_through_the_egress_proxy_the_call_is_a_tunnel_to_the_one_provider(provi
     tunnel = serve(Tunnel())
     server, _ = start(provider.server_address[1], tls[0], egress=("127.0.0.1", tunnel.server_address[1]))
     try:
-        resp, data = call(server, "GET", "/api/v1/models", headers={"Host": "elsewhere.example"})
+        resp, data = call(server, "POST", "/api/v1/chat/completions", b"{}", {"Host": "elsewhere.example"})
     finally:
         server.shutdown()
         server.server_close()
@@ -271,7 +272,7 @@ def test_through_the_egress_proxy_the_call_is_a_tunnel_to_the_one_provider(provi
 def test_the_providers_certificate_is_verified(provider, tls):
     server, _ = start(provider.server_address[1], None)  # the system's certificates do not know the stand-in
     try:
-        resp, _ = call(server, "GET", "/api/v1/models")
+        resp, _ = call(server, "POST", "/api/v1/chat/completions", b"{}")
     finally:
         server.shutdown()
         server.server_close()
@@ -304,3 +305,137 @@ def test_without_its_key_the_proxy_does_not_start(monkeypatch, capsys):
     assert "cannot start" in err and "two" not in err
     monkeypatch.setenv("OPENROUTER_API_KEY", KEY)
     assert kp.main(["--upstream", "http://insecure.example"]) == 2  # the provider is reached over HTTPS only
+
+
+# --- package SEC: credential headers and the endpoint list -----------------------------------------------
+
+STRONG_ROUTE = FOLDER / "keyproxy-strong.json"
+SENT = (  # every header a run sends in the test below: (name, value, forwarded)
+    ("Content-Type", "application/json", True),
+    ("Accept", "application/json", True),
+    ("User-Agent", "runner/1.0", True),
+    ("X-Title", "eval", True),
+    ("Anthropic-Version", "2023-06-01", True),
+    ("Anthropic-Beta", "tools-2024-04-04", True),
+    ("X-Stainless-Retry-Count", "0", True),
+    ("X-Claude-Code-Session-Id", "0b8f-session-id", True),  # sent by the reference runner on every call
+    ("x-session-affinity", "affinity-1", True),  # sent by the floor runner
+    ("X-Session-Id", "session-1", True),
+    ("x-parent-session-id", "parent-1", True),
+    ("Idempotency-Key", "idem-1", True),
+    ("X-Api-Key", FROM_THE_RUN, False),
+    ("x-api-key", FROM_THE_RUN + "-second", False),
+    ("Api-Key", FROM_THE_RUN, False),
+    ("X-Goog-Api-Key", FROM_THE_RUN, False),
+    ("Anthropic-Auth-Token", FROM_THE_RUN, False),
+    ("Cookie", "session=" + FROM_THE_RUN, False),
+    ("Proxy-Authorization", "Basic " + FROM_THE_RUN, False),
+    ("Authorization", "Bearer " + FROM_THE_RUN, False),
+    ("X-Custom-Token", FROM_THE_RUN, False),
+    ("X-Client-Secret", FROM_THE_RUN, False),
+    ("X_Api_Key", FROM_THE_RUN, False),
+    ("X-Credential-Id", FROM_THE_RUN, False),
+    ("X-Password-Hint", FROM_THE_RUN, False),
+)
+
+
+def send(server, path, headers, body=b"{}", method="POST"):
+    """A request written exactly as given, one header per line (a name may repeat): the status and the body."""
+    head = f"{method} {path} HTTP/1.1\r\nHost: elsewhere.example\r\nContent-Length: {len(body)}\r\n"
+    head += "".join(f"{k}: {v}\r\n" for k, v in headers)
+    with socket.create_connection(("127.0.0.1", server.server_address[1]), timeout=20) as s:
+        s.sendall(head.encode() + b"\r\n" + body)
+        chunks = []
+        while data := s.recv(65536):
+            chunks.append(data)
+    reply = b"".join(chunks)
+    status = int(reply.split(b" ", 2)[1])
+    return status, reply.split(b"\r\n\r\n", 1)[1].decode(errors="replace")
+
+
+def test_a_credential_header_a_run_sends_never_reaches_the_provider_and_every_other_header_is_unchanged(provider, proxied):
+    server, log = proxied
+    status, _ = send(server, "/api/v1/chat/completions", [(k, v) for k, v, _ in SENT])
+    assert status == 200
+    seen = provider.seen[-1]
+    assert seen["authorization"] == [f"Bearer {KEY}"]  # exactly one, the proxy's own
+    got = {k.lower(): v for k, v in seen["headers"].items()}
+    forwarded = {k.lower(): v for k, v, kept in SENT if kept}
+    assert got == {**forwarded, "host": f"127.0.0.1:{provider.server_address[1]}", "authorization": f"Bearer {KEY}",
+                   "content-length": str(len(seen["body"]))}
+    assert not any(FROM_THE_RUN in v for v in seen["headers"].values())
+    assert FROM_THE_RUN not in log.getvalue()  # nor does the log ever name a header or a value
+
+
+@pytest.mark.parametrize("name", ["x-api-key", "cookie", "x-custom-token"])
+def test_each_of_the_three_named_cases_is_dropped_alone(provider, proxied, name):
+    server, _ = proxied
+    status, _ = send(server, "/api/v1/chat/completions", [(name, FROM_THE_RUN), ("X-Title", "eval")])
+    assert status == 200
+    seen = provider.seen[-1]
+    assert sorted(k.lower() for k in seen["headers"]) == ["authorization", "content-length", "host", "x-title"]
+    assert seen["authorization"] == [f"Bearer {KEY}"]
+
+
+@pytest.mark.parametrize("name", ["x-api-key", "X-API-KEY", "api-key", "x-goog-api-key", "anthropic-auth-token", "cookie",
+                                  "Proxy-Authorization", "authorization", "x-custom-token", "x-xsrf-token", "x-client-secret",
+                                  "set-cookie", "x-credential", "x-password", "x_api_key", "x-api-key ", "x-auth", "OAuth"])
+def test_a_name_that_can_carry_a_credential_is_a_credential_header(name):
+    assert kp.credential_header(name)
+
+
+@pytest.mark.parametrize("name", ["content-type", "Content-Length", "accept", "accept-encoding", "user-agent", "x-title",
+                                  "http-referer", "anthropic-version", "anthropic-beta", "x-stainless-lang", "x-stainless-retry-count",
+                                  "x-request-id", "traceparent", "x-app", "openai-organization", "x-session-id", "x-claude-code-session-id",
+                                  "x-session-affinity", "x-parent-session-id", "idempotency-key"])
+def test_a_name_that_carries_none_is_not(name):
+    assert not kp.credential_header(name)
+
+
+def test_the_floor_route_forwards_the_chat_completions_path_and_its_query_and_nothing_else(provider, proxied):
+    server, _ = proxied
+    assert kp.load_route()["paths"] == ["/api/v1/chat/completions"]
+    status, _ = send(server, "/api/v1/chat/completions?x=1", [])
+    assert status == 200 and provider.seen[-1]["path"] == "/api/v1/chat/completions?x=1"
+    for path in ("/api/v1/models", "/api/v1/chat/completions/", "/api/v1/chat/completions;x", "/api/v1/chat/completion",
+                 "/api/v1/chat/completions%2fx", "/api/v1/auth/key", "/api/v1/credits"):
+        status, why = send(server, path, [])
+        assert status == 403, path
+        assert why.strip() == "the key proxy forwards only /api/v1/chat/completions of its one provider", path
+    assert len(provider.seen) == 1  # only the first reached the stand-in
+
+
+def test_the_strong_route_forwards_the_two_model_endpoints_and_the_query_the_runner_sends(provider, tls):
+    route = kp.load_route(str(STRONG_ROUTE), f"https://127.0.0.1:{provider.server_address[1]}")
+    assert route["paths"] == ["/v1/messages", "/v1/messages/count_tokens"]
+    server = serve(kp.KeyProxy(("127.0.0.1", 0), route, KEY, str(tls[0]), None, io.StringIO()))
+    try:
+        for path in ("/v1/messages?beta=true", "/v1/messages", "/v1/messages/count_tokens?beta=true"):
+            status, _ = send(server, path, [("X-Api-Key", FROM_THE_RUN), ("Anthropic-Version", "2023-06-01")])
+            assert status == 200 and provider.seen[-1]["path"] == path
+            assert provider.seen[-1]["authorization"] == [f"Bearer {KEY}"]
+            assert "x-api-key" not in {k.lower() for k in provider.seen[-1]["headers"]}
+        before = len(provider.seen)
+        for path in ("/v1/messages/batches", "/v1/models", "/v1/messages/", "/v1/complete", "/v1/files", "/v1/organizations/x",
+                     "/v1/messages/count_tokens/x"):
+            status, why = send(server, path, [])
+            assert status == 403, path
+            assert why.strip() == "the key proxy forwards only /v1/messages, /v1/messages/count_tokens of its one provider", path
+        assert len(provider.seen) == before
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+@pytest.mark.parametrize("paths", [None, [], "/api/v1/chat/completions", [5], ["/api/v2/chat"], ["/api/v1/"], ["/api/v1/x?y=1"],
+                                   ["/api/v1/x/"], ["/api/v1/../x"], ["api/v1/x"], ["/api/v1/x y"]])
+def test_a_route_without_a_valid_list_of_paths_is_refused(tmp_path, paths):
+    route = json.loads(Path(kp.ROUTE).read_text())
+    if paths is None:
+        del route["paths"]
+    else:
+        route["paths"] = paths
+    path = tmp_path / "keyproxy.json"
+    path.write_text(json.dumps(route))
+    with pytest.raises(kp.RouteError):
+        kp.load_route(str(path))

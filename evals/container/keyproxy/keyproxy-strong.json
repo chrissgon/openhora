@@ -5,6 +5,7 @@
   "base_path": "",
   "upstream": "https://api.anthropic.com",
   "prefix": "/v1/",
+  "paths": ["/v1/messages", "/v1/messages/count_tokens"],
   "port": 8891,
   "timeout_seconds": 600,
   "max_body_bytes": 67108864

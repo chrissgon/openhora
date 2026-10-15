@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""What decides what a run measures, in one module (item B10 of docs/architecture/final-plan-2026-10-02.md).
+"""What decides what a run measures, in one module (item B10 of docs/architecture/final-plan-2026-10-02.md
+(removed on 2026-10-14; `git show d3e60770:docs/architecture/final-plan-2026-10-02.md`)).
 
 The eval runner (evals/eval_run.py) and the status script (evals/eval_status.py) import it; it imports
 neither. It holds:
@@ -245,7 +246,8 @@ def grading_prompt(tpl, case, response, facts="(none)", files_blob="(none)", inp
 
 
 # --- a verdict that disagrees with its own evidence ----------------------------------------------------
-# In the smoke pass of phase D (docs/architecture/phase-d-smoke-2026-10-03.md) the grader wrote "passed" before
+# In the smoke pass of phase D (docs/architecture/phase-d-smoke-2026-10-03.md, removed on 2026-10-14;
+# `git show d3e60770:docs/architecture/phase-d-smoke-2026-10-03.md`) the grader wrote "passed" before
 # its evidence, reasoned inside the evidence, and in six gradings ended it on the other verdict ("..., so this
 # should pass", "..., so this part holds") while "passed" stayed false; in three more it wrote a correction after
 # the array, which was refused. The template now asks for the evidence first and a last sentence that is

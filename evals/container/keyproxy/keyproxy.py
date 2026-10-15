@@ -8,11 +8,15 @@ A run container gets a placeholder in the key's variable and, in the variable it
 the proxy forwards each to the one provider host the route names, over HTTPS, with an Authorization
 header made from the key it alone holds. It:
   - forwards only a request whose target is a path under the route's prefix (/api/v1/ for the floor
-    model, /v1/ for the strong one), in origin form; an
-    absolute URL, another path, a path with a "." or ".." segment and CONNECT are refused, and nothing of
-    them is forwarded;
+    model, /v1/ for the strong one), in origin form, and whose path (the query is not part of it) is one
+    of the route's "paths", the model endpoints the runner uses (floor: /api/v1/chat/completions; strong:
+    /v1/messages and /v1/messages/count_tokens); an absolute URL, another path, a path with a "." or ".."
+    segment and CONNECT are refused, and nothing of them is forwarded;
   - never routes by the Host header: the upstream is fixed when the proxy starts;
-  - removes the Authorization (and Proxy-Authorization) a run sends, and adds its own;
+  - removes every header that can carry a credential a run sends or makes up (Authorization,
+    Proxy-Authorization, x-api-key, api-key, x-goog-api-key, anthropic-auth-token, cookie, and any header
+    whose name has auth, api-key (or api_key), token, secret, cookie, credential or password in it), forwards
+    every other header unchanged (a session id or an idempotency key is not a credential), and adds one Authorization of its own;
   - when the route names "provider_only", sets "provider": {"only": [that name], "allow_fallbacks": false} in the body of every POST to a path that ends in /chat/completions, and refuses a body it cannot read as a JSON object;
   - passes the response through as it arrives, so a streamed answer streams, with the route's timeout
     ("timeout_seconds", the egress proxy's own) on the run's side and on the provider's;
@@ -32,6 +36,7 @@ import http.client
 import http.server
 import json
 import os
+import re
 import signal
 import ssl
 import sys
@@ -45,6 +50,17 @@ ROUTE = os.path.join(HERE, "keyproxy.json")
 HOP = frozenset(("connection", "keep-alive", "proxy-connection", "proxy-authenticate", "proxy-authorization", "te",
                  "trailer", "trailers", "transfer-encoding", "upgrade"))
 NOT_FORWARDED = HOP | {"authorization", "host", "content-length", "expect"}
+# A header that can carry a credential is never forwarded: the run holds a placeholder and the proxy adds the
+# only credential a call carries. A name in the explicit set, or a name with one of these words anywhere in it,
+# is dropped; every other header is forwarded unchanged, so that the call reaching the provider is the one the
+# runner made, apart from its credentials. A block list and a pattern, not an allow list, by decision
+# (docs/decisions.md, 2026-10-15): an allow list would change the request a runner sends whenever a runner adds a
+# harmless header. The pattern leaves out "key" and "session" alone: the measured runners send a session id
+# (X-Claude-Code-Session-Id, X-Session-Id, x-session-affinity, x-parent-session-id) and an idempotency key on
+# every call, and none of them is a credential.
+CREDENTIAL_HEADERS = frozenset(("x-api-key", "api-key", "x-goog-api-key", "anthropic-auth-token", "cookie",
+                                "proxy-authorization", "authorization"))
+CREDENTIAL_NAME = re.compile(r"auth|api[-_]?key|token|secret|cookie|credential|password")
 NOT_RETURNED = HOP | {"content-length"}
 BLOCK = 65536
 
@@ -57,6 +73,12 @@ class BodyError(Exception):
     def __init__(self, status, why):
         super().__init__(why)
         self.status = status
+
+
+def credential_header(name):
+    """True when a request header can carry a credential, by its name (the rule is above CREDENTIAL_HEADERS)."""
+    name = name.lower()
+    return name in CREDENTIAL_HEADERS or CREDENTIAL_NAME.search(name) is not None
 
 
 def load_route(path=ROUTE, upstream=None):
@@ -76,6 +98,12 @@ def load_route(path=ROUTE, upstream=None):
             raise RouteError(f"{key} must be a positive number")
     if not (isinstance(route.get("secret"), str) and route["secret"]):
         raise RouteError("secret must name the variable that holds the key")
+    paths = route.get("paths")
+    if not (isinstance(paths, list) and paths and all(isinstance(p, str) for p in paths)):
+        raise RouteError("paths must be a non-empty list of the paths the route forwards")
+    for p in paths:
+        if not (allowed(p, prefix) and p != prefix and "?" not in p and not p.endswith("/")):
+            raise RouteError(f"the path {p!r} must be a path under the prefix, without a query and without a trailing /")
     only = route.get("provider_only")
     if only is not None and not (isinstance(only, str) and only and all(c.isalnum() or c in " ._/-" for c in only) and len(only) <= 80):
         raise RouteError("provider_only must name one upstream provider")
@@ -180,6 +208,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         started, route = time.monotonic(), self.server.route
         if not allowed(self.path, route["prefix"]):
             return self.refuse(403, f"the key proxy forwards {route['prefix']} of its one provider and nothing else", started)
+        if urllib.parse.urlsplit(self.path).path not in route["paths"]:  # the query is not part of the path
+            return self.refuse(403, f"the key proxy forwards only {', '.join(route['paths'])} of its one provider", started)
         try:
             body = self.read_body(route["max_body_bytes"])
         except BodyError as e:
@@ -197,7 +227,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             doc["provider"] = {"only": [only], "allow_fallbacks": False}
             body = json.dumps(doc).encode("utf-8")
         listed = {t.strip().lower() for v in self.headers.get_all("Connection") or [] for t in v.split(",")}
-        headers = [(k, v) for k, v in self.headers.items() if k.lower() not in NOT_FORWARDED and k.lower() not in listed]
+        headers = [(k, v) for k, v in self.headers.items()
+                   if k.lower() not in NOT_FORWARDED and k.lower() not in listed and not credential_header(k)]
         conn = None
         try:
             conn = self.server.connect()
