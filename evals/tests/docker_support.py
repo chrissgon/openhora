@@ -27,7 +27,7 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures" / "usage"
 CREDENTIAL = re.compile(r"auth|api[-_]?key|token|secret|cookie|credential|password", re.I)
 
 STANDIN_SERVER = r'''
-import http.server, json, os, ssl
+import http.server, json, os, ssl, time
 EXPECTED = "Bearer " + os.environ["STANDIN_EXPECTED_KEY"]
 FIXTURES = "/standin/fixtures/"
 CREDENTIAL = __import__("re").compile(r"auth|api[-_]?key|token|secret|cookie|credential|password", __import__("re").I)
@@ -55,6 +55,7 @@ class H(http.server.BaseHTTPRequestHandler):
                                     "model": doc.get("model"), "stream": doc.get("stream") is True, "usage": doc.get("usage"),
                                     "authorized": auth == [EXPECTED], "authorizations": len(auth)}), flush=True)
         stream = doc.get("stream") is True
+        time.sleep(min(float(doc.get("standin_delay") or 0), 60))  # a slow provider, when a test asks for one
         if path == "/v1/messages":
             self.reply(200, fixture("anthropic_stream.sse") if stream else fixture("anthropic_message.json"), stream)
         elif path == "/v1/messages/count_tokens":

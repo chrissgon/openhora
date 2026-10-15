@@ -582,32 +582,35 @@ def run_group(cmd, timeout, cwd=None, env=None, box=None):
                     CONTAINERS.discard(container)
         finally:
             try:
-                if held:
-                    box["meter"] = stable_meter(load_executor(), held["meter"])
+                if held:  # an answer still being read when the run ended is waited for: the proxy counts it when it is whole
+                    wait_idle(load_executor(), held["meter"], held["route"])
             finally:
-                if started:
-                    try:
-                        load_executor().release(run_id, env=env)
-                    except load_executor().ExecutorError:
-                        pass  # best effort: an orphan is found by its label (wb.eval.run=<run id>), and the first failure is the one reported
-                    finally:
-                        with GROUPS_LOCK:
-                            HELD.discard(run_id)
-                if meter_dir:
-                    shutil.rmtree(meter_dir, ignore_errors=True)
+                try:
+                    if started:
+                        try:
+                            load_executor().release(run_id, env=env)  # SIGTERM first: an answer still open is recorded as unknown
+                        except load_executor().ExecutorError:
+                            pass  # best effort: an orphan is found by its label (wb.eval.run=<run id>), and the first failure is the one reported
+                        finally:
+                            with GROUPS_LOCK:
+                                HELD.discard(run_id)
+                    if held:  # read last: it holds what the proxy wrote when it stopped
+                        box["meter"] = load_executor().read_meter(held["meter"])
+                finally:
+                    if meter_dir:
+                        shutil.rmtree(meter_dir, ignore_errors=True)
 
 
-def stable_meter(executor, path):
-    """The key proxy's meter file once it has stopped changing (a response still being counted when the run's
-    container went away is counted within moments), or None when there is none."""
-    last = executor.read_meter(path)
-    for _ in range(12):
+def wait_idle(executor, path, route):
+    """Wait until the key proxy's meter file says no request is under way (it counts an answer before it says so), at
+    most the route's timeout: the run may have ended in the middle of a request, and the proxy reads that answer to its
+    end. Returns at once for a file that is not there or does not say."""
+    deadline = time.monotonic() + executor.route(name=route)["timeout_seconds"]
+    while True:
+        meter = executor.read_meter(path)
+        if not meter or not meter.get("in_flight") or time.monotonic() > deadline or STOPPING.is_set():
+            return  # (a stop does not wait: the proxy is stopped next, and records what it still holds as unknown)
         time.sleep(METER_POLL)
-        again = executor.read_meter(path)
-        if again == last:
-            return again
-        last = again
-    return last
 
 
 def write_meter(out_dir, box):

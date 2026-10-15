@@ -42,6 +42,9 @@ provider host the route names, over HTTPS, with an Authorization header made fro
     already under way is never cut off;
   - fails closed: once a metered answer could not be read, so that the run's tokens can no longer be counted, it
     answers every later request to a model endpoint with 429 saying so;
+  - writes the meter when a request is admitted and when it ends, with the requests under way ("in_flight"), and on
+    SIGTERM records each answer still being read as unknown before it exits, so that a run that ends in the middle of a
+    request is never counted short in silence;
   - when the run hangs up in the middle of an answer, keeps reading the provider's answer to its end (at most the
     route's timeout and DRAIN_LIMIT bytes) and counts it: a run cannot leave an answer uncounted by leaving;
   - passes the response through as it arrives, so a streamed answer streams, with the route's timeout
@@ -351,7 +354,8 @@ class UsageReader:
 class Meter:
     """The count of one run: the tokens of every response by the four kinds, the responses it could not read, the
     requests it refused, and the budget. write() leaves it in the meter file after every change; the runner reads
-    that file when the run ends, from a folder the run container never mounts."""
+    that file when the run ends, from a folder the run container never mounts. It is written when a request is admitted
+    and when it ends too, with the number of requests under way ("in_flight"), so that a reader can wait for them."""
 
     def __init__(self, path=None, run=None, model=None, budget=None):
         self.path, self.run, self.model, self.budget = path, run, model, budget
@@ -359,6 +363,9 @@ class Meter:
         self.responses, self.unknown, self.unknown_responses = 0, [], 0
         self.refused = {"model": 0, "budget": 0, "uncountable": 0}
         self.reserved = 0  # the max_tokens of the requests under way
+        self.in_flight = 0  # the requests under way, written in the file: a run that ends mid-request is not silently short
+        self.open = {}  # ticket -> path of each metered request under way whose answer is not counted yet
+        self.tickets = 0
         self.lock = threading.Lock()
         self.failed = False
 
@@ -372,32 +379,55 @@ class Meter:
         """True once a metered answer could not be read: the run's tokens can no longer be counted."""
         return self.unknown_responses > 0
 
-    def admit(self, reserve):
+    def admit(self, reserve, path=None):
         """Let a request in, reserving `reserve` tokens for it, unless the tokens counted and the ones reserved by the
         requests under way already reach the budget. The check and the reservation are one step, so parallel
-        requests cannot all pass it."""
+        requests cannot all pass it. Returns the request's ticket (a whole number above 0), or 0 when it is refused.
+        path, for a request whose answer is metered, is kept until the answer is counted (abandon())."""
         with self.lock:
             if self.budget is not None and self.total() + self.reserved >= self.budget:
                 self.refused["budget"] += 1
                 self.write()
-                return False
+                return 0
             self.reserved += reserve
-            return True
+            self.in_flight += 1
+            self.tickets += 1
+            if path:
+                self.open[self.tickets] = path
+            self.write()
+            return self.tickets
 
-    def release(self, reserve):
+    def release(self, reserve, ticket=0):
         with self.lock:
             self.reserved = max(0, self.reserved - reserve)
+            self.in_flight = max(0, self.in_flight - 1)
+            self.open.pop(ticket, None)
+            self.write()
 
-    def add(self, usage):
+    def abandon(self):
+        """The key proxy is stopping (SIGTERM) with answers still being read: each is recorded as unknown, so that the
+        run's tokens are a lower bound and flagged, never a silent zero."""
+        with self.lock:
+            for path in self.open.values():
+                self.responses += 1
+                self.unknown_responses += 1
+                if len(self.unknown) < UNKNOWN_LISTED:
+                    self.unknown.append({"path": path[:200], "why": "the key proxy stopped while this answer was still being read"})
+            self.open.clear()
+            self.write()
+
+    def add(self, usage, ticket=0):
         with self.lock:
             self.responses += 1
+            self.open.pop(ticket, None)
             for kind in KINDS:
                 self.counts[kind] += usage[kind]
             self.write()
 
-    def add_unknown(self, path, why):
+    def add_unknown(self, path, why, ticket=0):
         with self.lock:
             self.responses += 1
+            self.open.pop(ticket, None)
             self.unknown_responses += 1
             if len(self.unknown) < UNKNOWN_LISTED:
                 self.unknown.append({"path": path[:200], "why": why})
@@ -411,7 +441,7 @@ class Meter:
     def snapshot(self):
         return {"run": self.run, "model": self.model, "responses": self.responses, **self.counts, "total": self.total(),
                 "unknown_responses": self.unknown_responses, "unknown": self.unknown, "refused": self.refused,
-                "budget_tokens": self.budget, "reserved": self.reserved,
+                "budget_tokens": self.budget, "reserved": self.reserved, "in_flight": self.in_flight,
                 "budget_reached": self.budget is not None and self.total() >= self.budget,
                 "counting_failed": self.uncountable()}
 
@@ -548,14 +578,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
             meter.refuse("uncountable")
             return self.uncountable_error(started)
         wants = doc.get("max_tokens")
-        reserve = wants if isinstance(wants, int) and not isinstance(wants, bool) and wants >= 0 else route["default_reserve_tokens"]
-        if meter and not meter.admit(reserve):
-            return self.budget_error(started)
+        # A max_tokens below 1 (or not a whole number) reserves nothing, so it reserves the route's default, a floor.
+        reserve = wants if isinstance(wants, int) and not isinstance(wants, bool) and wants >= 1 else route["default_reserve_tokens"]
+        self.ticket = 0
+        if meter:
+            self.ticket = meter.admit(reserve, rpath if rpath in route["metered"] else None)
+            if not self.ticket:
+                return self.budget_error(started)
         try:
             self.send_upstream(rpath, doc, body, started, route)
         finally:
             if meter:
-                meter.release(reserve)
+                meter.release(reserve, self.ticket)
 
     def send_upstream(self, rpath, doc, body, started, route):
         changed = False
@@ -605,9 +639,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             settled.append(complete)
             usage, why = reader.finish(complete)
             if usage is not None:
-                self.server.meter.add(usage)
+                self.server.meter.add(usage, self.ticket)
             else:
-                self.server.meter.add_unknown(rpath, why)
+                self.server.meter.add_unknown(rpath, why, self.ticket)
         try:
             status, sent = self.relay(resp, reader, settle)
             self.note(status, sent, started)
@@ -752,7 +786,10 @@ def main(argv=None):
     except (OSError, ValueError) as e:
         print(f"keyproxy: cannot start: {type(e).__name__}: {e}", file=sys.stderr)
         return 2
-    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    def stop(*_):
+        meter.abandon()  # an answer still being read is recorded as unknown before the proxy exits
+        sys.exit(0)
+    signal.signal(signal.SIGTERM, stop)
     server.log(f"keyproxy: listening on port {server.server_address[1]}, forwarding {route['prefix']} to "
                f"{route['upstream']}" + (" through the egress proxy" if egress else ""))
     try:

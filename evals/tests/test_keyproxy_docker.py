@@ -425,3 +425,39 @@ def test_fourteen_concurrent_held_runs_work_each_with_a_proxy_and_a_network_of_i
     after = labelled()
     assert sorted(after[0]) == sorted(before[0]) and sorted(after[1]) == sorted(before[1])
     print(f"14 concurrent held runs: {seen['containers']} labelled containers and {seen['networks']} labelled networks at the peak")
+
+
+# --- a run that ends in the middle of a request is never counted short in silence ------------------------------------------------
+
+SLOW = ("curl -s -m 60 -o /dev/null -H 'Content-Type: application/json' "
+        "-d '{\"model\": \"deepseek/deepseek-v4.1-flash\", \"standin_delay\": %d}' \"$OPENROUTER_BASE_URL/chat/completions\"")
+
+
+def test_a_run_that_times_out_in_the_middle_of_a_request_has_the_answer_counted(kit, root, standin):
+    """The run is gone at 3 seconds; the provider answers at 6. The runner waits for the proxy to finish reading it."""
+    box = {"root": str(root), "pass": [FLOOR], "network": "proxy", "model": FLOOR_MODEL}
+    started = time.monotonic()
+    with pytest.raises(subprocess.TimeoutExpired):
+        # security-scan: allow shell-string -- every script is a literal of this test file, run inside the container
+        kit.run_group(["bash", "-c", SLOW % 6], 3, env={FLOOR: standin.key, "PATH": os.environ["PATH"]}, box=box)
+    assert time.monotonic() - started >= 5  # it waited for the answer, which the proxy read on after the run was gone
+    assert box["meter"]["total"] == 216 and box["meter"]["unknown_responses"] == 0 and box["meter"]["in_flight"] == 0
+
+
+def test_a_key_proxy_stopped_in_the_middle_of_a_request_records_the_answer_as_unknown(held, root, standin):
+    """docker stop (SIGTERM) reaches the proxy through the container's init: the answer it still holds is flagged."""
+    run_id, found = held()
+    thread = threading.Thread(target=lambda: inside(ex, root, SLOW % 30, run_id, FLOOR_MODEL, FLOOR, standin.key, timeout=90), daemon=True)
+    thread.start()
+    for _ in range(200):
+        meter = ex.read_meter(found["meter"])
+        if meter and meter.get("in_flight") == 1:
+            break
+        time.sleep(0.1)
+    else:
+        raise AssertionError("the request never reached the key proxy")
+    ex.release(run_id)  # stop, then remove
+    final = ex.read_meter(found["meter"])
+    assert final["unknown_responses"] == 1 and final["total"] == 0 and final["counting_failed"] is True, final
+    ex.remove(f"wb-eval-run-{run_id}")  # the run's container, if it was still there
+    thread.join(60)

@@ -16,6 +16,14 @@ ex = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ex)
 
 
+@pytest.fixture(autouse=True)
+def arm64_host():
+    """The tests below are about the executor, not about the machine they run on: docker host is taken for arm64."""
+    ex._NATIVE["platform"] = "linux/arm64"
+    yield
+    ex._NATIVE.clear()
+
+
 def run_folder(tmp_path):
     root = tmp_path / "eval-abc"
     (root / "case").mkdir(parents=True)
@@ -456,3 +464,47 @@ def test_a_published_image_is_never_identified_by_the_local_image_id_anywhere_in
     source = (root / "executor.py").read_text(encoding="utf-8")
     assert source.count("{{.Id}}") == 1  # the local build's identity, after the branch that returns a published image's digest
     assert source.index('"image_source": "published"') < source.index("{{.Id}}")
+
+
+# --- the platform defaults to the docker host's (D20) ---------------------------------------------------------------
+
+
+def fake_info(monkeypatch, answer, calls=None, fail=False):
+    def docker(*args, env=None, check=True, timeout=1800):
+        import subprocess
+        (calls if calls is not None else []).append(args)
+        if fail:
+            raise ex.ExecutorError("docker is not installed")
+        assert args == ("info", "--format", "{{.Architecture}}")
+        return subprocess.CompletedProcess(["docker", *args], 0, answer + "\n", "")
+    monkeypatch.setattr(ex, "docker", docker)
+    ex._NATIVE.clear()
+
+
+@pytest.mark.parametrize("answer, expected", [("aarch64", "linux/arm64"), ("x86_64", "linux/amd64"), ("amd64", "linux/amd64"),
+                                              ("riscv64", "linux/arm64"), ("", "linux/arm64")])
+def test_the_image_platform_defaults_to_the_docker_hosts_when_it_is_listed_else_to_arm64(monkeypatch, answer, expected):
+    monkeypatch.delenv(ex.PLATFORM_ENV, raising=False)
+    calls = []
+    fake_info(monkeypatch, answer, calls)
+    assert ex.image_platform() == expected and ex.image_platform() == expected
+    assert len(calls) == 1  # docker is asked once per process
+    if expected == "linux/amd64":  # an amd64 host builds and runs amd64: its own names, and no emulation
+        assert ex.names()["image"].endswith("-amd64") and ex.names()["tag"].endswith("-amd64")
+
+
+def test_an_amd64_host_runs_its_containers_as_amd64_and_not_as_an_emulated_arm64(tmp_path, monkeypatch):
+    monkeypatch.delenv(ex.PLATFORM_ENV, raising=False)
+    fake_info(monkeypatch, "x86_64")
+    root, _ = run_folder(tmp_path)
+    argv, _ = ex.command(["true"], str(root))
+    assert ["--platform", "linux/amd64"] in pairs(argv)
+
+
+def test_the_environment_variable_still_wins_and_a_docker_that_says_nothing_leaves_arm64(monkeypatch):
+    fake_info(monkeypatch, "x86_64")
+    monkeypatch.setenv(ex.PLATFORM_ENV, "linux/arm64")
+    assert ex.image_platform() == "linux/arm64"
+    monkeypatch.delenv(ex.PLATFORM_ENV)
+    fake_info(monkeypatch, "", fail=True)  # docker is not installed: the default stays as it was
+    assert ex.image_platform() == "linux/arm64" and ex.native_platform() is None

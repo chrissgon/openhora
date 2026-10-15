@@ -140,9 +140,11 @@ def provider(tls):
 
 class Run:
     """One run's key proxy in front of the stand-in, with its meter file and its log."""
+    count = 0
 
     def __init__(self, provider, tls, tmp_path, route, models, budget=None, pin=None):
-        self.meter_path = tmp_path / "meter" / "run.json"
+        Run.count += 1  # a file of its own: a proxy of an earlier run of the test may still be writing its own
+        self.meter_path = tmp_path / "meter" / f"run-{Run.count}.json"
         self.meter_path.parent.mkdir(exist_ok=True)
         self.log = io.StringIO()
         self.meter = kp.Meter(str(self.meter_path), "0123456789abcdef", models[0], budget)
@@ -162,6 +164,15 @@ class Run:
 
     def file(self):
         return json.loads(self.meter_path.read_text())
+
+    def idle(self):
+        """The meter file once no request is under way (it is written when a request ends, after the client has its answer)."""
+        for _ in range(200):
+            found = self.file()
+            if found["in_flight"] == 0:
+                return found
+            time.sleep(0.05)
+        raise AssertionError(self.file())
 
     def stop(self):
         self.server.shutdown()
@@ -348,6 +359,7 @@ def test_the_meter_file_is_replaced_whole_and_holds_no_content_and_the_log_none_
     run = make(ANTHROPIC, ("claude-sonnet-5-5",))
     provider.reply, provider.headers = fixture("anthropic_message.json"), {"Content-Type": "application/json"}
     run.post(MESSAGES, {"model": "claude-sonnet-5-5", "messages": [{"role": "user", "content": "a secret prompt"}]})
+    run.idle()
     text = run.meter_path.read_text()
     assert "pong from the fixture" not in text and "secret prompt" not in text and KEY not in text
     assert not list(run.meter_path.parent.glob("*.tmp"))
@@ -563,3 +575,113 @@ def test_an_answer_that_expands_without_end_is_given_up_on(monkeypatch):
     for i in range(0, len(stream), 512):
         reader.feed(stream[i:i + 512])
     assert reader.finish()[1] == "the response expands to more than the key proxy reads"
+
+
+# --- requests under way are in the meter file, and a run that ends mid-request is never counted short in silence ---------
+
+
+def test_a_request_under_way_is_in_the_meter_file_and_is_gone_from_it_when_its_answer_is_counted(provider, make):
+    run = make(ANTHROPIC, ("claude-sonnet-5-5",))
+    assert run.file()["in_flight"] == 0
+    provider.reply = fixture("anthropic_message.json")
+    provider.gate = threading.Event()
+    result = []
+    thread = threading.Thread(target=lambda: result.append(run.post(MESSAGES, {"model": "claude-sonnet-5-5", "max_tokens": 500})[0]))
+    thread.start()
+    for _ in range(100):
+        if run.file()["in_flight"] == 1:
+            break
+        time.sleep(0.05)
+    mid = run.file()
+    assert mid["in_flight"] == 1 and mid["reserved"] == 500 and mid["responses"] == 0 and mid["total"] == 0
+    provider.gate.set()
+    thread.join(20)
+    done = run.idle()
+    assert result == [200] and done["responses"] == 1 and done["total"] == 4098 and done["reserved"] == 0
+
+
+def test_a_run_that_ends_in_the_middle_of_a_request_has_the_answer_counted_or_flagged_never_a_silent_zero(provider, make):
+    """The key proxy is stopped (SIGTERM) while an answer is still being read: it records the answer as unknown first."""
+    run = make(ANTHROPIC, ("claude-sonnet-5-5",))
+    provider.gate = threading.Event()
+    thread = threading.Thread(target=lambda: run.post(MESSAGES, {"model": "claude-sonnet-5-5"}), daemon=True)
+    thread.start()
+    for _ in range(100):
+        if run.file()["in_flight"] == 1:
+            break
+        time.sleep(0.05)
+    assert run.file()["in_flight"] == 1
+    run.meter.abandon()  # what the SIGTERM handler of main() does before the proxy exits
+    after = run.file()
+    assert after["unknown_responses"] == 1 and after["counting_failed"] is True and after["total"] == 0
+    assert "stopped while this answer was still being read" in after["unknown"][0]["why"]
+    provider.gate.set()
+    thread.join(20)
+
+
+def test_the_sigterm_handler_of_the_proxy_records_the_open_answers_before_it_exits(tmp_path):
+    """The real process: a request is held open at a provider that never answers; SIGTERM; the file says so."""
+    import os
+    import signal
+    if not shutil.which("openssl"):
+        pytest.skip("openssl is needed")
+    cert, key = tmp_path / "c.pem", tmp_path / "k.pem"
+    subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=127.0.0.1",
+                    "-addext", "subjectAltName=IP:127.0.0.1", "-keyout", str(key), "-out", str(cert)], check=True, capture_output=True)
+    silent = socket.socket()
+    silent.bind(("127.0.0.1", 0))
+    silent.listen(5)  # accepts connections and never answers
+    port = silent.getsockname()[1]
+    meter = tmp_path / "meter.json"
+    free = socket.socket()
+    free.bind(("127.0.0.1", 0))
+    listen = free.getsockname()[1]
+    free.close()
+    env = {**os.environ, "OPENROUTER_API_KEY": KEY}
+    proc = subprocess.Popen([sys.executable, str(FOLDER / "keyproxy.py"), "--route", OPENROUTER, "--upstream-model", "m", "--listen", "127.0.0.1",
+                             "--port", str(listen), "--upstream", f"https://127.0.0.1:{port}", "--cafile", str(cert), "--meter", str(meter)],
+                            env={**env, "PYTHONDONTWRITEBYTECODE": "1"}, stderr=subprocess.PIPE, text=True)
+    try:
+        for _ in range(100):
+            try:
+                socket.create_connection(("127.0.0.1", listen), timeout=1).close()
+                break
+            except OSError:
+                time.sleep(0.1)
+        client = socket.create_connection(("127.0.0.1", listen), timeout=20)
+        body = b'{"model": "m"}'
+        client.sendall(b"POST /api/v1/chat/completions HTTP/1.1\r\nHost: x\r\nContent-Length: %d\r\n\r\n%s" % (len(body), body))
+        for _ in range(100):
+            if meter.exists() and json.loads(meter.read_text())["in_flight"] == 1:
+                break
+            time.sleep(0.05)
+        assert json.loads(meter.read_text())["in_flight"] == 1
+        proc.send_signal(signal.SIGTERM)
+        proc.wait(20)
+        found = json.loads(meter.read_text())
+        assert found["unknown_responses"] == 1 and found["counting_failed"] is True and found["total"] == 0
+        client.close()
+    finally:
+        proc.kill()
+        silent.close()
+
+
+@pytest.mark.parametrize("wants", [0, -5, True, "many", None, 1.5])
+def test_a_max_tokens_below_one_reserves_the_routes_default_not_nothing(provider, make, wants):
+    run = make(OPENROUTER, ("deepseek/deepseek-v4.1-flash",), budget=40_000)
+    provider.gate = threading.Event()
+    results = []
+    sent = {"model": "deepseek/deepseek-v4.1-flash", "max_tokens": wants}
+    threads = [threading.Thread(target=lambda: results.append(run.post(CHAT, sent)[0])) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for _ in range(100):
+        if len(provider.seen) == 2:
+            break
+        time.sleep(0.05)
+    assert run.file()["reserved"] == 64000  # 2 x the default of 32000, whatever was asked
+    assert run.post(CHAT, sent)[0] == 429
+    provider.gate.set()
+    for t in threads:
+        t.join(20)
+    assert results == [200, 200]

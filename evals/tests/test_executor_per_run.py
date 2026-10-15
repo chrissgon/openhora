@@ -37,6 +37,14 @@ def gate(tmp_path, monkeypatch):
     monkeypatch.setattr(ex.time, "sleep", lambda s: None)
 
 
+@pytest.fixture(autouse=True)
+def arm64_host():
+    """The tests below are about the executor, not about the machine they run on: docker host is taken for arm64."""
+    ex._NATIVE["platform"] = "linux/arm64"
+    yield
+    ex._NATIVE.clear()
+
+
 class FakeDocker:
     """docker as hold() and release() see it. fail = {(command, subcommand or None): stderr} makes that call fail."""
 
@@ -182,7 +190,9 @@ def test_release_removes_the_key_proxy_and_the_network_is_safe_twice_and_retries
     docker = FakeDocker()
     monkeypatch.setattr(ex, "docker", docker)
     ex.release(run_id)
-    assert docker.calls == [("rm", "-f", f"wb-eval-keys-{run_id}"), ("network", "rm", f"wb-eval-held-{run_id}")]
+    # SIGTERM first (the proxy records the answers it still holds as unknown), then the removal, then the network
+    assert docker.calls == [("stop", "-t", str(ex.STOP_SECONDS), f"wb-eval-keys-{run_id}"), ("rm", "-f", f"wb-eval-keys-{run_id}"),
+                            ("network", "rm", f"wb-eval-held-{run_id}")]
     gone = FakeDocker(fail={("network", "rm"): "Error response from daemon: network wb-eval-held-x not found"})
     monkeypatch.setattr(ex, "docker", gone)
     ex.release(run_id)  # nothing to remove: not an error

@@ -3586,6 +3586,80 @@ def test_a_key_proxy_and_its_network_are_released_when_anything_after_hold_fails
     assert er.KIT.HELD == set() and not os.path.exists(folders[0])
 
 
+def meter_json(**changes):
+    return json.dumps({"input": 5, "output": 6, "cache_read": 0, "cache_write": 1, "total": 12, "unknown_responses": 0,
+                       "budget_reached": False, "in_flight": 0, **changes})
+
+
+def mid_request_run(tmp_path, monkeypatch, then):
+    """A held run whose key proxy still has a request under way when the run's container is gone; `then(path)` is what the
+    proxy does next (the file at `path` is its meter), and release() stands for the proxy being stopped."""
+    executor = held_gate(tmp_path, monkeypatch)
+    secret, key = "OPENROUTER_API_KEY", "fake-floor-key-for-the-runner-tests-0004"
+    monkeypatch.setattr(er, "EXECUTOR", "container")
+    monkeypatch.setattr(er.KIT, "EXECUTOR", "container")
+    paths = []
+
+    def hold(run_id, model, env, network="proxy", meter_dir=None, **kw):
+        path = os.path.join(meter_dir, run_id + ".json")
+        Path(path).write_text(meter_json(in_flight=1))
+        paths.append(path)
+        return {"keys": "k", "network": "n", "route": "openrouter", "meter": path, "model": model}
+    monkeypatch.setattr(executor, "hold", hold)
+    monkeypatch.setattr(executor, "release", lambda run_id, env=None: then(paths[0], "released"))
+    monkeypatch.setattr(executor, "remove", lambda name, env=None: None)
+    monkeypatch.setattr(er.KIT, "METER_POLL", 0.01)
+    run = lambda cmd, timeout, cwd, env, container: subprocess.CompletedProcess(cmd, 0, "", "")
+    monkeypatch.setattr(er, "_run_group", run)
+    monkeypatch.setattr(er.KIT, "_run_group", run)
+    return executor, {"root": str(tmp_path), "pass": [secret], "network": "proxy", "model": "m"}, {secret: key}, paths
+
+
+def test_a_run_that_ends_in_the_middle_of_a_request_waits_for_the_answer_to_be_counted(tmp_path, monkeypatch):
+    import threading
+    import time
+    state = {}
+
+    def then(path, when):
+        state[when] = json.loads(Path(path).read_text())
+    executor, box, env, paths = mid_request_run(tmp_path, monkeypatch, then)
+
+    def count_it_later():  # the proxy reads the rest of the answer, counts it, and says nothing is under way
+        time.sleep(0.2)
+        for _ in range(100):
+            if paths:
+                break
+            time.sleep(0.01)
+        Path(paths[0]).write_text(meter_json(input=100, output=50, total=150))
+    threading.Thread(target=count_it_later).start()
+    er.run_group(["true"], 10, env=env, box=box)
+    assert state["released"]["in_flight"] == 0 and state["released"]["total"] == 150  # waited: the proxy was stopped when idle
+    assert box["meter"]["total"] == 150 and box["meter"]["unknown_responses"] == 0
+
+
+def test_a_request_that_never_ends_is_waited_for_at_most_the_routes_timeout_and_then_flagged_as_unknown(tmp_path, monkeypatch):
+    def then(path, when):  # the proxy is stopped: its SIGTERM handler records the open answer as unknown
+        Path(path).write_text(meter_json(in_flight=0, unknown_responses=1, counting_failed=True))
+    executor, box, env, paths = mid_request_run(tmp_path, monkeypatch, then)
+    real = executor.route
+    monkeypatch.setattr(executor, "route", lambda *a, **kw: {**real(name="openrouter"), "timeout_seconds": 0.3})
+    er.run_group(["true"], 10, env=env, box=box)
+    assert box["meter"]["unknown_responses"] == 1  # read after the stop: never a silent zero
+    assert box["meter"]["total"] == 12
+
+
+def test_a_stop_does_not_wait_for_the_requests_under_way(tmp_path, monkeypatch):
+    import time
+    executor = held_gate(tmp_path, monkeypatch)
+    path = tmp_path / "meter.json"
+    path.write_text(meter_json(in_flight=1))
+    monkeypatch.setattr(er.KIT, "METER_POLL", 0.01)
+    monkeypatch.setattr(er.KIT.STOPPING, "is_set", lambda: True)
+    started = time.monotonic()
+    er.KIT.wait_idle(executor, str(path), "openrouter")  # the route's timeout is 600 seconds
+    assert time.monotonic() - started < 2
+
+
 def test_a_held_command_fails_as_infrastructure_when_its_key_proxy_cannot_start_and_nothing_runs(tmp_path, monkeypatch):
     executor = held_gate(tmp_path, monkeypatch)
     secret, key = "OPENROUTER_API_KEY", "fake-floor-key-for-the-runner-tests-0004"

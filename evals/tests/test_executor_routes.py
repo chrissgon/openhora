@@ -46,6 +46,14 @@ def gate(tmp_path, monkeypatch):
     monkeypatch.setattr(ex, "GATE_FILE", str(tmp_path / "gate.json"))
 
 
+@pytest.fixture(autouse=True)
+def arm64_host():
+    """The tests below are about the executor, not about the machine they run on: docker host is taken for arm64."""
+    ex._NATIVE["platform"] = "linux/arm64"
+    yield
+    ex._NATIVE.clear()
+
+
 def run_folder(tmp_path):
     root = tmp_path / "eval-abc"
     (root / "case").mkdir(parents=True)

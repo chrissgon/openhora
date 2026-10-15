@@ -61,9 +61,10 @@ Privileges. A run container starts with every capability dropped, with no way to
 (no-new-privileges) and with a limit on the number of processes (PIDS_LIMIT).
 
 The image. Its definition is pinned (base images by digest, a dated package index, a lock file for
-the two runners), and it is built for one of the CPU platforms in IMAGE_PLATFORMS (IMAGE_PLATFORM, arm64, is the
-default): lab evidence is made on either, and the run line records which. WB_EVAL_IMAGE_PLATFORM chooses
-the other one, or builds and runs one that is not in the list (a trial: `ensure` says so in "image_platform", and
+the two runners), and it is built for one of the CPU platforms in IMAGE_PLATFORMS: lab evidence is made on either, and the run line
+records which. The default is the docker host's own platform when it is one of them (IMAGE_PLATFORM, arm64, when
+docker does not say), so that no run is emulated. WB_EVAL_IMAGE_PLATFORM chooses another one; an image for a platform
+other than the host's, or not in the list, is a trial (`ensure` says so in "image_platform" and "host_platform", and
 the runner writes no evidence from it). The images, the networks and the proxies are named after a hash of
 evals/container/ (the hash of the definition's text, not of an image: two builds of one definition can differ,
 which is why a built image is kept as an archive), so a change to the definition builds new ones.
@@ -125,6 +126,7 @@ LOG_OPTS = ("--log-opt", "max-size=10m", "--log-opt", "max-file=3")
 NO_PULL = "--pull=never"  # no `docker run` of the harness fetches an image: a missing one is an error, never a download
 LABEL_ALL, LABEL_RUN = "wb.eval", "wb.eval.run"  # on every container and network of the harness; the run's id on a run's own
 KEYPROXY_READY_SECONDS = 20
+STOP_SECONDS = 10  # how long a stopping key proxy has to write what it still holds
 RUN_ID_RE = re.compile(r"[0-9a-f]{16}")
 DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
 REPOSITORY_RE = re.compile(r"ghcr\.io/[a-z0-9]([a-z0-9-]*[a-z0-9])?/[a-z0-9]+([._-][a-z0-9]+)*")  # ghcr.io/<owner>/<name>, lowercase
@@ -149,9 +151,24 @@ def definition_hash(folder=DEFINITION):
     return h.hexdigest()
 
 
+_NATIVE = {}  # the docker host's platform, asked once per process
+
+
+def native_platform():
+    """The docker host's CPU platform, asked of docker once per process (None when docker does not say, or says another)."""
+    if "platform" not in _NATIVE:
+        try:
+            _NATIVE["platform"] = host_platform()
+        except (ExecutorError, subprocess.SubprocessError, OSError):
+            _NATIVE["platform"] = None
+    return _NATIVE["platform"]
+
+
 def image_platform():
-    """The CPU platform the image is built for and run as: IMAGE_PLATFORM, unless WB_EVAL_IMAGE_PLATFORM names another."""
-    value = os.environ.get(PLATFORM_ENV) or IMAGE_PLATFORM
+    """The CPU platform the image is built for and run as: WB_EVAL_IMAGE_PLATFORM when it is set; else the docker host's
+    own platform when it is one of IMAGE_PLATFORMS, so that an amd64 host builds and runs amd64 natively and never
+    emulates arm64; else IMAGE_PLATFORM (arm64)."""
+    value = os.environ.get(PLATFORM_ENV) or (native_platform() if native_platform() in IMAGE_PLATFORMS else IMAGE_PLATFORM)
     if not value.startswith("linux/") or not value[len("linux/"):].replace("/", "").isalnum():
         raise ExecutorError(f"{PLATFORM_ENV} must be a platform such as linux/amd64, not {value!r}")
     return value
@@ -508,6 +525,9 @@ def release(run_id, env=None):
     """Remove a run's key proxy and its network. Safe to call twice, and on a run that never started its proxy: the
     run container is removed first by the caller (a network with a container on it is not removed; it is tried again)."""
     names_ = run_names(run_id)
+    # SIGTERM first: the key proxy records the answers it is still reading as unknown before it exits (a plain `rm -f`
+    # kills it at once and those answers would be lost in silence). It exits at the signal; the grace is for a hung one.
+    docker("stop", "-t", str(STOP_SECONDS), names_["keys"], env=env, check=False, timeout=STOP_SECONDS + 60)
     docker("rm", "-f", names_["keys"], env=env, check=False, timeout=60)
     for attempt in range(5):
         r = docker("network", "rm", names_["network"], env=env, check=False, timeout=60)

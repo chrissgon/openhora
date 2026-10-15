@@ -290,8 +290,8 @@ BUILD = "python3 evals/executor.py ensure"  # and for a definition the lock file
 def image() -> dict:
     """{"name", "digest", "platform", "evidence_platform", "source", "setup", "problem"} of the eval image on this
     machine. digest is None when the lab does not run in a container, or when the image is not on this machine. platform is the CPU platform
-    the image runs as here; evidence_platform is the one lab evidence is made on (the executor's IMAGE_PLATFORM, which
-    every evidence line carries as image_platform): the two differ on a machine of another architecture, and the proof
+    the image runs as here; evidence_platform is the one lab evidence is made on (platform when it is one of the executor's
+    IMAGE_PLATFORMS, which every evidence line carries as image_platform; else IMAGE_PLATFORM): the two differ on a machine of another architecture, and the proof
     holds for the second.
 
     source says which image it is. "published": the lock file (evals/image-lock.json) names an image for this
@@ -311,7 +311,11 @@ def image() -> dict:
     name = wanted = platform = evidence = None
     try:
         executor = LAB.load_executor()
-        platform, evidence = executor.image_platform(), executor.IMAGE_PLATFORM
+        platform = executor.image_platform()
+        # Evidence is made on either accepted platform: the one the image runs as here counts when it is one of them, so
+        # that an amd64 machine running amd64 natively is not shown as a mismatch with arm64.
+        accepted = getattr(executor, "IMAGE_PLATFORMS", (executor.IMAGE_PLATFORM,))
+        evidence = platform if platform in accepted else executor.IMAGE_PLATFORM
         try:
             wanted = _published(executor)
         except _image_lock().Refused as e:  # a lock that is not well formed is never read as an empty one
