@@ -14,6 +14,7 @@ Usage:
   python3 runtime/cli.py deps     --project <dir>
   python3 runtime/cli.py run-next --project <dir> [--model <id>|auto]
   python3 runtime/cli.py run-task --project <dir> --task <task id> [--model <id>|auto]
+  python3 runtime/cli.py run-step --project <dir> --task <task id> [--unattended]
   python3 runtime/cli.py pending  --project <dir> [--id <pending id>]
   python3 runtime/cli.py answer   --project <dir> --id <pending id> (--text <text> | --text-file <file>) [--with-comments]
   python3 runtime/cli.py release  --project <dir> --id <pending id>
@@ -35,10 +36,11 @@ Usage:
   python3 runtime/cli.py verdict  --project <dir> --run <run id> --word worked|corrected|failed
   python3 runtime/cli.py sync     --project <dir> [--dry-run] [--take page|project --path <relative path>]
   python3 runtime/cli.py hand-over --project <dir> --task <task id> --file <path>
-  python3 runtime/cli.py source-add --project <dir> --source <id> --type file|notion --origin <file name | Notion page address> [--description <text>]
+  python3 runtime/cli.py source-add --project <dir> --source <id> --type file|notion|drive --origin <file name | Notion page address | Drive file id> [--description <text>]
   python3 runtime/cli.py source-import --project <dir> --source <id> (--file <path> | --url <Notion page address or id>) [--origin <text>] [--description <text>]
   python3 runtime/cli.py source-refresh --project <dir> --source <id> [--file <path>]
   python3 runtime/cli.py source-describe --project <dir> --source <id> [--description <text>]
+  python3 runtime/cli.py source-drive --project <dir> [--file-id <Drive file id> --source <id>] [--description <text>]
   python3 runtime/cli.py sources  --project <dir>
   python3 runtime/cli.py progress --project <dir> [--since 7d | <n>d | YYYY-MM-DD]
   python3 runtime/cli.py approve-policy --project <dir> --file <docs/...> --agent <name> [--sha256 <hash> --expires <YYYY-MM-DD>] [--what <text>]
@@ -94,6 +96,15 @@ run-task  runs one named task in this process (--task <id>): what the dispatcher
           lock; a task that was refused (not ready, waiting, a document not taken, a cap) is not run and exits 4, except
           when the reason is one of the words of the held tasks (a slot, the project's limit, an artifact in use), which
           exits 0 and prints it. A person uses run-next.
+run-step  runs one named step task in this process (--task <id>), as run-task runs a task: what the dispatcher starts for every step
+          task. A step task runs no skill and calls no model: code runs its steps (runtime/steps.py), the kind of the task names
+          them (today `ingest`, which brings a version of a source into the project), and the task is `done`, `failed` (resumable at
+          its step) or `waiting` at a stop for you. It takes the task's lock, so a killed process is detected by it and the task ends
+          `failed`; stop-runs ends it. Same refusals and exit codes as run-task. The dispatcher starts only a kind that says it may run
+          unattended (`ingest` does) and only while the runtime is not stopped, and it asks again under the claim lock (--unattended is
+          the flag it starts the process with); your own start with run-step or run-next needs neither.
+          Nothing but tests creates a step task today: the flow files learn `step` with P6. A stop of a step task asks for the verdict
+          `continue` or `stop` (any other answer asks again).
 pending   lists what waits for you; with --id, prints that pending decision whole: the reply, what came back,
           what was kept in the run folder.
 answer    answers a pending decision; the task becomes ready and its next run is given your answer. With
@@ -170,8 +181,8 @@ hand-over copies one file of yours into the task's file drop, <project>/.workben
           file holding what looks like a credential, and a git project that does not ignore .workbench-local/. A task
           whose skill uses the web takes the file too (the maintainer's decision: the file is the person's own choice)
           and the answer carries "web": true and the line "this file will be visible to a run with the open network".
-source-add  registers a source of the project: an id (lowercase letters, digits, hyphens), its type (file, or notion) and its origin (a
-          file's name, or a Notion page's address or id); nothing is imported and no credential is kept. The registry is in the
+source-add  registers a source of the project: an id (lowercase letters, digits, hyphens), its type (file, notion or drive) and its origin (a
+          file's name, a Notion page's address or id, or a Drive file's id); nothing is imported and no credential is kept. The registry is in the
           store; the versions are in the project's sources folder (sources_dir of runtime.json, runtime/sources.py).
 source-import  imports a version of a source from a file of yours (--file) or from a Notion page (--url): the generic intake
           bounds the length and reads the type from the bytes (PDF, Word, spreadsheet, CSV, HTML, text), a container with no network
@@ -182,6 +193,13 @@ source-refresh  makes a new version: from a new file (--file), from the Notion p
           changed in the sources folder (the files are hashed against the record; a changed one is sniffed, converted and scanned
           again, and becomes a version labelled as yours, which a task that starts on its own never receives).
 source-describe  sets your description of a source, which the planner reads with its catalog; no --description clears it.
+source-drive  makes Google Drive files sources. It opens the Picker on a one-shot page on 127.0.0.1 (the command prints the address and
+          opens your browser): you choose one or more FILES, never a folder (a picked folder gives the app nothing inside it), and each
+          becomes a source, named from the file, with its first version imported (a Google Doc as Markdown, a Sheet as a workbook, Slides
+          as a PDF, any other file as it is, then the same converter, scan and rows as a file of yours). With --file-id and --source, one
+          file you picked before is imported or refreshed. source-refresh asks Drive for the file's version and reads it only when it
+          moved. Needs the one-time authorization: uv run providers/documents/gdrive_auth.py authorize. The scope, drive.file, lets the
+          app read and write the files you pick, so it is not read-only; the runtime asks for reads only.
 sources   the catalog of the sources: each one's newest version (name, type, size, date, sheets and columns with sample values,
           first headings), your description, and whether its files changed outside the runtime. It calls no model.
 deps      installs the dependency sets of runtime.json ("dependencies") by code, with no model: in the eval
@@ -203,7 +221,9 @@ execute-under-policy  the one place an effect under a standing approval is execu
           handler wrote against the approval's bounds, holding the write lock, makes the provider's dry run and its
           confirmed call, and records the action. {"executed": false, "why"} when the approval does not cover it:
           nothing ran. A handler never confirms a provider verb itself.
-set-mode  sets one area agent's autonomy mode in docs/workbench/runtime.json (area_agents): stopped (it starts
+set-mode  for the agent `runtime`, the owner of step tasks: stopped or autonomous, the brake of step tasks (the dispatcher starts none
+          while it is stopped; run-next and run-step still run one), kept in the store, nothing to accept. For an area agent:
+          sets its autonomy mode in docs/workbench/runtime.json (area_agents): stopped (it starts
           nothing), supervised (every delivery waits for you), milestones (the default: a milestone waits, the rest is
           released by the mode), autonomous (only what must reach you waits), autonomous-with-policy (as autonomous,
           and an effect inside a policy you approved runs without asking). A question, an unclassified reply, a
@@ -271,7 +291,7 @@ accept-config  records the hash of docs/workbench/runtime.json you accept. Type 
 The project is configured in <project>/docs/workbench/runtime.json (runtime/project_config.py).
 Prints one JSON object on stdout; diagnostics on stderr.
 Exit codes: 0 ok, 1 the operation failed or was refused, 2 usage error, 3 the project is not configured, 4 refused and
-not run (run-task only).
+not run (run-task and run-step only).
 Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
@@ -412,7 +432,7 @@ def main(argv=None) -> int:
     print()
     if row["name"] in ("set-mode", "set-model") and isinstance(out, dict) and out.get("warning"):
         print(f"consent recorded for {out['agent']}: {out['warning']}", file=sys.stderr)  # the warning the consent answered, once more
-    if row["name"] == "run-task" and out.get("ran") is None and not out.get("held"):
+    if row["name"] in ("run-task", "run-step") and out.get("ran") is None and not out.get("held"):
         return 4  # refused, not run: the dispatcher that started this process records it (ops_runs.reap)
     unless = row.get("exit_unless")  # the row says which result is not a success; the result is printed either way
     return 1 if unless and out.get(unless[0]) != unless[1] else 0

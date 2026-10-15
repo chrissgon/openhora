@@ -41,6 +41,8 @@ BEFORE = {
     "NOTION_TOKEN": ((), "notion", ("providers/issue-tracker/notion.py", "providers/documents/notion.py")),
     # Decision D13 and secret S7 of the delegation plan (P4): the read-only token of the pages chosen as sources, never the one that writes.
     "NOTION_SOURCES_TOKEN": ((), "notion-sources", ("providers/documents/notion.py",)),
+    # P7: the Google Drive files the person picked as sources; one record (token, client, Picker key), scope drive.file.
+    "GDRIVE_SOURCES_TOKEN": ((), "gdrive-sources", ("providers/documents/gdrive.py", "providers/documents/gdrive_auth.py")),
     "MESSENGER_TELEGRAM_BOT_TOKEN": ((), "messenger-telegram", ("providers/messenger/telegram.py",)),
     "MESSENGER_DISCORD_BOT_TOKEN": ((), "messenger-discord", ("providers/messenger/discord.py",)),
     "MESSENGER_WHATSAPP_CLOUD_TOKEN": ((), "messenger-whatsapp-cloud", ("providers/messenger/whatsapp-cloud.py",)),

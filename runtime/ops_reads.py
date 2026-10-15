@@ -110,7 +110,8 @@ def stop_runs(project: str | None = None, every: bool = False) -> dict:
     service calls it before it exits. Process-wide: the project is read for nothing. With `every` and a project (the
     terminal's `stop-runs --project <dir> --all`), also every task run of the project that a live process holds, whoever
     started it, by the group its task lock names; a lock nobody holds is never signalled. Stopping an agent's mode
-    (`set-mode ... stopped`) is how to keep the dispatcher from starting more. Returns what lab.stop_runs returns, with
+    (`set-mode ... stopped`) is how to keep the dispatcher from starting more, and `set-mode --agent runtime --mode stopped` how to keep
+    it from starting step tasks. Returns what lab.stop_runs returns, with
     "tasks" (the ids of the task runs signalled) when `every` is given."""
     return importlib.import_module("ops_runs").stop(project, every)
 
@@ -163,11 +164,13 @@ def agents(project: str) -> dict:
     counted in usd_today]} and caps_in_use {"runs": bool, "spend": bool}: whether the project's credentials, or a run
     of today, have that billing, so that a page draws a meter only for a cap in use. wider lists, for every mode above
     the agent's own, the absolute `set-mode ... --accept` command (the page offers it with Copy and builds none).
-    A project without area_agents: {"agents": []}."""
+    "steps": {"agent": "runtime", "mode": "autonomous" or "stopped"}: the brake of the step tasks (ops_steps.steps_mode; `set-mode --agent
+    runtime`), beside the agents, whether or not the project has any. A project without area_agents: {"agents": [], "steps"}."""
     ctx = core.context(project)
     day = _ops()._agents_of_the_day(ctx)
+    brake = {"agent": "runtime", "mode": _ops().ops_steps.steps_mode(ctx)}
     if not day:
-        return {"agents": []}
+        return {"agents": [], "steps": brake}
     try:
         listed = lab.models()
     except lab.LabError:  # a gate file the facade refuses: the agents are still listed, without model commands
@@ -200,7 +203,7 @@ def agents(project: str) -> dict:
     for row in out:  # the recommendation of the agent's picker: the cheapest model reliable for every skill of its pack
         row["recommended_model"] = ops_models.recommend(
             [dict(c, model=c["model"]) for c in row["model_commands"] if c.get("skills") is not None])
-    return {"agents": out, "consent_warning": autonomy.CONSENT_WARNING, "default_model": ctx["cfg"].get("default_model"),
+    return {"agents": out, "steps": brake, "consent_warning": autonomy.CONSENT_WARNING, "default_model": ctx["cfg"].get("default_model"),
             "models": listed, "config_sha256": ctx["cfg"]["sha256"]}
 
 

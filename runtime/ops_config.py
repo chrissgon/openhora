@@ -44,6 +44,7 @@ Standard library only. Runs on Python 3.9.
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import os
 import sys
@@ -236,6 +237,8 @@ def set_mode(project: str, agent: str, mode: str, accept: bool = False, channel=
     if consent and channel not in CONSENT_CHANNELS:
         raise core.OpsError("the consent that a mode releasing reviews needs is given by the person, in the terminal "
                             "(set-mode --consent); on the page it is given with the model (give-consent)", 2)
+    if agent == "runtime":   # the pseudo-agent that owns step tasks: two modes, a brake kept in the store, no configuration (ops_steps.py)
+        return importlib.import_module("ops_steps").set_steps_mode(project, mode, channel)
     ctx = core.context(project)
     cfg = ctx["cfg"]
     if mode not in autonomy.MODES:

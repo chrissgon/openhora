@@ -60,7 +60,7 @@ def test_the_terminal_has_a_verb_for_each_and_reads_their_flags():
     got = parser.parse_args(["source-refresh", "--project", "/p", "--source", "survey"])
     assert got.f_file is None
     with pytest.raises(cli.Usage):
-        parser.parse_args(["source-add", "--project", "/p", "--source", "x", "--type", "drive", "--origin", "x"])
+        parser.parse_args(["source-add", "--project", "/p", "--source", "x", "--type", "onedrive", "--origin", "x"])
     for verb in WRITES + ("sources",):
         assert verb in operations.terminal_verbs() and verb in cli.__doc__
     assert operations.command_line("source-import", "/p", checkout=None, source_id="survey", file="/tmp/a b.csv") == \

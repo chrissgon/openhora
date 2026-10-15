@@ -66,7 +66,7 @@ def test_migration_4_adds_the_columns_and_the_two_tables_and_keeps_every_row_of_
     before = [tuple(r) for r in old.execute("SELECT * FROM tasks ORDER BY id")]
     old.close()
     out = store.init_db(path)
-    assert out["migrated_from"] == 3 and out["applied"] == [4, 5, 6, 7, 8, 9, 10, 11] and out["schema_version"] == 11
+    assert out["migrated_from"] == 3 and out["applied"] == [4, 5, 6, 7, 8, 9, 10, 11, 12] and out["schema_version"] == 12
     conn = store.open_db(path)
     rows = conn.execute("SELECT * FROM tasks ORDER BY id").fetchall()
     assert [tuple(r)[:len(before[0])] for r in rows] == before
