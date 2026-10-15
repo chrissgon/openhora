@@ -291,7 +291,7 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `deps` | - | `deps` |
 | `run-next` | `[--model]` | `run_next` |
 | `run-task` | `--task` `[--model]` | `run_task` |
-| `run-step` | `--task` | `run_step` |
+| `run-step` | `--task` `[--unattended]` | `run_step` |
 | `accept-config` | `--sha256` `[--adopt-sources]` | `accept_config` |
 | `proof` | `[--skill]` | `proof` |
 | `verdict` | `--run` `--word` | `verdict` |
@@ -454,4 +454,5 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 - 2026-10-13: the messaging bridge is a fifth shell and `messaging` a fifth channel (messaging.md).
 - 2026-10-14: the page follows the messaging bridge (MSG-14): five shells in the purpose and the diagram, the bridge's modules and the state-folder files in the artifacts, the bridge's call path, ceiling, child and policy in the abstractions, its dependencies and layer-map arrows, its rules and the service child's rules with their tests, the bridge's command and the service's `--messaging` and `--notice-every` flags, the `messaging` and `permissions` fields of `GET /projects` (and `--messaging` with several platforms, MSG-13), and two known limits.
 - 2026-10-15: the operation `run-step` (P5), and `set-mode` takes the agent `runtime` (the brake of step tasks); the held word `start it by hand`.
+- 2026-10-15: `run-step` takes `--unattended` (the dispatcher's flag), the `agents` read carries `steps` (the brake of the step tasks) and the Building's panel draws it (P5c).
 - 2026-10-15: five rows and seven routes for the sources (P4): `source-add`, `source-import`, `source-refresh`, `source-describe` (the terminal and the page; the upload follows the existing file route) and `sources` (also the MCP mode and messaging, in the group `sources`).

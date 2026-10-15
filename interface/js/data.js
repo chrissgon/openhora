@@ -28,11 +28,11 @@ async function readProject(project, before, listedAccepted = true) {
       status = await api.status(project.id);
       agents = await api.agents(project.id);     // accepted since the list was read
     }
-    return { status, agents: Array.isArray(agents.agents) ? agents.agents : [] };
+    return { status, agents: Array.isArray(agents.agents) ? agents.agents : [], steps: agents.steps && typeof agents.steps === "object" ? agents.steps : null };
   } catch (e) {
     if (e && e.name === "ApiError" && e.status !== 0 && e.status !== 401) {
       const error = { status: e.status, word: e.word, message: e.message, next: e.next || null };
-      if (before && before.status) return { status: before.status, agents: before.agents, error };   // the data stays, the page says why it is old
+      if (before && before.status) return { status: before.status, agents: before.agents, steps: before.steps || null, error };   // the data stays, the page says why it is old
       return { error };
     }
     throw e;
