@@ -7,6 +7,7 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_lab_facade.py
 from __future__ import annotations
 
 import ast
+import json
 import os
 import re
 import sys
@@ -333,6 +334,43 @@ def test_the_proof_inputs_change_when_an_evidence_file_or_the_gate_file_changes(
     gate.parent.mkdir(parents=True, exist_ok=True)
     gate.write_text("{}\n", encoding="utf-8")
     assert REAL_PROOF_INPUTS("demo-asks") != second
+
+
+def test_the_proof_inputs_change_when_a_case_file_or_a_dependency_of_a_case_changes(tree):
+    skills = tree["tree"] / "skills"
+    cases = skills / "demo-asks" / "evals" / "evals.json"
+    cases.parent.mkdir(parents=True, exist_ok=True)
+    cases.write_text(json.dumps({"skill": "demo-asks", "evals": [{"id": 1, "prompt": "p", "skills": ["demo-writes"]}]}),
+                     encoding="utf-8")
+    first = REAL_PROOF_INPUTS("demo-asks")
+    assert first == REAL_PROOF_INPUTS("demo-asks")
+    # The case file: the bytes of evals/evals.json.
+    cases.write_text(json.dumps({"skill": "demo-asks", "evals": [{"id": 1, "prompt": "q", "skills": ["demo-writes"]}]}),
+                     encoding="utf-8")
+    second = REAL_PROOF_INPUTS("demo-asks")
+    assert second != first
+    # A platform's case file.
+    platforms = cases.parent / "platforms"
+    platforms.mkdir()
+    (platforms / "demo.json").write_text("{}\n", encoding="utf-8")
+    third = REAL_PROOF_INPUTS("demo-asks")
+    assert third != second
+    # The context of the case: the dependency skill it installs (here the case file is left alone).
+    dependency = skills / "demo-writes" / "SKILL.md"
+    dependency.write_text(dependency.read_text(encoding="utf-8") + "\nA changed line.\n", encoding="utf-8")
+    assert REAL_PROOF_INPUTS("demo-asks") != third
+
+
+def test_a_malformed_case_does_not_stop_the_proof_inputs(tree):
+    cases = tree["tree"] / "skills" / "demo-asks" / "evals" / "evals.json"
+    cases.parent.mkdir(parents=True, exist_ok=True)
+    seen = set()
+    for bad in ({"skills": 1}, {"platforms": 1}):
+        cases.write_text(json.dumps({"skill": "demo-asks", "evals": [{"id": 1, "prompt": "p", **bad}]}), encoding="utf-8")
+        found = REAL_PROOF_INPUTS("demo-asks")  # no TypeError
+        assert len(found) == 64 and found == REAL_PROOF_INPUTS("demo-asks")
+        seen.add(found)
+    assert len(seen) == 2  # the case file's bytes still count
 
 
 def test_run_command_runs_with_no_model_no_credential_and_no_network_unless_asked(tree, tmp_path, monkeypatch):

@@ -232,10 +232,26 @@ def image() -> dict:
     return {"name": name, "digest": digest or None, "platform": platform, "evidence_platform": evidence}
 
 
+def _cases(skill_dir: str):
+    """(the file's top-level "allow_web", {case id as text: case}) of the skill's evals/evals.json; (False, {}) when
+    there is no readable case file."""
+    try:
+        with open(os.path.join(skill_dir, "evals", "evals.json"), encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return False, {}
+    cases = data.get("evals") if isinstance(data, dict) else None
+    top = isinstance(data, dict) and data.get("allow_web") is True
+    return top, {str(c.get("id")): c for c in cases or [] if isinstance(c, dict)}
+
+
 def proof_inputs(skill: str) -> str:
     """A sha256 that changes when the proof of a skill may have changed. Over, in this order: the bytes of the gate
-    file; of the skill's evals/versions.jsonl; of every file of the skill's evals/evidence/ in sorted name order,
-    each preceded by its name; and the skill's content hash. It lives here because no other module of runtime/
+    file; of the skill's evals/versions.jsonl; of its case files (evals/evals.json, then evals/platforms/*.json in
+    sorted name order, each preceded by its name); of every file of the skill's evals/evidence/ in sorted name order,
+    each preceded by its name; the context hash the status script computes for each case of evals/evals.json (its
+    dependency skills' content and the shared references staged with the skill: what a line's context is compared
+    with); and the skill's content hash. Editing a case or a dependency therefore recomputes the entry. It lives here because no other module of runtime/
     may name a path under evals/."""
     status = _lab_call(LAB.load_status)
     skill_dir = os.path.join(LAB.ROOT, "skills", skill)
@@ -250,6 +266,18 @@ def proof_inputs(skill: str) -> str:
 
     add(os.path.join(LAB.ROOT, *status.GATE_REL.split("/")))
     add(os.path.join(skill_dir, "evals", "versions.jsonl"))
+    add(os.path.join(skill_dir, "evals", "evals.json"))
+    platforms = os.path.join(skill_dir, "evals", "platforms")
+    for name in sorted(os.listdir(platforms)) if os.path.isdir(platforms) else []:
+        digest.update(b"\0" + name.encode("utf-8") + b"\0")
+        add(os.path.join(platforms, name))
+    for case_id, case in sorted(_cases(skill_dir)[1].items()):
+        try:
+            context = status.case_context(LAB.ROOT, skill_dir, case, True)
+        except Exception:  # a malformed case ("skills": 1): the preflight refuses it; here it only has no context
+            context = "unknown"
+        digest.update(b"\0context " + case_id.encode("utf-8") + b" "
+                      + (str(context) if isinstance(context, (str, type(None))) else "unknown").encode("utf-8") + b"\0")
     evidence = os.path.join(skill_dir, "evals", "evidence")
     for name in sorted(os.listdir(evidence)) if os.path.isdir(evidence) else []:
         digest.update(b"\0" + name.encode("utf-8") + b"\0")
@@ -260,20 +288,42 @@ def proof_inputs(skill: str) -> str:
 
 def standing(skill: str) -> dict:
     """What the status script computes for one skill: {"skill", "version", "models": {model id: {"band", "cause",
-    "score", "mean", "runs"}}, "tiers": {"strong": {"model", "adapter"}, "floor": {"model", "adapter"}},
-    "web_cases": the gate file's web cases of the skill, "evidence_images": the sorted distinct image digests of
-    the skill's lab events at or above the measurement floor}."""
+    "score", "mean", "runs", "web_measured"}}, "tiers": {"strong": {"model", "adapter"}, "floor": {"model",
+    "adapter"}}, "web_cases": the gate file's web cases of the skill (information only), "evidence_images": the sorted
+    distinct image digests of the skill's lab events at or above the measurement floor}.
+
+    web_measured, per model, is true when the lines that weigh above zero for that model hold a with-skill lab line
+    of a web case. Those are the lines the model's score is computed from (the status script's lab_view: the pool's
+    "current" lines, those of the current X.Y since the newest epoch, measurement floor or dependency change, and
+    its "inherited" ones, which lab_view keeps only when the case still has the same hash, the line is at or above
+    the measurement floor and its major version is the current one), so the flag stays true while the band stays
+    reliable on inherited lines. A web case is a case the gate file lists in web_cases for the skill and that sets
+    "allow_web" in evals/evals.json now (in the case or at the top of the file): the listing is only the
+    permission, the runner opens the network for cases that set it. A listed case with no such line, and a model
+    with no line at all, is false."""
     status = _lab_call(LAB.load_status)
     gate = status.load_gate(LAB.ROOT)
     row = _lab_call(status.all_status, LAB.ROOT, only=skill)["skills"][0]
     floor = gate.get("measurement_floor") or 0
+    skill_dir = os.path.join(LAB.ROOT, "skills", skill)
+    events = status.skill_evidence(skill_dir)
+    top_web, cases = _cases(skill_dir)
+    web_cases = {str(case) for case in (gate.get("web_cases") or {}).get(skill, [])
+                 if str(case) in cases and (top_web or cases[str(case)].get("allow_web") is True)}
+    pools = _lab_call(status.lab_view, LAB.ROOT, skill_dir, gate, events)["pools"]  # what weighs above zero, per model
     images = set()
-    for event, _ in status.skill_evidence(os.path.join(LAB.ROOT, "skills", skill)):
+    for event, _ in events:
         version = event.get("measurement_version")
         if isinstance(version, (int, float)) and version >= floor and event.get("image_digest"):
             images.add(event["image_digest"])
+
+    def measured(model):
+        pool = pools.get(model) or {}
+        return any(str(line["case"]) in web_cases for line in (pool.get("current") or []) + (pool.get("inherited") or []))
+
     return {"skill": skill, "version": row["version"],
-            "models": {model: {k: found.get(k) for k in ("band", "cause", "score", "mean", "runs")}
+            "models": {model: {**{k: found.get(k) for k in ("band", "cause", "score", "mean", "runs")},
+                               "web_measured": measured(model)}
                        for model, found in (row.get("models") or {}).items()},
             "tiers": {"strong": {"model": gate.get("strong_model"), "adapter": gate.get("strong_harness")},
                       "floor": {"model": gate.get("floor_model"), "adapter": gate.get("floor_harness")}},

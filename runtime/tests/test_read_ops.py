@@ -204,7 +204,7 @@ def test_the_skills_operation_reports_the_proof_as_the_proof_module_gives_it(tre
         assert [(p["tier"], p["model"], p["band"]) for p in skill["proof"]] == [("strong", "m", "reliable"), ("floor", "fm", "needs a test")]
     assert found["checks"] == {"measurement": "ok", "image": "ok"}
     # What the proof module gives is what is reported, never a recomputation: a canned entry comes out as it is.
-    canned = {"inputs_sha256": "x", "skill_version": "9.9.9", "web_measured": False, "evidence_images": [st.STANDIN_IMAGE],
+    canned = {"inputs_sha256": "x", "skill_version": "9.9.9", "evidence_images": [st.STANDIN_IMAGE],
               "pairs": [{"tier": "strong", "model": "invented-model", "adapter": "invented-adapter", "band": "watch",
                          "cause": "invented cause", "score": 0.42, "mean": 0.5, "runs": 7, "extra": "not reported"}]}
     with monkeypatch.context() as patched:
