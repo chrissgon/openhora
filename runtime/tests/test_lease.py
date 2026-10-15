@@ -249,5 +249,37 @@ def test_the_names_a_sync_client_gives_its_folder_with_an_account_are_still_foun
         assert lease.synced_reason(str(tmp_path / name / "data")), name
 
 
+# --- the path of a step task: the bytes are held by the caller (P5c), the lease is taken all the same -------------------------------
+
+
+def test_an_import_from_bytes_takes_the_lease_and_a_live_lease_of_another_host_refuses_it_naming_the_host(case):
+    data = CSV.encode("utf-8")
+    first = sources.import_version(case.ctx, case.row, data, convert=standin_convert)
+    assert first["imported"] and json.loads((case.folder / lease.LEASE_NAME).read_text())["host_id"] == lease.host_identity(case.cfg["data_dir"])["id"]
+    another_host(case, expires_in=200, name="laptop-two")
+    with pytest.raises(sources.SourcesError) as refused:
+        sources.import_version(case.ctx, case.row, (CSV + "fig,9.00\n").encode("utf-8"), convert=standin_convert, label="refresh")
+    assert refused.value.code == "lease" and "laptop-two" in str(refused.value)
+    assert case.ctx["store"].source_version_count(case.ctx["conn"], "survey") == 1 and not (case.folder / "survey" / "2").exists()
+
+
+def test_the_step_kinds_import_of_held_bytes_goes_through_the_same_lease(case):
+    """ops_sources.import_bytes is what the step kind `ingest` calls (runtime/step_ingest.py): registration, intake, conversion, and
+    sources.import_version, which takes the lease right before the write."""
+    ops_sources = st.load("ops_sources")
+    done = ops_sources.import_bytes(case.path, "survey", "survey.csv", CSV.encode("utf-8"))
+    assert done["imported"] and (case.folder / lease.LEASE_NAME).is_file()
+    (case.folder / lease.LEASE_NAME).unlink()
+    another_host(case, expires_in=200, name="laptop-two")
+    with pytest.raises(ops_core.OpsError) as refused:
+        ops_sources.import_bytes(case.path, "survey", "survey.csv", (CSV + "fig,9.00\n").encode("utf-8"))
+    assert "laptop-two" in str(refused.value) and "does not write while it lasts" in str(refused.value)
+    assert not (case.folder / "survey" / "2").exists()
+    # the same bytes again write nothing and need no lease
+    (case.folder / lease.LEASE_NAME).unlink()
+    assert ops_sources.import_bytes(case.path, "survey", "survey.csv", CSV.encode("utf-8"))["unchanged"] is True
+    assert not (case.folder / lease.LEASE_NAME).exists()
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
