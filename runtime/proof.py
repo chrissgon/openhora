@@ -99,21 +99,25 @@ def _write(path: str, data: dict) -> None:
         raise
 
 
-def _best(lab_figures, local_figures) -> dict:
+def _best(lab_figures, local_figures, community_figures=None) -> dict:
     """The figures a pair shows: the lab's when the skill is reliable on the model by the lab's evidence, else the person's
-    own when reliable by theirs, else the lab's, else the person's, else the untested word. The source is named."""
+    own when reliable by theirs, else the community's when reliable by it (it ranks, and releases nothing: the source
+    "community" is not in RELEASING), else the lab's, else the person's, else the community's, else the untested word. The
+    source is named."""
     if lab_figures and lab_figures.get("band") == RELIABLE:
         return lab_figures
     if local_figures and local_figures.get("band") == RELIABLE:
         return local_figures
-    return lab_figures or local_figures or UNTESTED
+    if community_figures and community_figures.get("band") == RELIABLE:
+        return community_figures
+    return lab_figures or local_figures or community_figures or UNTESTED
 
 
 def row(cfg: dict, skill: str) -> dict:
     """The skill's entry of the proof file: {"inputs_sha256", "skill_version", "evidence_images", "lab_models", "pairs":
     [{"model", "adapter", "names" ([the id, then its aliases]), "provider" (the gate file's route of the model, or None),
     "band", "cause", "score", "mean", "runs", "web_measured", "usage_mean" (the mean usage of the with-skill runs by kind,
-    or None), "source" ("lab", "local", or None for a model with no evidence)}]}, one pair for each model the gate file
+    or None), "source" ("lab", "local", "community", or None for a model with no evidence)}]}, one pair for each model the gate file
     lists (the lab models first). Reads <data_dir>/proof.json; when the entry is missing or its inputs_sha256 differs
     from lab.proof_inputs(skill), computes it from lab.standing(skill) and writes the file atomically. A model with no
     evidence gets the band `needs a test` with 0 runs. web_measured is stored on each pair: it is true when that model's
@@ -129,7 +133,8 @@ def row(cfg: dict, skill: str) -> dict:
     standing = lab.standing(skill)
     pairs = []
     for model in lab.models():
-        figures = _best(standing["models"].get(model), (standing.get("local") or {}).get(model))
+        figures = _best(standing["models"].get(model), (standing.get("local") or {}).get(model),
+                        (standing.get("community") or {}).get(model))
         pairs.append({"model": model, "adapter": standing["adapters"].get(model), "names": lab.names_of(model),
                       "provider": lab.reference(model).get("route"),
                       **{k: figures.get(k) for k in ("band", "cause", "score", "mean", "runs", "usage_mean", "source")},

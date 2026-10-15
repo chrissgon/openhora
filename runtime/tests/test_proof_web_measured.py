@@ -151,6 +151,34 @@ def test_the_standing_carries_the_persons_own_tests_apart_from_the_labs(status, 
     assert found["local"]["floor-model"]["source"] == "local" and found["local"]["floor-model"]["band"] == "reliable"
 
 
+def test_the_standing_carries_the_community_evidence_apart_and_marks_a_pair_reliable_only_through_it(status, monkeypatch):
+    """P10: the status script's own "community" section is read through the facade, for the listed models only, with the source
+    named and the flag community_only kept; the lines come from community_pool, never from the lab's."""
+    module = lab.LAB.load_status()
+    one = {"input": 100, "output": 20, "cache_read": 0, "cache_write": 0}
+    shared = {"band": "reliable", "cause": None, "score": 0.8, "mean": 0.9, "runs": 6}
+    monkeypatch.setattr(module, "all_status", lambda root, only=None, local_base=None: {
+        "skills": [{"version": "1.0.0", "models": {"ref-model": dict(FIGURES)}}],
+        "community": {"skills": {"demo": {"floor-model": dict(shared, community_only=True),
+                                          "ref-model": dict(shared, community_only=False),
+                                          "unlisted-model": dict(shared, community_only=True)}}}})
+    monkeypatch.setattr(module, "evidence_authors", lambda root: {})
+    monkeypatch.setattr(module, "community_pool", lambda root, skill_dir, authors: ({"floor-model": [({"test": "t"}, [])]}, {}))
+    status["pools"] = {"floor-model": {"current": [dict(line(1, "floor-model"), usage=one)], "inherited": []}}
+    found = lab.standing("demo")
+    assert set(found["community"]) == {"floor-model", "ref-model"}, "an unlisted model cannot run: left out"
+    floor = found["community"]["floor-model"]
+    assert floor["source"] == "community" and floor["community_only"] is True and floor["band"] == "reliable"
+    assert floor["usage_mean"] == {"input": 100.0, "output": 20.0, "cache_read": 0.0, "cache_write": 0.0}
+    assert floor["web_measured"] is True, "a web case line of the community pool counts for its own column"
+    assert found["community"]["ref-model"]["community_only"] is False
+    assert found["models"]["ref-model"]["source"] == "lab" and "floor-model" not in found["models"], "never added to a lab figure"
+
+
+def test_a_standing_without_community_evidence_has_an_empty_community_column(status):
+    assert lab.standing("demo")["community"] == {}
+
+
 def proof_standing(web_models):
     models = {name: dict(FIGURES, web_measured=name in web_models, usage_mean=None, source="lab") for name in ("ref-model", "floor-model")}
     return {"skill": "demo", "version": "1.0.0", "lab_models": ["ref-model", "floor-model"],

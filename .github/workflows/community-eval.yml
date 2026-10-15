@@ -1,0 +1,250 @@
+# The official reusable workflow for community evidence (decisions D19, D36; hardening S5; docs/community-evidence.md).
+#
+# A contributor calls it from their fork, referenced by a full commit sha of this repository's main:
+#   uses: <owner>/<repo>/.github/workflows/community-eval.yml@<40-character sha>
+# It runs one lab test of a skill on one model, with the contributor's own keys, in the fork's CI, and has GitHub
+# attest the evidence file. The pull request that adds the file is verified by scripts/verify_community.py (workflow
+# community-verify.yml), with no model call. Nothing here is a check of a pull request.
+#
+# Two jobs, and the line between them is the point:
+#   `run`    holds `contents: read` and nothing else. It checks out THIS repository, never the caller's code, at the
+#            commit of this workflow file, pulls the published eval image by the digest of its lock file, runs the lab
+#            test and packs the evidence file and a manifest. It has no identity token and cannot ask for one.
+#   `attest` is the only job with `id-token: write` and `attestations: write`. It checks out nothing and runs no
+#            code of any repository: it downloads the two files, compares their sha256 with what `run` reported,
+#            reads this run attempt's jobs through the API to require that EVERY job ran in the runner group of
+#            GitHub's own runners (name and id 0; the attest job's certificate proves only its own runner, and a
+#            decoy job of the caller on a self-hosted group must fail the run), adds that group to the manifest
+#            and attests both files by digest. It never runs the model. The caller workflow holds only the call to
+#            this one.
+# The caller must grant the permissions its job passes down (`contents: read`, `actions: read`, `id-token: write`,
+# `attestations: write`); a reusable workflow cannot hold more than its caller gives, and `run` asks for less.
+#
+# Which commit "this workflow's own commit" is. Inside a reusable workflow the `github` context is the CALLER's:
+# `github.sha`, `github.ref`, `github.repository` and `github.workflow_sha` all name the fork's commit and the fork's
+# workflow file, so none of them says which official code to check out (trusting them would run the fork's code
+# under the official identity). `job.workflow_sha` is "the commit SHA of the workflow file that defines the current
+# job" (the contexts reference): for a job of a reusable workflow, the commit of the reusable file itself, the commit
+# the caller wrote after `@`. It is the same value as the `job_workflow_sha` claim of the identity token and the Build
+# Signer Digest of the certificate the attestation gets, which scripts/verify_community.py binds to the manifest's commit
+# with --signer-digest. (`github.job_workflow_sha` is not a property of the `github` context and reads as an empty
+# string: the run would check out the default branch.) The repository to check out is not read from the context either:
+# it is the literal below, in the text of this file, which the attested commit fixes. A fork that edits the literal signs
+# with its own workflow, whose identity the verifier refuses.
+#
+# Actions are pinned to a commit (tags can move); Dependabot proposes updates. There is no actions cache and no
+# setup action: the runner's own python3 and docker are used.
+name: community-eval
+
+on:
+  workflow_call:
+    inputs:
+      skill:
+        description: "The skill to test (a folder of skills/ at the commit of this workflow)"
+        type: string
+        required: true
+      model:
+        description: "The model to test: an id or alias of the gate file's models, one with a route"
+        type: string
+        required: true
+      adapter:
+        description: "The model's adapter, when you want the run to refuse a different one (default: the entry's)"
+        type: string
+        required: false
+        default: ""
+      cases:
+        description: "A partial test: case ids separated by commas (leave empty with full: true)"
+        type: string
+        required: false
+        default: ""
+      full:
+        description: "A full test: every case, and the baseline of each case whose baseline is not in force"
+        type: boolean
+        required: false
+        default: false
+      arch:
+        description: "The CPU platform of the runner: amd64 or arm64 (evidence from either is accepted)"
+        type: string
+        required: false
+        default: "amd64"
+    secrets:
+      OPENROUTER_API_KEY:
+        description: "The key of a model served through OpenRouter (the fork's own secret)"
+        required: false
+      CLAUDE_CODE_OAUTH_TOKEN:
+        description: "The token of the grader's account, which grades every run (the fork's own secret)"
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  OFFICIAL_REPOSITORY: chrissgon/openhora
+
+jobs:
+  run:
+    name: lab test
+    runs-on: ${{ inputs.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 340
+    permissions:
+      contents: read
+    outputs:
+      name: ${{ steps.pack.outputs.name }}
+      evidence_sha256: ${{ steps.pack.outputs.evidence_sha256 }}
+      manifest_sha256: ${{ steps.pack.outputs.manifest_sha256 }}
+    steps:
+      - name: Check out the official repository at this workflow's own commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ env.OFFICIAL_REPOSITORY }}
+          ref: ${{ job.workflow_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: The checkout is that commit, and the commit is in the history of main
+        env:
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "the commit of this workflow is unknown: refusing to run" >&2; exit 1; }
+          [ "$(git rev-parse HEAD)" = "$WORKFLOW_SHA" ] || { echo "the checkout is not the commit of this workflow" >&2; exit 1; }
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$WORKFLOW_SHA" FETCH_HEAD || { echo "$WORKFLOW_SHA is not in the history of main: its evidence would be refused" >&2; exit 1; }
+      - name: Check the request and that the keys are set (names only, never a value)
+        env:
+          SKILL: ${{ inputs.skill }}
+          MODEL: ${{ inputs.model }}
+          ADAPTER: ${{ inputs.adapter }}
+          CASES: ${{ inputs.cases }}
+          FULL: ${{ inputs.full }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          args=(preflight --skill "$SKILL" --model "$MODEL")
+          [ -z "$ADAPTER" ] || args+=(--adapter "$ADAPTER")
+          if [ "$FULL" = "true" ]; then args+=(--full); else args+=(--cases "$CASES"); fi
+          python3 scripts/community_pack.py "${args[@]}"
+      - name: Pull the published eval image by the digest of the lock file
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/image_lock.py pull --source-repo "$OFFICIAL_REPOSITORY"
+      - name: Run the lab test
+        env:
+          SKILL: ${{ inputs.skill }}
+          MODEL: ${{ inputs.model }}
+          ADAPTER: ${{ inputs.adapter }}
+          CASES: ${{ inputs.cases }}
+          FULL: ${{ inputs.full }}
+          WB_LOCAL_EVIDENCE_DIR: ${{ runner.temp }}/local-evidence
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          args=(--skill "$SKILL" --model "$MODEL" --floor-model "")
+          [ -z "$ADAPTER" ] || args+=(--harness "$ADAPTER")
+          [ "$FULL" = "true" ] || args+=(--cases "$CASES")
+          python3 evals/eval_run.py "${args[@]}"
+      - name: Pack the evidence file and its manifest
+        id: pack
+        env:
+          SKILL: ${{ inputs.skill }}
+          MODEL: ${{ inputs.model }}
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_ID: ${{ github.repository_id }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          RUN_NUMBER: ${{ github.run_number }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
+          WB_LOCAL_EVIDENCE_DIR: ${{ runner.temp }}/local-evidence
+        run: |
+          set -euo pipefail
+          python3 scripts/community_pack.py pack --skill "$SKILL" --model "$MODEL" --out "$RUNNER_TEMP/community" \
+            --repository "$REPOSITORY" --repository-id "$REPOSITORY_ID" --run-id "$RUN_ID" --run-attempt "$RUN_ATTEMPT" \
+            --run-number "$RUN_NUMBER" --workflow-ref "$WORKFLOW_REF" --commit "$WORKFLOW_SHA" > "$RUNNER_TEMP/pack.json"
+          name="$(jq -r .name "$RUNNER_TEMP/pack.json")"
+          evidence="$(jq -r .evidence_sha256 "$RUNNER_TEMP/pack.json")"
+          manifest="$(jq -r .manifest_sha256 "$RUNNER_TEMP/pack.json")"
+          [[ "$name" =~ ^community-[0-9]+-[0-9]+-[0-9]+$ ]] && [[ "$evidence" =~ ^[0-9a-f]{64}$ ]] && [[ "$manifest" =~ ^[0-9a-f]{64}$ ]]
+          {
+            echo "name=${name}"
+            echo "evidence_sha256=${evidence}"
+            echo "manifest_sha256=${manifest}"
+          } >> "$GITHUB_OUTPUT"
+      - name: Keep the two files for the attestation job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: community-evidence-files
+          path: ${{ runner.temp }}/community/*
+          if-no-files-found: error
+          retention-days: 7
+
+  attest:
+    name: attest
+    needs: run
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # The only job with an identity token. It checks out nothing and runs no code of any repository: it receives the
+    # two files and the digests `run` reported, compares them, reads the runner group of `run` from the API (the caller
+    # grants `actions: read` for it), and signs the digests.
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: community-evidence-files
+          path: ${{ runner.temp }}/files
+      - name: The run job ran on GitHub's own runners; add that to the manifest and write the checksums to attest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NAME: ${{ needs.run.outputs.name }}
+          EVIDENCE_SHA256: ${{ needs.run.outputs.evidence_sha256 }}
+          MANIFEST_SHA256: ${{ needs.run.outputs.manifest_sha256 }}
+        run: |
+          set -euo pipefail
+          expected="community-${GITHUB_REPOSITORY_ID}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          [ "$NAME" = "$expected" ] || { echo "the run job named $NAME, this run is $expected" >&2; exit 1; }
+          [[ "$EVIDENCE_SHA256" =~ ^[0-9a-f]{64}$ ]] && [[ "$MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          cd "$RUNNER_TEMP/files"
+          [ "$(ls | LC_ALL=C sort | tr '\n' ' ')" = "$NAME.jsonl $NAME.manifest.json " ] || { echo "unexpected files in the artifact" >&2; exit 1; }
+          [ "$(sha256sum "$NAME.jsonl" | cut -d' ' -f1)" = "$EVIDENCE_SHA256" ] || { echo "the evidence file changed on the way" >&2; exit 1; }
+          [ "$(sha256sum "$NAME.manifest.json" | cut -d' ' -f1)" = "$MANIFEST_SHA256" ] || { echo "the manifest changed on the way" >&2; exit 1; }
+          [ "$(jq -r .evidence_sha256 "$NAME.manifest.json")" = "$EVIDENCE_SHA256" ] || { echo "the manifest names another evidence file" >&2; exit 1; }
+          # This job's own certificate shows this job's runner only. So every job of this run attempt is read from the API: each
+          # must be in GitHub's own runner group (its name and its id, 0; a self-hosted runner is in a group of its own, and a
+          # job with no runner fails the check too), and the job that ran the model ("lab test") must be there once and have
+          # succeeded. The labels the API reports are the requested ones, not the runner's, and prove nothing.
+          jobs_tsv="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}/jobs" \
+            --jq '.jobs[] | [.name, .runner_group_name, (.runner_group_id | tostring), .conclusion] | @tsv')"
+          [ -n "$jobs_tsv" ] || { echo "the API listed no job of this run attempt" >&2; exit 1; }
+          outside="$(printf '%s\n' "$jobs_tsv" | awk -F'\t' '$2 != "GitHub Actions" || $3 != "0" { print $1 }')"
+          [ -z "$outside" ] || { echo "a job of this run attempt was not on GitHub's own runners (runner group GitHub Actions, id 0): $outside" >&2; exit 1; }
+          lab="$(printf '%s\n' "$jobs_tsv" | awk -F'\t' '$1 == "lab test" || $1 ~ / \/ lab test$/ { print $4 }')"
+          [ "$(printf '%s\n' "$lab" | wc -l | tr -d ' ')" = 1 ] && [ "$lab" = "success" ] || { echo "expected exactly one job named lab test, and that it succeeded: $lab" >&2; exit 1; }
+          group="GitHub Actions"
+          jq -S --arg group "$group" '. + {run_runner_group: $group}' "$NAME.manifest.json" > "$NAME.manifest.json.new"
+          mv "$NAME.manifest.json.new" "$NAME.manifest.json"
+          manifest_sha="$(sha256sum "$NAME.manifest.json" | cut -d' ' -f1)"
+          printf '%s  %s\n%s  %s\n' "$EVIDENCE_SHA256" "$NAME.jsonl" "$manifest_sha" "$NAME.manifest.json" > "$RUNNER_TEMP/checksums.txt"
+      - name: Attest the evidence file and its manifest
+        id: attest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: ${{ runner.temp }}/checksums.txt
+      - name: Put the attestation bundle beside the files
+        env:
+          NAME: ${{ needs.run.outputs.name }}
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          cp "$BUNDLE_PATH" "$RUNNER_TEMP/files/$NAME.sigstore.json"
+      - name: Keep the three files for the pull request
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: community-evidence
+          path: ${{ runner.temp }}/files/*
+          if-no-files-found: error
+          retention-days: 30

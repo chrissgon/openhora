@@ -466,6 +466,9 @@ def standing(skill: str) -> dict:
     {model id: adapter} (the gate file's entries), "models": {model id: {"band", "cause", "score", "mean", "runs",
     "web_measured", "usage_mean", "source": "lab"}} for every model with lab evidence, "local": {model id: the same keys
     with "source": "local"} for the models the person's own tests (outside the checkout) cover and the gate file lists,
+    "community": {model id: the same keys with "source": "community" and "community_only" (true when the pair is reliable
+    only through community evidence: its lab band is not reliable)} for the models the verified community evidence of the
+    checkout covers and the gate file lists (P10; the status script's own section, computed from the community lines alone),
     "web_cases": the gate file's web cases of the skill (information only), "evidence_images": the sorted distinct image
     digests of the skill's lab events at or above the measurement floor}.
 
@@ -517,9 +520,17 @@ def standing(skill: str) -> dict:
         local_events = _lab_call(status.local_skill_evidence, skill, base)
         local_pools = _lab_call(status.lab_view, LAB.ROOT, skill_dir, gate, local_events)["pools"]
         out_local = {model: figures("local", model, got, local_pools) for model, got in local.items() if model in listed}
+    out_community = {}
+    community = ((row.get("community") or {}).get("skills") or {}).get(skill) or {}
+    if community:
+        listed = set(_lab_call(status.known_models, gate))
+        pool, _info = _lab_call(status.community_pool, LAB.ROOT, skill_dir, _lab_call(status.evidence_authors, LAB.ROOT))
+        community_pools = _lab_call(status.lab_view, LAB.ROOT, skill_dir, gate, [event for events in pool.values() for event in events])["pools"]
+        out_community = {model: {**figures("community", model, got, community_pools), "community_only": bool(got.get("community_only"))}
+                         for model, got in community.items() if model in listed}
     return {"skill": skill, "version": found["version"], "lab_models": list(gate.get("lab_models") or []),
             "adapters": {model: (gate["models"].get(model) or {}).get("adapter") for model in models()},
-            "models": out_models, "local": out_local,
+            "models": out_models, "local": out_local, "community": out_community,
             "web_cases": list((gate.get("web_cases") or {}).get(skill, [])),
             "evidence_images": sorted(images)}
 

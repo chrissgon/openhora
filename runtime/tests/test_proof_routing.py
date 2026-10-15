@@ -208,6 +208,23 @@ def test_a_pair_reliable_only_through_community_evidence_is_chosen_and_held_for_
     assert any("reliable only through community evidence" in reason for reason in r["reasons"])
 
 
+def test_the_community_column_ranks_a_pair_the_lab_has_not_proven_and_never_releases_it(facade, cfg):
+    """P10 through the proof file: the lab's reliable figures win, then the person's own, then the community's; a pair that
+    rests on the community column alone is reliable, ranked, chosen by auto, and its output is held for review."""
+    community = figures(source="community", score=0.95) | {"community_only": True}
+    facade["standing"] = standing({"cheap": figures(band="needs a test"), "dear": figures(score=0.9)}, local=None)
+    facade["standing"]["community"] = {"cheap": community, "dear": figures(source="community")}
+    entry = proof.row(cfg, "demo")
+    by_model = {p["model"]: p for p in entry["pairs"]}
+    assert (by_model["cheap"]["band"], by_model["cheap"]["source"]) == ("reliable", "community"), "the community column fills a pair the lab leaves unproven"
+    assert by_model["dear"]["source"] == "lab", "the lab's reliable figures win over the community's"
+    route = proof.route(cfg, "demo", WEB)
+    assert (route["model"], route["mode"], route["source"], route["proven"], route["autonomy"]) == ("cheap", "auto", "community", False, "supervised")
+    assert any("reliable only through community evidence" in r for r in route["reasons"])
+    named = proof.route(cfg, "demo", WEB, model="cheap")
+    assert (named["proven"], named["autonomy"]) == (False, "supervised"), "named by the person, the pair is still not released"
+
+
 def test_evidence_from_the_persons_own_tests_ranks_and_releases(facade, cfg):
     facade["standing"] = standing({"cheap": figures(band="needs a test"), "dear": figures()},
                                   local={"cheap": figures(source="local")})
