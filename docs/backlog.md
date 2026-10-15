@@ -132,6 +132,25 @@ The workbench is a set of instructions that models execute with a terminal, file
 - [ ] **T33. The inventory snapshot cites the head commit of the checkout that generated it.** Found on 2026-10-15 (P3b): `python3 evals/eval_status.py inventory --write` writes "Generated at commit `<HEAD>`", so a snapshot written on a feature branch cites a commit that is gone after a squash merge, and the website's data note and `site/assets/data/proof.json` (built from it by `site/tools/build_proof_json.py`) cite it too.
   - Plan: let the command take the commit to cite (for example `--commit <sha>`, defaulting to HEAD), or cite the merge base with the default branch; until then, a snapshot made on a branch is stamped by hand with the head of the integration branch it was made against, when the evidence files are the same there (P3b did that: `54f08b5f0417`).
   - Done when: a snapshot can name a commit that exists on the branch it lands on, with a test.
+- [ ] **T34. The providers say "no token" when the credentials directory is unsafe.** Found on 2026-10-15 in the review of P-OPS (not reproduced again for this entry). The runtime, the messengers and the doctor tell an unsafe credentials directory from a missing secret (`resolve_state` says `unsafe`, `docs/architecture/platform/unattended.md`), but the providers for GitHub (`providers/vcs/github.py`), Notion, Gmail, LinkedIn and Google Drive still report "no token" or "not configured" for the same case, so the fix the message names (set the secret) is the wrong one.
+  - Done when: each of those providers asks for the state and prints the `unsafe` sentence and its `chmod`, with a test that plants an unsafe directory.
+  - Plan: with the next change of one of those providers.
+- [ ] **T35. Flaky tests.** Named as flaky in the reviews of the delegation packages on 2026-10-15 (the first failed once in CI, the process getting signal 9, and passed on a rerun); the others were reported by the same reviews and are not reproduced for this entry.
+  - `runtime/tests/test_parallel_runs.py::test_a_lock_that_changed_hands_during_the_grace_is_not_killed` (the one seen failing in CI).
+  - `providers/messenger/tests/test_discord.py::test_a_send_opens_the_dm_channel_once_and_caches_it`.
+  - `evals/tests/test_eval_run.py::test_jobs_runs_model_runs_at_the_same_time_and_keeps_the_order`.
+  - `runtime/tests/test_interface_markdown.py::test_hostile_shapes_of_200_kb_end_quickly...` (a time bound).
+  - Done when: each test passes on a loaded machine in 50 consecutive runs, or its bound or its wait is made deterministic.
+  - Plan: one small package of test repairs; no module changes.
+- [ ] **T36. `evals/tests/test_measure.py::test_the_comparisons_of_the_gate_are_unrounded` fails on Python 3.12.** Found on 2026-10-15 on a local run on Python 3.12, where a float `sum` in the comparison gives a different last digit than on earlier versions; the cause is recorded from that run and not re-checked here. `evals/measure.py` is a measurement file, so the repair belongs in the test, not in the module.
+  - Done when: the test passes on 3.11 and 3.12.
+  - Plan: with T35.
+- [ ] **T37. A task's drop folder follows a link above its last component.** Found on 2026-10-15 in the reviews of P4 and P5: a link above the drop folder's last component (`.workbench-local` or `drop` itself) is followed (`runtime/drop.py`). The folders are the person's own, so the risk is small; the sources folder's rule (never follow a link out, L23) is the stricter one.
+  - Done when: the drop folder is opened through descriptors with `O_NOFOLLOW` at every step, with a test for a link at each level.
+  - Plan: with the next change of `runtime/drop.py`.
+- [ ] **T38. Converter images of earlier definitions are never removed.** Found on 2026-10-15 (P4b): the converter's image is tagged with the hash of its definition (`openhora-converter:<12 characters>`), so each change of `Dockerfile`, `_inner.py` or `requirements.lock` leaves the earlier image on disk, hundreds of megabytes each (the converter's current image is 444 MB); the exporter's image (`openhora-exporter:<12 characters>`, P8) does the same.
+  - Done when: `runtime/upkeep.py` or `scripts/doctor.py` lists the images of earlier definitions and removes them on the person's word, never the one of the current definition, with a test that uses a fake container tool.
+  - Plan: with the next change of the upkeep.
 
 ## Agent runtime
 

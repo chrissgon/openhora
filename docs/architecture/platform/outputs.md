@@ -46,7 +46,7 @@ Three things, one idea: **nothing leaves the project, and nothing reaches a mode
 | `python3 providers/exporter/container.py --check \| build (--dry-run \| --confirmed) \| render --format <f> --input <file> --out-dir <folder>` | the renderer's image and a render by hand |
 | `sources` | the catalog; an entry with hidden text has `hidden_text` and a warning |
 
-Nothing creates these step tasks from a sentence yet: the flow files learn the key `step` with P6.
+Nothing creates these step tasks from a sentence: a workflow (a flow file, since P6a) holds them as tasks with `step` and `args`, and the plan shows and hashes the arguments.
 
 ## Why these tools (principle 14)
 
