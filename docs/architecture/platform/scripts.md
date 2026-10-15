@@ -12,7 +12,7 @@ The idea behind each piece, in one line each:
 - the script runs with no credential in its environment (an allow-list written out in the command, never this process's environment), a read-only root, one read-only mount (itself), a size-capped memory-backed folder for its output, a non-root user, no capability, and limits on memory, processes, CPU and time;
 - it has no network, unless it declares destinations; then it has an **internal** Docker network whose only other member is a per-step egress proxy, which serves a CONNECT to the declared `host:port` pairs and nothing else, refusing by name and by address;
 - its dependencies are installed in a separate build container from a hashed lock file, with no mount at all; only the resulting image layer reaches the run, read-only;
-- its result is one file that leaves as frames on the container's standard output, is read by the host with the rules of limit L24, and becomes a new version of a source, labelled as produced by the script (its sha256); it has no other way to write and no way to cause an effect.
+- its result is one file that leaves as frames on the container's standard output, is read by the host with the rules of limit L24, and becomes a new version of a source, labelled as produced by the script (its sha256); it has no other way to write in the project or the sources folder. It is not free of effects: a script with declared destinations can send writes to them (a POST is an external effect that the effect gate cannot see). That is why its destinations are in the approved hash, and why a plan that holds such a step is approved only from the terminal or the page, whatever the messaging policy grants (limit L36).
 
 ## Artifacts it owns
 

@@ -11,6 +11,7 @@ import hashlib
 import pytest
 
 import script_fixture as fx
+import standin_tree as st
 from test_ops_flows import new_request, ops, ops_core, pending, tasks_of, world, write_flow  # noqa: F401
 
 
@@ -32,7 +33,7 @@ def test_a_plan_with_the_right_hash_opens_and_is_approved(world):
     opened = ops.route(world["path"], new_request(world), flow="weekly-report")
     shown = pending(world, opened["pending_id"])
     assert shown["payload"]["tasks"][0]["args"]["sha256"] == sha_of("# fake: md=Hi\n")
-    assert ops.approve(world["path"], opened["pending_id"], shown["payload"]["plan_sha256"])["tasks"]
+    assert ops.approve(world["path"], opened["pending_id"], shown["payload"]["plan_sha256"], channel="terminal")["tasks"]
 
 
 def test_a_hash_written_by_hand_that_is_not_the_files_opens_no_plan(world):
@@ -69,6 +70,38 @@ def test_a_script_changed_after_the_plan_was_opened_is_not_approved(world):
     opened = ops.route(world["path"], rid, flow="weekly-report")
     fx.write(world["project"], "scripts/report.py", "# fake: md=Another script\n")
     with pytest.raises(ops.OpsError) as refused:
-        ops.approve(world["path"], opened["pending_id"], pending(world, opened["pending_id"])["payload"]["plan_sha256"])
+        ops.approve(world["path"], opened["pending_id"], pending(world, opened["pending_id"])["payload"]["plan_sha256"], channel="terminal")
     assert "nothing was approved" in str(refused.value) and "script_changed" in str(refused.value)
     assert tasks_of(world, rid) == {} and pending(world, opened["pending_id"])["status"] == "open"
+
+
+def test_limit_36_a_plan_that_holds_a_networked_step_is_approved_only_from_the_terminal_or_the_page(world):
+    ops_waits = st.load("ops_waits")
+    fx.write(world["project"], "scripts/report.py", "# fake: md=Hi\n")
+    write_flow(world, "weekly-report", flow(sha_of("# fake: md=Hi\n")))
+    rid = new_request(world)
+    opened = ops.route(world["path"], rid, flow="weekly-report")
+    item = pending(world, opened["pending_id"])
+    digest = item["payload"]["plan_sha256"]
+    assert ops_waits.networked_steps(item) == [("report", "project-script")]
+    for channel in ("messaging", "mcp", "chat", "bogus", None):          # no channel at all fails closed too
+        with pytest.raises(ops.OpsError) as refused:
+            ops.approve(world["path"], opened["pending_id"], digest, channel=channel)
+        assert "terminal or on the page" in str(refused.value) and "Nothing was approved" in str(refused.value) and "report" in str(refused.value)
+    # whatever the messaging policy grants: the rule is before the policy
+    generous = {"messaging": ["read", "approve-plans", "go-ahead"]}
+    with pytest.raises(ops.OpsError) as refused:
+        ops_waits.only_on_plans(item, None, digest, "messaging", generous)
+    assert "terminal or on the page" in str(refused.value)
+    assert tasks_of(world, rid) == {} and pending(world, opened["pending_id"])["status"] == "open"
+    assert ops.approve(world["path"], opened["pending_id"], digest, channel="page")["tasks"]       # the page approves it
+    assert "report" in tasks_of(world, rid)
+
+
+def test_a_plan_with_no_networked_step_is_still_approved_from_messaging_with_its_hash(world):
+    ops_waits = st.load("ops_waits")
+    item = {"id": 1, "kind": "plan", "payload": {"tasks": [{"key": "pull", "step": "ingest", "args": {"source": "s"}}, {"key": "think", "skill": "x"}]}}
+    assert ops_waits.networked_steps(item) == []
+    ops_waits.only_on_plans(item, None, "a" * 64, "messaging", {"messaging": ["read", "approve-plans"]})
+    unknown = {"id": 2, "kind": "plan", "payload": {"tasks": [{"key": "odd", "step": "no-such-kind", "args": {}}]}}
+    assert ops_waits.networked_steps(unknown) == [("odd", "no-such-kind")], "a kind that cannot be shown not to reach the network counts"

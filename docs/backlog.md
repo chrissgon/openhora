@@ -151,6 +151,9 @@ The workbench is a set of instructions that models execute with a terminal, file
 - [ ] **T38. Converter images of earlier definitions are never removed.** Found on 2026-10-15 (P4b): the converter's image is tagged with the hash of its definition (`openhora-converter:<12 characters>`), so each change of `Dockerfile`, `_inner.py` or `requirements.lock` leaves the earlier image on disk, hundreds of megabytes each (the converter's current image is 444 MB); the exporter's image (`openhora-exporter:<12 characters>`, P8) does the same.
   - Done when: `runtime/upkeep.py` or `scripts/doctor.py` lists the images of earlier definitions and removes them on the person's word, never the one of the current definition, with a test that uses a fake container tool.
   - Plan: with the next change of the upkeep.
+- [ ] **T39. A step kind reaches the script provider through a `ctx.services` seam.** Found on 2026-10-15 in the review of P9 (m2): `runtime/step_project_script.py` calls the provider of `script:project` through `sources._lazy` and `sources._provider_env`, which is why its row of the step gate's allowed imports holds `ops_core`, `ops_sources` and `sources`. P8 gave documents and the exporter a seam (`runtime/ops_step_seams.py`) so that a step kind imports no module that calls a provider.
+  - Done when: the script provider's `run` and `deps` verbs are services of the engine's Context (as narrow as the kind's need), `step_project_script.py` reads them from `ctx.services`, its row of `ALLOWED` in `runtime/tests/test_steps_gate.py` loses `ops_sources` and `sources` but what the import of a source needs, and the tests that replace the provider replace the service.
+  - Plan: with the next change of `runtime/step_project_script.py` or `runtime/ops_step_seams.py`.
 
 ## Agent runtime
 
