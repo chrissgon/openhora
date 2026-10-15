@@ -31,7 +31,7 @@ SEQ = iter(range(1, 10 ** 6))
 
 def community(folder, model="old-model", adapter="oh", repo_id=111, run_id=None, attempt=1, run_number=1, kind="full",
               date="2030-01-01", version="1.0.0", with_score=0.9, base_score=0.5, cases=(1, 2, 3), per_case=3, extra_event=None,
-              workflow=".github/workflows/lab.yml", repository="ana/openhora", manifest_extra=None, bundle=True, mv=5):
+              workflow=el.CALLER_WORKFLOW, repository="ana/openhora", manifest_extra=None, bundle=True, mv=5):
     """Write the three files of one community run in the skill's evidence folder. A full test has per_case lines with the
     skill and per_case without it, for every case; a partial one has the lines with the skill alone."""
     run_id = run_id or next(SEQ) + 1000
@@ -65,7 +65,7 @@ def community(folder, model="old-model", adapter="oh", repo_id=111, run_id=None,
     (folder_ev / f"{name}.jsonl").write_bytes(data)
     manifest = {"record": "community-manifest", "repository": repository, "repository_id": repo_id, "run_id": run_id,
                 "run_attempt": attempt, "run_number": run_number, "workflow": workflow, "commit": COMMIT, "skill": folder.name,
-                "model": model, "evidence_sha256": hashlib.sha256(data).hexdigest(), **(manifest_extra or {})}
+                "model": model, "evidence_sha256": hashlib.sha256(data).hexdigest(), "run_runner_group": el.RUNNER_GROUP, **(manifest_extra or {})}
     (folder_ev / f"{name}.manifest.json").write_text(json.dumps(manifest, indent=2))
     if bundle:
         (folder_ev / f"{name}.sigstore.json").write_text(json.dumps(BUNDLE))
@@ -283,9 +283,11 @@ def test_a_contributor_adds_at_most_cap_lines_with_the_skill_per_model_and_the_n
     figures = section(root)["skills"]["core-demo"]["f-model"]
     assert figures["runs"] == 30 and figures["capped"] == 15 and figures["mean"] == 1.0  # the oldest 15, all failures, are gone
     assert figures["contributors"] == 1 and figures["files"] == 3
-    # A second contributor has a cap of their own, and a second model too.
-    community(repo, model="f-model", adapter="fh", date="2030-04-01", repo_id=222, run_number=1, with_score=0.0, base_score=0.0, per_case=5)
-    commit(root, "Bo <bo@mail.example>")
+    # A second contributor (another fork owner) has a cap of their own, and a second model too. The contributor is the owner
+    # of the attested fork, not the author of the commit: Bo's files committed by Ana are still Bo's.
+    community(repo, model="f-model", adapter="fh", date="2030-04-01", repo_id=222, repository="bo/openhora", run_number=1,
+              with_score=0.0, base_score=0.0, per_case=5)
+    commit(root, "Ana <ana@mail.example>")
     figures = section(root)["skills"]["core-demo"]["f-model"]
     assert figures["runs"] == 45 and figures["contributors"] == 2 and figures["mean"] == pytest.approx(30 / 45, abs=1e-3)
     community(repo, model="old-model", adapter="oh", date="2030-05-01", run_number=4, per_case=5)
@@ -295,12 +297,13 @@ def test_a_contributor_adds_at_most_cap_lines_with_the_skill_per_model_and_the_n
     assert old.exists() and new.exists() and third.exists()  # a capped file stays in the repository; only the figures leave it
 
 
-def test_a_file_not_yet_committed_is_one_contributor_and_without_history_nothing_is_computed(root, repo):
+def test_the_contributor_is_the_owner_of_the_attested_fork_whatever_its_name_and_the_git_history(root, repo):
     tb.full(repo)
     commit(root, "Owner <owner@mail.example>", "lab evidence")
-    community(repo, model="f-model", adapter="fh")  # in the working tree, not committed
+    community(repo, model="f-model", adapter="fh", run_number=1)  # in the working tree, not committed
+    community(repo, model="f-model", adapter="fh", run_number=2, repo_id=999, repository="Ana/another-fork", date="2030-01-02")
     figures = section(root)["skills"]["core-demo"]["f-model"]
-    assert figures["contributors"] == 1 and figures["runs"] == 9
+    assert figures["contributors"] == 1 and figures["runs"] == 18  # one owner, two forks: one cap (several accounts stay a residual risk)
     assert es.community_section(str(root), ["core-demo"], CFG, None, [])["computed"] is False
 
 
@@ -314,17 +317,58 @@ def test_a_gap_in_the_run_numbers_of_a_fork_s_workflow_is_flagged_never_refused(
     assert data["gaps"] == 1 and data["skills"]["core-demo"]["f-model"]["gaps"] == 1  # run 3 was not submitted
     assert es.evidence_problems(str(root))[0] == {}  # flagged, not refused
     manifests = [m for _, m in es.community_manifests(str(root))]
-    assert es.community_gaps(manifests) == {(111, ".github/workflows/lab.yml"): [3]}
-    # Run numbers count per workflow and per fork: another workflow or another fork has its own count.
-    community(repo, model="f-model", adapter="fh", run_number=1, workflow=".github/workflows/other.yml", repo_id=333)
+    assert es.community_gaps(manifests) == {(111, el.CALLER_WORKFLOW): [3]}
+    # Run numbers count per fork: another fork has its own count, and the first runs count too.
     community(repo, model="f-model", adapter="fh", run_number=1, repo_id=444)
     assert section(root)["gaps"] == 1
-    # The first runs count too: submitting run 3 alone leaves 1 and 2 missing.
-    community(repo, model="f-model", adapter="fh", run_number=3, repo_id=555)
+    community(repo, model="f-model", adapter="fh", run_number=3, repo_id=555)  # runs 1 and 2 of that fork are missing
     assert section(root)["gaps"] == 3
-    # An attempt of a run shares its number.
-    community(repo, model="f-model", adapter="fh", run_number=1, attempt=2, repo_id=444)
-    assert section(root)["gaps"] == 3
+
+
+def test_a_missing_attempt_below_the_highest_submitted_is_a_gap_too(root, repo):
+    """Cherry-picking by re-run: attempt 2 of a run submitted without attempt 1 is flagged; both attempts are not."""
+    tb.full(repo)
+    commit(root, "Owner <owner@mail.example>", "lab evidence")  # history to read the field verdicts from
+    community(repo, model="f-model", adapter="fh", run_id=7001, run_number=1, attempt=1)
+    community(repo, model="f-model", adapter="fh", run_id=7001, run_number=1, attempt=2, date="2030-01-02")
+    assert section(root)["gaps"] == 0  # an attempt of a run shares its number, and none is missing
+    community(repo, model="f-model", adapter="fh", run_id=7002, run_number=2, attempt=3, date="2030-01-03")  # attempts 1 and 2 missing
+    data = section(root)
+    assert (data["gaps"], data["run_gaps"], data["attempt_gaps"]) == (2, 0, 2) and data["skills"]["core-demo"]["f-model"]["gaps"] == 2
+    manifests = [m for _, m in es.community_manifests(str(root))]
+    assert es.community_attempt_gaps(manifests) == {(111, el.CALLER_WORKFLOW, 7002): [1, 2]}
+
+
+def test_a_fork_that_used_another_caller_workflow_is_flagged_and_its_numbers_count_apart(root, repo):
+    tb.full(repo)
+    commit(root, "Owner <owner@mail.example>", "lab evidence")  # history to read the field verdicts from
+    community(repo, model="f-model", adapter="fh", run_number=1)
+    community(repo, model="f-model", adapter="fh", run_number=1, workflow=".github/workflows/other.yml", date="2030-01-02")
+    data = section(root)
+    assert data["other_callers"] == 1 and data["gaps"] == 0 and data["skills"]["core-demo"]["f-model"]["other_callers"] == 1
+    assert es.evidence_problems(str(root))[0] == {}  # flagged, never refused
+
+
+def test_the_gaps_are_counted_over_every_skill_even_when_one_is_asked_for(root, repo):
+    other = skill(root, name="core-other")
+    versions(other, ("1.0.0", "new"))
+    community(repo, model="f-model", adapter="fh", run_number=1)
+    community(other, model="f-model", adapter="fh", run_number=3, date="2030-01-03")  # run 2 of the same fork's workflow is missing
+    commit(root)
+    one = es.all_status(str(root), "core-demo")["community"]
+    assert one["gaps"] == 1 and list(one["skills"]) == ["core-demo"]  # the run numbers are one count across the skills
+
+
+def test_a_manifest_without_the_runner_group_or_with_another_is_refused_and_the_pack_step_may_leave_it_out(root, repo):
+    path = community(repo)
+    full = json.loads(path.with_name(path.stem + ".manifest.json").read_text())
+    assert el.manifest_problems(full) == []
+    missing = {k: v for k, v in full.items() if k != "run_runner_group"}
+    assert any("missing key 'run_runner_group'" in p for p in el.manifest_problems(missing))
+    assert el.manifest_problems(missing, partial=True) == []
+    assert any("run_runner_group must be" in p for p in el.manifest_problems({**full, "run_runner_group": "Default"}))
+    other = community(repo, manifest_extra={"run_runner_group": "self-hosted"})
+    assert any("run_runner_group must be" in p for p in es.community_file_problems(str(other), str(root), "core-demo"))
 
 
 # --- community only: never releasing unattended work (D36) -------------------------------------------------

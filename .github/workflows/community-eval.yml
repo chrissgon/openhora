@@ -12,19 +12,23 @@
 #            test and packs the evidence file and a manifest. It has no identity token and cannot ask for one.
 #   `attest` is the only job with `id-token: write` and `attestations: write`. It checks out nothing and runs no
 #            code of any repository: it downloads the two files, compares their sha256 with what `run` reported,
-#            and attests them by digest. It never runs the model.
-# The caller must grant the permissions its job passes down (`contents: read`, `id-token: write`,
+#            reads this run attempt's jobs through the API to require that `run` ran in the runner group of GitHub's
+#            own runners (the attest job's certificate proves only its own runner), adds that group to the manifest
+#            and attests both files by digest. It never runs the model.
+# The caller must grant the permissions its job passes down (`contents: read`, `actions: read`, `id-token: write`,
 # `attestations: write`); a reusable workflow cannot hold more than its caller gives, and `run` asks for less.
 #
 # Which commit "this workflow's own commit" is. Inside a reusable workflow the `github` context is the CALLER's:
 # `github.sha`, `github.ref`, `github.repository` and `github.workflow_sha` all name the fork's commit and the fork's
 # workflow file, so none of them says which official code to check out (trusting them would run the fork's code
-# under the official identity). `github.job_workflow_sha` is the commit of the reusable workflow file itself, the
-# commit the caller wrote after `@`; it is the same value as the `job_workflow_sha` claim of the identity token and
-# the Build Signer Digest of the certificate the attestation gets, which scripts/verify_community.py binds to the
-# manifest's commit with --signer-digest. The repository to check out is not read from the context either: it is the
-# literal below, in the text of this file, which the attested commit fixes. A fork that edits the literal signs with
-# its own workflow, whose identity the verifier refuses.
+# under the official identity). `job.workflow_sha` is "the commit SHA of the workflow file that defines the current
+# job" (the contexts reference): for a job of a reusable workflow, the commit of the reusable file itself, the commit
+# the caller wrote after `@`. It is the same value as the `job_workflow_sha` claim of the identity token and the Build
+# Signer Digest of the certificate the attestation gets, which scripts/verify_community.py binds to the manifest's commit
+# with --signer-digest. (`github.job_workflow_sha` is not a property of the `github` context and reads as an empty
+# string: the run would check out the default branch.) The repository to check out is not read from the context either:
+# it is the literal below, in the text of this file, which the attested commit fixes. A fork that edits the literal signs
+# with its own workflow, whose identity the verifier refuses.
 #
 # Actions are pinned to a commit (tags can move); Dependabot proposes updates. There is no actions cache and no
 # setup action: the runner's own python3 and docker are used.
@@ -91,12 +95,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ env.OFFICIAL_REPOSITORY }}
-          ref: ${{ github.job_workflow_sha }}
+          ref: ${{ job.workflow_sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: The checkout is that commit, and the commit is in the history of main
         env:
-          WORKFLOW_SHA: ${{ github.job_workflow_sha }}
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
         run: |
           set -euo pipefail
           [[ "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "the commit of this workflow is unknown: refusing to run" >&2; exit 1; }
@@ -149,7 +153,7 @@ jobs:
           RUN_ATTEMPT: ${{ github.run_attempt }}
           RUN_NUMBER: ${{ github.run_number }}
           WORKFLOW_REF: ${{ github.workflow_ref }}
-          WORKFLOW_SHA: ${{ github.job_workflow_sha }}
+          WORKFLOW_SHA: ${{ job.workflow_sha }}
           WB_LOCAL_EVIDENCE_DIR: ${{ runner.temp }}/local-evidence
         run: |
           set -euo pipefail
@@ -179,8 +183,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     # The only job with an identity token. It checks out nothing and runs no code of any repository: it receives the
-    # two files and the digests `run` reported, compares them, and signs the digests.
+    # two files and the digests `run` reported, compares them, reads the runner group of `run` from the API (the caller
+    # grants `actions: read` for it), and signs the digests.
     permissions:
+      actions: read
       contents: read
       id-token: write
       attestations: write
@@ -189,8 +195,9 @@ jobs:
         with:
           name: community-evidence-files
           path: ${{ runner.temp }}/files
-      - name: The files are the ones the run job hashed; write the checksums to attest
+      - name: The run job ran on GitHub's own runners; add that to the manifest and write the checksums to attest
         env:
+          GH_TOKEN: ${{ github.token }}
           NAME: ${{ needs.run.outputs.name }}
           EVIDENCE_SHA256: ${{ needs.run.outputs.evidence_sha256 }}
           MANIFEST_SHA256: ${{ needs.run.outputs.manifest_sha256 }}
@@ -204,7 +211,19 @@ jobs:
           [ "$(sha256sum "$NAME.jsonl" | cut -d' ' -f1)" = "$EVIDENCE_SHA256" ] || { echo "the evidence file changed on the way" >&2; exit 1; }
           [ "$(sha256sum "$NAME.manifest.json" | cut -d' ' -f1)" = "$MANIFEST_SHA256" ] || { echo "the manifest changed on the way" >&2; exit 1; }
           [ "$(jq -r .evidence_sha256 "$NAME.manifest.json")" = "$EVIDENCE_SHA256" ] || { echo "the manifest names another evidence file" >&2; exit 1; }
-          printf '%s  %s\n%s  %s\n' "$EVIDENCE_SHA256" "$NAME.jsonl" "$MANIFEST_SHA256" "$NAME.manifest.json" > "$RUNNER_TEMP/checksums.txt"
+          # This job's own certificate shows this job's runner only. The job that ran the model is read from the API: this
+          # run attempt's jobs, the one named "lab test", whose runner group must be GitHub's own and whose label one of the two.
+          found="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}/jobs" \
+            --jq '.jobs[] | select(.name == "lab test" or (.name | endswith(" / lab test"))) | [.runner_group_name, (.labels | join(",")), .conclusion] | @tsv')"
+          [ -n "$found" ] && [ "$(printf '%s\n' "$found" | wc -l | tr -d ' ')" = 1 ] || { echo "expected exactly one job named lab test in this run attempt" >&2; exit 1; }
+          IFS=$'\t' read -r group labels conclusion <<< "$found"
+          [ "$group" = "GitHub Actions" ] || { echo "the job that ran the model was not in the runner group GitHub Actions: $group" >&2; exit 1; }
+          [ "$labels" = "ubuntu-24.04" ] || [ "$labels" = "ubuntu-24.04-arm" ] || { echo "unexpected runner labels: $labels" >&2; exit 1; }
+          [ "$conclusion" = "success" ] || { echo "the job that ran the model did not succeed: $conclusion" >&2; exit 1; }
+          jq -S --arg group "$group" '. + {run_runner_group: $group}' "$NAME.manifest.json" > "$NAME.manifest.json.new"
+          mv "$NAME.manifest.json.new" "$NAME.manifest.json"
+          manifest_sha="$(sha256sum "$NAME.manifest.json" | cut -d' ' -f1)"
+          printf '%s  %s\n%s  %s\n' "$EVIDENCE_SHA256" "$NAME.jsonl" "$manifest_sha" "$NAME.manifest.json" > "$RUNNER_TEMP/checksums.txt"
       - name: Attest the evidence file and its manifest
         id: attest
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2

@@ -251,7 +251,7 @@ def test_a_pull_request_adds_files_and_never_edits_or_deletes_committed_ones(wor
     # A change with no community file passes.
     clean = git(world.root, "rev-parse", "HEAD")
     code, summary = vc.run(str(world.root), OFFICIAL, "main", None, world.status, base=clean, gh=world.gh(), out=io.StringIO(), err=io.StringIO())
-    assert code == 0 and summary == {"verified": [], "refused": {}, "gaps": []}
+    assert code == 0 and summary == {"verified": [], "refused": {}, "gaps": [], "attempt_gaps": [], "other_callers": []}
 
 
 # --- gaps ---------------------------------------------------------------------------------------------------
@@ -267,9 +267,98 @@ def test_a_gap_in_the_run_numbers_is_a_warning_never_a_refusal(world):
     err = io.StringIO()
     code, summary = vc.run(str(world.root), OFFICIAL, "main", None, world.status, base=base, gh=world.gh(), out=io.StringIO(), err=err)
     assert code == 0
-    assert summary["gaps"] == [{"repository": "ana/openhora", "workflow": ".github/workflows/lab.yml", "missing": [2, 3]}]
+    assert summary["gaps"] == [{"repository": "ana/openhora", "workflow": ce.el.CALLER_WORKFLOW, "missing": [2, 3]}]
     assert "::warning::ana/openhora" in err.getvalue() and "#2, #3" in err.getvalue()
     assert es.all_status(str(world.root), "core-demo")["community"]["gaps"] == 2
+
+
+def test_a_missing_attempt_and_another_caller_workflow_are_warnings_too(world):
+    world.run_files(run_number=1, run_id=5001, attempt=1)
+    git(world.root, "add", "-A")
+    git(world.root, "commit", "-q", "-m", "first")
+    base = git(world.root, "rev-parse", "HEAD")
+    world.run_files(run_number=2, run_id=5002, attempt=2, date="2030-01-02")  # attempt 1 of run 2 is not submitted
+    world.run_files(run_number=1, repo_id=777, workflow=".github/workflows/other.yml", date="2030-01-03")
+    git(world.root, "add", "-A")
+    git(world.root, "commit", "-q", "-m", "more")
+    err = io.StringIO()
+    code, summary = vc.run(str(world.root), OFFICIAL, "main", None, world.status, base=base, gh=world.gh(), out=io.StringIO(), err=err)
+    assert code == 0
+    assert summary["attempt_gaps"] == [{"repository": "ana/openhora", "workflow": ce.el.CALLER_WORKFLOW, "run_id": 5002, "missing": [1]}]
+    assert summary["other_callers"] == [{"repository": "ana/openhora", "workflow": ".github/workflows/other.yml"}]
+    assert "without its attempt(s) 1" in err.getvalue() and "not the one file the guide names" in err.getvalue()
+
+
+# --- the attested runner group ------------------------------------------------------------------------------
+
+def test_a_manifest_without_the_runner_group_or_with_another_is_refused_before_any_attestation(world):
+    for extra in ({"run_runner_group": "Default"}, {"run_runner_group": ""}):
+        path = world.run_files(manifest_extra=extra)
+        code, summary, _, gh = world.verify(path)
+        assert code == 1 and "run_runner_group must be" in json.dumps(summary["refused"]) and gh.calls == []
+    path = world.run_files()
+    manifest = path.with_name(path.stem + ".manifest.json")
+    data = json.loads(manifest.read_text())
+    del data["run_runner_group"]
+    manifest.write_text(json.dumps(data))
+    world.bundle(path)
+    code, summary, _, gh = world.verify(path)
+    assert code == 1 and "missing key 'run_runner_group'" in json.dumps(summary["refused"]) and gh.calls == []
+
+
+# --- the minimum signing commit -----------------------------------------------------------------------------
+
+def test_a_signing_commit_older_than_the_minimum_or_off_the_first_parent_line_is_refused(world):
+    old = world.commit
+    (world.root / "later.txt").write_text("x")
+    git(world.root, "add", "-A")
+    git(world.root, "commit", "-q", "-m", "later")
+    newer = git(world.root, "rev-parse", "HEAD")
+    git(world.root, "checkout", "-q", "-b", "side")
+    (world.root / "side.txt").write_text("x")
+    git(world.root, "add", "-A")
+    git(world.root, "commit", "-q", "-m", "side")
+    side = git(world.root, "rev-parse", "HEAD")
+    git(world.root, "checkout", "-q", "main")
+    git(world.root, "merge", "-q", "--no-ff", "-m", "merge", "side")
+    # No minimum: any commit in the history of main signs, as before.
+    world.commit = old
+    assert world.verify(world.run_files(run_number=1))[0] == 0
+    # With a minimum, the older commit is refused, the minimum itself and a later one are accepted.
+    code, summary, _, gh = world.verify(world.run_files(run_number=2), minimum=newer)
+    assert code == 1 and "older than the minimum signing commit" in json.dumps(summary["refused"]) and gh.calls == []
+    world.commit = newer
+    assert world.verify(world.run_files(run_number=3), minimum=newer)[0] == 0
+    # A commit that reached main through a merge is in its history but not on its first-parent line.
+    world.commit = side
+    assert world.verify(world.run_files(run_number=4))[0] == 0
+    code, summary, _, _ = world.verify(world.run_files(run_number=5), minimum=newer)
+    assert code == 1 and "not on the first-parent line" in json.dumps(summary["refused"])
+
+
+def test_the_minimum_is_read_from_the_code_root_and_must_be_a_commit_or_null(tmp_path):
+    (tmp_path / "evals").mkdir()
+    assert vc.read_minimum(str(tmp_path)) == (None, None)
+    for body, ok in (('{"min_signing_commit": null}', True), ('{"min_signing_commit": "' + "a" * 40 + '"}', True),
+                     ('{"min_signing_commit": "main"}', False), ('{"min_signing_commit": null, "note": "x"}', False), ("[]", False), ("{", False)):
+        (tmp_path / "evals" / "community.json").write_text(body)
+        minimum, problem = vc.read_minimum(str(tmp_path))
+        assert (problem is None) is ok, body
+    assert json.loads((REPO / "evals" / "community.json").read_text()) == {"min_signing_commit": None}
+
+
+def test_the_strict_reading_uses_the_base_trees_gate_file_not_the_pull_requests(world, tmp_path):
+    path = world.run_files(run_number=1)
+    assert world.verify(path)[0] == 0
+    base_tree = tmp_path / "base-tree"
+    (base_tree / "evals").mkdir(parents=True)
+    gate = json.loads((world.root / "evals" / "eval-gate.json").read_text())
+    gate["runs"] = 5  # the base wants 5 runs; the pull request's own gate file says 3
+    gate["baseline_runs"] = 1
+    (base_tree / "evals" / "eval-gate.json").write_text(json.dumps(gate))
+    (base_tree / "skills").mkdir()
+    code, summary, _, gh = world.verify(path, ref_root=str(base_tree))
+    assert code == 1 and "configured number is 5" in json.dumps(summary["refused"]) and gh.calls == []
 
 
 # --- the command line ---------------------------------------------------------------------------------------

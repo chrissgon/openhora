@@ -149,12 +149,15 @@ def test_the_packed_files_pass_the_validators_the_pull_request_check_uses(tree, 
     assert data == {"record": "community-manifest", "repository": "ana/openhora", "repository_id": 111, "run_id": 222, "run_attempt": 1,
                     "run_number": 5, "workflow": ".github/workflows/lab.yml", "commit": commit, "skill": "core-demo", "model": FLASH,
                     "evidence_sha256": result["evidence_sha256"]}
-    assert es.EVIDENCE_LINES.manifest_problems(data) == []
+    assert es.EVIDENCE_LINES.manifest_problems(data, partial=True) == []
+    assert any("run_runner_group" in p for p in es.EVIDENCE_LINES.manifest_problems(data))  # the attestation job adds it
     # Placed in the skill's folder with a bundle, the trio is a valid community file, read strictly as a new one is.
     folder = repo / "evals" / "evidence"
     for name in result["files"]:
         (folder / name).write_bytes((out / name).read_bytes())
     (folder / "community-111-222-1.sigstore.json").write_text(json.dumps(ce.BUNDLE))
+    complete = folder / "community-111-222-1.manifest.json"
+    complete.write_text(json.dumps({**data, "run_runner_group": es.EVIDENCE_LINES.RUNNER_GROUP}, indent=2, sort_keys=True))
     assert es.community_file_problems(str(folder / "community-111-222-1.jsonl"), str(root), "core-demo", strict=True) == []
 
 

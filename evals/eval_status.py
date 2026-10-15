@@ -2302,20 +2302,23 @@ def community_strict_reading(root=ROOT):
     return {"models": set(known_models(cfg)), "runs": event_config(cfg)["runs"], "entries": entries}
 
 
-def community_file_problems(path, root=ROOT, skill=None, strict=False):
+def community_file_problems(path, root=ROOT, skill=None, strict=False, ref_root=None):
     """Why one community evidence file is not valid: the shape and the agreement of its three files
     (evidence_lines.community_file_problems), and the version file of the skill giving the event's content hash for
     its version (a skill edited locally is not evidence). strict=True reads it against the current gate file (a file
-    about to be added, or new against the base); a dict is the reading itself; None reads it by its own event line."""
+    about to be added, or new against the base); a dict is the reading itself; None reads it by its own event line.
+    ref_root is the tree the gate file and the version file are read from, default root: the pull request's check passes
+    the BASE commit's, so that a pull request cannot change the rules its own file is read by."""
+    ref_root = ref_root or root
     parts = os.path.normpath(os.path.abspath(path)).split(os.sep)
     if skill is None and len(parts) >= 5 and parts[-3:-1] == ["evals", "evidence"] and parts[-5] == "skills":
         skill = parts[-4]
-    reading = community_strict_reading(root) if strict is True else (strict or None)
+    reading = community_strict_reading(ref_root) if strict is True else (strict or None)
     problems = EVIDENCE_LINES.community_file_problems(path, root, skill, reading)
     if problems or skill is None:
         return problems
     event, _, _ = read_evidence_file(path)
-    lines, _, _ = read_versions(os.path.join(root, "skills", skill))
+    lines, _, _ = read_versions(os.path.join(ref_root, "skills", skill))
     if {l.get("version"): l.get("content_sha256") for l in lines}.get(event.get("version")) != event.get("content_sha256"):
         problems.append(f"line 1: content_sha256 is not the hash the version file gives for {event.get('version')}: "
                         "a locally edited skill is not evidence")
@@ -2345,7 +2348,7 @@ def community_gaps(manifests):
     """{(repository id, caller workflow): [missing run numbers]} over the manifests of valid community files, for the
     groups that have any. The run number of a workflow counts up from 1 in the fork, so a number between 1 and the highest
     one submitted that no file carries is a run that was not submitted (a failed run that wrote no evidence is one too):
-    a gap is flagged, never refused (decision D19). Attempts of one run share its number."""
+    a gap is flagged and never refused (decision D19). Attempts of one run share its number; see community_attempt_gaps."""
     seen = {}
     for m in manifests:
         seen.setdefault((m["repository_id"], m["workflow"]), set()).add(m["run_number"])
@@ -2355,6 +2358,32 @@ def community_gaps(manifests):
         if missing:
             gaps[key] = missing
     return gaps
+
+
+def community_attempt_gaps(manifests):
+    """{(repository id, caller workflow, run id): [missing attempts]} for the runs that have any: a run that was re-run is
+    several attempts, and one that submits the best attempt and not the earlier ones is cherry-picking by re-run. An attempt
+    between 1 and the highest one submitted of a run that no file carries is flagged, never refused."""
+    seen = {}
+    for m in manifests:
+        seen.setdefault((m["repository_id"], m["workflow"], m["run_id"]), set()).add(m["run_attempt"])
+    gaps = {}
+    for key, attempts in sorted(seen.items()):
+        missing = sorted(set(range(1, max(attempts) + 1)) - attempts)
+        if missing:
+            gaps[key] = missing
+    return gaps
+
+
+def community_other_callers(manifests):
+    """{(repository id, caller workflow): number of files} for the forks that used a caller workflow other than the one
+    file the guide names (evidence_lines.CALLER_WORKFLOW): the run numbers count per file, so another file is a count of its
+    own. Flagged, never refused."""
+    found = {}
+    for m in manifests:
+        if m["workflow"] != EVIDENCE_LINES.CALLER_WORKFLOW:
+            found[(m["repository_id"], m["workflow"])] = found.get((m["repository_id"], m["workflow"]), 0) + 1
+    return found
 
 
 def community_manifests(root, names=None):
@@ -2372,8 +2401,8 @@ def community_manifests(root, names=None):
 
 def community_pool(root, skill_dir, authors):
     """({model id: [(event line, run lines)]}, {model id: info}) of a skill's valid community files, the newest
-    COMMUNITY_CAP with-skill run lines of each contributor kept per model (the contributor is the author of the commit
-    that added the file: authors, evidence_authors; a file not yet committed is the contributor "(not committed)").
+    COMMUNITY_CAP with-skill run lines of each contributor kept per model (the contributor is the owner of the fork the
+    manifest names, which the attestation binds: several accounts or forks of one person remain a residual risk).
     A line dropped by the cap takes its place in the count of "capped"; the baseline lines of an event that keeps no
     with-skill line go with it. info: {"files", "contributors", "capped", "manifests"}."""
     skill = os.path.basename(os.path.normpath(skill_dir))
@@ -2386,9 +2415,9 @@ def community_pool(root, skill_dir, authors):
         manifest = community_manifest_of(path)
         if not pairs or manifest is None:
             continue
-        rel = os.path.relpath(path, root).replace(os.sep, "/")
         loaded.setdefault(pairs[0][0], []).append({
-            "event": event, "runs": [l for _, l in runs if all(k in l for k in RUN_REQUIRED)], "who": (authors or {}).get(rel, "(not committed)"),
+            "event": event, "runs": [l for _, l in runs if all(k in l for k in RUN_REQUIRED)],
+            "who": manifest["repository"].split("/")[0].lower(),  # the attested fork's owner, never a git author
             "manifest": manifest, "name": os.path.basename(path)})
     pool, info = {}, {}
     for model, files in sorted(loaded.items()):
@@ -2433,17 +2462,26 @@ def community_status(root, name, config, authors):
 
 
 def community_section(root, names, config, authors, rows):
-    """The "community" section of the status: {"computed", "cap", "gaps", "skills": {skill: {model id: figures}}}, or None
-    when no skill has a community file. "gaps" is the number of run numbers missing among all the files' runs, and each
-    model's figures carry the ones of the forks that contributed to it. "community_only" is true when the model's
-    community band is `reliable` and its lab band for the skill is not (no lab row, or any other band): such a pair is
-    reliable only through community evidence, which ranks and never releases unattended work. Without history to read the
-    contributors from (authors None) the figures are not computed; the gaps are, since they need none."""
-    manifests = community_manifests(root, names)
-    if not manifests:
+    """The "community" section of the status: {"computed", "cap", "gaps", "run_gaps", "attempt_gaps", "other_callers",
+    "skills": {skill: {model id: figures}}}, or None when none of the skills has a community file. The gaps are counted over
+    the manifests of EVERY skill, whatever `names` is (the run numbers of a fork's workflow are one count across the skills it
+    tested): "run_gaps" is the number of run numbers missing, "attempt_gaps" the number of attempts missing below the highest
+    one submitted of a run (cherry-picking by re-run), "gaps" their sum, and "other_callers" the number of files from a caller
+    workflow other than the one the guide names; each model's figures carry the ones of the forks that contributed to it.
+    "community_only" is true when the model's community band is `reliable` and its lab band for the skill is not (no lab row,
+    or any other band): such a pair is reliable only through community evidence, which ranks and never releases unattended
+    work. Without history to read the field verdicts from (authors None) the figures are not computed; the gaps are, since
+    they need none."""
+    everything = community_manifests(root)
+    if not any(skill in names for skill, _ in everything):
         return None
-    gaps = community_gaps([m for _, m in manifests])
-    section = {"computed": authors is not None, "cap": COMMUNITY_CAP, "gaps": sum(len(v) for v in gaps.values()), "skills": {}}
+    manifests = [m for _, m in everything]
+    run_gaps, attempt_gaps = community_gaps(manifests), community_attempt_gaps(manifests)
+    others = community_other_callers(manifests)
+    section = {"computed": authors is not None, "cap": COMMUNITY_CAP,
+               "gaps": sum(len(v) for v in run_gaps.values()) + sum(len(v) for v in attempt_gaps.values()),
+               "run_gaps": sum(len(v) for v in run_gaps.values()), "attempt_gaps": sum(len(v) for v in attempt_gaps.values()),
+               "other_callers": sum(others.values()), "skills": {}}
     if authors is None:
         return section
     lab = {r["skill"]: r["models"] for r in rows}
@@ -2453,7 +2491,9 @@ def community_section(root, names, config, authors, rows):
             continue
         for model, f in figures.items():
             mine = {(m["repository_id"], m["workflow"]) for m in info[model]["manifests"]}
-            f["gaps"] = sum(len(gaps.get(key, ())) for key in mine)
+            runs = {(m["repository_id"], m["workflow"], m["run_id"]) for m in info[model]["manifests"]}
+            f["gaps"] = sum(len(run_gaps.get(key, ())) for key in mine) + sum(len(attempt_gaps.get(key, ())) for key in runs)
+            f["other_callers"] = sum(1 for m in info[model]["manifests"] if m["workflow"] != EVIDENCE_LINES.CALLER_WORKFLOW)
             f["community_only"] = f["band"] == "reliable" and (lab.get(name, {}).get(model) or {}).get("band") != "reliable"
         section["skills"][name] = figures
     return section

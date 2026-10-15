@@ -21,7 +21,8 @@ or in the local evidence folder, WB_LOCAL_EVIDENCE_DIR), checks it, and writes i
 attestation will cover, named after the fork's run (community-<repository id>-<run id>-<run attempt>):
   .jsonl          the evidence file, its event line carrying the marker "source": "community" and nothing else changed;
   .manifest.json  {record, repository, repository_id, run_id, run_attempt, run_number, workflow, commit, skill, model,
-                  evidence_sha256}: what the run was, with no free text.
+                  evidence_sha256}: what the run was, with no free text. The attestation job adds "run_runner_group"
+                  (it reads the run's jobs through the API) before it attests the file.
 It checks that the file is complete, tests exactly the one model that was asked for (a floor model beside it would be
 a second model in a community file), came from the published eval image and passes the evidence validators; it
 checks that HEAD of the checkout is the commit it is given (the official workflow's own commit). It prints
@@ -191,7 +192,7 @@ def pack(root, skill, model, out, ids, workflow_ref, commit, local_base):
     manifest = {"record": "community-manifest", "repository": ids["repository"], "repository_id": int(ids["repository_id"]),
                 "run_id": int(ids["run_id"]), "run_attempt": int(ids["run_attempt"]), "run_number": int(ids["run_number"]),
                 "workflow": workflow_ref, "commit": commit, "skill": skill, "model": listed, "evidence_sha256": sha}
-    bad = lines.manifest_problems(manifest)
+    bad = lines.manifest_problems(manifest, partial=True)
     if bad:
         return None, [f"manifest: {p}" for p in bad]
     os.makedirs(out, exist_ok=True)

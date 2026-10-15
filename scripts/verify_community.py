@@ -13,7 +13,9 @@ failure of a file:
      listed model with a route, its entry's adapter, the configured number of runs, the published image), and the
      skill's version file gives the event's content hash for its version (eval_status.py community_file_problems);
   2. the commit of the manifest is in the history of main (git merge-base --is-ancestor <commit> <main ref>): the
-     official workflow that signed is a reviewed one;
+     official workflow that signed is a reviewed one; and, when the BASE commit's evals/community.json names a
+     "min_signing_commit", the signing commit is on main's first-parent line at that commit or after it (a workflow
+     found faulty is retired by raising the minimum, and evidence signed by an older one is refused);
   3. the attestation of the evidence file and of the manifest, against the one bundle, with the GitHub CLI:
        gh attestation verify <file> --bundle <bundle> --repo <the fork the manifest names>
          --cert-identity https://github.com/<official repo>/.github/workflows/community-eval.yml@<commit>
@@ -21,14 +23,20 @@ failure of a file:
      so the signer is the official workflow at exactly that commit (the signer digest is the commit the workflow checked
      the official code out at), the run was on a GitHub-hosted runner, the source repository is the fork, and the
      digest of each file is a subject of the bundle (the evidence file's digest equals the manifest's evidence_sha256, which
-     step 1 checked, and the manifest is attested with it).
+     step 1 checked, and the manifest is attested with it). The manifest carries "run_runner_group" (the attestation job read
+     the run's jobs through the API and required GitHub's own runner group); step 1 refuses a manifest without it.
 A file added by the change must be new: a community file that exists at the base with other bytes, or is deleted or renamed,
 is refused (committed evidence is never edited).
 
 Gaps. The run number of a workflow counts up from 1 in the fork. Among all the manifests of the checkout, a run number
-between 1 and the highest one of a fork's workflow that no file carries is a run that was not submitted; the script
-prints a warning for each such fork and workflow that the change touches, and the status shows the count as "gaps". A gap is
-flagged and never refused: a run that failed before writing evidence leaves one too.
+between 1 and the highest one of a fork's workflow that no file carries is a run that was not submitted, and so is an attempt
+between 1 and the highest one submitted of a run (best-of-several by re-run); a fork that used a caller workflow other than
+the one file the guide names is flagged too. The script prints a warning for each such fork and workflow that the change
+touches, and the status shows the count as "gaps". A gap is flagged and never refused: a run that failed before writing
+evidence leaves one too.
+
+The gate file and the version files that the strict reading uses come from --ref-root (the base commit's tree in a pull
+request's check, default --code-root), not from the pull request.
 
 The checkout is data: the evidence files are read and never run, and the code that reads them (this script and the evidence
 validators it loads) comes from --code-root, which a pull request's check points at the BASE commit, so that a change
@@ -130,7 +138,43 @@ def changed_files(root, base, git):
     return found
 
 
-def verify_file(root, rel, official, main_ref, status, gh=None, git=None, strict=True):
+def first_parent_problem(root, commit, main_ref, minimum, git=None):
+    """None when `commit` is on the first-parent line of `main_ref` at `minimum` or after it, else why not. No minimum, no
+    rule. The first-parent line is the sequence of merges into main: a commit of a side branch is not on it."""
+    if minimum is None:
+        return None
+    code, out = (git or run_git)(root, ["rev-list", "--first-parent", main_ref])
+    if code != 0:
+        return f"the first-parent line of {main_ref} cannot be listed (git exit {code}): fetch main with its history"
+    line = out.split()
+    if minimum not in line:
+        return f"the minimum signing commit {minimum} is not on the first-parent line of {main_ref}"
+    if commit not in line:
+        return f"the commit {commit} is not on the first-parent line of {main_ref}, where the minimum signing commit is"
+    if line.index(commit) > line.index(minimum):  # newest first: a larger index is older
+        return f"the commit {commit} is older than the minimum signing commit {minimum}: the workflow that signed it was retired"
+    return None
+
+
+def read_minimum(code_root):
+    """(the minimum signing commit or None, why the file cannot be used or None) from <code_root>/evals/community.json."""
+    path = os.path.join(code_root, "evals", "community.json")
+    if not os.path.isfile(path):
+        return None, None
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError) as e:
+        return None, f"{path} cannot be read: {e}"
+    ok = isinstance(data, dict) and set(data) == {"min_signing_commit"} and (
+        data["min_signing_commit"] is None or (isinstance(data["min_signing_commit"], str)
+                                              and re.fullmatch(r"[0-9a-f]{40}", data["min_signing_commit"])))
+    if not ok:
+        return None, f"{path} must be an object with the one key min_signing_commit: null or 40 hexadecimal characters"
+    return data["min_signing_commit"], None
+
+
+def verify_file(root, rel, official, main_ref, status, gh=None, git=None, strict=True, ref_root=None, minimum=None):
     """[problems] of one community evidence file (a path relative to root): empty when it passes the three checks. strict
     reads a new file against the current gate file; a file already merged is read by its own event line."""
     m = PATH_RE.fullmatch(rel)
@@ -138,13 +182,13 @@ def verify_file(root, rel, official, main_ref, status, gh=None, git=None, strict
         return [f"{rel} is not a community evidence file"]
     skill, stem = m.group(1), m.group(2)
     path = os.path.join(root, rel)
-    problems = status.community_file_problems(path, root, skill, strict=strict)
+    problems = status.community_file_problems(path, root, skill, strict=strict, ref_root=ref_root)
     if problems:
         return problems
     manifest_path = os.path.join(root, os.path.dirname(rel), stem + ".manifest.json")
     with open(manifest_path, encoding="utf-8") as f:
         manifest = json.load(f)
-    why = in_history(root, manifest["commit"], main_ref, git)
+    why = in_history(root, manifest["commit"], main_ref, git) or first_parent_problem(root, manifest["commit"], main_ref, minimum, git)
     if why:
         return [why]
     bundle = os.path.join(root, os.path.dirname(rel), stem + ".sigstore.json")
@@ -155,7 +199,8 @@ def verify_file(root, rel, official, main_ref, status, gh=None, git=None, strict
     return []
 
 
-def run(root, official, main_ref, files, status, base=None, gh=None, git=None, out=None, err=None, strict=True):
+def run(root, official, main_ref, files, status, base=None, gh=None, git=None, out=None, err=None, strict=True, ref_root=None,
+        minimum=None):
     """Verify the files (paths relative to root, or the change against `base` when `files` is None); (exit code, summary)."""
     out, err = out or sys.stdout, err or sys.stderr
     git = git or run_git
@@ -169,7 +214,7 @@ def run(root, official, main_ref, files, status, base=None, gh=None, git=None, o
         elif rel.endswith(".jsonl"):
             checked.append(rel)
     for rel in checked:
-        problems = verify_file(root, rel, official, main_ref, status, gh, git, strict)
+        problems = verify_file(root, rel, official, main_ref, status, gh, git, strict, ref_root, minimum)
         if problems:
             refused[rel] = problems
         else:
@@ -180,16 +225,29 @@ def run(root, official, main_ref, files, status, base=None, gh=None, git=None, o
         if manifest:
             touched.add((manifest["repository_id"], manifest["workflow"]))
             names[manifest["repository_id"]] = manifest["repository"]
-    gaps = {k: v for k, v in status.community_gaps([m for _, m in status.community_manifests(root)]).items() if k in touched}
+    manifests = [m for _, m in status.community_manifests(root)]
+    gaps = {k: v for k, v in status.community_gaps(manifests).items() if k in touched}
+    attempts = {k: v for k, v in status.community_attempt_gaps(manifests).items() if k[:2] in touched}
+    others = {k: v for k, v in status.community_other_callers(manifests).items() if k in touched}
+    who = lambda repository_id: names.get(repository_id, repository_id)
     for (repository_id, workflow), missing in gaps.items():
         shown = ", ".join(f"#{n}" for n in missing[:20]) + (" ..." if len(missing) > 20 else "")
-        print(f"::warning::{names.get(repository_id, repository_id)}: the runs of {workflow} numbered {shown} are not submitted: "
+        print(f"::warning::{who(repository_id)}: the runs of {workflow} numbered {shown} are not submitted: "
               "every completed run of the fork's workflow is to be submitted (a gap is flagged, not refused)", file=err)
+    for (repository_id, workflow, run_id), missing in attempts.items():
+        print(f"::warning::{who(repository_id)}: run {run_id} of {workflow} was submitted without its attempt(s) "
+              f"{', '.join(str(n) for n in missing)}: every attempt below the highest one submitted is to be submitted too "
+              "(a gap is flagged, not refused)", file=err)
+    for (repository_id, workflow) in others:
+        print(f"::warning::{who(repository_id)}: the caller workflow is {workflow}, not the one file the guide names "
+              "(its run numbers count apart); flagged, not refused", file=err)
     for rel, problems in refused.items():
         for p in problems:
             print(f"::error file={rel}::{p}", file=err)
     summary = {"verified": verified, "refused": refused,
-               "gaps": [{"repository": names.get(k[0], str(k[0])), "workflow": k[1], "missing": v} for k, v in gaps.items()]}
+               "gaps": [{"repository": who(k[0]), "workflow": k[1], "missing": v} for k, v in gaps.items()],
+               "attempt_gaps": [{"repository": who(k[0]), "workflow": k[1], "run_id": k[2], "missing": v} for k, v in attempts.items()],
+               "other_callers": [{"repository": who(k[0]), "workflow": k[1]} for k in others]}
     print(json.dumps(summary, indent=2), file=out)
     return (1 if refused else 0), summary
 
@@ -199,6 +257,8 @@ def main(argv):
     parser.add_argument("--root", required=True, help="the checkout that holds the evidence files (data)")
     parser.add_argument("--official-repo", default=os.environ.get("GITHUB_REPOSITORY", ""), help="owner/name of the official repository")
     parser.add_argument("--code-root", default=os.path.dirname(HERE), help="the checkout whose evidence validators are loaded")
+    parser.add_argument("--ref-root", default=None, help="the tree the gate file and the version files are read from "
+                        "(default --code-root: the base commit's, in a pull request's check)")
     parser.add_argument("--main-ref", default="origin/main", help="the ref whose history the signing commit must be in")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--base", help="verify the community files this change adds against that commit")
@@ -210,13 +270,18 @@ def main(argv):
         return 2
     root = os.path.abspath(args.root)
     status = load_status(os.path.abspath(args.code_root))
+    minimum, problem = read_minimum(os.path.abspath(args.code_root))
+    if problem:
+        print(f"verify_community: {problem}", file=sys.stderr)
+        return 2
     files = None
     if args.all:
         files = [os.path.relpath(p, root).replace(os.sep, "/") for name in status.skill_names(root)
                  for p in status.community_files(os.path.join(root, "skills", name))]
     elif args.files:
         files = [f.replace(os.sep, "/") for f in args.files]
-    code, _ = run(root, args.official_repo, args.main_ref, files, status, base=args.base, strict=not args.all)
+    code, _ = run(root, args.official_repo, args.main_ref, files, status, base=args.base, strict=not args.all,
+                  ref_root=os.path.abspath(args.ref_root or args.code_root), minimum=minimum)
     return code
 
 

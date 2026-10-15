@@ -141,7 +141,14 @@ COMMUNITY_FILE_RE = re.compile(r"community-([0-9]{1,20})-([0-9]{1,20})-([0-9]{1,
 # The manifest of a community run says what the run was. It is attested with the evidence file (one attestation, two
 # subjects), so its values are the workflow's and not the contributor's. No free text: every value has a form below.
 MANIFEST_KEYS = ("record", "repository", "repository_id", "run_id", "run_attempt", "run_number", "workflow", "commit",
-                 "skill", "model", "evidence_sha256")
+                 "skill", "model", "evidence_sha256", "run_runner_group")
+# "run_runner_group" is added by the attestation job, which reads this run attempt's jobs through the API and requires the
+# `run` job to have run in the group of GitHub's own runners: the one proof, beside the attest job's own certificate, that
+# the job that ran the model was not on a self-hosted runner. The pack step writes the manifest without it (partial).
+RUNNER_GROUP = "GitHub Actions"
+# The one file name a fork's caller workflow has; a manifest that names another is flagged (the run numbers of a
+# workflow count per file, so one file per fork keeps the count whole).
+CALLER_WORKFLOW = ".github/workflows/openhora-community.yml"
 REPOSITORY_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}")
 WORKFLOW_PATH_RE = re.compile(r"\.github/workflows/[A-Za-z0-9._-]{1,100}\.ya?ml")
 COMMIT_RE = re.compile(r"[0-9a-f]{40}")
@@ -565,11 +572,13 @@ def community_ids(name):
     return (int(m.group(1)), int(m.group(2)), int(m.group(3)), m.group(4)) if m else None
 
 
-def manifest_problems(manifest):
-    """Why a community manifest is outside its closed form (MANIFEST_KEYS); [] when it is valid."""
+def manifest_problems(manifest, partial=False):
+    """Why a community manifest is outside its closed form (MANIFEST_KEYS); [] when it is valid. partial leaves out
+    "run_runner_group", which the attestation job adds: only the pack step reads a manifest that way."""
     if not isinstance(manifest, dict):
         return ["must be a JSON object"]
-    out = _keys(manifest, MANIFEST_KEYS, ())
+    keys = tuple(k for k in MANIFEST_KEYS if not (partial and k == "run_runner_group"))
+    out = _keys(manifest, keys, ())
     if out:
         return out
     bad = lambda key, form: out.append(f"{key} must be {form}")
@@ -590,6 +599,9 @@ def manifest_problems(manifest):
         bad("model", "a well-formed model id")
     if not _is(HEX64_RE, manifest["evidence_sha256"]):
         bad("evidence_sha256", "64 hexadecimal characters")
+    if not partial and manifest["run_runner_group"] != RUNNER_GROUP:
+        bad("run_runner_group", f"\"{RUNNER_GROUP}\", the runner group of GitHub's own runners: the job that ran the model "
+            "was not shown to be on one")
     return out
 
 

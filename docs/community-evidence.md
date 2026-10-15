@@ -19,10 +19,10 @@ A contributor can test a skill on a model the maintainer has not tested, with th
 
 ## The caller
 
-Add this file to your fork as `.github/workflows/lab.yml` (any one file name, kept for good: see "Every completed run"). Replace `<owner>/<repo>` with the official repository and `<sha>` with the 40-character commit of its `main` you chose.
+Add this file to your fork as `.github/workflows/openhora-community.yml`, the one file name the check expects (the run numbers of a workflow count per file, so one file keeps the count whole; a fork that used another is flagged, and the manifest records the path). Keep it for good: see "Submitting". Replace `<owner>/<repo>` with the official repository and `<sha>` with the 40-character commit of its `main` you chose.
 
 ```yaml
-name: lab
+name: openhora-community
 on:
   workflow_dispatch:
     inputs:
@@ -43,8 +43,9 @@ permissions:
 jobs:
   test:
     # The called workflow cannot hold more than this job gives. Its model-running job asks for contents: read only;
-    # only its attestation job uses the other two.
+    # only its attestation job uses the other three (actions: read, to read which runner the model-running job had).
     permissions:
+      actions: read
       contents: read
       id-token: write
       attestations: write
@@ -59,41 +60,46 @@ jobs:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 ```
 
-The workflow's other input is `arch` (`amd64`, the default, or `arm64`; evidence from either is accepted) and `adapter`, which only makes the run refuse an adapter other than the one the model's entry names. You can run it from the Actions tab, or with `gh workflow run lab.yml -f skill=<name> -f model=<id> -f full=true`.
+The workflow's other input is `arch` (`amd64`, the default, or `arm64`; evidence from either is accepted) and `adapter`, which only makes the run refuse an adapter other than the one the model's entry names. You can run it from the Actions tab, or with `gh workflow run openhora-community.yml -f skill=<name> -f model=<id> -f full=true`.
 
 ## What the workflow does
 
 Two jobs, and the line between them is the point:
 
-1. **`run`** has `contents: read` and nothing else. It checks out **this** repository, never the caller's code, at the commit of the reusable workflow file itself, which is `github.job_workflow_sha`: inside a reusable workflow the `github` context is the caller's, so `github.sha` and `github.workflow_sha` name your fork's commit and would run your code under the official identity; `job_workflow_sha` is the commit you wrote after `@`, the same value as the Build Signer Digest of the certificate. The repository to check out is a literal in the attested file. It checks the checkout is exactly that commit and that the commit is in the history of `main`, checks the request and the keys, pulls the published eval image by the digest of the lock file (`python3 scripts/image_lock.py pull`), runs `python3 evals/eval_run.py` for one skill and one model, and packs the evidence file and a manifest (`scripts/community_pack.py`). There is no actions cache and no setup action.
-2. **`attest`** is the only job with `id-token: write` and `attestations: write`. It checks out nothing and runs no code of any repository: it downloads the two files, compares their sha256 with what `run` reported, and attests both by digest in one bundle. It never runs the model.
+1. **`run`** has `contents: read` and nothing else. It checks out **this** repository, never the caller's code, at the commit of the reusable workflow file itself, which is `job.workflow_sha` ("the commit SHA of the workflow file that defines the current job", in the contexts reference): inside a reusable workflow the `github` context is the caller's, so `github.sha` and `github.workflow_sha` name your fork's commit and would run your code under the official identity; `job.workflow_sha` is the commit you wrote after `@`, the same value as the `job_workflow_sha` claim of the identity token and the Build Signer Digest of the certificate. (`github.job_workflow_sha` is not a property of the `github` context and reads as an empty string.) The repository to check out is a literal in the attested file. It checks the checkout is exactly that commit and that the commit is in the history of `main`, checks the request and the keys, pulls the published eval image by the digest of the lock file (`python3 scripts/image_lock.py pull`), runs `python3 evals/eval_run.py` for one skill and one model, and packs the evidence file and a manifest (`scripts/community_pack.py`). There is no actions cache and no setup action.
+2. **`attest`** is the only job with `id-token: write` and `attestations: write`. It checks out nothing and runs no code of any repository: it downloads the two files, compares their sha256 with what `run` reported, and reads this run attempt's jobs through the API (`actions: read`). The certificate of the attestation shows only the runner of the attest job itself, so it requires the job that ran the model (`lab test`) to have run in the runner group `GitHub Actions` with one of the labels `ubuntu-24.04` and `ubuntu-24.04-arm`, and to have succeeded. It adds `"run_runner_group": "GitHub Actions"` to the manifest and attests both files by digest in one bundle. It never runs the model.
 
-You get the artifact `community-evidence`: three files named after the run, `community-<repository id>-<run id>-<attempt>.jsonl` (the evidence), `.manifest.json` (the repository, the run id and number, the caller's workflow path, the official commit, the skill, the model and the evidence's sha256: no free text) and `.sigstore.json` (the bundle). The event line of the evidence file carries `"source": "community"`.
+You get the artifact `community-evidence`: three files named after the run, `community-<repository id>-<run id>-<attempt>.jsonl` (the evidence), `.manifest.json` (the repository, the run id, attempt and number, the caller's workflow path, the official commit, the skill, the model, the evidence's sha256 and the runner group: no free text) and `.sigstore.json` (the bundle). The event line of the evidence file carries `"source": "community"`.
 
 ## Submitting
 
 1. Download the artifact and copy the three files into `skills/<skill>/evals/evidence/` of a branch of your fork, and open a pull request to this repository. Do not edit them: a file that differs from what was attested fails the check, and a committed community file is never edited.
 2. `python3 evals/eval_status.py evidence --file skills/<skill>/evals/evidence/community-<...>.jsonl` checks the shape and the agreement of the three files, offline. `python3 scripts/verify_community.py --root . --official-repo <owner>/<repo> --files skills/<skill>/evals/evidence/community-<...>.jsonl` runs the whole check, with the GitHub CLI, as CI does.
-3. **Every completed run of your fork's workflow is submitted.** The run number of a workflow counts up from 1, so a number that no file carries is a run that was not submitted, and the check flags it: a warning in the pull request and a count of `gaps` in the status. A gap is never a refusal (a run that failed before it wrote anything leaves one too), and a reviewer can look at the fork's Actions page. Keep one caller file and do not delete runs: another caller file has a count of its own, and a deleted run is a gap. Submitting only the runs that came out well is the cherry-picking this rule exists to show.
+3. **Every completed run of your fork's workflow is submitted, with every attempt.** The run number of a workflow counts up from 1, so a number that no file carries is a run that was not submitted; a run that was re-run has several attempts, so an attempt below the highest one submitted that no file carries is flagged too (re-running until a run comes out well and submitting that attempt alone is cherry-picking by re-run). The check flags both: a warning in the pull request and a count of `gaps` in the status (`run_gaps` and `attempt_gaps` apart). A caller workflow other than `.github/workflows/openhora-community.yml` is flagged as well (`other_callers`). A gap is never a refusal (a run that failed before it wrote anything leaves one too), and a reviewer can look at the fork's Actions page. Keep one caller file and do not delete runs: a deleted run is a gap, and a new fork starts its numbering again from 1 (residual: see below). Submitting only the runs that came out well is the cherry-picking this rule exists to show.
 
 ## What the check verifies
 
-`.github/workflows/community-verify.yml` runs on every pull request, under `pull_request` (never `pull_request_target`), with `contents: read` and no secret. The pull request's files are data. The script that reads them, `scripts/verify_community.py`, is the **base commit's**, read with `git show`, and the evidence validators it loads come from a checkout of the base commit, so a change cannot weaken its own check. For each added community file:
+`.github/workflows/community-verify.yml` runs on every pull request, under `pull_request` (never `pull_request_target`), with `contents: read` and no secret. The pull request's files are data. The script that reads them, `scripts/verify_community.py`, is the **base commit's**, read with `git show`, and the evidence validators it loads, the gate file, the version files and `evals/community.json` come from a checkout of the base commit, so a change cannot weaken its own check or the rules its own files are read by. The pull request that adds the verifier itself runs its own copy; any other pull request that adds community files where the base has no verifier fails. For each added community file:
 
-1. The shape, with the evidence validators read strictly: the three files agree (the name's ids, the manifest, the sha256), the event is a community event of one model that is listed with a route, through its entry's adapter, with the configured number of runs, from the published image; the skill's version file gives the event's content hash for its version.
-2. The signing commit is in the history of `main` (`git merge-base --is-ancestor`).
+1. The shape, with the evidence validators read strictly: the three files agree (the name's ids, the manifest, the sha256), the manifest carries `"run_runner_group": "GitHub Actions"`, the event is a community event of one model that is listed with a route, through its entry's adapter, with the configured number of runs, from the published image; the skill's version file gives the event's content hash for its version (the gate file and the version file of the base commit).
+2. The signing commit is in the history of `main` (`git merge-base --is-ancestor`) and, when `evals/community.json` of the base names a `min_signing_commit`, on `main`'s first-parent line at that commit or after it. The maintainer raises the minimum to retire a workflow found faulty: evidence signed by an older one is refused.
 3. `gh attestation verify` of the evidence file and of the manifest against the bundle, with `--cert-identity https://github.com/<owner>/<repo>/.github/workflows/community-eval.yml@<commit>`, `--signer-digest <commit>`, `--deny-self-hosted-runners` and `--repo <the fork the manifest names>`: the signer is the official workflow at exactly that commit, on a GitHub-hosted runner, in that fork, and each file's digest is a subject of the bundle.
 
 A community file that is edited, deleted or renamed after it is merged is refused.
 
 ## The cap and the other protections
 
-- One contributor (the author of the commit that added a file, read from git and stored nowhere) adds at most `COMMUNITY_CAP` (30, in `evals/eval_status.py`) lines with the skill to the community column of one skill and one model: the newest are kept; the status says how many were `capped`.
+- One contributor (the owner of the fork the manifest names, which the attestation binds; not the author of a commit) adds at most `COMMUNITY_CAP` (30, in `evals/eval_status.py`) lines with the skill to the community column of one skill and one model: the newest are kept; the status says how many were `capped`.
 - The pessimistic score falls with little evidence, so a few runs never make a pair `reliable`.
 - Three `failed` field verdicts demote a pair.
 - The provider and the model's pin live in the attested code (the key proxy's route of the model's entry), so a fake server cannot produce an attested line.
 
-What the design cannot remove: running a model several times and submitting one run (the gaps flag it; the cap and the score limit it), and the provider's honesty about the model it served (not checkable, and published as such).
+What the design cannot remove, stated and not hidden:
+
+- Running a model several times and submitting one run (the gaps in run numbers flag it; the cap and the score limit it), or re-running one run and submitting the best attempt (the gaps in attempts flag it).
+- A new fork resets the numbering: a contributor who abandons a fork with unfavourable runs and starts another begins at run 1 again with nothing to compare. Several accounts and several forks of one person are several contributors to the cap.
+- The contributor controls both accounts, the model's provider account and the grader's, and their account-level settings (what the provider serves, rate limits, a cheaper model behind an alias). The provider's honesty about the model it served is not checkable, and is published as such.
+- Today only the reference model can produce evidence that is not a trial: every grading goes through the strong slot's adapter until the grader has an entry of its own in the gate file (the package that gives it one lifts this).
 
 ## For the maintainer
 
@@ -103,4 +109,5 @@ These steps cannot be done from a pull request, and the workflows cannot be exer
 - Mark the `community-verify` check as required before a merge. It has no path filter so that it can be.
 - `OFFICIAL_REPOSITORY` at the top of `community-eval.yml` is the repository the workflow checks out. If the repository moves, change it in the same pull request.
 - Until a grader has an entry of its own in the gate file, every grading goes through the strong slot's adapter, so a community run of a model whose adapter is not the grader's is a trial and writes no evidence; the workflow then stops at the pack step with "found 0". The package that gives the grader its own entry lifts this.
-- A first real run decides the points this repository could not verify: that `github.job_workflow_sha` has the value the text above says, and the shape of the certificate that `gh attestation verify` checks.
+- `evals/community.json` holds `min_signing_commit`, `null` at first. After the workflow is merged and a first real run has shown it right, set it to the merge commit of the workflow; raise it whenever a workflow is found faulty. The caller must grant `actions: read` for the attestation job to read the run job's runner group.
+- A first real run decides the points this repository could not verify: that `job.workflow_sha` has the value the text above says, the shape of the jobs answer of the API (`runner_group_name`, `labels`, `conclusion`) and the certificate that `gh attestation verify` checks.
