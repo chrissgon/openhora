@@ -261,7 +261,7 @@ def test_the_page_is_one_policy_safe_html_document_with_the_library_and_its_own_
 
 def test_every_client_function_the_screens_call_exists_and_the_city_only_reads():
     exported = set(re.findall(r"^export (?:async )?function (\w+)", CLIENT.read_text(encoding="utf-8"), re.M))
-    writes = {"answer", "release", "approve", "reject", "request", "route", "cancel", "retry", "handOver", "verdict", "setMode", "setModel", "say", "sync", "dispatch"}
+    writes = {"answer", "release", "approve", "reject", "request", "route", "cancel", "retry", "handOver", "verdict", "setMode", "setModel", "giveConsent", "say", "sync", "dispatch"}
     used = {}
     used_outside_floor = {}
     for path in own_files():
@@ -342,7 +342,7 @@ def test_the_building_and_the_floor_are_files_of_the_page_and_the_page_routes_to
 def test_only_the_floor_folder_sends_a_write_and_it_takes_every_write_from_one_object():
     # ADJ-I2: `goAhead` (a task that waits) and `route` (the unrecognised-route card routes a request with a flow) are writes; `flows` is the one read the
     # same object carries, for the flow list of that card.
-    writes = {"answer", "release", "approve", "reject", "verdict", "cancel", "setMode", "setModel", "retry", "handOver", "goAhead", "route"}
+    writes = {"answer", "release", "approve", "reject", "verdict", "cancel", "setMode", "setModel", "giveConsent", "retry", "handOver", "goAhead", "route"}
     reads = {"pollJob", "flows"}
     actions = (INTERFACE / "js" / "floor" / "actions.js").read_text(encoding="utf-8")
     assert set(re.findall(r"^\s+(\w+): api\.(\w+),$", actions, re.M)) == {(w, w) for w in writes | reads}, "actions.js names each write once"
@@ -451,7 +451,7 @@ def test_the_lobbys_tabs_are_the_floors_modules_with_no_card_of_their_own_and_no
     assert 'from "../floor/viewer.js"' in texts["views/lobby-desk.js"] and 'from "../floor/desk-tab.js"' not in texts["views/lobby-desk.js"], \
         "R-47: the Lobby's Desk builds its own list of two-line rows and shows a document in the Floor's viewer"
     assert 'from "../floor/agent-tab.js"' in texts["views/lobby-agent.js"] and 'from "../floor/actions.js"' in texts["views/lobby-agent.js"]
-    writes = {"answer", "release", "approve", "reject", "request", "route", "cancel", "retry", "handOver", "verdict", "setMode", "setModel", "say", "sync", "dispatch"}
+    writes = {"answer", "release", "approve", "reject", "request", "route", "cancel", "retry", "handOver", "verdict", "setMode", "setModel", "giveConsent", "say", "sync", "dispatch"}
     for name, text in texts.items():
         assert not (set(re.findall(r"\bapi\.(\w+)\(", text)) & writes), f"{name} sends no write: the Floor's modules do, through floor/actions.js"
         assert not re.search(r"\bfetch\(|createCard\(|createPlanCard\(", text), f"{name} has no client and no card of its own"
@@ -482,7 +482,7 @@ def test_the_lobbys_tabs_link_only_through_the_router_and_the_floors_modules_cha
 
 
 def test_no_lobby_module_takes_a_write_out_of_the_client_by_name_or_by_destructuring():
-    writes = {"answer", "release", "approve", "reject", "request", "route", "cancel", "retry", "handOver", "verdict", "setMode", "setModel", "say", "sync", "dispatch"}
+    writes = {"answer", "release", "approve", "reject", "request", "route", "cancel", "retry", "handOver", "verdict", "setMode", "setModel", "giveConsent", "say", "sync", "dispatch"}
     for path in sorted((INTERFACE / "js" / "views").glob("lobby*.js")):
         text = path.read_text(encoding="utf-8")
         for names in re.findall(r"import\s*\{([^}]*)\}\s*from\s*[\"'][./]*api\.js[\"']", text):

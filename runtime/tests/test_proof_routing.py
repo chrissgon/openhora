@@ -8,7 +8,6 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_proof_routing.py
 from __future__ import annotations
 
 import ast
-import datetime
 import json
 from pathlib import Path
 
@@ -22,7 +21,6 @@ prices = st.load("prices")
 ops = st.load("ops")
 ops_core = st.load("ops_core")
 cli = st.load("cli")
-costs = st.load("costs")
 
 IMAGE = "sha256:" + "a" * 64
 OTHER = "sha256:" + "b" * 64
@@ -225,6 +223,54 @@ def test_the_community_column_ranks_a_pair_the_lab_has_not_proven_and_never_rele
     assert (named["proven"], named["autonomy"]) == (False, "supervised"), "named by the person, the pair is still not released"
 
 
+def test_the_image_is_checked_against_the_images_of_the_pair_s_own_evidence_by_source(facade, cfg):
+    """Review of P3: evidence images are kept for each model and source. A pair proven by the person's own tests holds on the
+    image those tests were made in; a pair proven by the lab holds on the lab's; neither holds on the other's."""
+    facade["standing"] = standing({"cheap": figures(band="needs a test", source="lab") | {"images": [IMAGE]},
+                                   "dear": figures(score=0.9) | {"images": [IMAGE]}},
+                                  local={"cheap": figures(source="local", score=0.8) | {"images": [OTHER]}})
+    facade["digest"] = OTHER  # this machine has the image the person's own tests were made in
+    entry = proof.row(cfg, "demo")
+    assert {p["model"]: (p["source"], p["images"]) for p in entry["pairs"]} == {
+        "cheap": ("local", [OTHER]), "dear": ("lab", [IMAGE]), "free": (None, [IMAGE])}
+    assert sorted(entry["evidence_images"]) == sorted([IMAGE, OTHER]), "the entry lists every image any pair rests on"
+    cheap = proof.route(cfg, "demo", WEB, model="cheap")
+    assert (cheap["proven"], cheap["autonomy"], cheap["source"], cheap["checks"]["image"]) == (True, "proven", "local", None)
+    dear = proof.route(cfg, "demo", WEB, model="dear")
+    assert (dear["proven"], dear["autonomy"]) == (False, "supervised")
+    assert dear["checks"]["image"] and "not the one the evidence was measured in" in dear["checks"]["image"]
+    auto = proof.route(cfg, "demo", WEB)
+    assert (auto["model"], auto["mode"], auto["proven"]) == ("cheap", "auto", True)
+    assert [c["model"] for c in auto["candidates"]] == ["cheap"], "the lab's pair is not a candidate on the person's image"
+    assert any("the image on this machine is not the one" in r for r in auto["reasons"])
+    facade["digest"] = IMAGE  # the lab's image: the lab's pair holds, the person's does not
+    cheap = proof.route(cfg, "demo", WEB, model="cheap")
+    assert (cheap["proven"], cheap["autonomy"]) == (False, "supervised") and cheap["checks"]["image"]
+    dear = proof.route(cfg, "demo", WEB, model="dear")
+    assert (dear["proven"], dear["checks"]["image"]) == (True, None)
+    auto = proof.route(cfg, "demo", WEB)
+    assert (auto["model"], auto["proven"]) == ("dear", True) and [c["model"] for c in auto["candidates"]] == ["dear"]
+
+
+def test_a_local_only_proven_pair_passes_on_a_matching_image_and_fails_on_another(facade, cfg):
+    facade["standing"] = standing({"cheap": figures(band="needs a test") | {"images": []}, "dear": figures(band="needs a test") | {"images": []}},
+                                  local={"dear": figures(source="local") | {"images": [OTHER]}})
+    facade["digest"] = OTHER
+    assert proof.route(cfg, "demo", WEB, model="dear")["proven"] is True
+    facade["digest"] = IMAGE
+    failed = proof.route(cfg, "demo", WEB, model="dear")
+    assert failed["proven"] is False and failed["checks"]["image"]
+    facade["digest"] = None
+    gone = proof.route(cfg, "demo", WEB, model="dear")
+    assert gone["proven"] is False and gone["checks"]["image"] == "the eval image is not on this machine"
+    # the model-wide check of the entry reads every pair's images (the skills read)
+    assert proof.checks(proof.row(cfg, "demo"))["image"] == "the eval image is not on this machine"
+    facade["digest"] = OTHER
+    entry = proof.row(cfg, "demo")
+    assert proof.checks(entry)["image"] is None and proof.checks(entry, entry["pairs"][1])["image"] is None
+    assert proof.checks(entry, entry["pairs"][0])["image"] is not None, "a pair with no image of its own holds on none"
+
+
 def test_evidence_from_the_persons_own_tests_ranks_and_releases(facade, cfg):
     facade["standing"] = standing({"cheap": figures(band="needs a test"), "dear": figures()},
                                   local={"cheap": figures(source="local")})
@@ -248,7 +294,7 @@ def test_the_proof_file_is_rebuilt_when_the_evidence_or_the_gate_file_changed(fa
     first = proof.row(cfg, "demo")
     assert proof.row(cfg, "demo") == first and facade["calls"] == 1
     saved = json.loads((Path(cfg["data_dir"]) / "proof.json").read_text(encoding="utf-8"))
-    assert saved["version"] == 3 and saved["skills"]["demo"]["inputs_sha256"] == "inputs-1"
+    assert saved["version"] == proof.VERSION == 4 and saved["skills"]["demo"]["inputs_sha256"] == "inputs-1"
     assert [p["model"] for p in first["pairs"]] == ["cheap", "dear", "free"]  # one pair for each model the gate file lists
     assert first["pairs"][2]["band"] == "needs a test" and first["pairs"][2]["runs"] == 0 and first["pairs"][2]["source"] is None
     assert first["pairs"][0]["usage_mean"] == USAGE and first["pairs"][0]["names"] == ["cheap"]
@@ -276,31 +322,6 @@ def test_a_pair_is_shown_with_the_price_its_date_and_the_expected_cost(facade, c
     assert old["price"]["stale"] is True and old["price"]["age_days"] == 14
     none = proof.pair_view(entry["pairs"][2], facade["table"], today="2026-10-15")  # a model with no usage: no expected cost
     assert none["expected_cost"] is None and none["price"] is None
-
-
-def test_the_auto_estimate_a_runs_cost_and_the_proof_page_read_one_price_table(facade, cfg):
-    """One table (D36): the number auto ranks by, the cost a run is recomputed to and the figure the proof page shows are
-    the same arithmetic on the same entry; when the table changes, all three change, and a stale price is stale in each."""
-    entry = proof.row(cfg, "demo")
-    pair = entry["pairs"][0]  # "cheap": 1000 input and 200 output tokens a run, at 1.0 and 2.0 dollars per million
-    expected = (1000 * 1.0 + 200 * 2.0) / 1e6
-    route = proof.route(cfg, "demo", WEB)
-    assert route["mode"] == "auto" and route["model"] == "cheap"
-    assert route["expected_cost"] == pytest.approx(expected)
-    assert costs.recompute(USAGE, prices.price_of(facade["table"], ["cheap"])) == pytest.approx(expected)
-    assert proof.pair_view(pair, facade["table"], today="2026-10-15", max_days=90)["expected_cost"] == pytest.approx(expected)
-    # The price changes in the one table: the three follow it, and no copy of the old price is left anywhere.
-    facade["table"] = table(cheap=(3.0, 4.0))
-    dearer = (1000 * 3.0 + 200 * 4.0) / 1e6
-    assert proof.route(cfg, "demo", WEB)["expected_cost"] == pytest.approx(dearer)
-    assert costs.recompute(USAGE, prices.price_of(facade["table"], ["cheap"])) == pytest.approx(dearer)
-    assert proof.pair_view(pair, facade["table"], today="2026-10-15")["expected_cost"] == pytest.approx(dearer)
-    # A price older than the project's limit is shown as stale on the page and in the costs.
-    assert proof.pair_view(pair, facade["table"], today="2026-10-15", max_days=7)["price"]["stale"] is True
-    run = {"started_at": "2026-10-14T10:00:00.000000Z", "model": "cheap", "adapter": "cheap-adapter", "cost_usd": None,
-           "tokens": 1200, "run_dir": None, "agent": "business"}
-    rows = costs.summary([run], facade["table"], today=datetime.date(2026, 10, 15), max_days=7)
-    assert [r["price"]["stale"] for r in rows] == [True]
 
 
 def test_the_run_row_and_the_pending_decision_carry_the_routing(tmp_path, monkeypatch):

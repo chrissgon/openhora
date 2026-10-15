@@ -71,6 +71,10 @@ p.wb-notice-card { margin: 0; padding: 0 4px; color: var(--pui-text-muted); font
 .wb-model-code { display: block; font-size: 12px; overflow-wrap: anywhere; }
 .wb-model-code[hidden] { display: none; }
 .wb-set-model[hidden] { display: none; }
+.wb-give-consent[hidden] { display: none; }
+.wb-give-consent { justify-self: start; }
+.wb-model-warning { display: block; }
+.wb-model-consent-line:empty { display: none; }
 .wb-runs-total { margin: 0; padding: 0 4px; font-size: 12px; }
 .wb-held-detail { margin: 0; font-size: 12px; }
 .wb-held { display: grid; gap: 6px; }

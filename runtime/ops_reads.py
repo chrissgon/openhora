@@ -136,13 +136,16 @@ def agents(project: str) -> dict:
     """The area agents of the configuration with their use of today: {"agents": [{"name", "pack", "enabled", "mode",
     "acting_mode", "max_runs_per_day", "max_usd_per_day", "runs_today", "usd_today", "runs_without_cost", "usd_recorded", "usd_reserved",
     "runs_total_today", "billing", "caps_in_use", "max_parallel", "max_parallel_ceiling", "slots_held", "holders", "queued",
-    "held", "wider", "model", "consent", "consent_in_force", "consent_needed", "consent_warning", "model_commands"}], "consent_warning",
-    "default_model", "models"}
+    "held", "wider", "model", "consent", "config_sha256", "consent_in_force", "consent_needed", "consent_warning", "model_commands",
+    "recommended_model"}], "consent_warning",
+    "default_model", "models", "config_sha256" (the hash of the configuration this read saw: the page sends it back with the consent)}
     in the order of the configuration. model is the model the agent is fixed to (a model id, "auto", or None when it has none);
     consent is the person's consent stored with it ({"model", "mode"} or None) and consent_in_force whether it names the
     agent's model and mode now; consent_needed whether the settings need one (a model id fixed, an autonomous mode);
+    recommended_model is the cheapest model reliable for every skill of the agent's pack (else for the most), or None;
     model_commands lists, for every model of the gate file and for auto and default, the absolute `set-model` command that
-    fixes it (with --accept when the agent's mode needs the consent: the page shows it with the warning and builds none);
+    fixes it (with --consent and --accept when the agent's mode needs the consent: the page shows it with the warning and
+    builds none, and gives the consent itself with give-consent);
     consent_warning is the text the person reads before consenting (autonomy.CONSENT_WARNING); default_model the project's
     (None means auto); models the ids of the gate file's models. mode is the configured one; acting_mode the one the agent acts in now
     (autonomy.mode_of: an agent set to autonomous-with-policy whose approval expired acts as autonomous). The day is
@@ -188,27 +191,46 @@ def agents(project: str) -> dict:
                     "slots_held": sum(1 for h in holders if h["agent"] == name),
                     "queued": sum(1 for t in ready if t.get("agent") == name),
                     "held": sum(1 for h in held if h["agent"] == name),
-                    "wider": _wider(ctx["cfg"]["project"], name, entry["mode"]),
-                    "model": entry.get("model"), "consent": entry.get("consent"),
+                    "wider": _wider(ctx["cfg"]["project"], name, entry),
+                    "model": entry.get("model"), "consent": entry.get("consent"), "config_sha256": ctx["cfg"]["sha256"],
                     "consent_in_force": autonomy.consent_valid(entry, entry.get("model")),
                     "consent_needed": autonomy.consent_needed(entry), "consent_warning": autonomy.CONSENT_WARNING,
-                    "model_commands": _model_commands(ctx["cfg"]["project"], name, entry, listed)})
+                    "model_commands": _model_commands(ctx["cfg"]["project"], name, entry, listed, _pack_summary(ctx, entry)),
+                    "recommended_model": None})
+    for row in out:  # the recommendation of the agent's picker: the cheapest model reliable for every skill of its pack
+        row["recommended_model"] = ops_models.recommend(
+            [dict(c, model=c["model"]) for c in row["model_commands"] if c.get("skills") is not None])
     return {"agents": out, "consent_warning": autonomy.CONSENT_WARNING, "default_model": ctx["cfg"].get("default_model"),
-            "models": listed}
+            "models": listed, "config_sha256": ctx["cfg"]["sha256"]}
 
 
-def _model_commands(project: str, agent: str, entry: dict, listed) -> list:
-    """[{"model", "consent", "command"}] for every model of the gate file, "auto" and "default": the absolute `set-model` command
-    that fixes it on the agent, with --accept when the agent's settings would then need the person's consent (an autonomous mode
-    and a model id; "consent" says so); the page shows it with Copy and builds none."""
+def _pack_summary(ctx: dict, entry: dict) -> dict:
+    """{model id: scope_summary line} over the skills of the agent's pack; {} when the pack cannot be read."""
+    try:
+        names = plan.resolve_pack(entry["pack"], core.ROOT)
+        return ops_models.scope_summary(ctx, names)
+    except (plan.PlanError, lab.LabError, OSError, KeyError):
+        return {}
+
+
+def _model_commands(project: str, agent: str, entry: dict, listed, summary: dict | None = None) -> list:
+    """[{"model", "consent", "command", ...}] for every model of the gate file, "auto" and "default": the absolute `set-model`
+    command that fixes it on the agent, with --consent and --accept when the agent's settings would then need the person's
+    consent (an autonomous mode and a model id; "consent" says so); the page shows it with Copy and builds none. A model of
+    the gate file also carries, over the skills of the agent's pack (ops_models.scope_summary), "skills", "reliable",
+    "community_only", "expected_cost", "band" and "price", what the agent's picker shows beside the model."""
     out = []
+    summary = summary or {}
     for model in [*listed, autonomy.AUTO_MODEL, "default"]:
         after = {**entry, "model": model}
         if model == "default":
             after.pop("model")
         needs = autonomy.consent_needed(after)
-        out.append({"model": model, "consent": needs,
-                    "command": core._command("set-model", project, agent=agent, model=model, accept=needs)})
+        line = {"model": model, "consent": needs,
+                "command": core._command("set-model", project, agent=agent, model=model, accept=needs, consent=needs)}
+        if model in summary:
+            line.update({k: summary[model].get(k) for k in ("skills", "reliable", "community_only", "expected_cost", "band", "price")})
+        out.append(line)
     return out
 
 
@@ -229,12 +251,17 @@ def _caps_use(used, name: str) -> dict:
             "runs_without_cost": found["spent"]["runs_without_cost"], **_spend_words(found["split"])}
 
 
-def _wider(project: str, agent: str, mode: str) -> list:
-    """[{"mode", "command"}] for every mode above this one in the order of autonomy.MODES, each the absolute `set-mode`
-    command with `--accept` (a wider mode is set and accepted by the person in the terminal, in one step): the page
-    shows it, it builds none."""
-    above = autonomy.MODES[autonomy.MODES.index(mode) + 1:]
-    return [{"mode": m, "command": core._command("set-mode", project, agent=agent, mode=m, accept=True)} for m in above]
+def _wider(project: str, agent: str, entry: dict) -> list:
+    """[{"mode", "command"}] for every mode above the agent's own in the order of autonomy.MODES, each the absolute `set-mode`
+    command with `--accept` (a wider mode is set and accepted by the person in the terminal, in one step) and, when the agent
+    is fixed to a model and the mode releases reviews without the person, `--consent` (the consent, a flag of its own): the
+    page shows it, it builds none."""
+    above = autonomy.MODES[autonomy.MODES.index(entry["mode"]) + 1:]
+    out = []
+    for m in above:
+        needs = autonomy.consent_needed({**entry, "mode": m})
+        out.append({"mode": m, "command": core._command("set-mode", project, agent=agent, mode=m, accept=True, consent=needs)})
+    return out
 
 
 def held_commands(project: str, reason: str, missing=None) -> list:
@@ -331,7 +358,8 @@ def skills(project: str) -> dict:
     "source", "accessed", "age_days", "stale"} or None, "expected_cost" (dollars for one run, or None)}], "recommended":
     the model `auto` would choose or None, "runs_here": <runs of it in this project's store>}], "checks":
     {"measurement": "ok" or why, "image": "ok" or why}, "models": [{"model", "adapter", "provider", "skills", "reliable",
-    "price"}] (one line for each model, for a picker), "default_model"}. The proof is the entry runtime/proof.py keeps
+    "community_only", "expected_cost", "band", "price"}] (one line for each model, for a picker), "default_model",
+    "recommended_model" (the cheapest model reliable for every skill in scope, else for the most; None when none)}. The proof is the entry runtime/proof.py keeps
     (proof.row), one pair for every model of the gate file, with the price of the one price table (runtime/prices.json)
     and its expected cost read now; never recomputed here. The measurement check is the
     status script's; the image check is made once for the machine: "ok" when the eval image is on it and is the image
@@ -363,22 +391,33 @@ def skills(project: str) -> dict:
         image = f"the image on this machine is not the one the evidence of {len(others)} skill(s) was measured in"
     else:
         image = None
+    summaries = _model_summaries(out)
     return {"skills": out, "checks": {"measurement": problem or "ok", "image": image or "ok"},
-            "models": _model_summaries(out), "default_model": ctx["cfg"].get("default_model")}
+            "models": summaries, "default_model": ctx["cfg"].get("default_model"), "recommended_model": ops_models.recommend(summaries)}
 
 
 def _model_summaries(rows: list) -> list:
     """One line for each model of the pairs the skills in scope carry, in the order the first skill lists them: {"model",
     "adapter", "provider", "skills" (how many skills of the scope have a pair for it), "reliable" (how many of those are
-    `reliable` on it), "price" (its entry of the price table with source, date, age and stale, or None)}. What a picker shows
-    beside a model before any skill is chosen; the per-skill figures stay in each skill's `proof`."""
-    out = {}
+    `reliable` on it), "community_only" (how many of those rest on community evidence alone: their output is reviewed),
+    "expected_cost" (the mean expected cost per run of the pairs that have one, or None), "band" (`reliable` for every
+    skill, `partial`, `needs a test`), "price" (its entry of the price table with source, date, age and stale, or None)}.
+    What a picker shows beside a model before any skill is chosen; the per-skill figures stay in each skill's `proof`."""
+    out, costs = {}, {}
     for row in rows:
         for pair in row["proof"]:
             found = out.setdefault(pair["model"], {"model": pair["model"], "adapter": pair.get("adapter"), "provider": pair.get("provider"),
-                                                   "skills": 0, "reliable": 0, "price": pair.get("price")})
+                                                   "skills": 0, "reliable": 0, "community_only": 0, "expected_cost": None,
+                                                   "price": pair.get("price")})
             found["skills"] += 1
-            found["reliable"] += 1 if pair.get("band") == "reliable" else 0
+            if pair.get("band") == "reliable":
+                found["reliable"] += 1
+                found["community_only"] += 0 if pair.get("source") in ("lab", "local") else 1
+            if pair.get("expected_cost") is not None:
+                costs.setdefault(pair["model"], []).append(pair["expected_cost"])
+    for model, found in out.items():
+        found["expected_cost"] = sum(costs[model]) / len(costs[model]) if costs.get(model) else None
+        found["band"] = ops_models.band_word(found)
     return list(out.values())
 
 

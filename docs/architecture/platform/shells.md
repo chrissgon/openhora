@@ -295,8 +295,8 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `verdict` | `--run` `--word` | `verdict` |
 | `sync` | `[--dry-run]` `[--take]` `[--path]` | `sync` |
 | `hand-over` | `--task` `--file` | `hand_over` |
-| `set-mode` | `--agent` `--mode` `[--accept]` | `set_mode` |
-| `set-model` | `--agent` `--model` `[--accept]` | `set_model` |
+| `set-mode` | `--agent` `--mode` `[--accept]` `[--consent]` | `set_mode` |
+| `set-model` | `--agent` `--model` `[--accept]` `[--consent]` | `set_model` |
 | `approve-policy` | `--file` `--agent` `[--sha256]` `[--expires]` `[--what]` | `approve_policy` |
 | `revoke-policy` | `--id` | `revoke_policy` |
 | `standing` | `--policy` | `standing` |
@@ -389,6 +389,7 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | POST | `/projects/{p}/runs/{id}/verdict` | `verdict` | `run_id` from `{id}` | every other argument | - | - |
 | POST | `/projects/{p}/agents/{name}/mode` | `set-mode` | `agent` from `{name}` | `mode` | - | - |
 | POST | `/projects/{p}/agents/{name}/model` | `set-model` | `agent` from `{name}` | `model` | - | - |
+| POST | `/projects/{p}/agents/{name}/consent` | `give-consent` | `agent` from `{name}` | `model`, `mode`, `config_sha256`, `warning_sha256` | - | - |
 | GET | `/projects/{p}/progress` | `progress` | - | every other argument | - | - |
 | GET | `/projects/{p}/agents` | `agents` | - | none | - | - |
 | GET | `/projects/{p}/conversation` | `conversation` | - | `conversation`, `after` | - | - |

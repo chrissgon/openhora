@@ -188,37 +188,68 @@ def test_fixing_a_model_on_an_autonomous_agent_asks_for_the_consent_and_writes_n
     with pytest.raises(ops.OpsError) as refused:
         ops.set_model(path, "business", "fm", channel="terminal")
     assert refused.value.code == 2 and autonomy.CONSENT_WARNING in str(refused.value)
-    assert "set-model" in str(refused.value) and "--accept" in str(refused.value)  # the one command that gives it
+    assert "set-model" in str(refused.value) and "--consent" in str(refused.value) and "--accept" in str(refused.value)  # the one command
     assert config_path(tree).read_text(encoding="utf-8") == before
 
 
-def test_the_consent_is_given_with_accept_in_the_terminal_and_nowhere_else(tree):
+def test_the_consent_is_a_flag_of_its_own_given_in_the_terminal_and_accept_alone_gives_none(tree):
     path = str(tree["project"])
     for channel in ("page", "chat", "mcp", "messaging", None):
         with pytest.raises(ops.OpsError) as refused:
-            ops.set_model(path, "business", "fm", accept=True, channel=channel)
-        assert refused.value.code == 2 and "only by the person, in the terminal" in str(refused.value), channel
-    assert "model" not in agent_of(tree)
-    for channel in ("page", "chat", "mcp", "messaging", None):
+            ops.set_model(path, "business", "fm", consent=True, channel=channel)
+        assert refused.value.code == 2 and "in the terminal" in str(refused.value), channel
         with pytest.raises(ops.OpsError):
-            ops.set_mode(path, "business", "autonomous-with-policy", accept=True, channel=channel)
-    done = ops.set_model(path, "business", "fm", accept=True, channel="terminal")
+            ops.set_mode(path, "business", "autonomous-with-policy", consent=True, channel=channel)
+        with pytest.raises(ops.OpsError):
+            ops.set_model(path, "business", "fm", accept=True, channel=channel)
+    assert "model" not in agent_of(tree)
+    # accept (the hash) is not the consent: with it alone the call is refused with the warning, and nothing is written
+    before = config_path(tree).read_text(encoding="utf-8")
+    with pytest.raises(ops.OpsError) as refused:
+        ops.set_model(path, "business", "fm", accept=True, channel="terminal")
+    assert refused.value.code == 2 and autonomy.CONSENT_WARNING in str(refused.value) and "--consent" in str(refused.value)
+    assert config_path(tree).read_text(encoding="utf-8") == before
+    # consent alone stores the consent and the model and leaves the hash to accept; the answer carries the warning
+    first = ops.set_model(path, "business", "fm", consent=True, channel="terminal")
+    assert (first["accepted"], first["consent"], first["warning"]) == (False, {"model": "fm", "mode": "autonomous"}, autonomy.CONSENT_WARNING)
+    ops.accept_config(path, first["config_sha256"])
+    # both flags in one step: accepted by the person, warning in the answer
+    ops.set_model(path, "business", "m", consent=True, accept=True, channel="terminal")
+    done = ops.set_model(path, "business", "fm", consent=True, accept=True, channel="terminal")
     assert (done["accepted"], done["by"], done["consent"]) == (True, "person", {"model": "fm", "mode": "autonomous"})
+    assert done["warning"] == autonomy.CONSENT_WARNING
     assert agent_of(tree)["model"] == "fm" and agent_of(tree)["consent"] == {"model": "fm", "mode": "autonomous"}
 
 
-def test_messaging_can_give_no_consent_because_it_has_neither_operation(tree):
+def test_the_terminal_prints_the_warning_the_consent_answered(tree, capsys):
+    cli = st.load("cli")
+    path = str(tree["project"])
+    code = cli.main(["set-model", "--project", path, "--agent", "business", "--model", "fm", "--consent", "--accept"])
+    assert code == 0
+    captured = capsys.readouterr()
+    assert autonomy.CONSENT_WARNING in captured.err and "consent recorded for business" in captured.err
+    assert json.loads(captured.out)["warning"] == autonomy.CONSENT_WARNING
+    assert cli.main(["set-model", "--project", path, "--agent", "business", "--model", "auto"]) == 0  # no consent, no warning
+    assert "consent recorded" not in capsys.readouterr().err
+
+
+def test_messaging_can_give_no_consent_because_it_has_no_operation_for_it(tree):
     for name in ("set-model", "set-mode"):
         row = operations.by_name(name)
         assert set(row["channels"]) == {"terminal", "page"}, name
         assert "messaging" not in row["channels"] and "mcp" not in row["channels"] and "chat" not in row["channels"]
         assert not operations.permitted(name, "messaging", {"messaging": ["read", "talk", "answer", "set-mode"]})
-    assert operations.GROUPS["set-mode"]["operations"] == ("set-mode", "set-model")
+    # the page's consent is the page's alone: not the terminal (it has --consent), not the conversation, not the MCP mode, not messaging
+    assert operations.by_name("give-consent")["channels"] == ("page",)
+    for channel in ("messaging", "mcp", "chat", "terminal"):
+        assert not operations.permitted("give-consent", channel, {channel: ["read", "talk", "answer", "set-mode"]}), channel
+    assert operations.GROUPS["set-mode"]["operations"] == ("set-mode", "set-model", "give-consent")
+    assert operations.refusal("give-consent", "messaging", {"messaging": ["read", "set-mode"]})
 
 
 def test_with_the_consent_the_agents_reviews_on_an_unproven_model_are_released_and_the_runs_are_recorded_as_consent(tree):
     path = str(tree["project"])
-    ops.set_model(path, "business", "fm", accept=True, channel="terminal")
+    ops.set_model(path, "business", "fm", consent=True, accept=True, channel="terminal")
     planned(tree)
     result = ops.dispatch(path)
     assert len(result["ran"]) == 1
@@ -241,7 +272,7 @@ def test_the_same_model_on_an_agent_below_autonomous_is_held_for_review(tree):
 
 def test_changing_the_model_or_the_mode_asks_again_and_a_consent_that_no_longer_fits_is_not_in_force(tree):
     path = str(tree["project"])
-    ops.set_model(path, "business", "fm", accept=True, channel="terminal")
+    ops.set_model(path, "business", "fm", consent=True, accept=True, channel="terminal")
     # another model: the consent names the first one
     with pytest.raises(ops.OpsError) as refused:
         ops.set_model(path, "business", "m", channel="terminal")
@@ -254,9 +285,9 @@ def test_changing_the_model_or_the_mode_asks_again_and_a_consent_that_no_longer_
     # the same model and the same mode again: nothing to ask, nothing to write
     again = ops.set_model(path, "business", "fm", channel="terminal")
     assert again["unchanged"] is True and again["accepted"] is True
-    ops.set_mode(path, "business", "autonomous-with-policy", accept=True, channel="terminal")
+    ops.set_mode(path, "business", "autonomous-with-policy", consent=True, accept=True, channel="terminal")
     assert agent_of(tree)["consent"] == {"model": "fm", "mode": "autonomous-with-policy"}
-    ops.set_model(path, "business", "m", accept=True, channel="terminal")
+    ops.set_model(path, "business", "m", consent=True, accept=True, channel="terminal")
     assert agent_of(tree)["consent"] == {"model": "m", "mode": "autonomous-with-policy"}
     # a hand-edited file whose consent names another model is not in force: the run is supervised, not by consent
     raw = json.loads(config_path(tree).read_text(encoding="utf-8"))
@@ -271,11 +302,11 @@ def test_changing_the_model_or_the_mode_asks_again_and_a_consent_that_no_longer_
 
 def test_going_back_to_auto_to_the_default_or_below_autonomous_drops_the_consent_and_code_accepts_it(tree):
     path = str(tree["project"])
-    ops.set_model(path, "business", "fm", accept=True, channel="terminal")
+    ops.set_model(path, "business", "fm", consent=True, accept=True, channel="terminal")
     done = ops.set_model(path, "business", "auto", channel="page")  # auto fixes no model: no consent, nothing widens
     assert (done["accepted"], done["by"], done["consent"]) == (True, "code:narrowing", None)
     assert agent_of(tree)["model"] == "auto" and "consent" not in agent_of(tree)
-    ops.set_model(path, "business", "fm", accept=True, channel="terminal")
+    ops.set_model(path, "business", "fm", consent=True, accept=True, channel="terminal")
     done = ops.set_mode(path, "business", "milestones", channel="page")  # a move down: accepted by code, the consent leaves
     assert (done["accepted"], done["by"]) == (True, "code:narrowing") and "consent" not in agent_of(tree)
     assert agent_of(tree)["model"] == "fm"
@@ -283,7 +314,7 @@ def test_going_back_to_auto_to_the_default_or_below_autonomous_drops_the_consent
     with pytest.raises(ops.OpsError) as refused:
         ops.set_mode(path, "business", "autonomous", channel="terminal")
     assert autonomy.CONSENT_WARNING in str(refused.value)
-    ops.set_mode(path, "business", "autonomous", accept=True, channel="terminal")
+    ops.set_mode(path, "business", "autonomous", consent=True, accept=True, channel="terminal")
     assert agent_of(tree)["consent"] == {"model": "fm", "mode": "autonomous"}
     done = ops.set_model(path, "business", "default", channel="page")
     assert done["accepted"] is True and "model" not in agent_of(tree) and "consent" not in agent_of(tree)
@@ -308,7 +339,7 @@ def test_the_page_may_fix_a_model_only_when_its_policy_lists_the_group_set_mode(
 
 def test_the_agents_read_says_the_model_the_consent_and_the_command_that_gives_it(tree):
     path = str(tree["project"])
-    ops.set_model(path, "business", "fm", accept=True, channel="terminal")
+    ops.set_model(path, "business", "fm", consent=True, accept=True, channel="terminal")
     found = ops.agents(path)
     [agent] = found["agents"]
     assert (agent["model"], agent["consent"], agent["consent_in_force"], agent["consent_needed"]) == (
@@ -316,8 +347,10 @@ def test_the_agents_read_says_the_model_the_consent_and_the_command_that_gives_i
     assert found["consent_warning"] == autonomy.CONSENT_WARNING and found["models"] == ["m", "fm"]
     commands = {c["model"]: c["command"] for c in agent["model_commands"]}
     assert set(commands) == {"m", "fm", "auto", "default"}
-    assert "--accept" in commands["m"] and "--accept" in commands["fm"]  # a fixed model on this agent needs the consent
-    assert "--accept" not in commands["auto"] and "--accept" not in commands["default"]
+    assert "--consent" in commands["m"] and "--consent" in commands["fm"]  # a fixed model on this agent needs the consent
+    assert "--accept" in commands["m"] and "--consent" not in commands["auto"] and "--accept" not in commands["default"]
+    assert found["config_sha256"] == project_config.load(path)["sha256"]  # what the page sends back with the consent
+    assert {c["model"]: c["consent"] for c in agent["model_commands"]} == {"m": True, "fm": True, "auto": False, "default": False}
 
 
 # --- the rules in autonomy.py ------------------------------------------------------------------------------------------------
@@ -348,7 +381,7 @@ def test_the_consent_is_valid_only_for_the_agents_fixed_model_in_the_mode_it_nam
 
 def test_a_review_of_a_run_carries_what_the_dispatcher_reads(tree):
     path = str(tree["project"])
-    ops.set_model(path, "business", "fm", accept=True, channel="terminal")
+    ops.set_model(path, "business", "fm", consent=True, accept=True, channel="terminal")
     planned(tree)
     ops.run_next(path)
     ctx = ops_core.context(path)

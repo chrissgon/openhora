@@ -588,3 +588,63 @@ def test_a_resolved_decision_in_the_task_read_carries_the_text_the_person_saved(
     ops.approve(path, approved_plan, ops.pending(path, approved_plan)["payload"]["plan_sha256"])
     row = next(p for p in ops.task(path, approved)["pending"] if p["id"] == approved_plan)
     assert (row["resolution"], row["answer"]) == ("approved", None), "an approval saves no text"
+
+
+# --- one price table, read by each production reader from the file (review of P3) ----------------------------------------------
+
+
+REAL_LOAD = st.load("prices").load  # the reader itself, before the stand-in tree replaces it with a table in memory
+
+
+def test_the_auto_estimate_a_runs_cost_and_the_proof_page_read_one_price_table_each_through_its_own_reader_from_the_file(tree, monkeypatch, tmp_path):
+    """The auto estimate (proof), the proof page (skills), the proof read (proof) and the costs read each load the table
+    themselves from runtime/prices.json: no object is shared between them. The file is pointed at a copy in tmp_path; when its
+    price changes, every reader follows it, and when its date is old, every one shows the price as stale."""
+    prices = st.load("prices")
+    table = tmp_path / "prices.json"
+
+    def write(input_price, accessed):
+        table.write_text(json.dumps({"models": {"m": {"input_usd_per_mtok": input_price, "output_usd_per_mtok": 2.0, "cache_read_usd_per_mtok": 0.1,
+                                                       "cache_write_usd_per_mtok": 1.0, "source": "https://prices.example/models", "accessed": accessed},
+                                                "fm": {"input_usd_per_mtok": 50.0, "output_usd_per_mtok": 50.0, "cache_read_usd_per_mtok": 0.1,
+                                                       "cache_write_usd_per_mtok": 1.0, "source": "https://prices.example/models", "accessed": accessed}}}),
+                         encoding="utf-8")
+
+    monkeypatch.setattr(prices, "load", REAL_LOAD)
+    monkeypatch.setattr(prices, "FILE", str(table))
+    path = str(tree["project"])
+    usage = {"input": 1000, "output": 200}
+
+    def readers():
+        skill = next(s for s in ops.skills(path)["skills"] if s["name"] == "demo-writes")
+        pair = next(p for p in skill["proof"] if p["model"] == "m")
+        routed = ops.proof(path, "demo-writes")["skills"]["demo-writes"]
+        shown = next(p for p in routed["pairs"] if p["model"] == "m")
+        planned_run = proof_rules.route(ops.project_config.load(path), "demo-writes", {"web": False})
+        return {"page": pair["expected_cost"], "page_stale": pair["price"]["stale"], "proof_read": shown["expected_cost"],
+                "proof_read_stale": shown["price"]["stale"], "auto": planned_run["expected_cost"], "auto_model": planned_run["model"],
+                "recomputed": costs.recompute(usage, prices.price_of(prices.load(), ["m"]))}
+
+    today = datetime.date.today().isoformat()
+    write(1.0, today)
+    found = readers()
+    cost = (1000 * 1.0 + 200 * 2.0) / 1e6
+    assert found["auto_model"] == "m"  # the cheaper pair of the file
+    assert (found["page"], found["proof_read"], found["auto"], found["recomputed"]) == (pytest.approx(cost),) * 4
+    assert found["page_stale"] is False and found["proof_read_stale"] is False
+    write(3.0, today)  # the one file changes: no reader keeps the old price
+    found = readers()
+    cost = (1000 * 3.0 + 200 * 2.0) / 1e6
+    assert (found["page"], found["proof_read"], found["auto"], found["recomputed"]) == (pytest.approx(cost),) * 4
+    write(3.0, "2020-01-01")  # an old date: stale on the page and on the proof read
+    found = readers()
+    assert found["page_stale"] is True and found["proof_read_stale"] is True
+    # the costs read loads the same file for a run of the model
+    planned(tree, "single")
+    run = ops.run_next(path)
+    assert run["status"] == "ok"
+    (row,) = ops.costs(path)["rows"]
+    assert row["price"]["accessed"] == "2020-01-01" and row["price"]["stale"] is True and row["price"]["source"] == "https://prices.example/models"
+    write(3.0, today)
+    (row,) = ops.costs(path)["rows"]
+    assert row["price"]["stale"] is False

@@ -249,7 +249,7 @@ Channels with a policy (`POLICY_CHANNELS`): `page`, `mcp`, `messaging`. Never na
 | `go-ahead` | `go-ahead` | - | `page` | - |
 | `reject-cancel` | `reject`, `cancel` | - | `page`, `messaging` | - |
 | `retry` | `retry` | - | `page`, `messaging` | - |
-| `set-mode` | `set-mode`, `set-model` | - | `page` | - |
+| `set-mode` | `set-mode`, `set-model`, `give-consent` | - | `page` | - |
 | `dispatch` | `dispatch` | - | `page` | - |
 | `documents` | `sync`, `hand-over` | - | `page` | - |
 | `verdict` | `verdict` | - | `page` | - |

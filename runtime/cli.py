@@ -40,8 +40,8 @@ Usage:
   python3 runtime/cli.py revoke-policy --project <dir> --id <approval id>
   python3 runtime/cli.py standing --project <dir> --policy <name>
   python3 runtime/cli.py execute-under-policy --project <dir> --policy <name> --effect-file <path>
-  python3 runtime/cli.py set-mode --project <dir> --agent <name> --mode stopped|supervised|milestones|autonomous|autonomous-with-policy [--accept]
-  python3 runtime/cli.py set-model --project <dir> --agent <name> --model <id>|auto|default [--accept]
+  python3 runtime/cli.py set-mode --project <dir> --agent <name> --mode stopped|supervised|milestones|autonomous|autonomous-with-policy [--accept] [--consent]
+  python3 runtime/cli.py set-model --project <dir> --agent <name> --model <id>|auto|default [--accept] [--consent]
   python3 runtime/cli.py contained-run --project <dir> --skill <name> --prompt-file <file> --out <dir> [--platform <name>]... [--timeout-seconds <n>]
   python3 runtime/cli.py dispatch --project <dir>
   python3 runtime/cli.py poll     --project <dir>
@@ -196,13 +196,16 @@ set-mode  sets one area agent's autonomy mode in docs/workbench/runtime.json (ar
           is this mode; with another unaccepted change in the file, it is refused and writes nothing: read the file
           and run accept-config. Without --accept, accept the new hash with accept-config, after reading the file;
           either rewrites the Checkpoints line of the state file. Raising an agent that is fixed to a model to an
-          autonomous mode needs your consent (the warning is printed with the refusal): --accept is that consent.
+          autonomous mode needs your consent (the warning is printed with the refusal): --consent is that consent, a flag of its
+          own and not --accept (which accepts the hash); with it the warning is printed again. A move down is never withheld
+          and never asks: the consent for autonomous-with-policy follows to autonomous.
 set-model fixes one area agent to a model (an id of evals/eval-gate.json), to auto (its tasks go to the cheapest model on
           which the skill is reliable) or to default (no model of its own: the request's, else the project's
           default_model, else auto). On an agent in an autonomous mode, fixing a model is your consent (decisions D34 and
-          D38): the warning is printed and the command with --accept, which accepts the hash too (the terminal only,
-          never the page, never a messaging channel); the consent is stored with the agent and names the model and the
-          mode, so changing either asks again. From then on the reviews of that agent's runs on that model, even with no
+          D38): the warning is printed with the refusal and the command with --consent (the consent, a flag of its own) and
+          --accept (the hash, in the same step); --consent is the terminal's, and the page gives the same consent on its
+          own with the exact warning it showed (give-consent), never a messaging channel or the MCP mode; the consent is
+          stored with the agent and names the model and the mode, so changing either asks again. From then on the reviews of that agent's runs on that model, even with no
           reliable evidence, are released by the mode, and each such run is recorded as autonomy by consent, never as
           proven. Without --accept the hash is accepted with accept-config, after reading the file.
 contained-run  one run of one skill of an area agent's pack, once, in the eval container, on a copy that holds only the
@@ -388,6 +391,8 @@ def main(argv=None) -> int:
         return e.code
     json.dump(out, sys.stdout, ensure_ascii=False, indent=1, default=str)
     print()
+    if row["name"] in ("set-mode", "set-model") and isinstance(out, dict) and out.get("warning"):
+        print(f"consent recorded for {out['agent']}: {out['warning']}", file=sys.stderr)  # the warning the consent answered, once more
     if row["name"] == "run-task" and out.get("ran") is None and not out.get("held"):
         return 4  # refused, not run: the dispatcher that started this process records it (ops_runs.reap)
     unless = row.get("exit_unless")  # the row says which result is not a success; the result is printed either way

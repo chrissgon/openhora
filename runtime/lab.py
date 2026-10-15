@@ -464,7 +464,7 @@ def usage_mean(lines):
 def standing(skill: str) -> dict:
     """What the status script computes for one skill, per model: {"skill", "version", "lab_models": [ids], "adapters":
     {model id: adapter} (the gate file's entries), "models": {model id: {"band", "cause", "score", "mean", "runs",
-    "web_measured", "usage_mean", "source": "lab"}} for every model with lab evidence, "local": {model id: the same keys
+    "web_measured", "usage_mean", "images", "source": "lab"}} for every model with lab evidence, "local": {model id: the same keys
     with "source": "local"} for the models the person's own tests (outside the checkout) cover and the gate file lists,
     "community": {model id: the same keys with "source": "community" and "community_only" (true when the pair is reliable
     only through community evidence: its lab band is not reliable)} for the models the verified community evidence of the
@@ -481,6 +481,10 @@ def standing(skill: str) -> dict:
     "allow_web" in evals/evals.json now (in the case or at the top of the file): the listing is only the
     permission, the runner opens the network for cases that set it. A listed case with no such line, and a model
     with no line at all, is false.
+
+    images, per model and source, is the sorted list of the image digests of the events that source's figures rest on
+    (the events at or above the measurement floor that name the model and record an image): the image a pair is released
+    in is checked against these, not against the images of another model or another source (runtime/proof.py).
 
     usage_mean, per model, is the mean usage by kind of those same lines that carry a "usage" (usage_mean()); None when
     none does. The local figures are the status script's own for the person's local files, computed from those files alone
@@ -502,31 +506,46 @@ def standing(skill: str) -> dict:
         if isinstance(version, (int, float)) and version >= floor and event.get("image_digest"):
             images.add(event["image_digest"])
 
+    def images_by_model(source_events):
+        """{model id: sorted digests} of the events at or above the floor that name the model and record an image."""
+        found = {}
+        for event, _ in source_events:
+            version = event.get("measurement_version")
+            if not (isinstance(version, (int, float)) and version >= floor and event.get("image_digest")):
+                continue
+            for model, _adapter in _lab_call(status.event_model_pairs, event):
+                found.setdefault(model, set()).add(event["image_digest"])
+        return {model: sorted(digests) for model, digests in found.items()}
+
     def lines_of(pools_of, model):
         pool = pools_of.get(model) or {}
         return (pool.get("current") or []) + (pool.get("inherited") or [])
 
-    def figures(source, model, found_figures, pools_of):
+    def figures(source, model, found_figures, pools_of, source_images):
         lines = lines_of(pools_of, model)
         return {**{k: found_figures.get(k) for k in ("band", "cause", "score", "mean", "runs")},
                 "web_measured": any(str(line["case"]) in web_cases for line in lines),
-                "usage_mean": usage_mean(lines), "source": source}
+                "usage_mean": usage_mean(lines), "source": source, "images": source_images.get(model, [])}
 
-    out_models = {model: figures("lab", model, got, pools) for model, got in (found.get("models") or {}).items()}
+    lab_images = images_by_model(events)
+    out_models = {model: figures("lab", model, got, pools, lab_images) for model, got in (found.get("models") or {}).items()}
     out_local = {}
     local = ((row.get("local") or {}).get("skills") or {}).get(skill) or {}
     if local:
         listed = set(_lab_call(status.known_models, gate))
         local_events = _lab_call(status.local_skill_evidence, skill, base)
         local_pools = _lab_call(status.lab_view, LAB.ROOT, skill_dir, gate, local_events)["pools"]
-        out_local = {model: figures("local", model, got, local_pools) for model, got in local.items() if model in listed}
+        local_images = images_by_model(local_events)
+        out_local = {model: figures("local", model, got, local_pools, local_images) for model, got in local.items() if model in listed}
     out_community = {}
     community = ((row.get("community") or {}).get("skills") or {}).get(skill) or {}
     if community:
         listed = set(_lab_call(status.known_models, gate))
         pool, _info = _lab_call(status.community_pool, LAB.ROOT, skill_dir, _lab_call(status.evidence_authors, LAB.ROOT))
-        community_pools = _lab_call(status.lab_view, LAB.ROOT, skill_dir, gate, [event for events in pool.values() for event in events])["pools"]
-        out_community = {model: {**figures("community", model, got, community_pools), "community_only": bool(got.get("community_only"))}
+        community_events = [event for events in pool.values() for event in events]
+        community_pools = _lab_call(status.lab_view, LAB.ROOT, skill_dir, gate, community_events)["pools"]
+        community_images = images_by_model(community_events)
+        out_community = {model: {**figures("community", model, got, community_pools, community_images), "community_only": bool(got.get("community_only"))}
                          for model, got in community.items() if model in listed}
     return {"skill": skill, "version": found["version"], "lab_models": list(gate.get("lab_models") or []),
             "adapters": {model: (gate["models"].get(model) or {}).get("adapter") for model in models()},

@@ -17,6 +17,8 @@ whether an unproven pair is released by the person's consent (autonomy "consent"
   consent_for_review(ctx, run, agent_entry)  the two facts a review's release reads: (proven, consent)
   price_table(ctx)                    (the price table, the project's price_max_age_days)
   models_read(ctx, skill)             one skill's pairs as the pickers show them
+  scope_summary(ctx, skills)          one line for each model over a set of skills (a picker's line beside the model)
+  recommend(lines)                    the model a picker marks as the recommendation
 
 Sibling of runtime/ops.py; no shell imports this file. The shared names come from ops_core (read as `core.<name>`, at call
 time). It reaches no operation of ops.py.
@@ -162,6 +164,54 @@ def models_read(ctx: dict, skill: str, today=None) -> dict:
             "pairs": [{**proof_rules.pair_view(pair, table, today, max_days), "key": keys[pair["model"]]["source"]}
                       for pair in entry["pairs"]],
             "recommended": chosen["model"] if chosen["mode"] == AUTO else None, "checks": chosen["checks"]}
+
+
+def band_word(line: dict) -> str:
+    """The one word for a model over a set of skills: `reliable` when it is reliable for every one, `partial` when for some,
+    `needs a test` when for none (or when there is no skill)."""
+    total, reliable = line.get("skills") or 0, line.get("reliable") or 0
+    return "reliable" if total and reliable == total else ("partial" if reliable else "needs a test")
+
+
+def scope_summary(ctx: dict, skills: list, today=None) -> dict:
+    """{model id: {"skills", "reliable", "community_only", "expected_cost", "band", "price"}} over the given skills, read from
+    the proof entries (proof.row) and the one price table, without any check of the machine: `skills` is how many of them have
+    a pair for the model, `reliable` how many of those are `reliable` on it, `community_only` how many of the reliable ones
+    rest on community evidence alone (their output is reviewed), `expected_cost` the mean of the expected cost per run of the
+    pairs that have one (dollars, or None), `band` band_word, `price` the model's entry of the table with its source, date,
+    age and whether it is stale (or None). What the pickers show beside a model; the choice is never gated by it (D34)."""
+    table, max_days = price_table(ctx)
+    today = today or datetime.date.today()
+    found, costs = {}, {}
+    for name in skills:
+        entry = proof_rules.row(ctx["cfg"], name)
+        for pair in entry["pairs"]:
+            view = proof_rules.pair_view(pair, table, today, max_days)
+            line = found.setdefault(pair["model"], {"skills": 0, "reliable": 0, "community_only": 0, "expected_cost": None, "price": view["price"]})
+            line["skills"] += 1
+            if pair["band"] == "reliable":
+                line["reliable"] += 1
+                if pair.get("source") not in proof_rules.RELEASING:
+                    line["community_only"] += 1
+            if view["expected_cost"] is not None:
+                costs.setdefault(pair["model"], []).append(view["expected_cost"])
+    for model, line in found.items():
+        line["expected_cost"] = sum(costs[model]) / len(costs[model]) if costs.get(model) else None
+        line["band"] = band_word(line)
+    return found
+
+
+def recommend(lines) -> str | None:
+    """The model a picker marks as the recommendation, from lines that carry "model", "skills", "reliable" and
+    "expected_cost": the cheapest of the models that are reliable for every skill; with none of those, the cheapest of the
+    models reliable for the most skills; None when no model is reliable for any skill or none has an estimate. A hint for the
+    person, never a gate."""
+    lines = [line for line in lines if line.get("expected_cost") is not None and line.get("reliable")]
+    full = [line for line in lines if line["reliable"] == line.get("skills")]
+    if not full and lines:
+        best = max(line["reliable"] for line in lines)
+        full = [line for line in lines if line["reliable"] == best]
+    return min(full, key=lambda line: (line["expected_cost"], -line["reliable"], line["model"]))["model"] if full else None
 
 
 if __name__ == "__main__":

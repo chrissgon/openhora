@@ -11,7 +11,7 @@ import { icon } from "../frame/icons.js";
 import { MODEL_HINT, modelOptions } from "../models.js";
 import { AFTER_FORM_HINT, AUTO_FLOW, FORM_HINT, afterOptions, flowOptions } from "./lobby-model.js";
 
-/** Create the form. options: {onCreate({text, flow, title, after?, model?}), onBack()}. Returns {el, setFlows(list), setModels(list, defaultModel), setRequests(list), set(partial), markEmpty(), reset(), open(on), isOpen(), focus()}. */
+/** Create the form. options: {onCreate({text, flow, title, after?, model?}), onBack()}. Returns {el, setFlows(list), setModels(list, defaultModel, recommended), setRequests(list), set(partial), markEmpty(), reset(), open(on), isOpen(), focus()}. */
 export function createForm({ onCreate, onBack = () => {} }) {
   const textId = "wb-new-text";
   const flowId = "wb-new-flow";
@@ -62,9 +62,9 @@ export function createForm({ onCreate, onBack = () => {} }) {
       flow.replaceChildren(...flowOptions(list).map((o) => h("option", { value: o.value, text: o.label })));
       flow.value = [...flow.options].some((o) => o.value === keep) ? keep : "";
     },
-    /** The models of the service's `skills` read (`models`) and the project's default: the options of "Model"; the choice stays while the model is still offered, else it is the first option. */
-    setModels(list, defaultModel) {
-      const options = modelOptions(list, defaultModel);
+    /** The models of the service's `skills` read (`models`), the project's default and the model it recommends: the options of "Model"; the choice stays while the model is still offered, else it is the first option. */
+    setModels(list, defaultModel, recommended) {
+      const options = modelOptions(list, defaultModel, recommended);
       const keep = model.value;
       model.replaceChildren(...options.map((o) => h("option", { value: o.value, text: o.label })));
       model.value = options.some((o) => o.value === keep) ? keep : "";

@@ -179,6 +179,29 @@ def test_a_standing_without_community_evidence_has_an_empty_community_column(sta
     assert lab.standing("demo")["community"] == {}
 
 
+def test_the_standing_keeps_the_evidence_images_for_each_model_and_source_the_local_events_included(status, monkeypatch):
+    """Review of P3: the image a pair is released in is checked against the images of the events its own figures rest on."""
+    module = lab.LAB.load_status()
+    lab_image, local_image = "sha256:" + "1" * 64, "sha256:" + "2" * 64
+    other_image, below_floor = "sha256:" + "3" * 64, "sha256:" + "4" * 64
+
+    def event(models, digest, version=5):
+        return ({"measurement_version": version, "image_digest": digest, "models": models, "adapters": {m: "a" for m in models}}, [])
+
+    monkeypatch.setattr(module, "skill_evidence", lambda skill_dir: [event(["ref-model"], lab_image), event(["ref-model", "floor-model"], other_image),
+                                                                    event(["floor-model"], below_floor, version=0)])
+    monkeypatch.setattr(module, "local_skill_evidence", lambda skill, base=None: [event(["floor-model"], local_image)])
+    own = {"band": "reliable", "cause": None, "score": 0.8, "mean": 0.9, "runs": 6}
+    monkeypatch.setattr(module, "all_status", lambda root, only=None, local_base=None: {
+        "skills": [{"version": "1.0.0", "models": {"ref-model": dict(FIGURES), "floor-model": dict(FIGURES)}}],
+        "local": {"folder": local_base, "skills": {"demo": {"floor-model": own}}}})
+    found = lab.standing("demo")
+    assert found["models"]["ref-model"]["images"] == sorted([lab_image, other_image])
+    assert found["models"]["floor-model"]["images"] == [other_image], "an event below the measurement floor names no image, and another model's event is not this one's"
+    assert found["local"]["floor-model"]["images"] == [local_image], "the person's own events are their own source"
+    assert found["evidence_images"] == sorted([lab_image, other_image])
+
+
 def proof_standing(web_models):
     models = {name: dict(FIGURES, web_measured=name in web_models, usage_mean=None, source="lab") for name in ("ref-model", "floor-model")}
     return {"skill": "demo", "version": "1.0.0", "lab_models": ["ref-model", "floor-model"],
@@ -254,4 +277,4 @@ def test_a_proof_file_of_an_earlier_version_is_recomputed(facade, cfg):
     entry = proof.row(cfg, "demo")
     assert facade["calls"] == 1 and "web_measured" not in entry
     assert [pair["web_measured"] for pair in entry["pairs"]] == [False, True]
-    assert json.loads(path.read_text(encoding="utf-8"))["version"] == 3 == proof.VERSION
+    assert json.loads(path.read_text(encoding="utf-8"))["version"] == 4 == proof.VERSION

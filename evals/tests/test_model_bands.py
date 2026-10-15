@@ -1,6 +1,6 @@
 """Offline tests of the band, the cause and the gate of every model (the reliability model, section 10): each model
-that has evidence of a skill gets the figures the reference model gets, by the same rules on its own lines, and
-only the reference model's band decides the skill's standing. No model is called: evidence is written here, with
+that has evidence of a skill gets the figures the first lab model gets, by the same rules on its own lines, and no
+model's band decides for another. No model is called: evidence is written here, with
 the helpers of test_bands.py.
 
 Run: uv run --with pytest pytest evals/tests/test_model_bands.py

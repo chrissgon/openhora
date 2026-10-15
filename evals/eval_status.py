@@ -178,7 +178,7 @@ Commands:
              {"mean", "runs"}}]}}[, "assertions": [{"case",
              "assertion", "tags", "with": [passes, runs], "without": [passes, runs]}], "difference_not_format"]}.
              A model's "band", "cause", "kind", "command", "causes" and "gate" are the row's keys computed on that
-             model's lines; the reference model's are the row's own.
+             model's lines; those of the first lab model (the subject of the row) are the row's own.
              The kinds of a cause: "no passing full test", "guard", "gate failed" (needs a test); "no current run",
              "guard cases only", "score", "y changes", "case pending", "thin baseline", "field signal" (watch).
              Exit 0.
@@ -193,8 +193,8 @@ Commands:
              (the fewest baseline lines in force of a case of the gate, when it is computed)]}.
   inventory  writes the two snapshot tables of the reliability model's section 10 between <!-- eval-status:begin -->
              and <!-- eval-status:end --> in docs/inventory.md (--write): the band table, one row per skill on the
-             reference model, and the model table, one row per skill and model that has any evidence, the
-             reference model first, with that model's band, cause, gate (passed or failed, the mean with the skill
+             first lab model, and the model table, one row per skill and model that has any evidence, the
+             lab models first, with that model's band, cause, gate (passed or failed, the mean with the skill
              vs the baseline mean, or not computed), score, mean, lab runs, field and platforms; marked with the
              commit they were generated at. --check exits 1 when the tables differ from what would be generated
              now, the commit line aside. They are a published snapshot: no pull request has to regenerate them, and
@@ -257,7 +257,7 @@ case changes again after an earlier changed text of it has run since that full t
 computed until a full test runs every case. When a case of the gate has no baseline in force (after an epoch
 that reaches the skill), the result the newest full test that lists the model wrote for that model stands, with the
 note "baseline expired".
-A baseline line is in force while three things are unchanged: the case (its hash), the reference model (no
+A baseline line is in force while three things are unchanged: the case (its hash), the model (no
 epoch of it after the line's date: "epochs" of the gate file, [{"date", "models", "skills", "cause"}], where
 models and skills are lists or "all"), and the measurement (its version at or above the floor). The skill's
 version does not age it: a run without the skill never saw the skill.
@@ -1241,7 +1241,7 @@ def event_gate(event, model):
 
 
 def baseline_lines(skill_dir, cfg, events=None):
-    """{case id: [baseline lines in force]}: lines without the skill, on the reference model, of the case's current
+    """{case id: [baseline lines in force]}: lines without the skill, on the model, of the case's current
     hash, at or above the measurement floor, with no epoch of that model after their date."""
     skill = os.path.basename(os.path.normpath(skill_dir))
     current, ref, floor = case_hashes(skill_dir), subject_model(cfg), cfg.get("measurement_floor", 1)
@@ -1256,7 +1256,7 @@ def baseline_lines(skill_dir, cfg, events=None):
 
 
 def gate_of(skill_dir, cfg, extra=(), evidence=None):
-    """The gate of a skill on the model cfg puts in the reference model's place, from its lab evidence (evidence, as
+    """The gate of a skill on the model cfg puts in the subject model's place, from its lab evidence (evidence, as
     skill_evidence lists it, or the skill's own files) and the events in extra (the event the runner is ending, whose
     file is not in the skill yet), by the rule of the model's section 2 (see the module's help). Only the tests whose
     event line lists that model are read: the newest full test, its X.Y, the pending cases, the pool and the stored
@@ -1867,7 +1867,7 @@ SCORE_Z = 1.2816  # the pessimistic score: the lower bound of the Wilson interva
 RELIABLE_AT = 0.70  # a pessimistic score under it is `watch`
 INHERITED_CAP = 3  # everything inherited counts as at most this many runs, together
 Y_CHANGES_FOR_FULL = 3  # Y changes since the newest full test from which the band is `watch`
-FIELD_SIGNAL_AT = 3  # `failed` verdicts on the current X.Y, on the reference model, that turn the field signal on
+FIELD_SIGNAL_AT = 3  # `failed` verdicts on the current X.Y, on the model, that turn the field signal on
 FIELD_CAP = 20  # uses, and verdicts, one contributor adds to the field columns of one skill
 BANDS = ("needs a test", "watch", "reliable")
 CAUSE_KINDS = ("no passing full test", "guard", "gate failed", "no current run", "guard cases only", "score",
@@ -2038,7 +2038,7 @@ def field_view(root, skill_dir, cfg, authors, lab_events, version):
     Columns, per model, over the lines of the current major version: uses, judged uses and the mean of their
     verdicts (a person's verdict over a check's for one use). One contributor, the author of the commit that added
     a file (authors), adds at most FIELD_CAP uses and FIELD_CAP verdicts, the newest. The signal counts the
-    `failed` verdicts on the current X.Y, on the reference model, in the weeks after the newest lab event of that
+    `failed` verdicts on the current X.Y, on the model, in the weeks after the newest lab event of that
     X.Y (all of them when it has none): at most one per contributor, except the repository's owner, the author
     of the commits that added lab evidence. Without history (authors None) nothing is computed."""
     files = field_files(skill_dir)
@@ -2083,7 +2083,7 @@ def field_view(root, skill_dir, cfg, authors, lab_events, version):
 
 
 def assertion_counts(cases, ref_current, baselines):
-    """The pass count of each assertion with the skill (the reference model's current set) and without it (the
+    """The pass count of each assertion with the skill (the subject model's current set) and without it (the
     baselines in force), and the difference of the two rates over the assertions that are not `format`."""
     rows, diffs = [], []
     for cid, case in cases.items():
@@ -2102,12 +2102,13 @@ def assertion_counts(cases, ref_current, baselines):
 
 
 def skill_band(root, skill_dir, cfg, authors=None, per_model=True, events=None):
-    """The band of one skill on the reference model, with its cause and the command that clears it, the score,
-    the gate, the guards, the field columns and a row per model (the model's sections 4 to 7; see --help).
+    """The band of one skill on the subject model (the first of lab_models, or the model given), with its cause and the
+    command that clears it, the score, the gate, the guards, the field columns and a row per model (the model's sections
+    4 to 7; see --help).
 
     Each model's row carries the same band, cause and gate, computed by this same function on that model's lines
-    (as_subject; per_model=False there, so that it does not recurse); the reference model's row copies the
-    skill's own. Only the reference model's band decides the skill's standing. The newest full test, its X.Y, the
+    (as_subject; per_model=False there, so that it does not recurse); the subject's row copies the skill's own. No
+    model's band decides for another: the runtime reads the band of the pair it uses. The newest full test, its X.Y, the
     Y changes since it and the gate are those of the tests that list the model (model_events). events is the lab
     evidence read, as skill_evidence lists it (by default the skill's own files; a person's local evidence is read
     by passing it)."""
@@ -2558,10 +2559,10 @@ def _community_cell(figures):
 
 def inventory_block(root=ROOT):
     """The two snapshot tables of the reliability model's section 10, with the commit they were generated at:
-    the band table (one row per skill, on the reference model; its field column sums every model) and the
-    model table (one row per skill and model that has any evidence, the reference model first): the same band,
-    cause, gate and figures for every model, computed by the same rules on that model's lines. Only the
-    reference model's band decides a skill's standing; the other rows are information."""
+    the band table (one row per skill, on the first lab model, the order of the summary row; its field column sums every
+    model) and the model table (one row per skill and model that has any evidence, the lab models in order): the same
+    band, cause, gate and figures for every model, computed by the same rules on that model's lines. Each row is that
+    model's own; none decides for another."""
     data = all_status(root)
     ref = subject_model(load_gate(root))
     head = git_out(root, "rev-parse", "--short=12", "HEAD")

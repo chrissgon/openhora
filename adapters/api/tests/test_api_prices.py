@@ -10,6 +10,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 HERE = Path(__file__).resolve().parents[1]
 SCRIPT = HERE / "run_agent.py"
 
@@ -45,3 +47,24 @@ def test_the_adapter_points_at_the_runtimes_table_and_keeps_none_of_its_own():
     assert not (HERE / "prices.json").exists()
     committed = json.loads(Path(mod.PRICES).read_text(encoding="utf-8"))["models"]
     assert mod.load_price(next(iter(committed)), lambda line: None) is not None, "the committed table gives a price to its first model"
+
+
+def test_the_adapter_and_the_runtimes_reader_give_the_same_figures_from_the_same_file(tmp_path):
+    spec = importlib.util.spec_from_file_location("runtime_prices_for_the_adapter_test", HERE.parents[1] / "runtime" / "prices.py")
+    runtime_prices = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = runtime_prices
+    spec.loader.exec_module(runtime_prices)
+    table = tmp_path / "prices.json"
+    table.write_text(json.dumps({"models": {"acme/swift-1": {"aliases": ["swift"], "input_usd_per_mtok": 0.2, "output_usd_per_mtok": 1.0,
+                                                             "cache_read_usd_per_mtok": 0.05, "cache_write_usd_per_mtok": 0.25,
+                                                             "source": "https://prices.example/models", "accessed": "2026-10-01"}}}))
+    mod = adapter()
+    mod.PRICES = table
+    ours = mod.load_price("swift", lambda line: None)
+    entry = runtime_prices.price_of(runtime_prices.load(str(table)), ["swift"])
+    assert (ours["input_per_mtok"], ours["output_per_mtok"], ours["cache_read_per_mtok"], ours["cache_write_per_mtok"]) == (
+        entry["input_usd_per_mtok"], entry["output_usd_per_mtok"], entry["cache_read_usd_per_mtok"], entry["cache_write_usd_per_mtok"])
+    # the same usage costs the same through the adapter's own arithmetic and the runtime's
+    usage = {"input_tokens": 1000, "output_tokens": 200, "cache_read_input_tokens": 500, "cache_creation_input_tokens": 100}
+    tokens, cost = mod.usage_cost("anthropic", usage, ours, lambda line: None)
+    assert cost == pytest.approx(runtime_prices.expected_cost({"input": 1000, "output": 200, "cache_read": 500, "cache_write": 100}, entry))

@@ -113,3 +113,87 @@ def test_the_committed_table_has_a_source_and_a_date_for_every_entry():
         assert str(entry.get("source", "")).startswith("https://"), name
         datetime.date.fromisoformat(entry["accessed"])
         assert isinstance(entry.get("input_usd_per_mtok"), (int, float)) and isinstance(entry.get("output_usd_per_mtok"), (int, float)), name
+
+
+# --- a model pinned to one provider is priced at that provider, never at the cheapest endpoint (review of P3) -----------------
+
+
+def pinned():
+    """(model id, provider pin) of a gate-file model that is on OpenRouter and pinned to one provider."""
+    gate = json.loads((ROOT / "evals" / "eval-gate.json").read_text(encoding="utf-8"))
+    for name, entry in gate["models"].items():
+        if isinstance(entry, dict) and entry.get("route") == "openrouter" and entry.get("provider_pin"):
+            return name, entry["provider_pin"]
+    raise AssertionError("the gate file pins no OpenRouter model")
+
+
+def endpoint(tag, prompt, completion, **more):
+    return {"name": f"{tag} | invented", "provider_name": tag.split("/")[0].title(), "tag": tag,
+            "pricing": {"prompt": prompt, "completion": completion, **more}}
+
+
+def endpoints_file(tmp_path, model, endpoints):
+    path = tmp_path / "endpoints.json"
+    path.write_text(json.dumps({model[len("openrouter/"):]: {"data": {"id": model[len("openrouter/"):], "endpoints": endpoints}}}), encoding="utf-8")
+    return path
+
+
+def test_a_pinned_model_is_priced_at_its_pin_and_not_at_the_cheapest_endpoint(tmp_path):
+    model, pin = pinned()
+    table = tmp_path / "prices.json"
+    table.write_text(json.dumps({"models": {model: {"input_usd_per_mtok": 0.02, "output_usd_per_mtok": 0.7, "source": URL, "accessed": "2026-10-01"}}}), encoding="utf-8")
+    answer = endpoints_file(tmp_path, model, [
+        endpoint("cheap-host/fp4", "0.00000002", "0.0000007"),                                           # the cheapest of the model, not the pin
+        endpoint(f"{pin}/fp8", "0.00000014", "0.00000042", input_cache_read="0.0000000042", discount=0.3),
+        endpoint("dear-host", "0.000001", "0.000004")])
+    out = run("--endpoints-file", str(answer), "--table", str(table), "--model", model)
+    assert out.returncode == 0, out.stderr
+    assert json.loads(out.stdout)["written"] == [model], "an entry priced before the pin was read is written again, without --refresh"
+    entry = json.loads(table.read_text(encoding="utf-8"))["models"][model]
+    assert entry["input_usd_per_mtok"] == pytest.approx(0.14) and entry["output_usd_per_mtok"] == pytest.approx(0.42)
+    assert entry["cache_read_usd_per_mtok"] == pytest.approx(0.0042)
+    assert entry["provider"] == pin and entry["source"] == f"{URL}/{model[len('openrouter/'):]}/endpoints"
+    assert entry["accessed"] == datetime.date.today().isoformat()
+    assert "30%" in entry["notes"] and pin in entry["notes"]
+    again = json.loads(run("--endpoints-file", str(answer), "--table", str(table), "--model", model).stdout)
+    assert again["kept"] == [model] and again["written"] == [], "an entry priced at its pin is left as it is"
+
+
+def test_the_dearest_endpoint_of_the_pin_is_written_when_it_has_several_quantizations(tmp_path):
+    model, pin = pinned()
+    table = tmp_path / "prices.json"
+    table.write_text(json.dumps({"models": {}}), encoding="utf-8")
+    answer = endpoints_file(tmp_path, model, [endpoint(f"{pin}/fp8", "0.0000002", "0.0000008"), endpoint(f"{pin}/fp4", "0.0000001", "0.0000004")])
+    assert run("--endpoints-file", str(answer), "--table", str(table), "--model", model).returncode == 0
+    entry = json.loads(table.read_text(encoding="utf-8"))["models"][model]
+    assert entry["input_usd_per_mtok"] == pytest.approx(0.2) and entry["output_usd_per_mtok"] == pytest.approx(0.8)
+
+
+def test_a_pin_with_no_endpoint_is_missing_and_no_other_providers_price_is_written(tmp_path):
+    model, pin = pinned()
+    table = tmp_path / "prices.json"
+    before = json.dumps({"models": {model: {"input_usd_per_mtok": 0.02, "output_usd_per_mtok": 0.7, "source": URL, "accessed": "2026-10-01"}}})
+    table.write_text(before, encoding="utf-8")
+    answer = endpoints_file(tmp_path, model, [endpoint("other-host", "0.00000001", "0.00000001"), endpoint(f"{pin}-other/fp8", "0.0000001", "0.0000002")])
+    out = run("--endpoints-file", str(answer), "--table", str(table), "--model", model)
+    assert out.returncode == 1 and json.loads(out.stdout)["missing"] == [model]
+    assert table.read_text(encoding="utf-8") == before, "the cheaper entry that was there is not replaced by another provider's price"
+    empty = tmp_path / "none.json"
+    empty.write_text(json.dumps({}), encoding="utf-8")
+    assert json.loads(run("--endpoints-file", str(empty), "--table", str(table), "--model", model).stdout)["missing"] == [model]
+    assert run("--endpoints-file", str(tmp_path / "nowhere.json"), "--table", str(table), "--model", model).returncode == 1
+
+
+def test_a_model_without_a_pin_is_still_priced_from_the_models_list(files):
+    answer, table = files
+    out = run("--from-file", str(answer), "--table", str(table), "--model", "openrouter/acme/swift-1")
+    assert out.returncode == 0 and json.loads(out.stdout)["written"] == ["openrouter/acme/swift-1"]
+    entry = json.loads(table.read_text(encoding="utf-8"))["models"]["openrouter/acme/swift-1"]
+    assert entry["source"] == URL and "provider" not in entry
+
+
+def test_the_committed_price_of_a_pinned_model_is_the_pins_with_its_source_and_date():
+    model, pin = pinned()
+    entry = json.loads((ROOT / "runtime" / "prices.json").read_text(encoding="utf-8"))["models"][model]
+    assert entry["provider"] == pin and entry["source"].endswith("/endpoints")
+    datetime.date.fromisoformat(entry["accessed"])

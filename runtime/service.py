@@ -155,8 +155,10 @@ name a channel). The route of set-mode may narrow autonomy and never widen it: a
 the configuration unaccepted (every route then answers 412 with the command that accepts it, in the terminal). The route takes
 the mode and nothing else: `accept` is the terminal's (set-mode --accept), so a body that carries it is a 400, and the operation
 refuses it from any channel but the terminal besides. The route of set-model is the same: a model id, auto or default; fixing a
-model on an agent in an autonomous mode is the person's consent and carries `accept`, which only the terminal gives, so the page
-shows the warning and the command.
+model on an agent in an autonomous mode is the person's consent and carries `consent`, which only the terminal gives there (it is
+distinct from `accept`, and both are refused in a body). The page gives that consent on its own route, give-consent: the model,
+the mode, the hash of the configuration it read and the sha256 of the warning it showed; the operation checks all four and
+records that consent only (messaging and the MCP mode have no such operation).
 
 When it stops (SIGINT or SIGTERM) it ends the runs a job started (ops.stop_runs) and does not exit before that returns;
 a second signal while it stops is ignored.
@@ -295,6 +297,8 @@ ROUTES = (
     _route("POST", "/projects/{p}/runs/{id}/verdict", "verdict", bind={"run_id": "id"}),
     _route("POST", "/projects/{p}/agents/{name}/mode", "set-mode", bind={"agent": "name"}, take=("mode",)),
     _route("POST", "/projects/{p}/agents/{name}/model", "set-model", bind={"agent": "name"}, take=("model",)),
+    _route("POST", "/projects/{p}/agents/{name}/consent", "give-consent", bind={"agent": "name"},
+           take=("model", "mode", "config_sha256", "warning_sha256")),
     _route("GET", "/projects/{p}/progress", "progress"),
     _route("GET", "/projects/{p}/agents", "agents", take=()),
     _route("GET", "/projects/{p}/conversation", "conversation", take=("conversation", "after")),

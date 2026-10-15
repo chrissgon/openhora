@@ -287,9 +287,14 @@ def skills_fixture(shape: dict) -> dict:
     summary = []
     for place, model in enumerate(DEMO_MODELS):
         mine = [r["proof"][place] for r in rows]
-        summary.append({**shape["models"][0], "model": model, "adapter": "adapter", "skills": len(mine),
-                        "reliable": sum(1 for p in mine if p["band"] == "reliable"), "price": mine[0]["price"]})
+        reliable = sum(1 for p in mine if p["band"] == "reliable")
+        summary.append({**shape["models"][0], "model": model, "adapter": "adapter", "skills": len(mine), "reliable": reliable, "community_only": 0,
+                        "expected_cost": DEMO_COST[model], "band": "reliable" if reliable == len(mine) else ("partial" if reliable else "needs a test"),
+                        "price": mine[0]["price"]})
+    full = [m for m in summary if m["reliable"] == m["skills"]]
+    pool = full or [m for m in summary if m["reliable"] == max(x["reliable"] for x in summary)]
     return {"skills": rows, "checks": dict(shape["checks"]), "models": summary, "default_model": None,
+            "recommended_model": min(pool, key=lambda m: m["expected_cost"])["model"] if pool and pool[0]["reliable"] else None,
             "snapshot": {"commit": commit, "source": "docs/inventory.md"}}
 
 

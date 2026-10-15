@@ -78,13 +78,15 @@ export function task(P, id) {
 
 const AUTONOMOUS = ["autonomous", "autonomous-with-policy"];
 
-/** The set-model commands of an agent, as the service gives them: every model of the demo, then auto and default; --accept where the agent's mode would make the model a consent. */
+/** The set-model commands of an agent, as the service gives them: every model of the demo, then auto and default; --consent and --accept where the agent's mode would make the model a consent. */
 function modelCommands(P, agent) {
   const ids = (F.skills.models || []).map((m) => m.model);
-  return [...ids, "auto", "default"].map((model) => ({
-    model,
-    command: `python3 ${CLI} set-model --project ${P.folder} --agent ${agent.name} --model ${model}${AUTONOMOUS.includes(agent.mode) && !["auto", "default"].includes(model) ? " --accept" : ""}`,
-  }));
+  return [...ids, "auto", "default"].map((model) => {
+    const consent = AUTONOMOUS.includes(agent.mode) && !["auto", "default"].includes(model);
+    const line = (F.skills.models || []).find((m) => m.model === model);      // the demo's figures for the model, over all its skills
+    const figures = line ? { skills: line.skills, reliable: line.reliable, community_only: line.community_only, expected_cost: line.expected_cost, band: line.band, price: line.price } : {};
+    return { model, consent, command: `python3 ${CLI} set-model --project ${P.folder} --agent ${agent.name} --model ${model}${consent ? " --consent --accept" : ""}`, ...figures };
+  });
 }
 
 export function agents(P) {
@@ -93,6 +95,7 @@ export function agents(P) {
     consent_warning: F.agents.consent_warning,
     default_model: null,
     models: (F.skills.models || []).map((m) => m.model),
+    config_sha256: P.configSha,
     agents: P.agents.map((a) => {
       const queued = P.tasks.filter((t) => t.parent_id !== null && t.state === "ready" && t.agent === a.name).length;
       const holders = taskRows(P).filter((t) => t.agent === a.name && holdsSlot(t)).map((t) => t.id).sort((x, y) => x - y);
@@ -104,9 +107,11 @@ export function agents(P) {
         usd_reserved: 0, runs_total_today: a.runs + (metered ? 1 : 0), billing: clone(template.billing), caps_in_use: { runs: true, spend: metered },
         max_parallel: a.maxParallel, max_parallel_ceiling: MAX_PARALLEL_CEILING, holders, slots_held: holders.length,
         queued, held: heldRows(P).filter((h) => h.agent === a.name).length,
-        wider: MODES.slice(index + 1).map((mode) => ({ mode, command: `python3 ${CLI} set-mode --project ${P.folder} --agent ${a.name} --mode ${mode} --accept` })),
-        model: a.model || null, consent: null, consent_in_force: false, consent_needed: Boolean(a.model && a.model !== "auto" && AUTONOMOUS.includes(a.mode)),
-        model_commands: modelCommands(P, a),
+        wider: MODES.slice(index + 1).map((mode) => ({ mode, command: `python3 ${CLI} set-mode --project ${P.folder} --agent ${a.name} --mode ${mode} --accept${a.model && a.model !== "auto" && AUTONOMOUS.includes(mode) ? " --consent" : ""}` })),
+        model: a.model || null, consent: a.consent || null, config_sha256: P.configSha,
+        consent_in_force: Boolean(a.consent && a.model && a.consent.model === a.model && a.consent.mode === a.mode && AUTONOMOUS.includes(a.mode)),
+        consent_needed: Boolean(a.model && a.model !== "auto" && AUTONOMOUS.includes(a.mode)),
+        model_commands: modelCommands(P, a), recommended_model: F.skills.recommended_model || null,
       });
     }),
   };

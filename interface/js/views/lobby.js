@@ -605,7 +605,7 @@ export function createLobbyView(frame, { project, onChanged }) {
       }
       if (accepted && !modelsAsked && Date.now() - flowsFailedAt >= RETRY_READ_MS) {
         modelsAsked = true;
-        api.skills(project, { signal }).then((got) => { form.setModels(got.models, got.default_model); }).catch(() => { modelsAsked = false; flowsFailedAt = Date.now(); });
+        api.skills(project, { signal }).then((got) => { form.setModels(got.models, got.default_model, got.recommended_model); }).catch(() => { modelsAsked = false; flowsFailedAt = Date.now(); });
       }
       if (status) readBodies(status.requests || [], status.pending || []);
       redraw();

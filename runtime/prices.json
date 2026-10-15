@@ -48,11 +48,13 @@
       "accessed": "2026-09-30"
     },
     "openrouter/deepseek/deepseek-v4.1-flash": {
-      "input_usd_per_mtok": 0.02376,
-      "output_usd_per_mtok": 0.72,
-      "cache_read_usd_per_mtok": 0.0054,
-      "source": "https://openrouter.ai/api/v1/models",
-      "accessed": "2026-10-15"
+      "input_usd_per_mtok": 0.14,
+      "output_usd_per_mtok": 0.42,
+      "cache_read_usd_per_mtok": 0.0042,
+      "source": "https://openrouter.ai/api/v1/models/deepseek/deepseek-v4.1-flash/endpoints",
+      "accessed": "2026-10-15",
+      "provider": "deepinfra",
+      "notes": "priced at the pinned provider deepinfra, not at the cheapest endpoint of the model; OpenRouter lists a discount of 30% on this endpoint; the entry holds the listed price"
     }
   }
 }
