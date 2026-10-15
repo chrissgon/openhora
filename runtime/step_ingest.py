@@ -41,6 +41,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import hashlib  # noqa: E402
+import stat  # noqa: E402
 import drop  # noqa: E402
 import ops_core as core  # noqa: E402  (read as core.<name>)
 import ops_sources  # noqa: E402
@@ -82,32 +83,51 @@ def check(args) -> dict:
     return out
 
 
-def _dropped(ctx: steps.Context) -> str:
-    """The path of the file the plan names, in this task's drop, once its bytes are the ones the plan approved. StepFailure:
-    file_missing (not there, or not a regular file, or a link), file_changed (another hash)."""
-    path = os.path.join(drop.folder(os.path.realpath(ctx.project), ctx.task_id), ctx.args["file"])
+HAND = "hand the file over: hand-over --task <id> --file <path>"
+
+
+def _dropped(ctx: steps.Context) -> bytes:
+    """The bytes of the file the plan names, read once from this task's drop and checked against the plan's hash: the same bytes are
+    then imported, so a file swapped after the check changes nothing. The file is looked at through the drop folder's descriptor before it
+    is opened, so that a pipe, a device or a link is refused without being opened (opening a FIFO waits for a writer); it is opened with
+    O_NOFOLLOW | O_NONBLOCK and looked at again through the descriptor (the same file), and at most drop.MAX_BYTES are read.
+    StepFailure: file_missing (not there, not a regular file, a link), file_too_large, file_changed (another hash)."""
+    missing = steps.StepFailure("file_missing", "file", "", HAND)
+    folder = drop.folder(os.path.realpath(ctx.project), ctx.task_id)
     try:
-        info = os.lstat(path)
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        dirfd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     except OSError:
-        raise steps.StepFailure("file_missing", "file", "", "hand the file over: hand-over --task <id> --file <path>") from None
+        raise missing from None
+    try:
+        try:
+            before = os.stat(ctx.args["file"], dir_fd=dirfd, follow_symlinks=False)
+            if not stat.S_ISREG(before.st_mode):
+                raise missing
+            fd = os.open(ctx.args["file"], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dirfd)
+        except OSError:
+            raise missing from None
+    finally:
+        os.close(dirfd)
     with os.fdopen(fd, "rb") as f:
-        digest = hashlib.sha256()
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            digest.update(chunk)
-    if not os.path.isfile(path) or info.st_size > drop.MAX_BYTES:
-        raise steps.StepFailure("file_missing", "file")
-    if digest.hexdigest() != ctx.args["sha256"]:
+        after = os.fstat(f.fileno())
+        if not stat.S_ISREG(after.st_mode) or not os.path.samestat(before, after):
+            raise missing
+        data = f.read(drop.MAX_BYTES + 1)
+    if len(data) > drop.MAX_BYTES:
+        raise steps.StepFailure("file_too_large", "file")
+    if hashlib.sha256(data).hexdigest() != ctx.args["sha256"]:
         raise steps.StepFailure("file_changed", "file", "", "the file is not the one the plan approved: plan the ingest again")
-    return path
+    return data
 
 
 def _ingest(ctx: steps.Context, state: dict) -> dict:
     args = ctx.args
     try:
         if args.get("file") is not None or args.get("url") is not None:
-            file = _dropped(ctx) if args.get("file") is not None else None
-            done = ops_sources.source_import(ctx.project, args["source"], file=file, url=args.get("url"))
+            if args.get("file") is not None:
+                done = ops_sources.import_bytes(ctx.project, args["source"], args["file"], _dropped(ctx))
+            else:
+                done = ops_sources.source_import(ctx.project, args["source"], url=args.get("url"))
         else:
             done = ops_sources.source_refresh(ctx.project, args["source"])
     except core.OpsError as e:

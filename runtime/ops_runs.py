@@ -208,7 +208,7 @@ def run_task(project: str, task_id: int, requested=None, checked: bool = True) -
     ctx = core.context(project)
     cfg = ctx["cfg"]
     if _is_step(ctx, task_id):   # a step task runs no skill: it has its own process, `run-step` (runtime/ops_steps.py)
-        return importlib.import_module("ops_steps").run_step(project, task_id)
+        return importlib.import_module("ops_steps").run_step(project, task_id, unattended=checked)
     with core._task_lock(cfg, task_id):
         recovered = _recover(ctx)
         started = _start(ctx, task_id, requested, checked)
@@ -367,7 +367,7 @@ def spawn(cfg: dict, project: str, task_id: int, verb: str = "run-task"):
                 else:
                     env[name] = before
         proc = subprocess.Popen([sys.executable, os.path.join(core.ROOT, "runtime", "cli.py"), verb, "--project", project,
-                                 "--task", str(task_id)], stdout=files[0], stderr=files[1], stdin=subprocess.DEVNULL,
+                                 "--task", str(task_id), *(["--unattended"] if verb == "run-step" else [])], stdout=files[0], stderr=files[1], stdin=subprocess.DEVNULL,
                                 start_new_session=True, close_fds=True, env=env)
     finally:
         for fd in files:

@@ -393,6 +393,10 @@
       "recommended_model": "m"
     }
   ],
+  "steps": {
+    "agent": "runtime",
+    "mode": "autonomous"
+  },
   "consent_warning": "Each run of this agent on its fixed model, of a skill not proven on that model by the lab's evidence or your own tests, will be recorded as autonomy by consent, including a run that a milestone later holds for your review. In this mode those runs' reviews are released without you; skills proven on the model are released by the mode as for any proven model.",
   "default_model": null,
   "models": [

@@ -56,6 +56,7 @@ Standard library only. Runs on Python 3.9.
 from __future__ import annotations
 
 import dataclasses
+import errno
 import hashlib
 import importlib
 import os
@@ -69,6 +70,7 @@ OWNER = "runtime"                         # the agent of every step task (a copy
 STOPS = ("review",)                       # the words a kind's stops may use: the person reviews what was made. No `approval`: see the module text
 CONTINUE, STOP_WORD = "continue", "stop"  # the verdicts of a stop; any other answer is no verdict
 VERDICTS = (CONTINUE, STOP_WORD)
+LINK_ERRNOS = (errno.ELOOP, errno.ENOTDIR)  # what O_NOFOLLOW | O_DIRECTORY answers for a link where a folder must be (the platform's own numbers)
 PLACEHOLDER = re.compile(r"<[^<>/]*>")
 REL_PATH = re.compile(r"[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*")
 VERDICT_LINE = "Answer `continue` to go on, or `stop` to end this step. Any other answer is no verdict: you will be asked again."
@@ -532,7 +534,7 @@ def write_file(ctx: Context, rel: str, data: bytes) -> dict:
                 pass
             raise
     except OSError as e:
-        raise StepFailure("path_unsafe" if e.errno in (40, 20, 62) else "io_error", "path") from None
+        raise StepFailure("path_unsafe" if e.errno in LINK_ERRNOS else "io_error", "path") from None
     finally:
         for descriptor in opened:
             os.close(descriptor)

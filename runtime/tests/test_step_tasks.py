@@ -11,6 +11,7 @@ import contextlib
 import hashlib
 import json
 import os
+import threading
 from pathlib import Path
 
 import pytest
@@ -579,6 +580,137 @@ def test_the_stop_of_a_step_task_takes_only_a_verdict_through_the_answer_and_the
     ops.answer(world["path"], again["id"], "continue")
     out = ops.run_step(world["path"], made)
     assert out["done"] is True and task(world, made)["state"] == "done"
+
+
+def test_a_step_the_dispatcher_started_asks_the_brake_and_the_kinds_flag_again_under_the_claim_lock(world, monkeypatch):
+    """The race: the dispatcher decided on a snapshot, the person stopped the runtime before the child claimed the task."""
+    calls, raced = [], []
+    made = add_step(world, file=csv_file(world))
+
+    class Child:
+        pid, returncode = 0, 0
+
+        def poll(self):
+            return 0
+
+    def spawn(cfg, project, task_id, verb="run-task"):
+        calls.append((task_id, verb))
+        ops.set_mode(world["path"], "runtime", "stopped", channel="terminal")            # between decide and claim
+        raced.append(ops.run_step(world["path"], task_id, unattended=True))              # what the child does with --unattended
+        child = Child()
+        with ops_runs.SPAWNED_LOCK:
+            ops_runs.SPAWNED.append((project, task_id, child))
+        return child
+    monkeypatch.setattr(ops_runs, "spawn", spawn)
+    monkeypatch.setattr(ops, "_image_stop", lambda: None)
+    ops.dispatch(world["path"], wait=False)
+    assert calls == [(made["task"], "run-step")]                                          # the dispatcher did decide to start it
+    assert raced == [{"ran": None, "reason": "stopped", "held": True, "task": made["task"], "recovered": []}]
+    assert task(world, made["task"])["state"] == "ready" and task(world, made["task"])["step_state"] is None
+    again = ops.run_step(world["path"], made["task"])                                     # the person's own start is not asked
+    assert again["ok"] is True and task(world, made["task"])["state"] == "done"
+
+
+def test_the_flag_asks_the_kinds_unattended_too_and_the_persons_start_does_not(world, monkeypatch):
+    monkeypatch.setitem(steps.REGISTRY, "by-hand", steps.Kind(name="by-hand", order=("one",), executors={"one": lambda c, s: {"made": 1}}))
+    ctx = ctx_of(world)
+    made = ctx["store"].step_task_add(ctx["conn"], key="manual", title="Manual", text="By hand.", step="by-hand")["task"]
+    held = ops.run_step(world["path"], made, unattended=True)
+    assert held["ran"] is None and held["held"] is True and held["reason"] == "start it by hand" and task(world, made)["state"] == "ready"
+    assert ops.run_step(world["path"], made)["ok"] is True                                # by hand
+    ingest = add_step(world, file=csv_file(world), key="auto")["task"]
+    assert ops.run_step(world["path"], ingest, unattended=True)["ok"] is True             # an unattended kind with the brake off runs
+    # run-task on a step task is the dispatcher-style call (checked by default); run-next is the person's
+    third = add_step(world, file=csv_file(world), key="third")["task"]
+    ops.set_mode(world["path"], "runtime", "stopped", channel="terminal")
+    assert ops.run_task(world["path"], third)["ran"] is None
+    assert ops.run_next(world["path"])["ran"] == third
+
+
+def test_the_dispatcher_starts_a_step_process_with_the_unattended_flag_and_a_skill_process_without_it(world, monkeypatch):
+    seen = []
+
+    class Popen:
+        def __init__(self, argv, **kwargs):
+            seen.append(argv)
+            self.pid, self.returncode = 0, None
+
+        def poll(self):
+            return 0
+    monkeypatch.setattr(ops_runs.subprocess, "Popen", Popen)
+    cfg = ctx_of(world)["cfg"]
+    world["real_spawn"](cfg, world["path"], 5, "run-step")
+    world["real_spawn"](cfg, world["path"], 6)
+    assert seen[0][-1] == "--unattended" and seen[0][2:5] == ["run-step", "--project", world["path"]]
+    assert "--unattended" not in seen[1] and seen[1][2] == "run-task"
+    cli = st.load("cli")
+    parsed = cli.build_parser().parse_args(["run-step", "--project", world["path"], "--task", "5", "--unattended"])
+    assert parsed.f_unattended is True and cli.build_parser().parse_args(["run-step", "--project", world["path"], "--task", "5"]).f_unattended is False
+
+
+def test_the_agents_read_carries_the_brake_with_or_without_area_agents(world):
+    assert ops.agents(world["path"])["steps"] == {"agent": "runtime", "mode": "autonomous"}
+    ops.set_mode(world["path"], "runtime", "stopped", channel="terminal")
+    assert ops.agents(world["path"]) == {"agents": [], "steps": {"agent": "runtime", "mode": "stopped"}}
+    agents(world)
+    read = ops.agents(world["path"])
+    assert read["steps"] == {"agent": "runtime", "mode": "stopped"} and [a["name"] for a in read["agents"]] == ["business", "engineering"]
+    ops.set_mode(world["path"], "runtime", "autonomous", channel="terminal")
+    assert ops.agents(world["path"])["steps"]["mode"] == "autonomous"
+
+
+def test_a_pipe_in_the_drop_is_refused_without_being_opened_so_it_cannot_hang_the_task(world):
+    made = add_step(world, file=csv_file(world), hand=False)
+    drop_dir = Path(world["path"]) / ".workbench-local" / "drop" / str(made["task"])
+    drop_dir.mkdir(parents=True)
+    os.mkfifo(drop_dir / "survey.csv")
+    result = {}
+    runner = threading.Thread(target=lambda: result.update(out=ops.run_step(world["path"], made["task"])), daemon=True)
+    runner.start()
+    runner.join(30)
+    assert not runner.is_alive(), "the ingest waited for a writer on the pipe"
+    assert result["out"]["ok"] is False and result["out"]["code"] == "file_missing" and task(world, made["task"])["state"] == "failed"
+
+
+def test_a_file_over_the_cap_is_refused_having_read_no_more_than_the_cap(world, monkeypatch):
+    made = add_step(world, file=csv_file(world))
+    drop_module = st.load("drop")
+    monkeypatch.setattr(drop_module, "MAX_BYTES", 10)
+    read = []
+    original = os.fdopen
+
+    def counting(fd, *a, **k):
+        f = original(fd, *a, **k)
+        real = f.read
+        f.read = lambda n=-1: (read.append(n), real(n))[1]
+        return f
+    monkeypatch.setattr(st.load("step_ingest").os, "fdopen", counting)
+    out = ops.run_step(world["path"], made["task"])
+    assert out["ok"] is False and out["code"] == "file_too_large" and task(world, made["task"])["state"] == "failed"
+    assert read == [11]                                                                      # the cap and one byte: never the whole file
+    assert ctx_of(world)["store"].source_latest(ctx_of(world)["conn"], "survey") is None
+
+
+def test_the_bytes_imported_are_the_bytes_that_were_hashed_even_when_the_file_is_swapped_after_the_check(world, monkeypatch):
+    approved = csv_file(world)
+    made = add_step(world, file=approved)
+    drop_file = Path(world["path"]) / ".workbench-local" / "drop" / str(made["task"]) / "survey.csv"
+    real = st.load("ops_sources").import_bytes
+
+    def swapped(project, source_id, name, data):
+        drop_file.write_text("name,price\nplum,9.99\n", encoding="utf-8")                  # another file in its place, after the hash was checked
+        return real(project, source_id, name, data)
+    monkeypatch.setattr(st.load("ops_sources"), "import_bytes", swapped)
+    out = ops.run_step(world["path"], made["task"])
+    assert out["ok"] is True
+    ctx = ctx_of(world)
+    version = ctx["store"].source_latest(ctx["conn"], "survey")
+    assert version["original_sha256"] == hashlib.sha256(CSV.encode()).hexdigest()           # the approved bytes, not the swapped file's
+
+
+def test_the_errors_write_file_calls_a_link_are_the_platforms_own(tmp_path):
+    import errno
+    assert steps.LINK_ERRNOS == (errno.ELOOP, errno.ENOTDIR)
 
 
 # --- admission against the files other tasks write ---------------------------------------------------------------------------------

@@ -87,6 +87,13 @@ def source_add(project: str, source_id: str, source_type: str, origin: str, desc
         raise _refused(e) from None
 
 
+def import_bytes(project: str, source_id: str, name: str, data: bytes) -> dict:
+    """source_import for a file whose bytes the caller already holds (the step kind `ingest`, which hashed them against the plan):
+    the same registration, label, intake and conversion, from those bytes and not from a path read again. `name` is the file's name.
+    Not an operation."""
+    return _import(project, source_id, name, None, None, None, data)
+
+
 def source_import(project: str, source_id: str, file: str | None = None, url: str | None = None,
                   origin: str | None = None, description: str | None = None) -> dict:
     """Import a version of a source from a file of yours (a path) or from a Notion page (its address or id): exactly one of
@@ -95,6 +102,11 @@ def source_import(project: str, source_id: str, file: str | None = None, url: st
     the type read from its bytes), converted to text in a container with no network, scanned for credentials, and kept with the
     original and a manifest as a new immutable version. Returns {"imported", "source", "version", "kind", "warnings", "catalog", ...},
     or {"imported": false, "unchanged": true, "version"} when the bytes are the ones already held."""
+    return _import(project, source_id, file, url, origin, description, None)
+
+
+def _import(project: str, source_id: str, file, url, origin, description, data) -> dict:
+    """The work of source_import; `data`, when given, is the file's bytes (file is then its name)."""
     if (file is None) == (url is None):
         raise core.OpsError("give exactly one of --file (a file of yours) and --url (a Notion page's address or id)", 2)
     ctx = core.context(project)
@@ -115,7 +127,8 @@ def source_import(project: str, source_id: str, file: str | None = None, url: st
         evidence = _evidence_base()
         label = _label(ctx, row)
         if kind == "file":
-            done = sources.import_version(ctx, row, os.path.abspath(file), convert=_convert(ctx), label=label, evidence_base=evidence)
+            done = sources.import_version(ctx, row, data if data is not None else os.path.abspath(file), convert=_convert(ctx),
+                                          label=label, evidence_base=evidence)
         else:
             done = _import_notion(ctx, row, url, evidence, label)
     except sources.SourcesError as e:

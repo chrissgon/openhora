@@ -123,10 +123,12 @@ def _context(ctx: dict, task: dict) -> steps.Context:
                          footprint=tuple(task.get("step_footprint") or ()), protected=lambda path: sources.inside(ctx["cfg"], path))
 
 
-def _start(ctx: dict, task_id: int) -> dict:
+def _start(ctx: dict, task_id: int, unattended: bool = False) -> dict:
     """Admit and claim one step task, under the claim lock (the same lock and the same pure function, runtime/parallel.py `admit`,
-    as a task run). Returns {"task": the claimed task}, or a refusal {"ran": None, "reason", "held"} (held: the reason is one of the
-    words of the held tasks, not an error)."""
+    as a task run). `unattended`: the dispatcher started this process, so what it decided on a snapshot is asked again under the lock,
+    where the person's brake or a kind that is not unattended may have changed meanwhile: the task is held with that word and left
+    `ready`. The person's own start (run-next, run-step by hand) asks neither. Returns {"task": the claimed task}, or a refusal
+    {"ran": None, "reason", "held"} (held: the reason is one of the words of the held tasks, not an error)."""
     cfg, store = ctx["cfg"], ctx["store"]
     try:
         task = store.task_get(ctx["conn"], task_id)
@@ -135,6 +137,10 @@ def _start(ctx: dict, task_id: int) -> dict:
     with core._claim_lock(cfg):
         if task is not None and not store.is_step_task(task):
             return {"ran": None, "reason": f"task {task_id} is not a step task: run-task runs it", "held": False, "task": task_id}
+        if unattended and task is not None and task["state"] == "ready":
+            why = held_reason(ctx, task)
+            if why:
+                return {"ran": None, "reason": why, "held": True, "task": task_id}
         if task is not None and task["state"] == "ready":
             cache = {}
             running = [r for r in ops_runs.running_and_effects(ctx, cache) if r["id"] != task_id]
@@ -181,16 +187,17 @@ def _body(ctx: dict, task: dict) -> dict:
     return out
 
 
-def run_step(project: str, task_id: int) -> dict:
+def run_step(project: str, task_id: int, unattended: bool = False) -> dict:
     """Run one named step task in this process: take its lock, end what dead processes left, admit and claim it under the claim
     lock, run its steps until a stop, a failure or the end. What it returns: {"ran": the task id, "step": the kind, "task_state",
     "ok", and the engine's result ("done", or "stopped" and "pending", or "failed", "code", "field", "next")}; a refusal is
     {"ran": None, "reason", "held"}, as run_task's. The process that starts it (the dispatcher) reads the exit code: 4 for a refusal
-    that is not one of the words of the held tasks."""
+    that is not one of the words of the held tasks. `unattended` is the dispatcher's flag (`run-step --unattended`): the brake and the
+    kind's flag are checked again under the claim lock."""
     ctx = core.context(project)
     with core._task_lock(ctx["cfg"], task_id):
         recovered = ops_runs._recover(ctx)
-        started = _start(ctx, task_id)
+        started = _start(ctx, task_id, unattended)
         if started.get("ran", True) is None:    # a refusal; a claim is {"task": the claimed row}
             return {**started, "recovered": recovered["tasks"]}
         return {**_body(ctx, started["task"]), "recovered": recovered["tasks"]}
