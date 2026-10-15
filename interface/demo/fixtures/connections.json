@@ -21,6 +21,11 @@
   ],
   "secrets": [
     {
+      "name": "GDRIVE_SOURCES_TOKEN",
+      "found": false,
+      "where": null
+    },
+    {
       "name": "GMAIL_CLIENT_ID",
       "found": false,
       "where": null

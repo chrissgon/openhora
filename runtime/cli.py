@@ -36,10 +36,11 @@ Usage:
   python3 runtime/cli.py verdict  --project <dir> --run <run id> --word worked|corrected|failed
   python3 runtime/cli.py sync     --project <dir> [--dry-run] [--take page|project --path <relative path>]
   python3 runtime/cli.py hand-over --project <dir> --task <task id> --file <path>
-  python3 runtime/cli.py source-add --project <dir> --source <id> --type file|notion --origin <file name | Notion page address> [--description <text>]
+  python3 runtime/cli.py source-add --project <dir> --source <id> --type file|notion|drive --origin <file name | Notion page address | Drive file id> [--description <text>]
   python3 runtime/cli.py source-import --project <dir> --source <id> (--file <path> | --url <Notion page address or id>) [--origin <text>] [--description <text>]
   python3 runtime/cli.py source-refresh --project <dir> --source <id> [--file <path>]
   python3 runtime/cli.py source-describe --project <dir> --source <id> [--description <text>]
+  python3 runtime/cli.py source-drive --project <dir> [--file-id <Drive file id> --source <id>] [--description <text>]
   python3 runtime/cli.py sources  --project <dir>
   python3 runtime/cli.py progress --project <dir> [--since 7d | <n>d | YYYY-MM-DD]
   python3 runtime/cli.py approve-policy --project <dir> --file <docs/...> --agent <name> [--sha256 <hash> --expires <YYYY-MM-DD>] [--what <text>]
@@ -180,8 +181,8 @@ hand-over copies one file of yours into the task's file drop, <project>/.workben
           file holding what looks like a credential, and a git project that does not ignore .workbench-local/. A task
           whose skill uses the web takes the file too (the maintainer's decision: the file is the person's own choice)
           and the answer carries "web": true and the line "this file will be visible to a run with the open network".
-source-add  registers a source of the project: an id (lowercase letters, digits, hyphens), its type (file, or notion) and its origin (a
-          file's name, or a Notion page's address or id); nothing is imported and no credential is kept. The registry is in the
+source-add  registers a source of the project: an id (lowercase letters, digits, hyphens), its type (file, notion or drive) and its origin (a
+          file's name, a Notion page's address or id, or a Drive file's id); nothing is imported and no credential is kept. The registry is in the
           store; the versions are in the project's sources folder (sources_dir of runtime.json, runtime/sources.py).
 source-import  imports a version of a source from a file of yours (--file) or from a Notion page (--url): the generic intake
           bounds the length and reads the type from the bytes (PDF, Word, spreadsheet, CSV, HTML, text), a container with no network
@@ -192,6 +193,13 @@ source-refresh  makes a new version: from a new file (--file), from the Notion p
           changed in the sources folder (the files are hashed against the record; a changed one is sniffed, converted and scanned
           again, and becomes a version labelled as yours, which a task that starts on its own never receives).
 source-describe  sets your description of a source, which the planner reads with its catalog; no --description clears it.
+source-drive  makes Google Drive files sources. It opens the Picker on a one-shot page on 127.0.0.1 (the command prints the address and
+          opens your browser): you choose one or more FILES, never a folder (a picked folder gives the app nothing inside it), and each
+          becomes a source, named from the file, with its first version imported (a Google Doc as Markdown, a Sheet as a workbook, Slides
+          as a PDF, any other file as it is, then the same converter, scan and rows as a file of yours). With --file-id and --source, one
+          file you picked before is imported or refreshed. source-refresh asks Drive for the file's version and reads it only when it
+          moved. Needs the one-time authorization: uv run providers/documents/gdrive_auth.py authorize. The scope, drive.file, lets the
+          app read and write the files you pick, so it is not read-only; the runtime asks for reads only.
 sources   the catalog of the sources: each one's newest version (name, type, size, date, sheets and columns with sample values,
           first headings), your description, and whether its files changed outside the runtime. It calls no model.
 deps      installs the dependency sets of runtime.json ("dependencies") by code, with no model: in the eval
