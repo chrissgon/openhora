@@ -645,3 +645,13 @@ SEC and P2b: a held run reaches only its own per-run key proxy, which serves one
 - The golden recording (`evals/tests/goldens/`): the request each pinned runner sends through the key proxy of commit cd161411 and through the final one is identical, except that `Accept-Encoding` is rewritten; neither runner sends a header the SEC change removes.
 
 Measurement version 9 was reopened on 2026-10-15 for the review fixes of P2b; nothing was measured while it was open. It is closed again by the last commit of that pull request.
+
+## 2026-10-15: measurement version 9 closed (again, after the review fixes of P2b)
+
+SEC and P2b (with the review fixes): a held run reaches only its own per-run key proxy, which serves one model, drops credential headers, forwards only the model endpoints, meters the tokens (also after a hang-up, failing closed) and stops at a per-run budget with reservations; route by provider and pin by model from the gate file; CPU platform on each run line, emulated platforms are trials
+
+- Measurement version 9, floor 6: nothing was measured while it was open; from this commit on the runner writes evidence under it.
+- Fingerprint: `eca913d50a556ffa206c2141f609226ef1d5cd3d65d0cd228fcb1b32aa0e5b5d` (it replaces the one of the entry above).
+- Written by `python3 evals/eval_status.py measurement --close`.
+- What the review fixes changed: a key proxy and its network are released whenever anything fails after `hold()`; the proxy keeps reading an answer after the run hung up and counts it, forces `usage.include` on the OpenRouter route, fails closed (429 for good) once an answer could not be read, reserves each request's `max_tokens` against the budget, and expands a compressed answer a chunk at a time; it refuses a body with `models` or `route` (OpenRouter) or a repeated key; `Accept-Encoding` is the run's offer among gzip, deflate and identity; the runtime reports a lower bound with `unknown_responses` and never falls back to the run's report; an image for another platform than the docker host's is a trial and a run line's `cpu_platform` must equal its event's `image_platform`; no `docker run` of the harness pulls an image; the meter folder is mode 0700; a gate entry's route must have a file and its key must be passed.
+- The golden recording was made again: the allowed differences are `Accept-Encoding` and the `usage` body key of the OpenRouter route.
