@@ -68,7 +68,8 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/effect_reply.py` | The effect kind of a reply to a comment on one of the project's own posts, made by a publisher under a standing approval. |
 | `runtime/effects.py` | The external effects of the task runtime: what a skill with a confirmation gate showed at its gate, recovered from what the run left, and (stage 4, WP-4.8) its execution by code once the person approved its hash. |
 | `runtime/endings.py` | How a run ended, for a run that did not fail: the classifier of endings. |
-| `runtime/flow_files.py` | Flow files: flows/&lt;name&gt;.json, one data file per flow, with its tasks and their dependencies written out. |
+| `runtime/flow_check.py` | The flow check: what a workflow may not hold, decided by code when it is created or changed (decisions D27 and D31, P6a). |
+| `runtime/flow_files.py` | Flow files: one data file per flow, with its tasks and their dependencies written out. |
 | `runtime/intake.py` | The generic streaming intake: how a body of a declared length gets from a stream onto disk, safely. |
 | `runtime/isolated.py` | Skill code the runtime runs on the host, as an isolated subprocess with a scrubbed environment. |
 | `runtime/lab.py` | The lab facade: the one file of runtime/ that talks to the lab (evals/execution.py, the execution kit). |
@@ -84,6 +85,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/ops.py` | The operations layer of the task runtime: every operation a person or a scheduler can perform, once. |
 | `runtime/ops_config.py` | The configuration's acceptance in the operations layer: who may accept a change of docs/workbench/runtime.json, and the three operations that change or accept it. |
 | `runtime/ops_core.py` | The names every module of the operations layer shares, once: the checkout (ROOT), the refusal (OpsError), the project's context and the store call, the locks, the runtime's own key and the data-folder names. |
+| `runtime/ops_flows.py` | The operations over workflows (flow files, P6a): list them, check one, save a plan as one, hand a file over for a request, and the pieces the rest of the layer asks of them (binding a flow's parameters and dates, and moving a handed-over file into the task that reads it). |
 | `runtime/ops_models.py` | Which model a run goes to, in the operations layer: the person's choice (a request, a task, an agent, the project's default), the proof of the skill on each model (runtime/proof.py) and the person's consent for an agent's own model (decision D38). |
 | `runtime/ops_reads.py` | The reads of the local interface and the signals of the local service: the change signal of the store (`version`), the stop of the runs a process started, the conversation's commands as rows (`commands`), the agents with their day, the conversation's messages, the skills with their proof, the costs, the connections, the service's start check and the project's artifacts. |
 | `runtime/ops_runs.py` | The runs of tasks: one task run (`run_task`), the person's verb that picks one (`run_next`), the dispatcher's round (`dispatch`), and the processes the round starts. |
@@ -118,7 +120,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 **The store, as built.** Migration 1 holds the first runtime's tables (`cursors`, `events`, `runs`, `inbox`, `actions`); the task runtime uses `cursors` and `actions` too. The migrations, generated from `MIGRATIONS` of `providers/store/sqlite.py`:
 
 <!-- generated: store-migrations -->
-Schema version 12: the highest migration of `MIGRATIONS`.
+Schema version 13: the highest migration of `MIGRATIONS`.
 
 | Migration | Description | Tables created | Columns added | Triggers |
 |---|---|---|---|---|
@@ -134,6 +136,7 @@ Schema version 12: the highest migration of `MIGRATIONS`.
 | 10 | the model of a request or a task, and the autonomy of a task run | - | `tasks.model`, `task_runs.autonomy` | - |
 | 11 | the registry of sources, their versions, and the versions a task run received | `sources`, `source_versions`, `task_sources` | `tasks.sources` | `sources_never_deleted`, `sources_only_description_moves`, `source_versions_never_deleted`, `source_versions_never_changed`, `task_sources_never_deleted`, `task_sources_never_changed` |
 | 12 | the step task: its kind, arguments, footprint and state | - | `tasks.step_kind`, `tasks.step_args`, `tasks.step_footprint`, `tasks.step_state` | - |
+| 13 | a task that runs its skill without the web | - | `tasks.web_off` | - |
 <!-- /generated -->
 
 The task runtime's tables, those that migration 2 and later create, with their columns (generated from the same source):
@@ -141,7 +144,7 @@ The task runtime's tables, those that migration 2 and later create, with their c
 <!-- generated: task-runtime-tables -->
 | Table | Created by migration | Columns |
 |---|---|---|
-| `tasks` | 2 | id, parent_id, flow, key, skill, agent, title, text, state, depends_on, milestone, note, created_at, updated_at, remote_id (migration 4), remote_version (migration 4), remote_written_sha256 (migration 4), after_request (migration 8), model (migration 10), sources (migration 11), step_kind (migration 12), step_args (migration 12), step_footprint (migration 12), step_state (migration 12) |
+| `tasks` | 2 | id, parent_id, flow, key, skill, agent, title, text, state, depends_on, milestone, note, created_at, updated_at, remote_id (migration 4), remote_version (migration 4), remote_written_sha256 (migration 4), after_request (migration 8), model (migration 10), sources (migration 11), step_kind (migration 12), step_args (migration 12), step_footprint (migration 12), step_state (migration 12), web_off (migration 13) |
 | `task_runs` | 2 | id, task_id, skill, skill_version, skill_sha256, model, adapter, web, status, failure, ending, attempts, started_at, ended_at, cost_usd, tokens, duration_ms, skill_loaded, image_digest, run_dir, error, redactions (migration 3), billing (migration 9), autonomy (migration 10) |
 | `pending_decisions` | 2 | id, task_id, run_id, kind, title, body, payload, payload_sha256, status, resolution, answer, created_at, resolved_at, resolved_by |
 | `document_records` | 4 | id, path, provider, remote_id, written_sha256, remote_version, read_sha256, status, note, updated_at |
@@ -415,11 +418,14 @@ The limit's text and the stage that built it come from the contract's table; the
 | Verb | Flags it reads | Operation |
 |---|---|---|
 | `request` | `--text \| --text-file` `[--flow]` `[--title]` `[--after]` `[--model]` | `request` |
-| `route` | `--request` `[--flow]` | `route` |
+| `route` | `--request` `[--flow]` `[--param]` | `route` |
 | `route-queued` | - | `route_queued` |
 | `status` | - | `status` |
 | `task` | `--task` | `task` |
 | `flows` | - | `flows` |
+| `flow-check` | `--flow` | `check_flow` |
+| `flow-save` | `--name` `[--id]` `[--flow]` `[--title]` `[--split]` `[--replace]` | `flow_save` |
+| `stage-file` | `--request` `--file` | `stage_file` |
 | `config` | - | `config` |
 | `progress` | `[--since]` | `progress` |
 | `pending` | `[--id]` | `pending` |
@@ -495,11 +501,14 @@ The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-
 | Operation | Verb of `cli.py` | Channels | Calls a model | What it does |
 |---|---|---|---|---|
 | `request` | `request` | terminal, page, mcp | no | record what you want; with a flow, plan it from the flow file, else it waits for its route; with after, run it after that request; with model, run its tasks on that model (an id of the gate file, or auto) |
-| `route` | `route` | terminal, page, mcp | yes, without --flow | plan a request that waits for its route: one run of the router skill, or the plan of a flow file; on the page, while a run is in progress, the request is queued |
+| `route` | `route` | terminal, page, mcp | yes, without --flow | plan a request that waits for its route: one run of the router skill, or the plan of a flow file of the workbench or of the project (with --param name=value, repeated, for the flow's parameters; a file parameter names a file stage-file handed over); on the page, while a run is in progress, the request is queued |
 | `route_queued` | `route-queued` | terminal | yes | route the oldest queued line or request, when no run is in progress (the local service calls it every few seconds) |
 | `status` | `status` | terminal, chat, page, mcp, messaging | no | requests, tasks and what waits for you |
 | `task` | `task` | terminal, page, mcp, messaging | no | one task or request with its runs and its pending decisions |
-| `flows` | `flows` | terminal, page, mcp | no | the flow files of this checkout, with their titles and how many tasks each holds |
+| `flows` | `flows` | terminal, page, mcp | no | the workflows: the flow files of this checkout and of the project (docs/workbench/flows/), with their titles, how many tasks each holds, their parameters, step kinds and the result of the flow check |
+| `check_flow` | `flow-check` | terminal, page, mcp | no | the flow check of one workflow: a task that requires the web must not receive sources; for a skill that reads a research brief the check offers the split the code makes. It writes nothing |
+| `flow_save` | `flow-save` | terminal, page | no | save an approved plan (--id) or a workflow already there (--flow) as the workflow --name of this project (docs/workbench/flows/); the flow check runs first and a finding refuses it, unless --split makes the code-made split; an existing file is replaced only with --replace |
+| `stage_file` | `stage-file` | terminal, page | no | copy one file of yours for a request that waits for its plan, so that a workflow with a file parameter can name it and its plan carry the file's hash (the plan's approval moves it into the task that reads it) |
 | `config` | `config` | terminal, page | no | the configuration's path and hash, whether you accepted it, and the data folder; it never refuses |
 | `progress` | `progress` | terminal, chat, page, mcp, messaging | no | where the work stands and what happened (since: 7d, <n>d or YYYY-MM-DD) |
 | `pending` | `pending` | terminal, chat, page, mcp, messaging | no | what waits for you; with an id, that decision whole |
@@ -513,7 +522,7 @@ The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-
 | `deps` | `deps` | terminal | no | install the dependency sets of runtime.json, by code |
 | `run_next` | `run-next` | terminal | yes | run the next ready task: one skill, once, on the model chosen for it (or the one you name with --model) |
 | `run_task` | `run-task` | terminal | yes | run one named task in this process; the dispatcher starts it, a person uses run-next |
-| `run_step` | `run-step` | terminal | no | run one named step task in this process, no model: what the dispatcher starts for a step task of a kind it may start on its own (ingest, and the kinds that follow); nothing but tests creates a step task today, until the flow files learn `step` (P6) |
+| `run_step` | `run-step` | terminal | no | run one named step task in this process, no model: what the dispatcher starts for a step task of a kind it may start on its own (ingest, and the kinds that follow); a workflow can hold a step task since P6a |
 | `accept_config` | `accept-config` | terminal | no | record the hash of runtime.json you accept; --adopt-sources also lets this project take over a sources folder marked for another |
 | `proof` | `proof` | terminal | no | the model each skill in use would run on when nothing chooses one, with its band, price and expected cost on every model, and the two checks |
 | `verdict` | `verdict` | terminal, page | no | record your verdict on what one run delivered (worked, corrected or failed) |

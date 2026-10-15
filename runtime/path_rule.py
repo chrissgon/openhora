@@ -16,8 +16,8 @@ Every file a run created or changed is given exactly one class, by its path rela
              change set, never as a loose file (stage 4 of the platform plan supplies the fact)
   ignored    what the runtime itself put in the copy or what no one reads back: the folder the skills were
              staged in (facts["staged"]), version control, dependency and cache folders. Dropped, not listed
-  other      anything else, the runtime's own configuration (docs/workbench/runtime.json) included. Not
-             returned, and listed for the person
+  other      anything else, the runtime's own configuration (docs/workbench/runtime.json) and the project's
+             workflows (docs/workbench/flows/, P6a) included. Not returned, and listed for the person
 
 Usage (a library):
   python3 runtime/path_rule.py --help
@@ -32,6 +32,7 @@ import sys
 
 STATE = "docs/workbench/state.md"
 CONFIG = "docs/workbench/runtime.json"
+FLOWS_DIR = "docs/workbench/flows"   # the project's workflows (runtime/flow_files.py): only the person and the operations write there
 CLASSES = ("state", "machine", "document", "versioned", "ignored", "other")
 # The classes that come back as loose files. "versioned" comes back too since stage 4, but only as a change set
 # (runtime/changeset.py), never as a loose file, so it is not listed here.
@@ -60,8 +61,8 @@ def classify(rel: str, facts: dict | None = None) -> str:
     track]}; a key that is missing is an empty list. The first rule that matches decides."""
     facts = facts or {}
     path = normal(rel)
-    if path is None or path == CONFIG:
-        return "other"
+    if path is None or path == CONFIG or path == FLOWS_DIR or path.startswith(FLOWS_DIR + "/"):
+        return "other"   # the runtime's configuration, and the project's workflows: what a run would change to change what runs next
     if path == STATE:
         return "state"
     under = lambda prefix: path == prefix.rstrip("/") or path.startswith(prefix.rstrip("/") + "/")

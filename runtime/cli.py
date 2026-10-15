@@ -7,7 +7,7 @@
 
 Usage:
   python3 runtime/cli.py request  --project <dir> [--flow <name>] (--text <text> | --text-file <file>) [--title <title>]
-  python3 runtime/cli.py route    --project <dir> --request <request id> [--flow <name>]
+  python3 runtime/cli.py route    --project <dir> --request <request id> [--flow <name> [--param <name>=<value>]...]
   python3 runtime/cli.py route-queued --project <dir>
   python3 runtime/cli.py approve  --project <dir> --id <pending id> [--sha256 <plan hash> | --sha256 <effect hash>]
   python3 runtime/cli.py reject   --project <dir> --id <pending id> [--note <text>]
@@ -23,6 +23,9 @@ Usage:
   python3 runtime/cli.py status   --project <dir>
   python3 runtime/cli.py task     --project <dir> --task <task id>
   python3 runtime/cli.py flows    --project <dir>
+  python3 runtime/cli.py flow-check --project <dir> --flow <name>
+  python3 runtime/cli.py flow-save --project <dir> --name <name> (--id <plan's pending id> | --flow <name>) [--title <text>] [--split] [--replace]
+  python3 runtime/cli.py stage-file --project <dir> --request <request id> --file <path>
   python3 runtime/cli.py agents   --project <dir>
   python3 runtime/cli.py conversation --project <dir> [--conversation <name>] [--after <message id>]
   python3 runtime/cli.py skills   --project <dir>
@@ -59,13 +62,17 @@ Usage:
 
 request   records what you want. With --flow, plans it from the flow file flows/<name>.json: its tasks, with the
           dependencies the file writes; a task without a dependency is ready at once. Without --flow, the
-          request waits for its route.
+          request waits for its route. A flow of the project, a flow with a step and a flow with parameters are not started
+          this way: record the request, then route it (route --flow), so that you approve the plan by its hash.
 route     plans a request that waits for its route. Without --flow: one run of the router skill, as it is, asked
           only for the route (it calls a model, like run-next; nothing it writes comes back); a route it gives
           becomes a plan for you to approve, a question it asks is answered with answer (then route again), and
           a reply with no recognised route opens a question with one sentence and the reply whole in its payload, a
           direct turn (route none, shape direct) opens nothing and prints kind "direct" with the router's next line.
-          With --flow: the plan of that flow file, no run and no route lock. While the router answers another request of
+          With --flow: the plan of that flow file (the workbench's, or the project's in docs/workbench/flows/), no run and no
+          route lock; --param name=value, repeated, fills the flow's parameters (a file parameter names a file stage-file
+          handed over for the request), and {today} and {week} are filled from the clock of this machine, in its time zone,
+          which the plan states. The plan's hash covers the filled tasks. While the router answers another request of
           the project the request is refused here (as before; a run of a task never makes it); only the local page queues
           it ({"queued": true}), and the service's loop, or route-queued, routes it when that run ends.
 route-queued  answers the oldest line of the conversation, or routes the oldest request, that waited for the end of the
@@ -125,8 +132,23 @@ status    requests, tasks (each with its title and area agent) and pending decis
 task      one task or request: its row, its runs (status, failure, ending, attempts, duration, tokens, cost, model) and
           its pending decisions of every status, each with "actions". For a request: the router's runs and the
           decisions on the request itself.
-flows     the flow files of this checkout (flows/*.json): each one's name, title and number of tasks; a file that
-          fails its checks is listed with its error.
+flows     the workflows: the flow files of this checkout (flows/*.json) and of the project (docs/workbench/flows/*.json, the
+          person's own, versioned with the project): each one's name, title, origin, number of tasks, parameters, step kinds and
+          the result of the flow check; a file that fails its checks is listed with its error.
+flow-check  the flow check of one workflow: a task that requires the web must not receive sources (the ones it lists and those
+          of the ingest steps before it). For a skill that reads a research brief it offers the split the code makes: a research
+          task with the web and no source, then the skill without the web, with the sources and the brief. For any other skill it
+          asks you which way to go. It writes nothing; `next` is the command that saves the split.
+flow-save saves an approved plan (--id: the plan's pending decision, resolved approved) or a workflow already there (--flow)
+          as the workflow --name of the project, in docs/workbench/flows/<name>.json: a plan without a text of its own for a task
+          becomes a workflow with the parameter `request` (your words are its default). The flow check runs first; a finding
+          refuses the save, nothing is written, unless --split makes the code-made split. An existing file is replaced only with
+          --replace. A name of a workbench flow is refused. Run it by `route --request <id> --flow <name>` (with --param
+          name=value for its parameters).
+stage-file  copies one file of yours for a request that waits for its plan (.workbench-local/drop/request-<id>/), with every
+          check of hand-over (a regular file, a plain name, a size cap, no credential, a git project that ignores the folder, a
+          name not taken). A workflow with a file parameter names it (route ... --param survey=<name>) and its plan carries the
+          hash of those bytes; approving the plan checks the hash again and moves the file into the drop of the task that reads it.
 agents    each area agent of runtime.json: its pack, whether it is enabled, the mode it is set to and the mode it acts in now,
           its two daily caps, what it used today (runs on a subscription or free credential, dollars of runs on a metered
           one, the metered runs whose cost is unknown) and how many ready tasks wait for it. Computed from the configuration and the

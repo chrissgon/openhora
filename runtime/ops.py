@@ -407,12 +407,10 @@ def request(project: str, text: str, flow: str | None = None, title: str | None 
                                                                  "the title").replace("\n", " "), text=said, after=after,
                            model=model)
         return {"request": out["request"], "state": out["state"], "next": "route"}
+    loaded = ops_flows.direct(ctx, flow)   # a workbench flow of skills with no parameter; any other is planned (route)
     try:
-        loaded = flow_files.load(flow, core.ROOT)
         # A skill whose manifest makes it a mandatory milestone is one whatever the flow file says.
         tasks = [{**t, "milestone": bool(t.get("milestone")) or plan.mandatory(t["skill"], core.ROOT)} for t in loaded["tasks"]]
-    except flow_files.FlowError as e:
-        raise core.OpsError(str(e), 2) from None
     except manifest.ManifestError as e:
         raise core.OpsError(str(e), 1) from None
     out = ops_waits.request_flow(ctx, tasks, after, title=core._text(title or loaded["title"], "the title").replace("\n", " "),
@@ -1579,22 +1577,6 @@ def task(project: str, task_id: int) -> dict:
                         for item in core._stored(ctx, store.pending_list, "all", task_id)]}
 
 
-def flows(project: str) -> dict:
-    """The flow files of this checkout: {"flows": [{"flow", "title", "tasks": <number of tasks>}]}, sorted by name.
-    A flow file that does not pass its checks is listed with "title" None, "tasks" 0 and an "error" text, so one bad
-    file hides no other. The project is only the configuration check every operation makes."""
-    core.context(project)
-    out = []
-    for name in flow_files.names(core.ROOT):
-        try:
-            loaded = flow_files.load(name, core.ROOT)
-        except flow_files.FlowError as e:
-            out.append({"flow": name, "title": None, "tasks": 0, "error": str(e)})
-        else:
-            out.append({"flow": name, "title": loaded["title"], "tasks": len(loaded["tasks"])})
-    return {"flows": out}
-
-
 def progress(project: str, since: str | None = None) -> dict:
     """Where the work stands and what happened in a period, from the store's records only (runtime/progress.py): no
     model is called and no number is estimated. since is None (the last 7 days), "<n>d" or "YYYY-MM-DD". Returns
@@ -1624,7 +1606,7 @@ def _with_agents(cfg: dict, tasks: list) -> list:
     return [dict(t, agent=plan.agent_for(t, skills)) for t in tasks]
 
 
-def _plan_pending(ctx: dict, request: dict, tasks: list, route_read, source: str, flow) -> dict:
+def _plan_pending(ctx: dict, request: dict, tasks: list, route_read, source: str, flow, bound=None) -> dict:
     """The pending decision of kind `plan` for these tasks: plan.build with the limits of the gate file and the past
     runs of the plan's skills in this store."""
     reference = lab.reference()  # the control of a run is the gate file's, the same for every model
@@ -1633,11 +1615,11 @@ def _plan_pending(ctx: dict, request: dict, tasks: list, route_read, source: str
     past = []
     for skill in dict.fromkeys(t["skill"] for t in tasks if t.get("skill")):
         past += core._stored(ctx, ctx["store"].task_runs_of_skill, skill)
-    built = plan.build(request, tasks, route_read, source, limits, past, flow=flow)
+    built = plan.build(request, tasks, route_read, source, limits, past, flow=flow, bound=bound)
     return ops_waits.annotate(ctx, request, {"kind": "plan", **built})
 
 
-def route(project: str, request_id: int, flow: str | None = None, channel: str | None = None) -> dict:
+def route(project: str, request_id: int, flow: str | None = None, channel: str | None = None, params: list | None = None) -> dict:
     """Plan a request that waits for its route. With flow, the flow the person names: its plan is opened at once,
     with no run and no route lock (it only opens a plan; an open question of the router is cancelled). Without, one run
     of the router skill (router.ROUTER_SKILL), as it is, asked only for the route: the reply's route line is checked
@@ -1647,7 +1629,9 @@ def route(project: str, request_id: int, flow: str | None = None, channel: str |
     another request of the project (it holds the route lock; a run of a task never does) the request is queued, not refused, when `channel` is one that drains the queue
     (ops_say.QUEUING_CHANNELS, the local service): {"routed": false, "queued": true}, routed by route_queued when the
     lock is free; any other channel is refused (RunBusy) as it always was. Nothing the router's run left comes back. No task is created before the
-    person approves the plan (approve()). Returns {"routed": true or false, "pending_id", "source", ...}."""
+    person approves the plan (approve()). params (with a flow): the repeated name=value of the flow's parameters (runtime/ops_flows.py:
+    the flow is the workbench's or the project's, its parameters and dates are filled, a file parameter names a file stage-file handed
+    over for the request). Returns {"routed": true or false, "pending_id", "source", ...}."""
     ctx = core.context(project)
     if flow is None:
         try:
@@ -1661,11 +1645,9 @@ def route(project: str, request_id: int, flow: str | None = None, channel: str |
             return ops_say.queue_route(ctx, request_id)
     _routable(ctx, request_id)
     try:
-        loaded = flow_files.load(flow, core.ROOT)
+        loaded, bound = ops_flows.bound(ctx, flow, params, request_id)
         tasks = _with_agents(ctx["cfg"], plan.from_flow(loaded, core.ROOT, plan.pack_skills(ctx["cfg"], core.ROOT)))
-        decision = _plan_pending(ctx, core._stored(ctx, ctx["store"].task_get, request_id), tasks, None, "named", loaded["flow"])
-    except flow_files.FlowError as e:
-        raise core.OpsError(str(e), 2) from None
+        decision = _plan_pending(ctx, core._stored(ctx, ctx["store"].task_get, request_id), tasks, None, "named", loaded["flow"], bound)
     except (plan.PlanError, lab.LabError, ValueError) as e:
         raise core.OpsError(f"no plan can be built: {e}", 1) from None
     opened = core._stored(ctx, ctx["store"].plan_open, request_id, title=decision["title"], body=decision["body"],
@@ -2172,7 +2154,7 @@ def hand_over(project: str, task_id: int, file: str) -> dict:
         except skill_meta.SkillError as e:
             raise core.OpsError(str(e), 1) from None
         try:
-            return drop.hand_over(ctx["cfg"]["project"], {**task, "web": meta["web"]}, os.path.abspath(file),
+            return drop.hand_over(ctx["cfg"]["project"], {**task, "web": meta["web"] and not task.get("web_off")}, os.path.abspath(file),
                                   drop.WEB_TASK_TAKES_DROP)
         except drop.DropError as e:
             raise core.OpsError(str(e), 1) from None
@@ -2734,6 +2716,9 @@ from ops_config import accept_config, give_consent, set_mode, set_model  # noqa:
 from ops_sources import source_add, source_describe, source_import, source_refresh, sources_catalog  # noqa: E402,F401
 import ops_steps  # noqa: E402  (the step task's run and its brake; this file re-exports `run_step` below)
 from ops_steps import run_step  # noqa: E402,F401
+# The workflows (runtime/ops_flows.py): the list, the flow check, saving a plan as one, and a file staged for a request.
+import ops_flows  # noqa: E402
+from ops_flows import check_flow, flow_save, flows, stage_file  # noqa: E402,F401
 # The reads of the local interface (runtime/ops_reads.py): the operations, and the one constant a test reads.
 from ops_reads import agents, artifact, artifact_raw, artifacts, connections, conversation, costs, service_check, skills  # noqa: E402,F401
 from ops_reads import commands, stop_runs, version  # noqa: E402,F401

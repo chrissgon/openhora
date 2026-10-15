@@ -3,17 +3,38 @@
     {
       "flow": "code-demo",
       "title": "Code demo",
-      "tasks": 2
+      "tasks": 2,
+      "origin": "workbench",
+      "params": [],
+      "steps": [],
+      "check": {
+        "ok": true,
+        "findings": []
+      }
     },
     {
       "flow": "demo",
       "title": "Demo flow",
-      "tasks": 2
+      "tasks": 2,
+      "origin": "workbench",
+      "params": [],
+      "steps": [],
+      "check": {
+        "ok": true,
+        "findings": []
+      }
     },
     {
       "flow": "gate-demo",
       "title": "Gate demo",
-      "tasks": 2
+      "tasks": 2,
+      "origin": "workbench",
+      "params": [],
+      "steps": [],
+      "check": {
+        "ok": true,
+        "findings": []
+      }
     }
   ]
 }

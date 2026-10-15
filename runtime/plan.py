@@ -56,7 +56,8 @@ Derived waits (A-29: the runtime knows by itself which task waits for which, fro
 
 A plan task is {"key", "skill", "title", "text", "depends_on": [keys], "milestone", "mandatory_milestone", "web"}:
 milestone is true when the flow file says so or the skill's runtime manifest makes it a mandatory milestone; web is
-whether the skill requires the web. No cost in money is written: the estimate counts runs.
+whether the skill requires the web (and the run has it): a task with "web_off" true, which a workflow's "web": false makes, is a
+skill that requires the web run without it. A task of a flow may carry "sources" (flow_files.sources_of). No cost in money is written: the estimate counts runs.
 
 Usage (a library; the shell is runtime/cli.py, verbs route, approve, reject): python3 runtime/plan.py --help
 
@@ -262,11 +263,19 @@ def scope_refusal(flow_name: str, outside: list, root: str) -> str:
 
 def from_flow(flow: dict, root: str, pack) -> list:
     """The tasks of a flow file (flow_files.load()) as plan tasks, in its order. A task whose skill is not in pack
-    raises PlanError saying which pack of packs/ holds the skills and what to add to runtime.json (scope_refusal)."""
+    raises PlanError saying which pack of packs/ holds the skills and what to add to runtime.json (scope_refusal). A flow that still
+    holds a placeholder (a parameter or a date variable nobody filled: flow_files.bind) raises PlanError too; a skill task also gets
+    "sources" (the ids it lists and those of the ingest steps before it) and, when the flow says "web": false for a skill that
+    requires the web, "web": false and "web_off": true (the run is routed without the web, migration 13 of the store)."""
+    unfilled = flow_files.placeholders(flow)
+    if unfilled:
+        raise PlanError(f"the flow {flow['flow']} has parameters or dates to fill ({', '.join(sorted(unfilled))}): name it, with its "
+                        f"parameters, to plan it (route --request <id> --flow {flow['flow']} --param name=value)")
     outside = [t["skill"] for t in flow["tasks"] if not t.get("step") and t["skill"] not in list(pack)]
     if outside:
         raise PlanError(scope_refusal(flow["flow"], outside, root))
     tasks = []
+    received = flow_files.sources_of(flow)   # a skill task receives the sources it lists and those of the ingest steps before it
     for t in flow["tasks"]:
         if t.get("step"):    # a step of the engine (runtime/steps.py): its kind checks the arguments and derives the footprint
             try:
@@ -279,9 +288,13 @@ def from_flow(flow: dict, root: str, pack) -> list:
             facts = _task_facts(t["skill"], root)
         except (skill_meta.SkillError, manifest.ManifestError) as e:
             raise PlanError(str(e)) from None
-        tasks.append({"key": t["key"], "skill": t["skill"], "title": t["title"], "text": t["text"],
-                      "depends_on": list(t["depends_on"]), "milestone": bool(t["milestone"]) or facts["mandatory_milestone"],
-                      **facts})
+        one = {"key": t["key"], "skill": t["skill"], "title": t["title"], "text": t["text"],
+               "depends_on": list(t["depends_on"]), "milestone": bool(t["milestone"]) or facts["mandatory_milestone"], **facts}
+        if received.get(t["key"]):
+            one["sources"] = list(received[t["key"]])
+        if t.get("web") is False and facts["web"]:   # the flow runs this skill without the web it requires: the run is routed so (store: web_off)
+            one["web"], one["web_off"] = False, True
+        tasks.append(one)
     return tasks
 
 
@@ -336,11 +349,13 @@ def plan_hash(tasks: list) -> str:
 
 
 def build(request: dict, tasks: list, route, source: str, limits: dict, past: list, flow=None, deliveries=None,
-          unrouted=None) -> dict:
+          unrouted=None, bound=None) -> dict:
     """{"title", "body", "payload"} of the pending decision of kind `plan`. request is the request's row; route the
     route read from the router's reply (None for a flow the person named); source `router` or `named`; limits from
     the gate file; past the rows of task_runs of the plan's skills in this store. deliveries and unrouted (stage 6,
-    combine) add the plan's deliveries, what was not routed, and the estimate's runs and formula."""
+    combine) add the plan's deliveries, what was not routed, and the estimate's runs and formula. bound (a flow with parameters or
+    dates, flow_files.bind()'s "bound") adds the values the request gave and the dates, with their time zone, to the payload and
+    to the plan's text: the tasks the hash covers already hold them."""
     if source not in ("router", "named"):
         raise PlanError("a plan's source is router or named")
     skills = list(dict.fromkeys(t["skill"] for t in tasks if t.get("skill")))
@@ -356,6 +371,8 @@ def build(request: dict, tasks: list, route, source: str, limits: dict, past: li
                "estimate": {"tasks": len(tasks), "runs_at_least": runs, "past": estimate_past},
                "plan_sha256": digest}
     several = deliveries is not None and len(deliveries) + len(unrouted or []) > 1
+    if bound:
+        payload["bound"] = bound
     if deliveries is not None:
         payload.update(deliveries=deliveries, unrouted=list(unrouted or []))
         payload["estimate"].update(runs=RUNS_PER_TASK * runs, formula=ESTIMATE_FORMULA)
@@ -387,6 +404,14 @@ def build(request: dict, tasks: list, route, source: str, limits: dict, past: li
         lines += ["", "Steps (run by code, no model):"]
         lines += [f"- {t['title']}: {t['step']} {json.dumps(t.get('args') or {}, sort_keys=True)}"
                   + (f"; may write {', '.join(t['footprint'])}" if t.get("footprint") else "") for t in ran]
+    if bound:   # what the request filled in and the clock gave: the tasks above already hold these values, and the hash covers the tasks
+        lines += [""] + [f"Parameter {k}: {v}" if "\n" not in v and len(v) <= 200 else f"Parameter {k}: {len(v)} characters (see the tasks)"
+                         for k, v in (bound.get("params") or {}).items()]
+        lines += [f"File {k}: {v['name']} (sha256 {v['sha256']})" for k, v in (bound.get("files") or {}).items()]
+        if bound.get("dates"):
+            lines += [f"Dates: today {bound['dates']['today']}, week {bound['dates']['week']}, in the time zone {bound['dates']['zone']}."]
+    if any(t.get("web_off") for t in tasks):
+        lines += ["", "Runs without the web although its skill requires it: " + ", ".join(t["title"] for t in tasks if t.get("web_off")) + "."]
     pace = f"Up to {limits['max_running']} tasks at a time; each" if limits.get("max_running") else "Each"
     lines += ["", f"{pace} run at most {limits.get('timeout_seconds')} s, retried at most "
                   f"{limits.get('retries')} times. At least {runs} runs.",

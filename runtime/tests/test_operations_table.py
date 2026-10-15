@@ -25,6 +25,7 @@ ops_reads = st.load("ops_reads")
 ops_config = st.load("ops_config")
 ops_sources = st.load("ops_sources")
 ops_steps = st.load("ops_steps")
+ops_flows = st.load("ops_flows")
 operations = st.load("operations")
 cli = st.load("cli")
 effects = st.load("effects")
@@ -36,7 +37,9 @@ NOT_OPERATIONS = {"store_module", "context", "task_prompt", "code_task", "chat_m
                   # ops_sources.py: what the planner and a run ask of the sources, beside the five operations
                   "catalog_block", "router_block", "known_ids", "forced_for", "copies_for", "record_copies", "prompt_lines",
                   # ops_steps.py: the brake and what the dispatcher asks of the step tasks, beside run_step
-                  "set_steps_mode", "steps_mode", "unattended", "may_dispatch", "held_reason", "annotate"}  # ops_config.py: the one writer of the accepted hash and the Checkpoints line
+                  "set_steps_mode", "steps_mode", "unattended", "may_dispatch", "held_reason", "annotate",
+                  # ops_flows.py: what the plan, the approval and the request ask of the workflows, beside the four operations
+                  "parse_params", "now", "staged", "direct", "bound", "before_approve", "after_approve"}  # ops_config.py: the one writer of the accepted hash and the Checkpoints line
 KINDS = ("int", "str", "text", "file", "list", "flag", "choice", "pairs")
 CHANNELS = ("terminal", "chat", "page", "mcp", "messaging")
 # Modules that still hold the terminal's command as a string, outside the operations layer's own texts.
@@ -93,8 +96,8 @@ def test_every_row_calls_a_function_of_the_operations_layer_that_accepts_its_arg
 
 
 def test_every_public_function_of_the_operations_layer_is_a_row_or_listed_as_not_one():
-    # the layer is six files (CONS-1B, ADJ-R1, R4-C3): ops.py and the siblings it re-exports from; a function counts where it is defined
-    public = {n for module in (ops, ops_say, ops_reads, ops_core, ops_config, ops_sources, ops_steps) for n, f in inspect.getmembers(module, inspect.isfunction)
+    # the layer is seven files (CONS-1B, ADJ-R1, R4-C3, P6a): ops.py and the siblings it re-exports from; a function counts where it is defined
+    public = {n for module in (ops, ops_say, ops_reads, ops_core, ops_config, ops_sources, ops_steps, ops_flows) for n, f in inspect.getmembers(module, inspect.isfunction)
               if not n.startswith("_") and f.__module__ == module.__name__}
     called = {r["call"] for r in operations.OPERATIONS}
     assert called <= public
