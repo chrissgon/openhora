@@ -260,20 +260,31 @@ def proof_inputs(skill: str) -> str:
 
 def standing(skill: str) -> dict:
     """What the status script computes for one skill: {"skill", "version", "models": {model id: {"band", "cause",
-    "score", "mean", "runs"}}, "tiers": {"strong": {"model", "adapter"}, "floor": {"model", "adapter"}},
-    "web_cases": the gate file's web cases of the skill, "evidence_images": the sorted distinct image digests of
-    the skill's lab events at or above the measurement floor}."""
+    "score", "mean", "runs", "web_measured"}}, "tiers": {"strong": {"model", "adapter"}, "floor": {"model",
+    "adapter"}}, "web_cases": the gate file's web cases of the skill (information only), "evidence_images": the sorted
+    distinct image digests of the skill's lab events at or above the measurement floor}.
+
+    web_measured, per model, is true when the current set of that model (the status script's lab_view: the lab lines
+    of the skill's current X.Y since the newest epoch, measurement floor or dependency change that reaches the skill
+    on that model) holds at least one with-skill line of a case the gate file lists in web_cases for the skill. A
+    case that is listed and has no evidence there does not count, and a model with no such line is false."""
     status = _lab_call(LAB.load_status)
     gate = status.load_gate(LAB.ROOT)
     row = _lab_call(status.all_status, LAB.ROOT, only=skill)["skills"][0]
     floor = gate.get("measurement_floor") or 0
+    skill_dir = os.path.join(LAB.ROOT, "skills", skill)
+    events = status.skill_evidence(skill_dir)
+    web_cases = [str(case) for case in (gate.get("web_cases") or {}).get(skill, [])]
+    pools = _lab_call(status.lab_view, LAB.ROOT, skill_dir, gate, events)["pools"]  # the current set, per model
     images = set()
-    for event, _ in status.skill_evidence(os.path.join(LAB.ROOT, "skills", skill)):
+    for event, _ in events:
         version = event.get("measurement_version")
         if isinstance(version, (int, float)) and version >= floor and event.get("image_digest"):
             images.add(event["image_digest"])
     return {"skill": skill, "version": row["version"],
-            "models": {model: {k: found.get(k) for k in ("band", "cause", "score", "mean", "runs")}
+            "models": {model: {**{k: found.get(k) for k in ("band", "cause", "score", "mean", "runs")},
+                               "web_measured": any(str(line["case"]) in web_cases
+                                                   for line in (pools.get(model) or {}).get("current") or [])}
                        for model, found in (row.get("models") or {}).items()},
             "tiers": {"strong": {"model": gate.get("strong_model"), "adapter": gate.get("strong_harness")},
                       "floor": {"model": gate.get("floor_model"), "adapter": gate.get("floor_harness")}},

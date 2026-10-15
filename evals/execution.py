@@ -71,9 +71,9 @@ __all__ = (
     # one command in the container of a run, with no model and no credential
     "run_group", "SETUP_TIMEOUT",
 )
-# The names of evals/eval_status.py the runtime reads: the gate file, a skill's identity and its standing.
+# The names of evals/eval_status.py the runtime reads: the gate file, a skill's identity, its standing and its current set (lab_view).
 STATUS_NAMES = ("load_gate", "event_config", "skill_version", "content_hash", "fingerprint_problem", "GATE_REL",
-                "all_status", "skill_evidence")
+                "all_status", "skill_evidence", "lab_view")
 # Names of evals/measure.py this module re-exports, read on first use (a command that measures nothing runs
 # without that module).
 MEASURE_EXPORTS = ("early_end", "redaction_values")

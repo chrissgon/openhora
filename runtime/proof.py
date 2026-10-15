@@ -14,7 +14,7 @@ A run goes to the floor model only when the skill is `reliable` there, the measu
 the recorded ones, the eval image on this machine is the one the evidence was measured in, and a key for the floor
 model is found (the runtime's own, else the lab's: runtime/ops.py, _floor_key). Otherwise it goes to the
 reference model. Nobody can ask for the floor model; the person can ask for the reference model. A skill runs in
-the condition it was measured in: one that requires the web but was measured without it runs without it.
+the condition it was measured in: one that requires the web but was not measured with it, on the model it runs on, runs without it.
 
 Functions:
   row(cfg, skill)                                    the skill's entry of the proof file
@@ -37,7 +37,7 @@ sys.path.insert(0, HERE)
 import lab  # noqa: E402  (the same folder)
 
 FILE = "proof.json"
-VERSION = 1
+VERSION = 2
 TIERS = ("strong", "floor")
 RELIABLE = "reliable"
 UNTESTED = {"band": "needs a test", "cause": "no evidence on this model", "score": None, "mean": None, "runs": 0}
@@ -78,8 +78,11 @@ def _write(path: str, data: dict) -> None:
 def row(cfg: dict, skill: str) -> dict:
     """The skill's entry of the proof file. Reads <data_dir>/proof.json; when the entry is missing or its
     inputs_sha256 differs from lab.proof_inputs(skill), computes it from lab.standing(skill) and writes the file
-    atomically. A model with no entry in the standing gets the band `needs a test` with 0 runs. web_measured is
-    true when the gate file lists web cases for the skill."""
+    atomically. A model with no entry in the standing gets the band `needs a test` with 0 runs and web_measured false.
+    web_measured is stored on each pair, not on the entry: it is true when that model's current set holds a
+    with-skill lab line of a case the gate file lists as a web case (lab.standing), so a listed case with no evidence
+    on that model does not turn the web on, and a model can differ from the other. A proof file of an earlier VERSION
+    (which kept it on the entry, from the gate file's list alone) is read as empty and recomputed."""
     path = _path(cfg)
     data = _read(path)
     inputs = lab.proof_inputs(skill)
@@ -92,9 +95,10 @@ def row(cfg: dict, skill: str) -> dict:
         pair = standing["tiers"][tier]
         found = standing["models"].get(pair["model"]) or UNTESTED
         pairs.append({"tier": tier, "model": pair["model"], "adapter": pair["adapter"],
-                      **{k: found.get(k) for k in ("band", "cause", "score", "mean", "runs")}})
+                      **{k: found.get(k) for k in ("band", "cause", "score", "mean", "runs")},
+                      "web_measured": bool(found.get("web_measured"))})
     entry = {"inputs_sha256": inputs, "skill_version": standing["version"],
-             "web_measured": bool(standing["web_cases"]), "evidence_images": list(standing["evidence_images"]),
+             "evidence_images": list(standing["evidence_images"]),
              "pairs": pairs}
     data["skills"][skill] = entry
     _write(path, data)
@@ -127,7 +131,8 @@ def route(cfg: dict, skill: str, meta: dict, *, force=None, floor_key: bool = Fa
     6. Else the reference model, with the reason.
     7. proven: both checks pass and the chosen pair's band is `reliable`; autonomy equals proven (stage 2 records
        it; stage 6 is the first to read it).
-    8. web: the skill requires the web and was measured with it.
+    8. web: the skill requires the web and the chosen pair was measured with it (the pair's web_measured: lab
+       evidence of a web case on that model).
     9. model and adapter are the chosen pair's, as the gate file names them."""
     if force not in (None, "strong"):
         raise ValueError("only the reference model can be asked for: force is None or \"strong\"")
@@ -147,10 +152,10 @@ def route(cfg: dict, skill: str, meta: dict, *, force=None, floor_key: bool = Fa
                        else "no key for the floor model was found")
     chosen = pairs[tier]
     proven = not (found["measurement"] or found["image"]) and chosen["band"] == RELIABLE
-    web = bool(meta.get("web")) and bool(entry["web_measured"])
-    if meta.get("web") and not entry["web_measured"]:
+    web = bool(meta.get("web")) and bool(chosen["web_measured"])
+    if meta.get("web") and not chosen["web_measured"]:
         # Leaves at the change of reference model (docs/backlog.md, T23): a skill that requires the web but was
-        # measured without it runs without it, in the condition it was proven in.
+        # measured without it, on the chosen model, runs without it, in the condition it was proven in.
         reasons.append("the skill requires the web and was measured without it: it runs without it")
     return {"tier": tier, "model": chosen["model"], "adapter": chosen["adapter"], "web": web, "proven": proven,
             "autonomy": proven, "bands": {t: pairs[t]["band"] for t in TIERS}, "checks": found, "reasons": reasons}

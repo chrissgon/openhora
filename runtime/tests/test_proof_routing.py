@@ -26,11 +26,12 @@ WEB = {"web": True}
 NO_WEB = {"web": False}
 
 
-def standing(floor_band="reliable", web_cases=(1,), images=(IMAGE,)):
-    models = {"ref-model": {"band": "reliable", "cause": None, "score": 0.9, "mean": 0.97, "runs": 12}}
+def standing(floor_band="reliable", web_cases=(1,), images=(IMAGE,), web_models=("ref-model", "floor-model")):
+    models = {"ref-model": {"band": "reliable", "cause": None, "score": 0.9, "mean": 0.97, "runs": 12,
+                            "web_measured": "ref-model" in web_models}}
     if floor_band is not None:
         models["floor-model"] = {"band": floor_band, "cause": None if floor_band == "reliable" else "a cause",
-                                 "score": 0.8, "mean": 0.9, "runs": 12}
+                                 "score": 0.8, "mean": 0.9, "runs": 12, "web_measured": "floor-model" in web_models}
     return {"skill": "demo", "version": "1.0.0", "models": models,
             "tiers": {"strong": {"model": "ref-model", "adapter": "ref-adapter"},
                       "floor": {"model": "floor-model", "adapter": "floor-adapter"}},
@@ -92,7 +93,7 @@ def test_when_the_image_is_not_the_evidences_the_skill_runs_on_the_reference_mod
 
 
 def test_a_skill_measured_without_the_web_runs_without_it(facade, cfg):
-    facade["standing"] = standing(web_cases=())
+    facade["standing"] = standing(web_models=())
     r = proof.route(cfg, "demo", WEB)
     assert r["web"] is False
     assert "the skill requires the web and was measured without it: it runs without it" in r["reasons"]
@@ -115,7 +116,7 @@ def test_the_proof_file_is_rebuilt_when_the_evidence_or_the_gate_file_changed(fa
     first = proof.row(cfg, "demo")
     assert proof.row(cfg, "demo") == first and facade["calls"] == 1
     saved = json.loads((Path(cfg["data_dir"]) / "proof.json").read_text(encoding="utf-8"))
-    assert saved["version"] == 1 and saved["skills"]["demo"]["inputs_sha256"] == "inputs-1"
+    assert saved["version"] == 2 and saved["skills"]["demo"]["inputs_sha256"] == "inputs-1"
     facade["inputs"] = "inputs-2"
     proof.row(cfg, "demo")
     assert facade["calls"] == 2
