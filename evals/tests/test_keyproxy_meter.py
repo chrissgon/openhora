@@ -414,6 +414,21 @@ def test_a_reservation_is_given_back_when_the_answer_is_counted_not_when_the_req
     assert run.meter.reserved == 0 and run.meter.held == {} and run.file()["in_flight"] == 0  # given back once, not twice
 
 
+def test_a_reservation_given_back_when_counted_is_not_given_back_again_by_release():
+    """Direct: two requests under way; the first is counted and then ends. The second still holds its 200."""
+    meter = kp.Meter()
+    t1, t2 = meter.admit(300), meter.admit(200)
+    assert meter.reserved == 500 and meter.in_flight == 2
+    meter.add({k: 1 for k in kp.KINDS}, t1)
+    assert meter.reserved == 200  # the count gave back the first one's 300
+    meter.release(300, t1)
+    assert meter.reserved == 200 and meter.in_flight == 1  # not 0: released once
+    meter.add_unknown("/x", "unreadable", t2)
+    meter.release(200, t2)
+    meter.release(200, t2)  # a repeat takes nothing more
+    assert meter.reserved == 0 and meter.held == {} and meter.in_flight == 0
+
+
 def test_a_reservation_that_was_never_counted_is_given_back_when_the_request_ends(provider, make):
     """A request to an endpoint that is not metered (count_tokens) is never counted: its reservation goes at its end."""
     run = make(ANTHROPIC, ("claude-sonnet-5-5",), budget=10_000)

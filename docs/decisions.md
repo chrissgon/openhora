@@ -669,8 +669,8 @@ SEC and P2b (with the review fixes): a held run reaches only its own per-run key
 
 ## 2026-10-15: measurement change, infrastructure
 
-Key proxy: a request's token reservation is released when its answer is counted, not after the client has it; executor: native_platform caches only a real answer and docker info has a short timeout. Infrastructure: no result a run records changes.
+Key proxy: a request's token reservation is released when its answer is counted, not after the client has it; the old race could send a spurious 429 only within one reservation (32k-64k tokens) of a run's 5M budget, so no recorded result of the battery to come changes. Executor: native_platform caches only a real answer, docker info has a 15 s timeout, and ensure() now refuses (an infrastructure failure) when docker does not say its platform, so no run starts with an unknown host platform. Infrastructure: no result a run records changes.
 
 - Kind: infrastructure: locks, resumption, retries, pacing or reports changed in a file the fingerprint covers. No version is raised; the new fingerprint is committed with the reason.
-- Fingerprint: `81abce6456adb8ba4f4a686b09ffc62b80ddbd78248068a3803adcca169c5f94`.
+- Fingerprint: `677305d095f1576e45fff1c781dd724f08d65c3ba50939afdf26d4e0223e05c3`.
 - Written by `python3 evals/eval_status.py measurement --kind infrastructure`.
