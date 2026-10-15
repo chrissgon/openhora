@@ -188,11 +188,18 @@ def test_the_request_the_key_proxy_of_the_last_commit_before_sec_forwarded_is_th
     assert golden(BEFORE)[which] == {**about(which, f"keyproxy.py of commit {LAST_BEFORE_SEC}"), "models": models, "requests": shapes}
 
 
-def without_credentials(requests):
-    """The requests with the headers SEC removes taken out, so that the two recordings can be compared."""
+# The one header that is not a credential and that the key proxy changes (package P2b, decision of 2026-10-15): the
+# upstream is asked only for the encodings the proxy decodes, so that the usage of every response can be read and a run's
+# tokens are never taken from what the run reports instead. The value the runners send, and the one the proxy sends.
+ENCODING = {"accept-encoding": ("gzip, deflate, br, zstd", "gzip, deflate, identity")}
+
+
+def without_credentials(requests, before=None):
+    """The requests with the headers SEC removes taken out and the Accept-Encoding the key proxy sets left out of the
+    values, so that the two recordings can be compared."""
     out = []
     for request in requests:
-        dropped = set(CREDENTIAL_DIFFERENCES)
+        dropped = set(CREDENTIAL_DIFFERENCES) | set(ENCODING)
         out.append({**request, "header_names": [h for h in request["header_names"] if h not in dropped],
                     "header_values": {k: v for k, v in request["header_values"].items() if k not in dropped}})
     return out
@@ -204,6 +211,10 @@ def test_the_two_recordings_differ_in_the_credential_headers_package_sec_removes
     assert before["model"] == after["model"] and before["adapter"] == after["adapter"]
     assert before["models"] == after["models"], "the model names the runner sends differ"
     assert without_credentials(before["requests"]) == without_credentials(after["requests"])
+    for old, new in zip(before["requests"], after["requests"]):  # the allowed difference, with its two values
+        for name, (sent, rewritten) in ENCODING.items():
+            assert old["header_values"].get(name) == sent and new["header_values"].get(name) == rewritten
+            assert name in old["header_names"] and name in new["header_names"]
     # and what differs is what the list names: nothing else was in the before recording that the after one lacks
     names_before = {h for r in before["requests"] for h in r["header_names"]}
     names_after = {h for r in after["requests"] for h in r["header_names"]}

@@ -22,6 +22,8 @@ provider host the route names, over HTTPS, with an Authorization header made fro
     whose name has auth, api-key (or api_key), token, secret, cookie, credential or password in it), forwards
     every other header unchanged (a session id or an idempotency key is not a credential), and adds one Authorization of its own;
   - when started with --pin, sets "provider": {"only": [that name], "allow_fallbacks": false} in the body of every POST to a path that ends in /chat/completions;
+  - sets Accept-Encoding, when a run sends one, to the encodings it can decode (gzip, deflate, identity), so that the usage
+    of every response can be read: the one header besides the credential ones that it changes;
   - counts the tokens of every response of its run by the four kinds the runtime prices (input, output,
     cache_read, cache_write) from the "usage" the provider reports (the Anthropic Messages response, streamed or
     not; the OpenRouter chat completion, streamed or not: a streamed one reports its usage in its last chunk),
@@ -81,6 +83,7 @@ USAGE_STYLES = ("anthropic-messages", "openrouter-chat")  # how a route's respon
 KINDS = ("input", "output", "cache_read", "cache_write")  # the four kinds runtime/costs.py prices
 BODY_LIMIT = 32 * 1024 * 1024  # the most of one non-streamed response the meter will read to find its usage
 EVENT_LIMIT = 8 * 1024 * 1024  # the most of one streamed event it will hold
+DECODABLE = "gzip, deflate, identity"  # the Accept-Encoding the upstream is given: what UsageReader decodes
 UNKNOWN_LISTED = 20  # the unreadable responses the meter file names one by one (the count is always whole)
 
 
@@ -465,6 +468,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         listed = {t.strip().lower() for v in self.headers.get_all("Connection") or [] for t in v.split(",")}
         headers = [(k, v) for k, v in self.headers.items()
                    if k.lower() not in NOT_FORWARDED and k.lower() not in listed and not credential_header(k)]
+        if self.server.meter:
+            # The one header besides the credentials this proxy changes: the encodings it can decode. A response in
+            # another encoding (br, zstd) could not be read for its usage, and a run's tokens must be counted where
+            # the run cannot change them, never fall back to what the run reports.
+            headers = [(k, DECODABLE if k.lower() == "accept-encoding" else v) for k, v in headers]
         conn = None
         try:
             conn = self.server.connect()

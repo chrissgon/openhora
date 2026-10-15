@@ -93,7 +93,7 @@ class ProviderHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):  # noqa: N802
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length) if length else b""
-        self.server.seen.append({"path": self.path, "body": body})
+        self.server.seen.append({"path": self.path, "body": body, "headers": dict(self.headers.items())})
         reply = self.server.reply
         self.send_response(200)
         for k, v in self.server.headers.items():
@@ -384,3 +384,16 @@ def test_a_route_needs_its_usage_style_and_its_metered_paths(tmp_path):
         path.write_text(json.dumps(broken))
         with pytest.raises(kp.RouteError):
             kp.load_route(str(path))
+
+
+def test_the_upstream_is_asked_only_for_encodings_the_proxy_decodes_and_nothing_else_of_the_request_changes(provider, make):
+    """The one header besides the credentials that the key proxy changes: so that no response is unreadable and the cost
+    never falls back to the run's own report."""
+    run = make(ANTHROPIC, ("claude-sonnet-5-5",))
+    provider.reply, provider.headers = fixture("anthropic_message.json"), {"Content-Type": "application/json"}
+    assert run.post(MESSAGES, {"model": "claude-sonnet-5-5"}, {"Accept-Encoding": "gzip, deflate, br, zstd", "X-Title": "eval"})[0] == 200
+    sent = provider.seen[-1]["headers"]
+    assert sent["Accept-Encoding"] == "gzip, deflate, identity" and sent["X-Title"] == "eval"
+    assert run.post(MESSAGES, {"model": "claude-sonnet-5-5"}, {"Accept-Encoding": "br"})[0] == 200  # even a runner that asks for br alone
+    assert provider.seen[-1]["headers"]["Accept-Encoding"] == "gzip, deflate, identity"
+    assert kinds(run.file()) == {k: 2 * v for k, v in EXPECTED["anthropic_message.json"].items()}
