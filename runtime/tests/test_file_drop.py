@@ -90,7 +90,7 @@ def test_what_a_run_leaves_in_the_drop_never_comes_back(tree, tmp_path):
     result = {"cwd": str(cwd), "staged": [], "changes": {
         "created": [f".workbench-local/drop/{ids['market']}/new.txt", "docs/business/market.md"],
         "modified": [rel], "deleted": [], "unchanged": []}}
-    returned, kept, _state = workcopy.returning(project, result, {}, None, "demo-asks")
+    returned, kept, _state = workcopy.returning(project, result, {}, None, "demo-asks", cfg={})
     assert returned == [{"path": "docs/business/market.md", "class": "document"}] and kept == []
     assert (tree["project"] / rel).read_bytes() == original
     assert not (tree["project"] / ".workbench-local" / "drop" / str(ids["market"]) / "new.txt").exists()

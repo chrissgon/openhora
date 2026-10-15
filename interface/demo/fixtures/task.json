@@ -18,6 +18,7 @@
     "remote_version": null,
     "remote_written_sha256": null,
     "model": null,
+    "sources": null,
     "after": null,
     "waiting_for": []
   },

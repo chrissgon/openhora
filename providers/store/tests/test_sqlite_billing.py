@@ -41,7 +41,7 @@ def claimed(conn):
 
 def test_migration_9_adds_the_billing_column_and_a_database_made_today_has_it(tmp_path):
     out = store.init_db(tmp_path / "fresh.sqlite")
-    assert out["schema_version"] == 10 and out["applied"][-1] == 10
+    assert out["schema_version"] == 11 and out["applied"][-1] == 11
     conn = store.open_db(tmp_path / "fresh.sqlite")
     columns = {row[1]: row for row in conn.execute("PRAGMA table_info(task_runs)")}
     assert "billing" in columns and columns["billing"][2] == "TEXT" and columns["billing"][3] == 0, "text, and null is allowed"
@@ -61,7 +61,7 @@ def test_migration_9_keeps_every_earlier_run_and_leaves_its_billing_empty(tmp_pa
     old.commit()
     old.close()
     out = store.init_db(path)
-    assert out["migrated_from"] == 8 and out["applied"] == [9, 10] and out["schema_version"] == 10
+    assert out["migrated_from"] == 8 and out["applied"] == [9, 10, 11] and out["schema_version"] == 11
     conn = store.open_db(path)
     row = conn.execute("SELECT id, model, cost_usd, billing FROM task_runs").fetchone()
     assert tuple(row) == (1, "m", 0.25, None)

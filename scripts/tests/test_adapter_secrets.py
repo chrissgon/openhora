@@ -39,6 +39,8 @@ BEFORE = {
     "GMAIL_CLIENT_SECRET": ((), "gmail-client-secret", ("providers/mailbox/auth.py", "providers/mailbox/gmail.py")),
     # The platform's token joined the core registry on 2026-10-06 (stage 3 of the platform plan, WP-3.10).
     "NOTION_TOKEN": ((), "notion", ("providers/issue-tracker/notion.py", "providers/documents/notion.py")),
+    # Decision D13 and secret S7 of the delegation plan (P4): the read-only token of the pages chosen as sources, never the one that writes.
+    "NOTION_SOURCES_TOKEN": ((), "notion-sources", ("providers/documents/notion.py",)),
     "MESSENGER_TELEGRAM_BOT_TOKEN": ((), "messenger-telegram", ("providers/messenger/telegram.py",)),
     "MESSENGER_DISCORD_BOT_TOKEN": ((), "messenger-discord", ("providers/messenger/discord.py",)),
     "MESSENGER_WHATSAPP_CLOUD_TOKEN": ((), "messenger-whatsapp-cloud", ("providers/messenger/whatsapp-cloud.py",)),

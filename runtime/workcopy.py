@@ -23,6 +23,11 @@ What enters (entering()):
       section enters
   L6  no credential enters: a credential file by its name, a file too large to scan, a file whose text holds
       what looks like a credential
+  L26 the sources folder never enters a run, even when it sits inside the project's tracked tree: the one thing of
+      the sources a run sees is the copy of the converted text of each source its plan chose (decision D29), made when
+      the task starts, at .workbench-local/sources/<source id>/ (runtime/sources.py task_copies); those copies are
+      scanned again here, staged like the file drop and never brought back; and nothing a run leaves is written into the
+      folder either (returning(): a path that is, or is inside, the folder is kept with the reason SOURCES_KEPT)
 
 Every file left out is listed with its reason, except a path inside a folder the path rule drops.
 
@@ -56,11 +61,13 @@ import lab  # noqa: E402  (the same folder)
 import path_rule  # noqa: E402
 import roles  # noqa: E402
 import skill_meta  # noqa: E402
+import sources  # noqa: E402  (the same folder: limit L26 asks it whether a path is inside the sources folder)
 import state_merge  # noqa: E402
 
 CODE_AREAS = tuple(roles.load()["code_areas"])  # runtime/roles.json
 # Why a versioned file a document task changed stays in its run folder (ops.code_task: only a code task makes a
 # change set).
+SOURCES_KEPT = "the sources folder is the runtime's: nothing a run leaves is written there"
 TRACKED_KEPT = "a versioned file: only a code task brings one back, as a change set"
 SECTION_START = "<!-- workbench:start -->"
 SECTION_END = "<!-- workbench:end -->"
@@ -206,6 +213,8 @@ def _never(project: str, rel: str, declared, cfg: dict, settings_names) -> str |
     parts = rel.split("/")
     if rel == path_rule.CONFIG:
         return "the runtime's configuration never enters a run"
+    if sources.inside(cfg, source) or sources.inside(cfg, real):
+        return ""  # limit L26: silent, entering() lists the folder once
     if real == cfg["store_db"] or _under(real, cfg["data_dir"]):
         return "the store and the runtime's data never enter a run"
     if os.path.islink(source) or not os.path.isfile(source) or not _inside(project, rel):
@@ -236,7 +245,7 @@ def scan(data: bytes) -> str | None:
 
 
 def entering(project: str, meta: dict, *, web: bool, cfg: dict, settings_names, prepared_dir: str,
-             handed=()) -> dict:
+             handed=(), sourced=()) -> dict:
     """What one run sees of the project. Returns {"files": [(source, rel)], "base": {rel: sha256}, "left_out":
     [{"path", "reason"}], "kind": "artifacts" or "general", "agents_md": None, "whole" or "section", "tracked":
     [the relative paths of the files the project's git tracks that entered]}.
@@ -244,7 +253,11 @@ def entering(project: str, meta: dict, *, web: bool, cfg: dict, settings_names, 
     meta is skill_meta.declared() of the skill; cfg is project_config.load() of the project; settings_names
     is lab.settings_names(); prepared_dir is a private folder for files written for this run only. handed is
     [(source, rel)] of the files the person handed over to this task (runtime/drop.py, files()): they enter at
-    their paths, after the credential scan; nothing else of the drop folder enters, whatever the task."""
+    their paths, after the credential scan; nothing else of the drop folder enters, whatever the task. sourced is
+    [(source, rel)] of the copies of the sources the task's plan chose (runtime/sources.py task_copies): files already
+    written to prepared_dir, at paths under .workbench-local/sources/; they are scanned again here and enter whatever the
+    task's skill declares, and nothing else of the sources folder enters (limit L26). A copy that fails the scan or cannot be
+    read raises CopyError: the task stops, it does not run without the source its plan chose."""
     project = os.path.realpath(project)
     declared = list(dict.fromkeys(meta["inputs"] + meta["outputs"] + meta["updates"]))
     settings_names = set(settings_names)
@@ -265,14 +278,17 @@ def entering(project: str, meta: dict, *, web: bool, cfg: dict, settings_names, 
             elif rel == path_rule.CONFIG or os.path.islink(os.path.join(project, *rel.split("/"))):
                 candidates.append(rel)  # listed with its reason, so that the person sees it was kept out
         candidates += _walk(project, path_rule.LOCAL_DIR.rstrip("/"))
-    drop = path_rule.DROP_DIR + "/"
-    candidates = [rel for rel in candidates if not rel.startswith(drop)]
+    drop, taken = path_rule.DROP_DIR + "/", path_rule.SOURCES_DIR + "/"
+    candidates = [rel for rel in candidates if not rel.startswith(drop) and not rel.startswith(taken)]
     for source, rel in handed:
         if not rel.startswith(drop):
             raise CopyError(f"{rel} is not a path of the file drop")
         candidates.append(rel)
     handed_rels = {rel for _source, rel in handed}
     files, base = [], {}
+    inside_project = _sources_inside(project, cfg)
+    if inside_project:
+        left_out.append({"path": inside_project, "reason": "the sources folder never enters a run: only the copies its plan chose do"})
     for rel in sorted(set(candidates)):
         if rel == AGENTS_MD and AGENTS_MD in declared:
             continue  # rule 5, below
@@ -291,6 +307,19 @@ def entering(project: str, meta: dict, *, web: bool, cfg: dict, settings_names, 
             base[rel] = _sha256(source)
         elif reason:
             left_out.append({"path": rel, "reason": reason})
+    for source, rel in sourced:
+        if not rel.startswith(taken) or ".." in rel.split("/"):
+            raise CopyError(f"{rel} is not a path of the copies of the sources")
+        try:
+            with open(source, "rb") as f:
+                data = f.read(SCAN_MAX + 1)
+        except OSError as e:
+            raise CopyError(f"the copy of a source, {rel}, cannot be read: {e.strerror}") from None
+        reason = scan(data)
+        if reason:   # the plan chose this source: a copy that fails the scan stops the task rather than reaching it without the source
+            raise CopyError(f"the copy of a source, {rel}, {reason}: the task does not start; import a clean version of the source")
+        files.append((source, rel))
+        base[rel] = _sha256(source)
     agents_md = None
     source = os.path.join(project, AGENTS_MD)
     if AGENTS_MD in declared and os.path.lexists(source):
@@ -319,6 +348,15 @@ def entering(project: str, meta: dict, *, web: bool, cfg: dict, settings_names, 
     return {"files": files, "base": base, "left_out": left_out, "kind": kind, "agents_md": agents_md, "tracked": tracked}
 
 
+def _sources_inside(project: str, cfg: dict):
+    """The sources folder's path relative to the project (with a closing "/"), when it sits inside the project; else None."""
+    folder = cfg.get("sources_dir")
+    real = os.path.realpath(project)
+    if folder and os.path.realpath(folder).startswith(real + os.sep):
+        return os.path.relpath(os.path.realpath(folder), real).replace(os.sep, "/") + "/"
+    return None
+
+
 def _project_inside(project: str, rel: str) -> bool:
     """True when the project's path rel is, or would be, a regular file inside the project: no link on the way."""
     target = os.path.join(project, *rel.split("/"))
@@ -337,7 +375,7 @@ def _write(target: str, data: bytes) -> None:
     os.replace(temporary, target)
 
 
-def returning(project: str, result: dict, base: dict, base_state, skill: str, *, bound=(), versioned=(),
+def returning(project: str, result: dict, base: dict, base_state, skill: str, *, cfg: dict, bound=(), versioned=(),
               tracked=()) -> tuple:
     """(returned, kept, state_report): bring back what a completed run left, by the path rule. returned lists
     {"path", "class"} of what was written into the project; kept lists {"path", "class", "reason"} of what stays
@@ -350,10 +388,13 @@ def returning(project: str, result: dict, base: dict, base_state, skill: str, *,
     (L14). Nothing is deleted in the project. versioned lists the paths the path rule calls versioned (the change
     set's, runtime/changeset.py): they never come back as loose files and are not listed here. tracked lists the
     versioned paths of a run that makes no change set (a document task, ops.code_task): one of them the run changed
-    outside docs/ is kept, with the reason TRACKED_KEPT."""
+    outside docs/ is kept, with the reason TRACKED_KEPT. cfg is the project's configuration (project_config.load()), required
+    so that no caller can leave the check out ({} for a caller that has no sources folder): a returned path that is, or is inside, the sources folder is kept with the reason SOURCES_KEPT and never written (limit L26,
+    the return direction: the folder is the runtime's, even when it sits inside the project)."""
     project = os.path.realpath(project)
     cwd, changes = result["cwd"], result["changes"]
-    facts = {"staged": list(result["staged"]) + [path_rule.DROP_DIR], "bound": list(bound), "versioned": list(versioned)}
+    facts = {"staged": list(result["staged"]) + [path_rule.DROP_DIR, path_rule.SOURCES_DIR], "bound": list(bound),
+             "versioned": list(versioned)}
     returned, kept, state_report = [], [], None
     tracked = set(tracked)
     for rel in sorted(changes["created"] + changes["modified"]):
@@ -361,13 +402,16 @@ def returning(project: str, result: dict, base: dict, base_state, skill: str, *,
         keep = lambda reason: kept.append({"path": rel, "class": cls, "reason": reason})
         if cls in ("ignored", "versioned"):
             continue  # a versioned path travels in the change set
+        target = os.path.join(project, *rel.split("/"))
+        if sources.inside(cfg, target):   # before the class: whatever the path rule says of it, this folder is never written
+            keep(SOURCES_KEPT)
+            continue
         if cls not in path_rule.RETURNED:
             keep(TRACKED_KEPT if rel in tracked else "this class of path is not brought back yet")
             continue
         if not lab.readable(cwd, rel):
             keep("not a regular file inside the copy")
             continue
-        target = os.path.join(project, *rel.split("/"))
         if not _project_inside(project, rel):
             keep("the project's path is a link or leaves the project")
             continue

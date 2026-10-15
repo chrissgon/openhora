@@ -140,7 +140,7 @@ def env(tmp_path, monkeypatch):
     (remote / "data").mkdir(parents=True)
     (remote / FILE).write_text(dump([]), encoding="utf-8")
     config = {"workbench": str(bench), "data_dir": str(data), "store_db": str(data / "tasks.sqlite"),
-              "area_agents": {"marketing": {"pack": "marketing", "mode": "autonomous-with-policy",
+              "sources_dir": str(tmp_path / "sources"), "area_agents": {"marketing": {"pack": "marketing", "mode": "autonomous-with-policy",
                                             "max_runs_per_day": 6, "max_usd_per_day": 1.0}},
               "handlers": {"published-posts": {"agent": "marketing", "dispatch": True, "platform": PLATFORM,
                                                "repo": TARGET_REPO, "branch": BRANCH, "file": FILE, "weekday": 1,

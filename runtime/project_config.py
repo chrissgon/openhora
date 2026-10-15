@@ -12,6 +12,16 @@ task runtime reads three keys the first runtime already defined, with the same m
   "data_dir"    an absolute folder outside every repository, for run folders and the locks
   "store_db"    the absolute path of the store database (class store:runtime)
 
+and one more, required with no default (a project without it does not run), accepted only in the terminal like every
+key of the file:
+
+  "sources_dir" the absolute path of the sources folder (runtime/sources.py): a dedicated folder where the project's
+                imported sources live, in versions. Its limits are L21 to L27 of contracts/runtime.md; here the key is
+                checked as a path (sources.path_problems: not the home folder, not the filesystem root, not a link, not a
+                folder that contains the project, disjoint from data_dir, store_db and the workbench checkout) and the
+                folder itself is made ready, or refused, when the configuration is accepted (ops_config.accept_config)
+                and checked again at every use.
+
 The keys are closed: the file may hold only the keys of TASK_RUNTIME_KEYS and FIRST_RUNTIME_KEYS. The second
 tuple keeps the first runtime's file ("agent", "harness", "mailbox"...) valid in the same file until stage 7. An
 unknown key is refused, and the error names the nearest known key, so that a misspelled security key (such as
@@ -86,11 +96,12 @@ sys.path.insert(0, HERE)
 import autonomy  # noqa: E402  (the same folder: the check of the key "area_agents")
 import deps  # noqa: E402  (the same folder: the recipes and the check of the key "dependencies")
 import operations  # noqa: E402  (the same folder: the groups and the ceilings the key "channels" is checked against)
+import sources  # noqa: E402  (the same folder: the paths rules of the key "sources_dir")
 
 REL = "docs/workbench/runtime.json"
-REQUIRED = ("workbench", "data_dir", "store_db")
+REQUIRED = ("workbench", "data_dir", "store_db", "sources_dir")
 # The top-level keys of the task runtime: the three required ones and every key this module checks or passes on.
-TASK_RUNTIME_KEYS = ("workbench", "data_dir", "store_db", "area_agents", "handlers", "task_board", "documents",
+TASK_RUNTIME_KEYS = ("workbench", "data_dir", "store_db", "sources_dir", "area_agents", "handlers", "task_board", "documents",
                      "protected_paths", "code", "dependencies", "max_cost_usd_per_run", "model_prices", "messaging", "channels",
                      "max_running", "default_model", "price_max_age_days")
 # The top-level keys scripts/runtime.py, scripts/runtime_vote.py and scripts/vote_job.py read from the same file
@@ -111,9 +122,10 @@ def path(project: str) -> str:
 
 
 def load(project: str) -> dict:
-    """{"project", "path", "sha256", "workbench", "data_dir", "store_db", "raw"} of a project folder. The
-    project folder must exist; each of the three paths must be absolute, and data_dir and store_db must lie
-    outside the project and outside the workbench checkout (work data never sits in a repository)."""
+    """{"project", "path", "sha256", "workbench", "data_dir", "store_db", "sources_dir", "raw"} of a project folder. The
+    project folder must exist; each of the four paths must be absolute, and data_dir and store_db must lie
+    outside the project and outside the workbench checkout (work data never sits in a repository); sources_dir is
+    checked as a path by runtime/sources.py (it may sit inside the project: the work copy excludes it, limit L26)."""
     project = os.path.realpath(project)
     if not os.path.isdir(project):
         raise ConfigError(f"{project} is not a folder")
@@ -138,11 +150,18 @@ def load(project: str) -> dict:
         value = raw.get(key)
         if not isinstance(value, str) or not value or not os.path.isabs(value):
             raise ConfigError(f"runtime.json needs {key}: an absolute path")
+        if key == "sources_dir" and os.path.islink(os.path.normpath(value)):   # "link/" and "link/." are not links to islink, but they are
+            raise ConfigError("runtime.json sources_dir is a symbolic link: name the folder itself (the runtime never follows a "
+                              "link out of the sources folder)")
         out[key] = os.path.realpath(value)
     for key in ("data_dir", "store_db"):
         for inside, what in ((project, "the project"), (out["workbench"], "the workbench checkout")):
             if out[key] == inside or out[key].startswith(inside + os.sep):
                 raise ConfigError(f"runtime.json {key} is inside {what}: work data lives outside every repository")
+    problems = sources.path_problems(out["sources_dir"], project=project, data_dir=out["data_dir"], store_db=out["store_db"],
+                                     workbench=out["workbench"])
+    if problems:
+        raise ConfigError("runtime.json sources_dir: " + "; ".join(problems))
     protected = raw.get("protected_paths", [])
     if not isinstance(protected, list) or not all(isinstance(p, str) and p.strip() for p in protected):
         raise ConfigError("runtime.json protected_paths must be a list of path globs")

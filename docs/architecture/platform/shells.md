@@ -290,7 +290,7 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `deps` | - | `deps` |
 | `run-next` | `[--model]` | `run_next` |
 | `run-task` | `--task` `[--model]` | `run_task` |
-| `accept-config` | `--sha256` | `accept_config` |
+| `accept-config` | `--sha256` `[--adopt-sources]` | `accept_config` |
 | `proof` | `[--skill]` | `proof` |
 | `verdict` | `--run` `--word` | `verdict` |
 | `sync` | `[--dry-run]` `[--take]` `[--path]` | `sync` |
@@ -316,6 +316,11 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `artifact` | `--path` | `artifact` |
 | `stop-runs` | `[--all]` | `stop_runs` |
 | `service-check` | `[--dispatch-every]` | `service_check` |
+| `source-add` | `--source` `--type` `--origin` `[--description]` | `source_add` |
+| `source-import` | `--source` `[--file]` `[--url]` `[--origin]` `[--description]` | `source_import` |
+| `source-refresh` | `--source` `[--file]` | `source_refresh` |
+| `source-describe` | `--source` `[--description]` | `source_describe` |
+| `sources` | - | `sources_catalog` |
 <!-- /generated -->
 
 Every verb also takes `--project <dir>`. The parser is built from `terminal_verbs()` of the table, so a row that does not list `terminal` (`version`) has no verb. The verbs that call a model: `route` (without `--flow`), `run-next`, `dispatch`, `contained-run`, and `say` for a new request or an answer to the router.
@@ -404,6 +409,13 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | GET | `/versions` | the service's own `versions` | - | - | - | - |
 | POST | `/projects/{p}/conversation` | `say` | - | every other argument | - | - |
 | POST | `/projects/{p}/sync` | `sync` | - | every other argument | - | - |
+| GET | `/projects/{p}/sources` | `sources` | - | none | - | - |
+| POST | `/projects/{p}/sources` | `source-add` | - | every other argument | - | - |
+| POST | `/projects/{p}/sources/{name}/files` | `source-import` | `source_id` from `{name}` | every other argument | `file`, `url`, `origin`, `description` | file upload |
+| POST | `/projects/{p}/sources/{name}/import` | `source-import` | `source_id` from `{name}` | `url`, `origin`, `description` | `file` | - |
+| POST | `/projects/{p}/sources/{name}/refresh` | `source-refresh` | `source_id` from `{name}` | none | `file` | - |
+| POST | `/projects/{p}/sources/{name}/refresh/files` | `source-refresh` | `source_id` from `{name}` | every other argument | `file` | file upload |
+| POST | `/projects/{p}/sources/{name}/description` | `source-describe` | `source_id` from `{name}` | `description` | - | - |
 | POST | `/projects/{p}/dispatch` | `dispatch` | - | none | - | - |
 | GET | `/jobs/{id}` | the service's own `job` | - | - | - | - |
 <!-- /generated -->
@@ -438,3 +450,4 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 - 2026-10-10: the conversation's commands are data (R4-C1, R-45): the operation `commands` (a row of the table with the channel `page`, in `runtime/ops_reads.py`) and the route `GET /projects/{p}/commands` answer `{"commands": [{"command", "arguments", "help"}]}`, the rows `/help` prints in its order (`operations.chat_command_rows`, built from `chat_commands`, the one source of the help); `/help`'s own help line reads `list the commands`; the `say-commands`, `operations` and `service-routes` blocks are regenerated.
 - 2026-10-13: the messaging bridge is a fifth shell and `messaging` a fifth channel (messaging.md).
 - 2026-10-14: the page follows the messaging bridge (MSG-14): five shells in the purpose and the diagram, the bridge's modules and the state-folder files in the artifacts, the bridge's call path, ceiling, child and policy in the abstractions, its dependencies and layer-map arrows, its rules and the service child's rules with their tests, the bridge's command and the service's `--messaging` and `--notice-every` flags, the `messaging` and `permissions` fields of `GET /projects` (and `--messaging` with several platforms, MSG-13), and two known limits.
+- 2026-10-15: five rows and seven routes for the sources (P4): `source-add`, `source-import`, `source-refresh`, `source-describe` (the terminal and the page; the upload follows the existing file route) and `sources` (also the MCP mode and messaging, in the group `sources`).

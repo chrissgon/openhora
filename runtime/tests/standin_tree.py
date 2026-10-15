@@ -27,6 +27,8 @@ import sys
 import threading
 from pathlib import Path
 
+from sources_fixture import sources_path  # noqa: E402  (the same folder: the mandatory key sources_dir of every test project)
+
 REPO = Path(__file__).resolve().parents[2]
 RUNTIME = REPO / "runtime"
 
@@ -317,7 +319,7 @@ def build(tmp_path: Path, monkeypatch, lab) -> dict:
     (project / "docs" / "workbench").mkdir(parents=True)
     data, db = tmp_path / "data", tmp_path / "store" / "tasks.sqlite"
     (project / "docs" / "workbench" / "runtime.json").write_text(json.dumps(
-        {"workbench": str(tree), "data_dir": str(data), "store_db": str(db)}), encoding="utf-8")
+        {"workbench": str(tree), "data_dir": str(data), "store_db": str(db), "sources_dir": sources_path(tmp_path)}), encoding="utf-8")
     (project / "docs" / "workbench" / "state.md").write_text(STATE, encoding="utf-8")
     (project / "AGENTS.md").write_text("# Project\n", encoding="utf-8")
     er = lab.load()
@@ -342,6 +344,7 @@ def build(tmp_path: Path, monkeypatch, lab) -> dict:
     monkeypatch.setattr(load("prices"), "load", lambda path=None: {"models": {"m": {
         "input_usd_per_mtok": 1.0, "output_usd_per_mtok": 5.0, "cache_read_usd_per_mtok": 0.1, "cache_write_usd_per_mtok": 1.25,
         "source": "https://prices.example/models", "accessed": "2026-10-01"}}})
+    monkeypatch.setattr(lab, "local_evidence_base", lambda: str(tmp_path / "local-evidence"))  # the stand-in tree holds no status script
     monkeypatch.setattr(lab, "proof_inputs", lambda skill: "standin-" + skill)
     monkeypatch.setattr(lab, "measurement_problem", lambda: None)
     monkeypatch.setattr(lab, "image", lambda: {"name": "standin", "digest": STANDIN_IMAGE, "platform": "linux/arm64"})
@@ -351,7 +354,8 @@ def build(tmp_path: Path, monkeypatch, lab) -> dict:
     monkeypatch.setattr(runs, "SPAWNED", [])
     monkeypatch.setattr(runs, "STOPPING", threading.Event())
     monkeypatch.setattr(runs, "WAIT_STEP", 0.01)
-    return {"tree": tree, "project": project, "data": data, "db": db, "adapter": adapter, "real_spawn": real_spawn}
+    return {"tree": tree, "project": project, "data": data, "db": db, "adapter": adapter, "real_spawn": real_spawn,
+            "sources": Path(sources_path(tmp_path))}
 
 
 def set_models(monkeypatch, lab, passes=None, adapters=None) -> None:

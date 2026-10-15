@@ -88,6 +88,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/ops_reads.py` | The reads of the local interface and the signals of the local service: the change signal of the store (`version`), the stop of the runs a process started, the conversation's commands as rows (`commands`), the agents with their day, the conversation's messages, the skills with their proof, the costs, the connections, the service's start check and the project's artifacts. |
 | `runtime/ops_runs.py` | The runs of tasks: one task run (`run_task`), the person's verb that picks one (`run_next`), the dispatcher's round (`dispatch`), and the processes the round starts. |
 | `runtime/ops_say.py` | The conversation with the planning agent: one turn of it (`say`) and the memory a plain line carries to the router. |
+| `runtime/ops_sources.py` | The operations over a project's sources (P4): register a source, import a version, refresh it, list the catalog, and set a description; and the three small pieces the rest of the operations layer asks of them: the catalog block the planner reads, the sources a request's @mentions force, and the copies a task receives when it starts. |
 | `runtime/ops_waits.py` | The derived waits in the operations layer: which task waits for which, worked out from the artifact contract. |
 | `runtime/parallel.py` | The rules of tasks that run at once, decided by pure functions: whether a ready task may start beside the ones that run (a slot of its agent, a slot of the project, no code task of its request, no artifact in use), and what a skill's footprint is. |
 | `runtime/path_rule.py` | The path rule: how one path of what a run left goes back to the project. |
@@ -102,6 +103,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/service_bridge.py` | The messaging bridge as a child of the local service (runtime/service.py --messaging &lt;platform&gt;): one start brings up the page and the bridge. |
 | `runtime/shell_kit.py` | What the two network-free shells of the operations layer share: the local service (runtime/service.py) and the MCP mode (runtime/mcp.py). |
 | `runtime/skill_meta.py` | What a skill declares in its frontmatter, read for the runtime: the artifact lists, the requirement classes, the side effects and the version. |
+| `runtime/sources.py` | The sources of a project: a registry of what the person gave the project to read, immutable versions of each in the project's sources folder, a catalog built by code, and the copies a task receives. |
 | `runtime/state_merge.py` | The one module that decides what a run may change in the project's state file (docs/workbench/state.md), limit L10 of the platform plan. |
 | `runtime/workcopy.py` | What enters a run copy, and what comes back from it: the limits of the task runtime that decide which files of a project a run sees (L1 to L6) and which files a run leaves come back (L7, L8, L12, L14). |
 | `runtime/handlers/published_posts.py` | The weekly routine that lists the published posts (backlog item PB16): the first handler of the task runtime. |
@@ -113,7 +115,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 **The store, as built.** Migration 1 holds the first runtime's tables (`cursors`, `events`, `runs`, `inbox`, `actions`); the task runtime uses `cursors` and `actions` too. The migrations, generated from `MIGRATIONS` of `providers/store/sqlite.py`:
 
 <!-- generated: store-migrations -->
-Schema version 10: the highest migration of `MIGRATIONS`.
+Schema version 11: the highest migration of `MIGRATIONS`.
 
 | Migration | Description | Tables created | Columns added | Triggers |
 |---|---|---|---|---|
@@ -127,6 +129,7 @@ Schema version 10: the highest migration of `MIGRATIONS`.
 | 8 | derived waits between requests: a request's after_request and the task_waits table | `task_waits` | `tasks.after_request` | `task_waits_never_deleted` |
 | 9 | the billing of the credential a task run used | - | `task_runs.billing` | - |
 | 10 | the model of a request or a task, and the autonomy of a task run | - | `tasks.model`, `task_runs.autonomy` | - |
+| 11 | the registry of sources, their versions, and the versions a task run received | `sources`, `source_versions`, `task_sources` | `tasks.sources` | `sources_never_deleted`, `sources_only_description_moves`, `source_versions_never_deleted`, `source_versions_never_changed`, `task_sources_never_deleted`, `task_sources_never_changed` |
 <!-- /generated -->
 
 The task runtime's tables, those that migration 2 and later create, with their columns (generated from the same source):
@@ -134,7 +137,7 @@ The task runtime's tables, those that migration 2 and later create, with their c
 <!-- generated: task-runtime-tables -->
 | Table | Created by migration | Columns |
 |---|---|---|
-| `tasks` | 2 | id, parent_id, flow, key, skill, agent, title, text, state, depends_on, milestone, note, created_at, updated_at, remote_id (migration 4), remote_version (migration 4), remote_written_sha256 (migration 4), after_request (migration 8), model (migration 10) |
+| `tasks` | 2 | id, parent_id, flow, key, skill, agent, title, text, state, depends_on, milestone, note, created_at, updated_at, remote_id (migration 4), remote_version (migration 4), remote_written_sha256 (migration 4), after_request (migration 8), model (migration 10), sources (migration 11) |
 | `task_runs` | 2 | id, task_id, skill, skill_version, skill_sha256, model, adapter, web, status, failure, ending, attempts, started_at, ended_at, cost_usd, tokens, duration_ms, skill_loaded, image_digest, run_dir, error, redactions (migration 3), billing (migration 9), autonomy (migration 10) |
 | `pending_decisions` | 2 | id, task_id, run_id, kind, title, body, payload, payload_sha256, status, resolution, answer, created_at, resolved_at, resolved_by |
 | `document_records` | 4 | id, path, provider, remote_id, written_sha256, remote_version, read_sha256, status, note, updated_at |
@@ -142,6 +145,9 @@ The task runtime's tables, those that migration 2 and later create, with their c
 | `approvals` | 5 | id, scope, what, payload_sha256, policy_sha256, bounds, task_id, pending_id, approved_at, approved_by, expires_at, status, executed_at |
 | `conversation_messages` | 6 | id, conversation, role, text, task_id, run_id, created_at |
 | `task_waits` | 8 | id, task_id, awaited_id, kind, path, reason, status, created_at, ended_at, ended_by |
+| `sources` | 11 | id, type, origin, description, created_at, updated_at |
+| `source_versions` | 11 | source_id, version, label, by, kind, original_name, original_sha256, original_bytes, converted_name, converted_sha256, converted_bytes, converter, converter_version, hidden_text, warnings, catalog, origin_version, imported_at |
+| `task_sources` | 11 | run_id, task_id, source_id, version, sha256, copied_at |
 <!-- /generated -->
 
 The cursors the runtime writes: `config:accepted-sha256` (the accepted configuration, written only by `ops_config._record_acceptance`, which `accept_config` calls for the person and `set_mode` calls for a move down the order of the modes, or for a move up the person accepts in the same command with `set-mode --accept` from the terminal), `config:accepted-by` (`person` or `code:narrowing`), `dispatch:held` (the ready tasks the last dispatcher round did not start, JSON: `at`, `held` with each task's reason, at most `HELD_KEPT` (20) of them, `more` for the rest and `missing`, the names of the credential's variables that were not found; a round that holds the same tasks for the same reasons writes nothing, since a write moves the change counter), `board:configured` (when the board was first written), `use:<run id>` (the recorded use of a run), `verdict:<run id>` (the person's one verdict on it), and each handler's own (`routine:published-posts`; `mailbox:<agent>` and `vote:<round>` of the social handlers).
@@ -290,6 +296,13 @@ Each invariant with its guard. A test is in `runtime/tests/` unless its path is 
 | L18 | A document bound to an approval by hash is a machine file | stage 6 | `runtime/tests/test_run_limits.py`, `test_limit_18_a_document_bound_to_an_approval_by_hash_is_a_machine_file` |
 | L19 | The planning agent creates no task: it returns the route, and code builds the plan | stage 3 | `runtime/tests/test_run_limits.py`, `test_limit_19_the_planning_agent_creates_no_task_it_returns_the_route_and_code_builds_the_plan` |
 | L20 | The measurement files are not changed | stage 4 (for the change set: the project lists them in its protected_paths) | no test named |
+| L21 | The sources folder (`sources_dir`, mandatory, no default) is dedicated and private: empty, or marked as the runtime's (`.openhora-sources`, naming the project it serves) at the acceptance of the configuration, with mode 0700; the runtime checks it again before every use | P4 (`runtime/sources.py` `accept_folder`, `check_folder`; the acceptance in `ops_config._record_acceptance`) | `runtime/tests/test_sources_limits.py`, `test_limit_21_the_sources_folder_is_dedicated_and_private_empty_or_marked_as_the_runtimes_with_mode_0700` |
+| L22 | The sources folder is disjoint from `data_dir`, from `store_db`, from the workbench checkout and from the local evidence folder, compared by device and inode (`os.path.samestat`), not by strings | P4 (`runtime/sources.py` `path_problems`; `runtime/project_config.py` reads it; the evidence folder is asked of the lab at acceptance and at every use) | `runtime/tests/test_sources_limits.py`, `test_limit_22_the_sources_folder_is_disjoint_from_the_data_folder_the_store_the_checkout_and_the_local_evidence` |
+| L23 | The runtime writes only inside the sources folder and never follows a symbolic link out of it (every step is opened from the descriptor of the folder with `O_NOFOLLOW`); the home folder, the filesystem root, a folder that contains the project, a folder that is itself a link (also written with a closing slash or `/.`), and a folder at or under the project's `docs/` or `.workbench-local/` are refused; the staging folder of an import, `<data_dir>/sources-staging`, is made through the descriptor of its parent with `O_NOFOLLOW` (this user's, 0700), so a link at its name takes nothing out; a pipe where a file is expected is refused before it is opened; a numbered folder with no record is moved aside, never replaced in place | P4 (`runtime/sources.py` `Folder`, `path_problems`, `_make_staging`, `_place`; `runtime/project_config.py`) | `runtime/tests/test_sources_limits.py`, `test_limit_23_the_runtime_writes_only_inside_the_sources_folder_and_never_follows_a_symbolic_link_out`; `runtime/tests/test_sources_limits.py`, `test_limit_23_a_sources_folder_inside_the_project_s_local_work_folder_is_refused`; `runtime/tests/test_sources_limits.py`, `test_limit_23_a_sources_folder_inside_the_project_s_docs_folder_is_refused` |
+| L24 | What a container writes comes back only as regular files, checked with `lstat` and opened with `O_NOFOLLOW`, under a byte cap and with names from a closed list; a link, a folder, a pipe or a file with a second link is refused. The converter's own result leaves the container as a stream of frames on its standard output (never a folder), capped by the host, and is written by the host into a folder of its own | P4 (`runtime/sources.py` `collect_outputs`; `providers/converter/container.py` `parse_frames`; `providers/_container.py` `run(stdout_cap=)`) | `runtime/tests/test_sources_limits.py`, `test_limit_24_what_a_container_writes_comes_back_only_as_regular_files_under_a_byte_cap_and_with_names_from_a_closed_list` |
+| L25 | A file of the sources folder changed outside the runtime is detected by its hash, sniffed, converted and scanned again, labelled as the person's (`changed-by-person`), and never used unattended: a task that starts on its own never receives it, and no task receives it as the recorded one | P4 (`runtime/sources.py` `verify_version`, `recheck`, `task_copies`) | `runtime/tests/test_sources_limits.py`, `test_limit_25_a_file_changed_outside_the_runtime_is_detected_by_its_hash_sniffed_converted_and_scanned_again_labelled_as_the_persons_and_never_used_unattended` |
+| L26 | The work copy excludes the sources folder, even when it sits inside a tracked tree; the only thing of the sources a run sees is the copy of the converted text of each source its plan chose, made when the task starts; and nothing a run leaves is written into the folder when it sits inside the project: a returned path inside it is kept with a reason (the check runs before the path rule, and `cfg` is a required argument of `workcopy.returning`), and a change set that touches it is refused (it is a protected path, whatever the case of its letters) | P4 (`runtime/workcopy.py` `entering`, `_never`, `returning`; `runtime/sources.py` `inside`, `task_copies`, `protected_paths`) | `runtime/tests/test_sources_limits.py`, `test_limit_26_the_work_copy_excludes_the_sources_folder_even_when_it_sits_inside_a_tracked_tree`; `runtime/tests/test_sources_limits.py`, `test_limit_26_nothing_a_run_leaves_is_written_into_the_sources_folder_even_when_it_sits_inside_the_project`; `runtime/tests/test_sources_limits.py`, `test_limit_26_returning_cannot_be_called_without_the_sources_configuration` |
+| L27 | The catalog is built only from the converted output, by code, never by parsing a raw file on the host: the host module imports no archive, markup, workbook or document reader | P4 (`runtime/sources.py` `catalog_entry`, `list_catalog`) | `runtime/tests/test_sources_limits.py`, `test_limit_27_the_catalog_is_built_only_from_converted_output_and_no_raw_file_is_parsed_on_the_host` |
 <!-- /generated -->
 
 The limit's text and the stage that built it come from the contract's table; the last column is every test named `test_limit_<nn>_...` under `runtime/tests/` and `providers/store/tests/`. The other guards of each limit are named in the contract's table. The limit with no test named after it, L20, is guarded for a change set by the project's `protected_paths` (`test_a_change_to_a_protected_path_blocks_the_change_set_and_names_the_path`) and, in this repository, by the fingerprint check of `scripts/validate.py`. L18 and L19 keep, beside the test named after them, `test_the_facts_of_later_stages_move_a_path_to_machine_or_versioned` and `test_a_valid_route_opens_a_plan_and_approving_it_creates_the_tasks`.
@@ -410,7 +423,7 @@ The limit's text and the stage that built it come from the contract's table; the
 | `deps` | - | `deps` |
 | `run-next` | `[--model]` | `run_next` |
 | `run-task` | `--task` `[--model]` | `run_task` |
-| `accept-config` | `--sha256` | `accept_config` |
+| `accept-config` | `--sha256` `[--adopt-sources]` | `accept_config` |
 | `proof` | `[--skill]` | `proof` |
 | `verdict` | `--run` `--word` | `verdict` |
 | `sync` | `[--dry-run]` `[--take]` `[--path]` | `sync` |
@@ -436,6 +449,11 @@ The limit's text and the stage that built it come from the contract's table; the
 | `artifact` | `--path` | `artifact` |
 | `stop-runs` | `[--all]` | `stop_runs` |
 | `service-check` | `[--dispatch-every]` | `service_check` |
+| `source-add` | `--source` `--type` `--origin` `[--description]` | `source_add` |
+| `source-import` | `--source` `[--file]` `[--url]` `[--origin]` `[--description]` | `source_import` |
+| `source-refresh` | `--source` `[--file]` | `source_refresh` |
+| `source-describe` | `--source` `[--description]` | `source_describe` |
+| `sources` | - | `sources_catalog` |
 <!-- /generated -->
 
 The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-run`, `dispatch`, and `say` for a new request. The row of `release` says no model and carries `job`, yet releasing a brief routes its delivery again, which runs the router (`ops._after_release`).
@@ -484,7 +502,7 @@ The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-
 | `deps` | `deps` | terminal | no | install the dependency sets of runtime.json, by code |
 | `run_next` | `run-next` | terminal | yes | run the next ready task: one skill, once, on the model chosen for it (or the one you name with --model) |
 | `run_task` | `run-task` | terminal | yes | run one named task in this process; the dispatcher starts it, a person uses run-next |
-| `accept_config` | `accept-config` | terminal | no | record the hash of runtime.json you accept |
+| `accept_config` | `accept-config` | terminal | no | record the hash of runtime.json you accept; --adopt-sources also lets this project take over a sources folder marked for another |
 | `proof` | `proof` | terminal | no | the model each skill in use would run on when nothing chooses one, with its band, price and expected cost on every model, and the two checks |
 | `verdict` | `verdict` | terminal, page | no | record your verdict on what one run delivered (worked, corrected or failed) |
 | `sync` | `sync` | terminal, page | no | mirror the tasks with the task board and the documents with the documents platform |
@@ -514,6 +532,11 @@ The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-
 | `commands` | `commands` | page | no | the commands of the conversation as rows, command, arguments and help line, in the order /help prints them (the page lists them when the person types /) |
 | `stop_runs` | `stop-runs` | terminal | no | end the runs this process started (the local service calls it before it exits); with --all, every task run of the project that a live process holds |
 | `service_check` | `service-check` | terminal | no | what the local service checks at its start: the secret store, the credential, docker, the eval image and whether it dispatches (the service calls it for each project) |
+| `source_add` | `source-add` | terminal, page | no | register a source of this project: its id, its type (file or notion) and its origin (a file's name, or a Notion page's address or id); nothing is imported and no credential is kept |
+| `source_import` | `source-import` | terminal, page | no | import a version of a source from a file of yours (--file) or from a Notion page (--url, its address or id): read, converted to text in a container with no network, scanned, and kept as an immutable version in the sources folder |
+| `source_refresh` | `source-refresh` | terminal, page | no | a new version of a source: from a new file, from its Notion page again, or, with neither, from the file you changed in the sources folder (it becomes a version labelled as yours, which a task that starts on its own never receives) |
+| `source_describe` | `source-describe` | terminal, page | no | set your description of a source (what it is, what it is for); the planner reads it with the catalog; an empty one clears it |
+| `sources_catalog` | `sources` | terminal, page, mcp, messaging | no | the catalog of the project's sources: each source, its newest version (name, type, size, date, sheets and columns with sample values, first headings), your description and whether its files changed outside the runtime |
 <!-- /generated -->
 
 **The dispatcher's jobs**, `/usr/bin/python3 runtime/dispatcher.py <verb> --project <dir> [--pin <file>]`, run by the scheduler from a copy kept in the job folder:
@@ -579,3 +602,4 @@ The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-
 - 2026-10-10: the conversation's commands are data (R4-C1, R-45): the operation `commands` (a row of the table with the channel `page`, in `runtime/ops_reads.py`) and the route `GET /projects/{p}/commands` answer `{"commands": [{"command", "arguments", "help"}]}`, the rows `/help` prints in its order (`operations.chat_command_rows`, built from `chat_commands`, the one source of the help); `/help`'s own help line reads `list the commands`; the `say-commands`, `operations` and `service-routes` blocks are regenerated.
 - 2026-10-12: several tasks of a project run at once (PAR-4, decision of 2026-10-12): `runtime/parallel.py` (the slots of a floor and of the project, one code task per request, no file in use), `runtime/ops_runs.py` (one OS process per task run, `run-task`; the dispatcher starts a list of children and, with `wait`, keeps reaping until none is alive), the locks under `<data_dir>/locks/` replace the project's single lock, the recovery decides by the task locks, and the store's one-at-a-time claim, peek and fail-running functions are gone.
 - 2026-10-14: the page follows the messaging channel (MSG-14): the purpose names the five channels, the per-user state folder's ledger and lock are artifacts, the channel policy and the messaging bridge (with the `deferred` and `paused` answers) are abstractions, `messenger:<platform>` is a provider the runtime reads, the policy and messaging rules are business rules with their file and line, and two known limits are added.
+- 2026-10-15: the sources of a project (P4): `runtime/sources.py` and `runtime/ops_sources.py`, migration 11 (the registry, the versions, what a task received, `tasks.sources`), limits L21 to L27, `sources_dir` as a required key, the Sources line of the router and the sources in the plan's tasks, the copies a task receives when it starts ([sources.md](sources.md)).

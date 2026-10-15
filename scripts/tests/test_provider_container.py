@@ -237,7 +237,9 @@ def test_the_variables_follow_the_class_whatever_it_is():
 def test_a_variable_that_is_unset_or_empty_is_left_out_and_an_unknown_class_is_refused():
     assert box.provider_environment("generator:image", {"GENERATOR_PROVIDER": "", "PATH": "/bin"}) == {"PATH": "/bin"}
     with pytest.raises(resolve.UnknownClass):
-        box.provider_environment("converter:document", {})
+        box.provider_environment("frobnicator:document", {})
+    assert box.provider_environment("converter:document", {"CONVERTER_DOCUMENT_PROVIDER": "container", "PATH": "/bin", "ANTHROPIC_API_KEY": "k"}) \
+        == {"PATH": "/bin", "CONVERTER_DOCUMENT_PROVIDER": "container"}, "the converter's class selects its provider and carries no key"
     with pytest.raises(resolve.UnknownClass):
         box.provider_environment("nonsense", {})
 
@@ -306,6 +308,13 @@ if args[0] == "run":
         sys.exit(125)
     if flag("leave"):         # the client ends with its own failure code and the container record stays
         sys.exit(int(open(os.path.join(STATE, "exit")).read()))
+    if flag("stdout"):
+        sys.stdout.write(open(os.path.join(STATE, "stdout")).read())
+        sys.stdout.flush()
+    if flag("flood-stdout"):  # more than any cap, then wait: the host ends the container, as docker would on its removal
+        sys.stdout.write("y" * 600000)
+        sys.stdout.flush()
+        time.sleep(30)
     if flag("flood"):
         sys.stderr.write("x" * 200000 + "THE-END")
     if flag("stderr"):
@@ -469,6 +478,25 @@ def test_only_the_last_bytes_of_stderr_are_kept_and_the_flood_is_read_to_the_end
     done = box.run(job(), "job-1", 30)
     assert done.truncated and len(done.stderr.encode()) <= box.STDERR_CAP and done.stderr.endswith("THE-END")
     assert fake.names() == []
+
+
+def test_the_standard_output_is_discarded_unless_a_cap_is_asked_for_and_then_it_comes_back_whole_up_to_the_cap(fake):
+    fake.set("stdout", "frame one\nframe two\n")
+    assert box.run(job(), "job-1", 30).stdout == b""
+    done = box.run(job(), "job-1", 30, stdout_cap=1000)
+    assert done == box.Finished(0, "", False, b"frame one\nframe two\n") and fake.names() == []
+    exact = box.run(job(), "job-1", 30, stdout_cap=len(b"frame one\nframe two\n"))
+    assert exact.stdout == b"frame one\nframe two\n", "the cap itself is allowed"
+
+
+def test_a_container_that_writes_more_than_the_cap_to_its_standard_output_is_ended_and_removed(fake):
+    import time
+    fake.set("flood-stdout")
+    started = time.monotonic()
+    with pytest.raises(box.ContainerError) as caught:
+        box.run(job(), "job-1", 60, stdout_cap=1000)
+    assert caught.value.code == "output_too_large" and fake.names() == []
+    assert time.monotonic() - started < 25, "the container was ended when it passed the cap, not when its time ran out"
 
 
 def test_stop_and_remove_end_a_container_by_name_and_never_raise(fake):

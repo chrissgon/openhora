@@ -353,12 +353,17 @@ def build(request: dict, tasks: list, route, source: str, limits: dict, past: li
         lines += [f"- {d['item']}: {d['route']} -> {', '.join(d['tasks'])}"
                   + (f" (routed again after {d['reroute_after']})" if d.get("reroute_after") else "") for d in deliveries]
         lines += [""]
-    lines += ["| # | Task | Skill | After | Milestone | Web |", "|---|---|---|---|---|---|"]
+    with_source_ids = any(t.get("sources") for t in tasks)
+    lines += ["| # | Task | Skill | After | Milestone | Web |" + (" Sources |" if with_source_ids else ""),
+              "|---|---|---|---|---|---|" + ("---|" if with_source_ids else "")]
     for n, t in enumerate(tasks, 1):
         after = ", ".join(str(keys[d]) for d in t["depends_on"]) or "-"
         milestone = "yes, mandatory" if t.get("mandatory_milestone") else "yes" if t["milestone"] else "no"
         lines.append(f"| {n} | {t['title']} | {t['skill']} | {after} | {milestone} | "
-                     f"{'yes' if t['web'] else 'no'} |")
+                     f"{'yes' if t['web'] else 'no'} |" + (f" {', '.join(t.get('sources') or []) or '-'} |" if with_source_ids else ""))
+    if with_source_ids and any(t.get("sources") and t["web"] for t in tasks):
+        lines += ["", "A task that uses the web receives sources: what it reads of them is visible to a run with the open network. "
+                      "Approving this plan is your choice about that."]
     pace = f"Up to {limits['max_running']} tasks at a time; each" if limits.get("max_running") else "Each"
     lines += ["", f"{pace} run at most {limits.get('timeout_seconds')} s, retried at most "
                   f"{limits.get('retries')} times. At least {len(tasks)} runs.",
@@ -572,8 +577,27 @@ def delivery_tasks(route: dict, k: int, flows: dict, root: str, pack, prefix: bo
     return tasks
 
 
+def with_sources(tasks: list, chosen: dict, forced) -> str | None:
+    """Put the source ids a delivery's tasks receive in the tasks (key "sources", absent when none, so a plan with no source
+    hashes as it did before): the ids the router chose for the skill of the task and for every task ("*"), then the ids an
+    @mention forced. Returns the reason when the router named a skill that is not in the delivery, else None. The order is the
+    order they were named; the plan hash covers the ids, and a new version of a source changes none of this."""
+    skills = {t["skill"] for t in tasks}
+    strange = sorted(k for k in chosen if k != "*" and k not in skills)
+    if strange:
+        return f"the router chose sources for a skill that is not in the plan: {', '.join(strange)}"
+    for t in tasks:
+        ids = []
+        for i in list(chosen.get("*", [])) + list(chosen.get(t["skill"], [])) + list(forced or []):
+            if i not in ids:
+                ids.append(i)
+        if ids:
+            t["sources"] = ids
+    return None
+
+
 def combine(request: dict, routed: list, flows: dict, agent_skills: dict, root: str, *, pack, limits: dict,
-            past: list) -> dict:
+            past: list, forced=()) -> dict:
     """One plan from the routes of the deliveries, in the order listed (decision P3). routed is [{"item", "route",
     "reply"}], route None when the router asked or gave no route line, else read_route() with "checked". A delivery
     whose route is not valid goes to "unrouted" with the whole reply and gets no task. A task depends on a task of an
@@ -581,6 +605,7 @@ def combine(request: dict, routed: list, flows: dict, agent_skills: dict, root: 
     each other. Each task gets its agent (agent_of; None for every task when no
     area agent is configured). Returns {"plan": build(...) or None when no task, "tasks", "deliveries", "unrouted"}."""
     several = len(routed) > 1
+    forced = list(forced or [])
     tasks, deliveries, unrouted, routes, lists = [], [], [], [], []
     for k, entry in enumerate(routed, 1):
         route = entry.get("route")
@@ -591,6 +616,10 @@ def combine(request: dict, routed: list, flows: dict, agent_skills: dict, root: 
             continue
         route = dict(route, title=request_title(request) if not several else title_of(entry["item"]))
         mine = delivery_tasks(route, k, flows, root, pack, prefix=several)
+        refused = with_sources(mine, route.get("sources") or {}, forced)
+        if refused:
+            unrouted.append({"item": entry["item"], "why": refused, "reply": entry.get("reply") or ""})
+            continue
         for t in mine:
             t["agent"] = agent_of(t["skill"], agent_skills) if agent_skills else None
         brief = mine[0]["key"] if "skill" in checked and checked["skill"] == BRIEF_SKILL else None

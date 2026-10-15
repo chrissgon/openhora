@@ -333,7 +333,8 @@ def second_project(tmp_path, tree, name="second"):  # noqa: F811
     folder = tmp_path / name
     (folder / "docs" / "workbench").mkdir(parents=True)
     (folder / "docs" / "workbench" / "runtime.json").write_text(json.dumps(
-        {"workbench": str(tree["tree"]), "data_dir": str(tmp_path / f"{name}-data"), "store_db": str(tmp_path / f"{name}-store" / "tasks.sqlite")}))
+        {"workbench": str(tree["tree"]), "data_dir": str(tmp_path / f"{name}-data"), "store_db": str(tmp_path / f"{name}-store" / "tasks.sqlite"),
+         "sources_dir": str(tmp_path / f"{name}-sources")}))
     (folder / "docs" / "workbench" / "state.md").write_text((tree["project"] / "docs" / "workbench" / "state.md").read_text())
     (folder / "AGENTS.md").write_text("# Project\n")
     ops.accept_config(str(folder), project_config.load(str(folder))["sha256"])

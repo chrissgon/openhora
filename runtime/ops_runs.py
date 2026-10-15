@@ -263,7 +263,7 @@ def _start(ctx: dict, task_id: int, requested, checked: bool) -> dict:
         if failure is not None:
             core._stored(ctx, store.task_fail_orphans, [claim["id"]], [], ops._note(f"the run could not start: {failure}"))
             raise core.OpsError(f"task {claim['id']} ({claim['skill']}) could not start: {failure}", 1)
-        return started
+        return {**started, "unattended": checked}   # a task the dispatcher starts is unattended; run-next is the person's own start
 
 
 def run_next(project: str, requested=None) -> dict:

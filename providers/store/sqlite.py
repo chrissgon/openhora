@@ -52,7 +52,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 BUSY_TIMEOUT_SECONDS = 10
 PATH_ENV = "STORE_SQLITE_PATH"
 
@@ -340,6 +340,63 @@ MIGRATIONS = {
     10: ("the model of a request or a task, and the autonomy of a task run", [
         "ALTER TABLE tasks ADD COLUMN model TEXT",
         "ALTER TABLE task_runs ADD COLUMN autonomy TEXT CHECK (autonomy IS NULL OR autonomy IN ('proven', 'consent', 'supervised'))",
+    ]),
+    # P4: the sources of a project. `sources` is the registry (an id, a type, an origin that holds no credential, a description the
+    # person may change); `source_versions` one immutable row per imported version (hashes, sizes, the converter, the catalog entry
+    # built by code, a hidden-text flag P8 fills in); `task_sources` the versions a run of a task received (decision D29). A task
+    # carries the ids the approved plan chose for it in `tasks.sources` (a JSON list, NULL when none). Nothing here is deleted, and a
+    # version is never changed: a refresh is a new version number (limit L13, as for the other records of the task runtime).
+    11: ("the registry of sources, their versions, and the versions a task run received", [
+        """CREATE TABLE sources (
+            id TEXT PRIMARY KEY,
+            type TEXT NOT NULL CHECK (type IN ('file', 'notion')),
+            origin TEXT NOT NULL,
+            description TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL)""",
+        """CREATE TABLE source_versions (
+            source_id TEXT NOT NULL REFERENCES sources (id),
+            version INTEGER NOT NULL CHECK (version >= 1),
+            label TEXT NOT NULL CHECK (label IN ('import', 'refresh', 'changed-by-person')),
+            by TEXT NOT NULL CHECK (by IN ('runtime', 'person')),
+            kind TEXT NOT NULL,
+            original_name TEXT NOT NULL,
+            original_sha256 TEXT NOT NULL,
+            original_bytes INTEGER NOT NULL,
+            converted_name TEXT NOT NULL,
+            converted_sha256 TEXT NOT NULL,
+            converted_bytes INTEGER NOT NULL,
+            converter TEXT NOT NULL,
+            converter_version TEXT,
+            hidden_text INTEGER CHECK (hidden_text IS NULL OR hidden_text IN (0, 1)),
+            warnings TEXT NOT NULL DEFAULT '[]',
+            catalog TEXT NOT NULL,
+            origin_version TEXT,
+            imported_at TEXT NOT NULL,
+            PRIMARY KEY (source_id, version))""",
+        """CREATE TABLE task_sources (
+            run_id INTEGER NOT NULL REFERENCES task_runs (id),
+            task_id INTEGER NOT NULL REFERENCES tasks (id),
+            source_id TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            sha256 TEXT NOT NULL,
+            copied_at TEXT NOT NULL,
+            PRIMARY KEY (run_id, source_id))""",
+        "CREATE INDEX task_sources_by_task ON task_sources (task_id, run_id)",
+        "ALTER TABLE tasks ADD COLUMN sources TEXT",
+        """CREATE TRIGGER sources_never_deleted BEFORE DELETE ON sources
+            BEGIN SELECT RAISE(ABORT, 'a source is never deleted'); END""",
+        """CREATE TRIGGER sources_only_description_moves BEFORE UPDATE ON sources
+            WHEN NEW.id IS NOT OLD.id OR NEW.type IS NOT OLD.type OR NEW.origin IS NOT OLD.origin OR NEW.created_at IS NOT OLD.created_at
+            BEGIN SELECT RAISE(ABORT, 'a source keeps its id, type and origin: only its description changes'); END""",
+        """CREATE TRIGGER source_versions_never_deleted BEFORE DELETE ON source_versions
+            BEGIN SELECT RAISE(ABORT, 'a source version is never deleted'); END""",
+        """CREATE TRIGGER source_versions_never_changed BEFORE UPDATE ON source_versions
+            BEGIN SELECT RAISE(ABORT, 'a source version is never changed: a refresh is a new version'); END""",
+        """CREATE TRIGGER task_sources_never_deleted BEFORE DELETE ON task_sources
+            BEGIN SELECT RAISE(ABORT, 'the record of a source a run received is never deleted'); END""",
+        """CREATE TRIGGER task_sources_never_changed BEFORE UPDATE ON task_sources
+            BEGIN SELECT RAISE(ABORT, 'the record of a source a run received is never changed'); END""",
     ]),
 }
 
@@ -1082,6 +1139,23 @@ def _model_arg(value):
     return text_arg(value, "model", REF_MAX, required=False)
 
 
+SOURCE_ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
+SOURCE_TYPES = ("file", "notion")
+SOURCE_LABELS = ("import", "refresh", "changed-by-person")
+SOURCE_BYS = ("runtime", "person")
+
+
+def _sources_arg(value):
+    """The source ids a plan chose for a task: None or an empty list (stored as NULL), else a list of distinct ids (lowercase
+    letters, digits and hyphens, at most 40 characters, at most 20), kept in the order given."""
+    if value is None or value == []:
+        return []
+    if not isinstance(value, list) or len(value) > 20 or len(set(value)) != len(value) \
+            or not all(isinstance(v, str) and SOURCE_ID_RE.fullmatch(v) for v in value):
+        raise StoreError("a task's sources are a list of at most 20 distinct source ids", EXIT_USAGE)
+    return list(value)
+
+
 def _billing_arg(value):
     """The billing a run is started with: None, or one of RUN_BILLINGS (migration 9 checks the column the same way)."""
     if value is not None and value not in RUN_BILLINGS:
@@ -1145,7 +1219,7 @@ def _task(conn: sqlite3.Connection, task_id: int) -> dict:
     row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
     if row is None:
         raise StoreError(f"no task {task_id}")
-    return row_dict(row, ("depends_on",))
+    return row_dict(row, ("depends_on", "sources"))
 
 
 def _refresh(conn: sqlite3.Connection, now: str) -> tuple[list, list]:
@@ -1287,7 +1361,7 @@ def _plan_items(tasks, *, empty_text: bool = False, known=()) -> list:
                      "title": text_arg(item.get("title"), "title", TITLE_MAX), "text": text,
                      "depends_on": list(depends), "milestone": 1 if item.get("milestone") else 0,
                      "agent": text_arg(item.get("agent"), "agent", LABEL_MAX, required=False),
-                     "model": _model_arg(item.get("model"))})
+                     "model": _model_arg(item.get("model")), "sources": _sources_arg(item.get("sources"))})
     return plan
 
 
@@ -1300,9 +1374,10 @@ def _insert_plan(conn: sqlite3.Connection, request_id: int, flow: str | None, pl
     for item in plan:
         ids[item["key"]] = conn.execute(
             "INSERT INTO tasks (parent_id, flow, key, skill, agent, title, text, state, depends_on, milestone, "
-            "model, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?)",
+            "model, sources, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?, ?)",
             (request_id, flow, item["key"], item["skill"], item["agent"], item["title"], item["text"],
-             json.dumps([ids[d] for d in item["depends_on"]]), item["milestone"], item.get("model"), now, now)).lastrowid
+             json.dumps([ids[d] for d in item["depends_on"]]), item["milestone"], item.get("model"),
+             json.dumps(item["sources"]) if item["sources"] else None, now, now)).lastrowid
         added.append(ids[item["key"]])
     return added
 
@@ -2505,7 +2580,7 @@ def tasks_list(conn: sqlite3.Connection, request: int | None = None) -> list:
     """Every task, oldest first; with request, that request and its tasks."""
     rows = conn.execute("SELECT * FROM tasks WHERE (?1 IS NULL OR id = ?1 OR parent_id = ?1) ORDER BY id",
                         (request,)).fetchall()
-    return [row_dict(r, ("depends_on",)) for r in rows]
+    return [row_dict(r, ("depends_on", "sources")) for r in rows]
 
 
 def task_run_get(conn: sqlite3.Connection, run_id: int) -> dict:
@@ -2557,6 +2632,141 @@ VERBS = {
     "action-add": cmd_action_add, "actions": cmd_actions, "action-count": cmd_action_count,
     "export": cmd_export,
 }
+
+
+# --- the sources of a project (migration 11; runtime/sources.py is the one caller) ------------------------------------------
+
+
+def _source_row(conn: sqlite3.Connection, source_id: str):
+    return conn.execute("SELECT * FROM sources WHERE id = ?", (source_id,)).fetchone()
+
+
+def source_add(conn: sqlite3.Connection, *, source_id: str, source_type: str, origin: str, description: str | None = None) -> dict:
+    """Register a source: an id (lowercase letters, digits, hyphens), a type (`file` or `notion`), an origin (a file's name, or a
+    Notion page's address or id: no credential is ever kept here) and an optional description. An id taken is refused: the
+    registry only grows. Returns the row."""
+    if not isinstance(source_id, str) or not SOURCE_ID_RE.fullmatch(source_id):
+        raise StoreError("a source id is lowercase letters, digits and hyphens, at most 40 characters", EXIT_USAGE)
+    if source_type not in SOURCE_TYPES:
+        raise StoreError(f"a source's type is one of {', '.join(SOURCE_TYPES)}", EXIT_USAGE)
+    origin = text_arg(origin, "origin", REF_MAX)
+    description = text_arg(description, "description", NOTE_MAX, multiline=True, required=False)
+    now = iso(utcnow())
+    with write(conn):
+        if _source_row(conn, source_id) is not None:
+            raise StoreError(f"the source {source_id} is already registered", EXIT_USAGE)
+        conn.execute("INSERT INTO sources (id, type, origin, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                     (source_id, source_type, origin, description, now, now))
+    return source_get(conn, source_id)
+
+
+def source_get(conn: sqlite3.Connection, source_id: str) -> dict:
+    row = _source_row(conn, source_id)
+    if row is None:
+        raise StoreError(f"no source {source_id}")
+    return row_dict(row)
+
+
+def sources_list(conn: sqlite3.Connection) -> list:
+    """Every source, by id."""
+    return [row_dict(r) for r in conn.execute("SELECT * FROM sources ORDER BY id")]
+
+
+def source_describe(conn: sqlite3.Connection, source_id: str, description: str | None) -> dict:
+    """Set (or clear, with None) the person's description of a source: the one field of the registry that changes."""
+    description = text_arg(description, "description", NOTE_MAX, multiline=True, required=False)
+    with write(conn):
+        if _source_row(conn, source_id) is None:
+            raise StoreError(f"no source {source_id}")
+        conn.execute("UPDATE sources SET description = ?, updated_at = ? WHERE id = ?", (description, iso(utcnow()), source_id))
+    return source_get(conn, source_id)
+
+
+def source_version_add(conn: sqlite3.Connection, *, source_id: str, version: int, label: str, by: str, kind: str,
+                       original_name: str, original_sha256: str, original_bytes: int, converted_name: str,
+                       converted_sha256: str, converted_bytes: int, converter: str, converter_version: str | None,
+                       warnings, catalog: dict, origin_version: str | None, imported_at: str, hidden_text=None) -> dict:
+    """Record one imported version, whole and final (no column of it is ever written again). The version must be the next
+    number of the source. Returns the row, with warnings and catalog as objects."""
+    if label not in SOURCE_LABELS or by not in SOURCE_BYS:
+        raise StoreError("an unknown label or author of a source version", EXIT_USAGE)
+    for name, digest in (("original_sha256", original_sha256), ("converted_sha256", converted_sha256)):
+        if not isinstance(digest, str) or not SHA256_RE.fullmatch(digest):
+            raise StoreError(f"{name} must be 64 hexadecimal characters", EXIT_USAGE)
+    kind = text_arg(kind, "kind", LABEL_MAX)
+    original_name = text_arg(original_name, "original_name", LABEL_MAX)
+    converted_name = text_arg(converted_name, "converted_name", LABEL_MAX)
+    converter = text_arg(converter, "converter", LABEL_MAX)
+    converter_version = text_arg(converter_version, "converter_version", NOTE_MAX, required=False)
+    origin_version = text_arg(origin_version, "origin_version", REF_MAX, required=False)
+    warned = json.dumps(list(warnings or []))
+    described = json.dumps(catalog, sort_keys=True)
+    if len(described.encode("utf-8")) > PAYLOAD_MAX or len(warned.encode("utf-8")) > PAYLOAD_MAX:
+        raise StoreError("the catalog entry is too large", EXIT_USAGE)
+    with write(conn):
+        if _source_row(conn, source_id) is None:
+            raise StoreError(f"no source {source_id}")
+        top = conn.execute("SELECT COALESCE(MAX(version), 0) AS top FROM source_versions WHERE source_id = ?", (source_id,)).fetchone()["top"]
+        if version != top + 1:
+            raise StoreError(f"the next version of {source_id} is {top + 1}, not {version}")
+        conn.execute("INSERT INTO source_versions (source_id, version, label, by, kind, original_name, original_sha256, original_bytes, "
+                     "converted_name, converted_sha256, converted_bytes, converter, converter_version, hidden_text, warnings, catalog, "
+                     "origin_version, imported_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                     (source_id, version, label, by, kind, original_name, original_sha256, int(original_bytes), converted_name,
+                      converted_sha256, int(converted_bytes), converter, converter_version, hidden_text, warned, described,
+                      origin_version, imported_at))
+    return source_version_get(conn, source_id, version)
+
+
+def _version_dict(row) -> dict:
+    return row_dict(row, ("warnings", "catalog"))
+
+
+def source_version_get(conn: sqlite3.Connection, source_id: str, version: int) -> dict:
+    row = conn.execute("SELECT * FROM source_versions WHERE source_id = ? AND version = ?", (source_id, version)).fetchone()
+    if row is None:
+        raise StoreError(f"no version {version} of the source {source_id}")
+    return _version_dict(row)
+
+
+def source_latest(conn: sqlite3.Connection, source_id: str):
+    """The newest version of a source, or None when it has none."""
+    row = conn.execute("SELECT * FROM source_versions WHERE source_id = ? ORDER BY version DESC LIMIT 1", (source_id,)).fetchone()
+    return _version_dict(row) if row is not None else None
+
+
+def source_versions(conn: sqlite3.Connection, source_id: str) -> list:
+    """Every version of a source, oldest first."""
+    return [_version_dict(r) for r in conn.execute("SELECT * FROM source_versions WHERE source_id = ? ORDER BY version", (source_id,))]
+
+
+def source_version_count(conn: sqlite3.Connection, source_id: str) -> int:
+    return conn.execute("SELECT COUNT(*) AS n FROM source_versions WHERE source_id = ?", (source_id,)).fetchone()["n"]
+
+
+def task_source_record(conn: sqlite3.Connection, *, run_id: int, task_id: int, source_id: str, version: int, sha256: str) -> dict:
+    """Record the version of a source a run of a task received (decision D29): its id, version and the sha256 of the converted
+    text that was copied. One row for each source of a run; nothing is changed after."""
+    if not isinstance(sha256, str) or not SHA256_RE.fullmatch(sha256):
+        raise StoreError("sha256 must be 64 hexadecimal characters", EXIT_USAGE)
+    now = iso(utcnow())
+    with write(conn):
+        run = conn.execute("SELECT task_id FROM task_runs WHERE id = ?", (run_id,)).fetchone()
+        if run is None or run["task_id"] != task_id:
+            raise StoreError(f"run {run_id} is not a run of task {task_id}")
+        version_row = conn.execute("SELECT converted_sha256 FROM source_versions WHERE source_id = ? AND version = ?",
+                                   (source_id, version)).fetchone()
+        if version_row is None or version_row["converted_sha256"] != sha256:
+            raise StoreError(f"{source_id} version {version} is not recorded with that sha256")
+        conn.execute("INSERT INTO task_sources (run_id, task_id, source_id, version, sha256, copied_at) VALUES (?, ?, ?, ?, ?, ?)",
+                     (run_id, task_id, source_id, version, sha256, now))
+    return {"run_id": run_id, "task_id": task_id, "source": source_id, "version": version, "sha256": sha256, "copied_at": now}
+
+
+def task_sources_of(conn: sqlite3.Connection, task_id: int) -> list:
+    """The sources every run of a task received, oldest first: {"run_id", "source_id", "version", "sha256", "copied_at"}."""
+    return [row_dict(r, drop=("task_id",)) for r in conn.execute(
+        "SELECT * FROM task_sources WHERE task_id = ? ORDER BY run_id, source_id", (task_id,))]
 
 
 def build_parser() -> argparse.ArgumentParser:
