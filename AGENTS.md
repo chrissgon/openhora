@@ -39,7 +39,7 @@ shared/references/*.md      cross-cutting references; today only security.md, ea
 shared/references/platforms/  <platform>.md and <platform>.json: what one social platform is as a medium, and its machine data (design rules 2 and 3)
 shared/scripts/             the one source of every script that more than one skill carries, with its tests in shared/scripts/tests/; copies.json, the manifest of the generated copies (which file is copied where, and whether a copy is adopted yet)
 contracts/                  project-layout.md, state.md, environment.md, runtime.md, secrets.md, vote-data.md; templates/ holds only a README (artifact templates live in each skill's assets/ or inline)
-providers/<class>/<impl>.py native providers for requirement classes; interface in providers/CONTRACT.md (the runtime's own classes, `converter`, `exporter` and `documents`, are folders here too; providers/_container.py is the one container lifecycle the providers that run a container share)
+providers/<class>/<impl>.py native providers for requirement classes; interface in providers/CONTRACT.md (the classes only the runtime uses, `messenger`, `converter` and `exporter`, are roles of `providers/resolve.py` and not listed in contracts/environment.md; `documents` is an integration class; providers/_container.py is the one container lifecycle the providers that run a container share)
 providers/resolve.py        the one function that turns a class into a provider script; skills, the runtime and doctor.py use it
 templates/                  capability.SKILL.md, flow.SKILL.md, agent.md
 packs/<name>.txt            installation subsets; default.txt excludes optional areas (see packs/README.md)

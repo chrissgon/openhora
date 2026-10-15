@@ -77,7 +77,7 @@ The secrets the core reads. Each cell is the text of the same field in `REGISTRY
 
 ## The runtime's own keys
 
-The task runtime may keep a key of its own for a model, apart from the lab's. They are not rows of the registry above: `runtime/secrets.json` lists them, and the runtime hands that file to the resolver (`register_file`), as an adapter's manifest is handed. Each is optional and is named `WB_RUNTIME_KEY_<the variable a model's credential travels under>`; when it is stored, every run the runtime routes to a model that passes that variable uses it, and otherwise the run uses the lab's key for the model (`contracts/runtime.md`, "The choice of the model").
+The task runtime may keep a key of its own for a model, apart from the lab's. They are not rows of the registry above: `runtime/secrets.json` lists them, and the runtime hands that file to the resolver (`register_file`), as an adapter's manifest is handed. Each is optional and is named `WB_RUNTIME_KEY_<the variable a model's credential travels under>`; the runtime uses it only for a model that passes exactly one variable (`ops_core._model_key`), and a variable the file does not list is still registered from the same pattern, with the store username `runtime-<the variable in lower case, hyphens>` (`ops_core._own_key`). When it is stored, every run the runtime routes to such a model uses it, and otherwise the run uses the lab's key for the model (`contracts/runtime.md`, "The choice of the model").
 
 | Secret | Store username | For the models whose credential is |
 |---|---|---|
