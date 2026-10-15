@@ -75,7 +75,13 @@ def test_a_published_image_that_is_not_pulled_names_the_command(tmp_path):
     root = image_root(tmp_path, published=True)
     found = doctor.image_state(FakeDocker(repo_digests=None, local=True), root=str(root))
     assert found["state"] == "published-not-pulled"
-    assert "python3 evals/executor.py pull" in doctor.IMAGE_STATES[found["state"]]
+    assert "python3 scripts/image_lock.py pull" in doctor.IMAGE_STATES[found["state"]]  # it verifies, then pulls
+
+
+def test_the_index_digest_does_not_stand_for_the_manifest_digest(tmp_path):
+    root = image_root(tmp_path, published=True)
+    found = doctor.image_state(FakeDocker(repo_digests=[f"{REPO}@sha256:{'1' * 64}"]), root=str(root))
+    assert found["state"] == "published-not-pulled"
 
 
 def test_a_local_build_does_not_pass_for_the_published_image(tmp_path):
@@ -98,9 +104,10 @@ def test_a_missing_image_an_unreachable_docker_and_an_unreadable_lock(tmp_path):
     assert found["state"] == "missing" and "python3 evals/executor.py ensure" in found["detail"]
     down = doctor.image_state(FakeDocker(down=True), root=str(root))
     assert down["state"] == "missing" and "daemon" in down["detail"]
-    (root / "evals" / "image-lock.json").write_text("{")
-    bad = doctor.image_state(FakeDocker(local=True), root=str(root))
-    assert bad["state"] == "missing" and "cannot be looked up" in bad["detail"]
+    for text in ("{", json.dumps({"repository": None, "images": {DEF: {}}}), json.dumps([])):  # never read as an empty lock
+        (root / "evals" / "image-lock.json").write_text(text)
+        bad = doctor.image_state(FakeDocker(local=True), root=str(root))
+        assert bad["state"] == "missing" and bad["detail"].startswith("lock unreadable:"), text
 
 
 def test_the_doctor_only_inspects_it_never_pulls_or_builds(tmp_path, monkeypatch):
@@ -119,7 +126,7 @@ def test_the_doctor_only_inspects_it_never_pulls_or_builds(tmp_path, monkeypatch
 def test_the_help_and_the_report_carry_the_image(monkeypatch, capsys):
     assert doctor.main(["--help"]) == 0
     helped = capsys.readouterr().out
-    assert "published and present" in helped and "python3 evals/executor.py pull" in helped
+    assert "published and present" in helped and "python3 scripts/image_lock.py pull" in helped
     monkeypatch.setattr(doctor, "image_state", lambda: {"state": "published-not-pulled", "detail": "x"})
     monkeypatch.setattr(doctor, "secrets_report", lambda classes: [])
     monkeypatch.setattr(doctor, "collect_requires", lambda: {})

@@ -77,6 +77,11 @@ def test_named_paths_reads_run_lines_and_skips_comments_and_actions(tmp_path):
                                            "providers/demo/tests", "providers/demo/tool.py"]
 
 
+# The lock file of the published eval image exists once an image has been published (scripts/image_lock.py writes it);
+# the workflow that verifies it names it in its trigger either way.
+MAY_BE_ABSENT = {"evals/image-lock.json"}
+
+
 def test_every_path_a_workflow_names_exists():
     """The Python 3.9 job once listed five test files that had moved, and stayed red on main."""
     assert WORKFLOWS
@@ -84,7 +89,7 @@ def test_every_path_a_workflow_names_exists():
     for workflow in WORKFLOWS:
         paths = named_paths(workflow.read_text())
         total += len(paths)
-        missing = [p for p in paths if not (REPO / p).exists()]
+        missing = [p for p in paths if not (REPO / p).exists() and p not in MAY_BE_ABSENT]
         assert not missing, f"{workflow.name} names paths that do not exist: {missing}"
     assert total >= 10  # the extractor found the paths; an empty list would pass for the wrong reason
 

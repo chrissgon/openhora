@@ -483,7 +483,9 @@ def service_check(project: str, dispatch_every=None) -> dict:
     ctx = core.context(project, check_config=False)
     found = dispatcher.inspect(_ops())
     seen = lab.image()
-    if not seen.get("name"):
+    if seen.get("problem"):
+        image = f"the eval image cannot be looked up: {seen['problem']}"
+    elif not seen.get("name"):
         image = "not looked at: the lab does not run in a container, or docker cannot be reached"
     elif not seen.get("digest"):
         image = f"the eval image {seen['name']} is not on this machine"

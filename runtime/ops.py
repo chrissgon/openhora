@@ -2379,8 +2379,10 @@ def _image_stop():
     """("image", why) when the eval image is not on this machine although the lab runs in a container (a run would
     fail for it), else None. A machine the lab cannot look at (no container executor, no docker) says nothing."""
     seen = lab.image()
+    if seen.get("problem"):
+        return "image", f"the eval image cannot be looked up ({seen['problem']}): no run starts, and no task fails for it. See connections", []
     if seen.get("name") and not seen.get("digest"):
-        return "image", f"the eval image {seen['name']} is not on this machine: no run starts, and no task fails for it. See connections", []
+        return "image",f"the eval image {seen['name']} is not on this machine: no run starts, and no task fails for it. See connections", []
     return None
 
 

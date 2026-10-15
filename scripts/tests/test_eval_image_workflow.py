@@ -68,7 +68,8 @@ def test_nothing_is_cached():
 
 
 def test_the_workflow_runs_on_main_only():
-    assert re.search(r"^on:\n  push:\n    branches: \[main\]\n    paths:\n      - \"evals/container/\*\*\"\n  workflow_dispatch:", TEXT, re.M)
+    assert re.search(r"^on:\n  push:\n    branches: \[main\]\n    paths:\n      - \"evals/container/\*\*\"\n"
+                     r"      - \".github/workflows/eval-image\.yml\"\n  workflow_dispatch:", TEXT, re.M)
     for name, block in jobs().items():
         assert re.search(r"^    if: github\.ref == 'refs/heads/main'\s*$", block, re.M), name
     assert "pull_request" not in code(TEXT)
@@ -97,3 +98,25 @@ def test_every_job_has_a_timeout_and_a_value_from_the_run_never_lands_inside_a_s
         assert re.search(r"^    timeout-minutes: [1-9]\d*\s*$", block, re.M), name
     for run in re.findall(r"run: \|\n((?:\s{10,}.*\n)+)", TEXT):
         assert "${{" not in run  # values reach a script through env, never by being pasted into it
+
+
+def test_the_index_digest_is_the_one_the_create_command_produced_never_resolved_from_a_tag():
+    merge = code(jobs()["merge"])
+    assert "imagetools create --metadata-file" in merge and "containerimage.digest" in merge
+    assert "imagetools inspect \"${repository}:" not in merge  # the tag is not read back
+
+
+LOCK_WORKFLOW = (REPO / ".github" / "workflows" / "image-lock.yml").read_text()
+
+
+def test_the_lock_is_verified_by_a_read_only_job_on_every_change_of_it():
+    text = code(LOCK_WORKFLOW)
+    assert re.search(r"^permissions:\n  contents: read\s*$", text, re.M) and "write" not in text
+    assert "push:" in text and "pull_request:" in text and "pull_request_target" not in text
+    assert text.count('"evals/image-lock.json"') == 2  # a push and a pull request
+    assert 'python3 scripts/image_lock.py --check --verify-provenance --source-repo "$SOURCE_REPOSITORY"' in text
+    assert "GH_TOKEN: ${{ github.token }}" in text and "SOURCE_REPOSITORY: ${{ github.repository }}" in text
+    assert re.search(r"^    timeout-minutes: [1-9]\d*\s*$", text, re.M)
+    for ref in re.findall(r"^\s*-?\s*uses:\s*(\S+)", text, re.M):
+        assert re.fullmatch(r"[\w.-]+/[\w./-]+@[0-9a-f]{40}", ref), ref
+    assert "${{" not in "".join(re.findall(r"run: (.*)", text))  # values reach the script through env

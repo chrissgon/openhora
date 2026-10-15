@@ -107,7 +107,7 @@ def test_a_digest_without_valid_provenance_is_rejected_and_nothing_is_written(tm
     assert not (tmp_path / "lock.json").exists()
 
 
-def test_the_provenance_command_is_the_one_the_plan_names(monkeypatch):
+def test_the_provenance_command_names_the_exact_workflow_identity_and_the_main_branch(monkeypatch):
     seen = []
 
     class Result:
@@ -117,8 +117,9 @@ def test_the_provenance_command_is_the_one_the_plan_names(monkeypatch):
     assert image_lock.verify_attestation(REPO, AMD, SOURCE) is None
     argv, kw = seen[0]
     assert argv == ["gh", "attestation", "verify", f"oci://{REPO}@{AMD}", "--repo", SOURCE,
-                    "--signer-workflow", f"{SOURCE}/.github/workflows/eval-image.yml", "--source-ref", "refs/heads/main",
-                    "--deny-self-hosted-runners"]
+                    "--cert-identity", f"https://github.com/{SOURCE}/.github/workflows/eval-image.yml@refs/heads/main",
+                    "--source-ref", "refs/heads/main", "--deny-self-hosted-runners"]
+    assert "--signer-workflow" not in argv  # the exact identity, not a prefix
     assert kw["timeout"] > 0
 
 
@@ -192,7 +193,8 @@ def test_check_reads_the_lock_without_writing_and_without_the_network(tmp_path, 
     go(tmp_path, [])
     before = lock.read_bytes()
     out = io.StringIO()
-    code = image_lock.run(["--check", "--lock", str(lock)], verify=never, expected_definition=DEF, out=out, err=err)
+    code = image_lock.run(["--check", "--source-repo", SOURCE, "--lock", str(lock)], verify=never, expected_definition=DEF,
+                          out=out, err=err)
     assert code == 0 and "published: linux/amd64, linux/arm64" in out.getvalue() and never.calls == []
     assert lock.read_bytes() == before
 
@@ -241,8 +243,13 @@ def test_published_names_the_manifest_of_the_platform_and_a_bad_lock_names_nothi
     assert image_lock.published(lock, DEF, "linux/amd64") is None
     assert image_lock.published(lock, OTHER_DEF, "linux/arm64") is None
     assert image_lock.published({"repository": None, "images": {}}, DEF, "linux/arm64") is None
-    assert image_lock.published({"junk": 1}, DEF, "linux/arm64") is None
     assert image_lock.published_digests(lock) == [ARM] and image_lock.published_digests({"junk": 1}) == []
+
+
+@pytest.mark.parametrize("lock", [{"junk": 1}, {"repository": None, "images": {DEF: {}}}, [], {"repository": "docker.io/x/y", "images": {}}])
+def test_a_lock_that_is_not_well_formed_is_refused_and_never_read_as_empty(lock):
+    with pytest.raises(image_lock.Refused):
+        image_lock.published(lock, DEF, "linux/arm64")
 
 
 def test_the_image_is_accepted_by_its_repo_digest_whatever_its_own_id_is():
@@ -254,7 +261,8 @@ def test_the_image_is_accepted_by_its_repo_digest_whatever_its_own_id_is():
             assert "{{.Id}}" not in " ".join(args)  # the id is never asked for
             return 0, json.dumps([f"{REPO}@{ARM}"]) + "\n"
         assert image_lock.present(wanted, inspect)
-    assert image_lock.present(wanted, lambda a: (0, json.dumps([f"{REPO}@{INDEX}"])))  # the index digest, too
+    # only the exact <repository>@<manifest digest> counts, as the executor requires: not the index's
+    assert not image_lock.present(wanted, lambda a: (0, json.dumps([f"{REPO}@{INDEX}"])))
     assert not image_lock.present(wanted, lambda a: (0, json.dumps([f"{REPO}@sha256:{'8' * 64}"])))
     assert not image_lock.present(wanted, lambda a: (0, json.dumps([f"other/name@{ARM}"])))
     assert not image_lock.present(wanted, lambda a: (1, ""))
@@ -278,3 +286,85 @@ def test_print_definition_hash_is_the_executors(capsys):
     out = io.StringIO()
     assert image_lock.run(["--print-definition-hash"], out=out) == 0
     assert out.getvalue().strip() == image_lock.definition_hash() and len(image_lock.definition_hash()) == 64
+
+
+def test_check_refuses_a_repository_whose_owner_is_not_the_source_repositorys_even_offline(tmp_path):
+    go(tmp_path, [])
+    lock = str(tmp_path / "lock.json")
+    never = Verifier()
+    out, err = io.StringIO(), io.StringIO()
+    code = image_lock.run(["--check", "--source-repo", "someone-else/example-repo", "--lock", lock], verify=never,
+                          expected_definition=DEF, out=out, err=err)
+    assert code == 1 and "not owned by the source repository's owner" in err.getvalue() and never.calls == []
+    # the owner is compared in lower case; the right owner passes
+    assert image_lock.run(["--check", "--source-repo", "Example-Owner/example-repo", "--lock", lock], verify=never,
+                          expected_definition=DEF, out=out, err=err) == 0
+    # without any source repository to compare with, a lock that names a repository is a usage error
+    assert image_lock.run(["--check", "--source-repo", "nope", "--lock", lock], verify=never, expected_definition=DEF,
+                          out=out, err=err) == 2
+
+
+class Puller:
+    def __init__(self, code=0):
+        self.calls, self.code = 0, code
+
+    def __call__(self):
+        self.calls += 1
+        return self.code
+
+
+def pull(tmp_path, *, verify=None, puller=None, definition=DEF, platform="linux/arm64", extra=()):
+    out, err = io.StringIO(), io.StringIO()
+    puller = puller or Puller()
+    code = image_lock.run(["pull", "--source-repo", SOURCE, "--lock", str(tmp_path / "lock.json"), *extra],
+                          verify=verify or Verifier(), expected_definition=definition, platform=platform, pull=puller,
+                          out=out, err=err)
+    return code, out.getvalue(), err.getvalue(), puller
+
+
+def test_pull_verifies_the_index_and_the_platform_manifest_and_then_pulls(tmp_path):
+    go(tmp_path, [])
+    verify = Verifier()
+    code, out, err, puller = pull(tmp_path, verify=verify)
+    assert code == 0 and puller.calls == 1 and err == "" and f"{REPO}@{ARM}" in out
+    assert [c[1] for c in verify.calls] == [INDEX, ARM]  # not the other platform's manifest
+    code, _, _, puller = pull(tmp_path, platform="linux/amd64", puller=Puller(), verify=Verifier())
+    assert code == 0 and puller.calls == 1
+
+
+@pytest.mark.parametrize("missing", [INDEX, ARM])
+def test_pull_pulls_nothing_when_the_provenance_does_not_verify(tmp_path, missing):
+    go(tmp_path, [])
+    code, _, err, puller = pull(tmp_path, verify=Verifier(missing=[missing]))
+    assert code == 1 and missing in err and "nothing was pulled" in err and puller.calls == 0
+
+
+def test_pull_returns_the_executors_exit_code(tmp_path):
+    go(tmp_path, [])
+    assert pull(tmp_path, puller=Puller(code=1))[0] == 1
+
+
+def test_pull_refuses_a_definition_the_lock_does_not_name_and_a_lock_that_is_not_well_formed(tmp_path):
+    go(tmp_path, [])
+    code, _, err, puller = pull(tmp_path, definition=OTHER_DEF)
+    assert code == 1 and "no published image" in err and "python3 evals/executor.py ensure" in err and puller.calls == 0
+    (tmp_path / "lock.json").write_text(json.dumps({"repository": REPO, "images": {"short": {}}}))
+    code, _, err, puller = pull(tmp_path)
+    assert code == 1 and "not well formed" in err and puller.calls == 0
+    (tmp_path / "lock.json").write_text("{")
+    code, _, err, puller = pull(tmp_path)
+    assert code == 1 and "cannot be read" in err and puller.calls == 0
+
+
+def test_pull_refuses_another_owners_repository_before_asking_for_provenance(tmp_path):
+    go(tmp_path, [])
+    out, err, verify, puller = io.StringIO(), io.StringIO(), Verifier(), Puller()
+    code = image_lock.run(["pull", "--source-repo", "someone-else/example-repo", "--lock", str(tmp_path / "lock.json")],
+                          verify=verify, expected_definition=DEF, platform="linux/arm64", pull=puller, out=out, err=err)
+    assert code == 1 and "not owned" in err.getvalue() and verify.calls == [] and puller.calls == 0
+
+
+def test_pull_takes_no_other_mode(tmp_path):
+    for extra in (["--check"], ["--replace"], ["--verify-provenance"]):
+        code, _, err, puller = pull(tmp_path, extra=extra)
+        assert code == 2 and puller.calls == 0

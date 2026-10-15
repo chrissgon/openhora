@@ -10,6 +10,7 @@ script is the only thing that writes it, and it writes it only for what it has v
 Usage:
   python3 scripts/image_lock.py --from-json <artifact.json> [--source-repo <owner/name>] [--replace] [--lock <file>]
   python3 scripts/image_lock.py --check [--verify-provenance] [--source-repo <owner/name>] [--lock <file>]
+  python3 scripts/image_lock.py pull [--source-repo <owner/name>] [--lock <file>]
   python3 scripts/image_lock.py --print-definition-hash
 
 The artifact: {"repository": "ghcr.io/<owner>/<name>", "definition_sha256": "<64 hex>", "index_digest": "sha256:<64 hex>",
@@ -21,22 +22,29 @@ The artifact: {"repository": "ghcr.io/<owner>/<name>", "definition_sha256": "<64
   2. its definition_sha256 equals the hash of this checkout's evals/container/ (evals/executor.py definition_hash):
      an image built from another definition is not the image of this checkout;
   3. the provenance of the index and of each platform manifest verifies, as the workflow of this repository on
-     main made it (gh attestation verify oci://<repository>@<digest> --repo <owner/name> --signer-workflow
-     <owner/name>/.github/workflows/eval-image.yml --source-ref refs/heads/main --deny-self-hosted-runners);
+     main made it (gh attestation verify oci://<repository>@<digest> --repo <owner/name> --cert-identity
+     https://github.com/<owner/name>/.github/workflows/eval-image.yml@refs/heads/main --source-ref refs/heads/main
+     --deny-self-hosted-runners; the identity is the exact one, not a prefix);
   4. the registry agrees with the artifact: the index lists the two manifests for their platforms, and each
      manifest names the config digest the artifact gives (docker buildx imagetools inspect --raw).
 A failure of any of them writes nothing and exits 1. The lock file is written sorted, with a stable layout. An
 entry for a definition that is already in the lock is left as it is when it is equal, and refused when it differs
 unless --replace is given (evidence measured in the old digest would no longer match it).
 
---check reads the lock without writing: it checks its shape and says whether the current definition has an
-entry. It makes no network call unless --verify-provenance is given, which verifies the provenance of every digest
-the lock holds.
+--check reads the lock without writing: it checks its shape, refuses a repository whose owner is not the source
+repository's owner (offline too; the source repository is --source-repo or the origin remote), and says whether the
+current definition has an entry. It makes no network call unless --verify-provenance is given, which verifies the
+provenance of every digest the lock holds. CI runs it with --verify-provenance on every change of the lock
+(.github/workflows/image-lock.yml).
+
+pull is the setup step for a published image (decision D39): it verifies the provenance of the lock's entry for this
+definition and this platform (the index and the platform manifest), then runs `python3 evals/executor.py pull`, which
+pulls <repository>@<manifest digest> and checks the repo digest. Nothing is pulled when the provenance does not verify.
 
 --print-definition-hash prints the hash of this checkout's evals/container/ (the workflow records it).
 
-Needs the GitHub CLI (gh) for the provenance and docker with buildx for the manifests, only with --from-json and
---verify-provenance. Standard library only. The calls have timeouts and no credential is read or printed: gh and
+Needs the GitHub CLI (gh) for the provenance (--from-json, pull, --verify-provenance) and docker with buildx for the
+manifests (--from-json). Standard library only. The calls have timeouts and no credential is read or printed: gh and
 docker use the maintainer's own login.
 
 Exit codes: 0 ok, 1 refused or failed, 2 usage error.
@@ -68,12 +76,21 @@ class Refused(Exception):
     pass
 
 
-def definition_hash() -> str:
-    """The hash of this checkout's evals/container/, by the executor's own function (a read-only use of it)."""
+def _executor():
     spec = importlib.util.spec_from_file_location("workbench_image_lock_executor", EXECUTOR_PATH)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.definition_hash()
+    return module
+
+
+def definition_hash() -> str:
+    """The hash of this checkout's evals/container/, by the executor's own function (a read-only use of it)."""
+    return _executor().definition_hash()
+
+
+def image_platform() -> str:
+    """The platform the executor builds, runs and pulls for on this machine (a read-only use of it)."""
+    return _executor().image_platform()
 
 
 # --- reading the lock (also used by runtime/lab.py and scripts/doctor.py) ---------------------------------------------
@@ -138,11 +155,12 @@ def entry_problems(entry) -> list:
 
 
 def published(lock, definition_sha: str, platform: str):
-    """What the lock names for this definition and platform, or None: {"repository", "ref", "manifest_digest",
-    "config_digest", "index_digest"}. ref is <repository>@<manifest_digest>. A lock that is not well formed names
-    nothing."""
-    if lock_problems(lock):
-        return None
+    """What the lock names for this definition and platform, or None when it names none: {"repository", "ref",
+    "manifest_digest", "config_digest", "index_digest"}. ref is <repository>@<manifest_digest>. A lock that is not well
+    formed raises Refused: it is never read as an empty one."""
+    problems = lock_problems(lock)
+    if problems:
+        raise Refused("the lock is not well formed: " + "; ".join(problems))
     entry = lock["images"].get(definition_sha)
     found = (entry or {}).get("platforms", {}).get(platform)
     if not found:
@@ -174,13 +192,10 @@ def repo_digests(inspect, ref: str):
 
 def present(wanted: dict, inspect) -> bool:
     """Whether the published image `wanted` (from published()) is on this machine: the image the reference names has
-    the repo digest the lock records, the manifest's or the index's. The image's own id is never read: it differs
-    between the two image stores of Docker, the repo digest does not."""
-    found = repo_digests(inspect, wanted["ref"])
-    if not found:
-        return False
-    ours = {f"{wanted['repository']}@{wanted['manifest_digest']}", f"{wanted['repository']}@{wanted['index_digest']}"}
-    return bool(ours & set(found))
+    exactly the repo digest <repository>@<manifest digest> the lock records, which is what the executor requires too
+    (never the index's). The image's own id is never read: it differs between the two image stores of Docker, the repo
+    digest does not."""
+    return wanted["ref"] in (repo_digests(inspect, wanted["ref"]) or [])
 
 
 # --- verifying what the workflow recorded ------------------------------------------------------------------------------
@@ -199,7 +214,8 @@ def source_repo_default() -> str:
 def verify_attestation(repository: str, digest: str, source_repo: str):
     """None when the provenance of repository@digest verifies, else why not. The one function a test replaces."""
     argv = ["gh", "attestation", "verify", f"oci://{repository}@{digest}", "--repo", source_repo,
-            "--signer-workflow", f"{source_repo}/{WORKFLOW}", "--source-ref", SOURCE_REF, "--deny-self-hosted-runners"]
+            "--cert-identity", f"https://github.com/{source_repo}/{WORKFLOW}@{SOURCE_REF}", "--source-ref", SOURCE_REF,
+            "--deny-self-hosted-runners"]
     try:
         r = subprocess.run(argv, capture_output=True, text=True, timeout=TIMEOUT)
     except (OSError, subprocess.TimeoutExpired) as e:
@@ -307,11 +323,39 @@ def write_lock(path: str, lock: dict) -> None:
 
 # --- the commands --------------------------------------------------------------------------------------------------
 
-def run(argv, *, verify=None, fetch=None, expected_definition=None, out=None, err=None) -> int:
+def owner_problem(lock: dict, source_repo: str):
+    """Why the lock's repository is not this source repository's to publish to, or None: the owner of
+    ghcr.io/<owner>/<name> must be the owner of the source repository (compared in lower case). A lock with no
+    repository yet has nothing to compare."""
+    repository = lock.get("repository")
+    if repository is None:
+        return None
+    owner = repository.split("/")[1]
+    if owner != source_repo.split("/")[0].lower():
+        return f"the lock's repository {repository} is not owned by the source repository's owner {source_repo.split('/')[0]}"
+    return None
+
+
+def pull_image() -> int:
+    """`python3 evals/executor.py pull` (the executor pulls <repository>@<manifest digest> and checks its repo digest);
+    its exit code. The function a test replaces for the pull."""
+    try:
+        return subprocess.run([sys.executable, EXECUTOR_PATH, "pull"], timeout=3600).returncode
+    except (OSError, subprocess.TimeoutExpired) as e:
+        print(f"Error: the pull did not run: {e}", file=sys.stderr)
+        return 1
+
+
+def run(argv, *, verify=None, fetch=None, expected_definition=None, platform=None, pull=None, out=None, err=None) -> int:
     """The script, with what a test replaces as arguments: verify(repository, digest, source_repo) -> None or why,
-    fetch(repository, digest) -> dict, expected_definition (the hash of this checkout's definition)."""
+    fetch(repository, digest) -> dict, expected_definition (the hash of this checkout's definition), platform (the
+    one the executor pulls for) and pull() -> exit code."""
     out, err = out or sys.stdout, err or sys.stderr
-    verify, fetch = verify or verify_attestation, fetch or fetch_manifest
+    verify, fetch, pull = verify or verify_attestation, fetch or fetch_manifest, pull or pull_image
+    argv = list(argv)
+    pulling = bool(argv) and argv[0] == "pull"
+    if pulling:
+        argv = argv[1:]
     parser = argparse.ArgumentParser(prog="image_lock.py", description=__doc__.strip().split("\n\n")[0],
                                      add_help=False, exit_on_error=False)
     parser.add_argument("--help", "-h", action="store_true")
@@ -330,24 +374,41 @@ def run(argv, *, verify=None, fetch=None, expected_definition=None, out=None, er
     if args.help:
         print(__doc__.strip(), file=out)
         return 0
-    modes = [bool(args.from_json), args.check, args.print_definition_hash]
-    if sum(modes) != 1:
-        print("Error: give exactly one of --from-json, --check, --print-definition-hash. See --help.", file=err)
+    modes = [bool(args.from_json), args.check, args.print_definition_hash, pulling]
+    if sum(modes) != 1 or (pulling and (args.verify_provenance or args.replace)):
+        print("Error: give exactly one of --from-json, --check, pull, --print-definition-hash. See --help.", file=err)
         return 2
     try:
         current = expected_definition or definition_hash()
         if args.print_definition_hash:
             print(current, file=out)
             return 0
+        lock = read_lock(args.lock)
+        problems = lock_problems(lock) if (args.check or pulling) else []
+        if problems:
+            raise Refused("the lock is not well formed: " + "; ".join(problems))
         source = args.source_repo or source_repo_default()
-        if (args.from_json or args.verify_provenance) and not SOURCE.fullmatch(source):
+        needs_source = args.from_json or args.verify_provenance or pulling or (args.check and lock.get("repository"))
+        if needs_source and not SOURCE.fullmatch(source):
             print("Error: the source repository is unknown: give --source-repo <owner/name>.", file=err)
             return 2
-        lock = read_lock(args.lock)
+        if args.check or pulling:
+            why = owner_problem(lock, source) if needs_source else None
+            if why:
+                raise Refused(why)
+        if pulling:
+            wanted = published(lock, current, platform or image_platform())
+            if wanted is None:
+                raise Refused(f"the lock names no published image for the definition {current[:12]} and this platform: "
+                              "nothing to pull; the image of this definition is built locally with "
+                              "`python3 evals/executor.py ensure`")
+            for digest in (wanted["index_digest"], wanted["manifest_digest"]):
+                why = verify(wanted["repository"], digest, source)
+                if why:
+                    raise Refused(f"{wanted['repository']}@{digest}: {why}; nothing was pulled")
+            print(f"provenance verified for {wanted['ref']}; pulling it", file=out)
+            return pull()
         if args.check:
-            problems = lock_problems(lock)
-            if problems:
-                raise Refused("the lock is not well formed: " + "; ".join(problems))
             if args.verify_provenance:
                 for sha, entry in sorted(lock["images"].items()):
                     digests = [entry["index_digest"]] + [p["manifest_digest"] for _, p in sorted(entry["platforms"].items())]

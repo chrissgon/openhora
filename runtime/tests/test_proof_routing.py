@@ -158,9 +158,9 @@ def test_no_operation_of_ops_has_the_name_of_a_module_it_imports():
 # --- the published image (P2d): identity is the repo digest, and local evidence is local-only (D21) --------------------
 
 def test_a_published_image_that_is_not_pulled_names_the_command(facade, cfg):
-    facade["digest"], facade["source"], facade["setup"] = None, "published", "python3 evals/executor.py pull"
+    facade["digest"], facade["source"], facade["setup"] = None, "published", "python3 scripts/image_lock.py pull"
     found = proof.checks(proof.row(cfg, "demo"))
-    assert found["image"] == "the published eval image is not on this machine: run python3 evals/executor.py pull"
+    assert found["image"] == "the published eval image is not on this machine: run python3 scripts/image_lock.py pull"
 
 
 def test_the_image_holds_when_the_published_digest_here_is_the_one_the_evidence_recorded(facade, cfg):

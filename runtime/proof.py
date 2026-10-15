@@ -118,7 +118,9 @@ def checks(entry: dict) -> dict:
     seen = lab.image()
     digest, wanted = seen["digest"], entry.get("evidence_images") or []
     if digest is None:
-        if seen.get("source") == "published":
+        if seen.get("problem"):
+            image = f"the eval image cannot be looked up: {seen['problem']}"
+        elif seen.get("source") == "published":
             image = f"the published eval image is not on this machine: run {seen.get('setup') or 'the setup step'}"
         else:
             image = "the eval image is not on this machine"

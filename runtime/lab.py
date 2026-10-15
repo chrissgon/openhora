@@ -235,10 +235,25 @@ def lock_path() -> str:
     return os.path.join(LAB.ROOT, "evals", "image-lock.json")
 
 
+class DockerDown(Exception):
+    """The docker client or its daemon cannot be reached: an image cannot be asked about, which is not the same as an
+    image that is not there."""
+
+
+DAEMON_DOWN = "the docker daemon cannot be reached: start Docker, then try again"
+
+
+def _asked(found):
+    """The result of a docker call; DockerDown when it failed because the daemon is not running."""
+    if found.returncode != 0 and "daemon" in (getattr(found, "stderr", "") or "").lower():
+        raise DockerDown(DAEMON_DOWN)
+    return found
+
+
 def _inspector(executor):
     """image_lock's `inspect` over the executor's docker: docker image inspect <args>, as (returncode, stdout)."""
     def inspect(args):
-        found = executor.docker("image", "inspect", *args, check=False)
+        found = _asked(executor.docker("image", "inspect", *args, check=False))
         return found.returncode, found.stdout
     return inspect
 
@@ -265,13 +280,15 @@ def published_digests() -> list:
         return []
 
 
-PULL = "python3 evals/executor.py pull"    # the setup step for an image the lock file names (D39)
+PULL = "python3 scripts/image_lock.py pull"  # the setup step for an image the lock file names (D39): it verifies the
+#                                                  provenance, then runs python3 evals/executor.py pull
+LOCK_FILE = "evals/image-lock.json"
 BUILD = "python3 evals/executor.py ensure"  # and for a definition the lock file does not name
 
 
 def image() -> dict:
-    """{"name", "digest", "platform", "evidence_platform", "source", "setup"} of the eval image on this machine. digest is
-    None when the lab does not run in a container, or when the image is not on this machine. platform is the CPU platform
+    """{"name", "digest", "platform", "evidence_platform", "source", "setup", "problem"} of the eval image on this
+    machine. digest is None when the lab does not run in a container, or when the image is not on this machine. platform is the CPU platform
     the image runs as here; evidence_platform is the one lab evidence is made on (the executor's IMAGE_PLATFORM, which
     every evidence line carries as image_platform): the two differ on a machine of another architecture, and the proof
     holds for the second.
@@ -282,26 +299,39 @@ def image() -> dict:
     is never the image's own id, which differs between the two image stores of Docker); until it is pulled, digest is
     None. "local": the lock names nothing for this definition; name is the local build's, and digest its id, which
     holds on the machine that built it only. None when the lab does not run in a container. setup is the command that
-    puts the image on this machine (PULL or BUILD), None when it is here. It only inspects, the way ensure() of
+    puts the image on this machine (PULL or BUILD), None when it is here. problem is None, or why the image cannot be
+    looked at at all (the lock file is not well formed, the docker daemon cannot be reached), which is not an image
+    that is missing: setup then says what to fix. It only inspects, the way ensure() of
     evals/executor.py reads the image; it never calls ensure() and never builds or pulls."""
-    nothing = {"name": None, "digest": None, "platform": None, "evidence_platform": None, "source": None, "setup": None}
+    nothing = {"name": None, "digest": None, "platform": None, "evidence_platform": None, "source": None, "setup": None,
+               "problem": None}
     if LAB.EXECUTOR != "container":
         return nothing
+    name = wanted = platform = evidence = None
     try:
         executor = LAB.load_executor()
         platform, evidence = executor.image_platform(), executor.IMAGE_PLATFORM
-        wanted = _published(executor)
+        try:
+            wanted = _published(executor)
+        except _image_lock().Refused as e:  # a lock that is not well formed is never read as an empty one
+            return {**nothing, "name": LOCK_FILE, "platform": platform, "evidence_platform": evidence, "source": "lock",
+                    "setup": f"fix {LOCK_FILE}", "problem": f"lock unreadable: {e}"}
         if wanted:
+            name = wanted["ref"]
             there = _image_lock().present(wanted, _inspector(executor))
-            return {"name": wanted["ref"], "digest": wanted["manifest_digest"] if there else None, "platform": platform,
-                    "evidence_platform": evidence, "source": "published", "setup": None if there else PULL}
+            return {"name": name, "digest": wanted["manifest_digest"] if there else None, "platform": platform,
+                    "evidence_platform": evidence, "source": "published", "setup": None if there else PULL,
+                    "problem": None}
         name = executor.names()["image"]
-        found = executor.docker("image", "inspect", "--format", "{{.Id}}", name, check=False)
-    except Exception:  # no docker client, no daemon, a lock that cannot be read: the image cannot be seen, so it is not there
+        found = _asked(executor.docker("image", "inspect", "--format", "{{.Id}}", name, check=False))
+    except DockerDown as e:
+        return {**nothing, "name": name, "platform": platform, "evidence_platform": evidence,
+                "source": "published" if wanted else "local", "setup": DAEMON_DOWN, "problem": str(e)}
+    except Exception:  # no docker client, a lock that cannot be read: the image cannot be seen, so it is not there
         return nothing
     digest = found.stdout.strip() if found.returncode == 0 else ""
     return {"name": name, "digest": digest or None, "platform": platform, "evidence_platform": evidence, "source": "local",
-            "setup": None if digest else BUILD}
+            "setup": None if digest else BUILD, "problem": None}
 
 
 def _cases(skill_dir: str):
@@ -530,7 +560,7 @@ def _container() -> dict:
             if not _image_lock().present(wanted, _inspector(executor)):
                 raise LabError("container", f"the published eval image {wanted['ref']} is not on this machine, and the "
                                             f"runtime never builds it or pulls it: run {PULL}")
-        elif executor.docker("image", "inspect", executor.names()["image"], check=False).returncode != 0:
+        elif _asked(executor.docker("image", "inspect", executor.names()["image"], check=False)).returncode != 0:
             raise LabError("container", "the eval image of this checkout is not on this machine, and the runtime "
                                         "never builds it: no published image is recorded for its definition "
                                         "(evals/image-lock.json), so the maintainer loads the archived image "

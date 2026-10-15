@@ -1,0 +1,42 @@
+# Verifies the lock file of the published eval image whenever it changes: the shape, the owner of the repository, and the
+# build provenance of every digest it names (python3 scripts/image_lock.py --check --verify-provenance). A lock that
+# does not pass is not merged, so the setup step (python3 scripts/image_lock.py pull) and the executor can trust what
+# the file on main names. The job reads the repository and the public attestations and writes nothing: it has
+# `contents: read` only and the run's read-only token, which gh uses to ask GitHub for the attestations.
+# Actions are pinned to a commit (tags can move); Dependabot proposes updates.
+name: image-lock
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "evals/image-lock.json"
+      - "scripts/image_lock.py"
+      - ".github/workflows/image-lock.yml"
+  pull_request:
+    paths:
+      - "evals/image-lock.json"
+      - "scripts/image_lock.py"
+      - ".github/workflows/image-lock.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: image-lock-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  verify:
+    name: verify the lock
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The lock, its owner and the provenance of every digest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+        run: python3 scripts/image_lock.py --check --verify-provenance --source-repo "$SOURCE_REPOSITORY"

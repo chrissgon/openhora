@@ -28,11 +28,13 @@ It also reports the eval image (evals/image-lock.json, evals/executor.py), in on
 builds it:
   published and present     the lock file names a published image for this checkout's definition and this platform,
                             and it is on this machine with that repo digest
-  published, not pulled     the lock names one and it is not here: run `python3 evals/executor.py pull`
+  published, not pulled     the lock names one and it is not here: run `python3 scripts/image_lock.py pull`
+                            (it verifies the provenance, then pulls)
   no published image        the lock names none for this definition; an image built locally is here, so evidence
                             measured in it is local-only (it holds on this machine only)
   missing                   nothing is here (run `python3 evals/executor.py ensure`), docker cannot be reached,
-                            or the lock file cannot be read
+                            or the lock file is not well formed ("lock unreadable": a lock that cannot be read is
+                            never taken for an empty one)
 The image does not change the exit code. In --json it is the "image" key: {"state", "detail"}.
 
 It also lists every secret registered in providers/secrets/resolver.py or by an adapter (the
@@ -140,7 +142,7 @@ def _which(name):
 
 IMAGE_STATES = {
     "published-present": "published and present",
-    "published-not-pulled": "published, not pulled: run `python3 evals/executor.py pull`",
+    "published-not-pulled": "published, not pulled: run `python3 scripts/image_lock.py pull`",
     "local-only": "no published image for this definition: built locally, evidence is local-only",
     "missing": "missing",
 }
@@ -168,18 +170,23 @@ def image_state(inspect=docker_inspect, root=ROOT):
     try:
         executor = _load("workbench_doctor_executor", os.path.join(root, "evals", "executor.py"))
         lock_module = _load("workbench_doctor_image_lock", os.path.join(root, "scripts", "image_lock.py"))
+    except Exception as e:  # noqa: BLE001  (an executor that cannot be loaded is reported, not raised)
+        return {"state": "missing", "detail": f"the image cannot be looked up: {e}"}
+    try:
         definition, platform = executor.definition_hash(), executor.image_platform()
-        lock = lock_module.read_lock(os.path.join(root, "evals", "image-lock.json"))
-        wanted = lock_module.published(lock, definition, platform)
+        wanted = lock_module.published(lock_module.read_lock(os.path.join(root, "evals", "image-lock.json")),
+                                       definition, platform)
         if wanted:
             if lock_module.present(wanted, inspect):
                 return {"state": "published-present", "detail": wanted["ref"]}
             return {"state": "published-not-pulled", "detail": wanted["ref"]}
         local = executor.names()["image"]
         code, _ = inspect(["--format", "{{.Id}}", local])
+    except lock_module.Refused as e:
+        return {"state": "missing", "detail": f"lock unreadable: {e}"}
     except DockerUnavailable as e:
         return {"state": "missing", "detail": str(e)}
-    except Exception as e:  # noqa: BLE001  (a lock or an executor that cannot be read is reported, not raised)
+    except Exception as e:  # noqa: BLE001
         return {"state": "missing", "detail": f"the image cannot be looked up: {e}"}
     if code == 0:
         return {"state": "local-only", "detail": f"{local}; no entry for the definition {definition[:12]} in evals/image-lock.json"}

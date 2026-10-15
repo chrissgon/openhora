@@ -18,6 +18,7 @@ on:
     branches: [main]
     paths:
       - "evals/container/**"
+      - ".github/workflows/eval-image.yml"
   workflow_dispatch:
 
 permissions:
@@ -129,9 +130,11 @@ jobs:
           for d in "$amd" "$arm"; do
             [[ "$d" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "not a digest: $d" >&2; exit 1; }
           done
-          # The tag is a convenience for people; everything else refers to the image by digest.
-          docker buildx imagetools create --tag "${repository}:def-${definition:0:12}" "${repository}@${amd}" "${repository}@${arm}"
-          index="$(docker buildx imagetools inspect "${repository}:def-${definition:0:12}" --format '{{json .Manifest}}' | jq -r .digest)"
+          # The index's digest is the one this command produced, read from its own metadata, never resolved from the tag
+          # afterwards (a tag can move). The tag is a convenience for people; everything else refers to the image by digest.
+          docker buildx imagetools create --metadata-file index-metadata.json \
+            --tag "${repository}:def-${definition:0:12}" "${repository}@${amd}" "${repository}@${arm}"
+          index="$(jq -r '."containerimage.digest"' index-metadata.json)"
           config_amd="$(docker buildx imagetools inspect --raw "${repository}@${amd}" | jq -r .config.digest)"
           config_arm="$(docker buildx imagetools inspect --raw "${repository}@${arm}" | jq -r .config.digest)"
           for d in "$index" "$config_amd" "$config_arm"; do

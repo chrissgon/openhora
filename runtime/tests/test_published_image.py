@@ -26,8 +26,8 @@ OTHER_ID = "sha256:" + "b" * 64
 
 
 class Done:
-    def __init__(self, code, out=""):
-        self.returncode, self.stdout, self.stderr = code, out, ""
+    def __init__(self, code, out="", stderr=""):
+        self.returncode, self.stdout, self.stderr = code, out, stderr
 
 
 class Machine:
@@ -35,8 +35,8 @@ class Machine:
 
     IMAGE_PLATFORM = "linux/arm64"
 
-    def __init__(self, *, repo_digests=None, local_id=None):
-        self.repo_digests, self.local_id, self.asked, self.built = repo_digests, local_id, [], []
+    def __init__(self, *, repo_digests=None, local_id=None, down=False):
+        self.repo_digests, self.local_id, self.down, self.asked, self.built = repo_digests, local_id, down, [], []
 
     def definition_hash(self):
         return DEF
@@ -49,6 +49,8 @@ class Machine:
 
     def docker(self, *args, check=True, **kwargs):
         self.asked.append(args)
+        if self.down:
+            return Done(1, stderr="Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?")
         if args[:2] != ("image", "inspect"):
             self.built.append(args)
             return Done(1)
@@ -97,9 +99,46 @@ def test_a_published_image_that_is_not_pulled_has_no_digest_and_names_the_pull_c
     machine["set_lock"]()
     machine["machine"] = Machine(repo_digests=None, local_id=LOCAL_ID)  # a local build of the same definition is here
     seen = lab.image()
-    assert seen["digest"] is None and seen["source"] == "published" and seen["setup"] == "python3 evals/executor.py pull"
+    assert seen["digest"] is None and seen["source"] == "published" and seen["setup"] == "python3 scripts/image_lock.py pull"
     machine["machine"] = Machine(repo_digests=[f"{REPO}@sha256:{'8' * 64}"])  # another image under the same name
     assert lab.image()["digest"] is None
+
+
+def test_only_the_exact_manifest_ref_counts_not_the_index_ref(machine):
+    machine["set_lock"]()
+    machine["machine"] = Machine(repo_digests=[f"{REPO}@{INDEX}"])
+    assert lab.image()["digest"] is None
+    machine["machine"] = Machine(repo_digests=[f"{REPO}@{INDEX}", f"{REPO}@{MANIFEST}"])
+    assert lab.image()["digest"] == MANIFEST
+
+
+def test_a_lock_that_is_not_well_formed_is_reported_as_such_never_as_an_empty_lock(machine, tmp_path):
+    machine["machine"] = Machine(local_id=LOCAL_ID)  # a local build is here, and must not stand in for the missing lock
+    for text in ("{", json.dumps({"repository": None, "images": {DEF: {}}}), json.dumps([])):
+        (tmp_path / "image-lock.json").write_text(text)
+        seen = lab.image()
+        assert seen["digest"] is None and seen["problem"].startswith("lock unreadable:") and seen["source"] == "lock"
+        assert proof.checks({"evidence_images": [LOCAL_ID]})["image"].startswith("the eval image cannot be looked up: lock unreadable")
+        with pytest.raises(lab.LabError) as e:
+            lab._container()
+        assert e.value.kind == "container" and "lock" in e.value.reason
+    assert machine["machine"].built == []
+
+
+def test_a_docker_daemon_that_is_down_is_reported_as_such_and_not_as_an_image_to_pull(machine):
+    machine["set_lock"]()
+    machine["machine"] = Machine(down=True)
+    seen = lab.image()
+    assert seen["digest"] is None and "daemon" in seen["problem"] and "start Docker" in seen["setup"]
+    assert "pull" not in seen["setup"] and seen["source"] == "published" and seen["name"] == f"{REPO}@{MANIFEST}"
+    reason = proof.checks({"evidence_images": [MANIFEST]})["image"]
+    assert reason.startswith("the eval image cannot be looked up:") and "daemon" in reason and "pull" not in reason
+    with pytest.raises(lab.LabError) as e:
+        lab._container()
+    assert "daemon" in e.value.reason and "pull" not in e.value.reason
+    machine["set_lock"](published=False)  # a local image: the same
+    seen = lab.image()
+    assert "daemon" in seen["problem"] and seen["source"] == "local" and "ensure" not in seen["setup"]
 
 
 def test_without_an_entry_in_the_lock_the_local_build_is_the_image(machine):
@@ -130,7 +169,7 @@ def test_a_machine_without_the_published_image_is_refused_with_the_pull_command_
     machine["machine"] = Machine(repo_digests=None)
     with pytest.raises(lab.LabError) as e:
         lab._container()
-    assert e.value.kind == "container" and "python3 evals/executor.py pull" in e.value.reason
+    assert e.value.kind == "container" and "python3 scripts/image_lock.py pull" in e.value.reason
     assert "never builds it" in e.value.reason and f"{REPO}@{MANIFEST}" in e.value.reason
     assert machine["machine"].built == []  # neither ensure() nor a pull
 
@@ -166,4 +205,4 @@ def test_the_proof_holds_when_the_repo_digest_here_is_the_published_one_in_the_e
     assert "locally built image holds on the machine that built it only" in reason
     # and the published image not yet pulled is asked for, by command
     machine["machine"] = Machine(repo_digests=None, local_id=LOCAL_ID)
-    assert proof.checks(entry)["image"] == "the published eval image is not on this machine: run python3 evals/executor.py pull"
+    assert proof.checks(entry)["image"] == "the published eval image is not on this machine: run python3 scripts/image_lock.py pull"
