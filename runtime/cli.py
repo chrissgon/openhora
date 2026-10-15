@@ -99,7 +99,10 @@ run-step  runs one named step task in this process (--task <id>), as run-task ru
           task. A step task runs no skill and calls no model: code runs its steps (runtime/steps.py), the kind of the task names
           them (today `ingest`, which brings a version of a source into the project), and the task is `done`, `failed` (resumable at
           its step) or `waiting` at a stop for you. It takes the task's lock, so a killed process is detected by it and the task ends
-          `failed`; stop-runs ends it. Same refusals and exit codes as run-task.
+          `failed`; stop-runs ends it. Same refusals and exit codes as run-task. The dispatcher starts only a kind that says it may run
+          unattended (`ingest` does) and only while the runtime is not stopped; your own start with run-step or run-next needs neither.
+          Nothing but tests creates a step task today: the flow files learn `step` with P6. A stop of a step task asks for the verdict
+          `continue` or `stop` (any other answer asks again).
 pending   lists what waits for you; with --id, prints that pending decision whole: the reply, what came back,
           what was kept in the run folder.
 answer    answers a pending decision; the task becomes ready and its next run is given your answer. With
@@ -209,7 +212,9 @@ execute-under-policy  the one place an effect under a standing approval is execu
           handler wrote against the approval's bounds, holding the write lock, makes the provider's dry run and its
           confirmed call, and records the action. {"executed": false, "why"} when the approval does not cover it:
           nothing ran. A handler never confirms a provider verb itself.
-set-mode  sets one area agent's autonomy mode in docs/workbench/runtime.json (area_agents): stopped (it starts
+set-mode  for the agent `runtime`, the owner of step tasks: stopped or autonomous, the brake of step tasks (the dispatcher starts none
+          while it is stopped; run-next and run-step still run one), kept in the store, nothing to accept. For an area agent:
+          sets its autonomy mode in docs/workbench/runtime.json (area_agents): stopped (it starts
           nothing), supervised (every delivery waits for you), milestones (the default: a milestone waits, the rest is
           released by the mode), autonomous (only what must reach you waits), autonomous-with-policy (as autonomous,
           and an effect inside a policy you approved runs without asking). A question, an unclassified reply, a

@@ -2163,12 +2163,12 @@ def hand_over(project: str, task_id: int, file: str) -> dict:
     ctx = core.context(project)
     with core._write_lock(ctx["cfg"]):
         task = core._stored(ctx, ctx["store"].task_get, task_id)
-        if task["parent_id"] is None or not task.get("skill"):
+        if task["parent_id"] is None or not (task.get("skill") or task.get("step_kind")):
             raise core.OpsError(f"{task_id} is a request: a file is handed to one of its tasks", 1)
         if task["state"] == "running":
             raise core.OpsError(f"task {task_id} is running: hand the file over when its run ends", 1)
-        try:
-            meta = skill_meta.declared(os.path.join(core.ROOT, "skills", task["skill"]))
+        try:   # a step task (the kind `ingest` reads its file from the drop) uses no web
+            meta = {"web": False} if task.get("step_kind") else skill_meta.declared(os.path.join(core.ROOT, "skills", task["skill"]))
         except skill_meta.SkillError as e:
             raise core.OpsError(str(e), 1) from None
         try:
@@ -2295,6 +2295,7 @@ def _snapshot(ctx: dict, keys) -> dict:
                 continue
             out["model"][task["id"]], out["billing"][task["id"]] = routing["model"], routing["billing"]
     out["waits"] = ops_waits.waiting_for(ctx)  # a ready task with an open wait starts nowhere (dispatcher.decide)
+    ops_steps.annotate(ctx, out)  # the brake of the step tasks, and which kinds the dispatcher may start (runtime/ops_steps.py)
     return out
 
 
@@ -2731,7 +2732,8 @@ from ops_say import ASK_NEXT, CONVERSATION, MEMORY_CHARS, MEMORY_CUT, MEMORY_HEA
 from ops_config import accept_config, give_consent, set_mode, set_model  # noqa: E402,F401
 # The sources of the project (runtime/ops_sources.py): the ingest operations.
 from ops_sources import source_add, source_describe, source_import, source_refresh, sources_catalog  # noqa: E402,F401
-from ops_steps import run_step  # noqa: E402,F401  (the step task's run, runtime/ops_steps.py)
+import ops_steps  # noqa: E402  (the step task's run and its brake; this file re-exports `run_step` below)
+from ops_steps import run_step  # noqa: E402,F401
 # The reads of the local interface (runtime/ops_reads.py): the operations, and the one constant a test reads.
 from ops_reads import agents, artifact, artifact_raw, artifacts, connections, conversation, costs, service_check, skills  # noqa: E402,F401
 from ops_reads import commands, stop_runs, version  # noqa: E402,F401

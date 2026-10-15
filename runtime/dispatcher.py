@@ -27,7 +27,8 @@ the code task of a request and the footprints (the files tasks write) are admit'
 is held with its word; (3) the ready tasks are walked oldest first: a task with an
 open wait (a derived dependency on another request's task, runtime/plan.py) is held and never starts, a task no enabled
 area agent owns is held (a step task is owned by the runtime, RUNTIME: it has no area agent, no mode, no daily cap and no
-credential, so it is held only by its slots and the files in use), a task a child could not start a moment ago (`refused`)
+credential, so it is held only by its slots and the files in use, by the person's brake `steps_stopped` of the snapshot (`stopped`) and
+by its kind: a step task whose kind is not `unattended` is held `start it by hand`), a task a child could not start a moment ago (`refused`)
 is held, a task whose agent may not start is held with the reason, and every task that may start is started, each one counted
 as a run of its agent's day (a step task is not) and as running before the next is asked; (4) nothing else, and no state is changed here: runtime/ops.py applies the decision. The store keeps a
 waiting task `planned` and gives it to no one, so a waiting task is not in `ready` in practice; rule (3) is the
@@ -82,11 +83,12 @@ RETRY_SOON = "could not start, tried again shortly"
 # pseudo-agent. It is no area agent: it is not in `agents`, and a task it owns is never held for lack of an agent (NO_AGENT) or for an
 # agent's stopped mode, daily caps or credential, because it calls no model. Only its slots (parallel.admit) and the files in use hold it.
 RUNTIME = "runtime"
+BY_HAND = "start it by hand"          # a step task of a kind that is not unattended: the dispatcher never starts it (run-next, run-step do)
 # The words a held ready task carries (contracts/runtime.md, "The local service"): the three of runtime/autonomy.py
 # (may_start), those of this file, those of a round's checks before a start (runtime/ops.py) and the service's.
 OTHER = "other"                      # any reason a rule function gives that is not in the list: free text never reaches a page
 REASONS = ("stopped", "cap: runs per day", "cap: usd per day", "credential", "secret store", "image", DISPATCH_OFF,
-           NO_AGENT, WAITING, OTHER, PROJECT_FULL, AGENT_FULL, CODE_IN_REQUEST, IN_USE, RETRY_SOON)
+           NO_AGENT, WAITING, OTHER, PROJECT_FULL, AGENT_FULL, CODE_IN_REQUEST, IN_USE, RETRY_SOON, BY_HAND)
 
 
 def decide(snapshot: dict, review_action, may_start, admit) -> dict:
@@ -125,6 +127,12 @@ def _decide_parallel(snapshot: dict, release: list, agents: dict, entries: dict,
         step = name == RUNTIME     # a step task: its owner is the runtime, which has no entry, no day and no billing
         if not step and (name is None or name not in agents):
             held.append({"task_id": tid, "why": NO_AGENT})
+            continue
+        if step and snapshot.get("steps_stopped"):    # the person stopped the runtime (set-mode --agent runtime --mode stopped)
+            held.append({"task_id": tid, "why": "stopped"})
+            continue
+        if step and not task.get("unattended"):       # a kind that does not say the dispatcher may start it: only the person's own start
+            held.append({"task_id": tid, "why": BY_HAND})
             continue
         if tid in refused or str(tid) in refused:
             held.append({"task_id": tid, "why": RETRY_SOON})

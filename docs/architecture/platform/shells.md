@@ -262,6 +262,7 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `a code task of the request runs` | `CODE_IN_REQUEST` |
 | `artifact in use` | `IN_USE` |
 | `could not start, tried again shortly` | `RETRY_SOON` |
+| `start it by hand` | `BY_HAND` |
 <!-- /generated -->
 
 ## Entry points
@@ -451,4 +452,5 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 - 2026-10-10: the conversation's commands are data (R4-C1, R-45): the operation `commands` (a row of the table with the channel `page`, in `runtime/ops_reads.py`) and the route `GET /projects/{p}/commands` answer `{"commands": [{"command", "arguments", "help"}]}`, the rows `/help` prints in its order (`operations.chat_command_rows`, built from `chat_commands`, the one source of the help); `/help`'s own help line reads `list the commands`; the `say-commands`, `operations` and `service-routes` blocks are regenerated.
 - 2026-10-13: the messaging bridge is a fifth shell and `messaging` a fifth channel (messaging.md).
 - 2026-10-14: the page follows the messaging bridge (MSG-14): five shells in the purpose and the diagram, the bridge's modules and the state-folder files in the artifacts, the bridge's call path, ceiling, child and policy in the abstractions, its dependencies and layer-map arrows, its rules and the service child's rules with their tests, the bridge's command and the service's `--messaging` and `--notice-every` flags, the `messaging` and `permissions` fields of `GET /projects` (and `--messaging` with several platforms, MSG-13), and two known limits.
+- 2026-10-15: the operation `run-step` (P5), and `set-mode` takes the agent `runtime` (the brake of step tasks); the held word `start it by hand`.
 - 2026-10-15: five rows and seven routes for the sources (P4): `source-add`, `source-import`, `source-refresh`, `source-describe` (the terminal and the page; the upload follows the existing file route) and `sources` (also the MCP mode and messaging, in the group `sources`).

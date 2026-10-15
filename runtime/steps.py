@@ -14,7 +14,8 @@ kind is a module of its own, `runtime/step_<kind>.py`, that registers itself, an
 the engine. The kinds registered today: `ingest` (runtime/step_ingest.py), which wraps `sources.import_version`. The kinds that
 write a file (P8) and the media pipeline of the short-video rebase register the same way.
 
-  Kind(name, order, executors, stops=(), decisions={}, footprint=..., check=..., cleanup={}, side_steps={}, errors=(), prepared=None)
+  Kind(name, order, executors, stops=(), decisions={}, footprint=..., check=..., cleanup={}, side_steps={}, errors=(), prepared=None,
+       rejected={}, unattended=False)
   register(kind) / kind_of(name) / load_builtin()   the registry; load_builtin imports every runtime/step_*.py
   plan_task(kind, args, key=, title=, text=, ...)   a plan's task for a step: the kind, its checked arguments (canonical, so the plan
                                                     hash covers them) and the footprint the kind derived. StepFailure when the kind is
@@ -24,6 +25,11 @@ write a file (P8) and the media pipeline of the short-video rebase register the 
   run(ctx, kind, state)                             run the steps from the first that is not done, until a stop, a failure or the end
   prepare_again(ctx, kind, state, step)             start over from a step: it and every later one become pending and the files they made
                                                     are removed by the kind's cleanup
+  write_file(ctx, path, data)                       the one way a kind writes a file in the project: inside its declared footprint only,
+                                                    never in or into the sources folder, through O_NOFOLLOW at every step
+
+Nothing creates a step task today but tests and the store's own functions: the flow files learn the key `step` with P6, and a plan
+that carries a step task is built by plan.from_flow from a flow that has one.
 
 Rules that hold here, each with a test (runtime/tests/test_steps_engine.py):
 
@@ -31,10 +37,14 @@ Rules that hold here, each with a test (runtime/tests/test_steps_engine.py):
     starts there, with the earlier results kept.
   - Every result is recorded as closed words and numbers (a code, a count, a hash, a name, an id). The text of a document, a page or a
     tool's output is never in the state, in a task's note or in a decision's body: a refusal is read for its closed code only.
-  - A stop opens one pending decision of kind `question` on the task and leaves it `waiting`. The person's answer makes the task ready
-    again; the next run finds the decision answered and goes on after the stop. A decision is found again by the step it is for (its
-    payload names the kind and the step), so an answer is found even when the process that opened the decision died before it
-    recorded the decision's id.
+  - A stop opens one pending decision of kind `question` on the task and leaves it `waiting`. The answer makes the task ready again, and
+    the next run goes on after the stop only if the answer is the verdict `continue`: the word `stop` ends the step `failed` (code
+    `rejected`, the kind's `rejected` hook first), and any other text is no verdict, so the person is asked again. A decision is bound to
+    the stop and to the cycle it was opened in (its payload names the kind, the step and the cycle, which prepare_again advances), so
+    an answer given before a step was prepared again never passes the stop of the new cycle, and a decision already handled passes
+    nothing a second time.
+  - The only stop is `review`. An `approval` of exact content is not a stop of this engine: it needs the effect gate (the content's
+    hash, the terminal and the page only), which P8 brings with the kinds that write.
   - The request of the task cancelled: the engine stops without a word of failure (Cancelled).
   - Nothing here runs a model, and nothing leaves the machine unless a kind's executor does it.
 
@@ -46,6 +56,7 @@ Standard library only. Runs on Python 3.9.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import importlib
 import os
 import re
@@ -55,7 +66,13 @@ from typing import Callable
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 OWNER = "runtime"                         # the agent of every step task (a copy of the store's STEP_OWNER; a test holds them equal)
-STOPS = ("review", "approval")            # the words a kind's stops may use: the person reviews what was made, or approves it
+STOPS = ("review",)                       # the words a kind's stops may use: the person reviews what was made. No `approval`: see the module text
+CONTINUE, STOP_WORD = "continue", "stop"  # the verdicts of a stop; any other answer is no verdict
+VERDICTS = (CONTINUE, STOP_WORD)
+PLACEHOLDER = re.compile(r"<[^<>/]*>")
+REL_PATH = re.compile(r"[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*")
+VERDICT_LINE = "Answer `continue` to go on, or `stop` to end this step. Any other answer is no verdict: you will be asked again."
+NOT_A_VERDICT = "Your last answer was neither `continue` nor `stop`, so nothing went on. "
 STATE_VERSION = 1
 KIND_NAME = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
 STEP_NAME = re.compile(r"[a-z][a-z0-9-]{0,30}")
@@ -96,6 +113,10 @@ class Kind:
                 (its failure is recorded `skipped`) and is not listed in the summary
     errors      exception classes of the kind's own modules whose `code` and `field` become a StepFailure
     prepared    function(ctx, state, index): called after a step is prepared again, with the index of the first step reset
+    rejected    {stop: function(ctx, state)}: what the kind does when the person answers `stop` at that stop (before the step fails with
+                the code `rejected`); a stop with no hook only fails
+    unattended  whether the dispatcher may start a task of this kind on its own (a routine, a round): False unless the kind says so; a
+                task of a kind that is not unattended starts only by the person's own start (run-next, run-step)
     """
 
     name: str
@@ -109,6 +130,8 @@ class Kind:
     side_steps: dict = dataclasses.field(default_factory=dict)
     errors: tuple = ()
     prepared: Callable = None
+    rejected: dict = dataclasses.field(default_factory=dict)
+    unattended: bool = False
 
     def steps(self) -> tuple:
         """The steps the summary lists: the order, without the side steps."""
@@ -124,8 +147,10 @@ class Context:
                                                 the request was cancelled
     save(state)                                 store the engine's state without moving the task; raises Cancelled likewise
     alive()                                     raises Cancelled when the request of the task was cancelled
-    decisions()                                 the task's pending decisions, [{"id", "status", "resolution", "payload"}]
+    decisions()                                 the task's pending decisions, [{"id", "status", "resolution", "answer", "payload"}]
     now()                                       the time as text (ISO 8601)
+    footprint                                   the paths the task may write, as its kind declared them (write_file reads it)
+    protected(path)                             whether a path may never be written (the sources folder): write_file refuses it
     services                                    {name: what a kind asks for}: the seams a test replaces
     """
 
@@ -138,6 +163,8 @@ class Context:
     alive: Callable
     decisions: Callable
     now: Callable
+    footprint: tuple = ()
+    protected: Callable = lambda path: False
     services: dict = dataclasses.field(default_factory=dict)
 
 
@@ -238,7 +265,7 @@ def add_task(store, conn, kind_name: str, args, *, key: str, title: str, text: s
 
 
 def new_state(kind: Kind) -> dict:
-    return {"version": STATE_VERSION, "kind": kind.name, "steps": {}, "failure": None, "decisions": {}}
+    return {"version": STATE_VERSION, "kind": kind.name, "steps": {}, "failure": None, "decisions": {}, "cycle": 0, "handled": {}}
 
 
 def state_of(kind: Kind, stored) -> dict:
@@ -300,31 +327,65 @@ def _execute(ctx: Context, kind: Kind, state: dict, name: str) -> dict:
         raise StepFailure("io_error", "") from None
     except (KeyError, TypeError, AttributeError, ValueError, IndexError, RecursionError):   # a result that has not the shape its step promises
         raise StepFailure("step_output_invalid", name[:40]) from None
+    except Exception:   # a bug of the kind: the failure is a closed record on the step, never its message
+        raise StepFailure("step_error", name[:40]) from None
     if not isinstance(outcome, dict):
         raise StepFailure("step_output_invalid", name[:40])
     return outcome
 
 
-def _decision_of(ctx: Context, kind: Kind, name: str):
-    """The newest pending decision of this task that is for this stop of this kind, or None. A decision names its step in its
-    payload, so it is found again whatever the state recorded."""
-    mine = [d for d in ctx.decisions() if (d.get("payload") or {}).get("step") == {"kind": kind.name, "step": name}]
+def verdict_of(answer):
+    """The verdict an answer is: `continue` or `stop` when the whole answer is that word (case and a closing full stop aside), else None.
+    Free text is never a verdict."""
+    text = (answer or "").strip().rstrip(".").strip().casefold()
+    return text if text in VERDICTS else None
+
+
+def _decision_of(ctx: Context, kind: Kind, state: dict, name: str):
+    """The newest pending decision of this task that is for this stop of this kind in the stop's current cycle and that no run has
+    handled yet, or None. A decision names its kind, step and cycle in its payload, so it is found again whatever the state recorded,
+    and a decision of an earlier cycle (before prepare_again) or one already handled is never found."""
+    want = {"kind": kind.name, "step": name}
+    cycle, handled = state.get("cycle", 0), (state.get("handled") or {}).get(name, 0)
+    mine = [d for d in ctx.decisions() if (d.get("payload") or {}).get("step") == want
+            and (d.get("payload") or {}).get("cycle", 0) == cycle and d["id"] > handled]
     return max(mine, key=lambda d: d["id"]) if mine else None
 
 
+def _guarded(name: str, build: Callable, *args):
+    """Call a kind's function for a step; whatever it raises but a StepFailure or Cancelled is a closed failure of the step."""
+    try:
+        return build(*args)
+    except (StepFailure, Cancelled):
+        raise
+    except Exception:
+        raise StepFailure("step_error", name[:40]) from None
+
+
 def _stop_at(ctx: Context, kind: Kind, state: dict, name: str):
-    """A stop. The person answered its decision: the step is done and None is returned, the run goes on. Otherwise the decision is
+    """A stop. The person answered its decision with `continue`: the step is done and None is returned, the run goes on. With `stop`:
+    the kind's hook, then the step fails (`rejected`). With any other text: no verdict, a new decision says so. Otherwise the decision is
     opened (the task becomes `waiting` with it, and any other open decision of the task is cancelled) and the stop is returned."""
-    found = _decision_of(ctx, kind, name)
+    found = _decision_of(ctx, kind, state, name)
+    lead = ""
     if found is not None and found.get("status") == "resolved" and found.get("resolution") == "answered":
-        state["steps"][name] = {"status": "done", "at": ctx.now(), "result": {}}
-        state["decisions"].pop(name, None)
-        state["failure"] = None
-        ctx.save(state)
-        return None
-    built = kind.decisions[name](ctx, state)
-    pending = {"kind": "question", "title": built["title"], "body": built["body"],
-               "payload": {**(built.get("payload") or {}), "step": {"kind": kind.name, "step": name}}}
+        state.setdefault("handled", {})[name] = found["id"]          # one decision passes or ends the stop once
+        verdict = verdict_of(found.get("answer"))
+        if verdict == CONTINUE:
+            state["steps"][name] = {"status": "done", "at": ctx.now(), "result": {}}
+            state["decisions"].pop(name, None)
+            state["failure"] = None
+            ctx.save(state)
+            return None
+        if verdict == STOP_WORD:
+            if name in kind.rejected:
+                _guarded(name, kind.rejected[name], ctx, state)
+            raise StepFailure("rejected", name[:40], "", "retry the task to be asked again, or prepare the step again")
+        lead = NOT_A_VERDICT
+    built = _guarded(name, kind.decisions[name], ctx, state)
+    pending = {"kind": "question", "title": built["title"], "body": lead + built["body"] + "\n\n" + VERDICT_LINE,
+               "payload": {**(built.get("payload") or {}), "step": {"kind": kind.name, "step": name},
+                           "cycle": state.get("cycle", 0), "verdicts": list(VERDICTS)}}
     state["steps"][name] = {"status": "waiting", "at": ctx.now(), "result": {}}
     state["failure"] = None
     moved = ctx.move("waiting", None, pending, None, state)
@@ -406,11 +467,76 @@ def prepare_again(ctx: Context, kind: Kind, state: dict, step: str) -> dict:
             kind.cleanup[name](ctx, state)
         state["steps"].pop(name, None)
         state["decisions"].pop(name, None)
+    state["cycle"] = state.get("cycle", 0) + 1       # a decision of the cycle before never passes a stop of this one
     if kind.prepared is not None:
         kind.prepared(ctx, state, start)
     state["failure"] = None
     ctx.save(state)
     return {"reset": reset}
+
+
+def _segment(pattern: str):
+    return re.compile("[^/]+".join(re.escape(p) for p in PLACEHOLDER.split(pattern)))
+
+
+def in_footprint(footprint, rel: str) -> bool:
+    """Whether the relative path is one a task may write: it matches a declared path of its footprint, a placeholder standing for one
+    path segment, or lies under a declared folder (a path ending in "/")."""
+    parts = rel.split("/")
+    for declared in footprint:
+        folder = declared.endswith("/")
+        want = declared.rstrip("/").split("/")
+        if (len(parts) > len(want) if folder else len(parts) == len(want)) and \
+                all(_segment(w).fullmatch(have) for w, have in zip(want, parts)):
+            return True
+    return False
+
+
+def write_file(ctx: Context, rel: str, data: bytes) -> dict:
+    """Write one file in the project: the one way a kind writes. The path is relative and plain (letters, digits, dots, hyphens and
+    underscores in segments), must lie inside the footprint the kind declared for the task, and may not be, or lie inside, what the
+    context protects (the sources folder, limits L23 and L26). Every folder on the way is opened with O_NOFOLLOW (a link anywhere is
+    refused) and the file is made under a temporary name and renamed over its place, so a reader never sees half a file. Returns
+    {"path", "bytes", "sha256"}. StepFailure: bad_path, outside_footprint, protected_path, path_unsafe, io_error."""
+    import hashlib
+    if not isinstance(rel, str) or not REL_PATH.fullmatch(rel) or any(p in (".", "..") for p in rel.split("/")) \
+            or not isinstance(data, (bytes, bytearray)):
+        raise StepFailure("bad_path", "path")
+    if not in_footprint(ctx.footprint, rel):
+        raise StepFailure("outside_footprint", "path")
+    root = os.path.realpath(ctx.project)
+    parts = rel.split("/")
+    if ctx.protected(os.path.join(root, *parts)):
+        raise StepFailure("protected_path", "path")
+    opened = []
+    try:
+        fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+        opened.append(fd)
+        for part in parts[:-1]:
+            try:
+                os.mkdir(part, 0o755, dir_fd=fd)
+            except FileExistsError:
+                pass
+            fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            opened.append(fd)
+        temporary = f".tmp-{os.getpid()}-{os.urandom(4).hex()}"
+        out = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644, dir_fd=fd)
+        try:
+            with os.fdopen(out, "wb") as f:
+                f.write(bytes(data))
+            os.replace(temporary, parts[-1], src_dir_fd=fd, dst_dir_fd=fd)
+        except BaseException:
+            try:
+                os.unlink(temporary, dir_fd=fd)
+            except OSError:
+                pass
+            raise
+    except OSError as e:
+        raise StepFailure("path_unsafe" if e.errno in (40, 20, 62) else "io_error", "path") from None
+    finally:
+        for descriptor in opened:
+            os.close(descriptor)
+    return {"path": rel, "bytes": len(data), "sha256": hashlib.sha256(bytes(data)).hexdigest()}
 
 
 def main(argv=None) -> int:

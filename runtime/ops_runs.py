@@ -611,9 +611,11 @@ def dispatch(project: str, budget_seconds=None, wait: bool = True) -> dict:
             ready = [t for t in rows if t["state"] == "ready" and t["parent_id"] is not None]
             # a step task is the runtime's own (no agent, no model): it needs no area agent, so it is neither held for the lack of one
             # nor left unstarted by it
-            ops._record_held(ctx, [{"task_id": t["id"], "agent": t.get("agent"), "reason": dispatcher.NO_AGENT}
-                                   for t in ready if not t.get("step_kind")], [])
-            if not any(t.get("step_kind") for t in ready):
+            steps_module = importlib.import_module("ops_steps")
+            ops._record_held(ctx, [{"task_id": t["id"], "agent": t.get("agent"),
+                                    "reason": steps_module.held_reason(ctx, t) if t.get("step_kind") else dispatcher.NO_AGENT}
+                                   for t in ready if not t.get("step_kind") or steps_module.held_reason(ctx, t)], [])
+            if not any(t.get("step_kind") and steps_module.may_dispatch(ctx, t) for t in ready):
                 return {"stopped": "no area agent is configured"}
         out = {"handlers": ops._ticks(ctx, project), "released": [], "started": [], "ran": [], "held": [], "stopped": None}
         if wait:

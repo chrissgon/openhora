@@ -159,17 +159,16 @@ def test_stop_runs_all_ends_a_running_step_and_the_task_is_failed_with_the_note_
     assert real["ctx"]["store"].task_retry(real["ctx"]["conn"], real["task"])["state"] == "ready"
 
 
-def test_the_dispatcher_starts_ready_step_tasks_as_real_run_step_processes_and_each_ends_its_task(real):
+def test_the_dispatcher_starts_ready_step_tasks_of_an_unattended_kind_as_real_run_step_processes_and_leaves_the_others_to_the_person(real):
     ctx = real["ctx"]
     made = ctx["store"].step_task_add(ctx["conn"], key="ingest-late", title="Ingest", text="Ingest.", step="ingest",
-                                      args={"source": "late", "file": str(real["tmp"] / "never.csv")})
+                                      args={"source": "late", "file": "never.csv", "sha256": "0" * 64})
     out = ops.dispatch(real["path"])                           # waits for its children; no area agent is configured
-    assert sorted(s["task_id"] for s in out["started"]) == sorted([real["task"], made["task"]])
+    assert [s["task_id"] for s in out["started"]] == [made["task"]]            # `ingest` is unattended; a kind this checkout lacks is not
     ingest = ctx["store"].task_get(ctx["conn"], made["task"])
-    assert ingest["state"] == "failed" and ingest["note"].startswith("ingest: usage source")
-    assert ingest["step_state"]["failure"]["code"] == "usage" and ingest["step_state"]["failure"]["step"] == "ingest"
-    unknown = row(real)        # the child is a fresh process of this checkout: the kind the driver registered is not in it
-    assert unknown["state"] == "failed" and unknown["note"] == "start: unknown_kind step"
+    assert ingest["state"] == "failed" and ingest["note"].startswith("ingest: file_missing file")
+    assert ingest["step_state"]["failure"]["code"] == "file_missing" and ingest["step_state"]["failure"]["step"] == "ingest"
+    assert row(real)["state"] == "ready" and {h["task_id"]: h["why"] for h in out["held"]} == {real["task"]: "start it by hand"}
     assert [t for _w, t, p in ops_runs.SPAWNED if p.poll() is None] == []
 
 
@@ -179,10 +178,12 @@ def test_run_step_on_the_terminal_prints_the_engines_result_and_exits_like_run_t
     refused = subprocess.run(cli + ["run-step", "--project", real["path"], "--task", "9999"], capture_output=True, text=True, timeout=120)
     assert refused.returncode == 4 and json.loads(refused.stdout)["ran"] is None
     made = ctx["store"].step_task_add(ctx["conn"], key="ingest-late", title="Ingest", text="Ingest.", step="ingest",
-                                      args={"source": "late", "file": str(real["tmp"] / "never.csv")}, request_id=real["request"])
+                                      args={"source": "late", "file": "never.csv", "sha256": "0" * 64}, request_id=real["request"])
     done = subprocess.run(cli + ["run-step", "--project", real["path"], "--task", str(made["task"])], capture_output=True, text=True, timeout=120)
     out = json.loads(done.stdout)
-    assert done.returncode == 0 and out["ran"] == made["task"] and out["ok"] is False and out["code"] == "usage" and out["task_state"] == "failed"
+    assert done.returncode == 0 and out["ran"] == made["task"] and out["ok"] is False and out["code"] == "file_missing" and out["task_state"] == "failed"
+    start = subprocess.run(cli + ["run-step", "--project", real["path"], "--task", str(real["task"])], capture_output=True, text=True, timeout=120)
+    assert start.returncode == 0 and json.loads(start.stdout)["code"] == "unknown_kind"            # the person's own start runs what the dispatcher would not
     held = ctx["store"].step_task_add(ctx["conn"], key="held", title="Held", text="Held.", step="ingest", args={"source": "late"},
                                       request_id=real["request"], depends_on=["ingest-late"])
     waiting = subprocess.run(cli + ["run-step", "--project", real["path"], "--task", str(held["task"])], capture_output=True, text=True, timeout=120)

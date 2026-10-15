@@ -8,6 +8,7 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_step_tasks.py
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -83,11 +84,19 @@ def csv_file(world, name="survey.csv", text=CSV) -> str:
     return str(path)
 
 
-def add_step(world, source="survey", file=None, key="ingest-survey", request_id=None, depends_on=None, **args):
+def add_step(world, source="survey", file=None, key="ingest-survey", request_id=None, depends_on=None, hand=True, **args):
+    """An ingest step task. `file` is a path: the task names its basename and the hash of its bytes, and (with `hand`, and when the file
+    exists) the file is handed over into the task's drop, where the kind reads it."""
     ctx = ctx_of(world)
-    body = {"source": source, **({"file": file} if file else {}), **args}
-    return steps.add_task(ctx["store"], ctx["conn"], "ingest", body, key=key, title="Ingest the survey", text="Bring the survey in.",
+    body = {"source": source, **args}
+    if file:
+        exists = os.path.isfile(file)
+        body.update(file=os.path.basename(file), sha256=hashlib.sha256(Path(file).read_bytes()).hexdigest() if exists else "0" * 64)
+    made = steps.add_task(ctx["store"], ctx["conn"], "ingest", body, key=key, title="Ingest the survey", text="Bring the survey in.",
                           request_id=request_id, depends_on=depends_on)
+    if file and hand and os.path.isfile(file):
+        ops.hand_over(world["path"], made["task"], file)
+    return made
 
 
 def task(world, task_id):
@@ -116,8 +125,9 @@ def test_ingest_runs_on_the_engine_and_brings_a_version_of_the_source_into_the_s
 
 def test_ingest_writes_nothing_in_the_project_and_nothing_a_step_leaves_goes_into_the_sources_folder_but_the_version(world):
     project, sources_dir = Path(world["path"]), Path(ctx_of(world)["cfg"]["sources_dir"])
+    made = add_step(world, file=csv_file(world))                       # the hand-over puts the file in the task's drop
     before = sorted(str(p.relative_to(project)) for p in project.rglob("*") if p.is_file())
-    made = add_step(world, file=csv_file(world))
+    assert ".workbench-local/drop/%d/survey.csv" % made["task"] in before
     ops.run_step(world["path"], made["task"])
     after = sorted(str(p.relative_to(project)) for p in project.rglob("*") if p.is_file())
     assert after == before
@@ -139,19 +149,49 @@ def test_a_second_ingest_of_the_same_bytes_makes_no_new_version_and_a_changed_fi
     assert task(world, third["task"])["step_state"]["steps"]["ingest"]["result"]["version"] == 2
 
 
-def test_an_ingest_that_cannot_read_its_file_fails_the_task_with_a_closed_code_and_a_retry_resumes_it(world):
-    missing = str(world["files"] / "late.csv")
-    made = add_step(world, file=missing, source="late")
+def test_an_ingest_whose_file_was_not_handed_over_fails_with_a_closed_code_and_a_retry_resumes_it(world):
+    path = csv_file(world, "late.csv")
+    made = add_step(world, file=path, source="late", hand=False)
     out = ops.run_step(world["path"], made["task"])
-    assert out["ok"] is False and out["failed"] == "ingest" and out["code"] == "usage" and out["task_state"] == "failed"
+    assert out["ok"] is False and out["failed"] == "ingest" and out["code"] == "file_missing" and out["task_state"] == "failed"
     row = task(world, made["task"])
-    assert row["state"] == "failed" and row["note"].startswith("ingest: usage source -- run the same import with source-import")
-    assert missing not in row["note"] and row["step_state"]["failure"]["code"] == "usage" and row["step_state"]["steps"]["ingest"]["status"] == "failed"
-    csv_file(world, "late.csv")
+    assert row["state"] == "failed" and row["note"].startswith("ingest: file_missing file -- hand the file over: hand-over --task")
+    assert path not in row["note"] and row["step_state"]["failure"]["code"] == "file_missing"
+    assert row["step_state"]["steps"]["ingest"]["status"] == "failed"
+    ops.hand_over(world["path"], made["task"], path)                              # the person hands the file over, then retries
     ctx = ctx_of(world)
     assert ctx["store"].task_retry(ctx["conn"], made["task"])["state"] == "ready"
     out = ops.run_step(world["path"], made["task"])
     assert out["ok"] is True and task(world, made["task"])["state"] == "done"
+
+
+def test_an_ingest_reads_only_the_file_of_its_own_drop_and_only_when_its_bytes_are_the_ones_the_plan_approved(world):
+    ctx = ctx_of(world)
+    approved = csv_file(world, "survey.csv")
+    made = add_step(world, file=approved, hand=False)
+    other = world["files"] / "elsewhere"
+    other.mkdir()
+    (other / "survey.csv").write_text("name,price\nplum,9.99\n", encoding="utf-8")      # the same name, other bytes
+    ops.hand_over(world["path"], made["task"], str(other / "survey.csv"))
+    out = ops.run_step(world["path"], made["task"])
+    assert out["ok"] is False and out["code"] == "file_changed" and task(world, made["task"])["state"] == "failed"
+    assert "approved" in task(world, made["task"])["note"]
+    assert ctx["store"].source_latest(ctx["conn"], "survey") is None                 # no other bytes were imported
+    # a path of the person's machine is no argument at all, and the file is not read from where it lies
+    for args in ({"source": "survey", "file": "/data/survey.csv", "sha256": "a" * 64}, {"source": "survey", "file": "../survey.csv", "sha256": "a" * 64}):
+        with pytest.raises(steps.StepFailure) as refused:
+            steps.plan_task("ingest", args, key="x", title="X", text="X.")
+        assert refused.value.code == "bad_args"
+
+
+def test_the_drop_of_a_step_task_takes_a_file_and_a_link_in_it_is_not_read(world):
+    path = csv_file(world, "survey.csv")
+    made = add_step(world, file=path, hand=False)
+    drop_dir = Path(world["path"]) / ".workbench-local" / "drop" / str(made["task"])
+    drop_dir.mkdir(parents=True)
+    (drop_dir / "survey.csv").symlink_to(path)                                         # a link to the right bytes is still a link
+    out = ops.run_step(world["path"], made["task"])
+    assert out["ok"] is False and out["code"] == "file_missing"
 
 
 def test_a_notion_source_is_refreshed_and_a_file_source_is_checked_with_no_file_in_the_arguments(world):
@@ -162,8 +202,10 @@ def test_a_notion_source_is_refreshed_and_a_file_source_is_checked_with_no_file_
     assert out["ok"] is True and task(world, refresh["task"])["step_state"]["steps"]["ingest"]["result"]["unchanged"] is True
 
 
-@pytest.mark.parametrize("args", [{"source": "Bad Id"}, {"source": "survey", "file": "relative.csv"}, {"source": "survey", "file": "/a.csv", "url": "x"},
-                                  {"source": "survey", "other": 1}, {"file": "/a.csv"}, {"source": "survey", "url": " "}])
+@pytest.mark.parametrize("args", [{"source": "Bad Id"}, {"source": "survey", "file": "relative.csv"}, {"source": "survey", "file": "a.csv", "url": "x"},
+                                  {"source": "survey", "file": "a.csv", "sha256": "z" * 64}, {"source": "survey", "sha256": "a" * 64},
+                                  {"source": "survey", "file": "a.csv", "url": "x", "sha256": "a" * 64},
+                                  {"source": "survey", "other": 1}, {"file": "a.csv", "sha256": "a" * 64}, {"source": "survey", "url": " "}])
 def test_the_arguments_of_an_ingest_are_checked_when_the_task_is_made(world, args):
     ctx = ctx_of(world)
     with pytest.raises(steps.StepFailure) as refused:
@@ -187,11 +229,23 @@ def test_a_bug_in_a_kind_fails_the_task_with_a_note_and_the_next_run_goes_on(wor
         raise RuntimeError("an invented bug with /private/path and a secret")
     monkeypatch.setitem(steps.REGISTRY, "ingest", steps.Kind(name="ingest", order=("ingest",), executors={"ingest": boom}))
     out = ops.run_step(world["path"], made["task"])
-    assert out["ok"] is False and out["code"] == "internal" and out["task_state"] == "failed"
+    assert out["ok"] is False and out["failed"] == "ingest" and out["code"] == "step_error" and out["task_state"] == "failed"
     row = task(world, made["task"])
-    assert row["state"] == "failed" and row["note"].startswith("internal error (RuntimeError)") and "secret" not in row["note"]
+    assert row["state"] == "failed" and row["note"] == "ingest: step_error ingest" and "secret" not in repr(row)
+    assert row["step_state"]["steps"]["ingest"]["status"] == "failed" and row["step_state"]["failure"]["code"] == "step_error"
     ctx = ctx_of(world)
     assert ctx["store"].task_retry(ctx["conn"], made["task"])["state"] == "ready"
+
+
+def test_a_bug_of_the_engine_itself_still_ends_the_task_failed_with_a_note(world, monkeypatch):
+    made = add_step(world, file=csv_file(world))
+
+    def boom(ctx, kind, state):
+        raise RuntimeError("an invented bug of the engine with a secret")
+    monkeypatch.setattr(steps, "run", boom)
+    out = ops.run_step(world["path"], made["task"])
+    assert out["ok"] is False and out["code"] == "internal" and out["task_state"] == "failed"
+    assert task(world, made["task"])["note"].startswith("internal error (RuntimeError)") and "secret" not in task(world, made["task"])["note"]
 
 
 def test_run_step_refuses_a_skill_task_and_a_task_that_is_not_ready_and_run_task_hands_a_step_task_over(world):
@@ -222,7 +276,7 @@ def test_run_task_and_run_next_hand_a_step_task_to_run_step(world):
 REQUEST = {"id": 7, "title": "Study", "text": "Study the survey."}
 LIMITS = {"timeout_seconds": 1800, "retries": 2}
 FLOW = {"flow": "ingest-then-market", "title": "Ingest, then the market", "tasks": [
-    {"key": "ingest", "step": "ingest", "args": {"source": "survey", "file": "/data/survey.csv"}, "title": "Ingest", "text": "Bring it in.",
+    {"key": "ingest", "step": "ingest", "args": {"source": "survey", "file": "survey.csv", "sha256": "a" * 64}, "title": "Ingest", "text": "Bring it in.",
      "depends_on": [], "milestone": False},
     {"key": "market", "skill": "biz-market-analysis", "title": "Market", "text": "Do the market analysis.", "depends_on": ["ingest"],
      "milestone": False}]}
@@ -241,7 +295,7 @@ def test_a_plan_with_a_step_task_passes_combine_and_the_step_belongs_to_the_runt
     assert out["unrouted"] == [] and out["plan"] is not None
     step, skill = by_key["ingest"], by_key["market"]
     assert step["agent"] == "runtime" and step["step"] == "ingest" and step["footprint"] == [] and step["web"] is False
-    assert step["args"] == {"source": "survey", "file": "/data/survey.csv"} and "skill" not in step
+    assert step["args"] == {"source": "survey", "file": "survey.csv", "sha256": "a" * 64} and "skill" not in step
     assert skill["agent"] == "business" and skill["depends_on"] == ["ingest"]
     body = out["plan"]["body"]
     assert "step ingest" in body and "Steps (run by code, no model):" in body and '"source": "survey"' in body
@@ -256,7 +310,7 @@ def test_a_plan_with_a_step_task_passes_combine_in_a_project_with_no_area_agents
 
 def test_the_arguments_of_a_step_change_the_plan_hash_and_the_footprint_is_covered_by_it():
     one = combined()["plan"]["payload"]["plan_sha256"]
-    other = dict(FLOW, tasks=[dict(FLOW["tasks"][0], args={"source": "survey", "file": "/data/other.csv"}), FLOW["tasks"][1]])
+    other = dict(FLOW, tasks=[dict(FLOW["tasks"][0], args={"source": "survey", "file": "survey.csv", "sha256": "b" * 64}), FLOW["tasks"][1]])
     two = combined(other)["plan"]["payload"]["plan_sha256"]
     assert one != two and one == combined()["plan"]["payload"]["plan_sha256"]
     tasks = combined()["tasks"]
@@ -265,7 +319,7 @@ def test_the_arguments_of_a_step_change_the_plan_hash_and_the_footprint_is_cover
 
 
 def test_a_step_of_a_flow_with_bad_arguments_or_an_unknown_kind_refuses_the_plan():
-    for bad in ({"source": "Bad Id"}, {"source": "survey", "file": "relative"}):
+    for bad in ({"source": "Bad Id"}, {"source": "survey", "file": "relative"}, {"source": "survey", "file": "a.csv"}):
         flow = dict(FLOW, tasks=[dict(FLOW["tasks"][0], args=bad), FLOW["tasks"][1]])
         with pytest.raises(plan.PlanError, match="the step ingest of the flow"):
             plan.from_flow(flow, str(st.REPO), ["biz-market-analysis"])
@@ -278,7 +332,7 @@ def test_an_approved_plan_creates_the_step_task_with_its_kind_arguments_footprin
     agents(world)
     ctx = ctx_of(world)
     request = ops.request(world["path"], "Study the survey.", title="Study")["request"]
-    shown = combined(dict(FLOW, tasks=[dict(FLOW["tasks"][0], args={"source": "survey", "file": csv_file(world)}),
+    shown = combined(dict(FLOW, tasks=[dict(FLOW["tasks"][0], args={"source": "survey", "file": "survey.csv", "sha256": hashlib.sha256(CSV.encode()).hexdigest()}),
                                        dict(FLOW["tasks"][1], skill="demo-asks")]),
                      agent_skills={"business": ["demo-asks"]}, pack=("demo-asks",), root=str(world["tree"]))
     # the plan a router or a flow produced, opened as the decision the person approves
@@ -292,6 +346,8 @@ def test_an_approved_plan_creates_the_step_task_with_its_kind_arguments_footprin
     assert done["ready"] == [step["id"]] or step["id"] in done["ready"]
     assert step["state"] == "ready" and step["agent"] == "runtime" and step["skill"] is None and step["step_kind"] == "ingest"
     assert step["step_args"]["source"] == "survey" and by_key["market"]["state"] == "planned" and by_key["market"]["depends_on"] == [step["id"]]
+    csv_file(world)
+    ops.hand_over(world["path"], step["id"], str(world["files"] / "survey.csv"))      # the file of the plan, in the step's own drop
     out = ops.run_step(world["path"], step["id"])
     assert out["task_state"] == "done" and task(world, by_key["market"]["id"])["state"] == "ready"
 
@@ -299,9 +355,9 @@ def test_an_approved_plan_creates_the_step_task_with_its_kind_arguments_footprin
 # --- the owner: the runtime's pseudo-agent ---------------------------------------------------------------------------------------
 
 
-def snapshot(*ready):
+def snapshot(*ready, steps_stopped=False):
     return {"running": [], "holding": [], "ready": list(ready), "reviews": [], "agents": {}, "model": {}, "billing": {}, "waits": {},
-            "max_running": 10, "per_run_usd": 0.0}
+            "max_running": 10, "per_run_usd": 0.0, "steps_stopped": steps_stopped}
 
 
 def decide(snap, may_start=None):
@@ -311,7 +367,7 @@ def decide(snap, may_start=None):
 
 
 def step_row(i, **extra):
-    return {"id": i, "agent": "runtime", "parent_id": 1, "step_kind": "ingest", "skill": None, "code": False, "footprint": (), **extra}
+    return {"id": i, "agent": "runtime", "parent_id": 1, "step_kind": "ingest", "skill": None, "code": False, "footprint": (), "unattended": True, **extra}
 
 
 def test_a_step_task_is_never_held_for_lack_of_an_agent_and_asks_no_area_agent_rule():
@@ -339,6 +395,19 @@ def test_a_step_task_counts_no_run_of_an_agents_day_and_uses_no_credential():
     out = dispatcher.decide(snap, lambda *a: "hold", lambda name, entries, facts, spent, billing: (True, ""), parallel.admit)
     assert out["start"] == [5, 6]
     assert snap["agents"]["business"]["spent"] == {"runs_counted": 0}     # decide counts on its own copy
+
+
+def test_the_brake_holds_every_step_task_with_stopped_and_a_kind_that_is_not_unattended_is_held_by_hand():
+    stopped = decide(snapshot(step_row(5), step_row(6), steps_stopped=True))
+    assert stopped["start"] == [] and stopped["held"] == [{"task_id": 5, "why": "stopped"}, {"task_id": 6, "why": "stopped"}]
+    by_hand = decide(snapshot(step_row(5, unattended=False), step_row(6)))
+    assert by_hand["start"] == [6] and by_hand["held"] == [{"task_id": 5, "why": dispatcher.BY_HAND}]
+    assert dispatcher.BY_HAND == "start it by hand" and dispatcher.BY_HAND in dispatcher.REASONS
+    held = dispatcher.held_of(snapshot(step_row(5, unattended=False)), {"held": [{"task_id": 5, "why": dispatcher.BY_HAND}]})
+    assert held == [{"task_id": 5, "agent": "runtime", "reason": "start it by hand"}]
+    # a task with no flag at all (a snapshot an older caller made) is not unattended: the dispatcher never guesses
+    bare = {k: v for k, v in step_row(7).items() if k != "unattended"}
+    assert decide(snapshot(bare))["held"] == [{"task_id": 7, "why": dispatcher.BY_HAND}]
 
 
 def test_the_runtime_name_cannot_be_an_area_agent_and_every_copy_of_the_owner_and_its_cap_is_the_same():
@@ -393,6 +462,123 @@ def test_a_dispatch_starts_a_step_task_with_run_step_beside_a_skill_task_with_ru
     assert calls == [(made["task"], "run-step")] and [s["task_id"] for s in out["started"]] == [made["task"]]
     assert out["stopped"] == "the eval image is missing"
     assert task(world, skill)["state"] == "ready"
+
+
+def spawn_recorder(monkeypatch, calls):
+    """ops_runs.spawn replaced by a recorder: a child that has ended and ran nothing."""
+    class Child:
+        pid, returncode = 0, 0
+
+        def poll(self):
+            return 0
+
+    def spawn(cfg, project, task_id, verb="run-task"):
+        calls.append((task_id, verb))
+        child = Child()
+        with ops_runs.SPAWNED_LOCK:
+            ops_runs.SPAWNED.append((project, task_id, child))
+        return child
+    monkeypatch.setattr(ops_runs, "spawn", spawn)
+    monkeypatch.setattr(ops, "_image_stop", lambda: None)
+    monkeypatch.setattr(ops, "_credential_stop", lambda model=None: None)
+
+
+def test_the_runtime_stopped_the_dispatcher_starts_no_step_task_with_agents_or_without_and_the_persons_own_start_still_runs_one(world, monkeypatch):
+    calls = []
+    spawn_recorder(monkeypatch, calls)
+    made = add_step(world, file=csv_file(world))
+    stopped = ops.set_mode(world["path"], "runtime", "stopped", channel="terminal")
+    assert stopped == {"agent": "runtime", "mode": "stopped", "unchanged": False}
+    out = ops.dispatch(world["path"], wait=False)                                  # no area agent configured
+    assert calls == [] and out.get("started", []) == [] and task(world, made["task"])["state"] == "ready"
+    assert {h["task_id"]: h["reason"] for h in ops.status(world["path"])["held"]} == {made["task"]: "stopped"}
+    agents(world)
+    out = ops.dispatch(world["path"], wait=False)                                  # with agents the brake is the same
+    assert calls == [] and out["started"] == [] and {h["task_id"]: h["why"] for h in out["held"]} == {made["task"]: "stopped"}
+    assert ops.run_next(world["path"])["ran"] == made["task"]                      # the person's own start is not stopped
+    assert task(world, made["task"])["state"] == "done"
+    assert ops.set_mode(world["path"], "runtime", "stopped", channel="terminal")["unchanged"] is True
+
+
+def test_with_every_area_agent_stopped_a_step_task_still_starts_until_the_runtime_itself_is_stopped(world, monkeypatch):
+    calls = []
+    spawn_recorder(monkeypatch, calls)
+    path = world["project"] / "docs" / "workbench" / "runtime.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["area_agents"] = {"business": {"pack": "biz", "mode": "stopped"}}
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    ops.accept_config(world["path"], ops.project_config.load(world["path"])["sha256"])
+    made = add_step(world, file=csv_file(world))
+    ops.dispatch(world["path"], wait=False)
+    assert calls == [(made["task"], "run-step")]          # an area agent's mode is not the runtime's: it has its own brake
+    ctx = ctx_of(world)
+    ctx["store"].step_task_move(ctx["conn"], made["task"], state="failed", note="ended")
+    ctx["store"].task_retry(ctx["conn"], made["task"])
+    ops.set_mode(world["path"], "runtime", "stopped", channel="terminal")
+    calls.clear()
+    assert ops.dispatch(world["path"], wait=False)["started"] == [] and calls == []
+    assert ops.set_mode(world["path"], "runtime", "autonomous", channel="terminal")["unchanged"] is False
+    ctx["store"].cursor_set(ctx["conn"], ops_runs.REFUSED_CURSOR, "{}")           # the child that ran nothing was recorded as refused
+    ops.dispatch(world["path"], wait=False)
+    assert calls == [(made["task"], "run-step")]
+
+
+def test_the_brake_of_the_runtime_is_the_terminals_and_the_pages_a_stop_never_withheld_and_a_resume_by_the_pages_policy(world):
+    with pytest.raises(ops.OpsError, match="one of stopped, autonomous"):
+        ops.set_mode(world["path"], "runtime", "milestones", channel="terminal")
+    path = world["project"] / "docs" / "workbench" / "runtime.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["channels"] = {"page": ["read"]}
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    ops.accept_config(world["path"], ops.project_config.load(world["path"])["sha256"])
+    assert ops.set_mode(world["path"], "runtime", "stopped", channel="page")["mode"] == "stopped"      # a stop is never withheld
+    with pytest.raises(ops.OpsError) as refused:
+        ops.set_mode(world["path"], "runtime", "autonomous", channel="page")                          # a resume needs the group set-mode
+    assert refused.value.code == 1
+    assert ops.set_mode(world["path"], "runtime", "autonomous", channel="terminal")["mode"] == "autonomous"
+    raw["channels"] = {"page": ["read", "set-mode"]}
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    ops.accept_config(world["path"], ops.project_config.load(world["path"])["sha256"])
+    ops.set_mode(world["path"], "runtime", "stopped", channel="page")
+    assert ops.set_mode(world["path"], "runtime", "autonomous", channel="page")["mode"] == "autonomous"
+
+
+def test_a_kind_that_is_not_unattended_is_never_started_by_the_dispatcher_but_run_next_and_run_step_run_it(world, monkeypatch):
+    calls = []
+    spawn_recorder(monkeypatch, calls)
+    by_hand = steps.Kind(name="by-hand", order=("one",), executors={"one": lambda c, s: {"made": 1}})
+    monkeypatch.setitem(steps.REGISTRY, "by-hand", by_hand)
+    ctx = ctx_of(world)
+    made = ctx["store"].step_task_add(ctx["conn"], key="manual", title="Manual", text="By hand.", step="by-hand")
+    assert steps.kind_of("ingest").unattended is True and by_hand.unattended is False
+    out = ops.dispatch(world["path"], wait=False)
+    assert calls == [] and out.get("started", []) == []
+    assert {h["task_id"]: h["reason"] for h in ops.status(world["path"])["held"]} == {made["task"]: "start it by hand"}
+    agents(world)
+    out = ops.dispatch(world["path"], wait=False)
+    assert calls == [] and {h["task_id"]: h["why"] for h in out["held"]} == {made["task"]: "start it by hand"}
+    assert ops.run_next(world["path"])["ran"] == made["task"] and task(world, made["task"])["state"] == "done"
+    unknown = ctx["store"].step_task_add(ctx["conn"], key="gone", title="Gone", text="Gone.", step="vanished-kind")
+    assert ops.dispatch(world["path"], wait=False).get("started", []) == [] and task(world, unknown["task"])["state"] == "ready"
+
+
+def test_the_stop_of_a_step_task_takes_only_a_verdict_through_the_answer_and_the_run_goes_on_or_stops(world, monkeypatch):
+    stopping = steps.Kind(name="reviewed", order=("make", "review", "finish"), stops=("review",), unattended=True,
+                          executors={"make": lambda c, s: {"made": 1}, "finish": lambda c, s: {"finished": 1}},
+                          decisions={"review": lambda c, s: {"title": "Look at it", "body": "It is made."}})
+    monkeypatch.setitem(steps.REGISTRY, "reviewed", stopping)
+    ctx = ctx_of(world)
+    made = ctx["store"].step_task_add(ctx["conn"], key="r", title="R", text="Reviewed.", step="reviewed")["task"]
+    out = ops.run_step(world["path"], made)
+    pending = ctx["store"].pending_list(ctx["conn"])[0]
+    assert out["stopped"] == "review" and pending["kind"] == "question" and pending["payload"]["verdicts"] == ["continue", "stop"]
+    ops.answer(world["path"], pending["id"], "No, do not go on")                       # free text: the task is ready, and asks again
+    out = ops.run_step(world["path"], made)
+    again = ctx["store"].pending_list(ctx["conn"])[0]
+    assert out["stopped"] == "review" and again["id"] != pending["id"] and task(world, made)["state"] == "waiting"
+    ops.answer(world["path"], again["id"], "continue")
+    out = ops.run_step(world["path"], made)
+    assert out["done"] is True and task(world, made)["state"] == "done"
 
 
 # --- admission against the files other tasks write ---------------------------------------------------------------------------------
