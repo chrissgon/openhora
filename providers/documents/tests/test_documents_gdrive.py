@@ -205,6 +205,15 @@ def test_no_authorization_a_revoked_one_and_a_wider_scope_are_not_configured_and
     assert case.run("--check")[0] == 3
 
 
+def test_a_token_that_reports_no_scope_is_refused_because_it_cannot_be_shown_to_be_the_narrow_one(case):
+    for how in ("empty", "omitted"):
+        case.fake.requests.clear()
+        case.fake.scope_granted, case.fake.omit_scope = ("" if how == "empty" else fake_drive.SCOPE), how == "omitted"
+        code, _, said = case.run("stat", "--id", DOC_ID, "--as-source")
+        assert code == 3 and "no scope" in said and case.fake.requests == [], how
+        assert case.run("--check")[0] == 3, how
+
+
 def test_a_rejected_client_is_not_configured(case):
     code, _, said = case.run("stat", "--id", DOC_ID, "--as-source", record={"client_secret": "fake-wrong-secret"})
     assert code == 3 and "rejected the OAuth client" in said and "fake-wrong-secret" not in said

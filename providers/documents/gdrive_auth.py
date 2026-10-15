@@ -28,8 +28,8 @@ Google Cloud setup (once), at https://console.cloud.google.com, in a project use
      and the refresh token stops working every week (invalid_grant).
   5. Clients, create a client of application type "Desktop app". No redirect URL is registered: this script listens on
      http://{host}:<a random free port>, as Google's desktop-app guide says.
-  6. Credentials, create an API key (the Picker needs one). Restrict it to the "Google Picker API" and, if you can,
-     to the HTTP referrer http://{host}:*/* .
+  6. Credentials, create an API key (the Picker needs one). Under "API restrictions" restrict it to the "Google Picker API" only.
+     (Do not add a referrer restriction: the page sends no referrer.)
   7. Run: uv run providers/documents/gdrive_auth.py authorize
      It asks for the client id, the client secret and the API key at a hidden prompt (or reads GDRIVE_CLIENT_ID,
      GDRIVE_CLIENT_SECRET and GDRIVE_PICKER_API_KEY from the environment of this one command). None goes on the command

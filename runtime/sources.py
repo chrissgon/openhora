@@ -1567,6 +1567,30 @@ def drive_stat(cfg: dict, file_id: str, *, call=None) -> dict:
     return out
 
 
+EMBEDDED_INLINE = re.compile(r"!\[([^\]\n]*)\]\(\s*<?data:[^)\n]*\)")          # ![alt](data:image/png;base64,....)
+EMBEDDED_DEFINITION = re.compile(r"^(\[[^\]\n]+\]:)[ \t]*<?data:\S*>?[ \t]*$", re.M)   # [image1]: <data:image/png;base64,....>
+
+
+def strip_embedded_images(markdown: str) -> tuple:
+    """(text, count): Google's Markdown export carries a pasted picture as a base64 `data:` URI, inline or as a reference definition at the
+    end of the text, which can make an ordinary Doc with a few screenshots larger than the converted cap and is no text to a model. Each is
+    replaced by a short placeholder that keeps the picture's name; nothing else is changed."""
+    count = 0
+
+    def inline(found):
+        nonlocal count
+        count += 1
+        return f"[embedded image removed: {found.group(1).strip() or 'no name'}]"
+
+    def definition(found):
+        nonlocal count
+        count += 1
+        return f"{found.group(1)} (embedded image removed)"
+
+    text = EMBEDDED_INLINE.sub(inline, markdown)
+    return EMBEDDED_DEFINITION.sub(definition, text), count
+
+
 def drive_import(ctx, source: dict, *, convert, label: str, call=None, clock=None, evidence_base=None) -> dict:
     """Read a Drive file through the provider and import it as a version of `source`. The provider writes the bytes into a folder of the
     runtime's staging area; a Google Doc exported as Markdown goes in as text (kind `markdown`, no converter), everything else through
@@ -1591,8 +1615,15 @@ def drive_import(ctx, source: dict, *, convert, label: str, call=None, clock=Non
             raise SourcesError("what the Drive provider wrote is not what it described; nothing was kept", "drive")
         name = _clean(info.get("name") or "", 200) or None
         if info["content"] == "markdown":
-            return import_version(ctx, source, data, convert=None, kind="markdown", label=label, origin_version=info["version"],
-                                  clock=clock, evidence_base=evidence_base, name=name)
+            try:
+                text, removed = strip_embedded_images(data.decode("utf-8"))
+            except UnicodeDecodeError:
+                raise SourcesError("the exported document is not UTF-8 text", "convert") from None
+            done = import_version(ctx, source, text.encode("utf-8"), convert=None, kind="markdown", label=label,
+                                  origin_version=info["version"], clock=clock, evidence_base=evidence_base, name=name)
+            if removed and done.get("imported"):
+                done["images_removed"] = removed
+            return done
         return import_version(ctx, source, data, convert=convert, label=label, origin_version=info["version"], clock=clock,
                               evidence_base=evidence_base, name=name)
     finally:

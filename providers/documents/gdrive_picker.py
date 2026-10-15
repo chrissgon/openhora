@@ -7,12 +7,15 @@ the page this module serves instead, for the minutes one authorization or one pi
 What the server is:
   - bound to 127.0.0.1 on a random port; every request must carry `Host: 127.0.0.1:<that port>`, or it is refused with
     403 (a page on the internet cannot reach it through a rebinding of its own name);
-  - the OAuth callback (`GET /?code=...&state=...`) is served ONCE: a second request, or one with a state that does not
-    match (constant-time compare), gets nothing and ends the session with nothing stored. The authorization asks for the
-    scope drive.file alone, with PKCE (S256);
-  - the page, the token and the picks are guarded by a random nonce the server made, which only the page that was
-    redirected to carries (a different page in the browser cannot read /token or post /picked); a POST must also carry
-    no Origin, or this server's own;
+  - the way in is the start URL the command prints, `/start?k=<key>`: a random key the server made, compared in constant time, and
+    served ONCE. A request to /start without the key, or a second one, gets a bare 404 and learns nothing: not the consent URL
+    (which carries the state and the PKCE challenge), not the nonce. So a process that only knows the port reaches nothing;
+  - the OAuth callback (`GET /?code=...&state=...`, or `error=...&state=...`) is served ONCE: a second one, or one with a state that
+    does not match (constant-time compare), gets nothing and ends the session with nothing stored; a request to `/` that is not
+    shaped like a callback is a 404 and consumes nothing. The authorization asks for the scope drive.file alone, with PKCE (S256);
+  - the page, the token and the picks are guarded by a random nonce the server made, which /start gives only to the holder of the
+    key (a different page in the browser cannot read /token or post /picked); a POST must carry this server's own Origin (the
+    page's fetch sends it; a script that sends none is refused);
   - /picked is served once. After it (or after a cancel, a failed callback or the timeout) the server stops. Nothing is
     kept on disk by this module: the access token lives in memory, and is handed to the page only to open the Picker.
 
@@ -136,6 +139,8 @@ class OneShotServer:
         self.access_token, self._authorize_url, self._exchange, self._on_token = access_token, authorize_url, exchange, on_token
         self.state = state or secrets.token_urlsafe(32)
         self.nonce = secrets.token_urlsafe(32)
+        self.key = secrets.token_urlsafe(32)      # in the printed start URL only
+        self.start_used = False
         self.lock = threading.Lock()
         self.callback_used = self.picked_used = False
         self.token_served = 0
@@ -178,9 +183,10 @@ class OneShotServer:
                 parsed = urllib.parse.urlparse(self.path)
                 query = urllib.parse.parse_qs(parsed.query)
                 if parsed.path == "/start":
-                    return owner._start(self)
+                    return owner._start(self, query)
                 if parsed.path == "/":
-                    return owner._callback(self, query) if query else self._send(404)
+                    callback = "state" in query and ("code" in query or "error" in query)
+                    return owner._callback(self, query) if callback else self._send(404)
                 if parsed.path == "/picker":
                     if not owner._nonce_ok(query.get("n", [""])[0]) or owner.access_token is None:
                         return self._send(403)
@@ -192,8 +198,7 @@ class OneShotServer:
             def do_POST(self):   # noqa: N802
                 if not self._host_ok() or self.path != "/picked":
                     return self._send(403)
-                origin = self.headers.get("Origin")
-                if origin is not None and origin != f"http://{HOST}:{owner.port}":
+                if self.headers.get("Origin") != f"http://{HOST}:{owner.port}":   # none is refused too: only the page's own fetch
                     return self._send(403)
                 try:
                     length = int(self.headers.get("Content-Length", "0"))
@@ -208,7 +213,7 @@ class OneShotServer:
         self.server.daemon_threads = True
         self.port = self.server.server_address[1]
         self.redirect_uri = f"http://{HOST}:{self.port}"
-        self.start_url = f"{self.redirect_uri}/start"
+        self.start_url = f"{self.redirect_uri}/start?k={self.key}"
         self._thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.1}, daemon=True)
 
     # --- the session ---------------------------------------------------------------------------------------------------
@@ -223,7 +228,13 @@ class OneShotServer:
         self.error = why
         self.done.set()
 
-    def _start(self, handler) -> None:
+    def _start(self, handler, query) -> None:
+        with self.lock:
+            ok = same(query.get("k", [""])[0], self.key) and not self.start_used
+            if ok:
+                self.start_used = True
+        if not ok:
+            return handler._send(404)
         if self.access_token is not None:
             return handler._send(302, location="/picker?n=" + urllib.parse.quote(self.nonce))
         return handler._send(302, location=self._authorize_url(self.redirect_uri, self.state))

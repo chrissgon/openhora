@@ -171,8 +171,8 @@ hand-over copies one file of yours into the task's file drop, <project>/.workben
           file holding what looks like a credential, and a git project that does not ignore .workbench-local/. A task
           whose skill uses the web takes the file too (the maintainer's decision: the file is the person's own choice)
           and the answer carries "web": true and the line "this file will be visible to a run with the open network".
-source-add  registers a source of the project: an id (lowercase letters, digits, hyphens), its type (file, or notion) and its origin (a
-          file's name, or a Notion page's address or id); nothing is imported and no credential is kept. The registry is in the
+source-add  registers a source of the project: an id (lowercase letters, digits, hyphens), its type (file, notion or drive) and its origin (a
+          file's name, a Notion page's address or id, or a Drive file's id); nothing is imported and no credential is kept. The registry is in the
           store; the versions are in the project's sources folder (sources_dir of runtime.json, runtime/sources.py).
 source-import  imports a version of a source from a file of yours (--file) or from a Notion page (--url): the generic intake
           bounds the length and reads the type from the bytes (PDF, Word, spreadsheet, CSV, HTML, text), a container with no network

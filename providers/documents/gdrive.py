@@ -245,13 +245,13 @@ def token_request(token_url: str, form: dict) -> dict:
 
 
 def check_scope(granted) -> None:
-    """Refuse a token that carries anything but drive.file: a wider scope than this app asks for is a setup error to fix, not a
-    token to use. A response with no scope field passes (the API call tells)."""
+    """Refuse a token whose reported scope is anything but drive.file alone: a wider scope than this app asks for is a setup error to fix,
+    not a token to use, and a response that reports no scope cannot be shown to be the narrow one."""
     scopes = set(str(granted or "").split())
-    if scopes and scopes != {SCOPE}:
+    if scopes != {SCOPE}:
         extra = ", ".join(sorted(scopes - {SCOPE})) or "none"
-        raise ProviderError(f"the token carries {extra} where only {SCOPE} is wanted, or lacks it: nothing was read. Revoke the "
-                            f"app's access in the Google Account and run: {AUTH_COMMAND}", EXIT_NOT_CONFIGURED)
+        raise ProviderError(f"the token reports {', '.join(sorted(scopes)) or 'no scope'} where exactly {SCOPE} is wanted (extra: {extra}): "
+                            f"nothing was read. Revoke the app's access in the Google Account and run: {AUTH_COMMAND}", EXIT_NOT_CONFIGURED)
 
 
 def refresh_access_token(token_url: str, record: dict) -> str:

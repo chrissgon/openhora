@@ -58,13 +58,13 @@ def browse(url, picks, results, nonce_sink=None):
     def call(method, path, body=None):
         c = conn()
         c.request(method, path, body=json.dumps(body).encode() if body is not None else None,
-                  headers={"Content-Type": "application/json"} if body is not None else {})
+                  headers={"Content-Type": "application/json", "Origin": f"http://{base.hostname}:{base.port}"} if body is not None else {})
         r = c.getresponse()
         out = (r.status, dict(r.getheaders()), r.read())
         c.close()
         return out
 
-    status, head, _ = call("GET", "/start")
+    status, head, _ = call("GET", base.path + "?" + base.query)   # the start URL as printed, with its key
     results["start"] = (status, head.get("Location", ""))
     location = head["Location"]
     if not location.startswith("/picker"):   # the authorize flow: the consent URL, and the way back from it

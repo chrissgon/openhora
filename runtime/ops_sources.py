@@ -80,8 +80,8 @@ def _convert(ctx):
 
 
 def source_add(project: str, source_id: str, source_type: str, origin: str, description: str | None = None) -> dict:
-    """Register a source: its id, its type (`file` or `notion`), its origin (a file's name, or the address or the id of a Notion
-    page) and an optional description. Nothing is imported and no credential is kept. Returns {"source": the row}."""
+    """Register a source: its id, its type (`file`, `notion` or `drive`), its origin (a file's name, the address or the id of a Notion
+    page, or a Drive file's id) and an optional description. Nothing is imported and no credential is kept. Returns {"source": the row}."""
     ctx = core.context(project)
     try:
         return {"source": sources.register(ctx, source_id, source_type, origin, description)}

@@ -29,6 +29,7 @@ ops = st.load("ops")
 ops_core = st.load("ops_core")
 ops_sources = st.load("ops_sources")
 operations = st.load("operations")
+project_config = st.load("project_config")
 cli = st.load("cli")
 sources = st.load("sources")
 lab = st.load("lab")
@@ -189,6 +190,29 @@ def test_a_google_doc_arrives_as_markdown_text_and_a_sheet_goes_through_the_conv
     assert entry["name"] == "Survey results" and entry["sheets"][0]["rows"] == 2 and [c["name"] for c in entry["sheets"][0]["columns"]] == ["clinic", "score"]
     deck = ops_sources.source_drive(drive.path, file_id=SLIDES, source_id="kickoff")["results"][0]
     assert deck["imported"] and deck["kind"] == "pdf" and "Kickoff goals" in (drive.folder / "kickoff" / "1" / "converted.md").read_text()
+
+
+PIXELS = "iVBORw0KGgo" + "A" * 400000
+
+
+def test_pasted_pictures_in_a_docs_markdown_are_replaced_by_placeholders_before_the_cap_applies(drive):
+    heavy = ("# Field visit\n\nThe waiting room ![waiting room](data:image/png;base64," + PIXELS + ") was full.\n\n![][image1]\n![][image2]\n\n"
+             "[image1]: <data:image/png;base64," + PIXELS + ">\n[image2]: <data:image/jpeg;base64," + PIXELS + ">\n").encode()
+    assert len(heavy) > sources.CONVERTED_CAP, "as exported it would be refused by the cap"
+    drive.fake.files[DOC]["exports"] = {"text/markdown": heavy}
+    done = ops_sources.source_drive(drive.path, file_id=DOC, source_id="visit")["results"][0]
+    assert done["imported"], done
+    text = (drive.folder / "visit" / "1" / "converted.md").read_text()
+    assert "data:" not in text and "base64" not in text and "The waiting room [embedded image removed: waiting room] was full." in text
+    assert "[image1]: (embedded image removed)" in text and "![][image1]" in text and "# Field visit" in text
+    assert len(text) < 1000
+
+
+def test_the_stripper_leaves_everything_that_is_not_an_embedded_picture_alone():
+    keep = "# T\n\n![logo](https://assets.example/logo.png) and a [link](https://x.example)\n\n[ref]: https://x.example/data:\n\n```\ndata:text/plain,hi\n```\n"
+    assert sources.strip_embedded_images(keep) == (keep, 0)
+    out, count = sources.strip_embedded_images("![](data:image/gif;base64,AAAA)\n[image9]: data:image/gif;base64,AAAA\n")
+    assert count == 2 and out == "[embedded image removed: no name]\n[image9]: (embedded image removed)\n"
 
 
 def test_a_doc_whose_markdown_export_is_not_offered_is_read_as_word_and_converted(drive):
@@ -426,3 +450,13 @@ def test_the_picker_page_is_not_part_of_the_interface_and_the_runtime_page_keeps
     assert not list(interface.rglob("*picker*")), "no file of the interface is the Picker's page"
     assert "default-src 'self'" in (REPO / "runtime" / "service.py").read_text(encoding="utf-8")
     assert "apis.google.com" in (REPO / "providers" / "documents" / "gdrive_picker.py").read_text(encoding="utf-8"), "the page lives with the provider"
+
+
+def test_the_documents_object_of_the_configuration_refuses_a_provider_that_serves_sources_only(tmp_path):
+    with pytest.raises(project_config.ConfigError) as refused:
+        project_config._platform({"provider": "gdrive", "parent": "x", "expires": "2099-01-01"}, "documents", "integration:documents",
+                                 str(tmp_path), str(REPO))
+    assert "serves sources only" in str(refused.value) and "local" in str(refused.value) and "notion" in str(refused.value)
+    assert project_config._sources_only(str(REPO), "integration:documents", "gdrive") is True
+    assert project_config._sources_only(str(REPO), "integration:documents", "notion") is False
+    assert project_config._sources_only(str(REPO), "integration:documents", "missing") is False

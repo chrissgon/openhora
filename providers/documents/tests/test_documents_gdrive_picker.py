@@ -51,6 +51,8 @@ class Session:
     def req(self, method, path, body=None, host="default", headers=None):
         conn = http.client.HTTPConnection("127.0.0.1", self.server.port, timeout=10)
         head = dict(headers or {})
+        if method == "POST" and "Origin" not in head and host == "default":
+            head["Origin"] = f"http://127.0.0.1:{self.server.port}"   # the page's own fetch sends it
         if host != "default":
             head["Host"] = host
         data = None
@@ -70,9 +72,14 @@ class Session:
         query = {"code": code, "state": self.server.state if state is None else state}
         return self.get("/?" + urllib.parse.urlencode(query), **kw)
 
+    @property
+    def start(self):
+        """The path of the printed start URL, with its key."""
+        return "/start?k=" + self.server.key
+
     def to_picker(self):
         """The whole way to the open page: /start, the callback, and the nonce of the page the callback redirects to."""
-        status, head, _ = self.get("/start")
+        status, head, _ = self.get(self.start)
         assert status == 302
         status, head, _ = self.callback()
         assert status == 302 and head["Location"].startswith("/picker?n=")
@@ -93,7 +100,7 @@ def session():
 
 
 def test_the_start_sends_the_browser_to_google_with_the_servers_own_state(session):
-    status, head, _ = session.get("/start")
+    status, head, _ = session.get(session.start)
     assert status == 302 and head["Location"] == session.urls[0]
     query = urllib.parse.parse_qs(urllib.parse.urlparse(head["Location"]).query)
     assert query["state"] == [session.server.state] and query["redirect_uri"] == [f"http://127.0.0.1:{session.server.port}"]
@@ -103,7 +110,7 @@ def test_the_start_sends_the_browser_to_google_with_the_servers_own_state(sessio
 def test_a_request_with_the_wrong_host_header_is_refused_on_every_path(session, host):
     host = host.replace("%d", str(session.server.port))
     nonce = session.server.nonce
-    for method, path in (("GET", "/start"), ("GET", "/"), ("GET", f"/picker?n={nonce}"), ("GET", f"/token?n={nonce}"),
+    for method, path in (("GET", session.start), ("GET", "/?code=x&state=y"), ("GET", f"/picker?n={nonce}"), ("GET", f"/token?n={nonce}"),
                          ("POST", "/picked"), ("GET", "/anything")):
         status, _, body = session.req(method, path, body={"n": nonce} if method == "POST" else None, host=host)
         assert status == 403 and body == b"", (method, path, host)
@@ -128,8 +135,8 @@ def test_a_callback_that_carries_an_error_or_no_code_ends_the_session(session):
     assert status == 400 and session.exchanged == [] and session.server.error
     other = Session()
     try:
-        assert other.get("/?" + urllib.parse.urlencode({"state": other.server.state}))[0] == 400
-        assert other.server.error == "the callback carried no code"
+        assert other.get("/?" + urllib.parse.urlencode({"state": other.server.state}))[0] == 404, "no code and no error: not a callback"
+        assert other.server.callback_used is False and other.server.error is None
     finally:
         other.close()
 
@@ -187,7 +194,7 @@ def test_the_picks_are_checked_and_the_session_stops_after_them(session):
     assert session.get(f"/token?n={nonce}")[0] == 403, "no token after the pick"
     session.server.close()
     with pytest.raises(OSError):
-        session.get("/start")
+        session.get(session.start)
 
 
 def test_a_cancel_is_a_session_that_ends_with_no_picks(session):
@@ -216,7 +223,7 @@ def test_a_post_before_a_token_is_held_is_refused(session):
 def test_a_later_pick_with_a_held_token_has_no_callback_at_all():
     s = Session(access_token=TOKEN)
     try:
-        status, head, _ = s.get("/start")
+        status, head, _ = s.get(s.start)
         assert status == 302 and head["Location"].startswith("/picker?n=") and s.urls == []
         assert s.callback()[0] == 404 and s.exchanged == []
         nonce = urllib.parse.parse_qs(urllib.parse.urlparse(head["Location"]).query)["n"][0]
@@ -238,3 +245,54 @@ def test_the_picks_helper_keeps_only_what_has_the_expected_shape():
 def test_a_session_without_a_token_must_be_able_to_ask_for_one():
     with pytest.raises(ValueError):
         picker.OneShotServer(api_key="k", project_number="1", scope=SCOPE)
+
+
+def test_a_client_without_the_key_gets_nothing_not_the_consent_url_nor_the_nonce_nor_the_token(session):
+    for path in ("/start", "/start?k=", "/start?k=wrong", "/start?K=" + session.server.key, "/start?" + session.server.key):
+        status, head, body = session.get(path)
+        assert status == 404 and body == b"" and "Location" not in head, path
+    assert session.urls == [], "the consent URL (with the state and the challenge) was never built for them"
+    assert session.server.start_used is False, "and the key is still good for the person"
+    status, head, _ = session.get(session.start)
+    assert status == 302 and session.urls and head["Location"] == session.urls[0]
+    held = Session(access_token=TOKEN)
+    try:
+        for path in ("/start", "/start?k=wrong"):
+            status, head, body = held.get(path)
+            assert status == 404 and body == b"" and "Location" not in head, "the nonce is not given to a request without the key"
+        assert held.get("/token")[0] == 403 and held.get("/picker")[0] == 403
+        assert held.req("POST", "/picked", body={"n": "guess", "documents": []})[0] == 403
+    finally:
+        held.close()
+
+
+def test_the_start_is_served_once(session):
+    assert session.get(session.start)[0] == 302
+    status, head, body = session.get(session.start)
+    assert status == 404 and body == b"" and "Location" not in head
+    held = Session(access_token=TOKEN)
+    try:
+        status, head, _ = held.get(held.start)
+        assert status == 302 and head["Location"].startswith("/picker?n=")
+        assert held.get(held.start)[0] == 404
+    finally:
+        held.close()
+
+
+def test_a_post_with_no_origin_is_refused_and_the_pick_stands_for_the_page_alone(session):
+    nonce = session.to_picker()
+    body = {"n": nonce, "cancelled": False, "documents": [{"id": IDS[0], "name": "x", "mimeType": "application/pdf"}]}
+    conn = http.client.HTTPConnection("127.0.0.1", session.server.port, timeout=10)
+    conn.request("POST", "/picked", body=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+    assert conn.getresponse().status == 403
+    conn.close()
+    assert session.server.picks == [] and not session.server.done.is_set() and session.server.picked_used is False
+    assert session.req("POST", "/picked", body=body)[0] == 200
+
+
+def test_only_a_request_shaped_like_a_callback_consumes_the_callback(session):
+    for query in ("/?x=1", "/?code=abc", "/?state=s", "/?foo=bar&baz=1", "/?"):
+        assert session.get(query)[0] == 404, query
+    assert session.server.callback_used is False and not session.server.done.is_set() and session.exchanged == []
+    session.get(session.start)
+    assert session.callback()[0] == 302 and len(session.exchanged) == 1

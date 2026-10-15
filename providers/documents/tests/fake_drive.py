@@ -43,6 +43,7 @@ class FakeDrive:
         self.files = {}
         self.requests, self.token_forms, self.methods = [], [], []
         self.scope_granted = SCOPE          # what the token endpoint says it granted
+        self.omit_scope = False             # answer a token with no scope field at all
         self.token_status = 200             # set 400 and token_error to answer an OAuth error
         self.token_error = {"error": "invalid_grant", "error_description": "Token has been expired or revoked."}
         self.code = CODE
@@ -89,8 +90,10 @@ class FakeDrive:
                 if form.get("grant_type") == "refresh_token":
                     if form.get("refresh_token") != REFRESH_TOKEN:
                         return self._json(400, {"error": "invalid_grant", "error_description": "Bad Request"})
-                    return self._json(200, {"access_token": ACCESS_TOKEN, "expires_in": 3599, "scope": owner.scope_granted,
-                                            "token_type": "Bearer"})
+                    answer = {"access_token": ACCESS_TOKEN, "expires_in": 3599, "scope": owner.scope_granted, "token_type": "Bearer"}
+                    if owner.omit_scope:
+                        del answer["scope"]
+                    return self._json(200, answer)
                 if form.get("grant_type") == "authorization_code":
                     if form.get("code") != owner.code or not form.get("code_verifier"):
                         return self._json(400, {"error": "invalid_grant", "error_description": "Malformed auth code."})
