@@ -201,9 +201,23 @@ export function reject(p, id, note, options = {}) {
   return send("POST", `/projects/${enc(p)}/pending/${enc(id)}/reject`, { body: { note }, signal: options.signal });
 }
 
-/** GET /projects/{p}/flows: the flow files of the checkout. */
+/** GET /projects/{p}/flows: the workflows, the checkout's and the project's, each with its origin, parameters, step kinds and flow check. */
 export function flows(p, options) {
   return send("GET", `/projects/${enc(p)}/flows`, options);
+}
+
+/** GET /projects/{p}/flows/{name}/check: the flow check of one workflow ({ok, findings, next}). */
+export function flowCheck(p, name, options) {
+  return send("GET", `/projects/${enc(p)}/flows/${enc(name)}/check`, options);
+}
+
+/**
+ * POST /projects/{p}/flows: {name, pending_id?, flow?, title?, split?, replace?}: save an approved plan (`pendingId`) or a workflow already there
+ * (`flow`) as the project workflow `name`. The service runs the flow check first and refuses (409, the sentence) a workflow it does not pass,
+ * unless `split` asks for the split the code makes.
+ */
+export function flowSave(p, { name, pendingId, flow, title, split, replace, signal } = {}) {
+  return send("POST", `/projects/${enc(p)}/flows`, { body: { name, pending_id: pendingId, flow, title, split, replace }, signal });
 }
 
 /** POST /projects/{p}/requests: {text, flow?, title?, after?, model?}; `after` is the number of the request this one runs after, `model` a model id of the gate file or "auto". */
@@ -211,9 +225,14 @@ export function request(p, text, { flow, title, after, model, signal } = {}) {
   return send("POST", `/projects/${enc(p)}/requests`, { body: { text, flow, title, after, model }, signal });
 }
 
-/** POST /projects/{p}/requests/{id}/route (job): {flow?}. */
-export function route(p, id, { flow, signal } = {}) {
-  return send("POST", `/projects/${enc(p)}/requests/${enc(id)}/route`, { body: { flow }, signal });
+/** POST /projects/{p}/requests/{id}/route (job): {flow?, params?}; `params` is a list of "name=value" for the flow's parameters. */
+export function route(p, id, { flow, params, signal } = {}) {
+  return send("POST", `/projects/${enc(p)}/requests/${enc(id)}/route`, { body: { flow, params: Array.isArray(params) && params.length ? params : undefined }, signal });
+}
+
+/** POST /projects/{p}/requests/{id}/files: hand a file over for a request that waits for its plan, {name, content_base64}; a workflow's file parameter names it. */
+export function stageFile(p, id, name, contentBase64, options = {}) {
+  return send("POST", `/projects/${enc(p)}/requests/${enc(id)}/files`, { body: { name, content_base64: contentBase64 }, signal: options.signal });
 }
 
 /** POST /projects/{p}/requests/{id}/cancel. */

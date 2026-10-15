@@ -10,8 +10,9 @@ import { withheldLine } from "../floor/widgets.js";
 import { icon } from "../frame/icons.js";
 import { MODEL_HINT, modelOptions } from "../models.js";
 import { AFTER_FORM_HINT, AUTO_FLOW, FORM_HINT, afterOptions, flowOptions } from "./lobby-model.js";
+import { createParams } from "./lobby-params.js";
 
-/** Create the form. options: {onCreate({text, flow, title, after?, model?}), onBack()}. Returns {el, setFlows(list), setModels(list, defaultModel, recommended), setRequests(list), set(partial), markEmpty(), reset(), open(on), isOpen(), focus()}. */
+/** Create the form. options: {onCreate({text, flow, title, after?, model?, params?, files?}), onBack()}; params are the "name=value" of the chosen workflow's parameters and files the [{param, file}] to hand over (P6a). Returns {el, setFlows(list), setModels(list, defaultModel, recommended), setRequests(list), set(partial), markEmpty(), reset(), open(on), isOpen(), focus()}. */
 export function createForm({ onCreate, onBack = () => {} }) {
   const textId = "wb-new-text";
   const flowId = "wb-new-flow";
@@ -29,11 +30,13 @@ export function createForm({ onCreate, onBack = () => {} }) {
   const back = h("button", { class: "pui-btn pui-surface pui-outline wb-small-button wb-newreq-back", type: "button" }, icon("chevron-left", 16), h("span", { text: "Back to the conversation" }));
   back.addEventListener("click", () => onBack());
   const flowField = h("label", { class: "pui-field-group wb-field", for: flowId }, h("span", { text: "Flow" }), flow);
+  const params = createParams();      // the chosen workflow's parameters, when it declares some
+  let listed = [];                    // the flows the service listed (their parameters are read from here)
   const routeLine = h("div");      // the line under the form when the page may not route (js/permissions.js)
   let mayRoute = true;
   const body = h("form", { class: "wb-form-body" },
     h("label", { class: "pui-field-group wb-field", for: textId }, h("span", { text: "What do you want done?" }), text),
-    flowField,
+    flowField, params.el,
     h("label", { class: "pui-field-group wb-field", for: modelId }, h("span", { text: "Model" }), model),
     h("small", { class: "wb-card-hint wb-hint", id: `${modelId}-hint`, text: MODEL_HINT }),
     h("label", { class: "pui-field-group wb-field", for: titleId }, h("span", { text: "Title (optional)" }), title),
@@ -48,10 +51,20 @@ export function createForm({ onCreate, onBack = () => {} }) {
   let state = { creating: false, error: "", disabled: false };
   let offered = "";      // the options of "After request" now drawn, as one string
 
+  flow.addEventListener("change", () => params.show(listed.find((f) => f && f.flow === flow.value) || null));
   body.addEventListener("submit", (event) => {
     event.preventDefault();
     if (creating) return;
-    onCreate({ text: text.value, flow: mayRoute ? flow.value : "", title: title.value, ...(after.value ? { after: after.value } : {}), ...(model.value ? { model: model.value } : {}) });
+    const wanted = mayRoute && flow.value;
+    const problem = wanted ? params.problem() : "";
+    if (problem) {      // nothing is sent: the field says what it needs
+      state = { ...state, error: problem };
+      error.textContent = problem;
+      error.hidden = false;
+      return;
+    }
+    onCreate({ text: text.value, flow: wanted ? flow.value : "", title: title.value, ...(after.value ? { after: after.value } : {}), ...(model.value ? { model: model.value } : {}),
+      ...(wanted && params.list().length ? { params: params.list() } : {}), ...(wanted && params.files().length ? { files: params.files() } : {}) });
   });
 
   return {
@@ -59,8 +72,10 @@ export function createForm({ onCreate, onBack = () => {} }) {
     /** The flows the service listed: the options after the first. A list that failed to load leaves the first alone. */
     setFlows(list) {
       const keep = flow.value;
+      listed = Array.isArray(list) ? list : [];
       flow.replaceChildren(...flowOptions(list).map((o) => h("option", { value: o.value, text: o.label })));
       flow.value = [...flow.options].some((o) => o.value === keep) ? keep : "";
+      if (flow.value !== keep || !params.el.children.length) params.show(listed.find((f) => f && f.flow === flow.value) || null);
     },
     /** The models of the service's `skills` read (`models`), the project's default and the model it recommends: the options of "Model"; the choice stays while the model is still offered, else it is the first option. */
     setModels(list, defaultModel, recommended) {
@@ -84,6 +99,7 @@ export function createForm({ onCreate, onBack = () => {} }) {
       if (mayRoute === Boolean(on)) return;
       mayRoute = Boolean(on);
       flowField.hidden = !mayRoute;
+      params.el.hidden = !mayRoute || params.el.children.length === 0;
       routeLine.replaceChildren(...(mayRoute ? [] : [withheldLine(["route"])]));
     },
     /** Merge a state into the form's: {creating, error, disabled}; a key left out keeps its value. */
@@ -91,6 +107,7 @@ export function createForm({ onCreate, onBack = () => {} }) {
       state = { ...state, ...partial };
       creating = Boolean(state.creating);
       for (const control of [text, flow, model, title, after, create]) control.disabled = creating || Boolean(state.disabled);
+      params.disable(creating || Boolean(state.disabled));
       create.textContent = creating ? "Creating..." : "Create request";
       if (creating) create.setAttribute("aria-busy", "true");
       else create.removeAttribute("aria-busy");
@@ -110,6 +127,7 @@ export function createForm({ onCreate, onBack = () => {} }) {
       after.value = "";
       flow.value = "";
       model.value = "";
+      params.show(null);
     },
     /** Show or hide the form (the screen swaps it with the thread and the composer). */
     open(on) {

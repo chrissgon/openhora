@@ -155,3 +155,155 @@ def test_the_program_prints_frames_and_nothing_else_on_standard_output(inner, tm
     container.loader.exec_module(module)
     parsed = module.parse_frames(done.stdout)
     assert set(parsed) == {"converted.csv", "info.json"} and json.loads(parsed["info.json"])["kind"] == "csv"
+
+
+# --- presentations: python-pptx, local files only ----------------------------------------------------------------------------------
+
+
+needs_pptx = pytest.mark.skipif(importlib.util.find_spec("pptx") is None,
+                                reason="python-pptx is not on this machine (it is in the image, from the lock)")
+
+
+@needs_pptx
+def test_a_presentation_comes_out_as_markdown_with_a_section_per_slide_its_table_and_its_notes(inner, tmp_path):
+    kind, name, data, tools, notes = convert(inner, "pptx", "review.pptx", tmp_path)
+    text = data.decode()
+    assert (kind, name) == ("pptx", "converted.md") and tools["python-pptx"] and notes == []
+    assert [line for line in text.splitlines() if line.startswith("# ")] == ["# Harbor Cafe Quarterly Review", "# Highlights", "# Sites"]
+    assert text.count("Harbor Cafe Quarterly Review") == 1, "the title is the heading and is not written again as text"
+    assert "Fictional deck for the converter's tests" in text
+    assert "- Opening day sales beat the forecast\n- Staff turnover fell to 8 percent\n- Supplier costs stayed flat" in text
+    assert "| Site | Revenue | Visits |\n| --- | --- | --- |\n| Dock Street | 48200 | 9100 |\n| Mill Lane | 39750 | 7400 |" in text
+    assert "### Notes\n\nSpeaker note: thank the Dock Street team." in text
+    assert text.index("# Highlights") < text.index("### Notes") < text.index("# Sites"), "the notes stay with their slide"
+    assert convert(inner, "ooxml", "review.pptx", tmp_path)[0] == "pptx", "an undetermined package is read from its content types"
+
+
+@needs_pptx
+def test_text_boxes_levels_a_pipe_in_a_cell_an_untitled_slide_and_a_hidden_slide(inner, tmp_path):
+    kind, name, data, tools, notes = convert(inner, "pptx", "rich.pptx", tmp_path)
+    text = data.decode()
+    assert "- Unlock the doors\n  - Disarm the alarm\n- Count the cash float" in text, "a level is an indent"
+    assert "Call the manager if the float is short" in text, "a text box that is no placeholder is read"
+    assert "| Quay Beans | net 30 \\| invoice by mail |" in text, "a pipe in a cell is escaped"
+    assert "# Slide 4\n\nA slide with no title" in text, "a slide with no title is headed by its number"
+    assert "Draft pricing" not in text and notes == ["the hidden slide 3 was not read"]
+
+
+def test_only_python_pptx_reads_a_presentation_and_the_process_cannot_open_a_connection_while_it_does(inner, monkeypatch):
+    """Nothing in the program imports a converter library but the one for the format, and a presentation is read with the socket guard on."""
+    import socket
+    for attribute in ("connect", "connect_ex"):
+        monkeypatch.setattr(socket.socket, attribute, getattr(socket.socket, attribute))
+    monkeypatch.setattr(socket, "create_connection", socket.create_connection)
+    monkeypatch.setattr(socket, "getaddrinfo", socket.getaddrinfo)
+    source = INNER.read_text()
+    assert "markitdown" not in source.lower()
+    with pytest.raises(inner.Failed):
+        inner.convert_pptx(str(FIXTURES / "notes.docx"), str(FIXTURES))     # a package that is not a presentation
+    for attempt in (lambda: socket.create_connection(("127.0.0.1", 9), 1), lambda: socket.getaddrinfo("cafe.example", 80),
+                    lambda: socket.socket().connect(("127.0.0.1", 9))):
+        with pytest.raises(OSError) as refused:
+            attempt()
+        assert "no network connection" in str(refused.value), "the guard was switched on by the conversion"
+
+
+@pytest.mark.parametrize("address", ["https://cafe.example/menu.pptx", "http://127.0.0.1:8080/x", "file:///etc/passwd",
+                                     "data:text/plain;base64,aGk=", "ftp://cafe.example/a.pptx", "relative/path.pptx"])
+def test_an_input_that_is_an_address_or_not_an_absolute_path_is_refused_before_anything_is_read_or_fetched(inner, tmp_path, capsys, address):
+    code = inner.main(["--type", "pptx", "--input", address, "--work", str(tmp_path / "w")])
+    captured = capsys.readouterr()
+    assert code == 3 and captured.out == "" and "never an address" in captured.err
+
+
+@needs_pptx
+def test_a_broken_presentation_is_a_conversion_error_with_a_closed_message_and_nothing_on_standard_output(inner, tmp_path, capsys):
+    broken = tmp_path / "broken.pptx"
+    with zipfile.ZipFile(broken, "w") as z:
+        z.writestr("[Content_Types].xml", "<Types xmlns='http://schemas.openxmlformats.org/package/2006/content-types'/>")
+        z.writestr("ppt/presentation.xml", "<p:presentation/>")
+    code = inner.main(["--type", "pptx", "--input", str(broken), "--work", str(tmp_path / "w")])
+    captured = capsys.readouterr()
+    assert code == 3 and captured.out == "" and captured.err.startswith("error: python-pptx could not convert the pptx file: ")
+    assert str(tmp_path) not in captured.err, "no path of the machine in the message"
+    fake = tmp_path / "fake.pptx"
+    fake.write_bytes(b"not a package")
+    assert inner.main(["--type", "pptx", "--input", str(fake), "--work", str(tmp_path / "w")]) == 3
+
+
+# --- the kind of an Office package, the size caps of a presentation, the spreadsheet's link ------------------------------------------
+
+
+@pytest.fixture
+def sockets_restored(monkeypatch):
+    """convert_pptx switches the socket guard on for the process; the monkeypatch puts the real functions back after the test."""
+    import socket
+    for attribute in ("connect", "connect_ex"):
+        monkeypatch.setattr(socket.socket, attribute, getattr(socket.socket, attribute))
+    monkeypatch.setattr(socket, "create_connection", socket.create_connection)
+    monkeypatch.setattr(socket, "getaddrinfo", socket.getaddrinfo)
+
+
+def package(path, names, types=""):
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", f"<Types xmlns='http://schemas.openxmlformats.org/package/2006/content-types'>{types}</Types>")
+        for name in names:
+            z.writestr(name, "<x/>")
+    return str(path)
+
+
+def test_the_main_part_decides_the_kind_of_a_package_not_a_type_string_so_a_deck_with_a_chart_is_not_a_workbook(inner, tmp_path):
+    sheet = ("<Override PartName='/ppt/embeddings/Microsoft_Excel_Sheet1.xlsx' "
+             "ContentType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'/>"
+             "<Override PartName='/word/document.xml' ContentType='application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml'/>")
+    deck = package(tmp_path / "deck.pptx", ["ppt/presentation.xml", "ppt/slides/slide1.xml", "ppt/embeddings/Microsoft_Excel_Sheet1.xlsx"], sheet)
+    assert inner.ooxml_kind(deck) == "pptx"
+    document = package(tmp_path / "doc.docx", ["word/document.xml", "word/embeddings/Microsoft_Excel_Sheet1.xlsx"], sheet)
+    assert inner.ooxml_kind(document) == "docx"
+    book = package(tmp_path / "book.xlsx", ["xl/workbook.xml", "xl/worksheets/sheet1.xml"], sheet)
+    assert inner.ooxml_kind(book) == "xlsx"
+    with pytest.raises(inner.Failed):
+        inner.ooxml_kind(package(tmp_path / "other.zip", ["docProps/app.xml"], sheet))
+    no_types = tmp_path / "no-types.pptx"
+    with zipfile.ZipFile(no_types, "w") as z:
+        z.writestr("ppt/presentation.xml", "<x/>")
+    with pytest.raises(inner.Failed):
+        inner.ooxml_kind(str(no_types))
+
+
+def test_a_presentation_has_lower_caps_so_a_huge_deck_is_a_named_error_before_the_library_reads_it(inner, tmp_path, sockets_restored, monkeypatch):
+    big = tmp_path / "big.pptx"
+    with zipfile.ZipFile(big, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", "<Types/>")
+        z.writestr("ppt/slides/slide1.xml", "a" * 300000)
+        z.writestr("ppt/media/image1.png", "b" * 300000)
+    assert inner.PPTX_BYTES_MAX < inner.ZIP_BYTES_MAX and inner.PPTX_XML_MAX < inner.PPTX_BYTES_MAX
+    monkeypatch.setattr(inner, "PPTX_XML_MAX", 100000)
+    with pytest.raises(inner.Failed) as refused:
+        inner.convert_pptx(str(big), str(tmp_path))
+    assert "too much XML" in str(refused.value)
+    monkeypatch.setattr(inner, "PPTX_XML_MAX", 10 ** 9)
+    monkeypatch.setattr(inner, "PPTX_BYTES_MAX", 500000)
+    with pytest.raises(inner.Failed) as refused:
+        inner.convert_pptx(str(big), str(tmp_path))
+    assert "too much data" in str(refused.value)
+    assert inner.check_package(str(big), 10 ** 9, 10 ** 9)[0] == "[Content_Types].xml", "the media are not counted as XML"
+    # a part saved under another name is counted: an Override can type a .bin as XML
+    disguised = tmp_path / "disguised.pptx"
+    with zipfile.ZipFile(disguised, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", "<Types/>")
+        z.writestr("ppt/slides/slide2.bin", "a" * 300000)
+        z.writestr("ppt/media/photo.JPG", "b" * 300000)
+    with pytest.raises(inner.Failed) as refused:
+        inner.check_package(str(disguised), 10 ** 9, 100000)
+    assert "too much XML" in str(refused.value)
+    assert inner.check_package(str(disguised), 10 ** 9, 400000)
+
+
+def test_two_spreadsheets_converted_with_one_work_folder_each_give_their_own_content(inner, tmp_path):
+    pytest.importorskip("openpyxl")
+    first = inner.convert("xlsx", str(FIXTURES / "answers.xlsx"), str(tmp_path))
+    second = inner.convert("xlsx", str(FIXTURES / "survey.xlsx"), str(tmp_path))
+    assert first[2].decode().startswith("clinic,forms per day") and b"## Sheet: Prices" in second[2]
+    third = inner.convert("xlsx", str(FIXTURES / "review.xlsx"), str(tmp_path))
+    assert b"Dock Street" in third[2], "a link left by an earlier conversion is never reused"

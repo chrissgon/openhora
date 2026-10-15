@@ -130,10 +130,10 @@ def test_permissions_are_names_and_pairs_in_the_tables_order():
     assert "approve" not in everything and "set-mode" not in everything
     assert {"approve:plan", "approve:acceptance", "approve:effect", "approve:go-ahead", "set-mode:down", "set-mode:up", "cancel", "go-ahead"} <= set(everything)
     assert operations.permissions("page", {"page": ["read", "approve-plans", "go-ahead"]}) == [
-        "status", "task", "flows", "config", "progress", "pending", "approve:plan", "approve:go-ahead", "go-ahead", "cancel", "set-mode:down",
+        "status", "task", "flows", "flow-check", "config", "progress", "pending", "approve:plan", "approve:go-ahead", "go-ahead", "cancel", "set-mode:down",
         "agents", "conversation", "skills", "costs", "connections", "artifacts", "artifact", "artifact-raw", "version", "commands"]
     only_read = operations.permissions("page", {"page": ["read"]})
-    assert only_read == ["status", "task", "flows", "config", "progress", "pending", "cancel", "set-mode:down", "agents", "conversation",
+    assert only_read == ["status", "task", "flows", "flow-check", "config", "progress", "pending", "cancel", "set-mode:down", "agents", "conversation",
                          "skills", "costs", "connections", "artifacts", "artifact", "artifact-raw", "version", "commands"]  # the brakes are there
     assert "set-mode:up" in operations.permissions("page", {"page": ["read", "set-mode"]})
     assert operations.permissions("page", {"page": ["read", "approve-effects", "approve-acceptances"]}).count("approve:effect") == 1
@@ -454,7 +454,7 @@ def test_get_projects_carries_the_pages_permissions_per_project_and_null_when_no
     assert status == 200 and set(body) == {"projects", "messaging"}
     [one, two, three] = body["projects"]
     assert one["permissions"] == {"channel": "page", "allowed": [
-        "status", "task", "flows", "config", "progress", "pending", "approve:plan", "approve:go-ahead", "go-ahead", "cancel", "set-mode:down",
+        "status", "task", "flows", "flow-check", "config", "progress", "pending", "approve:plan", "approve:go-ahead", "go-ahead", "cancel", "set-mode:down",
         "agents", "conversation", "skills", "costs", "connections", "artifacts", "artifact", "artifact-raw", "version", "commands"]}
     assert set(one["permissions"]) == {"channel", "allowed"}
     assert two["permissions"] == {"channel": "page", "allowed": operations.permissions("page", None)}

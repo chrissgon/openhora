@@ -273,11 +273,14 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | Verb | Flags it reads | Operation |
 |---|---|---|
 | `request` | `--text \| --text-file` `[--flow]` `[--title]` `[--after]` `[--model]` | `request` |
-| `route` | `--request` `[--flow]` | `route` |
+| `route` | `--request` `[--flow]` `[--param]` | `route` |
 | `route-queued` | - | `route_queued` |
 | `status` | - | `status` |
 | `task` | `--task` | `task` |
 | `flows` | - | `flows` |
+| `flow-check` | `--flow` | `check_flow` |
+| `flow-save` | `--name` `[--id]` `[--flow]` `[--title]` `[--split]` `[--replace]` | `flow_save` |
+| `stage-file` | `--request` `--file` | `stage_file` |
 | `config` | - | `config` |
 | `progress` | `[--since]` | `progress` |
 | `pending` | `[--id]` | `pending` |
@@ -387,6 +390,9 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | POST | `/projects/{p}/pending/{id}/approve` | `approve` | `pending_id` from `{id}` | every other argument | - | - |
 | POST | `/projects/{p}/pending/{id}/reject` | `reject` | `pending_id` from `{id}` | every other argument | - | - |
 | GET | `/projects/{p}/flows` | `flows` | - | none | - | - |
+| GET | `/projects/{p}/flows/{name}/check` | `flow-check` | `flow` from `{name}` | none | - | - |
+| POST | `/projects/{p}/flows` | `flow-save` | - | every other argument | - | - |
+| POST | `/projects/{p}/requests/{id}/files` | `stage-file` | `request_id` from `{id}` | every other argument | `file` | file upload |
 | POST | `/projects/{p}/requests` | `request` | - | every other argument | - | - |
 | POST | `/projects/{p}/requests/{id}/route` | `route` | `request_id` from `{id}` | every other argument | - | - |
 | POST | `/projects/{p}/requests/{id}/cancel` | `cancel` | `request_id` from `{id}` | every other argument | - | - |

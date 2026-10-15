@@ -97,8 +97,8 @@ OUTPUT_ENTRIES_MAX = 3
 INFO_CAP = 16 * 1024
 INCOMING_KEPT_SECONDS = 24 * 3600                # a staging entry older than this is a crash's leftover and is removed
 LABELS = ("import", "refresh", "changed-by-person")
-SUBTYPES = ("pdf", "docx", "xlsx", "ooxml", "html", "csv", "text")  # what the sniffers answer for kind "document", and the converter takes
-EXTENSION = {"pdf": "pdf", "docx": "docx", "xlsx": "xlsx", "html": "html", "csv": "csv", "text": "txt", "notion": "md", "markdown": "md"}
+SUBTYPES = ("pdf", "docx", "xlsx", "pptx", "ooxml", "html", "csv", "text")  # what the sniffers answer for kind "document", and the converter takes
+EXTENSION = {"pdf": "pdf", "docx": "docx", "xlsx": "xlsx", "pptx": "pptx", "html": "html", "csv": "csv", "text": "txt", "notion": "md", "markdown": "md"}
 SAMPLE_VALUES, SAMPLE_CHARS, COLUMNS_SHOWN, SHEETS_SHOWN = 3, 40, 30, 12
 HEADINGS_SHOWN, HEADING_CHARS = 8, 80
 CATALOG_ENTRY_CHARS = 1800                       # one source in the planner's text
@@ -583,9 +583,8 @@ def _zip_entries(head: bytes) -> list:
 
 
 def _ooxml(head: bytes):
-    """docx and xlsx (and `ooxml` when the first bytes name neither): an Office Open XML package, read from the names of
-    the first entries; a ZIP that is none of those answers None. Another Office type (a presentation) answers its own word
-    so that the intake can refuse it by name."""
+    """docx, xlsx and pptx (and `ooxml` when the first bytes name none): an Office Open XML package, read from the names of
+    the first entries; a ZIP that is none of those answers None."""
     if head[:4] != b"PK\x03\x04":
         return None
     names = _zip_entries(head)
@@ -653,11 +652,11 @@ def accept_type(found) -> None:
     """The intake's `accept`: a document of a kind the converter takes. IntakeError (type) otherwise, before any file exists."""
     if found is None:
         raise intake.IntakeError("the file is of a type that is not read: send a PDF, a Word document, a spreadsheet (xlsx or csv), "
-                                 "an HTML page or a text file", "type")
+                                 "a presentation, an HTML page or a text file", "type")
     kind, subtype = found
     if kind != "document" or subtype not in SUBTYPES:
         raise intake.IntakeError(f"a {subtype} {kind} is not read as a source: send a PDF, a Word document, a spreadsheet "
-                                 "(xlsx or csv), an HTML page or a text file", "type")
+                                 "(xlsx or csv), a presentation, an HTML page or a text file", "type")
 
 
 # --- what a container writes back (L24) ------------------------------------------------------------------------------
@@ -1146,8 +1145,8 @@ def _import_in(ctx, folder, source, stream, length, stage_path, token, *, conver
         converted_name, converted = names[0], outputs[names[0]]
         kind_found = str((info or {}).get("kind") or subtype)
         if subtype == "ooxml":
-            if kind_found not in ("docx", "xlsx"):
-                raise SourcesError("the converter could not tell what Office file this is (docx or xlsx)", "convert")
+            if kind_found not in ("docx", "xlsx", "pptx"):
+                raise SourcesError("the converter could not tell what Office file this is (docx, xlsx or pptx)", "convert")
             subtype = kind_found
         try:
             text = converted.decode("utf-8")

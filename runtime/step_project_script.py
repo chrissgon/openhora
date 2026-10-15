@@ -38,7 +38,7 @@ What each step does (steps verify, deps and run; the task is resumable at the on
            but through this import, and it has no way to cause an effect (a post, a message, a commit): an effect goes through the effect
            gate, which a script cannot open.
 
-The kind is NOT `unattended`: the dispatcher never starts it on its own; a person starts it (run-step), and a routine may run it later
+The kind `brings_source` (the flow check sees the source its result makes, like an ingest's) and is NOT `unattended`: the dispatcher never starts it on its own; a person starts it (run-step), and a routine may run it later
 only through its approved hash (P6, decision D35), which carries the script's sha256 and destinations. The person's brake does not
 matter to this kind: it is never started by the dispatcher anyway.
 
@@ -461,6 +461,7 @@ KIND = steps.register(steps.Kind(
     footprint=lambda args: (),
     check=check,
     unattended=False,
+    brings_source=True,      # its `source` argument names the source its result becomes a version of: the tasks after it receive it
 ))
 
 

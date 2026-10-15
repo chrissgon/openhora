@@ -61,6 +61,8 @@ ON_SYSTEM_PYTHON = [
     "runtime/upkeep.py", "runtime/orphans.py", "runtime/lease.py", "runtime/secret_state.py",
     # The step engine (P5): the engine, the run of a step task (a process the dispatcher starts), and the kind `ingest`.
     "runtime/steps.py", "runtime/ops_steps.py", "runtime/step_ingest.py",
+    # The workflows (P6a): the flow check, and the operations over flow files (list, check, save a plan, stage a file).
+    "runtime/flow_check.py", "runtime/ops_flows.py",
     # The project script (P9): the step kind, the provider's host side (it loads the two programs that run inside its image, which parse here too).
     "runtime/step_project_script.py", "providers/script/container.py", "providers/script/egress_proxy.py", "providers/script/_inner.py",
     # The rules of tasks that run at once (PAR-2): pure functions the dispatcher's caller passes in.

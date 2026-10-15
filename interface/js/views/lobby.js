@@ -53,6 +53,7 @@ export function createLobbyView(frame, { project, onChanged }) {
   let turn = null;                    // the job of a `say` that is running, or null
   const routing = new Set();          // request ids whose `route` job is running
   const chosenFlow = new Map();       // request id -> the flow chosen in the form (for "Route it" after a busy answer)
+  const chosenParams = new Map();     // request id -> the workflow's parameters as "name=value" (a file's name included), for the same
   const bodies = new Map();           // request id -> {sig, body}
   const reading = new Map();          // request id -> the read of its `task` body that is running
   let last = { snapshot: null, route: null, now: new Date(), projectName: "" };
@@ -483,6 +484,7 @@ export function createLobbyView(frame, { project, onChanged }) {
       return;
     }
     if (values.flow) chosenFlow.set(result.request, values.flow);
+    if (result.params) chosenParams.set(result.request, result.params);      // the files are already handed over: a second route needs only these
     if (result.unrouted) {
       redraw();
     } else if (result.error) {
@@ -501,7 +503,7 @@ export function createLobbyView(frame, { project, onChanged }) {
   async function routeAgain(request, flow) {
     if (routing.has(request.id) || !may("route")) return;
     routeNotices.delete(request.id);
-    const outcome = await routeRequest(api, project, request.id, flow || chosenFlow.get(request.id), { signal });
+    const outcome = await routeRequest(api, project, request.id, flow || chosenFlow.get(request.id), { params: chosenParams.get(request.id), signal });
     if (outcome.error) {
       routeNotices.set(request.id, notRoutedNotice(request.id, failureText(outcome.error)));
       redraw();

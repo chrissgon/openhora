@@ -83,6 +83,7 @@ def key_text(n=16):
 def test_the_kind_is_registered_with_three_steps_an_empty_footprint_and_is_not_started_by_the_dispatcher():
     found = steps.kind_of("project-script")
     assert found.order == ("verify", "deps", "run") and found.stops == () and found.unattended is False
+    assert found.brings_source is True and "project-script" in steps.sourcing_kinds()
     assert steps.footprint_of(found, {}) == []                       # it writes nothing in the project
     assert "project-script" in steps.load_builtin()
 
@@ -428,3 +429,11 @@ def test_a_project_without_the_provider_folder_fails_cleanly(world):
     (world["tree"] / "providers" / "script").rmdir() if not list((world["tree"] / "providers" / "script").iterdir()) else None
     out = run(world, made)
     assert out["ok"] is False and out["code"] in ("provider_failed", "not_configured")
+
+
+def test_a_workflow_task_after_a_project_script_receives_the_source_the_script_makes():
+    flow_files = st.load("flow_files")
+    flow = {"flow": "weekly", "tasks": [
+        {"key": "script", "step": "project-script", "args": {"source": "figures"}},
+        {"key": "report", "skill": "biz-market-analysis", "depends_on": ["script"]}]}
+    assert flow_files.sources_of(flow, steps.sourcing_kinds()) == {"report": ["figures"]}

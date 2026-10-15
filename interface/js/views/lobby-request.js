@@ -5,6 +5,7 @@
 
 import { createPlanCard } from "../cards/plan.js";
 import { failureText } from "../cards/plan-rows.js";
+import { createSaveFlow } from "../cards/save-flow.js";
 import { h } from "../dom.js";
 import { withheldLine } from "../floor/widgets.js";
 import * as format from "../format.js";
@@ -13,13 +14,16 @@ import { requestModelWords } from "../models.js";
 import * as router from "../router.js";
 import { QUEUE_REASON, ago, flowOptions, requestLine, requestWords, resolvedWord } from "./lobby-model.js";
 
-/** The line of a decision that is no longer open: a chip with "<kind> <resolution>" and the title and age. */
-function resolvedLine(item, now) {
+/**
+ * The line of a decision that is no longer open: a chip with "<kind> <resolution>" and the title and age. `save` (P6a) is the control "Save this
+ * plan as a workflow" (cards/save-flow.js), given for a plan the person approved: it sits under the line.
+ */
+function resolvedLine(item, now, save = null) {
   const good = item.status === "resolved" && item.resolution !== "rejected";
   const when = ago(item.resolved_at || item.created_at, now);
-  return h("div", { class: "wb-lobby-resolved" },
+  return h("div", { class: save ? "wb-lobby-resolved has-save" : "wb-lobby-resolved" },
     h("span", { class: `pui-chip pui-soft ${good ? "pui-success" : "pui-muted"} wb-chip-small`, text: resolvedWord(item) }),
-    h("span", { class: "wb-lobby-resolved-text", text: `${item.title || ""}${when ? ` · ${when}` : ""}` }));
+    h("span", { class: "wb-lobby-resolved-text", text: `${item.title || ""}${when ? ` · ${when}` : ""}` }), save);
 }
 
 /**
@@ -119,7 +123,7 @@ export function createBlock({ api, project, request, body, open, now, signal, on
         decisions.push(pointer(project, item, now));
       }
     } else {
-      decisions.push(resolvedLine(item, now));
+      decisions.push(resolvedLine(item, now, createSaveFlow({ api, project, item, can, signal })));
     }
   }
   const box = line.final ? null : h("div", { class: "wb-request-box" }, row, actions, withheldLine(lacking), fullText, notice);
