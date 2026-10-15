@@ -9,7 +9,7 @@ messenger): the runtime's sources module (runtime/sources.py) is its one caller,
 contracts/environment.md.
 
 What the container holds (providers/converter/Dockerfile): poppler's pdftotext and pandoc from a dated snapshot of the Debian archive,
-on a base image pinned by digest; openpyxl and Microsoft's MarkItDown (presentations only) in a virtual environment installed from
+on a base image pinned by digest; openpyxl and python-pptx (presentations) in a virtual environment installed from
 providers/converter/requirements.lock, every file checked against its sha256; and providers/converter/_inner.py, the program that
 drives them. The tools are adopted, none is rewritten (principle 14). The image is built here by a verb the person starts (`build --confirmed`),
 named by the hash of its definition, and never pulled when a conversion runs.
@@ -62,7 +62,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 import _container as box  # noqa: E402  (providers/_container.py: the one home of the container's lifecycle and limits)
 
 CLASS = "converter:document"
-PYTHON = "/opt/venv/bin/python"          # the image's virtual environment: MarkItDown and openpyxl are installed there, from the lock
+PYTHON = "/opt/venv/bin/python"          # the image's virtual environment: python-pptx and openpyxl are installed there, from the lock
 IMAGE_REPOSITORY = "openhora-converter"
 LABEL_DEFINITION = "org.openhora.definition"
 LABEL_RUN = "org.openhora.converter"

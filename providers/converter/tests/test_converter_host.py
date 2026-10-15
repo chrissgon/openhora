@@ -140,7 +140,7 @@ def lock_entries():
 def test_the_lock_names_every_package_by_an_exact_version_and_checks_every_file_by_sha256():
     entries = lock_entries()
     names = {e["name"] for e in entries}
-    assert {"markitdown", "python-pptx", "openpyxl", "magika", "lxml"} <= names
+    assert {"python-pptx", "openpyxl", "lxml"} <= names
     assert all(e["hashes"] for e in entries), "a package without a hash would not install under --require-hashes"
     text = (HERE.parent / "requirements.lock").read_text()
     for forbidden in ("git+", "http://", "https://", "--index-url", "--find-links", "-e "):
@@ -149,14 +149,17 @@ def test_the_lock_names_every_package_by_an_exact_version_and_checks_every_file_
     assert len(package_lines) == len(entries) and all("==" in ln for ln in package_lines), "every package line is pinned with =="
 
 
-def test_the_lock_holds_no_converter_that_reaches_out_or_calls_a_model():
-    """MarkItDown's extras for YouTube, audio, Azure, Outlook, PDF, Word and Excel are not installed: only the presentation's and openpyxl."""
+def test_the_lock_holds_only_the_two_libraries_and_what_they_need_and_nothing_that_reaches_out_or_calls_a_model():
+    """MarkItDown was measured and not adopted (docs/decisions.md): neither it nor what only it needs (magika, onnxruntime, numpy, requests,
+    an HTML or PDF parser, a model or cloud client) is in the image."""
     names = {e["name"] for e in lock_entries()}
-    for reaches in ("youtube-transcript-api", "azure-ai-documentintelligence", "azure-ai-contentunderstanding", "azure-identity",
-                    "speechrecognition", "pydub", "openai", "anthropic", "olefile", "pandas", "pdfminer-six", "pdfplumber", "mammoth"):
-        assert reaches not in names, reaches
+    for out in ("markitdown", "magika", "onnxruntime", "numpy", "requests", "urllib3", "beautifulsoup4", "markdownify", "pandas",
+                "pdfminer-six", "pdfplumber", "mammoth", "youtube-transcript-api", "azure-identity", "speechrecognition", "pydub",
+                "openai", "anthropic"):
+        assert out not in names, out
+    assert names == {"python-pptx", "openpyxl", "lxml", "pillow", "xlsxwriter", "typing-extensions", "et-xmlfile"}
     lines = [ln for ln in (HERE.parent / "requirements.in").read_text().splitlines() if ln and not ln.startswith("#")]
-    assert lines == ["markitdown[pptx]==0.1.8", "openpyxl==3.1.5"]
+    assert lines == ["python-pptx==1.0.2", "openpyxl==3.1.5"]
 
 
 @pytest.mark.parametrize("platform", ["linux", "darwin"])

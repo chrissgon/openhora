@@ -6,10 +6,11 @@ table on standard output. It is a measuring tool, not a test: nothing imports it
   docker run --rm --network none --read-only --tmpfs /scratch:rw,size=256m,mode=1777 --user 65534:65534 \\
       -v <repo>/providers/converter/tests:/cmp:ro <image> /opt/venv/bin/python -I /cmp/compare_tools.py [--runs 3] [--dump <folder>]
 
-The image must hold MarkItDown with the extras of the formats compared (docx, pdf, xlsx, pptx), which the production image does not (it
+COMPARE_INNER_DIR and COMPARE_SCRATCH name where _inner.py is and a writable folder, for a run outside a container (the times are then
+the machine's). The image must hold MarkItDown with the extras of the formats compared (docx, pdf, xlsx, pptx), which the production image does not (it
 holds the presentation's only): build one from a scratch copy of providers/converter with `markitdown[docx,pdf,xlsx,pptx]==0.1.8` added
-to requirements.in and the lock remade. The production program registers only the presentation converter; this script registers, one at a
-time, the converter of each format it compares.
+to requirements.in and the lock remade. The production program does not use MarkItDown (decisions.md); this script registers, one at a time, the MarkItDown converter
+of each format it compares, and runs the program's own function as "current" (for a presentation, python-pptx).
 
 For each fixture and each tool that can convert it, it measures, by script and not by eye:
   phrases sentences of the document that must come out whole (not cut by a column or a line) and in order
@@ -64,13 +65,16 @@ SPECS = {
                     ["hidden sheet text", "Internal", "NaN"], 0, 0, 0, []),
     "review.xlsx": ("xlsx", "Site Revenue Visits Dock Street 48200 9100 Mill Lane 39750 7400 Total 87950 16500 Highlights "
                             "Opening day sales beat the forecast Staff turnover fell to 8 percent Supplier costs stayed flat", [], 0, 0, 0, []),
+    "rich.pptx": ("pptx", "Opening checklist Unlock the doors Disarm the alarm Count the cash float Call the manager if the float is short "
+                          "Suppliers Name Terms Quay Beans net 30 invoice by mail A slide with no title", ["Draft pricing"], 3, 2, 3, []),
     "review.pptx": ("pptx", "Harbor Cafe Quarterly Review Fictional deck for the converter's tests Highlights Opening day sales beat "
                             "the forecast Staff turnover fell to 8 percent Supplier costs stayed flat Sites Site Revenue Visits Dock "
                             "Street 48200 9100 Mill Lane 39750 7400 Speaker note: thank the Dock Street team.", [], 3, 3, 3, []),
 }
 CHILD = r"""
 import json, sys, time
-sys.path.insert(0, "/opt/converter")
+import os
+sys.path.insert(0, os.environ.get("COMPARE_INNER_DIR", "/opt/converter"))
 kind, path, tool = sys.argv[1:4]
 start = time.perf_counter()
 import _inner
@@ -86,7 +90,7 @@ if tool == "markitdown":
         text = reader.convert_stream(stream, stream_info=StreamInfo(extension="." + kind)).markdown
 else:
     import tempfile
-    name, text, tools, notes = getattr(_inner, "convert_" + kind)(path, tempfile.mkdtemp(dir="/scratch"))
+    name, text, tools, notes = getattr(_inner, "convert_" + kind)(path, tempfile.mkdtemp(dir=os.environ.get("COMPARE_SCRATCH", "/scratch")))
 print(json.dumps({"text": text, "seconds": time.perf_counter() - start}))
 """
 
@@ -121,17 +125,17 @@ def run_once(kind: str, path: str, tool: str):
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--runs", type=int, default=3)
+    parser.add_argument("--only", help="only the fixtures whose name ends with this (for example .pptx)")
     parser.add_argument("--dump", help="a folder to write each converted text to (for reading)")
     args = parser.parse_args()
-    os.makedirs("/scratch/w", exist_ok=True)
+    os.makedirs(os.environ.get("COMPARE_SCRATCH", "/scratch"), exist_ok=True)
     print("| fixture | tool | lost words | phrases whole | forbidden | headings | table rows | table header | list items | noise | page marks | bytes | ms |")
     print("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     for name, (kind, expected, forbid, heads, rows, items, phrases) in sorted(SPECS.items()):
+        if args.only and not name.endswith(args.only):
+            continue
         path = os.path.join(FIXTURES, name)
         for tool in ("current", "markitdown"):
-            if tool == "current" and kind == "pptx":
-                print(f"| {name} | current | - | - | - | - | - | - | - | - | - | - | no tool |")
-                continue
             results, error = [], None
             for _ in range(args.runs):
                 got, error = run_once(kind, path, tool)

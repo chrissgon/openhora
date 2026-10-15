@@ -133,6 +133,33 @@ def pptx():
     deck.save(os.path.join(OUT, "review.pptx"))
 
 
+def rich_pptx():
+    import pptx
+    from pptx.util import Inches
+    deck = pptx.Presentation()
+    first = deck.slides.add_slide(deck.slide_layouts[1])
+    first.shapes.title.text = "Opening checklist"
+    frame = first.placeholders[1].text_frame
+    frame.text = "Unlock the doors"
+    for text, level in (("Disarm the alarm", 1), ("Count the cash float", 0)):
+        paragraph = frame.add_paragraph()
+        paragraph.text, paragraph.level = text, level
+    box = first.shapes.add_textbox(Inches(0.5), Inches(5.5), Inches(8), Inches(0.6))
+    box.text_frame.text = "Call the manager if the float is short"
+    second = deck.slides.add_slide(deck.slide_layouts[5])
+    second.shapes.title.text = "Suppliers"
+    shape = second.shapes.add_table(2, 2, Inches(0.5), Inches(1.8), Inches(8), Inches(1))
+    for r, row in enumerate([["Name", "Terms"], ["Quay Beans", "net 30 | invoice by mail"]]):
+        for c, text in enumerate(row):
+            shape.table.cell(r, c).text = text
+    hidden = deck.slides.add_slide(deck.slide_layouts[5])
+    hidden.shapes.title.text = "Draft pricing"
+    hidden._element.set("show", "0")
+    untitled = deck.slides.add_slide(deck.slide_layouts[6])
+    untitled.shapes.add_textbox(Inches(1), Inches(1), Inches(6), Inches(1)).text_frame.text = "A slide with no title"
+    deck.save(os.path.join(OUT, "rich.pptx"))
+
+
 def pdf():
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.styles import getSampleStyleSheet
@@ -187,6 +214,6 @@ def html():
 
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
-    for make in (docx, rich_docx, pptx, pdf, columns_pdf, xlsx, html, rich_html):
+    for make in (docx, rich_docx, pptx, rich_pptx, pdf, columns_pdf, xlsx, html, rich_html):
         make()
     print("wrote the review fixtures to", OUT)

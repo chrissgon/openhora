@@ -7,13 +7,13 @@
 #   - the package index, by a dated snapshot of the Debian archive: the same build tomorrow installs the same versions (apt checks
 #     the archive's signature, so plain http is enough before the certificates are installed).
 # The tools are adopted and none is rewritten (principle 14): poppler's pdftotext (package poppler-utils) for PDF and pandoc for Word and
-# HTML, both from the snapshot; openpyxl for spreadsheets and Microsoft's MarkItDown for presentations (pptx), both installed from
+# HTML, both from the snapshot; openpyxl for spreadsheets and python-pptx for presentations (pptx), both installed from
 # requirements.lock, and the rest is the standard library. Which tool converts which format was chosen by a measured comparison on the
 # committed fixtures (providers/converter/tests/compare_tools.py, docs/decisions.md).
 #   - the Python tools: `pip install --require-hashes --only-binary=:all: --no-deps -r requirements.lock` into /opt/venv, so every package
 #     is the exact version and the exact file the lock names (sha256), nothing is resolved at build time and no compiler is needed.
-#     MarkItDown is used only through its local-file API, with its plugins and every converter but the presentation's off
-#     (_inner.py); the container has no network anyway.
+#     Microsoft's MarkItDown was measured for every format and not adopted: only presentations gained, and it would have added
+#     about 213 MB (magika, onnxruntime, numpy) to the image (docs/decisions.md).
 # The image holds no compiler, no shell history and no credential; it runs as an unprivileged user.
 #
 # At run time the host starts it with no network, a read-only root file system, every capability dropped, no new privileges, a limit
@@ -38,7 +38,7 @@ RUN rm -f /etc/apt/sources.list.d/debian.sources \
       ca-certificates poppler-utils pandoc python3 python3-venv \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt /var/log/apt /var/log/dpkg.log
 
-# MarkItDown and everything it needs, from the lock: exact versions, every file checked against its sha256 (`--require-hashes`), wheels
+# python-pptx, openpyxl and what they need, from the lock: exact versions, every file checked against its sha256 (`--require-hashes`), wheels
 # only (the image holds no compiler), no dependency resolved at build time (`--no-deps`: the lock lists them all). The virtual
 # environment is /opt/venv; the program runs with its interpreter. pip is removed afterwards, and the byte code is compiled now
 # because the root file system is read-only when a conversion runs.

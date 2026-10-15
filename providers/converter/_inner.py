@@ -4,8 +4,8 @@ converts one document to text with adopted open tools and prints the result on i
 imported by the host except in the tests, and it never runs on the host in production.
 
 What it uses, all of it adopted and none of it written here: poppler's `pdftotext` for a PDF, pandoc for a Word document and
-an HTML page, openpyxl for a spreadsheet, Microsoft's MarkItDown for a presentation (local files only, plugins and every converter
-but the presentation's off), and the standard library for CSV and plain text. Each tool reads the one input file;
+an HTML page, openpyxl for a spreadsheet, python-pptx for a presentation (a small function here writes its slides as Markdown), and the
+standard library for CSV and plain text. Each tool reads the one input file;
 the container has no network, a read-only root file system, no capability, and a memory-backed /scratch, and the host copies
 back only what this program prints.
 
@@ -22,7 +22,7 @@ there, not trusted from here. A conversion that fails prints nothing on standard
 with a code that is not 0.
 
 The converted text is cut at CAP + 1 bytes, so that the host sees it is over the cap and refuses the file; the host's cap is the
-one that counts. Standard library, plus openpyxl for a spreadsheet and MarkItDown for a presentation (both in the image's virtual environment).
+one that counts. Standard library, plus openpyxl for a spreadsheet and python-pptx for a presentation (both in the image's virtual environment).
 """
 from __future__ import annotations
 
@@ -46,9 +46,6 @@ TEXT_CAP = 8 * 1024 * 1024            # what a tool's text is read up to before 
 CSV_DELIMITERS = ",;\t|"
 SCRIPTLIKE = re.compile(r"(?is)<(script|style|noscript|template)\b.*?</\1\s*>")
 PAGE_BREAK = "\f"
-# The MarkItDown converter registered for a kind, and the extension it is told. A kind not listed is not converted by MarkItDown: the
-# comparison of docs/decisions.md kept the other tools for the other formats (providers/converter/tests/compare_tools.py).
-MARKITDOWN_CONVERTERS = {"pptx": ("PptxConverter", ".pptx")}
 # The tools are found on this PATH. In the container nothing sets CONVERTER_TOOL_PATH (no environment variable of the host passes), so
 # it is always the default; a test on a machine that keeps pandoc elsewhere sets it.
 ENV = {"PATH": os.environ.get("CONVERTER_TOOL_PATH") or "/usr/local/bin:/usr/bin:/bin", "HOME": "/tmp", "LANG": "C.UTF-8",
@@ -260,44 +257,81 @@ def forbid_network() -> None:
     socket.getaddrinfo = refuse
 
 
-def markitdown_reader(kind: str):
-    """A MarkItDown with its built-in converters and its plugins off and ONE converter registered by hand, the one for this kind
-    (MARKITDOWN_CONVERTERS). The YouTube, Wikipedia, RSS, audio, image-description, Outlook, EPUB, notebook, ZIP and CSV converters,
-    Azure Document Intelligence and Content Understanding, and any language-model client are never registered, so a type that is
-    not the kind's is refused as unsupported; plugins are never loaded (no entry point is read)."""
-    wanted = MARKITDOWN_CONVERTERS.get(kind)
-    if wanted is None:
-        raise Failed(f"MarkItDown does not convert the type {kind!r} here")
-    from markitdown import MarkItDown
-    from markitdown import converters as available
-    reader = MarkItDown(enable_builtins=False, enable_plugins=False)
-    reader.register_converter(getattr(available, wanted[0])())
-    return reader
+def table_rows(table) -> list:
+    """The rows of a presentation's table as lists of cell text (a line break in a cell becomes a space, a pipe is escaped)."""
+    rows = []
+    for row in table.rows:
+        rows.append([" ".join(c.text_frame.text.split()).replace("|", "\\|") if c.text_frame is not None else "" for c in row.cells])
+    return rows
 
 
-def markitdown_text(kind: str, path: str):
-    """Markdown from MarkItDown (Microsoft's open converter) for one local file, and its version. Only the local, stream API is
-    used: `convert_stream` on the open file, never `convert`, `convert_uri` or `convert_url`, so a string that looks like an address
-    is never fetched. A failure of the library is a conversion error with a closed message, never a crash."""
-    forbid_network()
-    try:
-        reader = markitdown_reader(kind)
-        from markitdown import StreamInfo
-        import markitdown
-        with open(path, "rb") as stream:
-            result = reader.convert_stream(stream, stream_info=StreamInfo(extension=MARKITDOWN_CONVERTERS[kind][1]))
-        text, version = result.markdown, getattr(markitdown, "__version__", None)
-    except Failed:
-        raise
-    except Exception as e:  # the library raises its own errors, its dependencies' and the stream's: one closed message
-        raise Failed(f"MarkItDown could not convert the {kind} file: {type(e).__name__}") from None
-    return text.replace("\x00", ""), version
+def markdown_table(rows: list) -> list:
+    width = max((len(r) for r in rows), default=0)
+    if not width:
+        return []
+    rows = [r + [""] * (width - len(r)) for r in rows]
+    lines = ["| " + " | ".join(rows[0]) + " |", "|" + " --- |" * width]
+    lines += ["| " + " | ".join(r) + " |" for r in rows[1:]]
+    return lines
+
+
+def shape_blocks(shapes, title, out: list) -> None:
+    """The text of the shapes of a slide in the order they are stored: a text frame as paragraphs (a placeholder of the body as list
+    items, indented by level), a table as a Markdown table, a group by its members. The title shape is the heading; pictures, charts
+    and other objects hold no text that is read."""
+    for shape in shapes:
+        if getattr(shape, "shape_type", None) == 6 and hasattr(shape, "shapes"):    # a group of shapes
+            shape_blocks(shape.shapes, title, out)
+            continue
+        if getattr(shape, "has_table", False) and shape.has_table:
+            out.append("\n".join(markdown_table(table_rows(shape.table))))
+            continue
+        if (title is not None and shape.shape_id == title.shape_id) or not getattr(shape, "has_text_frame", False) or not shape.has_text_frame:
+            continue
+        body = shape.is_placeholder and shape.placeholder_format.type is not None and int(shape.placeholder_format.type) in (2, 7)
+        lines = []
+        for paragraph in shape.text_frame.paragraphs:
+            text = " ".join(paragraph.text.split())
+            if text:
+                lines.append(("  " * paragraph.level + "- " + text) if body else text)
+        if lines:
+            out.append("\n".join(lines))
 
 
 def convert_pptx(path: str, work: str):
+    """A presentation as Markdown with python-pptx: one section per slide, headed by the slide's title (`# Slide n` when it has none),
+    then its text frames, tables and, under `### Notes`, its speaker notes. A hidden slide is not read and the manifest says so.
+    Nothing is fetched: python-pptx reads the one package, the process cannot open a connection (forbid_network), and a failure of the
+    library is a conversion error that names the exception class and nothing else."""
+    forbid_network()
     check_package(path)
-    text, version = markitdown_text("pptx", path)
-    return "converted.md", text.strip() + "\n", {"markitdown": version}, []
+    try:
+        import pptx
+        deck = pptx.Presentation(path)
+        parts, notes = [], []
+        for number, slide in enumerate(deck.slides, 1):
+            if slide._element.get("show") == "0":
+                notes.append(f"the hidden slide {number} was not read")
+                continue
+            title = slide.shapes.title
+            heading = " ".join(title.text_frame.text.split()) if title is not None and title.has_text_frame else ""
+            blocks = ["# " + (heading or f"Slide {number}")]
+            shape_blocks(slide.shapes, title, blocks)
+            if slide.has_notes_slide and slide.notes_slide.notes_text_frame is not None:
+                spoken = slide.notes_slide.notes_text_frame.text.strip()
+                if spoken:
+                    blocks.append("### Notes\n\n" + spoken)
+            parts.append("\n\n".join(blocks))
+            if sum(len(p) for p in parts) > CAP:
+                notes.append(f"the presentation was cut after slide {number}")
+                break
+        text = "\n\n".join(parts).replace("\x00", "")
+        version = getattr(pptx, "__version__", None)
+    except Failed:
+        raise
+    except Exception as e:  # the library raises its own errors and its dependencies': one closed message, the class name only
+        raise Failed(f"python-pptx could not convert the pptx file: {type(e).__name__}") from None
+    return "converted.md", text.strip() + "\n", {"python-pptx": version}, notes
 
 
 def convert(kind: str, path: str, work: str):

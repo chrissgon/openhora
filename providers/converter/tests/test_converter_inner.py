@@ -157,69 +157,55 @@ def test_the_program_prints_frames_and_nothing_else_on_standard_output(inner, tm
     assert set(parsed) == {"converted.csv", "info.json"} and json.loads(parsed["info.json"])["kind"] == "csv"
 
 
-# --- presentations: Microsoft's MarkItDown, local files only -----------------------------------------------------------------------
+# --- presentations: python-pptx, local files only ----------------------------------------------------------------------------------
 
 
-needs_markitdown = pytest.mark.skipif(importlib.util.find_spec("markitdown") is None or importlib.util.find_spec("pptx") is None,
-                                      reason="MarkItDown with its presentation extra is not on this machine (it is in the image)")
+needs_pptx = pytest.mark.skipif(importlib.util.find_spec("pptx") is None,
+                                reason="python-pptx is not on this machine (it is in the image, from the lock)")
 
 
-@needs_markitdown
+@needs_pptx
 def test_a_presentation_comes_out_as_markdown_with_a_section_per_slide_its_table_and_its_notes(inner, tmp_path):
     kind, name, data, tools, notes = convert(inner, "pptx", "review.pptx", tmp_path)
     text = data.decode()
-    assert (kind, name) == ("pptx", "converted.md") and tools["markitdown"] and notes == []
+    assert (kind, name) == ("pptx", "converted.md") and tools["python-pptx"] and notes == []
     assert [line for line in text.splitlines() if line.startswith("# ")] == ["# Harbor Cafe Quarterly Review", "# Highlights", "# Sites"]
-    assert "Opening day sales beat the forecast" in text and "| Dock Street | 48200 | 9100 |" in text
-    assert "Speaker note: thank the Dock Street team." in text
+    assert text.count("Harbor Cafe Quarterly Review") == 1, "the title is the heading and is not written again as text"
+    assert "Fictional deck for the converter's tests" in text
+    assert "- Opening day sales beat the forecast\n- Staff turnover fell to 8 percent\n- Supplier costs stayed flat" in text
+    assert "| Site | Revenue | Visits |\n| --- | --- | --- |\n| Dock Street | 48200 | 9100 |\n| Mill Lane | 39750 | 7400 |" in text
+    assert "### Notes\n\nSpeaker note: thank the Dock Street team." in text
+    assert text.index("# Highlights") < text.index("### Notes") < text.index("# Sites"), "the notes stay with their slide"
     assert convert(inner, "ooxml", "review.pptx", tmp_path)[0] == "pptx", "an undetermined package is read from its content types"
 
 
-@needs_markitdown
-def test_only_the_presentation_converter_is_registered_and_no_plugin_entry_point_is_ever_read(inner, monkeypatch, tmp_path):
-    import importlib.metadata
-    asked = []
-    real = importlib.metadata.entry_points
-
-    def spy(*args, **kwargs):
-        asked.append(kwargs.get("group") or (args[0] if args else None))
-        return real(*args, **kwargs)
-
-    monkeypatch.setattr(importlib.metadata, "entry_points", spy)
-    reader = inner.markitdown_reader("pptx")
-    assert [type(r.converter).__name__ for r in reader._converters] == ["PptxConverter"]
-    assert reader._plugins_enabled is False and reader._builtins_enabled is False
-    inner.markitdown_text("pptx", str(FIXTURES / "review.pptx"))
-    assert not any("markitdown" in str(group) for group in asked), asked
-    for kind in ("docx", "pdf", "xlsx", "html", "csv", "text", "ooxml"):
-        with pytest.raises(inner.Failed):
-            inner.markitdown_reader(kind)
+@needs_pptx
+def test_text_boxes_levels_a_pipe_in_a_cell_an_untitled_slide_and_a_hidden_slide(inner, tmp_path):
+    kind, name, data, tools, notes = convert(inner, "pptx", "rich.pptx", tmp_path)
+    text = data.decode()
+    assert "- Unlock the doors\n  - Disarm the alarm\n- Count the cash float" in text, "a level is an indent"
+    assert "Call the manager if the float is short" in text, "a text box that is no placeholder is read"
+    assert "| Quay Beans | net 30 \\| invoice by mail |" in text, "a pipe in a cell is escaped"
+    assert "# Slide 4\n\nA slide with no title" in text, "a slide with no title is headed by its number"
+    assert "Draft pricing" not in text and notes == ["the hidden slide 3 was not read"]
 
 
-@needs_markitdown
-def test_the_reader_refuses_what_is_not_a_presentation_even_when_the_content_names_an_address(inner):
-    import io
-    from markitdown import StreamInfo
-    from markitdown._exceptions import UnsupportedFormatException
-    reader = inner.markitdown_reader("pptx")
-    for extension, body in ((".txt", b"https://www.youtube.com/watch?v=abc"), (".html", b"<a href='https://wikipedia.example'>x</a>"),
-                            (".mp3", b"ID3"), (".png", b"\x89PNG\r\n\x1a\n"), (".rss", b"<rss></rss>"), (".csv", b"a,b\n1,2\n")):
-        with pytest.raises(UnsupportedFormatException):
-            reader.convert_stream(io.BytesIO(body), stream_info=StreamInfo(extension=extension))
-
-
-def test_the_process_cannot_open_a_connection_or_resolve_a_name_once_the_guard_is_on(inner, monkeypatch):
+def test_only_python_pptx_reads_a_presentation_and_the_process_cannot_open_a_connection_while_it_does(inner, monkeypatch):
+    """Nothing in the program imports a converter library but the one for the format, and a presentation is read with the socket guard on."""
     import socket
     for attribute in ("connect", "connect_ex"):
         monkeypatch.setattr(socket.socket, attribute, getattr(socket.socket, attribute))
     monkeypatch.setattr(socket, "create_connection", socket.create_connection)
     monkeypatch.setattr(socket, "getaddrinfo", socket.getaddrinfo)
-    inner.forbid_network()
+    source = INNER.read_text()
+    assert "markitdown" not in source.lower()
+    with pytest.raises(inner.Failed):
+        inner.convert_pptx(str(FIXTURES / "notes.docx"), str(FIXTURES))     # a package that is not a presentation
     for attempt in (lambda: socket.create_connection(("127.0.0.1", 9), 1), lambda: socket.getaddrinfo("cafe.example", 80),
                     lambda: socket.socket().connect(("127.0.0.1", 9))):
         with pytest.raises(OSError) as refused:
             attempt()
-        assert "no network connection" in str(refused.value)
+        assert "no network connection" in str(refused.value), "the guard was switched on by the conversion"
 
 
 @pytest.mark.parametrize("address", ["https://cafe.example/menu.pptx", "http://127.0.0.1:8080/x", "file:///etc/passwd",
@@ -230,7 +216,7 @@ def test_an_input_that_is_an_address_or_not_an_absolute_path_is_refused_before_a
     assert code == 3 and captured.out == "" and "never an address" in captured.err
 
 
-@needs_markitdown
+@needs_pptx
 def test_a_broken_presentation_is_a_conversion_error_with_a_closed_message_and_nothing_on_standard_output(inner, tmp_path, capsys):
     broken = tmp_path / "broken.pptx"
     with zipfile.ZipFile(broken, "w") as z:
@@ -238,7 +224,7 @@ def test_a_broken_presentation_is_a_conversion_error_with_a_closed_message_and_n
         z.writestr("ppt/presentation.xml", "<p:presentation/>")
     code = inner.main(["--type", "pptx", "--input", str(broken), "--work", str(tmp_path / "w")])
     captured = capsys.readouterr()
-    assert code == 3 and captured.out == "" and captured.err.startswith("error: MarkItDown could not convert the pptx file: ")
+    assert code == 3 and captured.out == "" and captured.err.startswith("error: python-pptx could not convert the pptx file: ")
     assert str(tmp_path) not in captured.err, "no path of the machine in the message"
     fake = tmp_path / "fake.pptx"
     fake.write_bytes(b"not a package")

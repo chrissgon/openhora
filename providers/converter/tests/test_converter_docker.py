@@ -69,8 +69,9 @@ def convert(tmp_path, image, name, kind):
     ("notes.docx", "docx", ["# Interview notes", "**shorter forms**", "pear 3.1"]),
     ("notes.docx", "ooxml", ["# Interview notes"]),
     ("review.pptx", "pptx", ["# Harbor Cafe Quarterly Review", "# Highlights", "Staff turnover fell to 8 percent",
-                             "| Dock Street | 48200 | 9100 |", "Speaker note: thank the Dock Street team."]),
+                             "| Dock Street | 48200 | 9100 |", "### Notes\n\nSpeaker note: thank the Dock Street team."]),
     ("review.pptx", "ooxml", ["# Sites"]),
+    ("rich.pptx", "pptx", ["- Unlock the doors\n  - Disarm the alarm", "net 30 \\| invoice by mail", "# Slide 4"]),
     ("review.docx", "docx", ["# Harbor Cafe Quarterly Review", "## Next steps", "| Site        | Revenue | Visits |"]),
     ("review.html", "html", ["## Highlights", "[the loyalty page](https://cafe.example/loyalty)", "| Mill Lane   | 39750   | 7400   |"]),
     ("review.pdf", "pdf", ["[page 1]", "[page 2]", "Dock Street"]),
@@ -89,7 +90,7 @@ def test_each_text_format_comes_out_as_markdown(tmp_path, image, name, kind, exp
     assert info["converter"] == "document" and info["kind"] == (ooxml[name] if kind == "ooxml" else kind)
     assert done["image"] == image and (done["tool_versions"] or kind == "text"), "the tools that ran are recorded"
     if kind == "pptx" or (kind == "ooxml" and name == "review.pptx"):
-        assert done["tool_versions"] == {"markitdown": "0.1.8"}
+        assert done["tool_versions"] == {"python-pptx": "1.0.2"}
 
 
 def test_a_csv_with_semicolons_and_a_workbook_come_out_as_csv_or_as_markdown_with_a_section_per_sheet(tmp_path, image):
@@ -186,26 +187,23 @@ def test_the_image_really_has_no_network_a_read_only_root_a_scratch_with_no_exec
     assert tools == "[True, True]"
 
 
-def test_markitdown_in_the_image_is_the_pinned_version_with_no_plugin_no_address_and_no_converter_but_the_presentations(tmp_path, image):
-    code = ("import sys, importlib.metadata as m\nsys.path.insert(0, '/opt/converter')\nimport markitdown, _inner\n"
-            "asked = []\nreal = m.entry_points\n"
-            "def spy(*a, **k):\n asked.append(str(k.get('group') or a))\n return real(*a, **k)\n"
-            "m.entry_points = spy\n"
-            "reader = _inner.markitdown_reader('pptx')\n"
-            "print(markitdown.__version__, [type(r.converter).__name__ for r in reader._converters], reader._plugins_enabled, "
-            "any('markitdown' in a for a in asked))\n"
+def test_python_pptx_in_the_image_is_the_pinned_version_with_no_pip_no_markitdown_and_an_address_refused(tmp_path, image):
+    code = ("import sys, importlib.util\nsys.path.insert(0, '/opt/converter')\nimport pptx\n"
+            "print(pptx.__version__, importlib.util.find_spec('markitdown'), importlib.util.find_spec('onnxruntime'), "
+            "importlib.util.find_spec('numpy'))\n"
             "try:\n import pip\n print('pip present')\nexcept ImportError:\n print('no pip')")
     code_, err, out = probe(image, tmp_path, code)
     assert code_ == 0, err
-    assert out.splitlines() == ["0.1.8 ['PptxConverter'] False False", "no pip"]
+    assert out.splitlines() == ["1.0.2 None None None", "no pip"]
     for address in ("https://cafe.example/menu.pptx", "file:///etc/passwd", "data:text/plain;base64,aGk="):
         code_, err, out = probe(image, tmp_path, "import subprocess, sys\nr = subprocess.run([sys.executable, '-I', '/opt/converter/_inner.py', "
                                                   f"'--type', 'pptx', '--input', {address!r}], capture_output=True)\n"
                                                   "print(r.returncode, r.stdout, r.stderr)")
         assert out.strip().startswith("3 b'' b'error: the input is a file path, never an address"), out
-    code_, err, out = probe(image, tmp_path, "import sys\nsys.path.insert(0, '/opt/converter')\nimport _inner\n"
-                                              "try:\n _inner.markitdown_text('pptx', '/in/input')\nexcept _inner.Failed as e:\n print('FAILED', e)")
-    assert out.startswith("FAILED MarkItDown could not convert the pptx file")
+    code_, err, out = probe(image, tmp_path, "import sys, socket\nsys.path.insert(0, '/opt/converter')\nimport _inner\n"
+                                              "try:\n _inner.convert_pptx('/in/input', '/scratch')\nexcept _inner.Failed as e:\n print('FAILED', e)\n"
+                                              "try:\n socket.create_connection(('1.1.1.1', 53), 1)\nexcept OSError as e:\n print(e)")
+    assert out.splitlines()[0].startswith("FAILED") and out.splitlines()[1] == "the converter makes no network connection"
 
 
 def test_the_label_that_marks_the_containers_leaves_none_behind(image):

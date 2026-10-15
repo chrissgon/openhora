@@ -1,7 +1,7 @@
-# The converter image's Python tools, installed into /opt/venv from the lock below: MarkItDown for presentations (pptx) only, and openpyxl for
+# The converter image's Python tools, installed into /opt/venv from the lock below: python-pptx for presentations (pptx) and openpyxl for
 # spreadsheets. The other formats keep their adopted tools (docs/decisions.md). The lock holds every dependency, by exact version and sha256.
 # Remake the lock (needs the network) with:
 #   uv pip compile providers/converter/requirements.in --universal --python-version 3.11 --generate-hashes --only-binary :all: \
 #       --no-header -o providers/converter/requirements.lock
-markitdown[pptx]==0.1.8
+python-pptx==1.0.2
 openpyxl==3.1.5
