@@ -113,7 +113,7 @@ jobs:
         run: WB_EVAL_DOCKER_TESTS=1 uv run --with pytest==9.1.1 pytest -q evals/tests/test_executor_docker.py evals/tests/test_keyproxy_docker.py
 
   # The document converter of the sources (providers/converter/): its image built from the pinned definition, and each format converted in a
-  # real container with no network (poppler, pandoc, openpyxl from the dated Debian snapshot); and the renderer's twin image (providers/exporter/),
+  # real container with no network (poppler, pandoc from the dated Debian snapshot; openpyxl and python-pptx from the hash-checked lock).; and the exporter's twin image (providers/exporter/),
   # each output format made in a real container, the formula guard read back from the real files. No model call.
   converter:
     name: converter

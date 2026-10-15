@@ -3,14 +3,15 @@
 # requires-python = ">=3.9"
 # dependencies = []
 # ///
-"""The converter of documents (class converter:document): PDF, Word, spreadsheet, HTML, CSV and plain text to text, by adopted open
+"""The converter of documents (class converter:document): PDF, Word, spreadsheet, presentation, HTML, CSV and plain text to text, by adopted open
 tools run in a container on this machine, and nothing else. A class the runtime uses, not one a skill may require (like the
 messenger): the runtime's sources module (runtime/sources.py) is its one caller, and it is on purpose not in
 contracts/environment.md.
 
-What the container holds (providers/converter/Dockerfile): poppler's pdftotext, pandoc and openpyxl, from a dated snapshot of
-the Debian archive, on a base image pinned by digest, and providers/converter/_inner.py, the program that drives them. The
-tools are adopted, none is rewritten (principle 14). The image is built here by a verb the person starts (`build --confirmed`),
+What the container holds (providers/converter/Dockerfile): poppler's pdftotext and pandoc from a dated snapshot of the Debian archive,
+on a base image pinned by digest; openpyxl and python-pptx (presentations) in a virtual environment installed from
+providers/converter/requirements.lock, every file checked against its sha256; and providers/converter/_inner.py, the program that
+drives them. The tools are adopted, none is rewritten (principle 14). The image is built here by a verb the person starts (`build --confirmed`),
 named by the hash of its definition, and never pulled when a conversion runs.
 
 How a conversion runs (the limits are providers/_container.py's: no network, a read-only root, every capability dropped, no new
@@ -30,7 +31,7 @@ Usage:
   python3 providers/converter/container.py --help
   python3 providers/converter/container.py --check
   python3 providers/converter/container.py build (--dry-run | --confirmed)
-  python3 providers/converter/container.py convert --input <file> --type <pdf|docx|xlsx|ooxml|html|csv|text> --out-dir <folder>
+  python3 providers/converter/container.py convert --input <file> --type <pdf|docx|xlsx|pptx|ooxml|html|csv|text> --out-dir <folder>
                                                     [--timeout <seconds>]
 
   --check     exit 0 when docker is usable on this machine, its daemon is local and the image of the current definition exists
@@ -61,11 +62,12 @@ sys.path.insert(0, os.path.dirname(HERE))
 import _container as box  # noqa: E402  (providers/_container.py: the one home of the container's lifecycle and limits)
 
 CLASS = "converter:document"
+PYTHON = "/opt/venv/bin/python"          # the image's virtual environment: python-pptx and openpyxl are installed there, from the lock
 IMAGE_REPOSITORY = "openhora-converter"
 LABEL_DEFINITION = "org.openhora.definition"
 LABEL_RUN = "org.openhora.converter"
-DEFINITION_FILES = ("Dockerfile", ".dockerignore", "_inner.py")
-SUBTYPES = ("pdf", "docx", "xlsx", "ooxml", "html", "csv", "text")
+DEFINITION_FILES = ("Dockerfile", ".dockerignore", "_inner.py", "requirements.lock")
+SUBTYPES = ("pdf", "docx", "xlsx", "pptx", "ooxml", "html", "csv", "text")
 OUTPUT_NAMES = ("converted.md", "converted.csv", "info.json")
 OUTPUT_ENTRIES_MAX = 2                   # one converted text and its info
 CONVERTED_CAP = 1024 * 1024 + 1          # one byte over runtime/sources.py CONVERTED_CAP: the caller sees "over the cap" and refuses
@@ -188,7 +190,7 @@ def write_outputs(out_dir: str, outputs: dict) -> list:
 
 def command_for(name: str, image: str, input_path: str, kind: str, timeout: int) -> list:
     """The exact `docker run` command of one conversion (every limit is _container.argv's)."""
-    return box.argv(name, image, ["python3", "-I", "/opt/converter/_inner.py", "--type", kind, "--input", "/in/input"],
+    return box.argv(name, image, [PYTHON, "-I", "/opt/converter/_inner.py", "--type", kind, "--input", "/in/input"],
                     label=LABEL_RUN, deadline=int(time.time()) + timeout + 60,
                     mounts=[(input_path, "/in/input", "ro")], memory_mb=MEMORY_MB, cpus=CPUS, scratch_mb=SCRATCH_MB,
                     pids_limit=PIDS)
