@@ -14,13 +14,18 @@ import pytest
 STOPPING_OWNERS = ("ops_runs", "workbench_eval_execution")
 
 
-@pytest.fixture(autouse=True)
-def a_stopping_flag_does_not_outlive_its_test():
-    yield
+def clear_stopping_flags():
+    """Clear the STOPPING flag of each module that holds one and is loaded."""
     for name in STOPPING_OWNERS:
         flag = getattr(sys.modules.get(name), "STOPPING", None)
         if hasattr(flag, "clear"):
             flag.clear()
+
+
+@pytest.fixture(autouse=True)
+def a_stopping_flag_does_not_outlive_its_test():
+    yield
+    clear_stopping_flags()
 
 
 # The Python 3.9 job (.github/workflows/checks.yml) tests what the scheduler starts with the system interpreter. The

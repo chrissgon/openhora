@@ -32,8 +32,8 @@ def test_the_hook_runs_pytest_with_xdist_under_the_clean_git_environment():
     assert "-n auto" in line and "--with pytest-xdist==3.8.0" in line
     assert "--with pytest==9.1.1" in line
     # The prefix that clears git's variables sits on the line before and continues onto the pytest line.
-    previous = lines[index[0] - 1].strip()
-    assert previous == ENV_PREFIX + " \\"
+    previous = lines[index[0] - 1]
+    assert previous.strip().startswith(ENV_PREFIX) and previous.endswith(" \\")  # no space after the backslash
 
 
 def test_the_tests_and_python39_jobs_run_pytest_in_parallel_with_a_25_minute_limit():
