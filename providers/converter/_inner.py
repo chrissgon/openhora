@@ -389,7 +389,7 @@ IMPLIED_END = {"p": ("p",), "li": ("li",), "dt": ("dt", "dd"), "dd": ("dt", "dd"
                "th": ("td", "th"), "option": ("option",)}
 VOID_TAGS = frozenset("area base br col embed hr img input link meta param source track wbr".split())
 UNREAD_TAGS = frozenset(("script", "style", "noscript", "template"))     # what a converter never reads, whatever it holds
-HEAD_TAGS = frozenset(("html", "head", "title", "meta", "link", "base", "style", "script", "noscript", "template"))
+HEAD_TAGS = frozenset(("html", "head", "xtitle", "meta", "link", "base", "style", "script", "noscript", "template"))
 HINT_TAG_MAX, HINT_KINDS_MAX, HINT_MAX = 20, 3, 80                       # what a hint holds: the info.json that carries it stays under INFO_CAP
 NAMED_COLORS = {
     "white": (255, 255, 255), "black": (0, 0, 0), "snow": (255, 250, 250), "ivory": (255, 255, 240), "whitesmoke": (245, 245, 245),
@@ -543,9 +543,16 @@ class HiddenScan:
         self.number = 0
         self.unread = 0
         self.in_head = False
+        self.body_seen = False
+        self.title_open = False
+        self.title_hidden = None
+        self.capped = False
         self.owners = {}
 
     def feed(self, html: str) -> None:
+        # Newer versions of html.parser read the content of a <title> as plain text up to </title> (as the HTML standard does), so a title
+        # that is never closed would swallow the page. A converter reads the tags either way, so the title is renamed before the parse.
+        html = re.sub(r"(?i)<(/?)title(?=[\s>/])", r"<\1xtitle", html)
         self.parser.feed(html)
         self.parser.close()
 
@@ -561,10 +568,23 @@ class HiddenScan:
 
     def start(self, tag, pairs) -> None:
         self.number += 1
-        if tag in ("head", "title"):
+        if tag == "xtitle":
+            # A title is never shown (the browser's own style sheet hides it), wherever it stands. Its text outside the head, and the
+            # rest of a page after a title that was never closed (a browser reads it all as the title), is hidden text; a converter
+            # that reads the tags reads it as the page's text.
+            self.title_open = True
+            self.title_owner = {"n": self.number, "tag": "title"}
+            if self.body_seen:
+                self.title_hidden = self.title_owner
+        if tag in ("head", "xtitle"):
             self.in_head = True
         elif self.in_head and tag not in HEAD_TAGS:
             self.in_head = False                  # a head or a title that was never closed ends where the body's first tag begins
+            self.body_seen = True
+            if self.title_open:
+                self.title_hidden = self.title_owner
+        elif tag not in HEAD_TAGS:
+            self.body_seen = True
         if tag in UNREAD_TAGS:
             self.unread += 1
         if tag in VOID_TAGS:
@@ -634,21 +654,31 @@ class HiddenScan:
     def end(self, tag) -> None:
         if tag in UNREAD_TAGS and self.unread:
             self.unread -= 1
-        if tag in ("head", "title"):
+        if tag == "xtitle":
+            self.title_open = False
+            self.title_hidden = None
+        if tag in ("head", "xtitle"):
             self.in_head = False
         for depth in range(len(self.stack) - 1, max(-1, len(self.stack) - 40), -1):
             if self.stack[depth]["tag"] == tag:
                 del self.stack[depth:]
                 return
 
-    def data(self, text) -> None:
-        if self.unread or self.in_head or not text.strip() or not self.stack or not self.stack[-1]["reasons"]:
-            return
-        owner = next(e for e in self.stack if e["reasons"])
+    def note(self, owner: dict, reasons) -> None:
         if owner["n"] not in self.owners and len(self.owners) >= HIDDEN_OWNERS_MAX:
+            self.capped = True
             return
-        found = self.owners.setdefault(owner["n"], {"tag": owner["tag"], "kinds": set()})
-        found["kinds"] |= self.stack[-1]["reasons"]
+        self.owners.setdefault(owner["n"], {"tag": owner["tag"], "kinds": set()})["kinds"] |= set(reasons)
+
+    def data(self, text) -> None:
+        if self.unread or not text.strip():
+            return
+        if self.title_hidden is not None:
+            self.note(self.title_hidden, ("display_none",))
+            return
+        if self.in_head or not self.stack or not self.stack[-1]["reasons"]:
+            return
+        self.note(next(e for e in self.stack if e["reasons"]), self.stack[-1]["reasons"])
 
     def result(self) -> dict:
         kinds = {}
@@ -656,7 +686,10 @@ class HiddenScan:
             for kind in owner["kinds"]:
                 kinds[kind] = kinds.get(kind, 0) + 1
         hints = [hint_of(owner, n) for n, owner in sorted(self.owners.items())[:HIDDEN_HINTS_MAX]]
-        return {"examined": True, "count": len(self.owners), "kinds": {k: kinds[k] for k in HIDDEN_KINDS if k in kinds}, "hints": hints}
+        record = {"examined": True, "count": len(self.owners), "kinds": {k: kinds[k] for k in HIDDEN_KINDS if k in kinds}, "hints": hints}
+        if self.capped:
+            record["capped"] = True               # the count stops at HIDDEN_OWNERS_MAX: there are at least that many
+        return record
 
 
 def hidden_in_html(html: str) -> dict:

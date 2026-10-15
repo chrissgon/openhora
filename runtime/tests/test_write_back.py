@@ -460,3 +460,12 @@ def test_a_standing_approval_cannot_name_the_write_effect():
     with pytest.raises(ValueError):
         st.load("autonomy").bounds_of(bounds, "runtime", ops._bounds_words())
     assert "write" in ops._effect_words() and "write" not in ops._bounds_words() and "publish" in ops._bounds_words()
+
+
+def test_the_source_must_be_bound_to_exactly_the_target_page_not_to_a_page_whose_address_merely_holds_its_id(world):
+    kind = st.load("step_write_back")
+    page = "0123456789abcdef0123456789abcdef"
+    assert kind._same_page(page, "01234567-89ab-cdef-0123-456789abcdef")
+    assert not kind._same_page(page, "0123456789abcdef")           # a part of the page's id
+    assert not kind._same_page(None, page) and not kind._same_page("", page) and not kind._same_page(page, "")
+    assert not kind._same_page("0123456789abcdef0123456789abcdee", page)

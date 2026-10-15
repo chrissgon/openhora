@@ -96,7 +96,7 @@ def test_the_arguments_are_checked_when_the_task_is_planned(fmt, args):
 @pytest.mark.parametrize("cell", ["=1+1", "+1+1", "-1+1", "@SUM(A1:A2)", "\tcmd", "\rcmd", "\ncmd", "\uff1d1+1", "  =lead", "\u200b=lead"])
 def test_limit_32_a_cell_that_starts_with_a_formula_character_is_written_as_text(project, tmp_path, cell):
     quoted = '"' + cell.replace('"', '""') + '"'
-    (project / "docs" / "table.csv").write_text(f"name,note\nrow,{quoted}\n", encoding="utf-8", newline="")
+    (project / "docs" / "table.csv").write_bytes(f"name,note\nrow,{quoted}\n".encode("utf-8"))
     out, _ = run(project, "csv", {"input": "docs/table.csv", "name": "table"}, {"render": csv_through_the_real_program(tmp_path)})
     assert out["ok"] is True
     rows = list(csv.reader(io.StringIO((project / "docs" / "outputs" / "table.csv").read_bytes().decode("utf-8").lstrip("\ufeff"), newline="")))
@@ -158,7 +158,7 @@ def test_replace_is_a_boolean_and_part_of_the_plan_s_arguments():
                                           ("a\t=b", "a\t'=b"), ("=a;=b", "'=a;'=b"), ("a;b", "a;b"), ("tab\tin", "tab\tin")])
 def test_limit_32_a_cell_is_guarded_in_every_segment_a_locale_that_separates_cells_with_a_semicolon_would_split(project, tmp_path, cell, written):
     quoted = '"' + cell.replace('"', '""') + '"'
-    (project / "docs" / "table.csv").write_text(f"name,note\nrow,{quoted}\n", encoding="utf-8", newline="")
+    (project / "docs" / "table.csv").write_bytes(f"name,note\nrow,{quoted}\n".encode("utf-8"))
     out, _ = run(project, "csv", {"input": "docs/table.csv", "name": "table"}, {"render": csv_through_the_real_program(tmp_path)})
     assert out["ok"] is True
     raw = (project / "docs" / "outputs" / "table.csv").read_bytes().decode("utf-8")
@@ -257,32 +257,50 @@ def with_resolver(monkeypatch, fake):
     monkeypatch.setattr(project_config, "resolver", lambda root: fake)
 
 
-def test_the_default_renderer_is_the_provider_of_the_class_called_through_the_resolver(project, monkeypatch):
-    (project / "docs" / "t.csv").write_text("a\n1\n", encoding="utf-8")
+@pytest.fixture
+def seam():
+    return st.load("ops_step_seams")
+
+
+def test_the_default_renderer_is_the_provider_of_the_class_called_through_the_resolver(seam, monkeypatch):
     fake = FakeResolver(writes={"output.csv": b"BYTES"})
     with_resolver(monkeypatch, fake)
-    out, task = run(project, "csv", {"input": "docs/t.csv", "name": "a"}, {})
-    assert out["done"] is True and (project / "docs" / "outputs" / "a.csv").read_bytes() == b"BYTES"
+    made = seam.renderer(str(st.REPO))("csv", b"a\n1\n")
+    assert made == {"output": b"BYTES", "tool_versions": {"pandoc": "3.1"}}
     cls, verb, flags, env = fake.seen[0]
     assert (cls, verb, flags["--format"]) == ("exporter:document", "render", "csv") and env == {"PATH": "/usr/bin"}
     assert not Path(flags["--input"]).exists(), "the private copy of the input is removed"
-    assert task.saved["steps"]["render"]["result"]["tools"] == {"pandoc": "3.1"}
 
 
-def test_an_image_not_built_says_how_to_build_it_and_writes_nothing(project, monkeypatch):
+def test_an_image_not_built_is_not_configured_and_the_kind_says_how_to_build_it(project, seam, monkeypatch):
     (project / "docs" / "t.csv").write_text("a\n1\n", encoding="utf-8")
     with_resolver(monkeypatch, FakeResolver(fails="not-configured"))
-    out, _ = run(project, "csv", {"input": "docs/t.csv", "name": "a"}, {})
+    with pytest.raises(seam.StepServiceError) as refused:
+        seam.renderer(str(st.REPO))("csv", b"a\n1\n")
+    assert refused.value.code == "not_configured"
+    out, _ = run(project, "csv", {"input": "docs/t.csv", "name": "a"}, {"render": seam.renderer(str(st.REPO))})
     assert out["ok"] is False and out["code"] == "not_configured" and "container.py build --confirmed" in out["next"]
     assert not (project / "docs" / "outputs").exists()
 
 
-def test_what_the_exporter_leaves_in_its_folder_is_read_back_with_the_same_care(project, monkeypatch):
+def test_what_the_exporter_leaves_in_its_folder_is_read_back_with_the_same_care(project, seam, monkeypatch):
     (project / "docs" / "t.csv").write_text("a\n1\n", encoding="utf-8")
-    for writes in ({}, {"output.csv": b"x", "other": b"y"}, {"other.csv": b"x"}, {"output.csv": b"x" * (step_export.OUTPUT_MAX + 1)}):
+    for writes in ({}, {"output.csv": b"x", "other": b"y"}, {"other.csv": b"x"}, {"output.csv": b"x" * (seam.OUTPUT_MAX + 1)}):
         with_resolver(monkeypatch, FakeResolver(writes=writes))
-        out, _ = run(project, "csv", {"input": "docs/t.csv", "name": "a"}, {})
+        out, _ = run(project, "csv", {"input": "docs/t.csv", "name": "a"}, {"render": seam.renderer(str(st.REPO))})
         assert out["ok"] is False and out["code"] == "render_failed", writes
     with_resolver(monkeypatch, FakeResolver(fails="failed"))
-    assert run(project, "csv", {"input": "docs/t.csv", "name": "a"}, {})[0]["code"] == "render_failed"
+    assert run(project, "csv", {"input": "docs/t.csv", "name": "a"}, {"render": seam.renderer(str(st.REPO))})[0]["code"] == "render_failed"
     assert not (project / "docs" / "outputs").exists()
+
+
+def test_an_output_path_that_is_a_link_is_never_followed_or_replaced_even_with_replace(project, tmp_path):
+    (project / "docs" / "t.csv").write_text("a\n1\n", encoding="utf-8")
+    (project / "docs" / "outputs").mkdir()
+    target = tmp_path / "elsewhere.csv"
+    target.write_text("keep", encoding="utf-8")
+    (project / "docs" / "outputs" / "a.csv").symlink_to(target)
+    for args in ({"input": "docs/t.csv", "name": "a"}, {"input": "docs/t.csv", "name": "a", "replace": True}):
+        out, _ = run(project, "csv", args, {"render": lambda fmt, data: {"output": b"new"}})
+        assert out["ok"] is False and out["code"] == "path_unsafe"
+    assert target.read_text(encoding="utf-8") == "keep" and (project / "docs" / "outputs" / "a.csv").is_symlink()

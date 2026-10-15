@@ -114,6 +114,14 @@ def test_whatever_the_container_writes_in_the_record_only_words_of_the_list_numb
         {"examined": False, "why": "tool_failed"}
 
 
+def test_a_count_that_reached_the_converters_limit_is_kept_as_at_least_and_says_so_in_the_warning(case):
+    done = import_html(case, {"examined": True, "count": 2000, "capped": True, "kinds": {"display_none": 2000}, "hints": []})
+    assert done["catalog"]["hidden_text"] == {"count": 2000, "kinds": {"display_none": 2000}, "capped": True}
+    assert done["warnings"][0].startswith("hidden text: at least 2000 pieces of text")
+    assert json.loads((case.folder / "market" / "1" / "manifest.json").read_text())["hidden_text"]["capped"] is True
+    assert "capped" not in sources.hidden_text_record({"hidden_text": {"examined": True, "count": 1, "capped": "yes", "kinds": {}, "hints": []}})
+
+
 def test_at_most_ten_plain_hints_are_kept():
     many = {"examined": True, "count": 30, "kinds": {"display_none": 30}, "hints": [f"display_none in p element {n}" for n in range(30)]}
     assert len(sources.hidden_text_record({"hidden_text": many})["hints"]) == sources.HIDDEN_HINTS_MAX

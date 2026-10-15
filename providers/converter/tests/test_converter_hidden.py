@@ -171,6 +171,27 @@ def test_a_title_or_a_head_that_is_never_closed_does_not_hide_the_page_from_the_
     assert inner.hidden_in_html('<noscript><p style="display:none">words</p></noscript><p style="display:none">other</p>')["count"] == 1
 
 
+def test_text_in_a_title_outside_the_head_is_hidden_text_because_a_browser_never_shows_a_title(inner):
+    found = inner.hidden_in_html(page('<p>visible</p><title>planted words</title><p>visible again</p>'))
+    assert found["count"] == 1 and found["kinds"] == {"display_none": 1} and found["hints"][0].startswith("display_none in title element "), found
+    assert inner.hidden_in_html(page("<title>second title in the body</title>", "<title>the real title</title>"))["count"] == 1
+
+
+def test_the_text_after_a_title_that_is_never_closed_is_hidden_text_a_browser_reads_it_all_as_the_title(inner):
+    for html in ("<html><head><title>Hello<p>planted after the title</p><p>more</p>", "<title>Hello<div>planted</div>"):
+        found = inner.hidden_in_html(html)
+        assert found["count"] == 1 and found["kinds"] == {"display_none": 1} and found["hints"][0].startswith("display_none in title element"), html
+    closed = inner.hidden_in_html("<html><head><title>Hello</title></head><body><p>plain</p></body></html>")
+    assert closed["count"] == 0 and closed["hints"] == []
+
+
+def test_a_count_that_reached_its_limit_says_so(inner, monkeypatch):
+    monkeypatch.setattr(inner, "HIDDEN_OWNERS_MAX", 3)
+    found = inner.hidden_in_html(page("".join(f'<p style="display:none">w{n}</p>' for n in range(6))))
+    assert found["count"] == 3 and found["capped"] is True
+    assert "capped" not in inner.hidden_in_html(page('<p style="display:none">one</p>'))
+
+
 # --- a PDF -------------------------------------------------------------------------------------------------------------------------
 
 # pdftohtml -xml -zoom 1 on providers/converter/tests/fixtures/hidden.pdf, as the container's poppler printed it.

@@ -42,17 +42,13 @@ Standard library only. Runs on Python 3.9.
 from __future__ import annotations
 
 import hashlib
-import shutil
-import stat
 import os
 import re
 import sys
-import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
-import project_config  # noqa: E402
 import steps  # noqa: E402
 import workcopy  # noqa: E402
 
@@ -103,72 +99,47 @@ def _read_input(ctx: steps.Context) -> bytes:
     return data
 
 
-EXPORTER_CLASS = "exporter:document"
-EXPORTER_TIMEOUT = 300
-OUTPUT_MAX = 8 * 1024 * 1024        # the exporter's own cap (providers/exporter/container.py OUTPUT_CAP)
-
-
-def _read_output(folder: str, name: str) -> bytes:
-    """The one file the exporter left in the private out folder: a regular file with one link, opened without following a link, at most
-    OUTPUT_MAX bytes, and nothing else in the folder. StepFailure render_failed otherwise."""
-    path = os.path.join(folder, name)
-    try:
-        info = os.lstat(path)
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-    except OSError:
-        raise steps.StepFailure("render_failed", "renderer", "exporter") from None
-    with os.fdopen(fd, "rb") as f:
-        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > OUTPUT_MAX or sorted(os.listdir(folder)) != [name]:
-            raise steps.StepFailure("render_failed", "renderer", "exporter")
-        return f.read(OUTPUT_MAX + 1)
-
-
 def _renderer(ctx: steps.Context):
-    """The render function: ctx.services["render"](format, data) in a test, else the provider of the class exporter:document, called
-    through providers/resolve.py with the minimum environment (the host side: providers/exporter/container.py). The input goes into
-    a private file, the output comes back as one file in a private folder, and both are removed."""
-    seam = ctx.services.get("render")
-    if seam is not None:
-        return seam
-    root = os.path.dirname(HERE)
+    """The render function of the engine's services (runtime/ops_step_seams.py: the exporter, class exporter:document, through the
+    resolver) or a test's. A kind imports no module that calls a provider."""
+    found = ctx.services.get("render")
+    if found is None:
+        raise steps.StepFailure("not_configured", "renderer", "exporter")
 
     def render(fmt, data):
-        resolver = project_config.resolver(root)
-        folder = tempfile.mkdtemp(prefix="openhora-export-")
         try:
-            source, out = os.path.join(folder, "input"), os.path.join(folder, "out")
-            os.mkdir(out, 0o700)
-            fd = os.open(source, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-            with os.fdopen(fd, "wb") as f:
-                f.write(data)
-            try:
-                done = resolver.call(EXPORTER_CLASS, "render", ["--format", fmt, "--input", source, "--out-dir", out], root=root,
-                                     timeout=EXPORTER_TIMEOUT, env=resolver.provider_environment(EXPORTER_CLASS, None, ()))
-            except resolver.ProviderCallError as e:
-                if e.kind == "not-configured":
-                    raise steps.StepFailure("not_configured", "renderer", "exporter",
-                                            "build the renderer's image: python3 providers/exporter/container.py build --confirmed") from None
-                raise steps.StepFailure("render_failed", "renderer", "exporter") from None
-            tools = done.get("tool_versions") if isinstance(done, dict) and isinstance(done.get("tool_versions"), dict) else {}
-            return {"output": _read_output(out, f"output.{fmt}"), "tool_versions": tools}
-        finally:
-            shutil.rmtree(folder, ignore_errors=True)
+            return found(fmt, data)
+        except steps.StepFailure:
+            raise
+        except Exception as e:      # the service's errors carry a `code`
+            if getattr(e, "code", "") == "not_configured":
+                raise steps.StepFailure("not_configured", "renderer", "exporter",
+                                        "build the renderer's image: python3 providers/exporter/container.py build --confirmed") from None
+            raise steps.StepFailure("render_failed", "renderer", "exporter") from None
     return render
 
 
-def _exists(ctx: steps.Context, rel: str) -> bool:
-    """Whether the output path is already a file (or anything) in the project: looked at with lstat, no link followed on the way."""
+def _present(ctx: steps.Context, rel: str) -> str:
+    """"absent", "file" (a regular file) or "link" (a link at the path or on the way, or anything the engine refuses to open): looked at
+    with steps.read_file, which follows no link."""
     try:
         steps.read_file(ctx, rel, 0)
     except steps.StepFailure as e:
-        return e.code == "too_large"          # a regular file with bytes in it; "missing" is a file that is not there
-    return True
+        if e.code == "protected_path":
+            raise
+        return "absent" if e.code == "missing" else "file" if e.code == "too_large" else "link"      # too_large: it has bytes
+    except Exception:
+        return "link"
+    return "file"
 
 
 def _executor(fmt: str):
     def render(ctx: steps.Context, state: dict) -> dict:
         data = _read_input(ctx)
-        if not ctx.args.get("replace") and _exists(ctx, output_path(fmt, ctx.args)):
+        present = _present(ctx, output_path(fmt, ctx.args))
+        if present == "link":
+            raise steps.StepFailure("path_unsafe", "name", "", "a link is where the output goes: it is never followed or replaced")
+        if present == "file" and not ctx.args.get("replace"):
             raise steps.StepFailure("output_exists", "name", "", "the file is already there: give another name, or add \"replace\": true "
                                     "to the arguments to replace it")
         made = _renderer(ctx)(fmt, data)

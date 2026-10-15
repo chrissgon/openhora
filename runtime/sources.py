@@ -822,7 +822,10 @@ def hidden_text_record(info):
         if isinstance(n, int) and not isinstance(n, bool) and 0 < n <= HIDDEN_COUNT_MAX:
             clean_kinds[kind] = n
     clean_hints = [h for h in hints if isinstance(h, str) and HIDDEN_HINT.fullmatch(h)][:HIDDEN_HINTS_MAX]
-    return {"examined": True, "count": count, "kinds": clean_kinds, "hints": clean_hints}
+    record = {"examined": True, "count": count, "kinds": clean_kinds, "hints": clean_hints}
+    if given.get("capped") is True:
+        record["capped"] = True      # the converter stopped counting: the count is a floor
+    return record
 
 
 def hidden_text_warning(record) -> list:
@@ -834,7 +837,7 @@ def hidden_text_warning(record) -> list:
     if not record["count"]:
         return []
     kinds = ", ".join(f"{k.replace('_', ' ')} {n}" for k, n in record["kinds"].items())
-    return [f"hidden text: {record['count']} piece{'s' if record['count'] != 1 else ''} of text a person cannot see on the page "
+    return [f"hidden text: {'at least ' if record.get('capped') else ''}{record['count']} piece{'s' if record['count'] != 1 else ''} of text a person cannot see on the page "
             f"({kinds}) are in the converted text, and a model reads them: look at the original before a task relies on this source"]
 
 
@@ -854,7 +857,8 @@ def catalog_entry(*, source_id: str, source_type: str, origin: str, kind: str, c
     entry = {"name": _clean(origin, 120) or source_id, "type": source_type, "kind": kind, "original_bytes": original_bytes,
              "converted_bytes": len(converted), "date": imported_at, "warnings": list(warnings)}
     if hidden_text is not None and hidden_text["examined"]:
-        entry["hidden_text"] = {"count": hidden_text["count"], "kinds": dict(hidden_text["kinds"])}
+        entry["hidden_text"] = {"count": hidden_text["count"], "kinds": dict(hidden_text["kinds"]),
+                                **({"capped": True} if hidden_text.get("capped") else {})}
     if converted_name.endswith(".csv"):
         entry["sheets"] = [{"name": "data", **_csv_summary(text)}]
     else:

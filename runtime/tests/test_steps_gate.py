@@ -172,16 +172,42 @@ def test_every_kind_this_checkout_registers_keeps_the_rule_no_step_performs_an_e
             assert kind.order[-1] in kind.gates and kind.order[-1] not in kind.executors and not kind.unattended, name
 
 
-# --- the static rule over the kinds' own modules ------------------------------------------------------------------------------------
+# --- the structure of limit L30: what a step module can reach ------------------------------------------------------------------------
 
 STEP_MODULES = sorted((st.REPO / "runtime").glob("step_*.py"))
 FORBIDDEN_IMPORTS = {"subprocess", "socket", "ssl", "http", "urllib", "requests", "ftplib", "smtplib"}
-READ_VERBS = {"read", "stat"}                  # the verbs of the documents provider a step kind may call: it only reads
+# The modules of the runtime that each step module may import, by name. A module that calls a provider (documents, board, effects, the
+# operations layer, the resolver through project_config) is on no row of a kind that can be started by a sentence; `step_ingest` is the
+# one that imports a source through the operations of the sources (it reads a file or a page and keeps a version), and says so here.
+ALLOWED = {
+    "step_ingest.py": {"drop", "ops_core", "ops_sources", "sources", "steps"},
+    "step_export.py": {"steps", "workcopy"},
+    "step_write_back.py": {"steps", "write_document"},
+}
+
+
+def local_imports(path):
+    import ast
+    names = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Import):
+            names |= {a.name.split(".")[0] for a in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            names.add(node.module.split(".")[0])
+    return {n for n in names if (st.REPO / "runtime" / f"{n}.py").exists()}
+
+
+def test_limit_30_a_step_module_imports_only_the_modules_on_its_row_and_none_that_calls_a_provider():
+    assert {p.name for p in STEP_MODULES} <= set(ALLOWED), "a new step module needs a row of ALLOWED, and a review of what it imports"
+    for path in STEP_MODULES:
+        imported = local_imports(path)
+        assert imported <= ALLOWED[path.name], f"{path.name} imports {sorted(imported - ALLOWED[path.name])}"
+        assert not imported & {"documents", "board", "effects", "effect_write", "ops", "ops_step_effects", "ops_step_seams", "project_config",
+                               "isolated", "lab", "messaging"}, path.name
 
 
 def test_limit_30_no_step_kind_module_writes_to_a_platform_runs_an_effect_or_reaches_the_network_itself():
     import ast
-    assert {p.name for p in STEP_MODULES} >= {"step_ingest.py", "step_export.py", "step_write_back.py"}
     for path in STEP_MODULES:
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
@@ -189,10 +215,26 @@ def test_limit_30_no_step_kind_module_writes_to_a_platform_runs_an_effect_or_rea
                 names = [a.name for a in node.names] if isinstance(node, ast.Import) else [node.module or ""]
                 assert not {n.split(".")[0] for n in names} & FORBIDDEN_IMPORTS, f"{path.name} imports {names}"
             if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                assert node.value not in ("--confirmed", "--dry-run"), f"{path.name} passes {node.value} to a provider"
+                assert node.value not in ("--confirmed", "--dry-run", "write", "push", "commit-files", "open-pr") or path.name == "step_write_back.py" \
+                    and node.value == "write", f"{path.name} names {node.value!r}"
             if isinstance(node, ast.Attribute):
-                assert node.attr not in ("execute", "provider_call", "approval_add", "effect_done"), f"{path.name} reaches .{node.attr}"
-            if isinstance(node, ast.Name):
-                assert node.id not in ("provider_call",), f"{path.name} reaches {node.id}"
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Call) and node.args and isinstance(node.args[0], ast.Constant):
-                assert node.args[0].value in READ_VERBS, f"{path.name} calls the verb {node.args[0].value!r} of a provider"
+                assert node.attr not in ("execute", "provider_call", "approval_add", "effect_done", "push", "write_text"), f"{path.name} reaches .{node.attr}"
+
+
+def test_limit_30_the_documents_service_a_step_kind_is_given_can_only_read_and_stat(monkeypatch):
+    seam = st.load("ops_step_seams")
+    docs = st.load("documents")
+    reader = seam.DocumentsReader({"documents": {"provider": "notion", "parent": "p", "expires": "2099-12-31"}}, str(st.REPO))
+    assert {name for name in dir(reader) if not name.startswith("_")} == {"enabled", "provider", "problem", "read", "stat"}
+    assert seam.READ_VERBS == ("read", "stat")
+    seen = []
+    monkeypatch.setattr(docs, "call", lambda cfg, root, verb, args, timeout=0: seen.append((verb, args)) or {"markdown": "x"})
+    reader.read("a" * 32)
+    reader.stat("a" * 32)
+    assert [v for v, _ in seen] == ["read", "stat"]
+    files = seam.EffectFiles({"data_dir": "/nowhere"})
+    assert {name for name in dir(files) if not name.startswith("_")} == {"write", "read"}, "the effect files are written and read, never executed"
+
+
+def test_the_source_id_pattern_of_the_write_back_is_the_sources():
+    assert st.load("step_write_back").SOURCE_ID.pattern == st.load("sources").SOURCE_ID.pattern
