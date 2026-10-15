@@ -12,9 +12,11 @@
 #            test and packs the evidence file and a manifest. It has no identity token and cannot ask for one.
 #   `attest` is the only job with `id-token: write` and `attestations: write`. It checks out nothing and runs no
 #            code of any repository: it downloads the two files, compares their sha256 with what `run` reported,
-#            reads this run attempt's jobs through the API to require that `run` ran in the runner group of GitHub's
-#            own runners (the attest job's certificate proves only its own runner), adds that group to the manifest
-#            and attests both files by digest. It never runs the model.
+#            reads this run attempt's jobs through the API to require that EVERY job ran in the runner group of
+#            GitHub's own runners (name and id 0; the attest job's certificate proves only its own runner, and a
+#            decoy job of the caller on a self-hosted group must fail the run), adds that group to the manifest
+#            and attests both files by digest. It never runs the model. The caller workflow holds only the call to
+#            this one.
 # The caller must grant the permissions its job passes down (`contents: read`, `actions: read`, `id-token: write`,
 # `attestations: write`); a reusable workflow cannot hold more than its caller gives, and `run` asks for less.
 #
@@ -211,15 +213,18 @@ jobs:
           [ "$(sha256sum "$NAME.jsonl" | cut -d' ' -f1)" = "$EVIDENCE_SHA256" ] || { echo "the evidence file changed on the way" >&2; exit 1; }
           [ "$(sha256sum "$NAME.manifest.json" | cut -d' ' -f1)" = "$MANIFEST_SHA256" ] || { echo "the manifest changed on the way" >&2; exit 1; }
           [ "$(jq -r .evidence_sha256 "$NAME.manifest.json")" = "$EVIDENCE_SHA256" ] || { echo "the manifest names another evidence file" >&2; exit 1; }
-          # This job's own certificate shows this job's runner only. The job that ran the model is read from the API: this
-          # run attempt's jobs, the one named "lab test", whose runner group must be GitHub's own and whose label one of the two.
-          found="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}/jobs" \
-            --jq '.jobs[] | select(.name == "lab test" or (.name | endswith(" / lab test"))) | [.runner_group_name, (.labels | join(",")), .conclusion] | @tsv')"
-          [ -n "$found" ] && [ "$(printf '%s\n' "$found" | wc -l | tr -d ' ')" = 1 ] || { echo "expected exactly one job named lab test in this run attempt" >&2; exit 1; }
-          IFS=$'\t' read -r group labels conclusion <<< "$found"
-          [ "$group" = "GitHub Actions" ] || { echo "the job that ran the model was not in the runner group GitHub Actions: $group" >&2; exit 1; }
-          [ "$labels" = "ubuntu-24.04" ] || [ "$labels" = "ubuntu-24.04-arm" ] || { echo "unexpected runner labels: $labels" >&2; exit 1; }
-          [ "$conclusion" = "success" ] || { echo "the job that ran the model did not succeed: $conclusion" >&2; exit 1; }
+          # This job's own certificate shows this job's runner only. So every job of this run attempt is read from the API: each
+          # must be in GitHub's own runner group (its name and its id, 0; a self-hosted runner is in a group of its own, and a
+          # job with no runner fails the check too), and the job that ran the model ("lab test") must be there once and have
+          # succeeded. The labels the API reports are the requested ones, not the runner's, and prove nothing.
+          jobs_tsv="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}/jobs" \
+            --jq '.jobs[] | [.name, .runner_group_name, (.runner_group_id | tostring), .conclusion] | @tsv')"
+          [ -n "$jobs_tsv" ] || { echo "the API listed no job of this run attempt" >&2; exit 1; }
+          outside="$(printf '%s\n' "$jobs_tsv" | awk -F'\t' '$2 != "GitHub Actions" || $3 != "0" { print $1 }')"
+          [ -z "$outside" ] || { echo "a job of this run attempt was not on GitHub's own runners (runner group GitHub Actions, id 0): $outside" >&2; exit 1; }
+          lab="$(printf '%s\n' "$jobs_tsv" | awk -F'\t' '$1 == "lab test" || $1 ~ / \/ lab test$/ { print $4 }')"
+          [ "$(printf '%s\n' "$lab" | wc -l | tr -d ' ')" = 1 ] && [ "$lab" = "success" ] || { echo "expected exactly one job named lab test, and that it succeeded: $lab" >&2; exit 1; }
+          group="GitHub Actions"
           jq -S --arg group "$group" '. + {run_runner_group: $group}' "$NAME.manifest.json" > "$NAME.manifest.json.new"
           mv "$NAME.manifest.json.new" "$NAME.manifest.json"
           manifest_sha="$(sha256sum "$NAME.manifest.json" | cut -d' ' -f1)"

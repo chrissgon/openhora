@@ -13,8 +13,8 @@
 # into the runner's temp folder, and the evidence validators it loads come from a checkout of the base commit (--code-root),
 # so a change cannot weaken its own check (the same rule as image-lock.yml). The gate file, the version files and the
 # minimum signing commit (evals/community.json) the files are read by are the base's too. The base has no verifier only
-# for the pull request that adds the script: that one, and only that one, falls back to its own copy and says so; a
-# pull request that adds community files where the base has no verifier and does not add one fails.
+# for the pull request that adds the script: that one falls back to its own copy and says so, but only when it adds no
+# community file; a pull request that adds community files where the base has no verifier fails, whether or not it adds one.
 #
 # A pull request that edits this workflow file runs its own edited version (GitHub runs a pull request's workflow
 # from its merge commit): the owner's review of every change under .github/ (CODEOWNERS) and the repository setting that
@@ -61,11 +61,12 @@ jobs:
             verifier="$RUNNER_TEMP/verify_community.py"
             code="$RUNNER_TEMP/base"
             echo "checking with the base commit's script"
-          elif [ -n "$(git diff --name-only --diff-filter=A "$BASE_SHA" HEAD -- scripts/verify_community.py)" ]; then
-            echo "note: this pull request adds the community verifier; its own script runs"
           elif [ -n "$(git diff --name-only "$BASE_SHA" HEAD -- 'skills/*/evals/evidence/community-*')" ]; then
+            # even a pull request that adds the verifier: a script and the files it would judge must not arrive together
             echo "::error::this pull request adds community evidence and the base commit has no community verifier: it is not verified, so it is refused" >&2
             exit 1
+          elif [ -n "$(git diff --name-only --diff-filter=A "$BASE_SHA" HEAD -- scripts/verify_community.py)" ]; then
+            echo "note: this pull request adds the community verifier and no community file; its own script runs"
           else
             echo "no community file in this change, and no verifier at the base: nothing to verify"
             exit 0

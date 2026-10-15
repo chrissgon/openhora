@@ -1,6 +1,6 @@
 """The shell script of the attestation job of .github/workflows/community-eval.yml, run for real against a fake `gh`:
-it must add GitHub's runner group to the manifest only when the API shows that the job that ran the model ran in that
-group, on one of the two hosted labels, and succeeded; it must refuse files that changed on the way; and the digests it
+it must add GitHub's runner group to the manifest only when the API shows that EVERY job of the run attempt ran in that
+group (its name and its id, 0) and the job that ran the model succeeded; it must refuse files that changed on the way; and the digests it
 writes for the attestation must be those of the manifest as it is after the group was added. The API call itself (the
 shape of the jobs answer) is the one thing a first real run decides.
 
@@ -18,7 +18,10 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 EVAL = (REPO / ".github" / "workflows" / "community-eval.yml").read_text()
 STEM = "community-111-222-1"
-HOSTED = "GitHub Actions\tubuntu-24.04\tsuccess\n"
+# what the --jq filter prints: name, runner group name, runner group id, conclusion (the fake gh prints it whatever it is asked)
+LAB = "test / lab test\tGitHub Actions\t0\tsuccess\n"
+ATTEST = "test / attest\tGitHub Actions\t0\t\n"
+HOSTED = LAB + ATTEST
 
 
 def attest_script():
@@ -69,19 +72,18 @@ def test_the_script_adds_the_runner_group_and_attests_the_new_manifest_digest(tm
         f"{hashlib.sha256(evidence.read_bytes()).hexdigest()}  {STEM}.jsonl",
         f"{hashlib.sha256(manifest.read_bytes()).hexdigest()}  {STEM}.manifest.json"]
     assert "repos/ana/openhora/actions/runs/222/attempts/1/jobs" in (tmp_path / "a" / "gh.log").read_text()
-    result, _ = run_attest(tmp_path / "b", "GitHub Actions\tubuntu-24.04-arm\tsuccess\n")
-    assert result.returncode == 0, result.stderr
-
-
 def test_the_script_refuses_what_is_not_a_hosted_successful_run_job_and_leaves_nothing_to_attest(tmp_path):
+    outside = "a job of this run attempt was not on GitHub's own runners"
     cases = [
-        ("Default\tubuntu-24.04\tsuccess\n", "not in the runner group"),
-        ("\tubuntu-24.04\tsuccess\n", "not in the runner group"),
-        ("GitHub Actions\tself-hosted,ubuntu-24.04\tsuccess\n", "unexpected runner labels"),
-        ("GitHub Actions\tubuntu-22.04\tsuccess\n", "unexpected runner labels"),
-        ("GitHub Actions\tubuntu-24.04\tfailure\n", "did not succeed"),
-        ("", "exactly one job"),
-        (HOSTED + HOSTED, "exactly one job"),
+        (LAB + ATTEST + "test / decoy\tDefault\t1\tsuccess\n", outside),  # a decoy job of the caller on a self-hosted group
+        ("test / lab test\tDefault\t1\tsuccess\n" + ATTEST, outside),  # the job that ran the model itself
+        ("test / lab test\tGitHub Actions\t7\tsuccess\n" + ATTEST, outside),  # a group that took GitHub's name has another id
+        (LAB + "test / other\t\tnull\t\n", outside),  # a job with no runner at all
+        (LAB + "test / attest\tself-hosted\t0\t\n", outside),
+        ("test / lab test\tGitHub Actions\t0\tfailure\n" + ATTEST, "expected exactly one job named lab test, and that it succeeded"),
+        (ATTEST, "expected exactly one job named lab test, and that it succeeded"),
+        (LAB + LAB + ATTEST, "expected exactly one job named lab test, and that it succeeded"),
+        ("", "listed no job"),
     ]
     for n, (output, said) in enumerate(cases):
         result, temp = run_attest(tmp_path / str(n), output)
@@ -97,3 +99,7 @@ def test_the_script_refuses_files_that_changed_on_the_way(tmp_path):
     assert result.returncode != 0 and "this run is community-111-222-1" in result.stderr
     result, _ = run_attest(tmp_path / "c", HOSTED, edit=lambda files: (files / "extra.txt").write_text("x"))
     assert result.returncode != 0 and "unexpected files" in result.stderr
+
+
+def test_the_labels_of_a_job_are_not_read_because_the_api_reports_the_requested_ones():
+    assert ".labels" not in attest_script() and "ubuntu-24.04" not in attest_script()

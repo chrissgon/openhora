@@ -77,13 +77,15 @@ def test_the_attestation_job_proves_the_run_job_ran_on_githubs_own_runners_and_r
     assert re.search(r"^      actions: read\s*$", attest, re.M) and "actions: read" not in run  # the caller grants it; only attest asks
     assert "GH_TOKEN: ${{ github.token }}" in attest
     assert 'gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}/jobs"' in attest
-    assert 'select(.name == "lab test" or (.name | endswith(" / lab test")))' in attest
-    assert re.search(r"^    name: lab test\s*$", jobs(EVAL)["run"], re.M)  # the name the selection reads
-    assert '[ "$group" = "GitHub Actions" ]' in attest and '"ubuntu-24.04"' in attest and '"ubuntu-24.04-arm"' in attest
-    assert 'conclusion" = "success"' in attest
+    # EVERY job of the attempt is read (a decoy job of the caller on a self-hosted group must fail the run), by the group's name
+    # and its id; the labels the API reports are the requested ones and are not read
+    assert ".jobs[] | [.name, .runner_group_name, (.runner_group_id | tostring), .conclusion] | @tsv" in attest and "select(" not in attest
+    assert "$2 != \"GitHub Actions\" || $3 != \"0\"" in attest and ".labels" not in attest and "ubuntu-24.04" not in attest[attest.index("jobs_tsv="):attest.index("group=\"GitHub Actions\"")]
+    assert re.search(r"^    name: lab test\s*$", jobs(EVAL)["run"], re.M)  # the name the one job that must succeed is found by
+    assert '$1 == "lab test" || $1 ~ / \\/ lab test$/' in attest and '[ "$lab" = "success" ]' in attest
     # the group is added to the manifest BEFORE the digests are taken and attested, so the attestation covers it
     assert attest.index("run_runner_group: $group") < attest.index("manifest_sha=") < attest.index("checksums.txt") < attest.index("attest-build-provenance")
-    assert attest.index('[ "$group" = "GitHub Actions" ]') < attest.index("run_runner_group: $group")
+    assert attest.index('[ -z "$outside" ]') < attest.index("run_runner_group: $group")
 
 
 def test_every_action_is_pinned_by_a_40_character_commit_sha_with_its_version_in_a_comment():
@@ -199,14 +201,17 @@ def test_the_script_that_verifies_is_the_base_commits_read_with_git_show_and_the
     assert "--main-ref origin/main" in run
     # the checkout's own script runs only when the base has none yet (the pull request that adds it), and the job says so
     assert text.index('verifier="$RUNNER_TEMP/verify_community.py"') < text.index('python3 "$verifier"')
-    assert "note: this pull request adds the community verifier" in text
+    assert "note: this pull request adds the community verifier and no community file" in text
     assert "python3 scripts/verify_community.py" not in text  # never run by its path in the checkout
     # the gate file, the minimum signing commit (evals/) and the version files the files are read by are the base's
     assert "git archive \"$BASE_SHA\" evals scripts 'skills/*/evals/versions.jsonl'" in text
-    # the fallback to the pull request's own verifier is for the pull request that adds it; any other pull request that
-    # adds community files where the base has none fails
-    fallback = text[text.index('elif [ -n "$(git diff --name-only --diff-filter=A'):]
-    assert "scripts/verify_community.py)\" ]; then" in fallback and "note: this pull request adds the community verifier" in fallback
-    assert "community-*" in fallback and "exit 1" in fallback and "exit 0" in fallback
-    assert fallback.index("exit 1") < fallback.index("exit 0")
+    # the fallback to the pull request's own verifier is for the pull request that adds it AND adds no community file: where the
+    # base has no verifier, any added community file is refused, even in a pull request that adds the verifier, so a script and
+    # the files it would judge never arrive together
+    refuse = text.index("elif [ -n \"$(git diff --name-only \"$BASE_SHA\" HEAD -- 'skills/*/evals/evidence/community-*')\" ]; then")
+    own = text.index('elif [ -n "$(git diff --name-only --diff-filter=A "$BASE_SHA" HEAD -- scripts/verify_community.py)" ]; then')
+    assert refuse < own  # the refusal is decided first
+    refusal, fallback = text[refuse:own], text[own:]
+    assert "exit 1" in refusal and "::error::" in refusal and "exit 1" not in fallback
+    assert "note: this pull request adds the community verifier and no community file" in fallback and "exit 0" in fallback
     assert "pip install" not in text and "setup-python" not in text
