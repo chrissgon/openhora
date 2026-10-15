@@ -220,6 +220,44 @@ export function flowSave(p, { name, pendingId, flow, title, split, replace, sign
   return send("POST", `/projects/${enc(p)}/flows`, { body: { name, pending_id: pendingId, flow, title, split, replace }, signal });
 }
 
+/** GET /projects/{p}/routines[?routine_id=n]: the routines (a workflow started by a schedule); with an id, one with its fires and what approving it needs. */
+export function routines(p, { id, signal } = {}) {
+  return send("GET", `/projects/${enc(p)}/routines`, { query: id === undefined ? undefined : { routine_id: id }, signal });
+}
+
+/**
+ * POST /projects/{p}/routines: create a routine as a draft. fields: {name, flow, params (a list of "name=value"), every ("day", "week" or "minutes"), at, weekday, minutes,
+ * model, providers (a list), window_seconds, consent, warning_sha256}. It fires nothing until it is approved by the hash of its content.
+ */
+export function routineCreate(p, fields = {}, options = {}) {
+  return send("POST", `/projects/${enc(p)}/routines`, { body: fields, signal: options.signal });
+}
+
+/** POST /projects/{p}/routines/{id}/change: the same fields as routineCreate (without the name); the approval is cleared. */
+export function routineChange(p, id, fields = {}, options = {}) {
+  return send("POST", `/projects/${enc(p)}/routines/${enc(id)}/change`, { body: fields, signal: options.signal });
+}
+
+/** POST /projects/{p}/routines/{id}/approve: {sha256?}; without the hash the preview, with it the approval of exactly that content. */
+export function routineApprove(p, id, sha256, options = {}) {
+  return send("POST", `/projects/${enc(p)}/routines/${enc(id)}/approve`, { body: { sha256 }, signal: options.signal });
+}
+
+/** POST /projects/{p}/routines/{id}/pause. */
+export function routinePause(p, id, options = {}) {
+  return send("POST", `/projects/${enc(p)}/routines/${enc(id)}/pause`, { signal: options.signal });
+}
+
+/** POST /projects/{p}/routines/{id}/resume. */
+export function routineResume(p, id, options = {}) {
+  return send("POST", `/projects/${enc(p)}/routines/${enc(id)}/resume`, { signal: options.signal });
+}
+
+/** POST /projects/{p}/routines/{id}/cancel. */
+export function routineCancel(p, id, options = {}) {
+  return send("POST", `/projects/${enc(p)}/routines/${enc(id)}/cancel`, { signal: options.signal });
+}
+
 /** POST /projects/{p}/requests: {text, flow?, title?, after?, model?}; `after` is the number of the request this one runs after, `model` a model id of the gate file or "auto". */
 export function request(p, text, { flow, title, after, model, signal } = {}) {
   return send("POST", `/projects/${enc(p)}/requests`, { body: { text, flow, title, after, model }, signal });

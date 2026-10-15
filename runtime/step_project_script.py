@@ -38,7 +38,7 @@ What each step does (steps verify, deps and run; the task is resumable at the on
            but through this import, and it has no way to cause an effect (a post, a message, a commit): an effect goes through the effect
            gate, which a script cannot open.
 
-The kind `brings_source` (the flow check sees the source its result makes, like an ingest's) and is NOT `unattended`: the dispatcher never starts it on its own; a person starts it (run-step). A routine that fires a workflow holding it finds the task held `start it by hand` (the kind is not unattended). Whether a routine may ever run a project script is a decision for the routines (P6b) or later; the routine's approved hash would then have to hold the script's sha256, its destinations, the lock file's sha256 and the definition hash of the script image (decision D35).
+The kind `brings_source` (the flow check sees the source its result makes, like an ingest's) and is NOT `unattended`: the dispatcher never starts it on its own; a person starts it (run-step). The kind is `networked` (always: it cannot know at registration whether a task declares destinations), so a routine whose workflow holds one is made and changed only from the terminal or the page (limit L33), and the routine's approved content holds, for each such step, the script's sha256, its destinations, the lock file's sha256 and the definition hash of the script image (`Kind.routine_slot`, `steps.routine_slots`, the `scripts` slot of runtime/routines.py), so that a change to any of them stops the routine and asks. A routine that fires finds the task held `start it by hand`: the kind is not unattended, and running a script without a person is a later decision.
 The person's brake does not matter to this kind: it is never started by the dispatcher anyway.
 
 The files are also checked when a plan is built and before it is approved (`vet`, steps.Kind.vet; runtime/ops_flows.py): a hash written
@@ -69,6 +69,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import ops_core as core  # noqa: E402  (read as core.<name>)
+import ops_sources  # noqa: E402
 import sources  # noqa: E402
 import steps  # noqa: E402
 
@@ -454,8 +455,7 @@ def _import(ctx: "steps.Context", cctx: dict, args: dict, files: Files, name: st
     if args.get("lock_sha256"):
         produced["lock_sha256"] = args["lock_sha256"]
     try:
-        from lab import local_evidence_base   # noqa: PLC0415  (the lab facade is heavy; only the import needs it)
-        evidence = local_evidence_base()
+        evidence = ops_sources._evidence_base()      # the local evidence folder (limit L22), asked of the lab by the sources operations
         row = _source_row(cctx, args["source"], args["script"])
         convert = ctx.services.get("convert") or sources.provider_convert(cfg)
         return sources.import_version(
@@ -467,6 +467,33 @@ def _import(ctx: "steps.Context", cctx: dict, args: dict, files: Files, name: st
         raise steps.StepFailure(f"import_{word}", "source", "sources", "run the same import by hand to read the reason") from None
 
 
+SCRIPT_IMAGE_FILES = ("Dockerfile", ".dockerignore", "_inner.py", "egress_proxy.py")      # providers/script/container.py DEFINITION_FILES
+
+
+def image_definition(workbench_root: str):
+    """The definition hash of the script image of this checkout (the same sha256 as providers/script/container.py `definition_hash`,
+    computed from the same four files; a test holds the two equal), or None when the folder is not there. A routine's approved content
+    holds it, so that a changed image definition stops the routine."""
+    folder = os.path.join(workbench_root, "providers", "script")
+    digest = hashlib.sha256()
+    try:
+        for name in sorted(SCRIPT_IMAGE_FILES):
+            with open(os.path.join(folder, name), "rb") as f:
+                digest.update(name.encode() + b"\0" + f.read() + b"\0")
+    except OSError:
+        return None
+    return digest.hexdigest()
+
+
+def routine_slot(args: dict, workbench_root: str) -> dict:
+    """What a routine's approved content holds for a project-script step (steps.Kind.routine_slot): the script's path and sha256, the
+    declared destinations, the lock file's sha256 and the definition hash of the script image. Read from the template as written."""
+    destinations = args.get("destinations")
+    return {"script": args.get("script"), "sha256": args.get("sha256"),
+            "destinations": sorted(destinations) if isinstance(destinations, list) and all(isinstance(d, str) for d in destinations) else destinations,
+            "lock_sha256": args.get("lock_sha256"), "image_definition": image_definition(workbench_root)}
+
+
 KIND = steps.register(steps.Kind(
     name="project-script",
     order=("verify", "deps", "run"),
@@ -475,6 +502,8 @@ KIND = steps.register(steps.Kind(
     check=check,
     unattended=False,
     vet=vet,
+    routine_slot=routine_slot,
+    networked=True,          # the kind cannot know at registration whether a task declares destinations, so every workflow that holds one is terminal/page only (L33)
     brings_source=True,      # its `source` argument names the source its result becomes a version of: the tasks after it receive it
 ))
 

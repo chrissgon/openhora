@@ -608,6 +608,7 @@ def dispatch(project: str, budget_seconds=None, wait: bool = True) -> dict:
     cfg = ctx["cfg"]
     with core._dispatch_lock(cfg):
         upkeep.run_quietly(ctx)   # retention and orphan containers, once an hour, before any run of this round (package P-OPS)
+        fired = _fire_routines(ctx)   # the routines whose slot is due make their requests now, before the round decides what starts (P6b)
         if not cfg["area_agents"]:
             rows = core._stored(ctx, ctx["store"].tasks_list)
             ready = [t for t in rows if t["state"] == "ready" and t["parent_id"] is not None]
@@ -618,11 +619,20 @@ def dispatch(project: str, budget_seconds=None, wait: bool = True) -> dict:
                                     "reason": steps_module.held_reason(ctx, t) if t.get("step_kind") else dispatcher.NO_AGENT}
                                    for t in ready if not t.get("step_kind") or steps_module.held_reason(ctx, t)], [])
             if not any(t.get("step_kind") and steps_module.may_dispatch(ctx, t) for t in ready):
-                return {"stopped": "no area agent is configured"}
-        out = {"handlers": ops._ticks(ctx, project), "released": [], "started": [], "ran": [], "held": [], "stopped": None}
+                return {"stopped": "no area agent is configured", "routines": fired}
+        out = {"handlers": ops._ticks(ctx, project), "routines": fired, "released": [], "started": [], "ran": [], "held": [], "stopped": None}
         if wait:
             STOPPING.clear()
         return _round(ctx, project, ops.DISPATCH_BUDGET if budget_seconds is None else budget_seconds, wait, out)
+
+
+def _fire_routines(ctx: dict) -> list:
+    """The routines' tick (runtime/ops_routines.py): what fired, was skipped or stopped to ask. A failure is recorded as a line, never raised,
+    so that a routine cannot stop a round of the dispatcher."""
+    try:
+        return importlib.import_module("ops_routines").tick(ctx)
+    except Exception as e:
+        return [{"error": f"{type(e).__name__}: {e}"[:300]}]
 
 
 def _round(ctx: dict, project: str, budget: float, wait: bool, out: dict) -> dict:

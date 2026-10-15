@@ -140,7 +140,7 @@ def test_the_tools_are_the_rows_of_the_table_that_list_the_mcp_channel_and_the_t
     rows = [r["name"] for r in operations.OPERATIONS if "mcp" in r["channels"]]
     assert names == rows + ["projects", "job"] and answer["id"] == 7
     assert names == ["request", "route", "status", "task", "flows", "flow-check", "progress", "pending", "answer", "release", "say",
-                     "agents", "conversation", "skills", "costs", "connections", "artifacts", "artifact", "version", "sources", "projects", "job"]
+                     "agents", "conversation", "skills", "costs", "connections", "artifacts", "artifact", "version", "sources", "routines", "projects", "job"]
     # what the table does not list for the channel has no tool: the decisions of the terminal and the page
     for never in ("accept-config", "run-next", "deps", "proof", "approve-policy", "revoke-policy", "standing",
                   "execute-under-policy", "contained-run", "poll", "handler", "pin", "stop-runs", "set-mode", "hand-over",
@@ -326,7 +326,7 @@ def test_say_is_called_as_the_channel_mcp_and_the_client_cannot_change_it(world)
     [(_, _, kwargs)] = world.fake.named("say")
     assert kwargs == {"text": "hello", "channel": "mcp"}
     assert "mcp" not in ops.EFFECT_CHANNELS  # the rule of the operations layer, which this shell does not restate
-    assert [r["name"] for r in operations.OPERATIONS if r.get("channel_arg")] == ["route", "approve", "set-mode", "set-model", "give-consent", "dispatch", "say"]
+    assert [r["name"] for r in operations.OPERATIONS if r.get("channel_arg")] == ["route", "approve", "set-mode", "set-model", "give-consent", "dispatch", "say", "routine-create", "routine-change"]
     assert "mcp" not in operations.by_name("approve")["channels"]
     # set-mode takes the channel (R4-C3) to refuse `accept` from any but the terminal; it has no tool and no chat command
     assert "mcp" not in operations.by_name("set-mode")["channels"] and "chat" not in operations.by_name("set-mode")["channels"]
@@ -525,7 +525,7 @@ def test_a_folder_that_is_not_a_project_ends_the_start_and_an_unaccepted_configu
     assert listed["id"] == mcp.project_id(path) == service.project_id(path)
     assert listed["config"] == {"sha256": digest, "accepted": False} and "accept-config" in listed["message"]
     offered = [r for r in operations.OPERATIONS if "mcp" in r["channels"]]
-    assert len(offered) == 20
+    assert len(offered) == 21
     for row in offered:  # every tool of the table, reads and writes alike
         arguments = {a["name"]: (1 if a["kind"] == "int" else "docs/x.md" if a["name"] == "path" else "x")
                      for a in row["args"] if a.get("required")}

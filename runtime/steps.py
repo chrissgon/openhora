@@ -15,7 +15,7 @@ the engine. The kinds registered today: `ingest` (runtime/step_ingest.py), which
 write a file (P8) and the media pipeline of the short-video rebase register the same way.
 
   Kind(name, order, executors, stops=(), decisions={}, footprint=..., check=..., cleanup={}, side_steps={}, errors=(), prepared=None,
-       rejected={}, unattended=False, brings_source=False, vet=None)
+       rejected={}, unattended=False, brings_source=False, networked=False, gates={}, effectful=(), vet=None, routine_slot=None)
   register(kind) / kind_of(name) / load_builtin()   the registry; load_builtin imports every runtime/step_*.py
   plan_task(kind, args, key=, title=, text=, ...)   a plan's task for a step: the kind, its checked arguments (canonical, so the plan
                                                     hash covers them) and the footprint the kind derived. StepFailure when the kind is
@@ -25,6 +25,8 @@ write a file (P8) and the media pipeline of the short-video rebase register the 
   run(ctx, kind, state)                             run the steps from the first that is not done, until a stop, a failure or the end
   prepare_again(ctx, kind, state, step)             start over from a step: it and every later one become pending and the files they made
                                                     are removed by the kind's cleanup
+  read_file(ctx, path, limit)                       the one way a kind reads a file of the project: a link anywhere on the way is
+                                                    refused (every component is opened with O_NOFOLLOW), never the sources folder
   write_file(ctx, path, data)                       the one way a kind writes a file in the project: inside its declared footprint only,
                                                     never in or into the sources folder, through O_NOFOLLOW at every step
 
@@ -43,8 +45,12 @@ Rules that hold here, each with a test (runtime/tests/test_steps_engine.py):
     the stop and to the cycle it was opened in (its payload names the kind, the step and the cycle, which prepare_again advances), so
     an answer given before a step was prepared again never passes the stop of the new cycle, and a decision already handled passes
     nothing a second time.
-  - The only stop is `review`. An `approval` of exact content is not a stop of this engine: it needs the effect gate (the content's
-    hash, the terminal and the page only), which P8 brings with the kinds that write.
+  - The only stop is `review`, and a review is harmless to pass: any channel can say `continue`. So no step performs an external effect
+    itself (a kind that declares one, `effectful`, is refused when it is registered). Every external effect goes through the effect gate: a kind's last step may be a Gate,
+    which has no executor and opens an `effect` decision whose hash is the hash of the exact content (P8). The person approves that
+    hash in the terminal or on the page and no other channel (runtime/ops.py approve), code reads the effect file by that hash and
+    executes it (runtime/ops_step_effects.py), and only then is the task `done`. An effect answered instead of approved (the target
+    changed, or a comment) writes nothing and starts the task over from the gate's `redo` step.
   - The request of the task cancelled: the engine stops without a word of failure (Cancelled).
   - Nothing here runs a model, and nothing leaves the machine unless a kind's executor does it.
 
@@ -119,8 +125,18 @@ class Kind:
                 the code `rejected`); a stop with no hook only fails
     unattended  whether the dispatcher may start a task of this kind on its own (a routine, a round): False unless the kind says so; a
                 task of a kind that is not unattended starts only by the person's own start (run-next, run-step)
+    networked   whether a task of this kind reaches the network (the project script of package P9, with the destinations it declares): a routine
+                whose workflow holds one is made and changed only in the terminal or on the page (limit L33, runtime/ops_routines.py)
     brings_source  whether the kind's `source` argument names a source the tasks after it receive (`ingest`): a workflow's task that
                 depends on such a step receives that source (flow_files.sources_of), and the flow check counts it (runtime/flow_check.py)
+    gates       {step: Gate}: the step that opens an external effect for the person's approval. At most one, and the last of the order;
+                it has no executor. See Gate
+    effectful   refused for every kind: no step performs an external effect itself. A review is passed by one word from any channel, and
+                a step before it is no safer, so every external effect goes through a gate (a static test over runtime/step_*.py holds
+                the kinds to it)
+    routine_slot  function(args, workbench_root) -> a JSON object, or None: what a routine's approved content must hold for a task of this kind
+                (runtime/routines.py `scripts`; steps.routine_slots): for the project script, its sha256, destinations, lock sha256 and the
+                definition hash of the script image, so that a change to any of them stops the routine and asks
     vet         function(project, args, protected) -> None, or None: for a kind whose arguments name files of the project (a script and its
                 hash), it reads them and raises StepFailure when they are not what the arguments say or may not be used. It runs when a plan
                 is built and again before the plan is approved (steps.vet; runtime/ops_flows.py), so a hash written by hand is checked
@@ -141,11 +157,30 @@ class Kind:
     rejected: dict = dataclasses.field(default_factory=dict)
     unattended: bool = False
     brings_source: bool = False
+    networked: bool = False
+    gates: dict = dataclasses.field(default_factory=dict)
+    effectful: tuple = ()
     vet: Callable = None
+    routine_slot: Callable = None
 
     def steps(self) -> tuple:
         """The steps the summary lists: the order, without the side steps."""
         return tuple(n for n in self.order if n not in self.side_steps)
+
+
+@dataclasses.dataclass(frozen=True)
+class Gate:
+    """The effect gate of a kind: its last step opens an external effect for the person's approval and executes nothing.
+
+    word   the side-effect word of the effect kind (runtime/effects.py KINDS) whose module executes it at the approval
+    open   function(ctx, state) -> {"title", "body", "payload_sha256"[, "payload"]}: the decision's title, its body (the exact content,
+           the hash and the command that approves) and the sha256 of the effect document the approval covers
+    redo   the step to start over from when the effect is answered and not approved (the target changed): the step that reads
+    """
+
+    word: str
+    open: Callable
+    redo: str
 
 
 @dataclasses.dataclass
@@ -198,6 +233,8 @@ def check_kind(kind: Kind) -> None:
         if name in kind.stops:
             if name not in kind.decisions:
                 raise ValueError(f"step kind {kind.name}: the stop {name} has no decision")
+        elif name in kind.gates:
+            continue
         elif name not in kind.executors:
             raise ValueError(f"step kind {kind.name}: the step {name} has no executor")
     extra = [n for n in list(kind.executors) + list(kind.decisions) + list(kind.side_steps) + list(kind.cleanup) if n not in order]
@@ -205,6 +242,25 @@ def check_kind(kind: Kind) -> None:
         raise ValueError(f"step kind {kind.name}: {extra[0]} is not a step of its order")
     if any(n in kind.stops for n in kind.side_steps) or len(kind.side_steps) == len(order):
         raise ValueError(f"step kind {kind.name}: a side step is not a stop, and some step is not a side step")
+    _check_effects(kind, order)
+
+
+def _check_effects(kind: Kind, order: tuple) -> None:
+    """The rules about external effects (P8). A gate is the last step of the order, has no executor and is not a stop or a side step, its
+    `redo` is an earlier step, and there is at most one. `effectful` is refused for every kind: no step performs an external effect
+    itself (the field exists so that a kind which tries to declare one is refused, with the reason, and not ignored)."""
+    if len(kind.gates) > 1:
+        raise ValueError(f"step kind {kind.name}: a kind has at most one gate")
+    for name, gate in kind.gates.items():
+        if name != order[-1] or name in kind.executors or name in kind.stops or name in kind.side_steps or not isinstance(gate, Gate) \
+                or not callable(gate.open) or not isinstance(gate.word, str) or not gate.word:
+            raise ValueError(f"step kind {kind.name}: the gate {name} is the last step, has no executor, is not a stop or a side step, and is a Gate")
+        if gate.redo not in order[:order.index(name)] or gate.redo in kind.side_steps or gate.redo in kind.stops:
+            raise ValueError(f"step kind {kind.name}: the gate's redo is an earlier step that is not a stop or a side step")
+    if kind.effectful:
+        raise ValueError(f"step kind {kind.name}: a step task performs no external effect itself, whatever the step and whether or not "
+                         "the kind starts on its own: a review is passed by one word from any channel, so every external effect goes "
+                         "through the effect gate (the hash of the exact content, from the terminal or the page)")
 
 
 def register(kind: Kind) -> Kind:
@@ -254,6 +310,23 @@ def footprint_of(kind: Kind, args: dict) -> list:
     if len(found) > FOOTPRINT_MAX or not all(isinstance(p, str) for p in found):
         raise StepFailure("bad_footprint", "footprint")
     return sorted(set(found))
+
+
+def routine_slots(tasks, workbench_root: str) -> list:
+    """The entries a routine's approved content holds for the step tasks of a workflow (Kind.routine_slot), each with the task's key. A
+    task of a kind that has none, or a skill task, gives nothing. A kind this checkout does not have is skipped here (the limit of
+    runtime/ops_routines.py local_reason refuses it)."""
+    out = []
+    for t in tasks or []:
+        if isinstance(t, dict) and t.get("step"):
+            try:
+                kind = kind_of(t["step"])
+            except StepFailure:
+                continue
+            found = kind.routine_slot(t.get("args") if isinstance(t.get("args"), dict) else {}, workbench_root) if kind.routine_slot else None
+            if found is not None:
+                out.append({"key": t.get("key"), "kind": kind.name, **found})
+    return out
 
 
 def vet(project: str, kind_name: str, args, protected=lambda path: False) -> None:
@@ -417,6 +490,39 @@ def _stop_at(ctx: Context, kind: Kind, state: dict, name: str):
     return {"ok": True, "stopped": name, "pending": moved["pending_id"]}
 
 
+RESTART = "restart"
+
+
+def _gate_at(ctx: Context, kind: Kind, state: dict, name: str):
+    """The effect gate. When the gate's decision was resolved: `approved` (code executed the effect and the task is done: the step is
+    recorded done), or `answered` (a comment, or the target changed: nothing was written, so the steps from the gate's `redo` are
+    prepared again and RESTART is returned, the run going on from there). Otherwise the decision is opened: kind `effect`, its hash the
+    one the kind's `open` gave, bound to the stop and the cycle like a stop's (the task becomes `waiting` with it) and the stop is
+    returned. Nothing is executed here."""
+    gate = kind.gates[name]
+    found = _decision_of(ctx, kind, state, name)
+    if found is not None and found.get("status") == "resolved":
+        state.setdefault("handled", {})[name] = found["id"]
+        if found.get("resolution") == "approved":
+            state["steps"][name] = {"status": "done", "at": ctx.now(), "result": {}}
+            state["decisions"].pop(name, None)
+            state["failure"] = None
+            ctx.save(state)
+            return None
+        prepare_again(ctx, kind, state, gate.redo)
+        return RESTART
+    built = _guarded(name, gate.open, ctx, state)
+    pending = {"kind": "effect", "title": built["title"], "body": built["body"], "payload_sha256": built["payload_sha256"],
+               "payload": {**(built.get("payload") or {}), "step": {"kind": kind.name, "step": name},
+                           "cycle": state.get("cycle", 0), "gate": gate.word}}
+    state["steps"][name] = {"status": "waiting", "at": ctx.now(), "result": {}}
+    state["failure"] = None
+    moved = ctx.move("waiting", None, pending, None, state)
+    state["decisions"][name] = moved["pending_id"]
+    ctx.save(state)
+    return {"ok": True, "stopped": name, "pending": moved["pending_id"]}
+
+
 def _side_step(ctx: Context, kind: Kind, state: dict, name: str) -> None:
     """Run a side step when it is due and not done. A failure is recorded as `skipped` with its closed code and field and nothing
     else moves: not the task, not a decision that may be open, not the failure of the task."""
@@ -441,27 +547,40 @@ def run(ctx: Context, kind: Kind, state: dict) -> dict:
     "failed": None, "code": "cancelled", ...}. It never raises for a step."""
     name, result = None, {"ok": True, "done": True}
     try:
-        for name in kind.order:
-            if name in kind.side_steps:
-                _side_step(ctx, kind, state, name)
-                continue
-            if step_status(state, name) == "done":
-                continue
-            ctx.alive()
-            if name in kind.stops:
-                stopped = _stop_at(ctx, kind, state, name)
-                if stopped is not None:
-                    result = stopped
-                    break
-                continue
-            outcome = _execute(ctx, kind, state, name)
-            state["steps"][name] = {"status": "done", "at": ctx.now(), "result": outcome}
-            state["failure"] = None
-            ctx.save(state)
-        else:
-            ctx.alive()
-            state["failure"] = None
-            ctx.move("done", None, None, None, state)
+        while True:
+            restart = False
+            for name in kind.order:
+                if name in kind.side_steps:
+                    _side_step(ctx, kind, state, name)
+                    continue
+                if step_status(state, name) == "done":
+                    continue
+                ctx.alive()
+                if name in kind.gates:
+                    stopped = _gate_at(ctx, kind, state, name)
+                    if stopped == RESTART:
+                        restart = True
+                        break
+                    if stopped is not None:
+                        result = stopped
+                        break
+                    continue
+                if name in kind.stops:
+                    stopped = _stop_at(ctx, kind, state, name)
+                    if stopped is not None:
+                        result = stopped
+                        break
+                    continue
+                outcome = _execute(ctx, kind, state, name)
+                state["steps"][name] = {"status": "done", "at": ctx.now(), "result": outcome}
+                state["failure"] = None
+                ctx.save(state)
+            else:
+                ctx.alive()
+                state["failure"] = None
+                ctx.move("done", None, None, None, state)
+            if not restart:
+                break
     except StepFailure as failure:
         name = name or kind.order[0]
         state["steps"][name] = {"status": "failed", "at": ctx.now(), "result": {}}
@@ -513,6 +632,44 @@ def in_footprint(footprint, rel: str) -> bool:
                 all(_segment(w).fullmatch(have) for w, have in zip(want, parts)):
             return True
     return False
+
+
+def read_file(ctx: Context, rel: str, limit: int) -> bytes:
+    """The one way a kind reads a file of the project: a plain relative path (as write_file's), opened component by component from a
+    descriptor of the project's folder with O_NOFOLLOW, so that a link anywhere on the way (a linked folder included) is refused, and
+    never a path the context protects (the sources folder, checked on the path as given and on the real one). The file must be a regular
+    file; at most `limit` bytes are returned, and one byte more means it was over (StepFailure too_large). StepFailure: bad_path,
+    protected_path, missing (not there, not a regular file, or a link), path_unsafe, too_large."""
+    if not isinstance(rel, str) or not REL_PATH.fullmatch(rel) or any(p in (".", "..") for p in rel.split("/")):
+        raise StepFailure("bad_path", "path")
+    root = os.path.realpath(ctx.project)
+    full = os.path.join(root, *rel.split("/"))
+    if ctx.protected(full) or ctx.protected(os.path.realpath(full)):
+        raise StepFailure("protected_path", "path")
+    opened = []
+    try:
+        fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+        opened.append(fd)
+        parts = rel.split("/")
+        for part in parts[:-1]:
+            fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            opened.append(fd)
+        last = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW, dir_fd=fd)
+        opened.append(last)
+        if os.fstat(last).st_mode & 0o170000 != 0o100000:     # not a regular file
+            raise StepFailure("missing", "path")
+        with os.fdopen(os.dup(last), "rb") as f:
+            data = f.read(limit + 1)
+    except StepFailure:
+        raise
+    except OSError as e:
+        raise StepFailure("path_unsafe" if e.errno in LINK_ERRNOS else "missing", "path") from None
+    finally:
+        for descriptor in opened:
+            os.close(descriptor)
+    if len(data) > limit:
+        raise StepFailure("too_large", "path")
+    return data
 
 
 def write_file(ctx: Context, rel: str, data: bytes) -> dict:

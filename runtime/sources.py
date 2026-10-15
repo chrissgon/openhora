@@ -54,6 +54,15 @@ may hold: a task reads the whole text, 1 MiB is far beyond what the context of a
 for a real case; CONVERTED_WARN is where the text is a large share of a context (256 KiB is about 65,000 tokens at four bytes
 a token): the import succeeds and says so, and the catalog carries the warning.
 
+Hidden text (package P8, finding S9). The converter reports, for an HTML page and a PDF, how much of the text it converted is text a
+person cannot see on the page (display:none, white on white, a tiny font, off the page, the invisible render mode of a PDF): a count,
+a count for each kind of a closed list (HIDDEN_KINDS) and a few location hints. `hidden_text_record` checks that answer, however it
+came (the container is not trusted to be right about its own output), and keeps only words of the closed list, numbers and hints made
+of lower-case letters, digits and a few signs: never the text. The manifest carries the record, the version's row carries 1, 0 or
+NULL (found, none found, not examined), and the catalog entry carries the count and the kinds and a warning, so the person sees what a
+model will read. The kinds it does not look at (a Word document, a spreadsheet, a Notion page) are `null`: not examined. An HTML page or a PDF whose
+converter gave no usable record is not "none found" either: it is `{"examined": false}`, with its warning.
+
 Usage (a library): python3 runtime/sources.py --help
 
 Standard library only. Runs on Python 3.9.
@@ -96,6 +105,11 @@ OUTPUT_NAMES = ("converted.md", "converted.csv", "info.json")
 OUTPUT_ENTRIES_MAX = 3
 INFO_CAP = 16 * 1024
 INCOMING_KEPT_SECONDS = 24 * 3600                # a staging entry older than this is a crash's leftover and is removed
+HIDDEN_KINDS = ("display_none", "visibility_hidden", "hidden_attribute", "zero_size", "tiny_text", "off_page", "transparent",
+                "white_on_white", "color_matched", "invisible_text")   # a copy of providers/converter/_inner.py; a test holds them equal
+HIDDEN_HINTS_MAX, HIDDEN_HINT = 10, re.compile(r"[a-z][a-z0-9_+ ,.:#-]{0,79}")
+HIDDEN_COUNT_MAX = 10 ** 6
+HIDDEN_EXAMINED = ("html", "pdf")                # the kinds whose converter examines them for hidden text (providers/converter/_inner.py)
 LABELS = ("import", "refresh", "changed-by-person")
 SUBTYPES = ("pdf", "docx", "xlsx", "pptx", "ooxml", "html", "csv", "text")  # what the sniffers answer for kind "document", and the converter takes
 EXTENSION = {"pdf": "pdf", "docx": "docx", "xlsx": "xlsx", "pptx": "pptx", "html": "html", "csv": "csv", "text": "txt", "notion": "md", "markdown": "md"}
@@ -789,14 +803,64 @@ def _headings_of(markdown: str) -> list:
     return out
 
 
+def hidden_text_record(info):
+    """The hidden-text record of a version from the converter's `info`: None when the converter did not examine the file (any kind but
+    HTML and PDF, or no key), else {"examined": False, "why": "tool_failed"} or {"examined": True, "count", "kinds": {kind: n},
+    "hints": [...]}, made again from the closed words, bounded numbers and plain hints found in it: whatever else the container
+    wrote is dropped, and an answer that is not this shape is not examined (None) with no error: the version is kept and the
+    catalog says nothing, which is what the person would see of a converter that predates the flag."""
+    given = info.get("hidden_text") if isinstance(info, dict) else None
+    if not isinstance(given, dict):
+        return None
+    if given.get("examined") is False:
+        return {"examined": False, "why": "tool_failed"}
+    count, kinds, hints = given.get("count"), given.get("kinds"), given.get("hints")
+    if given.get("examined") is not True or isinstance(count, bool) or not isinstance(count, int) or not 0 <= count <= HIDDEN_COUNT_MAX \
+            or not isinstance(kinds, dict) or not isinstance(hints, list):
+        return None
+    clean_kinds = {}
+    for kind in HIDDEN_KINDS:
+        n = kinds.get(kind)
+        if isinstance(n, int) and not isinstance(n, bool) and 0 < n <= HIDDEN_COUNT_MAX:
+            clean_kinds[kind] = n
+    clean_hints = [h for h in hints if isinstance(h, str) and HIDDEN_HINT.fullmatch(h)][:HIDDEN_HINTS_MAX]
+    record = {"examined": True, "count": count, "kinds": clean_kinds, "hints": clean_hints}
+    if given.get("capped") is True:
+        record["capped"] = True      # the converter stopped counting: the count is a floor
+    return record
+
+
+def hidden_text_warning(record) -> list:
+    """The warning lines a hidden-text record adds to a version: nothing when it was not examined or nothing was found."""
+    if record is None:
+        return []
+    if not record["examined"]:
+        return ["hidden text could not be checked for this file: look at the original before a task relies on it"]
+    if not record["count"]:
+        return []
+    kinds = ", ".join(f"{k.replace('_', ' ')} {n}" for k, n in record["kinds"].items())
+    return [f"hidden text: {'at least ' if record.get('capped') else ''}{record['count']} piece{'s' if record['count'] != 1 else ''} of text a person cannot see on the page "
+            f"({kinds}) are in the converted text, and a model reads them: look at the original before a task relies on this source"]
+
+
+def hidden_text_flag(record):
+    """The column of the version's row: 1 (found), 0 (examined, none found) or None (not examined)."""
+    if record is None or not record["examined"]:
+        return None
+    return 1 if record["count"] else 0
+
+
 def catalog_entry(*, source_id: str, source_type: str, origin: str, kind: str, converted_name: str, converted: bytes,
-                  original_bytes: int, imported_at: str, warnings=()) -> dict:
+                  original_bytes: int, imported_at: str, warnings=(), hidden_text=None) -> dict:
     """The catalog entry of one version, built by code from the converted output alone (limit L27): name, type, size, date,
     the sheets and columns with a few sample values, the first headings. No model and no raw file: `converted` is the
     scanned converted text. The person's description is the registry's, joined at read time."""
     text = converted.decode("utf-8", errors="replace")
     entry = {"name": _clean(origin, 120) or source_id, "type": source_type, "kind": kind, "original_bytes": original_bytes,
              "converted_bytes": len(converted), "date": imported_at, "warnings": list(warnings)}
+    if hidden_text is not None and hidden_text["examined"]:
+        entry["hidden_text"] = {"count": hidden_text["count"], "kinds": dict(hidden_text["kinds"]),
+                                **({"capped": True} if hidden_text.get("capped") else {})}
     if converted_name.endswith(".csv"):
         entry["sheets"] = [{"name": "data", **_csv_summary(text)}]
     else:
@@ -924,18 +988,17 @@ def register(ctx, source_id: str, source_type: str, origin: str, description=Non
         raise SourcesError(f"a source is a {' or a '.join(TYPES)}", "usage")
     if not isinstance(origin, str) or not origin.strip() or CONTROL.search(origin) or len(origin) > 512:
         raise SourcesError("the origin is one line of at most 512 characters", "usage")
-    stored_type = source_type
     if source_type == "notion":
         notion_page_id(origin)
     elif source_type == "drive":
-        origin, stored_type = DRIVE_PREFIX + drive_file_id(origin), "file"   # see "Drive sources" below: no registry migration yet
+        origin = drive_file_id(origin)
     elif "/" in origin or "\\" in origin:
         origin = os.path.basename(origin.replace("\\", "/"))
         if not origin:
             raise SourcesError("the origin of a file source is the file's name", "usage")
     if source_type == "file" and origin.strip().startswith(DRIVE_PREFIX):
         raise SourcesError(f"a file source's origin cannot start with {DRIVE_PREFIX!r}: that marks a Drive source", "usage")
-    return public_row(_stored(ctx, "source_add", source_id=source_id, source_type=stored_type, origin=origin.strip(),
+    return public_row(_stored(ctx, "source_add", source_id=source_id, source_type=source_type, origin=origin.strip(),
                               description=description))
 
 
@@ -1162,7 +1225,10 @@ def _import_in(ctx, folder, source, stream, length, stage_path, token, *, conver
     reason = _workcopy().scan(converted)  # limit L14's scan, on the converted text: compressed text in a raw file is invisible raw
     if reason:
         raise SourcesError(f"the converted text of this file {reason}: it was not kept", "credential")
-    warnings = []
+    hidden = None if notion else hidden_text_record(info)
+    if hidden is None and subtype in HIDDEN_EXAMINED:     # an HTML page or a PDF whose converter said nothing usable was not checked: never "none found"
+        hidden = {"examined": False, "why": "tool_failed"}
+    warnings = hidden_text_warning(hidden)
     if len(converted) > CONVERTED_WARN:
         warnings.append(f"large: {len(converted)} bytes of text is a big share of a model's context; send the part you need if "
                         "a task cannot hold it")
@@ -1178,14 +1244,14 @@ def _import_in(ctx, folder, source, stream, length, stage_path, token, *, conver
         version = _next_version(ctx, folder, source["id"], latest)
         catalog = catalog_entry(source_id=source["id"], source_type=source["type"], origin=name or source["origin"], kind=subtype,
                                 converted_name=converted_name, converted=converted, original_bytes=received.size,
-                                imported_at=when, warnings=warnings)
+                                imported_at=when, warnings=warnings, hidden_text=hidden)
         manifest = {"manifest": 1, "source": source["id"], "version": version, "type": source["type"], "origin": source["origin"],
                     "date": when, "label": label, "by": by, "kind": subtype,
                     "original": {"name": original_name, "sha256": original_sha, "bytes": received.size},
                     "converted": {"name": converted_name, "sha256": converted_sha, "bytes": len(converted)},
                     "converter": {"name": str((info or {}).get("converter") or "unknown"),
                                   "tools": (info or {}).get("tool_versions") or {}},
-                    "hidden_text": None, "origin_version": origin_version, "warnings": warnings}
+                    "hidden_text": hidden, "origin_version": origin_version, "warnings": warnings}
         if name:
             manifest["name"] = _clean(name, 200)
         if manifest_extra:
@@ -1201,7 +1267,8 @@ def _import_in(ctx, folder, source, stream, length, stage_path, token, *, conver
                     original_name=original_name, original_sha256=original_sha, original_bytes=received.size,
                     converted_name=converted_name, converted_sha256=converted_sha, converted_bytes=len(converted),
                     converter=manifest["converter"]["name"], converter_version=json.dumps(manifest["converter"]["tools"], sort_keys=True),
-                    warnings=warnings, catalog=catalog, origin_version=origin_version, imported_at=when)
+                    warnings=warnings, catalog=catalog, origin_version=origin_version, imported_at=when,
+                    hidden_text=hidden_text_flag(hidden))
         except SourcesError:
             fd = folder.subdir([source["id"]])
             try:
@@ -1336,7 +1403,7 @@ def recheck(ctx, source: dict, *, convert, clock=None, evidence_base=None) -> di
 
 def list_catalog(ctx, *, evidence_base=None, hashes: bool = True) -> list:
     """The catalog rows of every source: {"id", "type", "origin", "description", "version" (the newest or None), "versions",
-    "by", "label", "catalog" (the stored entry), "status"}. status is `ok`, `changed` (the files no longer hash to the record:
+    "by", "label", "catalog" (the stored entry), "hidden_text" (1 found, 0 none found, None not examined), "status"}. status is `ok`, `changed` (the files no longer hash to the record:
     changed outside the runtime, limit L25), `missing` (a file or the folder is gone), `empty` (no version yet) or
     `unchecked`. Reads the registry and, with `hashes`, the hashes; nothing is parsed from a raw file (limit L27)."""
     cfg = ctx["cfg"]
@@ -1354,7 +1421,8 @@ def list_catalog(ctx, *, evidence_base=None, hashes: bool = True) -> list:
                    "version": latest["version"] if latest else None,
                    "versions": _stored(ctx, "source_version_count", source["id"]),
                    "by": latest["by"] if latest else None, "label": latest["label"] if latest else None,
-                   "catalog": latest["catalog"] if latest else None, "status": "empty" if latest is None else "unchecked"}
+                   "catalog": latest["catalog"] if latest else None, "hidden_text": latest["hidden_text"] if latest else None,
+                   "status": "empty" if latest is None else "unchecked"}
             if latest is not None and hashes:
                 if folder is None:
                     row["status"] = "missing"
@@ -1519,11 +1587,10 @@ def fetch_notion(cfg: dict, address: str, *, call=None) -> dict:
 # --- Google Drive files (decision D13, P7) ---------------------------------------------------------------------------------
 #
 # A Drive source is one FILE the person picked in Google's Picker (the scope is drive.file; a picked folder gives the app nothing inside
-# it, so folders are not sources). The registry's type column admits `file` and `notion` only (migration 11), and a migration is not
-# added for this: a Drive source is stored as a `file` row whose origin is `drive:<file id>`, and public_row() is the one place that
-# reads it back as {"type": "drive", "origin": "<file id>"}. register() and list_catalog() return public rows, ops_sources reads every
-# row through it, and a plain file source can never carry an origin that starts with `drive:` (register refuses it). A later migration
-# that admits `drive` makes the stored row equal the public one; nothing else changes.
+# it, so folders are not sources). The registry's type column admits `drive` since migration 14: a Drive source is a row of type
+# `drive` whose origin is the file id. Before that migration P7 stored it as a `file` row with the origin `drive:<file id>`; migration
+# 14 rewrote those rows, and public_row() stays as the one place every reader passes a row through (it changes nothing now; a row a
+# store older than 14 would hold cannot be read, since the runtime migrates a store before it reads it).
 #
 # The provider is `providers/documents/gdrive.py` (class integration:documents, implementation gdrive), run as a process with the
 # minimum environment plus the one secret it reads (GDRIVE_SOURCES_TOKEN). It writes the exported or downloaded bytes to a folder of the
@@ -1554,10 +1621,8 @@ def drive_file_id(text) -> str:
 
 
 def public_row(row: dict) -> dict:
-    """A registry row as the rest of the runtime reads it: a Drive source (stored as a `file` row with a `drive:<id>` origin) reads as
-    type `drive` with the file id as its origin; every other row is returned as it is."""
-    if row.get("type") == "file" and str(row.get("origin", "")).startswith(DRIVE_PREFIX):
-        return {**row, "type": "drive", "origin": row["origin"][len(DRIVE_PREFIX):]}
+    """A registry row as the rest of the runtime reads it: the row itself (a Drive source has been type `drive` with the file id as its
+    origin since migration 14)."""
     return row
 
 

@@ -45,6 +45,7 @@ Where: **repo** is this repository, **data** is the provider's data folder on th
 | `messenger:<platform>` | `messenger/` | `whatsapp-cloud.py` (PLATFORMS: whatsapp-cloud) | `capabilities`, `listen`, `receive`, `send`, `ack`, `setup`, `whoami` |
 | `messenger:<platform>` | `messenger/` | `whatsapp-twilio.py` (PLATFORMS: whatsapp-twilio) | `capabilities`, `listen`, `receive`, `send`, `ack`, `setup`, `whoami` |
 | `converter:document` | `converter/` | `container.py` | `--check`, `build`, `convert` |
+| `exporter:document` | `exporter/` | `container.py` | `--check`, `build`, `render` |
 | `script:project` | `script/` | `container.py` | `--check`, `build`, `run`, `deps`, `reap` |
 | `generator:image` | `generator/` | none ships | - |
 | `generator:video` | `generator/` | none ships | - |

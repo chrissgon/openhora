@@ -68,8 +68,9 @@ Any skill that changes something outside the repository declares it in `metadata
 | `create` | creates or changes a record at a remote service: a ticket, a pull request, a file in a design tool, a comment or a reply posted on a host |
 | `push` | pushes commits to a remote repository |
 | `dismiss` | closes or dismisses a record at a remote service (an alert) |
+| `write` | writes content over a document that lives at a remote service, replacing it whole: a page on the platform that holds the project's documents (the runtime's write-back: its kind is opened by a step task and approved by the hash of the exact content, never by a skill's gate) |
 
-Writing a file inside the project is not a side effect, and there is no word for it. A new word is added here, and to the validator's list, in the pull request of the first skill that needs it.
+Writing a file inside the project is not a side effect, and there is no word for it. A new word is added here, and to the validator's list, in the pull request of the first skill that needs it. The word `write` is the one exception: it arrived with the runtime's write-back (`runtime/effect_write.py`), not with a skill. No skill declares it, no skill's confirmation gate opens it, and no standing approval covers it: the runtime approves each write-back by the hash of its exact content.
 
 **One explicit approval, then autonomy.** The user approves once; after that the skill proceeds without asking again, including later and unattended for scheduled work. The gate exists to make the user see exactly what will happen, not to interrupt them repeatedly.
 

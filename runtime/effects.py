@@ -24,6 +24,11 @@ the side-effect word the skill's manifest names in its gate. This module holds w
 payload, the error, the effect file and its hash, the call of a provider, the row of the state file, and the registry.
 A new kind is a module and a row of KINDS; runtime/ops.py does not change.
 
+A kind may also be opened by a step task and not by a skill's gate (package P8, runtime/steps.py Gate): the STEP path. The kind
+module then has STEP = True and its own document, check, title, body, describe, summary and execute (runtime/effect_write.py lists
+them); the approval and the execution are runtime/ops_step_effects.py, called from ops.approve for an `effect` decision of a step
+task. Its GATE and POLICY are False.
+
 The registry has one key per kind, and the key is a word of the side-effect vocabulary (contracts/environment.md,
 SIDE_EFFECTS of scripts/validate.py): the gate path reads the word a skill's manifest names in its gate, the policy
 path reads the word of the effect document a handler hands to ops.execute_under_policy, and both find the same module.
@@ -146,7 +151,7 @@ def recover_payload(reply: str, tmp_dir, readable) -> dict:
 # The registry of the kinds of effect: a word of the side-effect vocabulary -> the module of runtime/ that holds the
 # kind. For the gate path the word is the one a skill's manifest names in its gate (gate.effect); a word not here
 # opens a review, never an effect. For the policy path it is the kind of the document a handler hands over.
-KINDS = {"create": "effect_pull_request", "push": "effect_commit", "publish": "effect_reply"}
+KINDS = {"create": "effect_pull_request", "push": "effect_commit", "publish": "effect_reply", "write": "effect_write"}
 
 # The keys of the effect document a handler hands to ops.execute_under_policy, and no others; and the flags only the
 # operation adds to the provider's verb, never a handler.
@@ -159,7 +164,8 @@ PROVIDER_TIMEOUT = 600
 
 class EffectError(Exception):
     """kind is "deviation" (something moved since the gate), "provider" (the code provider failed), "not-configured"
-    or "usage"."""
+    or "usage"; and, for a write-back (runtime/effect_write.py), "stale" (the target was edited since it was read) and
+    "unknown" (the write call failed, so whether the target holds the content is not known)."""
 
     def __init__(self, kind: str, reason: str):
         super().__init__(reason)

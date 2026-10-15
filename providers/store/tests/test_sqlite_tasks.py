@@ -60,7 +60,7 @@ def test_init_db_creates_a_private_database_at_the_current_version_and_puts_the_
     try:
         path = tmp_path / "new" / "tasks.sqlite"
         out = store.init_db(path)
-        assert out["created"] is True and out["applied"] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13] and out["schema_version"] == 13
+        assert out["created"] is True and out["applied"] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14] and out["schema_version"] == 14
         assert stat.S_IMODE(path.stat().st_mode) == 0o600 and stat.S_IMODE(path.parent.stat().st_mode) == 0o700
         assert os.umask(0o022) == 0o022  # the caller's umask is what it was
     finally:
@@ -82,7 +82,7 @@ def test_a_version_1_database_keeps_its_rows_and_gains_the_three_tables(tmp_path
         store.open_db(path)
     assert refused.value.code == store.EXIT_NOT_CONFIGURED and "run init" in str(refused.value)
     out = store.init_db(path)
-    assert out["migrated_from"] == 1 and out["applied"] == [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+    assert out["migrated_from"] == 1 and out["applied"] == [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
     conn = store.open_db(path)
     assert conn.execute("SELECT value FROM cursors WHERE name = 'since'").fetchone()[0] == "v1"
     names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
@@ -369,7 +369,7 @@ def test_export_prints_the_three_tables_and_the_verbs_of_version_1_still_work(tm
     assert (len(out["tasks"]), len(out["task_runs"]), len(out["pending_decisions"])) == (3, 1, 1)
     assert out["tasks"][2]["depends_on"] == [out["tasks"][1]["id"]] and out["pending_decisions"][0]["payload"] == {}
     assert cli("cursor-set", "--name", "since", "--value", "v").returncode == 0
-    assert json.loads(cli("--check").stdout)["schema_version"] == 13
+    assert json.loads(cli("--check").stdout)["schema_version"] == 14
 
 
 def test_a_cursor_written_in_process_is_the_one_the_verb_reads(tmp_path):
@@ -448,7 +448,7 @@ def test_a_task_a_run_and_a_pending_decision_are_never_deleted(conn, tmp_path, m
     older.commit()
     older.close()
     monkeypatch.undo()
-    assert store.init_db(path)["applied"] == [7, 8, 9, 10, 11, 12, 13]
+    assert store.init_db(path)["applied"] == [7, 8, 9, 10, 11, 12, 13, 14]
     six = store.open_db(path)
     with pytest.raises(sqlite3.DatabaseError, match="never deleted"):
         with six:

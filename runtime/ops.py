@@ -206,6 +206,7 @@ import ops_runs  # noqa: E402  (the runs of tasks and the dispatcher's round; th
 import ops_say  # noqa: E402  (the conversation and its queue; this file re-exports `say` at its end)
 import sources  # noqa: E402  (limit L26: the protected paths gain the sources folder when it sits inside the project)
 import ops_sources  # noqa: E402  (the sources of the project: the ingest operations and the pieces the planner and a run ask of them)
+import ops_step_effects  # noqa: E402  (the approval of an effect that a step task opened: the write-back)
 import ops_config  # noqa: E402  (the configuration's acceptance: accept_config, set_mode, set_model; this file re-exports them at its end)
 import ops_models  # noqa: E402  (which model a run goes to: the choice, the key, the billing and the consent)
 import ops_waits  # noqa: E402  (the derived waits between requests: rederive, for_plan, annotate, approve_plan)
@@ -747,6 +748,7 @@ def _approve_effect(ctx: dict, item: dict, sha256) -> dict:
     if item["status"] != "open":
         raise core.OpsError(f"pending decision {pending_id} is {item['status']}, not open", 1)
     request_id = core._stored(ctx, store.task_get, item["task_id"])["parent_id"]
+    stepped = ops_step_effects.step_effect_of(ctx, item)   # an effect a step task's gate opened (P8): its own execution
     with core._effect_lock(cfg, request_id):
         try:  # a second queued approval of the same effect must not execute it again: read the decision now, under the lock
             fresh = core._stored(ctx, store.pending_get, pending_id)
@@ -754,12 +756,23 @@ def _approve_effect(ctx: dict, item: dict, sha256) -> dict:
             fresh = item
         if fresh["status"] != "open":
             raise core.OpsError(f"pending decision {pending_id} is {fresh['status']}, not open: nothing was executed", 1)
+        if stepped is not None:
+            return _approve_step_effect(ctx, fresh, sha256, stepped)
         # from here a code task of the request is not claimed (admit reads this lock)
         if request_id is not None:
             with core._claim_lock(cfg):  # a claim happens under this lock: either the code task is seen here or the lock is seen there
                 if ops_runs.code_running(ctx, request_id):
                     raise core.OpsError("a code task of this request is running; approve when it ends", 1)
         return _execute_effect(ctx, item, sha256)
+
+
+def _approve_step_effect(ctx: dict, item: dict, sha256, stepped) -> dict:
+    """approve() for an `effect` that a step task's gate opened (package P8): runtime/ops_step_effects.py checks and executes it with the
+    person's approval of the hash; here the state file gets the generated row of the executed approval, as for any effect."""
+    done = ops_step_effects.approve(ctx, item, sha256, stepped)
+    row = effects.approval_row(core._stored(ctx, ctx["store"].approval_get, done["approval"]["id"]), done["doc"])
+    return {**done["done"], "approval_id": done["approval"]["id"], "result": done["result"],
+            "state": _write_approval_row(ctx["cfg"], row)}
 
 
 def _execute_effect(ctx: dict, item: dict, sha256) -> dict:
@@ -1243,6 +1256,12 @@ def _effect_words() -> tuple:
     return tuple(word.strip().strip('"') for word in found.group(1).split(",") if word.strip())
 
 
+def _bounds_words() -> tuple:
+    """The side-effect words a standing approval's bounds may name: the vocabulary without the kinds that only a step task opens
+    (STEP, effects.py): a write-back is approved by the hash of its exact content each time, and no bound can ever cover it."""
+    return tuple(w for w in _effect_words() if w not in effects.KINDS or not getattr(effects.module_for(w), "STEP", False))
+
+
 def _policy_bounds(rel: str, real: str, agent: str) -> dict:
     """The bounds an approval of this file stores: a bounds file (.json) checked whole; else, for a Markdown policy that
     holds an ```engagement-policy block, the bounds derived from that block by code (autonomy.block_bounds: effects
@@ -1254,7 +1273,7 @@ def _policy_bounds(rel: str, real: str, agent: str) -> dict:
         try:
             with open(real, encoding="utf-8") as f:
                 data = json.load(f)
-            bounds = autonomy.bounds_of(data, agent, _effect_words())
+            bounds = autonomy.bounds_of(data, agent, _bounds_words())
         except (OSError, ValueError) as e:
             raise core.OpsError(f"{rel} is not a bounds file: {e}", 2) from None
     else:
@@ -2730,6 +2749,10 @@ from ops_steps import run_step  # noqa: E402,F401
 # The workflows (runtime/ops_flows.py): the list, the flow check, saving a plan as one, and a file staged for a request.
 import ops_flows  # noqa: E402
 from ops_flows import check_flow, flow_save, flows, stage_file  # noqa: E402,F401
+# The routines (runtime/ops_routines.py): the schedule's workflows, their approval by hash, the brakes and the tick a round calls.
+import ops_routines  # noqa: E402
+from ops_routines import (routine_approve, routine_cancel, routine_change, routine_create, routine_pause, routine_resume,  # noqa: E402,F401
+                          routines_read)
 # The reads of the local interface (runtime/ops_reads.py): the operations, and the one constant a test reads.
 from ops_reads import agents, artifact, artifact_raw, artifacts, connections, conversation, costs, service_check, skills  # noqa: E402,F401
 from ops_reads import commands, stop_runs, version  # noqa: E402,F401

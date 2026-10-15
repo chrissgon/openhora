@@ -327,6 +327,13 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `source-drive` | `[--file-id]` `[--source]` `[--description]` | `source_drive` |
 | `source-describe` | `--source` `[--description]` | `source_describe` |
 | `sources` | - | `sources_catalog` |
+| `routines` | `[--id]` | `routines_read` |
+| `routine-create` | `--name` `--flow` `[--param]` `[--every]` `[--at]` `[--weekday]` `[--minutes]` `[--model]` `[--provider]` `[--window-seconds]` `[--consent]` `[--warning-sha256]` | `routine_create` |
+| `routine-change` | `--id` `[--flow]` `[--param]` `[--every]` `[--at]` `[--weekday]` `[--minutes]` `[--model]` `[--provider]` `[--window-seconds]` `[--consent]` `[--warning-sha256]` | `routine_change` |
+| `routine-approve` | `--id` `[--sha256]` | `routine_approve` |
+| `routine-pause` | `--id` | `routine_pause` |
+| `routine-resume` | `--id` | `routine_resume` |
+| `routine-cancel` | `--id` | `routine_cancel` |
 <!-- /generated -->
 
 Every verb also takes `--project <dir>`. The parser is built from `terminal_verbs()` of the table, so a row that does not list `terminal` (`version`) has no verb. The verbs that call a model: `route` (without `--flow`), `run-next`, `dispatch`, `contained-run`, and `say` for a new request or an answer to the router.
@@ -392,6 +399,13 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | GET | `/projects/{p}/flows` | `flows` | - | none | - | - |
 | GET | `/projects/{p}/flows/{name}/check` | `flow-check` | `flow` from `{name}` | none | - | - |
 | POST | `/projects/{p}/flows` | `flow-save` | - | every other argument | - | - |
+| GET | `/projects/{p}/routines` | `routines` | - | `routine_id` | - | - |
+| POST | `/projects/{p}/routines` | `routine-create` | - | every other argument | - | - |
+| POST | `/projects/{p}/routines/{id}/change` | `routine-change` | `routine_id` from `{id}` | every other argument | - | - |
+| POST | `/projects/{p}/routines/{id}/approve` | `routine-approve` | `routine_id` from `{id}` | every other argument | - | - |
+| POST | `/projects/{p}/routines/{id}/pause` | `routine-pause` | `routine_id` from `{id}` | every other argument | - | - |
+| POST | `/projects/{p}/routines/{id}/resume` | `routine-resume` | `routine_id` from `{id}` | every other argument | - | - |
+| POST | `/projects/{p}/routines/{id}/cancel` | `routine-cancel` | `routine_id` from `{id}` | every other argument | - | - |
 | POST | `/projects/{p}/requests/{id}/files` | `stage-file` | `request_id` from `{id}` | every other argument | `file` | file upload |
 | POST | `/projects/{p}/requests` | `request` | - | every other argument | - | - |
 | POST | `/projects/{p}/requests/{id}/route` | `route` | `request_id` from `{id}` | every other argument | - | - |
