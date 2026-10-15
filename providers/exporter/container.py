@@ -35,7 +35,7 @@ Usage:
 
   --check     exit 0 when docker is usable on this machine, its daemon is local and the image of the current definition exists;
               3 when it is not (the reason on stderr: build it with `build --confirmed`); 1 for another failure
-  build       docker build of the definition into the tag openhora-render:<12 characters of the definition's hash>; the base image
+  build       docker build of the definition into the tag openhora-exporter:<12 characters of the definition's hash>; the base image
               is pulled by the build, as a person's explicit step; --dry-run prints the command
   render      the folder must exist, be this user's and mode 0700, and be empty; it gets output.<format> and prints
               {"renderer", "format", "output", "bytes", "image", "counts", "tool_versions"}
@@ -62,9 +62,9 @@ sys.path.insert(0, os.path.dirname(HERE))
 import _container as box  # noqa: E402  (providers/_container.py: the one home of the container's lifecycle and limits)
 
 CLASS = "exporter:document"
-IMAGE_REPOSITORY = "openhora-render"
+IMAGE_REPOSITORY = "openhora-exporter"
 LABEL_DEFINITION = "org.openhora.definition"
-LABEL_RUN = "org.openhora.render"
+LABEL_RUN = "org.openhora.exporter"
 DEFINITION_DIR = HERE
 DEFINITION_FILES = ("Dockerfile", ".dockerignore", "_render.py", "requirements.lock")
 FORMATS = ("csv", "xlsx", "docx", "pdf")
@@ -188,7 +188,7 @@ def command_for(name: str, image: str, input_path: str, fmt: str, timeout: int) 
 
 def _private_input(data: bytes) -> tuple:
     """(folder, path) of a private copy of the input: a folder made 0700 and a file in it created exclusively, 0600."""
-    folder = tempfile.mkdtemp(prefix="openhora-render-")
+    folder = tempfile.mkdtemp(prefix="openhora-exporter-")
     fd = os.open(os.path.join(folder, "input"), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, "wb") as f:
         f.write(data)
@@ -213,7 +213,7 @@ def render(fmt: str, data: bytes, timeout: int = DEFAULT_TIMEOUT, run=None, imag
         image = image_id(image_tag())
     folder, path = _private_input(bytes(data))
     try:
-        name = f"openhora-render-{uuid.uuid4().hex[:16]}"
+        name = f"openhora-exporter-{uuid.uuid4().hex[:16]}"
         command = command_for(name, image, path, fmt, timeout)
         try:
             done = (run or box.run)(command, name, timeout, stdout_cap=STDOUT_CAP)

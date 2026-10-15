@@ -23,7 +23,8 @@ The formula guard (finding S9). A spreadsheet runs a cell as a formula when its 
 a formula can read other cells, call a program or send data out. So a cell whose text starts with one of them, after any leading
 spaces, no-break spaces, zero-width characters and byte order marks, is written as text:
   - in a CSV file, with a single quote in front of it (the usual guidance: the quote is part of the cell's text, as the file has no
-    cell types);
+    cell types), and in front of every segment of a cell that follows a `;`, a bar or a tab inside it, because a spreadsheet in a
+    locale that separates cells with `;` (pt-BR, de, fr) splits there; every cell is quoted;
   - in a workbook, as a text cell (a string, never a formula), with the quote-prefix style that keeps Excel from turning it into a
     formula when the person edits it. Its text is not changed.
 A cell that starts with none of them is written as it is, except that in a workbook a plain unsigned number (digits and one decimal
@@ -47,7 +48,7 @@ INFO_CAP = 16 * 1024
 TOOL_SECONDS = 120
 ROWS_MAX, COLUMNS_MAX, CELL_MAX = 200000, 1000, 32767     # a workbook's own limits are 1,048,576 rows, 16,384 columns, 32,767 characters
 FORMULA_STARTS = ("=", "+", "-", "@", "\t", "\r", "\n", "＝", "＋", "－", "＠")   # = + - @ TAB CR LF and the fullwidth = + - @
-SKIPPED = "  \u200b\u200c\u200d\u2060\ufeff"
+SKIPPED = " \u00a0\u3000\u200b\u200c\u200d\u2060\ufeff"        # a space, a no-break space, an ideographic space, zero-width characters, a byte order mark
 NUMBER = re.compile(r"(0|[1-9][0-9]{0,14})(\.[0-9]{1,6})?")     # no sign, no leading zero (an identifier), at most 15 digits (a double keeps them)
 LIB = "/opt/render/lib"      # WeasyPrint and what it needs, installed from requirements.lock (see the Dockerfile)
 ENV = {"PATH": os.environ.get("RENDER_TOOL_PATH") or "/usr/local/bin:/usr/bin:/bin", "HOME": "/tmp", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}
@@ -75,10 +76,17 @@ def guarded(text: str) -> bool:
     return bool(stripped) and stripped[0] in FORMULA_STARTS
 
 
+CELL_SPLIT = re.compile(r"([;|\t])")
+
+
 def csv_cell(value) -> str:
-    """The text of a cell as a CSV file holds it: a single quote in front of a cell that would run as a formula."""
+    """The text of a cell as a CSV file holds it. A spreadsheet in a locale that writes `;` between cells (pt-BR, de, fr) or that is
+    handed a bar- or tab-separated file splits a cell at that character, so every segment of the cell is guarded on its own: a single
+    quote goes in front of each one that would run as a formula (`x;=1+1` is written `x;'=1+1`)."""
     text = "" if value is None else str(value)
-    return "'" + text if guarded(text) else text
+    parts = CELL_SPLIT.split(text)          # segments at the even places, the separators between them at the odd ones
+    parts = [("'" + part if i >= 2 and i % 2 == 0 and guarded(part) else part) for i, part in enumerate(parts)]
+    return ("'" if guarded(text) else "") + "".join(parts)
 
 
 def utf8(data: bytes) -> str:
@@ -111,7 +119,7 @@ def read_rows(text: str) -> list:
 def render_csv(text: str, work: str):
     rows = read_rows(text)
     buffer = io.StringIO()
-    writer = csv.writer(buffer, lineterminator="\r\n")      # RFC 4180: with CR LF as the row end, a cell with a lone CR or LF is quoted
+    writer = csv.writer(buffer, lineterminator="\r\n", quoting=csv.QUOTE_ALL)    # every cell quoted, and with CR LF as the row end a lone CR or LF is inside the quotes
     for row in rows:
         writer.writerow([csv_cell(cell) for cell in row])
     return "csv", ("\ufeff" + buffer.getvalue()).encode("utf-8"), {"rows": len(rows)}, {}

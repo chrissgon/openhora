@@ -1187,7 +1187,7 @@ def check_flows(skills, report, root=ROOT):
         cell = row[2] if len(row) > 2 else ""
         phases = [p.strip() for p in cell.split("→")]
         phases = [p[:-len(" (optional)")].strip() if p.endswith(" (optional)") else p for p in phases]
-        expected = [t["skill"].split("-", 1)[1] if "-" in t["skill"] else t["skill"] for t in data["tasks"]]
+        expected = [t["skill"].split("-", 1)[1] if "-" in t["skill"] else t["skill"] for t in data["tasks"] if "skill" in t]   # a step task (P6a) is no phase
         if phases != expected:
             arrow = " → "
             report.error("docs/inventory.md", f"[flow-inventory] the Phases of flow-{name} are "

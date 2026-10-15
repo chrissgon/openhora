@@ -133,12 +133,38 @@ def test_each_kind_writes_what_its_renderer_returned_into_docs_outputs_and_recor
     assert set(result) == {"path", "bytes", "sha256", "input_sha256", "tools"}, "closed words and numbers, never the text"
 
 
-def test_a_rerun_replaces_the_file_whole_and_never_half(project):
+def test_an_output_that_is_already_there_is_replaced_only_when_the_arguments_say_so_and_then_whole_and_never_half(project):
     (project / "docs" / "in.md").write_text(REPORT, encoding="utf-8")
-    for body in (b"first", b"second"):
-        run(project, "docx", {"input": "docs/in.md", "name": "same"}, {"render": lambda fmt, data, b=body: {"output": b}})
-    assert (project / "docs" / "outputs" / "same.docx").read_bytes() == b"second"
+    args = {"input": "docs/in.md", "name": "same"}
+    assert run(project, "docx", args, {"render": lambda fmt, data: {"output": b"first"}})[0]["done"] is True
+    out, _ = run(project, "docx", args, {"render": lambda fmt, data: {"output": b"second"}})
+    assert out["ok"] is False and out["code"] == "output_exists" and "replace" in out["next"]
+    assert (project / "docs" / "outputs" / "same.docx").read_bytes() == b"first", "nothing was replaced"
+    out, _ = run(project, "docx", dict(args, replace=True), {"render": lambda fmt, data: {"output": b"second"}})
+    assert out["done"] is True and (project / "docs" / "outputs" / "same.docx").read_bytes() == b"second"
     assert sorted(p.name for p in (project / "docs" / "outputs").iterdir()) == ["same.docx"], "no temporary file is left"
+
+
+def test_replace_is_a_boolean_and_part_of_the_plan_s_arguments():
+    plan = steps.plan_task("export-pdf", {"input": "docs/a.md", "name": "a", "replace": True}, key="k", title="t", text="x")
+    assert plan["args"] == {"input": "docs/a.md", "name": "a", "replace": True}
+    assert steps.plan_task("export-pdf", {"input": "docs/a.md", "name": "a", "replace": False}, key="k", title="t", text="x")["args"] == \
+        {"input": "docs/a.md", "name": "a"}
+    with pytest.raises(steps.StepFailure):
+        steps.plan_task("export-pdf", {"input": "docs/a.md", "name": "a", "replace": "yes"}, key="k", title="t", text="x")
+
+
+@pytest.mark.parametrize("cell,written", [("x;=1+1", "x;'=1+1"), ("safe;@SUM(A1:A2)", "safe;'@SUM(A1:A2)"), ("a|-b", "a|'-b"),
+                                          ("a\t=b", "a\t'=b"), ("=a;=b", "'=a;'=b"), ("a;b", "a;b"), ("tab\tin", "tab\tin")])
+def test_limit_32_a_cell_is_guarded_in_every_segment_a_locale_that_separates_cells_with_a_semicolon_would_split(project, tmp_path, cell, written):
+    quoted = '"' + cell.replace('"', '""') + '"'
+    (project / "docs" / "table.csv").write_text(f"name,note\nrow,{quoted}\n", encoding="utf-8", newline="")
+    out, _ = run(project, "csv", {"input": "docs/table.csv", "name": "table"}, {"render": csv_through_the_real_program(tmp_path)})
+    assert out["ok"] is True
+    raw = (project / "docs" / "outputs" / "table.csv").read_bytes().decode("utf-8")
+    rows = list(csv.reader(io.StringIO(raw.lstrip("\ufeff"), newline="")))
+    assert rows[1] == ["row", written]
+    assert raw.lstrip("\ufeff").startswith('"name","note"\r\n'), "every cell is quoted and a row ends with CR LF"
 
 
 def test_an_input_that_is_missing_a_link_a_folder_or_too_large_is_not_rendered(project):
@@ -148,7 +174,10 @@ def test_an_input_that_is_missing_a_link_a_folder_or_too_large_is_not_rendered(p
     (project / "docs" / "real.csv").write_text("a\n1\n", encoding="utf-8")
     (project / "docs" / "link.csv").symlink_to(project / "docs" / "real.csv")
     out, _ = run(project, "csv", {"input": "docs/link.csv", "name": "a"}, services)
-    assert out["ok"] is False and out["code"] == "input_missing"
+    assert out["ok"] is False and out["code"] == "path_unsafe"
+    (project / "docs" / "linked-folder").symlink_to(project / "docs")
+    out, _ = run(project, "csv", {"input": "docs/linked-folder/real.csv", "name": "a"}, services)
+    assert out["ok"] is False and out["code"] == "path_unsafe", "a link on the way is refused too"
     (project / "docs" / "folder.csv").mkdir()
     out, _ = run(project, "csv", {"input": "docs/folder.csv", "name": "a"}, services)
     assert out["ok"] is False and out["code"] == "input_missing"

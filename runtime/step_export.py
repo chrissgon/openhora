@@ -9,11 +9,14 @@ A task's result, a Markdown or a CSV file of the project, becomes a CSV file, a 
 no model: the text is rendered by the adopted tools of the renderer's container (providers/exporter/container.py: the standard library's
 csv, openpyxl, pandoc and WeasyPrint, no network, a read-only root), and the bytes that come back are written with the engine's own
 `write_file` (runtime/steps.py: inside the footprint only, never the sources folder, no link followed, a temporary name renamed over
-its place). One module holds the four kinds, a row of FORMATS each: another format is a row, not a step.
+its place; the input is read with its `read_file`). One module holds the four kinds, a row of FORMATS each: another format is a row, not a step.
 
 One step, `render`. Arguments (checked when the task is planned, so the plan's hash covers exactly what will run):
 
-  {"input": "docs/<path>.csv|md", "name": "<a plain name>"}        the output is docs/outputs/<name>.<csv|xlsx|docx|pdf>
+  {"input": "docs/<path>.csv|md", "name": "<a plain name>"[, "replace": true]}     the output is docs/outputs/<name>.<csv|xlsx|docx|pdf>
+
+  An output that is already there is not replaced unless the arguments say `"replace": true` (the plan shows its arguments, so a plan
+  that replaces a file says so): the task fails `output_exists` and names the way out.
 
   csv, xlsx   read a .csv; docx, pdf read a .md. A cell of a CSV or a workbook whose text starts with = + - @, a tab, a carriage return
               or a line feed (after any leading spaces) is written as text, never as a formula (finding S9: providers/exporter/_render.py holds
@@ -26,7 +29,7 @@ Where the file goes, and why. The default and only place is docs/outputs/ of the
 sources folder. The sources folder holds what people gave the project, as immutable versions made by the import (runtime/sources.py);
 an output written there would be read by a later task as something a person provided, and the engine does not write there on
 purpose (limits L23 and L26). A person who wants an output as a source imports it (`source-import`). The file is a file of the project
-like any other: a rerun replaces it, and the project's version control keeps the earlier ones.
+like any other: a rerun with `replace` replaces it, and the project's version control keeps the earlier ones.
 
 The kinds are not `unattended`: a rerun replaces a file, and a routine that would do so on its own waits for the review rules of
 a routine (decision D24) to say when. The footprint is the one output path, so the admission rule keeps two tasks from writing the
@@ -40,9 +43,9 @@ from __future__ import annotations
 
 import hashlib
 import shutil
+import stat
 import os
 import re
-import stat
 import sys
 import tempfile
 
@@ -68,15 +71,17 @@ def _check(fmt: str):
     suffix = FORMATS[fmt][1]
 
     def check(args) -> dict:
-        if not isinstance(args, dict) or set(args) != {"input", "name"}:
+        if not isinstance(args, dict) or not {"input", "name"} <= set(args) <= {"input", "name", "replace"}:
             raise steps.StepFailure("bad_args", "args")
         source, name = args["input"], args["name"]
+        if "replace" in args and not isinstance(args["replace"], bool):
+            raise steps.StepFailure("bad_args", "replace")
         if not isinstance(source, str) or not steps.REL_PATH.fullmatch(source) or not source.startswith("docs/") \
                 or ".." in source.split("/") or not source.endswith(suffix):
             raise steps.StepFailure("bad_args", "input", "", f"give a {suffix} file under docs/")
         if not isinstance(name, str) or not NAME.fullmatch(name):
             raise steps.StepFailure("bad_args", "name", "", "a name is lowercase letters, digits and hyphens")
-        return {"input": source, "name": name}
+        return {"input": source, "name": name, **({"replace": True} if args.get("replace") else {})}
     return check
 
 
@@ -85,23 +90,14 @@ def output_path(fmt: str, args: dict) -> str:
 
 
 def _read_input(ctx: steps.Context) -> bytes:
-    """The bytes of the input file: opened without following a link, a regular file, at most INPUT_MAX, outside the sources folder,
-    and free of credentials. StepFailure: input_missing, input_too_large, protected_path, input_refused."""
-    root = os.path.realpath(ctx.project)
-    path = os.path.join(root, *ctx.args["input"].split("/"))
-    if ctx.protected(path) or ctx.protected(os.path.realpath(path)):
-        raise steps.StepFailure("protected_path", "input")
+    """The bytes of the input file, read with steps.read_file (no link on the way, never the sources folder, a regular file, at most
+    INPUT_MAX) and free of credentials. StepFailure: input_missing, input_too_large, protected_path, path_unsafe, input_refused."""
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-    except OSError:
-        raise steps.StepFailure("input_missing", "input", "", "write the file first, then start this task") from None
-    if not stat.S_ISREG(os.fstat(fd).st_mode):
-        os.close(fd)
-        raise steps.StepFailure("input_missing", "input")
-    with os.fdopen(fd, "rb") as f:
-        data = f.read(INPUT_MAX + 1)
-    if len(data) > INPUT_MAX:
-        raise steps.StepFailure("input_too_large", "input", "", "split the input: a render takes at most 1 MiB")
+        data = steps.read_file(ctx, ctx.args["input"], INPUT_MAX)
+    except steps.StepFailure as e:
+        code = {"missing": "input_missing", "too_large": "input_too_large"}.get(e.code, e.code)
+        raise steps.StepFailure(code, "input", "", "write the file first, then start this task" if code == "input_missing" else
+                                "split the input: a render takes at most 1 MiB" if code == "input_too_large" else "") from None
     if workcopy.scan(data):
         raise steps.StepFailure("input_refused", "input", "", "the input holds what looks like a credential: take it out first")
     return data
@@ -160,9 +156,21 @@ def _renderer(ctx: steps.Context):
     return render
 
 
+def _exists(ctx: steps.Context, rel: str) -> bool:
+    """Whether the output path is already a file (or anything) in the project: looked at with lstat, no link followed on the way."""
+    try:
+        steps.read_file(ctx, rel, 0)
+    except steps.StepFailure as e:
+        return e.code == "too_large"          # a regular file with bytes in it; "missing" is a file that is not there
+    return True
+
+
 def _executor(fmt: str):
     def render(ctx: steps.Context, state: dict) -> dict:
         data = _read_input(ctx)
+        if not ctx.args.get("replace") and _exists(ctx, output_path(fmt, ctx.args)):
+            raise steps.StepFailure("output_exists", "name", "", "the file is already there: give another name, or add \"replace\": true "
+                                    "to the arguments to replace it")
         made = _renderer(ctx)(fmt, data)
         output = made.get("output") if isinstance(made, dict) else None
         if not isinstance(output, (bytes, bytearray)) or not output:

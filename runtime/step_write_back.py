@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import os
 import re
-import stat
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -76,23 +75,15 @@ def _config(ctx: steps.Context) -> dict:
 
 
 def _read_content(ctx: steps.Context) -> str:
-    """The text of the project file named by `content`: opened without following a link, a regular file, at most CONTENT_MAX bytes,
-    UTF-8. StepFailure: content_missing, content_too_large, content_not_text."""
-    root = os.path.realpath(ctx.project)
-    path = os.path.join(root, *ctx.args["content"].split("/"))
-    if ctx.protected(path):
-        raise steps.StepFailure("protected_path", "content")
+    """The text of the project file named by `content`, read with steps.read_file (no link anywhere on the way, never the sources
+    folder, a regular file, at most CONTENT_MAX bytes), UTF-8. StepFailure: content_missing, content_too_large, content_not_text,
+    protected_path, path_unsafe."""
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-    except OSError:
-        raise steps.StepFailure("content_missing", "content", "", "write the file first, then start this task") from None
-    if not stat.S_ISREG(os.fstat(fd).st_mode):
-        os.close(fd)
-        raise steps.StepFailure("content_missing", "content")
-    with os.fdopen(fd, "rb") as f:
-        data = f.read(effect_write.CONTENT_MAX + 1)
-    if len(data) > effect_write.CONTENT_MAX:
-        raise steps.StepFailure("content_too_large", "content", "", "split the document: a write-back takes a part you can read whole")
+        data = steps.read_file(ctx, ctx.args["content"], effect_write.CONTENT_MAX)
+    except steps.StepFailure as e:
+        code = {"missing": "content_missing", "too_large": "content_too_large"}.get(e.code, e.code)
+        raise steps.StepFailure(code, "content", "", "write the file first, then start this task" if code == "content_missing" else
+                                "split the document: a write-back takes a part you can read whole" if code == "content_too_large" else "") from None
     try:
         return data.decode("utf-8")
     except UnicodeDecodeError:
@@ -113,16 +104,24 @@ def _call(ctx: steps.Context, cfg: dict):
     return call
 
 
-def _source_sha(ctx: steps.Context):
-    """The sha256 of the converted text of a source's newest version (the version the task read), or None: from the store."""
+def _source_pin(ctx: steps.Context):
+    """A function (source id) -> (the sha256 of the converted text of the source's newest version, the source's origin), or None for a
+    source with no version or none registered: from the store. The version is the one the task read."""
     def look(source_id):
         found = core.context(ctx.project)
         try:
             latest = found["store"].source_latest(found["conn"], source_id)
+            row = found["store"].source_get(found["conn"], source_id)
         except found["store"].StoreError:
             return None
-        return latest["converted_sha256"] if latest else None
+        return (latest["converted_sha256"], row["origin"]) if latest else None
     return look
+
+
+def _same_page(origin, target) -> bool:
+    """Whether a source's origin (a page address, an identifier) names the target page: the identifiers compared without dashes or case."""
+    flat = lambda text: re.sub(r"[^a-z0-9]", "", str(text).lower())
+    return bool(flat(target)) and flat(target) in flat(origin)
 
 
 def _prepare(ctx: steps.Context, state: dict) -> dict:
@@ -140,10 +139,12 @@ def _prepare(ctx: steps.Context, state: dict) -> dict:
         raise steps.StepFailure("provider_failed", "target", "documents")
     base = effect_write.sha(text)
     if args.get("source"):
-        pinned = (ctx.services.get("source_sha256") or _source_sha(ctx))(args["source"])
+        pinned = (ctx.services.get("source_pin") or _source_pin(ctx))(args["source"])
         if pinned is None:
             raise steps.StepFailure("source_missing", "source", "", "import the source first")
-        if pinned != base:
+        if not _same_page(pinned[1], args["target"]):
+            raise steps.StepFailure("source_not_target", "source", "", "the source is not the page this write-back targets")
+        if pinned[0] != base:
             raise steps.StepFailure("target_changed", "target", "", "the document was edited after the source was read: import the "
                                     "source again, redo the work, and start a new write-back")
     try:

@@ -164,7 +164,8 @@ PROVIDER_TIMEOUT = 600
 
 class EffectError(Exception):
     """kind is "deviation" (something moved since the gate), "provider" (the code provider failed), "not-configured"
-    or "usage"."""
+    or "usage"; and, for a write-back (runtime/effect_write.py), "stale" (the target was edited since it was read) and
+    "unknown" (the write call failed, so whether the target holds the content is not known)."""
 
     def __init__(self, kind: str, reason: str):
         super().__init__(reason)

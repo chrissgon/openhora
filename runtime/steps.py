@@ -15,7 +15,7 @@ the engine. The kinds registered today: `ingest` (runtime/step_ingest.py), which
 write a file (P8) and the media pipeline of the short-video rebase register the same way.
 
   Kind(name, order, executors, stops=(), decisions={}, footprint=..., check=..., cleanup={}, side_steps={}, errors=(), prepared=None,
-       rejected={}, unattended=False, gates={}, effectful=())
+       rejected={}, unattended=False, brings_source=False, gates={}, effectful=())
   register(kind) / kind_of(name) / load_builtin()   the registry; load_builtin imports every runtime/step_*.py
   plan_task(kind, args, key=, title=, text=, ...)   a plan's task for a step: the kind, its checked arguments (canonical, so the plan
                                                     hash covers them) and the footprint the kind derived. StepFailure when the kind is
@@ -25,6 +25,8 @@ write a file (P8) and the media pipeline of the short-video rebase register the 
   run(ctx, kind, state)                             run the steps from the first that is not done, until a stop, a failure or the end
   prepare_again(ctx, kind, state, step)             start over from a step: it and every later one become pending and the files they made
                                                     are removed by the kind's cleanup
+  read_file(ctx, path, limit)                       the one way a kind reads a file of the project: a link anywhere on the way is
+                                                    refused (every component is opened with O_NOFOLLOW), never the sources folder
   write_file(ctx, path, data)                       the one way a kind writes a file in the project: inside its declared footprint only,
                                                     never in or into the sources folder, through O_NOFOLLOW at every step
 
@@ -43,9 +45,8 @@ Rules that hold here, each with a test (runtime/tests/test_steps_engine.py):
     the stop and to the cycle it was opened in (its payload names the kind, the step and the cycle, which prepare_again advances), so
     an answer given before a step was prepared again never passes the stop of the new cycle, and a decision already handled passes
     nothing a second time.
-  - The only stop is `review`, and a review is harmless to pass: any channel can say `continue`. So a step that comes after a stop
-    may not perform an external effect itself (a kind that declares such a step, `effectful`, is refused when it is registered), and
-    neither may a kind that starts on its own. Every external effect goes through the effect gate: a kind's last step may be a Gate,
+  - The only stop is `review`, and a review is harmless to pass: any channel can say `continue`. So no step performs an external effect
+    itself (a kind that declares one, `effectful`, is refused when it is registered). Every external effect goes through the effect gate: a kind's last step may be a Gate,
     which has no executor and opens an `effect` decision whose hash is the hash of the exact content (P8). The person approves that
     hash in the terminal or on the page and no other channel (runtime/ops.py approve), code reads the effect file by that hash and
     executes it (runtime/ops_step_effects.py), and only then is the task `done`. An effect answered instead of approved (the target
@@ -124,11 +125,13 @@ class Kind:
                 the code `rejected`); a stop with no hook only fails
     unattended  whether the dispatcher may start a task of this kind on its own (a routine, a round): False unless the kind says so; a
                 task of a kind that is not unattended starts only by the person's own start (run-next, run-step)
+    brings_source  whether the kind's `source` argument names a source the tasks after it receive (`ingest`): a workflow's task that
+                depends on such a step receives that source (flow_files.sources_of), and the flow check counts it (runtime/flow_check.py)
     gates       {step: Gate}: the step that opens an external effect for the person's approval. At most one, and the last of the order;
                 it has no executor. See Gate
-    effectful   the steps whose executor performs an external effect itself. Refused when registered if the kind is unattended or the
-                step comes after a stop or a gate: a review is passed by one word from any channel, so what follows it must be harmless
-                (a test holds every registered kind to this). No kind has one today: effects go through a gate
+    effectful   refused for every kind: no step performs an external effect itself. A review is passed by one word from any channel, and
+                a step before it is no safer, so every external effect goes through a gate (a static test over runtime/step_*.py holds
+                the kinds to it)
     """
 
     name: str
@@ -144,6 +147,7 @@ class Kind:
     prepared: Callable = None
     rejected: dict = dataclasses.field(default_factory=dict)
     unattended: bool = False
+    brings_source: bool = False
     gates: dict = dataclasses.field(default_factory=dict)
     effectful: tuple = ()
 
@@ -231,9 +235,8 @@ def check_kind(kind: Kind) -> None:
 
 def _check_effects(kind: Kind, order: tuple) -> None:
     """The rules about external effects (P8). A gate is the last step of the order, has no executor and is not a stop or a side step, its
-    `redo` is an earlier step, and there is at most one. An effectful step is a step with an executor, is not a side step, and is
-    refused when the kind is unattended or when it comes after a stop or a gate: a review is passed by one word from any channel, and
-    only the effect gate asks for the hash of the exact content."""
+    `redo` is an earlier step, and there is at most one. `effectful` is refused for every kind: no step performs an external effect
+    itself (the field exists so that a kind which tries to declare one is refused, with the reason, and not ignored)."""
     if len(kind.gates) > 1:
         raise ValueError(f"step kind {kind.name}: a kind has at most one gate")
     for name, gate in kind.gates.items():
@@ -242,15 +245,10 @@ def _check_effects(kind: Kind, order: tuple) -> None:
             raise ValueError(f"step kind {kind.name}: the gate {name} is the last step, has no executor, is not a stop or a side step, and is a Gate")
         if gate.redo not in order[:order.index(name)] or gate.redo in kind.side_steps or gate.redo in kind.stops:
             raise ValueError(f"step kind {kind.name}: the gate's redo is an earlier step that is not a stop or a side step")
-    first = min((order.index(n) for n in list(kind.stops) + list(kind.gates)), default=None)
-    for name in kind.effectful:
-        if name not in order or name not in kind.executors or name in kind.side_steps:
-            raise ValueError(f"step kind {kind.name}: an effectful step is a step of its order with an executor, and not a side step")
-        if kind.unattended:
-            raise ValueError(f"step kind {kind.name}: a kind that starts on its own performs no external effect itself: use a gate")
-        if first is not None and order.index(name) > first:
-            raise ValueError(f"step kind {kind.name}: the step {name} comes after a stop and performs an external effect: a review is "
-                             "passed by one word from any channel, so every external effect goes through the effect gate")
+    if kind.effectful:
+        raise ValueError(f"step kind {kind.name}: a step task performs no external effect itself, whatever the step and whether or not "
+                         "the kind starts on its own: a review is passed by one word from any channel, so every external effect goes "
+                         "through the effect gate (the hash of the exact content, from the terminal or the page)")
 
 
 def register(kind: Kind) -> Kind:
@@ -273,6 +271,12 @@ def load_builtin() -> list:
             if isinstance(found, Kind) and found.name not in REGISTRY:
                 register(found)
     return sorted(REGISTRY)
+
+
+def sourcing_kinds() -> tuple:
+    """The names of the registered kinds that bring a source in (Kind.brings_source), sorted."""
+    load_builtin()
+    return tuple(sorted(n for n, k in REGISTRY.items() if k.brings_source))
 
 
 def kind_of(name) -> Kind:
@@ -592,6 +596,44 @@ def in_footprint(footprint, rel: str) -> bool:
                 all(_segment(w).fullmatch(have) for w, have in zip(want, parts)):
             return True
     return False
+
+
+def read_file(ctx: Context, rel: str, limit: int) -> bytes:
+    """The one way a kind reads a file of the project: a plain relative path (as write_file's), opened component by component from a
+    descriptor of the project's folder with O_NOFOLLOW, so that a link anywhere on the way (a linked folder included) is refused, and
+    never a path the context protects (the sources folder, checked on the path as given and on the real one). The file must be a regular
+    file; at most `limit` bytes are returned, and one byte more means it was over (StepFailure too_large). StepFailure: bad_path,
+    protected_path, missing (not there, not a regular file, or a link), path_unsafe, too_large."""
+    if not isinstance(rel, str) or not REL_PATH.fullmatch(rel) or any(p in (".", "..") for p in rel.split("/")):
+        raise StepFailure("bad_path", "path")
+    root = os.path.realpath(ctx.project)
+    full = os.path.join(root, *rel.split("/"))
+    if ctx.protected(full) or ctx.protected(os.path.realpath(full)):
+        raise StepFailure("protected_path", "path")
+    opened = []
+    try:
+        fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+        opened.append(fd)
+        parts = rel.split("/")
+        for part in parts[:-1]:
+            fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            opened.append(fd)
+        last = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW, dir_fd=fd)
+        opened.append(last)
+        if os.fstat(last).st_mode & 0o170000 != 0o100000:     # not a regular file
+            raise StepFailure("missing", "path")
+        with os.fdopen(os.dup(last), "rb") as f:
+            data = f.read(limit + 1)
+    except StepFailure:
+        raise
+    except OSError as e:
+        raise StepFailure("path_unsafe" if e.errno in LINK_ERRNOS else "missing", "path") from None
+    finally:
+        for descriptor in opened:
+            os.close(descriptor)
+    if len(data) > limit:
+        raise StepFailure("too_large", "path")
+    return data
 
 
 def write_file(ctx: Context, rel: str, data: bytes) -> dict:

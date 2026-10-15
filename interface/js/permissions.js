@@ -24,6 +24,8 @@ export const OPS = Object.freeze({
   retry: "retry",
   goAhead: "go-ahead",
   handOver: "hand-over",
+  stageFile: "stage-file",
+  flowSave: "flow-save",
   verdict: "verdict",
   say: "say",
   giveConsent: "give-consent",
@@ -41,6 +43,7 @@ export const EXEMPT = Object.freeze({
 /** Every plain name and pair that the controls ask about (the redraw key of a part is built from these). */
 export const ASKED = Object.freeze([
   ["answer"], ["release"], ["reject"], ["retry"], ["go-ahead"], ["hand-over"], ["verdict"], ["say"], ["request"], ["route"], ["give-consent"],
+  ["stage-file"], ["flow-save"],
   ["approve", "plan"], ["approve", "acceptance"], ["approve", "effect"], ["approve", "go-ahead"],
 ]);
 

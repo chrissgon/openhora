@@ -9,7 +9,7 @@ few minutes the first time. They run only with
 
     WB_CONVERTER_DOCKER_TESTS=1 uv run --with pytest==9.1.1 pytest providers/exporter/tests/test_exporter_docker.py
 
-Everything they start carries the label org.openhora.render and is removed by name; the image is the provider's own tag.
+Everything they start carries the label org.openhora.exporter and is removed by name; the image is the provider's own tag.
 """
 from __future__ import annotations
 
@@ -139,7 +139,7 @@ def test_an_empty_input_or_a_table_with_nothing_in_it_fails_and_prints_nothing(i
 
 
 def probe(image, tmp_path, code):
-    name = f"openhora-render-probe-{uuid.uuid4().hex[:8]}"
+    name = f"openhora-exporter-probe-{uuid.uuid4().hex[:8]}"
     source = tmp_path / "probe-input"
     source.write_bytes(b"x")
     command = box.argv(name, image, ["python3", "-I", "-c", code], label=render.LABEL_RUN, deadline=2 ** 31,

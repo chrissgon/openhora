@@ -142,23 +142,14 @@ REVIEWED = dict(order=("a", "review", "c"), executors={"a": lambda c, s: {}, "c"
                 decisions={"review": decision})
 
 
-def test_limit_30_a_step_that_performs_an_external_effect_after_a_review_is_refused_when_the_kind_is_registered():
-    why = refused(**REVIEWED, effectful=("c",))
-    assert "after a stop" in why and "effect gate" in why
+def test_limit_30_a_kind_that_declares_a_step_performing_an_external_effect_itself_is_refused_when_it_is_registered():
+    for fields in (dict(REVIEWED, effectful=("c",)), dict(REVIEWED, effectful=("a",)), dict(effectful=("a",)),
+                   dict(effectful=("a",), unattended=True), dict(effectful=("zzz",))):
+        why = refused(**fields)
+        assert "performs no external effect itself" in why and "effect gate" in why, fields
     with pytest.raises(ValueError):
-        steps.register(steps.Kind(name="odd-register", effectful=("c",), **REVIEWED))
+        steps.register(steps.Kind(name="odd-register", **dict(REVIEWED, effectful=("c",))))
     assert "odd-register" not in steps.REGISTRY
-
-
-def test_a_step_before_the_review_may_say_it_is_effectful_only_in_a_kind_that_does_not_start_on_its_own():
-    steps.check_kind(steps.Kind(name="ok-effect", effectful=("a",), **REVIEWED))
-    assert "starts on its own" in refused(effectful=("a",), unattended=True)
-
-
-def test_an_effectful_step_after_the_gate_or_without_an_executor_or_a_side_step_is_refused():
-    assert "effectful step" in refused(effectful=("zzz",))
-    assert "effectful step" in refused(effectful=("a",), side_steps={"a": lambda s: True})
-    assert "effectful step" in refused(order=("a", "b"), executors={"a": lambda c, s: {}}, gates={"b": gate("a")}, effectful=("b",))
 
 
 def test_a_gate_is_the_last_step_with_no_executor_an_earlier_redo_and_there_is_at_most_one():
@@ -171,13 +162,37 @@ def test_a_gate_is_the_last_step_with_no_executor_an_earlier_redo_and_there_is_a
     assert "the gate" in refused(order=("a", "b"), executors={"a": lambda c, s: {}}, gates={"b": "not a gate"})
 
 
-def test_every_kind_this_checkout_registers_keeps_the_rule_a_review_is_harmless_to_pass():
+def test_every_kind_this_checkout_registers_keeps_the_rule_no_step_performs_an_external_effect_itself():
     names = steps.load_builtin()
     assert {"ingest", "write-back", "export-csv", "export-xlsx", "export-docx", "export-pdf"} <= set(names)
     for name in names:
         kind = steps.REGISTRY[name]
-        stops = [kind.order.index(n) for n in list(kind.stops) + list(kind.gates)]
-        for step in kind.effectful:
-            assert not kind.unattended and (not stops or kind.order.index(step) < min(stops)), name
+        assert kind.effectful == (), name
         if kind.gates:
             assert kind.order[-1] in kind.gates and kind.order[-1] not in kind.executors and not kind.unattended, name
+
+
+# --- the static rule over the kinds' own modules ------------------------------------------------------------------------------------
+
+STEP_MODULES = sorted((st.REPO / "runtime").glob("step_*.py"))
+FORBIDDEN_IMPORTS = {"subprocess", "socket", "ssl", "http", "urllib", "requests", "ftplib", "smtplib"}
+READ_VERBS = {"read", "stat"}                  # the verbs of the documents provider a step kind may call: it only reads
+
+
+def test_limit_30_no_step_kind_module_writes_to_a_platform_runs_an_effect_or_reaches_the_network_itself():
+    import ast
+    assert {p.name for p in STEP_MODULES} >= {"step_ingest.py", "step_export.py", "step_write_back.py"}
+    for path in STEP_MODULES:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                names = [a.name for a in node.names] if isinstance(node, ast.Import) else [node.module or ""]
+                assert not {n.split(".")[0] for n in names} & FORBIDDEN_IMPORTS, f"{path.name} imports {names}"
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                assert node.value not in ("--confirmed", "--dry-run"), f"{path.name} passes {node.value} to a provider"
+            if isinstance(node, ast.Attribute):
+                assert node.attr not in ("execute", "provider_call", "approval_add", "effect_done"), f"{path.name} reaches .{node.attr}"
+            if isinstance(node, ast.Name):
+                assert node.id not in ("provider_call",), f"{path.name} reaches {node.id}"
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Call) and node.args and isinstance(node.args[0], ast.Constant):
+                assert node.args[0].value in READ_VERBS, f"{path.name} calls the verb {node.args[0].value!r} of a provider"

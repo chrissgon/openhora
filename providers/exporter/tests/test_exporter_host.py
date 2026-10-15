@@ -55,7 +55,7 @@ def stand_in(output=b"a,b\n", fmt="csv", info=INFO, code=0, seen=None):
 
 def test_the_definition_is_four_files_and_the_tag_is_the_start_of_their_hash():
     digest = render.definition_hash()
-    assert len(digest) == 64 and render.image_tag() == f"openhora-render:{digest[:12]}"
+    assert len(digest) == 64 and render.image_tag() == f"openhora-exporter:{digest[:12]}"
     for name in render.DEFINITION_FILES:
         assert (Path(render.DEFINITION_DIR) / name).is_file(), name
     assert Path(render.DEFINITION_DIR) == HERE.parent
@@ -83,12 +83,12 @@ def test_the_dockerfile_pins_its_base_by_digest_and_installs_wheels_by_hash_and_
 
 
 def test_the_command_has_every_limit_of_the_shared_container_and_mounts_only_the_input_read_only():
-    command = render.command_for("openhora-render-x", IMAGE, "/tmp/in/input", "pdf", 120)
+    command = render.command_for("openhora-exporter-x", IMAGE, "/tmp/in/input", "pdf", 120)
     text = " ".join(command)
     for needle in ("--network none", "--read-only", "--cap-drop ALL", "no-new-privileges", "--memory", "--cpus", "--pids-limit",
                    "/tmp/in/input:/in/input:ro", IMAGE, "python3 -I /opt/render/_render.py --format pdf --input /in/input"):
         assert needle in text, needle
-    assert text.count(" -v ") == 1 and "org.openhora.render" in text
+    assert text.count(" -v ") == 1 and "org.openhora.exporter" in text
 
 
 def test_a_render_returns_the_bytes_the_container_printed_and_leaves_no_copy_of_the_input(tmp_path):
@@ -164,12 +164,15 @@ def test_a_stream_that_is_not_a_render_is_refused_and_nothing_is_kept(data):
 
 def test_the_out_folder_must_be_a_real_empty_folder_of_this_user_with_mode_0700(tmp_path):
     good = tmp_path / "good"
-    good.mkdir(mode=0o700)
+    good.mkdir()
+    good.chmod(0o700)
     render.check_out_dir(str(good))
     loose = tmp_path / "loose"
-    loose.mkdir(mode=0o755)
+    loose.mkdir()
+    loose.chmod(0o755)          # mkdir's mode is cut by the umask, which another test of the same process may have changed
     full = tmp_path / "full"
-    full.mkdir(mode=0o700)
+    full.mkdir()
+    full.chmod(0o700)
     (full / "x").write_text("x")
     link = tmp_path / "link"
     link.symlink_to(good)

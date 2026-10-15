@@ -324,7 +324,7 @@ def drop_note(task: dict):
     if task.get("parent_id") is None or not task.get("skill"):
         return None
     try:
-        web = bool(skill_meta.declared(os.path.join(core.ROOT, "skills", task["skill"]))["web"])
+        web = bool(skill_meta.declared(os.path.join(core.ROOT, "skills", task["skill"]))["web"]) and not task.get("web_off")
     except skill_meta.SkillError:
         return None
     takes = drop.WEB_TASK_TAKES_DROP or not web

@@ -57,7 +57,7 @@ def world(tmp_path, monkeypatch):
     calls = []
 
     def call(cfg, root, verb, args, timeout=docs.TIMEOUT):
-        calls.append((verb, [a for a in args if a != "--confirmed"]))
+        calls.append(("write-dry-run" if verb == "write" and "--dry-run" in args else verb, [a for a in args if a != "--confirmed"]))
         return platform.mirror_call(cfg, root, verb, args, timeout)
 
     monkeypatch.setattr(docs, "call", call)
@@ -242,7 +242,7 @@ def test_a_target_edited_since_it_was_read_stops_the_write_and_asks_again_about_
     edited = world["platform"].text(world["page"])
     with pytest.raises(ops_core.OpsError) as stopped:
         ops.approve(world["path"], item["id"], sha256=item["payload_sha256"], channel="terminal")
-    assert "edited since it was read" in str(stopped.value) and "starts over" in str(stopped.value)
+    assert "not the one the task read" in str(stopped.value) and "starts over" in str(stopped.value)
     assert writes(world) == [] and world["platform"].text(world["page"]) == edited, "the person's edit is untouched"
     ctx = ops_core.context(world["path"])
     old = ctx["store"].pending_get(ctx["conn"], item["id"])
@@ -268,25 +268,35 @@ def test_the_check_is_the_text_not_the_version_so_a_page_touched_and_put_back_is
     assert done["task_state"] == "done" and len(writes(world)) == 1
 
 
+def notion_source(world, text, source_id="notes", page=None):
+    """A source bound to the target page (a Notion source), with one version holding `text`."""
+    ctx = ops_core.context(world["path"])
+    sources = st.load("sources")
+    address = "https://www.notion.so/Plan-" + (page or world["page"]).replace("-", "")
+    row = sources.register(ctx, source_id, "notion", address)
+    sources.import_version(ctx, row, text.encode("utf-8"), convert=None, kind="notion")
+
+
 def test_a_source_pin_that_no_longer_matches_the_page_stops_the_task_when_it_reads(world):
     # the version the task read (the source) is not the page now: the work was done on an older page
     task = add(world, source="notes")
-    ctx = ops_core.context(world["path"])
-    sources = st.load("sources")
-    row = sources.register(ctx, "notes", "file", "notes.md")
-    sources.import_version(ctx, row, (SEED + "an older line\n").encode("utf-8"), convert=None, kind="markdown")
+    notion_source(world, SEED + "an older line\n")
     out = run_task(world, task)
     assert out["ok"] is False and out["code"] == "target_changed" and writes(world) == []
 
 
 def test_a_source_pin_that_matches_the_page_lets_the_task_go_on_to_the_effect(world):
     task = add(world, source="notes")
-    ctx = ops_core.context(world["path"])
-    sources = st.load("sources")
-    row = sources.register(ctx, "notes", "file", "notes.md")
-    sources.import_version(ctx, row, SEED.encode("utf-8"), convert=None, kind="markdown")
+    notion_source(world, SEED)
     out = run_task(world, task)
     assert out["ok"] is True and out["task_state"] == "waiting" and writes(world) == []
+
+
+def test_a_source_that_is_not_the_target_page_stops_the_task_even_when_its_text_is_the_same(world):
+    task = add(world, source="notes")
+    notion_source(world, SEED, page="0123456789abcdef0123456789abcdef")
+    out = run_task(world, task)
+    assert out["ok"] is False and out["code"] == "source_not_target" and writes(world) == []
 
 
 # --- what stops it before the effect is opened ---------------------------------------------------------------------------------------------
@@ -305,7 +315,7 @@ def test_content_that_is_missing_too_large_a_link_or_holds_a_credential_opens_no
     assert run_task(world, task)["code"] == "content_missing"
     (root / "docs" / "real.md").write_text("fine\n", encoding="utf-8")
     (root / PATH).symlink_to(root / "docs" / "real.md")
-    assert run_task(world, task)["code"] == "content_missing"
+    assert run_task(world, task)["code"] == "path_unsafe"
     assert writes(world) == []
     ctx = ops_core.context(world["path"])
     assert ctx["store"].pending_list(ctx["conn"], "open", task) == []
@@ -382,3 +392,71 @@ def test_the_word_is_in_the_vocabulary_of_the_contract_and_of_the_validator():
     table = (st.REPO / "contracts" / "environment.md").read_text(encoding="utf-8")
     assert "| `write` |" in table
     assert "write" in ops._effect_words()
+
+
+# --- a lost answer, a partial replace, a linked folder, the bounds ------------------------------------------------------------------------
+
+
+def test_a_write_whose_answer_was_lost_is_recorded_as_replayed_when_the_same_hash_is_approved_again(world):
+    task, item = opened(world)
+    world["platform"].lost_answer = True                     # the next write is carried out and its answer is lost
+    with pytest.raises(ops_core.OpsError) as lost:
+        ops.approve(world["path"], item["id"], sha256=item["payload_sha256"], channel="terminal")
+    assert "outcome is unknown: read the page" in str(lost.value) and "stays open" in str(lost.value)
+    assert "Nothing was written" not in str(lost.value) and "nothing was written" not in str(lost.value)
+    assert len(writes(world)) == 1 and task_state(world, task) == "waiting"
+    assert world["platform"].text(world["page"]) == world["platform"].blocks.round_trip(CONTENT), "the page holds the content"
+    world["platform"].lost_answer = False
+    done = ops.approve(world["path"], item["id"], sha256=item["payload_sha256"], channel="terminal")
+    assert done["task_state"] == "done" and done["result"]["replayed"] is True and done["result"]["written"] is True
+    assert len(writes(world)) == 1, "the replay wrote nothing again"
+
+
+def test_a_page_left_half_written_by_a_failed_replace_is_not_called_unwritten(world):
+    task, item = opened(world)
+    page = world["page"]
+    blocks = world["platform"].blocks
+    # a replace that appended the new blocks and failed before deleting the old ones: both are on the page
+    world["platform"].fake.person_replaces_body(page, blocks.to_blocks(SEED + "\n" + CONTENT))
+    with pytest.raises(ops_core.OpsError) as stopped:
+        ops.approve(world["path"], item["id"], sha256=item["payload_sha256"], channel="terminal")
+    text = str(stopped.value)
+    assert "an earlier attempt of this write did not finish" in text and "Nothing was written by this attempt" in text
+    assert writes(world) == [] and task_state(world, task) == "ready"
+
+
+def test_a_write_call_that_fails_leaves_the_outcome_unknown_not_unwritten(world, monkeypatch):
+    task, item = opened(world)
+    real = docs.call
+
+    def failing(cfg, root, verb, args, timeout=docs.TIMEOUT):
+        if verb == "write" and "--confirmed" in args:
+            raise docs.DocumentsError("failed", "the provider ran over 180 s")
+        return real(cfg, root, verb, args, timeout)
+    monkeypatch.setattr(docs, "call", failing)
+    with pytest.raises(ops_core.OpsError) as unknown:
+        ops.approve(world["path"], item["id"], sha256=item["payload_sha256"], channel="terminal")
+    assert "outcome is unknown" in str(unknown.value) and "ran over 180 s" in str(unknown.value)
+    assert task_state(world, task) == "waiting"
+
+
+def test_content_read_through_a_linked_folder_is_refused_so_the_sources_folder_cannot_be_previewed(world):
+    root = Path(world["path"])
+    ctx = ops_core.context(world["path"])
+    kept = Path(ctx["cfg"]["sources_dir"])
+    (kept / "secret-source").mkdir(parents=True, exist_ok=True)
+    (kept / "secret-source" / "page.md").write_text("Text of a source that is not for the platform.\n", encoding="utf-8")
+    (root / "docs" / "linked").symlink_to(kept / "secret-source")
+    task = add(world, content="docs/linked/page.md")
+    out = run_task(world, task)
+    assert out["ok"] is False and out["code"] in ("path_unsafe", "protected_path") and writes(world) == []
+    ctx = ops_core.context(world["path"])
+    assert ctx["store"].pending_list(ctx["conn"], "open", task) == []
+
+
+def test_a_standing_approval_cannot_name_the_write_effect():
+    bounds = {"policy": "write-back", "agent": "runtime", "effects": ["write"], "targets": ["*"], "files": ["docs/*"], "max_per_day": 1,
+              "max_items_per_run": 1}
+    with pytest.raises(ValueError):
+        st.load("autonomy").bounds_of(bounds, "runtime", ops._bounds_words())
+    assert "write" in ops._effect_words() and "write" not in ops._bounds_words() and "publish" in ops._bounds_words()

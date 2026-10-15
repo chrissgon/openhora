@@ -17,7 +17,8 @@ that the call came from the terminal or the page (EFFECT_CHANNELS) and that the 
          module's `execute` runs: it reads the target again, stops if the target's text is not the one the task read, and otherwise
          writes once;
       5. only after it wrote is the decision resolved `approved` and the task `done` (store.effect_done, all or nothing).
-  A write that is refused or fails leaves the decision open and nothing written, except one case: a target edited since it was read
+  A write that is refused leaves the decision open and nothing written. A write call that fails leaves it open with the outcome unknown (the
+  page may hold the content; approving again reads it first and records it as replayed if it does). One case answers the decision: a target edited since it was read
   (`stale`) answers the decision with the reason, nothing is written, and the task is ready again to start over from the step that
   reads (runtime/steps.py, Gate.redo), so that the person is asked about the page as it is now. The approval row of that attempt is
   revoked by the store when the decision is answered.
@@ -42,8 +43,11 @@ import project_config  # noqa: E402
 import steps  # noqa: E402
 
 EFFECTS_DIR = "step-effects"          # <data_dir>/step-effects/<task id>/<cycle>/effect.json: written by the kind, read here by its hash
-STALE_ANSWER = ("Nothing was written: the document was edited after it was read. The task starts over from the step that reads it; "
-                "start it again to be asked about the document as it is now.")
+STALE_ANSWER = ("Nothing was written by this attempt: the document is not the one the task read (it was edited, or an earlier attempt of "
+                "this write did not finish: read the page). The task starts over from the step that reads it; start it again to be asked "
+                "about the document as it is now.")
+UNKNOWN_NEXT = ("the outcome is unknown: read the page. The effect stays open, and approving it again with the same hash reads the page "
+                "first and records the write if the content is there")
 
 
 def effect_dir(cfg: dict, task_id: int, cycle: int) -> str:
@@ -126,9 +130,11 @@ def approve(ctx: dict, item: dict, sha256: str, found, call=None) -> dict:
             result = module.execute(doc, approval, call or default_call, key, cfg["data_dir"])
         except effects.EffectError as e:
             if e.kind == "stale":
-                answered = ops_waits.settled(ctx, core._stored(ctx, store.pending_resolve, pending_id, resolution="answered", by="code",
-                                                               answer=STALE_ANSWER))
-                raise core.OpsError(f"nothing was written: {e.reason}. {STALE_ANSWER}", 1) from None
+                ops_waits.settled(ctx, core._stored(ctx, store.pending_resolve, pending_id, resolution="answered", by="code",
+                                                    answer=STALE_ANSWER))
+                raise core.OpsError(f"{e.reason}. {STALE_ANSWER}", 1) from None
+            if e.kind == "unknown":
+                raise core.OpsError(f"{e.reason}; {UNKNOWN_NEXT}", 1) from None
             raise core.OpsError(f"nothing was written: {e.reason}; the effect stays open, and approving it again with the same hash "
                                 f"tries again", 3 if e.kind == "not-configured" else 1) from None
         done = core._stored(ctx, store.effect_done, pending_id, approval["id"], by="user", result=result)

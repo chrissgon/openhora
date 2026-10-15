@@ -23,7 +23,7 @@ The result leaves the container as a stream of frames on its standard output (`O
 
 ## The image
 
-`Dockerfile`, `.dockerignore`, `_render.py` and `requirements.lock` are the definition; the image is named `openhora-render:<12 characters of the hash of those four files>`. It is built here, by a step the person starts, and never pulled when a render runs:
+`Dockerfile`, `.dockerignore`, `_render.py` and `requirements.lock` are the definition; the image is named `openhora-exporter:<12 characters of the hash of those four files>`. It is built here, by a step the person starts, and never pulled when a render runs:
 
 ```sh
 python3 providers/exporter/container.py build --dry-run       # the command, nothing built

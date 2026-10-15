@@ -388,7 +388,9 @@ CSS_CAP = 200000
 IMPLIED_END = {"p": ("p",), "li": ("li",), "dt": ("dt", "dd"), "dd": ("dt", "dd"), "tr": ("tr",), "td": ("td", "th"),
                "th": ("td", "th"), "option": ("option",)}
 VOID_TAGS = frozenset("area base br col embed hr img input link meta param source track wbr".split())
-UNREAD_TAGS = frozenset(("script", "style", "noscript", "template", "title", "head"))
+UNREAD_TAGS = frozenset(("script", "style", "noscript", "template"))     # what a converter never reads, whatever it holds
+HEAD_TAGS = frozenset(("html", "head", "title", "meta", "link", "base", "style", "script", "noscript", "template"))
+HINT_TAG_MAX, HINT_KINDS_MAX, HINT_MAX = 20, 3, 80                       # what a hint holds: the info.json that carries it stays under INFO_CAP
 NAMED_COLORS = {
     "white": (255, 255, 255), "black": (0, 0, 0), "snow": (255, 250, 250), "ivory": (255, 255, 240), "whitesmoke": (245, 245, 245),
     "ghostwhite": (248, 248, 255), "floralwhite": (255, 250, 240), "azure": (240, 255, 255), "mintcream": (245, 255, 250),
@@ -503,6 +505,14 @@ def color_reason(color, background):
     return "white_on_white" if background is None else "color_matched"
 
 
+def hint_of(owner: dict, number: int) -> str:
+    """The location hint of a hidden element: its kinds (the first HINT_KINDS_MAX), its tag name reduced to letters, digits and hyphens
+    and cut at HINT_TAG_MAX, and its number in the document; at most HINT_MAX characters whatever the page names its tags."""
+    tag = re.sub(r"[^a-z0-9-]", "", owner["tag"].lower())[:HINT_TAG_MAX] or "x"
+    kinds = "+".join([k for k in HIDDEN_KINDS if k in owner["kinds"]][:HINT_KINDS_MAX])
+    return f"{kinds} in {tag} element {number}"[:HINT_MAX]
+
+
 class HiddenScan:
     """What an HTML page hides: feed(html), then result(). A small walk over html.parser's events that keeps, for each open element,
     the reasons its text is hidden (those of the elements around it and its own) and the colour, size and background it resolves
@@ -532,6 +542,7 @@ class HiddenScan:
         self.stack = []
         self.number = 0
         self.unread = 0
+        self.in_head = False
         self.owners = {}
 
     def feed(self, html: str) -> None:
@@ -550,8 +561,10 @@ class HiddenScan:
 
     def start(self, tag, pairs) -> None:
         self.number += 1
-        if tag == "body":
-            self.unread = 0                       # a head that was never closed ends here
+        if tag in ("head", "title"):
+            self.in_head = True
+        elif self.in_head and tag not in HEAD_TAGS:
+            self.in_head = False                  # a head or a title that was never closed ends where the body's first tag begins
         if tag in UNREAD_TAGS:
             self.unread += 1
         if tag in VOID_TAGS:
@@ -621,13 +634,15 @@ class HiddenScan:
     def end(self, tag) -> None:
         if tag in UNREAD_TAGS and self.unread:
             self.unread -= 1
+        if tag in ("head", "title"):
+            self.in_head = False
         for depth in range(len(self.stack) - 1, max(-1, len(self.stack) - 40), -1):
             if self.stack[depth]["tag"] == tag:
                 del self.stack[depth:]
                 return
 
     def data(self, text) -> None:
-        if self.unread or not text.strip() or not self.stack or not self.stack[-1]["reasons"]:
+        if self.unread or self.in_head or not text.strip() or not self.stack or not self.stack[-1]["reasons"]:
             return
         owner = next(e for e in self.stack if e["reasons"])
         if owner["n"] not in self.owners and len(self.owners) >= HIDDEN_OWNERS_MAX:
@@ -640,8 +655,7 @@ class HiddenScan:
         for owner in self.owners.values():
             for kind in owner["kinds"]:
                 kinds[kind] = kinds.get(kind, 0) + 1
-        hints = [f"{'+'.join(k for k in HIDDEN_KINDS if k in owner['kinds'])} in {owner['tag']} element {n}"
-                 for n, owner in sorted(self.owners.items())[:HIDDEN_HINTS_MAX]]
+        hints = [hint_of(owner, n) for n, owner in sorted(self.owners.items())[:HIDDEN_HINTS_MAX]]
         return {"examined": True, "count": len(self.owners), "kinds": {k: kinds[k] for k in HIDDEN_KINDS if k in kinds}, "hints": hints}
 
 
@@ -730,6 +744,22 @@ def hidden_text(kind: str, path: str):
     return None
 
 
+def bounded_info(info: dict) -> bytes:
+    """The info.json text, always whole JSON and at most INFO_CAP bytes: when it is longer, the parts that can go go in order (the hidden
+    text's hints, the notes, the tool versions) and never the text cut in the middle, which the host could not parse. The hidden-text
+    record keeps its count and its kinds, which are bounded by their number."""
+    info = dict(info)
+    for drop in ("hints", "notes", "tool_versions", None):
+        data = json.dumps(info, sort_keys=True).encode("utf-8")
+        if len(data) <= INFO_CAP:
+            return data
+        if drop == "hints" and isinstance(info.get("hidden_text"), dict):
+            info["hidden_text"] = dict(info["hidden_text"], hints=[])
+        elif drop in ("notes", "tool_versions"):
+            info[drop] = [] if drop == "notes" else {}
+    raise Failed("the account of the conversion is too long")
+
+
 def frames(files) -> bytes:
     out = [b"OHF1\n"]
     for name, data in files:
@@ -756,9 +786,9 @@ def main(argv=None) -> int:
     except OSError as e:
         print(f"error: {type(e).__name__}: {e.strerror}", file=sys.stderr)
         return 1
-    info = json.dumps({"converter": "document", "kind": kind, "tool_versions": tools, "notes": notes,
-                       "hidden_text": hidden_text(kind, args.input)}, sort_keys=True).encode("utf-8")
-    sys.stdout.buffer.write(frames([(name, data), ("info.json", info[:INFO_CAP])]))
+    info = bounded_info({"converter": "document", "kind": kind, "tool_versions": tools, "notes": notes,
+                         "hidden_text": hidden_text(kind, args.input)})
+    sys.stdout.buffer.write(frames([(name, data), ("info.json", info)]))
     sys.stdout.buffer.flush()
     shutil.rmtree(args.work, ignore_errors=True)
     return 0

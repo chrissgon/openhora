@@ -133,6 +133,44 @@ def test_a_page_nested_far_deeper_than_the_walk_looks_does_not_fail(inner):
     assert found["examined"] is True and found["count"] == 1
 
 
+def test_a_page_with_enormous_tag_names_keeps_its_hints_short_and_its_info_whole_so_the_host_can_read_it(inner):
+    tag = "a" * 6000
+    body = "".join(f'<{tag}{n} style="display:none">planted words {n}</{tag}{n}>' for n in range(5))
+    found = inner.hidden_in_html(page(body))
+    assert found["count"] == 5 and found["kinds"] == {"display_none": 5}
+    assert len(found["hints"]) == 5 and all(len(h) <= inner.HINT_MAX and h.startswith("display_none in a") for h in found["hints"]), found["hints"]
+    info = inner.bounded_info({"converter": "document", "kind": "html", "tool_versions": {}, "notes": [], "hidden_text": found})
+    assert len(info) <= inner.INFO_CAP and json.loads(info)["hidden_text"]["count"] == 5
+    assert "planted" not in info.decode("utf-8")
+
+
+def test_the_hint_of_an_element_keeps_only_a_clean_short_tag_and_the_first_kinds(inner):
+    owner = {"tag": "x<script>alert(1)</script>" + "y" * 100, "kinds": set(inner.HIDDEN_KINDS)}
+    hint = inner.hint_of(owner, 12345678)
+    assert len(hint) <= inner.HINT_MAX and "<" not in hint and ">" not in hint and "(" not in hint
+    assert hint.startswith("display_none+visibility_hidden+hidden_attribute in xscriptalert")
+    assert inner.hint_of({"tag": "<>", "kinds": {"off_page"}}, 3) == "off_page in x element 3"
+
+
+def test_the_account_of_a_conversion_never_exceeds_its_cap_and_is_never_cut_in_the_middle(inner):
+    found = {"examined": True, "count": 9, "kinds": {"display_none": 9}, "hints": ["display_none in p element %d" % n for n in range(10)]}
+    info = inner.bounded_info({"converter": "document", "kind": "html", "tool_versions": {"pandoc": "p" * 100},
+                               "notes": ["n" * 500 for _ in range(60)], "hidden_text": found})
+    parsed = json.loads(info)
+    assert len(info) <= inner.INFO_CAP and parsed["notes"] == [] and parsed["hidden_text"]["count"] == 9 and parsed["hidden_text"]["kinds"] == {"display_none": 9}
+    with pytest.raises(inner.Failed):
+        inner.bounded_info({"converter": "x" * (inner.INFO_CAP + 10)})
+
+
+def test_a_title_or_a_head_that_is_never_closed_does_not_hide_the_page_from_the_scan(inner):
+    for opening in ("<html><head><title>Unclosed title", "<html><head>", "<title>Unclosed"):
+        found = inner.hidden_in_html(opening + '<p style="display:none">words</p><p>visible</p>')
+        assert found["count"] == 1 and found["kinds"] == {"display_none": 1}, opening
+    clean = inner.hidden_in_html('<title>Hidden-looking title</title><p style="color:#000">visible</p>')
+    assert clean["count"] == 0, "text of a title is not read, and not flagged either"
+    assert inner.hidden_in_html('<noscript><p style="display:none">words</p></noscript><p style="display:none">other</p>')["count"] == 1
+
+
 # --- a PDF -------------------------------------------------------------------------------------------------------------------------
 
 # pdftohtml -xml -zoom 1 on providers/converter/tests/fixtures/hidden.pdf, as the container's poppler printed it.

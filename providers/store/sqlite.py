@@ -52,7 +52,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 BUSY_TIMEOUT_SECONDS = 10
 PATH_ENV = "STORE_SQLITE_PATH"
 
@@ -409,6 +409,13 @@ MIGRATIONS = {
         "ALTER TABLE tasks ADD COLUMN step_args TEXT",
         "ALTER TABLE tasks ADD COLUMN step_footprint TEXT",
         "ALTER TABLE tasks ADD COLUMN step_state TEXT",
+    ]),
+    # P6a: a task that runs a skill without the web the skill requires. A workflow may say "web": false for a task (the code-made
+    # split of the flow check gives the skill that follows a research task this, so that a skill which requires the web never
+    # reads sources with the open network). 1 means the run is routed with the web off whatever the skill requires; NULL (every
+    # task that says nothing, and every row older than the column) leaves it to the skill. The plan's hash covers the word, and the run reads this column only.
+    13: ("a task that runs its skill without the web", [
+        "ALTER TABLE tasks ADD COLUMN web_off INTEGER CHECK (web_off IS NULL OR web_off = 1)",
     ]),
 }
 
@@ -1449,6 +1456,8 @@ def _plan_items(tasks, *, empty_text: bool = False, known=()) -> list:
                 raise StoreError(f"task {key!r}: a step task has no skill and receives no sources", EXIT_USAGE)
             if agent not in (None, STEP_OWNER):
                 raise StoreError(f"task {key!r}: a step task belongs to the agent {STEP_OWNER!r}", EXIT_USAGE)
+            if item.get("web_off"):
+                raise StoreError(f"task {key!r}: a step task has no web to switch off", EXIT_USAGE)
             agent, skill = STEP_OWNER, None
             step = {"step_kind": _step_kind_arg(item["step"]), "step_args": _step_args_arg(item.get("args")),
                     "step_footprint": _step_footprint_arg(item.get("footprint"))}
@@ -1458,7 +1467,7 @@ def _plan_items(tasks, *, empty_text: bool = False, known=()) -> list:
                      "title": text_arg(item.get("title"), "title", TITLE_MAX), "text": text,
                      "depends_on": list(depends), "milestone": 1 if item.get("milestone") else 0,
                      "agent": agent, "model": _model_arg(item.get("model")), "sources": _sources_arg(item.get("sources")),
-                     **step})
+                     "web_off": 1 if item.get("web_off") else None, **step})
     return plan
 
 
@@ -1471,12 +1480,12 @@ def _insert_plan(conn: sqlite3.Connection, request_id: int, flow: str | None, pl
     for item in plan:
         ids[item["key"]] = conn.execute(
             "INSERT INTO tasks (parent_id, flow, key, skill, agent, title, text, state, depends_on, milestone, "
-            "model, sources, step_kind, step_args, step_footprint, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "model, sources, step_kind, step_args, step_footprint, web_off, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (request_id, flow, item["key"], item["skill"], item["agent"], item["title"], item["text"],
              json.dumps([ids[d] for d in item["depends_on"]]), item["milestone"], item.get("model"),
              json.dumps(item["sources"]) if item["sources"] else None, item.get("step_kind"), item.get("step_args"),
-             item.get("step_footprint"), now, now)).lastrowid
+             item.get("step_footprint"), item["web_off"], now, now)).lastrowid
         added.append(ids[item["key"]])
     return added
 

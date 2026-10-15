@@ -85,9 +85,14 @@ def test_a_check_the_converter_could_not_make_is_said_and_is_not_a_clean_bill(ca
     assert case.ctx["store"].source_latest(case.ctx["conn"], "market")["hidden_text"] is None
 
 
-def test_a_converter_that_does_not_know_the_flag_leaves_it_not_examined(case):
-    done = import_html(case, "absent")
-    assert done["warnings"] == [] and "hidden_text" not in done["catalog"]
+def test_an_html_page_or_a_pdf_whose_converter_gave_no_usable_record_is_not_checked_and_never_none_found(case):
+    for n, record in enumerate(("absent", "a string", {"examined": True, "count": "many"}, {"count": 3})):
+        done = import_html(case, record, name=f"page{n}.html", source_id=f"market{n}")
+        assert done["warnings"] == ["hidden text could not be checked for this file: look at the original before a task relies on it"], record
+        assert "hidden_text" not in done["catalog"]
+        assert case.ctx["store"].source_latest(case.ctx["conn"], f"market{n}")["hidden_text"] is None
+        manifest = json.loads((case.folder / f"market{n}" / "1" / "manifest.json").read_text())
+        assert manifest["hidden_text"] == {"examined": False, "why": "tool_failed"}
 
 
 def test_whatever_the_container_writes_in_the_record_only_words_of_the_list_numbers_and_plain_hints_are_kept():

@@ -52,6 +52,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import operations  # noqa: E402  (the table: the channel policy, operations.permitted)
 import ops_core as core  # noqa: E402  (the shared names: read as core.<name>, never bound at import)
+import ops_flows  # noqa: E402  (a file a plan names reaches the task that reads it)
 import path_rule  # noqa: E402
 import plan  # noqa: E402
 import state_merge  # noqa: E402
@@ -173,8 +174,12 @@ def approve_plan(ctx: dict, item: dict, go_ahead) -> dict:
     idle = [k for k in keys if not any(w["key"] == k and w["kind"] == plan.WAIT_INPUT for w in got["store"])]
     if idle:
         raise core.OpsError(f"go ahead names {', '.join(idle)}, which waits for no task to derive: nothing was approved", 2)
+    ops_flows.before_approve(ctx, item)    # a file the plan names must be there with the plan's hash, before anything is approved
     done = core._stored(ctx, store.plan_approve, item["id"], by="user", waits=got["store"], go_ahead=keys)
     out = {**done, "waits": got["shown"]}
+    placed = ops_flows.after_approve(ctx, item, done)    # and then it goes to the drop of the task that reads it
+    if placed:
+        out["files"] = placed
     if keys:
         out["state"] = _record_go_ahead(ctx, done["tasks"], keys, got["shown"], payload.get("tasks") or [])
     rederive(ctx)

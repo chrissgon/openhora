@@ -60,7 +60,8 @@ a count for each kind of a closed list (HIDDEN_KINDS) and a few location hints. 
 came (the container is not trusted to be right about its own output), and keeps only words of the closed list, numbers and hints made
 of lower-case letters, digits and a few signs: never the text. The manifest carries the record, the version's row carries 1, 0 or
 NULL (found, none found, not examined), and the catalog entry carries the count and the kinds and a warning, so the person sees what a
-model will read. The kinds it does not look at (a Word document, a spreadsheet, a Notion page) are `null`: not examined.
+model will read. The kinds it does not look at (a Word document, a spreadsheet, a Notion page) are `null`: not examined. An HTML page or a PDF whose
+converter gave no usable record is not "none found" either: it is `{"examined": false}`, with its warning.
 
 Usage (a library): python3 runtime/sources.py --help
 
@@ -108,6 +109,7 @@ HIDDEN_KINDS = ("display_none", "visibility_hidden", "hidden_attribute", "zero_s
                 "white_on_white", "color_matched", "invisible_text")   # a copy of providers/converter/_inner.py; a test holds them equal
 HIDDEN_HINTS_MAX, HIDDEN_HINT = 10, re.compile(r"[a-z][a-z0-9_+ ,.:#-]{0,79}")
 HIDDEN_COUNT_MAX = 10 ** 6
+HIDDEN_EXAMINED = ("html", "pdf")                # the kinds whose converter examines them for hidden text (providers/converter/_inner.py)
 LABELS = ("import", "refresh", "changed-by-person")
 SUBTYPES = ("pdf", "docx", "xlsx", "pptx", "ooxml", "html", "csv", "text")  # what the sniffers answer for kind "document", and the converter takes
 EXTENSION = {"pdf": "pdf", "docx": "docx", "xlsx": "xlsx", "pptx": "pptx", "html": "html", "csv": "csv", "text": "txt", "notion": "md", "markdown": "md"}
@@ -1219,6 +1221,8 @@ def _import_in(ctx, folder, source, stream, length, stage_path, token, *, conver
     if reason:
         raise SourcesError(f"the converted text of this file {reason}: it was not kept", "credential")
     hidden = None if notion else hidden_text_record(info)
+    if hidden is None and subtype in HIDDEN_EXAMINED:     # an HTML page or a PDF whose converter said nothing usable was not checked: never "none found"
+        hidden = {"examined": False, "why": "tool_failed"}
     warnings = hidden_text_warning(hidden)
     if len(converted) > CONVERTED_WARN:
         warnings.append(f"large: {len(converted)} bytes of text is a big share of a model's context; send the part you need if "

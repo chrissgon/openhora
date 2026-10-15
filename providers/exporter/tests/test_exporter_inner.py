@@ -86,6 +86,16 @@ def test_the_header_row_is_guarded_too_and_a_quote_is_not_added_twice_to_a_cell_
     assert rows[0] == ["'=header", "'-also", "fine"] and rows[1] == ["1", "2", "3"]
 
 
+@pytest.mark.parametrize("cell,written", [("x;=1+1", "x;'=1+1"), ("safe;@SUM(A1:A2)", "safe;'@SUM(A1:A2)"), ("a|-b", "a|'-b"),
+                                          ("a\t=b", "a\t'=b"), ("=a;=b", "'=a;'=b"), ("a;b", "a;b"), ("tab\tin", "tab\tin"),
+                                          ("x;\u3000=y", "x;'\u3000=y"), ("\u3000=lead", "'\u3000=lead")])
+def test_a_cell_is_guarded_in_every_segment_a_locale_that_separates_cells_with_a_semicolon_would_split(inner, cell, written, tmp_path):
+    kind, data, counts, tools = inner.render_csv(table("safe", cell), str(tmp_path))
+    raw = data.decode("utf-8").lstrip("\ufeff")
+    assert list(csv.reader(io.StringIO(raw, newline="")))[1] == ["safe", written]
+    assert raw.startswith('"h0","h1"\r\n') and raw.endswith('"\r\n'), "every cell is quoted and every row ends with CR LF"
+
+
 def test_a_workbook_cell_that_starts_with_each_guarded_character_is_a_text_cell_never_a_formula(inner, tmp_path):
     pytest.importorskip("openpyxl")
     names = sorted(GUARDED)

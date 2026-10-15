@@ -67,6 +67,7 @@
 .wb-route-flow { flex: 0 1 12rem; width: auto; min-width: 0; padding-block: 2px; font-size: 12px; }   /* the flow beside "Route it" (E-20) */
 .wb-lobby-resolved { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 0 4px; color: var(--pui-text-muted); font-size: 12px; }
 .wb-lobby-resolved-text { min-width: 0; overflow-wrap: anywhere; }
+.wb-lobby-resolved .wb-save-flow { flex: 1 1 100%; min-width: 0; }      /* "Save this plan as a workflow" (P6a): under the line, as wide as it */
 .wb-pointer { padding: 8px 10px; border-radius: var(--pui-radius); background-color: var(--wb-sunken); }
 .wb-pointer .pui-link { margin-left: auto; }
 .wb-pointer-title { color: var(--pui-text); font-weight: 600; }     /* F2-D11: the pointer's title is bold in the text colour, the date after it muted (lobby.html) */
