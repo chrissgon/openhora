@@ -365,6 +365,7 @@ class Meter:
         self.reserved = 0  # the max_tokens of the requests under way
         self.in_flight = 0  # the requests under way, written in the file: a run that ends mid-request is not silently short
         self.open = {}  # ticket -> path of each metered request under way whose answer is not counted yet
+        self.held = {}  # ticket -> the tokens reserved for a request under way, until its answer is counted or it ends
         self.tickets = 0
         self.lock = threading.Lock()
         self.failed = False
@@ -392,14 +393,26 @@ class Meter:
             self.reserved += reserve
             self.in_flight += 1
             self.tickets += 1
+            self.held[self.tickets] = reserve
             if path:
                 self.open[self.tickets] = path
             self.write()
             return self.tickets
 
+    def unreserve(self, ticket):
+        """Give back what a ticket still holds, once: a ticket whose reservation was already given back (when its
+        answer was counted) holds nothing. Called with the lock held."""
+        self.reserved = max(0, self.reserved - self.held.pop(ticket, 0))
+
     def release(self, reserve, ticket=0):
+        """The request is over: it is no longer under way, and what it still holds is given back. A request whose
+        answer was counted gave its reservation back then (add(), add_unknown()), so this takes nothing twice.
+        `reserve` is only for a call without a ticket."""
         with self.lock:
-            self.reserved = max(0, self.reserved - reserve)
+            if ticket:
+                self.unreserve(ticket)
+            else:
+                self.reserved = max(0, self.reserved - reserve)
             self.in_flight = max(0, self.in_flight - 1)
             self.open.pop(ticket, None)
             self.write()
@@ -420,6 +433,7 @@ class Meter:
         with self.lock:
             self.responses += 1
             self.open.pop(ticket, None)
+            self.unreserve(ticket)  # counted: the room it held is counted now, in the same step
             for kind in KINDS:
                 self.counts[kind] += usage[kind]
             self.write()
@@ -428,6 +442,7 @@ class Meter:
         with self.lock:
             self.responses += 1
             self.open.pop(ticket, None)
+            self.unreserve(ticket)
             self.unknown_responses += 1
             if len(self.unknown) < UNKNOWN_LISTED:
                 self.unknown.append({"path": path[:200], "why": why})

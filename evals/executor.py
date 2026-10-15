@@ -151,16 +151,22 @@ def definition_hash(folder=DEFINITION):
     return h.hexdigest()
 
 
-_NATIVE = {}  # the docker host's platform, asked once per process
+_NATIVE = {}  # the docker host's platform, asked until docker answers, then once per process
 
 
 def native_platform():
-    """The docker host's CPU platform, asked of docker once per process (None when docker does not say, or says another)."""
+    """The docker host's CPU platform, asked of docker until it answers and then once per process (None when docker
+    says another platform than the listed ones). A docker that does not answer (not running yet, not installed, timed
+    out) is not an answer: None is returned and nothing is kept, so that a long-lived process started before the
+    docker daemon asks again instead of defaulting to arm64 for its whole life."""
     if "platform" not in _NATIVE:
         try:
-            _NATIVE["platform"] = host_platform()
+            answered, platform = asked_host_platform()
         except (ExecutorError, subprocess.SubprocessError, OSError):
-            _NATIVE["platform"] = None
+            return None
+        if not answered:
+            return None
+        _NATIVE["platform"] = platform
     return _NATIVE["platform"]
 
 
@@ -168,7 +174,8 @@ def image_platform():
     """The CPU platform the image is built for and run as: WB_EVAL_IMAGE_PLATFORM when it is set; else the docker host's
     own platform when it is one of IMAGE_PLATFORMS, so that an amd64 host builds and runs amd64 natively and never
     emulates arm64; else IMAGE_PLATFORM (arm64)."""
-    value = os.environ.get(PLATFORM_ENV) or (native_platform() if native_platform() in IMAGE_PLATFORMS else IMAGE_PLATFORM)
+    native = None if os.environ.get(PLATFORM_ENV) else native_platform()  # asked once: each ask of a hung daemon costs a timeout
+    value = os.environ.get(PLATFORM_ENV) or (native if native in IMAGE_PLATFORMS else IMAGE_PLATFORM)
     if not value.startswith("linux/") or not value[len("linux/"):].replace("/", "").isalnum():
         raise ExecutorError(f"{PLATFORM_ENV} must be a platform such as linux/amd64, not {value!r}")
     return value
@@ -369,11 +376,27 @@ def repo_digests(image, env=None):
 HOST_ARCHITECTURES = {"aarch64": "linux/arm64", "arm64": "linux/arm64", "x86_64": "linux/amd64", "amd64": "linux/amd64"}
 
 
+HOST_INFO_TIMEOUT = 15  # seconds `docker info` has: a daemon that hangs reads as "unknown", it never stalls the runner
+
+
+def asked_host_platform(env=None):
+    """(answered, platform): answered is True when `docker info` ran and succeeded, platform is the host's CPU platform
+    mapped to linux/arm64 or linux/amd64, or None when docker says another. A docker that fails, or does not answer
+    within HOST_INFO_TIMEOUT, is (False, None): unknown, not a platform."""
+    try:
+        r = docker("info", "--format", "{{.Architecture}}", env=env, check=False, timeout=HOST_INFO_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return False, None
+    if r.returncode != 0:
+        return False, None
+    return True, HOST_ARCHITECTURES.get(r.stdout.strip().lower())
+
+
 def host_platform(env=None):
     """The CPU platform of the docker host (`docker info`, mapped to linux/arm64 or linux/amd64), or None when docker
-    does not say or says another. An image of another platform than this runs emulated: that run is a trial."""
-    r = docker("info", "--format", "{{.Architecture}}", env=env, check=False)
-    return HOST_ARCHITECTURES.get(r.stdout.strip().lower()) if r.returncode == 0 else None
+    does not say, does not answer in time, or says another. An image of another platform than this runs emulated:
+    that run is a trial."""
+    return asked_host_platform(env)[1]
 
 
 def ensure(env=None):
@@ -387,9 +410,16 @@ def ensure(env=None):
     Returns the environment a record names: the definition's hash, the image, its digest, its source and its platform,
     and the docker host's own platform ("host_platform": evidence needs the two to be the same, since an emulated run is
     not the platform it says)."""
-    n, platform = names(), image_platform()
     if docker("info", "--format", "{{.ServerVersion}}", env=env, check=False).returncode != 0:
         raise ExecutorError("the docker daemon is not running: start it; evals run only in a container")
+    answered, host = asked_host_platform(env)
+    if not answered:
+        # No run starts with an unknown host platform: the image would default to arm64, possibly emulated on an amd64
+        # host, and the record could not say so.
+        raise ExecutorError(f"docker did not say its platform within {HOST_INFO_TIMEOUT} seconds (`docker info` failed or "
+                            "timed out): start the test again when the docker daemon answers")
+    _NATIVE["platform"] = host  # a real answer, kept for image_platform()
+    n, platform = names(), image_platform()
     published = published_image()
     proxies = ((n["proxy_image"], os.path.join(DEFINITION, "proxy")), (n["keys_image"], KEYPROXY))
     for image, folder in proxies + (() if published else ((n["image"], DEFINITION),)):
@@ -423,13 +453,13 @@ def ensure(env=None):
         # from one image store to another and is never read.
         return {"kind": "container", "definition_sha256": definition_hash(), "image": n["image"], "image_id": None,
                 "image_digest": published["manifest_digest"], "image_platform": platform, "image_source": "published",
-                "host_platform": host_platform(env)}
+                "host_platform": host}
     image_id = docker("image", "inspect", "--format", "{{.Id}}", n["image"], env=env).stdout.strip()
     # image_digest is the id of the built image: it survives `docker save` and `docker load`, so the kept
     # archive and the image a run executed in can be told to be the same. image_id is the same value under
     # the name the records of the first round use.
     return {"kind": "container", "definition_sha256": definition_hash(), "image": n["image"], "image_id": image_id,
-            "image_digest": image_id, "image_platform": platform, "image_source": "local", "host_platform": host_platform(env)}
+            "image_digest": image_id, "image_platform": platform, "image_source": "local", "host_platform": host}
 
 
 def verify_published(published, env=None):
