@@ -60,7 +60,7 @@ The flow files, one row each, with their tasks in order. A flow file is not a fl
 
 - `inputs`: the project artifacts it reads if present. `outputs`: the artifacts it owns (creates, and defines by its template). `updates`: the artifacts another skill owns that it writes into (a row, a section, a status, an approval); present in every skill, `[]` when empty. A path may carry a placeholder of the closed vocabulary ([contracts/project-layout.md](../../../contracts/project-layout.md), "Placeholders").
 - `requires`: requirement classes (`<role>:<target>`), never products; each skill says what it does when a class is missing.
-- `side_effects`: words of the closed list (`publish`, `send`, `schedule`, `deploy`, `create`, `push`, `dismiss`). A non-empty list asks for a `## Confirmation gate`.
+- `side_effects`: words of the closed list (`publish`, `send`, `schedule`, `deploy`, `create`, `push`, `dismiss`, `write`). A non-empty list asks for a `## Confirmation gate`.
 - `version`: `X.Y.Z`, raised only by the bump command.
 
 **The artifact graph.** An edge goes from the owner of a path to each skill that lists it in `inputs`; `updates` adds no edge, and a skill that reads its own artifact is not a cycle. The graph has no cycle.

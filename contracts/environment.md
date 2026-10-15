@@ -68,6 +68,7 @@ Any skill that changes something outside the repository declares it in `metadata
 | `create` | creates or changes a record at a remote service: a ticket, a pull request, a file in a design tool, a comment or a reply posted on a host |
 | `push` | pushes commits to a remote repository |
 | `dismiss` | closes or dismisses a record at a remote service (an alert) |
+| `write` | writes content over a document that lives at a remote service, replacing it whole: a page on the platform that holds the project's documents (the runtime's write-back: its kind is opened by a step task and approved by the hash of the exact content, never by a skill's gate) |
 
 Writing a file inside the project is not a side effect, and there is no word for it. A new word is added here, and to the validator's list, in the pull request of the first skill that needs it.
 

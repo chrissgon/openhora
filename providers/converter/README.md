@@ -10,12 +10,20 @@ Nothing here converts a document by code written for the purpose. The tools are 
 |--------|------|-------|
 | PDF | poppler's `pdftotext` (package `poppler-utils`) | a text layer only; a PDF of scanned pages has none and the manifest says so (no OCR). One `[page n]` line before each page |
 | Word (docx) | `pandoc` (`--sandbox`: no file but the input is read) to GitHub-flavoured Markdown | pictures are dropped |
-| HTML | `pandoc --sandbox` after `<script>`, `<style>`, `<noscript>` and `<template>` blocks are removed | text hidden by CSS is not detected yet: the hidden-text flag is P8 |
+| HTML | `pandoc --sandbox` after `<script>`, `<style>`, `<noscript>` and `<template>` blocks are removed | text a person cannot see (CSS, white on white, off the page) is flagged in `info.json` by the standard library's parser (see "Hidden text") |
 | Spreadsheet (xlsx) | `openpyxl` (package `python3-openpyxl`), stored values only (`data_only`), visible sheets only | one sheet comes out as `converted.csv`; several as `converted.md` with a `## Sheet: <name>` section and a `csv` fence each; a hidden sheet is not read and the manifest says so |
 | CSV | the standard library's `csv` | the delimiter (`,` `;` tab `|`) is detected and the file is written with commas; UTF-8, else Windows-1252 |
 | Text | the standard library | UTF-8 (a byte order mark dropped), else Windows-1252; NUL characters out |
 
 `providers/converter/_inner.py` is the small program that drives them inside the container; it adds a guard against an archive that declares too much data or too many entries, and cuts the text one byte over the cap (1 MiB) so that the host sees it and refuses.
+
+## Hidden text (package P8, finding S9)
+
+A page or a PDF can hold text a person cannot see and a model reads. For an HTML page and a PDF, `info.json` carries `hidden_text`: `{"examined": true, "count": n, "kinds": {kind: n}, "hints": [...]}` (a hint names a kind and a place, never the text), `{"examined": false, "why": "tool_failed"}` when the check could not be made, and `null` for every other kind (not examined). The kinds are a closed list (`HIDDEN_KINDS` of `_inner.py`, copied in `runtime/sources.py`): `display_none`, `visibility_hidden`, `hidden_attribute`, `zero_size`, `tiny_text`, `off_page`, `transparent`, `white_on_white`, `color_matched`, `invisible_text`. HTML is read with the standard library's parser (the style attribute, the simple rules of `<style>` blocks, the `hidden`, `bgcolor` and font `color` attributes); a PDF with poppler's `pdftohtml -xml`, twice, the second time with `-hidden`: a fill colour that matches the white page, a font of 2pt or less, and the pieces only the second run has (the invisible render mode). The host keeps only the closed words, bounded numbers and plain hints (`sources.hidden_text_record`), writes the record into the version's manifest and row, and adds a count and a warning to the catalog entry. What it does not find is listed in `docs/architecture/platform/outputs.md`; a scanned PDF with a text layer is flagged on purpose.
+
+## The other direction
+
+The converter turns a file into text. Turning a task's text into a file (CSV, workbook, Word document, PDF) is its twin, `providers/exporter/` (class `exporter:document`, `providers/exporter/README.md`).
 
 ## How a conversion runs
 
@@ -39,6 +47,7 @@ The base image is pinned by digest (`debian:bookworm-20261005-slim`, the digest 
 
 - `tests/test_converter_host.py` (offline): the frames, the definition and its hash, the exact command with each limit, the checks on the input and on the out folder, the verbs. No container is started.
 - `tests/test_converter_inner.py` (offline): the program on this machine with the tools it finds (pandoc, `pdftotext`, openpyxl; a test that needs one that is missing is skipped and says so).
-- `tests/test_converter_docker.py` (opt in, `WB_CONVERTER_DOCKER_TESTS=1`): the image built, each format converted in a real container, a key hidden in a PDF's compressed text found in the converted text and not in the raw bytes, and the limits as the image really holds them (no network, a read-only root, a scratch with no exec, no secret in the environment, an unprivileged user).
+- `tests/test_converter_hidden.py` (offline): the hidden-text detection for each kind, on HTML fixtures and on the XML of a real `pdftohtml` run.
+- `tests/test_converter_docker.py` (opt in, `WB_CONVERTER_DOCKER_TESTS=1`): the image built, each format converted in a real container, the hidden text of a page and of a PDF flagged, a key hidden in a PDF's compressed text found in the converted text and not in the raw bytes, and the limits as the image really holds them (no network, a read-only root, a scratch with no exec, no secret in the environment, an unprivileged user).
 
 Fixtures are fictional (`tests/fixtures/`).

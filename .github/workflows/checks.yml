@@ -113,7 +113,8 @@ jobs:
         run: WB_EVAL_DOCKER_TESTS=1 uv run --with pytest==9.1.1 pytest -q evals/tests/test_executor_docker.py evals/tests/test_keyproxy_docker.py
 
   # The document converter of the sources (providers/converter/): its image built from the pinned definition, and each format converted in a
-  # real container with no network (poppler, pandoc, openpyxl from the dated Debian snapshot). No model call.
+  # real container with no network (poppler, pandoc, openpyxl from the dated Debian snapshot); and the renderer's twin image (providers/exporter/),
+  # each output format made in a real container, the formula guard read back from the real files. No model call.
   converter:
     name: converter
     runs-on: ubuntu-24.04
@@ -127,7 +128,7 @@ jobs:
           version: "0.12.19"
           python-version: "3.11"
       - name: The converter image, built and exercised
-        run: WB_CONVERTER_DOCKER_TESTS=1 uv run --with pytest==9.1.1 pytest -q providers/converter/tests/test_converter_docker.py
+        run: WB_CONVERTER_DOCKER_TESTS=1 uv run --with pytest==9.1.1 pytest -q providers/converter/tests/test_converter_docker.py providers/exporter/tests/test_exporter_docker.py
 
   # The WhatsApp program (providers/messenger/whatsapp/): vet and tests, offline once the modules are fetched. The runner's
   # own Go downloads the toolchain go.mod names (verified by the checksum database); modules are checked against go.sum.
