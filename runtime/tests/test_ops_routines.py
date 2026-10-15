@@ -651,3 +651,20 @@ def test_a_routines_export_or_write_back_step_is_held_for_the_person_and_its_gat
     for channel in ("messaging", "mcp"):
         assert not operations.permitted("approve", channel, {channel: list(operations.GROUPS)}, "effect"), "a write-back's gate is approved nowhere but the terminal and the page"
     assert set(operations.EFFECT_CHANNELS) == {"terminal", "page"} and routine(world, rid)["state"] == "active"
+
+
+def test_a_default_model_the_gate_file_no_longer_lists_is_that_routines_problem_and_the_list_and_the_others_still_read(world, clock):
+    auto = make(world, name="follows-default", model=None, providers=["direct"])          # on auto: it follows the project's default model
+    fixed = make(world, name="fixed", model="m")
+    path = world["project"] / "docs" / "workbench" / "runtime.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["default_model"] = "a-model-that-was-removed"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    ops.accept_config(world["path"], ops.project_config.load(world["path"])["sha256"])
+    rows = {r["name"]: r for r in ops.routines_read(world["path"])["routines"]}
+    assert "a-model-that-was-removed" in rows["follows-default"]["problem"] and rows["follows-default"]["model_word"] is None
+    assert rows["follows-default"]["sha256"] is None and rows["follows-default"]["current"] is False
+    assert rows["fixed"]["model_word"] == "m" and rows["fixed"]["sha256"] and "problem" not in rows["fixed"]
+    detail = ops.routines_read(world["path"], auto["id"])                                  # the preview does not raise either
+    assert "problem" in detail and "approve" not in detail
+    assert ops.routines_read(world["path"], fixed["id"])["approve"]["sha256"] == rows["fixed"]["sha256"]

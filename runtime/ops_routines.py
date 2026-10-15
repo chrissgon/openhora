@@ -246,7 +246,11 @@ def _view(ctx: dict, record: dict) -> dict:
         out.update(sha256=shown["sha256"], content=shown["content"], current=shown["sha256"] == record.get("approved_sha256"))
     except core.OpsError as e:
         out.update(sha256=None, content=None, current=False, problem=str(e))
-    out["model_word"] = effective_model(ctx, record)
+    try:
+        out["model_word"] = effective_model(ctx, record)
+    except core.OpsError as e:      # a default model the gate file no longer lists is this routine's problem, not the whole list's
+        out["model_word"] = None
+        out.setdefault("problem", str(e))
     return out
 
 
@@ -272,7 +276,10 @@ def routines_read(project: str, routine_id: int | None = None) -> dict:
 def _consent_needed(ctx: dict, record: dict) -> bool:
     """Whether the model is fixed and unproven for a skill of the workflow, so that the routine's tasks wait at their first review
     unless the routine carries its consent (D34)."""
-    word = effective_model(ctx, record)
+    try:
+        word = effective_model(ctx, record)
+    except core.OpsError:      # the routine's own view says why; there is no warning to show for a model that does not exist
+        return False
     if word == AUTO or record.get("consent"):
         return False
     keys = core._keys()
