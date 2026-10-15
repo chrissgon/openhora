@@ -515,7 +515,7 @@ def test_the_builtin_kinds_register_themselves_from_their_own_files_and_the_engi
     tree = ast.parse((st.RUNTIME / "steps.py").read_text(encoding="utf-8"))
     imported = sorted({a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
                       | {(n.module or "").split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)})
-    assert imported == ["__future__", "dataclasses", "hashlib", "importlib", "os", "re", "sys", "typing"]       # no captions, media, theme or converter
+    assert imported == ["__future__", "dataclasses", "errno", "hashlib", "importlib", "os", "re", "sys", "typing"]       # no captions, media, theme or converter
 
 
 def test_a_plan_task_carries_the_checked_arguments_and_the_footprint_the_kind_derived(registered):
