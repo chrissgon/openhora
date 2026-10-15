@@ -127,7 +127,7 @@ def test_the_model_table_shows_band_cause_and_gate_per_model_with_the_reference_
     folder = skill(root)
     lines = [(c, "with", 0.9, None) for c in (1, 2, 3) for _ in range(3)] + [(c, "without", 0.5, None) for c in (1, 2, 3)]
     lines += [(c, "with", 0.9, {"model": "a-floor", "adapter": "fh"}) for c in (1, 2, 3) for _ in range(3)]
-    event(folder, "full", "1.0.0", "2030-01-01", lines)
+    event(folder, "full", "1.0.0", "2030-01-01", lines, floor="a-floor")  # the event names the model whose lines it holds
     block = es.inventory_block(str(root))
     rows = [l for l in block.splitlines() if l.startswith("| `core-demo` | `")]
     assert ("| Skill | Model | Band | Cause | Gate: with vs baseline | Score | Mean | Lab runs (N) | "

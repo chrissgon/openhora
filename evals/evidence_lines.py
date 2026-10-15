@@ -52,6 +52,22 @@ line names, in the order of the header ([] when the header is malformed), so cal
 `tier_model(line, tier)` is the one reader of the old shape's tiers: the model written under a tier, None for the
 new shape. It exists for the band logic that still compares the strong tier's model.
 
+The gate of an event line, in both shapes
+-----------------------------------------
+  Old (every committed file): "gate": {"passed", "with", "baseline", "threshold", "tolerance"[, "note"]}, the
+  result of the event's strong tier, which `event_gates` reads as the gate of that tier's model.
+  New (the model-keyed test event): "gate": {model id: that same object}, at least one key and each key a model
+  of the event's "models". Only a header that is a list of models carries the keyed gate, and only the old header
+  carries the single one, so that a gate always says whose it is. `event_gates(line)` returns {model id: gate} for
+  either shape, so callers never branch on it. A model that has no gate in the event (no baseline of its own ran
+  or was in force for it) has no key.
+
+The usage of a run
+------------------
+A run line may carry "usage": {"input", "output", "cache_read", "cache_write"}, whole numbers of 0 or more, the
+four kinds of tokens a run used (runtime/costs.py KINDS). Optional, and never a guess: it is written when the
+run's tokens could be read (eval_run.py run_usage), otherwise the key is absent.
+
 Usage (a library):
   python3 evals/evidence_lines.py --help        print this text
 """
@@ -84,7 +100,10 @@ EVENT_OPTIONAL = ("gate", "upstream", "image_source")
 RUN_REQUIRED = ("record", "skill", "version", "content_sha256", "model", "adapter", "kind", "test", "date",
                 "measurement_version", "measurement_sha256", "case", "case_sha256", "variant", "outcome", "score", "results")
 # "platform" names a social platform; "cpu_platform" the CPU platform the run's container ran on (linux/arm64, linux/amd64).
-RUN_OPTIONAL = ("context_sha256", "platform", "guard_failed", "cost_usd", "run_sha256", "cpu_platform")
+RUN_OPTIONAL = ("context_sha256", "platform", "guard_failed", "cost_usd", "run_sha256", "cpu_platform", "usage")
+# "usage" is the tokens a run used by kind, whole numbers: the key proxy's count when the run went through one,
+# otherwise the model usage of the run's raw output (eval_run.py run_usage). Optional: a run with no readable count has none.
+USAGE_KEYS = ("input", "output", "cache_read", "cache_write")
 IMAGE_SOURCES = ("published", "local")
 CPU_PLATFORM_RE = re.compile(r"linux/[a-z0-9]+(/[a-z0-9]+)?")
 GATE_KEYS = ("passed", "with", "baseline", "threshold", "tolerance")
@@ -182,6 +201,26 @@ def tier_model(line, tier):
     return models.get(tier) if isinstance(models, dict) else None
 
 
+def _gate_ok(g):
+    """True when g is one gate result: {"passed", "with", "baseline", "threshold", "tolerance"[, "note"]}."""
+    return (isinstance(g, dict) and set(GATE_KEYS) <= set(g) and set(g) <= set(GATE_KEYS + ("note",))
+            and isinstance(g["passed"], bool) and _number(g["with"]) and (g["baseline"] is None or _number(g["baseline"]))
+            and _number(g["threshold"]) and _number(g["tolerance"]) and g.get("note", "baseline expired") == "baseline expired")
+
+
+def event_gates(line):
+    """{model id: gate} an event line carries, whichever shape its "gate" has: the keyed gate of a list header as it
+    stands, the single gate of an old header as the gate of its strong tier's model. {} for a line with no gate or a
+    malformed one (event_line_problems says why)."""
+    g = line.get("gate") if isinstance(line, dict) else None
+    if not isinstance(g, dict) or not g:
+        return {}
+    if isinstance(line.get("models"), list):
+        return dict(g) if all(isinstance(k, str) and _gate_ok(v) for k, v in g.items()) else {}
+    model = tier_model(line, "strong")
+    return {model: g} if isinstance(model, str) and _gate_ok(g) else {}
+
+
 def event_line_problems(line, models=None):
     """Why an event line is outside its form. Its model ids are judged by what the line itself names (the
     module docstring); models is an optional set of known model ids, an extra allowlist that is None for the
@@ -258,11 +297,14 @@ def event_line_problems(line, models=None):
         bad("complete", "true or false")
     if "gate" in line:
         g = line["gate"]
+        keyed = isinstance(line["models"], list)  # a list header carries a gate for each model, an old one a single gate
         if line["kind"] != "full":
             out.append("gate belongs to a full test only: a partial test never evaluates the gate")
-        elif not (isinstance(g, dict) and set(GATE_KEYS) <= set(g) and set(g) <= set(GATE_KEYS + ("note",))
-                  and isinstance(g["passed"], bool) and _number(g["with"]) and (g["baseline"] is None or _number(g["baseline"]))
-                  and _number(g["threshold"]) and _number(g["tolerance"]) and g.get("note", "baseline expired") == "baseline expired"):
+        elif keyed and not (isinstance(g, dict) and g and all(is_named(k) and (named is None or k in {m for m, _ in pairs})
+                                                               and _gate_ok(v) for k, v in g.items())):
+            bad("gate", "{model id of the event's models: {\"passed\": bool, \"with\": mean, \"baseline\": mean or null, "
+                "\"threshold\", \"tolerance\"[, \"note\": \"baseline expired\"]}}, at least one")
+        elif not keyed and not _gate_ok(g):
             bad("gate", "{\"passed\": bool, \"with\": mean, \"baseline\": mean or null, \"threshold\", \"tolerance\"[, \"note\": \"baseline expired\"]}")
         elif line["complete"] is not True:
             out.append("gate is written by a complete full test only: an event closed as abandoned evaluates no gate")
@@ -322,6 +364,9 @@ def run_line_problems(line, event=None, models=None):
     if "cost_usd" in line and not (isinstance(line["cost_usd"], (int, float)) and not isinstance(line["cost_usd"], bool)
                                    and line["cost_usd"] >= 0):
         bad("cost_usd", "a number, 0 or more")
+    if "usage" in line and not (isinstance(line["usage"], dict) and set(line["usage"]) == set(USAGE_KEYS)
+                                and all(_count(v) for v in line["usage"].values())):
+        bad("usage", "{" + ", ".join(f'"{k}"' for k in USAGE_KEYS) + "}: whole numbers of 0 or more, the tokens the run used by kind")
     if "run_sha256" in line and not _is(HEX64_RE, line["run_sha256"]):
         bad("run_sha256", "64 hexadecimal characters")
     if "cpu_platform" in line and not (isinstance(line["cpu_platform"], str) and CPU_PLATFORM_RE.fullmatch(line["cpu_platform"])):

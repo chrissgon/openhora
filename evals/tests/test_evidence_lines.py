@@ -41,6 +41,8 @@ def as_list_shape(lines):
     """The same file with the new header: a list of model ids and adapters keyed by model id."""
     event = copy.deepcopy(lines[0])
     event["adapters"] = {event["models"][tier]: event["adapters"][tier] for tier in event["models"]}
+    if "gate" in event:  # the list header carries a gate for each model: the single gate was the strong tier's
+        event["gate"] = {event["models"]["strong"]: event["gate"]}
     event["models"] = list(event["models"].values())
     return [event] + lines[1:]
 
@@ -154,7 +156,8 @@ def test_the_list_header_may_name_unknown_and_a_model_with_a_path_and_a_tag():
     event = read(COMMITTED[0])[0]
     new = {key: value for key, value in as_list_shape([event])[0].items() if key != "upstream"}
     one = {**new, "models": ["unknown", "a/model:1"], "adapters": {"unknown": "agents-dir", "a/model:1": "claude-code"},
-           "adapter_sha256": {"agents-dir": H["a"], "claude-code": H["b"]}, "counts": {}, "grader": "unknown"}
+           "adapter_sha256": {"agents-dir": H["a"], "claude-code": H["b"]}, "counts": {}, "grader": "unknown",
+           "gate": {"a/model:1": next(iter(new["gate"].values()))}}
     assert el.event_line_problems(one) == []
     assert el.event_model_pairs(one) == [("unknown", "agents-dir"), ("a/model:1", "claude-code")]
     run = {**read(COMMITTED[0])[1], "model": "a/model:1", "adapter": "claude-code"}
@@ -394,3 +397,84 @@ def test_image_source_is_an_optional_key_of_the_event_line_and_upstream_may_name
         assert el.event_line_problems({**event, "image_source": bad})[0].startswith("image_source must be")
     upstream = {model: "a-provider" for model in event["models"].values()}
     assert el.event_line_problems({**event, "upstream": upstream}) == []  # one for each model that ran through a proxy, not the floor only
+
+
+# --- package P2c: the gate of an event line, keyed by model, and the usage of a run -----------------------------
+
+GATE_OF_ONE = {"passed": True, "with": 0.9, "baseline": 0.5, "threshold": 0.8, "tolerance": 0.05}
+
+
+def full_event():
+    """A committed full test with a gate, in the old shape (a single gate) and in the list shape (a gate for each model)."""
+    old = next(read(p)[0] for p in COMMITTED if "gate" in read(p)[0])
+    return old, as_list_shape([old])[0]
+
+
+def test_an_old_events_single_gate_and_a_list_events_keyed_gate_are_both_read():
+    old, new = full_event()
+    assert el.event_line_problems(old) == [] and el.event_line_problems(new) == []
+    strong = old["models"]["strong"]
+    assert el.event_gates(old) == {strong: old["gate"]} and el.event_gates(new) == {strong: old["gate"]}
+    assert el.event_gates({k: v for k, v in old.items() if k != "gate"}) == {} and el.event_gates("nothing") == {}
+    assert es.event_gates is el.event_gates
+
+
+@pytest.mark.parametrize("change", [
+    {"gate": GATE_OF_ONE},  # a single gate under a list header
+    {"gate": {}},
+    {"gate": {"a-model": {"passed": "yes"}}},
+    {"gate": {"b-model": GATE_OF_ONE}},  # a model the event does not list
+    {"gate": {"a-model": GATE_OF_ONE, "unknown": GATE_OF_ONE}},
+    {"gate": ["a-model"]},
+])
+def test_a_malformed_keyed_gate_is_refused(change):
+    _, new = full_event()
+    line = {**{k: v for k, v in new.items() if k != "upstream"}, "models": ["a-model"], "adapters": {"a-model": "agents-dir"},
+            "adapter_sha256": {"agents-dir": H["a"]}, "counts": {}, "grader": "a-model", "gate": {"a-model": GATE_OF_ONE}}
+    assert el.event_line_problems(line) == []
+    problems = el.event_line_problems({**line, **change})
+    assert any(p.startswith("gate must be {model id") for p in problems), problems
+
+
+def test_a_keyed_gate_belongs_to_a_list_header_and_a_single_gate_to_the_old_one():
+    old, new = full_event()
+    keyed = {old["models"]["strong"]: old["gate"]}
+    assert any(p.startswith("gate must be {\"passed\"") for p in el.event_line_problems({**old, "gate": keyed}))
+    assert el.event_gates({**old, "gate": keyed}) == {}  # neither form: no one's gate is read from it
+
+
+def test_a_keyed_gate_may_carry_a_gate_for_each_model_and_the_baseline_expired_note():
+    _, new = full_event()
+    models = list(new["models"])
+    gates = {m: {**GATE_OF_ONE, **({"note": "baseline expired"} if i else {})} for i, m in enumerate(models)}
+    assert el.event_line_problems({**new, "gate": gates}) == []
+    assert el.event_line_problems({**new, "gate": {models[0]: {**GATE_OF_ONE, "note": "something else"}}})
+    assert any("gate belongs to a full test only" in p for p in el.event_line_problems({**new, "kind": "partial", "gate": gates}))
+    assert any("gate is written by a complete full test only" in p for p in el.event_line_problems({**new, "complete": False, "gate": gates}))
+    assert "a complete full test carries its gate" in el.event_line_problems({k: v for k, v in new.items() if k != "gate"})
+
+
+USAGE = {"input": 120, "output": 40, "cache_read": 3000, "cache_write": 0}
+
+
+def test_a_run_line_with_or_without_usage_is_valid_and_a_malformed_usage_is_refused():
+    run = next(line for line in read(COMMITTED[0])[1:] if "usage" not in line)
+    assert "usage" in el.RUN_OPTIONAL and el.USAGE_KEYS == ("input", "output", "cache_read", "cache_write")
+    assert es.USAGE_KEYS is el.USAGE_KEYS
+    assert el.run_line_problems(run) == [] and el.run_line_problems({**run, "usage": USAGE}) == []
+    assert el.run_line_problems({**run, "usage": {k: 0 for k in USAGE}}) == []
+    for bad in ({**USAGE, "input": -1}, {**USAGE, "output": 1.5}, {**USAGE, "input": True}, {**USAGE, "cache_read": "3"},
+                {k: v for k, v in USAGE.items() if k != "cache_write"}, {**USAGE, "total": 3160}, [1, 2, 3, 4], None, 3160):
+        problems = el.run_line_problems({**run, "usage": bad})
+        assert problems and problems[0].startswith("usage must be {"), bad
+
+
+def test_an_old_evidence_file_stays_valid_against_a_changed_gate_file_and_a_line_may_carry_usage(tmp_path):
+    source = COMMITTED[0]
+    gate = json.loads((REPO / "evals" / "eval-gate.json").read_text())
+    root, old = tree(tmp_path, source, retired(gate, 7))  # the gate file no longer lists the models the file names
+    assert es.evidence_file_problems(str(old), str(root)) == [] and es.evidence_problems(str(root)) == ({}, 1)
+    lines = read(old)
+    lines[1] = {**lines[1], "usage": USAGE}  # one run line with usage, among lines without
+    write(old, lines)
+    assert es.evidence_file_problems(str(old), str(root)) == []

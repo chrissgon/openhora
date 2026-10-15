@@ -22,6 +22,10 @@ floor_pass_env, threshold), so `eval_run.py --skill <name>` runs the gate as con
 command line wins; floor_pass_env is applied only when the floor model is the configured one (another floor
 model, such as one served on the same machine, needs no provider key). Without the file, --harness and
 --model are required, there is no floor model unless --floor-model names one, and the threshold is 0.8.
+--model (and --floor-model) names any model: one the gate file lists, whose adapter and key variables come from its
+entry in "models" (--harness overrides the adapter), or any other well-formed model id, which needs --harness. Whose
+evidence a test is follows from the models it ran (below, "Evidence"): the gate file's lab models write into the skill;
+any other model writes to the person's local evidence folder, outside the checkout.
 
 Full and partial tests (the reliability model, section 2). `eval_run.py --skill <name>` is a full test:
 every current case with the skill, on every model the gate file lists, "runs" times each, and the baseline
@@ -34,13 +38,16 @@ floor) are unchanged and it has as many lines as a full test runs it: it is reus
 baseline of the cases the event runs, in force or not (for a case added or changed after the newest full test:
 `--cases <id> --baseline`, which is how such a case enters the gate).
 `--baseline-on <model>` also runs the baseline on another model the gate file lists (the floor model), for
-whoever wants that column; no rule reads it. An event is full by the reference model: it is complete when
-every run with the skill and every baseline run on the reference model is graded. A run that is missing on
-another model leaves it complete; that run is listed and the event exits 1, but its evidence is written.
-Only a full test evaluates the gate, when it ends, and writes it into its event line: over the run lines of
-kind full with the skill on the reference model of the X.Y version it ran on, its own and those of every
-earlier full test of that X.Y and epoch (a second full test of an unchanged X.Y adds its runs and replaces
-none), every current case required, against the mean of the baselines in force (evals/eval_status.py gate).
+whoever wants that column. An event is full by its strong tier's model (--model, by default the gate file's
+reference model): it is complete when every run with the skill and every baseline run on that model is graded. A
+run that is missing on another model leaves it complete; that run is listed and the event exits 1, its evidence
+is written, and that model has no gate in the event.
+Only a full test evaluates the gate, when it ends, and writes it into its event line, for each model of the event
+whose runs were all graded: over the run lines of kind full with the skill on that model of the X.Y version its
+newest full test ran on, its own and those of every earlier full test that lists the model, of that X.Y and
+epoch (a second full test of an unchanged X.Y adds its runs and replaces none; a full test of another model
+changes nothing of this model's gate), every current case required, against the mean of the baselines in force
+for that model (evals/eval_status.py gate [--model <id>]).
 A partial test never moves the gate.
 An interrupted event is resumed (--resume). A full test that is abandoned instead is closed:
 `--close <event folder>` writes its file into the skill as an incomplete event, whose lines stay in the gate of
@@ -354,22 +361,29 @@ A run line carries the skill's version (metadata.version as X.Y.Z; a two-part ve
 its content hash when the event started (the hash leaves out all of evals/, scripts/tests/, caches and an
 installer's marker file), the case and its hash (over the whole case object and the bytes of its fixture
 files), "context_sha256" when the run was given dependency skills or shared references (one hash over them),
-the model as the gate file lists it ("models": an alias is written as its id, anything else as "unknown"),
+the model as the gate file lists it ("models": an alias is written as its id; a model the file does not list, which
+only a local test runs, under its own well-formed id),
 the adapter, the variant ("with" or "without"), the outcome ("graded", or "timeout" after the cap of
 resumptions), the score, one 0 or 1 per assertion ("results"), "guard_failed" when the second grading of a
 with-skill run confirmed a failed guard (above, "Grading"), the measurement version and the measurement
 fingerprint computed when the event started. A run that failed on infrastructure, was paused on the account
 limit or ended early writes no line. The event line carries what describes the event as a whole: its kind
-("full": every case with the skill on the reference model; "partial": chosen cases), the models, their
-adapters and the hash of each adapter's run-prompt.sh, the grader, the configured runs, timeout and retries,
+("full": every case with the skill on the strong tier's model; "partial": chosen cases), the models (a list of
+ids) with their adapters ({model id: adapter}) and the hash of each adapter's run-prompt.sh, the grader, the configured runs, timeout and retries,
 the image's digest and CPU platform, the versions of the tools in the image, the grading template's hash, the
 hash of every case, whether the baseline of each case was run, the web cases, per model and variant the
 counts of retries, refusals, timeouts, pauses, early ends and resumptions, the names of extra variables,
-whether the event is complete and, for a complete full test, the gate's result with the two means it was
-computed from (the mean with the skill on the reference model is at the threshold or above and is not below
-the baseline's mean by more than the tolerance, both unrounded).
-What makes an event a trial, besides "Control of a test event": a model, an adapter or a grader that is not
-the configured one; a measurement fingerprint that differs from the committed one (a file that decides what
+whether the event is complete and, for a complete full test, the gate's result for each model whose runs in
+the event were all graded and whose baseline ran or is in force ("gate": {model id: result}), with the two means
+it was computed from (the mean with the skill on that model is at the threshold or above and is not below the
+baseline's mean by more than the tolerance, both unrounded). A run line also carries "usage" when the run's
+tokens could be read whole (run_usage): the key proxy's count, else the model usage of the raw output.
+Where the evidence goes (evidence_home): into the skill's folder when every model of the event is one of the gate
+file's "lab_models" and runs through the adapter its entry names; otherwise into the person's local evidence folder,
+<XDG data home>/openhora/evidence/<skill>/ (WB_LOCAL_EVIDENCE_DIR names another base; one inside the checkout is
+refused), which nothing in the checkout sees. The local file is read by its own event line, not the gate file's list.
+What makes an event a trial, besides "Control of a test event": a grader that is not the configured one; a
+measurement fingerprint that differs from the committed one (a file that decides what
 a run measures changed in this checkout); chosen variants (--only, --tiers, --ablate, --no-grade); a skill
 with no version; a skill folder that changed during the event. An incomplete event writes nothing into the
 skill either: resume it. The reason is printed, and stored in benchmark.json "scratch".
@@ -587,20 +601,33 @@ def parse(argv):
     for key, name in (("runs", "runs"), ("timeout", "timeout_seconds"), ("retries", "retries")):
         if opts[key] is None:
             opts[key] = control[name]
+    # --model names any model: one of the gate file's list, whose entry gives its adapter and the variables of its
+    # key, or any other well-formed id, which needs --harness (its evidence stays on this machine: evidence_home).
+    named = opts["model"] is not None
     for key, field in (("harness", "strong_harness"), ("model", "strong_model"), ("floor", "floor_model"),
                        ("threshold", "threshold")):
         if opts[key] is None:
             opts[key] = gate.get(field)
+    entry = load_status().model_entry(gate, opts["model"]) if gate and opts["model"] else None
+    if named and opts["model"] != gate.get("strong_model") and "--harness" not in argv and not opts["check_cases"]:
+        if entry and entry.get("adapter"):
+            opts["harness"] = entry["adapter"]
+        elif gate and not opts["routing"] and opts["resume"] is None and opts["close"] is None and opts["regrade"] is None:
+            die(f"--model {opts['model']}: the gate file lists no adapter for it, so --harness <adapter> is required.")
+    if opts["model"] is not None and not load_status().MODEL_RE.fullmatch(opts["model"]):
+        die(f"--model {opts['model']!r} is not a model id (letters, digits and . _ : / @ -).")
     if opts["threshold"] is None:
         opts["threshold"] = 0.8
     opts["grader"] = opts["grader"] or gate.get("grader")
     opts["tolerance"], opts["measurement_version"] = gate.get("strong_tolerance") or 0, gate.get("measurement_version")
     if opts["floor"] and not opts["floor_harness"]:
-        opts["floor_harness"] = gate.get("floor_harness")
+        floor_entry = load_status().model_entry(gate, opts["floor"]) if gate else None
+        opts["floor_harness"] = (floor_entry or {}).get("adapter") or gate.get("floor_harness")
     if opts["floor"] and opts["floor"] == gate.get("floor_model") and not opts["floor_pass_env"]:
         opts["floor_pass_env"] = list(gate.get("floor_pass_env") or [])
     # The strong runner's credential in a container (there is no login or keychain there): strong runs and gradings.
-    opts["strong_pass_env"] = list(gate.get("strong_pass_env") or []) if opts["model"] == gate.get("strong_model") else []
+    opts["strong_pass_env"] = (list(gate.get("strong_pass_env") or []) if opts["model"] == gate.get("strong_model")
+                               else list((entry or {}).get("pass_env") or []))
     # What the command line passes beyond the gate file's own variables: a run with one is another measurement.
     opts["extra_pass_env"] = sorted(set(opts["pass_env"]) | (set(opts["floor_pass_env"]) - set(gate.get("floor_pass_env") or [])))
     if opts["regrade"] is not None:
@@ -1858,6 +1885,103 @@ def meter_unfinished(meter):
     return (isinstance(in_flight, int) and not isinstance(in_flight, bool) and in_flight > 0) or meter.get("failed") is True
 
 
+USAGE_KINDS = ("input", "output", "cache_read", "cache_write")  # the four kinds of tokens a run line's "usage" holds
+# The reference adapter keeps the CLI's result event as outputs/raw.json: its `modelUsage` object holds, for each model
+# the run used, the tokens of every kind, and it counts the subagents a run starts (its `usage` object and the total of
+# timing.json do not). The floor adapter keeps only its event stream, outputs/stream.jsonl: one `step_finish` event per step.
+MODEL_USAGE_NAMES = {"input": "inputTokens", "output": "outputTokens", "cache_read": "cacheReadInputTokens",
+                     "cache_write": "cacheCreationInputTokens"}
+RAW_JSON_LIMIT, STREAM_LIMIT = 8 * 1024 * 1024, 256 * 1024 * 1024  # a larger file is not what it should be
+
+
+def _whole(value):
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _small_text(path, limit):
+    """The text of a regular file that is no link and no larger than limit; None otherwise."""
+    try:
+        if os.path.islink(path) or not os.path.isfile(path) or os.path.getsize(path) > limit:
+            return None
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def usage_from_model_usage(text):
+    """{"input", "output", "cache_read", "cache_write"} summed over the `modelUsage` of a result event (the text of
+    outputs/raw.json; a list of events is read at its `result` event), or None: no `modelUsage`, a count that is not a
+    whole number, or a missing input or output count. A cache count it leaves out is 0. Never a guess."""
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return None
+    if isinstance(data, list):
+        data = next((e for e in reversed(data) if isinstance(e, dict) and e.get("type") == "result"), None)
+    models = data.get("modelUsage") if isinstance(data, dict) else None
+    if not isinstance(models, dict) or not models:
+        return None
+    total = {kind: 0 for kind in USAGE_KINDS}
+    for entry in models.values():
+        if not isinstance(entry, dict):
+            return None
+        for kind in USAGE_KINDS:
+            value = entry.get(MODEL_USAGE_NAMES[kind], 0 if kind.startswith("cache") else None)
+            if not _whole(value):
+                return None
+            total[kind] += value
+    return total
+
+
+def usage_from_stream(text):
+    """The same four counts summed over the `step_finish` events of the floor adapter's stream, or None: no such event,
+    a count that is not a whole number, or reasoning tokens (they have no kind of their own, and leaving them out would
+    understate the run)."""
+    total, seen = {kind: 0 for kind in USAGE_KINDS}, False
+    for line in text.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(event, dict) or event.get("type") != "step_finish":
+            continue
+        part = event.get("part")
+        tokens = part.get("tokens") if isinstance(part, dict) else None
+        if not isinstance(tokens, dict) or tokens.get("reasoning") not in (None, 0):
+            return None
+        cache = tokens.get("cache") if isinstance(tokens.get("cache"), dict) else {}
+        found = {"input": tokens.get("input"), "output": tokens.get("output"), "cache_read": cache.get("read", 0),
+                 "cache_write": cache.get("write", 0)}
+        if not all(_whole(v) for v in found.values()):
+            return None
+        for kind, value in found.items():
+            total[kind] += value
+        seen = True
+    return total if seen else None
+
+
+def run_usage(meter, out_dir):
+    """The tokens one run used by kind, for its evidence line's "usage", or None when they cannot be read whole.
+
+    Where the run went through a key proxy, the proxy's count (`meter`, from meter_of) is the count, since the run could
+    not change it; a count that names answers the proxy could not read ("unknown_responses") is a lower bound, which a
+    line cannot say, so it has no usage, and the run's own report is not read in its place. A run with no key proxy has
+    its own raw output read: the `modelUsage` of outputs/raw.json (the reference adapter), or else the `step_finish`
+    tokens of outputs/stream.jsonl (the floor adapter), as runtime/costs.py reads them. Never the total of timing.json,
+    which leaves the subagents out, and never the cost the adapter reported. Only the run's last attempt is counted."""
+    if meter is not None:
+        if meter.get("unknown_responses") or not all(_whole(meter.get(kind)) for kind in USAGE_KINDS):
+            return None
+        return {kind: meter[kind] for kind in USAGE_KINDS}
+    raw = os.path.join(out_dir, "raw.json")
+    if os.path.lexists(raw):  # a raw.json that cannot be read is unknown; the stream is not asked in its place
+        text = _small_text(raw, RAW_JSON_LIMIT)
+        return usage_from_model_usage(text) if text is not None else None
+    stream = _small_text(os.path.join(out_dir, "stream.jsonl"), STREAM_LIMIT)
+    return usage_from_stream(stream) if stream is not None else None
+
+
 def upstream_of(models, model_ids, passed):
     """{model id: what served it} for each model of the event that ran through a key proxy: the provider its entry of
     the gate file pins, or, with no pin, the upstream host of its route. models is [(tier, model)], model_ids the
@@ -1908,25 +2032,59 @@ def scratch_reason(o, gate, environment, version=None, fingerprint=None):
             if o[key] != control[name]:
                 return (f"the event ran with {key} {o[key]}, and the configured value is {control[name]} "
                         f"(evals/eval-gate.json, {name}): evidence is written only at the configured values")
-        for what, mine, theirs in (("strong model", o["model"], gate.get("strong_model")),
-                                   ("strong model's adapter", o["harness"], gate.get("strong_harness")),
-                                   ("floor model", o["floor"], gate.get("floor_model")),
-                                   ("floor model's adapter", o["floor_harness"] or o["harness"], gate.get("floor_harness")),
-                                   ("grader", o["grader"], gate.get("grader"))):
-            if mine != theirs:
-                return (f"the {what} of the event is {mine}, and the configured one is {theirs}: evidence is made with "
-                        "the configured models, adapters and grader")
+        # A named model is no trial: whichever model the event runs, its evidence has a home (evidence_home). What stays
+        # configured is the grader, because the grading is part of what a score measures.
+        if o["grader"] != gate.get("grader"):
+            return (f"the grader of the event is {o['grader']}, and the configured one is {gate.get('grader')}: evidence is "
+                    "made with the configured grader")
         if fingerprint != gate.get("measurement_sha256"):
             return ("the measurement fingerprint of this checkout differs from the committed one (evals/eval-gate.json, "
                     "measurement_sha256): a file that decides what a run measures changed, so nothing is written as evidence")
     return None
 
 
-def later_test_id(status, skill_dir):
-    """A new test id that sorts after every test id the skill's evidence holds: ids sort by the second an event
-    started, and "the newest full test" is read from that order, so a second event never takes the second of an
-    earlier one (two events of one skill a second apart happen only with stand-in runners)."""
-    newest = max((os.path.basename(p)[4:20] for p in status.evidence_files(skill_dir)), default="")
+def model_cfg(gate, model):
+    """The gate configuration with `model` in the reference model's place, also for a model the gate file does not list: it
+    is then added to the list, under its own id, so that the evidence it leaves and the gate read back from it agree
+    on the id (status.model_id writes "unknown" for a model the list lacks). A name that is not a well-formed model
+    id stays unlisted. Without a gate file there is no list, and the name stands as it is."""
+    status = load_status()
+    cfg = {**gate, "strong_model": model}
+    if gate and status.MODEL_RE.fullmatch(model or "") and status.model_id(gate, model) == "unknown":
+        cfg["models"] = {**status.known_models(gate), model: []}
+    return cfg
+
+
+def evidence_home(o, gate, models, harness_for):
+    """("repository", None) when this event's evidence may enter the skill's folder, ("local", why not) when it is a
+    person's own and stays outside the checkout (D18: the local evidence folder, status.local_evidence_base).
+
+    The repository holds evidence of the gate file's lab models only ("lab_models", else the configured strong and
+    floor models), each run through the adapter its entry names (else the configured one): a run of any other model, or of a
+    listed model through another adapter, is a measurement of another pair, and it cannot enter the repository. A tree
+    with no gate file configures nothing, and its evidence is the repository's."""
+    if not gate:
+        return "repository", None
+    status = load_status()
+    lab = set(gate.get("lab_models") or [gate.get("strong_model"), gate.get("floor_model")])
+    for tier, model in models:
+        listed = status.model_id(gate, model)
+        if listed == "unknown" or listed not in lab:
+            return "local", f"{model} is not one of the gate file's lab models ({', '.join(sorted(m for m in lab if m))})"
+        entry = status.model_entry(gate, model)
+        configured = (entry or {}).get("adapter") or (gate.get("strong_harness") if model == gate.get("strong_model")
+                                                      else gate.get("floor_harness") if model == gate.get("floor_model") else None)
+        if harness_for[tier] != configured:
+            return "local", f"{model} ran through the adapter {harness_for[tier]}, and its configured one is {configured}"
+    return "repository", None
+
+
+def later_test_id(status, skill_dir, local=()):
+    """A new test id that sorts after every test id the skill's evidence holds (and the person's local files in
+    `local`): ids sort by the second an event started, and "the newest full test" is read from that order, so a second
+    event never takes the second of an earlier one (two events of one skill a second apart happen only with stand-in
+    runners)."""
+    newest = max((os.path.basename(p)[4:20] for p in list(status.evidence_files(skill_dir)) + list(local)), default="")
     for _ in range(25):  # an id dated more than a few seconds ahead (a clock set wrong) is not waited for
         test = status.new_test_id()
         if test[:16] > newest:
@@ -1994,7 +2152,7 @@ def run(argv):
         with open(os.path.join(it_dir, "event.json"), encoding="utf-8") as f:
             resumed = json.load(f)
         if resumed.get("written"):
-            die(f"the event {os.path.relpath(it_dir, ROOT)} wrote its evidence into the skill ({resumed['written']}), which "
+            die(f"the event {os.path.relpath(it_dir, ROOT)} wrote its evidence ({resumed['written']}), which "
                 "is never edited: start a new event.", 2)
         if closing and resumed.get("state") != "open":
             die(f"the event {os.path.relpath(it_dir, ROOT)} is {resumed.get('state')}, not open: there is nothing to close.", 2)
@@ -2051,6 +2209,13 @@ def run(argv):
             die(f"adapter {o['floor_harness']!r} has no run-prompt.sh.")
     runner_for = {"strong": runner, "floor": floor_runner}
     harness_for = {"strong": o["harness"], "floor": o["floor_harness"] or o["harness"]}
+    # Where this event's evidence lives when it is written: the repository's (the gate file's lab models, through
+    # their configured adapters) or this person's own folder outside the checkout (evidence_home).
+    home, home_reason = evidence_home(o, gate, models, harness_for)
+    local_base = status.local_evidence_base() if home == "local" else None
+    if local_base and not o["dry"] and (problem := status.local_base_problem(local_base, ROOT)):
+        die(problem, 2)
+    local_events = status.local_skill_evidence(o["skill"], local_base) if local_base else None
     # Where each tier's harness discovers skills, which names carry its settings and how it words an exhausted
     # account: the adapter's own data. A plan (--dry-run) runs nothing and stages nothing, so it needs none of it.
     eval_for = {} if o["dry"] else {tier: adapter_eval(harness_for[tier]) for tier in ("strong", "floor")}
@@ -2087,8 +2252,8 @@ def run(argv):
     baseline_count = o["runs"] if o["baseline"] else min(o["runs"], control["baseline_runs"])
     # The baselines in force, from the skill's committed evidence: {case id: lines}. A case with that many of them
     # is not run without the skill again in a full test; the event line says it was reused.
-    gate_cfg = {**gate, "strong_model": o["model"], "threshold": o["threshold"], "strong_tolerance": o["tolerance"]}
-    in_force = {cid: len(lines) for cid, lines in status.baseline_lines(skill_dir, gate_cfg).items()}
+    gate_cfg = {**model_cfg(gate, o["model"]), "threshold": o["threshold"], "strong_tolerance": o["tolerance"]}
+    in_force = {cid: len(lines) for cid, lines in status.baseline_lines(skill_dir, gate_cfg, local_events).items()}
     tier_names = [t for t, _ in models]
 
     def baseline_tiers(case):
@@ -2113,6 +2278,7 @@ def run(argv):
                 for c, v, t, m, k in jobs]
         print(json.dumps({"dry_run": True, "iteration_dir": os.path.relpath(it_dir, ROOT), "runner": os.path.relpath(runner, ROOT),
                           "floor_runner": os.path.relpath(floor_runner, ROOT), "grader": o["grader"], "pass_env": o["pass_env"],
+                          "evidence_home": {"home": home, "why": home_reason, "folder": local_base},
                           "floor_pass_env": o["floor_pass_env"],
                           "cases": [{"case": c["id"], "files": c.get("files") or [], "skills": c.get("skills") or [],
                                      "setup": c.get("setup") or []} for c in cases],
@@ -2147,7 +2313,8 @@ def run(argv):
                     "one is open: a test that goes badly is not drawn again.", 2)
     if resumed is None:
         pass_no = 0
-        event = {"skill": o["skill"], "test": later_test_id(status, skill_dir), "kind": kind,
+        event = {"skill": o["skill"], "test": later_test_id(status, skill_dir, status.local_evidence_files(o["skill"], local_base) if local_base else ()),
+                 "kind": kind,
                  "started": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
                  "content_sha256": start_hash, "version": version, "measurement_sha256": fingerprint, "cases": hashes,
                  "tools": tool_versions(), "state": "open", "passes": 1, "scratch": scratch,
@@ -2372,6 +2539,8 @@ def run(argv):
                **{key: timing[key] for key in ("stop_reason", "num_turns", "invoked") if key in timing},
                **({"meter": metered} if (metered := meter_of(out)) else {}),
                **({"redactions": count["redactions"]} if count["redactions"] else {})}
+        if (used := run_usage(row.get("meter"), out)) is not None:  # the tokens of the run by kind: its line carries them
+            row["usage"] = used
         if g:  # one 0 or 1 per assertion, in the case's order: what a per-assertion count is made from
             row["results"] = [1 if r["passed"] else 0 for r in g["assertion_results"]]
             if g.get("guard_failed"):  # the guard failures the second grading confirmed; the score is the first's
@@ -2474,6 +2643,8 @@ def run(argv):
     graded = lambda job: any(r["case"] == job[0]["id"] and r["run"] == job[4] and r.get("pass_rate") is not None
                              for r in results.get(job[1] if job[2] == "strong" else f"{job[1]}.floor", []))
     complete_ref = bool(o["grade"]) and all(graded(job) for job in jobs if job[2] == "strong")
+    # Complete is also read model by model: a model's gate is written only when every run of it in the event is graded.
+    complete_by = {tier: bool(o["grade"]) and all(graded(job) for job in jobs if job[2] == tier) for tier, _ in models}
     iteration = int(os.path.basename(it_dir).split("-")[1])
     bench.update({"date": datetime.date.today().isoformat(), "iteration": iteration, "cases": [c["id"] for c in cases],
                   "content_sha256": start_hash, "expected_runs": len(jobs), "completed_runs": completed,
@@ -2512,7 +2683,9 @@ def run(argv):
               f"\"{hit['passage']}\". Read the run: a stock phrase, or a way the baseline reached the skill.", file=sys.stderr)
     # The evidence file: an event line and one line per scored run, in the run folder. It goes into the skill's
     # folder only when the event is complete and is no trial.
-    model_ids = {tier: status.model_id(gate, model) for tier, model in models}
+    # The id each model is written under: the gate file's listed id for a listed model or one of its aliases; for a model
+    # the file does not list (a person's own test, which stays local) its own well-formed id.
+    model_ids = {tier: status.model_id(model_cfg(gate, model), model) for tier, model in models}
     measurement_version = o["measurement_version"] or 1
     run_lines = []
     for job in jobs:
@@ -2532,6 +2705,7 @@ def run(argv):
                           **({"cost_usd": row["cost_usd"]} if isinstance(row.get("cost_usd"), (int, float))
                              and not isinstance(row.get("cost_usd"), bool) and row["cost_usd"] >= 0 else {}),
                           **({"run_sha256": row["run_sha256"]} if row.get("run_sha256") else {}),
+                          **({"usage": row["usage"]} if row.get("usage") else {}),
                           "variant": variant, "outcome": row.get("outcome", "graded"), "score": row["pass_rate"],
                           "results": row["results"],
                           **({"guard_failed": row["guard_failed"]} if variant == "with" and row.get("guard_failed") else {})})
@@ -2552,8 +2726,9 @@ def run(argv):
     upstream = upstream_of(models, model_ids, {"strong": o["pass_env"] + o["strong_pass_env"],
                                                "floor": o["pass_env"] + o["floor_pass_env"]}) if EXECUTOR == "container" else None
     event_line = {"record": "test", "skill": o["skill"], "test": test, "kind": kind, "version": version,
-                  "content_sha256": start_hash, "date": event["started"][:10], "models": model_ids,
-                  "adapters": {tier: harness_for[tier] for tier, _ in models},
+                  "content_sha256": start_hash, "date": event["started"][:10],
+                  "models": [model_ids[tier] for tier, _ in models],  # the list shape: the tiers are the runner's, not the evidence's
+                  "adapters": {model_ids[tier]: harness_for[tier] for tier, _ in models},
                   "adapter_sha256": {harness_for[tier]: status.file_sha256(runner_for[tier]) for tier, _ in models},
                   "grader": status.model_id(gate, o["grader"]), "runs": o["runs"], "timeout_seconds": o["timeout"],
                   "retries": o["retries"], "measurement_version": measurement_version, "measurement_sha256": fingerprint,
@@ -2565,30 +2740,41 @@ def run(argv):
                   **({"image_source": environment["image_source"]} if (environment or {}).get("image_source") else {})}
     gate_result = None
     if kind == "full" and complete_ref:
-        # The gate, evaluated when a full test ends, by the rule of the model's section 2: this test's lines with
-        # the skill on the reference model, with those of the earlier full tests of the same X.Y and epoch, against
-        # the baselines in force (the ones this test ran, and the ones it reused), unrounded.
-        computed = status.gate_of(skill_dir, gate_cfg, extra=[(event_line, run_lines)])
-        if computed["passed"] is not None:
-            gate_result = {"passed": bool(computed["passed"]), "with": computed["with"], "baseline": computed["baseline"],
-                           "threshold": o["threshold"], "tolerance": o["tolerance"],
-                           **({"note": computed["note"]} if computed["note"] else {})}
-        else:  # not computable from the lines (it should be, right after a full test): this test's own lines
-            print(f"NOTE the gate could not be computed from the evidence ({computed['cause']}); it is computed on this "
-                  "test's own lines", file=sys.stderr)
-            def per_case(variant):
-                by = {}
-                for l in run_lines:
-                    if l["variant"] == variant and l["model"] == model_ids["strong"]:
-                        by.setdefault(str(l["case"]), []).append(l["score"])
-                return statistics.mean(statistics.mean(v) for v in by.values()) if by else None
+        # The gate of each model of the event, evaluated when a full test ends, by the rule of the model's section 2 on
+        # that model's own lines: this test's lines with the skill on the model, with those of the earlier full tests
+        # that list it, of the same X.Y and epoch, against the baselines in force for it (the ones this test ran, and
+        # the ones it reused), unrounded. A model with no baseline of its own has no gate in the event.
+        source = local_events if home == "local" else None
+        gates = {}
+        for tier, model in models:
+            if not complete_by[tier]:  # a run of this model is missing: its gate would be computed on part of the test
+                continue
+            cfg = {**model_cfg(gate, model), "threshold": o["threshold"], "strong_tolerance": o["tolerance"]}
+            computed = status.gate_of(skill_dir, cfg, extra=[(event_line, run_lines)], evidence=source)
+            if computed["passed"] is not None:
+                gates[model_ids[tier]] = {"passed": bool(computed["passed"]), "with": computed["with"],
+                                          "baseline": computed["baseline"], "threshold": o["threshold"],
+                                          "tolerance": o["tolerance"],
+                                          **({"note": computed["note"]} if computed["note"] else {})}
+            elif tier == "strong":  # not computable from the lines (it should be, right after a full test): this test's own lines
+                print(f"NOTE the gate could not be computed from the evidence ({computed['cause']}); it is computed on this "
+                      "test's own lines", file=sys.stderr)
 
-            with_mean, base_mean = per_case("with"), per_case("without")
-            gate_result = {"passed": bool(load_measure().gate_passes(with_mean, base_mean, o["threshold"], o["tolerance"])),
-                           "with": with_mean, "baseline": base_mean, "threshold": o["threshold"], "tolerance": o["tolerance"]}
-        event_line["gate"] = gate_result
+                def per_case(variant):
+                    by = {}
+                    for l in run_lines:
+                        if l["variant"] == variant and l["model"] == model_ids["strong"]:
+                            by.setdefault(str(l["case"]), []).append(l["score"])
+                    return statistics.mean(statistics.mean(v) for v in by.values()) if by else None
+
+                with_mean, base_mean = per_case("with"), per_case("without")
+                gates[model_ids[tier]] = {
+                    "passed": bool(load_measure().gate_passes(with_mean, base_mean, o["threshold"], o["tolerance"])),
+                    "with": with_mean, "baseline": base_mean, "threshold": o["threshold"], "tolerance": o["tolerance"]}
+        gate_result = gates.get(model_ids["strong"])  # the event is full by its strong tier: the gate its exit code reads
+        event_line["gate"] = gates
     evidence = {"written": False, "path": None, "scratch": None, "reason": scratch, "test": test, "kind": kind,
-                "lines": len(run_lines), "gate": gate_result}
+                "lines": len(run_lines), "gate": gate_result, "home": home}
     if not o["grade"]:
         evidence["reason"] = scratch or "--no-grade: nothing was scored"
     else:
@@ -2603,10 +2789,17 @@ def run(argv):
         elif status.content_hash(skill_dir) != start_hash and not closing:
             evidence["reason"] = "the skill folder changed during the event: its runs are of another content"
         else:
-            # A file about to enter a skill is new evidence: read strictly (the current gate file's models and runs).
-            problems = status.evidence_file_problems(in_run_folder, ROOT, o["skill"], strict=True)
-            if problems:  # the runner never puts into a skill a file its own validation refuses
+            # A file about to enter a skill is new evidence: read strictly (the current gate file's models and runs). A
+            # person's own file is read by its own event line: its models are not in the gate file's list.
+            problems = status.evidence_file_problems(in_run_folder, ROOT, o["skill"], strict=home == "repository")
+            if problems:  # the runner never puts into a skill (or the local folder) a file its own validation refuses
                 evidence["reason"] = "the evidence file is not valid: " + "; ".join(problems[:5])
+            elif home == "local":
+                # Outside the checkout: nothing of it is committed, pulled over or seen by `git status`.
+                target = os.path.join(local_base, o["skill"], os.path.basename(in_run_folder))
+                os.makedirs(os.path.dirname(target), exist_ok=True)
+                shutil.copyfile(in_run_folder, target)
+                evidence.update(written=True, path=target, reason=None)
             else:
                 target = os.path.join(skill_dir, "evals", "evidence", os.path.basename(in_run_folder))
                 os.makedirs(os.path.dirname(target), exist_ok=True)
@@ -2620,7 +2813,9 @@ def run(argv):
     write_json(os.path.join(it_dir, "benchmark.json"), bench)
     print(f"EVIDENCE {o['skill']}: " + (
         f"{evidence['path']} written ({'an incomplete ' if not complete_ref else ''}{kind} test, {len(run_lines)} lines"
-        + (f", gate {'passed' if gate_result['passed'] else 'failed'}" if gate_result else "") + "). Commit it; it is never edited."
+        + (f", gate {'passed' if gate_result['passed'] else 'failed'}" if gate_result else "")
+        + ("). It stays on this machine, outside the checkout (" + (home_reason or "a local test") + "); `eval_status.py status` shows it as local."
+           if home == "local" else "). Commit it; it is never edited.")
         if evidence["written"] else f"nothing written into the skill ({evidence['reason']})"
         + (f"; the event's file is {evidence['scratch']}" if evidence["scratch"] else "")), file=sys.stderr)
     if bench["early_end_warning"]:
