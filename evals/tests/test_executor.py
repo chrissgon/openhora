@@ -42,7 +42,7 @@ def test_the_definition_hash_follows_the_files_and_names_everything(tmp_path):
     n = ex.names(str(tmp_path))
     assert all(second[:12] in value for value in n.values())
     assert set(n) == {"image", "proxy_image", "network", "proxy", "keys_image", "keys", "open_network", "keys_strong",
-                      "strong_network", "strong_open_network"}
+                      "strong_network", "strong_open_network", "held_network", "strong_held_network"}
 
 
 def test_a_command_sees_the_run_folder_and_the_one_adapter_script_and_nothing_else(tmp_path):
@@ -225,8 +225,8 @@ def test_the_key_the_key_proxy_holds_never_enters_a_run(tmp_path, network):
         return
     assert url in given and ex.keyproxy_url() == f"http://{n['keys']}:{r['port']}/api/v1"
     if network == "proxy":
-        assert argv[argv.index("--network") + 1] == n["network"]
-        assert f"NO_PROXY=localhost,127.0.0.1,{n['keys']}" in given  # reached directly, not through the egress proxy
+        assert argv[argv.index("--network") + 1] == n["held_network"]  # where only its key proxy is, never the egress proxy
+        assert not [e for e in given if e.split("=")[0].upper() in ("HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY")]
     else:
         assert argv[argv.index("--network") + 1] == n["open_network"]  # the open network the key proxy also listens on
 
@@ -283,6 +283,7 @@ def test_the_key_proxy_gets_the_key_by_name_and_is_reused_until_the_key_changes(
     assert not any(a in ("-p", "--publish", "--network=host") for a in run)  # nothing published on the host
     assert run[run.index(n["keys_image"]) + 1:] == ()  # the provider of the route: no upstream given
     assert ("network", "connect", n["open_network"], n["keys"]) in docker.calls
+    assert ("network", "connect", n["held_network"], n["keys"]) in docker.calls  # the held runs reach it by name there
     started = len(docker.calls)
     assert ex.keyproxy(env=env) == n["keys"]  # running with that key: reused
     assert [c[0] for c in docker.calls[started:]] == ["inspect"]

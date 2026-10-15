@@ -38,7 +38,7 @@ Where: **repo** is this repository, **work** is `evals-workspace/` of the checko
 **The gate file's keys**, generated from `evals/eval-gate.json` (a text value is shown only for a model or an adapter id). The models and their adapters: `strong_model`, `strong_harness`, `floor_model`, `floor_harness`, `grader`, `models` (known ids and their aliases). The credentials by name: `strong_pass_env`, `floor_pass_env` (and `strong_web_pass_env` when one is set). The gate: `threshold`, `strong_tolerance`. The control of a test event: `runs`, `baseline_runs`, `baseline_margin`, `timeout_seconds`, `retries`, `max_resumes`, `total_jobs`, `web_jobs`, `web_cases`. The measurement: `measurement_version`, `measurement_floor`, `measurement_sha256`, `epochs`.
 
 <!-- generated: gate-keys -->
-Measurement version 8, measurement floor 6.
+Measurement version 9, measurement floor 6.
 
 | Key | Value, or its shape |
 |---|---|
@@ -51,7 +51,7 @@ Measurement version 8, measurement floor 6.
 | `grader` | `claude-sonnet-5-5` |
 | `threshold` | 0.8 |
 | `strong_tolerance` | 0.05 |
-| `measurement_version` | 8 |
+| `measurement_version` | 9 |
 | `measurement_floor` | 6 |
 | `runs` | 3 |
 | `baseline_runs` | 1 |
@@ -63,8 +63,7 @@ Measurement version 8, measurement floor 6.
 | `web_jobs` | `strong`: 2, `floor`: 2 |
 | `web_cases` | 7 keys: `biz-icp-positioning`, `biz-market-analysis`, `brand-identity`, `brand-name`, `brand-strategy`, `core-research`, `eng-architecture` |
 | `models` | 2 keys: `claude-sonnet-5-5`, `openrouter/deepseek/deepseek-v4.1-flash` |
-| `epochs` | 2 entries, each with `date`, `models`, `skills`, `cause` |
-| `measurement_sha256` | text, not shown |
+| `epochs` | 3 entries, each with `date`, `models`, `skills`, `cause` |
 <!-- /generated -->
 
 ## Abstractions

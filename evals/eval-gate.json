@@ -8,7 +8,7 @@
   "grader": "claude-sonnet-5-5",
   "threshold": 0.8,
   "strong_tolerance": 0.05,
-  "measurement_version": 8,
+  "measurement_version": 9,
   "measurement_floor": 6,
   "runs": 3,
   "baseline_runs": 1,
@@ -46,7 +46,12 @@
       "models": "all",
       "skills": "all",
       "cause": "The strong model's credential moves out of the run container into a key proxy of its own, and the floor model's calls are pinned to one upstream provider by its key proxy."
+    },
+    {
+      "date": "2026-10-15",
+      "models": "all",
+      "skills": "all",
+      "cause": "SEC and P2b: a held run reaches only its own key proxy; the key proxy drops credential headers and forwards only the model endpoints; P2b adds a key proxy per run and model, metering and the platform per line (one epoch for both)"
     }
-  ],
-  "measurement_sha256": "b628afd5ab52f0e416a52719c885c647d81639c05fd8daf9d72539f5299cf01d"
+  ]
 }

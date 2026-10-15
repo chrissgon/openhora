@@ -147,14 +147,12 @@ def test_a_chat_completion_whose_body_is_not_json_is_refused_and_nothing_is_forw
     assert provider.seen == []
 
 
-def test_other_requests_reach_the_provider_unchanged(provider, pinned):
-    resp, _ = call(pinned, "GET", "/api/v1/models")
+def test_a_request_the_pin_does_not_cover_reaches_the_provider_unchanged(provider, pinned):
+    resp, _ = call(pinned, "GET", "/api/v1/chat/completions")  # only a POST carries a body the pin rewrites
     assert resp.status == 200
     assert provider.seen[-1]["method"] == "GET" and provider.seen[-1]["body"] == b""
-    body = json.dumps({"model": "m", "provider": {"order": ["x"]}}).encode()
-    resp, _ = call(pinned, "POST", "/api/v1/other", body)
-    assert resp.status == 200
-    assert provider.seen[-1]["path"] == "/api/v1/other" and provider.seen[-1]["body"] == body
+    resp, _ = call(pinned, "POST", "/api/v1/other", b"{}")  # not one of the route's paths: refused before the pin
+    assert resp.status == 403 and len(provider.seen) == 1
 
 
 def test_without_a_pin_a_chat_completion_reaches_the_provider_byte_for_byte(provider, unpinned):

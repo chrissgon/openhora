@@ -5,6 +5,7 @@
   "upstream": "https://openrouter.ai",
   "provider_only": "deepinfra",
   "prefix": "/api/v1/",
+  "paths": ["/api/v1/chat/completions"],
   "port": 8890,
   "timeout_seconds": 600,
   "max_body_bytes": 67108864

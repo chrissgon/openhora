@@ -246,3 +246,102 @@ def test_a_run_of_one_tier_cannot_reach_the_other_tiers_key_proxy(keys, strong_k
     assert resolves(n["network"], keys) and resolves(n["strong_network"], strong_keys)  # each reaches its own
     assert not resolves(n["network"], strong_keys)  # the floor model's network: no strong key proxy
     assert not resolves(n["strong_network"], keys)  # the strong model's network: no floor key proxy
+
+
+# --- package SEC: a held run reaches its key proxy and nothing else ---------------------------------------
+
+
+def networks_of(container):
+    """The names of the networks a container is on (only the names: nothing of its environment is read)."""
+    r = docker("inspect", "--format", "{{range $name, $net := .NetworkSettings.Networks}}{{$name}} {{end}}", container)
+    return r.stdout.split()
+
+
+def address_of(container, network):
+    r = docker("inspect", "--format", '{{(index .NetworkSettings.Networks "%s").IPAddress}}' % network, container)
+    return r.stdout.strip()
+
+
+def held_inside(root, script, key_name, key_value, timeout=180):
+    """script in a held run of the route that key_name belongs to, on the proxy network."""
+    # security-scan: allow shell-string -- every script is a literal of this test file, run inside the container
+    argv, name = ex.command(["bash", "-c", script], str(root), cwd=str(root / "case"), env={key_name: key_value},
+                            pass_names=[key_name], network="proxy")
+    try:
+        return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, env={**os.environ, key_name: key_value})
+    finally:
+        ex.remove(name)
+
+
+def code(url, extra=""):
+    return f"curl -s -m 8 {extra} -o /dev/null -w '%{{http_code}}' {url}"
+
+
+def test_the_egress_proxy_is_on_neither_held_network_and_each_key_proxy_is_on_its_own(strong_keys, keys):
+    n = ex.names()
+    assert {n["network"], n["strong_network"]} <= set(networks_of(n["proxy"]))
+    assert n["held_network"] not in networks_of(n["proxy"]) and n["strong_held_network"] not in networks_of(n["proxy"])
+    floor, strong = networks_of(keys), networks_of(strong_keys)
+    assert {n["network"], n["open_network"], n["held_network"]} <= set(floor) and n["strong_held_network"] not in floor
+    assert {n["strong_network"], n["strong_open_network"], n["strong_held_network"]} <= set(strong) and n["held_network"] not in strong
+    for network in (n["held_network"], n["strong_held_network"]):
+        inspected = docker("network", "inspect", "--format", "{{.Internal}}", network)
+        assert inspected.stdout.strip() == "true"  # no route out of it
+
+
+def test_a_held_run_reaches_its_key_proxy_and_neither_the_egress_proxy_nor_a_provider(strong_keys, keys, root):
+    n = ex.names()
+    egress = address_of(n["proxy"], n["network"])
+    assert egress
+    script = (
+        # the key proxy, by name: reached (a path outside the list is its own 403), and a chat call goes through
+        code(f"http://{KEYS}:{ROUTE['port']}/elsewhere") + "; echo; "
+        + code(f"http://{KEYS}:{ROUTE['port']}/api/v1/chat/completions", "-X POST -H 'Content-Type: application/json' -d '{}'") + "; echo; "
+        # the egress proxy: its name does not resolve, and its address on the internal network is not reachable
+        + f"getent hosts {n['proxy']} >/dev/null; echo rc=$?; "
+        + code(f"-x http://{n['proxy']}:{ex.PROXY_PORT} https://openrouter.ai/api/v1/models") + "; echo; "
+        + code(f"-x http://{egress}:{ex.PROXY_PORT} https://openrouter.ai/api/v1/models") + "; echo; "
+        + code(f"-x http://{egress}:{ex.PROXY_PORT} https://api.anthropic.com/v1/messages", "-X POST -H 'x-api-key: made-up'") + "; echo; "
+        # a provider, directly, with a credential of its own, and an address
+        + code("https://openrouter.ai/api/v1/chat/completions", "-X POST -H 'Authorization: Bearer made-up'") + "; echo; "
+        + code("https://api.anthropic.com/v1/messages", "-X POST -H 'x-api-key: made-up'") + "; echo; "
+        + code("https://1.1.1.1") + "; echo; "
+        # the internal network's other hosts (the stand-in provider sits there) and the other tier's key proxy
+        + f"getent hosts {STANDIN} >/dev/null; echo rc=$?; "
+        + f"getent hosts {KEYS_STRONG} >/dev/null; echo rc=$?; "
+        # no variable of the run names a proxy
+        + "env | cut -d= -f1 | grep -c -i proxy; echo done")
+    r = held_inside(root, script, SECRET, FAKE_KEY)
+    out = r.stdout.split()
+    assert out[0] == "403" and out[1] == "200", (r.stdout, r.stderr)  # its key proxy answers; the call reaches the stand-in
+    assert [x for x in out if x.startswith("rc=")] == ["rc=2", "rc=2", "rc=2"]
+    codes = [x for x in out[2:] if x.isdigit() and len(x) == 3]
+    assert codes and set(codes) == {"000"}, r.stdout  # nothing else got an answer
+    assert out[-2:] == ["0", "done"]
+    assert seen()[-1] == {"method": "POST", "path": "/api/v1/chat/completions", "authorized": True, "headers": 1}
+
+
+def test_a_held_strong_run_reaches_its_key_proxy_and_neither_the_egress_proxy_nor_a_provider(strong_keys, root):
+    n = ex.names()
+    # the stand-in provider sits on the floor route's internal network; the strong key proxy's internal network
+    # is its own, so the stand-in joins it for this test (the stand-in container is removed with the module)
+    joined = docker("network", "connect", n["strong_network"], STANDIN, check=False)
+    assert joined.returncode == 0 or "already exists" in joined.stderr, joined.stderr
+    egress = address_of(n["proxy"], n["strong_network"])
+    assert egress
+    script = (
+        code(f"http://{KEYS_STRONG}:{STRONG_ROUTE['port']}/v1/models") + "; echo; "
+        + code(f"http://{KEYS_STRONG}:{STRONG_ROUTE['port']}/v1/messages?beta=true", "-X POST -H 'x-api-key: made-up' -d '{}'") + "; echo; "
+        + f"getent hosts {n['proxy']} >/dev/null; echo rc=$?; "
+        + code(f"-x http://{egress}:{ex.PROXY_PORT} https://api.anthropic.com/v1/messages", "-X POST -H 'x-api-key: made-up'") + "; echo; "
+        + code("https://api.anthropic.com/v1/messages", "-X POST -H 'x-api-key: made-up'") + "; echo; "
+        + code("https://openrouter.ai/api/v1/models") + "; echo; "
+        + f"getent hosts {KEYS} >/dev/null; echo rc=$?; "
+        + "env | cut -d= -f1 | grep -c -i proxy; echo done")
+    r = held_inside(root, script, STRONG_ROUTE["secret"], FAKE_STRONG_KEY)
+    out = r.stdout.split()
+    assert out[:2] == ["403", "200"], (r.stdout, r.stderr)
+    assert [x for x in out if x.startswith("rc=")] == ["rc=2", "rc=2"]
+    codes = [x for x in out[2:] if x.isdigit() and len(x) == 3]
+    assert codes and set(codes) == {"000"}, r.stdout
+    assert out[-2:] == ["0", "done"]
