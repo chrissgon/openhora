@@ -224,3 +224,24 @@ def test_the_summary_counts_the_runs_that_are_a_lower_bound(tmp_path, utc):
                            "tokens": None, "run_dir": partial}], {"m": PRICE})
     assert len(rows) == 1 and rows[0]["lower_bound_runs"] == 1 and rows[0]["unknown_runs"] == 0
     assert rows[0]["recomputed_usd"] == pytest.approx(2 * (10 * 3 + 20 * 15 + 30 * 0.3 + 40 * 3.75) / 1e6, abs=1e-6)
+
+
+def test_a_meter_that_still_had_a_request_under_way_or_could_not_be_written_is_a_lower_bound_flagged(tmp_path):
+    for name, extra, flagged in (("whole", {"in_flight": 0}, 0), ("under_way", {"in_flight": 2}, 1), ("failed", {"failed": True}, 1),
+                                 ("both", {"in_flight": 1, "failed": True}, 1), ("said_too", {"in_flight": 1, "unknown_responses": 2}, 3)):
+        run = metered_run(tmp_path / name, {**meter(), **extra})
+        found = costs.usage_of(run)
+        assert (found["unknown_responses"] > 0) == bool(flagged), (name, found)
+        assert found["input"] == 10 and found["output"] == 20  # what was counted, never the run's 1000
+    assert costs.usage_of(str(tmp_path / "said_too"))["unknown_responses"] == 3
+
+
+def test_an_attempt_set_aside_with_a_request_under_way_flags_the_run(tmp_path, utc):
+    run = metered_run(tmp_path / "run", meter())
+    (tmp_path / "run" / "failed-1" / "outputs").mkdir(parents=True)
+    (tmp_path / "run" / "failed-1" / "outputs" / "meter.json").write_text(json.dumps({**meter(1, 2, 3, 4), "in_flight": 1}))
+    found = costs.metered_usage(run)
+    assert found["unknown_responses"] == 1 and found["input"] == 11
+    rows = costs.summary([{"started_at": "2026-10-01T12:00:00Z", "agent": "x", "model": "m", "adapter": "h", "cost_usd": None,
+                           "tokens": None, "run_dir": run}], {"m": PRICE})
+    assert rows[0]["lower_bound_runs"] == 1

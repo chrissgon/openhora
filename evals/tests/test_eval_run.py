@@ -3766,3 +3766,17 @@ def test_an_emulated_platform_stays_a_trial(tmp_path, monkeypatch, capsys):
                                                      "image_platform": "linux/amd64", "host_platform": "linux/amd64"})
     assert er.main(FULL) == 0
     assert json.loads(capsys.readouterr().out)["evidence"]["written"] is True  # the same platform: evidence
+
+
+def test_a_meter_with_a_request_under_way_or_one_the_proxy_could_not_write_is_read_as_a_lower_bound(tmp_path):
+    base = {"input": 5, "output": 6, "cache_read": 0, "cache_write": 1, "total": 12, "responses": 3, "unknown_responses": 0,
+            "budget_reached": False}
+    for name, extra, unknown in (("whole", {"in_flight": 0}, 0), ("old_file", {}, 0), ("under_way", {"in_flight": 1}, 1),
+                                 ("failed", {"failed": True}, 1), ("and_unreadable", {"in_flight": 2, "unknown_responses": 1}, 2)):
+        out = tmp_path / name
+        out.mkdir()
+        (out / "meter.json").write_text(json.dumps({**base, **extra}))
+        found = er.meter_of(str(out))
+        assert found["unknown_responses"] == unknown and found["input"] == 5 and found["total"] == 12, (name, found)
+    assert er.meter_unfinished({"in_flight": 1}) and er.meter_unfinished({"failed": True}) and not er.meter_unfinished({"in_flight": 0})
+    assert not er.meter_unfinished({"in_flight": True}) and not er.meter_unfinished({})  # a boolean is not a count

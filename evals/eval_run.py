@@ -1836,14 +1836,26 @@ def find_event(value, flag="--resume"):
 
 def meter_of(out_dir):
     """What the run's key proxy counted, from <out>/meter.json (execution.write_meter() left it there after the run):
-    {"input", "output", "cache_read", "cache_write", "total", "responses", "unknown_responses", "budget_reached"}, or
+    {"input", "output", "cache_read", "cache_write", "total", "responses", "unknown_responses", "budget_reached",
+    "in_flight"}, with "unknown_responses" raised by one when the file is unfinished (meter_unfinished), or
     None when the run had no key proxy or it left no count. The report carries it beside the adapter's own tokens;
     a run cannot change it, because the folder the key proxy writes it in is never mounted into the run."""
     meter = load_executor().read_meter(os.path.join(out_dir, "meter.json"))
     if not meter:
         return None
-    return {key: meter[key] for key in ("input", "output", "cache_read", "cache_write", "total", "responses",
-                                        "unknown_responses", "budget_reached") if key in meter}
+    found = {key: meter[key] for key in ("input", "output", "cache_read", "cache_write", "total", "responses",
+                                         "unknown_responses", "budget_reached", "in_flight") if key in meter}
+    if meter_unfinished(meter):  # the count is a lower bound: flagged exactly as an answer it could not read is
+        found["unknown_responses"] = found.get("unknown_responses", 0) + 1
+    return found
+
+
+def meter_unfinished(meter):
+    """True when a meter file is not the whole count: its final state still has a request under way (the run ended, and
+    the proxy was stopped, before that answer was counted or recorded), or the proxy says it could not write the file.
+    Such a count is a lower bound, whatever else it says."""
+    in_flight = meter.get("in_flight")
+    return (isinstance(in_flight, int) and not isinstance(in_flight, bool) and in_flight > 0) or meter.get("failed") is True
 
 
 def upstream_of(models, model_ids, passed):

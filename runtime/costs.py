@@ -115,6 +115,9 @@ def metered_usage(run_dir) -> dict | None:
             total[kind] += value
         said = _count(meter.get("unknown_responses"))
         unknown += said if said is not None else 1
+        in_flight = meter.get("in_flight")
+        if (_count(in_flight) or 0) > 0 or meter.get("failed") is True:  # a request still under way, or a file the proxy could not write
+            unknown += 1  # the final state is not the whole count: a lower bound, flagged like an answer it could not read
     return {**total, "unknown_responses": unknown}
 
 
