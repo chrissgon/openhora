@@ -1621,7 +1621,7 @@ def _with_agents(cfg: dict, tasks: list) -> list:
     """The tasks of a plan the person named, each with its area agent (plan.agent_of) when area agents are
     configured; without them every agent is None (stages 1 to 4)."""
     skills = plan.agent_skills(cfg, core.ROOT)
-    return [dict(t, agent=plan.agent_of(t["skill"], skills) if skills else None) for t in tasks]
+    return [dict(t, agent=plan.agent_for(t, skills)) for t in tasks]
 
 
 def _plan_pending(ctx: dict, request: dict, tasks: list, route_read, source: str, flow) -> dict:
@@ -1631,7 +1631,7 @@ def _plan_pending(ctx: dict, request: dict, tasks: list, route_read, source: str
     limits = {"max_running": ctx["cfg"]["max_running"], "timeout_seconds": reference["timeout_seconds"],
               "retries": reference["retries"]}
     past = []
-    for skill in dict.fromkeys(t["skill"] for t in tasks):
+    for skill in dict.fromkeys(t["skill"] for t in tasks if t.get("skill")):
         past += core._stored(ctx, ctx["store"].task_runs_of_skill, skill)
     built = plan.build(request, tasks, route_read, source, limits, past, flow=flow)
     return ops_waits.annotate(ctx, request, {"kind": "plan", **built})
@@ -1808,7 +1808,7 @@ def _combined(ctx: dict, request: dict, routed: list) -> dict:
     forced = ops_sources.forced_for(ctx, request["text"])  # the sources an @mention names are in the plan whatever the router chose
     out = plan.combine(request, routed, flows, skills, core.ROOT, pack=pack, limits=limits, past=[], forced=forced)
     past = []
-    for skill in dict.fromkeys(t["skill"] for t in out["tasks"]):
+    for skill in dict.fromkeys(t["skill"] for t in out["tasks"] if t.get("skill")):
         past += core._stored(ctx, ctx["store"].task_runs_of_skill, skill)
     return plan.combine(request, routed, flows, skills, core.ROOT, pack=pack, limits=limits, past=past, forced=forced) if past else out
 
@@ -2001,7 +2001,7 @@ def _reroute(ctx: dict, task: dict, returned: list, k: int, delivery: dict, appr
                 for t in tasks:
                     if not [d for d in t["depends_on"] if d in inside]:
                         t["depends_on"] = [task["key"]] + t["depends_on"]
-                    t["agent"] = plan.agent_of(t["skill"], skills) if skills else None
+                    t["agent"] = plan.agent_for(t, skills)
             except (flow_files.FlowError, plan.PlanError, ValueError) as e:
                 why, tasks = f"no task can be planned from the route: {e}", None
     finish = call["finish"]
@@ -2011,7 +2011,7 @@ def _reroute(ctx: dict, task: dict, returned: list, k: int, delivery: dict, appr
     else:
         lines = [f"Delivery {k} ({delivery['item']}) was routed again after its brief ({briefs[0]}): {read['line']}.",
                  "Accept to add these tasks to request " + str(request["id"]) + ":", ""]
-        lines += [f"- {t['key']}: {t['title']} ({t['skill']}, agent {t['agent'] or 'none'})" for t in tasks]
+        lines += [f"- {t['key']}: {t['title']} ({t.get('skill') or 'step ' + t['step']}, agent {t['agent'] or 'none'})" for t in tasks]
         decision = {"kind": "acceptance", "title": f"Accept the tasks of delivery {k}, routed after its brief",
                     "body": "\n".join(lines), "payload": {"what": "subtasks", "delivery": k, "brief": briefs[0],
                                                           "route": read["line"], "tasks": tasks, **call["common"]}}
@@ -2163,12 +2163,12 @@ def hand_over(project: str, task_id: int, file: str) -> dict:
     ctx = core.context(project)
     with core._write_lock(ctx["cfg"]):
         task = core._stored(ctx, ctx["store"].task_get, task_id)
-        if task["parent_id"] is None or not task.get("skill"):
+        if task["parent_id"] is None or not (task.get("skill") or task.get("step_kind")):
             raise core.OpsError(f"{task_id} is a request: a file is handed to one of its tasks", 1)
         if task["state"] == "running":
             raise core.OpsError(f"task {task_id} is running: hand the file over when its run ends", 1)
-        try:
-            meta = skill_meta.declared(os.path.join(core.ROOT, "skills", task["skill"]))
+        try:   # a step task (the kind `ingest` reads its file from the drop) uses no web
+            meta = {"web": False} if task.get("step_kind") else skill_meta.declared(os.path.join(core.ROOT, "skills", task["skill"]))
         except skill_meta.SkillError as e:
             raise core.OpsError(str(e), 1) from None
         try:
@@ -2272,8 +2272,7 @@ def _snapshot(ctx: dict, keys) -> dict:
     parallel_part = ops_runs.parallel_state(ctx, tasks, cache)
     starting = parallel_part.pop("starting")  # started and not yet claimed: counted as running, not decided again
     out = {**parallel_part,
-           "ready": [{**t, "code": ops_runs.skill_facts(t.get("skill"), cache)[1],
-                      "footprint": ops_runs.skill_facts(t.get("skill"), cache)[0]}
+           "ready": [{**t, "code": ops_runs.task_facts(t, cache)[1], "footprint": ops_runs.task_facts(t, cache)[0]}
                      for t in tasks if t["state"] == "ready" and t["parent_id"] is not None and t["id"] not in starting],
            "reviews": [], "agents": _agents_of_the_day(ctx, keys), "model": {}, "billing": {},
            "max_running": cfg["max_running"], "per_run_usd": cfg["raw"].get("max_cost_usd_per_run", PER_RUN_USD)}
@@ -2296,6 +2295,7 @@ def _snapshot(ctx: dict, keys) -> dict:
                 continue
             out["model"][task["id"]], out["billing"][task["id"]] = routing["model"], routing["billing"]
     out["waits"] = ops_waits.waiting_for(ctx)  # a ready task with an open wait starts nowhere (dispatcher.decide)
+    ops_steps.annotate(ctx, out)  # the brake of the step tasks, and which kinds the dispatcher may start (runtime/ops_steps.py)
     return out
 
 
@@ -2732,6 +2732,8 @@ from ops_say import ASK_NEXT, CONVERSATION, MEMORY_CHARS, MEMORY_CUT, MEMORY_HEA
 from ops_config import accept_config, give_consent, set_mode, set_model  # noqa: E402,F401
 # The sources of the project (runtime/ops_sources.py): the ingest operations.
 from ops_sources import source_add, source_describe, source_import, source_refresh, sources_catalog  # noqa: E402,F401
+import ops_steps  # noqa: E402  (the step task's run and its brake; this file re-exports `run_step` below)
+from ops_steps import run_step  # noqa: E402,F401
 # The reads of the local interface (runtime/ops_reads.py): the operations, and the one constant a test reads.
 from ops_reads import agents, artifact, artifact_raw, artifacts, connections, conversation, costs, service_check, skills  # noqa: E402,F401
 from ops_reads import commands, stop_runs, version  # noqa: E402,F401

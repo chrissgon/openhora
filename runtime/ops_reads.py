@@ -110,7 +110,8 @@ def stop_runs(project: str | None = None, every: bool = False) -> dict:
     service calls it before it exits. Process-wide: the project is read for nothing. With `every` and a project (the
     terminal's `stop-runs --project <dir> --all`), also every task run of the project that a live process holds, whoever
     started it, by the group its task lock names; a lock nobody holds is never signalled. Stopping an agent's mode
-    (`set-mode ... stopped`) is how to keep the dispatcher from starting more. Returns what lab.stop_runs returns, with
+    (`set-mode ... stopped`) is how to keep the dispatcher from starting more, and `set-mode --agent runtime --mode stopped` how to keep
+    it from starting step tasks. Returns what lab.stop_runs returns, with
     "tasks" (the ids of the task runs signalled) when `every` is given."""
     return importlib.import_module("ops_runs").stop(project, every)
 

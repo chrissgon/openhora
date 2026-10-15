@@ -87,9 +87,18 @@ def skill_facts(skill, cache: dict) -> tuple:
     return cache[skill]
 
 
+def task_facts(task: dict, cache: dict) -> tuple:
+    """(footprint, code) of a task. A step task's footprint is the one its kind declared when the task was made (the column
+    `step_footprint`, never read from the task's text), and it is never a code task: the one-code-task-per-request rule is the
+    skill tasks' of the code areas. Any other task's are its skill's (skill_facts)."""
+    if task.get("step_kind"):
+        return frozenset(task.get("step_footprint") or ()), False
+    return skill_facts(task.get("skill"), cache)
+
+
 def item_of(task: dict, cache: dict) -> dict:
     """The task as runtime/parallel.py reads it: {"id", "agent", "request_id", "code", "footprint"}."""
-    footprint, code = skill_facts(task.get("skill"), cache)
+    footprint, code = task_facts(task, cache)
     return {"id": task["id"], "agent": task.get("agent"), "request_id": task.get("parent_id"), "code": code,
             "footprint": footprint}
 
@@ -198,6 +207,8 @@ def run_task(project: str, task_id: int, requested=None, checked: bool = True) -
     project's default."""
     ctx = core.context(project)
     cfg = ctx["cfg"]
+    if _is_step(ctx, task_id):   # a step task runs no skill: it has its own process, `run-step` (runtime/ops_steps.py)
+        return importlib.import_module("ops_steps").run_step(project, task_id)
     with core._task_lock(cfg, task_id):
         recovered = _recover(ctx)
         started = _start(ctx, task_id, requested, checked)
@@ -208,6 +219,14 @@ def run_task(project: str, task_id: int, requested=None, checked: bool = True) -
             with core._write_lock(cfg, wait=None):
                 out["documents"] = _ops()._push_after_run(ctx, out)
         return out
+
+
+def _is_step(ctx: dict, task_id: int) -> bool:
+    """Whether the named task is a step task (the store's is_step_task); a task the store does not have is not."""
+    try:
+        return bool(ctx["store"].is_step_task(ctx["store"].task_get(ctx["conn"], task_id)))
+    except ctx["store"].StoreError:
+        return False
 
 
 def _start(ctx: dict, task_id: int, requested, checked: bool) -> dict:
@@ -327,8 +346,8 @@ def _prune(folder: str) -> None:
             pass
 
 
-def spawn(cfg: dict, project: str, task_id: int):
-    """Start `run-task` for one task as a child process in a session of its own, its output in two files of
+def spawn(cfg: dict, project: str, task_id: int, verb: str = "run-task"):
+    """Start `run-task` (for a step task, `run-step`) for one task as a child process in a session of its own, its output in two files of
     <data_dir>/task-runs/children/, and keep it in SPAWNED. The one seam a test replaces. The environment is this
     process's, with every variable a router call is injecting at this moment put back as it was before: a child never
     inherits a key a router call put in, and does inherit one the person exported."""
@@ -347,7 +366,7 @@ def spawn(cfg: dict, project: str, task_id: int):
                     env.pop(name, None)
                 else:
                     env[name] = before
-        proc = subprocess.Popen([sys.executable, os.path.join(core.ROOT, "runtime", "cli.py"), "run-task", "--project", project,
+        proc = subprocess.Popen([sys.executable, os.path.join(core.ROOT, "runtime", "cli.py"), verb, "--project", project,
                                  "--task", str(task_id)], stdout=files[0], stderr=files[1], stdin=subprocess.DEVNULL,
                                 start_new_session=True, close_fds=True, env=env)
     finally:
@@ -589,9 +608,15 @@ def dispatch(project: str, budget_seconds=None, wait: bool = True) -> dict:
     with core._dispatch_lock(cfg):
         if not cfg["area_agents"]:
             rows = core._stored(ctx, ctx["store"].tasks_list)
-            ops._record_held(ctx, [{"task_id": t["id"], "agent": t.get("agent"), "reason": dispatcher.NO_AGENT}
-                                   for t in rows if t["state"] == "ready" and t["parent_id"] is not None], [])
-            return {"stopped": "no area agent is configured"}
+            ready = [t for t in rows if t["state"] == "ready" and t["parent_id"] is not None]
+            # a step task is the runtime's own (no agent, no model): it needs no area agent, so it is neither held for the lack of one
+            # nor left unstarted by it
+            steps_module = importlib.import_module("ops_steps")
+            ops._record_held(ctx, [{"task_id": t["id"], "agent": t.get("agent"),
+                                    "reason": steps_module.held_reason(ctx, t) if t.get("step_kind") else dispatcher.NO_AGENT}
+                                   for t in ready if not t.get("step_kind") or steps_module.held_reason(ctx, t)], [])
+            if not any(t.get("step_kind") and steps_module.may_dispatch(ctx, t) for t in ready):
+                return {"stopped": "no area agent is configured"}
         out = {"handlers": ops._ticks(ctx, project), "released": [], "started": [], "ran": [], "held": [], "stopped": None}
         if wait:
             STOPPING.clear()
@@ -675,13 +700,25 @@ def _pass(ctx: dict, project: str, out: dict, state: dict, began: float, budget:
     if not decided["start"]:
         return 0, "nothing may start" if decided["held"] or snapshot["ready"] else "no task is ready"
     started, blocked, first = 0, {}, None
-    for position, task_id in enumerate(decided["start"]):
+    step_ids = {t["id"] for t in snapshot["ready"] if t.get("step_kind")}  # step tasks call no model and run in no eval container
+    order = [t for t in decided["start"] if t in step_ids] + [t for t in decided["start"] if t not in step_ids]  # steps first: a missing image holds only the skill runs
+    for position, task_id in enumerate(order):
         if STOPPING.is_set():
             out["stopped"] = "the dispatcher was stopped: no new run starts"
             break
         if time.monotonic() - began > budget:
             out["stopped"] = f"the round's budget of {budget} s is spent: no new run starts"
             break
+        if task_id in step_ids:
+            try:
+                proc = spawn(cfg, project, task_id, "run-step")
+            except OSError as e:
+                out["stopped"] = f"task {task_id} could not be started: {e}"
+                break
+            mine.append(proc)
+            out["started"].append({"task_id": task_id, "started_at": ops._now_iso()})
+            started += 1
+            continue
         model, checked = snapshot["model"].get(task_id), state["checked"]
         if model is not None and ("credential", model) not in checked:
             checked[("credential", model)] = ops._credential_stop(model)
@@ -689,7 +726,7 @@ def _pass(ctx: dict, project: str, out: dict, state: dict, began: float, budget:
             checked["image"] = ops._image_stop()
         if checked["image"]:  # no run starts without the image: the rest of the round is held with it
             reason, out["stopped"], state["missing"] = checked["image"]
-            state["held"] = dispatcher.held_of(snapshot, decided, {t: reason for t in decided["start"][position:]})
+            state["held"] = dispatcher.held_of(snapshot, decided, {t: reason for t in order[position:]})
             break
         lacks = checked[("credential", model)] if model is not None else None
         if lacks:  # no run of this model starts; the tasks of the models that have their key go on

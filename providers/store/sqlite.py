@@ -52,7 +52,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 BUSY_TIMEOUT_SECONDS = 10
 PATH_ENV = "STORE_SQLITE_PATH"
 
@@ -397,6 +397,18 @@ MIGRATIONS = {
             BEGIN SELECT RAISE(ABORT, 'the record of a source a run received is never deleted'); END""",
         """CREATE TRIGGER task_sources_never_changed BEFORE UPDATE ON task_sources
             BEGIN SELECT RAISE(ABORT, 'the record of a source a run received is never changed'); END""",
+    ]),
+    # P5: the step task. A task that runs no skill: code runs it, in a process of its own, as the step engine of runtime/steps.py
+    # (an ingestion, later the steps of a media pipeline or a file output). `step_kind` names its kind in the engine's registry
+    # (NULL for every skill task and for every row older than the column); `step_args` is its arguments as canonical JSON, which
+    # the plan's hash covers; `step_footprint` the project paths the kind declares it writes (a JSON list, derived from the kind,
+    # never from free text), which the admission rule weighs against the files other tasks write; `step_state` the engine's
+    # progress (each step and its closed result), so that a task stopped, failed or killed resumes at its step.
+    12: ("the step task: its kind, arguments, footprint and state", [
+        "ALTER TABLE tasks ADD COLUMN step_kind TEXT",
+        "ALTER TABLE tasks ADD COLUMN step_args TEXT",
+        "ALTER TABLE tasks ADD COLUMN step_footprint TEXT",
+        "ALTER TABLE tasks ADD COLUMN step_state TEXT",
     ]),
 }
 
@@ -1078,7 +1090,7 @@ EXPORT_QUERIES = (
      "ORDER BY id", ("payload",), ()),
     ("actions", "SELECT * FROM actions WHERE ?1 IS NULL OR created_at >= ?1 ORDER BY id", ("result",), ()),
     ("tasks", "SELECT * FROM tasks WHERE ?1 IS NULL OR created_at >= ?1 OR updated_at >= ?1 ORDER BY id",
-     ("depends_on",), ()),
+     ("depends_on", "step_args", "step_footprint", "step_state"), ()),
     ("task_runs", "SELECT * FROM task_runs WHERE ?1 IS NULL OR started_at >= ?1 OR ended_at >= ?1 ORDER BY id",
      (), ()),
     ("pending_decisions", "SELECT * FROM pending_decisions WHERE ?1 IS NULL OR created_at >= ?1 "
@@ -1156,6 +1168,79 @@ def _sources_arg(value):
     return list(value)
 
 
+# The columns of a task row that hold JSON text: row_dict reads them back as objects.
+TASK_JSON = ("depends_on", "sources", "step_args", "step_footprint", "step_state")
+
+# --- the step task (P5) ------------------------------------------------------------------------------------------------
+#
+# A step task is a task of a request that runs no skill: code runs it, in a process of its own, as the engine of
+# runtime/steps.py. Its kind (`step_kind`) is a word of that engine's registry; the store checks its shape, never whether the
+# kind exists (the registry is the runtime's). It is planned, ready and done under `depends_on` as a skill task is: _refresh
+# makes it `ready` when every task it depends on is done, and NEXT_READY_TASK and task_claim give it out like any ready task of
+# a request (neither asks for a skill; before P5 no task without a skill existed). It has no run row: the engine records its
+# steps in `step_state`, and its states move through step_task_move. Its owner is the runtime's pseudo-agent, STEP_OWNER.
+STEP_OWNER = "runtime"
+STEP_KIND_RE = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
+STEP_KIND_MAX = 40
+STEP_ARGS_MAX = 16 * 1024          # bytes of a step's arguments as canonical JSON
+STEP_FOOTPRINT_MAX = 20            # paths a kind may declare for one task
+STEP_STATE_MAX = 64 * 1024         # bytes of the engine's progress
+STEP_STATES = ("running", "waiting", "failed", "done")
+FOOTPRINT_PATH_RE = re.compile(r"[A-Za-z0-9._<>-]+(/[A-Za-z0-9._<>-]*)*")
+
+
+def canonical_json(value) -> str:
+    """A value as the JSON text the plan hash and the store agree on: sorted keys, no spaces, ASCII, no NaN."""
+    try:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        raise StoreError(f"not JSON ({exc})", EXIT_USAGE) from None
+
+
+def is_step_task(task: dict) -> bool:
+    """Whether a task row is a step task: it has a parent request, a step kind and no skill."""
+    return task.get("parent_id") is not None and task.get("step_kind") is not None and task.get("skill") is None
+
+
+def _step_kind_arg(value) -> str:
+    kind = text_arg(value, "step", STEP_KIND_MAX)
+    if not STEP_KIND_RE.fullmatch(kind):
+        raise StoreError(f"step kind {kind!r} must be lowercase words joined by hyphens", EXIT_USAGE)
+    return kind
+
+
+def _step_args_arg(value) -> str:
+    """A step's arguments (an object) as canonical JSON text, at most STEP_ARGS_MAX bytes."""
+    if value is None:
+        value = {}
+    if not isinstance(value, dict):
+        raise StoreError("a step's arguments are an object", EXIT_USAGE)
+    text = canonical_json(value)
+    if len(text.encode("utf-8")) > STEP_ARGS_MAX:
+        raise StoreError(f"a step's arguments are over the cap of {STEP_ARGS_MAX} bytes", EXIT_USAGE)
+    return text
+
+
+def _step_footprint_arg(value) -> str:
+    """The paths a kind declares it writes, as a JSON list: relative paths inside the project (a declared path may carry
+    placeholders such as <task>), at most STEP_FOOTPRINT_MAX, once each."""
+    paths = [] if value is None else value
+    if not isinstance(paths, (list, tuple)) or len(paths) > STEP_FOOTPRINT_MAX or len(set(paths)) != len(paths):
+        raise StoreError(f"a step's footprint is a list of at most {STEP_FOOTPRINT_MAX} distinct paths", EXIT_USAGE)
+    for path in paths:
+        if not isinstance(path, str) or not FOOTPRINT_PATH_RE.fullmatch(path) or path.startswith("/") or \
+                any(part in (".", "..") for part in path.split("/")) or len(path) > PATH_MAX:
+            raise StoreError(f"footprint path {path!r} must be a relative path inside the project", EXIT_USAGE)
+    return canonical_json(sorted(paths))
+
+
+def _step_state_arg(value) -> str:
+    text = canonical_json(value)
+    if len(text.encode("utf-8")) > STEP_STATE_MAX:
+        raise StoreError(f"a step's state is over the cap of {STEP_STATE_MAX} bytes", EXIT_USAGE)
+    return text
+
+
 def _billing_arg(value):
     """The billing a run is started with: None, or one of RUN_BILLINGS (migration 9 checks the column the same way)."""
     if value is not None and value not in RUN_BILLINGS:
@@ -1219,7 +1304,7 @@ def _task(conn: sqlite3.Connection, task_id: int) -> dict:
     row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
     if row is None:
         raise StoreError(f"no task {task_id}")
-    return row_dict(row, ("depends_on", "sources"))
+    return row_dict(row, TASK_JSON)
 
 
 def _refresh(conn: sqlite3.Connection, now: str) -> tuple[list, list]:
@@ -1357,11 +1442,23 @@ def _plan_items(tasks, *, empty_text: bool = False, known=()) -> list:
             text = ""
         else:
             text = text_arg(text, "text", TEXT_MAX, multiline=True)
-        plan.append({"key": key, "skill": text_arg(item.get("skill"), "skill", LABEL_MAX),
+        agent = text_arg(item.get("agent"), "agent", LABEL_MAX, required=False)
+        step = {"step_kind": None, "step_args": None, "step_footprint": None}
+        if item.get("step") is not None:     # a step task: a kind, its arguments and the footprint the kind declared
+            if item.get("skill") is not None or item.get("sources"):
+                raise StoreError(f"task {key!r}: a step task has no skill and receives no sources", EXIT_USAGE)
+            if agent not in (None, STEP_OWNER):
+                raise StoreError(f"task {key!r}: a step task belongs to the agent {STEP_OWNER!r}", EXIT_USAGE)
+            agent, skill = STEP_OWNER, None
+            step = {"step_kind": _step_kind_arg(item["step"]), "step_args": _step_args_arg(item.get("args")),
+                    "step_footprint": _step_footprint_arg(item.get("footprint"))}
+        else:
+            skill = text_arg(item.get("skill"), "skill", LABEL_MAX)
+        plan.append({"key": key, "skill": skill,
                      "title": text_arg(item.get("title"), "title", TITLE_MAX), "text": text,
                      "depends_on": list(depends), "milestone": 1 if item.get("milestone") else 0,
-                     "agent": text_arg(item.get("agent"), "agent", LABEL_MAX, required=False),
-                     "model": _model_arg(item.get("model")), "sources": _sources_arg(item.get("sources"))})
+                     "agent": agent, "model": _model_arg(item.get("model")), "sources": _sources_arg(item.get("sources")),
+                     **step})
     return plan
 
 
@@ -1374,10 +1471,12 @@ def _insert_plan(conn: sqlite3.Connection, request_id: int, flow: str | None, pl
     for item in plan:
         ids[item["key"]] = conn.execute(
             "INSERT INTO tasks (parent_id, flow, key, skill, agent, title, text, state, depends_on, milestone, "
-            "model, sources, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?, ?)",
+            "model, sources, step_kind, step_args, step_footprint, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (request_id, flow, item["key"], item["skill"], item["agent"], item["title"], item["text"],
              json.dumps([ids[d] for d in item["depends_on"]]), item["milestone"], item.get("model"),
-             json.dumps(item["sources"]) if item["sources"] else None, now, now)).lastrowid
+             json.dumps(item["sources"]) if item["sources"] else None, item.get("step_kind"), item.get("step_args"),
+             item.get("step_footprint"), now, now)).lastrowid
         added.append(ids[item["key"]])
     return added
 
@@ -1574,11 +1673,102 @@ def task_fail_orphans(conn: sqlite3.Connection, task_ids, run_ids, note: str) ->
     return {"tasks": tasks, "runs": sorted(runs)}
 
 
+def step_task_add(conn: sqlite3.Connection, *, key: str, title: str, text: str, step: str, args: dict | None = None,
+                  footprint=None, request_id: int | None = None, depends_on=None, milestone: bool = False) -> dict:
+    """Add one step task, `planned` (then `ready` at once when it depends on nothing, or when every task it depends on is done,
+    as a skill task becomes: _refresh). Without request_id a request is made for it, `planned`, with no flow; with one, that
+    request must be `planned` or `done` (a done request gets work again and is `planned`). key is lowercase words joined by
+    hyphens, once per request; depends_on names keys of tasks the request already has. step is the kind (a word of the engine's
+    registry, runtime/steps.py), args its arguments (an object, stored as canonical JSON) and footprint the project paths the
+    kind declares it writes, which the caller derived from the kind. The task belongs to the agent STEP_OWNER.
+    Returns {"request": id, "task": id, "state"}."""
+    item = {"key": key, "step": step, "args": args, "footprint": footprint, "title": title, "text": text,
+            "depends_on": list(depends_on or []), "milestone": milestone}
+    now = iso(utcnow())
+    with write(conn):
+        if request_id is None:
+            plan = _plan_items([item])
+            request_id = conn.execute("INSERT INTO tasks (title, text, state, created_at, updated_at) VALUES (?, ?, 'planned', ?, ?)",
+                                      (plan[0]["title"], plan[0]["text"], now, now)).lastrowid
+            known, flow = {}, None
+        else:
+            request = _request(conn, request_id)
+            if request["state"] not in ("planned", "done"):
+                raise StoreError(f"request {request_id} is {request['state']}: a step task is added to a planned or a done request")
+            known = {r["key"]: r["id"] for r in conn.execute("SELECT id, key FROM tasks WHERE parent_id = ? ORDER BY id",
+                                                               (request_id,)).fetchall() if r["key"] is not None}
+            if key in known:
+                raise StoreError(f"request {request_id} already has a task {key!r}")
+            plan = _plan_items([item], known=tuple(known))
+            flow = request["flow"]
+            conn.execute("UPDATE tasks SET state = 'planned', updated_at = ? WHERE id = ?", (now, request_id))
+        added = _insert_plan(conn, request_id, flow, plan, now, known)
+        _refresh(conn, now)
+        state = conn.execute("SELECT state FROM tasks WHERE id = ?", (added[0],)).fetchone()["state"]
+    return {"request": request_id, "task": added[0], "state": state}
+
+
+def step_task_move(conn: sqlite3.Connection, task_id: int, *, state: str, note: str | None = None, pending: dict | None = None,
+                   resolve: dict | None = None, step_state=None, by: str = "code") -> dict:
+    """Move a step task to `running`, `waiting`, `failed` or `done`, in one transaction. `waiting` needs `pending` ({"kind",
+    "title", "body"[, "payload"]}, opened on the task, run_id NULL); the other states refuse one. Every decision of the task
+    still open when it moves is cancelled, except `resolve` ({"id", "answer"}), which is resolved `answered` by `by` in the
+    same transaction. step_state, when given (a JSON object), is stored with the move, so that the engine's progress and the
+    task's state never differ. A task that is `done` or `cancelled` does not move; when it becomes `done`, the tasks that
+    depended on it become ready and a request whose tasks are all done becomes done. Returns {"task_id", "state",
+    "pending_id" or None, "ready": [ids]}."""
+    if state not in STEP_STATES or (state == "waiting") != (pending is not None):
+        raise StoreError("a step task moves to running, failed or done, or to waiting with a pending decision", EXIT_USAGE)
+    note = text_arg(note, "note", NOTE_MAX, multiline=True, required=False)
+    item = None if pending is None else _pending_item(pending)
+    saved = None if step_state is None else _step_state_arg(step_state)
+    now = iso(utcnow())
+    with write(conn):
+        task = _task(conn, task_id)
+        if not is_step_task(task):
+            raise StoreError(f"task {task_id} is not a step task")
+        if task["state"] in TASK_FINAL_STATES:
+            raise StoreError(f"task {task_id} is {task['state']}: it does not move")
+        if resolve is not None:
+            row = conn.execute("SELECT task_id, status FROM pending_decisions WHERE id = ?", (resolve.get("id"),)).fetchone()
+            if row is None or row["task_id"] != task_id or row["status"] != "open":
+                raise StoreError(f"pending decision {resolve.get('id')} is not open on task {task_id}")
+            answer = text_arg(resolve.get("answer"), "answer", NOTE_MAX, multiline=True)
+            conn.execute("UPDATE pending_decisions SET status = 'resolved', resolution = 'answered', answer = ?, resolved_at = ?, "
+                         "resolved_by = ? WHERE id = ?", (answer, now, text_arg(by, "by", LABEL_MAX), resolve["id"]))
+        conn.execute("UPDATE pending_decisions SET status = 'cancelled', resolved_at = ?, resolved_by = 'code' WHERE task_id = ? "
+                     "AND status = 'open'", (now, task_id))
+        conn.execute("UPDATE tasks SET state = ?, note = ?, updated_at = ?, step_state = COALESCE(?, step_state) WHERE id = ?",
+                     (state, note, now, saved, task_id))
+        pending_id = None
+        if item is not None:
+            pending_id = conn.execute(
+                "INSERT INTO pending_decisions (task_id, run_id, kind, title, body, payload, payload_sha256, created_at) "
+                "VALUES (?, NULL, ?, ?, ?, ?, ?, ?)", (task_id, *item, now)).lastrowid
+        ready, _completed = _refresh(conn, now)
+    return {"task_id": task_id, "state": state, "pending_id": pending_id, "ready": ready}
+
+
+def step_state_save(conn: sqlite3.Connection, task_id: int, step_state) -> dict:
+    """Store the engine's progress of a step task (a JSON object, at most STEP_STATE_MAX bytes) without moving the task: what
+    the engine does after each step, so that a task killed or stopped between two steps resumes at the next one. A task that is
+    done or cancelled keeps its state. Returns {"task_id"}."""
+    saved = _step_state_arg(step_state)
+    with write(conn):
+        task = _task(conn, task_id)
+        if not is_step_task(task):
+            raise StoreError(f"task {task_id} is not a step task")
+        if task["state"] in TASK_FINAL_STATES:
+            raise StoreError(f"task {task_id} is {task['state']}: its state does not change")
+        conn.execute("UPDATE tasks SET step_state = ? WHERE id = ?", (saved, task_id))
+    return {"task_id": task_id}
+
+
 # The tasks of a request that hold a slot of their agent: running, waiting for the person, or ready because the person
 # answered a decision the task's latest run opened (it is about to run again).
 SLOT_HOLDERS = (
     "SELECT t.id, t.agent FROM tasks t WHERE t.parent_id IS NOT NULL AND ("
-    " t.state IN ('running', 'waiting')"
+    " t.state = 'running' OR (t.state = 'waiting' AND t.step_kind IS NULL)"
     " OR (t.state = 'ready' AND EXISTS ("
     "  SELECT 1 FROM pending_decisions p WHERE p.task_id = t.id AND p.resolution = 'answered'"
     "   AND p.created_at >= (SELECT MAX(r.started_at) FROM task_runs r WHERE r.task_id = t.id)))) ORDER BY t.id")
@@ -2580,7 +2770,7 @@ def tasks_list(conn: sqlite3.Connection, request: int | None = None) -> list:
     """Every task, oldest first; with request, that request and its tasks."""
     rows = conn.execute("SELECT * FROM tasks WHERE (?1 IS NULL OR id = ?1 OR parent_id = ?1) ORDER BY id",
                         (request,)).fetchall()
-    return [row_dict(r, ("depends_on", "sources")) for r in rows]
+    return [row_dict(r, TASK_JSON) for r in rows]
 
 
 def task_run_get(conn: sqlite3.Connection, run_id: int) -> dict:
