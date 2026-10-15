@@ -922,18 +922,17 @@ def register(ctx, source_id: str, source_type: str, origin: str, description=Non
         raise SourcesError(f"a source is a {' or a '.join(TYPES)}", "usage")
     if not isinstance(origin, str) or not origin.strip() or CONTROL.search(origin) or len(origin) > 512:
         raise SourcesError("the origin is one line of at most 512 characters", "usage")
-    stored_type = source_type
     if source_type == "notion":
         notion_page_id(origin)
     elif source_type == "drive":
-        origin, stored_type = DRIVE_PREFIX + drive_file_id(origin), "file"   # see "Drive sources" below: no registry migration yet
+        origin = drive_file_id(origin)
     elif "/" in origin or "\\" in origin:
         origin = os.path.basename(origin.replace("\\", "/"))
         if not origin:
             raise SourcesError("the origin of a file source is the file's name", "usage")
     if source_type == "file" and origin.strip().startswith(DRIVE_PREFIX):
         raise SourcesError(f"a file source's origin cannot start with {DRIVE_PREFIX!r}: that marks a Drive source", "usage")
-    return public_row(_stored(ctx, "source_add", source_id=source_id, source_type=stored_type, origin=origin.strip(),
+    return public_row(_stored(ctx, "source_add", source_id=source_id, source_type=source_type, origin=origin.strip(),
                               description=description))
 
 
@@ -1517,11 +1516,10 @@ def fetch_notion(cfg: dict, address: str, *, call=None) -> dict:
 # --- Google Drive files (decision D13, P7) ---------------------------------------------------------------------------------
 #
 # A Drive source is one FILE the person picked in Google's Picker (the scope is drive.file; a picked folder gives the app nothing inside
-# it, so folders are not sources). The registry's type column admits `file` and `notion` only (migration 11), and a migration is not
-# added for this: a Drive source is stored as a `file` row whose origin is `drive:<file id>`, and public_row() is the one place that
-# reads it back as {"type": "drive", "origin": "<file id>"}. register() and list_catalog() return public rows, ops_sources reads every
-# row through it, and a plain file source can never carry an origin that starts with `drive:` (register refuses it). A later migration
-# that admits `drive` makes the stored row equal the public one; nothing else changes.
+# it, so folders are not sources). The registry's type column admits `drive` since migration 14: a Drive source is a row of type
+# `drive` whose origin is the file id. Before that migration P7 stored it as a `file` row with the origin `drive:<file id>`; migration
+# 14 rewrote those rows, and public_row() stays as the one place every reader passes a row through (it changes nothing now; a row a
+# store older than 14 would hold cannot be read, since the runtime migrates a store before it reads it).
 #
 # The provider is `providers/documents/gdrive.py` (class integration:documents, implementation gdrive), run as a process with the
 # minimum environment plus the one secret it reads (GDRIVE_SOURCES_TOKEN). It writes the exported or downloaded bytes to a folder of the
@@ -1552,10 +1550,8 @@ def drive_file_id(text) -> str:
 
 
 def public_row(row: dict) -> dict:
-    """A registry row as the rest of the runtime reads it: a Drive source (stored as a `file` row with a `drive:<id>` origin) reads as
-    type `drive` with the file id as its origin; every other row is returned as it is."""
-    if row.get("type") == "file" and str(row.get("origin", "")).startswith(DRIVE_PREFIX):
-        return {**row, "type": "drive", "origin": row["origin"][len(DRIVE_PREFIX):]}
+    """A registry row as the rest of the runtime reads it: the row itself (a Drive source has been type `drive` with the file id as its
+    origin since migration 14)."""
     return row
 
 

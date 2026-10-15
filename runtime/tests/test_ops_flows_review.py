@@ -77,6 +77,7 @@ def test_a_workflow_that_lists_sources_or_says_web_false_is_never_started_by_req
         with pytest.raises(ops_core.OpsError, match="sources or a task that runs without the web: record the request, then route it"):
             ops.request(world["path"], "go", flow=data["flow"])
     assert ops_core.context(world["path"])["store"].tasks_list(ops_core.context(world["path"])["conn"]) == []     # nothing was created
+    ops.source_import(world["path"], "survey", file=csv_file(world))          # the sources a flow lists are checked when its plan is built
     rid = new_request(world)
     shown = pending(world, ops.route(world["path"], rid, flow="split-form")["pending_id"])
     tasks = {t["key"]: t for t in shown["payload"]["tasks"]}
@@ -124,7 +125,10 @@ def test_a_staged_file_that_cannot_be_read_after_the_approval_is_reported_and_th
         return real(project, request_id)
     monkeypatch.setattr(ops_flows, "staged", staged)
     done = ops.approve(world["path"], opened, pending(world, opened)["payload"]["plan_sha256"])
-    assert done["files"]["placed"] == [] and done["files"]["failed"] == [{"task": None, "file": "survey.csv", "reason": "OpsError"}]
+    ingest = tasks_of(world, rid)["ingest-survey"]["id"]
+    [failed] = done["files"]["failed"]
+    assert done["files"]["placed"] == [] and failed["task"] == ingest and failed["file"] == "survey.csv" and failed["reason"] == "OpsError"
+    assert "hand-over" in failed["next"] and f"--task {ingest}" in failed["next"]
     assert set(tasks_of(world, rid)) == {"ingest-survey", "reading"} and pending(world, opened)["status"] == "resolved"
     assert not staging(world, rid).exists()
 
@@ -266,3 +270,52 @@ def test_a_plan_built_with_a_file_parameter_is_saved_with_the_parameter_and_runs
     args = next(t for t in shown["payload"]["tasks"] if t["key"] == "ingest-survey")["args"]
     import hashlib
     assert args == {"source": "survey", "file": "other.csv", "sha256": hashlib.sha256(other.encode()).hexdigest()}
+
+
+# --- the four minors of the review of P6a ---------------------------------------------------------------------------------------------------
+
+
+def test_a_flow_with_no_parameter_and_no_date_still_has_its_sources_checked_when_it_is_routed(world):
+    write_flow(world, "plain-source", {"flow": "plain-source", "title": "Plain", "tasks": [
+        {"key": "reading", "skill": "demo-writes", "title": "Read", "text": "Read it.", "sources": ["survey"]}]})
+    with pytest.raises(ops_core.OpsError, match="receives the source survey, which the project does not hold"):
+        ops.route(world["path"], new_request(world), flow="plain-source")
+    ops.source_import(world["path"], "survey", file=csv_file(world))
+    assert ops.route(world["path"], new_request(world), flow="plain-source")["routed"] is True
+
+
+def test_saving_a_plan_rewrites_only_the_file_and_sha256_arguments_of_a_kind_that_brings_a_source(world):
+    flow = json.loads(json.dumps(FILE_FLOW))
+    flow["tasks"][0]["args"] = {"source": "survey", "file": "{survey}", "sha256": "{survey.sha256}"}
+    write_flow(world, "survey-file", flow)
+    rid = new_request(world)
+    ops.stage_file(world["path"], rid, csv_file(world, "survey", CSV))          # a file whose name is also the source's id
+    opened = ops.route(world["path"], rid, flow="survey-file", params=["survey=survey"])["pending_id"]
+    ops.approve(world["path"], opened, pending(world, opened)["payload"]["plan_sha256"])
+    saved = ops.flow_save(world["path"], "kept", pending_id=opened)
+    step = next(t for t in json.loads((world["project"] / saved["path"]).read_text(encoding="utf-8"))["tasks"] if t["key"] == "ingest-survey")
+    assert step["args"] == {"source": "survey", "file": "{survey}", "sha256": "{survey.sha256}"}, "`source` stays the source, though it equals the name"
+    mixed = ops_flows._with_file_parameters("other-kind", {"file": "survey"}, {"survey": {"name": "survey", "sha256": "a" * 64}})
+    assert mixed == {"file": "survey"}, "a kind that brings no source keeps its arguments"
+
+
+def test_the_staging_folder_that_is_a_link_is_looked_at_before_it_is_listed_and_nothing_behind_it_is_touched(world, tmp_path):
+    rid = new_request(world)
+    behind = tmp_path / "behind"
+    behind.mkdir()
+    (behind / "keep.txt").write_text("mine")
+    folder = world["project"] / ".workbench-local" / "drop" / f"request-{rid}"
+    folder.parent.mkdir(parents=True, exist_ok=True)
+    folder.symlink_to(behind)
+    ops_flows.discard_staged(ops_core.context(world["path"]), rid)
+    assert (behind / "keep.txt").read_text() == "mine" and folder.is_symlink()
+
+
+def test_a_failed_placement_names_the_command_that_hands_the_file_to_the_task(world, monkeypatch):
+    rid, opened = planned_file_flow(world)
+    monkeypatch.setattr(ops_flows.os, "makedirs", lambda *a, **k: (_ for _ in ()).throw(OSError("full")))
+    done = ops.approve(world["path"], opened, pending(world, opened)["payload"]["plan_sha256"])
+    [failed] = done["files"]["failed"]
+    ingest = tasks_of(world, rid)["ingest-survey"]["id"]
+    assert failed["task"] == ingest and failed["reason"] == "OSError"
+    assert "hand-over" in failed["next"] and f"--task {ingest}" in failed["next"] and "<path>" in failed["next"]

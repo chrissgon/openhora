@@ -141,6 +141,12 @@
 .wb-steps-head { margin: 0; padding: 0 4px; font-size: 12px; font-weight: 600; }
 .wb-steps-line, .wb-steps-note { margin: 0; padding: 0 4px; font-size: 12px; color: var(--pui-muted, inherit); }
 .wb-steps-btn { justify-self: start; }
+.wb-rt-sec[hidden], .wb-rt-new[hidden], .wb-rt-preview[hidden] { display: none; }      /* the routines of the project (P6b) */
+.wb-rt-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.wb-rt-item { min-width: 0; overflow-wrap: anywhere; padding: 0 4px; }
+.wb-rt-actions { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 4px; }
+.wb-rt-preview { display: grid; gap: 6px; min-width: 0; overflow-wrap: anywhere; padding: 6px 4px; border-top: 1px solid var(--pui-border, currentColor); }
+.wb-rt-preview .wb-hash { overflow-wrap: anywhere; }
 .wb-sec-head { margin: 0; padding: 0 4px; font-size: 12px; font-weight: 600; }
 .wb-sec-empty { margin: 0; padding: 0 4px; font-size: 12px; }
 .wb-rq-list, .wb-fl-list { display: grid; gap: 2px; min-width: 0; margin: 0; padding: 0; list-style: none; }

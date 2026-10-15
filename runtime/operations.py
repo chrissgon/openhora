@@ -306,6 +306,35 @@ OPERATIONS = (
      "help": "set your description of a source (what it is, what it is for); the planner reads it with the catalog; an empty one clears it"},
     {"name": "sources", "call": "sources_catalog", "args": (), "channels": ("terminal", "page", "mcp", "messaging"), "model": False,
      "help": "the catalog of the project's sources: each source, its newest version (name, type, size, date, sheets and columns with sample values, first headings), your description and whether its files changed outside the runtime"},
+    {"name": "routines", "call": "routines_read", "args": ({"name": "routine_id", "kind": "int", "flag": "id"},),
+     "channels": ("terminal", "page", "mcp", "messaging"), "model": False,
+     "help": "the routines (a workflow started by a schedule): state, schedule, the hash of the content now against the approved one, the last fire; with an id, its fires and what approving it needs"},
+    {"name": "routine-create", "call": "routine_create",
+     "args": ({"name": "name", "kind": "str", "required": True}, {"name": "flow", "kind": "str", "required": True}, {"name": "params", "kind": "list", "flag": "param"},
+              {"name": "every", "kind": "choice", "choices": ("day", "week", "minutes")}, {"name": "at", "kind": "str"},
+              {"name": "weekday", "kind": "int"}, {"name": "minutes", "kind": "int"}, {"name": "model", "kind": "str"},
+              {"name": "providers", "kind": "list", "flag": "provider"}, {"name": "window_seconds", "kind": "int", "flag": "window-seconds"},
+              {"name": "consent", "kind": "flag"}, {"name": "warning_sha256", "kind": "str", "flag": "warning-sha256"}),
+     "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
+     "help": "create a routine as a draft: --flow a workflow, --param name=value its fixed arguments, --every day|week|minutes with --at HH:MM, --weekday, --minutes, --model (an id, auto, or the project's default), --provider (the approved set for auto), --window-seconds (the catch-up window, default its period), --consent (terminal; the page sends the hash of the warning) for a fixed model with no evidence; nothing fires until routine-approve; from messaging only when the project grants it, and never for a workflow with a networked script or one a standing policy covers"},
+    {"name": "routine-change", "call": "routine_change",
+     "args": ({"name": "routine_id", "kind": "int", "required": True, "flag": "id"}, {"name": "flow", "kind": "str"}, {"name": "params", "kind": "list", "flag": "param"},
+              {"name": "every", "kind": "choice", "choices": ("day", "week", "minutes")}, {"name": "at", "kind": "str"},
+              {"name": "weekday", "kind": "int"}, {"name": "minutes", "kind": "int"}, {"name": "model", "kind": "str"},
+              {"name": "providers", "kind": "list", "flag": "provider"}, {"name": "window_seconds", "kind": "int", "flag": "window-seconds"},
+              {"name": "consent", "kind": "flag"}, {"name": "warning_sha256", "kind": "str", "flag": "warning-sha256"}),
+     "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
+     "help": "change a routine: what is given replaces what is there; its approval is cleared and it is a draft until routine-approve; a change of the model clears the consent"},
+    {"name": "routine-approve", "call": "routine_approve",
+     "args": ({"name": "routine_id", "kind": "int", "required": True, "flag": "id"}, {"name": "sha256", "kind": "str"}),
+     "channels": ("terminal", "page"), "model": False,
+     "help": "approve a routine by the sha256 of its exact content (schedule, workflow template and fixed arguments, skill versions X.Y, eval image, model and consent, providers): without --sha256 the preview and the hash; a stopped routine is approved again the same way"},
+    {"name": "routine-pause", "call": "routine_pause", "args": ({"name": "routine_id", "kind": "int", "required": True, "flag": "id"},),
+     "channels": ("terminal", "page", "messaging"), "model": False, "help": "pause an active routine: nothing fires while it is paused, and the slots it passes are not made up"},
+    {"name": "routine-resume", "call": "routine_resume", "args": ({"name": "routine_id", "kind": "int", "required": True, "flag": "id"},),
+     "channels": ("terminal", "page"), "model": False, "help": "resume a paused routine; its approval stands and every fire still compares the hash"},
+    {"name": "routine-cancel", "call": "routine_cancel", "args": ({"name": "routine_id", "kind": "int", "required": True, "flag": "id"},),
+     "channels": ("terminal", "page", "messaging"), "model": False, "help": "cancel a routine for good (it is never deleted; its fires stay on record)"},
 )
 
 # What the conversation answers itself, with no operation: the help, and a new request whatever is open.
@@ -322,7 +351,7 @@ CHAT_OWN = (
 # covers the ceiling's share of it. Pure literals, like the table.
 GROUPS = {
     "read": {"operations": ("status", "progress", "pending", "task", "agents", "costs", "skills", "artifacts", "artifact",
-                            "flows", "flow-check", "conversation", "connections", "version", "config", "commands", "artifact-raw"),
+                            "flows", "flow-check", "routines", "conversation", "connections", "version", "config", "commands", "artifact-raw"),
              "kind": None},
     "talk": {"operations": ("say",), "kind": None},
     "answer": {"operations": ("answer",), "kind": None},
@@ -338,20 +367,27 @@ GROUPS = {
     "consent": {"operations": ("give-consent",), "kind": None},   # the page's consent for an autonomous agent (D38): a group of its own, so granting set-mode never grants it
     "dispatch": {"operations": ("dispatch",), "kind": None},
     "documents": {"operations": ("sync", "hand-over"), "kind": None},
-    "workflows": {"operations": ("flow-save", "stage-file"), "kind": None},   # saving a workflow of the project, and handing a file over for the plan of one
+    "workflows": {"operations": ("flow-save", "stage-file"), "kind": None},
+    # routines (P6b): the brakes reach the messaging channel by default; making and changing one is a grant of `channels.messaging`
+    # (and never for a workflow that holds a networked script or that a standing policy covers: ROUTINE_LOCAL_CHANNELS); approving one
+    # (by the hash of its content) and resuming it are the terminal's and the page's
+    "routine-brakes": {"operations": ("routine-pause", "routine-cancel"), "kind": None},
+    "routine-edit": {"operations": ("routine-create", "routine-change"), "kind": None},
+    "routine-approve": {"operations": ("routine-approve", "routine-resume"), "kind": None},   # saving a workflow of the project, and handing a file over for the plan of one
     "verdict": {"operations": ("verdict",), "kind": None},
     "sources": {"operations": ("source-add", "source-import", "source-refresh", "source-describe", "sources"), "kind": None},
 }
 # The policy of a channel that has no entry in the project's configuration. A channel absent from this table keeps its
 # whole ceiling; the terminal is never narrowed. The messaging channel is closed: what changes the work other than a
 # line to the planning agent and an answer is turned on explicitly.
-DEFAULT_POLICY = {"messaging": ("read", "talk", "answer")}
+DEFAULT_POLICY = {"messaging": ("read", "talk", "answer", "routine-brakes")}
 NEVER_NARROWED = ("terminal",)
 POLICY_CHANNELS = ("page", "mcp", "messaging")     # the channels a project's configuration narrows; `chat` (local access, equal to the terminal) and `terminal` never are
 MUST_READ = ("page", "mcp")                        # a policy for these lists `read`
 PAGE_ONLY_GROUPS = ("approve-effects",)            # valid on the page alone (an effect is approved nowhere else, by EFFECT_CHANNELS)
 EFFECT_CHANNELS = ("terminal", "page")             # the channels an effect may be approved from (decision D8, extended)
-BRAKES = ("cancel", "set-mode")                    # never withheld from the page: cancel, and a move of a mode DOWN (the direction is checked by ops_config.set_mode)
+ROUTINE_LOCAL_CHANNELS = ("terminal", "page")      # the channels a routine whose workflow holds a networked script, or that a standing effect policy covers, is made and changed from (limit L33, S10)
+BRAKES = ("cancel", "set-mode", "routine-pause", "routine-cancel")                    # never withheld from the page: cancel, and a move of a mode DOWN (the direction is checked by ops_config.set_mode)
 
 
 def by_name(name: str) -> dict:
