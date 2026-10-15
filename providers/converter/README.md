@@ -26,7 +26,7 @@ Microsoft's MarkItDown was measured and not adopted. `tests/compare_tools.py` ra
 - **HTML:** pandoc. Raw MarkItDown leaves the text of `<noscript>` and `<template>` in the output; with the same pre-filter it would only tie, and it is about ten times slower.
 - **Spreadsheet (xlsx):** openpyxl. MarkItDown reads hidden sheets and writes `NaN` for an empty cell and `10.0` for `10`.
 - **PDF:** `pdftotext`. Equal on words, columns and reading order; MarkItDown keeps a table as a Markdown table where `pdftotext` writes its cells one per line, but it drops the `[page n]` marks and writes `(cid:127)` for a bullet. A table in a PDF is therefore a known limit of the choice.
-- **Presentation (pptx):** python-pptx, directly. MarkItDown uses it underneath, writes no list markers, leaves the text of a hidden slide in, and would have added `magika`, `onnxruntime`, `numpy` and `requests` to the image (653 MB instead of 440 MB). The image is 452 MB.
+- **Presentation (pptx):** python-pptx, directly. MarkItDown uses it underneath, writes no list markers, leaves the text of a hidden slide in, and would have added `magika`, `onnxruntime`, `numpy` and `requests` to the image (653 MB instead of 440 MB). The image is 444 MB.
 - **CSV and plain text:** the standard library, unchanged.
 
 ### The Python packages
