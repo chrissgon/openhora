@@ -224,6 +224,17 @@ def credential_missing(model: str | None = None) -> list:
                 os.environ[name] = value
 
 
+def container_tool(*args) -> tuple:
+    """(return code, standard output) of one command of the container client, through the executor's own function (evals/executor.py
+    docker, which names the client and bounds the time): what the upkeep sweeps orphan containers with (runtime/orphans.py). (127, "")
+    when the client or the executor is not there. It starts no run and reads no credential."""
+    try:
+        done = LAB.load_executor().docker(*args, check=False, timeout=60)
+    except Exception:  # no docker client, no executor in this checkout: the caller reads 127 as "cannot be asked"
+        return 127, ""
+    return done.returncode, done.stdout
+
+
 def credential_usernames(names) -> dict:
     """{variable: the username it is stored under in the OS secret store} for the names the adapters register in the
     "secrets" list of their manifests, read with the workbench's secret resolver (a name nobody registers, or no

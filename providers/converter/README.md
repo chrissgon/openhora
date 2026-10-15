@@ -35,7 +35,7 @@ Microsoft's MarkItDown was measured and not adopted. `tests/compare_tools.py` ra
 
 ### The presentation function
 
-`convert_pptx` reads the one package with python-pptx, after a check of its size that is stricter than the other Office files' (150 MiB declared in all, 48 MiB of XML: python-pptx keeps every part in memory in a container of 1024 MiB, so a deck of hundreds of megabytes of slide XML is the named error "the package declares too much XML" and not an out-of-memory kill); it makes no network connection (before the library is imported `socket.connect`, `create_connection` and `getaddrinfo` raise, behind the container's `--network none`) and loads no plugin. Any input of the program that is an address (`http:`, `file:`, `data:`) or not an absolute path is refused before anything is read (exit 3, nothing on standard output). A failure of the library is `error: python-pptx could not convert the pptx file: <ExceptionName>` (no path, no text of the file) and exit 3, which the host reports as a failed conversion and which writes nothing.
+`convert_pptx` reads the one package with python-pptx, after a check of its size that is stricter than the other Office files' (150 MiB declared in all, and 24 MiB for every part that is not a known kind of media or an embedded package, whatever the part is called: a slide saved as `slide2.bin` and typed XML by an Override counts). python-pptx keeps every part in memory and the XML becomes trees tens of times its size in a container of 1024 MiB; the caps turn most oversized decks into the named error "the package declares too much XML" or "too much data". They are not a guarantee: a deck just under them made of the densest possible markup can still use the memory, and then the container is killed (exit 137), a closed failure the host reports as a failed conversion, with nothing written; it makes no network connection (before the library is imported `socket.connect`, `create_connection` and `getaddrinfo` raise, behind the container's `--network none`) and loads no plugin. Any input of the program that is an address (`http:`, `file:`, `data:`) or not an absolute path is refused before anything is read (exit 3, nothing on standard output). A failure of the library is `error: python-pptx could not convert the pptx file: <ExceptionName>` (no path, no text of the file) and exit 3, which the host reports as a failed conversion and which writes nothing.
 
 ## How a conversion runs
 
@@ -53,7 +53,7 @@ python3 providers/converter/container.py build --confirmed     # builds it (the 
 python3 providers/converter/container.py --check               # docker is usable, its daemon is local, the image is built
 ```
 
-The base image is pinned by digest (`debian:bookworm-20261005-slim`, the digest the other container definitions of the project pin), the Debian packages by the snapshot `20261006T000000Z` and the Python packages by `requirements.lock` (remake it with the command in `requirements.in`). Changing the Dockerfile or `_inner.py` changes the tag: the next conversion asks for a build.
+The base image is pinned by digest (`debian:bookworm-20261005-slim`, the digest the other container definitions of the project pin), the Debian packages by the snapshot `20261006T000000Z` and the Python packages by `requirements.lock` (remake it with the command in `requirements.in`). Changing the Dockerfile, `.dockerignore`, `_inner.py` or `requirements.lock` changes the tag: the next conversion asks for a build.
 
 ## Tests
 

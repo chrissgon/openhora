@@ -44,7 +44,10 @@ TOOL_SECONDS = 120
 ZIP_ENTRIES_MAX = 5000
 ZIP_BYTES_MAX = 300 * 1024 * 1024     # the sum of the uncompressed sizes a package may declare: a zip bomb is refused before any tool reads it
 PPTX_BYTES_MAX = 150 * 1024 * 1024     # a presentation: python-pptx keeps every part in memory (the container has 1024 MiB), so its caps are lower
-PPTX_XML_MAX = 48 * 1024 * 1024        # and the XML a library parses into a tree costs several times its size: a named error, not the out-of-memory kill
+PPTX_XML_MAX = 24 * 1024 * 1024        # and the XML a library parses into a tree costs tens of times its size: a named error for most oversized decks
+MEDIA_SUFFIXES = (".png", ".jpg", ".jpeg", ".jpe", ".gif", ".bmp", ".tif", ".tiff", ".emf", ".wmf", ".wdp", ".jxr", ".webp", ".heic",
+                  ".mp3", ".mp4", ".m4a", ".m4v", ".wav", ".wma", ".wmv", ".avi", ".mov", ".mpg", ".mpeg", ".ogg",
+                  ".xlsx", ".docx", ".pptx")   # what is not XML by its name; a part with any other name is counted as XML, whatever its name says
 TEXT_CAP = 8 * 1024 * 1024            # what a tool's text is read up to before it is cut
 CSV_DELIMITERS = ",;\t|"
 SCRIPTLIKE = re.compile(r"(?is)<(script|style|noscript|template)\b.*?</\1\s*>")
@@ -95,7 +98,8 @@ def utf8(data: bytes) -> str:
 
 def check_package(path: str, bytes_max: int = 0, xml_max: int = 0) -> list:
     """The names in an Office package, refusing a zip bomb (too many entries, or a declared size that is too large; `xml_max`, when
-    given, also caps the declared size of the XML and relationship parts, which a library parses into memory)."""
+    given, also caps the declared size of every part that is not a known kind of media or an embedded package: a part is judged by what it
+    could be, not by its name, because a part saved as slide2.bin can be typed XML by an Override of [Content_Types].xml)."""
     try:
         with zipfile.ZipFile(path) as z:
             infos = z.infolist()
@@ -103,7 +107,7 @@ def check_package(path: str, bytes_max: int = 0, xml_max: int = 0) -> list:
                 raise Failed(f"the package holds {len(infos)} entries")
             if sum(i.file_size for i in infos) > (bytes_max or ZIP_BYTES_MAX):
                 raise Failed("the package declares too much data")
-            if xml_max and sum(i.file_size for i in infos if i.filename.endswith((".xml", ".rels"))) > xml_max:
+            if xml_max and sum(i.file_size for i in infos if not i.filename.lower().endswith(MEDIA_SUFFIXES)) > xml_max:
                 raise Failed("the package declares too much XML")
             return [i.filename for i in infos]
     except zipfile.BadZipFile:

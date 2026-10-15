@@ -62,6 +62,8 @@ openhora is a workbench of skills that let a model build a digital solution end 
 
 7. **A project's sources.** To give a project a file or a Notion page to read, read [sources.md](sources.md): the sources folder and its numbered guardrails (L21 to L27), the immutable versions, the catalog the planner reads, the document converter that runs in a container with no network, and the copies a task receives. It is a feature page like messaging, not a layer. `sources_dir` is a key every project's `runtime.json` must hold; register and import with `python3 runtime/cli.py source-add` and `source-import`, and see what the planner will read with `sources`.
 
+7. **A machine that runs for weeks.** To run the runtime on a server with nobody logged in, read [unattended.md](unattended.md): the SSH tunnel to reach the page (never `--lan` across networks), the credentials directory for secrets with no desktop session, the OAuth consent on a machine with a browser, the retention of run folders and source versions, the sweep of orphan containers, the lease of a synced sources folder, and `python3 scripts/doctor.py --unattended`.
+
 7. **What is not yet a replaceable piece.** If you want to know which layers cannot yet be swapped on their own, read the review of 2026-10-06 (removed on 2026-10-14; `git show d3e60770:docs/architecture/platform/review-2026-10-06.md`): the findings, ranked, each with its state in a table at the top.
 
 ## Keeping the pages current

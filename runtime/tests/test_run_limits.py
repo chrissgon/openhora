@@ -515,7 +515,7 @@ def test_every_limit_built_so_far_has_a_test_named_after_it():
     # test named after it is defined once in the runtime's and the store's tests, and every such test is one its row names
     # (L15 has two: the exact content, and a class of targets resolved from a recorded fact).
     rows = limits_table()
-    assert sorted(rows) == list(range(1, 28))   # L21 to L27: the guardrails of the sources folder (P4), tested in test_sources_limits.py
+    assert sorted(rows) == list(range(1, 30))   # L21 to L27: the guardrails of the sources folder (P4), tested in test_sources_limits.py; L28 and L29: the lease and upkeep (P-OPS), test_lease.py and test_upkeep.py
     defined = {}
     for test_file in sorted((st.REPO / "runtime" / "tests").glob("test_*.py")) + sorted(
             (st.REPO / "providers" / "store" / "tests").glob("test_*.py")):
@@ -534,7 +534,7 @@ def test_every_limit_built_so_far_has_a_test_named_after_it():
     numbered = {n for n in defined if n.startswith("test_limit_")}
     assert numbered == {name for names in named.values() for name in names} and all(len(defined[n]) == 1 for n in numbered)
     # Every limit is built; L20 alone has no test named after it: the project's protected paths guard it.
-    assert sorted(named) == list(range(1, 20)) + list(range(21, 28))
+    assert sorted(named) == list(range(1, 20)) + list(range(21, 30))
 
 
 def test_the_prepared_folder_of_a_run_is_removed_after_it(tree):

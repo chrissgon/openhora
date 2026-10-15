@@ -89,11 +89,12 @@ Beside them:
 - Text a Word document marks as hidden still comes out (pandoc keeps it); like the text hidden by CSS in HTML it waits for the hidden-text flag of P8.
 - A formula cell with no stored value in a workbook comes out empty (the converter reads stored values, it calculates nothing).
 - A source over the converted cap is refused, not indexed: indexing and retrieval wait for a real case.
-- A folder synced between machines needs the lease file of P-OPS; until then the sources lock is a file under `data_dir`, never inside the folder.
+- A folder synced between machines is written by one host at a time: every writer takes the folder's lease (`.openhora-lease`, limit L28), and a live lease of another host refuses the write and names that host; the sources lock stays a file under `data_dir`, never inside the folder. Old versions are pruned beyond `source_versions_kept` ([unattended.md](unattended.md)).
 - The converter image is built from a pinned definition by a step the person starts (`providers/converter/container.py build --confirmed`); the base image is pinned by digest, the Debian packages by a dated snapshot of the Debian archive and the Python packages by a lock of exact versions and sha256 hashes (`providers/converter/requirements.lock`, installed with `--require-hashes`). The tools it holds are poppler's `pdftotext` and `pandoc` (the Debian versions of that snapshot), `openpyxl`, and `python-pptx` 1.0.2 for presentations; which tool converts which format was chosen by a measured comparison in which Microsoft's MarkItDown was measured and not adopted (`providers/converter/README.md`, `docs/decisions.md` 2026-10-15).
 
 ## Changes
 
+- 2026-10-15: the lease and the retention of old versions, with package P-OPS (limits L28 and L29; [unattended.md](unattended.md)).
 - 2026-10-15: Google Drive files as sources (P7): `providers/documents/gdrive.py`, its authorization and the one-shot Picker page, `source-drive`, the refresh by version, `public_row`; files only, one scope.
 - 2026-10-15: first version, with package P4 (the sources folder and limits L21 to L27, the registry and versions of migration 11, the catalog, `converter:document`, Notion pages by address, the planner's choice in `core-orchestrator` 3.0.0, the plan card, the copies a task receives).
 - 2026-10-15: package P4b: presentations (pptx) are a source, converted by python-pptx (a hidden slide is not read); MarkItDown was measured and not adopted; the other formats keep their tools (`docs/decisions.md`).

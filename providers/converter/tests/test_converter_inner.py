@@ -288,6 +288,16 @@ def test_a_presentation_has_lower_caps_so_a_huge_deck_is_a_named_error_before_th
         inner.convert_pptx(str(big), str(tmp_path))
     assert "too much data" in str(refused.value)
     assert inner.check_package(str(big), 10 ** 9, 10 ** 9)[0] == "[Content_Types].xml", "the media are not counted as XML"
+    # a part saved under another name is counted: an Override can type a .bin as XML
+    disguised = tmp_path / "disguised.pptx"
+    with zipfile.ZipFile(disguised, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", "<Types/>")
+        z.writestr("ppt/slides/slide2.bin", "a" * 300000)
+        z.writestr("ppt/media/photo.JPG", "b" * 300000)
+    with pytest.raises(inner.Failed) as refused:
+        inner.check_package(str(disguised), 10 ** 9, 100000)
+    assert "too much XML" in str(refused.value)
+    assert inner.check_package(str(disguised), 10 ** 9, 400000)
 
 
 def test_two_spreadsheets_converted_with_one_work_folder_each_give_their_own_content(inner, tmp_path):

@@ -353,7 +353,7 @@ def test_a_non_regular_file_coming_back_from_a_container_refuses_the_import_and_
     for convert in (link_out, fifo_out, folder_out):
         message = refused(sources.import_version, case.ctx, source, case.drop("survey.csv", CSV), convert=convert)
         assert "not a regular file" in message
-    assert not any((case.folder / ".incoming").iterdir()) and not (case.folder / "survey").exists()
+    assert not any((case.folder / ".incoming").iterdir() if (case.folder / ".incoming").exists() else []) and not (case.folder / "survey").exists()
     assert case.ctx["store"].source_latest(case.ctx["conn"], "survey") is None
 
 

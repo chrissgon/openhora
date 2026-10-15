@@ -7,10 +7,10 @@ table on standard output. It is a measuring tool, not a test: nothing imports it
       -v <repo>/providers/converter/tests:/cmp:ro <image> /opt/venv/bin/python -I /cmp/compare_tools.py [--runs 3] [--dump <folder>]
 
 COMPARE_INNER_DIR and COMPARE_SCRATCH name where _inner.py is and a writable folder, for a run outside a container (the times are then
-the machine's). The image must hold MarkItDown with the extras of the formats compared (docx, pdf, xlsx, pptx), which the production image does not (it
-holds the presentation's only): build one from a scratch copy of providers/converter with `markitdown[docx,pdf,xlsx,pptx]==0.1.8` added
-to requirements.in and the lock remade. The production program does not use MarkItDown (decisions.md); this script registers, one at a time, the MarkItDown converter
-of each format it compares, and runs the program's own function as "current" (for a presentation, python-pptx).
+the machine's). The image must hold MarkItDown with the extras of the formats compared (docx, pdf, xlsx, pptx), which no image of the project does: build one
+from a scratch copy of providers/converter with `markitdown[docx,pdf,xlsx,pptx]==0.1.8` added to requirements.in and the lock remade. The
+production program does not use MarkItDown (docs/decisions.md); this script registers, one at a time, the MarkItDown converter of each
+format it compares, and runs the program's own function as "current" (for a presentation, python-pptx).
 
 For each fixture and each tool that can convert it, it measures, by script and not by eye:
   phrases sentences of the document that must come out whole (not cut by a column or a line) and in order

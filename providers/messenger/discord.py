@@ -162,6 +162,20 @@ def secret_resolver():
 def store_missing_note(resolver) -> str:
     """The sentence that tells the OS secret store cannot be read in this Python (no keyring library), with its trailing space,
     or "" (also for a resolver without the check)."""
+    unsafe = getattr(resolver, "unsafe_note", None)   # a credentials directory that is refused is not a token that is absent (package P-OPS)
+    try:
+        refused = "" if unsafe is None else unsafe()
+    except Exception:  # a broken check must not hide the real error
+        refused = ""
+    if isinstance(refused, str) and refused:
+        return f"the credentials directory is unsafe, so no secret is read from it: {refused}. "
+    locked = getattr(resolver, "store_locked_note", None)   # a locked store is not a missing token (package P-OPS)
+    try:
+        said = "" if locked is None else locked()
+    except Exception:  # a broken check must not hide the real error
+        said = ""
+    if isinstance(said, str) and said:
+        return said + ". "
     available = getattr(resolver, "store_available", None)
     try:
         if available is None or available():
