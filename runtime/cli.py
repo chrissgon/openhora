@@ -14,6 +14,7 @@ Usage:
   python3 runtime/cli.py deps     --project <dir>
   python3 runtime/cli.py run-next --project <dir> [--model <id>|auto]
   python3 runtime/cli.py run-task --project <dir> --task <task id> [--model <id>|auto]
+  python3 runtime/cli.py run-step --project <dir> --task <task id>
   python3 runtime/cli.py pending  --project <dir> [--id <pending id>]
   python3 runtime/cli.py answer   --project <dir> --id <pending id> (--text <text> | --text-file <file>) [--with-comments]
   python3 runtime/cli.py release  --project <dir> --id <pending id>
@@ -95,6 +96,14 @@ run-task  runs one named task in this process (--task <id>): what the dispatcher
           lock; a task that was refused (not ready, waiting, a document not taken, a cap) is not run and exits 4, except
           when the reason is one of the words of the held tasks (a slot, the project's limit, an artifact in use), which
           exits 0 and prints it. A person uses run-next.
+run-step  runs one named step task in this process (--task <id>), as run-task runs a task: what the dispatcher starts for every step
+          task. A step task runs no skill and calls no model: code runs its steps (runtime/steps.py), the kind of the task names
+          them (today `ingest`, which brings a version of a source into the project), and the task is `done`, `failed` (resumable at
+          its step) or `waiting` at a stop for you. It takes the task's lock, so a killed process is detected by it and the task ends
+          `failed`; stop-runs ends it. Same refusals and exit codes as run-task. The dispatcher starts only a kind that says it may run
+          unattended (`ingest` does) and only while the runtime is not stopped; your own start with run-step or run-next needs neither.
+          Nothing but tests creates a step task today: the flow files learn `step` with P6. A stop of a step task asks for the verdict
+          `continue` or `stop` (any other answer asks again).
 pending   lists what waits for you; with --id, prints that pending decision whole: the reply, what came back,
           what was kept in the run folder.
 answer    answers a pending decision; the task becomes ready and its next run is given your answer. With
@@ -211,7 +220,9 @@ execute-under-policy  the one place an effect under a standing approval is execu
           handler wrote against the approval's bounds, holding the write lock, makes the provider's dry run and its
           confirmed call, and records the action. {"executed": false, "why"} when the approval does not cover it:
           nothing ran. A handler never confirms a provider verb itself.
-set-mode  sets one area agent's autonomy mode in docs/workbench/runtime.json (area_agents): stopped (it starts
+set-mode  for the agent `runtime`, the owner of step tasks: stopped or autonomous, the brake of step tasks (the dispatcher starts none
+          while it is stopped; run-next and run-step still run one), kept in the store, nothing to accept. For an area agent:
+          sets its autonomy mode in docs/workbench/runtime.json (area_agents): stopped (it starts
           nothing), supervised (every delivery waits for you), milestones (the default: a milestone waits, the rest is
           released by the mode), autonomous (only what must reach you waits), autonomous-with-policy (as autonomous,
           and an effect inside a policy you approved runs without asking). A question, an unclassified reply, a
@@ -279,7 +290,7 @@ accept-config  records the hash of docs/workbench/runtime.json you accept. Type 
 The project is configured in <project>/docs/workbench/runtime.json (runtime/project_config.py).
 Prints one JSON object on stdout; diagnostics on stderr.
 Exit codes: 0 ok, 1 the operation failed or was refused, 2 usage error, 3 the project is not configured, 4 refused and
-not run (run-task only).
+not run (run-task and run-step only).
 Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
@@ -420,7 +431,7 @@ def main(argv=None) -> int:
     print()
     if row["name"] in ("set-mode", "set-model") and isinstance(out, dict) and out.get("warning"):
         print(f"consent recorded for {out['agent']}: {out['warning']}", file=sys.stderr)  # the warning the consent answered, once more
-    if row["name"] == "run-task" and out.get("ran") is None and not out.get("held"):
+    if row["name"] in ("run-task", "run-step") and out.get("ran") is None and not out.get("held"):
         return 4  # refused, not run: the dispatcher that started this process records it (ops_runs.reap)
     unless = row.get("exit_unless")  # the row says which result is not a success; the result is printed either way
     return 1 if unless and out.get(unless[0]) != unless[1] else 0

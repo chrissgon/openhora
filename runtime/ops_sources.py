@@ -7,7 +7,7 @@
 set a description; and the three small pieces the rest of the operations layer asks of them: the catalog block the planner
 reads, the sources a request's @mentions force, and the copies a task receives when it starts.
 
-An ingest is not a task: there is no task row before the step engine exists (P5). Each operation here is synchronous, takes the
+Each operation here is synchronous (an ingest as a task is the step kind `ingest` of runtime/step_ingest.py, which calls source_import and source_refresh), takes the
 project first like every other, and returns a JSON object. The work is runtime/sources.py's (the registry, the versions, the
 catalog, the guardrails of the folder); the converter is the provider of the class converter:document, called through
 providers/resolve.py; a Notion page is read through the documents provider with its separate read-only secret. This file
@@ -235,7 +235,7 @@ def _drive_one(ctx, pick: dict, evidence, source_id=None, description=None, conv
             done = sources.drive_import(ctx, row, convert=convert or _convert(ctx), label="import", call=call, evidence_base=evidence)
         else:   # a file picked again is a refresh: Drive's version is asked first, and nothing is read when it has not moved
             done = sources.drive_refresh(ctx, row, convert=convert or _convert(ctx), call=call, evidence_base=evidence)
-        out.update({k: done[k] for k in ("imported", "version", "kind", "warnings") if k in done})
+        out.update({k: done[k] for k in ("imported", "version", "kind", "warnings", "images_removed") if k in done})
         if done.get("unchanged"):
             out["unchanged"] = True
     except sources.SourcesError as e:

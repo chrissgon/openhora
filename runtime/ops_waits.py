@@ -128,7 +128,7 @@ def for_plan(ctx: dict, tasks: list, after, go_ahead=(), request=None) -> dict:
         fixed.setdefault(w["task_id"], set()).update(theirs)
     ref = lambda key: (NEW, key)
     joins = NEW if request is None else request  # a new request, or the one whose tasks these join
-    nodes += [{"ref": ref(t["key"]), "request": joins, "skill": t["skill"], "candidate": True,
+    nodes += [{"ref": ref(t["key"]), "request": joins, "skill": t.get("skill"), "candidate": True,
                "depends_on": [ref(d) for d in t.get("depends_on") or []]} for t in tasks]
     if after and request is None:
         after_of[NEW] = after
@@ -216,7 +216,7 @@ def _keys(go_ahead, known: list) -> list:
 def _record_go_ahead(ctx: dict, created: list, keys: list, shown: list, tasks: list) -> dict:
     """The decision of a plan's go-ahead: one line for each task the person went ahead on, with what it did not wait for."""
     ids = {t["key"]: t["id"] for t in created}
-    skills = {t["key"]: t["skill"] for t in tasks}
+    skills = {t["key"]: t.get("skill") or "step-" + t["step"] for t in tasks}
     return _record_decision(ctx, [(skills[k], ids[k], [w["reason"] for w in shown if w["task_key"] == k]) for k in keys])
 
 
@@ -256,7 +256,7 @@ def go_ahead(ctx: dict, task_id: int, drop_after: bool = False) -> dict:
     task = core._stored(ctx, store.task_get, task_id)
     return {"task_id": task_id, "state": done["state"], "dropped": done["reasons"],
             "waiting_for": waiting_for(ctx).get(task_id, []),
-            "decision": _record_decision(ctx, [(task["skill"], task_id, done["reasons"])])}
+            "decision": _record_decision(ctx, [(task["skill"] or "step-" + task["step_kind"], task_id, done["reasons"])])}
 
 
 def task_row(ctx: dict, row: dict) -> dict:

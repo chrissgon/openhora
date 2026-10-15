@@ -81,7 +81,7 @@ Beside them:
 
 ## Known limits and improvements
 
-- There is no screen for the sources yet; the page's routes exist and the plan card shows each task's sources (and highlights a web task that receives them). An ingest is not a task before the step engine (P5).
+- There is no screen for the sources yet; the page's routes exist and the plan card shows each task's sources (and highlights a web task that receives them). An ingest is a task since P5: the step kind `ingest` (`runtime/step_ingest.py`) wraps the same operations on the step engine, with the arguments a plan shows and its hash covers; the terminal's `source-import` stays the synchronous way.
 - A Drive folder as a source is not built (`drive.file` does not reach a picked folder's files; it would need `drive.readonly`, a wider scope, and the maintainer's decision). Drive write-back is P8; the hidden-text flag of a converted HTML or PDF is P8 (`hidden_text` is null today).
 - A Drive source is stored as a `file` row with a `drive:` origin until a migration lets the registry's type column say `drive`. The Markdown export of a Google Doc, Google's 10 MB export limit and the Picker's behaviour with the page's headers are not verified against the live service (`providers/documents/README.md`, "Google Drive").
 - A PDF of scanned pages has no text layer; no OCR is made, and the manifest notes it.
@@ -94,3 +94,4 @@ Beside them:
 
 - 2026-10-15: Google Drive files as sources (P7): `providers/documents/gdrive.py`, its authorization and the one-shot Picker page, `source-drive`, the refresh by version, `public_row`; files only, one scope.
 - 2026-10-15: first version, with package P4 (the sources folder and limits L21 to L27, the registry and versions of migration 11, the catalog, `converter:document`, Notion pages by address, the planner's choice in `core-orchestrator` 3.0.0, the plan card, the copies a task receives).
+- 2026-10-15: the step kind `ingest` (P5): an import or a refresh as a step task of a plan, run by `run-step`; its failures are closed codes, and it writes nothing in the project or in the sources folder but the version.

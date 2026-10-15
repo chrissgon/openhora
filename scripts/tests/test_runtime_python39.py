@@ -57,6 +57,8 @@ ON_SYSTEM_PYTHON = [
     # The sources of a project (P4): the registry, the versions, the catalog and the guardrails of the folder, and the ingest operations.
     # The document converter's provider runs a container; the host side is plain Python and runs on the scheduler's interpreter too.
     "runtime/sources.py", "runtime/ops_sources.py", "providers/converter/container.py",
+    # The step engine (P5): the engine, the run of a step task (a process the dispatcher starts), and the kind `ingest`.
+    "runtime/steps.py", "runtime/ops_steps.py", "runtime/step_ingest.py",
     # The rules of tasks that run at once (PAR-2): pure functions the dispatcher's caller passes in.
     "runtime/parallel.py",
     # How the credential of a run is billed, read from the adapters' manifests (ADJ-R3): the operations layer imports it.

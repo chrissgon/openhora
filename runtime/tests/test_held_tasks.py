@@ -25,7 +25,8 @@ operations = st.load("operations")
 
 WORDS = ("stopped", "cap: runs per day", "cap: usd per day", "credential", "secret store", "image", "dispatch off",
          "no enabled agent owns the task", "waiting", "other", "project at max_running",
-         "agent at max_parallel", "a code task of the request runs", "artifact in use", "could not start, tried again shortly")
+         "agent at max_parallel", "a code task of the request runs", "artifact in use", "could not start, tried again shortly",
+         "start it by hand")
 
 
 @pytest.fixture(autouse=True)

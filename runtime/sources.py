@@ -984,7 +984,8 @@ def _refuse_intake(e: "intake.IntakeError") -> "SourcesError":
 
 
 def import_version(ctx, source: dict, data, *, convert, label: str = "import", by: str = "runtime", kind=None,
-                   origin_version=None, clock=None, evidence_base=None, free_margin=intake.FREE_MARGIN_BYTES, name=None) -> dict:
+                   origin_version=None, clock=None, evidence_base=None, free_margin=intake.FREE_MARGIN_BYTES, name=None,
+                   manifest_extra=None) -> dict:
     """Import one version of a source. `source` is the registry row; `data` is a path, bytes, or (file, length);
     `convert(input_path, subtype, out_dir) -> info` is the converter (the provider of converter:document in production: a
     function that writes its outputs to `out_dir`, a folder of the staging area, and returns {"converter", "tool_versions",
@@ -1009,7 +1010,8 @@ def import_version(ctx, source: dict, data, *, convert, label: str = "import", b
             _sweep_staging(os.path.join(cfg["data_dir"], STAGING), keep=token)
             try:
                 return _import_in(ctx, folder, source, stream, length, stage_path, token, convert=convert, label=label, by=by,
-                                  kind=kind, origin_version=origin_version, clock=clock, free_margin=free_margin, name=name)
+                                  kind=kind, origin_version=origin_version, clock=clock, free_margin=free_margin, name=name,
+                                  manifest_extra=manifest_extra)
             finally:
                 shutil.rmtree(stage_path, ignore_errors=True)
     finally:
@@ -1085,7 +1087,7 @@ READY_TEXT = ("notion", "markdown")   # kinds that arrive as Markdown text alrea
 
 
 def _import_in(ctx, folder, source, stream, length, stage_path, token, *, convert, label, by, kind, origin_version, clock,
-               free_margin, name=None) -> dict:
+               free_margin, name=None, manifest_extra=None) -> dict:
     cfg = ctx["cfg"]
     in_dir, out_dir = os.path.join(stage_path, "in"), os.path.join(stage_path, "out")
     notion = kind in READY_TEXT
@@ -1168,6 +1170,8 @@ def _import_in(ctx, folder, source, stream, length, stage_path, token, *, conver
                     "hidden_text": None, "origin_version": origin_version, "warnings": warnings}
         if name:
             manifest["name"] = _clean(name, 200)
+        if manifest_extra:
+            manifest.update(manifest_extra)
         manifest_bytes = (json.dumps(manifest, indent=1, sort_keys=True) + "\n").encode("utf-8")
         _place(folder, token, source["id"], version, input_path, original_name, converted_name, converted, manifest_bytes, original_sha)
         try:
@@ -1567,28 +1571,59 @@ def drive_stat(cfg: dict, file_id: str, *, call=None) -> dict:
     return out
 
 
-EMBEDDED_INLINE = re.compile(r"!\[([^\]\n]*)\]\(\s*<?data:[^)\n]*\)")          # ![alt](data:image/png;base64,....)
-EMBEDDED_DEFINITION = re.compile(r"^(\[[^\]\n]+\]:)[ \t]*<?data:\S*>?[ \t]*$", re.M)   # [image1]: <data:image/png;base64,....>
+EMBEDDED_DEFINITION = re.compile(r"^(\[[^\]\n]{1,200}\]:)[ \t]*<?data:\S*>?[ \t]*$", re.M)   # [image1]: <data:image/png;base64,....>
+EMBEDDED_ALT_MAX = 200                     # the longest alt text of an inline picture that is recognised
+EMBEDDED_LOOK_BACK = 8                     # the spaces and the `<` that may sit between `(` and `data:`
 
 
 def strip_embedded_images(markdown: str) -> tuple:
-    """(text, count): Google's Markdown export carries a pasted picture as a base64 `data:` URI, inline or as a reference definition at the
-    end of the text, which can make an ordinary Doc with a few screenshots larger than the converted cap and is no text to a model. Each is
-    replaced by a short placeholder that keeps the picture's name; nothing else is changed."""
-    count = 0
-
-    def inline(found):
-        nonlocal count
-        count += 1
-        return f"[embedded image removed: {found.group(1).strip() or 'no name'}]"
-
-    def definition(found):
-        nonlocal count
-        count += 1
-        return f"{found.group(1)} (embedded image removed)"
-
-    text = EMBEDDED_INLINE.sub(inline, markdown)
-    return EMBEDDED_DEFINITION.sub(definition, text), count
+    """(text, count): Google's Markdown export carries a pasted picture as a base64 `data:` URI, inline (`![alt](data:...)`) or as a
+    reference definition at the end of the text (`[image1]: <data:...>`), which can make an ordinary Doc with a few screenshots larger
+    than the converted cap and is no text to a model. Each is replaced by a short placeholder that keeps the picture's name; nothing else
+    is changed, and a picture written inside a fenced block is replaced too. The text is the person's and may be hostile or huge, so the
+    scan is linear: it walks the occurrences of `data:` with `find`, looks back a bounded number of characters from each, and looks for
+    the closing parenthesis on its own line once (a line that has none is not searched again). An alt text over EMBEDDED_ALT_MAX
+    characters is not recognised."""
+    if "data:" not in markdown:
+        return markdown, 0
+    pieces, last, count, i, dead, eol, n = [], 0, 0, 0, -1, -1, len(markdown)
+    while True:
+        p = markdown.find("data:", i)
+        if p < 0:
+            break
+        i = p + 5
+        if p < dead:
+            continue
+        q, steps = p, 0
+        if q > 0 and markdown[q - 1] == "<":
+            q -= 1
+        while q > 0 and markdown[q - 1] in " \t" and steps < EMBEDDED_LOOK_BACK:
+            q, steps = q - 1, steps + 1
+        if q < 2 or markdown[q - 1] != "(" or markdown[q - 2] != "]":
+            continue
+        bracket = q - 2
+        opened = markdown.rfind("![", max(bracket - EMBEDDED_ALT_MAX - 2, last), bracket)
+        if opened < 0:
+            continue
+        alt = markdown[opened + 2:bracket]
+        if "]" in alt or "\n" in alt:
+            continue
+        if p > eol:   # the end of this line, found once for all the pictures on it
+            eol = markdown.find("\n", p)
+            eol = n if eol < 0 else eol
+        close = markdown.find(")", p, eol)
+        if close < 0:
+            dead = eol
+            continue
+        pieces.append(markdown[last:opened])
+        pieces.append(f"[embedded image removed: {' '.join(alt.split()) or 'no name'}]")
+        last, i, count = close + 1, close + 1, count + 1
+    pieces.append(markdown[last:])
+    text = "".join(pieces)
+    if "data:" in text:
+        text, defined = EMBEDDED_DEFINITION.subn(lambda found: f"{found.group(1)} (embedded image removed)", text)
+        count += defined
+    return text, count
 
 
 def drive_import(ctx, source: dict, *, convert, label: str, call=None, clock=None, evidence_base=None) -> dict:
@@ -1620,7 +1655,8 @@ def drive_import(ctx, source: dict, *, convert, label: str, call=None, clock=Non
             except UnicodeDecodeError:
                 raise SourcesError("the exported document is not UTF-8 text", "convert") from None
             done = import_version(ctx, source, text.encode("utf-8"), convert=None, kind="markdown", label=label,
-                                  origin_version=info["version"], clock=clock, evidence_base=evidence_base, name=name)
+                                  origin_version=info["version"], clock=clock, evidence_base=evidence_base, name=name,
+                                  manifest_extra={"images_removed": removed} if removed else None)
             if removed and done.get("imported"):
                 done["images_removed"] = removed
             return done

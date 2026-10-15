@@ -206,6 +206,8 @@ def test_pasted_pictures_in_a_docs_markdown_are_replaced_by_placeholders_before_
     assert "data:" not in text and "base64" not in text and "The waiting room [embedded image removed: waiting room] was full." in text
     assert "[image1]: (embedded image removed)" in text and "![][image1]" in text and "# Field visit" in text
     assert len(text) < 1000
+    assert (drive.folder / "visit" / "1" / "original.md").read_text() == text, "the original of an exported Doc is the stripped text"
+    assert json.loads((drive.folder / "visit" / "1" / "manifest.json").read_text())["images_removed"] == 3 and done["images_removed"] == 3
 
 
 def test_the_stripper_leaves_everything_that_is_not_an_embedded_picture_alone():
@@ -213,6 +215,37 @@ def test_the_stripper_leaves_everything_that_is_not_an_embedded_picture_alone():
     assert sources.strip_embedded_images(keep) == (keep, 0)
     out, count = sources.strip_embedded_images("![](data:image/gif;base64,AAAA)\n[image9]: data:image/gif;base64,AAAA\n")
     assert count == 2 and out == "[embedded image removed: no name]\n[image9]: (embedded image removed)\n"
+
+
+@pytest.mark.parametrize("text", [
+    "![" * 200000,
+    "![x](data:" * 150000,
+    "](data:" * 300000 + "no closing parenthesis here",
+    "![a](data:image/png;base64," + "A" * 3000000,                                  # a picture that never closes
+    ("![" + "a" * 150 + "](data:" + "x" * 50 + "\n") * 40000,
+    "[" * 3000000 + "]: data:" + "z" * 100,
+    "data:" * 2000000,
+    "( data:" * 1000000,
+    "![x]( <" * 400000 + "data:",
+    "![a](data:b)" * 100000,
+], ids=lambda text: f"{len(text)}-characters")
+def test_the_stripper_is_linear_on_hostile_text(text):
+    import time
+    started = time.monotonic()
+    out, count = sources.strip_embedded_images(text)
+    assert time.monotonic() - started < 3, "a Doc another person owns cannot make a refresh spin"
+    assert isinstance(out, str) and count >= 0
+
+
+def test_the_stripper_finds_the_pictures_it_describes_wherever_they_sit():
+    out, count = sources.strip_embedded_images("a ![one](data:image/png;base64,AAA) b ![](<data:image/gif;base64,BB>) c ![ two ]( data:x,y)\n"
+                                               "```\n![in code](data:image/png;base64,CC)\n```\n![not](https://x.example/a.png) data: plain\n")
+    assert count == 4
+    assert out.startswith("a [embedded image removed: one] b [embedded image removed: no name] c [embedded image removed: two]\n")
+    assert "[embedded image removed: in code]" in out and "![not](https://x.example/a.png) data: plain" in out
+    assert sources.strip_embedded_images("![a](data:image/png;base64,AAA") == ("![a](data:image/png;base64,AAA", 0), "an unclosed one is left"
+    long_alt = "![" + "w" * 300 + "](data:image/png;base64,AAA)"
+    assert sources.strip_embedded_images(long_alt) == (long_alt, 0), "an alt text over the bound is not recognised"
 
 
 def test_a_doc_whose_markdown_export_is_not_offered_is_read_as_word_and_converted(drive):
