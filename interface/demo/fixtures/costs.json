@@ -11,6 +11,7 @@
       "recorded_usd": 0.55,
       "recomputed_usd": null,
       "unknown_runs": 4,
+      "lower_bound_runs": 0,
       "price": {
         "source": "https://prices.example/models",
         "date": "2026-10-01"
@@ -26,6 +27,7 @@
       "recorded_usd": null,
       "recomputed_usd": null,
       "unknown_runs": 1,
+      "lower_bound_runs": 0,
       "price": {
         "source": "https://prices.example/models",
         "date": "2026-10-01"
@@ -41,6 +43,7 @@
       "recorded_usd": null,
       "recomputed_usd": null,
       "unknown_runs": 2,
+      "lower_bound_runs": 0,
       "price": {
         "source": "https://prices.example/models",
         "date": "2026-10-01"
@@ -56,6 +59,7 @@
       "recorded_usd": null,
       "recomputed_usd": null,
       "unknown_runs": 3,
+      "lower_bound_runs": 0,
       "price": {
         "source": "https://prices.example/models",
         "date": "2026-10-01"

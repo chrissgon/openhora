@@ -33,6 +33,9 @@ finally:
 
 KEY = "fake-floor-key-held-by-the-proxy-0001"
 FROM_THE_RUN = "fake-value-a-run-sends-0002"
+ROUTE = str(FOLDER / "route-openrouter.json")
+MODEL = "vendor/model"  # the one model the proxies below serve
+BODY = json.dumps({"model": MODEL}).encode()  # the smallest body a model endpoint accepts
 
 
 @pytest.fixture(scope="module")
@@ -106,11 +109,12 @@ def provider(tls):
     server.server_close()
 
 
-def start(provider_port, cafile, egress=None, upstream=None):
+def start(provider_port, cafile, egress=None, upstream=None, route_file=ROUTE, models=(MODEL,), pin="deepinfra", meter=None):
     """A key proxy on 127.0.0.1 in front of the stand-in, with its log kept: (server, log)."""
-    route = kp.load_route(kp.ROUTE, upstream or f"https://127.0.0.1:{provider_port}")
+    route = kp.load_route(route_file, upstream or f"https://127.0.0.1:{provider_port}")
     log = io.StringIO()
-    server = serve(kp.KeyProxy(("127.0.0.1", 0), route, KEY, str(cafile) if cafile else None, egress, log))
+    server = serve(kp.KeyProxy(("127.0.0.1", 0), route, KEY, str(cafile) if cafile else None, egress, log,
+                               upstream_models=models, pin=pin, meter=meter))
     return server, log
 
 
@@ -175,18 +179,18 @@ def test_another_path_another_host_and_a_tunnel_are_refused_and_nothing_is_forwa
 
 def test_the_host_a_run_names_never_moves_the_call(provider, proxied):
     server, _ = proxied
-    line = raw(server, "POST /api/v1/chat/completions HTTP/1.1\r\nHost: elsewhere.example\r\nContent-Length: 2\r\n\r\n{}")
+    line = raw(server, f"POST /api/v1/chat/completions HTTP/1.1\r\nHost: elsewhere.example\r\nContent-Length: {len(BODY)}\r\n\r\n{BODY.decode()}")
     assert line.split()[1] == "200" and len(provider.seen) == 1
     assert provider.seen[0]["headers"]["Host"] == f"127.0.0.1:{provider.server_address[1]}"
 
 
 def test_the_log_holds_no_header_and_no_key(provider, proxied, tls):
     server, log = proxied
-    call(server, "POST", "/api/v1/chat/completions", b"{}", {"Authorization": f"Bearer {FROM_THE_RUN}"})
+    call(server, "POST", "/api/v1/chat/completions", BODY, {"Authorization": f"Bearer {FROM_THE_RUN}"})
     call(server, "GET", "/api/v2/other", headers={"Authorization": f"Bearer {FROM_THE_RUN}"})
     down, down_log = start(1, tls[0])  # nothing listens on port 1: the provider cannot be reached
     try:
-        resp, data = call(down, "POST", "/api/v1/chat/completions", b"{}", {"Authorization": f"Bearer {FROM_THE_RUN}"})
+        resp, data = call(down, "POST", "/api/v1/chat/completions", BODY, {"Authorization": f"Bearer {FROM_THE_RUN}"})
     finally:
         down.shutdown()
         down.server_close()
@@ -201,7 +205,7 @@ def test_the_log_holds_no_header_and_no_key(provider, proxied, tls):
 def test_a_streamed_answer_passes_through_as_it_arrives(provider, proxied):
     server, _ = proxied
     conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=20)
-    conn.request("POST", "/api/v1/chat/completions", body=b'{"stream": true}', headers={"Content-Type": "application/json"})
+    conn.request("POST", "/api/v1/chat/completions", body=json.dumps({"model": MODEL, "stream": True}).encode(), headers={"Content-Type": "application/json"})
     resp = conn.getresponse()
     assert resp.status == 200 and resp.getheader("Content-Type") == "text/event-stream"
     got = b""
@@ -259,7 +263,7 @@ def test_through_the_egress_proxy_the_call_is_a_tunnel_to_the_one_provider(provi
     tunnel = serve(Tunnel())
     server, _ = start(provider.server_address[1], tls[0], egress=("127.0.0.1", tunnel.server_address[1]))
     try:
-        resp, data = call(server, "POST", "/api/v1/chat/completions", b"{}", {"Host": "elsewhere.example"})
+        resp, data = call(server, "POST", "/api/v1/chat/completions", BODY, {"Host": "elsewhere.example"})
     finally:
         server.shutdown()
         server.server_close()
@@ -272,7 +276,7 @@ def test_through_the_egress_proxy_the_call_is_a_tunnel_to_the_one_provider(provi
 def test_the_providers_certificate_is_verified(provider, tls):
     server, _ = start(provider.server_address[1], None)  # the system's certificates do not know the stand-in
     try:
-        resp, _ = call(server, "POST", "/api/v1/chat/completions", b"{}")
+        resp, _ = call(server, "POST", "/api/v1/chat/completions", BODY)
     finally:
         server.shutdown()
         server.server_close()
@@ -280,7 +284,7 @@ def test_the_providers_certificate_is_verified(provider, tls):
 
 
 def test_the_route_is_the_floor_providers_api_over_https_with_the_egress_proxys_timeout():
-    route = kp.load_route()
+    route = kp.load_route(ROUTE)
     assert route["secret"] == "OPENROUTER_API_KEY" and route["upstream"] == "https://openrouter.ai"
     assert route["prefix"] == "/api/v1/" and route["base_url_env"] == "OPENROUTER_BASE_URL"
     conf = (FOLDER.parent / "proxy" / "tinyproxy.conf").read_text()
@@ -290,26 +294,26 @@ def test_the_route_is_the_floor_providers_api_over_https_with_the_egress_proxys_
     assert "^openrouter\\.ai$" in allow  # the egress proxy lets the key proxy's one host through
     for upstream in ("http://openrouter.ai", "https://openrouter.ai/other", "https://user@openrouter.ai", "ftp://x"):
         with pytest.raises(kp.RouteError):
-            kp.load_route(kp.ROUTE, upstream)
+            kp.load_route(ROUTE, upstream)
 
 
 def test_without_its_key_the_proxy_does_not_start(monkeypatch, capsys):
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("HTTPS_PROXY", raising=False)
     monkeypatch.delenv("https_proxy", raising=False)
-    assert kp.main(["--port", "1"]) == 2
+    assert kp.main(["--route", ROUTE, "--upstream-model", MODEL, "--port", "1"]) == 2
     assert "OPENROUTER_API_KEY is not set" in capsys.readouterr().err
     monkeypatch.setenv("OPENROUTER_API_KEY", "two\nlines")
-    assert kp.main(["--listen", "127.0.0.1", "--port", "0"]) == 2
+    assert kp.main(["--route", ROUTE, "--upstream-model", MODEL, "--listen", "127.0.0.1", "--port", "0"]) == 2
     err = capsys.readouterr().err
     assert "cannot start" in err and "two" not in err
     monkeypatch.setenv("OPENROUTER_API_KEY", KEY)
-    assert kp.main(["--upstream", "http://insecure.example"]) == 2  # the provider is reached over HTTPS only
+    assert kp.main(["--route", ROUTE, "--upstream-model", MODEL, "--upstream", "http://insecure.example"]) == 2  # the provider is reached over HTTPS only
 
 
 # --- package SEC: credential headers and the endpoint list -----------------------------------------------
 
-STRONG_ROUTE = FOLDER / "keyproxy-strong.json"
+STRONG_ROUTE = FOLDER / "route-anthropic.json"
 SENT = (  # every header a run sends in the test below: (name, value, forwarded)
     ("Content-Type", "application/json", True),
     ("Accept", "application/json", True),
@@ -339,7 +343,7 @@ SENT = (  # every header a run sends in the test below: (name, value, forwarded)
 )
 
 
-def send(server, path, headers, body=b"{}", method="POST"):
+def send(server, path, headers, body=BODY, method="POST"):
     """A request written exactly as given, one header per line (a name may repeat): the status and the body."""
     head = f"{method} {path} HTTP/1.1\r\nHost: elsewhere.example\r\nContent-Length: {len(body)}\r\n"
     head += "".join(f"{k}: {v}\r\n" for k, v in headers)
@@ -394,7 +398,7 @@ def test_a_name_that_carries_none_is_not(name):
 
 def test_the_floor_route_forwards_the_chat_completions_path_and_its_query_and_nothing_else(provider, proxied):
     server, _ = proxied
-    assert kp.load_route()["paths"] == ["/api/v1/chat/completions"]
+    assert kp.load_route(ROUTE)["paths"] == ["/api/v1/chat/completions"]
     status, _ = send(server, "/api/v1/chat/completions?x=1", [])
     assert status == 200 and provider.seen[-1]["path"] == "/api/v1/chat/completions?x=1"
     for path in ("/api/v1/models", "/api/v1/chat/completions/", "/api/v1/chat/completions;x", "/api/v1/chat/completion",
@@ -408,7 +412,7 @@ def test_the_floor_route_forwards_the_chat_completions_path_and_its_query_and_no
 def test_the_strong_route_forwards_the_two_model_endpoints_and_the_query_the_runner_sends(provider, tls):
     route = kp.load_route(str(STRONG_ROUTE), f"https://127.0.0.1:{provider.server_address[1]}")
     assert route["paths"] == ["/v1/messages", "/v1/messages/count_tokens"]
-    server = serve(kp.KeyProxy(("127.0.0.1", 0), route, KEY, str(tls[0]), None, io.StringIO()))
+    server = serve(kp.KeyProxy(("127.0.0.1", 0), route, KEY, str(tls[0]), None, io.StringIO(), upstream_models=[MODEL]))
     try:
         for path in ("/v1/messages?beta=true", "/v1/messages", "/v1/messages/count_tokens?beta=true"):
             status, _ = send(server, path, [("X-Api-Key", FROM_THE_RUN), ("Anthropic-Version", "2023-06-01")])
@@ -430,7 +434,7 @@ def test_the_strong_route_forwards_the_two_model_endpoints_and_the_query_the_run
 @pytest.mark.parametrize("paths", [None, [], "/api/v1/chat/completions", [5], ["/api/v2/chat"], ["/api/v1/"], ["/api/v1/x?y=1"],
                                    ["/api/v1/x/"], ["/api/v1/../x"], ["api/v1/x"], ["/api/v1/x y"]])
 def test_a_route_without_a_valid_list_of_paths_is_refused(tmp_path, paths):
-    route = json.loads(Path(kp.ROUTE).read_text())
+    route = json.loads(Path(ROUTE).read_text())
     if paths is None:
         del route["paths"]
     else:

@@ -310,6 +310,16 @@ def test_the_image_is_only_inspected_and_never_built(monkeypatch):
     assert lab.image() == {"name": "wb-eval:demo", "digest": "sha256:" + "c" * 64, "platform": "linux/arm64",
                            "evidence_platform": "linux/amd64", "source": "local", "setup": None, "problem": None}
     assert seen and all(a[:2] == ("image", "inspect") for a in seen)
+    # Evidence is made on either accepted platform: an image that runs as one of them is not a mismatch with the other.
+    both = type("Executor", (), {**{k: v for k, v in vars(fake).items() if not k.startswith("__")},
+                                 "IMAGE_PLATFORMS": ("linux/arm64", "linux/amd64"), "IMAGE_PLATFORM": "linux/arm64"})
+    monkeypatch.setattr(er, "load_executor", lambda: both)
+    for runs_as in ("linux/amd64", "linux/arm64"):
+        monkeypatch.setattr(both, "image_platform", staticmethod(lambda runs_as=runs_as: runs_as))
+        assert lab.image()["platform"] == runs_as and lab.image()["evidence_platform"] == runs_as
+    monkeypatch.setattr(both, "image_platform", staticmethod(lambda: "linux/riscv64"))  # not accepted: the default one, a mismatch
+    assert lab.image()["evidence_platform"] == "linux/arm64"
+    monkeypatch.setattr(er, "load_executor", lambda: fake)
     monkeypatch.setattr(fake, "docker", staticmethod(lambda *a, **k: _Done(1)))
     assert lab.image()["digest"] is None
     monkeypatch.setattr(er, "EXECUTOR", "host")

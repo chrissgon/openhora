@@ -70,7 +70,11 @@ def code(url):
 
 def test_the_environment_names_the_definition_the_image_its_digest_and_its_platform(environment, root):
     assert environment["kind"] == "container" and environment["definition_sha256"] == ex.definition_hash()
-    assert environment["image_id"].startswith("sha256:") and environment["image_digest"] == environment["image_id"]
+    assert environment["image_source"] in ("local", "published")
+    if environment["image_source"] == "local":  # a local build is identified by its id; a published image by its repo digest
+        assert environment["image_id"].startswith("sha256:") and environment["image_digest"] == environment["image_id"]
+    else:
+        assert environment["image_id"] is None and environment["image_digest"].startswith("sha256:")
     assert environment["image_platform"] == ex.image_platform()
     machine = {"linux/arm64": "aarch64", "linux/amd64": "x86_64"}[ex.image_platform()]
     assert inside(root, "uname -m").stdout.strip() == machine
@@ -201,6 +205,30 @@ def test_removing_a_container_by_name_ends_it(environment, root):
         assert not ex.docker("ps", "-aq", "--filter", f"name={name}").stdout.strip()
     finally:
         proc.kill()
+
+
+def test_the_containers_the_harness_starts_carry_its_labels_and_the_long_lived_ones_a_log_limit(environment, root):
+    """So that an orphan left by a crash is found by label (package P-OPS), and a log never fills the disk."""
+    argv, name = ex.command(["sleep", "300"], str(root))
+    proc = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        import time
+        for _ in range(100):
+            if ex.docker("ps", "-q", "--filter", f"name={name}").stdout.strip():
+                break
+            time.sleep(0.1)
+        found = ex.docker("inspect", "--format", '{{index .Config.Labels "wb.eval"}} {{index .Config.Labels "wb.eval.run"}}', name).stdout.split()
+        assert found == ["1", ex.run_id_of(name)]
+        assert ex.docker("ps", "-q", "--filter", "label=wb.eval=1", "--filter", f"name={name}").stdout.strip()
+    finally:
+        ex.remove(name)
+        proc.kill()
+    n = ex.names()
+    log = ex.docker("inspect", "--format", "{{json .HostConfig.LogConfig.Config}}", n["proxy"]).stdout.strip()
+    assert json.loads(log) == {"max-file": "3", "max-size": "10m"}  # the egress proxy
+    assert ex.docker("inspect", "--format", '{{index .Config.Labels "wb.eval"}}', n["proxy"]).stdout.strip() == "1"
+    networks = ex.docker("network", "ls", "--filter", "label=wb.eval=1", "--format", "{{.Name}}").stdout.split()
+    assert {n["network"], ex.route_network("anthropic", n), ex.route_network("openrouter", n)} <= set(networks)
 
 
 def test_the_version_control_facts_are_read_in_a_container_with_no_network(environment, root):

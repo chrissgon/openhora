@@ -448,6 +448,7 @@ import tempfile
 import threading
 import time
 import types
+import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -1833,6 +1834,47 @@ def find_event(value, flag="--resume"):
     return folder
 
 
+def meter_of(out_dir):
+    """What the run's key proxy counted, from <out>/meter.json (execution.write_meter() left it there after the run):
+    {"input", "output", "cache_read", "cache_write", "total", "responses", "unknown_responses", "budget_reached",
+    "in_flight"}, with "unknown_responses" raised by one when the file is unfinished (meter_unfinished), or
+    None when the run had no key proxy or it left no count. The report carries it beside the adapter's own tokens;
+    a run cannot change it, because the folder the key proxy writes it in is never mounted into the run."""
+    meter = load_executor().read_meter(os.path.join(out_dir, "meter.json"))
+    if not meter:
+        return None
+    found = {key: meter[key] for key in ("input", "output", "cache_read", "cache_write", "total", "responses",
+                                         "unknown_responses", "budget_reached", "in_flight") if key in meter}
+    if meter_unfinished(meter):  # the count is a lower bound: flagged exactly as an answer it could not read is
+        found["unknown_responses"] = found.get("unknown_responses", 0) + 1
+    return found
+
+
+def meter_unfinished(meter):
+    """True when a meter file is not the whole count: its final state still has a request under way (the run ended, and
+    the proxy was stopped, before that answer was counted or recorded), or the proxy says it could not write the file.
+    Such a count is a lower bound, whatever else it says."""
+    in_flight = meter.get("in_flight")
+    return (isinstance(in_flight, int) and not isinstance(in_flight, bool) and in_flight > 0) or meter.get("failed") is True
+
+
+def upstream_of(models, model_ids, passed):
+    """{model id: what served it} for each model of the event that ran through a key proxy: the provider its entry of
+    the gate file pins, or, with no pin, the upstream host of its route. models is [(tier, model)], model_ids the
+    ids the evidence names them by, passed {tier: the variables its runs are passed}. A model with no object entry or
+    no route, and one whose route key was not passed or not in the caller's environment (so that no key proxy was
+    started for it), is left out. None when no model ran through one."""
+    executor, out = load_executor(), {}
+    for tier, model in models:
+        entry = executor.model_entry(model)
+        if not entry or not entry.get("route"):
+            continue
+        r = executor.route(name=entry["route"])
+        if r["secret"] in passed.get(tier, ()) and os.environ.get(r["secret"]):
+            out[model_ids[tier]] = entry.get("provider_pin") or urllib.parse.urlsplit(r["upstream"]).hostname
+    return out or None
+
+
 def scratch_reason(o, gate, environment, version=None, fingerprint=None):
     """Why this event writes its files into the scratch tree of its run folder and never into the skill's
     folder, or None when it may write evidence. Evidence comes only from an event that used the configured
@@ -1844,9 +1886,13 @@ def scratch_reason(o, gate, environment, version=None, fingerprint=None):
         return "the runs did not execute in the eval container: a stand-in runner writes no evidence"
     if refusal:
         return refusal
-    if environment and environment.get("image_platform") != load_executor().IMAGE_PLATFORM:
+    if environment and environment.get("image_platform") not in load_executor().IMAGE_PLATFORMS:
         return (f"the image was built for {environment.get('image_platform')}, and evidence is made on "
-                f"{load_executor().IMAGE_PLATFORM} only")
+                f"{' or '.join(load_executor().IMAGE_PLATFORMS)} only")
+    host = (environment or {}).get("host_platform")
+    if host and host != environment.get("image_platform"):
+        return (f"the image is for {environment.get('image_platform')} and the docker host is {host}: the runs were emulated, "
+                "and a run on an emulated platform is not a run on the platform it says")
     if o["extra_pass_env"]:
         return (f"extra variables were passed into the runs ({', '.join(o['extra_pass_env'])}): they change what a "
                 "run is, so the event is a trial")
@@ -2324,6 +2370,7 @@ def run(argv):
                "tokens": timing.get("total_tokens"), "duration_ms": timing.get("duration_ms"),
                "cost_usd": timing.get("cost_usd"), "run_sha256": run_record_hash(run_dir),
                **{key: timing[key] for key in ("stop_reason", "num_turns", "invoked") if key in timing},
+               **({"meter": metered} if (metered := meter_of(out)) else {}),
                **({"redactions": count["redactions"]} if count["redactions"] else {})}
         if g:  # one 0 or 1 per assertion, in the case's order: what a per-assertion count is made from
             row["results"] = [1 if r["passed"] else 0 for r in g["assertion_results"]]
@@ -2481,6 +2528,7 @@ def run(argv):
                           "measurement_sha256": fingerprint, "case": job[0]["id"], "case_sha256": hashes[str(job[0]["id"])],
                           **({"context_sha256": context} if context else {}),
                           **({"platform": o["platform"]} if o.get("platform") else {}),
+                          **({"cpu_platform": environment["image_platform"]} if (environment or {}).get("image_platform") else {}),
                           **({"cost_usd": row["cost_usd"]} if isinstance(row.get("cost_usd"), (int, float))
                              and not isinstance(row.get("cost_usd"), bool) and row["cost_usd"] >= 0 else {}),
                           **({"run_sha256": row["run_sha256"]} if row.get("run_sha256") else {}),
@@ -2499,11 +2547,10 @@ def run(argv):
                     into["invoked"] = into.get("invoked", 0) + c["invoked"]
     ran_baseline = {str(job[0]["id"]) for job in jobs if job[1] == "without_skill" and job[2] == "strong"}
     reused = {cid for cid, n in in_force.items() if n >= baseline_count} if kind == "full" else set()  # a partial test uses none
-    # The provider the floor model's calls are pinned to (the key proxy's route), when the event ran that model
-    # through the key proxy: what the event line's "upstream" states.
-    pin = load_executor().route().get("provider_only") if EXECUTOR == "container" else None
-    floor_id = model_ids.get("floor")
-    upstream = {floor_id: pin} if pin and floor_id and str(dict(models).get("floor", "")).startswith("openrouter/") else None
+    # What each model that ran through a key proxy was served by: the provider its entry of the gate file pins, or,
+    # with no pin, the route's upstream host. What the event line's "upstream" states.
+    upstream = upstream_of(models, model_ids, {"strong": o["pass_env"] + o["strong_pass_env"],
+                                               "floor": o["pass_env"] + o["floor_pass_env"]}) if EXECUTOR == "container" else None
     event_line = {"record": "test", "skill": o["skill"], "test": test, "kind": kind, "version": version,
                   "content_sha256": start_hash, "date": event["started"][:10], "models": model_ids,
                   "adapters": {tier: harness_for[tier] for tier, _ in models},
@@ -2514,7 +2561,8 @@ def run(argv):
                   "grading_template_sha256": template_hash(), "tools": event.get("tools") or {}, "cases": hashes,
                   "baseline": {cid: ("run" if cid in ran_baseline else "reused" if cid in reused else "none") for cid in hashes},
                   "web_cases": bench["web_cases"], "counts": line_counts, "extra_pass_env": o["extra_pass_env"],
-                  "complete": bool(complete_ref), **({"upstream": upstream} if upstream else {})}
+                  "complete": bool(complete_ref), **({"upstream": upstream} if upstream else {}),
+                  **({"image_source": environment["image_source"]} if (environment or {}).get("image_source") else {})}
     gate_result = None
     if kind == "full" and complete_ref:
         # The gate, evaluated when a full test ends, by the rule of the model's section 2: this test's lines with

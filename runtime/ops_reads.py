@@ -330,13 +330,15 @@ def skills(project: str) -> dict:
 def costs(project: str, since: str | None = None) -> dict:
     """The runs of the project from the day `since` (YYYY-MM-DD; default the last COST_DAYS days) by day, agent, model
     and adapter: {"since", "rows": [{"day", "agent", "model", "adapter", "runs", "tokens", "recorded_usd",
-    "recomputed_usd", "unknown_runs", "price"}], "caps": [{"agent", "max_runs_per_day", "max_usd_per_day", "runs_today", "usd_today", "runs_without_cost", "usd_recorded",
+    "recomputed_usd", "unknown_runs", "lower_bound_runs", "price"}], "caps": [{"agent", "max_runs_per_day", "max_usd_per_day", "runs_today", "usd_today", "runs_without_cost", "usd_recorded",
     "usd_reserved", "runs_total_today"}]} (the caps carry the day's use in the words of `agents`). The runs
     are read task by task (the store's runs_since has no token count and no run folder) and the token counts of a
     run from its own folder (runtime/costs.py, usage_of): a folder outside <data_dir>/task-runs/ is not read, and the
     run is unknown. recomputed_usd is computed from the prices of the configuration's model_prices (price says their
     source and date) and is None, never a guess, for a model with no price or a group with a run of unknown usage
-    (unknown_runs counts them). A router run counts for the planning agent. The day is the local day."""
+    (unknown_runs counts them). A run whose key proxy could not count every answer is counted from what it did count, a
+    lower bound, and lower_bound_runs counts such runs; the run's own report is never read in place of the proxy's count
+    (runtime/costs.py, metered_usage). A router run counts for the planning agent. The day is the local day."""
     ctx = core.context(project)
     cfg, store = ctx["cfg"], ctx["store"]
     if since is None:

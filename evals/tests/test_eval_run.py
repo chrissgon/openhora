@@ -1871,15 +1871,66 @@ def test_a_fingerprint_that_differs_from_the_committed_one_writes_no_evidence(tm
         (tmp_path / "evals" / "eval-gate.json").read_text())["measurement_sha256"]
 
 
-def test_an_image_of_another_platform_writes_no_evidence(tmp_path, monkeypatch, capsys):
-    """The CI job builds the image for its own architecture to test the definition; evidence is made on one platform."""
+def test_an_image_of_a_platform_that_is_not_listed_writes_no_evidence(tmp_path, monkeypatch, capsys):
+    """The CI job builds the image for its own architecture to test the definition; evidence is made on the listed platforms."""
     skill = write_demo(tmp_path, monkeypatch, FAKE)
     executor = er.load_executor()
-    monkeypatch.setattr(executor, "ensure", lambda: {"kind": "container", "image_digest": "sha256:" + "2" * 64, "image_platform": "linux/amd64"})
+    monkeypatch.setattr(executor, "ensure", lambda: {"kind": "container", "image_digest": "sha256:" + "2" * 64, "image_platform": "linux/riscv64"})
     assert er.main(FULL) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["evidence"]["written"] is False and "built for linux/amd64" in out["evidence"]["reason"]
-    assert evidence_of(skill) == [] and event_file(tmp_path, out)[0]["image_platform"] == "linux/amd64"
+    assert out["evidence"]["written"] is False and "built for linux/riscv64" in out["evidence"]["reason"]
+    assert "linux/arm64 or linux/amd64 only" in out["evidence"]["reason"]
+    assert evidence_of(skill) == [] and event_file(tmp_path, out)[0]["image_platform"] == "linux/riscv64"
+
+
+def test_a_run_line_records_the_cpu_platform_it_ran_on_and_lines_of_both_platforms_count(tmp_path, monkeypatch, capsys):
+    """The same test run on arm64 and on amd64 writes lines with the platform, and the status counts both."""
+    skill = write_demo(tmp_path, monkeypatch, FAKE)
+    configure_gate(tmp_path, measurement_floor=2)
+    executor = er.load_executor()
+    made = {}
+    for platform, source in (("linux/arm64", "published"), ("linux/amd64", "local")):
+        monkeypatch.setattr(executor, "ensure", lambda platform=platform, source=source: {
+            "kind": "container", "image": "wb-eval:test", "image_digest": "sha256:" + "3" * 64, "image_platform": platform,
+            "image_source": source})
+        assert er.main(FULL) == 0
+        out = json.loads(capsys.readouterr().out)
+        assert out["evidence"]["written"] is True, out["evidence"]
+        made[platform] = source
+    files = evidence_of(skill)
+    assert [(e["image_platform"], e["image_source"]) for e, _ in files] == [(p, s) for p, s in made.items()]
+    for event, runs in files:
+        assert runs and {line["cpu_platform"] for line in runs} == {event["image_platform"]}
+    status = er.load_status()
+    assert status.evidence_problems(str(tmp_path))[0] == {}  # every line of both is valid
+    both = status.skill_band(str(tmp_path), str(skill), status.load_gate(str(tmp_path)))
+    one = sum(len([l for l in runs if l["variant"] == "with" and l["model"] == "m"]) for _, runs in files[:1])
+    assert one and both["current_runs"] == 2 * one  # the amd64 lines are in the same current set as the arm64 ones
+
+
+def test_the_event_line_names_the_upstream_of_every_model_that_ran_through_a_key_proxy(tmp_path, monkeypatch, capsys):
+    skill = write_demo(tmp_path, monkeypatch, FAKE)
+    entry = {"aliases": [], "price_source": "https://example.test/price", "run_token_budget": 1000, "upstream_models": ["x"]}
+    configure_gate(tmp_path, strong_pass_env=["CLAUDE_CODE_OAUTH_TOKEN"], floor_pass_env=["OPENROUTER_API_KEY"], models={
+        "m": {**entry, "adapter": "h", "pass_env": ["CLAUDE_CODE_OAUTH_TOKEN"], "route": "anthropic", "provider_pin": None},
+        "f": {**entry, "adapter": "h", "pass_env": ["OPENROUTER_API_KEY"], "route": "openrouter", "provider_pin": "deepinfra"}})
+    executor = er.load_executor()
+    monkeypatch.setattr(executor, "GATE_FILE", str(tmp_path / "evals" / "eval-gate.json"))
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "fake-token-for-the-upstream-test-0010")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "fake-key-for-the-upstream-test-0011")
+    assert er.main(FULL) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["evidence"]["written"] is True, out["evidence"]
+    event, _ = evidence_of(skill)[0]
+    assert event["upstream"] == {"m": "api.anthropic.com", "f": "deepinfra"}  # a pin when there is one, else the route's host
+    assert er.load_status().evidence_problems(str(tmp_path))[0] == {}
+    # a model whose key was not passed ran through no key proxy: it is not named
+    configure_gate(tmp_path, strong_pass_env=[], floor_pass_env=["OPENROUTER_API_KEY"], models=json.loads(
+        (tmp_path / "evals" / "eval-gate.json").read_text())["models"] | {"m": {**entry, "adapter": "h", "pass_env": [], "route": None,
+                                                                                  "provider_pin": None}})
+    assert er.main(FULL) == 0
+    event, _ = evidence_of(skill)[1]
+    assert event["upstream"] == {"f": "deepinfra"}
 
 
 @pytest.mark.parametrize("extra, why", [
@@ -3462,28 +3513,205 @@ def test_the_pack_is_resolved_by_the_repositorys_own_resolver():
     assert "ops-branch-sync" in names and len(names) >= 40
 
 
-def test_a_command_passed_the_held_key_starts_the_key_proxy_first_and_fails_as_infrastructure_without_it(tmp_path, monkeypatch):
+def held_gate(tmp_path, monkeypatch, **entry):
+    """A gate file whose model "m" is served by the OpenRouter route (the entry's other keys as given), read by the executor."""
     executor = er.load_executor()
-    secret, key = executor.route()["secret"], "fake-floor-key-for-the-runner-tests-0004"
-    started, ran = [], []
+    entry = {"aliases": [], "adapter": "h", "pass_env": ["OPENROUTER_API_KEY"], "route": "openrouter", "provider_pin": "deepinfra",
+             "upstream_models": ["vendor/m"], "price_source": "https://example.test/price", "run_token_budget": 1000, **entry}
+    (tmp_path / "gate.json").write_text(json.dumps({"models": {"m": entry}}))
+    monkeypatch.setattr(executor, "GATE_FILE", str(tmp_path / "gate.json"))
+    return executor
+
+
+def test_a_command_passed_the_held_key_gets_a_key_proxy_and_a_network_of_its_own_and_loses_them_when_it_ends(tmp_path, monkeypatch):
+    executor = held_gate(tmp_path, monkeypatch)
+    secret, key = "OPENROUTER_API_KEY", "fake-floor-key-for-the-runner-tests-0004"
+    held, released, ran, removed = [], [], [], []
     monkeypatch.setattr(er, "EXECUTOR", "container")
     monkeypatch.setattr(er.KIT, "EXECUTOR", "container")
-    monkeypatch.setattr(executor, "keyproxy", lambda env=None, name="floor": started.append(env[secret]))
-    monkeypatch.setattr(executor, "remove", lambda name, env=None: None)
-    monkeypatch.setattr(er, "_run_group", lambda cmd, timeout, cwd, env, container: ran.append(cmd) or subprocess.CompletedProcess(cmd, 0, "", ""))
-    monkeypatch.setattr(er.KIT, "_run_group", lambda cmd, timeout, cwd, env, container: ran.append(cmd) or subprocess.CompletedProcess(cmd, 0, "", ""))
-    box = {"root": str(tmp_path), "pass": [secret], "network": "proxy"}
-    er.run_group(["true"], 10, env={secret: key}, box=box)
-    assert started == [key] and len(ran) == 1 and key not in " ".join(ran[0])
-    er.run_group(["true"], 10, env={secret: key}, box={**box, "network": "none"})  # no network: no proxy to start
-    er.run_group(["true"], 10, env={"OTHER": "v"}, box={**box, "pass": ["OTHER"]})  # another tier's run
-    assert started == [key] and len(ran) == 3
 
-    def down(env=None, name="floor"):
+    def hold(run_id, model, env, network="proxy", meter_dir=None, **kw):
+        held.append((run_id, model, env[secret], network))
+        meter = os.path.join(meter_dir, run_id + ".json")
+        Path(meter).write_text(json.dumps({"input": 5, "output": 6, "cache_read": 0, "cache_write": 1, "total": 12,
+                                           "unknown_responses": 0, "budget_reached": False}))
+        return {"keys": "k", "network": "n", "route": "openrouter", "meter": meter, "model": model}
+    monkeypatch.setattr(executor, "hold", hold)
+    monkeypatch.setattr(executor, "release", lambda run_id, env=None: released.append(run_id))
+    monkeypatch.setattr(executor, "remove", lambda name, env=None: removed.append(name))
+    monkeypatch.setattr(er.KIT, "METER_POLL", 0)
+    run = lambda cmd, timeout, cwd, env, container: ran.append((cmd, container)) or subprocess.CompletedProcess(cmd, 0, "", "")
+    monkeypatch.setattr(er, "_run_group", run)
+    monkeypatch.setattr(er.KIT, "_run_group", run)
+    box = {"root": str(tmp_path), "pass": [secret], "network": "proxy", "model": "m"}
+    er.run_group(["true"], 10, env={secret: key}, box=box)
+    run_id = held[0][0]
+    assert held == [(run_id, "m", key, "proxy")] and len(ran) == 1 and key not in " ".join(ran[0][0])
+    assert ran[0][1] == f"wb-eval-run-{run_id}" and removed == [ran[0][1]] and released == [run_id]  # one id names all three
+    assert box["meter"]["total"] == 12  # what the key proxy counted, read before it was removed
+    assert er.KIT.HELD == set()  # the run's end took it out of the set that a stop would release
+    er.run_group(["true"], 10, env={secret: key}, box={**box, "network": "none"})  # no network: no proxy to start
+    er.run_group(["true"], 10, env={"OTHER": "v"}, box={**box, "pass": ["OTHER"]})  # no held key: none
+    assert len(held) == 1 and len(ran) == 3 and released == [run_id]
+
+
+@pytest.mark.parametrize("failure", ["executor", "other"])
+def test_a_key_proxy_and_its_network_are_released_when_anything_after_hold_fails(tmp_path, monkeypatch, failure):
+    """command() (or anything else after hold()) failing must not leak the run's key proxy, its network or its meter folder."""
+    executor = held_gate(tmp_path, monkeypatch)
+    secret, key = "OPENROUTER_API_KEY", "fake-floor-key-for-the-runner-tests-0004"
+    held, released, folders = [], [], []
+    monkeypatch.setattr(er, "EXECUTOR", "container")
+    monkeypatch.setattr(er.KIT, "EXECUTOR", "container")
+
+    def hold(run_id, model, env, network="proxy", meter_dir=None, **kw):
+        held.append(run_id)
+        folders.append(meter_dir)
+        return {"keys": "k", "network": "n", "route": "openrouter", "meter": os.path.join(meter_dir, run_id + ".json"), "model": model}
+
+    def command(*a, **kw):
+        raise (executor.ExecutorError("cannot build the command") if failure == "executor" else RuntimeError("something else broke"))
+    monkeypatch.setattr(executor, "hold", hold)
+    monkeypatch.setattr(executor, "command", command)
+    monkeypatch.setattr(executor, "release", lambda run_id, env=None: released.append(run_id))
+    monkeypatch.setattr(er.KIT, "METER_POLL", 0)
+    box = {"root": str(tmp_path), "pass": [secret], "network": "proxy", "model": "m"}
+    if failure == "executor":
+        r = er.run_group(["true"], 10, env={secret: key}, box=box)
+        assert r.returncode == 1 and "cannot build the command" in r.stderr
+    else:
+        with pytest.raises(RuntimeError):
+            er.run_group(["true"], 10, env={secret: key}, box=box)
+    assert held and released == held  # released, once, whichever way hold's caller failed
+    assert er.KIT.HELD == set() and not os.path.exists(folders[0])
+
+
+def meter_json(**changes):
+    return json.dumps({"input": 5, "output": 6, "cache_read": 0, "cache_write": 1, "total": 12, "unknown_responses": 0,
+                       "budget_reached": False, "in_flight": 0, **changes})
+
+
+def mid_request_run(tmp_path, monkeypatch, then):
+    """A held run whose key proxy still has a request under way when the run's container is gone; `then(path)` is what the
+    proxy does next (the file at `path` is its meter), and release() stands for the proxy being stopped."""
+    executor = held_gate(tmp_path, monkeypatch)
+    secret, key = "OPENROUTER_API_KEY", "fake-floor-key-for-the-runner-tests-0004"
+    monkeypatch.setattr(er, "EXECUTOR", "container")
+    monkeypatch.setattr(er.KIT, "EXECUTOR", "container")
+    paths = []
+
+    def hold(run_id, model, env, network="proxy", meter_dir=None, **kw):
+        path = os.path.join(meter_dir, run_id + ".json")
+        Path(path).write_text(meter_json(in_flight=1))
+        paths.append(path)
+        return {"keys": "k", "network": "n", "route": "openrouter", "meter": path, "model": model}
+    monkeypatch.setattr(executor, "hold", hold)
+    monkeypatch.setattr(executor, "release", lambda run_id, env=None: then(paths[0], "released"))
+    monkeypatch.setattr(executor, "remove", lambda name, env=None: None)
+    monkeypatch.setattr(er.KIT, "METER_POLL", 0.01)
+    run = lambda cmd, timeout, cwd, env, container: subprocess.CompletedProcess(cmd, 0, "", "")
+    monkeypatch.setattr(er, "_run_group", run)
+    monkeypatch.setattr(er.KIT, "_run_group", run)
+    return executor, {"root": str(tmp_path), "pass": [secret], "network": "proxy", "model": "m"}, {secret: key}, paths
+
+
+def test_a_run_that_ends_in_the_middle_of_a_request_waits_for_the_answer_to_be_counted(tmp_path, monkeypatch):
+    import threading
+    import time
+    state = {}
+
+    def then(path, when):
+        state[when] = json.loads(Path(path).read_text())
+    executor, box, env, paths = mid_request_run(tmp_path, monkeypatch, then)
+
+    def count_it_later():  # the proxy reads the rest of the answer, counts it, and says nothing is under way
+        time.sleep(0.2)
+        for _ in range(100):
+            if paths:
+                break
+            time.sleep(0.01)
+        Path(paths[0]).write_text(meter_json(input=100, output=50, total=150))
+    threading.Thread(target=count_it_later).start()
+    er.run_group(["true"], 10, env=env, box=box)
+    assert state["released"]["in_flight"] == 0 and state["released"]["total"] == 150  # waited: the proxy was stopped when idle
+    assert box["meter"]["total"] == 150 and box["meter"]["unknown_responses"] == 0
+
+
+def test_a_request_that_never_ends_is_waited_for_at_most_the_routes_timeout_and_then_flagged_as_unknown(tmp_path, monkeypatch):
+    def then(path, when):  # the proxy is stopped: its SIGTERM handler records the open answer as unknown
+        Path(path).write_text(meter_json(in_flight=0, unknown_responses=1, counting_failed=True))
+    executor, box, env, paths = mid_request_run(tmp_path, monkeypatch, then)
+    real = executor.route
+    monkeypatch.setattr(executor, "route", lambda *a, **kw: {**real(name="openrouter"), "timeout_seconds": 0.3})
+    er.run_group(["true"], 10, env=env, box=box)
+    assert box["meter"]["unknown_responses"] == 1  # read after the stop: never a silent zero
+    assert box["meter"]["total"] == 12
+
+
+def test_a_stop_does_not_wait_for_the_requests_under_way(tmp_path, monkeypatch):
+    import time
+    executor = held_gate(tmp_path, monkeypatch)
+    path = tmp_path / "meter.json"
+    path.write_text(meter_json(in_flight=1))
+    monkeypatch.setattr(er.KIT, "METER_POLL", 0.01)
+    monkeypatch.setattr(er.KIT.STOPPING, "is_set", lambda: True)
+    started = time.monotonic()
+    er.KIT.wait_idle(executor, str(path), "openrouter")  # the route's timeout is 600 seconds
+    assert time.monotonic() - started < 2
+
+
+def test_a_held_command_fails_as_infrastructure_when_its_key_proxy_cannot_start_and_nothing_runs(tmp_path, monkeypatch):
+    executor = held_gate(tmp_path, monkeypatch)
+    secret, key = "OPENROUTER_API_KEY", "fake-floor-key-for-the-runner-tests-0004"
+    ran = []
+    monkeypatch.setattr(er, "EXECUTOR", "container")
+    monkeypatch.setattr(er.KIT, "EXECUTOR", "container")
+    run = lambda cmd, timeout, cwd, env, container: ran.append(cmd) or subprocess.CompletedProcess(cmd, 0, "", "")
+    monkeypatch.setattr(er, "_run_group", run)
+    monkeypatch.setattr(er.KIT, "_run_group", run)
+
+    def down(*a, **kw):
         raise executor.ExecutorError("the key proxy did not start: cannot start")
-    monkeypatch.setattr(executor, "keyproxy", down)
+    monkeypatch.setattr(executor, "hold", down)
+    monkeypatch.setattr(executor, "release", lambda run_id, env=None: None)
+    box = {"root": str(tmp_path), "pass": [secret], "network": "proxy", "model": "m"}
     r = er.run_group(["true"], 10, env={secret: key}, box=box)
-    assert r.returncode == 1 and "key proxy did not start" in r.stderr and len(ran) == 3  # no container ran
+    assert r.returncode == 1 and "key proxy did not start" in r.stderr and ran == [] and key not in r.stderr
+    # a model the gate file does not list, or lists without a route, never gets the key: the command does not run
+    for model in ("not-listed", None):
+        r = er.run_group(["true"], 10, env={secret: key}, box={**box, "model": model})
+        assert r.returncode == 1 and "no object entry with a route" in r.stderr and ran == []
+    held_gate(tmp_path, monkeypatch, route=None, pass_env=[], provider_pin=None)
+    r = er.run_group(["true"], 10, env={secret: key}, box=box)
+    assert r.returncode == 1 and ran == []
+
+
+def test_the_adapter_call_carries_its_model_into_the_box_and_the_runs_meter_is_left_beside_its_outputs(tmp_path, monkeypatch):
+    seen = []
+
+    def group(cmd, timeout, cwd=None, env=None, box=None):
+        seen.append(box)
+        box["meter"] = {"input": 3, "output": 4, "cache_read": 0, "cache_write": 0, "total": 7, "unknown_responses": 0,
+                        "budget_reached": True}
+        return subprocess.CompletedProcess(cmd, 1, "", "boom")
+    monkeypatch.setattr(er.KIT, "run_group", group)
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "meter.json").write_text('{"total": 999999}')  # a run that made one is overwritten: only the key proxy's count is the run's
+    runner = tmp_path / "run.sh"
+    runner.write_text("exit 0\n")
+    why = er.run_failure(str(runner), str(tmp_path / "p.md"), str(tmp_path), "m", str(out), box={"root": str(tmp_path)})
+    assert seen[0]["model"] == "m" and json.loads((out / "meter.json").read_text())["total"] == 7
+    assert why.startswith("adapter exit 1") and "stopped the run at its token budget" in why
+    assert er.meter_of(str(out)) == {"input": 3, "output": 4, "cache_read": 0, "cache_write": 0, "total": 7,
+                                     "unknown_responses": 0, "budget_reached": True}
+
+    def group_without(cmd, timeout, cwd=None, env=None, box=None):
+        box["meter"] = None
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+    monkeypatch.setattr(er.KIT, "run_group", group_without)
+    assert er.run_failure(str(runner), str(tmp_path / "p.md"), str(tmp_path), "m", str(out), box={"root": str(tmp_path)}) is None
+    assert not (out / "meter.json").exists() and er.meter_of(str(out)) is None  # no count: no file, never a made-up one
 
 
 # --- the attempts of a run are made by evals/run_attempts.py, loaded only when a model runs ------------------
@@ -3522,3 +3750,33 @@ def test_a_run_makes_its_attempts_through_the_shared_module(tmp_path, monkeypatc
     for case in (1, 2):
         run = tmp_path / "evals-workspace" / "demo" / "iteration-1" / f"eval-{case}" / "with_skill"
         assert (run / "outputs" / "response.md").read_text().strip() == "ok" and (run / "prompt.md").is_file()
+
+
+def test_an_emulated_platform_stays_a_trial(tmp_path, monkeypatch, capsys):
+    """An image for linux/amd64 on a linux/arm64 docker host runs emulated: the line would say a platform it did not run on."""
+    skill = write_demo(tmp_path, monkeypatch, FAKE)
+    executor = er.load_executor()
+    monkeypatch.setattr(executor, "ensure", lambda: {"kind": "container", "image": "wb-eval:test", "image_digest": "sha256:" + "4" * 64,
+                                                     "image_platform": "linux/amd64", "host_platform": "linux/arm64"})
+    assert er.main(FULL) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["evidence"]["written"] is False and "emulated" in out["evidence"]["reason"]
+    assert "linux/amd64" in out["evidence"]["reason"] and "linux/arm64" in out["evidence"]["reason"] and evidence_of(skill) == []
+    monkeypatch.setattr(executor, "ensure", lambda: {"kind": "container", "image": "wb-eval:test", "image_digest": "sha256:" + "4" * 64,
+                                                     "image_platform": "linux/amd64", "host_platform": "linux/amd64"})
+    assert er.main(FULL) == 0
+    assert json.loads(capsys.readouterr().out)["evidence"]["written"] is True  # the same platform: evidence
+
+
+def test_a_meter_with_a_request_under_way_or_one_the_proxy_could_not_write_is_read_as_a_lower_bound(tmp_path):
+    base = {"input": 5, "output": 6, "cache_read": 0, "cache_write": 1, "total": 12, "responses": 3, "unknown_responses": 0,
+            "budget_reached": False}
+    for name, extra, unknown in (("whole", {"in_flight": 0}, 0), ("old_file", {}, 0), ("under_way", {"in_flight": 1}, 1),
+                                 ("failed", {"failed": True}, 1), ("and_unreadable", {"in_flight": 2, "unknown_responses": 1}, 2)):
+        out = tmp_path / name
+        out.mkdir()
+        (out / "meter.json").write_text(json.dumps({**base, **extra}))
+        found = er.meter_of(str(out))
+        assert found["unknown_responses"] == unknown and found["input"] == 5 and found["total"] == 12, (name, found)
+    assert er.meter_unfinished({"in_flight": 1}) and er.meter_unfinished({"failed": True}) and not er.meter_unfinished({"in_flight": 0})
+    assert not er.meter_unfinished({"in_flight": True}) and not er.meter_unfinished({})  # a boolean is not a count

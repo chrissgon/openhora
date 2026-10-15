@@ -124,7 +124,7 @@ export function costs(ctx, P, query) {
       const runs = back === 0 ? a.runs : (back * 7 + i * 3 + P.name.length) % 5;
       if (!runs) return;
       const usd = a.maxUsd > 0 && a.usd > 0 ? (back === 0 ? a.usd : Math.round(runs * 11) / 100) : null;
-      rows.push(fill(rowTemplate, { day, agent: a.name, model: MODEL, adapter: ADAPTER, runs, tokens: runs * 15000, recorded_usd: usd, recomputed_usd: usd, unknown_runs: 0, price }));
+      rows.push(fill(rowTemplate, { day, agent: a.name, model: MODEL, adapter: ADAPTER, runs, tokens: runs * 15000, recorded_usd: usd, recomputed_usd: usd, unknown_runs: 0, lower_bound_runs: 0, price }));
     });
   }
   return {

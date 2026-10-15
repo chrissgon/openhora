@@ -36,6 +36,7 @@ Standard library only. Runs on Python 3.9.
 from __future__ import annotations
 
 import contextlib
+import costs
 import glob
 import hashlib
 import importlib.util
@@ -289,8 +290,8 @@ BUILD = "python3 evals/executor.py ensure"  # and for a definition the lock file
 def image() -> dict:
     """{"name", "digest", "platform", "evidence_platform", "source", "setup", "problem"} of the eval image on this
     machine. digest is None when the lab does not run in a container, or when the image is not on this machine. platform is the CPU platform
-    the image runs as here; evidence_platform is the one lab evidence is made on (the executor's IMAGE_PLATFORM, which
-    every evidence line carries as image_platform): the two differ on a machine of another architecture, and the proof
+    the image runs as here; evidence_platform is the one lab evidence is made on (platform when it is one of the executor's
+    IMAGE_PLATFORMS, which every evidence line carries as image_platform; else IMAGE_PLATFORM): the two differ on a machine of another architecture, and the proof
     holds for the second.
 
     source says which image it is. "published": the lock file (evals/image-lock.json) names an image for this
@@ -310,7 +311,11 @@ def image() -> dict:
     name = wanted = platform = evidence = None
     try:
         executor = LAB.load_executor()
-        platform, evidence = executor.image_platform(), executor.IMAGE_PLATFORM
+        platform = executor.image_platform()
+        # Evidence is made on either accepted platform: the one the image runs as here counts when it is one of them, so
+        # that an amd64 machine running amd64 natively is not shown as a mismatch with arm64.
+        accepted = getattr(executor, "IMAGE_PLATFORMS", (executor.IMAGE_PLATFORM,))
+        evidence = platform if platform in accepted else executor.IMAGE_PLATFORM
         try:
             wanted = _published(executor)
         except _image_lock().Refused as e:  # a lock that is not well formed is never read as an empty one
@@ -484,7 +489,8 @@ def stop_runs() -> dict:
 
 def reported_usage(dest: str) -> dict:
     """What the attempts of a run reported, whether it ended or failed: {"cost_usd", "total_tokens"}, each the sum over the
-    attempts' timing.json (the run folder's outputs/ and those the lab kept from the attempts it set aside, failed-<n>/,
+    attempts' timing.json (the tokens are the key proxy's count instead, runtime/costs.py metered_usage, when the run and
+    every attempt it set aside have one) (the run folder's outputs/ and those the lab kept from the attempts it set aside, failed-<n>/,
     early-end-<n>/ and paused-<n>/), or None when no attempt reported it. A paused attempt (the account limit) counts as no
     result, but it may have spent before it stopped, so its usage is read: reading it only adds spend. A run id is never
     reused over a leftover run folder (the store's ids are AUTOINCREMENT), so every folder under dest is this run's.
@@ -503,6 +509,9 @@ def reported_usage(dest: str) -> dict:
             value = timing.get(key) if isinstance(timing, dict) else None
             if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
                 sums[key] = (sums[key] or 0) + value
+    metered = costs.metered_usage(dest)  # the key proxy's own count, which the run could not change, when it has one
+    if metered is not None:  # a lower bound when the proxy could not count every answer (metered["unknown_responses"])
+        sums["total_tokens"] = sum(metered[kind] for kind in costs.KINDS)
     return sums
 
 

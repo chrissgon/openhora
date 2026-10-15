@@ -35,8 +35,8 @@ def known_model_ids() -> set:
     `models` table with its aliases. The gate file is the one place that names them (rule R19)."""
     gate = json.loads((REPO / "evals" / "eval-gate.json").read_text(encoding="utf-8"))
     ids = {gate[key] for key in ("strong_model", "floor_model", "grader") if isinstance(gate.get(key), str)}
-    for name, aliases in (gate.get("models") or {}).items():
-        ids |= {name, *aliases}
+    for name, entry in (gate.get("models") or {}).items():  # a list of aliases, or an object that holds them (and the model's route)
+        ids |= {name, *(entry["aliases"] if isinstance(entry, dict) else entry)}
     return {i for i in ids if i}
 
 
