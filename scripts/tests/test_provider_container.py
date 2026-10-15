@@ -292,9 +292,6 @@ def drop(c):
 
 
 if args[0] == "run":
-    if flag("fail-run"):
-        sys.stderr.write("docker: Error response from daemon: no such image\n")
-        sys.exit(125)
     name = args[args.index("--name") + 1]
     labels = {{}}
     for i, a in enumerate(args):
@@ -304,6 +301,11 @@ if args[0] == "run":
     cid = hashlib.sha1(name.encode()).hexdigest()[:12]
     with open(os.path.join(CONTAINERS, cid), "w") as f:
         json.dump({{"id": cid, "name": name, "labels": labels}}, f)
+    if flag("fail-run"):      # the daemon made the container and then refused to start it: the client exits 125 and leaves it
+        sys.stderr.write("docker: Error response from daemon: no such image\n")
+        sys.exit(125)
+    if flag("leave"):         # the client ends with its own failure code and the container record stays
+        sys.exit(int(open(os.path.join(STATE, "exit")).read()))
     if flag("flood"):
         sys.stderr.write("x" * 200000 + "THE-END")
     if flag("stderr"):
@@ -319,6 +321,10 @@ elif args[0] == "rm":
         sys.exit(1)
     for c in found:
         drop(c)
+elif args[0] == "context":
+    if not flag("context"):
+        sys.exit(1)
+    print(open(os.path.join(STATE, "context")).read().strip())
 elif args[0] == "ps":
     if flag("fail-ps"):
         sys.exit(1)
@@ -422,9 +428,25 @@ def test_a_stop_signal_removes_the_container_by_name_and_restores_the_handlers(f
 
 
 def test_a_start_that_fails_leaves_no_container(fake):
-    fake.set("fail-run")
+    fake.set("fail-run")                       # the fake makes the container record, then exits 125 without removing it
     done = box.run(job("never-1"), "never-1", 30)
-    assert done.returncode == 125 and "no such image" in done.stderr and fake.names() == []
+    assert done.returncode == 125 and "no such image" in done.stderr
+    assert fake.names() == [], "run removed the container the failed start left"
+    assert ["rm", "-f", "never-1"] in fake.commands()
+
+
+@pytest.mark.parametrize("code", [125, 126, 127])
+def test_a_client_that_ends_with_its_own_failure_code_has_its_container_removed(fake, code):
+    fake.set("leave")
+    fake.set("exit", str(code))
+    done = box.run(job("left-1"), "left-1", 30)
+    assert done.returncode == code and fake.names() == [] and ["rm", "-f", "left-1"] in fake.commands()
+
+
+def test_an_ordinary_failure_code_is_not_followed_by_a_removal(fake):
+    fake.set("exit", "3")
+    box.run(job("plain-1"), "plain-1", 30)
+    assert not [c for c in fake.commands() if c[0] == "rm"], "--rm already removed it"
 
 
 def test_a_client_that_cannot_be_started_is_refused_and_leaves_no_container(tmp_path, monkeypatch):
@@ -520,3 +542,85 @@ def test_the_helper_imports_only_the_standard_library_and_the_resolver():
             names.add((node.module or "").split(".")[0])
     assert names <= set(sys.stdlib_module_names) | {"__future__"} if hasattr(sys, "stdlib_module_names") else True
     assert not names & {"evals", "runtime", "adapters", "scripts"}
+
+
+# --- the review round --------------------------------------------------------------------------------------------------------------
+
+
+def test_after_a_timeout_the_stderr_reader_is_finished_and_the_pipe_closed(fake, monkeypatch):
+    fake.set("sleep")
+    started, finished = [], []
+
+    class Capture(box.subprocess.Popen):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            started.append(self)
+
+    real = box._StderrCap.finish
+    monkeypatch.setattr(box._StderrCap, "finish", lambda self, wait=5: (finished.append(wait), real(self, wait))[1])
+    monkeypatch.setattr(box.subprocess, "Popen", Capture)
+    with pytest.raises(box.ContainerError):
+        box.run(job("slow-2"), "slow-2", 0.5)
+    assert finished == [2], "the reader was finished with a short wait on the error path"
+    client = [p for p in started if "run" in p.args][0]
+    assert client.stderr.closed
+    assert fake.names() == []
+
+
+def test_a_label_must_be_a_plain_name_in_argv_and_in_reap(fake):
+    for bad in ("", "Upper", "-lead", "has space", "a=b", "a\nb", "x/y", None):
+        with pytest.raises(box.ContainerError) as caught:
+            box.argv("n", "i", [], label=bad, deadline=1, mounts=[], memory_mb=1, cpus=1, scratch_mb=1, platform="darwin")
+        assert caught.value.code == "bad_label"
+        with pytest.raises(box.ContainerError):
+            box.reap(bad, now=1)
+    assert fake.commands() == [], "a refused label reached no docker command"
+    box.argv("n", "i", [], label="org.openhora.job-2", deadline=1, mounts=[], memory_mb=1, cpus=1, scratch_mb=1, platform="darwin")
+
+
+def test_a_deadline_label_is_read_as_ascii_digits_only(fake):
+    label = "org.openhora.job"
+    fake.add("super-1", label, "\u00b2")          # isdigit() is true for it and int() refuses it
+    fake.add("arabic-1", label, "\u0663")         # an Arabic-Indic digit
+    fake.add("future-1", label, 4102444800)
+    removed = box.reap(label, now=1000)
+    assert len(removed) == 2 and fake.names() == ["future-1"], "an unreadable deadline counts as past; none raised"
+    assert box.DEADLINE.fullmatch("123") and not box.DEADLINE.fullmatch("\u0663") and not box.DEADLINE.fullmatch("") and not box.DEADLINE.fullmatch("-5")
+
+
+def test_a_local_daemon_is_accepted_by_host_or_by_context(fake):
+    box.require_local_daemon({"DOCKER_HOST": "unix:///var/run/docker.sock"})
+    assert fake.commands() == [], "an explicit unix host needs no question to docker"
+    fake.set("context", "unix:///Users/me/.docker/run/docker.sock")
+    box.require_local_daemon({})
+    assert fake.commands() == [["context", "inspect", "--format", "{{.Endpoints.docker.Host}}"]]
+
+
+@pytest.mark.parametrize("host", ["tcp://10.0.0.5:2375", "ssh://deploy@build.example", "npipe:////./pipe/docker_engine", "http://x"])
+def test_a_remote_daemon_is_refused_by_host_and_by_context(fake, host):
+    with pytest.raises(box.ContainerError) as caught:
+        box.require_local_daemon({"DOCKER_HOST": host})
+    assert caught.value.code == "docker_daemon_not_local" and "deploy" not in caught.value.what
+    fake.set("context", host)
+    with pytest.raises(box.ContainerError) as caught:
+        box.require_local_daemon({})
+    assert caught.value.code == "docker_daemon_not_local"
+
+
+def test_a_daemon_that_cannot_be_told_is_refused(fake):
+    with pytest.raises(box.ContainerError) as caught:
+        box.require_local_daemon({})                 # the fake answers the context question with exit 1
+    assert caught.value.code == "docker_daemon_unknown"
+    fake.set("context", "")
+    with pytest.raises(box.ContainerError) as caught:
+        box.require_local_daemon({})
+    assert caught.value.code == "docker_daemon_unknown"
+
+
+def test_the_daemon_check_reads_the_process_environment_by_default(fake, monkeypatch):
+    monkeypatch.setenv("DOCKER_HOST", "tcp://elsewhere:2375")
+    with pytest.raises(box.ContainerError) as caught:
+        box.require_local_daemon()
+    assert caught.value.code == "docker_daemon_not_local" and caught.value.what == "tcp://elsewhere:2375"
+    monkeypatch.setenv("DOCKER_HOST", "unix:///x.sock")
+    box.require_local_daemon()

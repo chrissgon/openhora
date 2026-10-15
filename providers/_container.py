@@ -19,6 +19,7 @@
                           SIGTERM/SIGINT and on any error; the container's stderr is read on a thread and only its last
                           STDERR_CAP bytes are kept;
   remove(name), stop(name)    end a container by name; never raise;
+  require_local_daemon()  refuse a docker client that talks to a daemon that is not on this machine (a unix socket);
   reap(label)             remove every container of the run label whose deadline label has passed (what a run that was
                           killed with SIGKILL, a crash or a power cut leaves behind).
 
@@ -29,7 +30,7 @@ What it does not own: the image (its build, its pin, its id), the folders a job 
 check that the daemon is local. `evals/executor.py`, the eval container's runner, does not use this file.
 
 Errors are one class, `ContainerError(code, what)`: `code` is a closed machine word (bad_mount_path, bad_mount, docker_missing,
-docker_unusable, docker_timeout, docker_ps_failed, time_limit, stopped); `what` names the thing, never a path's content.
+docker_unusable, docker_timeout, docker_ps_failed, docker_daemon_unknown, docker_daemon_not_local, bad_label, time_limit, stopped); `what` names the thing, never a path's content.
 
 Standard library only. Runs on Python 3.9.
 """
@@ -61,6 +62,9 @@ DOCKER_CLIENT_ENV = ("PATH", "HOME", "USER", "TMPDIR", "LANG", "LC_ALL", "XDG_RU
 ENV_MINIMUM = ("PATH", "HOME", "USER", "TMPDIR", "LANG", "LC_ALL", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_STATE_HOME",
                "OPENHORA_STATE_DIR", "DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH")
 
+LABEL = re.compile(r"[a-z0-9][a-z0-9.-]*")
+DEADLINE = re.compile(r"[0-9]{1,18}")
+LAUNCH_FAILED = (125, 126, 127)          # the docker client's own codes: the daemon refused, the command is not executable, not found
 BAD_PATH = re.compile(r"[:\x00-\x1f\x7f]")
 CONTAINER_ID = re.compile(r"[0-9a-f]{6,64}")
 
@@ -131,6 +135,23 @@ def docker(args: Sequence[str], timeout: float = PROBE_TIMEOUT):
         raise ContainerError("docker_unusable", "docker") from None
 
 
+def require_local_daemon(env=None) -> None:
+    """The docker client must talk to a daemon on this machine, through a unix socket: with a remote one (DOCKER_HOST=tcp://
+    or ssh://, or a remote docker context) the files a job mounts and the files it writes would cross a network. DOCKER_HOST
+    is read from `env` (default: the process environment); with none, `docker context inspect` says which host the current
+    context uses. ContainerError docker_daemon_unknown when that cannot be told, docker_daemon_not_local when it is not a
+    unix socket (`what` is the host with any user part cut, at most 60 characters)."""
+    env = os.environ if env is None else env
+    host = env.get("DOCKER_HOST")
+    if not host:
+        done = docker(["context", "inspect", "--format", "{{.Endpoints.docker.Host}}"])
+        host = done.stdout.strip() if done.returncode == 0 else ""
+        if not host:
+            raise ContainerError("docker_daemon_unknown", "docker")
+    if not host.startswith("unix://"):
+        raise ContainerError("docker_daemon_not_local", host.split("@")[-1][:60])
+
+
 # --- the command ------------------------------------------------------------------------------------------------------------
 
 
@@ -142,9 +163,17 @@ def mount_path(path: str, what: str) -> str:
     return path
 
 
+def check_label(label: str) -> str:
+    """The run label as a name a docker label key and a `--filter` can carry: lowercase letters, digits, dots and hyphens,
+    starting with a letter or digit. ContainerError (bad_label) otherwise."""
+    if not isinstance(label, str) or not LABEL.fullmatch(label):
+        raise ContainerError("bad_label", "label")
+    return label
+
+
 def deadline_label(label: str) -> str:
     """The label that holds a run's deadline, as an epoch: the run label plus `.deadline`."""
-    return label + ".deadline"
+    return check_label(label) + ".deadline"
 
 
 def argv(name: str, image_id: str, inner_args: Iterable[str], *, label: str, deadline: int,
@@ -158,6 +187,7 @@ def argv(name: str, image_id: str, inner_args: Iterable[str], *, label: str, dea
     container runs as the caller's numeric user and group (a bind mount keeps numeric owners there; elsewhere the runtime
     maps them)."""
     platform = sys.platform if platform is None else platform
+    check_label(label)
     out = ["docker", "run", "--rm", "--init", "--pull", "never", "--name", name,
            "--label", "%s=1" % label, "--label", "%s=%d" % (deadline_label(label), deadline),
            "--network", "none", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
@@ -251,6 +281,8 @@ def run(command: Sequence[str], name: str, timeout: float) -> Finished:
             raise ContainerError("time_limit", "container") from None
         finished = True
         stderr, truncated = reader.finish()
+        if proc.returncode in LAUNCH_FAILED:   # the client's own failure codes: make sure no container is left (idempotent)
+            remove(name)
         return Finished(proc.returncode, stderr, truncated)
     except Stopped:
         raise ContainerError("stopped", "container") from None
@@ -264,6 +296,13 @@ def run(command: Sequence[str], name: str, timeout: float) -> Finished:
                 except OSError:
                     pass
                 proc.wait()
+            if reader is not None:   # the reader thread ends with the pipe; give it a moment and close our end
+                reader.finish(2)
+            elif proc is not None:
+                try:
+                    proc.stderr.close()
+                except OSError:
+                    pass
             remove(name)
         for sig, handler in previous:
             signal.signal(sig, handler)
@@ -274,7 +313,8 @@ def reap(label: str, now: Optional[float] = None) -> List[str]:
     (default: the time of the call); a container with no readable deadline counts as past. Returns the ids removed.
     ContainerError (docker_ps_failed) when the list cannot be read."""
     now = time.time() if now is None else now
-    done = docker(["ps", "-a", "--filter", "label=%s=1" % label, "--format", '{{.ID}} {{.Label "%s"}}' % deadline_label(label)])
+    deadline_key = deadline_label(label)    # also refuses a label that is not a plain name
+    done = docker(["ps", "-a", "--filter", "label=%s=1" % label, "--format", '{{.ID}} {{.Label "%s"}}' % deadline_key])
     if done.returncode != 0:
         raise ContainerError("docker_ps_failed", "docker")
     removed = []
@@ -282,7 +322,7 @@ def reap(label: str, now: Optional[float] = None) -> List[str]:
         parts = line.split()
         if not parts or not CONTAINER_ID.fullmatch(parts[0]):
             continue
-        deadline = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+        deadline = int(parts[1]) if len(parts) > 1 and DEADLINE.fullmatch(parts[1]) else 0
         if deadline < now and docker(["rm", "-f", parts[0]], timeout=PROBE_TIMEOUT).returncode == 0:
             removed.append(parts[0])
     return removed

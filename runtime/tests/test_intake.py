@@ -359,13 +359,22 @@ def test_a_stall_is_refused_and_every_read_is_armed_with_the_stall_limit(dest):
 def test_a_stall_in_the_middle_of_the_body_removes_the_file(dest):
     class StallsLater(Drip):
         def read1(self, n):
-            if self.given >= 3000:
+            if self.given >= 8192:
                 raise TimeoutError("timed out")
             return super().read1(n)
 
-    stream = StallsLater(MOVHEAD, 100_000, pause=0)
+    class Seen(StallsLater):
+        files_when_it_fired = None
+
+        def read1(self, n):
+            if self.given >= 8192:
+                Seen.files_when_it_fired = len(os.listdir(dest))
+            return super().read1(n)
+
+    stream = Seen(MOVHEAD, 100_000, pause=0)
     error = refusal(dest, stream=stream, length=100_000, free_margin=None)
-    assert error.code == "stalled" and stream.given == 3072 and os.listdir(dest) == []
+    assert error.code == "stalled" and stream.given == 8192 and os.listdir(dest) == []
+    assert Seen.files_when_it_fired == 1, "the temporary file existed when the stall fired, and was removed after"
 
 
 def test_a_stream_with_read1_is_read_with_read1_and_one_without_with_read(dest):
@@ -434,3 +443,92 @@ def test_no_function_takes_a_recording_or_a_slot():
             args = node.args
             for arg in args.posonlyargs + args.args + args.kwonlyargs + [a for a in (args.vararg, args.kwarg) if a]:
                 assert arg.arg not in ("recording", "slot", "record", "rid"), (node.name, arg.arg)
+
+
+# --- the review round: a lying stream, the lock, the folder swap, a box that is no type ------------------------------------------------
+
+
+def test_a_stream_that_gives_more_than_it_was_asked_for_is_refused_and_leaves_no_file(dest):
+    class Liar:
+        def read1(self, n):
+            return b"\0" * (n + 1)
+
+    error = refusal(dest, stream=Liar(), length=100_000, free_margin=None)
+    assert error.code == "usage" and "more bytes" in str(error) and os.listdir(dest) == []
+
+    class LiesLater(Body):
+        def read(self, n=-1):
+            return super().read(n) + (b"x" if self.given > 6000 else b"")
+
+    error = refusal(dest, stream=LiesLater(100_000, MOVHEAD), length=100_000, free_margin=None)
+    assert error.code == "usage" and os.listdir(dest) == []
+
+
+def test_with_a_lock_path_two_intakes_do_not_overlap_and_the_lock_is_released_after_each(dest, tmp_path):
+    lock_path = str(tmp_path / ".upload.lock")
+    inner = {}
+
+    class Reentrant(Body):
+        def read(self, n=-1):
+            if "error" not in inner:    # while the first intake holds the lock, a second one starts
+                try:
+                    intake.stream_in(io.BytesIO(b"b" * 64), 64, dest, cap=1000, free_margin=None, lock_path=lock_path)
+                except intake.IntakeError as e:
+                    inner["error"] = e
+            return super().read(n)
+
+    done = intake.stream_in(Reentrant(10_000, MOVHEAD), 10_000, dest, cap=1 << 20, free_margin=None, lock_path=lock_path)
+    assert done.size == 10_000 and inner["error"].code == "refused" and "another upload" in str(inner["error"])
+    assert len(os.listdir(dest)) == 1, "the second intake left nothing"
+    again = intake.stream_in(io.BytesIO(b"c" * 64), 64, dest, cap=1000, free_margin=None, lock_path=lock_path)
+    assert again.size == 64, "the lock was released"
+
+
+def test_the_lock_is_released_when_the_intake_fails(dest, tmp_path):
+    lock_path = str(tmp_path / ".upload.lock")
+    assert refusal(dest, stream=Body(5000, MOVHEAD, stop_after=100), length=5000, free_margin=None, lock_path=lock_path).code == "usage"
+    with intake.Lock(lock_path, blocking=False):
+        pass
+    held = intake.one_at_a_time(lock_path)
+    try:
+        assert refusal(dest, stream=Forbidden(), length=64, lock_path=lock_path).code == "refused"
+    finally:
+        held.release()
+
+
+def test_a_folder_swapped_for_a_link_after_the_check_is_not_followed(dest, tmp_path, monkeypatch):
+    evil = tmp_path / "evil"
+    evil.mkdir(mode=0o700)
+    moved = dest + ".moved"
+
+    def swap(fd):
+        os.rename(dest, moved)
+        os.symlink(evil, dest)
+        return 10 ** 12
+
+    monkeypatch.setattr(intake, "free_bytes", swap)
+    done = intake.stream_in(io.BytesIO(MOVHEAD + b"\0" * 100), len(MOVHEAD) + 100, dest, cap=1 << 20)
+    assert os.listdir(evil) == [], "nothing was written through the link"
+    assert len(os.listdir(moved)) == 1 and done.size == len(MOVHEAD) + 100
+
+
+def test_a_folder_swapped_after_the_check_leaves_nothing_in_the_other_folder_when_the_body_fails(dest, tmp_path, monkeypatch):
+    evil = tmp_path / "evil"
+    evil.mkdir(mode=0o700)
+    monkeypatch.setattr(intake, "free_bytes", lambda fd: (os.rename(dest, dest + ".moved"), os.symlink(evil, dest), 10 ** 12)[2])
+    error = refusal(dest, stream=Body(5000, MOVHEAD, stop_after=100), length=5000)
+    assert error.code == "usage" and os.listdir(evil) == [] and os.listdir(dest + ".moved") == []
+
+
+def test_a_link_at_the_name_of_the_folder_is_refused_when_the_call_starts(tmp_path):
+    real = tmp_path / "real"
+    real.mkdir(mode=0o700)
+    os.symlink(real, tmp_path / "link")
+    assert refusal(str(tmp_path / "link"), b"a" * 64).code == "refused" and os.listdir(real) == []
+
+
+def test_a_box_the_video_and_heif_entries_reject_is_no_type_and_not_an_image():
+    assert intake.sniff(b"\xff\xd8\xff\xe0ftypzzzz" + b"\0" * 20) is None
+    assert intake.sniff(b"RIFFftypWEBP" + b"\0" * 20) is None
+    assert intake.sniff(b"\x89PNG\r\n\x1a\n") == ("image", "png") and intake.sniff(b"\xff\xd8\xff\xe0\0\x10JFIF") == ("image", "jpeg")
+    assert intake.sniff(b"RIFF\0\0\0\0WEBPVP8 ") == ("image", "webp")

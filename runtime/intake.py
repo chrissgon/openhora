@@ -11,8 +11,10 @@ decides what the file is and where it is kept, and extends the type table.
 
   1. the declared length is bounded before one byte is read: a missing length, a length over `cap` and a length under
      `minimum` are refused (codes length, usage, too_large, too_small);
-  2. the destination is checked with lstat (a real folder, not a link, ours, closed to others) and has the free space the
-     body needs plus `free_margin` (code no_space), still before one byte is read;
+  2. the destination folder is opened once with O_DIRECTORY|O_NOFOLLOW (a link at its name is refused), that open descriptor
+     is checked with fstat (ours, closed to others), and the temporary file is created and removed through the descriptor
+     (`dir_fd`), so the folder cannot be swapped between the check and the write; it must have the free space the body
+     needs plus `free_margin` (code no_space), still before one byte is read;
   3. the first bytes (at most SNIFF_BYTES) are read and the type is read from them with `sniff`, never from a name or a
      Content-Type; `accept(found)` may refuse a type (raise IntakeError) before any file exists;
   4. the body is written in chunks of CHUNK_BYTES to a temporary file created with O_CREAT|O_EXCL|O_NOFOLLOW, mode 0600,
@@ -23,6 +25,11 @@ decides what the file is and where it is kept, and extends the type table.
   6. it returns `Received(path, sha256, size, type)`: the temporary file's path, the hash of the bytes, their count and
      what `sniff` found (None for a body no entry of the table knows). The caller checks the file further, moves it to
      its final name (os.link never replaces) and deletes the temporary file when it is done with it.
+
+Free space is checked and the body written under no lock unless `lock_path` is given: with it, `stream_in` takes the upload
+lock (non-blocking, `one_at_a_time`) after the length is bounded and holds it across the free-space check and the write, so
+two intakes do not both count the same free space. A caller that passes no `lock_path` must hold `one_at_a_time` itself
+around the call.
 
 On every failure (short body, stall, deadline, a full disk, a name taken by a file or a link) the temporary file is
 removed and an IntakeError is raised; nothing is left behind. A stream with no `settimeout` (an in-memory buffer) cannot
@@ -150,6 +157,8 @@ def _heif(head: bytes) -> Optional[str]:
 
 
 def _image(head: bytes) -> Optional[str]:
+    if head[4:8] == b"ftyp":   # a box the video and HEIF entries rejected decides "no type"; it is not an image with a box inside
+        return None
     if head[:8] == b"\x89PNG\r\n\x1a\n":
         return "png"
     if head[:3] == b"\xff\xd8\xff":
@@ -195,21 +204,29 @@ def bound_length(length, cap: int, minimum: int = MIN_BYTES) -> int:
     return length
 
 
-def check_dir(path: str, what: str = "the destination folder") -> None:
-    """The folder is a real directory (not a link), ours, closed to others (lstat, never stat)."""
+def open_dir(path: str, what: str = "the destination folder") -> int:
+    """Open the folder once, without following a link at its name, and check the open descriptor (fstat, never a second
+    look at the name): a directory, ours, closed to others. Returns the descriptor; the caller closes it."""
     try:
-        info = os.lstat(path)
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     except OSError as e:
-        raise IntakeError(f"{what} cannot be read: {e.strerror}", "refused") from None
-    if not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode):
-        raise IntakeError(f"{what} is not a plain folder", "refused")
-    if hasattr(os, "getuid") and info.st_uid != os.getuid():
-        raise IntakeError(f"{what} is not owned by this user", "refused")
-    if info.st_mode & 0o077:
-        raise IntakeError(f"{what} is open to other users (its mode must be 0700)", "refused")
+        raise IntakeError(f"{what} cannot be opened as a plain folder: {e.strerror}", "refused") from None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISDIR(info.st_mode):
+            raise IntakeError(f"{what} is not a plain folder", "refused")
+        if hasattr(os, "getuid") and info.st_uid != os.getuid():
+            raise IntakeError(f"{what} is not owned by this user", "refused")
+        if info.st_mode & 0o077:
+            raise IntakeError(f"{what} is open to other users (its mode must be 0700)", "refused")
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
 
 
-def free_bytes(path: str) -> int:
+def free_bytes(path) -> int:
+    """Free bytes on the file system of a path or an open descriptor."""
     info = os.statvfs(path)
     return info.f_bavail * info.f_frsize
 
@@ -236,11 +253,14 @@ class _Budget:
             arm(max(0.05, min(left, self.stall)))
         take = getattr(stream, "read1", None) or stream.read
         try:
-            return take(n)
+            piece = take(n)
         except OSError:
             if time.monotonic() >= self.deadline:
                 raise self._over() from None
             raise IntakeError("the connection stalled or closed before the body arrived", "stalled") from None
+        if len(piece) > n:
+            raise IntakeError("the stream gave more bytes than were asked for", "usage")
+        return piece
 
     def head(self, stream, length: int) -> bytes:
         """The first bytes of the body, up to SNIFF_BYTES, read until that many or the body's end."""
@@ -256,9 +276,9 @@ class _Budget:
         return head
 
 
-def _unlink(path: str) -> None:
+def _unlink(dir_fd: int, name: str) -> None:
     try:
-        os.unlink(path)
+        os.unlink(name, dir_fd=dir_fd)
     except FileNotFoundError:
         pass
 
@@ -267,11 +287,12 @@ def _write(out, data: bytes) -> None:
     out.write(data)
 
 
-def _stream_to(temporary: str, head: bytes, stream, length: int, budget: _Budget) -> Tuple[int, str]:
-    """Write the body to the temporary name, chunk by chunk, hashing as it goes. The file is created with O_CREAT|O_EXCL|
-    O_NOFOLLOW and mode 0600; it is deleted here when the body fails (short, stalled, too slow, the disk full)."""
+def _stream_to(dir_fd: int, name: str, head: bytes, stream, length: int, budget: _Budget) -> Tuple[int, str]:
+    """Write the body to the temporary name in the folder `dir_fd`, chunk by chunk, hashing as it goes. The file is created
+    with O_CREAT|O_EXCL|O_NOFOLLOW and mode 0600; it is deleted here when the body fails (short, stalled, too slow, the disk
+    full)."""
     try:
-        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=dir_fd)
     except OSError as e:   # the name is taken (a file or a link someone placed there), or the folder cannot be written
         raise IntakeError(f"the temporary file cannot be created ({e.strerror}): nothing was written", "refused") from None
     digest = hashlib.sha256()
@@ -294,14 +315,14 @@ def _stream_to(temporary: str, head: bytes, stream, length: int, budget: _Budget
     except OSError as e:   # a read failure is turned into an IntakeError by `pull`; an OSError here is the disk's
         if fd is not None:
             os.close(fd)
-        _unlink(temporary)
+        _unlink(dir_fd, name)
         if e.errno in (errno.ENOSPC, getattr(errno, "EDQUOT", errno.ENOSPC)):
             raise IntakeError("the disk filled up while the file was being written", "no_space") from None
         raise IntakeError(f"the file could not be written: {e.strerror}", "refused") from None
     except BaseException:
         if fd is not None:
             os.close(fd)
-        _unlink(temporary)
+        _unlink(dir_fd, name)
         raise
     return count, digest.hexdigest()
 
@@ -309,21 +330,32 @@ def _stream_to(temporary: str, head: bytes, stream, length: int, budget: _Budget
 def stream_in(stream, length, dest_dir: str, *, cap: int, minimum: int = MIN_BYTES, max_seconds: float = UPLOAD_MAX_SECONDS,
               stall_seconds: float = STALL_SECONDS, free_margin: Optional[int] = FREE_MARGIN_BYTES,
               sniff_table: Optional[List[Tuple[str, SniffTest]]] = None,
-              accept: Optional[Callable[[Optional[Tuple[str, str]]], None]] = None) -> Received:
+              accept: Optional[Callable[[Optional[Tuple[str, str]]], None]] = None,
+              lock_path: Optional[str] = None) -> Received:
     """Read `length` bytes from `stream` into a new temporary file in `dest_dir` and return Received(path, sha256, size,
     type). IntakeError for every refusal, and nothing is left on disk then. `cap` is the most a body may be; `minimum`
     the least. `accept(found)` is called with what `sniff` found before any file exists and refuses by raising IntakeError;
-    with no `accept` any body is taken, a type or not. `free_margin=None` skips the free-space check. The module text
-    gives the order of the steps."""
+    with no `accept` any body is taken, a type or not. `free_margin=None` skips the free-space check. `lock_path`: the file
+    of the upload lock, held across the free-space check and the write (see the module text; without it the caller holds
+    `one_at_a_time`). The returned `path` is `dest_dir` plus the name, for the caller's later steps; the file itself was
+    created through the descriptor of the folder as it was when it was checked. The module text gives the order."""
     length = bound_length(length, cap, minimum)
-    check_dir(dest_dir)
-    if free_margin is not None and free_bytes(dest_dir) < length + free_margin:
-        raise IntakeError("the disk has not enough free space for this file", "no_space")
-    budget = _Budget(max_seconds, stall_seconds)
-    head = budget.head(stream, length)
-    found = sniff(head, sniff_table)
-    if accept is not None:
-        accept(found)
-    temporary = os.path.join(dest_dir, f"{PART_PREFIX}{secrets.token_hex(8)}{PART_SUFFIX}")
-    count, sha256 = _stream_to(temporary, head, stream, length, budget)
-    return Received(temporary, sha256, count, found)
+    lock = one_at_a_time(lock_path) if lock_path is not None else None
+    try:
+        dir_fd = open_dir(dest_dir)
+        try:
+            if free_margin is not None and free_bytes(dir_fd) < length + free_margin:
+                raise IntakeError("the disk has not enough free space for this file", "no_space")
+            budget = _Budget(max_seconds, stall_seconds)
+            head = budget.head(stream, length)
+            found = sniff(head, sniff_table)
+            if accept is not None:
+                accept(found)
+            name = f"{PART_PREFIX}{secrets.token_hex(8)}{PART_SUFFIX}"
+            count, sha256 = _stream_to(dir_fd, name, head, stream, length, budget)
+        finally:
+            os.close(dir_fd)
+    finally:
+        if lock is not None:
+            lock.release()
+    return Received(os.path.join(dest_dir, name), sha256, count, found)
