@@ -23,8 +23,8 @@ attestation will cover, named after the fork's run (community-<repository id>-<r
   .manifest.json  {record, repository, repository_id, run_id, run_attempt, run_number, workflow, commit, skill, model,
                   evidence_sha256}: what the run was, with no free text. The attestation job adds "run_runner_group"
                   (it reads the run's jobs through the API) before it attests the file.
-It checks that the file is complete, tests exactly the one model that was asked for (a floor model beside it would be
-a second model in a community file), came from the published eval image and passes the evidence validators; it
+It checks that the file is complete, tests exactly the one model that was asked for (a second model beside it would be
+not the one asked for), came from the published eval image and passes the evidence validators; it
 checks that HEAD of the checkout is the commit it is given (the official workflow's own commit). It prints
 {"name", "evidence_sha256", "manifest_sha256", "files"} and exits 0, or the problems on stderr and exits 1. The
 values come in as flags that the workflow fills from the run's environment; nothing is read from the network and no model

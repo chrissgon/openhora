@@ -21,7 +21,7 @@ operations = st.load("operations")
 OK = {"secret_store": "ok", "credential": "ok", "docker": "ok", "image": "ok", "dispatch": "every 30 s", "problems": [],
       "start": "uv run --with keyring==25.7.0 python3 /w/runtime/service.py --project /p", "at": "2026-10-08T10:00:00+00:00"}
 NO_STORE = dict(OK, secret_store="/usr/bin/python3 (Python 3.9.6) cannot read the secret store: ModuleNotFoundError: No module named 'keyring'",
-                credential="the reference model's credential (EXAMPLE_KEY) is neither set nor found in the secret store")
+                credential="the default model's credential (EXAMPLE_KEY) is neither set nor found in the secret store")
 
 
 @pytest.fixture(autouse=True)
@@ -134,7 +134,7 @@ def test_connections_carries_what_the_service_found(tree, monkeypatch):  # noqa:
     path = str(tree["project"])
     assert ops.connections(path)["service"] is None
     monkeypatch.setattr(dispatcher, "inspect", lambda module: {
-        "secret_store": "ok", "credential": "the reference model's credential (EXAMPLE_KEY) is neither set nor found in the secret store",
+        "secret_store": "ok", "credential": "the default model's credential (EXAMPLE_KEY) is neither set nor found in the secret store",
         "tools": {"docker": None, "uv": "/bin/uv", "git": "/bin/git"}, "modules": {"mcp.py": "ImportError: broken"}, "lab": "ok"})
     monkeypatch.setenv(operations.UV_MARK, "0")
     report = ops.service_check(path, 30)

@@ -25,7 +25,7 @@
         : "no lab model has a reliable band for it: a run waits for your review, whichever model you name";
       out.innerHTML =
         '<div class="mr-head"><h4 class="mr-name">' + esc(s.skill) + '</h4><span class="mr-ver">v' + esc(s.version) + " · last full test " + esc(s.last_full_test) + "</span></div>" +
-        '<table class="mr-table"><thead><tr><th scope="col">Model</th><th scope="col">Band</th><th scope="col">Score</th><th scope="col">Mean</th><th scope="col">Runs</th><th scope="col">Gate</th></tr></thead><tbody>' +
+        '<table class="mr-table"><thead><tr><th scope="col">Model</th><th scope="col">Band</th><th scope="col">Score</th><th scope="col">Mean</th><th scope="col">Runs counted</th><th scope="col">Gate</th></tr></thead><tbody>' +
         rows.map(function (r) { return row(r.model, r.adapter, r.m); }).join("") + "</tbody></table>" +
         '<div class="mr-route ' + (reliable.length ? "is-floor" : "is-ref") + '"><p class="mr-k">Released without review on</p><p class="mr-model">' +
         (reliable.length ? reliable.map(function (r) { return esc(r.model); }).join(", ") : "no lab model") + ' <span class="pui-badge pui-soft ' + (reliable.length ? "pui-success" : "pui-theme") + '">' +

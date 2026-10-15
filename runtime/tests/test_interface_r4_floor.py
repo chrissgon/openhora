@@ -219,7 +219,7 @@ def test_the_agent_tab_shows_a_command_for_each_wider_mode_and_for_the_credentia
     assert c["codes"] == ["uv run --with keyring==25.7.0 keyring set openhora user-a"] and c["copies"] == 1, "the command is the service's field, verbatim, with its own Copy"
     assert c["sentences"] == ["KEY_A"], "the Copy block is named by the credential"
     assert c["details"][-1] == "KEY_B: no username registered", "a credential with no username gets its name and the sentence, never a command with <username>"
-    assert c["line"].startswith("Held: The reference model's credential is not set.")
+    assert c["line"].startswith("Held: The credential of the model is not set.")
     assert "The credential is in neither the environment nor the secret store" in c["text"], "the sentence stays as text"
     assert got["inline"] == {"codes": 0}, "nothing is taken out of a sentence"
     assert got["single"]["codes"] == ["python3 /ck/runtime/cli.py run-next --project /work/shop"], "a reason whose `next` is a command shows it as one"

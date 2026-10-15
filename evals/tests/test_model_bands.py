@@ -52,7 +52,7 @@ def test_a_confirmed_guard_failure_on_the_floor_model_needs_a_test_there_and_lea
     floor = row["models"]["f-model"]
     assert (floor["band"], floor["kind"]) == ("needs a test", "guard") and "1.10 failed" in floor["cause"]
     assert floor["command"] == "after the fix and its bump: python3 evals/eval_run.py --skill core-demo --cases 1"
-    assert (row["band"], row["kind"], row["cause"]) == ("reliable", None, None)  # the reference model's band
+    assert (row["band"], row["kind"], row["cause"]) == ("reliable", None, None)  # the row's own band: the lead model's, the first of lab_models
     assert row["models"]["s-model"]["band"] == "reliable"
 
 

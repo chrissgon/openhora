@@ -445,7 +445,7 @@ import * as model from "@JS@/views/control-model.js";
 import { createConnectionsTab } from "@JS@/views/control-connections.js";
 
 const START = "uv run --with keyring==25.7.0 python3 /ck/runtime/service.py --project /work/shop";
-const service = { secret_store: "this interpreter cannot read the secret store: start with uv", credential: "the reference model's credential (KEY) is neither set nor found in the secret store", docker: "ok", image: "the eval image x is not on this machine", dispatch: "off", problems: ["lab: boom"], start: START, at: "2026-10-08T11:00:00Z" };
+const service = { secret_store: "this interpreter cannot read the secret store: start with uv", credential: "the default model's credential (KEY) is neither set nor found in the secret store", docker: "ok", image: "the eval image x is not on this machine", dispatch: "off", problems: ["lab: boom"], start: START, at: "2026-10-08T11:00:00Z" };
 const out = {};
 out.rows = model.serviceRows(service).map((r) => [r.what, r.sentence, r.command]);
 out.ok = model.serviceRows({ ...service, secret_store: "ok", credential: "ok", image: "ok", dispatch: "every 30 s", problems: [] });

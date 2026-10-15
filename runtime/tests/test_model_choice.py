@@ -242,8 +242,9 @@ def test_messaging_can_give_no_consent_because_it_has_no_operation_for_it(tree):
     # the page's consent is the page's alone: not the terminal (it has --consent), not the conversation, not the MCP mode, not messaging
     assert operations.by_name("give-consent")["channels"] == ("page",)
     for channel in ("messaging", "mcp", "chat", "terminal"):
-        assert not operations.permitted("give-consent", channel, {channel: ["read", "talk", "answer", "set-mode"]}), channel
-    assert operations.GROUPS["set-mode"]["operations"] == ("set-mode", "set-model", "give-consent")
+        assert not operations.permitted("give-consent", channel, {channel: ["read", "talk", "answer", "set-mode", "consent"]}), channel
+    assert operations.GROUPS["set-mode"]["operations"] == ("set-mode", "set-model")
+    assert operations.GROUPS["consent"]["operations"] == ("give-consent",)
     assert operations.refusal("give-consent", "messaging", {"messaging": ["read", "set-mode"]})
 
 

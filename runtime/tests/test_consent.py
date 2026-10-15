@@ -46,6 +46,9 @@ def consent(tree, **more):
 def test_the_warning_hash_is_the_sha256_of_the_text_and_both_are_one_constant():
     assert autonomy.CONSENT_WARNING_SHA256 == WARNING_SHA
     assert "autonomy by consent" in autonomy.CONSENT_WARNING
+    # P3b: the text says what is recorded, exactly: every run of this agent on its fixed model of a skill not proven on it, a held run included
+    assert autonomy.CONSENT_WARNING.startswith("Each run of this agent on its fixed model, of a skill not proven on that model")
+    assert "a milestone later holds" in autonomy.CONSENT_WARNING and "autonomy by consent" in autonomy.CONSENT_WARNING
 
 
 # --- the page's consent -----------------------------------------------------------------------------------------------------
@@ -173,6 +176,27 @@ def test_the_page_ceiling_lists_it_and_every_other_shell_lists_none(tree):
     assert "give-consent" not in operations.terminal_verbs()
     assert not [r for r in operations.chat_commands() if "consent" in r["name"]]
     assert "give-consent" not in operations.permissions("page", {"page": ["read", "answer"]})
+    assert "give-consent" in operations.permissions("page", {"page": ["read", "consent"]})
+    # P3b: consent is a group of its own; set-mode, which used to cover it, does not
+    assert "give-consent" not in operations.permissions("page", {"page": ["read", "set-mode"]})
+    assert "give-consent" not in operations.GROUPS["set-mode"]["operations"] and operations.GROUPS["consent"]["operations"] == ("give-consent",)
+
+
+def test_a_page_policy_with_set_mode_and_without_consent_cannot_consent_and_the_default_and_the_group_can(tree):
+    configure(tree, {"business": dict(BUSINESS)}, channels={"page": ["read", "answer", "set-mode"]})
+    file_before = config_path(tree).read_text(encoding="utf-8")
+    with pytest.raises(ops.OpsError) as refused:
+        consent(tree)
+    assert refused.value.code == 1 and "give-consent is not enabled for this channel" in str(refused.value)
+    assert config_path(tree).read_text(encoding="utf-8") == file_before and "model" not in agent_of(tree)
+    configure(tree, {"business": dict(BUSINESS)}, channels={"page": ["read", "consent"]})
+    assert consent(tree)["consent"] == {"model": "fm", "mode": "autonomous"}
+
+
+def test_the_default_page_with_no_policy_may_consent(tree):
+    assert "channels" not in json.loads(config_path(tree).read_text(encoding="utf-8"))
+    assert operations.permitted("give-consent", "page", None)
+    assert consent(tree)["accepted"] is True
 
 
 # --- a move down is never withheld -----------------------------------------------------------------------------------------

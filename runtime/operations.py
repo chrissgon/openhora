@@ -306,7 +306,8 @@ GROUPS = {
     "go-ahead": {"operations": ("go-ahead",), "kind": None},
     "reject-cancel": {"operations": ("reject", "cancel"), "kind": None},
     "retry": {"operations": ("retry",), "kind": None},
-    "set-mode": {"operations": ("set-mode", "set-model", "give-consent"), "kind": None},
+    "set-mode": {"operations": ("set-mode", "set-model"), "kind": None},
+    "consent": {"operations": ("give-consent",), "kind": None},   # the page's consent for an autonomous agent (D38): a group of its own, so granting set-mode never grants it
     "dispatch": {"operations": ("dispatch",), "kind": None},
     "documents": {"operations": ("sync", "hand-over"), "kind": None},
     "verdict": {"operations": ("verdict",), "kind": None},

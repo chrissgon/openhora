@@ -53,7 +53,7 @@ export const HELD_SENTENCES = Object.freeze({
   stopped: "The agent is stopped, so it starts nothing.",
   "cap: runs per day": "The agent used all its runs for today.",
   "cap: usd per day": "The agent used all its spend for today.",
-  credential: "The reference model's credential is not set.",
+  credential: "The credential of the model is not set.",
   "secret store": "The service cannot read the secret store.",
   image: "The eval image is not on this machine.",
   "dispatch off": "The service is not dispatching tasks.",
