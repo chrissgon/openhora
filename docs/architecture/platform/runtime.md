@@ -69,6 +69,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/effects.py` | The external effects of the task runtime: what a skill with a confirmation gate showed at its gate, recovered from what the run left, and (stage 4, WP-4.8) its execution by code once the person approved its hash. |
 | `runtime/endings.py` | How a run ended, for a run that did not fail: the classifier of endings. |
 | `runtime/flow_files.py` | Flow files: flows/&lt;name&gt;.json, one data file per flow, with its tasks and their dependencies written out. |
+| `runtime/intake.py` | The generic streaming intake: how a body of a declared length gets from a stream onto disk, safely. |
 | `runtime/isolated.py` | Skill code the runtime runs on the host, as an isolated subprocess with a scrubbed environment. |
 | `runtime/lab.py` | The lab facade: the one file of runtime/ that talks to the lab (evals/execution.py, the execution kit). |
 | `runtime/manifest.py` | The runtime manifest of a skill: skills/&lt;name&gt;/evals/runtime-manifest.json, read and checked. |
