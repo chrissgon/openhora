@@ -14,7 +14,7 @@ Usage:
   python3 runtime/cli.py deps     --project <dir>
   python3 runtime/cli.py run-next --project <dir> [--model <id>|auto]
   python3 runtime/cli.py run-task --project <dir> --task <task id> [--model <id>|auto]
-  python3 runtime/cli.py run-step --project <dir> --task <task id>
+  python3 runtime/cli.py run-step --project <dir> --task <task id> [--unattended]
   python3 runtime/cli.py pending  --project <dir> [--id <pending id>]
   python3 runtime/cli.py answer   --project <dir> --id <pending id> (--text <text> | --text-file <file>) [--with-comments]
   python3 runtime/cli.py release  --project <dir> --id <pending id>
@@ -101,7 +101,8 @@ run-step  runs one named step task in this process (--task <id>), as run-task ru
           them (today `ingest`, which brings a version of a source into the project), and the task is `done`, `failed` (resumable at
           its step) or `waiting` at a stop for you. It takes the task's lock, so a killed process is detected by it and the task ends
           `failed`; stop-runs ends it. Same refusals and exit codes as run-task. The dispatcher starts only a kind that says it may run
-          unattended (`ingest` does) and only while the runtime is not stopped; your own start with run-step or run-next needs neither.
+          unattended (`ingest` does) and only while the runtime is not stopped, and it asks again under the claim lock (--unattended is
+          the flag it starts the process with); your own start with run-step or run-next needs neither.
           Nothing but tests creates a step task today: the flow files learn `step` with P6. A stop of a step task asks for the verdict
           `continue` or `stop` (any other answer asks again).
 pending   lists what waits for you; with --id, prints that pending decision whole: the reply, what came back,

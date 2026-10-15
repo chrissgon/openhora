@@ -125,7 +125,7 @@ def test_the_agents_operation_reports_each_agents_mode_caps_and_use_of_today_fro
     del raw["area_agents"]
     (tree["project"] / "docs" / "workbench" / "runtime.json").write_text(json.dumps(raw), encoding="utf-8")
     ops.accept_config(path, ops.project_config.load(path)["sha256"])
-    assert ops.agents(path) == {"agents": []}
+    assert ops.agents(path) == {"agents": [], "steps": {"agent": "runtime", "mode": "autonomous"}}
 
 
 # --- conversation -----------------------------------------------------------------------------------------------------
