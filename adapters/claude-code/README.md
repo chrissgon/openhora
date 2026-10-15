@@ -13,7 +13,7 @@ claude --plugin-dir adapters/claude-code/build/default  # one session only, afte
 
 Skills are invoked as `/openhora:<skill-name>` and trigger automatically from their descriptions.
 
-The plugin was called `ai-workbench` until 2026-10-09. An install run removes the old link `~/.claude/skills/ai-workbench` when it points into this checkout's `build/` folder, and says so, so that the person is not left with two plugins; a link of that name that points elsewhere is left alone, and `--uninstall` removes either link. This compatibility stage is removed with the next change of reference model (backlog T23).
+The plugin was called `ai-workbench` until 2026-10-09. An install run removes the old link `~/.claude/skills/ai-workbench` when it points into this checkout's `build/` folder, and says so, so that the person is not left with two plugins; a link of that name that points elsewhere is left alone, and `--uninstall` removes either link. This compatibility stage is removed with the next change of the lab models (backlog T23).
 
 ## The skill-listing budget
 

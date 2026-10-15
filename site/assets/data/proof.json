@@ -1,6 +1,6 @@
 {
  "source": "docs/inventory.md, Evaluation status (band table and model table)",
- "generated_at_commit": "55fb026c55ed",
+ "generated_at_commit": "54f08b5f0417",
  "lab_models": [
   {
    "model": "claude-sonnet-5-5",

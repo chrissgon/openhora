@@ -46,9 +46,9 @@ def consent(tree, **more):
 def test_the_warning_hash_is_the_sha256_of_the_text_and_both_are_one_constant():
     assert autonomy.CONSENT_WARNING_SHA256 == WARNING_SHA
     assert "autonomy by consent" in autonomy.CONSENT_WARNING
-    # P3b: the text says what is recorded, exactly: every run of a skill without reliable evidence on the model, a held run included
-    assert autonomy.CONSENT_WARNING.startswith("Each run of a skill without reliable evidence on this model will be recorded as autonomy by consent")
-    assert "a milestone later holds" in autonomy.CONSENT_WARNING
+    # P3b: the text says what is recorded, exactly: every run of this agent on its fixed model of a skill not proven on it, a held run included
+    assert autonomy.CONSENT_WARNING.startswith("Each run of this agent on its fixed model, of a skill not proven on that model")
+    assert "a milestone later holds" in autonomy.CONSENT_WARNING and "autonomy by consent" in autonomy.CONSENT_WARNING
 
 
 # --- the page's consent -----------------------------------------------------------------------------------------------------

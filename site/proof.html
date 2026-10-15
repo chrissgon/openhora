@@ -71,7 +71,7 @@
         <div class="band-rows">
         <div class="br"><span class="br-model"><b>claude-sonnet-5-5</b><small>lab model</small></span><span class="band-word ok">reliable 0</span><span class="band-word warn">watch 0</span><span class="band-word err">needs a test 48</span></div>
         <div class="br"><span class="br-model"><b>openrouter/deepseek/deepseek-v4.1-flash</b><small>lab model</small></span><span class="band-word ok">reliable 0</span><span class="band-word warn">watch 0</span><span class="band-word err">needs a test 48</span></div>
-        <p class="br-meta">of 48 skills · snapshot 2026-10-15 · last full tests 2026-10-04 · 141 current-set runs per model</p>
+        <p class="br-meta">of 48 skills · snapshot 2026-10-15 · last full tests 2026-10-04 · 0 current-set runs per model, 657 inherited</p>
       </div>
         <div class="cs-dont">
           <p class="cs-dont-h"><span aria-hidden="true">&#8856;</span> <span>What this does not guarantee</span></p>
@@ -97,7 +97,7 @@
         <div class="mr-result" aria-live="polite" data-result>
           <div class="mr-head"><h4 class="mr-name">mkt-social-copy</h4><span class="mr-ver">v2.0.0 · last full test none</span></div>
           <table class="mr-table">
-            <thead><tr><th scope="col">Model</th><th scope="col">Band</th><th scope="col">Score</th><th scope="col">Mean</th><th scope="col">Runs</th><th scope="col">Gate</th></tr></thead>
+            <thead><tr><th scope="col">Model</th><th scope="col">Band</th><th scope="col">Score</th><th scope="col">Mean</th><th scope="col">Runs counted</th><th scope="col">Gate</th></tr></thead>
             <tbody>
               <tr><th scope="row"><b>claude-sonnet-5-5</b><small>claude-code</small></th><td><span class="band-word err">needs a test</span><small class="mr-cause">no evidence on this model</small></td><td>n/a</td><td>n/a</td><td>0</td><td>-</td></tr>
               <tr><th scope="row"><b>openrouter/deepseek/deepseek-v4.1-flash</b><small>agents-dir</small></th><td><span class="band-word err">needs a test</span><small class="mr-cause">no evidence on this model</small></td><td>n/a</td><td>n/a</td><td>0</td><td>-</td></tr>
@@ -112,7 +112,7 @@
       </div>
       <div class="mr-foot">
         <div class="term "><div class="term-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="tab">terminal</span><span class="meta">repository root</span></div><pre class="code"><span class="ln"><span class="p">$ </span><span class="a">python3 evals/eval_status.py status --skill &lt;name&gt;</span></span></pre></div>
-        <p class="src">Data: <code>docs/inventory.md</code>, generated at commit <code>55fb026c55ed</code>; the bands agree with the snapshot of 2026-10-15.</p>
+        <p class="src">Data: <code>docs/inventory.md</code>, generated at commit <code>54f08b5f0417</code>; the bands agree with the snapshot of 2026-10-15. Runs counted is the weight of the evidence in the score: the current set holds 0 runs, and the inherited runs of earlier versions together count as at most 3.</p>
       </div>
     </div>
     <div class="try" id="gate-by-hand">
@@ -149,7 +149,7 @@
       </div>
       <div class="cs-verify">
         <p class="label"><b>Verify</b> <span>on main</span></p>
-        <div class="streak v-rays cs-panel"><div class="term "><div class="term-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="tab">terminal</span><span class="meta">repository root</span></div><pre class="code"><span class="ln"><span class="p">$ </span><span class="a">python3 evals/eval_status.py status</span></span><span class="ln c"># guard assertions: 256 tagged guard or guard:&lt;effect&gt; (snapshot 2026-10-10)</span></pre></div></div>
+        <div class="streak v-rays cs-panel"><div class="term "><div class="term-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="tab">terminal</span><span class="meta">repository root</span></div><pre class="code"><span class="ln"><span class="p">$ </span><span class="a">python3 evals/eval_status.py status</span></span><span class="ln c"># guard assertions: 265 tagged guard or guard:&lt;effect&gt; (counted 2026-10-15)</span></pre></div></div>
         <ul class="vf-list"><li><a class="vf-file" href="https://github.com/chrissgon/openhora/blob/main/contracts/environment.md"><span class="vf-ico" aria-hidden="true">&#9638;</span><code>contracts/environment.md</code></a><span class="vf-why">the side-effect vocabulary, and the rule that an approval binds a hash of the payload</span></li><li><a class="vf-file" href="https://github.com/chrissgon/openhora/blob/main/contracts/runtime.md"><span class="vf-ico" aria-hidden="true">&#9638;</span><code>contracts/runtime.md</code></a><span class="vf-why">limits L6, L14 to L17; the four contained-run restrictions R1 to R4</span></li></ul>
         <figure class="shot proof-shot">
         <div class="shot-frame"><div class="shot-bar"><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><span class="shot-addr">local service · 127.0.0.1</span><span class="pui-badge pui-soft pui-theme shot-tag">fictional data</span></div>
