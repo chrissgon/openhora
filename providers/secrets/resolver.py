@@ -10,7 +10,7 @@ Every script asks for a secret by name; the resolver looks in the same places, i
      or an export in the shell);
   2. the OS secret store (keyring): service "openhora", the username listed below; a name not found
      there is looked up under the service the workbench used before it was renamed, "ai-workbench"
-     (LEGACY_SERVICE), for one stage (removed with the next change of reference model, T23).
+     (LEGACY_SERVICE), for one stage (removed with the next change of the lab models, T23).
 The first non-empty value wins. Values are never printed, logged or written, not even partially.
 Adding a backend (a password manager) means adding one lookup function to BACKENDS; callers do
 not change.

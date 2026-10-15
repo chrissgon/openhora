@@ -112,7 +112,7 @@ def test_a_missing_key_is_named_and_no_value_is_ever_printed(capsys):
     captured = capsys.readouterr()
     assert "OPENROUTER_API_KEY" in captured.err and "CLAUDE_CODE_OAUTH_TOKEN" not in captured.err
     assert not any(value in captured.err + captured.out for value in KEYS.values())
-    # the grader's token is needed whatever the model: every grading goes through the strong slot until the grader has its own entry
+    # the grader's token is needed whatever the model: every grading goes through the grader's own entry of the gate file
     assert preflight(["--skill", "biz-icp-positioning", "--model", FLASH, "--full"], env={NAMES[0]: KEYS[NAMES[0]]}) == 1
     assert "CLAUDE_CODE_OAUTH_TOKEN" in capsys.readouterr().err
 
