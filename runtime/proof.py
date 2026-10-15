@@ -107,13 +107,27 @@ def row(cfg: dict, skill: str) -> dict:
 
 def checks(entry: dict) -> dict:
     """{"measurement": None or a reason, "image": None or a reason}: whether the proof holds on this checkout and
-    this machine. Computed on every call, never cached."""
+    this machine. Computed on every call, never cached.
+
+    The image holds when the digest of the image on this machine is one the evidence was measured in. The digest
+    is the repo digest of the published image when the lock file names one for this checkout's definition
+    (lab.image(), source "published"), and the id of the local build otherwise. Evidence measured in a locally
+    built image names that image's id, which no other machine has (decision D21): it holds on the machine that
+    built it only, and the reason says so when the digests differ."""
     measurement = lab.measurement_problem()
-    digest = lab.image()["digest"]
+    seen = lab.image()
+    digest, wanted = seen["digest"], entry.get("evidence_images") or []
     if digest is None:
-        image = "the eval image is not on this machine"
-    elif digest not in (entry.get("evidence_images") or []):
+        if seen.get("source") == "published":
+            image = f"the published eval image is not on this machine: run {seen.get('setup') or 'the setup step'}"
+        else:
+            image = "the eval image is not on this machine"
+    elif digest not in wanted:
         image = "the image on this machine is not the one the evidence was measured in"
+        portable = set(lab.published_digests())
+        if any(d not in portable for d in wanted):
+            image += (" (evidence measured in a locally built image holds on the machine that built it only; "
+                      "the published image is the one every machine can have)")
     else:
         image = None
     return {"measurement": measurement, "image": image}

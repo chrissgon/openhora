@@ -200,7 +200,7 @@ NOT_RUNTIME_OR_LAB = CORE + ("scripts/", "adapters/")
 # owns), the secret resolver (rule R13: a credential is read through it), the scripts the runtime shares with the
 # first runtime.
 RUNTIME_OUTSIDE = ("providers/resolve.py", "providers/store/", "providers/secrets/resolver.py",
-                   "scripts/select_skills.py", "scripts/evidence.py", "scripts/redact.py")
+                   "scripts/select_skills.py", "scripts/evidence.py", "scripts/redact.py", "scripts/image_lock.py")
 
 # The first matching row decides. A target is a folder (trailing "/"), a file or a glob; "{own}" is the folder of
 # the skill the file belongs to.

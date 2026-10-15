@@ -24,6 +24,17 @@ Options:
   --strict          exit 1 when any required class is missing
   --help            show this text
 
+It also reports the eval image (evals/image-lock.json, evals/executor.py), in one of four states, and never pulls or
+builds it:
+  published and present     the lock file names a published image for this checkout's definition and this platform,
+                            and it is on this machine with that repo digest
+  published, not pulled     the lock names one and it is not here: run `python3 evals/executor.py pull`
+  no published image        the lock names none for this definition; an image built locally is here, so evidence
+                            measured in it is local-only (it holds on this machine only)
+  missing                   nothing is here (run `python3 evals/executor.py ensure`), docker cannot be reached,
+                            or the lock file cannot be read
+The image does not change the exit code. In --json it is the "image" key: {"state", "detail"}.
+
 It also lists every secret registered in providers/secrets/resolver.py or by an adapter (the
 "secrets" list of its adapter.json): found or missing, where
 it was found (environment or OS secret store), which classes read it and how to set it. It never
@@ -127,6 +138,54 @@ def _which(name):
     return False
 
 
+IMAGE_STATES = {
+    "published-present": "published and present",
+    "published-not-pulled": "published, not pulled: run `python3 evals/executor.py pull`",
+    "local-only": "no published image for this definition: built locally, evidence is local-only",
+    "missing": "missing",
+}
+
+
+class DockerUnavailable(Exception):
+    pass
+
+
+def docker_inspect(args):
+    """`docker image inspect <args>` as (returncode, stdout). Raises DockerUnavailable when there is no docker client or
+    no daemon to ask: an image that cannot be asked about is not reported as absent."""
+    try:
+        r = subprocess.run(["docker", "image", "inspect", *args], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise DockerUnavailable(f"docker cannot be run: {e}") from None
+    if r.returncode != 0 and "daemon" in r.stderr.lower():
+        raise DockerUnavailable("the docker daemon cannot be reached")
+    return r.returncode, r.stdout
+
+
+def image_state(inspect=docker_inspect, root=ROOT):
+    """The eval image of this checkout: {"state": one of IMAGE_STATES' keys, "detail": a sentence}. It reads the lock
+    file and inspects the image; it never pulls or builds one. `inspect` is what a test replaces."""
+    try:
+        executor = _load("workbench_doctor_executor", os.path.join(root, "evals", "executor.py"))
+        lock_module = _load("workbench_doctor_image_lock", os.path.join(root, "scripts", "image_lock.py"))
+        definition, platform = executor.definition_hash(), executor.image_platform()
+        lock = lock_module.read_lock(os.path.join(root, "evals", "image-lock.json"))
+        wanted = lock_module.published(lock, definition, platform)
+        if wanted:
+            if lock_module.present(wanted, inspect):
+                return {"state": "published-present", "detail": wanted["ref"]}
+            return {"state": "published-not-pulled", "detail": wanted["ref"]}
+        local = executor.names()["image"]
+        code, _ = inspect(["--format", "{{.Id}}", local])
+    except DockerUnavailable as e:
+        return {"state": "missing", "detail": str(e)}
+    except Exception as e:  # noqa: BLE001  (a lock or an executor that cannot be read is reported, not raised)
+        return {"state": "missing", "detail": f"the image cannot be looked up: {e}"}
+    if code == 0:
+        return {"state": "local-only", "detail": f"{local}; no entry for the definition {definition[:12]} in evals/image-lock.json"}
+    return {"state": "missing", "detail": f"{local} is not built: run `python3 evals/executor.py ensure`"}
+
+
 def load_connectors(harness):
     if not harness:
         return {}
@@ -192,19 +251,22 @@ def main(argv):
             missing += 1
         report[cls] = {"status": status, "detail": detail, "skills": skills}
 
+    image = image_state()
     secrets = secrets_report(report)
     secrets_missing = [s["name"] for s in secrets if not s["found"]]
     if as_json:
-        print(json.dumps({"harness": harness, "classes": report, "missing": missing, "secrets": secrets}, indent=2))
+        print(json.dumps({"harness": harness, "classes": report, "missing": missing, "image": image, "secrets": secrets}, indent=2))
     else:
         for cls, r in report.items():
             print(f"{r['status']:<9} {cls:<28} {r['detail']}  <- {', '.join(r['skills'])}", file=sys.stderr)
+        shown = IMAGE_STATES[image["state"]] + ("" if image["state"] == "published-not-pulled" else f" ({image['detail']})")
+        print(f"{'image':<9} {'eval image':<28} {shown}", file=sys.stderr)
         for sec in secrets:
             state = f"found     {sec['name']:<28} {sec['source']}{' (' + sec['service'] + ')' if sec['service'] else ''}" if sec["found"] else \
                 f"missing   {sec['name']:<28} set it: {sec['set']}"
             print(f"{state}  <- {', '.join(sec['classes'] or sec['readers'])}", file=sys.stderr)
         print(json.dumps({"harness": harness, "classes": len(report), "missing": missing,
-                          "secrets_missing": secrets_missing}))
+                          "image": image["state"], "secrets_missing": secrets_missing}))
     return 1 if (strict and missing) else 0
 
 

@@ -1,0 +1,194 @@
+# Builds and publishes the eval image (the container every lab run executes in), so that every machine runs the same
+# image bytes instead of building its own. It runs only on main: on a push that changes evals/container/, and on a
+# manual run. Nothing here is a check of a pull request, and a run from another branch does nothing.
+#
+# Four jobs. `build` builds each platform on a runner of that architecture (no emulation) and pushes the image by
+# digest. `merge` joins the two into one index and records {definition hash, index digest, per-platform manifest and
+# config digests} as the artifact `eval-image-lock-input`. `attest` signs the build provenance of the index and of each
+# manifest; it is the only job that may mint an identity token, and it receives digests only. The artifact is turned
+# into the lock file, after the provenance is verified, by `python3 scripts/image_lock.py --from-json` on the
+# maintainer's machine: this workflow never commits anything (evals/README.md, "The published image").
+#
+# Actions are pinned to a commit (tags can move); Dependabot proposes updates. There is no cache: the image is built
+# from the pinned definition alone. The registry token is the run's own GITHUB_TOKEN, which expires with the run.
+name: eval-image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "evals/container/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eval-image
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build ${{ matrix.platform }}
+    if: github.ref == 'refs/heads/main'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+            slug: linux-amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            slug: linux-arm64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The image name, in lower case
+        id: image
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: echo "repository=ghcr.io/${OWNER,,}/openhora-eval" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@594f3bf4285d9ea8dc53c9a0c9c4092420091003 # v4.4.0
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: evals/container
+          platforms: ${{ matrix.platform }}
+          no-cache: true
+          provenance: false
+          sbom: false
+          outputs: type=image,name=${{ steps.image.outputs.repository }},push-by-digest=true,name-canonical=true,push=true
+      - name: Keep the manifest digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          SLUG: ${{ matrix.slug }}
+        run: |
+          set -euo pipefail
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "not a digest: $DIGEST" >&2; exit 1; }
+          mkdir digests
+          printf '%s\n' "$DIGEST" > "digests/digest-${SLUG}.txt"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digest-${{ matrix.slug }}
+          path: digests/*.txt
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: merge and record
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      repository: ${{ steps.record.outputs.repository }}
+      index_digest: ${{ steps.record.outputs.index_digest }}
+      manifest_amd64: ${{ steps.record.outputs.manifest_amd64 }}
+      manifest_arm64: ${{ steps.record.outputs.manifest_arm64 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: digest-*
+          path: digests
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@594f3bf4285d9ea8dc53c9a0c9c4092420091003 # v4.4.0
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Join the platforms into one index and record its digests
+        id: record
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          repository="ghcr.io/${OWNER,,}/openhora-eval"
+          definition="$(python3 scripts/image_lock.py --print-definition-hash)"
+          amd="$(cat digests/digest-linux-amd64.txt)"
+          arm="$(cat digests/digest-linux-arm64.txt)"
+          for d in "$amd" "$arm"; do
+            [[ "$d" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "not a digest: $d" >&2; exit 1; }
+          done
+          # The tag is a convenience for people; everything else refers to the image by digest.
+          docker buildx imagetools create --tag "${repository}:def-${definition:0:12}" "${repository}@${amd}" "${repository}@${arm}"
+          index="$(docker buildx imagetools inspect "${repository}:def-${definition:0:12}" --format '{{json .Manifest}}' | jq -r .digest)"
+          config_amd="$(docker buildx imagetools inspect --raw "${repository}@${amd}" | jq -r .config.digest)"
+          config_arm="$(docker buildx imagetools inspect --raw "${repository}@${arm}" | jq -r .config.digest)"
+          for d in "$index" "$config_amd" "$config_arm"; do
+            [[ "$d" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "not a digest: $d" >&2; exit 1; }
+          done
+          jq -n --arg repository "$repository" --arg definition "$definition" --arg index "$index" \
+            --arg amd "$amd" --arg arm "$arm" --arg config_amd "$config_amd" --arg config_arm "$config_arm" \
+            '{repository: $repository, definition_sha256: $definition, index_digest: $index,
+              platforms: {"linux/amd64": {manifest_digest: $amd, config_digest: $config_amd},
+                          "linux/arm64": {manifest_digest: $arm, config_digest: $config_arm}}}' > image-lock-input.json
+          cat image-lock-input.json
+          {
+            echo "repository=${repository}"
+            echo "index_digest=${index}"
+            echo "manifest_amd64=${amd}"
+            echo "manifest_arm64=${arm}"
+          } >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: eval-image-lock-input
+          path: image-lock-input.json
+          if-no-files-found: error
+          retention-days: 30
+
+  attest:
+    name: build provenance
+    if: github.ref == 'refs/heads/main'
+    needs: merge
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # The only job with an identity token. It checks out nothing and runs no script of the repository: it receives the
+    # digests the merge job recorded and signs them.
+    permissions:
+      id-token: write
+      attestations: write
+      packages: write
+    steps:
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Provenance of the index
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ needs.merge.outputs.repository }}
+          subject-digest: ${{ needs.merge.outputs.index_digest }}
+          push-to-registry: true
+      - name: Provenance of the amd64 manifest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ needs.merge.outputs.repository }}
+          subject-digest: ${{ needs.merge.outputs.manifest_amd64 }}
+          push-to-registry: true
+      - name: Provenance of the arm64 manifest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ needs.merge.outputs.repository }}
+          subject-digest: ${{ needs.merge.outputs.manifest_arm64 }}
+          push-to-registry: true
