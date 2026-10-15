@@ -17,7 +17,7 @@ The model replaces the three states. A skill is ranked by the lab tests it has p
 5. The behaviours ordinary use almost never exercises (stopping before a side effect, refusing an instruction in external content) are always measured in the lab.
 6. Nothing of a project enters the workbench (principle 8).
 
-Version 2 delivers 1, 2, 5 and 6, delivers 3 as visibility (field evidence is shown and can demote, but does not promote), and delivers 4 for lab evidence on the reference model.
+Version 2 delivers 1, 2, 5 and 6, delivers 3 as visibility (field evidence is shown and can demote, but does not promote), and delivers 4 for lab evidence, model by model. Version 3 (package P3 of the delegation platform plan, decision D1) removes the two fixed tiers: there is no reference model and no floor model, every pair of skill, model and adapter has its own band, gate and score, and no model decides another's standing. Where the text below still says "the reference model" in a measurement of the first round (sections 11 and after), it names the model those first numbers were made on.
 
 ### Terms
 
@@ -25,16 +25,16 @@ Version 2 delivers 1, 2, 5 and 6, delivers 3 as visibility (field evidence is sh
 |------|---------|
 | Evidence | The lines the eval runner writes: one line per run of one case on one model, in one file per test event. |
 | Lab, field | Lab: a run in the eval container, which anyone can reproduce. Field: a real use in a project, reported by the project. Bands and scores are computed from lab evidence only. |
-| Full test, partial test | The two kinds of lab test (section 2). A full test runs every current case with the skill on the reference model. |
-| Baseline | The runs of a case without the skill, on the reference model. |
-| Reference model | The model the bands are computed on: `strong_model` of `evals/eval-gate.json`. |
-| Gate | The rule a full test passes or fails: the mean with the skill on the reference model is 0.8 or more, and is not below the baseline's mean by more than 0.05. |
+| Full test, partial test | The two kinds of lab test (section 2). A full test runs every current case with the skill on every model of the test (the gate file's `lab_models`, in order, by default). |
+| Baseline | The runs of a case without the skill, on one model; each model has its own. |
+| Lab models | The models the lab tests by default: `lab_models` of `evals/eval-gate.json`, in order. The first is the summary row's model (section 10), an order of display that ranks nothing. |
+| Gate | The rule a full test passes or fails, for each model of the test: the mean with the skill on that model is 0.8 or more, and is not below that model's baseline mean by more than 0.05. |
 | Pessimistic score | A lower estimate of how often the skill does its job on one model, which falls with little evidence (section 6). It is not a confidence bound. |
-| Band | `reliable`, `watch` or `needs a test`: rules, computed on the reference model (section 5). The cause shown beside the band says which test. |
+| Band | `reliable`, `watch` or `needs a test`: rules, computed on one model's lines, for each pair of skill and model (section 5). The cause shown beside the band says which test. |
 | Change class | X, Y or Z: what a change to a skill touched (section 3). |
 | Guard assertion, guard case | An assertion tagged `guard`: it measures a behaviour that must hold and that ordinary use almost never exercises. A guard case is a case with at least one (section 4). |
 | Current set | The lab lines of the current `X.Y` made since the newest epoch, measurement floor or dependency change that applies to them. They count at full weight (section 6), and the rules of sections 4 and 5 that ask whether something has run or passed ask it of the current set. |
-| Inherited evidence | Lab evidence of the current major version that ran on something that is no longer current: an earlier `X.Y`, an earlier state of the model or of a dependency, an earlier reference model, an earlier grader. It counts, capped at 3 runs together (section 6). |
+| Inherited evidence | Lab evidence of the current major version that ran on something that is no longer current: an earlier `X.Y`, an earlier state of the model or of a dependency, an earlier grader. It counts, capped at 3 runs together (section 6). |
 
 ## The model
 
@@ -91,24 +91,24 @@ A run line (`"record": "run"`):
 
 | Kind | What runs | Costs, for an average skill (3.3 cases) | When |
 |------|-----------|------------------------------------------|------|
-| `full` | every current case with the skill, on one version, 3 runs per case, on the reference model and on the other models the gate file lists; and the baseline of every case whose baseline is not in force, `baseline_runs` times per case (the gate file; 1) | the first one: 10 runs with the skill and 3.3 without on the reference model, 10 with the skill on the floor model. A later one with the baseline reused: 10 runs per model | once when a skill is created; after an X change; after a case changed a second time since the newest full test; at the third Y change since the last one; whenever the band is `needs a test` for a cause a full test clears |
+| `full` | every current case with the skill, on one version, 3 runs per case, on every model of the test (the gate file's `lab_models`, in order, unless `--model` names others); and the baseline of every case whose baseline is not in force, `baseline_runs` times per case (the gate file; 1) | the first one: 10 runs with the skill on each model of the test and 3.3 without it on the first. A later one with the baseline reused: 10 runs per model | once when a skill is created; after an X change; after a case changed a second time since the newest full test; at the third Y change since the last one; whenever the band is `needs a test` for a cause a full test clears |
 | `partial` | the cases named with `--cases`, with the skill only, 3 runs per case | 3 runs per case and model | after a Y change: the cases the change could move and the guard cases |
 
 **The baseline is reused.** A run without the skill does not see the skill, so a change to the skill cannot age it (MI6). The baseline of a case is in force while three things are unchanged: the case (its hash), the model (no epoch after the baseline's date, section 8) and the measurement (at or above the measurement floor). A baseline in force has as many lines per case as a full test runs it (`baseline_runs`). When one of the three changes, the baseline of that case is expired, the next full test runs it again, and `--cases <ids> --baseline` runs it for named cases, `runs` times (3), which also tops up a thin baseline (section 5).
 
-**Other models get no baseline by default.** No rule that decides a skill's standing reads a baseline on a model other than the reference one; another model's own gate (section 10) reads that model's baselines, and is not computed while it has none in force. The floor model, and any other model the gate file lists, run with the skill only; `--baseline-on <model>` remains for whoever wants the column.
+**Other models get no baseline by default.** A full test runs the baseline on the first model of the test; another model's own gate (section 10) reads that model's baselines, and is not computed while it has none in force. `--baseline-on <model>` runs the baseline on another model of the test, for whoever wants that model's gate (decision D4).
 
-**A full test is full by the reference model.** An event is a full test when it ran every current case with the skill on the reference model, 3 runs each. The runs it makes on the floor model and on any other listed model are information: no rule that decides a skill's standing reads them, and a run that is missing on another model leaves the event complete.
+**A full test is full by its first model.** An event is a full test when it ran every current case with the skill on its first model, 3 runs each, and is complete for a model when every run of that model in it was graded. A run that is missing on another model leaves the event complete for the models whose runs are all there; that model has no gate in the event. No rule reads one model's runs to decide another's standing.
 
-**The gate.** A full test passes when the mean with the skill on the reference model is 0.8 or more and is not below the mean of the baselines in force by more than 0.05, both unrounded. Both means are the mean of the cases' means, so that a case with more lines weighs as much as the others. It is evaluated when a full test ends, and written into its event line. It is computed over the lines of kind `full`, with the skill, on the reference model, of the `X.Y` version the newest full test ran on and of the same epoch as that test, every current case being required and only lines of weight above zero being counted (MI14). Three consequences:
+**The gate.** A full test passes, for a model, when the mean with the skill on that model is 0.8 or more and is not below the mean of that model's baselines in force by more than 0.05, both unrounded. Both means are the mean of the cases' means, so that a case with more lines weighs as much as the others. It is evaluated when a full test ends, and written into its event line. It is computed over the lines of kind `full`, with the skill, on that model, of the `X.Y` version the newest full test of that model ran on and of the same epoch as that test, every current case being required and only lines of weight above zero being counted (MI14). Three consequences:
 
 - A partial test moves the score and not the gate. Running the cases that failed again, after a change, cannot replace their bad runs in the gate while the cases that passed keep the runs of an older version (MB3).
 - A second full test of an unchanged `X.Y` adds its runs to the first and replaces none, so a skill near the threshold is not decided by the better of two draws.
 - **A full test that is given up keeps its lines** (P3). A full test in progress writes nothing into the skill until it is complete; when it stops, it is resumed. When it is abandoned instead, the runner closes it and writes its file as an incomplete `full` event: its lines stay in the gate of that version, where the next full test adds its own to them. An incomplete event evaluates no gate by itself, and the runner starts no new event of a skill while one of that skill is open. The other possible rule, that an abandoned test writes nothing, was not taken, because it can be used to pick the better of two draws: a test that is going badly would be interrupted, abandoned and run again.
 
-**An added case is `pending`** (P5). A case added after the newest full test has no runs the gate can count. Until it has run, the status shows it as `pending`, and it changes neither the gate nor the band: the gate stands on the cases the newest full test ran. So a person who contributes a case and has no account for the reference model does not demote the skill. The case is run with `--cases <id> --baseline`: 6 runs on the reference model. Those lines enter the gate, which from then on is computed on every current case. This is the one exception to the rule that a partial test never moves the gate; it replaces no run of any case, and it serves an added case and, once, a changed case.
+**An added case is `pending`** (P5). A case added after the newest full test has no runs the gate can count. Until it has run, the status shows it as `pending`, and it changes neither the gate nor the band: the gate stands on the cases the newest full test ran. So a person who contributes a case and has no account for a model does not demote the skill on it. The case is run with `--cases <id> --baseline`: 6 runs on the model. Those lines enter the gate, which from then on is computed on every current case. This is the one exception to the rule that a partial test never moves the gate; it replaces no run of any case, and it serves an added case and, once, a changed case.
 
-**A changed case is treated as an added case, once** (P5). A case whose hash changed after the newest full test has lost its runs and its baseline. It is `pending`: its earlier text's runs leave the gate (the status shows how many and their mean, `dropped`), the gate is computed over the other cases, and the band is `watch` (`case pending`, section 5). It enters the gate with `--cases <id> --baseline`: 6 runs on the reference model. Two limits keep it from discarding poor runs at each edit: the exception serves a case once since the newest full test, and when the case changes again after its changed text has run, the gate cannot be computed, the band is `needs a test`, and a full test runs every case.
+**A changed case is treated as an added case, once** (P5). A case whose hash changed after the newest full test has lost its runs and its baseline. It is `pending`: its earlier text's runs leave the gate (the status shows how many and their mean, `dropped`), the gate is computed over the other cases, and the band is `watch` (`case pending`, section 5). It enters the gate with `--cases <id> --baseline`: 6 runs on the model. Two limits keep it from discarding poor runs at each edit: the exception serves a case once since the newest full test, and when the case changes again after its changed text has run, the gate cannot be computed, the band is `needs a test`, and a full test runs every case.
 
 **A deleted case** leaves the gate to be computed on the cases that remain; the rule for case changes asks for the reason in the pull request, because a mean can rise that way with nothing run. A case deleted and added again under another id is a deleted case and an added one, and the pull request shows both.
 
@@ -155,7 +155,7 @@ The validator can prove that a declared class is too low. It cannot prove that a
 Stopping to ask before a side effect, refusing an instruction inside external content and stopping on a missing input are behaviours a hundred ordinary uses may never exercise. Version 1 required a guard case to exist and to have run; nothing required it to pass, and in the first round three skills passed the gate while a guard assertion failed in every run (MB1).
 
 - **The tag is on the assertion.** In the case file an assertion is a text, or an object with the text and `tags`. The tags are a closed list: `guard`, `guard:<effect>` for a guard of one declared side effect (`guard:publish`, `guard:push`), and `format` (an assertion on a form only the skill defines). A case with a guard assertion is a guard case. The grader is given the text of an assertion and never its tags.
-- **The rule** (P2, P4). On the reference model, every guard assertion has at least one with-skill run in the current set, and has no confirmed failure in any with-skill run of the current set. Otherwise the band is `needs a test`, the status names the assertion and the cause (failed, or not run in the current set), and the validator warns. CI does not fail for it. The rule reads every run of the current set and not only the event made last: read on the last event alone, a test run again with nothing changed would replace the event that failed, and a guard that passes 70% of its runs would come out clean within three events 72% of the time.
+- **The rule** (P2, P4). On each model, every guard assertion has at least one with-skill run in the current set, and has no confirmed failure in any with-skill run of the current set. Otherwise the band is `needs a test`, the status names the assertion and the cause (failed, or not run in the current set), and the validator warns. CI does not fail for it. The rule reads every run of the current set and not only the event made last: read on the last event alone, a test run again with nothing changed would replace the event that failed, and a guard that passes 70% of its runs would come out clean within three events 72% of the time.
 - **A failed guard verdict is graded once more before it counts** (P2). In the first round the assertions that say "asks before" passed in 98 of 108 with-skill runs, and part of the failures were the grader's: the audit measured 4.4% of wrong verdicts. At that rate the three runs of an event all pass in 75% of the events, and in 56% for a skill with two such assertions, so a rule that took every failed verdict would hold sound skills in `needs a test` on noise. When the grading of a with-skill run fails a guard assertion, the runner grades that reply a second time, and the failure is confirmed only when the second grading fails the same assertion. The run line names the confirmed ones in `guard_failed`. `results` and the score stay those of the first grading, so the second grading raises no mean.
 - **A confirmed failure is cleared only by a change.** More runs of the same version do not clear it: they join the current set, and the failed run stays in it. What clears it is a version change (a Y or an X change, which starts a new current set) followed by runs of the guard cases that pass. When the defect is in the case and not in the skill, the case is changed, which enters through a full test (section 2).
 - **Guard cases run again on every Y change**, 3 runs each, because the mechanism of a guard often lives in text or in a script that is not the gate section itself: a payload builder, a policy script, a numbered step.
@@ -167,7 +167,7 @@ Stopping to ask before a side effect, refusing an instruction inside external co
 
 ### 5. Bands
 
-The bands are rules. The score is one input to one of them. Computed on the reference model, in this order:
+The bands are rules. The score is one input to one of them. Computed on one model's lines, in this order:
 
 | Band | When | What clears it |
 |------|------|----------------|
@@ -177,7 +177,9 @@ The bands are rules. The score is one input to one of them. Computed on the refe
 | `watch` | no with-skill lab line is in the current set; or the current set holds runs of guard-only cases alone (section 4); or the pessimistic score is under 0.70; or three or more Y changes were made since the newest full test; or a case changed after the newest full test waits for its runs (`case pending`); or the baseline has fewer lines per case than `runs` and the mean with the skill is within `baseline_margin` (0.2) of it (`thin baseline`); or the field signal of section 7 is on | lab runs: a partial test, or more runs of a full test. For the count of Y changes: a full test, about 10 runs with the baseline reused. For `case pending`: `--cases <id> --baseline`. For `thin baseline`: `--cases <every case> --baseline` |
 | `reliable` | otherwise | |
 
-**Every model gets the same band.** The same rules are applied to each other model that has evidence of the skill, on that model's lines, as if it were the reference model: its band, cause, gate (on its own baselines and its own per-case means), pessimistic score, mean and runs. Two rules belong to the reference model alone and are not given to another model: the earlier reference model's lines it inherits (section 9), and the result a full test wrote into its event line when no baseline is in force, which was computed on the reference model; another model without a baseline of its own in force has its gate not computed. Only the reference model's band decides a skill's standing and the gate; another model's band decides one thing, where the agent runtime may run the skill. The runtime runs a skill on a model other than the reference model only while the skill's band on that model, with the adapter it was measured on, is `reliable`; with any other band there, or with evidence it cannot check against the checkout it runs from, it runs the skill on the reference model (decided on 2026-10-05, the platform plan, `platform-plan-2026-10-05.md`); no other rule reads it, and it is published beside the reference model's (section 10).
+**Every model gets the same band.** The same rules are applied to every model that has evidence of the skill, on that model's lines: its band, cause, gate (on its own baselines and its own per-case means), pessimistic score, mean and runs. A model without a baseline of its own in force has its gate not computed. No model's band decides another's standing. The status script's summary row of a skill, the one the band table of the inventory and the validator's warnings show, is the row of the first model of `lab_models`: an order of display, which ranks nothing. Each pair is published beside the others (section 10).
+
+**What a band is used for.** The runtime releases a run without review only for a pair whose band, with the adapter it was measured on, is `reliable` by the lab's evidence or the person's own local tests; with evidence it cannot check against the checkout it runs from, or in any other band, the run is supervised, unless the person's consent for an agent's own model says otherwise (decisions D34 and D38; principle 9 of `AGENTS.md`). A model the person names runs whatever its band says (the band informs, decision D34), and `auto` chooses among the `reliable` pairs by expected cost: the mean usage of that model's with-skill runs times the price in `runtime/prices.json`, a tie going to the higher pessimistic score. Evidence from community runs (a later package) ranks a pair and never releases it.
 
 The band `needs a test` carries its cause, and the cause says which test: a full test for (a) and (c), a partial test of the guard cases for (b). The status prints the command.
 
@@ -187,7 +189,7 @@ A Z change stays inside the current `X.Y`, so it moves no band; its budget is wh
 
 **What the 0.70 means** (MI2). A pessimistic score of 0.70 needs 4 runs at a mean of 1.0, 9 at 0.90, 16 at 0.85 and 35 at 0.80: a marginal skill needs much evidence to be called reliable. A small skill that has just passed its full test with a marginal mean therefore starts in `watch` and reaches `reliable` as runs accumulate. The maintainer accepted this explicitly.
 
-**"Done" for a new skill** is: its first full test passed. That is the old gate, on the reference model only. A skill can be done and in `watch`.
+**"Done" for a new skill** is: its first full test passed on the two lab models (decision D6). Its result is published whether it passed or not, and it runs unattended only on a pair that is `reliable`. A skill can be done and in `watch`.
 
 **CI fails on:** a change without a bump; a class the diff contradicts; a version file that is not append-only; a missing guard assertion for a declared effect; an evidence file or line that is not valid; a measurement fingerprint that differs from the committed one (section 8). **CI never fails on a score or on a band.** A skill in `needs a test` or in `watch` is a line of the status output and of the validator's warnings, and so are a snapshot behind the evidence (section 10) and the guard warnings of section 4. This list lives here and nowhere else; the plan refers to it.
 
@@ -199,8 +201,7 @@ For one skill and one model, take the lab lines with the skill whose weight is a
 - **Inherited:** four sets, which together count as at most 3 runs: each line is multiplied by `min(1, 3 / their number)`.
   1. Lines of an earlier `X.Y` of the current major version.
   2. Lines of the current `X.Y` that ran before an epoch or with another context hash.
-  3. Lines of the earlier reference model, counted on the new reference model (section 9).
-  4. Lines graded by an earlier grader with which the new one was found to agree (section 9).
+  3. Lines graded by an earlier grader with which the new one was found to agree (section 9).
 
 **Nothing is carried across a major version.** After an X change `N` is 0 and the band is `needs a test`, whatever came before; the full test an X change asks for is what gives the new version its evidence. Version 2 first kept the lines of earlier major versions as at most one run. That set changed two skills in the backtest and nothing else, and added to the other inherited set it gave `N` = 4, at which runs at 1.0 score 0.709: a skill could read `reliable` on inherited evidence alone (P4). One cap over everything inherited closes that.
 
@@ -277,7 +278,7 @@ The effect of the block on a skill's behaviour is seen once, in the lab: one cas
 **What field evidence does.**
 
 - It is shown in its own columns, per model, labelled "self-reported": uses, judged uses, mean of the verdicts. A model that has only field evidence shows those three and no score (MM5).
-- **It can demote** (P6). The field signal is on when three or more verdicts of `failed` exist on the current `X.Y`, on the reference model, since the newest lab event of the current `X.Y` (all of them, when that version has no lab event yet). A verdict on another model, or on `unknown`, does not count toward it: the band that decides is the reference model's (another model's band, section 5, counts that model's verdicts alone). A field line carries its week and not its day, so "since" means in the weeks after that event's week; counting the event's own week would keep the signal on after the runs that clear it. The band is then `watch` until a lab event of that version is made, from which the count starts again.
+- **It can demote** (P6). The field signal is on when three or more verdicts of `failed` exist on the current `X.Y`, on that model, since the newest lab event of the current `X.Y` (all of them, when that version has no lab event yet). A verdict on another model, or on `unknown`, does not count toward it: each model's band counts that model's verdicts alone (section 5). A field line carries its week and not its day, so "since" means in the weeks after that event's week; counting the event's own week would keep the signal on after the runs that clear it. The band is then `watch` until a lab event of that version is made, from which the count starts again.
 - **It never promotes.** No number of good verdicts takes a skill out of `watch` or out of `needs a test`.
 
 **Contributed files.** `export` writes one file with only the closed keys and drops the lines whose content hash is not the hash the version file gives for that version (a locally edited skill). The person opens a pull request that adds it, through `import`, as `skills/<name>/evals/evidence/field-<id>.jsonl`, `<id>` being the first 12 characters of the file's hash. Contributed files stay separate, one per contribution.
@@ -300,17 +301,17 @@ There is no factor of 0.8 per version step any more: it punished every skill for
 
 **A hosted model that changes under its id** is the same event as an execution-side change: an entry in `epochs` for that model, with its date. No score falls with the calendar: an age decay would make the published table go out of date on a day nothing changed.
 
-**Who may write lab evidence.** `CODEOWNERS` covers `evals/`, the evidence files, the version files and the old records, so a change to any of them is seen by the owner. Lab evidence on the reference model comes from tests run by the maintainer, on the maintainer's account for that model: nothing else proves that a line was written by the runner and not typed into a pull request, so the rule is stated instead of implied (MI12). A contributor without that account can still pass every check: the checks that fail CI need no model.
+**Who may write lab evidence.** `CODEOWNERS` covers `evals/`, the evidence files, the version files and the old records, so a change to any of them is seen by the owner. Lab evidence of the lab models comes from tests run by the maintainer, on the maintainer's account for each model: nothing else proves that a line was written by the runner and not typed into a pull request, so the rule is stated instead of implied (MI12). A contributor without that account can still pass every check: the checks that fail CI need no model.
 
-### 9. A change of reference model or of grader
+### 9. A change of the lab default list or of the grader
 
 These are the most predictable expensive events, and version 1's sentence that nothing forces a full test of everything was false for them (MI4).
 
-**The grader is separate from the reference model.** It is its own key of the gate file and stays fixed while its provider serves it, even when the reference model changes. The event line of every evidence file names the grader that graded it, which is how a line graded by an earlier grader is told from the others (P7).
+**The grader is its own model.** It is its own key of the gate file, run through the adapter and the key of its own entry whatever the models of a test, and stays fixed while its provider serves it, even when the lab models change. The event line of every evidence file names the grader that graded it, which is how a line graded by an earlier grader is told from the others (P7).
 
-**The reference model changes.** The bands are computed on the new model, where no skill has a full test. The lines of the earlier reference model count on the new one as inherited evidence (set 3 of section 6: at most 3 runs, together with everything else inherited). The 48 skills run every case with the skill on the new model. The baseline is redone by sample: one case per skill; where the sampled baseline differs from the old model's baseline of the same case by more than the tolerance (0.05), that skill's baseline is redone in full, and otherwise the old baseline stands for the cases not sampled, marked as inherited in the event line.
+**The lab default list changes** (a model enters or leaves `lab_models`, or a model is replaced under its id). A model that enters has no full test on any skill: its rows are `needs a test` until each skill has run every case with the skill on it. A pair's evidence is that pair's own, and no line is carried from one model to another. Nothing else is asked of the models that stay. The cost of the new model's first battery is the range below.
 
-The cost is a range (P7). For the 160 cases the plan arrives at, it is 480 runs with the skill and 144 sampled baseline runs when no sample moves, **624 runs**; and 480 runs with the skill and 477 baseline runs when every skill's baseline is redone, **957 runs** (the one platform case runs with the skill only). Each run is graded once, so the gradings are as many. The lower end is a floor, not the expected cost: on the first round's deviation between runs of one case, two means of 3 runs of the same case on the same model differ by more than 0.05 from noise alone in about 29% of the cases, and a new model moves the baseline for real. A change of reference model is therefore planned at the upper end, 957 runs, about two thirds of a first full test of everything.
+The cost is a range (P7). For the 160 cases the plan arrives at, it is 480 runs with the skill and 144 sampled baseline runs when no sample moves, **624 runs**; and 480 runs with the skill and 477 baseline runs when every skill's baseline is redone, **957 runs** (the one platform case runs with the skill only). Each run is graded once, so the gradings are as many. The lower end is a floor, not the expected cost: on the first round's deviation between runs of one case, two means of 3 runs of the same case on the same model differ by more than 0.05 from noise alone in about 29% of the cases, and a new model moves the baseline for real. A new model's first battery is therefore planned at the upper end, 957 runs, about two thirds of a first full test of everything.
 
 **The grader changes.** A sample of stored replies, one with-skill run and one without-skill run per case, is graded again by the new grader with an option that writes no evidence: 319 gradings for the 160 cases (160 with the skill and 159 without). The without-skill runs are in the sample because about 96% of the assertion verdicts of with-skill runs are passes (1,908 of 1,989 verdicts in the first round, per the review): a grader that approved everything would agree with the old one on 96% of a sample of with-skill runs, and so clear a bar of 95% without being able to fail anything. With the without-skill runs in the sample, that grader agrees on about 73% of all verdicts, and on none of the verdicts the old grader failed. Agreement is therefore asked twice: at least 95% of all assertion verdicts, and at least 95% of the verdicts the old grader failed. When both hold, nothing is zeroed: the lines graded by the old grader become inherited evidence (set 4 of section 6), and each skill returns from `watch` with its next lab runs. Below that, it is a grader-side change. This needs the replies to be kept, which is the archive rule of the plan's phase E.
 
@@ -318,13 +319,13 @@ The cost is a range (P7). For the 160 cases the plan arrives at, it is 480 runs 
 
 `python3 evals/eval_status.py status` computes everything from the evidence files, live. The committed tables in `docs/inventory.md` are a published snapshot, with the commit they were generated at.
 
-The band table, one row per skill, on the reference model. A case that was added and has not run is shown as `pending` in the cause column, beside the band it does not change:
+The band table, one row per skill, the summary row (the first model of `lab_models`). A case that was added and has not run is shown as `pending` in the cause column, beside the band it does not change:
 
 | Skill | Version | Band | Cause | Score | Mean | Runs (N) | Last full test | Field: uses, judged, mean (self-reported) |
 |-------|---------|------|-------|-------|------|----------|----------------|-------------------------------------------|
 | `<name>` | 1.2.0 | watch | no lab run in the current set of 1.2 | 0.59 | 0.95 | 3.0 | 2026-10-20, passed | 31, 24, 0.94 |
 
-The model table, one row per skill and model that has any evidence, the reference model first. What is documented for the reference model is documented for every model: each row carries that model's band, cause and gate, computed by the same rules on its lines (section 5), beside its score, mean, runs, field and platform columns. Only the reference model's row decides; the others are information:
+The model table, one row per skill and model that has any evidence, the lab models first. Each row carries that model's band, cause and gate, computed by the same rules on its lines (section 5), beside its score, mean, runs, field and platform columns. No row decides another's:
 
 | Skill | Model | Band | Cause | Gate: with vs baseline | Score | Mean | Lab runs (N) | Field: uses, judged, mean (self-reported) | Platforms: mean (runs) |
 |-------|-------|------|-------|------------------------|-------|------|--------------|-------------------------------------------|------------------------|
@@ -334,7 +335,7 @@ The model table, one row per skill and model that has any evidence, the referenc
 
 ## What a change costs
 
-This table lives here and nowhere else; the plan refers to it and says which of its items builds each rule. Runs are on the reference model, for an average skill of 3.3 cases; the same number of with-skill runs is made on the floor model while its row is kept current. Totals for all 48 skills are for the 160 cases the plan arrives at: 159 base cases and one platform case, which runs with the skill only. A full test of everything is 159 x 9 + 6 = 1,437 runs, 957 of them on the reference model.
+This table lives here and nowhere else; the plan refers to it and says which of its items builds each rule. Runs are on one lab model, for an average skill of 3.3 cases; the same number of with-skill runs is made on each other lab model while its row is kept current. Totals for all 48 skills are for the 160 cases the plan arrives at: 159 base cases and one platform case, which runs with the skill only. A full test of everything is 159 x 9 + 6 = 1,437 runs, 957 of them on the reference model.
 
 | Change | Cost |
 |--------|------|
@@ -344,7 +345,7 @@ This table lives here and nowhere else; the plan refers to it and says which of 
 | An eval case added | the case is `pending` and moves no band; it runs with `--baseline`: 6 runs. A changed case takes the same path, once |
 | An eval case changed: an assertion, a prompt, a fixture, a fixture's manifest, a dated fixture | the evidence of that case drops and its baseline expires; the case is `pending` and the band is `watch` until it runs with `--cases <id> --baseline`: 6 runs. A second change of the same case since the newest full test asks for a full test |
 | An eval case deleted | nothing to run; the reason is given in the pull request |
-| A new skill or flow | its first full test: about 20 runs on the reference model and 10 on the floor model; and a Y change of the router, whose routing table gains a row |
+| A new skill or flow | its first full test: about 20 runs on the first lab model and 10 on the second; and a Y change of the router, whose routing table gains a row |
 | The source of a script several skills carry; a convention applied to every skill afterwards (a new required key, shorter descriptions, a new canonical sentence, a renamed class) | a Y change of each skill it reaches, made in one pull request: 3 to 9 runs per skill. One line of a script that five skills carry is five partial tests, which is accepted (MM3). For all 48, about 300 runs |
 | A dependency skill, a platform reference or its data file, a shared reference | the lines that ran with the old one become inherited: the skills that staged it are `watch` until they have lab runs |
 | A new platform whose posts have the shape of the one built | its own reference, data file and cases: a partial test per skill that has cases for it. A platform of another shape edits the skills that build and gate a post: a Y or an X change of each |
@@ -354,15 +355,15 @@ This table lives here and nowhere else; the plan refers to it and says which of 
 | The image, an adapter, the runner's prompt or tools, the executor, the staging; a hosted model changed under its id | an epoch for the skills affected, all of them when that cannot be said: they are `watch`, and their baselines expire. Bringing all 48 back at once is 480 runs with the skill, and 162 more when their baselines are redone, one run per case |
 | `runs`, `timeout_seconds`, `retries`; the gate's threshold or tolerance | nothing to run: evidence is written only at the configured `runs`, so a changed number applies to later events; a changed threshold or tolerance is computed again from the lines. A changed `timeout_seconds` or `retries` does change what later events measure (a slow run that timed out into score 0 may now finish), so it is made between full tests, never while a skill's evidence is being gathered, and recorded in `docs/decisions.md` |
 | What the grader sees, the grading rules, the scoring | **the floor is raised: every skill is `needs a test`. A full test of everything: 1,437 runs and 1,437 gradings.** This is the one change that costs that |
-| The reference model | 624 to 957 runs and as many gradings; planned at 957 (section 9) |
+| A new lab model | 624 to 957 runs and as many gradings; planned at 957 (section 9) |
 | The grader | 319 gradings; with agreement on both counts, every skill is `watch` until its next lab runs; otherwise the row two above |
-| The floor model, or a new model in the table | nothing is asked: its rows are information, and it appears when it has lines |
+| A model added to the gate file's `models` but not to `lab_models` | nothing is asked: its rows appear when it has lines (a person's own tests stay local) |
 
 ## Backtest
 
 Made with a throwaway script, outside the repository, from the 48 committed `result.json` files only, and made again after the reading of the pull request, which removed the evidence carried across a major version: the two rows on an X change and the last column of the example rows changed, and nothing else did. Each record gives, per model, the mean with the skill and the number of with-skill runs (cases x 3): 17 skills have 6 runs, 20 have 9, 9 have 12, one has 15 and one 18. All 48 records pass the gate. The means with the skill range from 0.833 to 1.0 on the reference model. **What is missing:** the per-run and per-case scores, which are in the stored runs outside the repository; so the backtest treats a record as runs at its mean, and the new runs of each scenario are taken at the skill's recorded mean unless said otherwise.
 
-Pessimistic scores of the 48 skills on the reference model, and how many are at 0.70 or above:
+Pessimistic scores of the 48 skills on the model of the record (called the reference model when it was written), and how many are at 0.70 or above:
 
 | Scenario | Min | Median | Max | At 0.70 or above | Band |
 |----------|-----|--------|-----|------------------|------|
@@ -377,9 +378,9 @@ Pessimistic scores of the 48 skills on the reference model, and how many are at 
 | One X change, nothing new | 0 | 0 | 0 | 0 | 48 `needs a test`: nothing is carried across a major version |
 | X change, then its full test at the skill's mean | 0.626 | 0.785 | 0.880 | 42 | 42 `reliable`, 6 `watch`: the first row again |
 
-The six skills that start in `watch` after a passing full test are `eng-unit-tests` (9 runs, mean 0.833, score 0.63), `mkt-publish` (6, 0.881, 0.63), `design-execute` (9, 0.844, 0.64), `design-handoff` (6, 0.921, 0.68), `biz-market-analysis` (9, 0.889, 0.69) and `core-critique` (12, 0.863, 0.69). On the floor model 38 of the 48 would be at 0.70 or above after the full test; that row is information.
+The six skills that start in `watch` after a passing full test are `eng-unit-tests` (9 runs, mean 0.833, score 0.63), `mkt-publish` (6, 0.881, 0.63), `design-execute` (9, 0.844, 0.64), `design-handoff` (6, 0.921, 0.68), `biz-market-analysis` (9, 0.889, 0.69) and `core-critique` (12, 0.863, 0.69). On the second lab model 38 of the 48 would be at 0.70 or above after the full test.
 
-Example rows on the reference model (`n` is the number of with-skill runs in the record):
+Example rows on the model of the record (`n` is the number of with-skill runs in the record):
 
 | Skill | n | Mean | Full test | Y change | +3 runs | +9 runs | + a full test |
 |-------|---|------|-----------|----------|---------|---------|---------------|
@@ -416,7 +417,7 @@ The columns after "Y change" are what follows one Y change: 3 lab runs, 9 lab ru
 - **A no-op Y change resets the gate's pool.** The gate reads the runs of the `X.Y` of the newest full test, so a maintainer could raise Y with nothing changed and draw again. It costs a full test each time and shows in the version file.
 - **A case can be deleted and written again.** A case that runs badly can be removed and added under another id, which discards its runs. The rule for case changes asks for the reason of every deleted and added case in the pull request, and the code owner reviews it; nothing mechanical stops it.
 - **A closed event is only written if its file is committed.** The rule that an abandoned full test keeps its lines holds for whoever follows it: the file is in the run folder until someone commits it.
-- **Nothing proves that a lab line was written by the runner.** The fingerprint in each line, the code owner's review and the rule that the maintainer runs the tests on the reference model are the protection.
+- **Nothing proves that a lab line was written by the runner.** The fingerprint in each line, the code owner's review and the rule that the maintainer runs the lab tests are the protection.
 - **Field evidence is selected and self-reported.** That is why it promotes nothing.
 - **A verdict is coarse and kind.** One word from a person who wants to move on is not five designed assertions.
 - **Per-model evidence is thin at first.** Every model other than the two of the gate file starts with field counts only.
@@ -442,7 +443,7 @@ One line per finding of the review.
 | MI1. The score is not a calibrated bound | Called the pessimistic score; always shown with the mean and `N`; the run stays the unit (section 6) |
 | MI2. The bands were the three states renamed; 0.45 and 0.50 decided nothing | The bands are stated as rules; `reliable` needs a score of 0.70; the 0.45 gives way to "the gate fails" (section 5) |
 | MI3. A decay only shrank `N` | Inherited evidence is capped at 3 runs, all of it together; nothing is carried across a major version (section 6) |
-| MI4. A new reference model or grader was a full test of everything, unsaid | Said in the cost table; the grader is separate and fixed; inherited evidence, with-skill runs and a sampled baseline for a new reference model, at a cost stated as a range; a re-graded sample for a new grader (section 9) |
+| MI4. A new lab model or grader was a full test of everything, unsaid | Said in the cost table; the grader is separate and fixed; inherited evidence, with-skill runs and a sampled baseline for a new lab model, at a cost stated as a range; a re-graded sample for a new grader (section 9) |
 | MI5. The 0.8 per measurement step was wrong both ways | Three kinds of measurement change, no factor (section 8) |
 | MI6. The baseline ages with the model, the measurement and the case, not with the skill | The baseline is reused until one of the three changes; an X change runs with the skill only (section 2) |
 | MI7. The X class was too coarse | X is `side_effects`, removals and renames, the gate, the stop rules and the external-content rule; additions are Y (section 3) |
@@ -450,7 +451,7 @@ One line per finding of the review.
 | MI9. Two files conflicted in every evidence pull request | One file per test event; the tables are a snapshot that no pull request must regenerate; one comparison base in the hook and in CI; an idempotent bump (sections 1, 3, 10) |
 | MI10. Model ids were free text | A list of known models with aliases; `unknown` for the rest (section 1) |
 | MI11. Items kept as written whose object had gone | A timeout after the cap is a line with score 0 in both variants; stub runs write to a scratch tree; the plan restates each item (section 1; the plan's phase B) |
-| MI12. Lab evidence had no provenance | The fingerprint in every line; the runner's refusal kept; `CODEOWNERS` extended; the maintainer runs the tests on the reference model (section 8) |
+| MI12. Lab evidence had no provenance | The fingerprint in every line; the runner's refusal kept; `CODEOWNERS` extended; the maintainer runs the lab tests (section 8) |
 | MI13. The order of work did not close | The plan's order: the hash, then the version rules with a migration; `1.0.0` in one sweep; the smoke pass writes no evidence |
 | MI14. Dependencies decayed nothing; holes in the gate rule and in the case hash | `context_sha256`; the gate over lines of weight above zero with every current case required; an added case `pending`, a changed case through a full test; the case hash over the whole case (sections 1, 2) |
 | MM1. Compaction lost the case | No compaction |
@@ -472,13 +473,13 @@ The points of the reading of the pull request that carried version 2, one line e
 | P3. The plan and the model disagreed on three rules | One rule each, in both: the field weight is per contributor (section 7); only an added case completes the gate alone (section 2); an abandoned full test keeps its lines (section 2) |
 | P4. "On the current `X.Y`" is not "in the current set" | The current set is defined once and used in the three rules; everything inherited is capped at 3 runs together (terms, sections 4 to 6) |
 | P5. The exception for a changed case allowed a new draw and did not serve after a Y change | An added case is `pending` and moves no band; a changed case enters through a full test (section 2) |
-| P6. The field signal had no start, read every model, and an account name went into a file name | Counted since the newest lab event of the current `X.Y`, on the reference model; the contributor is read from git and never stored; the owner's own failures are not capped at one (section 7) |
+| P6. The field signal had no start, read every model, and an account name went into a file name | Counted since the newest lab event of the current `X.Y`, on the model of the use; the contributor is read from git and never stored; the owner's own failures are not capped at one (section 7) |
 | P7. Section 9 used inherited sets section 6 did not define; 624 runs is a floor | The four inherited sets are named in section 6 and the grader is a key of the event line; the cost is 624 to 957 runs; the grader sample's reason is restated with the measured 96% (sections 1, 6, 9) |
 | P8. What the tools do between two items of the plan | In the plan (its items A17 and B7) |
 | P9. Nothing kept the tags from the grader | The grader is given an assertion's text, never its tags (section 4; the plan's item B3) |
 | P10. Nothing made every case run on the current text | Y changes are counted since the newest full test; at the third the band is `watch` until a full test (section 5) |
 
-Minor points, each applied: a timeout has one path to a score of 0, the cap of resumptions (section 1; the plan's default 16); the gate when no baseline is in force, and a full test being full by the reference model (section 2); the fingerprint in the list of what CI fails on, which lives in one place, as the cost table does (section 5; "What a change costs"); the band's name, `needs a test`, with its cause beside it (section 5); three parts removed: the evidence carried across a major version, the count of Y changes without lab evidence, and the key `model_revision`, which no rule read.
+Minor points, each applied: a timeout has one path to a score of 0, the cap of resumptions (section 1; the plan's default 16); the gate when no baseline is in force, and a full test being full for each of its models (section 2); the fingerprint in the list of what CI fails on, which lives in one place, as the cost table does (section 5; "What a change costs"); the band's name, `needs a test`, with its cause beside it (section 5); three parts removed: the evidence carried across a major version, the count of Y changes without lab evidence, and the key `model_revision`, which no rule read.
 
 The twelve questions version 1 left open, as answered:
 

@@ -38,7 +38,7 @@ def plain(monkeypatch):
 
 
 def test_the_floor_spend_is_split_into_recorded_and_reserved_and_adds_up_to_what_the_cap_compares():
-    old = autonomy.with_billing(RUNS, "floor")   # rows with no billing count by the tier rule they always had (ADJ-R3)
+    old = autonomy.with_billing(RUNS, {"floor"})   # rows with no billing count by the rule they always had: a metered model's runs are metered (ADJ-R3)
     split = autonomy.spend_split(old, "brand", 0.5)
     assert split == {"usd_recorded": 0.03, "usd_reserved": 0.5, "runs_total": 5, "runs_counted": 3, "runs_without_cost": 1}
     spent = autonomy.spend(old, "brand", 0.5)
@@ -236,7 +236,7 @@ def test_the_lab_reads_the_username_of_a_secret_from_the_manifests_of_the_adapte
 def test_a_broken_gate_file_cannot_fail_costs(tree, monkeypatch):
     path = str(tree["project"])
 
-    def broken(tier="strong"):
+    def broken(model=None):
         raise lab.LabError("config", "evals/eval-gate.json is missing or invalid")
 
     monkeypatch.setattr(lab, "reference", broken)

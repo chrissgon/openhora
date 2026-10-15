@@ -572,7 +572,7 @@ def test_poll_still_decides_with_the_new_snapshot(world):
     out = ops.poll(world["path"])  # poll builds the snapshot the dispatcher builds and starts nothing
     assert [r["pending_id"] for r in out["released"]] == [review["id"]] and one
     ctx = ops_core.context(world["path"])
-    snapshot = ops._snapshot(ctx, ops_core._floor_key())
+    snapshot = ops._snapshot(ctx, ops_core._keys())
     assert {"running", "holding", "refused", "ready", "max_running", "per_run_usd"} <= set(snapshot)
     assert all("footprint" in t and "code" in t for t in snapshot["ready"])
 
@@ -943,11 +943,11 @@ def test_a_task_started_and_not_yet_claimed_is_counted_as_running_and_not_decide
     with ops_runs.SPAWNED_LOCK:
         ops_runs.SPAWNED.append((world["path"], one, child))
     ctx = ops_core.context(world["path"])
-    snapshot = ops._snapshot(ctx, ops_core._floor_key())
+    snapshot = ops._snapshot(ctx, ops_core._keys())
     assert [t["id"] for t in snapshot["ready"]] == [two] and [r["id"] for r in snapshot["running"]] == [one]
     assert held(world) == {} or held(world).get(one) is None  # never held against its own footprint
     child.returncode = 0  # it ended: the snapshot reaps before it counts
-    snapshot = ops._snapshot(ctx, ops_core._floor_key())
+    snapshot = ops._snapshot(ctx, ops_core._keys())
     assert snapshot["running"] == [] and sorted(t["id"] for t in snapshot["ready"]) == [one, two]
 
 

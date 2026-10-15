@@ -45,7 +45,7 @@ PUBLISHER_KEY = "DEMO_NET_PUBLISHER_TOKEN"
 def tree(tmp_path, monkeypatch):
     built = st.build(tmp_path, monkeypatch, lab)
     monkeypatch.setattr(ops_core, "ROOT", str(built["tree"]))
-    monkeypatch.setattr(ops_core, "_own_key", lambda: (None, None))  # never the real secret store
+    monkeypatch.setattr(ops_core, "_own_key", lambda variable: (None, None))  # never the real secret store
     # A skill like mkt-engage: it declares the runtime's configuration as an input, and a file under docs/ it writes.
     st.skill(built["tree"], SOCIAL, "docs/workbench/state.md, docs/brand/voice.md, docs/workbench/runtime.json",
              "docs/marketing/engagement-log.jsonl", area="marketing")
@@ -117,8 +117,7 @@ def test_a_contained_social_run_sees_only_the_artifacts_its_skill_declares(tree)
 # R2. The model can read, answer and run commands in the container, with no credential.
 
 def test_no_credential_but_the_model_s_own_enters_a_contained_social_run(tree, monkeypatch):
-    real = lab.reference
-    monkeypatch.setattr(lab, "reference", lambda tier="strong": {**real(tier), "pass_env": [KEY]})
+    st.set_models(monkeypatch, lab, passes={"m": [KEY]})
     monkeypatch.setenv(KEY, "invented-model-key-0123456789")
     monkeypatch.setenv(PUBLISHER_KEY, "invented-publisher-token-9876543210")
     monkeypatch.setenv("VCS_GITHUB_TOKEN", "invented-code-token-5555555555")
@@ -158,7 +157,7 @@ def test_the_model_of_a_contained_social_run_comes_from_the_proof_never_from_the
     config = json.loads((tree["project"] / "docs" / "workbench" / "runtime.json").read_text())
     assert config["model"] == "configured-model" and config["harness"] == "configured-harness"
     result = contained(tree)
-    assert (result["tier"], result["model"], result["adapter"]) == ("strong", "m", "h")
+    assert (result["model"], result["adapter"]) == ("m", "h")
     assert models(tree) == ["m"]  # the model the adapter was started with: the gate file's, by the proof
     assert "configured-model" not in (tree["out"] / "timing.json").read_text()
 
@@ -259,24 +258,17 @@ def test_a_missing_image_is_a_refusal_and_never_a_build(tree, monkeypatch):
 
 
 def test_the_cost_of_a_subscription_run_is_written_as_unknown_and_a_metered_run_keeps_it(tree, monkeypatch):
-    strong = contained(tree)
-    assert strong["tier"] == "strong"
+    first = contained(tree)
+    assert first["model"] == "m"
     timing = json.loads((tree["out"] / "timing.json").read_text())
     assert timing == {"total_tokens": 100, "duration_ms": 5, "exit_code": 0, "cost_usd": None}  # the adapter reported 0.01
-    # A run on a metered credential keeps the adapter's figure (ADJ-R3): the runtime's own capped key for the floor model is one.
-    real = lab.reference
-    monkeypatch.setattr(lab, "reference", lambda tier="strong": {**real(tier), "pass_env": ["STANDIN_FLOOR_PASS"] if tier == "floor" else []})
+    # A run on a metered credential keeps the adapter's figure (ADJ-R3): the runtime's own capped key for a model is one.
+    st.cheaper_second_model(monkeypatch, lab, passes={"fm": ["STANDIN_FLOOR_PASS"]})
     monkeypatch.setenv("STANDIN_FLOOR_PASS", "invented-value-never-shown")
-    monkeypatch.setattr(lab, "standing", lambda skill: {
-        "skill": skill, "version": "0.1.0",
-        "models": {"m": {"band": "reliable", "cause": None, "score": 0.9, "mean": 0.95, "runs": 6},
-                   "fm": {"band": "reliable", "cause": None, "score": 0.9, "mean": 0.95, "runs": 6}},
-        "tiers": {"strong": {"model": "m", "adapter": "h"}, "floor": {"model": "fm", "adapter": "h"}},
-        "web_cases": [], "evidence_images": [st.STANDIN_IMAGE]})
     monkeypatch.setattr(lab, "proof_inputs", lambda skill: "standin-floor-" + skill)
-    monkeypatch.setattr(ops_core, "_floor_key", lambda: {"value": None, "source": "lab", "reason": None})
+    monkeypatch.setattr(ops_core, "_model_key", lambda model: {"value": None, "source": "lab", "reason": None})
     floor = contained(tree)
-    assert floor["tier"] == "floor"  # (the stand-in names one model for both tiers; the tier is what the proof chose)
+    assert floor["model"] == "fm"  # auto chose the cheaper of the two reliable models
     assert json.loads((tree["out"] / "timing.json").read_text())["cost_usd"] == 0.01
 
 
@@ -341,7 +333,7 @@ def test_the_terminal_command_prints_the_result_and_exits_0_when_the_model_answe
     assert cli.main(argv) == 0
     printed = json.loads(capsys.readouterr().out)
     assert printed["status"] == "ok" and printed["failure"] is None and sorted(printed) == [
-        "adapter", "failure", "ignored_changes", "model", "run_dir", "status", "tier"]
+        "adapter", "failure", "ignored_changes", "model", "run_dir", "status"]
     assert "./.h/shared/references/platforms/demo-net.md" in (Path(printed["run_dir"]) / "outputs" / "files.txt").read_text()
     assert (tree["out"] / "response.md").is_file() and (tree["out"] / "timing.json").is_file()
     st.fail(tree["adapter"], "adapter", 9)

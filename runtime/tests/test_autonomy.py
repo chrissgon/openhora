@@ -110,7 +110,7 @@ RUNS = [{"agent": "brand", "model": "ref", "cost_usd": None}, {"agent": "brand",
 
 def test_the_day_s_runs_are_counted_per_agent_and_per_billing():
     # These rows carry no billing, as the rows older than the column: they count by the tier rule the caps had (ADJ-R3, row A-38).
-    old = autonomy.with_billing(RUNS, "floor")
+    old = autonomy.with_billing(RUNS, {"floor"})
     assert autonomy.spend(old, "brand", 0.5) == {"runs_counted": 3, "usd_metered": 0.53, "runs_without_cost": 1}
     assert autonomy.spend(old, "business", 0.5) == {"runs_counted": 1, "usd_metered": 0.0, "runs_without_cost": 0}
 

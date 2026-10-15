@@ -506,9 +506,10 @@ def test_a_skill_that_stops_or_reads_external_content_is_asked_for_a_guard_in_on
 def test_a_guard_assertion_that_passes_in_every_baseline_run_cannot_fail(tree, monkeypatch):
     cases = [case(1, assertions=ASSERTIONS + [{"text": "It stops", "tags": ["guard"]}]), case(2)]
     add_skill(tree, cases=cases, meta={"version": '"1.0.0"'})
-    gate = {"strong_model": "s", "strong_harness": "h", "floor_model": "f", "floor_harness": "h", "floor_pass_env": [],
-            "strong_pass_env": [], "grader": "s", "threshold": 0.8, "strong_tolerance": 0.05, "measurement_version": 5,
-            "measurement_floor": 5}
+    entry = {"aliases": [], "adapter": "h", "pass_env": [], "route": None, "provider_pin": None, "upstream_models": ["x"],
+             "price_source": "https://example.test/price", "run_token_budget": 1000}
+    gate = {"grader": "s", "threshold": 0.8, "tolerance": 0.05, "measurement_version": 5, "measurement_floor": 5,
+            "lab_models": ["s", "f"], "models": {"s": entry, "f": entry}}
     report, status = guards(tree, monkeypatch, gate)
     assert report.warnings == []  # no baseline yet: nothing to read
     h = status.case_hashes(str(tree / "skills" / "eng-demo"))

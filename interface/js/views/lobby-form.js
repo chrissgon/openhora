@@ -8,16 +8,19 @@
 import { h } from "../dom.js";
 import { withheldLine } from "../floor/widgets.js";
 import { icon } from "../frame/icons.js";
+import { MODEL_HINT, modelOptions } from "../models.js";
 import { AFTER_FORM_HINT, AUTO_FLOW, FORM_HINT, afterOptions, flowOptions } from "./lobby-model.js";
 
-/** Create the form. options: {onCreate({text, flow, title, after?}), onBack()}. Returns {el, setFlows(list), setRequests(list), set(partial), markEmpty(), reset(), open(on), isOpen(), focus()}. */
+/** Create the form. options: {onCreate({text, flow, title, after?, model?}), onBack()}. Returns {el, setFlows(list), setModels(list, defaultModel, recommended), setRequests(list), set(partial), markEmpty(), reset(), open(on), isOpen(), focus()}. */
 export function createForm({ onCreate, onBack = () => {} }) {
   const textId = "wb-new-text";
   const flowId = "wb-new-flow";
   const titleId = "wb-new-title";
   const afterId = "wb-new-after";
+  const modelId = "wb-new-model";
   const text = h("textarea", { class: "pui-input wb-lobby-field wb-field-input", id: textId, rows: "3", autocomplete: "off" });
   const flow = h("select", { class: "pui-input wb-lobby-field wb-select", id: flowId }, h("option", { value: "", text: AUTO_FLOW }));
+  const model = h("select", { class: "pui-input wb-lobby-field wb-select", id: modelId, "aria-describedby": `${modelId}-hint` }, modelOptions([], null).map((o) => h("option", { value: o.value, text: o.label })));
   const title = h("input", { class: "pui-input wb-lobby-field wb-field-input", id: titleId, type: "text", autocomplete: "off" });
   const after = h("select", { class: "pui-input wb-lobby-field wb-select", id: afterId, "aria-describedby": `${afterId}-hint` }, afterOptions([]).map((o) => h("option", { value: o.value, text: o.label })));
   const create = h("button", { class: "pui-btn pui-solid pui-theme", type: "submit", text: "Create request" });
@@ -31,6 +34,8 @@ export function createForm({ onCreate, onBack = () => {} }) {
   const body = h("form", { class: "wb-form-body" },
     h("label", { class: "pui-field-group wb-field", for: textId }, h("span", { text: "What do you want done?" }), text),
     flowField,
+    h("label", { class: "pui-field-group wb-field", for: modelId }, h("span", { text: "Model" }), model),
+    h("small", { class: "wb-card-hint wb-hint", id: `${modelId}-hint`, text: MODEL_HINT }),
     h("label", { class: "pui-field-group wb-field", for: titleId }, h("span", { text: "Title (optional)" }), title),
     h("label", { class: "pui-field-group wb-field", for: afterId }, h("span", { text: "After request (optional)" }), after),
     h("small", { class: "wb-card-hint wb-hint", id: `${afterId}-hint`, text: AFTER_FORM_HINT }),
@@ -46,7 +51,7 @@ export function createForm({ onCreate, onBack = () => {} }) {
   body.addEventListener("submit", (event) => {
     event.preventDefault();
     if (creating) return;
-    onCreate({ text: text.value, flow: mayRoute ? flow.value : "", title: title.value, ...(after.value ? { after: after.value } : {}) });
+    onCreate({ text: text.value, flow: mayRoute ? flow.value : "", title: title.value, ...(after.value ? { after: after.value } : {}), ...(model.value ? { model: model.value } : {}) });
   });
 
   return {
@@ -56,6 +61,13 @@ export function createForm({ onCreate, onBack = () => {} }) {
       const keep = flow.value;
       flow.replaceChildren(...flowOptions(list).map((o) => h("option", { value: o.value, text: o.label })));
       flow.value = [...flow.options].some((o) => o.value === keep) ? keep : "";
+    },
+    /** The models of the service's `skills` read (`models`), the project's default and the model it recommends: the options of "Model"; the choice stays while the model is still offered, else it is the first option. */
+    setModels(list, defaultModel, recommended) {
+      const options = modelOptions(list, defaultModel, recommended);
+      const keep = model.value;
+      model.replaceChildren(...options.map((o) => h("option", { value: o.value, text: o.label })));
+      model.value = options.some((o) => o.value === keep) ? keep : "";
     },
     /** The requests of the project (`status.requests`): the options of "After request"; the choice stays while that request is still offered, else it is None. */
     setRequests(list) {
@@ -78,7 +90,7 @@ export function createForm({ onCreate, onBack = () => {} }) {
     set(partial) {
       state = { ...state, ...partial };
       creating = Boolean(state.creating);
-      for (const control of [text, flow, title, after, create]) control.disabled = creating || Boolean(state.disabled);
+      for (const control of [text, flow, model, title, after, create]) control.disabled = creating || Boolean(state.disabled);
       create.textContent = creating ? "Creating..." : "Create request";
       if (creating) create.setAttribute("aria-busy", "true");
       else create.removeAttribute("aria-busy");
@@ -97,6 +109,7 @@ export function createForm({ onCreate, onBack = () => {} }) {
       title.value = "";
       after.value = "";
       flow.value = "";
+      model.value = "";
     },
     /** Show or hide the form (the screen swaps it with the thread and the composer). */
     open(on) {

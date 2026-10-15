@@ -182,7 +182,7 @@ def test_the_skills_fixture_is_the_workbenchs_own_list_with_its_snapshot_commit(
     names = {row["name"] for row in fixture["skills"]}
     assert names == {p.parent.name for p in (REPO / "skills").glob("*/SKILL.md")}
     for row in fixture["skills"]:
-        assert [p["tier"] for p in row["proof"]] == ["strong", "floor"]
+        assert [p["model"] for p in row["proof"]] == [m["model"] for m in fixture["models"]], "one pair per model the gate file lists, in its order"
 
 
 # --- the fixtures are the operations' answers -------------------------------------------------------------------------------------------
@@ -626,7 +626,7 @@ def test_every_answer_and_write_of_the_world_has_only_keys_the_fixtures_have(run
     shapes = {
         "GET /projects": union("projects"), "GET /versions": union("versions"), "GET /projects/{p}/status": {**union("status", "status-routing", "status-live"), "pending": union("pending")["pending"]},   # the same rows as `pending` (ops._listed)
         "GET /projects/{p}/pending": union("pending"), "GET /projects/{p}/pending/{id}": item, "GET /projects/{p}/agents": union("agents"),
-        "GET /projects/{p}/conversation": union("conversation"), "GET /projects/{p}/skills": {"skills": sk(fixtures["skills"]["skills"]), "checks": sk(fixtures["skills"]["checks"])},
+        "GET /projects/{p}/conversation": union("conversation"), "GET /projects/{p}/skills": {"skills": sk(fixtures["skills"]["skills"]), "checks": sk(fixtures["skills"]["checks"]), "models": sk(fixtures["skills"]["models"]), "default_model": None, "recommended_model": None},
         "GET /projects/{p}/costs": union("costs"), "GET /projects/{p}/connections": union("connections"), "GET /projects/{p}/artifacts": union("artifacts"),
         "GET /projects/{p}/flows": union("flows"), "GET /projects/{p}/progress": union("progress"), "GET /projects/{p}/version": union("version"),
         "GET /projects/{p}/commands": union("commands"), "GET /projects/{p}/tasks/{id}": {**union("task", "task-live"), "pending": [item]}, "GET /jobs/{id}": union("job"),

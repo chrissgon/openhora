@@ -101,7 +101,7 @@ Built in stage 9 with the service: the operations `config`, `task`, `flows`, `st
 
 **Turn.** One line of the conversation, `ops.say`: a line that starts with `/` is read by `operations.parse_chat`: it is `/help`, `/new <text>`, or one row of the table that lists the `chat` channel, which calls its operation once and no model (an operation the table does not list for chat gets the help); any other line answers the router's open question on the conversation's last request, or else is a new request, routed (a model call) only when the planning agent may start (its mode and its cap). A plain line that is one of the closed list of questions about the state is answered at once by code (`status` and `progress` in prose); a line typed while the router answers another request of the project (it holds the route lock) is stored and queued (`{"queued": true, "reply": null}`), and `route_queued` answers it when the lock is free. A model's reply is stored and shown, never executed.
 
-**The conversation's memory and its place in a request.** `ops.chat_memory`: the plain lines and the router's replies after the newest reply whose request reached `planned`, `done` or `cancelled`; commands and their replies are left out; the newest 6 turns (`MEMORY_TURNS`), each cut to 600 characters (`MEMORY_CUT`), the whole cut to 4000 (`MEMORY_CHARS`) by dropping the oldest. It is written in front of the new line, under `Earlier in this conversation, oldest first:` and above `The request now:`, and that whole text becomes the request's text. The first line of an exchange reaches the router plain, as the router was measured. It is a bounded text because the floor model's adapter takes the request as one argument (workaround 2 of [backlog](../../backlog.md) T23, marked `T23:` in the code).
+**The conversation's memory and its place in a request.** `ops.chat_memory`: the plain lines and the router's replies after the newest reply whose request reached `planned`, `done` or `cancelled`; commands and their replies are left out; the newest 6 turns (`MEMORY_TURNS`), each cut to 600 characters (`MEMORY_CUT`), the whole cut to 4000 (`MEMORY_CHARS`) by dropping the oldest. It is written in front of the new line, under `Earlier in this conversation, oldest first:` and above `The request now:`, and that whole text becomes the request's text. The first line of an exchange reaches the router plain, as the router was measured. It is a bounded text because the adapter of the OpenRouter models takes the request as one argument (workaround 2 of [backlog](../../backlog.md) T23, marked `T23:` in the code).
 
 **The scheduler's entry.** `dispatcher.py` in a second role: a copy kept in the scheduler's job folder, started with `/usr/bin/python3`, which checks `runtime.json` against the pin before it imports anything of the checkout, then loads that checkout's `ops.py` and calls `ops.poll` (the short job) or `ops.dispatch` (the worker). Its `decide` function, the dispatcher proper, is a pure function of the runtime's layer.
 
@@ -271,7 +271,7 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 <!-- generated: cli-verbs -->
 | Verb | Flags it reads | Operation |
 |---|---|---|
-| `request` | `--text \| --text-file` `[--flow]` `[--title]` `[--after]` | `request` |
+| `request` | `--text \| --text-file` `[--flow]` `[--title]` `[--after]` `[--model]` | `request` |
 | `route` | `--request` `[--flow]` | `route` |
 | `route-queued` | - | `route_queued` |
 | `status` | - | `status` |
@@ -288,14 +288,15 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `go-ahead` | `--task` `[--drop-after]` | `go_ahead` |
 | `cancel` | `--request` | `cancel` |
 | `deps` | - | `deps` |
-| `run-next` | `[--tier]` | `run_next` |
-| `run-task` | `--task` `[--tier]` | `run_task` |
+| `run-next` | `[--model]` | `run_next` |
+| `run-task` | `--task` `[--model]` | `run_task` |
 | `accept-config` | `--sha256` | `accept_config` |
 | `proof` | `[--skill]` | `proof` |
 | `verdict` | `--run` `--word` | `verdict` |
 | `sync` | `[--dry-run]` `[--take]` `[--path]` | `sync` |
 | `hand-over` | `--task` `--file` | `hand_over` |
-| `set-mode` | `--agent` `--mode` `[--accept]` | `set_mode` |
+| `set-mode` | `--agent` `--mode` `[--accept]` `[--consent]` | `set_mode` |
+| `set-model` | `--agent` `--model` `[--accept]` `[--consent]` | `set_model` |
 | `approve-policy` | `--file` `--agent` `[--sha256]` `[--expires]` `[--what]` | `approve_policy` |
 | `revoke-policy` | `--id` | `revoke_policy` |
 | `standing` | `--policy` | `standing` |
@@ -387,6 +388,8 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | POST | `/projects/{p}/tasks/{id}/files` | `hand-over` | `task_id` from `{id}` | every other argument | `file` | file upload |
 | POST | `/projects/{p}/runs/{id}/verdict` | `verdict` | `run_id` from `{id}` | every other argument | - | - |
 | POST | `/projects/{p}/agents/{name}/mode` | `set-mode` | `agent` from `{name}` | `mode` | - | - |
+| POST | `/projects/{p}/agents/{name}/model` | `set-model` | `agent` from `{name}` | `model` | - | - |
+| POST | `/projects/{p}/agents/{name}/consent` | `give-consent` | `agent` from `{name}` | `model`, `mode`, `config_sha256`, `warning_sha256` | - | - |
 | GET | `/projects/{p}/progress` | `progress` | - | every other argument | - | - |
 | GET | `/projects/{p}/agents` | `agents` | - | none | - | - |
 | GET | `/projects/{p}/conversation` | `conversation` | - | `conversation`, `after` | - | - |

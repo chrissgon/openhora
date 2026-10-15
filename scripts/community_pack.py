@@ -12,8 +12,8 @@ Usage:
 preflight refuses, before anything runs, what the workflow must not run: a skill that is not in the checkout, a model
 that the gate file (evals/eval-gate.json) does not list with a route (a model whose key a key proxy holds), an
 adapter other than the one the model's entry names, a malformed case list, and a key variable that is not set. The
-variables checked are the model's own (its entry's pass_env) and the grader's (the gate file's strong_pass_env, since
-every grading goes through the strong slot until the grader has an entry of its own). Only the NAMES of a missing
+variables checked are the model's own (its entry's pass_env) and the grader's (the pass_env of the grader's own
+entry in the gate file: every grading goes through it, whatever the model tested). Only the NAMES of a missing
 variable are printed, never a value. It prints {"ok": true, ...} or a list of problems on stderr and exits 1.
 
 pack finds the evidence file the lab test wrote (exactly one new lab-<test id>.jsonl: in the checkout's skill folder,
@@ -102,7 +102,8 @@ def preflight_problems(root, skill, model, adapter, full, cases, env):
     elif adapter and adapter != entry.get("adapter"):
         out.append(f"{listed} runs through the adapter {entry.get('adapter')}, not {adapter}")
     if entry and entry.get("route"):
-        names = list(entry.get("pass_env") or []) + [n for n in (gate.get("strong_pass_env") or []) if n not in (entry.get("pass_env") or [])]
+        grader_entry = model_entry(gate, gate.get("grader"))[1] or {}
+        names = list(entry.get("pass_env") or []) + [n for n in (grader_entry.get("pass_env") or []) if n not in (entry.get("pass_env") or [])]
         missing = [n for n in names if not env.get(n)]
         if missing:
             out.append("a key variable is not set (add it as a secret of the fork): " + ", ".join(missing))

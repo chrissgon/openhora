@@ -61,6 +61,36 @@
       "where": null
     },
     {
+      "name": "MESSENGER_WHATSAPP_CLOUD_APP_SECRET",
+      "found": false,
+      "where": null
+    },
+    {
+      "name": "MESSENGER_WHATSAPP_CLOUD_TOKEN",
+      "found": false,
+      "where": null
+    },
+    {
+      "name": "MESSENGER_WHATSAPP_CLOUD_VERIFY_TOKEN",
+      "found": false,
+      "where": null
+    },
+    {
+      "name": "MESSENGER_WHATSAPP_TWILIO_API_KEY_SECRET",
+      "found": false,
+      "where": null
+    },
+    {
+      "name": "MESSENGER_WHATSAPP_TWILIO_API_KEY_SID",
+      "found": false,
+      "where": null
+    },
+    {
+      "name": "MESSENGER_WHATSAPP_TWILIO_AUTH_TOKEN",
+      "found": false,
+      "where": null
+    },
+    {
       "name": "NOTION_TOKEN",
       "found": false,
       "where": null
@@ -76,12 +106,18 @@
       "where": null
     },
     {
-      "name": "WB_RUNTIME_FLOOR_KEY",
+      "name": "WB_RUNTIME_KEY_CLAUDE_CODE_OAUTH_TOKEN",
+      "found": false,
+      "where": null
+    },
+    {
+      "name": "WB_RUNTIME_KEY_OPENROUTER_API_KEY",
       "found": false,
       "where": null
     }
   ],
   "secrets_note": null,
+  "warnings": [],
   "image": {
     "name": "standin",
     "present": true,

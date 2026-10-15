@@ -73,7 +73,8 @@ __all__ = (
 )
 # The names of evals/eval_status.py the runtime reads: the gate file, a skill's identity, its standing, the lines that weigh (lab_view) and a case's context (case_context).
 STATUS_NAMES = ("load_gate", "event_config", "skill_version", "content_hash", "fingerprint_problem", "GATE_REL",
-                "all_status", "skill_evidence", "lab_view", "case_context")
+                "all_status", "skill_evidence", "lab_view", "case_context", "model_entry", "model_id", "known_models",
+                "local_evidence_base", "local_evidence_files", "local_skill_evidence", "community_pool", "evidence_authors", "event_model_pairs")
 # Names of evals/measure.py this module re-exports, read on first use (a command that measures nothing runs
 # without that module).
 MEASURE_EXPORTS = ("early_end", "redaction_values")
@@ -277,8 +278,8 @@ def load_status():
 def resolve_pass_env(names):
     """Fill a --pass-env variable missing from the environment from the workbench's secret resolver
     (providers/secrets/resolver.py: the OS secret store), so a key kept there reaches the runs
-    without an export. The names come from the caller (the flags, and floor_pass_env and
-    strong_pass_env of the gate file, their one home): each is checked against the secrets the
+    without an export. The names come from the caller (the flags, and the "pass_env" and
+    "web_pass_env" of each model's entry in the gate file, their one home): each is checked against the secrets the
     adapters register in the "secrets" list of their adapter.json, and no name is taken from that
     registry. Only secrets whose registered readers include eval_run.py are filled; other names and
     values that are not found are left alone."""
@@ -895,11 +896,15 @@ class Slot:
 
 
 class Slots:
-    """The places one model call holds: a place of the tier's web lock when it runs on the open network, then
-    a place of the total. Always taken in that order, so two calls never wait for each other."""
+    """The places one model call holds: a place of the model's web lock when it runs on the open network, then
+    a place of the total. Always taken in that order, so two calls never wait for each other. The web lock is named
+    after the model id (every character outside [A-Za-z0-9._-] becomes "_") and holds the number the control's
+    "web_jobs" gives that model, else its "web_jobs_default" (2)."""
 
-    def __init__(self, control, tier, web=False):
-        self.slots = ([Slot(f"web-{tier}", control["web_jobs"][tier])] if web else []) + [Slot("total", control["total_jobs"])]
+    def __init__(self, control, model, web=False):
+        name = re.sub(r"[^A-Za-z0-9._-]", "_", str(model))
+        jobs = (control.get("web_jobs") or {}).get(model, control.get("web_jobs_default", 2))
+        self.slots = ([Slot(f"web-{name}", jobs)] if web else []) + [Slot("total", control["total_jobs"])]
 
     def __enter__(self):
         taken = []

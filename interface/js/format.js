@@ -99,7 +99,7 @@ export function costNote(spendWords, reserved, unknown) {
 }
 
 // The words of the two caps (A-20, A-38), and the sentence that says what each one counts: a cap follows the billing of the credential a run
-// used, not the model's tier. The runs cap counts runs on a subscription or free credential, the dollar cap the spend of runs on a metered
+// used, not which model it is. The runs cap counts runs on a subscription or free credential, the dollar cap the spend of runs on a metered
 // one (an API key), so the two never read as one.
 export const METER_WORDS = Object.freeze({ runs: "Runs today", spend: "Spend today" });
 export const METER_TIPS = Object.freeze({

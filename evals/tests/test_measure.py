@@ -233,6 +233,6 @@ def test_the_status_script_compares_the_gate_through_the_module(monkeypatch, tmp
                                    "model": "s", "adapter": "h", "kind": "full", "test": event["test"], "date": "2030-01-01",
                                    "measurement_version": 5, "measurement_sha256": "b" * 64, "case": 1, "case_sha256": h,
                                    "variant": variant, "outcome": "graded", "score": score, "results": [int(score)]}
-    gate = es.gate_of(str(skill), {"strong_model": "s", "threshold": 0.8, "strong_tolerance": 0.05, "measurement_floor": 5},
+    gate = es.gate_of(str(skill), {"lab_models": ["s"], "threshold": 0.8, "tolerance": 0.05, "measurement_floor": 5},
                       extra=[(event, [line("with", 1.0), line("without", 0.0)])])
     assert calls == [(1.0, 0.0, 0.8, 0.05)] and gate["passed"] is False

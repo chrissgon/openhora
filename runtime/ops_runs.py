@@ -189,16 +189,18 @@ def _recover(ctx: dict, holding_route: bool = False) -> dict:
 # --- one task run -----------------------------------------------------------------------------------------------------
 
 
-def run_task(project: str, task_id: int, tier=None, checked: bool = True) -> dict:
+def run_task(project: str, task_id: int, requested=None, checked: bool = True) -> dict:
     """Run one named task in this process: take its lock, end what dead processes left, admit and claim it under the claim
     lock, run it, write back the documents it returned. What it returns is what `run_next` returns; a refusal is
     {"ran": None, "reason", "held"} (held: the reason is one of the words of the held tasks, not an error). `checked`
-    false is the person's own start: the daily caps are not asked, the rest is."""
+    false is the person's own start: the daily caps are not asked, the rest is. `requested` is the model the person asked
+    for this run (a checked id or "auto", ops_models.check_word), which wins over the request's, the task's, the agent's and the
+    project's default."""
     ctx = core.context(project)
     cfg = ctx["cfg"]
     with core._task_lock(cfg, task_id):
         recovered = _recover(ctx)
-        started = _start(ctx, task_id, tier, checked)
+        started = _start(ctx, task_id, requested, checked)
         if started.get("ran", True) is None:
             return {**started, "recovered": recovered["tasks"], "pending": len(core._stored(ctx, ctx["store"].pending_list))}
         out = {**_ops()._run_body(ctx, started), "recovered": recovered["tasks"]}
@@ -208,7 +210,7 @@ def run_task(project: str, task_id: int, tier=None, checked: bool = True) -> dic
         return out
 
 
-def _start(ctx: dict, task_id: int, tier, checked: bool) -> dict:
+def _start(ctx: dict, task_id: int, requested, checked: bool) -> dict:
     """Admit, claim and open the run row of one task, under the claim lock. The slow work (the task, its skill, the secret
     store, the routing) is done before the lock. Returns the run's start (what ops._run_body takes), or a refusal
     {"ran": None, "reason", "held"}."""
@@ -217,11 +219,11 @@ def _start(ctx: dict, task_id: int, tier, checked: bool) -> dict:
         task = store.task_get(ctx["conn"], task_id)
     except store.StoreError:
         task = None
-    key = core._floor_key()
+    keys = core._keys()
     prepared, failure = None, None
     if task is not None and task["parent_id"] is not None and task.get("skill") and task["state"] == "ready":
         try:
-            prepared = ops._prepare_run(ctx, task, tier, key)
+            prepared = ops._prepare_run(ctx, task, requested, keys)
         except ops.PREPARE_ERRORS as e:
             failure = e
     with core._claim_lock(cfg):
@@ -238,7 +240,7 @@ def _start(ctx: dict, task_id: int, tier, checked: bool) -> dict:
             running = [r for r in running_and_effects(ctx, cache) if r["id"] != task_id]
             holders = core._stored(ctx, store.task_slot_holders)
             if checked and prepared is not None and task.get("agent") in cfg["area_agents"]:
-                found = ops._agents_of_the_day(ctx, key).get(task["agent"])
+                found = ops._agents_of_the_day(ctx, keys).get(task["agent"])
                 if found is not None:
                     ok, why = autonomy.may_start(task["agent"], cfg["area_agents"], found["facts"], found["spent"],
                                                  prepared["routing"]["billing"])
@@ -264,7 +266,7 @@ def _start(ctx: dict, task_id: int, tier, checked: bool) -> dict:
         return started
 
 
-def run_next(project: str, tier=None) -> dict:
+def run_next(project: str, requested=None) -> dict:
     """The person's verb: end what dead processes left, read the documents platform, pick the oldest ready task that the
     rules of the slots let in (only to choose; the real check is made under the claim lock) and run it in this process.
     Nothing admissible: {"ran": None, "reason"} naming why. Works on a project with no area agents."""
@@ -300,7 +302,7 @@ def run_next(project: str, tier=None) -> dict:
         out = {"ran": None, "reason": ops_waits.explain(ctx, None, reason) if not ready else reason,
                "recovered": recovered["tasks"], "pending": len(core._stored(ctx, store.pending_list))}
         return {**out, "documents": pulled} if pulled is not None else out
-    out = run_task(project, chosen, tier=tier, checked=False)
+    out = run_task(project, chosen, requested=requested, checked=False)
     out["recovered"] = list(dict.fromkeys(recovered["tasks"] + list(out.get("recovered") or [])))
     if pulled is not None:
         if out.get("ran") is None:
@@ -599,7 +601,7 @@ def dispatch(project: str, budget_seconds=None, wait: bool = True) -> dict:
 def _round(ctx: dict, project: str, budget: float, wait: bool, out: dict) -> dict:
     ops = _ops()
     began = time.monotonic()
-    state = {"key": core._floor_key(), "checked": {}, "held": [], "missing": [], "released": [], "first": True}
+    state = {"keys": core._keys(), "checked": {}, "held": [], "missing": [], "released": [], "first": True}
     mine = []
     previous = _install_handlers() if wait else {}
     try:
@@ -661,7 +663,7 @@ def _pass(ctx: dict, project: str, out: dict, state: dict, began: float, budget:
             except ctx["store"].StoreError as e:
                 raise core.OpsError(str(e), e.code) from None
     while True:
-        snapshot = ops._snapshot(ctx, state["key"])
+        snapshot = ops._snapshot(ctx, state["keys"])
         decided = dispatcher.decide(snapshot, autonomy.review_action, autonomy.may_start, parallel.admit)
         out["held"] = decided["held"]
         state["held"] = dispatcher.held_of(snapshot, decided)
@@ -672,7 +674,7 @@ def _pass(ctx: dict, project: str, out: dict, state: dict, began: float, budget:
         break
     if not decided["start"]:
         return 0, "nothing may start" if decided["held"] or snapshot["ready"] else "no task is ready"
-    started = 0
+    started, blocked, first = 0, {}, None
     for position, task_id in enumerate(decided["start"]):
         if STOPPING.is_set():
             out["stopped"] = "the dispatcher was stopped: no new run starts"
@@ -680,16 +682,20 @@ def _pass(ctx: dict, project: str, out: dict, state: dict, began: float, budget:
         if time.monotonic() - began > budget:
             out["stopped"] = f"the round's budget of {budget} s is spent: no new run starts"
             break
-        tier, checked = snapshot["tier"].get(task_id), state["checked"]
-        if tier == "strong" and "credential" not in checked:
-            checked["credential"] = ops._credential_stop()
+        model, checked = snapshot["model"].get(task_id), state["checked"]
+        if model is not None and ("credential", model) not in checked:
+            checked[("credential", model)] = ops._credential_stop(model)
         if "image" not in checked:
             checked["image"] = ops._image_stop()
-        stopper = (checked["credential"] if tier == "strong" else None) or checked["image"]
-        if stopper:
-            reason, out["stopped"], state["missing"] = stopper
+        if checked["image"]:  # no run starts without the image: the rest of the round is held with it
+            reason, out["stopped"], state["missing"] = checked["image"]
             state["held"] = dispatcher.held_of(snapshot, decided, {t: reason for t in decided["start"][position:]})
             break
+        lacks = checked[("credential", model)] if model is not None else None
+        if lacks:  # no run of this model starts; the tasks of the models that have their key go on
+            blocked[task_id] = lacks[0]
+            first = first or lacks
+            continue
         try:
             proc = spawn(cfg, project, task_id)
         except OSError as e:
@@ -698,6 +704,11 @@ def _pass(ctx: dict, project: str, out: dict, state: dict, began: float, budget:
         mine.append(proc)
         out["started"].append({"task_id": task_id, "started_at": ops._now_iso()})
         started += 1
+    if blocked:
+        state["held"] = dispatcher.held_of(snapshot, decided, blocked)
+        state["missing"] = list(first[2])
+        if not started and out["stopped"] is None:
+            out["stopped"] = first[1]
     return started, None
 
 

@@ -24,6 +24,8 @@ adds triggers that refuse to delete a task, a task run or a pending decision (li
 version 8 adds the derived waits between requests: the `after_request` column of a request and the task_waits table (a
 planned task waits for another task, or for a whole request, with the reason shown to the person), under the same rule.
 Schema version 9 adds the `billing` column of task_runs: how the credential a run used is billed (or `unknown`), which the daily caps count by.
+Schema version 10 adds the `model` column of tasks (a request or a task: a model id or `auto`, NULL for a row older than the column),
+and the `autonomy` column of task_runs (`proven`, `consent` or `supervised`: how the run's pair was released, NULL for a run older than the column).
 
 Concurrency: the database runs in WAL mode (readers never block the writer) with a 10-second busy
 timeout, and every write is one BEGIN IMMEDIATE transaction, so several agents and overlapping
@@ -50,7 +52,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 BUSY_TIMEOUT_SECONDS = 10
 PATH_ENV = "STORE_SQLITE_PATH"
 
@@ -331,6 +333,13 @@ MIGRATIONS = {
     # older than the column has none (NULL): history only, counted by the tier rule it had.
     9: ("the billing of the credential a task run used", [
         "ALTER TABLE task_runs ADD COLUMN billing TEXT CHECK (billing IS NULL OR billing IN ('subscription', 'metered', 'free', 'unknown'))",
+    ]),
+    # P3: the choice of the model. A request or a task carries a model id or `auto` (NULL: none chosen, so the agent's fixed model, else the
+    # project's default, decide). A run records how its pair was released: `proven` (lab or local evidence), `consent` (the person fixed the
+    # agent's model with the agent autonomous, decisions D34 and D38) or `supervised` (held for review). A run older than the column has none.
+    10: ("the model of a request or a task, and the autonomy of a task run", [
+        "ALTER TABLE tasks ADD COLUMN model TEXT",
+        "ALTER TABLE task_runs ADD COLUMN autonomy TEXT CHECK (autonomy IS NULL OR autonomy IN ('proven', 'consent', 'supervised'))",
     ]),
 }
 
@@ -1057,6 +1066,20 @@ PENDING_STATUSES = ("open", "resolved", "cancelled")
 RUN_FAILURES = ("timeout", "refused", "auth", "adapter", "early_end", "settings", "stopped", "internal")
 RUN_ENDINGS = ("done", "question", "draft_with_questions", "gate", "blocked", "unclassified")
 RUN_BILLINGS = ("subscription", "metered", "free", "unknown")
+RUN_AUTONOMIES = ("proven", "consent", "supervised")
+AUTO = "auto"  # the model word of "choose by the evidence and the price" (runtime/proof.py)
+
+
+def _autonomy_arg(value):
+    """How a run's pair was released: None, or one of RUN_AUTONOMIES (migration 10 checks the column the same way)."""
+    if value is not None and value not in RUN_AUTONOMIES:
+        raise StoreError(f"autonomy must be one of {', '.join(RUN_AUTONOMIES)}", EXIT_USAGE)
+    return value
+
+
+def _model_arg(value):
+    """The model a request or a task carries: None, `auto`, or a model id (text, up to REF_MAX)."""
+    return text_arg(value, "model", REF_MAX, required=False)
 
 
 def _billing_arg(value):
@@ -1150,7 +1173,8 @@ def _refresh(conn: sqlite3.Connection, now: str) -> tuple[list, list]:
 
 
 def request_add(conn: sqlite3.Connection, *, title: str, text: str, flow: str | None = None,
-                tasks: list | None = None, after: int | None = None, waits: list | None = None) -> dict:
+                tasks: list | None = None, after: int | None = None, waits: list | None = None,
+                model: str | None = None) -> dict:
     """Record a request and, when its plan is given, the tasks of the plan, in one transaction.
 
     Without tasks the request stays `requested` (the router has not answered yet). With tasks, a list of
@@ -1159,8 +1183,9 @@ def request_add(conn: sqlite3.Connection, *, title: str, text: str, flow: str | 
     become `ready`. A dependency names the key of a task earlier in the list, so the plan has no cycle.
     after is the request this one waits for (the person's override, kept on the request); waits are the waits the
     plan's tasks begin with, as _insert_waits reads them, so that no task is ever ready for a moment before its wait
-    exists.
+    exists. model is the model id (or `auto`) the person chose for the request, None when none was chosen.
     Returns {"request": id, "state", "tasks": [{"id", "key", "skill", "state"}]}."""
+    model = _model_arg(model)
     title = text_arg(title, "title", TITLE_MAX)
     text = text_arg(text, "text", TEXT_MAX, multiline=True)
     flow = text_arg(flow, "flow", LABEL_MAX, required=False)
@@ -1171,9 +1196,9 @@ def request_add(conn: sqlite3.Connection, *, title: str, text: str, flow: str | 
     with write(conn):
         after = _check_after(conn, None, after)
         request_id = conn.execute(
-            "INSERT INTO tasks (flow, title, text, state, after_request, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)", (flow, title, text, "planned" if plan else "requested", after, now,
-                                             now)).lastrowid
+            "INSERT INTO tasks (flow, title, text, state, after_request, model, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (flow, title, text, "planned" if plan else "requested", after, model, now,
+                                                now)).lastrowid
         ids = _insert_plan(conn, request_id, flow, plan, now)
         _insert_waits(conn, request_id, dict(zip([p["key"] for p in plan], ids)), waits or [], now)
         _refresh(conn, now)
@@ -1261,7 +1286,8 @@ def _plan_items(tasks, *, empty_text: bool = False, known=()) -> list:
         plan.append({"key": key, "skill": text_arg(item.get("skill"), "skill", LABEL_MAX),
                      "title": text_arg(item.get("title"), "title", TITLE_MAX), "text": text,
                      "depends_on": list(depends), "milestone": 1 if item.get("milestone") else 0,
-                     "agent": text_arg(item.get("agent"), "agent", LABEL_MAX, required=False)})
+                     "agent": text_arg(item.get("agent"), "agent", LABEL_MAX, required=False),
+                     "model": _model_arg(item.get("model"))})
     return plan
 
 
@@ -1274,19 +1300,21 @@ def _insert_plan(conn: sqlite3.Connection, request_id: int, flow: str | None, pl
     for item in plan:
         ids[item["key"]] = conn.execute(
             "INSERT INTO tasks (parent_id, flow, key, skill, agent, title, text, state, depends_on, milestone, "
-            "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'planned', ?, ?, ?, ?)",
+            "model, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?)",
             (request_id, flow, item["key"], item["skill"], item["agent"], item["title"], item["text"],
-             json.dumps([ids[d] for d in item["depends_on"]]), item["milestone"], now, now)).lastrowid
+             json.dumps([ids[d] for d in item["depends_on"]]), item["milestone"], item.get("model"), now, now)).lastrowid
         added.append(ids[item["key"]])
     return added
 
 
 def task_run_start(conn: sqlite3.Connection, task_id: int, *, skill: str, model: str, adapter: str,
                    skill_version: str | None = None, skill_sha256: str | None = None, web: bool = False,
-                   billing: str | None = None) -> dict:
+                   billing: str | None = None, autonomy: str | None = None) -> dict:
     """Record the start of a run of a task that is `running`. billing is how the credential the run uses is billed
-    (RUN_BILLINGS; None when the runtime cannot tell): the daily caps count by it. Returns {"run_id", "task_id", "started_at"}."""
+    (RUN_BILLINGS; None when the runtime cannot tell): the daily caps count by it. autonomy is how the run's pair was
+    released (RUN_AUTONOMIES; None when it is not recorded). Returns {"run_id", "task_id", "started_at"}."""
     billing = _billing_arg(billing)
+    autonomy = _autonomy_arg(autonomy)
     skill = text_arg(skill, "skill", LABEL_MAX)
     model = text_arg(model, "model", REF_MAX)
     adapter = text_arg(adapter, "adapter", LABEL_MAX)
@@ -1298,9 +1326,9 @@ def task_run_start(conn: sqlite3.Connection, task_id: int, *, skill: str, model:
         if _task(conn, task_id)["state"] != "running":
             raise StoreError(f"task {task_id} is not running: a run starts on a task that task_claim gave out")
         run_id = conn.execute(
-            "INSERT INTO task_runs (task_id, skill, skill_version, skill_sha256, model, adapter, web, started_at, billing) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (task_id, skill, skill_version, skill_sha256, model, adapter, 1 if web else 0, now, billing)).lastrowid
+            "INSERT INTO task_runs (task_id, skill, skill_version, skill_sha256, model, adapter, web, started_at, billing, "
+            "autonomy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (task_id, skill, skill_version, skill_sha256, model, adapter, 1 if web else 0, now, billing, autonomy)).lastrowid
     return {"run_id": run_id, "task_id": task_id, "started_at": now}
 
 
@@ -1697,13 +1725,14 @@ def acceptance_resolve(conn: sqlite3.Connection, pending_id: int, *, resolution:
 
 def route_run_start(conn: sqlite3.Connection, request_id: int, *, skill: str, model: str, adapter: str,
                     skill_version: str | None = None, skill_sha256: str | None = None, web: bool = False,
-                    reroute: bool = False, billing: str | None = None) -> dict:
+                    reroute: bool = False, billing: str | None = None, autonomy: str | None = None) -> dict:
     """A run of the router on a request: a row of task_runs whose task is the request. Refused unless the request
     is `requested` with no open pending decision and no router run is running (task runs do not prevent it).
     With reroute (stage 6: one delivery of an approved plan routed again after its brief), the request is `planned`
     or `done` instead, and an open pending decision on it does not refuse the run.
-    billing is recorded as task_run_start records it. Returns {"run_id", "request_id", "started_at"}."""
+    billing and autonomy are recorded as task_run_start records them. Returns {"run_id", "request_id", "started_at"}."""
     billing = _billing_arg(billing)
+    autonomy = _autonomy_arg(autonomy)
     skill = text_arg(skill, "skill", LABEL_MAX)
     model = text_arg(model, "model", REF_MAX)
     adapter = text_arg(adapter, "adapter", LABEL_MAX)
@@ -1726,9 +1755,9 @@ def route_run_start(conn: sqlite3.Connection, request_id: int, *, skill: str, mo
                         "WHERE r.status = 'running' AND t.parent_id IS NULL").fetchone():
             raise StoreError("a router run is in progress: one router run at a time per project")
         run_id = conn.execute(
-            "INSERT INTO task_runs (task_id, skill, skill_version, skill_sha256, model, adapter, web, started_at, billing) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (request_id, skill, skill_version, skill_sha256, model, adapter, 1 if web else 0, now, billing)).lastrowid
+            "INSERT INTO task_runs (task_id, skill, skill_version, skill_sha256, model, adapter, web, started_at, billing, "
+            "autonomy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (request_id, skill, skill_version, skill_sha256, model, adapter, 1 if web else 0, now, billing, autonomy)).lastrowid
     return {"run_id": run_id, "request_id": request_id, "started_at": now}
 
 

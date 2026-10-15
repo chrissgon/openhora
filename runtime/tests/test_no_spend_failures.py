@@ -258,7 +258,7 @@ def test_the_lab_names_how_many_attempts_began_on_an_exception_that_leaves_it(tr
 
 def test_a_failed_run_records_the_cost_and_tokens_its_attempts_reported_and_the_split_counts_them(tree, monkeypatch):
     path = request_ready(tree)
-    monkeypatch.setattr(ops_core, "_tier_billing", lambda *a, **k: "metered")   # a metered credential: its cost is billed
+    monkeypatch.setattr(ops_core, "_model_billing", lambda *a, **k: "metered")   # a metered credential: its cost is billed
     st.fail(tree["adapter"], "adapter", 9)   # every attempt fails after the adapter wrote timing.json (100 tokens, $0.01)
     out = ops.run_next(path)
     assert out["failure"]["kind"] == "adapter"
@@ -318,7 +318,7 @@ def test_reported_usage_reads_every_attempt_a_paused_one_included(tmp_path):
 
 def test_a_run_that_succeeds_after_failed_attempts_records_the_usage_of_every_attempt(tree, monkeypatch):
     path = request_ready(tree)
-    monkeypatch.setattr(ops_core, "_tier_billing", lambda *a, **k: "metered")
+    monkeypatch.setattr(ops_core, "_model_billing", lambda *a, **k: "metered")
     st.fail(tree["adapter"], "adapter", 2)      # attempts 1 and 2 fail after reporting (100 tokens, $0.01); attempt 3 answers
     out = ops.run_next(path)
     assert out["status"] == "ok"
@@ -330,7 +330,7 @@ def test_a_run_that_succeeds_after_failed_attempts_records_the_usage_of_every_at
 
 def test_a_run_that_succeeds_at_once_records_its_own_usage_as_before(tree, monkeypatch):
     path = request_ready(tree)
-    monkeypatch.setattr(ops_core, "_tier_billing", lambda *a, **k: "metered")
+    monkeypatch.setattr(ops_core, "_model_billing", lambda *a, **k: "metered")
     ops.run_next(path)
     ctx = ops_core.context(path)
     row = dict(ctx["conn"].execute("SELECT attempts, cost_usd, tokens FROM task_runs ORDER BY id DESC LIMIT 1").fetchone())

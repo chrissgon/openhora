@@ -26,19 +26,21 @@ export const OPS = Object.freeze({
   handOver: "hand-over",
   verdict: "verdict",
   say: "say",
+  giveConsent: "give-consent",
 });
 
 /** The write functions of api.js that are never withheld, or that the page has no control for, each with its reason. */
 export const EXEMPT = Object.freeze({
   cancel: "a brake: cancelling a request is never withheld from the page",
   setMode: "narrowing only, a brake: the page offers Stop agent and Supervise, a wider mode is a terminal command to copy",
+  setModel: "the service decides: fixing a model needs the project's group set-mode; the consent that an autonomous agent needs is not given by this call (it has its own, giveConsent)",
   sync: "no control on the page",
   dispatch: "no control on the page",
 });
 
 /** Every plain name and pair that the controls ask about (the redraw key of a part is built from these). */
 export const ASKED = Object.freeze([
-  ["answer"], ["release"], ["reject"], ["retry"], ["go-ahead"], ["hand-over"], ["verdict"], ["say"], ["request"], ["route"],
+  ["answer"], ["release"], ["reject"], ["retry"], ["go-ahead"], ["hand-over"], ["verdict"], ["say"], ["request"], ["route"], ["give-consent"],
   ["approve", "plan"], ["approve", "acceptance"], ["approve", "effect"], ["approve", "go-ahead"],
 ]);
 
@@ -83,7 +85,7 @@ export function withheld(project, asked) {
 }
 
 // The order the line names the operations in, whatever order a card drew its controls in.
-const LINE_ORDER = Object.freeze(["approve", "reject", "answer", "release", "verdict", "hand-over", "retry", "go-ahead", "say", "request", "route"]);
+const LINE_ORDER = Object.freeze(["approve", "reject", "answer", "release", "verdict", "hand-over", "retry", "go-ahead", "say", "request", "route", "give-consent"]);
 
 /** The line a card or panel shows under its remaining controls when `words` is not empty: the words in a fixed order, each once. */
 export function lineText(words) {

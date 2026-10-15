@@ -479,7 +479,7 @@ def test_an_entry_that_is_dropped_leaves_the_queue_even_when_the_note_cannot_be_
 
 def test_a_taken_entry_is_dead_only_after_the_run_timeout_of_the_gate_file_plus_a_minute(tree, monkeypatch):
     path = str(tree["project"])
-    timeout = ops.lab.reference("strong")["timeout_seconds"]
+    timeout = ops.lab.reference()["timeout_seconds"]
     assert ops_say.queue_stale() == timeout + 60
     with locked(tree):
         page_say(tree, "Which market first?")
@@ -493,7 +493,7 @@ def test_a_taken_entry_is_dead_only_after_the_run_timeout_of_the_gate_file_plus_
     assert "was not answered" in [m for m in messages(tree) if m["role"] == "assistant"][0]["text"]
     # the bound follows the gate file, not a number of this module
     real = ops.lab.reference
-    monkeypatch.setattr(ops.lab, "reference", lambda tier="strong": dict(real(tier), timeout_seconds=1800))
+    monkeypatch.setattr(ops.lab, "reference", lambda model=None: dict(real(model), timeout_seconds=1800))
     assert ops_say.queue_stale() == 1860
-    monkeypatch.setattr(ops.lab, "reference", lambda tier="strong": (_ for _ in ()).throw(ops.lab.LabError("gate", "unreadable")))
+    monkeypatch.setattr(ops.lab, "reference", lambda model=None: (_ for _ in ()).throw(ops.lab.LabError("gate", "unreadable")))
     assert ops_say.queue_stale() == ops_say.QUEUE_STALE_FALLBACK + ops_say.QUEUE_STALE_MARGIN

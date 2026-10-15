@@ -315,19 +315,25 @@ def test_the_person_s_flag_reaches_the_acceptance_only_through_the_terminal_chan
     tree_ = ast.parse((st.RUNTIME / "ops_config.py").read_text(encoding="utf-8"))
     assigned = {t.id: n.value for n in tree_.body if isinstance(n, ast.Assign) for t in n.targets if isinstance(t, ast.Name)}
     assert ast.unparse(assigned["ACCEPT_CHANNELS"]) == "('terminal',)"
-    function = next(f for f in tree_.body if isinstance(f, ast.FunctionDef) and f.name == "set_mode")
-    body = [n for n in function.body if not (isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant))]
-    first = body[0]  # the refusal of a channel but the terminal is the first statement, before anything is read
-    assert isinstance(first, ast.If) and ast.unparse(first.test) == "accept and channel not in ACCEPT_CHANNELS"
-    assert isinstance(first.body[0], ast.Raise) and "2" in ast.unparse(first.body[0])
-    calls = [n for n in ast.walk(function) if isinstance(n, ast.Call) and ast.unparse(n.func) == "_record_acceptance"]
-    assert len(calls) == 1  # one call, under the one test that says who may be accepted
-    guards = [n for n in ast.walk(function) if isinstance(n, ast.If) and calls[0] in list(ast.walk(n))]
+    for name in ("set_mode", "set_model"):  # the two operations that fix an agent's settings refuse `accept` first
+        function = next(f for f in tree_.body if isinstance(f, ast.FunctionDef) and f.name == name)
+        body = [n for n in function.body if not (isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant))]
+        first = body[0]  # the refusal of a channel but the terminal is the first statement, before anything is read
+        assert isinstance(first, ast.If) and ast.unparse(first.test) == "accept and channel not in ACCEPT_CHANNELS", name
+        assert isinstance(first.body[0], ast.Raise) and "2" in ast.unparse(first.body[0])
+    # the locked step both share is the one place the acceptance is recorded, under the one test that says who may be accepted
+    shared = next(f for f in tree_.body if isinstance(f, ast.FunctionDef) and f.name == "_change_agent")
+    calls = [n for n in ast.walk(shared) if isinstance(n, ast.Call) and ast.unparse(n.func) == "_record_acceptance"]
+    assert len(calls) == 1
+    guards = [n for n in ast.walk(shared) if isinstance(n, ast.If) and calls[0] in list(ast.walk(n))]
     assert "narrowing or accept" in [ast.unparse(g.test) for g in guards]
-    assert "narrowing = autonomy.narrows(old, mode)" in [ast.unparse(n) for n in ast.walk(function) if isinstance(n, ast.Assign)]
+    set_mode = next(f for f in tree_.body if isinstance(f, ast.FunctionDef) and f.name == "set_mode")
+    set_model = next(f for f in tree_.body if isinstance(f, ast.FunctionDef) and f.name == "set_model")
+    assert "autonomy.narrows(old, mode)" in ast.unparse(set_mode)  # a mode is a narrowing only when it moves down
+    assert "word in (None, autonomy.AUTO_MODEL)" in ast.unparse(set_model)  # a model is only when it goes back to the default or to auto
     callers = sorted(f.name for f in ast.walk(tree_) if isinstance(f, ast.FunctionDef)
                      for n in ast.walk(f) if isinstance(n, ast.Call) and ast.unparse(n.func) == "_record_acceptance")
-    assert callers == ["accept_config", "set_mode"], callers
+    assert callers == ["_change_agent", "accept_config"], callers
 
 
 def test_a_file_edited_between_the_replace_and_the_hash_is_not_accepted(tree, monkeypatch):

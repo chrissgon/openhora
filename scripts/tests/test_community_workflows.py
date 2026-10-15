@@ -154,7 +154,7 @@ def test_a_secret_appears_only_as_an_environment_variable_of_the_two_steps_that_
     assert "secrets." not in code(VERIFY)
     # Every key variable the gate file passes into a model's runs, and the grader's, is a secret the workflow declares.
     gate = json.loads((REPO / "evals" / "eval-gate.json").read_text())
-    needed = set(gate.get("strong_pass_env", [])) | set(gate.get("floor_pass_env", []))
+    needed = set()
     for entry in gate["models"].values():
         needed |= set(entry.get("pass_env", []))
     declared = set(re.findall(r"^      ([A-Z_]+):\n        description", EVAL.split("permissions:")[0], re.M))

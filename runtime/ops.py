@@ -20,10 +20,10 @@ through one function of the store, which is one transaction.
 
 Operations of stage 1 of the platform plan:
   request(project, text, flow)     record a request and the tasks of the named flow file
-  run_next(project[, tier])        run the next ready task: one skill, once, in the eval container, on a copy
+  run_next(project[, model])       run the next ready task: one skill, once, in the eval container, on a copy
                                    of what may enter by limits L1 to L6 (runtime/workcopy.py); bring back what
                                    it left by the path rule; open the pending decision the task then waits on
-  run_task(project, task_id[, tier])   the same for one named task, in this process: what the dispatcher starts for each
+  run_task(project, task_id[, model])   the same for one named task, in this process: what the dispatcher starts for each
                                    task it runs (several at once, one OS process each; runtime/ops_runs.py)
   pending(project[, pending_id])   what waits for the person
   answer(project, pending_id, text)   answer a pending decision: the task runs again with the answer
@@ -31,8 +31,8 @@ Operations of stage 1 of the platform plan:
   retry(project, task_id)          make a failed or blocked task ready again
   cancel(project, request_id)      cancel a request and what is still open under it
   status(project)                  requests, tasks, pending decisions
-  proof(project[, skill])          the model each skill in use would run on, by its proof (runtime/proof.py); no
-                                   model is called
+  proof(project[, skill])          the model each skill in use would run on when nothing chooses one, and its band on every model
+                                   (runtime/proof.py); no model is called
   verdict(project, run_id, word)   record the person's verdict (worked, corrected, failed) on the use of a run,
                                    with the existing recorder (scripts/evidence.py)
   accept_config(project, sha256)   record the hash of docs/workbench/runtime.json the person accepts (runtime/ops_config.py);
@@ -204,7 +204,8 @@ import ops_core as core  # noqa: E402  (the shared names: read as core.<name>, n
 import ops_reads  # noqa: E402  (the reads of the interface; this file re-exports them at its end)
 import ops_runs  # noqa: E402  (the runs of tasks and the dispatcher's round; this file re-exports `run_task`, `dispatch` and `reap`)
 import ops_say  # noqa: E402  (the conversation and its queue; this file re-exports `say` at its end)
-import ops_config  # noqa: E402  (the configuration's acceptance: accept_config, set_mode; this file re-exports them at its end)
+import ops_config  # noqa: E402  (the configuration's acceptance: accept_config, set_mode, set_model; this file re-exports them at its end)
+import ops_models  # noqa: E402  (which model a run goes to: the choice, the key, the billing and the consent)
 import ops_waits  # noqa: E402  (the derived waits between requests: rederive, for_plan, annotate, approve_plan)
 import autonomy  # noqa: E402  (the same folder, as scripts/runtime.py imports runtime_vote)
 import board  # noqa: E402
@@ -318,7 +319,7 @@ def _ending(result: dict, meta: dict, skill: str, gate_files=()) -> tuple:
     return endings.classify(result["response"], changes, written, missing, texts, facts=facts)
 
 
-# --- a use and a verdict, with the existing recorder; the runtime's own key for the floor model ---------------
+# --- a use and a verdict, with the existing recorder; the runtime's own key for a model ----------------------------
 
 
 def _recorder() -> str:
@@ -348,27 +349,24 @@ def _use_start(ctx: dict, run_id: int, skill: str, routing: dict):
     return use
 
 
-def _route(ctx: dict, skill: str, meta: dict, tier, key: dict) -> dict:
-    """proof.route with the key _floor_key found; the routing names that key by its source ("runtime" or "lab")
-    on a floor run, and None otherwise, and the billing of the credential the run would use (core._tier_billing:
-    "subscription", "metered", "free", or None when no manifest says), which the daily caps count by."""
-    routing = proof_rules.route(ctx["cfg"], skill, meta, force=tier, floor_key=key["source"] is not None)
-    if key["reason"] and routing["tier"] == "strong":
-        routing["reasons"].append(key["reason"])
-    routing["key"] = key["source"] if routing["tier"] == "floor" else None
-    routing["billing"] = core._tier_billing(routing["tier"], routing["adapter"])
-    return routing
+def _route(ctx: dict, skill: str, meta: dict, keys, task=None, requested=None) -> dict:
+    """The routing of one run (runtime/ops_models.py, route): proof.route for the model the request, the task, the agent or the
+    project's default chose, with the key found for it (`keys`, ops_core.Keys), named by its source ("runtime" or "lab"), the
+    billing of the credential the run would use (core._model_billing: "subscription", "metered", "free", or None when no
+    manifest says), which the daily caps count by, and the autonomy of the pair ("proven", "consent" or "supervised")."""
+    return ops_models.route(ctx, skill, meta, keys, task, requested)
 
 
 @contextlib.contextmanager
-def _key_in_environment(routing: dict, key: dict):
-    """Around a floor run on the runtime's own key: the variable the gate file names for the floor tier holds that
-    key, and afterwards what was there before (the earlier value, or no variable). Nothing for a strong run, nor
-    for a floor run on the lab's key, which the lab passes itself."""
-    if routing["tier"] != "floor" or key["source"] != "runtime" or key["value"] is None:
+def _key_in_environment(routing: dict, keys):
+    """Around a run on the runtime's own key: the variable the gate file names for the model holds that key, and afterwards
+    what was there before (the earlier value, or no variable). Nothing for a run on the lab's key, which the lab passes
+    itself."""
+    key = keys[routing["model"]]
+    if key["source"] != "runtime" or key["value"] is None:
         yield
         return
-    name = lab.reference("floor")["pass_env"][0]
+    name = lab.reference(routing["model"])["pass_env"][0]
     with core._ENV_LOCK:  # the table of what is injected, with the variable itself: a child the dispatcher starts reads both
         before = os.environ.get(name)
         os.environ[name] = key["value"]
@@ -387,16 +385,22 @@ def _key_in_environment(routing: dict, key: dict):
 # --- the operations ----------------------------------------------------------------------------------------
 
 
-def request(project: str, text: str, flow: str | None = None, title: str | None = None, after: int | None = None) -> dict:
+def request(project: str, text: str, flow: str | None = None, title: str | None = None, after: int | None = None,
+            model: str | None = None) -> dict:
     """Record a request. With a flow, plan it from the flow file the person names (flows/<flow>.json): the tasks
     without a dependency or wait (ops_waits.py) are ready at once, and it returns {"request", "flow", "state", "tasks":
     [{"id", "key", "skill", "state"}], "waits", "missing"}. Without one, the request waits for its route (route()):
-    {"request", "state": "requested", "next": "route"}; its title is plan.title_of(text). after: run it after that request."""
+    {"request", "state": "requested", "next": "route"}; its title is plan.title_of(text). after: run it after that request.
+    model: a model id of the gate file, or "auto", for every task of the request (runtime/ops_models.py: a model named on a
+    request has no evidence behind it, so its runs are supervised unless the pair is proven); without one the agent's fixed model,
+    the project's default_model, or auto decides."""
     ctx = core.context(project)
+    model = ops_models.check_word(model)
     if flow is None:
         said = core._text(text, "the request's text")
         out = core._stored(ctx, ctx["store"].request_add, title=core._text(plan.title_of(said, title),
-                                                                 "the title").replace("\n", " "), text=said, after=after)
+                                                                 "the title").replace("\n", " "), text=said, after=after,
+                           model=model)
         return {"request": out["request"], "state": out["state"], "next": "route"}
     try:
         loaded = flow_files.load(flow, core.ROOT)
@@ -407,33 +411,30 @@ def request(project: str, text: str, flow: str | None = None, title: str | None 
     except manifest.ManifestError as e:
         raise core.OpsError(str(e), 1) from None
     out = ops_waits.request_flow(ctx, tasks, after, title=core._text(title or loaded["title"], "the title").replace("\n", " "),
-                                 text=core._text(text, "the request's text"), flow=loaded["flow"])
+                                 text=core._text(text, "the request's text"), flow=loaded["flow"], model=model)
     return {**out, "flow": loaded["flow"]}
 
 
-def run_next(project: str, tier: str | None = None) -> dict:
+def run_next(project: str, model: str | None = None) -> dict:
     """Run the next ready task of the project that the rules of the slots let in, in this process: one skill, once, on the
-    model its proof gives (runtime/proof.py: the floor model only where the skill is reliable there and the proof holds on
-    this checkout; the reference model otherwise). Other tasks may be running meanwhile (runtime/parallel.py decides which
-    may). tier "strong" asks for the reference model; nothing can ask for the floor model. Returns {"ran": None, "reason"}
-    when there is nothing to run, else {"ran": task id, "skill",
+    model the choice gives (runtime/ops_models.py: the request's, the task's, the agent's fixed model, the project's
+    default_model, else `auto`, the cheapest reliable pair). Other tasks may be running meanwhile (runtime/parallel.py decides
+    which may). model, a model id of the gate file or "auto", is the person's own choice for this run and wins over all of
+    those. Returns {"ran": None, "reason"} when there is nothing to run, else {"ran": task id, "skill",
     "run_id", "run_dir", "status", "ending" or None, "failure" or None, "task_state", "pending_id" or None,
     "returned", "kept", "left_out", "entered": {"kind", "agents_md", "files"} or None, "routing": the
-    choice of proof.route, with "key" (the key of a floor run by name: "runtime" or "lab"; None otherwise), or
-    None}; "recovered" names the tasks an interrupted run had left running."""
-    if tier not in (None, "strong"):
-        raise core.OpsError("tier may only be \"strong\": the person can ask for the reference model, never for the floor model", 2)
-    return ops_runs.run_next(project, tier)
+    choice of proof.route, with "key" (the key of the run by name: "runtime" or "lab"), "billing" and "autonomy"
+    ("proven", "consent" or "supervised"), or None}; "recovered" names the tasks an interrupted run had left running."""
+    return ops_runs.run_next(project, ops_models.check_word(model))
 
 
-def run_task(project: str, task_id: int, tier: str | None = None) -> dict:
+def run_task(project: str, task_id: int, model: str | None = None) -> dict:
     """Run one named task in this process (what the dispatcher starts as a child process of its own, one per task; a
     person uses run_next). It takes the task's lock, ends what dead processes left, and admits and claims the task under
-    the claim lock (runtime/ops_runs.py). Returns what run_next returns, or {"ran": None, "reason", "held"} for a task that was
-    refused: the terminal exits 4 for that, unless the reason is a word of the held tasks (runtime/dispatcher.py)."""
-    if tier not in (None, "strong"):
-        raise core.OpsError("tier may only be \"strong\": the person can ask for the reference model, never for the floor model", 2)
-    return ops_runs.run_task(project, task_id, tier=tier)
+    the claim lock (runtime/ops_runs.py). model is as in run_next. Returns what run_next returns, or {"ran": None, "reason",
+    "held"} for a task that was refused: the terminal exits 4 for that, unless the reason is a word of the held tasks
+    (runtime/dispatcher.py)."""
+    return ops_runs.run_task(project, task_id, requested=ops_models.check_word(model))
 
 
 def _push_after_run(ctx: dict, out: dict) -> dict:
@@ -451,26 +452,28 @@ def _push_after_run(ctx: dict, out: dict) -> dict:
 PREPARE_ERRORS = (skill_meta.SkillError, manifest.ManifestError, lab.LabError, core.OpsError, OSError, KeyError)
 
 
-def _prepare_run(ctx: dict, task: dict, tier, key: dict) -> dict:
+def _prepare_run(ctx: dict, task: dict, requested, keys) -> dict:
     """The slow part of a run's start, made before the claim lock: the skill's meta and manifest (a skill the runtime knows
-    nothing of does not run), the routing (proof.route with the key core._floor_key found, which the caller read from the
-    secret store) and the skill's identity."""
+    nothing of does not run), the routing (ops_models.route with the keys core._keys found, which the caller read from the
+    secret store) and the skill's identity. A model with no key is a refusal: the run does not start."""
     skill = task["skill"]
     meta = skill_meta.declared(os.path.join(core.ROOT, "skills", skill))
     known = manifest.load(core.ROOT, skill)
-    routing = _route(ctx, skill, meta, tier, key)
-    return {"meta": meta, "known": known, "key": key, "routing": routing, "identity": lab.skill_identity(skill)}
+    routing = _route(ctx, skill, meta, keys, task, requested)
+    if routing["key_missing"]:
+        raise core.OpsError(f"no key was found for {routing['model']}: {keys[routing['model']]['reason']}", 3)
+    return {"meta": meta, "known": known, "keys": keys, "routing": routing, "identity": lab.skill_identity(skill)}
 
 
 def _run_start(ctx: dict, task: dict, prepared: dict) -> dict:
     """The run's start, under the claim lock: its spend limit (before the run's own row: its reservation is not in the
     day's spend yet) and the run row. Returns what _run_body takes."""
     routing, identity = prepared["routing"], prepared["identity"]
-    budget = _budget(ctx, task.get("agent"), routing, prepared["key"])
+    budget = _budget(ctx, task.get("agent"), routing, prepared["keys"])
     run_id = core._stored(ctx, ctx["store"].task_run_start, task["id"], skill=task["skill"], model=routing["model"],
                           adapter=routing["adapter"], skill_version=identity["version"],
                           skill_sha256=identity["content_sha256"], web=routing["web"],
-                          billing=routing["billing"] or "unknown")["run_id"]
+                          billing=routing["billing"] or "unknown", autonomy=routing["autonomy"])["run_id"]
     return {**prepared, "task": task, "budget": budget, "run_id": run_id}
 
 
@@ -478,7 +481,7 @@ def _run_body(ctx: dict, started: dict) -> dict:
     """The run itself, after its row was opened (_run_start): the copy, the lab, the return of what the run left, the
     pending decision. The return into the project's files is made under the write lock."""
     cfg, store, task = ctx["cfg"], ctx["store"], started["task"]
-    skill, meta, known, key = task["skill"], started["meta"], started["known"], started["key"]
+    skill, meta, known, keys = task["skill"], started["meta"], started["known"], started["keys"]
     routing, budget, run_id = started["routing"], started["budget"], started["run_id"]
     dest = os.path.join(cfg["data_dir"], core.RUNS_DIR, str(run_id))
     out = {"ran": task["id"], "skill": skill, "run_id": run_id, "run_dir": dest, "status": "failed", "ending": None,
@@ -548,8 +551,8 @@ def _run_body(ctx: dict, started: dict) -> dict:
         finish = (lambda copy, _root: [deps_sets.remove(copy, r["produces"]) for r in installed]) if installed else None
         if current is None and not installed and not gate:
             prepare = None
-        with lab.session(), _key_in_environment(routing, key):
-            result = lab.run_skill(skill, prompt, files, dest, web=routing["web"], tier=routing["tier"],
+        with lab.session(), _key_in_environment(routing, keys):
+            result = lab.run_skill(skill, prompt, files, dest, web=routing["web"], model=routing["model"],
                                    prepare=prepare, finish=finish, tmp_in_run=bool(gate),
                                    max_cost=budget)
     except lab.LabError as e:
@@ -579,7 +582,7 @@ def _run_body(ctx: dict, started: dict) -> dict:
     if state_report is not None:
         out["state"] = {"accepted": len(state_report["accepted"]), "rejected": state_report["rejected"]}
     number = lambda key, kind: timing.get(key) if isinstance(timing.get(key), kind) and not isinstance(timing.get(key), bool) else None
-    # Only a metered run has a cost that is billed, whatever the tier; a subscription or free run keeps none (costs.py recomputes it).
+    # Only a metered run has a cost that is billed, whatever the model; a subscription or free run keeps none (costs.py recomputes it).
     every = _reported_usage(lab.reported_usage(dest), routing)  # the usage of every attempt, the retried ones too (R4-C7b)
     finish = dict(status="ok", ending=ending, attempts=counts["attempts"],
                   cost_usd=every.get("cost_usd", number("cost_usd", (int, float)) if routing["billing"] == "metered" else None),
@@ -1152,16 +1155,20 @@ def cancel(project: str, request_id: int) -> dict:
 
 
 def proof(project: str, skill: str | None = None) -> dict:
-    """The model each skill would run on now, by its proof, with the two checks and the bands: {"skills": {name:
-    proof.route(...)}}, for the named skill or for every skill of the packs in use (manifest.skills_in_use). It
-    calls no model; it refreshes the proof file <data_dir>/proof.json where its inputs changed."""
+    """The model each skill would run on now when nothing chooses one (the project's default_model, else `auto`), by its proof,
+    with the two checks and the band of the skill on every model: {"skills": {name: proof.route(...) with "key", "billing" and
+    "autonomy", and "pairs": [one per model: the pair's figures, its price with its source, date and whether it is stale, its
+    expected cost per run, and the source of its evidence], "recommended": the model `auto` would choose or None}}, for the
+    named skill or for every skill of the packs in use (manifest.skills_in_use). It calls no model; it refreshes the proof file
+    <data_dir>/proof.json where its inputs changed."""
     ctx = core.context(project)
     names = [skill] if skill else manifest.skills_in_use(core.ROOT)
-    key, out = core._floor_key(), {}
+    keys, out = core._keys(), {}
     for name in names:
         try:
             meta = skill_meta.declared(os.path.join(core.ROOT, "skills", name))
-            out[name] = _route(ctx, name, meta, None, key)
+            read = ops_models.models_read(ctx, name)
+            out[name] = {**_route(ctx, name, meta, keys), "pairs": read["pairs"], "recommended": read["recommended"]}
         except (skill_meta.SkillError, lab.LabError, OSError, KeyError) as e:
             raise core.OpsError(f"the proof of {name} cannot be read: {e}", 1) from None
     return {"skills": out}
@@ -1496,7 +1503,7 @@ def execute_under_policy(project: str, policy: str, effect_file: str, replay_log
 
 
 def status(project: str) -> dict:
-    """{"config": {"path", "sha256"}, "requests": [{"id", "title", "flow", "state", "tasks": [{"id", "key", "title",
+    """{"config": {"path", "sha256"}, "requests": [{"id", "title", "flow", "state", "model" (the model id or "auto" the person chose for the request, or None), "tasks": [{"id", "key", "title",
     "agent", "skill", "state", "note", "waiting_for"}], "after", "routing"}], "pending": [... each with "agent" and "actions"], "documents": [{"path", "status", "note", "on_platform"}],
     "board": {"left_out_final"} or None, "held": [{"task_id", "agent", "reason", "at", "next"}]}: everything from the
     store's records. A task's "holds_slot" says whether it holds a slot of its agent now (running, waiting for the person, or
@@ -1515,7 +1522,7 @@ def status(project: str) -> dict:
             comments[c["task_id"]] = comments.get(c["task_id"], 0) + 1
     board_of = lambda t: {"on_board": bool(t.get("remote_id")), "open_comments": comments.get(t["id"], 0)}
     holders = {h["id"] for h in core._stored(ctx, ctx["store"].task_slot_holders)}
-    requests = [{**{key: r[key] for key in ("id", "flow", "state")}, "title": plan.request_title(r), **board_of(r),
+    requests = [{**{key: r[key] for key in ("id", "flow", "state", "model")}, "title": plan.request_title(r), **board_of(r),
                  "tasks": [{**{key: t[key] for key in ("id", "key", "title", "agent", "skill", "state", "note")}, **board_of(t),
                             "holds_slot": t["id"] in holders}
                            for t in rows if t["parent_id"] == r["id"]]}
@@ -1605,7 +1612,7 @@ def _with_agents(cfg: dict, tasks: list) -> list:
 def _plan_pending(ctx: dict, request: dict, tasks: list, route_read, source: str, flow) -> dict:
     """The pending decision of kind `plan` for these tasks: plan.build with the limits of the gate file and the past
     runs of the plan's skills in this store."""
-    reference = lab.reference("strong")
+    reference = lab.reference()  # the control of a run is the gate file's, the same for every model
     limits = {"max_running": ctx["cfg"]["max_running"], "timeout_seconds": reference["timeout_seconds"],
               "retries": reference["retries"]}
     past = []
@@ -1685,15 +1692,17 @@ def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False) 
     cfg, store, skill = ctx["cfg"], ctx["store"], router.ROUTER_SKILL
     try:
         meta = skill_meta.declared(os.path.join(core.ROOT, "skills", skill))
-        key = core._floor_key()
-        routing = _route(ctx, skill, meta, None, key)
+        keys = core._keys()
+        routing = _route(ctx, skill, meta, keys)
+        if routing["key_missing"]:
+            raise core.OpsError(f"no key was found for {routing['model']}: {keys[routing['model']]['reason']}", 3)
         identity = lab.skill_identity(skill)
         with core._claim_lock(cfg):  # the budget and the run row are one step: two starts cannot pass the same cap
-            budget = _budget(ctx, plan.PLANNING, routing, key)
+            budget = _budget(ctx, plan.PLANNING, routing, keys)
             run_id = core._stored(ctx, store.route_run_start, request["id"], skill=skill, model=routing["model"],
                                   adapter=routing["adapter"], skill_version=identity["version"],
                                   skill_sha256=identity["content_sha256"], web=False, reroute=reroute,
-                                  billing=routing["billing"] or "unknown")["run_id"]
+                                  billing=routing["billing"] or "unknown", autonomy=routing["autonomy"])["run_id"]
     except (skill_meta.SkillError, lab.LabError, OSError, KeyError) as e:
         raise core.OpsError(f"the router ({skill}) could not start: {e}", 1) from None
     dest = os.path.join(cfg["data_dir"], core.RUNS_DIR, str(run_id))
@@ -1724,8 +1733,8 @@ def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False) 
         # Two router runs of two projects in one service process share the lab's process-wide session (lab.session ends
         # every container of the process when it closes): the whole session is held under one guard. Task runs are
         # processes of their own and never take it.
-        with core._LAB_GUARD, lab.session(), _key_in_environment(routing, key):
-            result = lab.run_skill(skill, prompt, entered["files"], dest, web=False, tier=routing["tier"],
+        with core._LAB_GUARD, lab.session(), _key_in_environment(routing, keys):
+            result = lab.run_skill(skill, prompt, entered["files"], dest, web=False, model=routing["model"],
                                    max_cost=budget)
     except lab.LabError as e:
         return fail("internal", f"{e.kind}: {e.reason}", getattr(e, "attempts", 0))  # attempts: how many began (A-57)
@@ -1775,7 +1784,7 @@ def _combined(ctx: dict, request: dict, routed: list) -> dict:
         flow = ((entry.get("route") or {}).get("checked") or {}).get("flow")
         if flow and flow not in flows:
             flows[flow] = flow_files.load(flow, core.ROOT)
-    reference = lab.reference("strong")
+    reference = lab.reference()
     limits = {"max_running": cfg["max_running"], "timeout_seconds": reference["timeout_seconds"],
               "retries": reference["retries"]}
     skills = plan.agent_skills(cfg, core.ROOT)
@@ -2182,18 +2191,18 @@ def _midnight_utc() -> str:
     return local.astimezone(datetime.timezone.utc).isoformat()
 
 
-def _budget(ctx: dict, agent, routing: dict, key=None):
+def _budget(ctx: dict, agent, routing: dict, keys=None):
     """lab.run_skill's max_cost: the spend limit of a run on a metered credential, or one no manifest could bill (autonomy.run_budget
     of the agent's day; the per-run limit when the agent has no caps or less is left, a start by hand not being capped); None else."""
     per_run = ctx["cfg"]["raw"].get("max_cost_usd_per_run", PER_RUN_USD)
-    found = _agents_of_the_day(ctx, key).get(agent)
+    found = _agents_of_the_day(ctx, keys).get(agent)
     return None if routing["billing"] not in (None, "metered") else (found and autonomy.run_budget(found["entry"], found["spent"], per_run)) or per_run
 
 
-def _agents_of_the_day(ctx: dict, key=None) -> dict:
+def _agents_of_the_day(ctx: dict, keys=None) -> dict:
     """Each area agent's facts, a day's spend and entry, from the store and the configuration: {name: {"facts",
-    "entry", "spent", "split", "in_use"}} (split: autonomy.spend_split, for the meters; in_use: core._caps_in_use). The
-    spend is by the billing each run recorded (autonomy.with_billing gives a run older than the column the tier rule). The day starts at local midnight (_midnight_utc), as the caps count it, and a run of the router
+    "entry", "spent", "split", "in_use"}} (split: autonomy.spend_split, for the meters; in_use: core._caps_in_use; keys: the Keys found). The
+    spend is by the billing each run recorded (autonomy.with_billing gives a run older than the column the rule of its model: a run on a metered model is metered). The day starts at local midnight (_midnight_utc), as the caps count it, and a run of the router
     (its task is a request, so its agent is None) counts against the planning agent. {} without area agents."""
     store, cfg = ctx["store"], ctx["cfg"]
     agents_checked = cfg["area_agents"]
@@ -2203,19 +2212,28 @@ def _agents_of_the_day(ctx: dict, key=None) -> dict:
     standing_rows = core._stored(ctx, store.approvals_list, status="active", scope="standing")
     runs = autonomy.with_billing([dict(r, agent=plan.PLANNING) if r.get("agent") is None and r.get("skill") == router.ROUTER_SKILL
                                   else r for r in core._stored(ctx, store.runs_since, _midnight_utc())],
-                                 lab.reference("floor")["model"])
-    per_run, in_use = cfg["raw"].get("max_cost_usd_per_run", PER_RUN_USD), core._caps_in_use(runs, key or core._floor_key())
+                                 core._metered_models())
+    per_run, in_use = cfg["raw"].get("max_cost_usd_per_run", PER_RUN_USD), core._caps_in_use(runs, keys or core._keys())
     return {name: {"facts": autonomy.facts(name, agents_checked, standing_rows, now), "entry": entry,
                    "spent": autonomy.spend(runs, name, per_run), "split": autonomy.spend_split(runs, name, per_run),
                    "in_use": in_use}
             for name, entry in agents_checked.items()}
 
 
-def _snapshot(ctx: dict, key: dict) -> dict:
+def _proven_on(ctx: dict, routed, task: dict, run) -> bool:
+    """Whether the skill of a task is proven now on the model its run used (the proof of that model, read now); with no run
+    (a review of a stand-in), on the model the task would run on."""
+    try:
+        return bool(routed(task["skill"], task, (run or {}).get("model")).get("proven"))
+    except core.OpsError:
+        return False
+
+
+def _snapshot(ctx: dict, keys) -> dict:
     """What dispatcher.decide reads, from the store, the proof (proof.route through _route) and the runtime manifests:
     the tasks running (with the children started and not yet claimed), the slot holders, the ready tasks oldest first with
-    the tier each would run on and the code flag and footprint of their skill, the open reviews with their agent, proof and
-    mandatory flag, the tasks a child could not start lately (`refused`), the project's `max_running`, and each area
+    the model each would run on and the code flag and footprint of their skill, the open reviews with their agent, whether
+    the pair that ran is proven and whether the person's consent covers it, and mandatory flag, the tasks a child could not start lately (`refused`), the project's `max_running`, and each area
     agent's facts, a day's spend and its entry (_agents_of_the_day). A run of the router (its task is a request, so its
     agent is None) counts against the planning agent."""
     store, cfg = ctx["store"], ctx["cfg"]
@@ -2224,10 +2242,11 @@ def _snapshot(ctx: dict, key: dict) -> dict:
     by_id = {t["id"]: t for t in tasks}
     proofs = {}
 
-    def routed(skill: str) -> dict:
-        if skill not in proofs:
-            proofs[skill] = _route(ctx, skill, skill_meta.declared(os.path.join(core.ROOT, "skills", skill)), None, key)
-        return proofs[skill]
+    def routed(skill: str, task=None, requested=None) -> dict:
+        slot = (skill, (task or {}).get("id"), requested)
+        if slot not in proofs:
+            proofs[slot] = _route(ctx, skill, skill_meta.declared(os.path.join(core.ROOT, "skills", skill)), keys, task, requested)
+        return proofs[slot]
 
     cache = {}
     parallel_part = ops_runs.parallel_state(ctx, tasks, cache)
@@ -2236,19 +2255,26 @@ def _snapshot(ctx: dict, key: dict) -> dict:
            "ready": [{**t, "code": ops_runs.skill_facts(t.get("skill"), cache)[1],
                       "footprint": ops_runs.skill_facts(t.get("skill"), cache)[0]}
                      for t in tasks if t["state"] == "ready" and t["parent_id"] is not None and t["id"] not in starting],
-           "reviews": [], "agents": _agents_of_the_day(ctx, key), "tier": {}, "billing": {},
+           "reviews": [], "agents": _agents_of_the_day(ctx, keys), "model": {}, "billing": {},
            "max_running": cfg["max_running"], "per_run_usd": cfg["raw"].get("max_cost_usd_per_run", PER_RUN_USD)}
     for item in core._stored(ctx, store.pending_list):
         task = by_id.get(item["task_id"])
         if item["kind"] != "review" or task is None or not task.get("skill"):
             continue
-        out["reviews"].append({"pending": item, "task": task, "agent": task.get("agent"),
-                               "proven": bool(routed(task["skill"]).get("proven")),
+        runs = core._stored(ctx, store.task_runs_list, task["id"])
+        run = runs[-1] if runs else None  # the run that opened this review
+        proven, consent = ops_models.consent_for_review(ctx, run, agents.get(task.get("agent")),
+                                                        _proven_on(ctx, routed, task, run))
+        out["reviews"].append({"pending": item, "task": task, "agent": task.get("agent"), "proven": proven, "consent": consent,
                                "mandatory": plan.mandatory(task["skill"], core.ROOT)})
     for task in out["ready"]:
         if task.get("agent") in agents and task.get("skill"):
-            routing = routed(task["skill"])
-            out["tier"][task["id"]], out["billing"][task["id"]] = routing["tier"], routing["billing"]
+            try:
+                routing = routed(task["skill"], task)
+            except core.OpsError as e:  # a model the gate file does not list: the task is held, the round goes on
+                out.setdefault("refused", {})[task["id"]] = str(e)
+                continue
+            out["model"][task["id"]], out["billing"][task["id"]] = routing["model"], routing["billing"]
     out["waits"] = ops_waits.waiting_for(ctx)  # a ready task with an open wait starts nowhere (dispatcher.decide)
     return out
 
@@ -2315,7 +2341,7 @@ def dispatch(project: str, budget_seconds=None, wait: bool | None = None, channe
     alive; without it (the local service, whose loop and page start runs and return) it returns at once and the next round
     reports what ended. `wait` is taken from the channel when it is not given: the page does not wait. Returns
     {"handlers", "released", "started": [{"task_id", "started_at"}], "ran": [the runs that ended since the last report],
-    "held", "stopped"}. Before a run starts, the reference model's credential (for a run on it) and the eval image are
+    "held", "stopped"}. Before a run starts, the credential of the model it would run on and the eval image are
     checked: a round that cannot start for either stops, and no task fails for it. The ready tasks the round held, each
     with its reason (dispatcher.held_of), are kept for `status` (HELD_CURSOR). One round of a project at a time
     (DispatchBusy)."""
@@ -2361,16 +2387,17 @@ def _configuration_moved(ctx: dict) -> bool:
     return now["sha256"] != ctx["cfg"]["sha256"] or accepted != ctx["cfg"]["sha256"]
 
 
-def _credential_stop():
-    """(reason, why, missing) no run on the reference model can start from this process, or None: its credential is neither set
-    nor found in the secret store (lab.credential_missing). The reason is `secret store` when this interpreter cannot
-    read the store at all (the library is missing), else `credential`. Named with the interpreter, since a scheduled
-    job's interpreter may not read the store (open point O1)."""
-    missing = lab.credential_missing("strong")
+def _credential_stop(model: str | None = None):
+    """(reason, why, missing) no run on the model can start from this process, or None: its credential is neither set
+    nor found in the secret store (lab.credential_missing). The model is the default model (the first lab model) when none
+    is named. The reason is `secret store` when this interpreter cannot read the store at all (the library is missing), else
+    `credential`. Named with the interpreter, since a scheduled job's interpreter may not read the store (open point O1)."""
+    model = lab.resolve_model(model)
+    missing = lab.credential_missing(model)
     if not missing:
         return None
     reason = "credential" if dispatcher.store_readable() == "ok" else "secret store"
-    return reason, (f"the reference model's credential ({', '.join(missing)}) is neither set nor found in the secret store "
+    return reason, (f"the credential of {model} ({', '.join(missing)}) is neither set nor found in the secret store "
                     f"from {sys.executable} (Python {sys.version.split()[0]}): no run starts. See contracts/runtime.md, "
                     "\"The dispatcher's two jobs\""), list(missing)
 
@@ -2487,7 +2514,7 @@ def poll(project: str) -> dict:
                 state = "written"
     released = []
     if cfg["area_agents"]:
-        snapshot = _snapshot(ctx, core._floor_key())
+        snapshot = _snapshot(ctx, core._keys())
         decided = dispatcher.decide(snapshot, autonomy.review_action, autonomy.may_start, parallel.admit)
         released = _mode_releases(ctx, [], snapshot, decided, skip=lambda task: _brief_delivery(ctx, task) is not None)
     return {"synced": synced, "expired": expired, "released": released, "state": state}
@@ -2590,8 +2617,8 @@ def contained_run(project: str, skill: str, prompt: str, out_dir: str, platforms
 
     1. The configuration's hash is the accepted one (context). The skill is a folder of this checkout's skills/, has a
        whole runtime manifest and is in the pack of an enabled area agent of the configuration: else OpsError 2.
-    2. The tier, the model and the adapter come from the proof (proof.route, with the runtime's own key for the floor
-       model as run_next passes it), never from the configuration: a skill that is not proven runs on the reference model.
+    2. The model and the adapter come from the choice (ops_models.route: the project's default_model, else `auto`, with the
+       keys as run_next passes them), never from what a handler asks: a skill that is not proven on the model runs supervised.
     3. What enters the copy is the artifacts the skill declares and nothing else (workcopy.entering in its form for a
        run that sees only declared artifacts, limit L3); the runtime's configuration is never in it, although a skill
        may declare it as an input. Nothing is added: no file drop, no AGENTS.md the skill does not declare.
@@ -2604,7 +2631,7 @@ def contained_run(project: str, skill: str, prompt: str, out_dir: str, platforms
        <out_dir>/response.md, as the scan leaves it; <out_dir>/timing.json holds total_tokens, duration_ms, exit_code (0
        when the model answered, else 1) and cost_usd, which is null unless the credential of the run is metered (a
        run on a subscription or a free credential has no billed cost). Those two files are all that is written outside the run folder.
-    7. Returns {"status": "ok" | "failed", "failure": None | {"kind", "reason"}, "tier", "model", "adapter",
+    7. Returns {"status": "ok" | "failed", "failure": None | {"kind", "reason"}, "model", "adapter",
        "ignored_changes", "run_dir"}.
 
     A LabError (no image on this machine, a configuration the lab refuses, a platform with no reference) is OpsError 3
@@ -2621,8 +2648,10 @@ def contained_run(project: str, skill: str, prompt: str, out_dir: str, platforms
     out_dir = os.path.abspath(out_dir)
     try:
         meta = skill_meta.declared(os.path.join(core.ROOT, "skills", skill))
-        key = core._floor_key()
-        routing = _route(ctx, skill, meta, None, key)
+        keys = core._keys()
+        routing = _route(ctx, skill, meta, keys)
+        if routing["key_missing"]:
+            raise core.OpsError(f"no key was found for {routing['model']}: {keys[routing['model']]['reason']}", 3)
     except (skill_meta.SkillError, lab.LabError, KeyError, ValueError, OSError) as e:
         raise core.OpsError(f"{skill} could not be routed: {e}", 3 if isinstance(e, lab.LabError) else 1) from None
     number, dest = _contained_folder(cfg)
@@ -2635,10 +2664,10 @@ def contained_run(project: str, skill: str, prompt: str, out_dir: str, platforms
         except workcopy.CopyError as e:
             raise core.OpsError(f"the copy could not be built: {e}", 1) from None
         try:
-            with core._LAB_GUARD, lab.session(), _key_in_environment(routing, key):  # the lab's process-wide session: one at a time
-                result = lab.run_skill(skill, prompt, entered["files"], dest, web=False, tier=routing["tier"],
+            with core._LAB_GUARD, lab.session(), _key_in_environment(routing, keys):  # the lab's process-wide session: one at a time
+                result = lab.run_skill(skill, prompt, entered["files"], dest, web=False, model=routing["model"],
                                        timeout=timeout, retries=0, platforms=list(platforms or ()),
-                                       max_cost=_budget(ctx, None, routing, key))
+                                       max_cost=_budget(ctx, None, routing, keys))
         except lab.LabError as e:
             with contextlib.suppress(OSError):
                 os.rmdir(dest)  # no run was made: the folder claimed for it is empty, and goes
@@ -2667,7 +2696,7 @@ def contained_run(project: str, skill: str, prompt: str, out_dir: str, platforms
     failure = result["failure"]
     return {"status": result["status"], "failure": None if failure is None else
             {"kind": failure["kind"], "reason": _note(failure["reason"])},
-            "tier": result["tier"], "model": result["model"], "adapter": result["adapter"],
+            "model": result["model"], "adapter": result["adapter"],
             "ignored_changes": ignored, "run_dir": dest}
 
 
@@ -2680,7 +2709,7 @@ DispatchBusy = core.DispatchBusy  # the local service's loop catches it by this 
 from ops_say import chat_memory, route_queued, say  # noqa: E402,F401
 from ops_say import ASK_NEXT, CONVERSATION, MEMORY_CHARS, MEMORY_CUT, MEMORY_HEAD, MEMORY_TAIL, MEMORY_TURNS, PLAN_NEXT  # noqa: E402,F401
 # The configuration's acceptance (runtime/ops_config.py): its two operations, and the names a shell and a test read.
-from ops_config import accept_config, set_mode  # noqa: E402,F401
+from ops_config import accept_config, give_consent, set_mode, set_model  # noqa: E402,F401
 # The reads of the local interface (runtime/ops_reads.py): the operations, and the one constant a test reads.
 from ops_reads import agents, artifact, artifact_raw, artifacts, connections, conversation, costs, service_check, skills  # noqa: E402,F401
 from ops_reads import commands, stop_runs, version  # noqa: E402,F401

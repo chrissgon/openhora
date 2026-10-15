@@ -51,10 +51,11 @@ def retired(gate, runs):
     """The gate file after a later change: another number of runs, and every model it listed replaced by others
     (a valid gate file: the configured models are among the listed ones)."""
     out = copy.deepcopy(gate)
-    out.update(runs=runs, strong_model="next-strong", floor_model="next-floor", grader="next-grader",
-               models={"next-strong": [], "next-floor": [], "next-grader": []})
+    entry = {**next(iter(gate["models"].values())), "aliases": []}
+    out.update(runs=runs, grader="next-grader", lab_models=["next-lead", "next-second"],
+               models={"next-lead": entry, "next-second": entry, "next-grader": entry})
     out["baseline_runs"] = min(out.get("baseline_runs", runs), runs)
-    out.pop("lab_models", None)  # it names models of the list that is being replaced
+    out.pop("web_jobs", None)  # it names models of the list that is being replaced
     return out
 
 
@@ -202,7 +203,7 @@ def test_the_runs_of_an_event_are_checked_against_its_range_and_its_lines_only()
 # --- the module is the one source of what eval_status.py re-exports -------------------------------------------
 
 @pytest.mark.parametrize("name", ["event_line_problems", "run_line_problems", "read_evidence_file",
-                                  "evidence_files", "skill_names", "event_model_pairs", "tier_model", "EVENT_REQUIRED",
+                                  "evidence_files", "skill_names", "event_model_pairs", "EVENT_REQUIRED",
                                   "EVENT_OPTIONAL", "RUN_REQUIRED", "RUN_OPTIONAL", "COUNT_KEYS", "MODEL_RE", "NAME_RE",
                                   "TEST_ID_RE", "HEX64_RE", "_model", "_is", "_keys", "_date", "_count", "_number", "_case_id"])
 def test_eval_status_re_exports_the_same_object(name):
@@ -515,12 +516,12 @@ def test_a_new_file_must_be_of_the_lab_models_through_their_configured_adapters(
     found = problems_of()
     assert any(f"{strong} ran through the adapter" in p and "evidence in the repository is of the configured pair" in p
                for p in found[rel(forged)])
-    # Without lab_models the configured strong and floor models are the lab models.
-    without = {k: v for k, v in gate.items() if k != "lab_models"}
-    gate_file.write_text(json.dumps(without))
+    # The lab pairs are the gate file's lab_models, each through the adapter its entry names (no other key is read).
     write(old.parent / new_name, forged_copy(old, new_name))
     assert rel(forged) not in problems_of()
-    assert es.lab_pairs(without) == es.lab_pairs(gate) and set(es.lab_pairs(gate)) == {strong, floor}
+    assert set(es.lab_pairs(gate)) == {strong, floor} == set(gate["lab_models"])
+    assert es.lab_pairs(gate) == {m: gate["models"][m]["adapter"] for m in gate["lab_models"]}
+    assert es.lab_pairs({"lab_models": []}) == {} and es.lab_lead(gate) == strong and es.lab_lead({}) is None
 
 
 def test_an_old_evidence_file_stays_valid_against_a_changed_gate_file_and_a_line_may_carry_usage(tmp_path):

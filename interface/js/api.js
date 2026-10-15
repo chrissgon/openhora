@@ -206,9 +206,9 @@ export function flows(p, options) {
   return send("GET", `/projects/${enc(p)}/flows`, options);
 }
 
-/** POST /projects/{p}/requests: {text, flow?, title?, after?}; `after` is the number of the request this one runs after. */
-export function request(p, text, { flow, title, after, signal } = {}) {
-  return send("POST", `/projects/${enc(p)}/requests`, { body: { text, flow, title, after }, signal });
+/** POST /projects/{p}/requests: {text, flow?, title?, after?, model?}; `after` is the number of the request this one runs after, `model` a model id of the gate file or "auto". */
+export function request(p, text, { flow, title, after, model, signal } = {}) {
+  return send("POST", `/projects/${enc(p)}/requests`, { body: { text, flow, title, after, model }, signal });
 }
 
 /** POST /projects/{p}/requests/{id}/route (job): {flow?}. */
@@ -249,6 +249,21 @@ export function verdict(p, id, word, options = {}) {
 /** POST /projects/{p}/agents/{name}/mode: {mode}. Every route of an unaccepted project answers 412 first. */
 export function setMode(p, name, mode, options = {}) {
   return send("POST", `/projects/${enc(p)}/agents/${enc(name)}/mode`, { body: { mode }, signal: options.signal });
+}
+
+/** POST /projects/{p}/agents/{name}/model: {model}; a model id, "auto" or "default". Fixing a model on an agent in an autonomous mode is the person's consent and is given in the terminal. */
+export function setModel(p, name, model, options = {}) {
+  return send("POST", `/projects/${enc(p)}/agents/${enc(name)}/model`, { body: { model }, signal: options.signal });
+}
+
+/**
+ * POST /projects/{p}/agents/{name}/consent: {model, mode, config_sha256, warning_sha256}. The person's consent for an agent in an autonomous mode, given on the page
+ * (decision D38): the model and the mode the consent names, the hash of the configuration the page read (`agents.config_sha256`) and the sha256 of the warning text
+ * it showed, so that the service can check it was the exact text. The service records that consent only.
+ */
+export function giveConsent(p, name, fields, options = {}) {
+  const { model, mode, config_sha256, warning_sha256 } = fields || {};
+  return send("POST", `/projects/${enc(p)}/agents/${enc(name)}/consent`, { body: { model, mode, config_sha256, warning_sha256 }, signal: options.signal });
 }
 
 /** GET /projects/{p}/progress?since=: the only route that takes a query. */

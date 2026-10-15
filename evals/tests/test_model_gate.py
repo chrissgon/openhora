@@ -127,9 +127,9 @@ def test_an_abandoned_full_test_keeps_the_lines_of_its_lead_model_and_no_other_m
     path = event(folder, "full", "1.0.0", "2030-01-01", lines_of() + part, strong="z-model", complete=False)
     listing(path, ["z-model", "s-model"], None, [])
     cfg = CFG
-    z = es.gate_of(str(folder), es.as_reference(cfg, "z-model"))
+    z = es.gate_of(str(folder), es.as_subject(cfg, "z-model"))
     assert z["test"] is not None and z["version"] == "1.0"  # the lead's lines stay in the gate of the version
-    s = es.gate_of(str(folder), es.as_reference(cfg, "s-model"))
+    s = es.gate_of(str(folder), es.as_subject(cfg, "s-model"))
     assert s["test"] is None and "no full test" in s["cause"]
 
 
@@ -140,11 +140,11 @@ def test_the_stored_gate_is_the_one_a_full_test_wrote_for_that_model(root):
     event(folder, "full", "1.0.0", "2030-01-01", lines_of(baseline=False) + floor, gate=PASS)  # the old header and gate: s-model's
     full_on(folder, "z-model", "1.0.0", "2030-01-02", gate={**PASS, "passed": False, "with": 0.6, "baseline": 0.7}, baseline=False)
     for model, passed, mean in (("s-model", True, 0.9), ("z-model", False, 0.6)):
-        gate = es.gate_of(str(folder), es.as_reference(CFG, model))
+        gate = es.gate_of(str(folder), es.as_subject(CFG, model))
         assert (gate["computed"], gate["passed"], gate["note"]) == (False, passed, "baseline expired"), model
         assert gate["with"] == pytest.approx(mean)
     # A model with no gate of its own (the old event's floor tier): nobody else's stands for it.
-    other = es.gate_of(str(folder), es.as_reference(CFG, "f-model"))
+    other = es.gate_of(str(folder), es.as_subject(CFG, "f-model"))
     assert other["passed"] is None and other["note"] is None and "no baseline in force on f-model" in other["cause"]
 
 
@@ -172,7 +172,7 @@ def test_the_tests_that_list_a_model_are_the_ones_its_gate_reads(root):
 
 def test_the_gate_command_takes_a_model(root, capsys):
     (root / "evals").mkdir()
-    (root / "evals" / "eval-gate.json").write_text(json.dumps({**CFG, "strong_model": "s-model"}))
+    (root / "evals" / "eval-gate.json").write_text(json.dumps({**CFG, "models": {**CFG["models"], "z-model": tb.ENTRY}}))
     folder = skill(root)
     full_on(folder, "z-model", "1.0.0", "2030-01-02")
     assert es.main(["gate", "--skill", "core-demo", "--model", "z-model"], root=str(root)) == 0

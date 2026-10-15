@@ -1,6 +1,8 @@
 // The Skills tab of the Control room (control-room.html, R-53, R-54, R-55): the checks notice (when a check failed), the legend, the filters, the list of skills as
-// accordions in five columns (a card per skill on a phone) and, in an open row, the manifest, the runs here and the two sentences. It shows what the `skills` operation
-// returned: the band is its word, the score its number, and in a tier the score comes first and the band's chip after it (M-2). The filters only narrow the rows on the page.
+// accordions in five columns (a card per skill on a phone) and, in an open row, the manifest, the runs here, the recommendation and one sentence for each model. It shows what the
+// `skills` operation returned: the band is its word, the score its number, and a row says in one cell how many of its models are reliable (the best band of its models with the score of
+// the pair that earned it first and the chip after it, M-2); the open row has one line for each model, with its price, the date of the price and the expected cost of a run. The filters
+// only narrow the rows on the page.
 
 import { h } from "../dom.js";
 import { PHONE_QUERY } from "../frame/drawer.js";
@@ -8,22 +10,19 @@ import { icon } from "../frame/icons.js";
 import * as model from "./control-model.js";
 import { chip, code, emptyBlock, failedCard, FAILED_TITLE, loadingCard, noticeCard, reconcile } from "./control-parts.js";
 
-const CAPTION = "Skills in scope, with their band and score on the reference model and the floor model";
+const CAPTION = "Skills in scope, with their band on each model";
 
-/** A tier's band: the score first, then the band's chip (R-53), or a dash when the operation sent no pair for the tier. */
-function bandNode(skill, tier) {
-  const found = model.chipOf(skill, tier);
-  if (!found) return h("span", { class: "wb-muted", text: "-" });
-  return h("span", { class: "wb-band" }, h("span", { class: "wb-score", text: found.score }), chip(found.className, found.band));
+/** The models cell of a skill: the best band among its models as a chip, then how many of the models are reliable; a dash when the operation sent no pair. */
+function bandNode(skill) {
+  const found = model.summaryOf(skill);
+  if (!found.total) return h("span", { class: "wb-muted", text: "-" });
+  return h("span", { class: "wb-band" }, chip(found.className, found.band), h("span", { class: "wb-muted wb-score", text: found.text }));
 }
 
-/** What a screen reader hears for a row (the head row is hidden from it): the name, the version, the area and the two tiers. */
+/** What a screen reader hears for a row (the head row is hidden from it): the name, the version, the area and the models. */
 function rowName(skill) {
-  const said = (tier, column) => {
-    const found = model.chipOf(skill, tier);
-    return found ? `${column} ${found.score} ${found.band}` : `${column}: none`;
-  };
-  return `${skill.name}, version ${skill.version}, ${skill.area}, ${said("strong", "reference model")}, ${said("floor", "floor model")}`;
+  const found = model.summaryOf(skill);
+  return `${skill.name}, version ${skill.version}, ${skill.area}, ${found.total ? `${found.band}, ${found.text} reliable` : "no model"}`;
 }
 
 /** The tab. Returns {el, set(state), dispose()}; state: {status: "loading"|"ready"|"failed", data, error}. */
@@ -80,8 +79,7 @@ export function createSkillsTab() {
       h("code", { class: "wb-code wb-skill-name", title: String(skill.name), text: String(skill.name) }),
       h("span", { class: "wb-muted wb-skill-ver", text: String(skill.version) }),
       h("span", { class: "wb-muted wb-skill-area", text: String(skill.area) }),
-      h("span", { class: "wb-skill-tier" }, bandNode(skill, "strong")),
-      h("span", { class: "wb-skill-tier" }, bandNode(skill, "floor")));
+      h("span", { class: "wb-skill-models" }, bandNode(skill)));
     return accordion(skill, "wb-skill-row", summary, model.openLines(skill));
   }
 
@@ -89,11 +87,8 @@ export function createSkillsTab() {
     const summary = h("summary", { "aria-label": rowName(skill) },
       h("span", { class: "wb-sc-1" }, code(skill.name), h("span", { class: "wb-muted", text: `${skill.version} · ${skill.area}` })),
       h("span", { class: "wb-muted wb-sc-2", text: `Manifest ${model.manifestText(skill)} · ${skill.runs_here ?? "-"} runs here` }),
-      h("span", { class: "wb-sc-3" },
-        model.TIER_COLUMNS.map(([tier]) => h("span", {},
-          h("span", { class: "wb-muted", text: tier === "strong" ? "Reference" : "Floor" }),
-          bandNode(skill, tier)))));
-    return accordion(skill, "wb-skill-card", summary, model.detailLines(skill));
+      h("span", { class: "wb-sc-3" }, h("span", {}, h("span", { class: "wb-muted", text: "Models" }), bandNode(skill))));
+    return accordion(skill, "wb-skill-card", summary, model.cardLines(skill));
   }
 
   function renderResults() {
@@ -104,7 +99,7 @@ export function createSkillsTab() {
       return;
     }
     const head = h("div", { class: "wb-skill-head", "aria-hidden": "true" },
-      ["", "Skill", "Version", "Area", "Reference model", "Floor model"].map((t) => h("span", { text: t })));
+      ["", "Skill", "Version", "Area", "Models"].map((t) => h("span", { text: t })));
     results.replaceChildren(
       h("div", { class: "wb-skill-list", role: "group", "aria-label": CAPTION }, head, shown.map(listRow)),
       h("div", { class: "wb-skill-cards" }, shown.map(card)));
@@ -113,7 +108,7 @@ export function createSkillsTab() {
   function legend() {
     return h("div", { class: "wb-legend" },
       model.BANDS.map((b) => chip(model.bandClass(b), b)),
-      h("span", { class: "wb-muted wb-legend-note", text: "band per model tier, with the score" }));
+      h("span", { class: "wb-muted wb-legend-note", text: "best band of the skill's models; each model's band, price and cost are in the open row" }));
   }
 
   function notice(spec) {

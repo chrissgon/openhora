@@ -22,10 +22,11 @@ es = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(es)
 
 SKILL = '---\nname: core-demo\ndescription: A demo.\nmetadata:\n  version: "1.2.0"\n---\n\n# Demo\n\nIt does one job.\n'
-GATE = {"strong_model": "s-model", "strong_harness": "h", "floor_model": "f-model", "floor_harness": "h",
-        "floor_pass_env": [], "strong_pass_env": [], "grader": "s-model", "threshold": 0.8, "strong_tolerance": 0.05,
-        "measurement_version": 5, "measurement_floor": 5,
-        "models": {"s-model": ["provider/s-model"], "f-model": []}}
+ENTRY = {"aliases": [], "adapter": "h", "pass_env": [], "route": None, "provider_pin": None, "upstream_models": ["x"],
+         "price_source": "https://example.test/price", "run_token_budget": 1000}
+GATE = {"grader": "s-model", "threshold": 0.8, "tolerance": 0.05, "measurement_version": 5, "measurement_floor": 5,
+        "lab_models": ["s-model", "f-model"],
+        "models": {"s-model": {**ENTRY, "aliases": ["provider/s-model"]}, "f-model": ENTRY}}
 
 
 @pytest.fixture

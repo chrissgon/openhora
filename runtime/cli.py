@@ -12,8 +12,8 @@ Usage:
   python3 runtime/cli.py approve  --project <dir> --id <pending id> [--sha256 <plan hash> | --sha256 <effect hash>]
   python3 runtime/cli.py reject   --project <dir> --id <pending id> [--note <text>]
   python3 runtime/cli.py deps     --project <dir>
-  python3 runtime/cli.py run-next --project <dir> [--tier strong]
-  python3 runtime/cli.py run-task --project <dir> --task <task id> [--tier strong]
+  python3 runtime/cli.py run-next --project <dir> [--model <id>|auto]
+  python3 runtime/cli.py run-task --project <dir> --task <task id> [--model <id>|auto]
   python3 runtime/cli.py pending  --project <dir> [--id <pending id>]
   python3 runtime/cli.py answer   --project <dir> --id <pending id> (--text <text> | --text-file <file>) [--with-comments]
   python3 runtime/cli.py release  --project <dir> --id <pending id>
@@ -40,7 +40,8 @@ Usage:
   python3 runtime/cli.py revoke-policy --project <dir> --id <approval id>
   python3 runtime/cli.py standing --project <dir> --policy <name>
   python3 runtime/cli.py execute-under-policy --project <dir> --policy <name> --effect-file <path>
-  python3 runtime/cli.py set-mode --project <dir> --agent <name> --mode stopped|supervised|milestones|autonomous|autonomous-with-policy [--accept]
+  python3 runtime/cli.py set-mode --project <dir> --agent <name> --mode stopped|supervised|milestones|autonomous|autonomous-with-policy [--accept] [--consent]
+  python3 runtime/cli.py set-model --project <dir> --agent <name> --model <id>|auto|default [--accept] [--consent]
   python3 runtime/cli.py contained-run --project <dir> --skill <name> --prompt-file <file> --out <dir> [--platform <name>]... [--timeout-seconds <n>]
   python3 runtime/cli.py dispatch --project <dir>
   python3 runtime/cli.py poll     --project <dir>
@@ -75,9 +76,9 @@ approve   approves a plan (its tasks are created; pass the plan's hash, shown wi
 reject    rejects a plan or a request written on the task board: the request is cancelled. An effect rejected
           cancels its task, and nothing is sent.
 run-next  runs the next ready task that the rules of the slots let in (runtime/parallel.py), in this process: one skill,
-          once, in the eval container, on the model its proof gives (the
-          floor model only where the skill is reliable there and the proof holds; --tier strong asks for the
-          reference model; nothing asks for the floor model), on a copy
+          once, in the eval container, on the model chosen for it (the request's, the task's, the agent's fixed model, the
+          project's default_model, else auto: the cheapest model on which the skill is reliable; --model <id> or --model auto
+          names the model for this run and wins over all of those), on a copy
           of what may enter by limits L1 to L6 (runtime/workcopy.py). What the run left comes back by the path rule
           (runtime/path_rule.py); then the task waits for you. Other tasks of the project may be running: up to
           max_running at once, each agent up to its max_parallel, never two that write the same file. Start it with
@@ -120,12 +121,13 @@ conversation  the messages of the project's conversation above a message id (--a
           500: id, role, text, the request it made or answered, the run, the time. The conversation is named project
           (--conversation is the store's name, and no other is in use).
 skills    the skills in scope of the project (the packs of its agents, else the default pack): version, area, whether a
-          runtime manifest exists, the proof on the reference and the floor model as the proof file gives it (band,
-          cause, score, mean, runs), the runs of the skill in this project, and the two checks of the proof (the
+          runtime manifest exists, the proof on every model of the gate file as the proof file gives it (band, cause, score,
+          mean, runs, the source of the evidence, the model's price with its date and the expected cost of a run), the runs
+          of the skill in this project, and the two checks of the proof (the
           measurement files, the eval image). It calls no model.
 costs     the runs from a day on (--since YYYY-MM-DD, default the last 30 days) by day, agent, model and adapter: runs,
           tokens, the cost the store recorded, and the cost recomputed from the token counts a run left and the prices
-          in model_prices of runtime.json (with their source and date). A run whose token counts are not there, or a
+          of runtime/prices.json (with their source, date and whether the price is stale). A run whose token counts are not there, or a
           model with no price, has no recomputed cost; the row counts such runs as unknown_runs. Also the daily caps.
 connections  which provider each requirement class of the skills in scope resolves to (providers/resolve.py), which
           secrets are found and where (the environment or the secret store; never a value), whether the eval image is on
@@ -193,7 +195,19 @@ set-mode  sets one area agent's autonomy mode in docs/workbench/runtime.json (ar
           `person`, but only when the file was the accepted one before the change, so the one difference you accept
           is this mode; with another unaccepted change in the file, it is refused and writes nothing: read the file
           and run accept-config. Without --accept, accept the new hash with accept-config, after reading the file;
-          either rewrites the Checkpoints line of the state file.
+          either rewrites the Checkpoints line of the state file. Raising an agent that is fixed to a model to an
+          autonomous mode needs your consent (the warning is printed with the refusal): --consent is that consent, a flag of its
+          own and not --accept (which accepts the hash); with it the warning is printed again. A move down is never withheld
+          and never asks: the consent for autonomous-with-policy follows to autonomous.
+set-model fixes one area agent to a model (an id of evals/eval-gate.json), to auto (its tasks go to the cheapest model on
+          which the skill is reliable) or to default (no model of its own: the request's, else the project's
+          default_model, else auto). On an agent in an autonomous mode, fixing a model is your consent (decisions D34 and
+          D38): the warning is printed with the refusal and the command with --consent (the consent, a flag of its own) and
+          --accept (the hash, in the same step); --consent is the terminal's, and the page gives the same consent on its
+          own with the exact warning it showed (give-consent), never a messaging channel or the MCP mode; the consent is
+          stored with the agent and names the model and the mode, so changing either asks again. From then on the reviews of that agent's runs on that model, even with no
+          reliable evidence, are released by the mode, and each such run is recorded as autonomy by consent, never as
+          proven. Without --accept the hash is accepted with accept-config, after reading the file.
 contained-run  one run of one skill of an area agent's pack, once, in the eval container, on a copy that holds only the
           artifacts the skill declares (never runtime.json, never a versioned file the skill does not declare), on the
           model the skill's proof gives, with no credential but the model's own, no open network and no retry, within
@@ -227,7 +241,7 @@ stop-runs ends the runs this process started (its children, the container and th
           the project that a live process holds, whoever started it (by the process group its task lock names; a lock
           nobody holds is never signalled). To keep the dispatcher from starting more, stop the agent: set-mode stopped.
 service-check  what the local service checks at its start, for this project: whether this interpreter can read the
-          secret store, whether the reference model's credential is set or in it, docker on the PATH, the eval image on
+          secret store, whether the default model's credential is set or in it, docker on the PATH, the eval image on
           this machine, and whether a service dispatches (--dispatch-every <seconds>; absent: "not a service"). It starts
           nothing and remembers nothing when run here: the service calls it, and `connections` and `status` show its
           answer.
@@ -377,6 +391,8 @@ def main(argv=None) -> int:
         return e.code
     json.dump(out, sys.stdout, ensure_ascii=False, indent=1, default=str)
     print()
+    if row["name"] in ("set-mode", "set-model") and isinstance(out, dict) and out.get("warning"):
+        print(f"consent recorded for {out['agent']}: {out['warning']}", file=sys.stderr)  # the warning the consent answered, once more
     if row["name"] == "run-task" and out.get("ran") is None and not out.get("held"):
         return 4  # refused, not run: the dispatcher that started this process records it (ops_runs.reap)
     unless = row.get("exit_unless")  # the row says which result is not a success; the result is printed either way

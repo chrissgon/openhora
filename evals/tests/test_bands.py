@@ -27,9 +27,11 @@ def load(name, folder):
 
 es, validate = load("eval_status", "evals"), load("validate", "scripts")
 H = {c: c * 64 for c in "abcdef"}
-CFG = {"strong_model": "s-model", "strong_harness": "h", "floor_model": "f-model", "floor_harness": "fh",
-       "floor_pass_env": [], "strong_pass_env": [], "grader": "s-model", "threshold": 0.8, "strong_tolerance": 0.05,
-       "measurement_version": 5, "measurement_floor": 5, "models": {"s-model": [], "f-model": [], "old-model": []}}
+ENTRY = {"aliases": [], "adapter": "h", "pass_env": [], "route": None, "provider_pin": None, "upstream_models": ["x"],
+         "price_source": "https://example.test/price", "run_token_budget": 1000}
+CFG = {"grader": "s-model", "threshold": 0.8, "tolerance": 0.05, "lab_models": ["s-model", "f-model"],
+       "measurement_version": 5, "measurement_floor": 5,
+       "models": {"s-model": ENTRY, "f-model": {**ENTRY, "adapter": "fh"}, "old-model": ENTRY}}
 
 
 # --- the pessimistic score: the model's worked examples (section 6) and its backtest -------------------------
@@ -314,13 +316,15 @@ def test_another_context_or_an_earlier_grader_makes_a_run_inherited(root):
     assert (row["current_runs"], row["inherited_runs"], row["runs"]) == (9, 6, 12)
 
 
-def test_the_earlier_reference_models_runs_count_on_the_new_one_as_inherited(root):
+def test_a_models_inherited_lines_are_its_own_only(root):
+    """No model's lines count in another's pool: the lines an old event ran on its first tier under another id are that
+    id's, and the lead model of the gate file inherits none of them."""
     folder = skill(root)
     full(folder, strong="old-model")
     row = band(root, folder)
-    assert row["band"] == "needs a test"  # the gate is the new reference model's: it has no full test
-    assert (row["current_runs"], row["inherited_runs"], row["runs"]) == (0, 9, 3)
-    assert row["models"]["old-model"]["current_runs"] == 9
+    assert row["band"] == "needs a test"  # the gate is the lead model's: it has no full test
+    assert (row["current_runs"], row["inherited_runs"], row["runs"]) == (0, 0, 0)
+    assert row["models"]["old-model"]["current_runs"] == 9 and row["models"]["old-model"]["inherited_runs"] == 0
 
 
 def test_the_floor_model_has_its_own_row_and_no_rule_reads_it(root):

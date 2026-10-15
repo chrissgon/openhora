@@ -17,6 +17,7 @@
     "remote_id": null,
     "remote_version": null,
     "remote_written_sha256": null,
+    "model": null,
     "after": null,
     "waiting_for": []
   },

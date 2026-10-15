@@ -430,7 +430,7 @@ def test_the_floors_models_say_how_long_a_task_has_run_the_board_is_the_r32_labe
 @needs_node
 def test_the_agent_tab_is_the_page_s_rows_a_select_of_wider_modes_the_current_card_and_the_dashed_box(tmp_path):
     got = run_node(tmp_path, STRUCTURE)["agent"]
-    assert got["order"] == ["wb-state-box", "wb-mode-row", "wb-mode-form", "wb-notice-card", "wb-result-box", "wb-wider-modes", "wb-agent-body"], "floor.html: state, mode, the two buttons, the standing line, the result, the wider modes, then the rest"
+    assert got["order"] == ["wb-state-box", "wb-mode-row", "wb-mode-form", "wb-notice-card", "wb-result-box", "wb-wider-modes", "wb-model-box", "wb-agent-body"], "floor.html: state, mode, the two buttons, the standing line, the result, the wider modes, the model, then the rest"
     assert got["state"] == "WorkingRunning for 12 min" and got["pips"] == 0 and got["plate"] == "supervised", "R-8, C-5: the word, no pips"
     names = [[m[0], m[1], m[2], m[3]] for m in got["meters"]]
     assert names == [["Runs today", "3 / 6", 1, None], ["Spend today", "$0.03 / $2.00", 1, "$0.03 recorded · up to $0.50 reserved"], ["Queued", "0", 0, None]], "R-36, R-6: name, figure, a track; Queued last with no track"

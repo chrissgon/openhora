@@ -105,7 +105,7 @@ TITLE_CUT = 80
 
 
 def chat_memory(messages: list, settled: set) -> str:
-    """The conversation's memory for the router (T23: workaround 2, the floor model's adapter takes the request as one
+    """The conversation's memory for the router (T23: workaround 2, an adapter that takes the request as one
     argument, so the memory travels inside it, bounded): the plain lines and the router's replies after the newest
     reply whose request reached `planned`, `done` or `cancelled` (settled: those request ids); commands and their
     replies and the questions about the state (answered by code) are left out. The newest MEMORY_TURNS, oldest first, each `<role>: <text>` on one line cut to MEMORY_CUT
@@ -381,7 +381,7 @@ def queue_stale() -> float:
     one bound a router run cannot exceed, so a live run is never called dead while it holds the lock; only one entry is
     in flight, so a dead one blocks the others for no longer."""
     try:
-        return float(lab.reference("strong")["timeout_seconds"]) + QUEUE_STALE_MARGIN
+        return float(lab.reference()["timeout_seconds"]) + QUEUE_STALE_MARGIN
     except (lab.LabError, KeyError, TypeError, ValueError):
         return QUEUE_STALE_FALLBACK + QUEUE_STALE_MARGIN
 
@@ -557,12 +557,12 @@ def _planning_may_start(ctx: dict) -> tuple:
     cfg, store = ctx["cfg"], ctx["store"]
     agents = cfg["area_agents"]
     meta = skill_meta.declared(os.path.join(core.ROOT, "skills", router.ROUTER_SKILL))
-    billing = _ops()._route(ctx, router.ROUTER_SKILL, meta, None, core._floor_key())["billing"]
+    billing = _ops()._route(ctx, router.ROUTER_SKILL, meta, core._keys())["billing"]
     now = datetime.datetime.now(datetime.timezone.utc)
     standing_rows = core._stored(ctx, store.approvals_list, status="active", scope="standing")
     runs = autonomy.with_billing([dict(r, agent=plan.PLANNING) if r.get("agent") is None and r.get("skill") == router.ROUTER_SKILL
                                   else r for r in core._stored(ctx, store.runs_since, _ops()._midnight_utc())],
-                                 lab.reference("floor")["model"])
+                                 core._metered_models())
     facts = autonomy.facts(plan.PLANNING, agents, standing_rows, now)
     spent = autonomy.spend(runs, plan.PLANNING, cfg["raw"].get("max_cost_usd_per_run", _ops().PER_RUN_USD))
     ok, why = autonomy.may_start(plan.PLANNING, agents, facts, spent, billing)

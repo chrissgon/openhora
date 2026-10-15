@@ -7,7 +7,8 @@
 that compares a mode word (decision D14 of the platform plan).
 
 An area agent is an entry of "area_agents" in the project's configuration (runtime.json): a pack of skills, whether
-it is enabled, its mode and two caps. The mode the person chose rests on three facts: whether the agent is enabled,
+it is enabled, its mode, two caps, optionally the model it is fixed to ("model": a model id, or "auto") and, with a model
+fixed in an autonomous mode, the person's consent (decision D38): "consent": {"model", "mode"}. The mode the person chose rests on three facts: whether the agent is enabled,
 the checkpoints of its mode (every-phase, milestones, end) and whether a standing approval is in force for it. One
 mapping (mode_of) turns the facts back into the mode the agent acts in now, so an agent set to
 autonomous-with-policy whose approval expired acts as autonomous: its effects ask again.
@@ -23,9 +24,14 @@ autonomous-with-policy whose approval expired acts as autonomous: its effects as
                                                 subscription and free count runs (max_runs_per_day), metered counts
                                                 dollars (max_usd_per_day); the word a run used is recorded on its row,
                                                 and "unknown" when the route had none (counted as metered)
-  history_billing(run, floor_model)             the billing of a run row that has none (older than the column): the old
-                                                tier rule, the floor model's runs are metered and any other's subscription
-  with_billing(runs, floor_model)               the rows with that fallback filled in where the billing is null (only there)
+  history_billing(run, metered_models)          the billing of a run row that has none (older than the column): a run on
+                                                a model whose credential is billed by use is metered, any other's subscription
+  with_billing(runs, metered_models)            the rows with that fallback filled in where the billing is null (only there)
+  CONSENT_WARNING, CONSENT_MODES                the text the person reads before a model is fixed on an autonomous agent, and the
+                                                modes it applies to
+  consent_needed(entry)                         whether the agent's settings (model fixed, autonomous mode) need the person's consent
+  consent_valid(entry, model)                   whether the consent stored with the agent names this model and this mode, and the
+                                                model is the agent's fixed one
   run_budget(entry, spent, per_run_usd)         the spend limit of a metered run: the per-run limit, or what is left of the
                                                 day's dollar cap when that is less; None when under MIN_RUN_BUDGET_USD
   spend(runs, agent, per_run_usd)               a day's spend of one agent by billing: {"runs_counted", "usd_metered",
@@ -37,7 +43,7 @@ autonomous-with-policy whose approval expired acts as autonomous: its effects as
                                                 spend reads it (usd_metered = usd_recorded + usd_reserved, exactly)
   may_start(name, agents, facts, spent, billing)   (True, "") or (False, why): stopped, a cap reached for the billing of
                                                 the run about to start, or a billing nobody knows
-  review_action(task, pending, facts, proven, mandatory)   "release" or "hold": whether a mode releases a review
+  review_action(task, pending, facts, proven, mandatory, consent=False)   "release" or "hold": whether a mode releases a review
   covers(approval, policy_sha256, effect, executed_today, now, resolved=None)   (True, "") or (False, why): whether a
                                                 standing approval covers one effect, inside every bound; a target
                                                 that is a class word is covered only by what the caller resolved
@@ -48,7 +54,8 @@ autonomous-with-policy whose approval expired acts as autonomous: its effects as
 
 A mode never releases a question; it releases a review only when the run ended `done` and wrote something (never a
 `draft_with_questions`, an `unclassified` reply, a `done` whose reason says no file changed, or a blocked change set),
-the skill is proven, and the task is not a milestone of its mode nor a mandatory milestone. Releasing is not
+the skill is proven on the model that ran (by lab or local evidence) or the person consented to that model for the agent
+(consent, decision D38), and the task is not a milestone of its mode nor a mandatory milestone. Releasing is not
 approving. An effect is executed without asking only inside an approved policy (covers, limit L15).
 
 Usage (a library): python3 runtime/autonomy.py --help
@@ -59,6 +66,7 @@ from __future__ import annotations
 
 import datetime
 import fnmatch
+import hashlib
 import json
 import math
 import re
@@ -72,7 +80,22 @@ DEFAULT_MODE = "milestones"
 CHECKPOINTS = {"stopped": "every-phase", "supervised": "every-phase", "milestones": "milestones", "autonomous": "end",
                "autonomous-with-policy": "end"}
 CAREFUL_ORDER = ("every-phase", "milestones", "end")  # the most careful first
-AGENT_KEYS = ("pack", "enabled", "mode", "max_runs_per_day", "max_usd_per_day", "max_parallel")
+AGENT_KEYS = ("pack", "enabled", "mode", "max_runs_per_day", "max_usd_per_day", "max_parallel", "model", "consent")
+AUTO_MODEL = "auto"  # the model word of "choose by the evidence and the price" (runtime/proof.py)
+# The modes in which the agent's reviews are released without the person: an agent fixed to a model there needs the person's
+# consent (decision D38). Both end the work at "end" checkpoints (CHECKPOINTS).
+CONSENT_MODES = ("autonomous", "autonomous-with-policy")
+# What the person reads before a model is fixed on an autonomous agent, once, here: the page, the terminal and the refusal read this
+# constant and no other copy of the text exists.
+#
+# The text is true whatever the evidence is (decision of the review of P3): consent matters only for the skills of the agent that
+# are not proven on the model; for the others the mode releases as it does for any proven model, and the consent is not used.
+CONSENT_WARNING = ("Your consent releases this agent's reviews without you on this model for every skill of the agent that is "
+                   "not proven on it by the lab's evidence or your own tests; the skills that are proven on it are released "
+                   "by the mode as for any proven model. Each run released because of your consent is recorded as autonomy "
+                   "by consent.")
+# The sha256 of that text: what a page sends back with the consent to prove it showed the exact text (give-consent checks it).
+CONSENT_WARNING_SHA256 = hashlib.sha256(CONSENT_WARNING.encode("utf-8")).hexdigest()
 # the release's cap of tasks holding a slot on one floor (the maintainer, 2026-10-12): the one constant; the interface reads it from the agents read and never writes the number; raising it needs the scene to give a floor more seats (SPEC-PAR-7)
 MAX_PARALLEL_CEILING = 4
 POLICY_MODE = "autonomous-with-policy"
@@ -162,8 +185,40 @@ def agents(raw) -> dict:
         if isinstance(slots, bool) or not isinstance(slots, int) or not 1 <= slots <= MAX_PARALLEL_CEILING:
             raise ValueError(f"area_agents.{name}.max_parallel must be an integer from 1 to {MAX_PARALLEL_CEILING}")
         checked["max_parallel"] = slots
+        model = entry.get("model")
+        if model is not None:
+            if not isinstance(model, str) or not model.strip() or model != model.strip() or len(model) > 200:
+                raise ValueError(f"area_agents.{name}.model is a model id, or \"{AUTO_MODEL}\"")
+            checked["model"] = model
+        consent = entry.get("consent")
+        if consent is not None:
+            if (not isinstance(consent, dict) or set(consent) != {"model", "mode"} or not isinstance(consent["model"], str)
+                    or consent["mode"] not in CONSENT_MODES):
+                raise ValueError(f"area_agents.{name}.consent is {{\"model\": a model id, \"mode\": one of {', '.join(CONSENT_MODES)}}}")
+            checked["consent"] = {"model": consent["model"], "mode": consent["mode"]}
         out[name] = checked
     return out
+
+
+def fixed_model(entry) -> str | None:
+    """The model id an agent is fixed to, or None: no model, or `auto` (a way of choosing, not a model)."""
+    model = (entry or {}).get("model")
+    return model if model and model != AUTO_MODEL else None
+
+
+def consent_needed(entry) -> bool:
+    """Whether the agent's settings need the person's consent: a model id is fixed and the mode releases reviews without
+    the person (CONSENT_MODES). `auto` fixes no model: in auto, release follows the evidence alone."""
+    return fixed_model(entry) is not None and (entry or {}).get("mode") in CONSENT_MODES
+
+
+def consent_valid(entry, model) -> bool:
+    """Whether the person's consent is in force for a run on `model`: the agent's fixed model is `model`, the mode is one of
+    CONSENT_MODES, and the consent stored with the agent names that very model and that very mode. A change of the model or
+    of the mode makes the stored consent stale, and the person is asked again."""
+    consent = (entry or {}).get("consent")
+    return (consent_needed(entry) and isinstance(consent, dict) and model is not None
+            and consent.get("model") == entry["model"] == model and consent.get("mode") == entry["mode"])
 
 
 def _moment(value):
@@ -217,19 +272,20 @@ def state_checkpoints(agents_checked: dict) -> str:
     return CAREFUL_ORDER[0]
 
 
-def history_billing(run: dict, floor_model: str) -> str:
-    """The billing of a run row: the one it recorded, else (a run older than the column, for history only) the tier rule the
-    caps had before billing was recorded: a run on the floor model is metered and a run on any other model is subscription."""
+def history_billing(run: dict, metered_models) -> str:
+    """The billing of a run row: the one it recorded, else (a run older than the column, for history only) the rule the
+    caps had before billing was recorded, by model: a run on a model whose credential is billed by use (metered_models, the ids
+    the caller reads from the adapters' manifests) is metered and a run on any other model is subscription."""
     word = run.get("billing")
     if word in BILLINGS:
         return word
-    return "metered" if run.get("model") == floor_model else "subscription"
+    return "metered" if run.get("model") in (metered_models or ()) else "subscription"
 
 
-def with_billing(runs, floor_model: str) -> list:
+def with_billing(runs, metered_models) -> list:
     """The rows of runs_since with the billing of every row that has none (NULL: older than the column) filled in by
     history_billing; a row that records a word, "unknown" included, keeps it. No row is changed in place."""
-    return [run if run.get("billing") is not None else dict(run, billing=history_billing(run, floor_model)) for run in runs]
+    return [run if run.get("billing") is not None else dict(run, billing=history_billing(run, metered_models)) for run in runs]
 
 
 def never_reached_the_model(run: dict) -> bool:
@@ -313,13 +369,15 @@ def run_budget(entry: dict, spent: dict, per_run_usd: float):
     return math.floor(round(min(float(per_run_usd), left) * 100, 6)) / 100
 
 
-def review_action(task: dict, pending: dict, f: dict, proven: bool, mandatory: bool) -> str:
+def review_action(task: dict, pending: dict, f: dict, proven: bool, mandatory: bool, consent: bool = False) -> str:
     """"release" or "hold" for one open pending decision, the first rule that matches:
     1. not a review: hold (a question, a plan, an effect, an acceptance always reach the person);
     2. its run's ending is not `done` (a draft with questions, an unclassified reply, a gate): hold;
     3. a `done` whose reason says no file changed: hold;
     4. its change set is blocked: hold;
-    5. the skill is not proven: hold;
+    5. the pair that ran is not proven and the person gave no consent for it: hold. proven is lab or local evidence on the
+       model that ran; consent is the person's consent (decision D38) for the agent's fixed model, true only for a run on
+       that model recorded as autonomy by consent. Community evidence alone is neither: its output is reviewed;
     6. a mandatory milestone: hold, in every mode;
     7. the agent is not enabled, or its checkpoints are every-phase: hold;
     8. checkpoints milestones and the task is a milestone: hold;
@@ -333,7 +391,7 @@ def review_action(task: dict, pending: dict, f: dict, proven: bool, mandatory: b
         return "hold"
     if (payload.get("changeset") or {}).get("blocked"):
         return "hold"
-    if not proven or mandatory:
+    if not (proven or consent) or mandatory:
         return "hold"
     if not f["enabled"] or f["checkpoints"] == "every-phase":
         return "hold"

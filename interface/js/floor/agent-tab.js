@@ -19,6 +19,7 @@ import { fileRefusal, handChooser, handOverStep, toBase64 } from "./hand-file.js
 import { createTaskActions } from "./task-actions.js";
 import { busyLine, chip, errorText, notice, ring, withheldLine } from "./widgets.js";
 import { reader } from "../permissions.js";
+import { agentModelLabel } from "../models.js";
 import { waitLines } from "../waits.js";
 
 export { MAX_FILE_BYTES, fileRefusal, toBase64 } from "./hand-file.js";
@@ -32,6 +33,14 @@ export const NOT_ACCEPTED_RESULT = "Accept the configuration in the terminal (th
 const HELD_COMMAND_LABEL = Object.freeze({ "dispatch off": "Run the next task from the terminal" });
 export const BRING_BACK = "To bring it back, choose supervised below and run its command in the terminal.";
 
+/** The sha256 of a text, in hexadecimal: the proof that the page showed the exact warning (give-consent). Throws where the browser has no SubtleCrypto. */
+export async function sha256Hex(text) {
+  const subtle = globalThis.crypto && globalThis.crypto.subtle;
+  if (!subtle) throw new Error("This browser cannot hash the warning it shows: run the command in the terminal.");
+  const bytes = await subtle.digest("SHA-256", new TextEncoder().encode(String(text)));
+  return [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 /** Keep the keyboard focus on the control with the same `data-key` after a part is drawn again. */
 function redraw(container, render) {
   const active = document.activeElement;
@@ -43,7 +52,7 @@ function redraw(container, render) {
 }
 
 /**
- * Create the Agent tab. env: {project, agent, api: {setMode, retry, goAhead, handOver}, refresh(), now(), links: {inbox(pendingId)} (optional), task(id) (optional: the task's body, for the file-drop line),
+ * Create the Agent tab. env: {project, agent, api: {setMode, setModel, giveConsent, retry, goAhead, handOver}, refresh(), now(), links: {inbox(pendingId)} (optional), task(id) (optional: the task's body, for the file-drop line),
  * can(op, kind) (optional: whether the page may do an operation, js/permissions.js, read at every draw; all allowed when left out)}. Returns {el, update(view),
  * focusSelect()}; view is floor-model.floor(...) (found, notAccepted or loading). "Stop agent" and "Supervise" only narrow the mode, a brake that the policy never withholds
  * (setMode is exempt, js/permissions.js); "Hand a file over" is `hand-over` and Retry, "Go ahead" and "Drop the after" are drawn by task-actions.js under their own operations.
@@ -65,7 +74,8 @@ export function createAgentTab(env) {
   const handLine = h("div");      // the line under the hand-over when the policy withholds it
   const body = h("div", { class: "wb-agent-body" }, waitingLine, metersBox, runsTotalLine, currentBox, othersBox, handBox);
   const widerBox = h("div", { class: "wb-wider-modes" });
-  fill(el, stateBox, plateBox, formBox, standing, resultBox, widerBox, body);
+  const modelBox = h("div", { class: "wb-model-box" });
+  fill(el, stateBox, plateBox, formBox, standing, resultBox, widerBox, modelBox, body);
 
   const shown = {};
   const earlierOpen = new Set();     // the current task's "Earlier attempts" disclosure, open by the person's choice (A-72)
@@ -228,6 +238,92 @@ export function createAgentTab(env) {
     fill(widerBox, h("div", { class: "wb-wider-box" },
       h("div", { class: "wb-wider-row" }, h("label", { class: "wb-wider-label", for: id, text: "Mode" }), select, copy),
       code, widerNote(WIDER_BELOW_NOTE), status));
+  }
+
+  /**
+   * The model of the agent (D34, D38): what it is fixed to, the person's consent when there is one, and a select of the service's `model_commands` (every model of the gate file, `auto` and
+   * `default`). A choice that needs no consent is sent with `setModel`; one that does (the service marks it `consent`: a model fixed on an agent in an autonomous mode) is shown with the
+   * service's warning and an explicit "I consent" button, which sends `giveConsent` with the model, the agent's mode, the configuration's hash and the sha256 of the warning text as it is on the
+   * screen (decision D38); the command that gives the same consent in the terminal stays beside it, with Copy. The page builds no command and decides no consent: the service checks the four values.
+   */
+  function drawModel(agent, waiting) {
+    const commands = agent && Array.isArray(agent.model_commands) ? agent.model_commands : null;
+    if (!commands || waiting) {
+      fill(modelBox);
+      return;
+    }
+    const current = agent.model || "default";
+    const said = agent.model ? (agent.model === "auto" ? "auto: the cheapest model that is reliable for each skill" : agent.model) : "none of its own: the request's, else the project's default";
+    const consent = agent.consent_in_force && agent.consent
+      ? h("p", { class: "notice pui-soft pui-warn wb-model-consent", role: "note" }, icon("triangle-alert", 16),
+        h("span", { text: `Your consent is recorded for ${agent.consent.model} in ${agent.consent.mode} mode: its reviews are released by the mode, and each run is recorded as autonomy by consent.` }))
+      : null;
+    const id = `model-pick-${env.agent}`;
+    const select = h("select", { class: "pui-input wb-select", id, "data-key": "model" }, commands.map((c) => h("option", { value: c.model, text: agentModelLabel(c, agent.recommended_model) })));
+    select.value = commands.some((c) => c.model === current) ? current : "default";
+    const code = h("code", { class: "wb-command-code wb-model-code", "data-key": "model-command" });
+    const word = h("span", { class: "wb-copy-label", text: "Copy" });
+    const copy = h("button", { class: "pui-btn pui-surface pui-outline wb-copy", type: "button", "aria-label": "Copy the command of the chosen model", "data-key": "model-copy" }, word);
+    const set = h("button", { class: "pui-btn pui-solid pui-theme wb-set-model", type: "button", "data-key": "set-model", text: "Set model" });
+    const warnText = h("span", { class: "wb-model-warning", text: agent.consent_warning || "" });
+    const warn = h("p", { class: "notice pui-soft pui-warn wb-wider-note", role: "note", hidden: true }, icon("triangle-alert", 16), warnText);
+    const consentButton = h("button", { class: "pui-btn pui-solid pui-theme wb-give-consent", type: "button", "data-key": "give-consent", text: "I consent", hidden: true });
+    const consentLine = h("div", { class: "wb-model-consent-line" });     // the line under the button when the policy withholds the consent from the page
+    const mayConsent = can("give-consent") && Boolean(env.api && typeof env.api.giveConsent === "function") && Boolean(agent.config_sha256) && Boolean(agent.mode) && Boolean(agent.consent_warning) && !locked;
+    const status = h("span", { class: "wb-copy-status wb-muted", role: "status", text: "" });
+    const failure = h("p", { class: "notice pui-soft pui-error wb-card-error", role: "alert", hidden: true });
+    const chosen = () => commands.find((c) => c.model === select.value) || commands[0];
+    const needsConsent = () => chosen().consent === true;
+    const paint = () => {
+      const c = chosen();
+      const consentStep = needsConsent();
+      code.textContent = consentStep ? c.command : "";
+      code.hidden = !consentStep;
+      copy.hidden = !consentStep;
+      warn.hidden = !consentStep;
+      consentButton.hidden = !consentStep || !mayConsent;
+      fill(consentLine, consentStep && !can("give-consent") ? withheldLine(["give-consent"]) : null);
+      set.hidden = consentStep || select.value === current || !(env.api && env.api.setModel) || locked;
+      status.textContent = "";
+    };
+    select.addEventListener("change", () => { failure.hidden = true; paint(); });
+    copy.addEventListener("click", async () => {
+      const result = await copyCommand(chosen().command, { clipboard: typeof navigator !== "undefined" && navigator.clipboard ? navigator.clipboard : null, select: () => selectNode(code) });
+      word.textContent = result === "copied" ? "Copied" : "Selected";
+      status.textContent = result === "copied" ? "Copied to the clipboard." : "Select the command and copy it with the keyboard.";
+      setTimeout(() => { word.textContent = "Copy"; status.textContent = ""; }, 2000);
+    });
+    set.addEventListener("click", async () => {
+      set.disabled = true;
+      failure.hidden = true;
+      try {
+        await env.api.setModel(env.project, env.agent, select.value);
+        env.refresh();
+      } catch (e) {
+        failure.textContent = (e && e.message) || "The model could not be set.";
+        failure.hidden = false;
+      } finally {
+        set.disabled = false;
+      }
+    });
+    consentButton.addEventListener("click", async () => {
+      consentButton.disabled = true;
+      failure.hidden = true;
+      try {
+        const hash = await sha256Hex(warnText.textContent);      // the hash of the text that is on the screen
+        await env.api.giveConsent(env.project, env.agent, { model: select.value, mode: agent.mode, config_sha256: agent.config_sha256, warning_sha256: hash });
+        env.refresh();
+      } catch (e) {
+        failure.textContent = (e && e.message) || "The consent could not be recorded.";
+        failure.hidden = false;
+      } finally {
+        consentButton.disabled = false;
+      }
+    });
+    paint();
+    fill(modelBox, h("div", { class: "wb-wider-box wb-model" },
+      h("p", { class: "wb-card-line", text: `Model: ${said}.` }), consent,
+      h("div", { class: "wb-wider-row" }, h("label", { class: "wb-wider-label", for: id, text: "Fix to" }), select, set, copy), code, warn, consentButton, consentLine, status, failure));
   }
 
   /** One card of "Current task(s)": the task, its skill and time, what it waits for, its actions, why it is held and its runs. */
@@ -409,6 +505,7 @@ export function createAgentTab(env) {
       waitingLine.hidden = !(view && view.notAccepted);
       for (const node of [metersBox, currentBox, othersBox, handBox]) node.hidden = unaccepted;
       if (unaccepted) widerBox.hidden = true;
+      modelBox.hidden = unaccepted;
       if (unaccepted) runsTotalLine.hidden = true;
       stateBox.hidden = false;
       plateBox.hidden = unaccepted;
@@ -432,6 +529,7 @@ export function createAgentTab(env) {
       runsTotalLine.hidden = !meters(view.agent).runsTotal;     // every update: a draw skipped as identical must not leave it hidden after a not-accepted spell
       swap("wider", [view.agent.wider || null, waiting], () => drawWider(view.agent.wider, waiting));
       widerBox.hidden = widerEmpty;
+      swap("model", [view.agent.model || null, view.agent.mode || null, view.agent.config_sha256 || null, view.agent.consent || null, view.agent.consent_in_force || false, view.agent.model_commands || null, waiting, locked, can("give-consent")], () => drawModel(view.agent, waiting));
       const pendingIds = view.decisions.map((d) => [d.id, d.task_id]);
       const cards = (view.currents || []).map((c) => [c.task, c.runs, earlierOpen.has(c.task.id), c.held, currentSub(c.task, c.body, view.decisions, env.now())]);     // "for 12 min" moves with the clock: it is part of what is drawn
       swap("current", [cards, view.tasks.length, pendingIds, taskActionsUse.signature(), locked], () => drawCurrent(view));

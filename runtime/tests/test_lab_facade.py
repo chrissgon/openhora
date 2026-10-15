@@ -45,7 +45,7 @@ def test_a_run_sees_the_staged_skill_and_the_given_files_and_nothing_else(tree, 
     assert not [p for p in seen if "AGENTS.md" in p or "runtime.json" in p]  # only what the caller listed
     assert out["staged"] == [os.path.join(".h", "skills", "demo-asks")]
     assert out["changes"] == {"created": [], "modified": [], "deleted": [], "unchanged": ["docs/workbench/state.md"]}
-    assert (out["model"], out["adapter"], out["tier"], out["web"]) == ("m", "h", "strong", False)
+    assert (out["model"], out["adapter"], out["web"]) == ("m", "h", False) and "tier" not in out
     assert out["timing"]["skills_loaded"] == ["demo-asks"] and out["counts"]["attempts"] == 1
 
 
@@ -276,12 +276,29 @@ def test_the_names_of_a_tools_settings_come_from_the_adapters_lists(tree):
     assert lab.settings_names() == sorted(st.EVAL_JSON["settings"])
 
 
-def test_the_standing_of_a_real_skill_has_a_band_for_the_reference_model_and_names_the_evidences_image():
+def test_the_standing_of_a_real_skill_has_a_band_for_every_lab_model_and_names_the_evidences_image():
     found = lab.standing("biz-market-analysis")
-    strong = found["tiers"]["strong"]["model"]
-    assert strong and strong in found["models"] and found["models"][strong]["band"]
+    assert found["lab_models"] and set(found["lab_models"]) <= set(found["adapters"]) and "tiers" not in found
+    for model in found["lab_models"]:
+        assert found["models"][model]["band"] and found["models"][model]["source"] == "lab" and found["adapters"][model]
     assert found["evidence_images"] and all(d.startswith("sha256:") for d in found["evidence_images"])
-    assert found["version"] and found["tiers"]["floor"]["model"] and found["web_cases"]
+    assert found["version"] and found["web_cases"] and found["local"] == {} or isinstance(found["local"], dict)
+
+
+def test_the_facade_is_keyed_by_model_the_first_lab_model_is_the_default_and_an_unlisted_one_is_refused():
+    models = lab.models()
+    assert models[:len(lab.standing("biz-market-analysis")["lab_models"])] == lab.standing("biz-market-analysis")["lab_models"]
+    assert lab.default_model() == models[0] == lab.reference()["model"]
+    for model in models:
+        found = lab.reference(model)
+        assert found["model"] == model and found["adapter"] and isinstance(found["pass_env"], list)
+        assert lab.credential_missing(model) is not None and lab.names_of(model)[0] == model
+    assert lab.resolve_model(lab.names_of(models[0])[-1]) == models[0]  # an alias is written as the id
+    with pytest.raises(lab.LabError) as refused:
+        lab.reference("strong")
+    assert refused.value.kind == "config" and "is not a model of evals/eval-gate.json" in refused.value.reason
+    with pytest.raises(lab.LabError):
+        lab.credential_missing("floor")
 
 
 class _Done:

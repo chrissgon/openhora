@@ -35,9 +35,9 @@ def poll(project):
 def dispatch(project, wait=False):
     return {"job": "work", "project": project, "wait": wait}
 '''
-STANDIN_LAB = '''def reference(tier="strong"):
-    return {"tier": tier, "model": "m"}
-def credential_missing(tier):
+STANDIN_LAB = '''def reference(model=None):
+    return {"model": model or "m"}
+def credential_missing(model=None):
     return []
 '''
 

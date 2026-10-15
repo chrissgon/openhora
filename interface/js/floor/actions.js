@@ -11,6 +11,8 @@ export const actions = {
   verdict: api.verdict,
   cancel: api.cancel,
   setMode: api.setMode,
+  setModel: api.setModel,
+  giveConsent: api.giveConsent,
   retry: api.retry,
   goAhead: api.goAhead,
   route: api.route,

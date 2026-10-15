@@ -6,20 +6,42 @@
 """The proof of a skill, and the choice of the model a run of it goes to.
 
 The proof has one source: what the status script computes from the evidence files (evals/eval_status.py, read
-through the lab facade, runtime/lab.py). This module keeps a copy of it, the proof file
-<data_dir>/proof.json, rebuilt when its inputs change (the gate file, the skill's version file, its evidence
-files, its content): a cache in the data folder, never a source and never committed.
+through the lab facade, runtime/lab.py): the lab's, and the person's own tests of any model (outside the checkout).
+This module keeps a copy of it, the proof file <data_dir>/proof.json, rebuilt when its inputs change (the gate file,
+the skill's version file, its evidence files, the person's local evidence files, its content): a cache in the data
+folder, never a source and never committed.
 
-A run goes to the floor model only when the skill is `reliable` there, the measurement files of this checkout are
-the recorded ones, the eval image on this machine is the one the evidence was measured in, and a key for the floor
-model is found (the runtime's own, else the lab's: runtime/ops.py, _floor_key). Otherwise it goes to the
-reference model. Nobody can ask for the floor model; the person can ask for the reference model. A skill runs in
-the condition it was measured in: one that requires the web but was not measured with it, on the model it runs on, runs without it.
+There are no tiers. A skill has a band for each model (a pair of skill and model, with the adapter the gate file names
+for it), and a model is named by the person, or chosen by `auto`:
+
+  A named model runs. Its band informs the person and never gates the choice (decision D34). A pair that is not
+  `reliable` on this machine (the measurement files are not the recorded ones, the eval image is not the evidence's, or
+  the band is not `reliable`) is unproven: the run is released to no one (autonomy "supervised"), whatever the mode.
+  A skill runs in the condition it was measured in: one that requires the web but was not measured with it, on the model
+  it runs on, runs without it. The image the evidence was measured in is a property of the pair and of the source of
+  its figures (the lab's events, the person's own, the community's): the pair carries the images of the events it
+  rests on, and the image on this machine is checked against those of the pair being released, not against the images of
+  another model or another source.
+
+  `auto` (decisions D22, D34, D35, D36) picks the pair with the lowest expected cost per run among the candidates:
+  a pair is a candidate when the skill is `reliable` on it, the proof holds here (both checks), a key for the model
+  was found, its price is known (runtime/prices.json), its with-skill runs have a measured usage (so that an expected
+  cost exists) and, when the caller passes an approved set of providers (a routine), its provider is inside it. The
+  expected cost of a run is the mean usage of the model's with-skill runs, by kind, times the price of that kind
+  (runtime/prices.py). A tie goes to the higher pessimistic score. No candidate: the fallback model (the project's
+  default model when it names one, else the first lab model), supervised, with the reason. Evidence from the lab and from
+  the person's own tests counts for ranking and for release; community evidence (P10) counts for ranking only: a pair
+  `reliable` only through it is chosen and its output is reviewed (autonomy "supervised").
+
+The choice of a run is made once, here; whether an unproven pair is released by consent (decision D38) is the operations
+layer's, which knows the agent (runtime/ops_models.py).
 
 Functions:
-  row(cfg, skill)                                    the skill's entry of the proof file
-  checks(entry)                                      {"measurement", "image"}: None, or why the proof does not hold
-  route(cfg, skill, meta, *, force=None, floor_key=False)   the choice for one run
+  row(cfg, skill)                                    the skill's entry of the proof file: one pair for each model
+  checks(entry, pair=None)                           {"measurement", "image"}: None, or why the proof does not hold (the
+                                                     image of the pair's own evidence when a pair is given)
+  route(cfg, skill, meta, *, model=None, ...)        the choice for one run (see its docstring)
+  pair_view(entry, model, prices, today, max_days)   one pair as the proof read shows it, with price and expected cost
 
 Usage (a library; the shell is runtime/cli.py, verb proof): python3 runtime/proof.py --help
 
@@ -27,6 +49,7 @@ Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import sys
@@ -35,12 +58,17 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import lab  # noqa: E402  (the same folder)
+import prices as price_table  # noqa: E402  (the same folder)
 
 FILE = "proof.json"
-VERSION = 2
-TIERS = ("strong", "floor")
+VERSION = 4
 RELIABLE = "reliable"
-UNTESTED = {"band": "needs a test", "cause": "no evidence on this model", "score": None, "mean": None, "runs": 0}
+AUTO = "auto"
+UNTESTED = {"band": "needs a test", "cause": "no evidence on this model", "score": None, "mean": None, "runs": 0,
+            "web_measured": False, "usage_mean": None, "source": None}
+# The sources of evidence a pair can rest on. Lab and local evidence rank a pair and release it; community evidence
+# (P10) ranks it only.
+RELEASING = ("lab", "local")
 
 
 def _path(cfg: dict) -> str:
@@ -75,14 +103,32 @@ def _write(path: str, data: dict) -> None:
         raise
 
 
+def _best(lab_figures, local_figures, community_figures=None) -> dict:
+    """The figures a pair shows: the lab's when the skill is reliable on the model by the lab's evidence, else the person's
+    own when reliable by theirs, else the community's when reliable by it (it ranks, and releases nothing: the source
+    "community" is not in RELEASING), else the lab's, else the person's, else the community's, else the untested word. The
+    source is named."""
+    if lab_figures and lab_figures.get("band") == RELIABLE:
+        return lab_figures
+    if local_figures and local_figures.get("band") == RELIABLE:
+        return local_figures
+    if community_figures and community_figures.get("band") == RELIABLE:
+        return community_figures
+    return lab_figures or local_figures or community_figures or UNTESTED
+
+
 def row(cfg: dict, skill: str) -> dict:
-    """The skill's entry of the proof file. Reads <data_dir>/proof.json; when the entry is missing or its
-    inputs_sha256 differs from lab.proof_inputs(skill), computes it from lab.standing(skill) and writes the file
-    atomically. A model with no entry in the standing gets the band `needs a test` with 0 runs and web_measured false.
-    web_measured is stored on each pair, not on the entry: it is true when that model's current set holds a
-    with-skill lab line of a case the gate file lists as a web case (lab.standing), so a listed case with no evidence
-    on that model does not turn the web on, and a model can differ from the other. A proof file of an earlier VERSION
-    (which kept it on the entry, from the gate file's list alone) is read as empty and recomputed."""
+    """The skill's entry of the proof file: {"inputs_sha256", "skill_version", "evidence_images", "lab_models", "pairs":
+    [{"model", "adapter", "names" ([the id, then its aliases]), "provider" (the gate file's route of the model, or None),
+    "band", "cause", "score", "mean", "runs", "web_measured", "usage_mean" (the mean usage of the with-skill runs by kind,
+    or None), "source" ("lab", "local", "community", or None for a model with no evidence), "images" (the image digests of
+    the events that figures rest on: the pair's own evidence, by its source)}]}, one pair for each model the gate file
+    lists (the lab models first). Reads <data_dir>/proof.json; when the entry is missing or its inputs_sha256 differs
+    from lab.proof_inputs(skill), computes it from lab.standing(skill) and writes the file atomically. A model with no
+    evidence gets the band `needs a test` with 0 runs. web_measured is stored on each pair: it is true when that model's
+    current set holds a with-skill lab line of a case the gate file lists as a web case (lab.standing), so a listed case
+    with no evidence on that model does not turn the web on, and a model can differ from the other. A proof file of
+    an earlier VERSION (which held the two tiers) is read as empty and recomputed."""
     path = _path(cfg)
     data = _read(path)
     inputs = lab.proof_inputs(skill)
@@ -91,32 +137,47 @@ def row(cfg: dict, skill: str) -> dict:
         return entry
     standing = lab.standing(skill)
     pairs = []
-    for tier in TIERS:
-        pair = standing["tiers"][tier]
-        found = standing["models"].get(pair["model"]) or UNTESTED
-        pairs.append({"tier": tier, "model": pair["model"], "adapter": pair["adapter"],
-                      **{k: found.get(k) for k in ("band", "cause", "score", "mean", "runs")},
-                      "web_measured": bool(found.get("web_measured"))})
+    for model in lab.models():
+        figures = _best(standing["models"].get(model), (standing.get("local") or {}).get(model),
+                        (standing.get("community") or {}).get(model))
+        pairs.append({"model": model, "adapter": standing["adapters"].get(model), "names": lab.names_of(model),
+                      "provider": lab.reference(model).get("route"),
+                      **{k: figures.get(k) for k in ("band", "cause", "score", "mean", "runs", "usage_mean", "source")},
+                      "web_measured": bool(figures.get("web_measured")),
+                      # a figure without the key (a model with no evidence) falls back to the lab's images of the skill
+                      "images": sorted(figures["images"] if figures.get("images") is not None else standing["evidence_images"])})
     entry = {"inputs_sha256": inputs, "skill_version": standing["version"],
-             "evidence_images": list(standing["evidence_images"]),
-             "pairs": pairs}
+             "evidence_images": sorted({d for pair in pairs for d in pair["images"]} | set(standing["evidence_images"])),
+             "lab_models": list(standing["lab_models"]), "pairs": pairs}
     data["skills"][skill] = entry
     _write(path, data)
     return entry
 
 
-def checks(entry: dict) -> dict:
+def _wanted(entry: dict, pair) -> list:
+    """The image digests the check is against: the pair's own (the evidence its figures rest on), else the entry's."""
+    if isinstance(pair, dict) and pair.get("images") is not None:
+        return list(pair["images"])
+    return list(entry.get("evidence_images") or [])
+
+
+def checks(entry: dict, pair=None) -> dict:
     """{"measurement": None or a reason, "image": None or a reason}: whether the proof holds on this checkout and
-    this machine. Computed on every call, never cached.
+    this machine, for one pair when it is given (the image of the pair's own evidence, by its source: a pair proven by the
+    person's own tests holds on the image they were made in, and a lab pair on the lab's), else for the images of
+    every pair of the entry. Computed on every call, never cached.
 
     The image holds when the digest of the image on this machine is one the evidence was measured in. The digest
     is the repo digest of the published image when the lock file names one for this checkout's definition
     (lab.image(), source "published"), and the id of the local build otherwise. Evidence measured in a locally
-    built image names that image's id, which no other machine has (decision D21): it holds on the machine that
-    built it only, and the reason says so when the digests differ."""
-    measurement = lab.measurement_problem()
-    seen = lab.image()
-    digest, wanted = seen["digest"], entry.get("evidence_images") or []
+    built image names that image's id, which no other machine has (decision D21): it holds on the machine that built it
+    only, and the reason says so when the digests differ."""
+    return {"measurement": lab.measurement_problem(), "image": _image_reason(lab.image(), _wanted(entry, pair))}
+
+
+def _image_reason(seen: dict, wanted: list):
+    """None when the image on this machine (lab.image()) is one of `wanted`, else why not."""
+    digest = seen["digest"]
     if digest is None:
         if seen.get("problem"):
             image = f"the eval image cannot be looked up: {seen['problem']}"
@@ -132,49 +193,156 @@ def checks(entry: dict) -> dict:
                       "the published image is the one every machine can have)")
     else:
         image = None
-    return {"measurement": measurement, "image": image}
+    return image
 
 
-def route(cfg: dict, skill: str, meta: dict, *, force=None, floor_key: bool = False) -> dict:
-    """The choice for one run of a skill: {"tier", "model", "adapter", "web", "proven", "autonomy", "bands":
-    {"strong", "floor"}, "checks", "reasons"}.
+def expected_cost(pair: dict, table: dict):
+    """Dollars for one run of the pair's skill: its measured mean usage by kind times the price of each kind in the
+    table (runtime/prices.py); None when the pair has no measured usage or the model has no price (or lacks the price of a
+    kind it used). The entry is looked up by the model's id, then its aliases."""
+    return price_table.expected_cost(pair.get("usage_mean"), price_table.price_of(table, pair.get("names") or [pair["model"]]))
 
-    1. The entry of the proof file, and its two checks.
-    2. force is None or "strong"; anything else raises ValueError: nobody can ask for the floor model.
-    3. A check that fails: the reference model, not proven.
-    4. Else force "strong": the reference model.
-    5. Else the floor model when its band is `reliable` and a key for it was found (floor_key).
-    6. Else the reference model, with the reason.
-    7. proven: both checks pass and the chosen pair's band is `reliable`; autonomy equals proven (stage 2 records
-       it; stage 6 is the first to read it).
-    8. web: the skill requires the web and the chosen pair was measured with it (the pair's web_measured: lab
-       evidence of a web case on that model).
-    9. model and adapter are the chosen pair's, as the gate file names them."""
-    if force not in (None, "strong"):
-        raise ValueError("only the reference model can be asked for: force is None or \"strong\"")
+
+def _fallback(entry: dict, default) -> str:
+    """The model `auto` falls back to: the project's default model when it names one (an id, not `auto`), else the first lab
+    model of the entry, else the first pair."""
+    ids = [p["model"] for p in entry["pairs"]]
+    if default and default != AUTO:
+        for pair in entry["pairs"]:
+            if default in (pair.get("names") or [pair["model"]]):
+                return pair["model"]
+    for model in entry.get("lab_models") or []:
+        if model in ids:
+            return model
+    return ids[0]
+
+
+def route(cfg: dict, skill: str, meta: dict, *, model=None, default=None, named_by: str | None = None, key_found=None,
+          table=None, approved=None) -> dict:
+    """The choice for one run of a skill:
+
+      {"model", "adapter", "web", "proven", "autonomy", "mode", "named_by", "source", "bands", "checks", "reasons",
+       "candidates", "outside_provider", "expected_cost", "key_missing"}
+
+    model is a model id or alias of the gate file, or "auto", or None. None is the project's default (`default`, the
+    `default_model` of runtime.json: an id, or None/"auto" for auto). Anything else than a model the gate file lists is a
+    ValueError. named_by says what chose the model, for the caller's rules about consent ("request", "task", "agent",
+    "default"; it is returned as given and does not change the choice). key_found(model id) -> bool says whether the model's
+    key was found (None: every key is found). table is the price table (prices.load(), else loaded here). approved is None,
+    or the set of providers a routine may use (the `provider` of a pair); `auto` ignores a pair outside it and lists
+    it in outside_provider.
+
+    1. The entry of the proof file, and its two checks, made for each pair: the measurement files are the same for every pair;
+       the image on this machine is checked against the images of the pair's own evidence, by its source (the lab's, the
+       person's own), so a pair proven by the person's tests on their image holds there and a lab pair does not.
+    2. mode "named": the model asked for runs. mode "auto": the candidate with the lowest expected cost, a tie to the higher
+       score and then to the model id; no candidate: mode "fallback", the fallback model, with the reason.
+    3. proven: both checks pass for the chosen pair, its band is `reliable` and its evidence is the lab's or the person's own
+       (source). A pair reliable only through community evidence is not proven. autonomy is "proven" or "supervised"; the
+       operations layer may turn "supervised" into "consent" for an agent's own model (runtime/ops_models.py).
+    4. web: the skill requires the web and the chosen pair was measured with it (the pair's web_measured).
+    5. key_missing: key_found says no key was found for the chosen model (the caller refuses to start; a plan shows it).
+    6. expected_cost: the chosen pair's expected cost per run, or None."""
     entry = row(cfg, skill)
-    found = checks(entry)
-    pairs = {pair["tier"]: pair for pair in entry["pairs"]}
-    reasons = [reason for reason in (found["measurement"], found["image"]) if reason]
-    if reasons:
-        tier = "strong"
-    elif force == "strong":
-        tier, reasons = "strong", ["the person asked for the reference model"]
-    elif pairs["floor"]["band"] == RELIABLE and floor_key:
-        tier = "floor"
+    measurement, seen = lab.measurement_problem(), lab.image()
+    own = {}
+
+    def pair_checks(pair):
+        """{"measurement", "image"} for one pair: the image against the images of the pair's own evidence."""
+        if pair["model"] not in own:
+            own[pair["model"]] = {"measurement": measurement, "image": _image_reason(seen, _wanted(entry, pair))}
+        return own[pair["model"]]
+
+    def note(found):
+        """Add the reasons of a pair's checks to the reasons, once each."""
+        for reason in (found["measurement"], found["image"]):
+            if reason and reason not in reasons:
+                reasons.append(reason)
+
+    pairs = {p["model"]: p for p in entry["pairs"]}
+    by_name = {name: p for p in entry["pairs"] for name in (p.get("names") or [p["model"]])}
+    table = price_table.load() if table is None else table
+    wanted = default if model is None else model
+    reasons = []
+    candidates, outside = [], []
+    if wanted not in (None, AUTO):
+        if wanted not in by_name:
+            raise ValueError(f"{wanted!r} is not a model of the gate file: the lab runs the models it lists")
+        chosen, mode = by_name[wanted], "named"
+        note(pair_checks(chosen))
     else:
-        tier = "strong"
-        reasons.append(f"the band on the floor model is {pairs['floor']['band']}" if pairs["floor"]["band"] != RELIABLE
-                       else "no key for the floor model was found")
-    chosen = pairs[tier]
-    proven = not (found["measurement"] or found["image"]) and chosen["band"] == RELIABLE
+        mode = AUTO
+        if measurement:
+            reasons.append(measurement)  # the measurement files are the same for every pair: said once, first
+        for pair in entry["pairs"]:
+            if pair["band"] != RELIABLE:
+                continue
+            found = pair_checks(pair)
+            if found["measurement"] or found["image"]:
+                note(found)
+                continue
+            why = None
+            if key_found is not None and not key_found(pair["model"]):
+                why = "no key was found for it"
+            elif price_table.price_of(table, pair.get("names") or [pair["model"]]) is None:
+                why = "no price is known for it"
+            elif not pair.get("usage_mean"):
+                why = "its runs measured no usage, so there is no expected cost"
+            elif (cost := expected_cost(pair, table)) is None:
+                why = "its price lacks a kind its runs used"
+            elif approved is not None and pair.get("provider") not in approved:
+                outside.append(pair["model"])
+                continue
+            if why:
+                reasons.append(f"{pair['model']} is reliable for this skill but {why}: it is not a candidate")
+                continue
+            candidates.append({"model": pair["model"], "expected_cost": cost, "score": pair.get("score") or 0.0,
+                               "source": pair.get("source")})
+        if candidates:
+            best = min(candidates, key=lambda c: (c["expected_cost"], -c["score"], c["model"]))
+            chosen = pairs[best["model"]]
+        else:
+            chosen, mode = pairs[_fallback(entry, default)], "fallback"
+            note(pair_checks(chosen))
+            reasons.append("no model qualifies for auto (the skill must be reliable on it, with a key, a price and a measured "
+                           f"usage): {chosen['model']} runs, supervised")
+    found = pair_checks(chosen)
+    holds = not (found["measurement"] or found["image"])
+    if mode == "named":
+        if not holds:
+            pass  # the reasons of the checks are already listed
+        elif chosen["band"] != RELIABLE:
+            reasons.append(f"the band on {chosen['model']} is {chosen['band']}: it is unproven and runs supervised")
+    proven = (mode != "fallback" and holds and chosen["band"] == RELIABLE and chosen.get("source") in RELEASING)
+    if mode == AUTO and chosen.get("source") not in RELEASING and holds and chosen["band"] == RELIABLE:
+        reasons.append(f"{chosen['model']} is reliable only through community evidence: it was chosen, and its output is reviewed")
     web = bool(meta.get("web")) and bool(chosen["web_measured"])
     if meta.get("web") and not chosen["web_measured"]:
-        # Leaves at the change of reference model (docs/backlog.md, T23): a skill that requires the web but was
-        # measured without it, on the chosen model, runs without it, in the condition it was proven in.
+        # Leaves at the change of the lab's default list or of the grader (docs/backlog.md, T23): a skill that requires the
+        # web but was measured without it, on the chosen model, runs without it, in the condition it was proven in.
         reasons.append("the skill requires the web and was measured without it: it runs without it")
-    return {"tier": tier, "model": chosen["model"], "adapter": chosen["adapter"], "web": web, "proven": proven,
-            "autonomy": proven, "bands": {t: pairs[t]["band"] for t in TIERS}, "checks": found, "reasons": reasons}
+    missing = key_found is not None and not key_found(chosen["model"])
+    if missing:
+        reasons.append(f"no key was found for {chosen['model']}")
+    return {"model": chosen["model"], "adapter": chosen["adapter"], "web": web, "proven": proven,
+            "autonomy": "proven" if proven else "supervised", "mode": mode, "named_by": named_by,
+            "source": chosen.get("source"), "bands": {p["model"]: p["band"] for p in entry["pairs"]}, "checks": found,
+            "reasons": reasons, "candidates": candidates, "outside_provider": outside,
+            "expected_cost": expected_cost(chosen, table), "key_missing": bool(missing)}
+
+
+def pair_view(pair: dict, table: dict, today=None, max_days: int = price_table.MAX_AGE_DEFAULT) -> dict:
+    """One pair as the proof read and the pickers show it: the pair's own figures, the price of the model with its source,
+    date, age and whether it is stale (older than max_days), and the expected cost per run (None when the model has no
+    price or its runs measured no usage). today is a date or YYYY-MM-DD, by default today's date."""
+    today = today or datetime.date.today()
+    names = pair.get("names") or [pair["model"]]
+    found = price_table.price_of(table, names)
+    return {**{k: pair.get(k) for k in ("model", "adapter", "provider", "band", "cause", "score", "mean", "runs",
+                                          "web_measured", "usage_mean", "source")},
+            "price": ({**{kind: found.get(price_table.field(kind)) for kind in price_table.KINDS},
+                       **price_table.summary(found, today, max_days)} if found else None),
+            "expected_cost": price_table.expected_cost(pair.get("usage_mean"), found)}
 
 
 if __name__ == "__main__":

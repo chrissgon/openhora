@@ -13,7 +13,7 @@ A contributor can test a skill on a model the maintainer has not tested, with th
 ## What you need
 
 - A **public fork** of this repository (attestations of a public repository are free on every plan), with GitHub Actions enabled.
-- The **keys as secrets of the fork** (Settings, Secrets and variables, Actions): the key of the model's provider, and the token of the grader's account, because every run is graded by the configured grader. The gate file (`evals/eval-gate.json`) names them: `pass_env` of the model's entry and `strong_pass_env`. The workflow declares `OPENROUTER_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN`; a key never enters a run, each run's key proxy holds it. A request for a key that is not set is refused before anything runs, and only the name is printed.
+- The **keys as secrets of the fork** (Settings, Secrets and variables, Actions): the key of the model's provider, and the token of the grader's account, because every run is graded by the configured grader. The gate file (`evals/eval-gate.json`) names them: `pass_env` of the model's entry and `pass_env` of the grader's own entry. The workflow declares `OPENROUTER_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN`; a key never enters a run, each run's key proxy holds it. A request for a key that is not set is refused before anything runs, and only the name is printed.
 - A **model of the gate file with a route**: a community run tests a listed model whose key a key proxy holds. A model that is not listed is added to the gate file in a pull request first.
 - A **commit of this repository's `main`**: the workflow is referenced by its full commit sha. A commit that is not in the history of `main` is refused by the workflow and, later, by the check.
 
@@ -99,7 +99,7 @@ What the design cannot remove, stated and not hidden:
 - Running a model several times and submitting one run (the gaps in run numbers flag it; the cap and the score limit it), or re-running one run and submitting the best attempt (the gaps in attempts flag it).
 - A new fork resets the numbering: a contributor who abandons a fork with unfavourable runs and starts another begins at run 1 again with nothing to compare. Several accounts and several forks of one person are several contributors to the cap.
 - The contributor controls both accounts, the model's provider account and the grader's, and their account-level settings (what the provider serves, rate limits, a cheaper model behind an alias). The provider's honesty about the model it served is not checkable, and is published as such.
-- Today only the reference model can produce evidence that is not a trial: every grading goes through the strong slot's adapter until the grader has an entry of its own in the gate file (the package that gives it one lifts this).
+- The grader runs through its own entry of the gate file (package P3, addendum item 12), so a run of any listed model with a route is evidence and not a trial; the contributor still needs the key of the grader's account as a secret of the fork.
 
 ## For the maintainer
 
@@ -108,6 +108,6 @@ These steps cannot be done from a pull request, and the workflows cannot be exer
 - The first publication of the eval image (`eval-image.yml`) and the lock file it produces (`scripts/image_lock.py`). The package must be public so that a fork's runner can pull it; until then the workflow stops at its pull step.
 - Mark the `community-verify` check as required before a merge. It has no path filter so that it can be.
 - `OFFICIAL_REPOSITORY` at the top of `community-eval.yml` is the repository the workflow checks out. If the repository moves, change it in the same pull request.
-- Until a grader has an entry of its own in the gate file, every grading goes through the strong slot's adapter, so a community run of a model whose adapter is not the grader's is a trial and writes no evidence; the workflow then stops at the pack step with "found 0". The package that gives the grader its own entry lifts this.
+- The grader has an entry of its own in the gate file (package P3, addendum item 12): every grading goes through the grader's adapter and key whatever model is tested, so a community run of a listed model with a route is not a trial and writes evidence. (Before that package every grading went through the first model's adapter, a run of a model with another adapter was a trial, and the workflow stopped at the pack step with "found 0".)
 - `evals/community.json` holds `min_signing_commit`, `null` at first. After the workflow is merged and a first real run has shown it right, set it to the merge commit of the workflow; raise it whenever a workflow is found faulty. The caller must grant `actions: read` for the attestation job to read the run job's runner group.
 - A first real run decides the points this repository could not verify: that `job.workflow_sha` has the value the text above says, the shape of the jobs answer of the API (`runner_group_name`, `labels`, `conclusion`) and the certificate that `gh attestation verify` checks.

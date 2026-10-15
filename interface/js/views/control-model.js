@@ -29,7 +29,7 @@ export function subtitleOf(tab, name) {
 export const BANDS = Object.freeze(["reliable", "watch", "needs a test"]);
 export const NEEDED_LIST = 4;       // E-15: up to four skills the list is shown as it is; past four it is a count and a disclosure
 const BAND_TONE = Object.freeze({ reliable: "pui-success", watch: "pui-muted", "needs a test": "pui-error" });
-export const TIER_COLUMNS = Object.freeze([["strong", "Reference model"], ["floor", "Floor model"]]);
+export const NO_PRICE = "no price known";
 
 /** The library classes of a band's chip; a word that is not one of the three is drawn like "watch" (muted), with its own word. */
 export function bandClass(band) {
@@ -41,18 +41,44 @@ export function scoreText(value) {
   return typeof value === "number" && Number.isFinite(value) ? value.toFixed(2) : "-";
 }
 
-/** The pair of a skill for a tier ("strong" is the reference model, "floor" the floor model), or null. */
-export function pairOf(skill, tier) {
-  const proof = skill && Array.isArray(skill.proof) ? skill.proof : [];
-  return proof.find((pair) => pair && pair.tier === tier) || null;
+/** The pairs of a skill, one for each model the service sent: [{model, adapter, band, cause, score, mean, runs, source, price, expected_cost, ...}]. */
+export function pairsOf(skill) {
+  return skill && Array.isArray(skill.proof) ? skill.proof.filter((pair) => pair && typeof pair.model === "string") : [];
 }
 
-/** What a table cell or a card shows for a tier: {band, className, score} or null when the operation sent no pair. */
-export function chipOf(skill, tier) {
-  const pair = pairOf(skill, tier);
+/** The pair of a skill for one model (its id), or null. */
+export function pairOf(skill, model) {
+  return pairsOf(skill).find((pair) => pair.model === model) || null;
+}
+
+/** What a table cell or a card shows for a model: {band, className, score} or null when the operation sent no pair. */
+export function chipOf(skill, model) {
+  const pair = pairOf(skill, model);
   if (!pair) return null;
   const band = typeof pair.band === "string" && pair.band ? pair.band : "-";
   return { band, className: bandClass(band), score: scoreText(pair.score) };
+}
+
+/** The ids of the models the skills carry a pair for, in the order they first appear. */
+export function modelsOf(skills) {
+  const seen = new Set();
+  for (const skill of Array.isArray(skills) ? skills : []) for (const pair of pairsOf(skill)) seen.add(pair.model);
+  return [...seen];
+}
+
+/**
+ * What a skill's summary shows once for all its models: {band, className, reliable, total, text}. The band is the best of its
+ * models' (reliable, then watch, then needs a test; a word that is none of the three counts last), `reliable` how many models
+ * are reliable and `total` how many pairs the service sent; text is "2 of 3 models" or "no model". Display only: no model is chosen here.
+ */
+export function summaryOf(skill) {
+  const pairs = pairsOf(skill);
+  const rank = (band) => { const at = BANDS.indexOf(band); return at < 0 ? BANDS.length : at; };
+  const best = pairs.reduce((found, pair) => (found === null || rank(pair.band) < rank(found) ? pair.band : found), null);
+  const reliable = pairs.filter((pair) => pair.band === "reliable").length;
+  const band = best || "-";
+  return { band, className: bandClass(band), reliable, total: pairs.length,
+    text: pairs.length ? `${reliable} of ${pairs.length} ${pairs.length === 1 ? "model" : "models"}` : "no model" };
 }
 
 /** The distinct areas of the skills, sorted: the options of the Area filter. */
@@ -63,7 +89,7 @@ export function areasOf(skills) {
 }
 
 /**
- * The skills that pass the filters: area ("" is all), band ("" is all; a skill passes when either of its tiers has the
+ * The skills that pass the filters: area ("" is all), band ("" is all; a skill passes when any of its models has the
  * band, OPEN-27, so a row never hides a chip the person can read in it) and a name search (the typed text, trimmed,
  * case-insensitive, anywhere in the skill's name). Display only: nothing is written.
  */
@@ -84,27 +110,65 @@ function runsWord(n) {
   return `${count} ${count === 1 ? "run" : "runs"}`;
 }
 
-/** The sentence under an open row for one tier, built from the pair: "<column>: <model>, <adapter>, mean <mean>, <runs> runs. Cause: <cause or none>." */
-export function detailLine(skill, tier, column) {
-  const pair = pairOf(skill, tier);
-  if (!pair) return `${column}: the service sent no proof for this model.`;
+/** "$0.02 in, $0.72 out per million tokens" from a price entry; the kinds the entry leaves out are not named. */
+export function priceWords(price) {
+  if (!price || typeof price !== "object") return NO_PRICE;
+  const money = (value) => (typeof value === "number" && Number.isFinite(value) ? `$${value < 0.1 ? value.toFixed(4).replace(/0+$/, "").replace(/\.$/, "") : value.toFixed(2)}` : null);
+  const parts = [["in", price.input], ["out", price.output]].map(([word, value]) => (money(value) ? `${money(value)} ${word}` : null)).filter(Boolean);
+  return parts.length ? `${parts.join(", ")} per million tokens` : NO_PRICE;
+}
+
+/** "read 2026-10-15" or "read 2026-07-01, stale (106 days)": the date beside a price, and that it is stale (older than the project's limit). */
+export function priceDate(price) {
+  if (!price || typeof price !== "object" || !price.accessed) return "";
+  const age = typeof price.age_days === "number" ? ` (${price.age_days} ${price.age_days === 1 ? "day" : "days"})` : "";
+  return price.stale ? `read ${price.accessed}, stale${age}` : `read ${price.accessed}`;
+}
+
+/** The expected cost of one run on a pair: "about $0.0012 a run", or why there is none ("no price", or "no usage measured yet"). */
+export function costWords(pair) {
+  if (!pair) return "";
+  if (typeof pair.expected_cost === "number" && Number.isFinite(pair.expected_cost)) {
+    const value = pair.expected_cost;
+    return `about $${value < 0.01 ? value.toPrecision(2) : value.toFixed(2)} a run`;
+  }
+  return pair.price ? "no cost estimate: its runs measured no usage yet" : "no cost estimate: no price known";
+}
+
+/** The sentence under an open row for one model, built from its pair: "<model> (<evidence source>): <adapter>, mean <mean>, <runs> runs, <band chip word>. <price>. <cost>. Cause: <cause or none>." */
+export function detailLine(pair) {
   const model = typeof pair.model === "string" && pair.model ? pair.model : "-";
   const adapter = typeof pair.adapter === "string" && pair.adapter ? pair.adapter : "-";
   const cause = typeof pair.cause === "string" && pair.cause ? pair.cause : "none";
-  return `${column}: ${model}, ${adapter}, mean ${scoreText(pair.mean)}, ${runsWord(pair.runs)}. Cause: ${cause}.`;
+  const source = typeof pair.source === "string" && pair.source ? `${pair.source} evidence` : "no evidence";
+  const price = pair.price ? `${priceWords(pair.price)} (${priceDate(pair.price)})` : NO_PRICE;
+  return `${model} (${source}): ${adapter}, ${pair.band || "-"}, mean ${scoreText(pair.mean)}, ${runsWord(pair.runs)}. Price: ${price}. ${costWords(pair)}. Cause: ${cause}.`;
 }
 
-/** The two sentences of an open row, reference model first. */
+/** The sentences of an open row, one for each model; the sentence of a skill the service sent no proof for says so. */
 export function detailLines(skill) {
-  return TIER_COLUMNS.map(([tier, column]) => detailLine(skill, tier, column));
+  const pairs = pairsOf(skill);
+  return pairs.length ? pairs.map(detailLine) : ["The service sent no proof for this skill."];
+}
+
+/** The recommendation line: the model `auto` would choose now (the cheapest reliable pair), or why none (a hint for the person, never a gate). */
+export function recommendedLine(skill) {
+  const model = skill && typeof skill.recommended === "string" ? skill.recommended : "";
+  return model ? `Recommended: ${model}, the cheapest model on which this skill is reliable.`
+    : "Recommended: none yet (no model is reliable for this skill with a price and a measured usage).";
 }
 
 /**
- * The lines of an open row (R-53, E-13): "Manifest: yes", "Runs here: 3" (a dash when the operation sent none), then the two sentences. The phone's card says the manifest
- * and the runs in its summary, so its body is `detailLines` alone.
+ * The lines of an open row (R-53, E-13): "Manifest: yes", "Runs here: 3" (a dash when the operation sent none), the recommendation, then one sentence for each model.
+ * The phone's card says the manifest and the runs in its summary, so its body is the recommendation and the sentences.
  */
 export function openLines(skill) {
-  return [`Manifest: ${manifestText(skill)}`, `Runs here: ${skill && skill.runs_here !== undefined && skill.runs_here !== null ? skill.runs_here : "-"}`, ...detailLines(skill)];
+  return [`Manifest: ${manifestText(skill)}`, `Runs here: ${skill && skill.runs_here !== undefined && skill.runs_here !== null ? skill.runs_here : "-"}`, recommendedLine(skill), ...detailLines(skill)];
+}
+
+/** The lines of the phone's card body. */
+export function cardLines(skill) {
+  return [recommendedLine(skill), ...detailLines(skill)];
 }
 
 /** "yes" or "no" for the Manifest column (only `true` is yes). */
@@ -124,7 +188,7 @@ export function checksNotice(checks) {
   const word = (value) => (typeof value === "string" && value ? value : "not known");
   return {
     title: "A check of the proof failed",
-    sentence: "These skills run as not proven: on the reference model and without autonomy.",
+    sentence: "These skills run as not proven: without autonomy, on any model.",
     lines: [`Measurement check: ${word(measurement)}`, `Image check: ${word(image)}`],
   };
 }
@@ -233,14 +297,17 @@ export function footnote(rows) {
   const seen = [];
   for (const row of Array.isArray(rows) ? rows : []) {
     const price = row && row.price;
-    if (price && typeof price.source === "string" && !seen.some((p) => p.source === price.source && p.date === price.date)) seen.push(price);
+    if (price && typeof price.source === "string" && !seen.some((p) => p.source === price.source && p.accessed === price.accessed)) seen.push(price);
   }
   const tail = "A run whose usage is unknown shows unknown and is counted.";
   if (!seen.length) {
-    return `Recomputed from token counts and the prices in the project's configuration. A model with no price shows no price. ${tail}`;
+    return `Recomputed from token counts and the prices of the workbench's price table (runtime/prices.json). A model with no price shows no price. ${tail}`;
   }
-  const source = seen.map((p) => (p.date ? `${p.source}, ${p.date}` : p.source)).join("; ");
-  return `Recomputed from token counts and the prices in the project's configuration (source: ${source}). ${tail}`;
+  const source = seen.map((p) => {
+    const when = p.accessed ? `${p.source}, read ${p.accessed}${p.stale ? ", stale" : ""}` : p.source;
+    return when;
+  }).join("; ");
+  return `Recomputed from token counts and the prices of the workbench's price table (runtime/prices.json; source: ${source}). ${tail}`;
 }
 
 /**

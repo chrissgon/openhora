@@ -58,7 +58,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/changeset.py` | The change set: how code a run changed comes back (limit L9), and why a working document never enters a commit (limit L11). |
 | `runtime/chat.py` | The conversation with the planning agent, in the terminal: one more shell of the operations layer (runtime/ops.py, say). |
 | `runtime/cli.py` | The terminal shell of the task runtime: one command per operation of runtime/ops.py, nothing else. |
-| `runtime/costs.py` | The cost of the runs, recomputed from the token counts the adapter left in a run folder and the prices the person typed into the project's configuration (model_prices, runtime/project_config.py). |
+| `runtime/costs.py` | The cost of the runs, recomputed from the token counts the adapter left in a run folder and the prices of the one price table of the workbench (runtime/prices.json, read by runtime/prices.py; the project's `model_prices` is retired). |
 | `runtime/deps.py` | A project's dependencies, installed by code: in the eval image, in a step with no model that sees only the dependency files, and copied into each run that needs them. |
 | `runtime/dispatcher.py` | The dispatcher of the task runtime: what may start now, and what an autonomy mode releases, decided by one pure function from a snapshot of the store. |
 | `runtime/documents.py` | The mirror of documents to and from the project's documents platform (class integration:documents). |
@@ -82,8 +82,9 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/messaging_provider.py` | The messaging bridge's access to a messenger provider (class messenger:&lt;platform&gt;, providers/messenger/README.md): the four verbs as methods, started through providers/resolve.py, the one function that resolves a class and runs a provider's verb. |
 | `runtime/operations.py` | The table of operations: the one place that says what the operations layer (runtime/ops.py) offers to a shell. |
 | `runtime/ops.py` | The operations layer of the task runtime: every operation a person or a scheduler can perform, once. |
-| `runtime/ops_config.py` | The configuration's acceptance in the operations layer: who may accept a change of docs/workbench/runtime.json, and the two operations that change or accept it. |
+| `runtime/ops_config.py` | The configuration's acceptance in the operations layer: who may accept a change of docs/workbench/runtime.json, and the three operations that change or accept it. |
 | `runtime/ops_core.py` | The names every module of the operations layer shares, once: the checkout (ROOT), the refusal (OpsError), the project's context and the store call, the locks, the runtime's own key and the data-folder names. |
+| `runtime/ops_models.py` | Which model a run goes to, in the operations layer: the person's choice (a request, a task, an agent, the project's default), the proof of the skill on each model (runtime/proof.py) and the person's consent for an agent's own model (decision D38). |
 | `runtime/ops_reads.py` | The reads of the local interface and the signals of the local service: the change signal of the store (`version`), the stop of the runs a process started, the conversation's commands as rows (`commands`), the agents with their day, the conversation's messages, the skills with their proof, the costs, the connections, the service's start check and the project's artifacts. |
 | `runtime/ops_runs.py` | The runs of tasks: one task run (`run_task`), the person's verb that picks one (`run_next`), the dispatcher's round (`dispatch`), and the processes the round starts. |
 | `runtime/ops_say.py` | The conversation with the planning agent: one turn of it (`say`) and the memory a plain line carries to the router. |
@@ -91,6 +92,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/parallel.py` | The rules of tasks that run at once, decided by pure functions: whether a ready task may start beside the ones that run (a slot of its agent, a slot of the project, no code task of its request, no artifact in use), and what a skill's footprint is. |
 | `runtime/path_rule.py` | The path rule: how one path of what a run left goes back to the project. |
 | `runtime/plan.py` | The plan of a request: the tasks code builds from a route, which the person approves before any task exists. |
+| `runtime/prices.py` | The one price table: runtime/prices.json, read once, here. |
 | `runtime/progress.py` | Progress and the summary of a period, computed from the store's records: no model writes them. |
 | `runtime/project_config.py` | The project's configuration of the runtime: &lt;project&gt;/docs/workbench/runtime.json, and its hash. |
 | `runtime/proof.py` | The proof of a skill, and the choice of the model a run of it goes to. |
@@ -111,7 +113,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 **The store, as built.** Migration 1 holds the first runtime's tables (`cursors`, `events`, `runs`, `inbox`, `actions`); the task runtime uses `cursors` and `actions` too. The migrations, generated from `MIGRATIONS` of `providers/store/sqlite.py`:
 
 <!-- generated: store-migrations -->
-Schema version 9: the highest migration of `MIGRATIONS`.
+Schema version 10: the highest migration of `MIGRATIONS`.
 
 | Migration | Description | Tables created | Columns added | Triggers |
 |---|---|---|---|---|
@@ -124,6 +126,7 @@ Schema version 9: the highest migration of `MIGRATIONS`.
 | 7 | tasks, task runs and pending decisions are never deleted | - | - | `tasks_never_deleted`, `task_runs_never_deleted`, `pending_decisions_never_deleted` |
 | 8 | derived waits between requests: a request's after_request and the task_waits table | `task_waits` | `tasks.after_request` | `task_waits_never_deleted` |
 | 9 | the billing of the credential a task run used | - | `task_runs.billing` | - |
+| 10 | the model of a request or a task, and the autonomy of a task run | - | `tasks.model`, `task_runs.autonomy` | - |
 <!-- /generated -->
 
 The task runtime's tables, those that migration 2 and later create, with their columns (generated from the same source):
@@ -131,8 +134,8 @@ The task runtime's tables, those that migration 2 and later create, with their c
 <!-- generated: task-runtime-tables -->
 | Table | Created by migration | Columns |
 |---|---|---|
-| `tasks` | 2 | id, parent_id, flow, key, skill, agent, title, text, state, depends_on, milestone, note, created_at, updated_at, remote_id (migration 4), remote_version (migration 4), remote_written_sha256 (migration 4), after_request (migration 8) |
-| `task_runs` | 2 | id, task_id, skill, skill_version, skill_sha256, model, adapter, web, status, failure, ending, attempts, started_at, ended_at, cost_usd, tokens, duration_ms, skill_loaded, image_digest, run_dir, error, redactions (migration 3), billing (migration 9) |
+| `tasks` | 2 | id, parent_id, flow, key, skill, agent, title, text, state, depends_on, milestone, note, created_at, updated_at, remote_id (migration 4), remote_version (migration 4), remote_written_sha256 (migration 4), after_request (migration 8), model (migration 10) |
+| `task_runs` | 2 | id, task_id, skill, skill_version, skill_sha256, model, adapter, web, status, failure, ending, attempts, started_at, ended_at, cost_usd, tokens, duration_ms, skill_loaded, image_digest, run_dir, error, redactions (migration 3), billing (migration 9), autonomy (migration 10) |
 | `pending_decisions` | 2 | id, task_id, run_id, kind, title, body, payload, payload_sha256, status, resolution, answer, created_at, resolved_at, resolved_by |
 | `document_records` | 4 | id, path, provider, remote_id, written_sha256, remote_version, read_sha256, status, note, updated_at |
 | `platform_comments` | 4 | id, provider, remote_id, subject, task_id, document_path, author, text, created_at, saved_at, status, used_by_pending |
@@ -205,7 +208,7 @@ A pending decision is `open`, `resolved` or `cancelled`. A release by an autonom
 
 **The change set.** What a code task (a skill of the engineering or delivery area) did to versioned files: the difference between the copy's base commit and its working tree, taken by git in the run's container, then classified, checked and hashed by the host. A refused path (a link, a path the code provider does not take, over its size, a credential format, a tool's settings, a protected path) blocks the whole set. The next code task of the request starts from the newest unblocked set.
 
-**The proof and the tiers.** Two tiers, `strong` (the reference model) and `floor` (the floor model), named only in `evals/eval-gate.json`. A run goes to the floor tier only when the skill is `reliable` there, the measurement files of the checkout are the recorded ones, the eval image is the evidence's, and a key for the floor model is found; otherwise to the strong tier. The person may ask for the strong tier (`run-next --tier strong`); nobody can ask for the floor tier. A skill that requires the web runs with it only on a model whose current set holds a with-skill lab line of a web case of the skill, counting the lines that weigh in its score, current and inherited (a web case is one the gate file lists in `web_cases` and that sets `allow_web` in `evals/evals.json`): the proof file stores `web_measured` on each model's pair, `lab.standing` computes it from the status script's `lab_view`, and a listed case with no line on a model turns nothing on there (`runtime/tests/test_proof_web_measured.py`).
+**The proof and the choice of the model (P3, decisions D1, D3, D4, D34, D36, D38).** There are no tiers: a skill has a band for each pair of model and adapter, and a run goes to the model the choice names. A model named on a request, a task, `run-next --model` or an agent (`area_agents.<agent>.model`) runs there whatever its band, and a run on a pair that is not proven waits for the person's review (`autonomy: "supervised"`) unless the agent holds the person's consent. `auto` (the default when nothing is named and the project's `default_model` is absent or `auto`) is the one choice the proof makes: among the pairs whose band is `reliable`, whose proof checks pass here (the measurement files are the recorded ones, the eval image is the evidence's), with a key found, a price known and a measured usage, inside the approved providers, it takes the lowest expected cost (the mean usage by kind times the price per million tokens, from `runtime/prices.json`); a tie goes to the higher pessimistic score; none qualifies, and the run takes the project's default model supervised, with the reason shown. A pair that is reliable only through community evidence (the status script's `community` section, read through `lab.standing`, `community_only`) is ranked and chosen, and its output is held for review: community evidence never releases unattended work. The consent of D38 is stored with the agent (`consent: {model, mode}`), is given with `--consent` in the terminal or on the page by `give-consent` with the hash of the exact warning it showed (never from messaging or the MCP mode), and is asked again when the model or the mode changes (a move down is never withheld). The runs recorded `autonomy: "proven"`, `"consent"` or `"supervised"` (`task_runs.autonomy`, migration 10). A skill that requires the web runs with it only on a model whose current set holds a with-skill lab line of a web case of the skill, counting the lines that weigh in its score, current and inherited (a web case is one the gate file lists in `web_cases` and that sets `allow_web` in `evals/evals.json`): the proof file stores `web_measured` on each model's pair, `lab.standing` computes it from the status script's `lab_view`, and a listed case with no line on a model turns nothing on there (`runtime/tests/test_proof_web_measured.py`).
 
 **The autonomy modes, from three facts.** Each area agent (an entry of `area_agents`) has one of five modes: `stopped`, `supervised`, `milestones` (default), `autonomous`, `autonomous-with-policy`. They rest on three facts: whether the agent is enabled, the checkpoints of its mode (`every-phase`, `milestones`, `end`) and whether a standing approval is in force; `mode_of` maps the facts back, so a policy mode whose approval expired acts as `autonomous`. **Daily caps** (ADJ-R3, A-38): they follow the billing of the credential a run uses, not the model's tier. The adapters' manifests state it for each credential (`subscription`, `metered` or `free`; `runtime/billing.py` reads them), the run row records it when the run starts (migration 9), and `may_start` takes the billing of the run about to start: a subscription or free run counts against `max_runs_per_day`, a metered run against `max_usd_per_day`, and a billing nobody knows starts nothing (a start by hand records `unknown`, counted as metered). A metered task is held when less than 0.05 of the dollar cap is left, and a metered run carries a spend limit, the per-run limit or what is left of the day (`autonomy.run_budget`). An absent cap is 0, and a metered run of unknown cost counts at `max_cost_usd_per_run` (default 0.5); the cost of a metered run is kept whatever its model. A run row older than the column has no billing and counts by the tier rule it had (`autonomy.history_billing`), for history only. `MODES` of `runtime/autonomy.py` is also the order of autonomy, the least first, and `narrows(old, new)` says whether a move is down it. `set_mode` accepts a move down by code at once (recorded `code:narrowing`), since it widens nothing, and never a move up: the hash stays unaccepted and `next` is the `accept-config` command. It runs under `<data_dir>/config.lock` and reads the file and the accepted hash again under it, so a stale copy of the file can never bring a widening that code then accepts; a dispatcher round likewise ends when the file or the accepted hash moved (`_configuration_moved`). The day's metered spend is split by `autonomy.spend_split` into `usd_recorded` (recorded costs) and `usd_reserved` (`max_cost_usd_per_run` for each metered run without a cost); their sum is `usd_metered`, which the dollar cap compares, `runs_counted` is what the runs cap compares, and `runs_total` counts every run of the agent. A run of the router belongs to a request, which has no agent, so the day's count gives it the agent `planning` (`plan.PLANNING`): the planning agent's caps count the router's runs, and a line that would route when it may not start is answered with the reason and runs nothing (`ops._planning_may_start`).
 
@@ -310,8 +313,11 @@ The limit's text and the stage that built it come from the contract's table; the
 
 **The model and the key.**
 
-- The floor tier only by proof; the person may ask for the strong tier, never for the floor: `test_proof_routing.py`, `test_the_person_can_ask_for_the_reference_model_and_never_for_the_floor_model`.
-- The key's precedence: the runtime's own key wins when stored; else the lab's key for the floor model; else the run goes to the reference model. The routing names the key by its source, never its value: `test_a_floor_run_carries_the_runtimes_own_key_and_the_environment_is_restored`, `test_without_a_key_of_its_own_a_floor_run_uses_the_labs_key_and_the_runtime_sets_nothing`, `test_without_any_key_no_run_goes_to_the_floor_model`, `test_the_key_value_never_appears_in_what_the_operation_prints_or_logs`.
+- A model named runs there and only auto is chosen by the proof; the order of the choice is the person's `--model`, the task's, the request's, the agent's, the project's `default_model`, then auto: `test_model_choice.py` (`test_the_model_of_a_run_by_hand_wins_and_the_project_default_comes_after_the_agent`, `test_a_model_named_on_one_request_without_evidence_runs_supervised_and_is_marked_unproven`), `test_proof_routing.py` (`test_a_named_model_runs_there_and_its_band_informs_the_person_without_gating_the_choice`, `test_a_model_the_gate_file_does_not_list_is_refused`).
+- Auto: the cheaper of the reliable pairs, a tie to the higher score, a fallback to the project default supervised with its reason, community evidence chosen and held: `test_auto_picks_the_cheaper_of_the_reliable_pairs`, `test_a_tie_goes_to_the_higher_pessimistic_score`, `test_when_none_qualifies_auto_falls_back_to_the_project_default_supervised_with_the_reason`, `test_a_pair_reliable_only_through_community_evidence_is_chosen_and_held_for_review`.
+- The consent per agent: `test_fixing_a_model_on_an_autonomous_agent_asks_for_the_consent_and_writes_nothing_without_it`, `test_the_consent_is_a_flag_of_its_own_given_in_the_terminal_and_accept_alone_gives_none`, `test_messaging_can_give_no_consent_because_it_has_no_operation_for_it`, `test_consent.py` (the page's `give-consent`: the exact warning hash, the model and mode, a stale or unaccepted configuration, the page alone, the policy, the route, and a move down that is never withheld), `test_with_the_consent_the_agents_reviews_on_an_unproven_model_are_released_and_the_runs_are_recorded_as_consent`, `test_changing_the_model_or_the_mode_asks_again_and_a_consent_that_no_longer_fits_is_not_in_force`.
+- The key of a model: the runtime's own key for that model wins when stored (`WB_RUNTIME_KEY_<VARIABLE>` of `runtime/secrets.json`); else the lab's key for it; else the model has no key and auto leaves it out with the reason, and a model the person names does not start. The routing names the key by its source, never its value: `test_a_run_carries_the_runtimes_own_key_for_its_model_and_the_environment_is_restored`, `test_without_a_key_of_its_own_a_run_uses_the_labs_key_for_its_model_and_the_runtime_sets_nothing`, `test_without_any_key_auto_leaves_the_model_out_and_says_why`, `test_a_model_the_person_names_that_has_no_key_does_not_start`, `test_the_key_value_never_appears_in_what_the_operation_prints_or_logs`.
+- One price table: the auto estimate, a run's cost and the proof page read `runtime/prices.json`, and a stale price is shown as stale: `test_a_pair_is_shown_with_the_price_its_date_and_the_expected_cost`.
 
 **Endings and pending decisions.**
 
@@ -371,7 +377,7 @@ The limit's text and the stage that built it come from the contract's table; the
 
 - Nothing starts while a task of the project runs; the oldest ready task whose agent may start is the one started: `test_dispatcher.py`.
 - An absent cap is 0; a stopped agent or one at its cap may not start: `test_an_absent_cap_is_zero_and_never_unlimited`; `test_a_stopped_agent_and_an_agent_at_its_cap_may_not_start`.
-- A round stops at its budget (2,700 s), after a failure the next run would repeat, when the configuration changed during it, when the eval image is not on the machine, and, before a start on the reference model only, without that model's credential; a stop for the credential, the image or a moved configuration fails no task: `test_a_round_stops_at_its_budget_and_starts_no_new_run`; `test_a_round_stops_after_a_failure_the_next_run_would_repeat`; `test_a_round_without_the_reference_model_s_credential_starts_nothing_and_says_why`; `test_a_missing_image_holds_the_task_and_fails_nothing`; `test_a_narrowing_accepted_in_the_middle_of_a_round_stops_the_next_start`.
+- A round stops at its budget (2,700 s), after a failure the next run would repeat, when the configuration changed during it, when the eval image is not on the machine, and, before a start of a task whose model has no key, without that model's credential (only that model's tasks are held); a stop for the credential, the image or a moved configuration fails no task: `test_a_round_stops_at_its_budget_and_starts_no_new_run`; `test_a_round_stops_after_a_failure_the_next_run_would_repeat`; `test_a_round_without_the_credential_of_the_tasks_model_starts_nothing_and_says_why`; `test_a_missing_image_holds_the_task_and_fails_nothing`; `test_a_narrowing_accepted_in_the_middle_of_a_round_stops_the_next_start`.
 - A ready task a round did not start has a reason, one word of the closed list `REASONS` (`other` stands for any reason outside it), and a missing credential and an unreadable secret store are told apart: `test_the_vocabulary_of_the_held_reasons_is_closed`; `test_every_ready_task_a_decision_held_gets_its_reason_and_its_agent`; `test_a_missing_credential_and_an_unreadable_secret_store_are_told_apart`.
 - The local service dispatches every 30 s unless it is started with `--no-dispatch`, and `status` then says `dispatch off` for every ready task: `test_the_service_dispatches_every_thirty_seconds_unless_told_not_to`; `test_a_service_that_dispatches_nothing_says_dispatch_off_for_every_ready_task`.
 - The poller calls no model and starts no task: `test_the_poll_calls_no_model_and_starts_no_task`.
@@ -385,7 +391,7 @@ The limit's text and the stage that built it come from the contract's table; the
 <!-- generated: cli-verbs -->
 | Verb | Flags it reads | Operation |
 |---|---|---|
-| `request` | `--text \| --text-file` `[--flow]` `[--title]` `[--after]` | `request` |
+| `request` | `--text \| --text-file` `[--flow]` `[--title]` `[--after]` `[--model]` | `request` |
 | `route` | `--request` `[--flow]` | `route` |
 | `route-queued` | - | `route_queued` |
 | `status` | - | `status` |
@@ -402,14 +408,15 @@ The limit's text and the stage that built it come from the contract's table; the
 | `go-ahead` | `--task` `[--drop-after]` | `go_ahead` |
 | `cancel` | `--request` | `cancel` |
 | `deps` | - | `deps` |
-| `run-next` | `[--tier]` | `run_next` |
-| `run-task` | `--task` `[--tier]` | `run_task` |
+| `run-next` | `[--model]` | `run_next` |
+| `run-task` | `--task` `[--model]` | `run_task` |
 | `accept-config` | `--sha256` | `accept_config` |
 | `proof` | `[--skill]` | `proof` |
 | `verdict` | `--run` `--word` | `verdict` |
 | `sync` | `[--dry-run]` `[--take]` `[--path]` | `sync` |
 | `hand-over` | `--task` `--file` | `hand_over` |
-| `set-mode` | `--agent` `--mode` `[--accept]` | `set_mode` |
+| `set-mode` | `--agent` `--mode` `[--accept]` `[--consent]` | `set_mode` |
+| `set-model` | `--agent` `--model` `[--accept]` `[--consent]` | `set_model` |
 | `approve-policy` | `--file` `--agent` `[--sha256]` `[--expires]` `[--what]` | `approve_policy` |
 | `revoke-policy` | `--id` | `revoke_policy` |
 | `standing` | `--policy` | `standing` |
@@ -458,7 +465,7 @@ The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-
 <!-- generated: operations -->
 | Operation | Verb of `cli.py` | Channels | Calls a model | What it does |
 |---|---|---|---|---|
-| `request` | `request` | terminal, page, mcp | no | record what you want; with a flow, plan it from the flow file, else it waits for its route; with after, run it after that request |
+| `request` | `request` | terminal, page, mcp | no | record what you want; with a flow, plan it from the flow file, else it waits for its route; with after, run it after that request; with model, run its tasks on that model (an id of the gate file, or auto) |
 | `route` | `route` | terminal, page, mcp | yes, without --flow | plan a request that waits for its route: one run of the router skill, or the plan of a flow file; on the page, while a run is in progress, the request is queued |
 | `route_queued` | `route-queued` | terminal | yes | route the oldest queued line or request, when no run is in progress (the local service calls it every few seconds) |
 | `status` | `status` | terminal, chat, page, mcp, messaging | no | requests, tasks and what waits for you |
@@ -475,14 +482,16 @@ The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-
 | `go_ahead` | `go-ahead` | terminal, page | no | go ahead on a task that waits for another request's task: its derived waits end (with drop-after, its after wait) |
 | `cancel` | `cancel` | terminal, chat, page, messaging | no | cancel a request |
 | `deps` | `deps` | terminal | no | install the dependency sets of runtime.json, by code |
-| `run_next` | `run-next` | terminal | yes | run the next ready task: one skill, once, on the model its proof gives |
+| `run_next` | `run-next` | terminal | yes | run the next ready task: one skill, once, on the model chosen for it (or the one you name with --model) |
 | `run_task` | `run-task` | terminal | yes | run one named task in this process; the dispatcher starts it, a person uses run-next |
 | `accept_config` | `accept-config` | terminal | no | record the hash of runtime.json you accept |
-| `proof` | `proof` | terminal | no | the model each skill in use would run on, with its bands and the two checks |
+| `proof` | `proof` | terminal | no | the model each skill in use would run on when nothing chooses one, with its band, price and expected cost on every model, and the two checks |
 | `verdict` | `verdict` | terminal, page | no | record your verdict on what one run delivered (worked, corrected or failed) |
 | `sync` | `sync` | terminal, page | no | mirror the tasks with the task board and the documents with the documents platform |
 | `hand_over` | `hand-over` | terminal, page | no | copy one file of yours into a task's file drop |
-| `set_mode` | `set-mode` | terminal, page | no | set one area agent's autonomy mode in runtime.json; --accept (terminal only) also accepts the hash it makes, when the file was the accepted one before |
+| `set_mode` | `set-mode` | terminal, page | no | set one area agent's autonomy mode in runtime.json; --accept (terminal only) also accepts the hash it makes, when the file was the accepted one before; --consent (terminal only) is the consent an autonomous agent with a model fixed needs, and is distinct from --accept |
+| `set_model` | `set-model` | terminal, page | no | fix one area agent to a model (an id of the gate file, auto, or default) in runtime.json; --accept (terminal only) accepts the hash; --consent (terminal only, distinct from --accept) is, for an agent in an autonomous mode, your consent after the warning: its reviews on that model are released by the mode and recorded as autonomy by consent |
+| `give_consent` | `give-consent` | page | no | the page gives your consent for one area agent in an autonomous mode: it sends the model, the mode, the hash of the configuration it read and the hash of the warning it showed; only that consent is recorded and accepted. In the terminal the consent is set-model --consent |
 | `approve_policy` | `approve-policy` | terminal | no | approve a policy file for one area agent (a standing approval) |
 | `revoke_policy` | `revoke-policy` | terminal | no | end a standing approval |
 | `standing` | `standing` | terminal | no | whether an active standing approval covers a policy now; it executes nothing |
@@ -537,7 +546,7 @@ The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-
 | `skill_loaded` is stored as reported and read by no rule | [backlog](../../backlog.md), R12 |
 | The board's own status property is not written | [backlog](../../backlog.md), R13 |
 | The checkout's revision is not in the dispatcher's pin (open point O11), and a scheduled job's interpreter may not read the secret store (open point O1) | [contracts/runtime.md](../../../contracts/runtime.md), "The dispatcher's two jobs" |
-| The workarounds listed under T23 leave with the next change of reference model, each marked `T23:` in the code | [backlog](../../backlog.md), T23 |
+| The workarounds listed under T23 leave with the next change of the lab default list or of the grader, each marked `T23:` in the code | [backlog](../../backlog.md), T23 |
 | An effect document written before the registry of kinds names its kind `pull-request`; it is read as an unknown kind, so approving it is refused with the reason (`_approve_effect` in `ops.py`) and it opens no review | `runtime/effects.py` (`KINDS`), #225 |
 | Two glob rules: a `protected_paths` entry's `*` crosses `/` (`changeset.matches`), a policy's `files` glob's `*` does not (`autonomy.covers`) | the module docstrings of `runtime/project_config.py` and `runtime/autonomy.py` |
 | The social handlers keep two exemptions that CONS-2b, after the launch, removes: the paths that confirm and record an exact content the person approved by its hash (`EXACT_CONTENT_PORTS`: `cmd_approve`, the vote post's approval and record, the vote job) and the skill scripts they run as host subprocesses (the tolerated edges of the layer map, review finding 9: the notification parser and the vote step's scripts); a third difference, `social.py`'s own loaders, has no listed removal. The auto reply is no longer one of them (CONS-2a) | `runtime/tests/test_runtime_rules.py` (`EXACT_CONTENT_PORTS`); `scripts/tests/test_layer_map.py` (`TOLERATED`); [runtime/README.md](../../../runtime/README.md), `handlers/social.py` |

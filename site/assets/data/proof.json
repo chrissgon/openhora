@@ -1,10 +1,16 @@
 {
  "source": "docs/inventory.md, Evaluation status (band table and model table)",
- "generated_at_commit": "7b67e014416f",
- "reference_model": "claude-sonnet-5-5",
- "reference_adapter": "claude-code",
- "floor_model": "openrouter/deepseek/deepseek-v4.1-flash",
- "floor_adapter": "agents-dir",
+ "generated_at_commit": "6ffd720ce5fd",
+ "lab_models": [
+  {
+   "model": "claude-sonnet-5-5",
+   "adapter": "claude-code"
+  },
+  {
+   "model": "openrouter/deepseek/deepseek-v4.1-flash",
+   "adapter": "agents-dir"
+  }
+ ],
  "threshold": 0.8,
  "tolerance": 0.05,
  "runs_per_case": 3,

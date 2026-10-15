@@ -214,7 +214,6 @@ def test_a_model_with_no_route_is_not_tested_in_the_community(root, repo):
     gate["models"]["claude-sonnet-5-5"]["route"] = None
     gate["models"]["claude-sonnet-5-5"]["provider_pin"] = None
     gate["models"]["claude-sonnet-5-5"]["pass_env"] = []
-    gate["strong_pass_env"] = []
     (root / "evals" / "eval-gate.json").write_text(json.dumps(gate))
     reading = es.community_strict_reading(str(root))
     assert "claude-sonnet-5-5" not in reading["entries"] and "openrouter/deepseek/deepseek-v4.1-flash" in reading["entries"]

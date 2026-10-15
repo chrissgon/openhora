@@ -10,6 +10,7 @@ Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_caps_by_billing.py
 from __future__ import annotations
 
 import json
+import types
 
 import pytest
 
@@ -71,7 +72,7 @@ def test_spend_is_the_split_folded_and_the_two_parts_add_up_to_the_dollars_exact
 def test_a_run_recorded_as_unknown_counts_as_metered_and_is_not_a_row_older_than_the_column():
     rows = [{"agent": "a", "model": "ref", "billing": "unknown", "cost_usd": None}, {"agent": "a", "model": "ref", "billing": "unknown", "cost_usd": 0.2}]
     assert autonomy.spend_split(rows, "a", 0.5) == {"usd_recorded": 0.2, "usd_reserved": 0.5, "runs_total": 2, "runs_counted": 0, "runs_without_cost": 1}
-    kept = autonomy.with_billing(rows, "floor")
+    kept = autonomy.with_billing(rows, {"floor"})
     assert [r["billing"] for r in kept] == ["unknown", "unknown"], "unknown is a word, not the NULL of an older row: the tier rule does not apply"
 
 
@@ -85,17 +86,17 @@ def test_a_run_whose_billing_is_unknown_counts_as_metered_never_as_free():
 
 
 def test_history_billing_follows_the_old_tier_rule_for_a_run_with_no_billing():
-    assert autonomy.history_billing({"model": "floor", "billing": None}, "floor") == "metered"
-    assert autonomy.history_billing({"model": "ref", "billing": None}, "floor") == "subscription"
-    assert autonomy.history_billing({"model": "another", "billing": None}, "floor") == "subscription"
+    assert autonomy.history_billing({"model": "floor", "billing": None}, {"floor"}) == "metered"
+    assert autonomy.history_billing({"model": "ref", "billing": None}, {"floor"}) == "subscription"
+    assert autonomy.history_billing({"model": "another", "billing": None}, {"floor"}) == "subscription"
     for word in autonomy.BILLINGS:   # a recorded billing is never replaced
-        assert autonomy.history_billing({"model": "floor", "billing": word}, "floor") == word
+        assert autonomy.history_billing({"model": "floor", "billing": word}, {"floor"}) == word
 
 
 def test_the_three_cases_of_a_row_null_unknown_and_a_known_word():
     rows = [{"agent": "a", "model": "ref", "billing": None, "cost_usd": None}, {"agent": "a", "model": "ref", "billing": "unknown", "cost_usd": None},
             {"agent": "a", "model": "ref", "billing": "subscription", "cost_usd": None}]
-    filled = autonomy.with_billing(rows, "floor")
+    filled = autonomy.with_billing(rows, {"floor"})
     assert [r["billing"] for r in filled] == ["subscription", "unknown", "subscription"], "NULL: the tier rule (a reference-model run is a subscription run)"
     assert autonomy.spend_split(filled, "a", 0.5)["runs_counted"] == 2 and autonomy.spend_split(filled, "a", 0.5)["usd_reserved"] == 0.5, "unknown: metered"
 
@@ -116,7 +117,7 @@ def test_with_billing_fills_only_the_runs_that_have_none_and_changes_no_input():
     runs = [{"agent": "a", "model": "floor", "cost_usd": 0.3}, {"agent": "a", "model": "ref", "cost_usd": None},
             {"agent": "a", "model": "ref", "billing": "metered", "cost_usd": 0.2}]
     before = json.dumps(runs)
-    filled = autonomy.with_billing(runs, "floor")
+    filled = autonomy.with_billing(runs, {"floor"})
     assert [r["billing"] for r in filled] == ["metered", "subscription", "metered"]
     assert json.dumps(runs) == before
     # the days before the column count as they always did: the floor model's dollars, the others' runs
@@ -219,8 +220,9 @@ def test_the_manifests_of_the_checkout_declare_the_billing_of_every_credential_t
     manifests = billing.load(str(st.REPO))
     assert {"agents-dir", "api", "claude-code"} <= set(manifests)
     gate = json.loads((st.REPO / "evals" / "eval-gate.json").read_text(encoding="utf-8"))
-    assert billing.of_route(manifests, gate["strong_harness"], gate["strong_pass_env"]) == "subscription"
-    assert billing.of_route(manifests, gate["floor_harness"], gate["floor_pass_env"]) == "metered"
+    claude, openrouter = (gate["models"][name] for name in gate["lab_models"])
+    assert billing.of_route(manifests, claude["adapter"], claude["pass_env"]) == "subscription"
+    assert billing.of_route(manifests, openrouter["adapter"], openrouter["pass_env"]) == "metered"
     assert billing.of_route(manifests, "claude-code", []) == "subscription", "the CLI's own login"
     assert billing.of_route(manifests, "claude-code", ["ANTHROPIC_API_KEY"]) == "metered", "an API key as the reference credential"
     assert billing.of_route(manifests, "api", ["OPENROUTER_API_KEY"]) == "metered"
@@ -321,15 +323,12 @@ def configure(tree, agents) -> None:
 
 
 def credentials(monkeypatch, strong=(), floor=(), floor_key=True):
-    """The variables each tier passes (names only), whether a key for the floor model was found, and no real lookup."""
-    control = {"total_jobs": 2, "web_jobs": {"strong": 1, "floor": 1}}
-    tiers = {"strong": ("m", list(strong)), "floor": ("fm", list(floor))}
-    monkeypatch.setattr(lab, "reference", lambda tier="strong": {
-        "tier": tier, "model": tiers[tier][0], "adapter": "h", "pass_env": tiers[tier][1], "timeout_seconds": 60, "retries": 2,
-        "control": control})
-    monkeypatch.setattr(lab, "credential_missing", lambda tier: [])
-    monkeypatch.setattr(ops_core, "_floor_key", lambda: {"value": None, "source": "lab" if floor_key else None,
-                                                        "reason": None if floor_key else "no key"})
+    """The variables each model passes (names only; the first lab model "m" and the second "fm"), whether a key for "fm" was
+    found ("m" always has its key), and no real lookup."""
+    st.set_models(monkeypatch, lab, passes={"m": list(strong), "fm": list(floor)})
+    monkeypatch.setattr(lab, "credential_missing", lambda model=None: [])
+    monkeypatch.setattr(ops_core, "_model_key", lambda model: {"value": None, "source": "lab" if (model == "m" or floor_key) else None,
+                                                              "reason": None if (model == "m" or floor_key) else "no key"})
 
 
 def plan_single(tree) -> None:
@@ -367,13 +366,13 @@ def test_a_run_records_the_billing_of_the_credential_it_used_and_a_subscription_
     assert ops.task(path, run["task_id"])["runs"][0]["billing"] == "subscription", "the task read carries it on each run row"
 
 
-def test_a_metered_run_keeps_the_cost_the_adapter_reported_on_any_tier(tree, monkeypatch):
+def test_a_metered_run_keeps_the_cost_the_adapter_reported_on_any_model(tree, monkeypatch):
     path = str(tree["project"])
-    credentials(monkeypatch, strong=[API_KEY])    # the reference model through an API key
+    credentials(monkeypatch, strong=[API_KEY])    # the first model through an API key
     monkeypatch.setenv(API_KEY, "invented-value-never-shown")
     plan_single(tree)
     out = ops.run_next(path)
-    assert out["status"] == "ok" and out["routing"]["tier"] == "strong" and out["routing"]["billing"] == "metered"
+    assert out["status"] == "ok" and out["routing"]["model"] == "m" and out["routing"]["billing"] == "metered"
     [run] = runs_of(tree)
     assert run["billing"] == "metered" and run["cost_usd"] == 0.01
 
@@ -391,8 +390,8 @@ def test_the_snapshot_carries_the_billing_of_each_ready_task(tree, monkeypatch):
     credentials(monkeypatch, strong=[API_KEY])
     plan_single(tree)
     ctx = ops_core.context(str(tree["project"]))
-    snapshot = ops._snapshot(ctx, ops_core._floor_key())
-    [task_id] = snapshot["tier"]
+    snapshot = ops._snapshot(ctx, ops_core._keys())
+    [task_id] = snapshot["model"]
     assert snapshot["billing"] == {task_id: "metered"}
 
 
@@ -409,9 +408,9 @@ def test_the_agents_read_counts_by_billing_and_says_which_meters_are_in_use(tree
     assert got["caps_in_use"] == {"runs": True, "spend": True}
 
 
-def test_a_run_from_before_the_column_counts_by_the_old_tier_rule(tree, monkeypatch):
+def test_a_run_from_before_the_column_counts_by_the_rule_of_its_model(tree, monkeypatch):
     path = str(tree["project"])
-    credentials(monkeypatch)
+    credentials(monkeypatch, floor=["STANDIN_FLOOR_PASS"])   # "fm" is the model whose credential is billed by use
     plan_single(tree)
     seed(tree, [("m", None, None), ("fm", None, 0.4), ("fm", None, None)])
     [got] = ops.agents(path)["agents"]
@@ -422,7 +421,7 @@ def test_a_run_from_before_the_column_counts_by_the_old_tier_rule(tree, monkeypa
 # --- the acceptance: three projects --------------------------------------------------------------------------------------------
 
 
-def test_a_subscription_reference_and_a_metered_floor_key_show_two_meters_and_count_as_before(tree, monkeypatch):
+def test_a_subscription_model_and_a_metered_model_with_a_key_show_two_meters_and_count_as_before(tree, monkeypatch):
     path = str(tree["project"])
     credentials(monkeypatch, strong=[], floor=["STANDIN_FLOOR_PASS"], floor_key=True)
     plan_single(tree)
@@ -434,7 +433,7 @@ def test_a_subscription_reference_and_a_metered_floor_key_show_two_meters_and_co
     assert (caps["runs_today"], caps["usd_today"]) == (2, 0.25)
 
 
-def test_an_api_key_as_the_reference_credential_counts_its_runs_in_dollars_and_holds_at_the_dollar_cap(tree, monkeypatch):
+def test_an_api_key_as_the_first_models_credential_counts_its_runs_in_dollars_and_holds_at_the_dollar_cap(tree, monkeypatch):
     path = str(tree["project"])
     credentials(monkeypatch, strong=[API_KEY], floor_key=False)
     monkeypatch.setenv(API_KEY, "invented-value-never-shown")
@@ -442,7 +441,7 @@ def test_an_api_key_as_the_reference_credential_counts_its_runs_in_dollars_and_h
     plan_single(tree)
     seed(tree, [("m", "metered", 0.6)])
     [got] = ops.agents(path)["agents"]
-    assert got["runs_today"] == 0 and got["usd_today"] == pytest.approx(0.6), "reference runs are counted in dollars"
+    assert got["runs_today"] == 0 and got["usd_today"] == pytest.approx(0.6), "runs on a metered model are counted in dollars"
     assert got["caps_in_use"] == {"runs": False, "spend": True}
     seed(tree, [("m", "metered", 0.4)])
     out = ops.dispatch(path)
@@ -562,13 +561,14 @@ def test_a_run_started_on_a_route_no_manifest_bills_records_unknown_counts_as_me
     assert got["caps_in_use"] == {"runs": True, "spend": True}, "nothing says which cap: both meters, as for a service that sends none"
 
 
-# --- the tier's billing and the container's environment ----------------------------------------------------------------------------
+# --- the model's billing and the container's environment ----------------------------------------------------------------------------
 
 
-def test_the_billing_of_a_tier_is_the_manifest_reading_of_the_gate_files_variables_for_both_tiers():
-    for tier, expected in (("strong", "subscription"), ("floor", "metered")):
-        found = lab.reference(tier)
-        assert ops_core._tier_billing(tier) == billing.of_route(billing.load(str(st.REPO)), found["adapter"], found["pass_env"]) == expected
+def test_the_billing_of_a_model_is_the_manifest_reading_of_the_gate_files_variables_for_each_model():
+    for model, expected in (("claude-sonnet-5-5", "subscription"), ("openrouter/deepseek/deepseek-v4.1-flash", "metered")):
+        found = lab.reference(model)
+        assert ops_core._model_billing(model) == billing.of_route(billing.load(str(st.REPO)), found["adapter"], found["pass_env"]) == expected
+    assert ops_core._metered_models() == {"openrouter/deepseek/deepseek-v4.1-flash"}  # the rule of a run older than the billing column
 
 
 def test_the_container_environment_drops_a_provider_key_unless_it_is_passed(tmp_path, monkeypatch):
@@ -580,15 +580,15 @@ def test_the_container_environment_drops_a_provider_key_unless_it_is_passed(tmp_
     assert "ANTHROPIC_API_KEY" in passed and "CLAUDE_CODE_WEB_API_KEY" not in passed
 
 
-def test_caps_in_use_reads_the_manifests_once_and_takes_the_key_from_its_caller(monkeypatch):
+def test_caps_in_use_reads_the_manifests_once_and_takes_the_keys_from_its_caller(monkeypatch):
     calls = []
     real = billing.load
     monkeypatch.setattr(billing, "load", lambda root: calls.append(root) or real(root))
-    monkeypatch.setattr(ops_core, "_floor_key", lambda: (_ for _ in ()).throw(AssertionError("the caller gives the key")))
-    both = ops_core._caps_in_use([], {"value": None, "source": "lab", "reason": None})
-    assert len(calls) == 1 and both == {"runs": True, "spend": True}
-    ops_core._caps_in_use([], {"value": None, "source": None, "reason": "no key"})
-    assert len(calls) == 2
+    monkeypatch.setattr(ops_core, "_model_key", lambda model: (_ for _ in ()).throw(AssertionError("the caller gives the keys")))
+    both = ops_core._caps_in_use([], types.SimpleNamespace(found=lambda model: True))
+    assert len(calls) == 1 and both == {"runs": True, "spend": True}, "a subscription model, and a metered one with a key"
+    only_runs = ops_core._caps_in_use([], types.SimpleNamespace(found=lambda model: False))
+    assert len(calls) == 2 and only_runs == {"runs": True, "spend": False}, "the metered model has no key: its meter is not in use"
 
 
 def test_lab_run_skill_hands_the_spend_limit_to_the_adapter_to_the_cent_and_refuses_a_nonsense_one(tree, tmp_path, monkeypatch):

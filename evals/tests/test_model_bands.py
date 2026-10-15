@@ -1,6 +1,6 @@
 """Offline tests of the band, the cause and the gate of every model (the reliability model, section 10): each model
-that has evidence of a skill gets the figures the reference model gets, by the same rules on its own lines, and
-only the reference model's band decides the skill's standing. No model is called: evidence is written here, with
+that has evidence of a skill gets the figures the first lab model gets, by the same rules on its own lines, and no
+model's band decides for another. No model is called: evidence is written here, with
 the helpers of test_bands.py.
 
 Run: uv run --with pytest pytest evals/tests/test_model_bands.py
@@ -86,8 +86,8 @@ def test_the_reference_model_s_row_is_the_skill_s_own_band_cause_and_gate(root):
     assert {k: ref[k] for k in ("band", "cause", "kind", "command", "causes")} == {
         k: row[k] for k in ("band", "cause", "kind", "command", "causes")}
     assert ref["gate"] == {k: row["gate"][k] for k in GATE} == row["gate"]
-    # The same function with the configuration as_reference makes for the reference model gives the same answer.
-    again = es.skill_band(str(root), str(folder), es.as_reference(CFG, "s-model"), per_model=False)
+    # The same function with the configuration as_subject makes for the lead model gives the same answer.
+    again = es.skill_band(str(root), str(folder), es.as_subject(CFG, "s-model"), per_model=False)
     assert {k: again[k] for k in ("band", "cause", "kind", "command", "causes", "gate")} == {
         k: row[k] for k in ("band", "cause", "kind", "command", "causes", "gate")}
     assert row["models"]["f-model"]["band"] == "reliable"
@@ -108,20 +108,20 @@ def test_a_model_with_no_baseline_has_no_gate_computed_and_a_band_by_the_same_ru
     assert row["band"] == "reliable"
 
 
-def test_the_earlier_reference_model_s_lines_are_inherited_on_the_reference_model_only(root):
+def test_no_model_inherits_the_lines_of_another(root):
     folder = skill(root)
     lines = [(c, "with", 0.9, None) for c in (1, 2, 3) for _ in range(3)] + [(c, "with", 0.9, F) for c in (1, 2, 3)]
     event(folder, "full", "1.0.0", "2030-01-01", lines, strong="old-model")
     row = band(root, folder)
-    assert row["inherited_runs"] == 9  # the reference model inherits the earlier reference model's lines
+    assert row["inherited_runs"] == 0  # the lead model inherits nothing from the model an old event ran in its first tier
     assert (row["models"]["f-model"]["current_runs"], row["models"]["f-model"]["inherited_runs"]) == (3, 0)
-    assert row["models"]["old-model"]["inherited_runs"] == 0
+    assert (row["models"]["old-model"]["current_runs"], row["models"]["old-model"]["inherited_runs"]) == (9, 0)
 
 
 def test_the_model_table_shows_band_cause_and_gate_per_model_with_the_reference_model_first(root):
     (root / "evals").mkdir()
-    (root / "evals" / "eval-gate.json").write_text(json.dumps({**CFG, "models": {"a-floor": [], "s-model": []},
-                                                               "floor_model": "a-floor"}))
+    (root / "evals" / "eval-gate.json").write_text(json.dumps({
+        **CFG, "models": {"a-floor": {**tb.ENTRY, "adapter": "fh"}, "s-model": tb.ENTRY}, "lab_models": ["s-model", "a-floor"]}))
     (root / "docs").mkdir()
     (root / "docs" / "inventory.md").write_text(f"{es.BEGIN}\n{es.END}\n")
     folder = skill(root)
