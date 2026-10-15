@@ -197,7 +197,7 @@ LAYOUT = "contracts/project-layout.md"
 SLOTS_HEADING = "Slots no built skill writes"
 PLACEHOLDER_RE = re.compile(r"<[^<>]*>")
 PATH_OK_RE = re.compile(r"^[A-Za-z0-9._/<>-]+$")  # no *, {}, # (a section of a file) or space
-SIDE_EFFECTS = ("publish", "send", "schedule", "deploy", "create", "push", "dismiss")  # contracts/environment.md
+SIDE_EFFECTS = ("publish", "send", "schedule", "deploy", "create", "push", "dismiss", "write")  # contracts/environment.md
 # The four classes that were bare names (decision 14a). providers/resolve.py still reads the old names; a
 # skill's requires does not use them.
 RENAMED_CLASSES = {"mailer": "sender:email", "mailbox": "reader:email", "scheduler": "scheduler:job",

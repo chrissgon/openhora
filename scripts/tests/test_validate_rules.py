@@ -80,7 +80,7 @@ def test_a_complete_skill_with_two_good_cases_gets_no_warning_and_no_error(tree)
 def test_every_new_rule_is_a_warning_and_the_vocabulary_rules_are_errors_since_phase_c_closed(tree):
     add_skill(tree, description="Does a thing." + " More." * 160,
               meta={"version": None, "requires": "[mailbox, publisher:<platform>, publisher:mastodon]",
-                    "side_effects": "[write]"},
+                    "side_effects": "[teleport]"},
               license_line="", body="# Demo\n\n## Confirmation gate\n\nAsk. Then `eng-ghost` runs.\n" + "x" * 21000,
               cases=[case(1, prompt="Run eng-demo on this.", assertions=["If a file exists, it is listed", "npm test is run"],
                           surprise=True)])
@@ -93,7 +93,7 @@ def test_every_new_rule_is_a_warning_and_the_vocabulary_rules_are_errors_since_p
                              "skill-name", "skill-tokens"]
     assert all(w["message"].startswith(f"[{w['rule']}] ") for w in report.warnings + report.errors)
     assert "metadata.version, license" in messages(report, "meta-keys")[0]
-    assert "side_effects write" in messages(report, "side-effects-vocabulary")[0]
+    assert "side_effects teleport" in messages(report, "side-effects-vocabulary")[0]
 
 
 def test_a_prompt_that_copies_a_runtime_task_may_name_its_skill(tree):

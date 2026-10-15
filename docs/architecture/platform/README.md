@@ -62,9 +62,11 @@ openhora is a workbench of skills that let a model build a digital solution end 
 
 7. **A project's sources.** To give a project a file or a Notion page to read, read [sources.md](sources.md): the sources folder and its numbered guardrails (L21 to L27), the immutable versions, the catalog the planner reads, the document converter that runs in a container with no network, and the copies a task receives. It is a feature page like messaging, not a layer. `sources_dir` is a key every project's `runtime.json` must hold; register and import with `python3 runtime/cli.py source-add` and `source-import`, and see what the planner will read with `sources`.
 
-8. **A machine that runs for weeks.** To run the runtime on a server with nobody logged in, read [unattended.md](unattended.md): the SSH tunnel to reach the page (never `--lan` across networks), the credentials directory for secrets with no desktop session, the OAuth consent on a machine with a browser, the retention of run folders and source versions, the sweep of orphan containers, the lease of a synced sources folder, and `python3 scripts/doctor.py --unattended`.
+8. **A task's outputs.** To make a CSV file, a workbook, a Word document or a PDF from a task's result, to write a project document back to the platform that holds it (after you approve the hash of the exact content), or to see what text in a source a person cannot see, read [outputs.md](outputs.md): the export step kinds and the renderer's container, the formula guard (L32), the step engine's effect gate (L30), the write-back and the check that the target was not edited since it was read (L31), and the hidden-text flag with what it does not find.
 
-9. **What is not yet a replaceable piece.** If you want to know which layers cannot yet be swapped on their own, read the review of 2026-10-06 (removed on 2026-10-14; `git show d3e60770:docs/architecture/platform/review-2026-10-06.md`): the findings, ranked, each with its state in a table at the top.
+9. **A machine that runs for weeks.** To run the runtime on a server with nobody logged in, read [unattended.md](unattended.md): the SSH tunnel to reach the page (never `--lan` across networks), the credentials directory for secrets with no desktop session, the OAuth consent on a machine with a browser, the retention of run folders and source versions, the sweep of orphan containers, the lease of a synced sources folder, and `python3 scripts/doctor.py --unattended`.
+
+10. **What is not yet a replaceable piece.** If you want to know which layers cannot yet be swapped on their own, read the review of 2026-10-06 (removed on 2026-10-14; `git show d3e60770:docs/architecture/platform/review-2026-10-06.md`): the findings, ranked, each with its state in a table at the top.
 
 ## Keeping the pages current
 
@@ -72,7 +74,7 @@ A table that changes with the code is generated, never edited by hand: it sits b
 
 ## The pages
 
-Every page of this folder, once. The eight layer pages share a template; the three feature pages cross layers.
+Every page of this folder, once. The eight layer pages share a template; the four feature pages cross layers.
 
 | Page | What it covers |
 |---|---|
@@ -86,6 +88,7 @@ Every page of this folder, once. The eight layer pages share a template; the thr
 | [project.md](project.md) | Layer 8: the target project, its documents, state file, configuration and work data |
 | [messaging.md](messaging.md) | A feature across layers: the messaging bridge, the channel policy, the five messenger providers and a runbook |
 | [sources.md](sources.md) | A feature across layers: the sources folder (limits L21 to L27), versions, the catalog, the converter, Notion pages and Drive files |
+| [outputs.md](outputs.md) | A feature across layers: the export step kinds and the renderer's container, the formula guard (L32), the step engine's effect gate (L30), the write-back to a platform document (L31) and the hidden-text flag |
 | [unattended.md](unattended.md) | A feature across layers: remote access, the credentials directory, retention, orphan containers, the lease and the doctor's `--unattended` |
 
 ## The layers
@@ -275,6 +278,10 @@ The names fixed for this work. Use each exactly.
 | Version | An immutable import of a source (`original.<ext>`, `converted.md` or `converted.csv`, `manifest.json`); a refresh is the next number, and a task records the version it received ([sources.md](sources.md)) |
 | Catalog | What the planner reads of a project's sources: for each, the name, type, size, date, sheets and columns with a few values, first headings and warnings, built by code from the converted text only (limit L27; `sources.list_catalog`) |
 | Converter | The provider of the class `converter:document` (`providers/converter/`): a container with no network that turns a source's bytes into text with adopted tools ([sources.md](sources.md); [providers.md](providers.md)) |
+| Export kind | A step kind that makes a file with the renderer: `export-csv`, `export-xlsx`, `export-docx`, `export-pdf` (`runtime/step_export.py`); the file is written to `docs/outputs/` ([outputs.md](outputs.md)) |
+| Gate (step engine) | The last step of a kind, with no executor: it opens an `effect` decision with the hash of the exact content and the task waits; the effect it opens is made only by the operation `approve` (`runtime/steps.py`, `Gate`; limit L30; [outputs.md](outputs.md)) |
+| Write-back | A step task of kind `write-back` that replaces a document of the platform that holds the project's documents (a Notion page) with a project file, whole; the effect kind `write` carries it ([outputs.md](outputs.md); limit L31) |
+| Hidden text | Text in an HTML page or a PDF that a person cannot see (white on white, a one-pixel font, `display: none`); the converter counts it and names the kinds, never the text, and the version's manifest and the catalog say so ([outputs.md](outputs.md)) |
 | Runtime owner, brake | The owner of step tasks is the pseudo-agent `runtime` (not an entry of `area_agents`); its brake is `set-mode --agent runtime --mode stopped|autonomous`, kept in the store's cursor `steps:mode` ([runtime.md](runtime.md), "Step task and the step engine") |
 | Workflow | A flow file the person can read: tasks (skills or steps), their written dependencies and parameters; files and code still say "flow" (`flows/`, `runtime/flow_files.py`) ([contracts/runtime.md](../../../contracts/runtime.md), "Workflows") |
 | Project workflow | A workflow of the project's own, `docs/workbench/flows/<name>.json` of the project; a run never writes that folder, and a name of a workbench flow is never read there |
@@ -340,3 +347,4 @@ The names fixed for this work. Use each exactly.
 - 2026-10-13: the messaging channels have a page of their own (messaging.md): the bridge, the channel policy, the messenger interface and the five platforms, the security model, a runbook and the open items.
 - 2026-10-14: the map follows the messaging channels (MSG-14): the messaging page has the eight sections of a layer page, the layer table and the diagram name the bridge as a fifth shell (with its arrow to the providers), the cross-cutting rules gain the channel policy and the card binding, the glossary gains twelve terms (bridge, messenger, card, neutral message, ledger, capabilities, listen mode, paused, deferred, channel policy, permissions, window) and the channel terms name `messaging`, and a known-limits row points to the messaging page.
 - 2026-10-15: the platform map follows the delegation platform's first packages: an index of every page of the folder, the glossary gains the terms of the sources, workflows, consent, local and community evidence and the lease, and the numbering of "Start here" is mended.
+- 2026-10-15: the outputs page (outputs.md) is in the index and the glossary gains the export kinds, the step engine's gate, the write-back and hidden text (package P8).

@@ -42,7 +42,7 @@ shared/scripts/     the one source of every script more than one skill carries; 
 contracts/          what skills read and write in a target project: project-layout.md, state.md, environment.md, runtime.md, secrets.md, vote-data.md
 providers/          native implementations of requirement classes, resolved by providers/resolve.py: reader:email, publisher:<platform>,
                     messenger:<platform>, scheduler:job, store:runtime, integration:vcs, integration:issue-tracker, integration:documents
-                    (Notion and Google Drive files as sources), converter:document (the container that turns a source into text);
+                    (Notion and Google Drive files as sources), converter:document (the container that turns a source into text), exporter:document (the container that renders a CSV, workbook, Word or PDF file);
                     the interface is providers/CONTRACT.md
 templates/          capability.SKILL.md, flow.SKILL.md and agent.md, used by scripts/new-skill.sh
 packs/              installation subsets: default (every area but the optional ones), all, assistant, business, brand, design, planning, code, marketing, content
@@ -77,12 +77,13 @@ The runtime (`runtime/`, [layer page](docs/architecture/platform/runtime.md), co
 
 - **Sources.** A project reads uploaded files (PDF, Word, spreadsheet, presentation, CSV, HTML, text), Notion pages and Google Drive files (chosen in Google's Picker, `drive.file` scope, files only) that sit, as immutable versions, in a sources folder (`sources_dir` of `runtime.json`) a run never sees whole. The planner reads a catalog built from the converted text and names, for each task, the sources it needs; the plan shows them. [sources.md](docs/architecture/platform/sources.md).
 - **Model choice.** A request, a task or an area agent names a model of `evals/eval-gate.json`, or `auto`, which picks the cheapest model on which the skill is `reliable`; a model the person names runs, supervised unless it is proven. Fixing a model on an agent that works in an autonomous mode needs the person's consent for that agent. [contracts/runtime.md](contracts/runtime.md), "The choice of the model".
-- **Step tasks.** A task can be a step that code runs with no skill and no model; the one kind today is `ingest` (import or refresh a source). [runtime.md](docs/architecture/platform/runtime.md).
+- **Step tasks.** A task can be a step that code runs with no skill and no model: `ingest` (import or refresh a source), the exports below and `write-back`. [runtime.md](docs/architecture/platform/runtime.md).
+- **Outputs.** A task's result becomes a CSV file, a workbook, a Word document or a PDF in `docs/outputs/`, made in a container with no network (a cell that starts like a formula is written as text); a project document can replace a Notion page only after the person approves the hash of the exact content, in the terminal or on the page. The converter flags text a person cannot see in a source. [outputs.md](docs/architecture/platform/outputs.md).
 - **Workflows.** A flow file holds tasks (skills or steps), their dependencies, parameters the request fills in and the dates `{today}` and `{week}`; a project keeps its own in `docs/workbench/flows/`, and an approved plan can be saved as one. [contracts/runtime.md](contracts/runtime.md), "Workflows".
 - **Running unattended.** Secrets for a machine with no desktop session (a credentials directory), retention of old runs and source versions, the sweep of orphan containers, one writer at a time for a synced sources folder, and `python3 scripts/doctor.py --unattended`. [unattended.md](docs/architecture/platform/unattended.md).
 - **Community evidence.** Anyone can test a skill on a model the maintainer has not tested, with their own keys, in a fork; the attested result ranks the model and never releases work on its own. [docs/community-evidence.md](docs/community-evidence.md).
 
-In progress, not built: scheduled routines, the output exporter with write-back, and a project script ([the plan](docs/architecture/delegation-platform-plan-2026-10-14.md)).
+In progress, not built: scheduled routines and a project script ([the plan](docs/architecture/delegation-platform-plan-2026-10-14.md)).
 
 ## Install
 
