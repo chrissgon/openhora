@@ -135,6 +135,20 @@ STORE_MISSING = ("the OS secret store is not available in this Python (the keyri
 def store_missing_note(resolver) -> str:
     """STORE_MISSING when the resolver says the OS secret store cannot be read at all (its `store_available()` is False: the
     keyring library cannot be imported), else "". A resolver without that function (a stand-in) is taken as having a store."""
+    unsafe = getattr(resolver, "unsafe_note", None)   # a credentials directory that is refused is not a token that is absent (package P-OPS)
+    try:
+        refused = "" if unsafe is None else unsafe()
+    except Exception:  # a broken check must not hide the real error
+        refused = ""
+    if isinstance(refused, str) and refused:
+        return f"the credentials directory is unsafe, so no secret is read from it: {refused}. "
+    locked = getattr(resolver, "store_locked_note", None)   # a locked store is not a missing token (package P-OPS)
+    try:
+        said = "" if locked is None else locked()
+    except Exception:  # a broken check must not hide the real error
+        said = ""
+    if isinstance(said, str) and said:
+        return said + ". "
     available = getattr(resolver, "store_available", None)
     try:
         return "" if available is None or available() else STORE_MISSING

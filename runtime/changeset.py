@@ -81,7 +81,7 @@ BRANCH = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_./-]*$")
 class ChangesetError(Exception):
     """kind is "git" (no change set could be computed), "tampered" (a stored file is not what was stored),
     "working-document" (a path is not a versioned path of the project), "blocked" (a blocked change set is never
-    committed) or "protected" (a path matches a protected path)."""
+    committed), "protected" (a path matches a protected path) or "missing" (the run folder of an earlier run of the request is gone)."""
 
     def __init__(self, kind: str, reason: str):
         super().__init__(reason)
@@ -262,8 +262,13 @@ def load(run_dir: str):
 
 
 def current(run_dirs):
-    """The newest unblocked change set among run folders given newest first, or None."""
+    """The newest unblocked change set among run folders given newest first, or None. A run folder that is gone is an error
+    (ChangesetError "missing"), never skipped: the earlier work of a request that is still open lives in these folders, and passing over
+    one would start the next code task without it."""
     for run_dir in run_dirs:
+        if not os.path.isdir(run_dir):
+            raise ChangesetError("missing", f"the run folder {run_dir} of this request is gone, and the change set it held with it: "
+                                            "cancel the request if it is still open, and start a new request for the work")
         found = load(run_dir)
         if found is not None and not found.get("blocked"):
             return found

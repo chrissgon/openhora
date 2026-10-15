@@ -43,6 +43,7 @@ import documents
 import lab
 import parallel
 import skill_meta
+import upkeep
 
 REFUSED_CURSOR = "dispatch:refused"    # the store's cursor: {task id: {"reason", "at"}}, the children that were refused or crashed
 REPORTED_CURSOR = "dispatch:reported"  # the store's cursor: {"low": run id, "seen": [run ids]}, the finished runs already reported
@@ -606,6 +607,7 @@ def dispatch(project: str, budget_seconds=None, wait: bool = True) -> dict:
     ctx = core.context(project)
     cfg = ctx["cfg"]
     with core._dispatch_lock(cfg):
+        upkeep.run_quietly(ctx)   # retention and orphan containers, once an hour, before any run of this round (package P-OPS)
         if not cfg["area_agents"]:
             rows = core._stored(ctx, ctx["store"].tasks_list)
             ready = [t for t in rows if t["state"] == "ready" and t["parent_id"] is not None]
