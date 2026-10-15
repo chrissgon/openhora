@@ -39,7 +39,7 @@ def own_lock_folder(tmp_path, monkeypatch):
 
 def demo(tmp_path, monkeypatch, **gate):
     skill = t.scores_demo(tmp_path, monkeypatch)
-    t.configure_gate(tmp_path, strong_tolerance=0.05, runs=3, **gate)
+    t.configure_gate(tmp_path, tolerance=0.05, runs=3, **gate)
     return skill
 
 

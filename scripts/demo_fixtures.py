@@ -58,8 +58,10 @@ AGENTS = {"planning": {"pack": "planning", "mode": "supervised", "max_runs_per_d
           "design": {"pack": "design", "mode": "supervised", "max_runs_per_day": 6, "max_usd_per_day": 3},
           "engineering": {"pack": "engineering", "mode": "milestones", "max_runs_per_day": 8, "max_usd_per_day": 4},
           "content": {"pack": "content", "mode": "supervised", "max_runs_per_day": 6, "max_usd_per_day": 2}}
-PRICES = {"m": {"input_usd_per_mtok": 3.0, "output_usd_per_mtok": 15.0, "cache_read_usd_per_mtok": 0.3,
-                "cache_write_usd_per_mtok": 3.75, "source": "https://prices.example/models", "date": "2026-10-01"}}
+DEMO_MODELS = ("demo-model-a", "demo-model-b")     # the two lab models, under fictional ids
+DEMO_COST = {"demo-model-a": 0.0124, "demo-model-b": 0.0006}     # an expected cost of a run, in dollars
+DEMO_PRICE = {"demo-model-a": {"input": 3.0, "output": 15.0, "cache_read": 0.3, "cache_write": 3.75},       # dollars per million tokens
+              "demo-model-b": {"input": 0.1, "output": 0.5, "cache_read": 0.01, "cache_write": 0.125}}
 CODE = {"provider": "github", "repo": "example-org/web", "base": "main"}
 GIT = ["git", "-c", "user.name=Demo Person", "-c", "user.email=demo@example.test", "-c", "commit.gpgsign=false"]
 # The file each fixture is written to, and the order they are listed in.
@@ -103,9 +105,6 @@ def seed(scratch: Path) -> dict:
         tree = st.build(scratch, mp, lab)
         mp.setattr(ops_core, "ROOT", str(tree["tree"]))
         mp.setattr(plan, "resolve_pack", lambda pack, root: list(PACKS.get(pack, [])))
-        mp.setattr(lab, "reference", lambda tier="strong": {
-            "tier": tier, "model": {"strong": "m", "floor": "fm"}[tier], "adapter": "h", "pass_env": [], "timeout_seconds": 60,
-            "retries": 2, "control": {"total_jobs": 2, "web_jobs": {"strong": 1, "floor": 1}}})
         for rel in ("providers/secrets/resolver.py", "runtime/secrets.json"):
             if (REPO / rel).is_file():
                 (tree["tree"] / rel).parent.mkdir(parents=True, exist_ok=True)
@@ -119,7 +118,7 @@ def seed(scratch: Path) -> dict:
         (project / ".gitignore").write_text(".workbench-local/\n")
         config = project / "docs" / "workbench" / "runtime.json"
         raw = json.loads(config.read_text())
-        raw.update(area_agents=AGENTS, code=CODE, model_prices=PRICES)
+        raw.update(area_agents=AGENTS, code=CODE)
         config.write_text(json.dumps(raw))
         _git(project, "init", "-q")
         _git(project, "add", "-A")
@@ -241,9 +240,8 @@ def seed(scratch: Path) -> dict:
 
 
 def inventory_rows() -> tuple:
-    """([(skill, version, band, score, mean, runs)], {skill: {tier: (band, cause, score, mean, runs)}}, commit) from the
-    snapshot in docs/inventory.md: the band table (reference model) and the model table (the reference model first, then the
-    floor model)."""
+    """([(skill, version, band, score, mean, runs)], {skill: [(model's band, cause, score, mean, runs)]}, commit) from the
+    snapshot in docs/inventory.md: the band table (the summary row) and the model table (one row for each model, the lab models in order)."""
     text = INVENTORY.read_text(encoding="utf-8")
     block = text.split("<!-- eval-status:begin -->")[1].split("<!-- eval-status:end -->")[0]
     commit = re.search(r"Generated at commit `([0-9a-f]+)`", block).group(1)
@@ -270,19 +268,29 @@ def skills_fixture(shape: dict) -> dict:
     template = shape["skills"][0]
     rows = []
     for name, version, _band, _score, _mean, _runs in bands:
-        tiers = models.get(name, [])
+        found_rows = models.get(name, [])
         proof = []
-        for tier, (reference, model, adapter) in zip(("strong", "floor"), (("strong", "reference-model", "adapter"), ("floor", "floor-model", "adapter"))):
-            found = tiers[0 if tier == "strong" else 1] if len(tiers) > (0 if tier == "strong" else 1) else None
+        for place, model in enumerate(DEMO_MODELS):
+            found = found_rows[place] if len(found_rows) > place else None
             row = dict(template["proof"][0])
             if found:
                 band, cause, score, mean, runs = found
-                row.update(tier=tier, model=model, adapter=adapter, band=band, cause=cause, score=number(score), mean=number(mean), runs=int(runs))
+                row.update(model=model, adapter="adapter", band=band, cause=cause, score=number(score), mean=number(mean), runs=int(runs),
+                           source="lab", expected_cost=DEMO_COST[model], price={**row["price"], **DEMO_PRICE[model]})
             else:
-                row.update(tier=tier, model=model, adapter=adapter, band="needs a test", cause="no evidence on this model", score=None, mean=None, runs=0)
+                row.update(model=model, adapter="adapter", band="needs a test", cause="no evidence on this model", score=None, mean=None, runs=0,
+                           source=None, usage_mean=None, expected_cost=None, price=None)
             proof.append(row)
-        rows.append({**template, "name": name, "version": version, "area": AREA_OF.get(name.split("-")[0], "core"), "proof": proof, "runs_here": 0})
-    return {"skills": rows, "checks": dict(shape["checks"]), "snapshot": {"commit": commit, "source": "docs/inventory.md"}}
+        reliable = [p["model"] for p in proof if p["band"] == "reliable" and p["expected_cost"] is not None]
+        rows.append({**template, "name": name, "version": version, "area": AREA_OF.get(name.split("-")[0], "core"), "proof": proof, "runs_here": 0,
+                     "recommended": min(reliable, key=lambda m: DEMO_COST[m]) if reliable else None})
+    summary = []
+    for place, model in enumerate(DEMO_MODELS):
+        mine = [r["proof"][place] for r in rows]
+        summary.append({**shape["models"][0], "model": model, "adapter": "adapter", "skills": len(mine),
+                        "reliable": sum(1 for p in mine if p["band"] == "reliable"), "price": mine[0]["price"]})
+    return {"skills": rows, "checks": dict(shape["checks"]), "models": summary, "default_model": None,
+            "snapshot": {"commit": commit, "source": "docs/inventory.md"}}
 
 
 class Rewriter:

@@ -14,7 +14,9 @@
       "lower_bound_runs": 0,
       "price": {
         "source": "https://prices.example/models",
-        "date": "2026-10-01"
+        "accessed": "2026-10-01",
+        "age_days": 14,
+        "stale": false
       }
     },
     {
@@ -30,7 +32,9 @@
       "lower_bound_runs": 0,
       "price": {
         "source": "https://prices.example/models",
-        "date": "2026-10-01"
+        "accessed": "2026-10-01",
+        "age_days": 14,
+        "stale": false
       }
     },
     {
@@ -46,7 +50,9 @@
       "lower_bound_runs": 0,
       "price": {
         "source": "https://prices.example/models",
-        "date": "2026-10-01"
+        "accessed": "2026-10-01",
+        "age_days": 14,
+        "stale": false
       }
     },
     {
@@ -62,7 +68,9 @@
       "lower_bound_runs": 0,
       "price": {
         "source": "https://prices.example/models",
-        "date": "2026-10-01"
+        "accessed": "2026-10-01",
+        "age_days": 14,
+        "stale": false
       }
     }
   ],

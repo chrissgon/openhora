@@ -326,7 +326,7 @@ def test_say_is_called_as_the_channel_mcp_and_the_client_cannot_change_it(world)
     [(_, _, kwargs)] = world.fake.named("say")
     assert kwargs == {"text": "hello", "channel": "mcp"}
     assert "mcp" not in ops.EFFECT_CHANNELS  # the rule of the operations layer, which this shell does not restate
-    assert [r["name"] for r in operations.OPERATIONS if r.get("channel_arg")] == ["route", "approve", "set-mode", "dispatch", "say"]
+    assert [r["name"] for r in operations.OPERATIONS if r.get("channel_arg")] == ["route", "approve", "set-mode", "set-model", "dispatch", "say"]
     assert "mcp" not in operations.by_name("approve")["channels"]
     # set-mode takes the channel (R4-C3) to refuse `accept` from any but the terminal; it has no tool and no chat command
     assert "mcp" not in operations.by_name("set-mode")["channels"] and "chat" not in operations.by_name("set-mode")["channels"]

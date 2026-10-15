@@ -48,6 +48,33 @@
           "mode": "autonomous-with-policy",
           "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent planning --mode autonomous-with-policy --accept"
         }
+      ],
+      "model": null,
+      "consent": null,
+      "consent_in_force": false,
+      "consent_needed": false,
+      "consent_warning": "This model has no reliable evidence for the skills this agent runs; with the agent in autonomous mode its reviews will be released without you. Each run will be recorded as autonomy by consent.",
+      "model_commands": [
+        {
+          "model": "m",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent planning --model m"
+        },
+        {
+          "model": "fm",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent planning --model fm"
+        },
+        {
+          "model": "auto",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent planning --model auto"
+        },
+        {
+          "model": "default",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent planning --model default"
+        }
       ]
     },
     {
@@ -96,6 +123,33 @@
           "mode": "autonomous-with-policy",
           "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent design --mode autonomous-with-policy --accept"
         }
+      ],
+      "model": null,
+      "consent": null,
+      "consent_in_force": false,
+      "consent_needed": false,
+      "consent_warning": "This model has no reliable evidence for the skills this agent runs; with the agent in autonomous mode its reviews will be released without you. Each run will be recorded as autonomy by consent.",
+      "model_commands": [
+        {
+          "model": "m",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent design --model m"
+        },
+        {
+          "model": "fm",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent design --model fm"
+        },
+        {
+          "model": "auto",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent design --model auto"
+        },
+        {
+          "model": "default",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent design --model default"
+        }
       ]
     },
     {
@@ -141,6 +195,33 @@
         {
           "mode": "autonomous-with-policy",
           "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent engineering --mode autonomous-with-policy --accept"
+        }
+      ],
+      "model": null,
+      "consent": null,
+      "consent_in_force": false,
+      "consent_needed": false,
+      "consent_warning": "This model has no reliable evidence for the skills this agent runs; with the agent in autonomous mode its reviews will be released without you. Each run will be recorded as autonomy by consent.",
+      "model_commands": [
+        {
+          "model": "m",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent engineering --model m"
+        },
+        {
+          "model": "fm",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent engineering --model fm"
+        },
+        {
+          "model": "auto",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent engineering --model auto"
+        },
+        {
+          "model": "default",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent engineering --model default"
         }
       ]
     },
@@ -190,7 +271,40 @@
           "mode": "autonomous-with-policy",
           "command": "python3 /home/demo/openhora/runtime/cli.py set-mode --project /home/demo/northwind-shop --agent content --mode autonomous-with-policy --accept"
         }
+      ],
+      "model": null,
+      "consent": null,
+      "consent_in_force": false,
+      "consent_needed": false,
+      "consent_warning": "This model has no reliable evidence for the skills this agent runs; with the agent in autonomous mode its reviews will be released without you. Each run will be recorded as autonomy by consent.",
+      "model_commands": [
+        {
+          "model": "m",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent content --model m"
+        },
+        {
+          "model": "fm",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent content --model fm"
+        },
+        {
+          "model": "auto",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent content --model auto"
+        },
+        {
+          "model": "default",
+          "consent": false,
+          "command": "python3 /home/demo/openhora/runtime/cli.py set-model --project /home/demo/northwind-shop --agent content --model default"
+        }
       ]
     }
+  ],
+  "consent_warning": "This model has no reliable evidence for the skills this agent runs; with the agent in autonomous mode its reviews will be released without you. Each run will be recorded as autonomy by consent.",
+  "default_model": null,
+  "models": [
+    "m",
+    "fm"
   ]
 }

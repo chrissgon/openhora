@@ -111,7 +111,7 @@ def credential_findings(text: str) -> list:
 def agents_md_for_run(text: str, mode: str) -> tuple:
     """(text for the run, removed): the project's AGENTS.md without the two lines the container cannot serve;
     with mode "section", only the workbench section. removed lists {"line", "after"} in order."""
-    # Leaves at the change of reference model (docs/backlog.md, T23): the two lines leave the copy in its base
+    # Leaves at the change of the lab default list or of the grader (docs/backlog.md, T23): the two lines leave the copy in its base
     # commit; with a model that does not need them hidden, the file enters as it is.
     lines = (text or "").splitlines(keepends=True)
     bare = [line.rstrip("\r\n") for line in lines]

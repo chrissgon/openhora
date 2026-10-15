@@ -6,7 +6,7 @@ Part of [the platform map](README.md). Every layer page has the same eight secti
 
 An adapter holds everything that is specific to one AI tool (a harness): how a pack of skills is installed where that tool discovers it, how one prompt is run through it inside the eval container, how one agent is run on one task, and the settings, overrides and credentials that only that tool needs. The core reads none of it and names no tool; adding a harness adds a folder and edits nothing in the core ([AGENTS.md](../../../AGENTS.md), principles 1 and 2).
 
-The adapters are `claude-code` (the reference model's adapter: a plugin build, the eval runner, the runtime runner), `agents-dir` (the floor model's adapter: a skills folder many tools read, the eval runner) and `api` (a tool-free runtime runner for the first runtime). Each folder's `README.md` is the source; this page maps them and does not repeat them.
+The adapters are `claude-code` (the adapter of the Claude models: a plugin build, the eval runner, the runtime runner), `agents-dir` (the adapter of the OpenRouter models: a skills folder many tools read, the eval runner) and `api` (a tool-free runtime runner for the first runtime). Each folder's `README.md` is the source; this page maps them and does not repeat them.
 
 ## Artifacts it owns
 
@@ -32,11 +32,11 @@ Where: **repo** is this repository, **home** is the person's machine outside eve
 
 ## Abstractions
 
-**Harness.** One AI tool, named by its adapter's folder (`claude-code`, `agents-dir`, `api`). The gate file names two of them, by folder name only: `strong_harness` and `floor_harness`.
+**Harness.** One AI tool, named by its adapter's folder (`claude-code`, `agents-dir`, `api`). The gate file names them by folder name only, in the `adapter` of each model's entry.
 
 **Eval adapter.** An adapter that has a `run-prompt.sh`, and therefore an `eval.json`. `claude-code` and `agents-dir` are eval adapters; `api` is not (it has only `run-agent.sh`). Only an eval adapter's two files enter the measurement fingerprint.
 
-**The eval contract**, `run-prompt.sh --prompt-file <f> --cwd <dir> --model <id> --out <dir> [--allow-web] [--max-cost-usd <amount>] [--no-tools]`: runs one prompt in `<cwd>` and installs nothing (the runner has staged the skill under test and the case's dependency skills into `skills_dir`). It refuses to start outside the eval container (`WB_EVAL_CONTAINER=1`), lets the model run every command inside it, loads no connector, gives the web tools only with `--allow-web`, gives no tool at all with `--no-tools` (a grading call; only `claude-code` implements it, `agents-dir` refuses it as an unknown option with exit 2, and the grading call is made with the strong tier's adapter), stops at the spend limit or says on stderr that it cannot, ends its whole process group when it returns or is stopped, and writes `response.md`, `stream.jsonl` and `timing.json`. Exit 1 for a failed run whatever the runner's own code, 2 for usage.
+**The eval contract**, `run-prompt.sh --prompt-file <f> --cwd <dir> --model <id> --out <dir> [--allow-web] [--max-cost-usd <amount>] [--no-tools]`: runs one prompt in `<cwd>` and installs nothing (the runner has staged the skill under test and the case's dependency skills into `skills_dir`). It refuses to start outside the eval container (`WB_EVAL_CONTAINER=1`), lets the model run every command inside it, loads no connector, gives the web tools only with `--allow-web`, gives no tool at all with `--no-tools` (a grading call; only `claude-code` implements it, `agents-dir` refuses it as an unknown option with exit 2, and the grading call is made with the adapter of the grader's own entry), stops at the spend limit or says on stderr that it cannot, ends its whole process group when it returns or is stopped, and writes `response.md`, `stream.jsonl` and `timing.json`. Exit 1 for a failed run whatever the runner's own code, 2 for usage.
 
 **The runtime contract**, `run-agent.sh --agent-file <agents/name.md> --task-file <f> --project <dir> --model <id> --out <dir> [--skill-dir <dir>]... [--max-cost-usd <amount>] [--timeout-seconds <n>]`: one agent on one task with reading tools only (`claude-code`) or no tool at all (`api`), the skills copied, never linked, into a fresh folder, no connector and no user-level settings; it writes `response.md` and `timing.json`. Its caller is the first runtime (`scripts/runtime.py`), for which it stays the rollback until WP-7.5; `claude-code`'s takes `--timeout-seconds` from 30 to 3600 (default 600). The task runtime (`runtime/`) does not use it: it runs a skill through the lab facade and the eval adapter's `run-prompt.sh` ([runtime.md](runtime.md)), and the social handler runs its agent as a contained run (`runtime/cli.py contained-run`; `contracts/runtime.md`, "The contained run").
 
@@ -56,7 +56,7 @@ Where: **repo** is this repository, **home** is the person's machine outside eve
 
 | Reader | What | How |
 |---|---|---|
-| The lab (`evals/execution.py` reads `eval.json` and the `secrets` list; `evals/eval_run.py` builds the path of `run-prompt.sh`; `evals/executor.py` mounts it) | `eval.json`, `run-prompt.sh`, the `secrets` list of `adapter.json` | by the gate file's `strong_harness` and `floor_harness`, or `--harness` for a trial; the script mounted alone, read-only, in the container; `evals/run_attempts.py` reads no adapter file |
+| The lab (`evals/execution.py` reads `eval.json` and the `secrets` list; `evals/eval_run.py` builds the path of `run-prompt.sh`; `evals/executor.py` mounts it) | `eval.json`, `run-prompt.sh`, the `secrets` list of `adapter.json` | by the `adapter` of each model's entry in the gate file, or `--harness` for a model it does not list (a trial); the script mounted alone, read-only, in the container; `evals/run_attempts.py` reads no adapter file |
 | The task runtime | the same, through the lab only (`runtime/lab.py`: the kit's `adapter_eval`, `harness_settings`, `settings_in`, and the `secrets` list of every `adapter.json` in `credential_usernames`) | no module of `runtime/` names an adapter |
 | The first runtime (`scripts/runtime.py`) | `run-agent.sh` of the adapter its `runtime.json` names | `bash adapters/<harness>/run-agent.sh` |
 | `scripts/doctor.py` | `connectors.json`, every adapter's `secrets` | `--harness <name>`; never a value |
@@ -77,7 +77,7 @@ Each invariant with its guard. A test is in the adapter's own `tests/` folder un
 
 - No core file names a harness or reads an adapter's path: `scripts/validate.py`, check `harness-name` (`HARNESS_PATTERNS`, `HARNESS_WIDE_PATTERNS`); `scripts/tests/test_validate_rules.py::test_this_repository_names_no_harness_in_its_core`.
 - The core's secrets registry names no adapter secret; each adapter registers its own: `providers/secrets/tests/test_resolver.py::test_the_core_registry_names_no_adapter`; `scripts/tests/test_adapter_secrets.py::test_the_core_alone_registers_no_adapter_secret`, `test_every_adapter_secret_names_readers_that_exist_and_its_own_adapter`.
-- A name passed into eval runs is registered by the adapter of its tier: `scripts/tests/test_adapter_secrets.py::test_the_names_passed_into_eval_runs_are_registered_by_the_adapter_of_their_tier`.
+- A name passed into eval runs is registered by the adapter of its model: `scripts/tests/test_adapter_secrets.py::test_the_names_passed_into_eval_runs_are_registered_by_the_adapter_of_their_model`.
 - `adapter.json` carries no eval block, and each `eval.json` holds exactly its four keys: `evals/tests/test_eval_block.py::test_no_adapter_json_has_an_eval_key_and_each_eval_json_holds_exactly_the_four_keys`.
 
 **The measurement.**
@@ -105,7 +105,7 @@ Each invariant with its guard. A test is in the adapter's own `tests/` folder un
 
 **Evidence and the marker.**
 
-- Evidence is written only by the runner, from the real adapters in the container; a stand-in runner or grader writes into the run folder's scratch tree: `evals/tests/test_eval_run.py::test_a_trial_never_writes_into_the_skill`; `evals/tests/test_executor_docker.py::test_the_grading_path_with_a_stub_grader_runs_in_the_container_and_a_stub_run_leaves_no_file_under_skills`. That a person does not type a line into a pull request has no code guard: the code owners' review and the rule that the maintainer runs the reference model's tests are the protection ([evals/README.md](../../../evals/README.md), "Who runs the lab tests").
+- Evidence is written only by the runner, from the real adapters in the container; a stand-in runner or grader writes into the run folder's scratch tree: `evals/tests/test_eval_run.py::test_a_trial_never_writes_into_the_skill`; `evals/tests/test_executor_docker.py::test_the_grading_path_with_a_stub_grader_runs_in_the_container_and_a_stub_run_leaves_no_file_under_skills`. That a person does not type a line into a pull request has no code guard: the code owners' review and the rule that the maintainer runs the lab tests are the protection ([evals/README.md](../../../evals/README.md), "Who runs the lab tests").
 - A copied skill with its marker has the hash of its source: `scripts/tests/test_evidence.py::test_a_copied_skill_folder_with_its_marker_gives_the_hash_of_its_source`.
 - The model id of a recorded use comes from a flag only, never from a model's own account: `scripts/tests/test_evidence.py::test_the_model_comes_from_the_flag_only_and_an_unlisted_one_is_unknown`.
 
@@ -142,8 +142,8 @@ Each invariant with its guard. A test is in the adapter's own `tests/` folder un
 | The adapter's report of the skills a run loaded (`skills_loaded`) is not reliable; no rule reads it | [backlog](../../backlog.md), R12 |
 | A runtime agent run by `run-agent.sh` (the first runtime's) is limited by its tool list only; whether the reading tools can leave the project is the tool's rule. The contained run closes this for the task runtime | [backlog](../../backlog.md), N15; `contracts/runtime.md`, "The contained run" |
 | A model on the person's own machine is not reachable from the eval container | [backlog](../../backlog.md), N14 (the `agents-dir` README still cites T12, archived) |
-| The two eval tiers see different homes inside the container (the container's own for `claude-code`, a throwaway one for `agents-dir`); a case must not depend on either | both eval adapters' READMEs, "Evals" |
-| The pinned command-line tool of the reference model does not know that model: the cost it reports is priced as for an unknown model, and its limits are its defaults | [backlog](../../backlog.md), T23 |
+| The eval adapters see different homes inside the container (the container's own for `claude-code`, a throwaway one for `agents-dir`); a case must not depend on either | both eval adapters' READMEs, "Evals" |
+| The pinned command-line tool of the `claude-code` adapter does not know a Claude model: the cost it reports is priced as for an unknown model, and its limits are its defaults | [backlog](../../backlog.md), T23 |
 | A tool-free runtime runner sends whole files in the prompt; the platform reference is the only reference it sends, and a folder a task names is not expanded | [adapters/api/README.md](../../../adapters/api/README.md), "The prompt it builds" |
 | The `api` adapter's first run against each endpoint with a real key is still to confirm | [adapters/api/README.md](../../../adapters/api/README.md), "Not yet verified with a real key" |
 | An always-on, chat-first agent platform reads the `agents-dir` folder today; an adapter of its own (a scheduler, a messaging channel) would be an optional later package, planned in no file | [docs/decisions.md](../../decisions.md), 2026-09-22 |
@@ -152,7 +152,7 @@ Each invariant with its guard. A test is in the adapter's own `tests/` folder un
 | `evals/measure.py` says the refusal and account-limit texts are in `adapter.json`; they are in `eval.json` | [backlog](../../backlog.md), T23 |
 | `adapters/agents-dir/run-prompt.sh` tests `OPENROUTER_BASE_URL` by name, which the floor route's `base_url_env` defines, and `adapters/agents-dir/adapter.json` registers a secret (`DEEPSEEK_API_KEY`) whose host is not on the proxy's allow list. Open, waiting for the next change of its layer | `docs/architecture/platform/review-2026-10-06.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/platform/review-2026-10-06.md`), finding 12; [lab.md](lab.md) |
 | The eval contract has no shared conformance suite: each eval adapter's tests check it their own way, and the lab's container tests list the two eval adapters by name. Open, waiting for the next change of its layer | `docs/architecture/platform/review-2026-10-06.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/platform/review-2026-10-06.md`), finding 13; [lab.md](lab.md) |
-| The strong model's runs of web cases use the variables `strong_web_pass_env` of the gate file names (a key with a low limit, in place of the account's token); `claude-code` registers `CLAUDE_CODE_WEB_API_KEY` for it, and while the gate file names none, a web case passes the account token like any run | `evals/eval_status.py`, the gate keys; `adapters/claude-code/adapter.json` |
+| A model's runs of web cases use the variables `web_pass_env` of its entry in the gate file names (a key with a low limit, in place of the account's token); `claude-code` registers `CLAUDE_CODE_WEB_API_KEY` for it, and while the gate file names none, a web case passes the account token like any run | `evals/eval_status.py`, the gate keys; `adapters/claude-code/adapter.json` |
 
 ## Changes
 

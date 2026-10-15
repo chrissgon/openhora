@@ -100,7 +100,7 @@ def test_check_before_and_after_init(tmp_path):
     assert run("cursor-get", "--name", "x", db=path).returncode == 3
     ok("init", db=path)
     out = ok("--check", db=path)
-    assert out["ok"] is True and out["schema_version"] == 9 and out["journal_mode"] == "wal"
+    assert out["ok"] is True and out["schema_version"] == 10 and out["journal_mode"] == "wal"
 
 
 def test_db_before_the_verb(tmp_path):
@@ -135,10 +135,10 @@ def test_init_tightens_a_loose_existing_file(tmp_path):
 def test_init_is_idempotent_and_keeps_data(db, tmp_path):
     ok("cursor-set", "--name", "since", "--value", "v1", db=db)
     again = ok("init", db=db)
-    assert again["applied"] == [] and again["migrated_from"] == 9 and again["created"] is False
+    assert again["applied"] == [] and again["migrated_from"] == 10 and again["created"] is False
     assert ok("cursor-get", "--name", "since", db=db)["value"] == "v1"
     rows = sqlite3.connect(db).execute("SELECT version FROM schema_version").fetchall()
-    assert rows == [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,), (9,)]
+    assert rows == [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,), (9,), (10,)]
 
 
 def test_init_migrates_an_empty_version_table(tmp_path):
@@ -150,7 +150,7 @@ def test_init_migrates_an_empty_version_table(tmp_path):
     conn.close()
     assert run("--check", db=path).returncode == 3
     out = ok("init", db=path)
-    assert out["migrated_from"] == 0 and out["applied"] == [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    assert out["migrated_from"] == 0 and out["applied"] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     ok("--check", db=path)
 
 
@@ -174,7 +174,7 @@ def test_concurrent_init(tmp_path):
         results = pool.map(_init, [str(path)] * 4)
     assert [code for code, _ in results] == [0, 0, 0, 0], results
     rows = sqlite3.connect(path).execute("SELECT version FROM schema_version").fetchall()
-    assert rows == [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,), (9,)]
+    assert rows == [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,), (9,), (10,)]
 
 
 def load_store():
@@ -208,7 +208,7 @@ def test_concurrent_inits_create_a_missing_folder_once(tmp_path, capsys):
         assert codes == [0] * 16, capsys.readouterr().err
         assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
     rows = sqlite3.connect(path).execute("SELECT version FROM schema_version").fetchall()
-    assert rows == [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,), (9,)]
+    assert rows == [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,), (9,), (10,)]
 
 
 def test_a_wal_file_removed_by_another_process_does_not_fail_init(tmp_path, monkeypatch):
@@ -716,7 +716,7 @@ def test_export(db, tmp_path, payload):
     ok("event-next", "--source", "mailbox", db=db)
 
     full = ok("export", "--format", "json", db=db)
-    assert full["schema_version"] == 9 and full["since"] is None
+    assert full["schema_version"] == 10 and full["since"] is None
     assert {k: len(full[k]) for k in ("cursors", "events", "runs", "inbox", "actions")} == \
         {"cursors": 1, "events": 1, "runs": 1, "inbox": 1, "actions": 1}
     assert "claim_token" not in full["events"][0] and full["events"][0]["payload"] == {"n": 0}

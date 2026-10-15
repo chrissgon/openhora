@@ -38,7 +38,7 @@ export function listRow(item) {
 function requestRow(P, request) {
   const live = P.routing && P.routing.request === request.id ? fill(F["status-routing"].requests.find((r) => r.routing).routing, { run_id: P.routing.run_id, skill: P.routing.skill, started_at: P.routing.started_at }) : null;
   return fill(REQUEST, {
-    id: request.id, flow: request.flow, state: request.state, title: request.title, on_board: false, open_comments: 0,
+    id: request.id, flow: request.flow, state: request.state, model: request.model || null, title: request.title, on_board: false, open_comments: 0,
     tasks: childrenOf(P, request.id).map((t) => fill(TASK_ROW, { id: t.id, key: t.key, title: t.title, agent: t.agent, skill: t.skill, state: t.state, note: t.note, on_board: false, open_comments: 0, holds_slot: holdsSlot(t), waiting_for: [] })),
     after: request.after, routing: request.state === "cancelled" ? null : live,
   });
@@ -76,9 +76,23 @@ export function task(P, id) {
   });
 }
 
+const AUTONOMOUS = ["autonomous", "autonomous-with-policy"];
+
+/** The set-model commands of an agent, as the service gives them: every model of the demo, then auto and default; --accept where the agent's mode would make the model a consent. */
+function modelCommands(P, agent) {
+  const ids = (F.skills.models || []).map((m) => m.model);
+  return [...ids, "auto", "default"].map((model) => ({
+    model,
+    command: `python3 ${CLI} set-model --project ${P.folder} --agent ${agent.name} --model ${model}${AUTONOMOUS.includes(agent.mode) && !["auto", "default"].includes(model) ? " --accept" : ""}`,
+  }));
+}
+
 export function agents(P) {
   const template = F.agents.agents[0];
   return {
+    consent_warning: F.agents.consent_warning,
+    default_model: null,
+    models: (F.skills.models || []).map((m) => m.model),
     agents: P.agents.map((a) => {
       const queued = P.tasks.filter((t) => t.parent_id !== null && t.state === "ready" && t.agent === a.name).length;
       const holders = taskRows(P).filter((t) => t.agent === a.name && holdsSlot(t)).map((t) => t.id).sort((x, y) => x - y);
@@ -91,6 +105,8 @@ export function agents(P) {
         max_parallel: a.maxParallel, max_parallel_ceiling: MAX_PARALLEL_CEILING, holders, slots_held: holders.length,
         queued, held: heldRows(P).filter((h) => h.agent === a.name).length,
         wider: MODES.slice(index + 1).map((mode) => ({ mode, command: `python3 ${CLI} set-mode --project ${P.folder} --agent ${a.name} --mode ${mode} --accept` })),
+        model: a.model || null, consent: null, consent_in_force: false, consent_needed: Boolean(a.model && a.model !== "auto" && AUTONOMOUS.includes(a.mode)),
+        model_commands: modelCommands(P, a),
       });
     }),
   };
@@ -148,7 +164,7 @@ export function connections() {
   body.secrets = [
     fill(secret, { name: "LINKEDIN_ACCESS_TOKEN", found: true, where: "secret store" }),
     fill(secret, { name: "VCS_GITHUB_TOKEN", found: true, where: "secret store" }),
-    fill(secret, { name: "WB_RUNTIME_FLOOR_KEY", found: false, where: null }),
+    fill(secret, { name: "WB_RUNTIME_KEY_OPENROUTER_API_KEY", found: false, where: null }),
   ];
   body.image = { name: "openhora-eval", present: true, evidence: true };
   body.platform = { machine: "arm64", evidence: "linux/arm64", here: "linux/arm64", same: true };

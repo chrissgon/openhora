@@ -30,7 +30,7 @@ effects = st.load("effects")
 # Public functions of ops.py that are not an operation of a shell: what the other modules and the tests use.
 NOT_OPERATIONS = {"store_module", "context", "task_prompt", "code_task", "chat_memory", "state_question", "state_reply", "queued_ids",
                   "route_busy", "queue_route", "held_commands", "held_next", "drop_note", "asks_state", "waiting", "queue_stale", "with_routing",
-                  "write_checkpoints"}  # ops_config.py: the one writer of the accepted hash and the Checkpoints line
+                  "write_checkpoints", "own_key_name"}  # ops_config.py: the one writer of the accepted hash and the Checkpoints line
 KINDS = ("int", "str", "text", "file", "list", "flag", "choice", "pairs")
 CHANNELS = ("terminal", "chat", "page", "mcp", "messaging")
 # Modules that still hold the terminal's command as a string, outside the operations layer's own texts.
@@ -197,7 +197,7 @@ def test_the_handler_verb_flag_is_the_handlers_and_not_the_command_word(monkeypa
 
 def test_the_texts_that_name_a_command_are_built_by_the_table():
     assert operations.command_line("accept-config", "/p q", sha256="ab") == "python3 runtime/cli.py accept-config --project '/p q' --sha256 ab"
-    assert operations.command_line("run-next", "/p", tier="strong") == "python3 runtime/cli.py run-next --project /p --tier strong"
+    assert operations.command_line("run-next", "/p", model="auto") == "python3 runtime/cli.py run-next --project /p --model auto"
     assert operations.command_line("sync", "/p", dry_run=True, take=None) == "python3 runtime/cli.py sync --project /p --dry-run"
     assert operations.command_line("handler", "/p", name="n", verb="v", args={"a": "b"}) == \
         "python3 runtime/cli.py handler --project /p --name n --verb v --arg a=b"

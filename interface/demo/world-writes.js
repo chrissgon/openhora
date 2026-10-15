@@ -154,9 +154,10 @@ export async function openPlan(ctx, P, request, flow, source) {
 }
 
 /** A request of the person: the row, the message and, with `route`, the router run that holds it until the plan opens. */
-export function newRequest(ctx, P, { text, flow = null, title = null, after = null, message = false, route = false }) {
+export function newRequest(ctx, P, { text, flow = null, title = null, after = null, model = null, message = false, route = false }) {
   const id = P.next.task++;
   const row = taskRow(ctx, { id, flow, title: title || text.split(/(?<=[.!?])\s|\n/)[0].slice(0, 120), text, state: "requested", after });
+  row.model = model;
   P.tasks.push(row);
   if (message) {
     addMessage(ctx, P, "user", text);
@@ -329,7 +330,9 @@ export function request(ctx, P, body) {
   if (typeof body.text !== "string" || !body.text.trim()) throw usage("the request is text, and it is not empty");
   const flow = body.flow || null;
   if (flow && !FLOWS.some((f) => f.flow === flow)) throw refused(`there is no flow file ${flow}: the flows are ${FLOWS.map((f) => f.flow).join(", ")}`);
-  const row = newRequest(ctx, P, { text: body.text.trim(), flow, title: body.title || null, after: Number.isInteger(body.after) ? body.after : null });
+  const known = (F.skills.models || []).map((m) => m.model);
+  if (body.model && body.model !== "auto" && !known.includes(body.model)) throw usage(`${body.model} is not a model of evals/eval-gate.json: the lab runs the models the file lists`);
+  const row = newRequest(ctx, P, { text: body.text.trim(), flow, title: body.title || null, after: Number.isInteger(body.after) ? body.after : null, model: body.model || null });
   if (!flow) return fill(WORDS.request, { request: row.id, state: "requested", next: "route" });
   // a request with a flow is planned from it at once, and its first task starts
   const tasks = planTasks(P, flow).map((t) => taskRow(ctx, {
@@ -386,6 +389,28 @@ export async function setMode(ctx, P, agent, body) {
   }
   P.accepted = false;
   return fill(WORDS["set-mode-up"], { agent, mode: body.mode, config_sha256: P.configSha, accepted: false, by: null, next: `python3 ${CLI} accept-config --project ${P.folder} --sha256 ${P.configSha}` });
+}
+
+/** Fix an agent to a model. In the demo, as in the service, a model fixed on an agent in an autonomous mode is the person's consent, which only the terminal gives: the page gets the warning and the command. */
+export async function setModel(ctx, P, agent, body) {
+  const row = agentOf(P, agent);
+  if (!row) throw usage(`'${agent}' is not an agent of area_agents in ${P.folder}/docs/workbench/runtime.json`);
+  const known = (F.skills.models || []).map((m) => m.model);
+  const model = body.model;
+  if (model !== "auto" && model !== "default" && !known.includes(model)) throw usage(`${model} is not a model of evals/eval-gate.json: the lab runs the models the file lists`);
+  const autonomous = row.mode === "autonomous" || row.mode === "autonomous-with-policy";
+  if (autonomous && model !== "auto" && model !== "default") {
+    throw usage(`${agent} is in ${row.mode} mode, and fixing ${model} on it means its reviews are released without you. ${F.agents.consent_warning} To consent, run this command in the terminal: python3 ${CLI} set-model --project ${P.folder} --agent ${agent} --model ${model} --accept`);
+  }
+  const narrowing = model === "auto" || model === "default";
+  row.model = model === "default" ? null : model;
+  P.configSha = await configHash(P);
+  if (narrowing) {
+    P.acceptedSha = P.configSha;
+    return { agent, model: row.model, consent: null, config_sha256: P.configSha, accepted: true, by: "code:narrowing", next: null };
+  }
+  P.accepted = false;
+  return { agent, model: row.model, consent: null, config_sha256: P.configSha, accepted: false, by: null, next: `python3 ${CLI} accept-config --project ${P.folder} --sha256 ${P.configSha}` };
 }
 
 export function unsupported(what) {

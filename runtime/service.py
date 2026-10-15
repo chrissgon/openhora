@@ -154,7 +154,9 @@ name a channel). The route of set-mode may narrow autonomy and never widen it: a
 (stopped < supervised < milestones < autonomous < autonomous-with-policy) is accepted by code at once, a move up leaves
 the configuration unaccepted (every route then answers 412 with the command that accepts it, in the terminal). The route takes
 the mode and nothing else: `accept` is the terminal's (set-mode --accept), so a body that carries it is a 400, and the operation
-refuses it from any channel but the terminal besides.
+refuses it from any channel but the terminal besides. The route of set-model is the same: a model id, auto or default; fixing a
+model on an agent in an autonomous mode is the person's consent and carries `accept`, which only the terminal gives, so the page
+shows the warning and the command.
 
 When it stops (SIGINT or SIGTERM) it ends the runs a job started (ops.stop_runs) and does not exit before that returns;
 a second signal while it stops is ignored.
@@ -292,6 +294,7 @@ ROUTES = (
     _route("POST", "/projects/{p}/tasks/{id}/files", "hand-over", bind={"task_id": "id"}, hidden=("file",), upload=True),
     _route("POST", "/projects/{p}/runs/{id}/verdict", "verdict", bind={"run_id": "id"}),
     _route("POST", "/projects/{p}/agents/{name}/mode", "set-mode", bind={"agent": "name"}, take=("mode",)),
+    _route("POST", "/projects/{p}/agents/{name}/model", "set-model", bind={"agent": "name"}, take=("model",)),
     _route("GET", "/projects/{p}/progress", "progress"),
     _route("GET", "/projects/{p}/agents", "agents", take=()),
     _route("GET", "/projects/{p}/conversation", "conversation", take=("conversation", "after")),

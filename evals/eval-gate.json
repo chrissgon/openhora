@@ -1,13 +1,7 @@
 {
-  "strong_model": "claude-sonnet-5-5",
-  "strong_harness": "claude-code",
-  "floor_model": "openrouter/deepseek/deepseek-v4.1-flash",
-  "floor_harness": "agents-dir",
-  "floor_pass_env": ["OPENROUTER_API_KEY"],
-  "strong_pass_env": ["CLAUDE_CODE_OAUTH_TOKEN"],
   "grader": "claude-sonnet-5-5",
   "threshold": 0.8,
-  "strong_tolerance": 0.05,
+  "tolerance": 0.05,
   "measurement_version": 9,
   "measurement_floor": 6,
   "runs": 3,
@@ -18,8 +12,8 @@
   "max_resumes": 3,
   "total_jobs": 14,
   "web_jobs": {
-    "strong": 2,
-    "floor": 2
+    "claude-sonnet-5-5": 2,
+    "openrouter/deepseek/deepseek-v4.1-flash": 2
   },
   "web_cases": {
     "biz-icp-positioning": [1, 3],

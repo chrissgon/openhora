@@ -26,6 +26,7 @@ import sys
 import xml.parsers.expat
 
 import ops_core as core
+import ops_models
 import ops_say
 import autonomy
 import costs as costs_calc  # the operation `costs` would hide the module
@@ -36,6 +37,7 @@ import manifest
 import operations
 import path_rule
 import plan
+import prices as price_table
 import project_config
 import proof as proof_rules  # the operation `proof` would hide the module
 import router
@@ -134,13 +136,20 @@ def agents(project: str) -> dict:
     """The area agents of the configuration with their use of today: {"agents": [{"name", "pack", "enabled", "mode",
     "acting_mode", "max_runs_per_day", "max_usd_per_day", "runs_today", "usd_today", "runs_without_cost", "usd_recorded", "usd_reserved",
     "runs_total_today", "billing", "caps_in_use", "max_parallel", "max_parallel_ceiling", "slots_held", "holders", "queued",
-    "held", "wider"}]}
-    in the order of the configuration. mode is the configured one; acting_mode the one the agent acts in now
+    "held", "wider", "model", "consent", "consent_in_force", "consent_needed", "consent_warning", "model_commands"}], "consent_warning",
+    "default_model", "models"}
+    in the order of the configuration. model is the model the agent is fixed to (a model id, "auto", or None when it has none);
+    consent is the person's consent stored with it ({"model", "mode"} or None) and consent_in_force whether it names the
+    agent's model and mode now; consent_needed whether the settings need one (a model id fixed, an autonomous mode);
+    model_commands lists, for every model of the gate file and for auto and default, the absolute `set-model` command that
+    fixes it (with --accept when the agent's mode needs the consent: the page shows it with the warning and builds none);
+    consent_warning is the text the person reads before consenting (autonomy.CONSENT_WARNING); default_model the project's
+    (None means auto); models the ids of the gate file's models. mode is the configured one; acting_mode the one the agent acts in now
     (autonomy.mode_of: an agent set to autonomous-with-policy whose approval expired acts as autonomous). The day is
     counted as the caps count it (_agents_of_the_day), by the billing each run recorded: runs_today is the runs on a
     subscription or free credential (what max_runs_per_day compares), usd_today the dollars of the runs on a metered
     credential (a run of unknown cost counts at max_cost_usd_per_run, and runs_without_cost says how many), whatever the
-    model; a run older than the billing column counts by the tier rule it had. A router run counts for the planning agent.
+    model; a run older than the billing column counts by the rule of its model (a run on a model whose credential is billed by use is metered). A router run counts for the planning agent.
     max_parallel is the agent's slots (autonomy.MAX_PARALLEL_CEILING, "max_parallel_ceiling", is the most a configuration
     may give); holders are the ids of the tasks that hold one now (running, waiting for the person, or ready after the
     person answered) and slots_held their number. queued is the number of ready tasks of the agent;
@@ -154,6 +163,12 @@ def agents(project: str) -> dict:
     A project without area_agents: {"agents": []}."""
     ctx = core.context(project)
     day = _ops()._agents_of_the_day(ctx)
+    if not day:
+        return {"agents": []}
+    try:
+        listed = lab.models()
+    except lab.LabError:  # a gate file the facade refuses: the agents are still listed, without model commands
+        listed = []
     rows = core._stored(ctx, ctx["store"].tasks_list)
     ready = [t for t in rows if t["state"] == "ready" and t["parent_id"] is not None]
     held = _ops()._held_listed(ctx, rows)
@@ -173,8 +188,28 @@ def agents(project: str) -> dict:
                     "slots_held": sum(1 for h in holders if h["agent"] == name),
                     "queued": sum(1 for t in ready if t.get("agent") == name),
                     "held": sum(1 for h in held if h["agent"] == name),
-                    "wider": _wider(ctx["cfg"]["project"], name, entry["mode"])})
-    return {"agents": out}
+                    "wider": _wider(ctx["cfg"]["project"], name, entry["mode"]),
+                    "model": entry.get("model"), "consent": entry.get("consent"),
+                    "consent_in_force": autonomy.consent_valid(entry, entry.get("model")),
+                    "consent_needed": autonomy.consent_needed(entry), "consent_warning": autonomy.CONSENT_WARNING,
+                    "model_commands": _model_commands(ctx["cfg"]["project"], name, entry, listed)})
+    return {"agents": out, "consent_warning": autonomy.CONSENT_WARNING, "default_model": ctx["cfg"].get("default_model"),
+            "models": listed}
+
+
+def _model_commands(project: str, agent: str, entry: dict, listed) -> list:
+    """[{"model", "consent", "command"}] for every model of the gate file, "auto" and "default": the absolute `set-model` command
+    that fixes it on the agent, with --accept when the agent's settings would then need the person's consent (an autonomous mode
+    and a model id; "consent" says so); the page shows it with Copy and builds none."""
+    out = []
+    for model in [*listed, autonomy.AUTO_MODEL, "default"]:
+        after = {**entry, "model": model}
+        if model == "default":
+            after.pop("model")
+        needs = autonomy.consent_needed(after)
+        out.append({"model": model, "consent": needs,
+                    "command": core._command("set-model", project, agent=agent, model=model, accept=needs)})
+    return out
 
 
 def _spend_words(split: dict) -> dict:
@@ -205,7 +240,7 @@ def _wider(project: str, agent: str, mode: str) -> list:
 def held_commands(project: str, reason: str, missing=None) -> list:
     """[{"name", "command"}] the person types to get past a held reason, for the two reasons a command gets past: `secret
     store` (one entry, the service started with the secret store's library) and `credential` (one entry for each
-    variable the round found missing, else those of the reference model's credential; `command` is the line that
+    variable the round found missing, else those of the default model's credential; `command` is the line that
     stores it under the username the adapters' manifests register, the username shell-quoted, and None when none is
     registered); [] for any other reason. Built by operations.service_line and operations.keyring_line, the one place
     that spells each: the page draws them and builds none. Names only, never a value."""
@@ -216,7 +251,7 @@ def held_commands(project: str, reason: str, missing=None) -> list:
     names = list(missing or [])
     if not names:
         try:
-            names = list(lab.reference("strong")["pass_env"])
+            names = list(lab.reference()["pass_env"])
         except lab.LabError:
             names = []
     users = lab.credential_usernames(names) if names else {}
@@ -241,7 +276,7 @@ def held_next(project: str, reason: str, missing=None):
     if commands and all(c["command"] for c in commands):
         return first
     steps = "; ".join(f"{c['name']}: {operations.keyring_line('<username>')} (the username is in the table of contracts/secrets.md)"
-                      for c in commands if not c["command"]) or "the reference model's credential: see the table of contracts/secrets.md"
+                      for c in commands if not c["command"]) or "the default model's credential: see the table of contracts/secrets.md"
     return (f"{first} Store it once, the value typed at a hidden prompt, or export it in the shell that starts the service. "
             f"{steps}.")
 
@@ -291,10 +326,14 @@ def _scope(ctx: dict) -> list:
 
 def skills(project: str) -> dict:
     """The skills in scope of the project (_scope) with what is known of each, and the two checks of the proof:
-    {"skills": [{"name", "version", "area", "manifest": true or false, "proof": [{"tier", "model", "adapter",
-    "band", "cause", "score", "mean", "runs"}], "runs_here": <runs of it in this project's store>}], "checks":
-    {"measurement": "ok" or why, "image": "ok" or why}}. The proof is the entry runtime/proof.py keeps (proof.row),
-    one pair for the reference model and one for the floor model, never recomputed here. The measurement check is the
+    {"skills": [{"name", "version", "area", "manifest": true or false, "proof": [{"model", "adapter", "provider", "band",
+    "cause", "score", "mean", "runs", "web_measured", "usage_mean", "source", "price": {the four prices per million tokens,
+    "source", "accessed", "age_days", "stale"} or None, "expected_cost" (dollars for one run, or None)}], "recommended":
+    the model `auto` would choose or None, "runs_here": <runs of it in this project's store>}], "checks":
+    {"measurement": "ok" or why, "image": "ok" or why}, "models": [{"model", "adapter", "provider", "skills", "reliable",
+    "price"}] (one line for each model, for a picker), "default_model"}. The proof is the entry runtime/proof.py keeps
+    (proof.row), one pair for every model of the gate file, with the price of the one price table (runtime/prices.json)
+    and its expected cost read now; never recomputed here. The measurement check is the
     status script's; the image check is made once for the machine: "ok" when the eval image is on it and is the image
     the evidence of every skill that has evidence was measured in, else the reason (a skill with no evidence has
     nothing to compare and is `needs a test` anyway). Calls no model and no provider, and starts no network call."""
@@ -308,10 +347,10 @@ def skills(project: str) -> dict:
         except (skill_meta.SkillError, lab.LabError, OSError, KeyError) as e:
             raise core.OpsError(f"the proof of {name} cannot be read: {e}", 1) from None
         evidence[name] = entry.get("evidence_images") or []
+        read = ops_models.models_read(ctx, name)
         out.append({"name": name, "version": meta["version"], "area": meta["area"],
                     "manifest": os.path.isfile(manifest.path(core.ROOT, name)),
-                    "proof": [{key: pair.get(key) for key in ("tier", "model", "adapter", "band", "cause", "score", "mean", "runs")}
-                              for pair in entry["pairs"]],
+                    "proof": read["pairs"], "recommended": read["recommended"],
                     "runs_here": len(core._stored(ctx, ctx["store"].task_runs_of_skill, name))})
     try:
         problem, digest = lab.measurement_problem(), lab.image()["digest"]
@@ -324,7 +363,23 @@ def skills(project: str) -> dict:
         image = f"the image on this machine is not the one the evidence of {len(others)} skill(s) was measured in"
     else:
         image = None
-    return {"skills": out, "checks": {"measurement": problem or "ok", "image": image or "ok"}}
+    return {"skills": out, "checks": {"measurement": problem or "ok", "image": image or "ok"},
+            "models": _model_summaries(out), "default_model": ctx["cfg"].get("default_model")}
+
+
+def _model_summaries(rows: list) -> list:
+    """One line for each model of the pairs the skills in scope carry, in the order the first skill lists them: {"model",
+    "adapter", "provider", "skills" (how many skills of the scope have a pair for it), "reliable" (how many of those are
+    `reliable` on it), "price" (its entry of the price table with source, date, age and stale, or None)}. What a picker shows
+    beside a model before any skill is chosen; the per-skill figures stay in each skill's `proof`."""
+    out = {}
+    for row in rows:
+        for pair in row["proof"]:
+            found = out.setdefault(pair["model"], {"model": pair["model"], "adapter": pair.get("adapter"), "provider": pair.get("provider"),
+                                                   "skills": 0, "reliable": 0, "price": pair.get("price")})
+            found["skills"] += 1
+            found["reliable"] += 1 if pair.get("band") == "reliable" else 0
+    return list(out.values())
 
 
 def costs(project: str, since: str | None = None) -> dict:
@@ -334,8 +389,8 @@ def costs(project: str, since: str | None = None) -> dict:
     "usd_reserved", "runs_total_today"}]} (the caps carry the day's use in the words of `agents`). The runs
     are read task by task (the store's runs_since has no token count and no run folder) and the token counts of a
     run from its own folder (runtime/costs.py, usage_of): a folder outside <data_dir>/task-runs/ is not read, and the
-    run is unknown. recomputed_usd is computed from the prices of the configuration's model_prices (price says their
-    source and date) and is None, never a guess, for a model with no price or a group with a run of unknown usage
+    run is unknown. recomputed_usd is computed from the prices of the one price table (runtime/prices.json; price says their
+    source, the day they were read, their age and whether they are stale) and is None, never a guess, for a model with no price or a group with a run of unknown usage
     (unknown_runs counts them). A run whose key proxy could not count every answer is counted from what it did count, a
     lower bound, and lower_bound_runs counts such runs; the run's own report is never read in place of the proxy's count
     (runtime/costs.py, metered_usage). A router run counts for the planning agent. The day is the local day."""
@@ -362,7 +417,9 @@ def costs(project: str, since: str | None = None) -> dict:
             where = run.get("run_dir")
             inside = isinstance(where, str) and os.path.realpath(where).startswith(folder)
             runs.append(dict(run, agent=agent, run_dir=where if inside else None))
-    return {"since": day, "rows": costs_calc.summary(runs, cfg["model_prices"], since=day),
+    table, max_days = ops_models.price_table(ctx)
+    return {"since": day, "rows": costs_calc.summary(runs, table, since=day, today=datetime.date.today(), max_days=max_days,
+                                                     names_of=lab.names_of),
             "caps": [{"agent": name, "max_runs_per_day": entry["max_runs_per_day"],
                       "max_usd_per_day": entry["max_usd_per_day"], **_caps_use(used, name)}
                      for name, entry in cfg["area_agents"].items()]}
@@ -370,7 +427,7 @@ def costs(project: str, since: str | None = None) -> dict:
 
 def _secret_rows() -> tuple:
     """([{"name", "found", "where"}], note): the secrets the core and the runtime register, found or not and where
-    (resolver.report(): the environment or the secret store), then the variables the lab names for the two models'
+    (resolver.report(): the environment or the secret store), then the variables the lab names for the models'
     keys (lab.credential_missing). Never a value: the resolver's report holds none, and only its name, found and
     source are taken. note is None, or why a part could not be read."""
     notes, rows = [], []
@@ -384,8 +441,8 @@ def _secret_rows() -> tuple:
         notes.append(f"the secret resolver could not be used: {type(e).__name__}")
     have = {row["name"] for row in rows}
     try:
-        for tier in ("strong", "floor"):
-            names, missing = lab.reference(tier)["pass_env"], lab.credential_missing(tier)
+        for model in lab.models():
+            names, missing = lab.reference(model)["pass_env"], lab.credential_missing(model)
             for name in names:
                 if name not in have:
                     have.add(name)
@@ -433,7 +490,9 @@ def connections(project: str) -> dict:
     the lab evidence was made on; here is the platform the eval image runs as on this machine without emulation, in
     the evidence's os/arch form (see _image_platform_here); same is true when here equals evidence, false when both
     are known and differ, None when either is unknown. service: what the local service found at its start
-    (service_check), null in any other process."""
+    (service_check), null in any other process. warnings: [text], the configuration's and the price table's (a retired
+    `model_prices` key that is ignored, naming runtime/prices.json; the price of a model of the gate file older than the
+    project's price_max_age_days)."""
     ctx = core.context(project)
     cfg = ctx["cfg"]
     needs, evidence = {}, set()
@@ -466,18 +525,36 @@ def connections(project: str) -> dict:
     except lab.LabError as e:
         raise core.OpsError(f"the eval image cannot be looked up: {e}", 1) from None
     present = seen["digest"] is not None
-    return {"classes": classes, "secrets": secrets, "secrets_note": note,
+    return {"classes": classes, "secrets": secrets, "secrets_note": note, "warnings": _price_warnings(ctx),
             "image": {"name": seen.get("name"), "present": present,
                       "evidence": (seen["digest"] in evidence) if present else None},
             "platform": _platform_row(platform_module.machine(), sys.platform, seen.get("evidence_platform")),
             "service": dict(_ops().SERVICE[os.path.realpath(cfg["project"])]) if os.path.realpath(cfg["project"]) in _ops().SERVICE else None}
 
 
+def _price_warnings(ctx: dict) -> list:
+    """The warnings about prices a project's connections show: the retired model_prices key (project_config.price_warnings), and
+    each model of the gate file whose price in runtime/prices.json is older than the project's price_max_age_days."""
+    out = project_config.price_warnings(ctx["cfg"])
+    table, max_days = ops_models.price_table(ctx)
+    today = datetime.date.today()
+    try:
+        names = [(model, lab.names_of(model)) for model in lab.models()]
+    except lab.LabError:
+        return out
+    for model, aliases in names:
+        found = price_table.price_of(table, aliases)
+        if found is not None and price_table.is_stale(found, today, max_days):
+            out.append(f"the price of {model} in runtime/prices.json was read on {found.get('accessed')}, more than {max_days} days "
+                       "ago: it is shown as stale (python3 scripts/update_prices.py reads OpenRouter's prices again)")
+    return out
+
+
 def service_check(project: str, dispatch_every=None) -> dict:
     """What the local service checks for one project at its start, and remembers (SERVICE) for `connections`, `status`
     and `agents` while the process lives: {"secret_store", "credential", "docker", "image", "dispatch", "problems",
     "start", "at"}. Each verdict is "ok" or one sentence saying what is missing. secret_store and credential are the
-    scheduler entry's check (dispatcher.inspect: can this interpreter read the secret store, is the reference model's
+    scheduler entry's check (dispatcher.inspect: can this interpreter read the secret store, is the default model's
     credential set or in it), docker whether it is on PATH, image whether the eval image is on this machine,
     dispatch "every <n> s" or "off" (dispatch_every in seconds; 0 is off; None says the process is no service), problems
     the modules or the lab that did not load, start the command that starts the service with the secret store's

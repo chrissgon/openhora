@@ -31,10 +31,10 @@ def scanned_files() -> list:
 
 
 def known_model_ids() -> set:
-    """Every model id the gate file names: the reference and floor models, the grader, and each id of its
-    `models` table with its aliases. The gate file is the one place that names them (rule R19)."""
+    """Every model id the gate file names: the grader, the lab models and each id of its `models` table with its
+    aliases. The gate file is the one place that names them (rule R19)."""
     gate = json.loads((REPO / "evals" / "eval-gate.json").read_text(encoding="utf-8"))
-    ids = {gate[key] for key in ("strong_model", "floor_model", "grader") if isinstance(gate.get(key), str)}
+    ids = {gate["grader"], *(gate.get("lab_models") or [])}
     for name, entry in (gate.get("models") or {}).items():  # a list of aliases, or an object that holds them (and the model's route)
         ids |= {name, *(entry["aliases"] if isinstance(entry, dict) else entry)}
     return {i for i in ids if i}
@@ -222,8 +222,8 @@ def test_ops_core_imports_no_other_file_of_the_operations_layer():
 def test_the_siblings_of_ops_py_do_not_import_ops_py_at_module_level():
     """ops.py imports its siblings; a sibling reaches an operation of ops.py at call time, so that no import cycle
     exists. ops_say.py imports neither sibling above it; ops_reads.py imports ops_say.py (the conversation's name)."""
-    allowed = {"ops_say.py": {"ops_core"}, "ops_reads.py": {"ops_core", "ops_say"}, "ops_config.py": {"ops_core"},
-               "ops_runs.py": {"ops_core", "ops_waits"}}
+    allowed = {"ops_say.py": {"ops_core"}, "ops_reads.py": {"ops_core", "ops_say", "ops_models"},
+               "ops_config.py": {"ops_core", "ops_models"}, "ops_runs.py": {"ops_core", "ops_waits"}, "ops_models.py": {"ops_core"}}
     for name, may in allowed.items():
         tree = ast.parse((RUNTIME / name).read_text(encoding="utf-8"))
         at_top = set()

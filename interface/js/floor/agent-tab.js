@@ -43,7 +43,7 @@ function redraw(container, render) {
 }
 
 /**
- * Create the Agent tab. env: {project, agent, api: {setMode, retry, goAhead, handOver}, refresh(), now(), links: {inbox(pendingId)} (optional), task(id) (optional: the task's body, for the file-drop line),
+ * Create the Agent tab. env: {project, agent, api: {setMode, setModel, retry, goAhead, handOver}, refresh(), now(), links: {inbox(pendingId)} (optional), task(id) (optional: the task's body, for the file-drop line),
  * can(op, kind) (optional: whether the page may do an operation, js/permissions.js, read at every draw; all allowed when left out)}. Returns {el, update(view),
  * focusSelect()}; view is floor-model.floor(...) (found, notAccepted or loading). "Stop agent" and "Supervise" only narrow the mode, a brake that the policy never withholds
  * (setMode is exempt, js/permissions.js); "Hand a file over" is `hand-over` and Retry, "Go ahead" and "Drop the after" are drawn by task-actions.js under their own operations.
@@ -65,7 +65,8 @@ export function createAgentTab(env) {
   const handLine = h("div");      // the line under the hand-over when the policy withholds it
   const body = h("div", { class: "wb-agent-body" }, waitingLine, metersBox, runsTotalLine, currentBox, othersBox, handBox);
   const widerBox = h("div", { class: "wb-wider-modes" });
-  fill(el, stateBox, plateBox, formBox, standing, resultBox, widerBox, body);
+  const modelBox = h("div", { class: "wb-model-box" });
+  fill(el, stateBox, plateBox, formBox, standing, resultBox, widerBox, modelBox, body);
 
   const shown = {};
   const earlierOpen = new Set();     // the current task's "Earlier attempts" disclosure, open by the person's choice (A-72)
@@ -228,6 +229,71 @@ export function createAgentTab(env) {
     fill(widerBox, h("div", { class: "wb-wider-box" },
       h("div", { class: "wb-wider-row" }, h("label", { class: "wb-wider-label", for: id, text: "Mode" }), select, copy),
       code, widerNote(WIDER_BELOW_NOTE), status));
+  }
+
+  /**
+   * The model of the agent (D34, D38): what it is fixed to, the person's consent when there is one, and a select of the service's `model_commands` (every model of the gate file, `auto` and
+   * `default`). A choice that needs no consent is sent with `setModel`; one that does (the service marks it `consent`: a model fixed on an agent in an autonomous mode) is shown with the
+   * service's warning and its command, to be run in the terminal, since the consent is given there. The page builds no command and decides no consent.
+   */
+  function drawModel(agent, waiting) {
+    const commands = agent && Array.isArray(agent.model_commands) ? agent.model_commands : null;
+    if (!commands || waiting) {
+      fill(modelBox);
+      return;
+    }
+    const current = agent.model || "default";
+    const said = agent.model ? (agent.model === "auto" ? "auto: the cheapest model that is reliable for each skill" : agent.model) : "none of its own: the request's, else the project's default";
+    const consent = agent.consent_in_force && agent.consent
+      ? h("p", { class: "notice pui-soft pui-warn wb-model-consent", role: "note" }, icon("triangle-alert", 16),
+        h("span", { text: `Your consent is recorded for ${agent.consent.model} in ${agent.consent.mode} mode: its reviews are released by the mode, and each run is recorded as autonomy by consent.` }))
+      : null;
+    const id = `model-pick-${env.agent}`;
+    const select = h("select", { class: "pui-input wb-select", id, "data-key": "model" }, commands.map((c) => h("option", { value: c.model, text: c.model === "default" ? "default (the request's, else the project's)" : c.model })));
+    select.value = commands.some((c) => c.model === current) ? current : "default";
+    const code = h("code", { class: "wb-command-code wb-model-code", "data-key": "model-command" });
+    const word = h("span", { class: "wb-copy-label", text: "Copy" });
+    const copy = h("button", { class: "pui-btn pui-surface pui-outline wb-copy", type: "button", "aria-label": "Copy the command of the chosen model", "data-key": "model-copy" }, word);
+    const set = h("button", { class: "pui-btn pui-solid pui-theme wb-set-model", type: "button", "data-key": "set-model", text: "Set model" });
+    const warn = h("p", { class: "notice pui-soft pui-warn wb-wider-note", role: "note", hidden: true }, icon("triangle-alert", 16), h("span", { text: agent.consent_warning || "" }));
+    const status = h("span", { class: "wb-copy-status wb-muted", role: "status", text: "" });
+    const failure = h("p", { class: "notice pui-soft pui-error wb-card-error", role: "alert", hidden: true });
+    const chosen = () => commands.find((c) => c.model === select.value) || commands[0];
+    const needsConsent = () => chosen().consent === true;
+    const paint = () => {
+      const c = chosen();
+      const consentStep = needsConsent();
+      code.textContent = consentStep ? c.command : "";
+      code.hidden = !consentStep;
+      copy.hidden = !consentStep;
+      warn.hidden = !consentStep;
+      set.hidden = consentStep || select.value === current || !(env.api && env.api.setModel) || locked;
+      status.textContent = "";
+    };
+    select.addEventListener("change", () => { failure.hidden = true; paint(); });
+    copy.addEventListener("click", async () => {
+      const result = await copyCommand(chosen().command, { clipboard: typeof navigator !== "undefined" && navigator.clipboard ? navigator.clipboard : null, select: () => selectNode(code) });
+      word.textContent = result === "copied" ? "Copied" : "Selected";
+      status.textContent = result === "copied" ? "Copied to the clipboard." : "Select the command and copy it with the keyboard.";
+      setTimeout(() => { word.textContent = "Copy"; status.textContent = ""; }, 2000);
+    });
+    set.addEventListener("click", async () => {
+      set.disabled = true;
+      failure.hidden = true;
+      try {
+        await env.api.setModel(env.project, env.agent, select.value);
+        env.refresh();
+      } catch (e) {
+        failure.textContent = (e && e.message) || "The model could not be set.";
+        failure.hidden = false;
+      } finally {
+        set.disabled = false;
+      }
+    });
+    paint();
+    fill(modelBox, h("div", { class: "wb-wider-box wb-model" },
+      h("p", { class: "wb-card-line", text: `Model: ${said}.` }), consent,
+      h("div", { class: "wb-wider-row" }, h("label", { class: "wb-wider-label", for: id, text: "Fix to" }), select, set, copy), code, warn, status, failure));
   }
 
   /** One card of "Current task(s)": the task, its skill and time, what it waits for, its actions, why it is held and its runs. */
@@ -409,6 +475,7 @@ export function createAgentTab(env) {
       waitingLine.hidden = !(view && view.notAccepted);
       for (const node of [metersBox, currentBox, othersBox, handBox]) node.hidden = unaccepted;
       if (unaccepted) widerBox.hidden = true;
+      modelBox.hidden = unaccepted;
       if (unaccepted) runsTotalLine.hidden = true;
       stateBox.hidden = false;
       plateBox.hidden = unaccepted;
@@ -432,6 +499,7 @@ export function createAgentTab(env) {
       runsTotalLine.hidden = !meters(view.agent).runsTotal;     // every update: a draw skipped as identical must not leave it hidden after a not-accepted spell
       swap("wider", [view.agent.wider || null, waiting], () => drawWider(view.agent.wider, waiting));
       widerBox.hidden = widerEmpty;
+      swap("model", [view.agent.model || null, view.agent.consent || null, view.agent.consent_in_force || false, view.agent.model_commands || null, waiting, locked], () => drawModel(view.agent, waiting));
       const pendingIds = view.decisions.map((d) => [d.id, d.task_id]);
       const cards = (view.currents || []).map((c) => [c.task, c.runs, earlierOpen.has(c.task.id), c.held, currentSub(c.task, c.body, view.decisions, env.now())]);     // "for 12 min" moves with the clock: it is part of what is drawn
       swap("current", [cards, view.tasks.length, pendingIds, taskActionsUse.signature(), locked], () => drawCurrent(view));

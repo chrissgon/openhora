@@ -50,11 +50,14 @@ from a recipe of the closed table of runtime/deps.py, checked there (deps.declar
 
   "dependencies": [{"recipe": "python-requirements", "file": ".workbench-local/requirements-dev.txt"}]
 
-It also reads "model_prices" (stage 9; absent means {}): what the person typed from a provider's price page so that a run's
-cost can be recomputed from its token counts (runtime/costs.py): {"<model id as the gate file writes it>":
-{"input_usd_per_mtok", "output_usd_per_mtok", "cache_read_usd_per_mtok", "cache_write_usd_per_mtok" (each a number, 0 or
-more), "source" (where the price was read), "date" (when)}}. An unknown key in an entry is refused. No model id and no
-price is written in the repository, and the hash covers them.
+It also reads "default_model" (absent means auto): the model a request or a task is routed to when nothing else chooses
+one (not the request, not the task, not the agent's fixed model): a model id of the gate file, or "auto" (the cheapest
+reliable pair, runtime/proof.py). When auto finds no pair it can choose, this model runs supervised, if it is an id, else the
+first lab model. "price_max_age_days" (absent means 90): a price of runtime/prices.json older than that is shown as stale.
+
+"model_prices" (stage 9; absent means {}) is RETIRED: it is still accepted, checked as before, so that no project breaks, and
+it is ignored. The one price table is runtime/prices.json (runtime/prices.py), read by the cost of a run, the `auto`
+ranking and the proof page; `price_warnings()` says so, and the doctor of a project (the connections read) shows it.
 
 The hash is the sha256 of the file's bytes. Every operation compares it with the hash the person accepted last
 (kept in the store's cursor ACCEPTED, written only by ops.accept_config) and refuses to act on a file that
@@ -89,7 +92,7 @@ REQUIRED = ("workbench", "data_dir", "store_db")
 # The top-level keys of the task runtime: the three required ones and every key this module checks or passes on.
 TASK_RUNTIME_KEYS = ("workbench", "data_dir", "store_db", "area_agents", "handlers", "task_board", "documents",
                      "protected_paths", "code", "dependencies", "max_cost_usd_per_run", "model_prices", "messaging", "channels",
-                     "max_running")
+                     "max_running", "default_model", "price_max_age_days")
 # The top-level keys scripts/runtime.py, scripts/runtime_vote.py and scripts/vote_job.py read from the same file
 # (the first runtime). Leaves with stage 7.
 FIRST_RUNTIME_KEYS = ("agent", "harness", "model", "mailbox", "publisher", "store", "scheduler", "notification_query",
@@ -157,6 +160,8 @@ def load(project: str) -> dict:
         raise ConfigError(f"runtime.json {e}") from None
     out["handlers"] = _handlers(raw.get("handlers"), out["area_agents"])
     out["model_prices"] = _model_prices(raw.get("model_prices"))
+    out["default_model"] = _default_model(raw.get("default_model"))
+    out["price_max_age_days"] = _price_max_age(raw)
     out["messaging"] = _messaging(raw.get("messaging"))
     out["channels"] = _channels(raw.get("channels"))
     out["max_running"] = _max_running(raw)
@@ -254,6 +259,37 @@ def _messaging(value) -> dict:
     if page_url is not None and (not isinstance(page_url, str) or not re.fullmatch(r"https?://[^\s<>\"']+", page_url)):
         raise ConfigError("runtime.json messaging.page_url must be an http:// or https:// URL, or null")
     return {"senders": out_senders, "notices": notices, "page_url": page_url}
+
+
+PRICE_MAX_AGE_DEFAULT, PRICE_MAX_AGE_CEILING = 90, 3650
+
+
+def _default_model(value):
+    """The key "default_model", checked: None when absent (auto), else non-empty text (a model id of the gate file, or "auto").
+    Whether the gate file lists it is checked where it is used (runtime/ops_models.py): this module reads no gate file."""
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip() or value != value.strip() or len(value) > 200:
+        raise ConfigError("runtime.json default_model must be a model id or \"auto\"")
+    return value
+
+
+def _price_max_age(raw: dict) -> int:
+    """The key "price_max_age_days": a whole number of days from 1 to 3650; absent means 90."""
+    if "price_max_age_days" not in raw:
+        return PRICE_MAX_AGE_DEFAULT
+    value = raw["price_max_age_days"]
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= PRICE_MAX_AGE_CEILING:
+        raise ConfigError(f"runtime.json price_max_age_days must be a whole number of days from 1 to {PRICE_MAX_AGE_CEILING}")
+    return value
+
+
+def price_warnings(cfg: dict) -> list:
+    """The warnings a loaded configuration earns about prices: [text]. Today one: model_prices is retired and ignored."""
+    if cfg.get("model_prices"):
+        return ["runtime.json model_prices is retired and ignored: the one price table is runtime/prices.json of the workbench "
+                "(python3 scripts/update_prices.py writes OpenRouter's prices into it); remove the key"]
+    return []
 
 
 PRICE_KINDS = ("input", "output", "cache_read", "cache_write")

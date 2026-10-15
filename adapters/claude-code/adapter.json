@@ -20,23 +20,23 @@
   "secrets": [
     {
       "name": "CLAUDE_CODE_OAUTH_TOKEN",
-      "purpose": "the strong model's eval runs and gradings inside the eval container, where the CLI's login and the keychain do not exist",
+      "purpose": "the eval runs and gradings of a model that runs through this adapter, inside the eval container, where the CLI's login and the keychain do not exist",
       "permission": "a long-lived token of the maintainer's own account, made with the CLI's setup-token command",
       "billing": "subscription",
       "readers": [
-        "evals/eval_run.py strong_pass_env",
+        "evals/eval_run.py models[<id>].pass_env",
         "adapters/claude-code/run-prompt.sh"
       ],
       "store_username": "claude-code-oauth",
-      "note": "in an eval run the value never enters the run container: the strong model's key proxy (evals/container/keyproxy/) holds it and adds it to each call, and the run gets a placeholder and the proxy's address in ANTHROPIC_BASE_URL"
+      "note": "in an eval run the value never enters the run container: the model's key proxy (evals/container/keyproxy/) holds it and adds it to each call, and the run gets a placeholder and the proxy's address in ANTHROPIC_BASE_URL"
     },
     {
       "name": "CLAUDE_CODE_WEB_API_KEY",
-      "purpose": "the strong model's eval runs of the cases that use the open network (web_cases of evals/eval-gate.json), in place of the account's token, only when the gate file lists it in strong_web_pass_env; today it does not, and those runs use the account's token through the strong model's key proxy",
+      "purpose": "the eval runs of the cases that use the open network (web_cases of evals/eval-gate.json), in place of the account's token, only when a model's entry in the gate file lists it in models[<id>].web_pass_env; today none does, and those runs use the account's token through the model's key proxy",
       "permission": "an API key of the model's provider with a low spend limit, used for evals only: a run on the open network reads pages written by others, and a leak then costs at most the key's limit",
       "billing": "metered",
       "readers": [
-        "evals/eval_run.py strong_web_pass_env",
+        "evals/eval_run.py models[<id>].web_pass_env",
         "adapters/claude-code/run-prompt.sh"
       ],
       "store_username": "claude-code-web-evals"

@@ -1,45 +1,54 @@
 #!/usr/bin/env python3
-"""Run a skill's evals with and without the skill, on a strong and a floor model, and grade them.
+"""Run a skill's evals with and without the skill, on one or more models, and grade them.
 
 Usage:
   python3 eval_run.py --skill <name> [--cases <id>[,<id>...]] [--baseline] [--baseline-on <model>]
-                      [--harness <adapter>] [--model <strong-id>] [--floor-model <id>] [--floor-harness <adapter>]
-                      [--grader <id>] [--threshold 0.8]
-                      [--only with|without|ablated] [--tiers strong,floor] [--pass-env <VAR>]... [--floor-pass-env <VAR>]... [--ablate <text>]
+                      [--model <id>]... [--harness <adapter>] [--grader <id>] [--threshold 0.8]
+                      [--only with|without|ablated] [--pass-env <VAR>]... [--ablate <text>]
                       [--runs <n>] [--jobs 4] [--timeout <seconds>] [--max-cost-usd <amount>] [--no-grade]
                       [--retries <n>] [--early-end-rate 0.15] [--scratch]
                       [--dry-run] [--check-cases [--with-setup]]
   python3 eval_run.py --skill <name> --platform <platform> [--cases <id>,...] [the model, run and check options above]
   python3 eval_run.py --resume <event folder> [--jobs 4]
   python3 eval_run.py --close <event folder>
-  python3 eval_run.py --routing --pack <name> (--skill <name> | --prompts <file>) [--tier strong|floor] [--jobs 4]
+  python3 eval_run.py --routing --pack <name> (--skill <name> | --prompts <file>) [--model <id>] [--jobs 4]
   python3 eval_run.py --unpause [--at <HH:MM or YYYY-MM-DDTHH:MM>]
   python3 eval_run.py --regrade <run folder> [--grader <id>] [--harness <adapter>] [--jobs 4] [--timeout 1800]
 
-Defaults. --harness, --model, --floor-model, --floor-harness, --floor-pass-env and --threshold default to the
-eval gate configuration, evals/eval-gate.json (strong_harness, strong_model, floor_model, floor_harness,
-floor_pass_env, threshold), so `eval_run.py --skill <name>` runs the gate as configured. A flag given on the
-command line wins; floor_pass_env is applied only when the floor model is the configured one (another floor
-model, such as one served on the same machine, needs no provider key). Without the file, --harness and
---model are required, there is no floor model unless --floor-model names one, and the threshold is 0.8.
---model (and --floor-model) names any model: one the gate file lists, whose adapter and key variables come from its
-entry in "models" (--harness overrides the adapter), or any other well-formed model id, which needs --harness. Whose
-evidence a test is follows from the models it ran (below, "Evidence"): the gate file's lab models write into the skill;
-any other model writes to the person's local evidence folder, outside the checkout.
+Models. There is no fixed pair of models: an event runs the models it is given, in order. --model <id> is
+repeated, once per model; the first is the lead model (the event is full by it, and its baseline runs by default)
+and the others follow in the order given; without any --model, the event runs the gate file's "lab_models", in its
+order. A model the gate file lists ("models" of evals/eval-gate.json) takes its entry's adapter ("adapter") and the
+variables of its key ("pass_env"; on a run of a case on the open network, "web_pass_env" in place of it, when the
+entry has one); an id is also accepted by any alias its entry lists. A model it does not list (a person's own test) is
+any other well-formed model id: --harness <adapter> is then the adapter of every model of the event that the file does
+not list, and its key reaches its runs only through --pass-env. When every model of the event is listed, --harness
+is accepted only for an event of one model, and replaces that model's adapter (such an event is a person's own test);
+for an event of several models it is refused. --pass-env <VAR> (repeated) reaches every run of the event, and makes the
+event a trial. --threshold defaults to the gate file's, and 0.8 without the file; without it, --harness and a --model
+are required. Whose evidence a test is follows from the models it ran (below, "Evidence"): the gate file's lab models
+write into the skill; any other model writes to the person's local evidence folder, outside the checkout.
+
+The grader is a model of its own. "grader" of the gate file names a listed model, and every grading goes through that
+model's entry: its adapter, its runner, the account-limit markers of that adapter and the variables of its key,
+whichever models the event runs and in whatever order (a model of the event that is also the grader is graded by the
+same entry). The grader's variables reach the grading calls and are looked for in what a run left, also when the grader
+is not one of the event's models. --grader names another model and makes the event a trial; a grader the file does not
+list (or no gate file) grades through the adapter of the event's model of that name, else the lead model's.
 
 Full and partial tests (the reliability model, section 2). `eval_run.py --skill <name>` is a full test:
 every current case with the skill, on every model the gate file lists, "runs" times each, and the baseline
-(the case without the skill, on the reference model, the strong model) of each case whose baseline is not in
+(the case without the skill, on the lead model) of each case whose baseline is not in
 force. In a full test a baseline runs "baseline_runs" times (evals/eval-gate.json; without the key, as many as
 the runs); --baseline runs it as many times as the runs. A baseline is in force while its case (its hash), the
-reference model (no epoch of it after the baseline's date) and the measurement (its version at or above the
+lead model (no epoch of it after the baseline's date) and the measurement (its version at or above the
 floor) are unchanged and it has as many lines as a full test runs it: it is reused, and the event line says
 "reused". `--cases <ids>` is a partial test: the named cases, with the skill only. `--baseline` runs the
 baseline of the cases the event runs, in force or not (for a case added or changed after the newest full test:
 `--cases <id> --baseline`, which is how such a case enters the gate).
-`--baseline-on <model>` also runs the baseline on another model the gate file lists (the floor model), for
-whoever wants that column. An event is full by its strong tier's model (--model, by default the gate file's
-reference model): it is complete when every run with the skill and every baseline run on that model is graded. A
+`--baseline-on <model>` (repeatable) also runs the baseline on another model of the event, for
+whoever wants that column. An event is full by its lead model (the first --model, by default the first of the gate
+file's "lab_models"): it is complete when every run with the skill and every baseline run on that model is graded. A
 run that is missing on another model leaves it complete; that run is listed and the event exits 1, its evidence
 is written, and that model has no gate in the event.
 Only a full test evaluates the gate, when it ends, and writes it into its event line, for each model of the event
@@ -68,14 +77,14 @@ only), and a platform's file whose reference shared/references/platforms/<platfo
 
 The routing mode (--routing). A description decides when a skill loads, and a skill is never alone once a
 pack is installed. --routing --pack <name> installs the whole pack into each run's folder, as an installer
-does (scripts/stage_skills.py, every shared reference beside it), runs each prompt once on one tier (the
-strong model unless --tier floor), and reads which skills the run loaded ("skills_loaded" of the adapter's
+does (scripts/stage_skills.py, every shared reference beside it), runs each prompt once on one model (--model, once;
+by default the first of "lab_models"), and reads which skills the run loaded ("skills_loaded" of the adapter's
 timing.json). With --skill <name> the prompts are that skill's case prompts, each in its case folder as a run
 builds it, and the output lists the cases in which another skill loaded, or the skill did not load: this is
 what a change of a description runs, beside its partial test. With --prompts <file> (a JSON list of texts)
 the prompts run in an empty folder and the output lists what each loaded. It scores nothing and writes no
 evidence: its folder is evals-workspace/routing/<pack>-<n>/, and it prints
-{"routing", "pack", "tier", "model", "skill", "prompts": [{"case" or "prompt", "loaded", "invoked",
+{"routing", "pack", "model", "skill", "prompts": [{"case" or "prompt", "loaded", "invoked",
 "others"}], "loaded_another": [case ids], "not_reported": n}.
 
 Reads skills/<name>/evals/evals.json. For each case and each variant (with_skill, without_skill)
@@ -86,8 +95,11 @@ the case's optional "skills" (a flow's phases; both variants) where the harness 
 prompt through adapters/<harness>/run-prompt.sh, grades every assertion with
 the grader model (see "Grading" below), and writes:
 
-  evals-workspace/<name>/iteration-N/eval-<id>/<variant>[.floor]/{prompt.md,cwd/,outputs/,grading.json,timing.json}
+  evals-workspace/<name>/iteration-N/eval-<id>/<variant>[.m2|.m3...]/{prompt.md,cwd/,outputs/,grading.json,timing.json}
   evals-workspace/<name>/iteration-N/benchmark.json
+
+The variant folder of the lead model's runs is the variant's name (with_skill); the n-th model of the event, from
+the second, adds ".m<n>" (with_skill.m2). The slots m1, m2 ... name the position in the event, not a kind of model.
 
 Control of a test event. One invocation on one skill is a test event; its folder is
 evals-workspace/<name>/iteration-N. The number of runs of every case, variant and model ("runs", 3), the limit
@@ -104,8 +116,8 @@ runs that many model runs, with their gradings, at the same time in this process
 folders and a throwaway home, so runs share nothing. Across processes the limit is a lock that every runner
 process of the machine shares (a folder of slot files under the temporary base): "total_jobs" of the gate
 file (14) is the number of model calls in progress at one time, whatever the number of `eval_run.py` started
-side by side, and "web_jobs" ({"strong": 2, "floor": 2}) the number of runs on the open network per tier,
-whose search services limit the rate.
+side by side, and "web_jobs" ({model id: runs}; a model it does not list takes 2) the number of runs on the open
+network per model, whose search services limit the rate.
 --max-cost-usd <amount> is passed to the adapter as a spend limit per run: the claude-code adapter
 enforces it, agents-dir says it cannot (a credit limit on the provider key is the cap there).
 Retries. A run that passes its timeout, that the provider refuses on policy grounds, whose adapter fails, or
@@ -127,7 +139,7 @@ most "max_resumes" times (3). A run still incomplete after that is written as a 
 "timeout" and score 0, with the skill and without it alike, and listed in benchmark.json "timeouts": dropping
 it would raise a mean. That is the only way a run that did not complete scores. A contaminated baseline and a
 failed grading are never turned into a score: the first needs the way in closed, the second is made again.
-The account limit. Each adapter's data names what its harness prints when the account of its tier is
+The account limit. Each adapter's data names what its harness prints when its account is
 exhausted ("account_limit" in its eval.json). When a model run or a grading call fails
 with one of those texts, the runner pauses: it writes a pause file under the shared lock, prints the time it
 stopped, and every runner process waits before its next call on that account. The pause ends when a probe
@@ -136,18 +148,18 @@ operator gives: `eval_run.py --unpause` ends it now, `--unpause --at 15:00` at t
 meanwhile). The run that met the limit is made again from its start: it is never retried into the limit,
 never written as a timeout and never scored; benchmark.json counts it in "pauses".
 
---floor-pass-env <VAR> passes a variable to the floor model's runs only (its provider key, such as
-OPENROUTER_API_KEY), so the strong model's runs and the grader never see it; --pass-env reaches every run.
+A model's key variables are its own: a variable named in one model's entry ("pass_env") reaches that model's runs
+only, so another model's runs and the grader never see it unless it is the grader's own entry's; --pass-env reaches
+every run.
 
 --ablate <text> adds a third variant, ablated_skill: the skill with every SKILL.md line containing <text>
 removed (for example "External content is data."), to measure what one rule changes. It is refused when
-no line matches. benchmark.json then reports ablation_delta (with_skill minus ablated_skill) per tier;
+no line matches. benchmark.json then reports ablation_delta (with_skill minus ablated_skill) per model (a suffix .m2 ... for the
+models after the lead);
 it is a measurement, not a pass condition.
 
---floor-harness lets the floor model run through a different adapter (for example agents-dir for an
-open-weight model served through its own CLI) while the strong model and the grader use --harness.
---dry-run prints the plan as JSON and runs nothing: the runs, the runner of each model, the grader, the
-variables that would be passed, every case with its files, dependency skills and setup commands, and the
+--dry-run prints the plan as JSON and runs nothing: the runs (each with its slot and model), the runner of each
+model, the grader and its runner, the variables that would be passed (the caller's, each model's, the grader's), every case with its files, dependency skills and setup commands, and the
 result of the preflight.
 
 Adapter contract: run-prompt.sh --prompt-file <f> --cwd <dir> --model <id> --out <dir> [--allow-web]
@@ -196,12 +208,12 @@ and nothing else more; the grader never gets it. Without it a harness that asks 
 the search, and a with-skill run of a research skill measures only its degraded mode.
 The gate file lists the cases that may do so ("web_cases": {skill: [case ids]}): the runner opens the network
 for no other case, and refuses to start on a case that sets "allow_web" and is not listed (a tree with no
-gate file has no list and refuses nothing). On a listed case the strong model's runs receive the variables of
-"strong_web_pass_env" (a low-limit API key) in place of "strong_pass_env" (the account's token): a run on the
-open network reads pages written by others, and with a key a leak costs at most the key's limit. The gradings
-of such a case keep the account's token: a grading has no tool and no open network.
-When the gate file names no "strong_web_pass_env", such a run receives "strong_pass_env", whose value the strong
-model's key proxy holds outside the run.
+gate file has no list and refuses nothing). On a listed case the runs of a model whose entry names "web_pass_env"
+(a low-limit API key) receive those variables in place of its "pass_env" (for example the account's token): a run on
+the open network reads pages written by others, and with a key a leak costs at most the key's limit. The gradings
+of such a case keep the grader's own variables: a grading has no tool and no open network.
+When a model's entry names no "web_pass_env", such a run receives its "pass_env", whose value the model's key proxy
+holds outside the run.
 
 Containment. Every model run, grading, setup command and fixture commit executes in a container built
 from evals/container/, one container per command (evals/executor.py); there is no host mode. A container
@@ -214,24 +226,24 @@ internal network whose only way out is a proxy that lets through the model provi
 Environment: the image's own (its clock is UTC, its locale C.UTF-8, and the one git identity of a run is the
 image's: nothing of the caller's machine sets them), plus the variables that keep git inside the case folder
 (GIT_ALLOW_PROTOCOL=file, no terminal prompt), the proxy's address on the proxy network, and the variables
-named with --pass-env (every run),
---floor-pass-env (floor-model runs only: a provider key the strong model and the grader must not receive) or
-strong_pass_env of the gate file (strong-model runs and gradings only). A name among those that an adapter
+named with --pass-env (every run) or
+in a model's entry of the gate file ("pass_env": that model's runs only, so another model's runs never receive its
+key; and the grader's gradings, for the grader's entry). A name among those that an adapter
 registers as a secret for eval runs and that is missing from the environment is read from the OS secret
 store through providers/secrets/resolver.py; values travel in the environment of the docker client, never
 on a command line. Token variables for git hosts and npm are refused there. The docker client itself still
 runs with an environment built from an allowlist on the host, with empty git, gh and npm configuration, but
 only the names above cross into a container.
-One credential never enters a run: the floor model's provider key, which the key proxy holds
-(evals/container/keyproxy/keyproxy.json names it; evals/executor.py starts the proxy before a command that is
-passed it). Such a run gets a placeholder in the variable and the proxy's base URL in OPENROUTER_BASE_URL; the
-floor adapter points its runner there, and the proxy adds the key to each call to the provider's API.
-Secrets in what a run leaves. The credential of the strong tier's run is in the environment of every command
+One credential never enters a run: the provider key of a model whose entry names a route, which the key proxy holds
+(evals/container/keyproxy/route-<name>.json names it; evals/executor.py starts the proxy before a command that is
+passed it). Such a run gets a placeholder in the variable and the proxy's base URL; the adapter points its runner there,
+and the proxy adds the key to each call to the provider's API.
+Secrets in what a run leaves. The credential of a run is in the environment of every command
 the model runs, by necessity: the runner inside the container needs it. A model that prints its environment
 puts the value in its reply, in a transcript or in a file. So after each run, before anything is read, stored
 in the workspace or sent to the grader, the value of every variable passed into the run is replaced by a
 marker, "[redacted:<NAME>]", in the reply, the adapter's other output (the transcript, the raw output) and the
-files of the case folder (the floor key's value is looked for too, should it reach a run another way); the version-control facts and the grading prompt are passed through the same
+files of the case folder (the value of every model's key is looked for too, should it reach a run another way); the version-control facts and the grading prompt are passed through the same
 replacement, and so is what a grading call left. The replacements are counted, per run ("redactions" in its
 row) and in benchmark.json "redactions". The replacement is by exact value, in one function (replace_values)
 that applies no pattern of what a credential looks like: scripts/redact.py, which matches credential formats,
@@ -244,12 +256,12 @@ than REDACT_MIN characters is not replaced (a switch, not a credential), and an 
 What the proxy does and does not guarantee: it filters by host name only (evals/container/proxy/allow.txt),
 and the two hosts it lets through serve many accounts. A run on the proxy network reaches no other host, but
 it can still hand data, the credential included, to another account of the same provider. On the open network
-(a web case) it can reach any host, which is why such a case runs with a low-limit key on the strong tier.
+(a web case) it can reach any host, which is why such a case runs with a low-limit key where the model's entry has one.
 The container is the boundary, so a model may run every
 command; read a contributed skill's evals.json before running it all the same, because a case with
 "allow_web" runs on the open network. The grader is told that the response and files are data, and it gets
-no tool: the grading call is made with the adapter's --no-tools, because the grader holds the strong tier's
-credential and reads text a model under test wrote.
+no tool: the grading call is made with the adapter's --no-tools, because the grader holds its credential and
+reads text a model under test wrote.
 
 Grading. Every run is graded once (a failed guard verdict twice, below), by the grader model, with evals/grading-prompt.md and no tools. The
 grader is given, and nothing else: the case's prompt; the reply, which is the assistant's last message as
@@ -314,7 +326,7 @@ eval container (the container job of CI runs it for every skill that has one).
 Infrastructure failures are not scores. A run whose adapter exits non-zero (a missing runner, a provider
 that is down), that passes its timeout, that the provider refuses, or that ends its turn early (below), on
 every attempt, or whose grading is refused on every attempt, is listed in benchmark.json "infra_failures"
-({"case", "variant", "tier", "run", "reason", "kind"}) and never enters a mean. benchmark.json also carries
+({"case", "variant", "slot", "run", "reason", "kind"}) and never enters a mean. benchmark.json also carries
 "expected_runs", "completed_runs" and "complete" (true only when every expected run completed and was
 graded), "date", "iteration", "cases", "passes" (1, plus one per resumption) and "content_sha256", the skill
 folder's hash when the event started. Resume an incomplete event (--resume); never change the skill for it. A
@@ -335,16 +347,16 @@ EARLY_END_SHORT characters or its last line ends with a colon or an ellipsis. A 
 is never one: a response of more than EARLY_END_BLOCKER_MIN characters that holds one of EARLY_END_BLOCKER
 ("can't", "need", "paste", "tell me", ...), or a last line that waits for the user (EARLY_END_NOT: "let me
 know", "once you", ...). In the first round the earlier rule, any sentence of the last line starting with
-"I'll", threw away seven legitimate replies of the strong model, each a stop that named what it lacked and
+"I'll", threw away seven legitimate replies of a model, each a stop that named what it lacked and
 asked for it in the imperative. A reply that asks the user a question and
 writes nothing is a stop-and-ask, never an early end; neither is a run that wrote a file and then stopped
 before finishing: that one is graded as it is. An early-ended run is rerun in a fresh folder up to
 --retries <n> times (default 2, 0 disables; each early attempt is kept in <run folder>/early-end-<j>/, the
 last attempt stays in the run folder). One that early-ends on every attempt is an infrastructure failure
-with reason "early_end". benchmark.json "early_ends" counts, per model tier, {"attempts", "early_ends",
+with reason "early_end". benchmark.json "early_ends" counts, per model, {"attempts", "early_ends",
 "rate", "by_case", "by_variant"} (an early end thrown away and drawn again conditions a variant's score on
 phrasing, so the count is kept per variant too); each run's timing.json keeps the stop reason and the number
-of turns the adapter's raw output names ("stop_reason", "num_turns", "terminal_reason"), beside the reply; "early_end_warning" is a sentence, printed at the end, when a tier has at least 3 early
+of turns the adapter's raw output names ("stop_reason", "num_turns", "terminal_reason"), beside the reply; "early_end_warning" is a sentence, printed at the end, when a model has at least 3 early
 ends and either a rate above --early-end-rate (default 0.15) or all of them on one case: retries hid them
 from the scores, so read the transcripts and decide between the skill, the case and the provider. The
 warning never changes the exit code.
@@ -368,7 +380,7 @@ resumptions), the score, one 0 or 1 per assertion ("results"), "guard_failed" wh
 with-skill run confirmed a failed guard (above, "Grading"), the measurement version and the measurement
 fingerprint computed when the event started. A run that failed on infrastructure, was paused on the account
 limit or ended early writes no line. The event line carries what describes the event as a whole: its kind
-("full": every case with the skill on the strong tier's model; "partial": chosen cases), the models (a list of
+("full": every case with the skill on the lead model; "partial": chosen cases), the models (a list of
 ids) with their adapters ({model id: adapter}) and the hash of each adapter's run-prompt.sh, the grader, the configured runs, timeout and retries,
 the image's digest and CPU platform, the versions of the tools in the image, the grading template's hash, the
 hash of every case, whether the baseline of each case was run, the web cases, per model and variant the
@@ -384,11 +396,10 @@ file's "lab_models" and runs through the adapter its entry names; otherwise into
 refused), which nothing in the checkout sees. The local file is read by its own event line, not the gate file's list.
 What makes an event a trial, besides "Control of a test event": a grader that is not the configured one; a
 measurement fingerprint that differs from the committed one (a file that decides what
-a run measures changed in this checkout); chosen variants (--only, --tiers, --ablate, --no-grade); a skill
+a run measures changed in this checkout); chosen variants (--only, --ablate, --no-grade); a skill
 with no version; a skill folder that changed during the event. An incomplete event writes nothing into the
 skill either: resume it. The reason is printed, and stored in benchmark.json "scratch".
-Extra variables. A variable named with --pass-env, or with --floor-pass-env when it is not the gate file's
-own, changes what a run is (an adapter reads several, and one replaces the runner by a command). The event
+Extra variables. A variable named with --pass-env changes what a run is (an adapter reads several, and one replaces the runner by a command). The event
 line names them in "extra_pass_env", and such an event is a trial.
 
 Outside the repository. A model that runs inside the workbench finds it: it walks up from the case folder,
@@ -424,7 +435,7 @@ container mounts nothing else of the workbench but one adapter script.
 a mount path of the workbench (the folder the adapter script is mounted in, evals/executor.py) or the
 repository's path on the host looked at the harness or reached the workbench. It is not scored: it is an
 infrastructure failure with reason "contaminated", listed in benchmark.json "contaminated" ({"case",
-"variant", "tier", "run", "evidence"}), so the iteration is incomplete and no gate is evaluated on it. No
+"variant", "slot", "model", "run", "evidence"}), so the iteration is incomplete and no gate is evaluated on it. No
 option records it anyway.
 (3) A without-skill run whose reply or produced files share a passage of at least PASSAGE_WORDS words with
 the skill's own text (SKILL.md, references/, assets/) that is in neither the prompt nor the case folder as
@@ -541,12 +552,12 @@ _RUNNER = _Runner()
 
 
 def parse(argv):
-    opts = {"skill": None, "harness": None, "model": None, "floor": None, "floor_harness": None, "grader": None, "cases": [],
-            "threshold": None, "strong_pass_env": [], "only": None, "tiers": None, "grade": True, "dry": False, "pass_env": [], "ablate": None, "floor_pass_env": [],
+    opts = {"skill": None, "harness": None, "models": [], "grader": None, "cases": [],
+            "threshold": None, "only": None, "grade": True, "dry": False, "pass_env": [], "ablate": None,
             "runs": None, "jobs": 4, "timeout": None, "max_cost": None, "check_cases": False, "retries": None,
             "early_rate": 0.15, "regrade": None, "scratch": False, "resume": None, "unpause": False, "at": None,
             "baseline": False, "baseline_on": [], "close": None, "with_setup": False,
-            "routing": False, "pack": None, "prompts": None, "tier": "strong", "platform": None}
+            "routing": False, "pack": None, "prompts": None, "platform": None}
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -556,9 +567,7 @@ def parse(argv):
             return argv[i + 1]
         if a == "--skill": opts["skill"] = val(); i += 2
         elif a == "--harness": opts["harness"] = val(); i += 2
-        elif a == "--model": opts["model"] = val(); i += 2
-        elif a == "--floor-model": opts["floor"] = val(); i += 2
-        elif a == "--floor-harness": opts["floor_harness"] = val(); i += 2
+        elif a == "--model": opts["models"].append(val()); i += 2
         elif a == "--grader": opts["grader"] = val(); i += 2
         elif a == "--case": opts["cases"].append(val()); i += 2
         elif a == "--cases": opts["cases"] += [c.strip() for c in val().split(",") if c.strip()]; i += 2
@@ -568,10 +577,8 @@ def parse(argv):
         elif a == "--close": opts["close"] = val(); i += 2
         elif a == "--threshold": opts["threshold"] = float(val()); i += 2
         elif a == "--only": opts["only"] = val(); i += 2
-        elif a == "--tiers": opts["tiers"] = {t.strip() for t in val().split(",")}; i += 2
         elif a == "--pass-env": opts["pass_env"].append(val()); i += 2
         elif a == "--ablate": opts["ablate"] = val(); i += 2
-        elif a == "--floor-pass-env": opts["floor_pass_env"].append(val()); i += 2
         elif a == "--runs": opts["runs"] = val(); i += 2
         elif a == "--jobs": opts["jobs"] = val(); i += 2
         elif a == "--timeout": opts["timeout"] = val(); i += 2
@@ -585,7 +592,6 @@ def parse(argv):
         elif a == "--routing": opts["routing"] = True; i += 1
         elif a == "--pack": opts["pack"] = val(); i += 2
         elif a == "--prompts": opts["prompts"] = val(); i += 2
-        elif a == "--tier": opts["tier"] = val(); i += 2
         elif a == "--regrade": opts["regrade"] = val(); i += 2
         elif a == "--scratch": opts["scratch"] = True; i += 1
         elif a == "--resume": opts["resume"] = val(); i += 2
@@ -601,40 +607,75 @@ def parse(argv):
     for key, name in (("runs", "runs"), ("timeout", "timeout_seconds"), ("retries", "retries")):
         if opts[key] is None:
             opts[key] = control[name]
-    # --model names any model: one of the gate file's list, whose entry gives its adapter and the variables of its
-    # key, or any other well-formed id, which needs --harness (its evidence stays on this machine: evidence_home).
-    named = opts["model"] is not None
-    for key, field in (("harness", "strong_harness"), ("model", "strong_model"), ("floor", "floor_model"),
-                       ("threshold", "threshold")):
-        if opts[key] is None:
-            opts[key] = gate.get(field)
-    entry = load_status().model_entry(gate, opts["model"]) if gate and opts["model"] else None
-    if named and opts["model"] != gate.get("strong_model") and "--harness" not in argv and not opts["check_cases"]:
-        if entry and entry.get("adapter"):
-            opts["harness"] = entry["adapter"]
-        elif gate and not opts["routing"] and opts["resume"] is None and opts["close"] is None and opts["regrade"] is None:
-            die(f"--model {opts['model']}: the gate file lists no adapter for it, so --harness <adapter> is required.")
-    if opts["model"] is not None and not load_status().MODEL_RE.fullmatch(opts["model"]):
-        die(f"--model {opts['model']!r} is not a model id (letters, digits and . _ : / @ -).")
+    # --model (repeated) names the models of the event, in order; the first is the lead model (the event is full by
+    # it and its baseline runs by default); without any, the gate file's "lab_models". A model the gate file lists
+    # takes its entry's adapter and key variables; one it does not list (a person's own test) takes --harness, which
+    # is the adapter of every unlisted model of the event, and its key only from --pass-env. With every model listed,
+    # --harness is accepted only for an event of one model, and replaces that model's adapter.
+    status = load_status()
+    standalone_run = (opts["resume"] is not None or opts["close"] is not None or opts["regrade"] is not None
+                      or opts["unpause"] or opts["check_cases"])
+    models = [m for m in opts["models"]]
+    if not models and not standalone_run:
+        models = list(gate.get("lab_models") or [])
+    if opts["routing"]:
+        if len(opts["models"]) > 1:
+            die("--routing runs one model: give --model once (without it, the first of lab_models runs).")
+        models = models[:1]
+    for name in models:
+        if not status.MODEL_RE.fullmatch(name):
+            die(f"--model {name!r} is not a model id (letters, digits and . _ : / @ -).")
+    resolved, entries = [], {}
+    for name in models:  # a listed model runs under its listed id, whichever alias named it
+        entry = status.model_entry(gate, name) if gate else None
+        resolved.append(entry["id"] if entry else name)
+        entries[resolved[-1]] = entry
+    models = resolved
+    if len(set(models)) != len(models):
+        die("--model names the same model twice.")
+    opts["models"] = models
+    opts["model"] = models[0] if models else None  # the lead model
+    adapters = {m: (entries[m] or {}).get("adapter") for m in models}
+    unlisted = [m for m in models if not adapters[m]]
+    if opts["harness"]:
+        if unlisted:
+            adapters.update({m: opts["harness"] for m in unlisted})
+        elif len(models) == 1:
+            adapters[models[0]] = opts["harness"]
+        elif models and any(adapters[m] != opts["harness"] for m in models):
+            die("--harness is the adapter of a model the gate file does not list; every model of this event is listed, and "
+                "its entry names its adapter.")
+    elif unlisted and not standalone_run and not opts["routing"]:
+        die(f"--model {unlisted[0]}: the gate file lists no adapter for it, so --harness <adapter> is required."
+            if gate else "--harness is required (evals/eval-gate.json sets no default).")
+    opts["adapters"] = adapters
+    opts["harness"] = adapters.get(opts["model"]) or opts["harness"]  # the lead's adapter (--routing, --regrade, a grader)
+    if opts["threshold"] is None:
+        opts["threshold"] = gate.get("threshold")
     if opts["threshold"] is None:
         opts["threshold"] = 0.8
     opts["grader"] = opts["grader"] or gate.get("grader")
-    opts["tolerance"], opts["measurement_version"] = gate.get("strong_tolerance") or 0, gate.get("measurement_version")
-    if opts["floor"] and not opts["floor_harness"]:
-        floor_entry = load_status().model_entry(gate, opts["floor"]) if gate else None
-        opts["floor_harness"] = (floor_entry or {}).get("adapter") or gate.get("floor_harness")
-    # The variables of a model's key are the model's own, in whichever slot it runs: the gate file's list for the
-    # configured floor model, else its entry's "pass_env" (a model the file does not list needs --floor-pass-env).
-    explicit_floor = list(opts["floor_pass_env"])
-    floor_known = list(gate.get("floor_pass_env") or []) if opts["floor"] == gate.get("floor_model") else list(
-        (load_status().model_entry(gate, opts["floor"]) or {}).get("pass_env") or []) if gate and opts["floor"] else []
-    if opts["floor"] and not opts["floor_pass_env"]:
-        opts["floor_pass_env"] = floor_known
-    # The strong runner's credential in a container (there is no login or keychain there): strong runs and gradings.
-    opts["strong_pass_env"] = (list(gate.get("strong_pass_env") or []) if opts["model"] == gate.get("strong_model")
-                               else list((entry or {}).get("pass_env") or []))
+    opts["tolerance"], opts["measurement_version"] = gate.get("tolerance") or 0, gate.get("measurement_version")
+    # The variables of a model's key are the model's own, whichever place it takes in the event: its entry's
+    # "pass_env", and its "web_pass_env" on a run on the open network, when it has one. A model the file does not
+    # list passes none of its own.
+    opts["pass_envs"] = {m: list((entries[m] or {}).get("pass_env") or []) for m in models}
+    opts["web_pass_envs"] = {m: list(entries[m]["web_pass_env"]) for m in models if entries[m] and entries[m].get("web_pass_env")}
+    # The grader is a model of its own: it grades through its own entry's adapter and key, whatever the event runs.
+    # A grader the file does not list (or a tree with no gate file) grades through the adapter of the event model of
+    # that name, else the lead model's.
+    opts["grader"] = opts["grader"] or opts["model"]
+    grader_name = opts["grader"]
+    grader_entry = status.model_entry(gate, grader_name) if gate and grader_name else None
+    if grader_entry:
+        opts["grader"] = grader_entry["id"]
+    elif grader_name in models:
+        grader_entry = entries[grader_name]
+    opts["grader_harness"] = (opts["harness"] if opts["regrade"] is not None and opts["harness"]
+                              else (grader_entry or {}).get("adapter") or adapters.get(grader_name) or opts["harness"])
+    opts["grader_pass_env"] = list((grader_entry or {}).get("pass_env") or opts["pass_envs"].get(grader_name) or [])
     # What the command line passes beyond the gate file's own variables: a run with one is another measurement.
-    opts["extra_pass_env"] = sorted(set(opts["pass_env"]) | (set(explicit_floor) - set(gate.get("floor_pass_env") or []) - set(floor_known)))
+    opts["extra_pass_env"] = sorted(set(opts["pass_env"]))
     if opts["regrade"] is not None:
         if opts["skill"] or opts["cases"] or opts["only"] or opts["check_cases"] or opts["dry"]:
             die("--regrade takes a run folder and goes with --grader, --harness, --jobs and --timeout only.")
@@ -650,20 +691,17 @@ def parse(argv):
     if opts["unpause"] and alone:
         die("--unpause goes with --at <time> only.")
     if opts["routing"]:
-        others = [a for a in argv if a.startswith("--") and a not in ("--routing", "--pack", "--skill", "--prompts", "--tier",
-                                                                          "--jobs", "--harness", "--model", "--floor-model",
-                                                                          "--floor-harness", "--timeout", "--pass-env",
-                                                                          "--floor-pass-env")]
+        others = [a for a in argv if a.startswith("--") and a not in ("--routing", "--pack", "--skill", "--prompts",
+                                                                          "--jobs", "--harness", "--model", "--timeout",
+                                                                          "--pass-env")]
         if others:
-            die(f"--routing goes with --pack, --skill or --prompts, --tier, --jobs and the model options, not {others[0]}.")
+            die(f"--routing goes with --pack, --skill or --prompts, --jobs and the model options, not {others[0]}.")
         if not opts["pack"] or not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", opts["pack"]):
             die("--routing needs --pack <name>: the skills installed beside one another.")
         if bool(opts["skill"]) == bool(opts["prompts"]):
             die("--routing runs --skill <name> (its case prompts) or --prompts <file> (a JSON list of texts), one of them.")
-        if opts["tier"] not in ("strong", "floor") or (opts["tier"] == "floor" and not opts["floor"]):
-            die("--tier is strong or floor (and floor needs a floor model).")
-    elif opts["pack"] or opts["prompts"] or opts["tier"] != "strong":
-        die("--pack, --prompts and --tier go with --routing.")
+    elif opts["pack"] or opts["prompts"]:
+        die("--pack and --prompts go with --routing.")
     if opts["platform"] is not None:
         if not PLATFORM_NAME_RE.match(opts["platform"]):
             die(f"--platform {opts['platform']!r} is not a platform name (lowercase, hyphens).")
@@ -682,14 +720,15 @@ def parse(argv):
             die(f"--{k} is required" + (" (evals/eval-gate.json sets no default)." if k != "skill" else "."))
     if opts["only"] not in (None, "with", "without", "ablated"):
         die("--only must be with, without or ablated.")
-    tiers_on = []
+    on = []
     for name in opts["baseline_on"]:
-        if name in ("floor", opts["floor"]) and opts["floor"]:
-            tiers_on.append("floor")
+        listed = status.model_entry(gate, name)["id"] if gate and status.model_entry(gate, name) else name
+        if listed in opts["models"]:
+            on.append(listed)
         else:
-            die(f"--baseline-on {name}: the baseline runs on the reference model by default; another model is one the "
-                "event runs, the floor model (its id, or \"floor\").")
-    opts["baseline_on"] = sorted(set(tiers_on))
+            die(f"--baseline-on {name}: the baseline runs on the lead model (the first --model) by default; another "
+                "model is one the event runs.")
+    opts["baseline_on"] = sorted(set(on))
     if opts["only"] == "ablated" and not opts["ablate"]:
         die("--only ablated needs --ablate <text>.")
     if opts["ablate"] is not None and not opts["ablate"].strip():
@@ -714,13 +753,12 @@ def parse(argv):
         die("--timeout is in seconds and at least 30.")
     if opts["max_cost"] is not None and not re.fullmatch(r"\d+(\.\d+)?", opts["max_cost"]):
         die("--max-cost-usd takes a number, e.g. 0.50.")
-    for name in opts["pass_env"] + opts["floor_pass_env"]:
+    for name in opts["pass_env"]:
         if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name):
             die(f"--pass-env {name!r} is not a variable name.")
         if name in TOKEN_VARS:
             die(f"--pass-env {name}: token variables for git hosts and npm never reach a model run.")
-    opts["grader"] = opts["grader"] or opts["model"]
-    if opts["regrade"] is not None and not (opts["harness"] and opts["grader"]):
+    if opts["regrade"] is not None and not (opts["grader_harness"] and opts["grader"]):
         die("--regrade needs a grader and its adapter: evals/eval-gate.json, or --grader and --harness.")
     return opts
 
@@ -1280,18 +1318,18 @@ def next_iteration(ws, claim=True):
 
 
 def early_end_stats(counts):
-    """benchmark.json "early_ends" from {tier: {"attempts", "early_ends", "by_case", "by_variant"}}: adds the rate."""
-    return {tier: {"attempts": c["attempts"], "early_ends": c["early_ends"],
+    """benchmark.json "early_ends" from {model id: {"attempts", "early_ends", "by_case", "by_variant"}}: adds the rate."""
+    return {model: {"attempts": c["attempts"], "early_ends": c["early_ends"],
                    "rate": round(c["early_ends"] / c["attempts"], 3) if c["attempts"] else 0.0,
                    "by_case": {str(k): n for k, n in c["by_case"].items() if n},
                    "by_variant": {str(k): n for k, n in (c.get("by_variant") or {}).items() if n}}
-            for tier, c in counts.items()}
+            for model, c in counts.items()}
 
 
 def early_end_warning(stats, max_rate):
-    """A sentence when a tier's early ends are frequent or all on one case (at least 3 either way), else None."""
+    """A sentence when a model's early ends are frequent or all on one case (at least 3 either way), else None."""
     parts = []
-    for tier, s in stats.items():
+    for model, s in stats.items():
         one_case = list(s["by_case"]) if len(s["by_case"]) == 1 else []
         if s["early_ends"] < 3 or not (s["rate"] > max_rate or one_case):
             continue
@@ -1299,8 +1337,8 @@ def early_end_warning(stats, max_rate):
                  "before blaming the provider." if one_case else
                  f"They spread over cases {', '.join(s['by_case'])}: if they concentrate on one case, the skill or the "
                  "case may trigger it (read the transcripts); if they spread across cases, the provider or the model "
-                 f"may be unreliable: consider another provider for this model, or another {tier} model.")
-        parts.append(f"the {tier} model ended its turn early in {s['early_ends']} of {s['attempts']} attempts "
+                 f"may be unreliable: consider another provider for this model, or another model.")
+        parts.append(f"{model} ended its turn early in {s['early_ends']} of {s['attempts']} attempts "
                      f"({s['rate']:.0%}): retries hid them from the scores. {where}")
     return " ".join(parts) or None
 
@@ -1376,7 +1414,8 @@ def template_hash():
 def grading_call(runner, grader, prompt, dest, count, pass_env=(), timeout=900, account=None, redact=()):
     """Send one grading prompt to the grader, with no tools, until an answer is accepted or the retries are
     spent. Its folders come back to dest (prompt.md, out/); a refused attempt is kept in <dest>-refused-<k>.
-    account = {"key", "markers", "probe", "control"} makes the call wait while its account is paused, take a
+    account = {"key", "markers", "probe", "control", "model"} (model: the grader's id, which names its place of the
+    shared lock) makes the call wait while its account is paused, take a
     place of the shared lock, and pause the account when the call meets its limit: that call is made again
     after the pause and is not counted as refused.
     redact is redaction_values(): the values of the variables any run of the event received. They are replaced
@@ -1389,7 +1428,7 @@ def grading_call(runner, grader, prompt, dest, count, pass_env=(), timeout=900, 
         if account:
             wait_while_paused(account["key"], account["probe"])
         # The grader is a model too: it works outside the repository, in a folder of its own.
-        with (Slots(account["control"], "strong") if account else contextlib.nullcontext()):
+        with (Slots(account["control"], account["model"]) if account else contextlib.nullcontext()):
             root = new_run_root(dest, out_name="out")
             try:
                 gp = os.path.join(root, "prompt.md")
@@ -1464,9 +1503,9 @@ def grade(runner, grader, run_dir, case, response, delta, inputs=None, vcs=None,
 
 def regrade(o):
     """--regrade: grade stored replies again and report how many verdicts differ. No score moves, no evidence."""
-    runner = os.path.join(ROOT, "adapters", o["harness"], "run-prompt.sh")
+    runner = os.path.join(ROOT, "adapters", o["grader_harness"], "run-prompt.sh")
     if not os.path.isfile(runner):
-        die(f"adapter {o['harness']!r} has no run-prompt.sh (see AGENTS.md, Adding an adapter).")
+        die(f"adapter {o['grader_harness']!r} has no run-prompt.sh (see AGENTS.md, Adding an adapter).")
     base = os.path.abspath(o["regrade"])
     print(f"--regrade acts on {base}", file=sys.stderr)
     found = []
@@ -1477,7 +1516,7 @@ def regrade(o):
             dns[:] = []
     if not found:
         die(f"no graded run under {o['regrade']}: a graded run has grading.json and grading/prompt.md.")
-    pass_env = o["pass_env"] + (o["strong_pass_env"] if EXECUTOR == "container" else [])
+    pass_env = o["pass_env"] + o["grader_pass_env"]
     for filled in resolve_pass_env(pass_env):
         print(f"--pass-env {filled}", file=sys.stderr)
     unset = [n for n in pass_env if not os.environ.get(n)]
@@ -1491,9 +1530,9 @@ def regrade(o):
     # The account a test event's grading gets: each grading call waits while it is paused, takes a place of the
     # shared lock, and pauses it at its limit, where the call is made again and is not counted as refused.
     status = load_status()
-    account = {"key": o["harness"], "markers": adapter_eval(o["harness"])["account_limit"],
+    account = {"key": o["grader_harness"], "markers": adapter_eval(o["grader_harness"])["account_limit"],
                "probe": lambda: probe_call(runner, o["grader"], pass_env),
-               "control": status.event_config(status.load_gate(ROOT))}
+               "control": status.event_config(status.load_gate(ROOT)), "model": o["grader"]}
 
     def one(run_dir):
         with open(os.path.join(run_dir, "grading.json"), encoding="utf-8") as f:
@@ -1569,14 +1608,12 @@ def routing(o):
         if not isinstance(texts, list) or not texts or not all(isinstance(t, str) and t.strip() for t in texts):
             die("--prompts takes a file that holds a JSON list of prompts, each a text.")
         items = [{"prompt": t, "sources": [], "case_def": None} for t in texts]
-    tier = o["tier"]
-    harness = o["harness"] if tier == "strong" else (o["floor_harness"] or o["harness"])
-    model = o["model"] if tier == "strong" else o["floor"]
+    harness, model = o["harness"], o["model"]
     runner = os.path.join(ROOT, "adapters", harness, "run-prompt.sh")
     if not os.path.isfile(runner):
         die(f"adapter {harness!r} has no run-prompt.sh.")
     eval_cfg = adapter_eval(harness)
-    pass_env = o["pass_env"] + (o["strong_pass_env"] if tier == "strong" else o["floor_pass_env"])
+    pass_env = o["pass_env"] + o["pass_envs"].get(model, [])
     for filled in resolve_pass_env(pass_env):
         print(f"--pass-env {filled}", file=sys.stderr)
     unset = [n for n in pass_env if not os.environ.get(n)]
@@ -1605,7 +1642,7 @@ def routing(o):
         account = {"key": harness, "markers": eval_cfg["account_limit"], "probe": lambda: probe_call(runner, model, pass_env)}
         while True:
             wait_while_paused(account["key"], account["probe"])
-            with Slots(control, tier):
+            with Slots(control, model):
                 root = new_run_root(run_dir, names=(o["skill"] or "routing",))
                 case_dir = os.path.join(root, "case")
                 try:
@@ -1649,7 +1686,7 @@ def routing(o):
         rows = list(pool.map(lambda pair: one(*pair), enumerate(items, 1)))
     loaded_another = [r["case"] for r in rows if o["skill"] and r.get("loaded") is not None
                       and (r.get("others") or not r.get("invoked"))]
-    result = {"routing": True, "pack": o["pack"], "tier": tier, "model": model, "skill": o["skill"],
+    result = {"routing": True, "pack": o["pack"], "model": model, "skill": o["skill"],
               "folder": os.path.relpath(folder, ROOT), "prompts": rows, "loaded_another": loaded_another,
               "not_reported": sum(1 for r in rows if r.get("loaded") is None)}
     with open(os.path.join(folder, "routing.json"), "w", encoding="utf-8") as f:
@@ -1779,24 +1816,42 @@ def exact_mean(rows):
     return statistics.mean(vals) if vals else None
 
 
-def conditions_of(means, threshold, tolerance, floor=True):
+def slot_suffix(slot):
+    """The suffix of a slot's variant names and condition keys: none for the lead model's slot (m1), ".m2", ".m3" ...
+    for the others. A variant is named <variant><suffix>: with_skill, with_skill.m2."""
+    return "" if slot == LEAD_SLOT else "." + slot
+
+
+def conditions_of(means, threshold, tolerance):
     """The conditions an event reports, from the unrounded mean of each variant ({name: mean or None}): a mean
-    of 0.7996 is below a threshold of 0.8, though it is shown as 0.8. Rounded values are for display only."""
+    of 0.7996 is below a threshold of 0.8, though it is shown as 0.8. Rounded values are for display only.
+    For the lead model (variants with no suffix), when its baseline ran: "delta", "delta_ok" (with the skill against
+    without it, within the tolerance), "pass_rate" and "ok" (at the threshold); for every other model of the event
+    (variants suffixed .m2, .m3 ...) that has a mean with the skill: "pass_rate.m2", "ok.m2" ...; and
+    "ablation_delta" (".m2" ...) where an ablated variant ran. A key "ok", "delta_ok" or "ok.<slot>" is a condition
+    of the exit code."""
     mean, measure = (lambda name: means.get(name)), load_measure()
     conditions = {}
     if mean("with_skill") is not None and mean("without_skill") is not None:
-        conditions["strong_delta"] = round(mean("with_skill") - mean("without_skill"), 3)
-        conditions["strong_delta_ok"] = measure.within_tolerance(mean("with_skill"), mean("without_skill"), tolerance)
-        conditions["strong_pass_rate"] = round(mean("with_skill"), 3)
-        conditions["strong_ok"] = measure.at_threshold(mean("with_skill"), threshold)
-    if floor and mean("with_skill.floor") is not None:
-        conditions["floor_pass_rate"] = round(mean("with_skill.floor"), 3)
-        conditions["floor_ok"] = measure.at_threshold(mean("with_skill.floor"), threshold)
-    for tier_suffix in ("", ".floor"):
-        if mean("with_skill" + tier_suffix) is not None and mean("ablated_skill" + tier_suffix) is not None:
-            key = "ablation_delta" + ("_floor" if tier_suffix else "")
-            conditions[key] = round(mean("with_skill" + tier_suffix) - mean("ablated_skill" + tier_suffix), 3)
+        conditions["delta"] = round(mean("with_skill") - mean("without_skill"), 3)
+        conditions["delta_ok"] = measure.within_tolerance(mean("with_skill"), mean("without_skill"), tolerance)
+        conditions["pass_rate"] = round(mean("with_skill"), 3)
+        conditions["ok"] = measure.at_threshold(mean("with_skill"), threshold)
+    suffixes = sorted({name[len("with_skill"):] for name in means if name.startswith("with_skill.")},
+                      key=lambda x: int(x[2:]) if x[2:].isdigit() else 0)
+    for suffix in suffixes:
+        if mean("with_skill" + suffix) is not None:
+            conditions["pass_rate" + suffix] = round(mean("with_skill" + suffix), 3)
+            conditions["ok" + suffix] = measure.at_threshold(mean("with_skill" + suffix), threshold)
+    for suffix in [""] + suffixes:
+        if mean("with_skill" + suffix) is not None and mean("ablated_skill" + suffix) is not None:
+            conditions["ablation_delta" + suffix] = round(mean("with_skill" + suffix) - mean("ablated_skill" + suffix), 3)
     return conditions
+
+
+def condition_fails(conditions):
+    """True when a condition of the exit code is not met: "ok", "delta_ok" or "ok.<slot>" is false."""
+    return not all(v for k, v in conditions.items() if k in ("ok", "delta_ok") or k.startswith("ok."))
 
 
 LEDGER_LOCK = threading.Lock()
@@ -1807,8 +1862,11 @@ LEDGER_LOCK = threading.Lock()
 CAPPED_KINDS = ("timeout", "refused", "adapter", "early_end")
 
 
-def job_key(case_id, variant, tier, k):
-    return f"{case_id}|{variant}|{tier}|{k}"
+LEAD_SLOT = "m1"  # the first model of an event: the lead; the others are m2, m3 ... in the order given
+
+
+def job_key(case_id, variant, slot, k):
+    return f"{case_id}|{variant}|{slot}|{k}"
 
 
 def ledger_add(it_dir, entry):
@@ -1828,7 +1886,7 @@ def ledger_read(it_dir):
                     entry = json.loads(line)
                 except ValueError:
                     continue
-                found.setdefault(job_key(entry["case"], entry["variant"], entry["tier"], entry["run"]), []).append(entry)
+                found.setdefault(job_key(entry["case"], entry["variant"], entry["slot"], entry["run"]), []).append(entry)
     except OSError:
         pass
     return found
@@ -1893,7 +1951,7 @@ def meter_unfinished(meter):
 USAGE_KINDS = ("input", "output", "cache_read", "cache_write")  # the four kinds of tokens a run line's "usage" holds
 # The reference adapter keeps the CLI's result event as outputs/raw.json: its `modelUsage` object holds, for each model
 # the run used, the tokens of every kind, and it counts the subagents a run starts (its `usage` object and the total of
-# timing.json do not). The floor adapter keeps only its event stream, outputs/stream.jsonl: one `step_finish` event per step.
+# timing.json do not). An adapter that keeps only its event stream, outputs/stream.jsonl, has one `step_finish` event per step.
 MODEL_USAGE_NAMES = {"input": "inputTokens", "output": "outputTokens", "cache_read": "cacheReadInputTokens",
                      "cache_write": "cacheCreationInputTokens"}
 RAW_JSON_LIMIT, STREAM_LIMIT = 8 * 1024 * 1024, 256 * 1024 * 1024  # a larger file is not what it should be
@@ -1940,7 +1998,7 @@ def usage_from_model_usage(text):
 
 
 def usage_from_stream(text):
-    """The same four counts summed over the `step_finish` events of the floor adapter's stream, or None: no such event,
+    """The same four counts summed over the `step_finish` events of a stream-only adapter's stream, or None: no such event,
     a count that is not a whole number, or reasoning tokens (they have no kind of their own, and leaving them out would
     understate the run)."""
     total, seen = {kind: 0 for kind in USAGE_KINDS}, False
@@ -1986,7 +2044,7 @@ def run_usage(meter, out_dir, held=False):
     not change it; a count that names answers the proxy could not read ("unknown_responses") is a lower bound, which a
     line cannot say, so it has no usage, and the run's own report is not read in its place. A run with no key proxy has
     its own raw output read: the `modelUsage` of outputs/raw.json (the reference adapter), or else the `step_finish`
-    tokens of outputs/stream.jsonl (the floor adapter), as runtime/costs.py reads them. Never the total of timing.json,
+    tokens of outputs/stream.jsonl (a stream-only adapter), as runtime/costs.py reads them. Never the total of timing.json,
     which leaves the subagents out, and never the cost the adapter reported. Only the run's last attempt is counted.
 
     held says the run's key was held by a key proxy (key_held). Its meter is then the only count there is: a run whose
@@ -2007,34 +2065,19 @@ def run_usage(meter, out_dir, held=False):
 
 def upstream_of(models, model_ids, passed):
     """{model id: what served it} for each model of the event that ran through a key proxy: the provider its entry of
-    the gate file pins, or, with no pin, the upstream host of its route. models is [(tier, model)], model_ids the
-    ids the evidence names them by, passed {tier: the variables its runs are passed}. A model with no object entry or
+    the gate file pins, or, with no pin, the upstream host of its route. models is [(slot, model)], model_ids the
+    ids the evidence names them by, passed {slot: the variables its runs are passed}. A model with no object entry or
     no route, and one whose route key was not passed or not in the caller's environment (so that no key proxy was
     started for it), is left out. None when no model ran through one."""
     executor, out = load_executor(), {}
-    for tier, model in models:
+    for slot, model in models:
         entry = executor.model_entry(model)
         if not entry or not entry.get("route"):
             continue
         r = executor.route(name=entry["route"])
-        if r["secret"] in passed.get(tier, ()) and os.environ.get(r["secret"]):
-            out[model_ids[tier]] = entry.get("provider_pin") or urllib.parse.urlsplit(r["upstream"]).hostname
+        if r["secret"] in passed.get(slot, ()) and os.environ.get(r["secret"]):
+            out[model_ids[slot]] = entry.get("provider_pin") or urllib.parse.urlsplit(r["upstream"]).hostname
     return out or None
-
-
-def grader_adapter_problem(o, gate):
-    """Why this event's gradings do not run as the configured grader's do, or None. Every grading goes through the strong
-    slot's adapter with the strong slot's key (until P3 gives the grader its own entry), so the strong slot's adapter must
-    be the one the grader's entry in the gate file names (else the configured strong harness): a model swapped into the
-    strong slot would be graded through its own adapter and key, which is another measurement."""
-    if not gate:
-        return None
-    entry = load_status().model_entry(gate, gate.get("grader"))
-    configured = (entry or {}).get("adapter") or gate.get("strong_harness")
-    if o["harness"] != configured:
-        return (f"the gradings run through the strong slot's adapter, {o['harness']}, and the grader {gate.get('grader')} is "
-                f"graded through {configured}: a run with another adapter in the strong slot is graded another way")
-    return None
 
 
 def scratch_reason(o, gate, environment, version=None, fingerprint=None):
@@ -2058,7 +2101,7 @@ def scratch_reason(o, gate, environment, version=None, fingerprint=None):
     if o["extra_pass_env"]:
         return (f"extra variables were passed into the runs ({', '.join(o['extra_pass_env'])}): they change what a "
                 "run is, so the event is a trial")
-    chosen = [flag for flag, on in (("--only", o["only"]), ("--tiers", o["tiers"]), ("--ablate", o["ablate"]),
+    chosen = [flag for flag, on in (("--only", o["only"]), ("--ablate", o["ablate"]),
                                     ("--no-grade", not o["grade"])) if on]
     if chosen:
         return f"the event ran chosen variants ({', '.join(chosen)}): evidence comes from a full test or a partial test"
@@ -2075,8 +2118,6 @@ def scratch_reason(o, gate, environment, version=None, fingerprint=None):
         if o["grader"] != gate.get("grader"):
             return (f"the grader of the event is {o['grader']}, and the configured one is {gate.get('grader')}: evidence is "
                     "made with the configured grader")
-        if (why := grader_adapter_problem(o, gate)):
-            return why
         if fingerprint != gate.get("measurement_sha256"):
             return ("the measurement fingerprint of this checkout differs from the committed one (evals/eval-gate.json, "
                     "measurement_sha256): a file that decides what a run measures changed, so nothing is written as evidence")
@@ -2084,12 +2125,12 @@ def scratch_reason(o, gate, environment, version=None, fingerprint=None):
 
 
 def model_cfg(gate, model):
-    """The gate configuration with `model` in the reference model's place, also for a model the gate file does not list: it
-    is then added to the list, under its own id, so that the evidence it leaves and the gate read back from it agree
-    on the id (status.model_id writes "unknown" for a model the list lacks). A name that is not a well-formed model
-    id stays unlisted. Without a gate file there is no list, and the name stands as it is."""
+    """The gate configuration read for `model` (the internal key "subject_model"), also for a model the gate file does
+    not list: it is then added to the list, under its own id, so that the evidence it leaves and the gate read back from
+    it agree on the id (status.model_id writes "unknown" for a model the list lacks). A name that is not a well-formed
+    model id stays unlisted. Without a gate file there is no list, and the name stands as it is."""
     status = load_status()
-    cfg = {**gate, "strong_model": model}
+    cfg = {**gate, "subject_model": model}
     if gate and status.MODEL_RE.fullmatch(model or "") and status.model_id(gate, model) == "unknown":
         cfg["models"] = {**status.known_models(gate), model: []}
     return cfg
@@ -2099,23 +2140,21 @@ def evidence_home(o, gate, models, harness_for):
     """("repository", None) when this event's evidence may enter the skill's folder, ("local", why not) when it is a
     person's own and stays outside the checkout (D18: the local evidence folder, status.local_evidence_base).
 
-    The repository holds evidence of the gate file's lab models only ("lab_models", else the configured strong and
-    floor models), each run through the adapter its entry names (else the configured one): a run of any other model, or of a
-    listed model through another adapter, is a measurement of another pair, and it cannot enter the repository. A tree
-    with no gate file configures nothing, and its evidence is the repository's."""
+    The repository holds evidence of the gate file's "lab_models" only, each run through the adapter its entry
+    names: a run of any other model, or of a listed model through another adapter, is a measurement of another pair,
+    and it cannot enter the repository. A tree with no gate file configures nothing, and its evidence is the
+    repository's. models is [(slot, model)] and harness_for {slot: adapter}."""
     if not gate:
         return "repository", None
     status = load_status()
-    lab = set(gate.get("lab_models") or [gate.get("strong_model"), gate.get("floor_model")])
-    for tier, model in models:
+    lab = set(gate.get("lab_models") or [])
+    for slot, model in models:
         listed = status.model_id(gate, model)
         if listed == "unknown" or listed not in lab:
             return "local", f"{model} is not one of the gate file's lab models ({', '.join(sorted(m for m in lab if m))})"
-        entry = status.model_entry(gate, model)
-        configured = (entry or {}).get("adapter") or (gate.get("strong_harness") if model == gate.get("strong_model")
-                                                      else gate.get("floor_harness") if model == gate.get("floor_model") else None)
-        if harness_for[tier] != configured:
-            return "local", f"{model} ran through the adapter {harness_for[tier]}, and its configured one is {configured}"
+        configured = (status.model_entry(gate, model) or {}).get("adapter")
+        if harness_for[slot] != configured:
+            return "local", f"{model} ran through the adapter {harness_for[slot]}, and its configured one is {configured}"
     return "repository", None
 
 
@@ -2197,7 +2236,6 @@ def run(argv):
         if closing and resumed.get("state") != "open":
             die(f"the event {os.path.relpath(it_dir, ROOT)} is {resumed.get('state')}, not open: there is nothing to close.", 2)
         o = {**resumed["options"], "jobs": o["jobs"], "resume": o["resume"], "close": o["close"], "dry": False}
-        o["tiers"] = set(o["tiers"]) if o["tiers"] else None
     status = load_status()
     gate = status.load_gate(ROOT)
     control = status.event_config(gate)
@@ -2211,11 +2249,11 @@ def run(argv):
     with_variants = ["with_skill"] + (["ablated_skill"] if o["ablate"] else [])
     if o["only"]:
         with_variants = [] if o["only"] == "without" else [f"{o['only']}_skill"]
-    models = [("strong", o["model"])] + ([("floor", o["floor"])] if o["floor"] else [])
-    if o["tiers"]:
-        models = [m for m in models if m[0] in o["tiers"]]
-        if not models:
-            die("--tiers selected no model.")
+    # The models of the event, in the order given, each in a slot: m1 is the lead (the event is full by it, its
+    # baseline runs by default), then m2, m3 ... The slot names the folders and the variants of its runs.
+    models = [(f"m{i}", m) for i, m in enumerate(o["models"], 1)]
+    model_of = dict(models)
+    harness_for = {slot: o["adapters"][model] for slot, model in models}
     refuse_allow_commands(evals, cases)
     web = {c["id"]: allow_web(evals, c) for c in cases}
     # Only the cases the gate file lists run on the open network: nothing else opens it, whatever a case says.
@@ -2223,13 +2261,12 @@ def run(argv):
     if unlisted:
         die(f"case(s) {', '.join(unlisted)} of {o['skill']} set \"allow_web\" and are not in \"web_cases\" of "
             "evals/eval-gate.json: the network is opened for the cases listed there and for no other.", 2)
-    # On a web case the strong tier runs with the variables the gate file names for it in "strong_web_pass_env"
-    # (a low-limit API key), when it names any, in place of the account's token. Without that key a web case
-    # gets the account's token like any other run: its key proxy holds the value outside the run.
-    web_env = list(gate.get("strong_web_pass_env") or []) if o["model"] == gate.get("strong_model") else []
-    strong_web = bool(web_env) and any(web.values()) and "strong" in [t for t, _ in models]
-    names = o["pass_env"] + o["floor_pass_env"] + (o["strong_pass_env"] + (web_env if strong_web else [])
-                                                   if EXECUTOR == "container" else [])
+    # On a web case a model whose entry names "web_pass_env" (a low-limit API key) runs with those variables in place
+    # of its "pass_env". Without that key a web case gets the model's own variables like any other run: its key proxy
+    # holds the value outside the run. The grader's variables are the grader's own entry's, whatever the event runs.
+    names = list(dict.fromkeys(
+        o["pass_env"] + [n for _, m in models for n in o["pass_envs"][m]]
+        + [n for _, m in models if any(web.values()) for n in o["web_pass_envs"].get(m, [])] + o["grader_pass_env"]))
     for filled in ([] if o["dry"] else resolve_pass_env(names)):
         print(f"--pass-env {filled}", file=sys.stderr)
     unset = [n for n in names if not os.environ.get(n)]
@@ -2239,16 +2276,13 @@ def run(argv):
         die(f"{', '.join(unset)} is not set and was not found in the secret store. Export it, or run this "
             "script with the store's library available: uv run --with keyring==25.7.0 python3 "
             "evals/eval_run.py ...", 2)
-    runner = os.path.join(ROOT, "adapters", o["harness"], "run-prompt.sh")
-    if not os.path.isfile(runner):
-        die(f"adapter {o['harness']!r} has no run-prompt.sh (see AGENTS.md, Adding an adapter).")
-    floor_runner = runner
-    if o["floor_harness"]:
-        floor_runner = os.path.join(ROOT, "adapters", o["floor_harness"], "run-prompt.sh")
-        if not os.path.isfile(floor_runner):
-            die(f"adapter {o['floor_harness']!r} has no run-prompt.sh.")
-    runner_for = {"strong": runner, "floor": floor_runner}
-    harness_for = {"strong": o["harness"], "floor": o["floor_harness"] or o["harness"]}
+    runner_for = {}
+    for adapter in dict.fromkeys(list(harness_for.values()) + [o["grader_harness"]]):
+        runner_for[adapter] = os.path.join(ROOT, "adapters", adapter, "run-prompt.sh")
+        if not os.path.isfile(runner_for[adapter]):
+            die(f"adapter {adapter!r} has no run-prompt.sh (see AGENTS.md, Adding an adapter).")
+    grader_runner = runner_for[o["grader_harness"]]
+    runner_for = {slot: runner_for[adapter] for slot, adapter in harness_for.items()}
     # Where this event's evidence lives when it is written: the repository's (the gate file's lab models, through
     # their configured adapters) or this person's own folder outside the checkout (evidence_home).
     home, home_reason = evidence_home(o, gate, models, harness_for)
@@ -2256,9 +2290,10 @@ def run(argv):
     if local_base and not o["dry"] and (problem := status.local_base_problem(local_base, ROOT, o["skill"])):
         die(problem, 2)
     local_events = status.local_skill_evidence(o["skill"], local_base) if local_base else None
-    # Where each tier's harness discovers skills, which names carry its settings and how it words an exhausted
+    # Where each model's harness discovers skills, which names carry its settings and how it words an exhausted
     # account: the adapter's own data. A plan (--dry-run) runs nothing and stages nothing, so it needs none of it.
-    eval_for = {} if o["dry"] else {tier: adapter_eval(harness_for[tier]) for tier in ("strong", "floor")}
+    eval_for = {} if o["dry"] else {slot: adapter_eval(harness_for[slot]) for slot, _ in models}
+    grader_eval = {} if o["dry"] else adapter_eval(o["grader_harness"])
     settings = set() if o["dry"] else harness_settings()
     sources = {c["id"]: case_files(skill_dir, c) for c in cases}
     # Before anything is spent or written: a case that cites a file it does not ship measures nothing.
@@ -2292,35 +2327,38 @@ def run(argv):
     baseline_count = o["runs"] if o["baseline"] else min(o["runs"], control["baseline_runs"])
     # The baselines in force, from the skill's committed evidence: {case id: lines}. A case with that many of them
     # is not run without the skill again in a full test; the event line says it was reused.
-    gate_cfg = {**model_cfg(gate, o["model"]), "threshold": o["threshold"], "strong_tolerance": o["tolerance"]}
+    gate_cfg = {**model_cfg(gate, o["model"]), "threshold": o["threshold"], "tolerance": o["tolerance"]}
     in_force = {cid: len(lines) for cid, lines in status.baseline_lines(skill_dir, gate_cfg, local_events).items()}
-    tier_names = [t for t, _ in models]
+    slot_names = [slot for slot, _ in models]
+    baseline_on = [slot for slot, m in models if m in o["baseline_on"]]
 
-    def baseline_tiers(case):
-        """Where the case runs without the skill in this event: on the reference model when its baseline is not in
+    def baseline_slots(case):
+        """Where the case runs without the skill in this event: on the lead model when its baseline is not in
         force in a full test, or when --baseline asks; on another model only with --baseline-on (and --only
         without, a trial, runs it on every model of the event). A platform's cases run with the skill only."""
         if o.get("platform"):
             return []
         if o["only"]:
-            return tier_names if o["only"] == "without" else []
+            return slot_names if o["only"] == "without" else []
         wanted = o["baseline"] or (not o["cases"] and in_force.get(str(case["id"]), 0) < baseline_count)
-        return [t for t in tier_names if (t == "strong" and wanted) or t in o["baseline_on"]]
+        return [t for t in slot_names if (t == LEAD_SLOT and wanted) or t in baseline_on]
     if resumed is not None and resumed.get("plan"):
         planned = {(str(cid), v, t) for cid, v, t in resumed["plan"]}  # a resumption runs the plan it started with
-        baseline_tiers = lambda case: [t for t in tier_names if (str(case["id"]), "without_skill", t) in planned]
+        baseline_slots = lambda case: [t for t in slot_names if (str(case["id"]), "without_skill", t) in planned]
     jobs = []
     for c in cases:
         jobs += [(c, v, t, m, k) for v in with_variants for t, m in models for k in range(1, o["runs"] + 1)]
-        jobs += [(c, "without_skill", t, m, k) for t, m in models if t in baseline_tiers(c) for k in range(1, baseline_count + 1)]
+        jobs += [(c, "without_skill", t, m, k) for t, m in models if t in baseline_slots(c) for k in range(1, baseline_count + 1)]
     if o["dry"]:
-        plan = [{"case": c["id"], "variant": v, "model_tier": t, "model": m, "run": k, "allow_web": web[c["id"]]}
+        plan = [{"case": c["id"], "variant": v, "slot": t, "model": m, "run": k, "allow_web": web[c["id"]]}
                 for c, v, t, m, k in jobs]
-        print(json.dumps({"dry_run": True, "iteration_dir": os.path.relpath(it_dir, ROOT), "runner": os.path.relpath(runner, ROOT),
-                          "floor_runner": os.path.relpath(floor_runner, ROOT), "grader": o["grader"], "pass_env": o["pass_env"],
+        print(json.dumps({"dry_run": True, "iteration_dir": os.path.relpath(it_dir, ROOT),
+                          "models": [m for _, m in models],
+                          "runners": {m: os.path.relpath(runner_for[slot], ROOT) for slot, m in models},
+                          "grader": o["grader"], "grader_runner": os.path.relpath(grader_runner, ROOT),
+                          "grader_pass_env": o["grader_pass_env"], "pass_env": o["pass_env"],
+                          "model_pass_env": {m: o["pass_envs"][m] for _, m in models},
                           "evidence_home": {"home": home, "why": home_reason, "folder": local_base},
-                          "trial": grader_adapter_problem(o, gate),  # a reason the event writes no evidence, or null
-                          "floor_pass_env": o["floor_pass_env"],
                           "cases": [{"case": c["id"], "files": c.get("files") or [], "skills": c.get("skills") or [],
                                      "setup": c.get("setup") or []} for c in cases],
                           "ablate": {"text": o["ablate"], "lines_removed": ablated_lines} if o["ablate"] else None,
@@ -2333,11 +2371,11 @@ def run(argv):
     scratch = scratch_reason(o, gate, environment, version, fingerprint)
     all_cases = evals.get("evals") or []
     hashes = {str(c["id"]): status.case_hash(skill_dir, c, evals.get("allow_web") is True) for c in cases}
-    # An event is a full test when it runs every current case with the skill on the reference model, graded:
+    # An event is a full test when it runs every current case with the skill on the lead model, graded:
     # `--skill <name>` without --cases. --cases makes a partial test, even of every case; so does --platform, whose
     # cases never enter the gate or the score.
     kind = ("full" if not o["cases"] and not o.get("platform") and len(cases) == len(all_cases)
-            and "with_skill" in with_variants and "strong" in tier_names and o["grade"] else "partial")
+            and "with_skill" in with_variants and LEAD_SLOT in slot_names and o["grade"] else "partial")
     if resumed is None and not scratch:
         # No new event of a skill while one of its events that may write evidence is open.
         for other in sorted(glob.glob(os.path.join(ROOT, "evals-workspace", o["skill"], "iteration-*", "event.json"))):
@@ -2360,7 +2398,7 @@ def run(argv):
                  "content_sha256": start_hash, "version": version, "measurement_sha256": fingerprint, "cases": hashes,
                  "tools": tool_versions(), "state": "open", "passes": 1, "scratch": scratch,
                  "plan": sorted({(str(c["id"]), v, t) for c, v, t, _, _ in jobs}),
-                 "options": {**o, "tiers": sorted(o["tiers"]) if o["tiers"] else None}}
+                 "options": dict(o)}
     else:
         pass_no = resumed.get("passes", 1)
         if resumed.get("cases") != hashes:
@@ -2385,46 +2423,51 @@ def run(argv):
     contexts = {(c["id"], with_skill): context_of(c, with_skill) for c in cases for with_skill in (True, False)}
     today = lambda: datetime.datetime.now(datetime.timezone.utc).date().isoformat()
 
-    def env_names(tier, case_id):
-        """The variables one model run receives: the caller's, and its tier's (a web case of the strong tier: the
-        low-limit key the gate file names, in place of the account's token)."""
-        if tier == "floor":
-            return o["pass_env"] + o["floor_pass_env"]
-        return o["pass_env"] + (web_env if web[case_id] and web_env else o["strong_pass_env"])
+    def own_names(slot, case_id):
+        """The variables that carry the model's own key: its entry's "web_pass_env" on a web case when it names
+        one (a low-limit key, in place of the account's token), else its "pass_env"."""
+        model = model_of[slot]
+        return (o["web_pass_envs"].get(model) if web[case_id] and o["web_pass_envs"].get(model) else o["pass_envs"][model])
 
-    def key_names(tier, case_id):
-        """The variables that carry the tier's own key, which a refusal of the credential names; the caller's
-        --pass-env variables when the tier has none of its own."""
-        own = o["floor_pass_env"] if tier == "floor" else (web_env if web[case_id] and web_env else o["strong_pass_env"])
-        return own or env_names(tier, case_id)
+    def env_names(slot, case_id):
+        """The variables one model run receives: the caller's, and its model's own."""
+        return o["pass_env"] + own_names(slot, case_id)
+
+    def key_names(slot, case_id):
+        """The variables that carry the model's own key, which a refusal of the credential names; the caller's
+        --pass-env variables when the model has none of its own."""
+        return own_names(slot, case_id) or env_names(slot, case_id)
 
     # Set when a provider refused a run's credential: every later run would meet the same refusal, so no run of
     # the event starts after it, and the runs not started are left for --resume once the key is stored again.
     refused_key, refused_note = threading.Event(), []
 
-    grader_env = o["pass_env"] + o["strong_pass_env"]
-    all_values = load_measure().redaction_values(names)  # of every tier: a grading prompt carries none of them
-    grader_account = {"key": harness_for["strong"], "markers": eval_for["strong"]["account_limit"],
-                      "probe": lambda: probe_call(runner, o["grader"], grader_env), "control": control}
+    # The grader is a model of its own: its adapter, its runner, the markers of its account and the variables of its key
+    # are those of its entry in the gate file, whichever models the event runs and in whatever order.
+    grader_env = o["pass_env"] + o["grader_pass_env"]
+    all_values = load_measure().redaction_values(names)  # of every model: a grading prompt carries none of them
+    grader_account = {"key": o["grader_harness"], "markers": grader_eval["account_limit"],
+                      "probe": lambda: probe_call(grader_runner, o["grader"], grader_env), "control": control,
+                      "model": o["grader"]}
 
-    def one_run(c, v, tier, model, k):
+    def one_run(c, v, slot, model, k):
         """Prepare, run and grade one (case, variant, model, run). Returns its ledger entry:
-        {"case", "variant", "tier", "run", "pass", "name", "row" or None, "failed" or None, "msgs", "count"}."""
-        infra = lambda reason, kind, **more: {"case": c["id"], "variant": v, "tier": tier, "run": k, "reason": reason,
+        {"case", "variant", "slot", "run", "pass", "name", "row" or None, "failed" or None, "msgs", "count"}."""
+        infra = lambda reason, kind, **more: {"case": c["id"], "variant": v, "slot": slot, "run": k, "reason": reason,
                                               "kind": kind, **more}
-        name = v if tier == "strong" else f"{v}.floor"
+        name = v + slot_suffix(slot)
         run_dir = os.path.join(it_dir, f"eval-{c['id']}", name, *([f"run-{k}"] if o["runs"] > 1 else []))
         cwd, out = os.path.join(run_dir, "cwd"), os.path.join(run_dir, "outputs")
         variant_dir = {"with_skill": skill_dir, "ablated_skill": ablated_dir}.get(v)
         count = {"attempts": 0, "early_ends": 0, "timeouts": 0, "refusals": 0, "adapter_failures": 0, "pauses": 0,
                  "redactions": 0, "contaminated": None, "passage": None}
         msgs = []
-        entry = lambda row, failed, extra=(): {"case": c["id"], "variant": v, "tier": tier, "run": k, "pass": pass_no,
+        entry = lambda row, failed, extra=(): {"case": c["id"], "variant": v, "slot": slot, "run": k, "pass": pass_no,
                                                "name": name, "row": row, "failed": failed, "msgs": msgs + list(extra), "count": count}
-        tier_env = env_names(tier, c["id"])
-        values = load_measure().redaction_values(tier_env)
-        account = {"key": harness_for[tier], "markers": eval_for[tier]["account_limit"],
-                   "probe": lambda: probe_call(runner_for[tier], model, tier_env)}
+        model_env = env_names(slot, c["id"])
+        values = load_measure().redaction_values(model_env)
+        account = {"key": harness_for[slot], "markers": eval_for[slot]["account_limit"],
+                   "probe": lambda: probe_call(runner_for[slot], model, model_env)}
 
         # What the hooks of one attempt find out, read once the run's attempts are made; reset on every attempt.
         made = {"inputs": {}, "vcs": None, "case_text": ""}
@@ -2444,7 +2487,7 @@ def run(argv):
             # folder that runs again, after this.
 
         def stage(case_dir):
-            staged, _ = stage_run(case_dir, eval_for[tier], variant_dir, deps[c["id"]], c, o.get("platform"))
+            staged, _ = stage_run(case_dir, eval_for[slot], variant_dir, deps[c["id"]], c, o.get("platform"))
             return staged
 
         def before_run(case_dir, root, staged):
@@ -2479,7 +2522,7 @@ def run(argv):
         # The run happens outside the repository; its folders come back to run_dir when it ends, however it ends.
         # The attempts (the wait on a pause, the place of the shared lock, the settings check, the adapter call, the
         # replacement of the passed values, the classification and the retries) are made by evals/run_attempts.py.
-        # The credential of the tier is in the run's environment, and a model that prints its environment puts it
+        # The credential of the model is in the run's environment, and a model that prints its environment puts it
         # in a file or in its reply: before anything is stored, read or sent to the grader, each passed value is
         # replaced by a marker, by exact value. What makes an attempt one to make again, with the skill and without
         # it alike: a timeout, a refusal by the provider, a failure of the adapter, an early end. Each is counted.
@@ -2487,9 +2530,9 @@ def run(argv):
         # the run starts again from its beginning afterwards, never retried into the limit, never counted as a
         # timeout and never scored.
         spec = {"dest": run_dir, "names": [o["skill"]], "label": f"case {c['id']} {name} run {k}",
-                "runner": runner_for[tier], "model": model, "account": account,
-                "refusal_markers": eval_for[tier]["refusal_markers"], "pass_env": tier_env, "values": values,
-                "settings": settings, "control": control, "tier": tier, "web": web[c["id"]], "timeout": o["timeout"],
+                "runner": runner_for[slot], "model": model, "account": account,
+                "refusal_markers": eval_for[slot]["refusal_markers"], "pass_env": model_env, "values": values,
+                "settings": settings, "control": control, "web": web[c["id"]], "timeout": o["timeout"],
                 "max_cost": o["max_cost"], "retries": o["retries"], "prompt": c["prompt"], "response_limit": 200000,
                 "counts": count}
         hooks = types.SimpleNamespace(before_attempt=before_attempt, build=build, after_base=after_base, stage=stage,
@@ -2522,7 +2565,7 @@ def run(argv):
             # with it would meet the same refusal. The message names the variable, never its value.
             refused_key.set()
             reason = (f"the provider refused the key ({detail}) passed in "
-                      f"{credential_label(harness_for[tier], key_names(tier, c['id']))}")
+                      f"{credential_label(harness_for[slot], key_names(slot, c['id']))}")
             note = (f"KEY REFUSED case {c['id']} {name} run {k}: {reason}. The event stops: every later run with that "
                     "key would meet the same refusal, so the run is not retried and no new run starts. Store a valid "
                     "key under that name, then run what is left with: python3 evals/eval_run.py --resume "
@@ -2563,7 +2606,7 @@ def run(argv):
         g, failed = None, None
         if o["grade"]:
             # A with-skill run whose grading fails a guard assertion is graded once more (the model's section 4).
-            g = grade(runner, o["grader"], run_dir, c, response, delta, inputs, vcs, grader_env, o["timeout"], grader_account,
+            g = grade(grader_runner, o["grader"], run_dir, c, response, delta, inputs, vcs, grader_env, o["timeout"], grader_account,
                       all_values, guards=v == "with_skill")
             count["grading_refused"] = g["refused"]
             count["pauses"] += g.get("pauses", 0)
@@ -2580,7 +2623,7 @@ def run(argv):
                **{key: timing[key] for key in ("stop_reason", "num_turns", "invoked") if key in timing},
                **({"meter": metered} if (metered := meter_of(out)) else {}),
                **({"redactions": count["redactions"]} if count["redactions"] else {})}
-        if (used := run_usage(row.get("meter"), out, key_held(model, tier_env, web[c["id"]]))) is not None:  # the tokens of the run by kind: its line carries them
+        if (used := run_usage(row.get("meter"), out, key_held(model, model_env, web[c["id"]]))) is not None:  # the tokens of the run by kind: its line carries them
             row["usage"] = used
         if g:  # one 0 or 1 per assertion, in the case's order: what a per-assertion count is made from
             row["results"] = [1 if r["passed"] else 0 for r in g["assertion_results"]]
@@ -2624,17 +2667,17 @@ def run(argv):
     infra_failures, results = [], {}
     for job in jobs:  # the order of the plan, so benchmark.json does not depend on which run finished first
         entries = ledger.get(key_of(job), [])
-        where = {"case": job[0]["id"], "variant": job[1], "tier": job[2], "run": job[4]}
-        tier_count, variant_count = early_counts[job[2]], counts[job[2]].setdefault(job[1], {
+        where = {"case": job[0]["id"], "variant": job[1], "slot": job[2], "model": model_of[job[2]], "run": job[4]}
+        slot_count, variant_count = early_counts[job[2]], counts[job[2]].setdefault(job[1], {
             "attempts": 0, "retries": 0, "timeouts": 0, "refusals": 0, "adapter_failures": 0, "early_ends": 0, "pauses": 0, "resumes": 0})
         for e in entries:  # every pass counts: what a resumption retried is part of how the result was reached
             count = e["count"]
             grading_refused += count.get("grading_refused", 0)
             redactions += count.get("redactions", 0)
-            tier_count["attempts"] += count["attempts"]
-            tier_count["early_ends"] += count["early_ends"]
-            tier_count["by_case"][job[0]["id"]] = tier_count["by_case"].get(job[0]["id"], 0) + count["early_ends"]
-            tier_count["by_variant"][job[1]] = tier_count["by_variant"].get(job[1], 0) + count["early_ends"]
+            slot_count["attempts"] += count["attempts"]
+            slot_count["early_ends"] += count["early_ends"]
+            slot_count["by_case"][job[0]["id"]] = slot_count["by_case"].get(job[0]["id"], 0) + count["early_ends"]
+            slot_count["by_variant"][job[1]] = slot_count["by_variant"].get(job[1], 0) + count["early_ends"]
             variant_count["attempts"] += count["attempts"]
             if e is entries[-1] and isinstance((e["row"] or {}).get("invoked"), bool):
                 variant_count["invoked"] = variant_count.get("invoked", 0) + int(e["row"]["invoked"])
@@ -2669,23 +2712,22 @@ def run(argv):
 
     summary = {name: {"pass_rate": agg(rows, "pass_rate"), "tokens": agg(rows, "tokens"), "duration_ms": agg(rows, "duration_ms"), "cases": rows}
                for name, rows in results.items()}
-    conditions = conditions_of({name: exact_mean(rows) for name, rows in results.items()}, o["threshold"], o["tolerance"],
-                               bool(o["floor"]))
-    bench = {"skill": o["skill"], "runs": o["runs"], "timeout": o["timeout"], "retries": o["retries"], "max_cost_usd": o["max_cost"], "extra_pass_env": o["extra_pass_env"], "harness": o["harness"], "floor_harness": o["floor_harness"] or o["harness"], "models": dict(models), "grader": o["grader"], "threshold": o["threshold"],
-             "strong_tolerance": o["tolerance"], "measurement_version": o["measurement_version"],
+    conditions = conditions_of({name: exact_mean(rows) for name, rows in results.items()}, o["threshold"], o["tolerance"])
+    bench = {"skill": o["skill"], "runs": o["runs"], "timeout": o["timeout"], "retries": o["retries"], "max_cost_usd": o["max_cost"], "extra_pass_env": o["extra_pass_env"], "adapters": {m: harness_for[t] for t, m in models}, "models": dict(models), "grader": o["grader"], "grader_adapter": o["grader_harness"], "threshold": o["threshold"],
+             "tolerance": o["tolerance"], "measurement_version": o["measurement_version"],
              **({"environment": environment} if environment else {}),
              "ablate": {"text": o["ablate"], "lines_removed": ablated_lines} if o["ablate"] else None,
              "run_summary": summary, "conditions": conditions, "failures": len(infra_failures)}
     # A run counts as completed when it produced a response and, unless --no-grade, was graded.
     completed = sum(1 for rows in results.values() for r in rows if r["pass_rate"] is not None or not o["grade"])
     complete = o["grade"] and not infra_failures and completed == len(jobs)
-    # The event is complete by the reference model: every run of it graded. A run missing on another model is
+    # The event is complete by the lead model: every run of it graded. A run missing on another model is
     # listed and makes the exit code 1, and leaves the evidence complete.
     graded = lambda job: any(r["case"] == job[0]["id"] and r["run"] == job[4] and r.get("pass_rate") is not None
-                             for r in results.get(job[1] if job[2] == "strong" else f"{job[1]}.floor", []))
-    complete_ref = bool(o["grade"]) and all(graded(job) for job in jobs if job[2] == "strong")
+                             for r in results.get(job[1] + slot_suffix(job[2]), []))
+    complete_ref = bool(o["grade"]) and all(graded(job) for job in jobs if job[2] == LEAD_SLOT)
     # Complete is also read model by model: a model's gate is written only when every run of it in the event is graded.
-    complete_by = {tier: bool(o["grade"]) and all(graded(job) for job in jobs if job[2] == tier) for tier, _ in models}
+    complete_by = {slot: bool(o["grade"]) and all(graded(job) for job in jobs if job[2] == slot) for slot, _ in models}
     iteration = int(os.path.basename(it_dir).split("-")[1])
     bench.update({"date": datetime.date.today().isoformat(), "iteration": iteration, "cases": [c["id"] for c in cases],
                   "content_sha256": start_hash, "expected_runs": len(jobs), "completed_runs": completed,
@@ -2694,13 +2736,13 @@ def run(argv):
     bench["shared_passages"] = shared
     bench["refusals"] = refusals
     bench["timeouts"] = timeouts
-    bench["counts"] = counts
+    bench["counts"] = {model_of[slot]: c for slot, c in counts.items()}
     bench["web_cases"] = [c["id"] for c in cases if web[c["id"]]]
     bench["control"] = {"runs": control["runs"], "timeout_seconds": control["timeout_seconds"], "retries": control["retries"],
                         "max_resumes": control["max_resumes"]}
     bench["grading"] = {"template_sha256": template_hash(), "refused": grading_refused}
     bench["redactions"] = redactions
-    bench["early_ends"] = early_end_stats(early_counts)
+    bench["early_ends"] = early_end_stats({model_of[slot]: c for slot, c in early_counts.items()})
     bench["early_end_warning"] = early_end_warning(bench["early_ends"], o["early_rate"])
     bench["scratch"] = scratch
     write_json(os.path.join(it_dir, "benchmark.json"), bench)
@@ -2712,26 +2754,26 @@ def run(argv):
     for note in refused_note:  # said again at the end, where the operator reads the outcome
         print(note, file=sys.stderr)
     for hit in timeouts:
-        print(f"TIMEOUT     case {hit['case']} {hit['variant']} ({hit['tier']}) run {hit['run']}: still incomplete after "
+        print(f"TIMEOUT     case {hit['case']} {hit['variant']} ({hit['model']}) run {hit['run']}: still incomplete after "
               f"{hit['resumes']} resumption(s) ({hit['reason']}); it scores 0", file=sys.stderr)
     if contaminated:
         print(f"CONTAMINATED: {len(contaminated)} without-skill run(s) name a mount path of the workbench or the "
               "repository's path (benchmark.json contaminated): they are not scored, and the iteration is incomplete. "
               "Read the evidence, close the way in, and rerun.", file=sys.stderr)
     for hit in shared:
-        print(f"WARNING shared passage: case {hit['case']} {hit['variant']} ({hit['tier']}) run {hit['run']} shares "
+        print(f"WARNING shared passage: case {hit['case']} {hit['variant']} ({hit['model']}) run {hit['run']} shares "
               f"{len(hit['passage'].split())} words with the skill's own text that the case does not hold: "
               f"\"{hit['passage']}\". Read the run: a stock phrase, or a way the baseline reached the skill.", file=sys.stderr)
     # The evidence file: an event line and one line per scored run, in the run folder. It goes into the skill's
     # folder only when the event is complete and is no trial.
     # The id each model is written under: the gate file's listed id for a listed model or one of its aliases; for a model
     # the file does not list (a person's own test, which stays local) its own well-formed id.
-    model_ids = {tier: status.model_id(model_cfg(gate, model), model) for tier, model in models}
+    model_ids = {slot: status.model_id(model_cfg(gate, model), model) for slot, model in models}
     measurement_version = o["measurement_version"] or 1
     run_lines = []
     for job in jobs:
         variant = {"with_skill": "with", "without_skill": "without"}.get(job[1])
-        name = job[1] if job[2] == "strong" else f"{job[1]}.floor"
+        name = job[1] + slot_suffix(job[2])
         row = next((r for r in results.get(name, []) if r["case"] == job[0]["id"] and r["run"] == job[4]), None)
         if variant is None or row is None or row.get("pass_rate") is None or "results" not in row:
             continue
@@ -2751,26 +2793,26 @@ def run(argv):
                           "results": row["results"],
                           **({"guard_failed": row["guard_failed"]} if variant == "with" and row.get("guard_failed") else {})})
     line_counts = {}
-    for tier, model in models:
+    for slot, model in models:
         for variant_name, variant in (("with_skill", "with"), ("without_skill", "without")):
-            c = counts[tier].get(variant_name)
+            c = counts[slot].get(variant_name)
             if c:
-                into = line_counts.setdefault(model_ids[tier], {}).setdefault(variant, {k: 0 for k in status.COUNT_KEYS})
+                into = line_counts.setdefault(model_ids[slot], {}).setdefault(variant, {k: 0 for k in status.COUNT_KEYS})
                 for k in status.COUNT_KEYS:
                     into[k] += c[k]
                 if variant == "with" and "invoked" in c:
                     into["invoked"] = into.get("invoked", 0) + c["invoked"]
-    ran_baseline = {str(job[0]["id"]) for job in jobs if job[1] == "without_skill" and job[2] == "strong"}
+    ran_baseline = {str(job[0]["id"]) for job in jobs if job[1] == "without_skill" and job[2] == LEAD_SLOT}
     reused = {cid for cid, n in in_force.items() if n >= baseline_count} if kind == "full" else set()  # a partial test uses none
     # What each model that ran through a key proxy was served by: the provider its entry of the gate file pins, or,
     # with no pin, the route's upstream host. What the event line's "upstream" states.
-    upstream = upstream_of(models, model_ids, {"strong": o["pass_env"] + o["strong_pass_env"],
-                                               "floor": o["pass_env"] + o["floor_pass_env"]}) if EXECUTOR == "container" else None
+    upstream = upstream_of(models, model_ids, {slot: o["pass_env"] + o["pass_envs"][m] for slot, m in models}
+                           ) if EXECUTOR == "container" else None
     event_line = {"record": "test", "skill": o["skill"], "test": test, "kind": kind, "version": version,
                   "content_sha256": start_hash, "date": event["started"][:10],
-                  "models": [model_ids[tier] for tier, _ in models],  # the list shape: the tiers are the runner's, not the evidence's
-                  "adapters": {model_ids[tier]: harness_for[tier] for tier, _ in models},
-                  "adapter_sha256": {harness_for[tier]: status.file_sha256(runner_for[tier]) for tier, _ in models},
+                  "models": [model_ids[slot] for slot, _ in models],  # the list shape: the slots are the runner's, not the evidence's
+                  "adapters": {model_ids[slot]: harness_for[slot] for slot, _ in models},
+                  "adapter_sha256": {harness_for[slot]: status.file_sha256(runner_for[slot]) for slot, _ in models},
                   "grader": status.model_id(gate, o["grader"]), "runs": o["runs"], "timeout_seconds": o["timeout"],
                   "retries": o["retries"], "measurement_version": measurement_version, "measurement_sha256": fingerprint,
                   "image_digest": (environment or {}).get("image_digest"), "image_platform": (environment or {}).get("image_platform"),
@@ -2788,32 +2830,32 @@ def run(argv):
         # the ones it reused), unrounded. A model with no baseline of its own has no gate in the event.
         source = local_events if home == "local" else None
         gates = {}
-        for tier, model in models:
-            if not complete_by[tier]:  # a run of this model is missing: its gate would be computed on part of the test
+        for slot, model in models:
+            if not complete_by[slot]:  # a run of this model is missing: its gate would be computed on part of the test
                 continue
-            cfg = {**model_cfg(gate, model), "threshold": o["threshold"], "strong_tolerance": o["tolerance"]}
+            cfg = {**model_cfg(gate, model), "threshold": o["threshold"], "tolerance": o["tolerance"]}
             computed = status.gate_of(skill_dir, cfg, extra=[(event_line, run_lines)], evidence=source)
             if computed["passed"] is not None:
-                gates[model_ids[tier]] = {"passed": bool(computed["passed"]), "with": computed["with"],
+                gates[model_ids[slot]] = {"passed": bool(computed["passed"]), "with": computed["with"],
                                           "baseline": computed["baseline"], "threshold": o["threshold"],
                                           "tolerance": o["tolerance"],
                                           **({"note": computed["note"]} if computed["note"] else {})}
-            elif tier == "strong":  # not computable from the lines (it should be, right after a full test): this test's own lines
+            elif slot == LEAD_SLOT:  # not computable from the lines (it should be, right after a full test): this test's own lines
                 print(f"NOTE the gate could not be computed from the evidence ({computed['cause']}); it is computed on this "
                       "test's own lines", file=sys.stderr)
 
                 def per_case(variant):
                     by = {}
                     for l in run_lines:
-                        if l["variant"] == variant and l["model"] == model_ids["strong"]:
+                        if l["variant"] == variant and l["model"] == model_ids[LEAD_SLOT]:
                             by.setdefault(str(l["case"]), []).append(l["score"])
                     return statistics.mean(statistics.mean(v) for v in by.values()) if by else None
 
                 with_mean, base_mean = per_case("with"), per_case("without")
-                gates[model_ids[tier]] = {
+                gates[model_ids[slot]] = {
                     "passed": bool(load_measure().gate_passes(with_mean, base_mean, o["threshold"], o["tolerance"])),
                     "with": with_mean, "baseline": base_mean, "threshold": o["threshold"], "tolerance": o["tolerance"]}
-        gate_result = gates.get(model_ids["strong"])  # the event is full by its strong tier: the gate its exit code reads
+        gate_result = gates.get(model_ids[LEAD_SLOT])  # the event is full by its lead model: the gate its exit code reads
         event_line["gate"] = gates
     evidence = {"written": False, "path": None, "scratch": None, "reason": scratch, "test": test, "kind": kind,
                 "lines": len(run_lines), "gate": gate_result, "home": home}
@@ -2867,10 +2909,10 @@ def run(argv):
         + (f"; the event's file is {evidence['scratch']}" if evidence["scratch"] else "")), file=sys.stderr)
     if bench["early_end_warning"]:
         print(f"WARNING early ends: {bench['early_end_warning']}", file=sys.stderr)
-    for tier, model in models:
-        c = counts[tier].get("with_skill") or {}
+    for slot, model in models:
+        c = counts[slot].get("with_skill") or {}
         if c.get("reported"):
-            print(f"INVOKED     the {tier} model loaded the skill in {c['invoked']} of {c['reported']} with-skill run(s)"
+            print(f"INVOKED     {model} loaded the skill in {c['invoked']} of {c['reported']} with-skill run(s)"
                   + ("" if c["invoked"] == c["reported"] else ": a run that did not still scores, as the description's failure"),
                   file=sys.stderr)
     if redactions:
@@ -2890,7 +2932,7 @@ def run(argv):
         return 1
     if gate_result is not None:
         return 0 if gate_result["passed"] else 3
-    if conditions and not all(v for k, v in conditions.items() if k.endswith("_ok")):
+    if conditions and condition_fails(conditions):
         return 3
     return 0
 

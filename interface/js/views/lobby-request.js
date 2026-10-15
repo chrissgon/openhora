@@ -9,6 +9,7 @@ import { h } from "../dom.js";
 import { withheldLine } from "../floor/widgets.js";
 import * as format from "../format.js";
 import { routingWords } from "../model.js";
+import { requestModelWords } from "../models.js";
 import * as router from "../router.js";
 import { QUEUE_REASON, ago, flowOptions, requestLine, requestWords, resolvedWord } from "./lobby-model.js";
 
@@ -83,6 +84,7 @@ export function createBlock({ api, project, request, body, open, now, signal, on
       "aria-label": routing ? `Request ${request.id} is being routed` : `Route request ${request.id}`, title: request.routing ? routingWords(request, now) : runBusy && !remembered ? QUEUE_REASON : null }) : null;
   // the run's words on an element that wraps, not only on the button's tooltip (a touch screen has no tooltip)
   const runNote = request.routing ? h("span", { class: "wb-lr-run", text: routingWords(request, now) }) : null;
+  const modelNote = line.model ? h("span", { class: "wb-muted wb-lr-model", text: requestModelWords(line.model) }) : null;      // the model the person chose for the request
   // After a reload the flow chosen in the form is forgotten: the line offers the flows beside "Route it" (E-20). The page never changes the request's text.
   const options = flows ? flowOptions(flows) : [];
   const chooser = route && !routing && !remembered && options.length > 1
@@ -99,7 +101,7 @@ export function createBlock({ api, project, request, body, open, now, signal, on
     titleButton,
     line.state ? h("span", { class: `pui-chip ${line.tone} wb-chip-small`, text: line.state }) : null);
   const lacking = line.routable && !routeAllowed ? ["route"] : [];
-  const actions = chooser || route || cancel ? h("div", { class: `wb-lr-actions${chooser ? " has-flow" : ""}` }, chooser, route, cancel, runNote) : null;
+  const actions = chooser || route || cancel || modelNote ? h("div", { class: `wb-lr-actions${chooser ? " has-flow" : ""}` }, chooser, route, cancel, runNote, modelNote) : null;
   if (cancel) cancel.addEventListener("click", () => onCancel(request, cancel));
   if (route && !routing) route.addEventListener("click", () => onRoute(request, remembered || (chooser ? chooser.value : "")));
 

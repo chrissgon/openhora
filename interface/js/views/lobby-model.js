@@ -237,6 +237,7 @@ export function requestLine(request, open) {
     tone: stateTone(request.state),     // C-23: the chip takes the state's colour (R-47)
     cancellable: !final,
     routable: request.state === "requested" && open === 0,
+    model: typeof request.model === "string" ? request.model : "",     // the model the person chose for the request ("" when none)
   };
 }
 

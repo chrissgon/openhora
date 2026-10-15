@@ -32,6 +32,7 @@ export const OPS = Object.freeze({
 export const EXEMPT = Object.freeze({
   cancel: "a brake: cancelling a request is never withheld from the page",
   setMode: "narrowing only, a brake: the page offers Stop agent and Supervise, a wider mode is a terminal command to copy",
+  setModel: "the service decides: fixing a model needs the project's group set-mode, and the consent that an autonomous agent needs is given in the terminal, never on the page",
   sync: "no control on the page",
   dispatch: "no control on the page",
 });

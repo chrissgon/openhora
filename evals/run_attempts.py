@@ -144,8 +144,8 @@ def run(lab, spec, hooks=None) -> dict:
     """Every attempt of one run, until one is the run's result or the retries are spent.
 
     spec is a dictionary: "dest" (the run folder), "names" (what a temporary folder must not carry), "label" (the
-    run in a pause's record), "runner", "model", "timeout", "max_cost", "web" (the adapter call), "account"
-    ({"key", "markers", "probe"}), "refusal_markers", "settings", "pass_env", "values", "control", "tier",
+    run in a pause's record), "runner", "model" (the model id the runner is called with; it also names the model's web lock), "timeout", "max_cost", "web" (the adapter call), "account"
+    ({"key", "markers", "probe"}), "refusal_markers", "settings", "pass_env", "values", "control",
     "retries", "prompt", "response_limit", and optionally "counts" (a dictionary updated in place) and
     "env_extra" ({name: value}, or a function of the attempt's fresh folder that returns one, called right before
     the adapter call: set in its environment and added to its box's passed names, never to the values replaced).
@@ -190,7 +190,7 @@ def run(lab, spec, hooks=None) -> dict:
         lab.wait_while_paused(account["key"], account["probe"])
         counts["attempts"] += 1
         # The attempt happens outside the repository; its folders come back to dest when it ends, however it ends.
-        with lab.Slots(spec["control"], spec["tier"], bool(spec.get("web"))):
+        with lab.Slots(spec["control"], spec["model"], bool(spec.get("web"))):
             if before_attempt:  # called again: something may have changed while this run waited for its place
                 before_attempt()
             made = attempt(lab, spec, hooks, counts)

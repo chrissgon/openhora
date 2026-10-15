@@ -4,7 +4,7 @@
 # dependencies = []
 # ///
 """The configuration's acceptance in the operations layer: who may accept a change of docs/workbench/runtime.json, and
-the two operations that change or accept it.
+the three operations that change or accept it.
 
 A change of the configuration takes effect only when its hash is the accepted one (contracts/runtime.md, "The
 configuration, and who may accept a change of it"). The accepted hash has one writer, `_record_acceptance`, and three
@@ -16,12 +16,18 @@ paths reach it, each under the configuration lock (ops_core._config_lock):
                   (ACCEPT_CHANNELS): `by: "person"`, and only when the file was the accepted one before the call, so
                   the one difference this accepts is the mode the command names. A configuration with any other
                   unaccepted change is refused and nothing is written: the person reads the file and runs accept-config.
+  set_model       the model an agent is fixed to (or `auto`, or the project's default again). Fixing a model on an
+                  agent in an autonomous mode, or raising an agent with a model fixed to one, is the person's consent
+                  (decisions D34 and D38): it shows autonomy.CONSENT_WARNING and is given with `accept`, in the terminal
+                  only; the consent is stored with the agent and names the model and the mode, so changing either asks
+                  again. A messaging channel has neither operation: it can never consent.
 
 Functions:
   _record_acceptance(ctx, cfg, sha256, by)   record the accepted hash, who accepted it, and the state file's Checkpoints line
   write_checkpoints(cfg)                    the state file's "- Checkpoints:" line rewritten from the area agents
   accept_config(project, sha256)            the person accepts a hash
   set_mode(project, agent, mode[, accept, channel])   set one area agent's autonomy mode
+  set_model(project, agent, model[, accept, channel])  fix one area agent's model, and record the consent that needs
 
 Sibling of runtime/ops.py, which exposes the operations under their names; no shell imports this file. The shared
 names come from ops_core (read as `core.<name>`, at call time). It reaches no operation of ops.py.
@@ -37,6 +43,7 @@ import sys
 import operations
 import ops_core as core
 import autonomy
+import ops_models
 import path_rule
 import project_config
 import state_merge
@@ -111,63 +118,40 @@ def write_checkpoints(cfg: dict):
         return {"written": True, "value": value}
 
 
-def set_mode(project: str, agent: str, mode: str, accept: bool = False, channel=None) -> dict:
-    """Set one area agent's autonomy mode: only area_agents.<agent>.mode of runtime.json changes (decision P1: the
-    mode is the configuration's word). A move down the order of the modes (autonomy.MODES: stopped < supervised <
-    milestones < autonomous < autonomous-with-policy) widens nothing, so code accepts the new hash at once, as the
-    acceptance accept-config writes, recorded `code:narrowing`, and no operation refuses afterwards. A move up leaves
-    the hash unaccepted: every operation then refuses until the person accepts it (accept-config), and `next` is the
-    command, unless the person passes `accept` in the terminal: then the hash is accepted in the same locked step,
-    recorded `person`, on one condition checked under the lock, that the configuration was the accepted one before
-    this change (so the only difference accepted is this mode). Any other state (another unaccepted change, a file that
-    moved since the call began) is refused and nothing is written: the person reads the file and runs accept-config.
-    `accept` is refused (code 2, before anything is read) from any channel but ACCEPT_CHANNELS: the local page, the
-    conversation and the MCP mode can never accept what widens an agent. A narrowing with `accept` behaves as without
-    it. The same mode changes nothing. Returns {"agent", "mode", "config_sha256", "accepted", "by" ("code:narrowing",
-    "person" or None), "next" (the command, or None)}, with "checkpoints" after an acceptance and "unchanged" true when
-    the mode was the one set. Two calls at once, or a call and the terminal, never overlap (_config_lock), and a call
-    that finds the file or the accepted hash moved since it began writes nothing and is refused (code 1): code never
-    accepts a widening that a stale copy of the file would bring.
-    The channel's policy (operations.refusal): from the page a move down is always done and a move up only when the
-    page's policy lists the group `set-mode` (refused with code 1, before the lock and any write)."""
-    if accept and channel not in ACCEPT_CHANNELS:
-        raise core.OpsError("a mode is set and accepted in one step only by the person, in the terminal "
-                            "(set-mode --accept); here, set the mode and accept it with accept-config in the terminal", 2)
-    ctx = core.context(project)
-    cfg = ctx["cfg"]
-    if mode not in autonomy.MODES:
-        raise core.OpsError(f"a mode is one of {', '.join(autonomy.MODES)}", 2)
-    if agent not in cfg["area_agents"]:
-        raise core.OpsError(f"{agent!r} is not an agent of area_agents in {cfg['path']}", 2)
-    old = cfg["area_agents"][agent]["mode"]
-    # The page's brake (decisions M-12, M-13): a move DOWN the order of the modes is never withheld, a move up needs the group
-    # `set-mode` in the page's policy. Read before the lock and before any write; the direction is known only here.
-    if channel == "page" and old != mode and not autonomy.narrows(old, mode) \
-            and not operations.policy_allows("set-mode", channel, cfg["channels"]):
-        raise core.OpsError(operations.not_enabled("set-mode", channel), 1)
+def _consent_refusal(project: str, agent: str, what: str, **command) -> "core.OpsError":
+    """The refusal of a change that needs the person's consent and was not given it: the warning, once (autonomy.CONSENT_WARNING),
+    and the one command that gives the consent, in the terminal (the page draws it with Copy and builds none)."""
+    return core.OpsError(f"{what} {autonomy.CONSENT_WARNING} To consent, run this command in the terminal: "
+                         f"{core._command(command.pop('verb'), project, agent=agent, accept=True, **command)}", 2)
+
+
+def _change_agent(ctx: dict, cfg: dict, project: str, agent: str, edit, unchanged: bool, narrowing: bool, accept: bool,
+                  answer: dict) -> dict:
+    """The locked step the two operations share. Under the configuration lock the file and the accepted hash are read again:
+    another change (a request at the same time, the terminal) may have finished since context() read them. The call writes
+    the accepted copy plus the edit of one agent's entry, so it goes on only when the file is still that accepted copy; else
+    it writes nothing, and the caller asks again. `edit(entry)` changes the agent's entry in the copy to be written;
+    `unchanged` says the entry already holds what the call asks (nothing is written); `narrowing` says the change widens
+    nothing (code accepts the new hash); `accept` is the person's, in the terminal. Returns `answer` with config_sha256,
+    accepted, by, next, and checkpoints after an acceptance."""
     with core._config_lock(cfg):
-        # Under the lock, the file and the accepted hash are read again: another change (a request at the same time, the
-        # terminal) may have finished since context() read them. This call writes the accepted copy plus its one word,
-        # so it goes on only when the file is still that accepted copy; else it writes nothing, and the caller asks again.
         fresh = core._config_of(project)
         accepted = core._stored(ctx, ctx["store"].cursor_get, project_config.ACCEPTED)
         if fresh["sha256"] != cfg["sha256"] or accepted != cfg["sha256"]:
             raise core.OpsError("the configuration changed while this call was running: nothing was written; read it, "
                                 "and ask again", 1)
-        if old == mode:
-            return {"agent": agent, "mode": mode, "config_sha256": cfg["sha256"], "accepted": True, "by": None,
-                    "next": None, "unchanged": True}
+        if unchanged:
+            return {**answer, "config_sha256": cfg["sha256"], "accepted": True, "by": None, "next": None, "unchanged": True}
         raw = json.loads(json.dumps(fresh["raw"]))
-        raw["area_agents"][agent]["mode"] = mode
+        edit(raw["area_agents"][agent])
         text = json.dumps(raw, indent=2, ensure_ascii=False) + "\n"
         new = hashlib.sha256(text.encode("utf-8")).hexdigest()  # the hash of the exact bytes written, taken before the file is replaced
         temporary = f"{cfg['path']}.{os.getpid()}.tmp"
         with open(temporary, "w", encoding="utf-8") as f:
             f.write(text)
         os.replace(temporary, cfg["path"])
-        out = {"agent": agent, "mode": mode, "config_sha256": new, "accepted": False, "by": None,
+        out = {**answer, "config_sha256": new, "accepted": False, "by": None,
                "next": core._command("accept-config", cfg["project"], sha256=new)}
-        narrowing = autonomy.narrows(old, mode)
         if narrowing or accept:
             try:
                 written = project_config.load(project)
@@ -181,6 +165,120 @@ def set_mode(project: str, agent: str, mode: str, accept: bool = False, channel=
                 out.update(config_sha256=written["sha256"],
                            next=core._command("accept-config", cfg["project"], sha256=written["sha256"]))
     return out
+
+
+def set_mode(project: str, agent: str, mode: str, accept: bool = False, channel=None) -> dict:
+    """Set one area agent's autonomy mode: only area_agents.<agent>.mode of runtime.json changes, and the consent stored with
+    the agent (decision P1: the mode is the configuration's word). A move down the order of the modes (autonomy.MODES:
+    stopped < supervised < milestones < autonomous < autonomous-with-policy) widens nothing, so code accepts the new hash at
+    once, as the acceptance accept-config writes, recorded `code:narrowing`, and no operation refuses afterwards. A move up
+    leaves the hash unaccepted: every operation then refuses until the person accepts it (accept-config), and `next` is the
+    command, unless the person passes `accept` in the terminal: then the hash is accepted in the same locked step,
+    recorded `person`, on one condition checked under the lock, that the configuration was the accepted one before
+    this change (so the only difference accepted is this mode). Any other state (another unaccepted change, a file that
+    moved since the call began) is refused and nothing is written: the person reads the file and runs accept-config.
+    `accept` is refused (code 2, before anything is read) from any channel but ACCEPT_CHANNELS: the local page, the
+    conversation and the MCP mode can never accept what widens an agent. A narrowing with `accept` behaves as without
+    it. The same mode changes nothing.
+    A mode that releases reviews without the person (autonomy.CONSENT_MODES) on an agent fixed to a model (decision D38)
+    needs the person's consent, given by the same `accept` after the warning (autonomy.CONSENT_WARNING): without it the
+    call is refused (code 2) with the warning and the command, and nothing is written. With it, the consent is stored with
+    the agent and names the model and the mode. Leaving those modes, or an agent with no model fixed, stores none, and a
+    consent that no longer names the agent's model and mode is removed.
+    Returns {"agent", "mode", "config_sha256", "accepted", "by" ("code:narrowing", "person" or None), "next" (the command, or
+    None)}, with "checkpoints" after an acceptance and "unchanged" true when the mode was the one set. Two calls at once, or a
+    call and the terminal, never overlap (_config_lock), and a call that finds the file or the accepted hash moved since it
+    began writes nothing and is refused (code 1): code never accepts a widening that a stale copy of the file would bring.
+    The channel's policy (operations.refusal): from the page a move down is always done and a move up only when the
+    page's policy lists the group `set-mode` (refused with code 1, before the lock and any write)."""
+    if accept and channel not in ACCEPT_CHANNELS:
+        raise core.OpsError("a mode is set and accepted in one step only by the person, in the terminal "
+                            "(set-mode --accept); here, set the mode and accept it with accept-config in the terminal", 2)
+    ctx = core.context(project)
+    cfg = ctx["cfg"]
+    if mode not in autonomy.MODES:
+        raise core.OpsError(f"a mode is one of {', '.join(autonomy.MODES)}", 2)
+    if agent not in cfg["area_agents"]:
+        raise core.OpsError(f"{agent!r} is not an agent of area_agents in {cfg['path']}", 2)
+    entry = cfg["area_agents"][agent]
+    old = entry["mode"]
+    # The page's brake (decisions M-12, M-13): a move DOWN the order of the modes is never withheld, a move up needs the group
+    # `set-mode` in the page's policy. Read before the lock and before any write; the direction is known only here.
+    if channel == "page" and old != mode and not autonomy.narrows(old, mode) \
+            and not operations.policy_allows("set-mode", channel, cfg["channels"]):
+        raise core.OpsError(operations.not_enabled("set-mode", channel), 1)
+    after = {**entry, "mode": mode}
+    needs = autonomy.consent_needed(after)
+    if needs and not autonomy.consent_valid({**after, "consent": entry.get("consent")}, after["model"]) and not accept:
+        raise _consent_refusal(project, agent, f"{agent} is fixed to the model {after['model']}, and {mode} releases its reviews "
+                               "without you.", verb="set-mode", mode=mode)
+
+    def edit(raw_entry):
+        raw_entry["mode"] = mode
+        if needs:
+            raw_entry["consent"] = {"model": after["model"], "mode": mode}
+        else:
+            raw_entry.pop("consent", None)
+
+    target = {"model": after["model"], "mode": mode} if needs else None
+    return _change_agent(ctx, cfg, project, agent, edit, old == mode and entry.get("consent") == target,
+                         autonomy.narrows(old, mode), accept, {"agent": agent, "mode": mode})
+
+
+def set_model(project: str, agent: str, model: str, accept: bool = False, channel=None) -> dict:
+    """Fix one area agent to a model: only area_agents.<agent>.model of runtime.json changes, and the consent stored with the
+    agent. model is a model id of the gate file (an alias is written as its id), "auto" (the agent's tasks are routed by the
+    evidence and the price) or "default" (the agent keeps no model of its own: the request's, else the project's default_model
+    or auto, decides).
+    Fixing a model on an agent in an autonomous mode (autonomy.CONSENT_MODES) is the person's consent (decisions D34 and
+    D38): the reviews of that agent's runs on a model with no reliable evidence are released by the mode, and each such run is
+    recorded as autonomy by consent. It is given with `accept`, after the warning (autonomy.CONSENT_WARNING), in the terminal
+    only (ACCEPT_CHANNELS, code 2 from any other channel); without it the call is refused (code 2) with the warning and the
+    command, and nothing is written. The consent is stored with the agent and names the model and the mode: changing either
+    asks again, and a consent that no longer names the agent's model and mode is removed. Like set_mode, a change that fixes
+    a model leaves the hash unaccepted until the person accepts it (accept-config, or `accept` here in the terminal, on the
+    same condition as set_mode); going back to the default widens nothing and is accepted by code.
+    Returns {"agent", "model" (the id, "auto" or None), "consent" (what is stored: {"model", "mode"} or None),
+    "config_sha256", "accepted", "by", "next"}, with "unchanged" true when nothing changes."""
+    if accept and channel not in ACCEPT_CHANNELS:
+        raise core.OpsError("a model is fixed and accepted in one step only by the person, in the terminal "
+                            "(set-model --accept); here, fix the model and accept it with accept-config in the terminal", 2)
+    ctx = core.context(project)
+    cfg = ctx["cfg"]
+    if agent not in cfg["area_agents"]:
+        raise core.OpsError(f"{agent!r} is not an agent of area_agents in {cfg['path']}", 2)
+    if not isinstance(model, str) or not model.strip():
+        raise core.OpsError("model is a model id of the gate file, \"auto\", or \"default\"", 2)
+    word = None if model == "default" else ops_models.check_word(model)
+    # The page's policy: from the page, fixing a model needs the group `set-mode` (going back to the default or to auto never
+    # does: it widens nothing). Read before the lock and before any write.
+    if channel == "page" and word not in (None, autonomy.AUTO_MODEL) and not operations.policy_allows("set-model", channel, cfg["channels"]):
+        raise core.OpsError(operations.not_enabled("set-model", channel), 1)
+    entry = cfg["area_agents"][agent]
+    after = {**entry}
+    after.pop("model", None)
+    if word is not None:
+        after["model"] = word
+    needs = autonomy.consent_needed(after)
+    valid = needs and autonomy.consent_valid({**after, "consent": entry.get("consent")}, after["model"])
+    if needs and not valid and not accept:
+        raise _consent_refusal(project, agent, f"{agent} is in {entry['mode']} mode, and fixing {word} on it means its reviews are "
+                               "released without you.", verb="set-model", model=word)
+
+    def edit(raw_entry):
+        if word is None:
+            raw_entry.pop("model", None)
+        else:
+            raw_entry["model"] = word
+        if needs:
+            raw_entry["consent"] = {"model": word, "mode": entry["mode"]}
+        else:
+            raw_entry.pop("consent", None)
+
+    stored = {"model": word, "mode": entry["mode"]} if needs else None
+    unchanged = entry.get("model") == word and entry.get("consent") == stored
+    return _change_agent(ctx, cfg, project, agent, edit, unchanged, word in (None, autonomy.AUTO_MODEL), accept,
+                         {"agent": agent, "model": word, "consent": stored})
 
 
 if __name__ == "__main__":

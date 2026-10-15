@@ -60,7 +60,7 @@ def test_every_write_function_of_api_is_gated_or_exempt_with_a_reason():
         if 'send("POST"' in body:
             posts.add(re.match(r"\w+", chunk).group(0))
     # the transport helpers that are not operations carry no route of their own
-    assert posts == {"answer", "release", "approve", "reject", "request", "route", "cancel", "retry", "goAhead", "handOver", "verdict", "setMode", "say", "sync", "dispatch"}
+    assert posts == {"answer", "release", "approve", "reject", "request", "route", "cancel", "retry", "goAhead", "handOver", "verdict", "setMode", "setModel", "say", "sync", "dispatch"}
     ops, exempt = keys_of("OPS"), keys_of("EXEMPT")
     # a write that does not spell send("POST") the usual way (a method key, a verb in a variable) is found too
     wrote = {re.match(r"\w+", chunk).group(0) for chunk in api.split("\nexport function ")[1:]
@@ -153,7 +153,7 @@ def test_the_rules_for_absent_null_a_list_and_pairs(tmp_path):
     assert got["fingerprint"][0] != got["fingerprint"][1] != got["fingerprint"][2] and got["fingerprint"][0] != got["fingerprint"][2]
     assert got["reader"] == [True, False, True]
     assert got["keys"][0] == sorted(["answer", "release", "approve", "reject", "request", "route", "retry", "goAhead", "handOver", "verdict", "say"])
-    assert got["keys"][1] == sorted(["cancel", "setMode", "sync", "dispatch"])
+    assert got["keys"][1] == sorted(["cancel", "setMode", "setModel", "sync", "dispatch"])
     assert got["keys"][2:] == [True, True, "go-ahead", "hand-over"]
 
 

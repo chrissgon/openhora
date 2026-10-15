@@ -40,8 +40,8 @@ as the history of the first round, and nothing reads them.
    version}, "cases": {case id: case hash}, "baseline": {case id: "run"|"reused"|"none"}, "web_cases": [ids],
    "counts": {model id: {"with"|"without": {"retries", "refusals", "timeouts", "pauses", "early_ends",
    "resumes"[, "invoked"]}}}, "extra_pass_env": [names], "complete": bool[, "gate": {model id: {"passed",
-   "with", "baseline", "threshold", "tolerance"[, "note"]}} (an old event: the single gate of its strong
-   tier)][, "upstream": {model id: provider or host}][, "image_source": "published"|"local"]}
+   "with", "baseline", "threshold", "tolerance"[, "note"]}} (an old event: the single gate of its first
+   model)][, "upstream": {model id: provider or host}][, "image_source": "published"|"local"]}
   A run line: {"record": "run", "skill", "version", "content_sha256", "model", "adapter", "kind", "test",
    "date", "measurement_version", "measurement_sha256", "case", "case_sha256", "variant": "with"|"without",
    "outcome": "graded"|"timeout", "score", "results": [0|1, ...][, "context_sha256"][, "platform"][, "cpu_platform"]
@@ -69,21 +69,24 @@ adapter) pairs of either.
 
 A model id is written by the runner as the id of the gate file's "models" ({id: [aliases]}) that it or its alias
 names, and as "unknown" for anything else, so that one model never falls into two rows and a private model name
-never enters the repository. Without that key the known ids are the configured strong model, floor model and
-grader. The validator checks an id against that list only in a file that is new against the base of the change
+never enters the repository. The validator checks an id against that list only in a file that is new against the base of the change
 (strict_reading: every id in "models", the event's "runs" equal to the configured one); a file already committed
 is read by what its own event line names, so a model removed from "models" later, or a later change of "runs",
 invalidates nothing (backlog T24; the rule is in evals/evidence_lines.py).
 
-The eval gate is configured in evals/eval-gate.json, committed: {"strong_model", "strong_harness",
-"floor_model", "floor_harness", "floor_pass_env": [variables], "strong_pass_env": [variables], "grader",
-"threshold", "strong_tolerance", "measurement_version", "measurement_floor"}, once a measurement version is
-closed "measurement_sha256", the optional "models" ({model id: [aliases]} or {model id: {"aliases", "adapter",
-"pass_env", "route", "provider_pin", "upstream_models", "price_source", "run_token_budget"}}: the ids an evidence
-line may carry and, in the object form, what the key proxy of a run of that model is started with; the old keys
-above stay until a later package retires them and must agree with the entries; model_entry_problems()), the
-optional "lab_models" (the ids the lab tests by default) and the optional keys that control a test event (below). It names the models, the adapters and the grader a test uses (eval_run.py takes
-them as defaults) and what the gate and the bands are computed against. "measurement_version" is a number raised when a change alters what a run measures (the
+The eval gate is configured in evals/eval-gate.json, committed: {"grader", "threshold", "tolerance",
+"measurement_version", "measurement_floor", "models", "lab_models"}, once a measurement version is closed
+"measurement_sha256", and the optional keys that control a test event (below). There is no fixed tier of models:
+"models" is {model id: {"aliases", "adapter", "pass_env", "route", "provider_pin", "upstream_models",
+"price_source", "run_token_budget"[, "web_pass_env"]}} (an entry may be the list of the model's aliases alone, but
+a lab model and the grader need the object form): the ids an evidence line may carry and, in the object form, the
+adapter its runs go through, the variables its key is passed in ("web_pass_env", when it has one, in place of
+"pass_env" on a run on the open network: a low-limit key) and what the key proxy of a run of that model is started
+with (model_entry_problems()). "lab_models" is the ordered list of the ids a test event runs by default: its first
+id is the lead model (lab_lead), the one an event is full by and the one whose figures are a skill's own row; every
+pair of a skill and a model has its own band. "grader" names a listed model: it grades through its own entry's
+adapter and key, whatever models an event runs. eval_run.py takes all of this as defaults. The gate file names
+no "strong" or "floor" key. "measurement_version" is a number raised when a change alters what a run measures (the
 `measurement` command below says how, by kind). The file sits outside skills/, so changing it changes no
 content hash; the status reacts instead. Without the file there is no model list, no threshold of its own
 (0.8 and a tolerance of 0 are taken) and no floor (1).
@@ -99,10 +102,10 @@ Control of a test event, all optional keys of the gate file (a key it lacks take
 often a run that timed out, was refused, failed in its adapter or ended early is made again inside the event;
 "max_resumes" [3], how often `eval_run.py --resume` reruns one failed run before it is written as a timeout
 with score 0; "total_jobs" [10], the model runs in progress at one time over every runner process of the
-machine; "web_jobs" [{"strong": 2, "floor": 2}], the same for runs on the open network, per tier;
+machine; "web_jobs" [{}], {model id: runs}, the same for runs on the open network, per model (a model it does not list
+takes 2, WEB_JOBS_DEFAULT);
 "web_cases", {skill: [case ids]}, the only cases that may set "allow_web" (with a gate file and no such key,
-none may); "strong_web_pass_env", the variables a strong-model run of a web case receives in place of
-"strong_pass_env" (a low-limit API key in place of the account's token). "baseline_runs" is the number of runs
+none may). "baseline_runs" is the number of runs
 of a baseline in a full test (from 1 to "runs"; without it, "runs"), and "baseline_margin" the distance under
 which the status asks a thin baseline to be run in full. An event made with another number of
 runs, another timeout or another number of retries than these writes no evidence (eval_run.py --help). The
@@ -124,13 +127,14 @@ above the floor and its major version is the current one (nothing is carried acr
 model, the current set holds the lines of the current X.Y with the current context hash, graded by the
 configured grader and dated after the newest epoch that reaches the skill; each counts as one run. Everything
 else that weighs is inherited (an earlier X.Y; the current X.Y before an epoch or with another context; an
-earlier grader; on the reference model, the earlier reference model's lines) and counts, all together, as at
-most 3 runs: each line weighs min(1, 3 / their number). With S the weighted sum of scores, N the weighted
+earlier grader; a model's inherited lines are its own, none is carried from another model) and counts, all
+together, as at most 3 runs: each line weighs min(1, 3 / their number). With S the weighted sum of scores, N the weighted
 number of runs, p = S / N and z = 1.2816, the pessimistic score is the lower bound of the Wilson interval,
 (p + z^2/2N - z sqrt(p(1-p)/N + z^2/4N^2)) / (1 + z^2/N), 0 when N is 0: a penalty for little evidence, never a
 confidence bound, always printed with the mean and N.
 
-The band, on the reference model (strong_model), the first that applies:
+The band of a skill on one model (the skill's own row is the lead model's, the first of "lab_models"), the first
+that applies:
   needs a test  (a) no full test of the current major version passes the gate (none at or above the
                 measurement floor, or the gate cannot be computed); (b) a guard assertion (tagged guard or
                 guard:<effect>) has no with-skill run in the current set, or a confirmed failure there
@@ -142,22 +146,19 @@ The band, on the reference model (strong_model), the first that applies:
                 within "baseline_margin" of the mean with the skill; or the field signal is on
   reliable      otherwise
 The same band, cause and gate are computed for every other model that has evidence of the skill, by the same rules
-on that model's lines (as_reference: that model in the reference model's place), and on that model's tests: the
+on that model's lines (as_subject: the configuration read for that model), and on that model's tests: the
 tests whose event line lists it (model_events). The newest full test, its X.Y, the cases pending, the pool, the
 Y changes since the newest complete full test and the gate a full test wrote when no baseline is in force
-(event_gate: "gate": {model id: result}; an old event's single gate is its strong tier's) are all selected that
+(event_gate: "gate": {model id: result}; an old event's single gate is its first model's) are all selected that
 way, so a full test of one model changes none of them for another, and a full test counts in a model's selection only
 when it is complete for that model (complete_models_of: the event's "complete_models", or for an event written before
-it the lead model's "complete" and the models whose with-skill lines are all there). One rule belongs to the
-configured reference model alone: the earlier reference model's lines that count as inherited. It reads the old
-header's strong tier (tier_model), so it applies to events written before the list header; P3 decides its future. Without a baseline of its own in force,
-and without a gate a full test wrote for it, another model's gate is not computed. A skill is done on a model
-when that model's first full test passed.
-Only the reference model's band decides a skill's standing and the gate; another model's band is information.
+it the lead model's "complete" and the models whose with-skill lines are all there). No rule belongs to one
+model alone. Without a baseline of its own in force, and without a gate a full test wrote for it, another model's
+gate is not computed. A skill is done on a model when that model's first full test passed.
 A person's own tests of any model are in the local evidence folder (local_evidence_base) and are read by `status`
 into a section of its own, "local": {"folder", "skills": {skill: {model id: figures}}}, the figures of a model of
 the repository computed from the local files alone; never mixed into the rows above.
-The field signal: three or more `failed` verdicts on the current X.Y, on the reference model, in the weeks after
+The field signal: three or more `failed` verdicts on the current X.Y, on the subject model, in the weeks after
 the newest lab event of that X.Y (all of them when it has none), at most one per contributor except the
 repository's owner. The contributor of a field file is the author of the commit that added it, read from git
 and stored nowhere; the owner is the author of the commits that added lab evidence. One contributor adds at
@@ -239,8 +240,8 @@ every evidence line and writes no evidence when it differs.
 
 The gate (the reliability model, section 2). Only a full test evaluates it, and the runner writes its result
 into the event line when the test ends; `gate` computes it again from the lines (`gate --model <id>` for another
-model than the reference model). It is computed over the run lines with the skill, of kind full, on the model
-(by default the reference model, strong_model), of the X.Y version the newest full test that lists the model
+model than the lead model). It is computed over the run lines with the skill, of kind full, on the model
+(by default the lead model, the first of lab_models), of the X.Y version the newest full test that lists the model
 ran on and of the same epoch as that test, every current case being required and only lines of weight
 above zero being counted: the case exists with the same hash, the measurement version is at or above the
 floor, and the line's major version is the current one. A second full test of an unchanged X.Y adds its runs
@@ -303,24 +304,25 @@ INSTALL_MARKERS = (INSTALL_MARKER, LEGACY_INSTALL_MARKER)
 BEGIN, END = "<!-- eval-status:begin -->", "<!-- eval-status:end -->"
 INVENTORY_REL = os.path.join("docs", "inventory.md")
 GATE_REL = os.path.join("evals", "eval-gate.json")
-GATE_FIELDS = {"strong_model": str, "strong_harness": str, "floor_model": str, "floor_harness": str,
-               "floor_pass_env": list, "strong_pass_env": list, "grader": str, "threshold": (int, float), "strong_tolerance": (int, float),
-               "measurement_version": int, "measurement_floor": int}
+GATE_FIELDS = {"grader": str, "threshold": (int, float), "tolerance": (int, float),
+               "measurement_version": int, "measurement_floor": int,
+               "models": dict,  # {model id: {"adapter", "pass_env", ...}}: every model the lab knows, with what its runs need
+               "lab_models": list}  # the ids the lab tests by default, in order: the first is the lead model
 GATE_OPTIONAL = {"measurement_sha256": str,  # absent while a measurement version is open
                  # Control of a test event (event_config below): absent keys take the defaults of EVENT_DEFAULTS.
                  "runs": int, "timeout_seconds": int, "retries": int, "max_resumes": int, "total_jobs": int,
-                 "web_jobs": dict, "web_cases": dict, "strong_web_pass_env": list, "models": dict, "baseline_runs": int, "baseline_margin": (int, float),
-                 "lab_models": list,  # the ids the lab tests by default (a subset of "models")
+                 "web_jobs": dict, "web_cases": dict, "baseline_runs": int, "baseline_margin": (int, float),
                  "epochs": list}  # [{"date", "models", "skills", "cause"}]: the model's section 8
 # What an event uses when the gate file does not say: 3 runs per case (the plan's decision 1), 900 seconds per
 # run, 2 retries inside the event, 3 resumptions of one run before it is written as a timeout, 10 runs at a
-# time over every runner process of the machine, 2 runs on the open network at a time per tier.
+# time over every runner process of the machine, and, on the open network, WEB_JOBS_DEFAULT runs at a time per
+# model (the gate file's "web_jobs" names the models that take another number).
+WEB_JOBS_DEFAULT = 2
 EVENT_DEFAULTS = {"runs": 3, "timeout_seconds": 900, "retries": 2, "max_resumes": 3, "total_jobs": 10,
-                  "web_jobs": {"strong": 2, "floor": 2}}
+                  "web_jobs": {}, "web_jobs_default": WEB_JOBS_DEFAULT}
 EVENT_RANGES = {"runs": EVIDENCE_LINES.RUNS_RANGE, "timeout_seconds": (30, 86400), "retries": (0, 5), "max_resumes": (0, 10), "total_jobs": (1, 64),
                 "baseline_runs": (1, 10)}
-TIERS = EVIDENCE_LINES.TIERS
-LEGACY_VERSION = 1  # the measurement of the first records, whose gate had no threshold for the strong model
+LEGACY_VERSION = 1  # the measurement of the first records, whose gate had no threshold for the reference model
 
 
 def die(msg, code=2):
@@ -346,13 +348,10 @@ def gate_problems(root=ROOT):
             out.append(f"missing field {key!r}")
         elif not isinstance(cfg[key], kind) or isinstance(cfg[key], bool) or cfg[key] == "":
             out.append(f"field {key!r} has the wrong type")
-    for key in ("floor_pass_env", "strong_pass_env"):
-        if not out and not all(isinstance(v, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", v) for v in cfg[key]):
-            out.append(f"{key} must list variable names")
     if not out and not 0 <= cfg["threshold"] <= 1:
         out.append("threshold must be between 0 and 1")
-    if not out and not 0 <= cfg["strong_tolerance"] <= 1:
-        out.append("strong_tolerance must be between 0 and 1")
+    if not out and not 0 <= cfg["tolerance"] <= 1:
+        out.append("tolerance must be between 0 and 1")
     if not out and cfg["measurement_version"] <= LEGACY_VERSION:
         out.append(f"measurement_version must be above {LEGACY_VERSION}")
     if not out and (isinstance(cfg["measurement_floor"], bool) or not 1 <= cfg["measurement_floor"] <= cfg["measurement_version"]):
@@ -397,18 +396,11 @@ def event_problems(cfg):
     for key, (low, high) in EVENT_RANGES.items():
         if key in cfg and not whole(cfg[key], low, high):
             out.append(f"{key} must be a whole number from {low} to {high}")
-    jobs = cfg.get("web_jobs")
-    if "web_jobs" in cfg and not (isinstance(jobs, dict) and set(jobs) == set(TIERS) and all(whole(v, 1, 64) for v in jobs.values())):
-        out.append("web_jobs must give a whole number, 1 or more, for \"strong\" and for \"floor\"")
     cases = cfg.get("web_cases")
     if "web_cases" in cfg and not (isinstance(cases, dict) and all(
             isinstance(k, str) and re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", k) and isinstance(v, list) and v
             and all(isinstance(i, (int, str)) and not isinstance(i, bool) for i in v) for k, v in cases.items())):
         out.append("web_cases must map a skill name to the list of its case ids that may use the web")
-    names = cfg.get("strong_web_pass_env")
-    if "strong_web_pass_env" in cfg and not (isinstance(names, list) and all(
-            isinstance(v, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", v) for v in names)):
-        out.append("strong_web_pass_env must list variable names")
     if "epochs" in cfg:
         out += [f"epochs[{i}] {why}" for i, entry in enumerate(cfg["epochs"] if isinstance(cfg["epochs"], list) else [None])
                 for why in epoch_problems(entry)]
@@ -424,19 +416,30 @@ def event_problems(cfg):
         elif len(set(names)) != len(names):
             out.append("models names an id or an alias twice: one model is one id")
         else:
-            for key in ("strong_model", "floor_model", "grader"):
-                if cfg.get(key) not in names:
-                    out.append(f"{key} {cfg.get(key)!r} is not in models: every configured model is a known one")
+            if cfg.get("grader") not in names:
+                out.append(f"grader {cfg.get('grader')!r} is not in models: every configured model is a known one")
             for model, entry in entries.items():
                 if isinstance(entry, dict):
                     out += [f"models[{model!r}] {why}" for why in model_entry_problems(entry)]
-            out += old_key_disagreements(cfg)
+    lab = cfg.get("lab_models")
     if "lab_models" in cfg:
-        lab = cfg["lab_models"]
         if not (isinstance(lab, list) and lab and all(isinstance(m, str) for m in lab) and len(set(lab)) == len(lab)):
             out.append("lab_models must be a non-empty list of distinct model ids")
         elif isinstance(models, dict) and not set(lab) <= set(known_models(cfg)):
             out.append("lab_models names a model that is not an id of models")
+    if isinstance(models, dict) and isinstance(lab, list) and all(isinstance(m, str) for m in lab):
+        # What a run of a model is started with is its entry's: the adapter and the variables of its key. A lab
+        # model and the grader (which grades through its own entry) are listed in the object form.
+        for who in dict.fromkeys(lab + [cfg.get("grader")]):
+            if who in known_models(cfg) and not isinstance(models.get(who), dict):
+                out.append(f"models lists {who!r} as a list of aliases: a lab model and the grader need an object entry "
+                           "(adapter, pass_env, ...)")
+    jobs = cfg.get("web_jobs")
+    if "web_jobs" in cfg and not (isinstance(jobs, dict) and all(
+            isinstance(k, str) and whole(v, 1, 64) for k, v in jobs.items())):
+        out.append("web_jobs must map a model id to a whole number from 1 to 64")
+    elif jobs and isinstance(models, dict) and not set(jobs) <= set(known_models(cfg)):
+        out.append("web_jobs names a model that is not an id of models")
     if "baseline_runs" in cfg and whole(cfg["baseline_runs"], 1, 10) and cfg["baseline_runs"] > cfg.get("runs", EVENT_DEFAULTS["runs"]):
         out.append("baseline_runs must not be above runs")
     margin = cfg.get("baseline_margin")
@@ -447,6 +450,9 @@ def event_problems(cfg):
 
 MODEL_ENTRY_KEYS = {"aliases": list, "adapter": str, "pass_env": list, "route": (str, type(None)),
                     "provider_pin": (str, type(None)), "upstream_models": list, "price_source": str, "run_token_budget": int}
+# "web_pass_env": the model's low-limit key for runs on the open network (a case of "web_cases"), in place of
+# "pass_env" there; a model whose entry does not carry it uses "pass_env" on those runs too.
+MODEL_ENTRY_OPTIONAL = {"web_pass_env": list}
 
 
 def model_entry_problems(entry):
@@ -456,19 +462,24 @@ def model_entry_problems(entry):
     evals/container/keyproxy/route-<name>.json, or null for a model that holds no key), "provider_pin" (the one
     upstream provider the route's chat calls are pinned to, or null), "upstream_models" (the model names the
     runner sends in a request body: the key proxy refuses any other), "price_source" (the URL of the price),
-    "run_token_budget" (the tokens a run of the model may use before its key proxy stops answering it)}."""
-    out = [f"has the unknown key {k!r}" for k in entry if k not in MODEL_ENTRY_KEYS]
+    "run_token_budget" (the tokens a run of the model may use before its key proxy stops answering it)}, and, optionally,
+    "web_pass_env" (MODEL_ENTRY_OPTIONAL)."""
+    out = [f"has the unknown key {k!r}" for k in entry if k not in MODEL_ENTRY_KEYS and k not in MODEL_ENTRY_OPTIONAL]
     for key, kind in MODEL_ENTRY_KEYS.items():
         if key not in entry:
             out.append(f"lacks the key {key!r}")
         elif not isinstance(entry[key], kind) or isinstance(entry[key], bool):
             out.append(f"has the wrong type for {key!r}")
+    for key, kind in MODEL_ENTRY_OPTIONAL.items():
+        if key in entry and (not isinstance(entry[key], kind) or isinstance(entry[key], bool)):
+            out.append(f"has the wrong type for {key!r}")
     if out:
         return out
     if not NAME_RE.fullmatch(entry["adapter"]):
         out.append("adapter must be an adapter's folder name")
-    if not all(isinstance(v, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", v) for v in entry["pass_env"]):
-        out.append("pass_env must list variable names")
+    for key in ("pass_env", "web_pass_env"):
+        if key in entry and not all(isinstance(v, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", v) for v in entry[key]):
+            out.append(f"{key} must list variable names")
     if entry["route"] is not None and not NAME_RE.fullmatch(entry["route"]):
         out.append("route must be the name of a route file, or null")
     if entry["route"] is None and (entry["provider_pin"] is not None or entry["pass_env"]):
@@ -482,22 +493,6 @@ def model_entry_problems(entry):
         out.append("price_source must be an https URL")
     if entry["run_token_budget"] < 1:
         out.append("run_token_budget must be a positive number of tokens")
-    return out
-
-
-def old_key_disagreements(cfg):
-    """Where an object-shaped entry of "models" and the old keys of the gate file (strong_model, strong_harness,
-    strong_pass_env, floor_model, floor_harness, floor_pass_env) name different things. The old keys stay until
-    the package that retires them; until then the two forms must say the same."""
-    out = []
-    for tier in TIERS:
-        entry = model_entry(cfg, cfg.get(f"{tier}_model"))
-        if entry is None or "adapter" not in entry:
-            continue
-        if entry["adapter"] != cfg.get(f"{tier}_harness"):
-            out.append(f"models[{entry['id']!r}] names the adapter {entry['adapter']!r}, and {tier}_harness {cfg.get(f'{tier}_harness')!r}")
-        if entry["pass_env"] != cfg.get(f"{tier}_pass_env"):
-            out.append(f"models[{entry['id']!r}] names pass_env {entry['pass_env']!r}, and {tier}_pass_env {cfg.get(f'{tier}_pass_env')!r}")
     return out
 
 
@@ -677,11 +672,12 @@ def skill_version(skill_dir):
 
 def known_models(cfg):
     """{model id: [aliases]} of a gate configuration: its "models" (a value is the list of aliases, or an object
-    that holds them under "aliases"), or, without that key, the configured strong model, floor model and grader
-    with no alias."""
+    that holds them under "aliases"), or, without that key, the model the configuration reads (its internal
+    "subject_model"), the lab models and the grader, with no alias."""
     if isinstance(cfg.get("models"), dict):
         return {k: list(v["aliases"] if isinstance(v, dict) else v) for k, v in cfg["models"].items()}
-    return {cfg[k]: [] for k in ("strong_model", "floor_model", "grader") if cfg.get(k)}
+    names = [cfg.get("subject_model"), *(cfg.get("lab_models") or []), cfg.get("grader")]
+    return {name: [] for name in names if isinstance(name, str) and name}
 
 
 def model_entry(cfg, name):
@@ -890,27 +886,30 @@ _is, _date, _number, _count, _model, _case_id, _keys = (
     EVIDENCE_LINES._is, EVIDENCE_LINES._date, EVIDENCE_LINES._number, EVIDENCE_LINES._count, EVIDENCE_LINES._model,
     EVIDENCE_LINES._case_id, EVIDENCE_LINES._keys)
 (event_line_problems, run_line_problems, read_evidence_file, evidence_files, event_model_pairs,
- tier_model, run_count_problems, event_gates, USAGE_KEYS, event_complete_models, lead_model) = (
+ run_count_problems, event_gates, USAGE_KEYS, event_complete_models, lead_model) = (
     EVIDENCE_LINES.event_line_problems, EVIDENCE_LINES.run_line_problems, EVIDENCE_LINES.read_evidence_file,
     EVIDENCE_LINES.evidence_files, EVIDENCE_LINES.event_model_pairs,
-    EVIDENCE_LINES.tier_model, EVIDENCE_LINES.run_count_problems, EVIDENCE_LINES.event_gates, EVIDENCE_LINES.USAGE_KEYS,
+    EVIDENCE_LINES.run_count_problems, EVIDENCE_LINES.event_gates, EVIDENCE_LINES.USAGE_KEYS,
     EVIDENCE_LINES.event_complete_models, EVIDENCE_LINES.lead_model)
 
 
 def lab_pairs(cfg):
     """{model id: the adapter the repository's evidence of it goes through, or None when the gate file names none}: the
-    gate file's "lab_models" (without that key, its strong and floor models), each with the adapter its entry in "models"
-    names, else the configured strong or floor harness. The repository holds evidence of these pairs only (D18)."""
+    gate file's "lab_models", each with the adapter its entry in "models" names. The repository holds evidence of
+    these pairs only (D18)."""
     out = {}
-    for name in cfg.get("lab_models") or [cfg.get("strong_model"), cfg.get("floor_model")]:
+    for name in cfg.get("lab_models") or []:
         if not name:
             continue
-        listed = model_id(cfg, name)
-        entry = model_entry(cfg, name)
-        out[listed] = ((entry or {}).get("adapter")
-                       or (cfg.get("strong_harness") if name == cfg.get("strong_model") else
-                           cfg.get("floor_harness") if name == cfg.get("floor_model") else None))
+        out[model_id(cfg, name)] = (model_entry(cfg, name) or {}).get("adapter")
     return out
+
+
+def lab_lead(cfg):
+    """The id of the lead model of a gate configuration: the first of its "lab_models", as the model list writes it,
+    or None. A test event is full by its lead model, which is the skill's own row in the status tables."""
+    lab = cfg.get("lab_models")
+    return model_id(cfg, lab[0]) if isinstance(lab, list) and lab and isinstance(lab[0], str) else None
 
 
 def strict_reading(root=ROOT):
@@ -1154,26 +1153,20 @@ def epoch_after(cfg, skill, model, date, until=None):
     return any(reaches(e, skill, model) and e["date"] > date and (until is None or e["date"] <= until) for e in epochs(cfg))
 
 
-def reference_model(cfg):
-    """The id the reference model's lines carry: the configured strong model, as the model list writes it."""
-    return model_id(cfg, cfg["strong_model"]) if cfg.get("strong_model") else None
+def subject_model(cfg):
+    """The id of the model whose lines a configuration reads: its internal key "subject_model" (as_subject puts
+    one there), else the lead model of the gate file (lab_lead), as the model list writes it. The gate, the band
+    and the score of a configuration are those of this one model; every model has its own, by the same rules."""
+    name = cfg.get("subject_model")
+    return model_id(cfg, name) if name else lab_lead(cfg)
 
 
-def configured_reference(cfg):
-    """The id of the reference model the gate file names, also in a configuration as_reference made for another
-    model: one rule belongs to it alone (lab_view's earlier reference model). The gate, the Y count and the stored
-    gate are read model by model and name no model in particular."""
-    name = cfg["configured_strong_model"] if "configured_strong_model" in cfg else cfg.get("strong_model")
-    return model_id(cfg, name) if name else None
-
-
-def as_reference(cfg, model):
-    """The gate configuration with `model` in the reference model's place, so that the band, its cause, the gate and
-    the score of that model are computed by the same functions and rules on that model's lines (the reliability
-    model, section 10). The model list stays the configured one, and the configured reference model is kept under
-    "configured_strong_model" (configured_reference). Only the configured reference model's band decides a
-    skill's standing; the others are information."""
-    out = {**cfg, "strong_model": model, "configured_strong_model": configured_reference(cfg)}
+def as_subject(cfg, model):
+    """The gate configuration read for `model`, so that the band, its cause, the gate and the score of that model are
+    computed by the same functions and rules on that model's lines (the reliability model, section 10). The model
+    list stays the configured one. "subject_model" is an internal key of the derived configuration, never a key of
+    the gate file. The skill's own row is the lead model's (lab_lead); the other models' rows are information."""
+    out = {**cfg, "subject_model": model}
     if cfg:
         out["models"] = known_models(cfg)
     return out
@@ -1247,7 +1240,7 @@ def baseline_lines(skill_dir, cfg, events=None):
     """{case id: [baseline lines in force]}: lines without the skill, on the reference model, of the case's current
     hash, at or above the measurement floor, with no epoch of that model after their date."""
     skill = os.path.basename(os.path.normpath(skill_dir))
-    current, ref, floor = case_hashes(skill_dir), reference_model(cfg), cfg.get("measurement_floor", 1)
+    current, ref, floor = case_hashes(skill_dir), subject_model(cfg), cfg.get("measurement_floor", 1)
     found = {}
     for _, runs in skill_evidence(skill_dir) if events is None else events:
         for line in base_lines(runs):
@@ -1265,11 +1258,11 @@ def gate_of(skill_dir, cfg, extra=(), evidence=None):
     event line lists that model are read: the newest full test, its X.Y, the pending cases, the pool and the stored
     gate are all that model's, so a full test of another model changes none of them."""
     skill = os.path.basename(os.path.normpath(skill_dir))
-    ref, floor = reference_model(cfg), cfg.get("measurement_floor", 1)
+    ref, floor = subject_model(cfg), cfg.get("measurement_floor", 1)
     read = skill_evidence(skill_dir) if evidence is None else list(evidence)
     events = model_events(sorted(((e, base_lines(runs)) for e, runs in read + list(extra)), key=lambda e: e[0]["test"]), ref)
     current, version = case_hashes(skill_dir), skill_version(skill_dir)
-    threshold, tolerance = cfg.get("threshold", 0.8), cfg.get("strong_tolerance", 0)
+    threshold, tolerance = cfg.get("threshold", 0.8), cfg.get("tolerance", 0)
     out = {"computed": False, "passed": None, "with": None, "baseline": None, "threshold": threshold, "tolerance": tolerance,
            "version": None, "test": None, "cases": [], "pending": [], "note": None, "cause": None, "changed": [], "dropped": {}}
     major = version.split(".")[0] if version else None
@@ -1978,22 +1971,20 @@ def guard_only(case):
 
 def lab_view(root, skill_dir, cfg, events=None):
     """What the score, the bands and the tables read from a skill's lab evidence: per model the current set and the
-    inherited lines (the model's section 6), and the reference model's id.
+    inherited lines (the model's section 6), and the id of the model the configuration reads (subject_model).
 
     A with-skill line of a case of evals/evals.json weighs above zero when its case exists with the same hash, its
     measurement version is at or above the floor and its major version is the current one. Of those, the current
     set on a model holds the lines of the current X.Y, with the current context hash, graded by the configured
     grader and dated after the newest epoch that reaches the skill on that model. The rest is inherited: lines
     of an earlier X.Y, lines of the current X.Y before an epoch or with another context, lines graded by an earlier
-    grader (a grader that did not agree would have raised the floor), and, on the reference model, the lines of
-    the earlier reference model (the model an event ran on its strong tier, when it is not the reference now; this reads
-    the old header's tiers, so it covers events written before the list header only)."""
+    grader (a grader that did not agree would have raised the floor). A model's inherited lines are its own: no
+    model's lines count in another's pool."""
     skill = os.path.basename(os.path.normpath(skill_dir))
     version = skill_version(skill_dir)
     hashes, cases = case_hashes(skill_dir), skill_cases(skill_dir)
     floor = cfg.get("measurement_floor", 1)
-    ref = reference_model(cfg)
-    earlier_reference = ref is not None and ref == configured_reference(cfg)  # the configured reference model's rule
+    ref = subject_model(cfg)
     grader = model_id(cfg, cfg["grader"]) if cfg.get("grader") else None
     contexts = {}
 
@@ -2014,10 +2005,7 @@ def lab_view(root, skill_dir, cfg, events=None):
             current = (_xy(line["version"]) == _xy(version) and (grader is None or model_id(cfg, event.get("grader", "")) == grader)
                        and not epoch_after(cfg, skill, model, line["date"]) and context_ok(line))
             pools.setdefault(model, {"current": [], "inherited": []})["current" if current else "inherited"].append(line)
-            strong = tier_model(event, "strong")  # only an event of the old header shape has tiers
-            if earlier_reference and model != ref and strong == model:
-                pools.setdefault(ref, {"current": [], "inherited": []})["inherited"].append(line)
-    return {"version": version, "reference": ref, "pools": pools}
+    return {"version": version, "subject": ref, "pools": pools}
 
 
 def pool_score(pool):
@@ -2063,7 +2051,7 @@ def field_view(root, skill_dir, cfg, authors, lab_events, version):
         who = authors.get(rel, "(not committed)")
         with open(path, encoding="utf-8") as f:
             by_contributor.setdefault(who, []).extend(json.loads(l) for l in f.read().splitlines() if l.strip())
-    ref, xy, major = reference_model(cfg), _xy(version), _major(version)
+    ref, xy, major = subject_model(cfg), _xy(version), _major(version)
     since = max((week_of(e["date"]) for e, _ in lab_events if _xy(e.get("version", "")) == xy and _date(e.get("date"))),
                 default=None)
     columns, signal = {}, 0
@@ -2114,7 +2102,7 @@ def skill_band(root, skill_dir, cfg, authors=None, per_model=True, events=None):
     the gate, the guards, the field columns and a row per model (the model's sections 4 to 7; see --help).
 
     Each model's row carries the same band, cause and gate, computed by this same function on that model's lines
-    (as_reference; per_model=False there, so that it does not recurse); the reference model's row copies the
+    (as_subject; per_model=False there, so that it does not recurse); the reference model's row copies the
     skill's own. Only the reference model's band decides the skill's standing. The newest full test, its X.Y, the
     Y changes since it and the gate are those of the tests that list the model (model_events). events is the lab
     evidence read, as skill_evidence lists it (by default the skill's own files; a person's local evidence is read
@@ -2122,7 +2110,7 @@ def skill_band(root, skill_dir, cfg, authors=None, per_model=True, events=None):
     skill = os.path.basename(os.path.normpath(skill_dir))
     events = skill_evidence(skill_dir) if events is None else events
     view = lab_view(root, skill_dir, cfg, events)
-    version, ref, pools = view["version"], view["reference"], view["pools"]
+    version, ref, pools = view["version"], view["subject"], view["pools"]
     cases = skill_cases(skill_dir)
     ref_pool = pools.get(ref) or {"current": [], "inherited": []} if ref is not None else {"current": [], "inherited": []}
     ref_score = pool_score(ref_pool)
@@ -2226,7 +2214,7 @@ def skill_band(root, skill_dir, cfg, authors=None, per_model=True, events=None):
                 "gate": {k: gate.get(k) for k in GATE_ROW_KEYS}}
     if per_model:
         for model, figures in models.items():
-            other = standing if model == ref else skill_band(root, skill_dir, as_reference(cfg, model), authors, per_model=False,
+            other = standing if model == ref else skill_band(root, skill_dir, as_subject(cfg, model), authors, per_model=False,
                                                              events=events)
             figures.update({k: other[k] for k in MODEL_BAND_KEYS})
     row = {"skill": skill, "version": version, "band": band, "cause": first[1], "kind": first[0], "command": first[2],
@@ -2260,7 +2248,7 @@ def local_status(root, name, config, base):
     skill_dir = os.path.join(root, "skills", name)
     found = {}
     for model in sorted({line["model"] for _, runs in events for line in base_lines(runs)}):
-        cfg = as_reference({**config, "models": {**known_models(config), model: []}}, model)
+        cfg = as_subject({**config, "models": {**known_models(config), model: []}}, model)
         row = skill_band(root, skill_dir, cfg, None, per_model=False, events=events)
         found[model] = {key: row[key] for key in LOCAL_ROW_KEYS}
         found[model]["tests"] = sum(1 for event, _ in model_events(events, model))
@@ -2280,7 +2268,7 @@ def all_status(root=ROOT, only=None, local_base=None):
     counts = {b: sum(1 for r in rows if r["band"] == b) for b in BANDS}
     causes = {k: sum(1 for r in rows if any(c["kind"] == k for c in r["causes"])) for k in CAUSE_KINDS}
     out = {"skills": rows, "counts": counts, "causes": {k: v for k, v in causes.items() if v},
-           "gate": {k: config.get(k) for k in ("strong_model", "floor_model", "grader", "threshold", "strong_tolerance",
+           "gate": {k: config.get(k) for k in ("lab_models", "grader", "threshold", "tolerance",
                                                "measurement_version", "measurement_floor")}}
     if local_base:
         local = {n: found for n in names for found in [local_status(root, n, config, local_base)] if found}
@@ -2330,7 +2318,7 @@ def inventory_block(root=ROOT):
     cause, gate and figures for every model, computed by the same rules on that model's lines. Only the
     reference model's band decides a skill's standing; the other rows are information."""
     data = all_status(root)
-    ref = reference_model(load_gate(root))
+    ref = subject_model(load_gate(root))
     head = git_out(root, "rev-parse", "--short=12", "HEAD")
     lines = [f"Generated at commit `{head.strip() if head else 'none'}` by `python3 evals/eval_status.py inventory --write`.", "",
              "| Skill | Version | Band | Cause | Score | Mean | Runs (N) | Last full test | Field: uses, judged, mean (self-reported) |",
@@ -2490,7 +2478,7 @@ def main(argv, root=None):
         if opts.get("model"):  # the gate on another model's lines (the model's section 10)
             if not MODEL_RE.fullmatch(opts["model"]):
                 die(f"--model {opts['model']!r} is not a model id.")
-            config = as_reference(config, model_id(config, opts["model"]))
+            config = as_subject(config, model_id(config, opts["model"]))
         print(json.dumps(gate_of(os.path.join(root, "skills", skill), config), indent=2))
         return 0
     if cmd == "inventory":

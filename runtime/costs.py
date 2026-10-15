@@ -3,20 +3,20 @@
 # requires-python = ">=3.9"
 # dependencies = []
 # ///
-"""The cost of the runs, recomputed from the token counts the adapter left in a run folder and the prices the person
-typed into the project's configuration (model_prices, runtime/project_config.py).
+"""The cost of the runs, recomputed from the token counts the adapter left in a run folder and the prices of the one price
+table of the workbench (runtime/prices.json, read by runtime/prices.py; the project's `model_prices` is retired).
 
 The cost the store records for a run is the adapter's own number, kept only for a run on a metered credential (an API
 key: its cost is billed). A run on a subscription or a free credential carries no cost, and the pinned tool does not
-price the reference model either. So the page and the report recompute it: the tokens of each kind times the price of
+price every model either. So the page and the report recompute it: the tokens of each kind times the price of
 that kind per million, summed. Arithmetic only. Nothing here guesses: a run whose folder holds no usage, or whose model
 has no price, has no recomputed cost; it is `unknown`, and the summary counts it (`unknown_runs`).
 
   usage_of(run_dir)               the token counts of one run by kind, or None: the key proxy's count when the run has one
   metered_usage(run_dir)          the key proxy's count alone (the run could not change it), a lower bound when it
                                   names answers it could not count ("unknown_responses" above 0), or None
-  recompute(usage, price)         the cost in dollars of one usage at one price
-  summary(runs, prices, since)    rows by day, agent, model and adapter
+  recompute(usage, price)         the cost in dollars of one usage at one price (None when a kind used has no price)
+  summary(runs, table, since)     rows by day, agent, model and adapter
 
 Usage (a library): python3 runtime/costs.py --help
 
@@ -29,9 +29,12 @@ import json
 import os
 import sys
 
-KINDS = ("input", "output", "cache_read", "cache_write")
-# The reference model's adapter keeps the CLI's result event as outputs/raw.json: its `usage` object has these four
-# names. The floor model's adapter keeps only its event stream, outputs/stream.jsonl, one `step_finish` event per step.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import prices as price_table  # noqa: E402  (the same folder: the one price table)
+
+KINDS = price_table.KINDS
+# An adapter that keeps the CLI's result event as outputs/raw.json has a `usage` object with these four
+# names. An adapter that keeps only its event stream, outputs/stream.jsonl, one `step_finish` event per step.
 REFERENCE_NAMES = {"input": "input_tokens", "output": "output_tokens", "cache_read": "cache_read_input_tokens",
                    "cache_write": "cache_creation_input_tokens"}
 RAW = os.path.join("outputs", "raw.json")
@@ -41,9 +44,9 @@ STREAM_MAX = 256 * 1024 * 1024  # a stream carries every tool result; a larger o
 PER_MILLION = 1_000_000
 
 
-# T23: the recomputation of a run's cost from its token counts and the prices in the project's configuration is a
+# T23: the recomputation of a run's cost from its token counts and the prices in the workbench's price table is a
 # workaround: the pinned tool does not know the model of the reference adapter, so its runs record no cost. It leaves
-# at the change of the reference model, when the tool prices it. Two limits meanwhile: a run made again after a failed
+# at the change of the lab default list or of the grader, when the tool prices it. Two limits meanwhile: a run made again after a failed
 # attempt keeps only the last attempt's files (an earlier one is set aside beside them), so the tokens of such a run
 # are understated; and the floor adapter's reasoning tokens have no kind of their own, so a stream that reports any is
 # read as unknown rather than priced short.
@@ -186,10 +189,11 @@ def _from_stream(text: str):
     return out if seen else None
 
 
-def recompute(usage: dict, price: dict) -> float:
+def recompute(usage: dict, price: dict):
     """The cost in dollars of one usage at one price: for each kind, its tokens times its price per million
-    (price["<kind>_usd_per_mtok"]), summed. Arithmetic only; the caller has checked that both are there."""
-    return sum(usage[kind] * price[f"{kind}_usd_per_mtok"] / PER_MILLION for kind in KINDS)
+    (price["<kind>_usd_per_mtok"]), summed (runtime/prices.py, expected_cost). Arithmetic only. None when a kind the usage
+    holds tokens of has no price in the entry: the cost is unknown, never a guess."""
+    return price_table.expected_cost(usage, price)
 
 
 def day_of(started_at) -> str:
@@ -200,17 +204,20 @@ def day_of(started_at) -> str:
     return moment.astimezone().date().isoformat()
 
 
-def summary(runs, prices: dict, since=None) -> list:
+def summary(runs, table: dict, since=None, *, today=None, max_days: int = price_table.MAX_AGE_DEFAULT, names_of=None) -> list:
     """Rows by day, agent, model and adapter, oldest day first: {"day", "agent", "model", "adapter", "runs",
     "tokens", "recorded_usd", "recomputed_usd", "unknown_runs", "lower_bound_runs", "price"}.
 
     runs are rows of task_runs with an "agent" (the task's); a row needs started_at, model, adapter, cost_usd,
-    tokens and run_dir. prices is the configuration's model_prices. since is None or a day YYYY-MM-DD: earlier days
-    are left out. `tokens` is the sum of the recorded totals (None when none was recorded); `recorded_usd` the sum of
+    tokens and run_dir. table is the one price table (prices.load()); a model's price is found by its id and, with
+    names_of(model) -> [ids], by its aliases. today (a date, else today's) and max_days (the project's price_max_age_days)
+    decide whether a price is stale. since is None or a day YYYY-MM-DD: earlier days are left out. `tokens` is the sum of the recorded totals (None when none was recorded); `recorded_usd` the sum of
     the recorded costs, None when every one is NULL; `recomputed_usd` the sum of recompute() over the group's runs,
     None when the model has no price or any run of the group has no usage (usage_of); `unknown_runs` is the number
     of runs of the group with no usage; `lower_bound_runs` the number whose key proxy could not count every answer (their
-    tokens are a lower bound, and the run's own report is never read in their place); `price` is the entry's source and date when the model has one, else None."""
+    tokens are a lower bound, and the run's own report is never read in their place); `price` is {"source", "accessed",
+    "age_days", "stale"} of the model's entry in the table (runtime/prices.py, summary), else None."""
+    today = today or datetime.date.today()
     groups = {}
     for run in runs:
         day = day_of(run["started_at"])
@@ -226,13 +233,14 @@ def summary(runs, prices: dict, since=None) -> list:
         usages = [usage_of(r.get("run_dir")) for r in members]
         unknown = sum(1 for u in usages if u is None)
         lower_bound = sum(1 for u in usages if u is not None and u.get("unknown_responses"))
-        price = prices.get(model)
-        recomputed = None if price is None or unknown else round(sum(recompute(u, price) for u in usages), 6)
+        price = price_table.price_of(table, names_of(model) if names_of else [model])
+        costs_of = [] if price is None or unknown else [recompute(u, price) for u in usages]
+        recomputed = round(sum(costs_of), 6) if costs_of and None not in costs_of else None
         rows.append({"day": day, "agent": agent, "model": model, "adapter": adapter, "runs": len(members),
                      "tokens": sum(tokens) if tokens else None,
                      "recorded_usd": round(sum(costs), 6) if costs else None, "recomputed_usd": recomputed,
                      "unknown_runs": unknown, "lower_bound_runs": lower_bound,
-                     "price": {"source": price["source"], "date": price["date"]} if price else None})
+                     "price": price_table.summary(price, today, max_days)})
     return rows
 
 

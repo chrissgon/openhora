@@ -55,7 +55,8 @@ The two shapes of the model header of an event line
 `event_model_pairs(line)` returns, for either shape, the list of (model id, adapter folder name) the event
 line names, in the order of the header ([] when the header is malformed), so callers never branch on the shape.
 `tier_model(line, tier)` is the one reader of the old shape's tiers: the model written under a tier, None for the
-new shape. It exists for the band logic that still compares the strong tier's model.
+new shape. It reads old events (the single gate of an old header is its strong tier's, `event_gates`); the band logic
+of eval_status.py reads no tier.
 
 The gate of an event line, in both shapes
 -----------------------------------------

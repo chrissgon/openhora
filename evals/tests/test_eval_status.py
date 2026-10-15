@@ -232,9 +232,19 @@ def check(root):
 
 # --- the eval gate configuration (evals/eval-gate.json) -----------------------------------------
 
+ENTRY = {"aliases": [], "adapter": "h", "pass_env": [], "route": None, "provider_pin": None, "upstream_models": ["x"],
+         "price_source": "https://example.test/price", "run_token_budget": 1000}
+
+
+def entries(**aliases):
+    """The models of a valid gate file: s-model and f-model (which holds a key), with the aliases given by id."""
+    return {"s-model": {**ENTRY, "aliases": aliases.get("s-model", [])},
+            "f-model": {**ENTRY, "adapter": "fh", "pass_env": ["FLOOR_KEY"], "route": "openrouter",
+                        "aliases": aliases.get("f-model", [])}}
+
+
 def configure(root, **changes):
-    config = {"strong_model": "s-model", "strong_harness": "h", "floor_model": "f-model", "floor_harness": "fh",
-              "floor_pass_env": ["FLOOR_KEY"], "strong_pass_env": [], "grader": "s-model", "threshold": 0.8, "strong_tolerance": 0,
+    config = {"grader": "s-model", "threshold": 0.8, "tolerance": 0, "models": entries(), "lab_models": ["s-model", "f-model"],
               "measurement_version": 2, "measurement_floor": 2, "measurement_sha256": "0" * 64, **changes}
     config = {k: v for k, v in config.items() if v is not None}  # None leaves a key out
     (root / "evals").mkdir(exist_ok=True)
@@ -243,7 +253,7 @@ def configure(root, **changes):
 
 @pytest.mark.parametrize("content, why", [
     ("{not json", "not valid JSON"),
-    ('{"floor_model": "f"}', "missing field 'strong_model'"),
+    ('{"floor_model": "f"}', "unknown field 'floor_model'"),
     (None, "threshold must be between 0 and 1"),
 ])
 def test_validate_fails_on_an_invalid_gate_configuration(root, content, why):
@@ -256,7 +266,7 @@ def test_validate_fails_on_an_invalid_gate_configuration(root, content, why):
 
 
 def test_the_repository_gate_configuration_is_valid():
-    assert es.gate_problems(str(REPO)) == [] and es.load_gate(str(REPO))["floor_model"]
+    assert es.gate_problems(str(REPO)) == [] and es.load_gate(str(REPO))["lab_models"]
 
 
 # --- the gate asks the threshold of both models; a record says how it was measured ----------------
@@ -302,11 +312,13 @@ def test_the_repository_measurement_is_at_version_5_or_later_with_its_floor(root
 
 def test_the_control_of_an_event_has_defaults_and_the_gate_file_overrides_them(root):
     assert es.event_config({}) == {"runs": 3, "timeout_seconds": 900, "retries": 2, "max_resumes": 3, "total_jobs": 10,
-                                   "web_jobs": {"strong": 2, "floor": 2}, "baseline_runs": 3, "baseline_margin": None}
-    configure(root, runs=5, max_resumes=1, web_jobs={"strong": 1, "floor": 4})
+                                   "web_jobs": {}, "web_jobs_default": 2, "baseline_runs": 3, "baseline_margin": None}
+    configure(root, runs=5, max_resumes=1, web_jobs={"s-model": 1, "f-model": 4})
     assert es.gate_problems(str(root)) == []
     control = es.event_config(es.load_gate(str(root)))
-    assert (control["runs"], control["max_resumes"], control["web_jobs"], control["retries"]) == (5, 1, {"strong": 1, "floor": 4}, 2)
+    assert (control["runs"], control["max_resumes"], control["web_jobs"], control["retries"]) == (5, 1, {"s-model": 1, "f-model": 4}, 2)
+    configure(root, web_jobs={"f-model": 4})  # a model it does not list takes the default
+    assert es.event_config(es.load_gate(str(root)))["web_jobs"] == {"f-model": 4} and es.WEB_JOBS_DEFAULT == 2
 
 
 @pytest.mark.parametrize("change, why", [
@@ -316,11 +328,13 @@ def test_the_control_of_an_event_has_defaults_and_the_gate_file_overrides_them(r
     ({"retries": 6}, "retries must be a whole number from 0 to 5"),
     ({"max_resumes": -1}, "max_resumes must be a whole number"),
     ({"total_jobs": 0}, "total_jobs must be a whole number"),
-    ({"web_jobs": {"strong": 2}}, "web_jobs must give a whole number"),
-    ({"web_jobs": {"strong": 2, "floor": 0}}, "web_jobs must give a whole number"),
+    ({"web_jobs": {"nobody": 2}}, "web_jobs names a model that is not an id of models"),
+    ({"web_jobs": {"s-model": 0}}, "web_jobs must map a model id to a whole number"),
+    ({"web_jobs": {"s-model": 65}}, "web_jobs must map a model id to a whole number"),
+    ({"web_jobs": ["s-model"]}, "web_jobs must map a model id to a whole number"),
     ({"web_cases": {"core-demo": []}}, "web_cases must map a skill name"),
     ({"web_cases": ["core-demo"]}, "web_cases must map a skill name"),
-    ({"strong_web_pass_env": ["not a name"]}, "strong_web_pass_env must list variable names"),
+    ({"models": {**entries(), "s-model": {**ENTRY, "web_pass_env": ["not a name"]}}}, "web_pass_env must list variable names"),
     ({"run": 3}, "unknown field 'run'"),
 ])
 def test_a_control_key_outside_its_form_makes_the_gate_file_invalid(root, change, why):
@@ -414,17 +428,17 @@ def test_a_model_is_written_under_its_listed_id_and_anything_else_as_unknown(roo
     gate = es.load_gate(str(root))
     assert es.model_id(gate, "s-model") == "s-model" and es.model_id(gate, "f-model") == "f-model"
     assert es.model_id(gate, "a-private-model-name") == "unknown"
-    configure(root, models={"s-model": ["provider/s-model"], "f-model": ["vendor/f-model", "f"], "third": []})
+    configure(root, models={**entries(**{"s-model": ["provider/s-model"], "f-model": ["vendor/f-model", "f"]}), "third": []})
     gate = es.load_gate(str(root))
     assert gate and es.model_id(gate, "provider/s-model") == "s-model" and es.model_id(gate, "f") == "f-model"
     assert es.model_id(gate, "third") == "third" and es.model_id(gate, "fourth") == "unknown"
 
 
 @pytest.mark.parametrize("models, why", [
-    ({"s-model": [], "f-model": ["s-model"]}, "names an id or an alias twice"),
-    ({"s-model": []}, "floor_model 'f-model' is not in models"),
-    ({"s-model": "alias", "f-model": []}, "models must map each known model id"),
-    ({"s-model": [], "f-model": [], "unknown": []}, "models must map each known model id"),
+    ({"s-model": ENTRY, "f-model": {**ENTRY, "aliases": ["s-model"]}}, "names an id or an alias twice"),
+    ({"f-model": ENTRY}, "grader 's-model' is not in models"),
+    ({"s-model": "alias", "f-model": ENTRY}, "models must map each known model id"),
+    ({"s-model": ENTRY, "f-model": ENTRY, "unknown": ENTRY}, "models must map each known model id"),
     ({}, "models must map each known model id"),
 ])
 def test_the_model_list_names_every_configured_model_once(root, models, why):
@@ -686,8 +700,9 @@ def test_the_48_old_records_stay_as_history_and_no_evidence_is_converted_from_th
     assert all(p.name.startswith("lab-") and p.suffix == ".jsonl" for p in evidence), evidence
     assert es.evidence_problems(str(REPO))[0] == {}
     gate = es.load_gate(str(REPO))
-    assert set(gate["models"]) >= {gate["strong_model"], gate["floor_model"], gate["grader"]}
-    assert es.model_id(gate, "deepseek/deepseek-v4.1-flash") == gate["floor_model"]  # the same model without the router's prefix
+    assert set(gate["models"]) >= set(gate["lab_models"]) | {gate["grader"]}
+    # The same model without the router's prefix:
+    assert es.model_id(gate, "deepseek/deepseek-v4.1-flash") == "openrouter/deepseek/deepseek-v4.1-flash"
 
 
 # --- the gate from the lines: epochs, the floor, a major version ---------------------------------------
@@ -706,7 +721,7 @@ def gate_tree(root, events, cfg_changes=None, version="1.2.0"):
         evidence(root, [event] + [run_line(test=test, kind=kind, version=ver, date=d, case=c, case_sha256=hashes[str(c)],
                                            variant=v, score=sc, results=[1] if sc == 1 else [0]) for c, v, sc, d in lines],
                  name=f"lab-{test}.jsonl")
-    cfg = {"strong_model": "s-model", "floor_model": "f-model", "grader": "s-model", "threshold": 0.8, "strong_tolerance": 0.05,
+    cfg = {"lab_models": ["s-model", "f-model"], "grader": "s-model", "threshold": 0.8, "tolerance": 0.05,
            "measurement_floor": 5, **(cfg_changes or {})}
     return str(skill), cfg
 
@@ -837,7 +852,7 @@ def measured(root, **changes):
     (root / "evals").mkdir(exist_ok=True)
     (root / "evals" / "grading-prompt.md").write_text("template\n")
     (root / "evals" / "measure.py").write_text("# measures\n")
-    configure(root, measurement_version=5, measurement_floor=5, models={"s-model": ["provider/s-model"], "f-model": []},
+    configure(root, measurement_version=5, measurement_floor=5, models=entries(**{"s-model": ["provider/s-model"]}),
               measurement_sha256=es.measurement_fingerprint(str(root)), **changes)
 
 

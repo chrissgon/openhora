@@ -13,23 +13,23 @@
       var s = data.skills.filter(function (x) { return x.skill === name; })[0];
       if (!s) return;
       picked = name;
-      var ref = s.models[data.reference_model], flo = s.models[data.floor_model];
-      var floorOk = flo.band === "reliable";
-      var row = function (model, tier, adapter, m) {
-        return '<tr><th scope="row"><b>' + esc(model) + "</b><small>" + tier + " · " + esc(adapter) + "</small></th><td>" +
+      var rows = data.lab_models.map(function (l) { return { model: l.model, adapter: l.adapter, m: s.models[l.model] || { band: "needs a test", cause: "no evidence on this model", score: "n/a", mean: "n/a", runs: "0", gate: "-" } }; });
+      var reliable = rows.filter(function (r) { return r.m.band === "reliable"; });
+      var row = function (model, adapter, m) {
+        return '<tr><th scope="row"><b>' + esc(model) + "</b><small>" + esc(adapter) + "</small></th><td>" +
           '<span class="band-word ' + BAND[m.band] + '">' + esc(m.band) + "</span>" + (m.cause ? '<small class="mr-cause">' + esc(m.cause) + "</small>" : "") +
           "</td><td>" + esc(m.score) + "</td><td>" + esc(m.mean) + "</td><td>" + esc(m.runs) + "</td><td>" + esc(m.gate) + "</td></tr>";
       };
-      var why = floorOk
-        ? "its band on the floor model is reliable, so the runtime may run it there, when a key for the floor model is found and the measurement and the image match the recorded ones"
-        : "the band on the floor model is " + flo.band;
+      var why = reliable.length
+        ? "its band is reliable on " + reliable.length + " of " + rows.length + " lab models: the runtime may release a run on them without review, when the measurement and the image match the recorded ones, and auto picks the cheapest of them by price and measured usage; a model you name runs whatever its band, and then waits for you"
+        : "no lab model has a reliable band for it: a run waits for your review, whichever model you name";
       out.innerHTML =
         '<div class="mr-head"><h4 class="mr-name">' + esc(s.skill) + '</h4><span class="mr-ver">v' + esc(s.version) + " · last full test " + esc(s.last_full_test) + "</span></div>" +
         '<table class="mr-table"><thead><tr><th scope="col">Model</th><th scope="col">Band</th><th scope="col">Score</th><th scope="col">Mean</th><th scope="col">Runs</th><th scope="col">Gate</th></tr></thead><tbody>' +
-        row(data.reference_model, "reference", data.reference_adapter, ref) + row(data.floor_model, "floor", data.floor_adapter, flo) + "</tbody></table>" +
-        '<div class="mr-route ' + (floorOk ? "is-floor" : "is-ref") + '"><p class="mr-k">The runtime runs it on</p><p class="mr-model">' +
-        esc(floorOk ? data.floor_model : data.reference_model) + ' <span class="pui-badge pui-soft ' + (floorOk ? "pui-success" : "pui-theme") + '">' +
-        (floorOk ? "floor model" : "reference model") + '</span></p><p class="mr-why"><span>Why:</span> ' + esc(why) + ".</p></div>";
+        rows.map(function (r) { return row(r.model, r.adapter, r.m); }).join("") + "</tbody></table>" +
+        '<div class="mr-route ' + (reliable.length ? "is-floor" : "is-ref") + '"><p class="mr-k">Released without review on</p><p class="mr-model">' +
+        (reliable.length ? reliable.map(function (r) { return esc(r.model); }).join(", ") : "no lab model") + ' <span class="pui-badge pui-soft ' + (reliable.length ? "pui-success" : "pui-theme") + '">' +
+        (reliable.length ? "reliable" : "supervised") + '</span></p><p class="mr-why"><span>Why:</span> ' + esc(why) + ".</p></div>";
       list.querySelectorAll("button").forEach(function (b) {
         if (b.getAttribute("data-skill") === name) b.setAttribute("aria-current", "true"); else b.removeAttribute("aria-current");
       });

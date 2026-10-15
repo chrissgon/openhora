@@ -588,7 +588,7 @@ def test_every_notice_that_needs_the_terminal_uses_the_one_component_and_the_pag
         # `keyring==` is the library's version pin, which every command of the service carries. A-22: the credential's commands are the fields
         # `held[].commands` the service gives (command.js no longer reads them out of a sentence), so no module holds a pattern of one.
         assert "cli.py" not in text and "keyring==" not in text and "accept-config --" not in text and "run-next --" not in text, f"{path.name}: a command is the service's, never built on the page"
-    assert (JS / "floor/agent-tab.js").read_text(encoding="utf-8").count('"select"') == 1, "A-17 took the mode select away; R-35 brings back one, for the wider modes only"
+    assert (JS / "floor/agent-tab.js").read_text(encoding="utf-8").count('"select"') == 2, "A-17 took the mode select away; R-35 brings back one, for the wider modes only; P3 adds the model's"
 
 
 @needs_node

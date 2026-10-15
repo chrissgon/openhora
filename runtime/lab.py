@@ -29,7 +29,8 @@ of run_skill, through which the caller changes a fresh copy before the run and r
 
 Usage (a library; the terminal shell is runtime/cli.py):
   python3 runtime/lab.py --help        print this text
-  python3 runtime/lab.py reference     print the reference model and its adapter, as JSON
+  python3 runtime/lab.py reference     print the lab's default model (the first of lab_models) and its adapter, as JSON
+  python3 runtime/lab.py models        print the models of the gate file with their adapters, as JSON
 
 Standard library only. Runs on Python 3.9.
 """
@@ -59,8 +60,6 @@ MODULE = "workbench_eval_execution"  # the name the lab's runner gives the kit t
 # test asserts that the runner's own names (the event runner, the case files, the variants, the baseline's
 # checks, the grading, the evidence) are not in it. A name enters __all__ only with a line in the pull request that
 # says why it is not measurement. What this file may read of the status script is the kit's STATUS_NAMES.
-TIERS = {"strong": ("strong_model", "strong_harness", "strong_pass_env"),
-         "floor": ("floor_model", "floor_harness", "floor_pass_env")}
 RESPONSE_LIMIT = 2000000  # characters of a reply handed to the caller
 
 
@@ -136,28 +135,77 @@ def _lab_call(function, *args, **kwargs):
                                  f"exit code {e.code}") from None
 
 
-def reference(tier: str = "strong") -> dict:
-    """The model a tier runs on, its adapter, the variables that carry its credential (names only) and the
-    control of a run, all from the gate file evals/eval-gate.json: {"tier", "model", "adapter", "pass_env",
-    "timeout_seconds", "retries", "control"}."""
-    if tier not in TIERS:
-        raise LabError("config", f"tier must be one of {', '.join(TIERS)}")
+def _gate() -> tuple:
+    """(the status script, the gate file as a dict): LabError("config") when the file is missing or invalid."""
     status = _lab_call(LAB.load_status)
     gate = status.load_gate(LAB.ROOT)
+    if not gate or not isinstance(gate.get("models"), dict):
+        raise LabError("config", "evals/eval-gate.json is missing or invalid, or lists no models")
+    return status, gate
+
+
+def models() -> list:
+    """The ids of the models the gate file lists, in a stable order: the lab models first (the gate file's lab_models, in
+    its order), then the others as the file lists them. A model is run by the lab only when it is listed here: its entry
+    holds the adapter and the variables of its key."""
+    status, gate = _gate()
+    listed = list(status.known_models(gate))
+    lab = [m for m in (gate.get("lab_models") or []) if m in listed]
+    return lab + [m for m in listed if m not in lab]
+
+
+def default_model() -> str:
+    """The id of the first lab model: the model a run goes to when nothing chooses another. LabError when the gate file
+    lists none."""
+    found = models()
+    if not found:
+        raise LabError("config", "evals/eval-gate.json lists no model")
+    return found[0]
+
+
+def resolve_model(model: str | None = None) -> str:
+    """The listed id of a model written as its id or one of its aliases; the first lab model for None. LabError("config")
+    for a name the gate file does not list: the lab runs the models of the gate file only."""
+    if model is None:
+        return default_model()
+    status, gate = _gate()
+    listed = status.model_id(gate, model)
+    if listed == "unknown" or not isinstance(gate["models"].get(listed), dict):
+        raise LabError("config", f"{model!r} is not a model of evals/eval-gate.json: the lab runs the models the file lists")
+    return listed
+
+
+def names_of(model: str) -> list:
+    """[the listed id, then its aliases] of a model, as the gate file writes them; just the name for one it does not list."""
+    status, gate = _gate()
+    listed = status.model_id(gate, model)
+    if listed == "unknown":
+        return [model]
+    entry = gate["models"].get(listed)
+    return [listed] + [a for a in (entry.get("aliases") if isinstance(entry, dict) else []) or [] if a != listed]
+
+
+def reference(model: str | None = None) -> dict:
+    """The model's entry of the gate file evals/eval-gate.json and the control of a run: {"model" (the listed id), "adapter",
+    "pass_env" (the variables that carry its credential, names only), "route", "price_source", "timeout_seconds",
+    "retries", "control"}. model is an id or an alias; None is the first lab model."""
+    status, gate = _gate()
+    listed = resolve_model(model)
+    entry = status.model_entry(gate, listed) or {}
+    if not entry.get("adapter"):
+        raise LabError("config", f"evals/eval-gate.json names no adapter for {listed}")
     control = status.event_config(gate)
-    model_key, harness_key, env_key = TIERS[tier]
-    if not gate.get(model_key) or not gate.get(harness_key):
-        raise LabError("config", f"evals/eval-gate.json is missing or invalid, or names no {tier} model")
-    return {"tier": tier, "model": gate[model_key], "adapter": gate[harness_key], "pass_env": list(gate.get(env_key) or []),
+    return {"model": listed, "adapter": entry["adapter"], "pass_env": list(entry.get("pass_env") or []),
+            "route": entry.get("route"), "price_source": entry.get("price_source"),
             "timeout_seconds": control["timeout_seconds"], "retries": control["retries"], "control": control}
 
 
-def credential_missing(tier: str) -> list:
-    """The variables of a tier's credential (its pass_env in the gate file) that are neither set nor found in the
+def credential_missing(model: str | None = None) -> list:
+    """The variables of a model's credential (its pass_env in the gate file) that are neither set nor found in the
     secret store, by the lab's own lookup (resolve_pass_env of evals/execution.py, the one run_skill uses). It
-    tells whether a run of the tier would have its key; no value is returned or kept: the environment is put back
-    as it was. An empty list for a tier whose gate file names no variable."""
-    names = reference(tier)["pass_env"]
+    tells whether a run on the model would have its key; no value is returned or kept: the environment is put back
+    as it was. An empty list for a model whose gate entry names no variable."""
+    names = reference(model)["pass_env"]
     before = {name: os.environ.get(name) for name in names}
     try:
         _lab_call(LAB.resolve_pass_env, names)
@@ -358,7 +406,9 @@ def proof_inputs(skill: str) -> str:
     sorted name order, each preceded by its name); of every file of the skill's evals/evidence/ in sorted name order,
     each preceded by its name; the context hash the status script computes for each case of evals/evals.json (its
     dependency skills' content and the shared references staged with the skill: what a line's context is compared
-    with); and the skill's content hash. Editing a case or a dependency therefore recomputes the entry. It lives here because no other module of runtime/
+    with); the same for the person's own local evidence files of the skill (outside the checkout: the status script's
+    local_evidence_base), each preceded by its name; and the skill's content hash. Editing a case or a dependency
+    therefore recomputes the entry, and so does a new local test. It lives here because no other module of runtime/
     may name a path under evals/."""
     status = _lab_call(LAB.load_status)
     skill_dir = os.path.join(LAB.ROOT, "skills", skill)
@@ -389,15 +439,35 @@ def proof_inputs(skill: str) -> str:
     for name in sorted(os.listdir(evidence)) if os.path.isdir(evidence) else []:
         digest.update(b"\0" + name.encode("utf-8") + b"\0")
         add(os.path.join(evidence, name))
+    digest.update(b"\0local\0")
+    for path in _lab_call(status.local_evidence_files, skill, _lab_call(status.local_evidence_base)):
+        digest.update(b"\0" + os.path.basename(path).encode("utf-8") + b"\0")
+        add(path)
     digest.update(skill_identity(skill)["content_sha256"].encode("utf-8"))
     return digest.hexdigest()
 
 
+USAGE_KINDS = ("input", "output", "cache_read", "cache_write")
+
+
+def usage_mean(lines):
+    """The mean usage of the run lines that carry one, by kind: {"input", "output", "cache_read", "cache_write"} in tokens
+    per run, or None when no line has a usage (a line written before the field, or a run no count could be read for). The
+    lines are a model's with-skill lines that weigh above zero (a pool's current and inherited lines)."""
+    seen = [line["usage"] for line in lines if isinstance(line.get("usage"), dict)
+            and all(isinstance(line["usage"].get(kind), (int, float)) for kind in USAGE_KINDS)]
+    if not seen:
+        return None
+    return {kind: round(sum(u[kind] for u in seen) / len(seen), 1) for kind in USAGE_KINDS}
+
+
 def standing(skill: str) -> dict:
-    """What the status script computes for one skill: {"skill", "version", "models": {model id: {"band", "cause",
-    "score", "mean", "runs", "web_measured"}}, "tiers": {"strong": {"model", "adapter"}, "floor": {"model",
-    "adapter"}}, "web_cases": the gate file's web cases of the skill (information only), "evidence_images": the sorted
-    distinct image digests of the skill's lab events at or above the measurement floor}.
+    """What the status script computes for one skill, per model: {"skill", "version", "lab_models": [ids], "adapters":
+    {model id: adapter} (the gate file's entries), "models": {model id: {"band", "cause", "score", "mean", "runs",
+    "web_measured", "usage_mean", "source": "lab"}} for every model with lab evidence, "local": {model id: the same keys
+    with "source": "local"} for the models the person's own tests (outside the checkout) cover and the gate file lists,
+    "web_cases": the gate file's web cases of the skill (information only), "evidence_images": the sorted distinct image
+    digests of the skill's lab events at or above the measurement floor}.
 
     web_measured, per model, is true when the lines that weigh above zero for that model hold a with-skill lab line
     of a web case. Those are the lines the model's score is computed from (the status script's lab_view: the pool's
@@ -407,10 +477,15 @@ def standing(skill: str) -> dict:
     reliable on inherited lines. A web case is a case the gate file lists in web_cases for the skill and that sets
     "allow_web" in evals/evals.json now (in the case or at the top of the file): the listing is only the
     permission, the runner opens the network for cases that set it. A listed case with no such line, and a model
-    with no line at all, is false."""
-    status = _lab_call(LAB.load_status)
-    gate = status.load_gate(LAB.ROOT)
-    row = _lab_call(status.all_status, LAB.ROOT, only=skill)["skills"][0]
+    with no line at all, is false.
+
+    usage_mean, per model, is the mean usage by kind of those same lines that carry a "usage" (usage_mean()); None when
+    none does. The local figures are the status script's own for the person's local files, computed from those files alone
+    and never added to the repository's."""
+    status, gate = _gate()
+    base = _lab_call(status.local_evidence_base)
+    row = _lab_call(status.all_status, LAB.ROOT, only=skill, local_base=base)
+    found = row["skills"][0]
     floor = gate.get("measurement_floor") or 0
     skill_dir = os.path.join(LAB.ROOT, "skills", skill)
     events = status.skill_evidence(skill_dir)
@@ -424,16 +499,27 @@ def standing(skill: str) -> dict:
         if isinstance(version, (int, float)) and version >= floor and event.get("image_digest"):
             images.add(event["image_digest"])
 
-    def measured(model):
-        pool = pools.get(model) or {}
-        return any(str(line["case"]) in web_cases for line in (pool.get("current") or []) + (pool.get("inherited") or []))
+    def lines_of(pools_of, model):
+        pool = pools_of.get(model) or {}
+        return (pool.get("current") or []) + (pool.get("inherited") or [])
 
-    return {"skill": skill, "version": row["version"],
-            "models": {model: {**{k: found.get(k) for k in ("band", "cause", "score", "mean", "runs")},
-                               "web_measured": measured(model)}
-                       for model, found in (row.get("models") or {}).items()},
-            "tiers": {"strong": {"model": gate.get("strong_model"), "adapter": gate.get("strong_harness")},
-                      "floor": {"model": gate.get("floor_model"), "adapter": gate.get("floor_harness")}},
+    def figures(source, model, found_figures, pools_of):
+        lines = lines_of(pools_of, model)
+        return {**{k: found_figures.get(k) for k in ("band", "cause", "score", "mean", "runs")},
+                "web_measured": any(str(line["case"]) in web_cases for line in lines),
+                "usage_mean": usage_mean(lines), "source": source}
+
+    out_models = {model: figures("lab", model, got, pools) for model, got in (found.get("models") or {}).items()}
+    out_local = {}
+    local = ((row.get("local") or {}).get("skills") or {}).get(skill) or {}
+    if local:
+        listed = set(_lab_call(status.known_models, gate))
+        local_events = _lab_call(status.local_skill_evidence, skill, base)
+        local_pools = _lab_call(status.lab_view, LAB.ROOT, skill_dir, gate, local_events)["pools"]
+        out_local = {model: figures("local", model, got, local_pools) for model, got in local.items() if model in listed}
+    return {"skill": skill, "version": found["version"], "lab_models": list(gate.get("lab_models") or []),
+            "adapters": {model: (gate["models"].get(model) or {}).get("adapter") for model in models()},
+            "models": out_models, "local": out_local,
             "web_cases": list((gate.get("web_cases") or {}).get(skill, [])),
             "evidence_images": sorted(images)}
 
@@ -664,7 +750,7 @@ def _platform_names(platforms) -> list:
     return sorted(set(platforms))
 
 
-def run_skill(skill: str, prompt: str, files, dest: str, *, web: bool = False, tier: str = "strong",
+def run_skill(skill: str, prompt: str, files, dest: str, *, web: bool = False,
               model: str | None = None, adapter: str | None = None, pass_env=None,
               timeout: int | None = None, retries: int | None = None, prepare=None, finish=None,
               tmp_in_run: bool = False, platforms=None, max_cost=None) -> dict:
@@ -681,9 +767,10 @@ def run_skill(skill: str, prompt: str, files, dest: str, *, web: bool = False, t
              <dest>/prompt.md the task text; what an attempt that was made again left is in <dest>/failed-<n>/,
              <dest>/early-end-<n>/ or <dest>/paused-<n>/
     web      True runs on the open network and lets the model search and fetch pages (the adapter's --allow-web)
-    tier     "strong" (the reference model) or "floor": the model, its adapter and the names of the variables
-             that carry its credential come from evals/eval-gate.json. model, adapter and pass_env replace them
-             (a test's stand-in); timeout (seconds) and retries default to the gate file's too
+    model    the model the run goes to, an id or alias of evals/eval-gate.json (None: the first lab model); its adapter
+             and the names of the variables that carry its credential come from its entry there. A model that is not
+             listed runs only with both adapter and pass_env given. adapter and pass_env replace the entry's (a test's
+             stand-in); timeout (seconds) and retries default to the gate file's
     prepare  prepare(copy_dir, root), called on every attempt after the base commit of the copy and before the
              check of a tool's settings: the caller changes the fresh copy (puts a dependency folder in, applies a
              change set)
@@ -696,7 +783,7 @@ def run_skill(skill: str, prompt: str, files, dest: str, *, web: bool = False, t
              is not a secret, so its value is never replaced in what the run left
     max_cost  the run's own spend limit in dollars (a number above 0), given to the adapter as --max-cost-usd, to the cent; None, the
              default, gives none. The runtime passes one for a run on a metered credential (autonomy.run_budget); the
-             adapter of the reference model stops the run once it has spent that much, the floor model's adapter does not enforce it
+             adapter of a model that enforces it stops the run once it has spent that much, one that cannot says so
     platforms  the platforms whose reference the caller names, a list of names ("a case's platforms"): each is
              staged beside the skill, with its data file when it has one, as the lab stages a case's platforms. The
              list is added to what platforms_cited() gives, never in its place; a name with no reference under
@@ -705,14 +792,18 @@ def run_skill(skill: str, prompt: str, files, dest: str, *, web: bool = False, t
     Returns {"status": "ok" | "failed", "failure": None | {"kind", "reason", "detail"}, "response", "changes":
     {"created", "modified", "deleted", "unchanged"} or None, "staged": [paths the runtime put in the copy],
     "run_dir", "cwd", "outputs", "timing": {...}, "counts": {"attempts", "timeouts", "refusals",
-    "adapter_failures", "early_ends", "pauses", "redactions"}, "tier", "model", "adapter", "web",
+    "adapter_failures", "early_ends", "pauses", "redactions"}, "model", "adapter", "web",
     "image_digest", "image_platform", "base_commit": the commit id of the copy's base, or None, "tmp": with
     tmp_in_run, <dest>/outputs/tmp, else None}. failure kinds: "timeout", "refused", "auth", "adapter", "early_end"
     (each after the gate file's retries, "auth" at once), "settings" (the copy carries a tool's settings) and
     "stopped". Raises LabError when no run could be made (configuration, container, a file that may not enter).
     Call it inside `with session():`."""
     named = _platform_names(platforms)
-    ref = reference(tier)
+    if model is not None and adapter is not None and pass_env is not None:  # a stand-in: the gate file gives the control only
+        ref = reference()
+    else:
+        ref = reference(model)
+        model = ref["model"]
     model, adapter = model or ref["model"], adapter or ref["adapter"]
     pass_env = list(ref["pass_env"] if pass_env is None else pass_env)
     if max_cost is not None and (isinstance(max_cost, bool) or not isinstance(max_cost, (int, float)) or not max_cost > 0):
@@ -744,7 +835,7 @@ def run_skill(skill: str, prompt: str, files, dest: str, *, web: bool = False, t
     cwd, out = os.path.join(dest, "cwd"), os.path.join(dest, "outputs")
     os.makedirs(dest, exist_ok=True)
     result = {"status": "failed", "failure": None, "response": "", "changes": None, "staged": [], "run_dir": dest,
-              "cwd": cwd, "outputs": out, "timing": {}, "counts": counts, "tier": tier, "model": model,
+              "cwd": cwd, "outputs": out, "timing": {}, "counts": counts, "model": model,
               "adapter": adapter, "web": bool(web), "image_digest": environment.get("image_digest"),
               "image_platform": environment.get("image_platform"), "base_commit": None,
               "tmp": os.path.join(out, "tmp") if tmp_in_run else None}
@@ -790,7 +881,7 @@ def run_skill(skill: str, prompt: str, files, dest: str, *, web: bool = False, t
     spec = {"dest": dest, "names": [skill], "label": f"task run {os.path.basename(dest)}", "runner": runner,
             "model": model, "account": {"key": adapter, "markers": eval_cfg["account_limit"], "probe": probe},
             "refusal_markers": eval_cfg["refusal_markers"], "pass_env": pass_env, "values": values,
-            "settings": settings, "control": control, "tier": tier, "web": bool(web), "timeout": timeout,
+            "settings": settings, "control": control, "web": bool(web), "timeout": timeout,
             "max_cost": None if max_cost is None else f"{max_cost:.2f}", "retries": retries, "prompt": prompt, "response_limit": RESPONSE_LIMIT,
             "counts": counts, "env_extra": (lambda root: _run_tmp(root, runner)) if tmp_in_run else None}
     hooks = types.SimpleNamespace(build=build, after_base=after_base, stage=stage, after_run=after_run)
@@ -833,7 +924,10 @@ def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv == ["reference"]:
         ref = reference()
-        print(json.dumps({key: ref[key] for key in ("tier", "model", "adapter", "pass_env", "timeout_seconds", "retries")}, indent=1))
+        print(json.dumps({key: ref[key] for key in ("model", "adapter", "pass_env", "timeout_seconds", "retries")}, indent=1))
+        return 0
+    if argv == ["models"]:
+        print(json.dumps({m: reference(m)["adapter"] for m in models()}, indent=1))
         return 0
     print(__doc__.strip(), file=sys.stdout if argv in (["--help"], ["-h"]) else sys.stderr)
     return 0 if argv in (["--help"], ["-h"]) else 2

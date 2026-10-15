@@ -50,12 +50,12 @@ BEFORE = {
     # The key proxy of the eval network became a reader of the floor key on 2026-10-03: it holds the value of an eval run.
     "OPENROUTER_API_KEY": ((), "openrouter", ("evals/eval_run.py --pass-env", "adapters/agents-dir/run-prompt.sh",
                                               "evals/container/keyproxy/keyproxy.py", "adapters/api/run_agent.py")),
-    "CLAUDE_CODE_OAUTH_TOKEN": ((), "claude-code-oauth", ("evals/eval_run.py strong_pass_env",
+    "CLAUDE_CODE_OAUTH_TOKEN": ((), "claude-code-oauth", ("evals/eval_run.py models[<id>].pass_env",
                                                           "adapters/claude-code/run-prompt.sh")),
-    "DEEPSEEK_API_KEY": ((), "deepseek", ("evals/eval_run.py --floor-pass-env", "adapters/agents-dir/run-prompt.sh")),
+    "DEEPSEEK_API_KEY": ((), "deepseek", ("evals/eval_run.py --pass-env", "adapters/agents-dir/run-prompt.sh")),
     "ANTHROPIC_API_KEY": ((), "anthropic", ("adapters/api/run_agent.py",)),
     # Added since: the low-limit key of the eval cases that use the open network.
-    "CLAUDE_CODE_WEB_API_KEY": ((), "claude-code-web-evals", ("evals/eval_run.py strong_web_pass_env",
+    "CLAUDE_CODE_WEB_API_KEY": ((), "claude-code-web-evals", ("evals/eval_run.py models[<id>].web_pass_env",
                                                               "adapters/claude-code/run-prompt.sh")),
 }
 ADAPTER_SECRETS = {"OPENROUTER_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY",
@@ -121,14 +121,14 @@ def test_every_adapter_secret_names_readers_that_exist_and_its_own_adapter():
     assert seen == ADAPTER_SECRETS
 
 
-def test_the_names_passed_into_eval_runs_are_registered_by_the_adapter_of_their_tier(merged):
-    """The gate file is the one home of the pass-through names; the registry only confirms them."""
+def test_the_names_passed_into_eval_runs_are_registered_by_the_adapter_of_their_model(merged):
+    """The gate file is the one home of the pass-through names (each model's entry); the registry only confirms them."""
     gate = json.loads((ROOT / "evals" / "eval-gate.json").read_text(encoding="utf-8"))
-    for tier in ("floor", "strong"):
-        manifest = json.loads((ROOT / "adapters" / gate[f"{tier}_harness"] / "adapter.json").read_text(encoding="utf-8"))
+    for model, found in gate["models"].items():
+        manifest = json.loads((ROOT / "adapters" / found["adapter"] / "adapter.json").read_text(encoding="utf-8"))
         registered = {entry["name"] for entry in manifest.get("secrets", [])}
-        for name in gate[f"{tier}_pass_env"] + (gate.get("strong_web_pass_env", []) if tier == "strong" else []):
-            assert name in registered, f"{name} is passed to the {tier} runs and its adapter does not register it"
+        for name in found["pass_env"] + found.get("web_pass_env", []):
+            assert name in registered, f"{name} is passed to the runs of {model} and its adapter does not register it"
             assert any(r.startswith("evals/eval_run.py") for r in merged.REGISTRY[name].readers)
     for manifest in MANIFESTS:
         keys = set(json.loads(manifest.read_text(encoding="utf-8")))

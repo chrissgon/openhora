@@ -60,10 +60,10 @@ is on PATH so it is). A value is never printed, logged or written.
 Cost
   Before the call: input tokens are ESTIMATED as characters / 3.5 (a rough rule, not a tokenizer; the
   real count can be higher, about 30% more on newer Claude tokenizers). When that estimate times the
-  model's input price in prices.json already exceeds --max-cost-usd, the call is refused. A model
+  model's input price in runtime/prices.json already exceeds --max-cost-usd, the call is refused. A model
   without a price is called with a warning and no pre-call check.
   After the call: cost_usd is OpenRouter's usage.cost when present; otherwise the reported tokens times
-  prices.json; otherwise null with a warning. max_tokens is MAX_OUTPUT_TOKENS (4096).
+  runtime/prices.json; otherwise null with a warning. max_tokens is MAX_OUTPUT_TOKENS (4096).
 
 Limits: --timeout-seconds (default 600, 1 to 3600) bounds the whole run, request included. The run's own
 clock decides a timeout: the socket waits SOCKET_MARGIN seconds longer than the time left, and a socket
@@ -99,7 +99,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 WORKBENCH = HERE.parent.parent
 RESOLVER = WORKBENCH / "providers" / "secrets" / "resolver.py"
-PRICES = HERE / "prices.json"
+PRICES = WORKBENCH / "runtime" / "prices.json"  # the one price table of the workbench (runtime/prices.py reads it too)
 
 MAX_FILE_BYTES = 64 * 1024
 MAX_PROMPT_CHARS = 400_000
@@ -359,11 +359,20 @@ def load_resolver():
 
 
 def load_price(model: str, log) -> dict | None:
+    """The model's entry of runtime/prices.json (by its id or one of its aliases), with the prices this adapter uses
+    under the names it reads them by; None when the model has no input and output price."""
     try:
-        return json.loads(PRICES.read_text(encoding="utf-8"))["models"].get(model)
+        models = json.loads(PRICES.read_text(encoding="utf-8"))["models"]
     except (OSError, ValueError, KeyError) as e:
-        log(f"warning: prices.json unreadable ({e})")
+        log(f"warning: runtime/prices.json unreadable ({e})")
         return None
+    found = models.get(model) or next((e for e in models.values() if isinstance(e, dict) and model in (e.get("aliases") or ())), None)
+    if not isinstance(found, dict):
+        return None
+    names = {"input_per_mtok": "input_usd_per_mtok", "output_per_mtok": "output_usd_per_mtok",
+             "cache_write_per_mtok": "cache_write_usd_per_mtok", "cache_read_per_mtok": "cache_read_usd_per_mtok"}
+    price = {mine: found[theirs] for mine, theirs in names.items() if isinstance(found.get(theirs), (int, float))}
+    return price if "input_per_mtok" in price and "output_per_mtok" in price else None
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -435,7 +444,7 @@ def usage_cost(provider: str, usage: dict, price: dict | None, log) -> tuple[int
         keys = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
         tokens = sum(n(k) for k in keys) if any(k in usage for k in keys) else None
         if price is None or tokens is None:
-            log("warning: no price for this model in prices.json (or no usage reported); cost_usd is null")
+            log("warning: no price for this model in runtime/prices.json (or no usage reported); cost_usd is null")
             return tokens, None
         cost = (n("input_tokens") * price["input_per_mtok"] + n("output_tokens") * price["output_per_mtok"]
                 + n("cache_creation_input_tokens") * price.get("cache_write_per_mtok", price["input_per_mtok"])
@@ -445,10 +454,10 @@ def usage_cost(provider: str, usage: dict, price: dict | None, log) -> tuple[int
     if isinstance(usage.get("cost"), (int, float)):
         return tokens, float(usage["cost"])
     if price is not None and tokens is not None:
-        log("warning: OpenRouter reported no usage.cost; cost_usd computed from prices.json")
+        log("warning: OpenRouter reported no usage.cost; cost_usd computed from runtime/prices.json")
         return tokens, round((n("prompt_tokens") * price["input_per_mtok"]
                               + n("completion_tokens") * price["output_per_mtok"]) / 1e6, 6)
-    log("warning: no usage.cost reported and no price in prices.json; cost_usd is null")
+    log("warning: no usage.cost reported and no price in runtime/prices.json; cost_usd is null")
     return tokens, None
 
 
@@ -516,7 +525,7 @@ def main(argv: list[str]) -> int:
     price = load_price(opts["model"], run.log)
     est_tokens = math.ceil(chars / CHARS_PER_TOKEN)
     if price is None:
-        run.log(f"warning: no price for {opts['model']} in prices.json; the pre-call cost check is skipped")
+        run.log(f"warning: no price for {opts['model']} in runtime/prices.json; the pre-call cost check is skipped")
         run.log(f"estimate: {est_tokens} input tokens (characters / {CHARS_PER_TOKEN}, an estimate)")
     else:
         est_cost = est_tokens * price["input_per_mtok"] / 1e6

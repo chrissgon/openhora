@@ -11,11 +11,12 @@ held_of(snapshot, decided, blocked=None) -> [{"task_id", "agent", "reason"}]: ev
                 with the reason, in the words of REASONS (the record `status` shows, runtime/ops.py)
 
   snapshot      {"running": [{"id", "agent", "request_id", "code", "footprint"}, ...: the tasks that run and the children started and not yet claimed], "holding": [{"id", "agent"}: the slot holders], "ready": [tasks, oldest first], "reviews": [{"pending", "task", "agent",
-                "proven", "mandatory"}], "agents": {"<name>": {"facts", "spent", "entry"}}, "tier": {"<task id>":
-                "strong" or "floor"}, "billing": {"<task id>": the billing of the credential the task's route would
+                "proven", "consent", "mandatory"}], "agents": {"<name>": {"facts", "spent", "entry"}}, "model": {"<task id>":
+                the id of the model the task would run on}, "billing": {"<task id>": the billing of the credential the task's route would
                 use, "subscription", "metered" or "free", or None when no manifest says}, "waits": {"<task id>": [open
                 waits]}}, built by runtime/ops.py (dispatch, poll) from the store, the proof and the runtime manifests
-  review_action runtime/autonomy.py's review_action(task, pending, facts, proven, mandatory): "release" or "hold"
+  review_action runtime/autonomy.py's review_action(task, pending, facts, proven, mandatory[, consent]): "release" or "hold";
+                consent is passed only when the review carries it (the person's consent for the agent's fixed model, D38)
   may_start     runtime/autonomy.py's may_start(name, agents, facts, spent, billing): (True, "") or (False, why)
   admit         runtime/parallel.py's admit(task, running, holding, agents, max_running): (True, "") or (False, why);
                 the snapshot also carries "refused" {task id: reason}, "max_running" and "per_run_usd", and every ready
@@ -48,7 +49,7 @@ With --pin (the file `cli.py pin` writes, <data_dir>/dispatch-pin.json), a runti
 one stops the job before anything of the checkout is imported. Without --pin a job may only be run by hand. poll and
 work print one JSON object; an error of the operation is printed on stderr and ends with its exit code (1 failed, 2
 usage, 3 not configured). check imports every module of runtime/ and runtime/handlers/, loads the lab's gate file,
-says whether this interpreter can read the secret store and whether the reference model's credential is reachable,
+says whether this interpreter can read the secret store and whether the default model's credential is reachable,
 and finds docker, uv and git on PATH; it starts nothing. command-file prints the scheduler's command file of one
 job: argv[0] is always /usr/bin/python3, and the snapshot is this file and the pin.
 
@@ -92,8 +93,9 @@ def decide(snapshot: dict, review_action, may_start, admit) -> dict:
     for review in snapshot.get("reviews") or []:
         agent = agents.get(review.get("agent")) or {}
         facts = agent.get("facts") or {"enabled": False, "checkpoints": "every-phase", "standing": False}
+        given = (bool(review["consent"]),) if "consent" in review else ()
         if review_action(review["task"], review["pending"], facts, bool(review.get("proven")),
-                         bool(review.get("mandatory"))) == "release":
+                         bool(review.get("mandatory")), *given) == "release":
             release.append(review["pending"]["id"])
     return _decide_parallel(snapshot, release, agents, entries, may_start, admit)
 
@@ -259,11 +261,11 @@ def inspect(ops) -> dict:
                 report["modules"][prefix + name] = " ".join(f"{type(e).__name__}: {e}".split())[:300]
     try:
         lab = importlib.import_module("lab")
-        lab.reference("strong")
+        lab.reference()
         report["lab"] = "ok"
-        missing = lab.credential_missing("strong")
+        missing = lab.credential_missing()
         report["credential"] = "ok" if not missing else (
-            f"the reference model's credential ({', '.join(missing)}) is neither set nor found in the secret store")
+            f"the default model's credential ({', '.join(missing)}) is neither set nor found in the secret store")
     except BaseException as e:
         report["lab"] = " ".join(f"{type(e).__name__}: {e}".split())[:300] if report["lab"] is None else report["lab"]
         if report["credential"] is None:

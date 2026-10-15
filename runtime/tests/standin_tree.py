@@ -331,16 +331,17 @@ def build(tmp_path: Path, monkeypatch, lab) -> dict:
     monkeypatch.setattr(runner, "ROOT", str(tree))
     monkeypatch.setattr(runner, "EXECUTOR", "host")
     monkeypatch.setattr(runner, "RETRY_PAUSE", 0)
-    control = {"total_jobs": 2, "web_jobs": {"strong": 1, "floor": 1}}
-    monkeypatch.setattr(lab, "reference", lambda tier="strong": {
-        "tier": tier, "model": "m", "adapter": "h", "pass_env": [], "timeout_seconds": 60, "retries": 2, "control": control})
-    # The proof of the stand-in skills (runtime/proof.py): the reference model "m" is reliable, the floor model
-    # "fm" has no evidence, the measurement files are the recorded ones and the image is the evidence's.
+    set_models(monkeypatch, lab)
+    # The proof of the stand-in skills (runtime/proof.py): the model "m" is reliable, with a measured usage and a price, the
+    # model "fm" has no evidence, the measurement files are the recorded ones and the image is the evidence's.
     monkeypatch.setattr(lab, "standing", lambda skill: {
-        "skill": skill, "version": "0.1.0",
-        "models": {"m": {"band": "reliable", "cause": None, "score": 0.9, "mean": 0.95, "runs": 6}},
-        "tiers": {"strong": {"model": "m", "adapter": "h"}, "floor": {"model": "fm", "adapter": "h"}},
-        "web_cases": [], "evidence_images": [STANDIN_IMAGE]})
+        "skill": skill, "version": "0.1.0", "lab_models": ["m", "fm"], "adapters": {"m": "h", "fm": "h"},
+        "models": {"m": {"band": "reliable", "cause": None, "score": 0.9, "mean": 0.95, "runs": 6, "web_measured": False,
+                         "usage_mean": {"input": 1000.0, "output": 200.0, "cache_read": 0.0, "cache_write": 0.0}, "source": "lab"}},
+        "local": {}, "web_cases": [], "evidence_images": [STANDIN_IMAGE]})
+    monkeypatch.setattr(load("prices"), "load", lambda path=None: {"models": {"m": {
+        "input_usd_per_mtok": 1.0, "output_usd_per_mtok": 5.0, "cache_read_usd_per_mtok": 0.1, "cache_write_usd_per_mtok": 1.25,
+        "source": "https://prices.example/models", "accessed": "2026-10-01"}}})
     monkeypatch.setattr(lab, "proof_inputs", lambda skill: "standin-" + skill)
     monkeypatch.setattr(lab, "measurement_problem", lambda: None)
     monkeypatch.setattr(lab, "image", lambda: {"name": "standin", "digest": STANDIN_IMAGE, "platform": "linux/arm64"})
@@ -351,6 +352,47 @@ def build(tmp_path: Path, monkeypatch, lab) -> dict:
     monkeypatch.setattr(runs, "STOPPING", threading.Event())
     monkeypatch.setattr(runs, "WAIT_STEP", 0.01)
     return {"tree": tree, "project": project, "data": data, "db": db, "adapter": adapter, "real_spawn": real_spawn}
+
+
+def set_models(monkeypatch, lab, passes=None, adapters=None) -> None:
+    """The models of the stand-in gate file, for the lab facade: {"m": the first lab model, "fm": a second one}, each with the
+    variables its credential passes (names only; passes maps a model to its list, the default is none) and its adapter
+    ("h"). A test that needs the billing of a model to differ calls this again with its own passes. Patches lab.models,
+    default_model, resolve_model, names_of and reference."""
+    passes = {"m": [], "fm": [], **(passes or {})}
+    adapters = {"m": "h", "fm": "h", **(adapters or {})}
+    control = {"total_jobs": 2, "web_jobs": {"m": 1, "fm": 1}, "web_jobs_default": 1}
+
+    def resolve_model(model=None):
+        if model is None:
+            return "m"
+        if model not in passes:
+            raise lab.LabError("config", f"{model!r} is not a model of evals/eval-gate.json: the lab runs the models the file lists")
+        return model
+    monkeypatch.setattr(lab, "models", lambda: list(passes))
+    monkeypatch.setattr(lab, "default_model", lambda: "m")
+    monkeypatch.setattr(lab, "resolve_model", resolve_model)
+    monkeypatch.setattr(lab, "names_of", lambda model: [model])
+    monkeypatch.setattr(lab, "reference", lambda model=None: {
+        "model": resolve_model(model), "adapter": adapters[resolve_model(model)], "pass_env": list(passes[resolve_model(model)]),
+        "route": None, "price_source": None, "timeout_seconds": 60, "retries": 2, "control": control})
+
+
+def cheaper_second_model(monkeypatch, lab, passes=None) -> None:
+    """The model "fm" becomes reliable for every stand-in skill, with a measured usage, and cheaper than "m" in the price
+    table, so that `auto` chooses it when its key is found. passes maps a model to the variables its credential passes."""
+    set_models(monkeypatch, lab, passes=passes)
+    current = lab.standing
+    prices = load("prices")
+    table = prices.load()
+    table["models"]["fm"] = dict(table["models"]["m"], input_usd_per_mtok=0.1, output_usd_per_mtok=0.5)
+
+    def standing(skill):
+        found = current(skill)
+        found["models"]["fm"] = dict(found["models"]["m"])
+        return found
+    monkeypatch.setattr(lab, "standing", standing)
+    monkeypatch.setattr(prices, "load", lambda path=None: table)
 
 
 def calls(adapter: Path) -> list:

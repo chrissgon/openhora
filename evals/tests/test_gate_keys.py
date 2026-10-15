@@ -72,7 +72,7 @@ def test_the_committed_gate_file_lists_the_lab_models_in_the_object_shape_with_a
     assert es.gate_problems() == []
     assert GATE["lab_models"] == ["claude-sonnet-5-5", "openrouter/deepseek/deepseek-v4.1-flash"]
     for model, found in GATE["models"].items():
-        assert set(found) == set(es.MODEL_ENTRY_KEYS) and found["upstream_models"] and found["run_token_budget"] >= 3 * 1_600_052
+        assert set(found) - set(es.MODEL_ENTRY_OPTIONAL) == set(es.MODEL_ENTRY_KEYS) and found["upstream_models"] and found["run_token_budget"] >= 3 * 1_600_052
         assert (REPO / "evals" / "container" / "keyproxy" / f"route-{found['route']}.json").is_file(), model
     assert es.known_models(GATE) == {"claude-sonnet-5-5": [],
                                      "openrouter/deepseek/deepseek-v4.1-flash": ["deepseek/deepseek-v4.1-flash", "deepseek-v4.1-flash"]}
@@ -99,12 +99,14 @@ def test_adding_a_model_to_the_list_and_to_a_route_leaves_the_measurement_finger
     assert found["route"] == "openrouter" and found["provider_pin"] == "another-provider" and found["upstream_models"] == ["vendor/a-new-model"]
 
 
-def test_a_model_may_still_be_a_list_of_aliases_and_the_two_shapes_mix(tmp_path):
+def test_a_model_may_still_be_a_list_of_aliases_unless_it_is_a_lab_model_or_the_grader(tmp_path):
     cfg = copy.deepcopy(GATE)
-    cfg["models"]["claude-sonnet-5-5"] = []
-    cfg["strong_pass_env"] = []
-    assert es.gate_problems(str(tree_with_gate(tmp_path, cfg))) == []
-    assert es.known_models(cfg)["claude-sonnet-5-5"] == [] and es.model_entry(cfg, "claude-sonnet-5-5") is None
+    cfg["models"]["vendor/other"] = ["other"]  # known to the evidence, run by nobody: the list form is enough
+    assert es.gate_problems(str(tree_with_gate(tmp_path / "a", cfg))) == []
+    assert es.known_models(cfg)["vendor/other"] == ["other"] and es.model_entry(cfg, "other") is None
+    cfg["models"]["claude-sonnet-5-5"] = []  # a lab model and the grader need their entry's adapter and key
+    problems = es.gate_problems(str(tree_with_gate(tmp_path / "b", cfg)))
+    assert any("'claude-sonnet-5-5' as a list of aliases" in p for p in problems), problems
 
 
 @pytest.mark.parametrize("change, why", [
@@ -129,17 +131,38 @@ def test_an_entry_that_lacks_a_key_is_named(tmp_path):
     assert any("lacks the key 'run_token_budget'" in p for p in es.gate_problems(str(tree_with_gate(tmp_path, cfg))))
 
 
-def test_the_old_keys_stay_and_must_agree_with_the_entries(tmp_path):
+REMOVED = ("strong_model", "strong_harness", "floor_model", "floor_harness", "strong_pass_env", "floor_pass_env",
+           "strong_tolerance", "strong_web_pass_env")
+
+
+def test_the_tiers_leave_the_gate_file_and_the_new_shape_is_accepted(tmp_path):
+    assert not [k for k in GATE if k.startswith(("strong_", "floor_"))]
+    assert GATE["tolerance"] == 0.05 and set(GATE["web_jobs"]) <= set(GATE["models"]) and GATE["lab_models"]
+    assert es.gate_problems(str(tree_with_gate(tmp_path / "ok", copy.deepcopy(GATE)))) == []
+    for i, key in enumerate(REMOVED):
+        cfg = {**copy.deepcopy(GATE), key: "x" if key.endswith(("model", "harness")) else []}
+        assert f"unknown field {key!r}" in es.gate_problems(str(tree_with_gate(tmp_path / f"r{i}", cfg))), key
+
+
+@pytest.mark.parametrize("key", ["lab_models", "tolerance", "models", "grader"])
+def test_a_required_key_that_is_missing_is_named(tmp_path, key):
     cfg = copy.deepcopy(GATE)
-    cfg["floor_harness"] = "another-adapter"
-    problems = es.gate_problems(str(tree_with_gate(tmp_path / "a", cfg)))
-    assert any("names the adapter 'agents-dir', and floor_harness 'another-adapter'" in p for p in problems), problems
+    del cfg[key]
+    assert f"missing field {key!r}" in es.gate_problems(str(tree_with_gate(tmp_path, cfg)))
+
+
+def test_web_jobs_is_per_model_and_an_entry_may_carry_a_web_key(tmp_path):
     cfg = copy.deepcopy(GATE)
-    cfg["strong_pass_env"] = ["SOMETHING_ELSE"]
-    problems = es.gate_problems(str(tree_with_gate(tmp_path / "b", cfg)))
-    assert any("pass_env ['CLAUDE_CODE_OAUTH_TOKEN'], and strong_pass_env ['SOMETHING_ELSE']" in p for p in problems), problems
-    for key in ("strong_model", "floor_model", "strong_harness", "floor_harness", "strong_pass_env", "floor_pass_env", "strong_tolerance", "web_jobs"):
-        assert key in GATE  # they stay until the package that retires them
+    cfg["web_jobs"] = {"claude-sonnet-5-5": 3}
+    cfg["models"]["claude-sonnet-5-5"]["web_pass_env"] = ["CLAUDE_CODE_WEB_API_KEY"]
+    assert es.gate_problems(str(tree_with_gate(tmp_path / "a", cfg))) == []
+    assert es.event_config(cfg)["web_jobs"] == {"claude-sonnet-5-5": 3}
+    cfg["web_jobs"] = {"nobody": 1}
+    assert any("web_jobs names a model" in p for p in es.gate_problems(str(tree_with_gate(tmp_path / "b", cfg))))
+    cfg["web_jobs"] = {"claude-sonnet-5-5": 0}
+    assert any("web_jobs must map a model id" in p for p in es.gate_problems(str(tree_with_gate(tmp_path / "c", cfg))))
+    cfg["web_jobs"], cfg["models"]["claude-sonnet-5-5"]["web_pass_env"] = {}, ["not a name"]
+    assert any("web_pass_env must list variable names" in p for p in es.gate_problems(str(tree_with_gate(tmp_path / "d", cfg))))
 
 
 def test_lab_models_names_known_models_only(tmp_path):
@@ -148,7 +171,7 @@ def test_lab_models_names_known_models_only(tmp_path):
     assert any("lab_models names a model" in p for p in es.gate_problems(str(tree_with_gate(tmp_path / "a", cfg))))
     for i, bad in enumerate(([], "claude-sonnet-5-5", ["claude-sonnet-5-5", "claude-sonnet-5-5"])):
         cfg["lab_models"] = bad
-        assert any("lab_models must be" in p for p in es.gate_problems(str(tree_with_gate(tmp_path / f"b{i}", cfg))))
+        assert any("lab_models" in p for p in es.gate_problems(str(tree_with_gate(tmp_path / f"b{i}", cfg))))
 
 
 def test_a_model_must_name_a_route_that_has_a_file_and_pass_the_routes_key(tmp_path):
@@ -158,6 +181,5 @@ def test_a_model_must_name_a_route_that_has_a_file_and_pass_the_routes_key(tmp_p
     assert any("names the route 'nonesuch', which has no readable route-nonesuch.json" in p for p in problems), problems
     cfg = copy.deepcopy(GATE)
     cfg["models"]["openrouter/deepseek/deepseek-v4.1-flash"]["pass_env"] = ["SOMETHING_ELSE"]
-    cfg["floor_pass_env"] = ["SOMETHING_ELSE"]
     problems = es.gate_problems(str(tree_with_gate(tmp_path / "b", cfg)))
     assert any("whose key is OPENROUTER_API_KEY, and does not pass it in pass_env" in p for p in problems), problems

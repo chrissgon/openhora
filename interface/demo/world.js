@@ -147,6 +147,7 @@ export function createWorld({ now = () => Date.now(), later = (fn, ms) => setTim
     }
     if (parts[0] === "runs" && parts[2] === "verdict") return plain(P, async () => writes.verdict(ctx, P, idOf(parts[1]), body));
     if (parts[0] === "agents" && parts[2] === "mode") return plain(P, async () => writes.setMode(ctx, P, parts[1], body));
+    if (parts[0] === "agents" && parts[2] === "model") return plain(P, async () => writes.setModel(ctx, P, parts[1], body));
     if (key === "POST conversation") return job(P, "say", async () => writes.say(ctx, P, body));
     if (key === "POST sync") throw notInDemo("Syncing with the platform");
     if (key === "POST dispatch") throw notInDemo("Running the next task");

@@ -407,9 +407,11 @@ def test_the_grading_path_with_a_stub_grader_runs_in_the_container_and_a_stub_ru
     (wb / "evals").mkdir()
     (wb / "evals" / "grading-prompt.md").write_text((REPO / "evals" / "grading-prompt.md").read_text())
     (wb / "evals" / "eval-gate.json").write_text(json.dumps({  # the measurement is open: a stub run is a trial
-        "strong_model": "m", "strong_harness": "stub", "floor_model": "f", "floor_harness": "stub", "floor_pass_env": [],
-        "strong_pass_env": [], "grader": "m", "threshold": 0.8, "strong_tolerance": 0.05, "measurement_version": 5,
-        "measurement_floor": 5, "runs": 1}))
+        "grader": "m", "threshold": 0.8, "tolerance": 0.05, "measurement_version": 5, "measurement_floor": 5, "runs": 1,
+        "lab_models": ["m", "f"],
+        "models": {name: {"aliases": [], "adapter": "stub", "pass_env": [], "route": None, "provider_pin": None,
+                          "upstream_models": ["x"], "price_source": "https://example.test/price", "run_token_budget": 1000}
+                   for name in ("m", "f")}}))
     monkeypatch.setattr(er, "ROOT", str(wb))
     monkeypatch.setattr(er.KIT, "ROOT", str(wb))
     monkeypatch.setattr(er, "GRADING_TEMPLATE", str(wb / "evals" / "grading-prompt.md"))

@@ -61,6 +61,7 @@ export function createLobbyView(frame, { project, onChanged }) {
   let timer = null;
   let readingConversation = false;
   let flowsAsked = false;
+  let modelsAsked = false;            // the models of the gate file, read once with the `skills` operation: the form's "Model" select
   let commandsAsked = false;
   let commandsKey = null;             // what the page could do when the "/" list was last asked for: the service filters the list by the policy, so it is read again when this changes (accept-config), not on every reload
   let commandsSeq = 0;                // the newest ask: an older answer that arrives late is dropped
@@ -601,6 +602,10 @@ export function createLobbyView(frame, { project, onChanged }) {
       if (accepted && !flowsAsked && Date.now() - flowsFailedAt >= RETRY_READ_MS) {
         flowsAsked = true;
         api.flows(project, { signal }).then((got) => { flows = Array.isArray(got.flows) ? got.flows : []; form.setFlows(got.flows); redraw(); }).catch(() => { flowsAsked = false; flowsFailedAt = Date.now(); });
+      }
+      if (accepted && !modelsAsked && Date.now() - flowsFailedAt >= RETRY_READ_MS) {
+        modelsAsked = true;
+        api.skills(project, { signal }).then((got) => { form.setModels(got.models, got.default_model); }).catch(() => { modelsAsked = false; flowsFailedAt = Date.now(); });
       }
       if (status) readBodies(status.requests || [], status.pending || []);
       redraw();

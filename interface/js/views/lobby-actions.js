@@ -18,7 +18,8 @@ export async function createRequest(api, project, form, { signal, route = true }
   if (!text.trim()) return { request: null, empty: true };
   const title = typeof form.title === "string" && form.title.trim() ? form.title.trim() : undefined;
   const after = afterNumber(form.after).value;
-  const made = await api.request(project, text, { title, after, signal });
+  const model = typeof form.model === "string" && form.model ? form.model : undefined;
+  const made = await api.request(project, text, { title, after, model, signal });
   if (!route) return { request: made.request, unrouted: true };
   return routeRequest(api, project, made.request, form.flow, { signal });
 }

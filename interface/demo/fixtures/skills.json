@@ -7,26 +7,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.85,
           "mean": 1.0,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.79,
           "mean": 0.96,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -36,26 +77,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.87,
           "mean": 0.97,
-          "runs": 18
+          "runs": 18,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.74,
           "mean": 0.87,
-          "runs": 18
+          "runs": 18,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -65,26 +147,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.79,
           "mean": 1.0,
-          "runs": 6
+          "runs": 6,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.79,
           "mean": 1.0,
-          "runs": 6
+          "runs": 6,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -94,26 +217,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.85,
           "mean": 1.0,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.82,
           "mean": 0.98,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -123,26 +287,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.8,
           "mean": 0.97,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.75,
           "mean": 0.94,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -152,26 +357,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.76,
           "mean": 0.98,
-          "runs": 6
+          "runs": 6,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.76,
           "mean": 0.98,
-          "runs": 6
+          "runs": 6,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -181,26 +427,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.79,
           "mean": 0.96,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.77,
           "mean": 0.95,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -210,26 +497,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.79,
           "mean": 1.0,
-          "runs": 6
+          "runs": 6,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.79,
           "mean": 1.0,
-          "runs": 6
+          "runs": 6,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -239,26 +567,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.75,
           "mean": 0.93,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.75,
           "mean": 0.93,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -268,26 +637,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.85,
           "mean": 1.0,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.85,
           "mean": 1.0,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -297,26 +707,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.88,
           "mean": 1.0,
-          "runs": 12
+          "runs": 12,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.75,
           "mean": 0.91,
-          "runs": 12
+          "runs": 12,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -326,26 +777,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.92,
           "mean": 0.98,
-          "runs": 30
+          "runs": 30,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.93,
           "mean": 0.99,
-          "runs": 30
+          "runs": 30,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -355,26 +847,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.9,
           "mean": 1.0,
-          "runs": 15
+          "runs": 15,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.9,
           "mean": 1.0,
-          "runs": 15
+          "runs": 15,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -384,26 +917,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.85,
           "mean": 0.97,
-          "runs": 15
+          "runs": 15,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.85,
           "mean": 0.97,
-          "runs": 15
+          "runs": 15,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -413,26 +987,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.88,
           "mean": 1.0,
-          "runs": 12
+          "runs": 12,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.88,
           "mean": 1.0,
-          "runs": 12
+          "runs": 12,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -442,26 +1057,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.72,
           "mean": 0.87,
-          "runs": 15
+          "runs": 15,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "watch",
           "cause": "case(s) 2, 3, 4 changed after the newest full test and wait for their runs (case 2 had 3 run(s) of mean 0.944; case 3 had 3 run(s) of mean 0.667; case 4 had 3 run(s) of mean 1.000)",
           "score": 0.83,
           "mean": 0.96,
-          "runs": 15
+          "runs": 15,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-a",
       "runs_here": 0
     },
     {
@@ -471,26 +1127,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.85,
           "mean": 1.0,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.81,
           "mean": 0.98,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -500,26 +1197,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.88,
           "mean": 0.99,
-          "runs": 15
+          "runs": 15,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.9,
           "mean": 1.0,
-          "runs": 15
+          "runs": 15,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -529,26 +1267,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.79,
           "mean": 1.0,
-          "runs": 6
+          "runs": 6,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.79,
           "mean": 1.0,
-          "runs": 6
+          "runs": 6,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -558,26 +1337,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.83,
           "mean": 0.97,
-          "runs": 12
+          "runs": 12,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.8,
           "mean": 0.94,
-          "runs": 12
+          "runs": 12,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -587,26 +1407,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.71,
           "mean": 0.94,
-          "runs": 6
+          "runs": 6,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "needs a test",
           "cause": "guard assertion(s) 1.5 failed in the current set",
           "score": 0.57,
           "mean": 0.83,
-          "runs": 6
+          "runs": 6,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-a",
       "runs_here": 0
     },
     {
@@ -616,26 +1477,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.88,
           "mean": 1.0,
-          "runs": 12
+          "runs": 12,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.85,
           "mean": 0.98,
-          "runs": 12
+          "runs": 12,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -645,26 +1547,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.88,
           "mean": 1.0,
-          "runs": 12
+          "runs": 12,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.88,
           "mean": 1.0,
-          "runs": 12
+          "runs": 12,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -674,26 +1617,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.85,
           "mean": 1.0,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "needs a test",
           "cause": "guard assertion(s) 1.5 failed in the current set",
           "score": 0.81,
           "mean": 0.98,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-a",
       "runs_here": 0
     },
     {
@@ -703,26 +1687,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.8,
           "mean": 0.94,
-          "runs": 12
+          "runs": 12,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "watch",
           "cause": "the pessimistic score 0.68 is under 0.70",
           "score": 0.68,
           "mean": 0.85,
-          "runs": 12
+          "runs": 12,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-a",
       "runs_here": 0
     },
     {
@@ -732,26 +1757,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.85,
           "mean": 1.0,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.85,
           "mean": 1.0,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -761,26 +1827,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.85,
           "mean": 0.98,
-          "runs": 12
+          "runs": 12,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.81,
           "mean": 0.96,
-          "runs": 12
+          "runs": 12,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -790,26 +1897,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.85,
           "mean": 1.0,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.71,
           "mean": 0.91,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -819,26 +1967,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.85,
           "mean": 1.0,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.85,
           "mean": 1.0,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -848,26 +2037,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.85,
           "mean": 0.98,
-          "runs": 12
+          "runs": 12,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.88,
           "mean": 1.0,
-          "runs": 12
+          "runs": 12,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -877,26 +2107,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.9,
           "mean": 1.0,
-          "runs": 15
+          "runs": 15,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.9,
           "mean": 1.0,
-          "runs": 15
+          "runs": 15,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -906,26 +2177,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.85,
           "mean": 1.0,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.85,
           "mean": 1.0,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -935,26 +2247,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.85,
           "mean": 1.0,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.85,
           "mean": 1.0,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -964,26 +2317,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.9,
           "mean": 0.98,
-          "runs": 21
+          "runs": 21,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.93,
           "mean": 1.0,
-          "runs": 21
+          "runs": 21,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -993,26 +2387,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.79,
           "mean": 1.0,
-          "runs": 6
+          "runs": 6,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.79,
           "mean": 1.0,
-          "runs": 6
+          "runs": 6,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -1022,26 +2457,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.9,
           "mean": 1.0,
-          "runs": 15
+          "runs": 15,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.84,
           "mean": 0.96,
-          "runs": 15
+          "runs": 15,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -1051,26 +2527,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.85,
           "mean": 1.0,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.74,
           "mean": 0.93,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -1080,26 +2597,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.88,
           "mean": 1.0,
-          "runs": 12
+          "runs": 12,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.88,
           "mean": 1.0,
-          "runs": 12
+          "runs": 12,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -1109,26 +2667,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.77,
           "mean": 0.92,
-          "runs": 12
+          "runs": 12,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "needs a test",
           "cause": "guard assertion(s) 2.3 failed in the current set",
           "score": 0.7,
           "mean": 0.87,
-          "runs": 12
+          "runs": 12,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-a",
       "runs_here": 0
     },
     {
@@ -1138,26 +2737,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.78,
           "mean": 0.96,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.82,
           "mean": 0.98,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -1167,26 +2807,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.9,
           "mean": 1.0,
-          "runs": 15
+          "runs": 15,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.89,
           "mean": 1.0,
-          "runs": 15
+          "runs": 15,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -1196,26 +2877,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.88,
           "mean": 1.0,
-          "runs": 12
+          "runs": 12,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.88,
           "mean": 1.0,
-          "runs": 12
+          "runs": 12,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -1225,26 +2947,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.92,
           "mean": 1.0,
-          "runs": 18
+          "runs": 18,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.88,
           "mean": 0.98,
-          "runs": 18
+          "runs": 18,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -1254,26 +3017,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.83,
           "mean": 0.97,
-          "runs": 12
+          "runs": 12,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.88,
           "mean": 1.0,
-          "runs": 12
+          "runs": 12,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -1283,26 +3087,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.9,
           "mean": 1.0,
-          "runs": 15
+          "runs": 15,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.9,
           "mean": 1.0,
-          "runs": 15
+          "runs": 15,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -1312,26 +3157,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.85,
           "mean": 1.0,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.81,
           "mean": 0.98,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -1341,26 +3227,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.85,
           "mean": 1.0,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.85,
           "mean": 1.0,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     },
     {
@@ -1370,26 +3297,67 @@
       "manifest": true,
       "proof": [
         {
-          "tier": "strong",
-          "model": "reference-model",
+          "model": "demo-model-a",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.85,
           "mean": 1.0,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 3.0,
+            "output": 15.0,
+            "cache_read": 0.3,
+            "cache_write": 3.75,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0124,
+          "key": "lab"
         },
         {
-          "tier": "floor",
-          "model": "floor-model",
+          "model": "demo-model-b",
           "adapter": "adapter",
+          "provider": null,
           "band": "reliable",
           "cause": null,
           "score": 0.85,
           "mean": 1.0,
-          "runs": 9
+          "runs": 9,
+          "web_measured": false,
+          "usage_mean": {
+            "cache_read": 0.0,
+            "cache_write": 0.0,
+            "input": 1000.0,
+            "output": 200.0
+          },
+          "source": "lab",
+          "price": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125,
+            "source": "https://prices.example/models",
+            "accessed": "2026-10-01",
+            "age_days": 14,
+            "stale": false
+          },
+          "expected_cost": 0.0006,
+          "key": "lab"
         }
       ],
+      "recommended": "demo-model-b",
       "runs_here": 0
     }
   ],
@@ -1397,6 +3365,43 @@
     "measurement": "ok",
     "image": "ok"
   },
+  "models": [
+    {
+      "model": "demo-model-a",
+      "adapter": "adapter",
+      "provider": null,
+      "skills": 48,
+      "reliable": 48,
+      "price": {
+        "input": 3.0,
+        "output": 15.0,
+        "cache_read": 0.3,
+        "cache_write": 3.75,
+        "source": "https://prices.example/models",
+        "accessed": "2026-10-01",
+        "age_days": 14,
+        "stale": false
+      }
+    },
+    {
+      "model": "demo-model-b",
+      "adapter": "adapter",
+      "provider": null,
+      "skills": 48,
+      "reliable": 43,
+      "price": {
+        "input": 0.1,
+        "output": 0.5,
+        "cache_read": 0.01,
+        "cache_write": 0.125,
+        "source": "https://prices.example/models",
+        "accessed": "2026-10-01",
+        "age_days": 14,
+        "stale": false
+      }
+    }
+  ],
+  "default_model": null,
   "snapshot": {
     "commit": "6ffd720ce5fd",
     "source": "docs/inventory.md"

@@ -4,7 +4,7 @@
   "run_id": 5,
   "kind": "effect",
   "title": "Pull request: Carry the providers",
-  "body": "Code opens this pull request after your approval, and nothing else:\n\nRepository: example-org/northwind-shop\nBase ← head: main ← wb/request-4\nCommit: one commit, made by the code provider with your own git and signature, over e888f6689aedac80395fd1163931887a626a762d\nTitle: Carry the providers\nBody:\nWhat changes, and why.\n\nFiles:\n- src/app.py sha256 dba0082ec68e72d47fa926dcc91fb9b00961ceb4342554a0c2aa567144a5a6d3\n\nHash of this effect: dfd5922f5aa9441e95d21ed58bb9f2209a004912a1232e89f75f725bd37f3d4a\nApprove exactly this: python3 runtime/cli.py approve --project <project> --id <this pending decision's id> --sha256 dfd5922f5aa9441e95d21ed58bb9f2209a004912a1232e89f75f725bd37f3d4a\nOr answer with what to change, or reject it: nothing is sent until you approve.\n",
+  "body": "Code opens this pull request after your approval, and nothing else:\n\nRepository: example-org/northwind-shop\nBase ← head: main ← wb/request-4\nCommit: one commit, made by the code provider with your own git and signature, over 060f50290caf67cca0dd7aeb7206ab39cd1f6341\nTitle: Carry the providers\nBody:\nWhat changes, and why.\n\nFiles:\n- src/app.py sha256 dba0082ec68e72d47fa926dcc91fb9b00961ceb4342554a0c2aa567144a5a6d3\n\nHash of this effect: dfd5922f5aa9441e95d21ed58bb9f2209a004912a1232e89f75f725bd37f3d4a\nApprove exactly this: python3 runtime/cli.py approve --project <project> --id <this pending decision's id> --sha256 dfd5922f5aa9441e95d21ed58bb9f2209a004912a1232e89f75f725bd37f3d4a\nOr answer with what to change, or reject it: nothing is sent until you approve.\n",
   "payload": {
     "body_cut": false,
     "body_masked": 0,
@@ -60,24 +60,35 @@
     "returned": [],
     "routing": {
       "adapter": "h",
-      "autonomy": true,
+      "autonomy": "proven",
       "bands": {
-        "floor": "needs a test",
-        "strong": "reliable"
+        "fm": "needs a test",
+        "m": "reliable"
       },
       "billing": "subscription",
+      "candidates": [
+        {
+          "expected_cost": 0.002,
+          "model": "m",
+          "score": 0.9,
+          "source": "lab"
+        }
+      ],
       "checks": {
         "image": null,
         "measurement": null
       },
-      "key": null,
+      "consent": false,
+      "expected_cost": 0.002,
+      "key": "lab",
+      "key_missing": false,
+      "mode": "auto",
       "model": "m",
+      "named_by": "default",
+      "outside_provider": [],
       "proven": true,
-      "reasons": [
-        "the band on the floor model is needs a test",
-        "no key for the floor model: the runtime's own key (WB_RUNTIME_FLOOR_KEY) is not stored; the gate file names no variable for the floor model's key"
-      ],
-      "tier": "strong",
+      "reasons": [],
+      "source": "lab",
       "web": false
     },
     "run_dir": "/home/demo/.openhora/data/northwind-shop/task-runs/5",
