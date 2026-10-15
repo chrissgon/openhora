@@ -912,6 +912,7 @@ def import_version(ctx, source: dict, data, *, convert, label: str = "import", b
             stage_path = os.path.join(cfg["data_dir"], STAGING, token)
             for part in (os.path.join(cfg["data_dir"], STAGING), stage_path, os.path.join(stage_path, "in"), os.path.join(stage_path, "out")):
                 os.makedirs(part, mode=0o700, exist_ok=True)
+            _sweep_staging(os.path.join(cfg["data_dir"], STAGING), keep=token)
             try:
                 return _import_in(ctx, folder, source, stream, length, stage_path, token, convert=convert, label=label, by=by,
                                   kind=kind, origin_version=origin_version, clock=clock, free_margin=free_margin)
@@ -920,6 +921,23 @@ def import_version(ctx, source: dict, data, *, convert, label: str = "import", b
     finally:
         if closer is not None:
             closer.close()
+
+
+def _sweep_staging(folder: str, keep: str) -> None:
+    """Remove the staging folders of imports that a crash left, older than INCOMING_KEPT_SECONDS (the runtime's own folder: a plain
+    removal of what it made)."""
+    now = datetime.datetime.now().timestamp()
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return
+    for name in names:
+        path = os.path.join(folder, name)
+        try:
+            if name != keep and not os.path.islink(path) and now - os.lstat(path).st_mtime > INCOMING_KEPT_SECONDS:
+                shutil.rmtree(path, ignore_errors=True)
+        except OSError:
+            continue
 
 
 def _import_in(ctx, folder, source, stream, length, stage_path, token, *, convert, label, by, kind, origin_version, clock,
