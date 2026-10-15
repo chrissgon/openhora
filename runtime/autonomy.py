@@ -88,12 +88,13 @@ CONSENT_MODES = ("autonomous", "autonomous-with-policy")
 # What the person reads before a model is fixed on an autonomous agent, once, here: the page, the terminal and the refusal read this
 # constant and no other copy of the text exists.
 #
-# The text is true whatever the evidence is (decision of the review of P3): consent matters only for the skills of the agent that
-# are not proven on the model; for the others the mode releases as it does for any proven model, and the consent is not used.
-CONSENT_WARNING = ("Your consent releases this agent's reviews without you on this model for every skill of the agent that is "
-                   "not proven on it by the lab's evidence or your own tests; the skills that are proven on it are released "
-                   "by the mode as for any proven model. Each run released because of your consent is recorded as autonomy "
-                   "by consent.")
+# The text says what is recorded, exactly (P3b): `autonomy: "consent"` is written when a run starts, for every run of a skill that has
+# no reliable evidence on the agent's fixed model, whatever the mode then does with its review (a milestone may still hold it). A
+# skill with reliable evidence on that model is released by the mode as for any proven model, and its runs are recorded as proven.
+CONSENT_WARNING = ("Each run of a skill without reliable evidence on this model will be recorded as autonomy by consent, "
+                   "including a run that a milestone later holds for your review. In this mode the agent's reviews are released "
+                   "without you on this model for every skill that is not proven on it by the lab's evidence or your own tests; "
+                   "the skills that are proven on it are released by the mode as for any proven model.")
 # The sha256 of that text: what a page sends back with the consent to prove it showed the exact text (give-consent checks it).
 CONSENT_WARNING_SHA256 = hashlib.sha256(CONSENT_WARNING.encode("utf-8")).hexdigest()
 # the release's cap of tasks holding a slot on one floor (the maintainer, 2026-10-12): the one constant; the interface reads it from the agents read and never writes the number; raising it needs the scene to give a floor more seats (SPEC-PAR-7)

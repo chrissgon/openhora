@@ -327,7 +327,7 @@ def give_consent(project: str, agent: str, model: str, mode: str, config_sha256:
     the sha256 of the warning text it showed. The call writes the model and the consent of that one agent, accepts that one
     change (`by: "person:page"`), and nothing else, on these conditions, each refused with nothing written:
     the channel is the page (code 2: the terminal has `set-model --consent`; messaging and the MCP mode have no such operation);
-    the page's policy lists the group `set-mode` (code 1); the warning's hash is the sha256 of the text this service holds
+    the page's policy lists the group `consent`, which `set-mode` does not imply (code 1); the warning's hash is the sha256 of the text this service holds
     (code 2: the page did not show the exact text); the model is a model id of the gate file, not `auto` or `default`
     (code 2: they need no consent); the agent exists and its mode is `mode`, one of autonomy.CONSENT_MODES (code 2: the
     consent names the mode the agent is in); config_sha256 is the hash of the configuration as it is now, and that hash is

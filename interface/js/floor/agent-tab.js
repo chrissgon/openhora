@@ -256,7 +256,7 @@ export function createAgentTab(env) {
     const said = agent.model ? (agent.model === "auto" ? "auto: the cheapest model that is reliable for each skill" : agent.model) : "none of its own: the request's, else the project's default";
     const consent = agent.consent_in_force && agent.consent
       ? h("p", { class: "notice pui-soft pui-warn wb-model-consent", role: "note" }, icon("triangle-alert", 16),
-        h("span", { text: `Your consent is recorded for ${agent.consent.model} in ${agent.consent.mode} mode: its reviews are released by the mode, and each run is recorded as autonomy by consent.` }))
+        h("span", { text: `Your consent is recorded for ${agent.consent.model} in ${agent.consent.mode} mode: each run of a skill without reliable evidence on that model is recorded as autonomy by consent.` }))
       : null;
     const id = `model-pick-${env.agent}`;
     const select = h("select", { class: "pui-input wb-select", id, "data-key": "model" }, commands.map((c) => h("option", { value: c.model, text: agentModelLabel(c, agent.recommended_model) })));

@@ -10,11 +10,11 @@ from __future__ import annotations
 import hashlib
 import json
 
+import standin_tree as st
 from test_interface_adjustments import INTERFACE, run_node
 from test_interface_floor import needs_node
 
-WARNING = ("Your consent releases this agent's reviews without you on this model for every skill of the agent that is not proven on it; "
-           "each run released because of your consent is recorded as autonomy by consent.")
+WARNING = st.load("autonomy").CONSENT_WARNING
 CONFIG = "c" * 64
 
 SCRIPT = r"""
