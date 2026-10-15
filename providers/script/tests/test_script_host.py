@@ -123,7 +123,7 @@ def test_a_variable_outside_the_list_or_with_a_control_character_is_refused():
         with pytest.raises(host.ProviderError) as refused:
             host.env_args(bad)
         assert refused.value.word == "bad_environment"
-    assert not any("KEY" in n or "STEP_ID" in n or "SECRET" in n or "PASSWORD" in n for n in host.ENV_ALLOWED)
+    assert not any(w in n for n in host.ENV_ALLOWED for w in ("KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "AUTH", "CRED", "PRIVATE"))
 
 
 # --- the command of the proxy and of the build ---------------------------------------------------------------------------------------
@@ -152,6 +152,7 @@ def test_the_build_container_carries_no_mount_and_no_volume_and_reads_the_lock_f
     assert not any(":" in w and w.startswith("/") and w.split(":")[0] != "" and w.count(":") >= 1 and not w.startswith("/tmp:") and not w.startswith("/scratch:")
                    for w in got if w.startswith("/")), "no host path in the command"
     assert "-i" in got and "--rm" not in got and "--read-only" not in got            # stdin in; the file system is kept as a layer
+    assert any(t.startswith("/tmp:") and t.endswith(f"size={host.BUILD_TMP_MB}m") for t in values(got, "--tmpfs")), "room for pip to unpack wheels"
     assert option(got, "--network") == NET and got[got.index(IMAGE):] == [IMAGE, "python3", "-I", "/opt/script/_inner.py", "build"]
     assert option(got, "--cap-drop") == "ALL" and option(got, "--security-opt") == "no-new-privileges" and option(got, "--pull") == "never"
 
@@ -275,8 +276,10 @@ class Done:
 class FakeDocker:
     """Records every docker command; answers the few the runner asks."""
 
-    def __init__(self, internal="true", images=None, fail=()):
+    def __init__(self, internal="true", images=None, fail=(), options=None):
         self.calls, self.internal, self.images, self.fail = [], internal, images or {}, set(fail)
+        self.options = json.dumps(options if options is not None else {"com.docker.network.bridge.gateway_mode_ipv4": "isolated",
+                                                                       "com.docker.network.enable_ipv6": "false"})
 
     def __call__(self, args, timeout=60):
         self.calls.append(list(args))
@@ -284,13 +287,15 @@ class FakeDocker:
         if verb in self.fail:
             return Done(1, "", "boom")
         if args[:2] == ["network", "inspect"]:
-            return Done(0, self.internal + "\n")
+            return Done(0, self.internal + " " + self.options + "\n")
         if args[:2] == ["image", "inspect"]:
             fmt, tag = args[3], args[4]
             found = self.images.get(tag)
             if found is None:
                 return Done(1)
-            return Done(0, (found["lock"] if "Labels" in fmt else found["id"]) + "\n")
+            if "Labels" not in fmt:
+                return Done(0, found["id"] + "\n")
+            return Done(0, (found["lock"] if host.LABEL_LOCK in fmt else found.get("definition", host.definition_hash())) + "\n")
         return Done(0, "")
 
     def verbs(self):
@@ -364,6 +369,7 @@ def test_a_script_with_destinations_gets_an_internal_network_checked_before_anyt
     assert docker.verbs()[:2] == ["network create", "network inspect"]
     create = docker.calls[0]
     assert "--internal" in create and create[-1] == NET and "org.openhora.script=1" in create
+    assert values(create, "-o") == ["com.docker.network.bridge.gateway_mode_ipv4=isolated"], "the host has no address on the step's network"
     assert docker.calls[2][:3] == ["network", "create", "--driver"] and docker.calls[2][-1] == OUT and "--internal" not in docker.calls[2]
     assert docker.calls[3] == ["network", "connect", "--alias", "egress", NET, "openhora-script-proxy-" + STEP_ID]
     (command, name, _, _), = log
@@ -376,10 +382,16 @@ def test_a_script_with_destinations_gets_an_internal_network_checked_before_anyt
 
 def test_a_network_that_is_not_internal_stops_everything_before_a_proxy_or_a_script_starts(tmp_path, quiet):
     script, out = script_file(tmp_path)
-    log, docker = [], FakeDocker(internal="false")
-    with pytest.raises(host.ProviderError) as refused:
-        host.run_script(script, "py", out, destinations=["api.example:443"], run=ran(log), docker=docker, base=IMAGE, platform="darwin")
-    assert refused.value.word == "network_not_internal" and log == []
+    for docker in (FakeDocker(internal="false"), FakeDocker(options={}), FakeDocker(options={"com.docker.network.bridge.gateway_mode_ipv4": "nat"}),
+                   FakeDocker(options={"com.docker.network.bridge.gateway_mode_ipv4": "isolated", "com.docker.network.enable_ipv6": "true"})):
+        log = []
+        with pytest.raises(host.ProviderError) as refused:
+            host.run_script(script, "py", out, destinations=["api.example:443"], run=ran(log), docker=docker, base=IMAGE, platform="darwin")
+        assert refused.value.word == "network_not_internal" and log == []
+        assert not any(v == "network connect" for v in docker.verbs()), "no proxy was started on a network that is not isolated"
+    docker = FakeDocker(internal="false")
+    with pytest.raises(host.ProviderError):
+        host.run_script(script, "py", out, destinations=["api.example:443"], run=ran([]), docker=docker, base=IMAGE, platform="darwin")
     assert not any(v == "network connect" for v in docker.verbs()) and docker.calls[-1][:2] == ["network", "rm"]
     assert list(Path(out).iterdir()) == []
 
@@ -433,11 +445,20 @@ def test_an_image_given_for_a_run_must_be_one_this_provider_built(tmp_path, quie
     foreign = FakeDocker(images={DEPS: {"id": DEPS, "lock": ""}})
     for image in ("ubuntu", "sha256:xyz", DEPS):
         with pytest.raises(host.ProviderError) as refused:
-            host.run_script(script, "py", out, image=image, run=ran([]), docker=foreign, base=IMAGE, platform="darwin")
+            host.run_script(script, "py", out, image=image, lock_sha256=LOCK_SHA, run=ran([]), docker=foreign, base=IMAGE, platform="darwin")
         assert refused.value.word == "bad_image"
+    other_lock = FakeDocker(images={DEPS: {"id": DEPS, "lock": "f" * 64}})          # built for another lock file than the approved one
+    old_definition = FakeDocker(images={DEPS: {"id": DEPS, "lock": LOCK_SHA, "definition": "e" * 64}})     # built from another image definition
+    for docker in (other_lock, old_definition):
+        with pytest.raises(host.ProviderError) as refused:
+            host.run_script(script, "py", out, image=DEPS, lock_sha256=LOCK_SHA, run=ran([]), docker=docker, base=IMAGE, platform="darwin")
+        assert refused.value.word == "bad_image"
+    with pytest.raises(host.ProviderError) as refused:                               # an image is never given without the approved lock's hash
+        host.run_script(script, "py", out, image=DEPS, run=ran([]), docker=other_lock, base=IMAGE, platform="darwin")
+    assert refused.value.code == host.EXIT_USAGE
     log = []
     mine = FakeDocker(images={DEPS: {"id": DEPS, "lock": LOCK_SHA}})
-    host.run_script(script, "py", out, image=DEPS, run=ran(log), docker=mine, base=IMAGE, platform="darwin")
+    host.run_script(script, "py", out, image=DEPS, lock_sha256=LOCK_SHA, run=ran(log), docker=mine, base=IMAGE, platform="darwin")
     assert log[0][0][log[0][0].index("--init") + 0] and DEPS in log[0][0] and IMAGE not in log[0][0]
 
 

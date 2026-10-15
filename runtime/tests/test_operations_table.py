@@ -39,7 +39,7 @@ NOT_OPERATIONS = {"store_module", "context", "task_prompt", "code_task", "chat_m
                   # ops_steps.py: the brake and what the dispatcher asks of the step tasks, beside run_step
                   "import_bytes", "set_steps_mode", "steps_mode", "unattended", "may_dispatch", "held_reason", "annotate",
                   # ops_flows.py: what the plan, the approval and the request ask of the workflows, beside the four operations
-                  "parse_params", "now", "staged", "direct", "bound", "before_approve", "after_approve", "discard_staged"}  # ops_config.py: the one writer of the accepted hash and the Checkpoints line
+                  "parse_params", "now", "staged", "direct", "bound", "before_approve", "after_approve", "discard_staged", "vet"}  # ops_config.py: the one writer of the accepted hash and the Checkpoints line
 KINDS = ("int", "str", "text", "file", "list", "flag", "choice", "pairs")
 CHANNELS = ("terminal", "chat", "page", "mcp", "messaging")
 # Modules that still hold the terminal's command as a string, outside the operations layer's own texts.

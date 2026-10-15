@@ -438,11 +438,38 @@ def _strict(payload: dict) -> set:
     return {f["name"] for f in ((payload or {}).get("bound") or {}).get("files", {}).values()}
 
 
+def _vetted(ctx: dict, tasks) -> None:
+    """steps.vet for each step task of a plan's tasks, in this project (the sources folder protected). StepFailure from the first that
+    a kind refuses."""
+    cfg = ctx["cfg"]
+    for t in tasks or []:
+        if isinstance(t, dict) and t.get("step"):
+            try:
+                steps.vet(cfg["project"], t["step"], t.get("args"), lambda path: sources.inside(cfg, path))
+            except steps.StepFailure as e:
+                e.key = t.get("key")
+                raise
+
+
+def vet(ctx: dict, tasks) -> None:
+    """When a plan is built: a step whose kind vets its arguments (a project script's files, hash and credential scan) is checked here.
+    plan.PlanError naming the step, the closed code and what to do."""
+    try:
+        _vetted(ctx, tasks)
+    except steps.StepFailure as e:
+        raise plan.PlanError(f"the step {getattr(e, 'key', '?')}: {e.code} {e.field}".rstrip() + (f" -- {e.next}" if e.next else "")) from None
+
+
 def before_approve(ctx: dict, item: dict) -> None:
     """Refuse (OpsError 1, nothing approved) a plan whose ingest step names a file when the file staged for the request has other
     bytes than the plan carries, or, for a plan built from a workflow (it bound the file at the planning), when the file is no longer
     staged: the person hands the file over (stage-file) and plans again."""
     payload = item.get("payload")
+    try:
+        _vetted(ctx, (payload or {}).get("tasks"))      # a step kind that vets its files (a project script) is checked again: nothing is approved on a stale or unsafe hash
+    except steps.StepFailure as e:
+        raise core.OpsError(f"the step {getattr(e, 'key', '?')}: {e.code} {e.field}".rstrip() + (f" -- {e.next}" if e.next else "")
+                            + ": nothing was approved", 1) from None
     need = _needs(payload)
     if not need:
         return

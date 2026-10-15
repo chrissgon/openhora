@@ -74,7 +74,7 @@ def test_limit_34_no_credential_reaches_a_project_script_its_environment_is_a_li
     command = host.run_command("openhora-script-run-" + STEP_ID, IMAGE, "py", "/work/script", deadline=5, network=NET,
                                env={"HTTPS_PROXY": "http://egress:3128"}, platform="darwin")
     assert "planted" not in " ".join(command) and options(command, "-e") == ["HTTPS_PROXY=http://egress:3128"]
-    assert not [n for n in host.ENV_ALLOWED if any(w in n for w in ("KEY", "STEP_ID", "SECRET", "PASSWORD"))]
+    assert not [n for n in host.ENV_ALLOWED if any(w in n for w in ("KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "AUTH", "CRED", "PRIVATE"))]
     with pytest.raises(host.ProviderError):
         host.env_args({"OPENAI_API_KEY": "x"})
     # the provider's own process: the resolver's minimum environment, no key (tested against the stand-in provider)

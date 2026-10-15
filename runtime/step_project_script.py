@@ -38,9 +38,11 @@ What each step does (steps verify, deps and run; the task is resumable at the on
            but through this import, and it has no way to cause an effect (a post, a message, a commit): an effect goes through the effect
            gate, which a script cannot open.
 
-The kind `brings_source` (the flow check sees the source its result makes, like an ingest's) and is NOT `unattended`: the dispatcher never starts it on its own; a person starts it (run-step), and a routine may run it later
-only through its approved hash (P6, decision D35), which carries the script's sha256 and destinations. The person's brake does not
-matter to this kind: it is never started by the dispatcher anyway.
+The kind `brings_source` (the flow check sees the source its result makes, like an ingest's) and is NOT `unattended`: the dispatcher never starts it on its own; a person starts it (run-step). A routine that fires a workflow holding it finds the task held `start it by hand` (the kind is not unattended). Whether a routine may ever run a project script is a decision for the routines (P6b) or later; the routine's approved hash would then have to hold the script's sha256, its destinations, the lock file's sha256 and the definition hash of the script image (decision D35).
+The person's brake does not matter to this kind: it is never started by the dispatcher anyway.
+
+The files are also checked when a plan is built and before it is approved (`vet`, steps.Kind.vet; runtime/ops_flows.py): a hash written
+by hand into a workflow is compared with the file and the file is scanned for credentials before anyone approves the plan.
 
 The result recorded is closed words and numbers: the source id, the version, whether a version was made, the exit code and milliseconds.
 The script's own output text (its log) is never kept: it is not in the state, a note or a decision (run the script yourself to debug it).
@@ -290,16 +292,20 @@ class Files:
 
 
 def load_files(ctx: "steps.Context") -> Files:
-    """Read the task's script and lock file and check them against the approved hashes, in this order: the hash (`script_changed`,
-    `lock_changed`), the credential scan, the lock file's form. The bytes returned are the ones hashed."""
-    args = ctx.args
-    data = read_project_file(ctx.project, args["script"], ctx.protected, "script")
+    """The task's script and lock file read and checked (load_checked) for the run."""
+    return load_checked(ctx.project, ctx.args, ctx.protected)
+
+
+def load_checked(project: str, args: dict, protected=lambda path: False) -> Files:
+    """Read the script and lock file the arguments name and check them against the approved hashes, in this order: the hash
+    (`script_changed`, `lock_changed`), the credential scan, the lock file's form. The bytes returned are the ones hashed."""
+    data = read_project_file(project, args["script"], protected, "script")
     if hashlib.sha256(data).hexdigest() != args["sha256"]:
         raise _script_error("script_changed", "script", HOW_TO_PLAN)
     credential_line(data, "script")
     lock = None
     if args.get("lock"):
-        lock = read_project_file(ctx.project, args["lock"], ctx.protected, "lock")
+        lock = read_project_file(project, args["lock"], protected, "lock")
         if hashlib.sha256(lock).hexdigest() != args["lock_sha256"]:
             raise _script_error("lock_changed", "lock", HOW_TO_PLAN)
         credential_line(lock, "lock")
@@ -307,6 +313,13 @@ def load_files(ctx: "steps.Context") -> Files:
         if problem:
             raise steps.StepFailure("bad_lock", "lock", "", problem)
     return Files(data, lock)
+
+
+def vet(project: str, args: dict, protected=lambda path: False) -> None:
+    """The kind's hook for the plan (steps.Kind.vet): the files the arguments name are read and checked now, when the plan is built and
+    before it is approved, with the checks of the run, so that a hash written by hand into a workflow is scanned for credentials, and
+    compared with the file, before a person approves it."""
+    load_checked(project, check(args), protected)
 
 
 # --- the provider ------------------------------------------------------------------------------------------------------------------------
@@ -405,7 +418,7 @@ def _run(ctx: "steps.Context", state: dict) -> dict:
         call = ["--script", os.path.join(folder, "in", "script"), "--kind", kind, "--out-dir", os.path.join(folder, "out"),
                 "--timeout", str(SCRIPT_TIMEOUT)]
         if image:
-            call += ["--image", image]
+            call += ["--image", image, "--lock-sha256", args["lock_sha256"]]    # the image must carry the approved lock's hash
         for item in args["destinations"]:
             call += ["--destination", item]
         done = provider_call(ctx, cfg, "run", call, SCRIPT_TIMEOUT)
@@ -461,6 +474,7 @@ KIND = steps.register(steps.Kind(
     footprint=lambda args: (),
     check=check,
     unattended=False,
+    vet=vet,
     brings_source=True,      # its `source` argument names the source its result becomes a version of: the tasks after it receive it
 ))
 

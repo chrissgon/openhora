@@ -12,8 +12,9 @@ by name when the run ends; what a SIGKILL leaves is reaped by the next run (the 
 
 What a run is (the limits are providers/_container.py's argv, with the additions below; no flag is turned off):
 
-  - no network, or, when the step declares destinations, only a per-step INTERNAL network (`docker network create --internal`: no
-    route out, no external DNS) whose other member is the step's egress proxy (providers/script/egress_proxy.py, same image): CONNECT
+  - no network, or, when the step declares destinations, only a per-step INTERNAL network (`docker network create --internal` with the
+    gateway mode `isolated`: no route out, no external DNS, and no address of the host on it; read back, and refused without the
+    isolation) whose other member is the step's egress proxy (providers/script/egress_proxy.py, same image): CONNECT
     to the declared host:port pairs and nothing else, refusing by name and by address;
   - the environment is an allow-list written out in `-e NAME=VALUE` pairs from the closed list ENV_ALLOWED, built from nothing but the
     arguments of the call: this process's own environment is never read into the container;
@@ -33,7 +34,8 @@ Usage:
   python3 providers/script/container.py --help
   python3 providers/script/container.py --check
   python3 providers/script/container.py build (--dry-run | --confirmed)
-  python3 providers/script/container.py run --script <abs file> --kind py|sh --out-dir <folder> [--image <deps image id>]
+  python3 providers/script/container.py run --script <abs file> --kind py|sh --out-dir <folder> [--image <deps image id>
+                                           --lock-sha256 <hex>]
                                            [--destination <host>:<port>]... [--timeout <seconds>]
   python3 providers/script/container.py deps --lock <abs file> --lock-sha256 <hex>
   python3 providers/script/container.py reap
@@ -93,6 +95,10 @@ DESTINATIONS_MAX = 8
 # The only variables a container gets, each written out as NAME=VALUE. No name outside this list is ever put in a command.
 ENV_ALLOWED = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "NO_PROXY", "no_proxy", "SCRIPT_DESTINATIONS",
                "SCRIPT_INDEX_URL", "PIP_CERT", "SSL_CERT_FILE")
+# A plain `--internal` bridge still has the host's own address on it (its gateway): a container reaches the host's services there without the
+# proxy. `isolated` gives the network no gateway address at all; the network is read back and refused without it.
+GATEWAY_OPTION, GATEWAY_ISOLATED, IPV6_OPTION = "com.docker.network.bridge.gateway_mode_ipv4", "isolated", "com.docker.network.enable_ipv6"
+BUILD_TMP_MB = 512                        # the build's memory-backed /tmp (pip unpacks the wheels there); a wheel larger than this does not build
 LOG_OPTS = ("--log-opt", "max-size=1m", "--log-opt", "max-file=1")
 BAD_VALUE = re.compile(r"[\x00-\x1f\x7f]")
 EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
@@ -166,13 +172,15 @@ def image_id(tag: str, docker=None) -> str:
     return found
 
 
-def deps_image(image: str, docker=None) -> str:
-    """An image id given for a run, accepted only when this provider built it (its lock label is set and the id is the one given)."""
-    if not IMAGE_ID.fullmatch(image or ""):
-        raise ProviderError("bad_image", "--image is an image id (sha256:<64 hex>)", EXIT_USAGE)
-    labelled = inspect(image, '{{index .Config.Labels "%s"}}' % LABEL_LOCK, docker)
-    if not labelled or not SHA256.fullmatch(labelled):
-        raise ProviderError("bad_image", "--image is not an image this provider built for a lock file", EXIT_USAGE)
+def deps_image(image: str, lock_sha256: str, docker=None) -> str:
+    """An image id given for a run, accepted only when this provider built it for THIS lock file (its lock label is the approved
+    lock_sha256) from the image definition now current (its definition label is definition_hash())."""
+    if not IMAGE_ID.fullmatch(image or "") or not SHA256.fullmatch(lock_sha256 or ""):
+        raise ProviderError("bad_image", "--image is an image id (sha256:<64 hex>), given with the approved --lock-sha256", EXIT_USAGE)
+    found_lock = inspect(image, '{{index .Config.Labels "%s"}}' % LABEL_LOCK, docker)
+    found_definition = inspect(image, '{{index .Config.Labels "%s"}}' % LABEL_DEFINITION, docker)
+    if found_lock != lock_sha256 or found_definition != definition_hash():
+        raise ProviderError("bad_image", "--image is not the image this provider built for that lock file with the current definition", EXIT_USAGE)
     return image
 
 
@@ -300,6 +308,24 @@ def proxy_command(name: str, image: str, destinations, egress_network: str, *, d
     return shape(base, inner_args, network=egress_network)
 
 
+def internal_network_args(name: str, label_args) -> list:
+    """The `docker network create` of a step's internal network: `--internal` (no route out, no external DNS) and the isolated gateway mode
+    (the host has no address on it), with the run's labels."""
+    return ["network", "create", "--driver", "bridge", "--internal", "-o", f"{GATEWAY_OPTION}={GATEWAY_ISOLATED}", *label_args, name]
+
+
+def isolated(inspected: str) -> bool:
+    """Whether the read-back of `docker network inspect --format '{{.Internal}} {{json .Options}}'` says: internal, the gateway mode isolated,
+    and no IPv6 (a second family nobody isolated)."""
+    head, _, rest = (inspected or "").strip().partition(" ")
+    try:
+        options = json.loads(rest) if rest else {}
+    except ValueError:
+        return False
+    return head == "true" and isinstance(options, dict) and options.get(GATEWAY_OPTION) == GATEWAY_ISOLATED \
+        and options.get(IPV6_OPTION, "false") != "true"
+
+
 def build_command(name: str, image: str, *, deadline: int, network: str, env=None, platform=None) -> list:
     """The exact `docker run` command of the dependency build: NO mount, NO volume (nothing in it names a host path), the lock file
     arriving on standard input (-i), a writable root file system whose changes become the image layer (no --rm), the helper's other
@@ -307,7 +333,7 @@ def build_command(name: str, image: str, *, deadline: int, network: str, env=Non
     if not INTERNAL_NETWORK.fullmatch(network or ""):
         raise ProviderError("internal", "the build joins only the internal network of its step")
     base = box.argv(name, image, [], label=LABEL_RUN, deadline=deadline, mounts=[], memory_mb=MEMORY_MB, cpus=CPUS,
-                    scratch_mb=SCRATCH_MB, pids_limit=PIDS, platform=platform)
+                    scratch_mb=SCRATCH_MB, pids_limit=PIDS, tmp_mb=BUILD_TMP_MB, platform=platform)
     return shape(base, ["python3", "-I", "/opt/script/_inner.py", "build"], extras=env_args(env or {}), network=network,
                  rm=False, read_only=False, interactive=True)
 
@@ -357,10 +383,11 @@ class Egress:
 
     def __enter__(self):
         try:
-            self._docker(["network", "create", "--driver", "bridge", "--internal", *self._label_args(), self.network])
-            internal = self._docker(["network", "inspect", "--format", "{{.Internal}}", self.network]).stdout.strip()
-            if internal != "true":
-                raise ProviderError("network_not_internal", "the step's network is not an internal one: nothing was started")
+            self._docker(internal_network_args(self.network, self._label_args()))
+            read_back = self._docker(["network", "inspect", "--format", "{{.Internal}} {{json .Options}}", self.network]).stdout
+            if not isolated(read_back):
+                raise ProviderError("network_not_internal", "the step's network is not internal with an isolated gateway (an older daemon "
+                                    "cannot make one): nothing was started")
             if self.own_egress:
                 self._docker(["network", "create", "--driver", "bridge", *self._label_args(), self.egress_network])
             command = proxy_command(self.names["proxy"], self.image, self.destinations, self.egress_network, deadline=self.deadline,
@@ -485,9 +512,10 @@ def reap_all(docker=None) -> dict:
     return removed
 
 
-def run_script(script_path: str, kind: str, out_dir: str, *, image=None, destinations=(), timeout: int = DEFAULT_TIMEOUT,
+def run_script(script_path: str, kind: str, out_dir: str, *, image=None, lock_sha256=None, destinations=(), timeout: int = DEFAULT_TIMEOUT,
                allow_private: bool = False, egress_network=None, run=None, docker=None, base=None, platform=None) -> dict:
-    """Run one script. `image` is the id of a dependency image this provider built (None: the base image). Returns {"exit", "signal",
+    """Run one script. `image` is the id of a dependency image this provider built (None: the base image), given with the approved
+    `lock_sha256` it must have been built for. Returns {"exit", "signal",
     "duration_ms", "results", "refused", "outputs": [names written to out_dir], "image"}. `run`, `docker`, `base` (the base image id) and
     `egress_network` are the seams a test replaces; `allow_private` is the proxy's test switch and no verb passes it."""
     if kind not in KINDS:
@@ -500,7 +528,9 @@ def run_script(script_path: str, kind: str, out_dir: str, *, image=None, destina
     if base is None:
         local_daemon()
         base = image_id(image_tag(), docker)
-    run_image = deps_image(image, docker) if image else base
+    if bool(image) != bool(lock_sha256):
+        raise ProviderError("usage", "--image and --lock-sha256 are given together", EXIT_USAGE)
+    run_image = deps_image(image, lock_sha256, docker) if image else base
     reap_all(docker)
     token = new_token()
     names = names_of(token)
@@ -565,7 +595,7 @@ def build_deps(lock: bytes, lock_sha256: str, *, timeout: int = BUILD_TIMEOUT, i
         raise ProviderError("bad_lock", str(e)) from None
     tag = deps_tag(lock_sha256)
     cached = inspect(tag, '{{index .Config.Labels "%s"}}' % LABEL_LOCK, docker)
-    if cached == lock_sha256:
+    if cached == lock_sha256 and inspect(tag, '{{index .Config.Labels "%s"}}' % LABEL_DEFINITION, docker) == definition_hash():
         return {"image": inspect(tag, "{{.Id}}", docker), "tag": tag, "cached": True}
     if base is None:
         local_daemon()
@@ -655,7 +685,7 @@ def cmd_run(args: dict) -> int:
     for flag in ("--script", "--kind", "--out-dir"):
         if not args.get(flag):
             raise ProviderError("usage", f"{flag} is required", EXIT_USAGE)
-    print(json.dumps(run_script(args["--script"], args["--kind"], args["--out-dir"], image=args.get("--image"),
+    print(json.dumps(run_script(args["--script"], args["--kind"], args["--out-dir"], image=args.get("--image"), lock_sha256=args.get("--lock-sha256"),
                                 destinations=args.get("--destination") or [], timeout=_seconds(args))))
     return EXIT_OK
 

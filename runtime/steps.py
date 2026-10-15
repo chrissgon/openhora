@@ -15,7 +15,7 @@ the engine. The kinds registered today: `ingest` (runtime/step_ingest.py), which
 write a file (P8) and the media pipeline of the short-video rebase register the same way.
 
   Kind(name, order, executors, stops=(), decisions={}, footprint=..., check=..., cleanup={}, side_steps={}, errors=(), prepared=None,
-       rejected={}, unattended=False, brings_source=False)
+       rejected={}, unattended=False, brings_source=False, vet=None)
   register(kind) / kind_of(name) / load_builtin()   the registry; load_builtin imports every runtime/step_*.py
   plan_task(kind, args, key=, title=, text=, ...)   a plan's task for a step: the kind, its checked arguments (canonical, so the plan
                                                     hash covers them) and the footprint the kind derived. StepFailure when the kind is
@@ -121,6 +121,10 @@ class Kind:
                 task of a kind that is not unattended starts only by the person's own start (run-next, run-step)
     brings_source  whether the kind's `source` argument names a source the tasks after it receive (`ingest`): a workflow's task that
                 depends on such a step receives that source (flow_files.sources_of), and the flow check counts it (runtime/flow_check.py)
+    vet         function(project, args, protected) -> None, or None: for a kind whose arguments name files of the project (a script and its
+                hash), it reads them and raises StepFailure when they are not what the arguments say or may not be used. It runs when a plan
+                is built and again before the plan is approved (steps.vet; runtime/ops_flows.py), so a hash written by hand is checked
+                before anyone approves it, not only when the step runs
     """
 
     name: str
@@ -137,6 +141,7 @@ class Kind:
     rejected: dict = dataclasses.field(default_factory=dict)
     unattended: bool = False
     brings_source: bool = False
+    vet: Callable = None
 
     def steps(self) -> tuple:
         """The steps the summary lists: the order, without the side steps."""
@@ -249,6 +254,13 @@ def footprint_of(kind: Kind, args: dict) -> list:
     if len(found) > FOOTPRINT_MAX or not all(isinstance(p, str) for p in found):
         raise StepFailure("bad_footprint", "footprint")
     return sorted(set(found))
+
+
+def vet(project: str, kind_name: str, args, protected=lambda path: False) -> None:
+    """Run the kind's vet hook over a task's arguments in a project (nothing for a kind that has none). StepFailure when it refuses."""
+    kind = kind_of(kind_name)
+    if kind.vet is not None:
+        kind.vet(project, args if isinstance(args, dict) else {}, protected)
 
 
 def plan_task(kind_name: str, args, *, key: str, title: str, text: str, depends_on=(), milestone: bool = False) -> dict:

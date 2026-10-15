@@ -344,6 +344,52 @@ def test_an_undeclared_name_cannot_be_resolved_from_the_script_container_and_the
     assert seen["default_route"] is False and seen["eth0"] is True and seen["routes"] == 1       # the step's subnet, and no way beyond it
 
 
+PROBE = textwrap.dedent("""
+    import json, re, socket, time
+    text = open("/proc/net/fib_trie").read().split("Local:")[0]
+    own = [m for m in re.findall(r"\\|-- (\\d+\\.\\d+\\.\\d+\\.\\d+)\\n\\s+/32 host LOCAL", text) if not m.startswith("127.")]
+    proxy = socket.getaddrinfo("egress", 3128)[0][4][0]
+    subnet = own[0].rsplit(".", 1)[0]
+    answers = {}
+    for last in ("1", "2", "3", "4", "254"):
+        host = subnet + "." + last
+        if host in own or host == proxy:
+            continue
+        for port in (22, 53, 80, 443, 2375, 3128, 8080):
+            s = socket.socket(); s.settimeout(4)
+            try:
+                s.connect((host, port)); answers[f"{host}:{port}"] = "connected"
+            except Exception as e:
+                answers[f"{host}:{port}"] = e.__class__.__name__ + " " + str(e.args[0] if e.args else "")
+    neighbours = [l.split()[0] for l in open("/proc/net/arp").read().splitlines()[1:] if l.split()[3] != "00:00:00:00:00:00"]
+    print(json.dumps({"own": own, "proxy": proxy, "answers": answers, "neighbours": neighbours}))
+""")
+
+
+def test_the_host_has_no_address_on_the_step_network_and_nothing_but_the_proxy_answers(image, remote):
+    """Review finding B1: on a plain internal bridge the host's gateway address answers (ARP, then resets from its stack on any port), which
+    reaches every service the host listens on without the proxy. The step's network is created with the isolated gateway mode."""
+    with host.Egress(["allowed.test:8080"], token=host.new_token(), image=image, timeout=60, allow_private=True,
+                     egress_network=remote["network"]) as egress:
+        config = json.loads(docker("network", "inspect", "--format", "{{json .IPAM.Config}}", egress.network).stdout)
+        assert config and all("Gateway" not in entry for entry in config), config
+        options = json.loads(docker("network", "inspect", "--format", "{{json .Options}}", egress.network).stdout)
+        assert options["com.docker.network.bridge.gateway_mode_ipv4"] == "isolated"
+        seen = json.loads(docker("run", "--rm", "--pull", "never", "--network", egress.network, "--label", TEST_LABEL, image,
+                                 "python3", "-I", "-c", PROBE).stdout)
+    assert seen["answers"], "something was probed"
+    for where, answer in seen["answers"].items():
+        assert not answer.startswith("connected") and "refused" not in answer.lower() and "reset" not in answer.lower(), (where, answer)
+    assert seen["neighbours"] in ([], [seen["proxy"]]), seen["neighbours"]      # the only address that ever answered is the proxy's
+
+
+def test_a_run_on_a_network_without_the_isolation_is_refused_before_anything_starts(runner, monkeypatch):
+    monkeypatch.setattr(host, "internal_network_args", lambda name, labels: ["network", "create", "--driver", "bridge", "--internal", *labels, name])
+    with pytest.raises(host.ProviderError) as refused:
+        runner.run("print(1)\n", destinations=["allowed.test:8080"])
+    assert refused.value.word == "network_not_internal"
+
+
 def test_a_declared_name_that_is_not_a_public_address_is_refused_before_the_script_starts(runner):
     with pytest.raises(host.ProviderError) as refused:
         runner.run("print(1)\n", destinations=["allowed.test:8080"], allow_private=False)
@@ -383,7 +429,10 @@ def test_the_image_kept_from_a_build_carries_nothing_the_build_container_was_giv
         assert "egress" not in env and "a.example" not in env      # the names stay, set to nothing; _inner.py passes on only a name with a value
         assert config["User"] == "65534:65534" and config["Labels"]["org.openhora.script.lock"] == sha
         assert config["Labels"]["org.openhora.script"] == "" and config["Labels"]["org.openhora.script.deadline"] == ""
-        assert host.deps_image(docker("image", "inspect", "--format", "{{.Id}}", tag).stdout.strip()).startswith("sha256:")
+        image_id = docker("image", "inspect", "--format", "{{.Id}}", tag).stdout.strip()
+        assert host.deps_image(image_id, sha) == image_id
+        with pytest.raises(host.ProviderError):                       # not for another lock file
+            host.deps_image(image_id, "f" * 64)
         # a run from it sees the built file read-only, and no proxy variable
         done = docker("run", "--rm", "--read-only", "--pull", "never", tag, "python3", "-I", "-c",
                       "import os; print(open('/deps/marker').read(), sorted(k for k, v in os.environ.items() if v and ('PROXY' in k.upper() or 'DESTINATIONS' in k)))")
