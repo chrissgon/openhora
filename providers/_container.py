@@ -26,8 +26,9 @@
 Each limit is a named constant or an argument of `argv`; the names are those of the first two users (the renderer and the
 transcriber of the short-video work). The constants are the stricter default; a job that needs more passes its own number.
 
-What it does not own: the image (its build, its pin, its id), the folders a job uses, what a provider prints, and the
-check that the daemon is local. `evals/executor.py`, the eval container's runner, does not use this file.
+What it does not own: the image (its build, its pin, its id), the folders a job uses, what a provider prints, and
+the decision to check the daemon: `run()` does not call `require_local_daemon`; each provider calls it before a job.
+`evals/executor.py`, the eval container's runner, does not use this file.
 
 Errors are one class, `ContainerError(code, what)`: `code` is a closed machine word (bad_mount_path, bad_mount, docker_missing,
 docker_unusable, docker_timeout, docker_ps_failed, docker_daemon_unknown, docker_daemon_not_local, bad_label, time_limit, stopped); `what` names the thing, never a path's content.
