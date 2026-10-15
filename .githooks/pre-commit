@@ -73,5 +73,5 @@ if [[ ${#dirs[@]} -gt 0 ]]; then
   # Same pin as .github/workflows/checks.yml. Git exports GIT_DIR and GIT_INDEX_FILE to hooks; tests that
   # create their own repositories would otherwise read this one.
   env -u GIT_DIR -u GIT_INDEX_FILE -u GIT_WORK_TREE -u GIT_PREFIX \
-    uv run --quiet --with pytest==9.1.1 pytest -q "${dirs[@]}" || fail "tests failed in ${dirs[*]}."
+    uv run --quiet --with pytest==9.1.1 --with pytest-xdist==3.8.0 pytest -q -n auto "${dirs[@]}" || fail "tests failed in ${dirs[*]}."
 fi
