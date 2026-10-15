@@ -137,7 +137,8 @@ def test_the_32_character_id_is_found_in_every_shape_of_a_notion_address(address
 @pytest.mark.parametrize("address", [
     "", "   ", None, 12, "not an address", f"http://www.notion.so/{PAGE}", f"https://evil.example/Title-{PAGE}",
     f"https://notion.so.evil.example/{PAGE}", f"https://user:pass@www.notion.so/{PAGE}", "https://www.notion.so/Title-without-id",
-    f"https://www.notion.so:8443/{PAGE}", "0123456789abcdef", f"ftp://www.notion.so/{PAGE}", f"https://www.notion.so/{PAGE}0",
+    f"https://www.notion.so:8443/{PAGE}", f"https://www.notion.so:abc/{PAGE}", f"https://www.notion.so:99999/{PAGE}",
+    f"https://www.notion.so:/{PAGE}x", "0123456789abcdef", f"ftp://www.notion.so/{PAGE}", f"https://www.notion.so/{PAGE}0",
 ])
 def test_an_address_that_is_not_a_notion_page_is_refused(address):
     with pytest.raises(sources.SourcesError) as refused:

@@ -204,6 +204,7 @@ import ops_core as core  # noqa: E402  (the shared names: read as core.<name>, n
 import ops_reads  # noqa: E402  (the reads of the interface; this file re-exports them at its end)
 import ops_runs  # noqa: E402  (the runs of tasks and the dispatcher's round; this file re-exports `run_task`, `dispatch` and `reap`)
 import ops_say  # noqa: E402  (the conversation and its queue; this file re-exports `say` at its end)
+import sources  # noqa: E402  (limit L26: the protected paths gain the sources folder when it sits inside the project)
 import ops_sources  # noqa: E402  (the sources of the project: the ingest operations and the pieces the planner and a run ask of them)
 import ops_config  # noqa: E402  (the configuration's acceptance: accept_config, set_mode, set_model; this file re-exports them at its end)
 import ops_models  # noqa: E402  (which model a run goes to: the choice, the key, the billing and the consent)
@@ -512,15 +513,15 @@ def _run_body(ctx: dict, started: dict) -> dict:
             sourced = ops_sources.copies_for(ctx, task, prepared_dir, started.get("unattended", True))
         except ops_sources.SourcesRefused as e:
             return fail("internal", str(e))
-        ops_sources.record_copies(ctx, run_id, task, sourced["records"])
-        if sourced["records"]:   # a task with no source returns what it always returned
-            out["sources"] = [{k: r[k] for k in ("source", "version", "sha256")} for r in sourced["records"]]
         try:
             entered = workcopy.entering(cfg["project"], meta, web=routing["web"], cfg=cfg,
                                         settings_names=lab.settings_names(), prepared_dir=prepared_dir, handed=handed,
                                         sourced=sourced["files"])
         except workcopy.CopyError as e:
             return fail("internal", f"the copy could not be built: {e}")
+        ops_sources.record_copies(ctx, run_id, task, sourced["records"])   # only the copies the run received (entering() took them all)
+        if sourced["records"]:   # a task with no source returns what it always returned
+            out["sources"] = [{k: r[k] for k in ("source", "version", "sha256")} for r in sourced["records"]]
         files, base, out["left_out"] = entered["files"], entered["base"], entered["left_out"] + refused
         entered_rels = {rel for _source, rel in files}
         out["entered"] = {"kind": entered["kind"], "agents_md": entered["agents_md"], "files": len(files)}
@@ -586,7 +587,8 @@ def _run_body(ctx: dict, started: dict) -> dict:
     with core._write_lock(cfg, wait=None):  # the return waits for the other writers; their holders are bounded
         returned, kept, state_report = workcopy.returning(cfg["project"], result, base, base_state, skill, bound=bound,
                                                            versioned=(made or {}).get("versioned", ()),
-                                                           tracked=entered.get("tracked") or () if code is None else ())
+                                                           tracked=entered.get("tracked") or () if code is None else (),
+                                                           cfg=cfg)
     gate_files = _tmp_files(result.get("tmp"))
     ending, why = _ending(result, meta, skill, [rel for rel, _size in gate_files])
     gate_found = _gate_payload(result, dest, gate_files, kind) if known.get("gate") else None
@@ -788,7 +790,7 @@ def _execute_effect(ctx: dict, item: dict, sha256) -> dict:
                 raise effects.EffectError("deviation", "the change set is no longer in its run folder")
             paths = [f["path"] for f in made["files"]] + list(made["removed"])
             facts = {"versioned": changeset.versioned_in(cfg["project"], paths)}
-            doc = kind.verify(effects.read_document(payload["effect_file"], sha256), made, facts, cfg["protected_paths"])
+            doc = kind.verify(effects.read_document(payload["effect_file"], sha256), made, facts, sources.protected_paths(cfg))
             key_prefix = f"wb-{hashlib.sha256(cfg['store_db'].encode('utf-8')).hexdigest()[:12]}-p{pending_id}"
             result = kind.execute(doc, made["dir"], os.path.join(cfg["data_dir"], core.EFFECTS_DIR, str(pending_id)),
                                   _provider_path(cfg, kind.PROVIDER_CLASS), key_prefix)
@@ -928,7 +930,7 @@ def _changeset_of(ctx: dict, task: dict, run_id: int, dest: str, result: dict, e
     facts = {"staged": list(result["staged"]) + [path_rule.DROP_DIR], "bound": list(bound)}
     try:
         made = changeset.compute(dest, result.get("base_commit"), entered["tracked"], facts, checks,
-                                 protected=ctx["cfg"]["protected_paths"])
+                                 protected=sources.protected_paths(ctx["cfg"]))
     except changeset.ChangesetError as e:
         why = f"the change set could not be computed: {e.reason.splitlines()[0] if e.reason else e.kind}"
         return {"summary": {"error": why}, "text": why[0].upper() + why[1:] + ".", "versioned": []}

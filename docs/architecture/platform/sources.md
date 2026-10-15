@@ -17,7 +17,7 @@ The idea behind each piece, in one line each:
 
 | Artifact | Where | Notes |
 |---|---|---|
-| The sources folder | `sources_dir` of `runtime.json` (mandatory, no default; accepted only in the terminal) | `.openhora-sources` (the marker), `.incoming/` (staging, emptied after each import), `<source id>/<version>/original.<ext>`, `converted.md` or `converted.csv`, `manifest.json`. Files are mode 0400; a version is moved into place with one rename and never written again |
+| The sources folder | `sources_dir` of `runtime.json` (mandatory, no default; accepted only in the terminal) | `.openhora-sources` (the marker; it names the project, so a folder serves one project), `.incoming/` (the assembly area; it also takes a leftover numbered folder aside), `<source id>/<version>/original.<ext>`, `converted.md` or `converted.csv`, `manifest.json`. Files are mode 0400; a version is moved into place with one rename and never written again |
 | The registry | table `sources` of the store (migration 11) | id, type (`file` or `notion`), origin (a file's name, or a Notion page's address; never a credential), the person's description. Never deleted; only the description changes |
 | The versions | table `source_versions` | one row per version: label (`import`, `refresh`, `changed-by-person`), who made it (`runtime` or `person`), the sniffed kind, the hashes and sizes of the original and the converted text, the converter and its tools, `hidden_text` (null: reserved for P8), warnings, the catalog entry, the origin's own version (a Notion page's `last_edited_time`), the date from the clock. Never changed, never deleted |
 | What a task received | table `task_sources` | for each run: the source id, the version and the sha256 of the converted text copied; plus `tasks.sources`, the ids the approved plan chose |
@@ -47,12 +47,12 @@ The idea behind each piece, in one line each:
 
 The numbered limits L21 to L27 of `contracts/runtime.md`, each with a test named after it (`runtime/tests/test_sources_limits.py`):
 
-1. **L21** dedicated, private, marked, mode 0700 (at acceptance and before every use).
+1. **L21** dedicated, private, marked for this project, mode 0700 (at acceptance and before every use).
 2. **L22** disjoint from `data_dir`, `store_db`, the checkout and the local evidence folder, by device and inode.
-3. **L23** the runtime writes only inside it and never follows a link out; the home folder, the root and a folder that contains the project are refused.
+3. **L23** the runtime writes only inside it and never follows a link out (the import staging folder in `data_dir` included); a pipe where a file is expected is refused before it is opened; the home folder, the root and a folder that contains the project are refused.
 4. **L24** what a container writes comes back only as regular files, with closed names, under a byte cap.
 5. **L25** a file changed outside the runtime is found by its hash, checked again, labelled as the person's, and never used unattended.
-6. **L26** the work copy excludes the folder, even inside a tracked tree.
+6. **L26** the work copy excludes the folder, even inside a tracked tree, and nothing a run leaves is written into it (a returned path inside it is kept; a change set that touches it is refused).
 7. **L27** the catalog is built only from converted output.
 
 Beside them:
@@ -60,7 +60,7 @@ Beside them:
 8. **A converted text is scanned for credentials after the conversion**, because text compressed inside a PDF is invisible to a scan of its bytes; a text that fails is not kept, and nothing is left in the folder or the store.
 9. **A source has a size cap, with a warning.** An original is at most 25 MiB (the intake's route limit). The converted text is at most 1 MiB: a task reads all of it, 1 MiB is beyond what a model's context takes, and indexing or retrieval waits for a real case. From 256 KiB (about 65,000 tokens at four bytes a token) the import succeeds and says it is large, and the catalog entry carries the warning.
 10. **The planner chooses, code checks.** The router's reply may carry a `Sources:` line (`runtime/router.py`); an id the project does not hold, or a skill that is not in the plan, makes no plan (the person is asked). An `@mention` is added by code to every task of the delivery. The ids are part of each task, so they are in the plan hash; a new version of a source changes none of them.
-11. **A task receives the newest version at the moment it starts** (D29): copied from the folder after its files are hashed against the record; recorded as id, version and sha256. A source refreshed after the plan and before the start reaches the task as the newer version; one refreshed after the start does not reach that run. A later run of the same task takes the newest version at its own start.
+11. **A task receives the newest version at the moment it starts** (D29): copied from the folder after its files are hashed against the record; recorded as id, version and sha256, only for the copies the run received (a copy that fails the credential scan again stops the task with the reason). A version made by the person (`changed-by-person`) goes only to a task the person starts with `run-next`; the dispatcher's starts and `run-task` are unattended and refuse it (the page cannot start a task). A source refreshed after the plan and before the start reaches the task as the newer version; one refreshed after the start does not reach that run. A later run of the same task takes the newest version at its own start.
 12. **A Notion page is read with its own read-only secret** (`NOTION_SOURCES_TOKEN`, store username `notion-sources`), by `read --as-source`; `NOTION_TOKEN`, which writes, is never used for sources. The page's id is extracted from the address (every URL shape the provider knows: a bare id, `Title-<id>`, a workspace path, a `p=` query, a `notion.site` host); anything else is refused.
 13. **The channels.** The four writes (`source-add`, `source-import`, `source-refresh`, `source-describe`) are for the terminal and the page; the catalog read (`sources`) is also for the MCP mode and the messaging channel, and sits in the group `sources`, which a project's policy turns on (it is not in the default policy of messaging: the catalog shows samples of the person's data).
 

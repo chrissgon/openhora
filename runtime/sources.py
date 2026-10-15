@@ -177,7 +177,7 @@ def path_problems(sources_dir: str, *, project: str, data_dir: str, store_db: st
     problems = []
     if not isinstance(sources_dir, str) or not os.path.isabs(sources_dir):
         return ["sources_dir must be an absolute path"]
-    if os.path.islink(sources_dir):
+    if os.path.islink(sources_dir.rstrip(os.sep) or os.sep):   # "link/" is not seen as a link by islink, though it is one
         problems.append("sources_dir is a symbolic link: name the folder itself (the runtime never follows a link out)")
     real = os.path.realpath(sources_dir)
     if real == os.path.dirname(real):
@@ -202,25 +202,45 @@ def path_problems(sources_dir: str, *, project: str, data_dir: str, store_db: st
 # --- the folder (L21) ------------------------------------------------------------------------------------------------
 
 
-def _marker_text() -> str:
-    return json.dumps({"kind": MARKER_KIND, "version": 1, "id": secrets.token_hex(8)}) + "\n"
+def project_key(project: str) -> str:
+    """The identity of a project in a marker: the sha256 of the project's real path. One sources folder serves one project."""
+    return hashlib.sha256(os.path.realpath(project).encode("utf-8")).hexdigest()
 
 
-def _marker_ok(fd: int) -> bool:
-    """Whether the folder (open descriptor) holds the marker: a regular file, small, valid, of this kind."""
+def _marker_text(project=None) -> str:
+    return json.dumps({"kind": MARKER_KIND, "version": 2, "id": secrets.token_hex(8),
+                       "project": project_key(project) if project else None}) + "\n"
+
+
+def _marker_data(fd: int):
+    """The marker of the folder (open descriptor) as a dict, or None: a regular file, small, valid JSON, of this kind."""
     try:
         info = os.stat(MARKER, dir_fd=fd, follow_symlinks=False)
         if not stat.S_ISREG(info.st_mode) or info.st_size > 1024:
-            return False
-        mark = os.open(MARKER, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=fd)
+            return None
+        mark = os.open(MARKER, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
     except OSError:
-        return False
+        return None
     try:
         with os.fdopen(mark, "rb") as f:
             data = json.loads(f.read(1025).decode("utf-8"))
     except (ValueError, OSError):
+        return None
+    return data if isinstance(data, dict) and data.get("kind") == MARKER_KIND else None
+
+
+def _marker_ok(fd: int, project=None) -> bool:
+    """Whether the folder holds the marker. With `project`, the marker must also name that project (limit L21: a folder marked by
+    one project is not another project's; a marker that names none is no project's)."""
+    data = _marker_data(fd)
+    if data is None:
         return False
-    return isinstance(data, dict) and data.get("kind") == MARKER_KIND
+    return project is None or data.get("project") == project_key(project)
+
+
+def _other_project(path: str) -> "SourcesError":
+    return SourcesError(f"the sources folder {path} was marked by another project (or by this one at another path): one sources "
+                        "folder serves one project; name a separate folder for each project in runtime.json sources_dir", "folder")
 
 
 def _open_folder_fd(path: str) -> int:
@@ -247,12 +267,13 @@ def _open_folder_fd(path: str) -> int:
     return fd
 
 
-def accept_folder(path: str) -> dict:
+def accept_folder(path: str, project=None) -> dict:
     """Make the sources folder ready at the acceptance of the configuration (limit L21), or refuse. A folder that does not
     exist is created with mode 0700 (its parent must exist) and marked. An existing folder must be a real folder of this
     user with mode exactly 0700 and either hold the marker or be empty (then it is marked); a folder that holds anything
     else is not dedicated and is refused. Returns {"path", "created", "marked"}. The paths rules (disjointness and so on) are
-    path_problems', checked by the caller first."""
+    path_problems', checked by the caller first. With `project`, the marker written names it, and a marker that names another
+    project (or none) is refused (_other_project)."""
     created = False
     if not os.path.lexists(path):
         parent = os.path.dirname(path.rstrip(os.sep))
@@ -266,14 +287,16 @@ def accept_folder(path: str) -> dict:
         created = True
     fd = _open_folder_fd(path)
     try:
-        if _marker_ok(fd):
+        if _marker_data(fd) is not None:
+            if project is not None and not _marker_ok(fd, project):
+                raise _other_project(path)
             return {"path": path, "created": created, "marked": False}
         if os.listdir(fd):
             raise SourcesError(f"the sources folder {path} is not dedicated: it holds files that are not the runtime's and has no "
                                f"marker ({MARKER}); use an empty folder", "folder")
         mark = os.open(MARKER, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd)
         with os.fdopen(mark, "w", encoding="utf-8") as f:
-            f.write(_marker_text())
+            f.write(_marker_text(project))
         return {"path": path, "created": created, "marked": True}
     finally:
         os.close(fd)
@@ -287,7 +310,7 @@ def ready_for_acceptance(cfg: dict, evidence_base) -> dict:
                              workbench=cfg["workbench"], evidence_base=evidence_base)
     if problems:
         raise SourcesError("; ".join(problems), "path")
-    return accept_folder(cfg["sources_dir"])
+    return accept_folder(cfg["sources_dir"], cfg["project"])
 
 
 def check_folder(cfg: dict, evidence_base=None) -> None:
@@ -300,9 +323,11 @@ def check_folder(cfg: dict, evidence_base=None) -> None:
         raise SourcesError("; ".join(problems), "path")
     fd = _open_folder_fd(cfg["sources_dir"])
     try:
-        if not _marker_ok(fd):
+        if _marker_data(fd) is None:
             raise SourcesError(f"the sources folder {cfg['sources_dir']} holds no marker ({MARKER}): accept the configuration "
                                "to mark it, and use a folder that holds only sources", "folder")
+        if not _marker_ok(fd, cfg["project"]):
+            raise _other_project(cfg["sources_dir"])
     finally:
         os.close(fd)
 
@@ -355,43 +380,55 @@ class Folder:
             os.close(current)
             raise
 
+    def _open_regular(self, parent: int, name: str, label: str) -> int:
+        """A descriptor for one regular file of a folder, by name. The name is looked at first, without following a link: a FIFO, a
+        device, a socket or a link is refused before anything opens it (opening a FIFO for reading waits for a writer, and a hostile
+        or careless folder must not hang the runtime). Then it is opened with NOFOLLOW and NONBLOCK and looked at again through
+        the descriptor. SourcesError (missing: it is not there or cannot be opened; folder: it is not a regular file)."""
+        try:
+            info = os.stat(_plain(name), dir_fd=parent, follow_symlinks=False)
+        except OSError as e:
+            raise SourcesError(f"{label} cannot be read: {e.strerror}", "missing") from None
+        if not stat.S_ISREG(info.st_mode):
+            raise SourcesError(f"{label} is not a regular file", "folder")
+        try:
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        except OSError as e:
+            raise SourcesError(f"{label} cannot be read: {e.strerror}", "missing") from None
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            os.close(fd)
+            raise SourcesError(f"{label} is not a regular file", "folder")
+        return fd
+
     def read(self, parts, cap: int) -> bytes:
         """The bytes of one regular file inside the folder, at most `cap` (more is refused), found with NOFOLLOW at each step."""
         *folders, name = list(parts)
         parent = self.subdir(folders)
         try:
-            _plain(name)
-            try:
-                fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
-            except OSError as e:
-                raise SourcesError(f"{'/'.join(parts)} cannot be read: {e.strerror}", "missing") from None
+            fd = self._open_regular(parent, name, "/".join(parts))
         finally:
             os.close(parent)
         with os.fdopen(fd, "rb") as f:
-            if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
-                raise SourcesError(f"{'/'.join(parts)} is not a regular file", "folder")
             data = f.read(cap + 1)
         if len(data) > cap:
             raise SourcesError(f"{'/'.join(parts)} is larger than {cap} bytes", "size")
         return data
 
     def sha256_of(self, parts):
-        """sha256 of one file, or None when it is missing or not a regular file. Reads in chunks."""
+        """sha256 of one file, or None when it is missing or not a regular file (a FIFO, a link, a folder). Reads in chunks."""
         *folders, name = list(parts)
         try:
             parent = self.subdir(folders)
         except SourcesError:
             return None
         try:
-            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
-        except OSError:
+            fd = self._open_regular(parent, name, "/".join(parts))
+        except SourcesError:
             return None
         finally:
             os.close(parent)
         digest = hashlib.sha256()
         with os.fdopen(fd, "rb") as f:
-            if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
-                return None
             for chunk in iter(lambda: f.read(intake.CHUNK_BYTES), b""):
                 digest.update(chunk)
         return digest.hexdigest()
@@ -401,16 +438,10 @@ class Folder:
         *folders, name = list(parts)
         parent = self.subdir(folders)
         try:
-            fd = os.open(_plain(name), os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
-        except OSError as e:
-            raise SourcesError(f"{'/'.join(parts)} cannot be read: {e.strerror}", "missing") from None
+            fd = self._open_regular(parent, name, "/".join(parts))
         finally:
             os.close(parent)
-        info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode):
-            os.close(fd)
-            raise SourcesError(f"{'/'.join(parts)} is not a regular file", "folder")
-        return os.fdopen(fd, "rb"), info.st_size
+        return os.fdopen(fd, "rb"), os.fstat(fd).st_size
 
     def incoming(self) -> str:
         """The staging folder's path (<folder>/.incoming), created 0700 when missing, with the old leftovers removed."""
@@ -777,9 +808,10 @@ def notion_page_id(text) -> str:
     try:
         url = urllib.parse.urlsplit(raw)
         host = (url.hostname or "").lower()
+        port = url.port   # raises ValueError for a port that is not a number or out of range
     except ValueError:
         raise SourcesError("that is not a Notion page address", "usage") from None
-    if url.scheme != "https" or url.username or url.password or url.port not in (None, 443):
+    if url.scheme != "https" or url.username or url.password or port not in (None, 443):
         raise SourcesError("a Notion page address starts with https:// and carries no user name or password", "usage")
     if not (host in NOTION_HOSTS or host.endswith(".notion.site") or host.endswith(".notion.so")):
         raise SourcesError(f"{host or 'that host'} is not a Notion address", "usage")
@@ -909,9 +941,7 @@ def import_version(ctx, source: dict, data, *, convert, label: str = "import", b
             # The bytes are staged OUTSIDE the sources folder, in the runtime's own private data folder: the intake, the
             # container and the converter work on paths there, and nothing is written by path inside the sources folder (limit
             # L23). Only the finished version is put in the folder, through its descriptor.
-            stage_path = os.path.join(cfg["data_dir"], STAGING, token)
-            for part in (os.path.join(cfg["data_dir"], STAGING), stage_path, os.path.join(stage_path, "in"), os.path.join(stage_path, "out")):
-                os.makedirs(part, mode=0o700, exist_ok=True)
+            stage_path = _make_staging(cfg["data_dir"], token)
             _sweep_staging(os.path.join(cfg["data_dir"], STAGING), keep=token)
             try:
                 return _import_in(ctx, folder, source, stream, length, stage_path, token, convert=convert, label=label, by=by,
@@ -921,6 +951,53 @@ def import_version(ctx, source: dict, data, *, convert, label: str = "import", b
     finally:
         if closer is not None:
             closer.close()
+
+
+def _private_dir(parent_fd: int, name: str, what: str) -> int:
+    """Open (creating it 0700 when missing) the folder `name` of the descriptor `parent_fd`, without following a link at its name:
+    a directory, this user's, mode 0700 (the mode of a folder of ours is set back when the umask or a person changed it). The
+    caller closes the descriptor. SourcesError (folder) when the name is a link, a file, or another user's."""
+    try:
+        os.mkdir(name, 0o700, dir_fd=parent_fd)
+    except FileExistsError:
+        pass
+    except OSError as e:
+        raise SourcesError(f"{what} cannot be created: {e.strerror}", "folder") from None
+    try:
+        fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent_fd)
+    except OSError as e:
+        raise SourcesError(f"{what} cannot be opened as a plain folder (a link there is refused): {e.strerror}", "folder") from None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISDIR(info.st_mode) or (hasattr(os, "getuid") and info.st_uid != os.getuid()):
+            raise SourcesError(f"{what} is not a folder of this user", "folder")
+        if stat.S_IMODE(info.st_mode) != 0o700:
+            os.fchmod(fd, 0o700)
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def _make_staging(data_dir: str, token: str) -> str:
+    """The staging folder of one import, <data_dir>/sources-staging/<token>/{in,out}, each made through the descriptor of its parent
+    with NOFOLLOW, this user's and 0700, like the leaves of the sources folder (limit L23). Returns the folder's path."""
+    try:
+        top = os.open(data_dir, os.O_RDONLY | os.O_DIRECTORY)
+    except OSError as e:
+        raise SourcesError(f"the data folder {data_dir} cannot be opened: {e.strerror}", "folder") from None
+    opened = [top]
+    try:
+        staging = _private_dir(top, STAGING, "the import staging folder")
+        opened.append(staging)
+        stage = _private_dir(staging, token, "the staging folder of this import")
+        opened.append(stage)
+        for name, what in (("in", "its input folder"), ("out", "its output folder")):
+            opened.append(_private_dir(stage, name, what))
+    finally:
+        for fd in opened:
+            os.close(fd)
+    return os.path.join(data_dir, STAGING, token)
 
 
 def _sweep_staging(folder: str, keep: str) -> None:
@@ -1043,16 +1120,11 @@ def _import_in(ctx, folder, source, stream, length, stage_path, token, *, conver
 
 
 def _next_version(ctx, folder: Folder, source_id: str, latest) -> int:
-    """The next version number: after the newest recorded and after any numbered folder (a crash's leftover must not be reused)."""
-    top = latest["version"] if latest else 0
-    fd = folder.subdir([source_id], create=True)
-    try:
-        for name in os.listdir(fd):
-            if name.isdigit():
-                top = max(top, int(name))
-    finally:
-        os.close(fd)
-    return top + 1
+    """The next version number: the newest RECORDED version plus one, which is the only number the store accepts
+    (source_version_add). A numbered folder that holds no record (a crash between the rename and the row, a removal that failed,
+    a stray folder) is not counted: _place moves it aside before it puts the new version there, so one leftover never blocks the
+    imports of a source."""
+    return (latest["version"] if latest else 0) + 1
 
 
 def _write_new(dir_fd: int, name: str, data: bytes) -> None:
@@ -1109,8 +1181,19 @@ def _place(folder: Folder, token: str, source_id: str, version: int, input_path:
         finally:
             os.close(stage)
         source_fd = folder.subdir([source_id], create=True)
-        if os.path.lexists(os.path.join(folder.path, source_id, str(version))):
-            raise SourcesError(f"version {version} of {source_id} already exists: nothing was replaced", "folder")
+        try:
+            os.stat(str(version), dir_fd=source_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            raise SourcesError(f"{source_id}/{version} cannot be looked at in the sources folder: {e.strerror}", "folder") from None
+        else:
+            # The number is the next of the recorded ones, so whatever is there holds no record: a leftover. It is moved into the
+            # assembly area (swept there later), through the descriptors and without following a link, never replaced in place.
+            try:
+                os.rename(str(version), f"{token}-orphan", src_dir_fd=source_fd, dst_dir_fd=incoming_fd)
+            except OSError as e:
+                raise SourcesError(f"{source_id}/{version} is a leftover that cannot be moved aside: {e.strerror}", "folder") from None
         os.rename(token, str(version), src_dir_fd=incoming_fd, dst_dir_fd=source_fd)
     except BaseException:
         _remove_in(incoming_fd, token)   # whatever was assembled is ours and goes; nothing reaches a source's folder
@@ -1210,8 +1293,8 @@ def task_copies(ctx, task: dict, prepared_dir: str, *, unattended: bool, evidenc
                                    "then retry the task", "integrity")
             if latest["by"] == "person" and unattended:
                 raise SourcesError(f"the newest version of {source_id} ({latest['version']}) is a file you changed; it is not used "
-                                   "by a task that starts on its own. Start the task yourself (run-next, or the page), or import "
-                                   "the source again", "unattended")
+                                   "by a task that starts on its own. Start the task yourself with run-next in the terminal, or "
+                                   "import a new file for the source (an import of the same bytes changes nothing)", "unattended")
             data = folder.read([source_id, str(latest["version"]), latest["converted_name"]], CONVERTED_CAP)
             if _sha(data) != latest["converted_sha256"]:
                 raise SourcesError(f"the source {source_id} changed while it was being copied; retry the task", "integrity")
@@ -1234,6 +1317,19 @@ def inside(cfg: dict, path: str) -> bool:
     if not folder:
         return False
     return _inside(path, folder)
+
+
+def protected_paths(cfg: dict) -> list:
+    """The project's protected_paths plus, when the sources folder sits inside the project, the folder itself (a prefix entry):
+    a change set that touches the runtime's folder is refused and blocked, whoever wrote it (limit L26, the return direction)."""
+    listed = list(cfg.get("protected_paths") or [])
+    folder, project = cfg.get("sources_dir"), cfg.get("project")
+    if folder and project:
+        real_project = os.path.realpath(project)
+        real_folder = os.path.realpath(folder)
+        if real_folder.startswith(real_project + os.sep):
+            listed.append(os.path.relpath(real_folder, real_project).replace(os.sep, "/") + "/")
+    return listed
 
 
 # --- the converter: the provider of converter:document ------------------------------------------------------------------------------

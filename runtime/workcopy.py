@@ -26,7 +26,8 @@ What enters (entering()):
   L26 the sources folder never enters a run, even when it sits inside the project's tracked tree: the one thing of
       the sources a run sees is the copy of the converted text of each source its plan chose (decision D29), made when
       the task starts, at .workbench-local/sources/<source id>/ (runtime/sources.py task_copies); those copies are
-      scanned again here, staged like the file drop and never brought back
+      scanned again here, staged like the file drop and never brought back; and nothing a run leaves is written into the
+      folder either (returning(): a path that is, or is inside, the folder is kept with the reason SOURCES_KEPT)
 
 Every file left out is listed with its reason, except a path inside a folder the path rule drops.
 
@@ -66,6 +67,7 @@ import state_merge  # noqa: E402
 CODE_AREAS = tuple(roles.load()["code_areas"])  # runtime/roles.json
 # Why a versioned file a document task changed stays in its run folder (ops.code_task: only a code task makes a
 # change set).
+SOURCES_KEPT = "the sources folder is the runtime's: nothing a run leaves is written there"
 TRACKED_KEPT = "a versioned file: only a code task brings one back, as a change set"
 SECTION_START = "<!-- workbench:start -->"
 SECTION_END = "<!-- workbench:end -->"
@@ -254,7 +256,8 @@ def entering(project: str, meta: dict, *, web: bool, cfg: dict, settings_names, 
     their paths, after the credential scan; nothing else of the drop folder enters, whatever the task. sourced is
     [(source, rel)] of the copies of the sources the task's plan chose (runtime/sources.py task_copies): files already
     written to prepared_dir, at paths under .workbench-local/sources/; they are scanned again here and enter whatever the
-    task's skill declares, and nothing else of the sources folder enters (limit L26)."""
+    task's skill declares, and nothing else of the sources folder enters (limit L26). A copy that fails the scan or cannot be
+    read raises CopyError: the task stops, it does not run without the source its plan chose."""
     project = os.path.realpath(project)
     declared = list(dict.fromkeys(meta["inputs"] + meta["outputs"] + meta["updates"]))
     settings_names = set(settings_names)
@@ -311,14 +314,12 @@ def entering(project: str, meta: dict, *, web: bool, cfg: dict, settings_names, 
             with open(source, "rb") as f:
                 data = f.read(SCAN_MAX + 1)
         except OSError as e:
-            left_out.append({"path": rel, "reason": f"cannot be read: {e.strerror}"})
-            continue
+            raise CopyError(f"the copy of a source, {rel}, cannot be read: {e.strerror}") from None
         reason = scan(data)
-        if reason:
-            left_out.append({"path": rel, "reason": reason})
-        else:
-            files.append((source, rel))
-            base[rel] = _sha256(source)
+        if reason:   # the plan chose this source: a copy that fails the scan stops the task rather than reaching it without the source
+            raise CopyError(f"the copy of a source, {rel}, {reason}: the task does not start; import a clean version of the source")
+        files.append((source, rel))
+        base[rel] = _sha256(source)
     agents_md = None
     source = os.path.join(project, AGENTS_MD)
     if AGENTS_MD in declared and os.path.lexists(source):
@@ -375,7 +376,7 @@ def _write(target: str, data: bytes) -> None:
 
 
 def returning(project: str, result: dict, base: dict, base_state, skill: str, *, bound=(), versioned=(),
-              tracked=()) -> tuple:
+              tracked=(), cfg=None) -> tuple:
     """(returned, kept, state_report): bring back what a completed run left, by the path rule. returned lists
     {"path", "class"} of what was written into the project; kept lists {"path", "class", "reason"} of what stays
     in the run folder only; state_report is the state file's merge report without its text ({"accepted",
@@ -387,7 +388,9 @@ def returning(project: str, result: dict, base: dict, base_state, skill: str, *,
     (L14). Nothing is deleted in the project. versioned lists the paths the path rule calls versioned (the change
     set's, runtime/changeset.py): they never come back as loose files and are not listed here. tracked lists the
     versioned paths of a run that makes no change set (a document task, ops.code_task): one of them the run changed
-    outside docs/ is kept, with the reason TRACKED_KEPT."""
+    outside docs/ is kept, with the reason TRACKED_KEPT. cfg is the project's configuration (project_config.load()): a
+    returned path that is, or is inside, the sources folder is kept with the reason SOURCES_KEPT and never written (limit L26,
+    the return direction: the folder is the runtime's, even when it sits inside the project)."""
     project = os.path.realpath(project)
     cwd, changes = result["cwd"], result["changes"]
     facts = {"staged": list(result["staged"]) + [path_rule.DROP_DIR, path_rule.SOURCES_DIR], "bound": list(bound),
@@ -402,10 +405,13 @@ def returning(project: str, result: dict, base: dict, base_state, skill: str, *,
         if cls not in path_rule.RETURNED:
             keep(TRACKED_KEPT if rel in tracked else "this class of path is not brought back yet")
             continue
+        target = os.path.join(project, *rel.split("/"))
+        if cfg is not None and sources.inside(cfg, target):
+            keep(SOURCES_KEPT)
+            continue
         if not lab.readable(cwd, rel):
             keep("not a regular file inside the copy")
             continue
-        target = os.path.join(project, *rel.split("/"))
         if not _project_inside(project, rel):
             keep("the project's path is a link or leaves the project")
             continue

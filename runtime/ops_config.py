@@ -80,19 +80,22 @@ def _read(path: str):
         return None
 
 
-def _record_acceptance(ctx: dict, cfg: dict, sha256: str, by: str) -> dict:
+def _record_acceptance(ctx: dict, cfg: dict, sha256: str, by: str, folder: bool = True) -> dict:
     """Record sha256 as the accepted hash of cfg's file, and who accepted it, and rewrite the state file's Checkpoints
     line. The one writer of the accepted hash: accept_config (the person, in the terminal) and set_mode (code, for a
     move down the order of the modes, which widens nothing; the person, for a move up, with `accept` from the terminal)
-    call it, and nothing else does. Returns {"previous", "checkpoints"}."""
-    try:
+    call it, and nothing else does. `folder` is False for a narrowing that code accepts (set_mode, a move down): a brake is
+    accepted whatever the state of the sources folder, which every use of the folder checks again (limits L21 to L23). Returns
+    {"previous", "checkpoints"}."""
+    if folder:
         try:
-            evidence = lab.local_evidence_base()
-        except lab.LabError:
-            evidence = None  # a checkout without its lab runs nothing: every later use of the folder asks again and needs the lab
-        sources.ready_for_acceptance(cfg, evidence)  # limit L21: the sources folder is dedicated, 0700, marked
-    except sources.SourcesError as e:
-        raise core.OpsError(f"the configuration was not accepted: the sources folder is refused ({e})", 1) from None
+            try:
+                evidence = lab.local_evidence_base()
+            except lab.LabError:
+                evidence = None  # a checkout without its lab runs nothing: every later use of the folder asks again and needs the lab
+            sources.ready_for_acceptance(cfg, evidence)  # limit L21: the sources folder is dedicated, 0700, marked
+        except sources.SourcesError as e:
+            raise core.OpsError(f"the configuration was not accepted: the sources folder is refused ({e})", 1) from None
     previous = core._stored(ctx, ctx["store"].cursor_get, project_config.ACCEPTED)
     core._stored(ctx, ctx["store"].cursor_set, ACCEPTED_BY, by)
     core._stored(ctx, ctx["store"].cursor_set, project_config.ACCEPTED, sha256)
@@ -180,7 +183,7 @@ def _change_agent(ctx: dict, cfg: dict, project: str, agent: str, edit, unchange
                 raise core.OpsError(str(e), 3) from None
             if written["sha256"] == new:  # nothing else changed the file between the write and this read
                 by = "code:narrowing" if narrowing else person
-                done = _record_acceptance(ctx, written, new, by)
+                done = _record_acceptance(ctx, written, new, by, folder=not narrowing)
                 out.update(accepted=True, by=by, next=None, checkpoints=done["checkpoints"])
             else:  # the file is not the one this call wrote: nothing is accepted, and the hash to read and accept is the file's
                 out.update(config_sha256=written["sha256"],

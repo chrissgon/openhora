@@ -198,18 +198,73 @@ def test_a_source_with_no_version_stops_the_task_before_any_model_is_called(tree
     assert ctx["store"].task_get(ctx["conn"], task)["state"] == "failed"
 
 
-def test_a_copy_that_holds_a_credential_is_left_out_and_the_task_does_not_run_without_it(tree):
+PLANTED_KEY = "the key sk-" + "ant-" + "api03-" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6\n"
+
+
+def test_a_copy_that_fails_the_scan_again_stops_the_task_it_is_not_left_out(tree):
     import_source(tree)
     planned_task(tree)
     prepared = workcopy.entering
     ctx = ctx_of(tree)
     made = sources.task_copies(ctx, {"sources": ["survey"]}, str(tree["data"] / "prepared-test"), unattended=False)
     [(path, rel)] = made["files"]
-    Path(path).write_text("the key sk-" + "ant-" + "api03-" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6\n")
-    entered = prepared(str(tree["project"]), {"inputs": [], "outputs": [], "updates": [], "area": "business", "web": False}, web=False,
-                       cfg=ctx["cfg"], settings_names=[], prepared_dir=str(tree["data"] / "prepared-x"), sourced=made["files"])
-    assert rel not in [r for _s, r in entered["files"]]
-    assert any(item["path"] == rel and "credential" in item["reason"] for item in entered["left_out"])
+    Path(path).write_text(PLANTED_KEY)
+    with pytest.raises(workcopy.CopyError) as stopped:
+        prepared(str(tree["project"]), {"inputs": [], "outputs": [], "updates": [], "area": "business", "web": False}, web=False,
+                 cfg=ctx["cfg"], settings_names=[], prepared_dir=str(tree["data"] / "prepared-x"), sourced=made["files"])
+    assert rel in str(stopped.value) and "credential" in str(stopped.value) and "sk-" not in str(stopped.value)
+
+
+def test_a_task_whose_source_copy_fails_the_scan_again_stops_with_the_reason_and_no_row_is_recorded(tree, monkeypatch):
+    """The contract: a copy that fails the credential scan again stops the task; task_sources holds only copies the run received."""
+    import_source(tree)
+    task = planned_task(tree)
+    real = ops.ops_sources.copies_for
+
+    def poisoned(ctx, task_row, prepared_dir, unattended):
+        made = real(ctx, task_row, prepared_dir, unattended)
+        for path, _rel in made["files"]:
+            Path(path).write_text(PLANTED_KEY)
+        return made
+    monkeypatch.setattr(ops.ops_sources, "copies_for", poisoned)
+    ran = ops.run_next(str(tree["project"]))
+    assert ran["status"] == "failed" and ran["failure"]["kind"] == "internal"
+    assert "survey" in ran["failure"]["reason"] and "credential" in ran["failure"]["reason"] and "sk-" not in ran["failure"]["reason"]
+    ctx = ctx_of(tree)
+    assert ctx["store"].task_get(ctx["conn"], task)["state"] == "failed"
+    assert ctx["store"].task_sources_of(ctx["conn"], task) == [], "no row for a copy the run never received"
+    assert "sources" not in ran and st.calls(tree["adapter"]) == [], "no model was called"
+
+
+def test_a_run_that_leaves_files_in_a_sources_folder_inside_the_project_brings_none_of_them_back(tree, monkeypatch):
+    """The return direction of L26 end to end: the folder is docs/sources of the project; the run's result names paths in it."""
+    project = tree["project"]
+    config = project / "docs" / "workbench" / "runtime.json"
+    raw = json.loads(config.read_text())
+    raw["sources_dir"] = str(project / "docs" / "sources")
+    config.write_text(json.dumps(raw))
+    ops.accept_config(str(project), ops.project_config.load(str(project))["sha256"])
+    import_source(tree)
+    planned_task(tree)
+    folder = project / "docs" / "sources"
+    before = sorted(str(p.relative_to(folder)) for p in folder.rglob("*"))
+    real = lab.run_skill
+
+    def leaves_files(skill, prompt, files, dest, **kwargs):
+        result = real(skill, prompt, files, dest, **kwargs)
+        for rel in ("docs/sources/survey/1/planted.md", "docs/sources/survey/9/converted.md"):
+            target = Path(result["cwd"]) / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("planted\n")
+            result["changes"]["created"].append(rel)
+        return result
+    monkeypatch.setattr(lab, "run_skill", leaves_files)
+    ran = ops.run_next(str(project))
+    assert ran["status"] == "ok"
+    assert sorted(item["path"] for item in ran["kept"] if item["reason"] == workcopy.SOURCES_KEPT) == [
+        "docs/sources/survey/1/planted.md", "docs/sources/survey/9/converted.md"]
+    assert not any(item["path"].startswith("docs/sources") for item in ran["returned"])
+    assert sorted(str(p.relative_to(folder)) for p in folder.rglob("*")) == before
 
 
 def test_the_sources_folder_inside_a_tracked_tree_never_enters_a_work_copy(tree):
@@ -242,3 +297,28 @@ def test_the_sources_folder_inside_a_tracked_tree_never_enters_a_work_copy(tree)
     entered = workcopy.entering(str(project), {"inputs": [], "outputs": [], "updates": [], "area": "business", "web": False}, web=False,
                                 cfg=ops_core.context(str(project))["cfg"], settings_names=[], prepared_dir=str(tree["data"] / "p"))
     assert not any(rel.startswith("vault") or rel == "link.csv" for _s, rel in entered["files"])
+
+
+def test_a_narrowing_is_accepted_whatever_the_state_of_the_sources_folder_and_the_folder_is_still_refused_at_every_use(tree):
+    """A brake (a move down the order of the modes) never waits for the folder; accepting the configuration as a person still does."""
+    project = str(tree["project"])
+    config = tree["project"] / "docs" / "workbench" / "runtime.json"
+    raw = json.loads(config.read_text())
+    raw["area_agents"] = {"business": {"pack": "biz", "mode": "autonomous", "max_runs_per_day": 10, "max_usd_per_day": 1.0}}
+    raw["handlers"] = {}
+    config.write_text(json.dumps(raw))
+    ops.accept_config(project, ops.project_config.load(project)["sha256"])
+    import_source(tree)
+    os.chmod(tree["sources"], 0o755)   # the folder is now refused by every use
+    with pytest.raises(ops_core.OpsError) as person:
+        ops.accept_config(project, ops.project_config.load(project)["sha256"])
+    assert "sources folder is refused" in str(person.value)
+    stopped = ops.set_mode(project, "business", "stopped")
+    assert stopped["accepted"] is True and stopped["by"] == "code:narrowing"
+    ctx = ops_core.context(project)
+    assert ctx["store"].cursor_get(ctx["conn"], ops.project_config.ACCEPTED) == stopped["config_sha256"]
+    with pytest.raises(sources.SourcesError):
+        sources.check_folder(ctx["cfg"])
+    with pytest.raises(sources.SourcesError) as used:
+        import_source(tree, text=CSV + "fig,9.00\n", label="refresh")
+    assert "0700" in str(used.value)

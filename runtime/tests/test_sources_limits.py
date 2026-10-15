@@ -451,6 +451,38 @@ def test_limit_26_the_work_copy_excludes_the_sources_folder_even_when_it_sits_in
     assert not sources.inside(cfg, str(project / "note.txt")) and not sources.inside({}, str(project))
 
 
+def test_limit_26_nothing_a_run_leaves_is_written_into_the_sources_folder_even_when_it_sits_inside_the_project(tmp_path, monkeypatch):
+    """The return direction: a run's result that names a path inside the folder (docs/sources/...) is kept, with a reason, and
+    nothing is written there; a path beside it still comes back; a change set that touches the folder is protected."""
+    project = tmp_path / "project"
+    path = write_config(tmp_path, sources_dir=str(project / "docs" / "sources"))
+    ops.accept_config(path, project_config.load(path)["sha256"])
+    ctx = ops_core.context(path)
+    monkeypatch.setattr(sources, "provider_convert", lambda cfg, call=None: standin_convert)
+    row = sources.register(ctx, "survey", "file", "survey.csv")
+    (tmp_path / "survey.csv").write_text(CSV)
+    sources.import_version(ctx, row, str(tmp_path / "survey.csv"), convert=standin_convert)
+    folder = project / "docs" / "sources"
+    before = sorted(str(p.relative_to(folder)) for p in folder.rglob("*"))
+    cwd = tmp_path / "copy"
+    left = {"docs/sources/survey/1/planted.md": "planted\n", "docs/sources/survey/9/converted.md": "# a version nobody imported\n",
+            "docs/sources/.openhora-sources": "{}\n", "docs/business/note.md": "# A note\n"}
+    for rel, text in left.items():
+        (cwd / rel).parent.mkdir(parents=True, exist_ok=True)
+        (cwd / rel).write_text(text)
+    result = {"cwd": str(cwd), "staged": [], "changes": {"created": sorted(left), "modified": [], "deleted": [], "unchanged": []}}
+    returned, kept, _ = workcopy.returning(path, result, {}, None, "demo-writes", cfg=ctx["cfg"])
+    assert [item["path"] for item in returned] == ["docs/business/note.md"], "the file beside the folder comes back"
+    assert sorted(item["path"] for item in kept) == sorted(rel for rel in left if rel.startswith("docs/sources/"))
+    assert all(item["reason"] == workcopy.SOURCES_KEPT for item in kept)
+    assert sorted(str(p.relative_to(folder)) for p in folder.rglob("*")) == before, "nothing was written into the folder"
+    assert not (folder / "survey" / "9").exists() and not (folder / "survey" / "1" / "planted.md").exists()
+    # a change set that touches the folder is refused whoever wrote it: the folder is a protected path of the project
+    protected = sources.protected_paths(ctx["cfg"])
+    assert "docs/sources/" in protected and "docs/business/" not in protected
+    assert sources.protected_paths({"protected_paths": ["x/*"], "project": path, "sources_dir": str(tmp_path / "elsewhere")}) == ["x/*"]
+
+
 # --- L27 ---------------------------------------------------------------------------------------------------------------------------
 
 
@@ -490,3 +522,151 @@ def test_the_sources_modules_import_nothing_of_the_operations_layer():
         names = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         names |= {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
         assert not {n for n in names if n == "ops" or n.startswith("ops_")}, name
+
+
+# --- the folder, after review: leftovers, pipes, links with a closing slash, the marker's project, the staging folder ---------------
+
+
+def import_text(case, text, label="import", name="survey.csv", source_id="survey"):
+    row = sources.register(case.ctx, source_id, "file", name) if not case.ctx["store"].sources_list(case.ctx["conn"]) else \
+        case.ctx["store"].source_get(case.ctx["conn"], source_id)
+    return sources.import_version(case.ctx, row, case.drop(name, text), convert=standin_convert, label=label)
+
+
+def orphans(case):
+    return sorted(p.name for p in (case.folder / ".incoming").iterdir() if p.name.endswith("-orphan"))
+
+
+def test_a_numbered_folder_with_no_record_never_blocks_the_next_import_it_is_moved_aside(case):
+    assert import_text(case, CSV)["version"] == 1
+    (case.folder / "survey" / "2").mkdir()
+    (case.folder / "survey" / "2" / "planted.md").write_text("planted")
+    second = import_text(case, CSV + "fig,9.00\n", label="refresh")
+    assert second["version"] == 2, "the number after the recorded ones, not after the folders"
+    assert (case.folder / "survey" / "2" / "manifest.json").is_file() and not (case.folder / "survey" / "2" / "planted.md").exists()
+    [aside] = orphans(case)
+    assert (case.folder / ".incoming" / aside / "planted.md").read_text() == "planted", "moved aside, not lost"
+    # a stray file and a link at the next numbers are leftovers too; nothing goes out through the link
+    outside = case.tmp / "outside"
+    outside.mkdir()
+    (case.folder / "survey" / "3").write_text("a stray file")
+    third = import_text(case, CSV + "fig,9.00\nkiwi,4.00\n", label="refresh")
+    assert third["version"] == 3 and (case.folder / "survey" / "3" / "manifest.json").is_file()
+    os.symlink(outside, case.folder / "survey" / "4")
+    fourth = import_text(case, CSV + "kiwi,4.00\n", label="refresh")
+    assert fourth["version"] == 4 and not (case.folder / "survey" / "4").is_symlink() and list(outside.iterdir()) == []
+    assert case.ctx["store"].source_version_count(case.ctx["conn"], "survey") == 4
+
+
+def test_a_crash_after_the_rename_and_before_the_row_leaves_nothing_that_blocks_the_next_import(case, monkeypatch):
+    import_text(case, CSV)
+    store = case.ctx["store"]
+    real = store.source_version_add
+
+    def power_cut(conn, **kwargs):
+        raise RuntimeError("power cut between the rename and the row")
+    monkeypatch.setattr(store, "source_version_add", power_cut)
+    with pytest.raises(RuntimeError):
+        import_text(case, CSV + "fig,9.00\n", label="refresh")
+    assert (case.folder / "survey" / "2").is_dir(), "the crash left the folder without a row"
+    assert store.source_version_count(case.ctx["conn"], "survey") == 1
+    monkeypatch.setattr(store, "source_version_add", real)
+    again = import_text(case, CSV + "fig,9.00\n", label="refresh")
+    assert again["version"] == 2 and store.source_version_count(case.ctx["conn"], "survey") == 2
+    assert sources.verify_version(sources.Folder(case.cfg), store.source_latest(case.ctx["conn"], "survey"))["ok"]
+    assert len(orphans(case)) == 1
+
+
+class Hang(Exception):
+    pass
+
+
+def guarded(seconds=20):
+    """A read that waits for a writer on a pipe would hang the test: an alarm turns the hang into a failure."""
+    import signal
+
+    class Guard:
+        def __enter__(self):
+            signal.signal(signal.SIGALRM, lambda *_: (_ for _ in ()).throw(Hang("a read waited on a pipe")))
+            signal.alarm(seconds)
+
+        def __exit__(self, *exc):
+            signal.alarm(0)
+    return Guard()
+
+
+def test_a_pipe_where_a_file_should_be_is_refused_and_never_hangs_a_read_or_the_catalog(case):
+    import_text(case, CSV)
+    version = case.folder / "survey" / "1"
+    for name in ("converted.csv", "original.csv"):
+        os.chmod(version / name, 0o600)
+        (version / name).unlink()
+        os.mkfifo(version / name)
+    folder = sources.Folder(case.cfg)
+    try:
+        with guarded():
+            assert folder.sha256_of(["survey", "1", "converted.csv"]) is None
+            assert "not a regular file" in refused(folder.read, ["survey", "1", "converted.csv"], 1000)
+            assert "not a regular file" in refused(folder.open_for_read, ["survey", "1", "original.csv"])
+            [row] = sources.list_catalog(case.ctx)
+            assert row["status"] == "changed"
+            source = case.ctx["store"].source_get(case.ctx["conn"], "survey")
+            assert sources.recheck(case.ctx, source, convert=standin_convert)["changed"] is True
+    finally:
+        folder.close()
+    with guarded():
+        with pytest.raises(sources.SourcesError) as stopped:
+            sources.task_copies(case.ctx, {"sources": ["survey"]}, str(case.tmp / "prepared"), unattended=False)
+    assert stopped.value.code == "integrity"
+
+
+def test_a_link_named_with_a_closing_slash_is_still_a_link(tmp_path):
+    real = tmp_path / "real"
+    real.mkdir(mode=0o700)
+    link = tmp_path / "link"
+    os.symlink(real, link)
+    path = write_config(tmp_path, sources_dir=str(link) + "/")
+    assert "symbolic link" in refused(project_config.load, path)
+    problems = sources.path_problems(str(link) + "/", project=path, data_dir=str(tmp_path / "data"),
+                                     store_db=str(tmp_path / "store" / "tasks.sqlite"), workbench=str(REPO))
+    assert any("symbolic link" in p for p in problems)
+    assert not any("symbolic link" in p for p in sources.path_problems(
+        str(real) + "/", project=path, data_dir=str(tmp_path / "data"), store_db=str(tmp_path / "store" / "tasks.sqlite"),
+        workbench=str(REPO)))
+
+
+def test_a_folder_marked_by_one_project_is_refused_to_another_and_a_marker_that_names_no_project_is_no_ones(tmp_path):
+    shared = str(tmp_path / "shared")
+    a, b, c = write_config(tmp_path / "a", sources_dir=shared), write_config(tmp_path / "b", sources_dir=shared), None
+    ops.accept_config(a, project_config.load(a)["sha256"])
+    marker = json.loads((Path(shared) / sources.MARKER).read_text())
+    assert marker["project"] == sources.project_key(a) and marker["project"] != sources.project_key(b)
+    refusal = refused(ops.accept_config, b, project_config.load(b)["sha256"])
+    assert "another project" in refusal and "separate folder for each project" in refusal and "sources_dir" in refusal
+    assert "another project" in refused(sources.check_folder, project_config.load(b))
+    sources.check_folder(project_config.load(a))   # the first project still uses it
+    unbound = str(tmp_path / "unbound")
+    sources.accept_folder(unbound)   # a marker that names no project
+    c = write_config(tmp_path / "c", sources_dir=unbound)
+    assert "another project" in refused(ops.accept_config, c, project_config.load(c)["sha256"])
+
+
+def test_the_staging_folder_of_an_import_is_opened_without_following_a_link_and_is_private(case):
+    outside = case.tmp / "outside-staging"
+    outside.mkdir()
+    staging = Path(case.cfg["data_dir"]) / sources.STAGING
+    if staging.is_dir():
+        staging.rmdir() if not any(staging.iterdir()) else None
+    os.symlink(outside, staging)
+    source = source_row(case)
+    assert refused(sources.import_version, case.ctx, source, case.drop("survey.csv", CSV), convert=standin_convert)
+    assert list(outside.iterdir()) == [], "nothing went out through the link"
+    assert sources_list_empty(case)
+    os.unlink(staging)
+    staging.mkdir(mode=0o755)   # a folder of ours with a wide mode is set back to 0700, not followed anywhere
+    done = sources.import_version(case.ctx, source, case.drop("survey.csv", CSV), convert=standin_convert)
+    assert done["imported"] and stat.S_IMODE(staging.stat().st_mode) == 0o700 and list(staging.iterdir()) == []
+
+
+def sources_list_empty(case):
+    return case.ctx["store"].source_version_count(case.ctx["conn"], "survey") == 0
