@@ -623,13 +623,18 @@ def parse(argv):
     if opts["floor"] and not opts["floor_harness"]:
         floor_entry = load_status().model_entry(gate, opts["floor"]) if gate else None
         opts["floor_harness"] = (floor_entry or {}).get("adapter") or gate.get("floor_harness")
-    if opts["floor"] and opts["floor"] == gate.get("floor_model") and not opts["floor_pass_env"]:
-        opts["floor_pass_env"] = list(gate.get("floor_pass_env") or [])
+    # The variables of a model's key are the model's own, in whichever slot it runs: the gate file's list for the
+    # configured floor model, else its entry's "pass_env" (a model the file does not list needs --floor-pass-env).
+    explicit_floor = list(opts["floor_pass_env"])
+    floor_known = list(gate.get("floor_pass_env") or []) if opts["floor"] == gate.get("floor_model") else list(
+        (load_status().model_entry(gate, opts["floor"]) or {}).get("pass_env") or []) if gate and opts["floor"] else []
+    if opts["floor"] and not opts["floor_pass_env"]:
+        opts["floor_pass_env"] = floor_known
     # The strong runner's credential in a container (there is no login or keychain there): strong runs and gradings.
     opts["strong_pass_env"] = (list(gate.get("strong_pass_env") or []) if opts["model"] == gate.get("strong_model")
                                else list((entry or {}).get("pass_env") or []))
     # What the command line passes beyond the gate file's own variables: a run with one is another measurement.
-    opts["extra_pass_env"] = sorted(set(opts["pass_env"]) | (set(opts["floor_pass_env"]) - set(gate.get("floor_pass_env") or [])))
+    opts["extra_pass_env"] = sorted(set(opts["pass_env"]) | (set(explicit_floor) - set(gate.get("floor_pass_env") or []) - set(floor_known)))
     if opts["regrade"] is not None:
         if opts["skill"] or opts["cases"] or opts["only"] or opts["check_cases"] or opts["dry"]:
             die("--regrade takes a run folder and goes with --grader, --harness, --jobs and --timeout only.")
@@ -1961,7 +1966,20 @@ def usage_from_stream(text):
     return total if seen else None
 
 
-def run_usage(meter, out_dir):
+def key_held(model, pass_names, web):
+    """True when the run's key was held by a key proxy: in the container, a command passed the variable a route holds,
+    with a value in the caller's environment, to a model whose entry names that route (executor.held_route). Then only
+    the proxy's meter counts the run's tokens. Outside the container, or for a model that holds no key, False."""
+    if EXECUTOR != "container":
+        return False
+    executor = load_executor()
+    try:
+        return executor.held_route(pass_names, os.environ, "open" if web else "proxy", model) is not None
+    except executor.ExecutorError:
+        return False
+
+
+def run_usage(meter, out_dir, held=False):
     """The tokens one run used by kind, for its evidence line's "usage", or None when they cannot be read whole.
 
     Where the run went through a key proxy, the proxy's count (`meter`, from meter_of) is the count, since the run could
@@ -1969,7 +1987,12 @@ def run_usage(meter, out_dir):
     line cannot say, so it has no usage, and the run's own report is not read in its place. A run with no key proxy has
     its own raw output read: the `modelUsage` of outputs/raw.json (the reference adapter), or else the `step_finish`
     tokens of outputs/stream.jsonl (the floor adapter), as runtime/costs.py reads them. Never the total of timing.json,
-    which leaves the subagents out, and never the cost the adapter reported. Only the run's last attempt is counted."""
+    which leaves the subagents out, and never the cost the adapter reported. Only the run's last attempt is counted.
+
+    held says the run's key was held by a key proxy (key_held). Its meter is then the only count there is: a run whose
+    meter is missing or unreadable has no usage, and its own report, which the run could have written, is not read."""
+    if meter is None and held:
+        return None
     if meter is not None:
         if meter.get("unknown_responses") or not all(_whole(meter.get(kind)) for kind in USAGE_KINDS):
             return None
@@ -2213,7 +2236,7 @@ def run(argv):
     # their configured adapters) or this person's own folder outside the checkout (evidence_home).
     home, home_reason = evidence_home(o, gate, models, harness_for)
     local_base = status.local_evidence_base() if home == "local" else None
-    if local_base and not o["dry"] and (problem := status.local_base_problem(local_base, ROOT)):
+    if local_base and not o["dry"] and (problem := status.local_base_problem(local_base, ROOT, o["skill"])):
         die(problem, 2)
     local_events = status.local_skill_evidence(o["skill"], local_base) if local_base else None
     # Where each tier's harness discovers skills, which names carry its settings and how it words an exhausted
@@ -2539,7 +2562,7 @@ def run(argv):
                **{key: timing[key] for key in ("stop_reason", "num_turns", "invoked") if key in timing},
                **({"meter": metered} if (metered := meter_of(out)) else {}),
                **({"redactions": count["redactions"]} if count["redactions"] else {})}
-        if (used := run_usage(row.get("meter"), out)) is not None:  # the tokens of the run by kind: its line carries them
+        if (used := run_usage(row.get("meter"), out, key_held(model, tier_env, web[c["id"]]))) is not None:  # the tokens of the run by kind: its line carries them
             row["usage"] = used
         if g:  # one 0 or 1 per assertion, in the case's order: what a per-assertion count is made from
             row["results"] = [1 if r["passed"] else 0 for r in g["assertion_results"]]
@@ -2736,7 +2759,8 @@ def run(argv):
                   "grading_template_sha256": template_hash(), "tools": event.get("tools") or {}, "cases": hashes,
                   "baseline": {cid: ("run" if cid in ran_baseline else "reused" if cid in reused else "none") for cid in hashes},
                   "web_cases": bench["web_cases"], "counts": line_counts, "extra_pass_env": o["extra_pass_env"],
-                  "complete": bool(complete_ref), **({"upstream": upstream} if upstream else {}),
+                  "complete": bool(complete_ref), "complete_models": [model_ids[t] for t, _ in models if complete_by[t]],
+                  **({"upstream": upstream} if upstream else {}),
                   **({"image_source": environment["image_source"]} if (environment or {}).get("image_source") else {})}
     gate_result = None
     if kind == "full" and complete_ref:
@@ -2798,8 +2822,13 @@ def run(argv):
                 # Outside the checkout: nothing of it is committed, pulled over or seen by `git status`.
                 target = os.path.join(local_base, o["skill"], os.path.basename(in_run_folder))
                 os.makedirs(os.path.dirname(target), exist_ok=True)
-                shutil.copyfile(in_run_folder, target)
-                evidence.update(written=True, path=target, reason=None)
+                # Checked again once the folder exists: the skill's folder may be a link into the checkout.
+                where = status.local_base_problem(local_base, ROOT, o["skill"])
+                if where or os.path.lexists(target):
+                    evidence["reason"] = where or f"{target} exists: a local evidence file is never overwritten"
+                else:
+                    shutil.copyfile(in_run_folder, target)
+                    evidence.update(written=True, path=target, reason=None)
             else:
                 target = os.path.join(skill_dir, "evals", "evidence", os.path.basename(in_run_folder))
                 os.makedirs(os.path.dirname(target), exist_ok=True)

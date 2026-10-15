@@ -469,6 +469,60 @@ def test_a_run_line_with_or_without_usage_is_valid_and_a_malformed_usage_is_refu
         assert problems and problems[0].startswith("usage must be {"), bad
 
 
+def test_complete_models_is_a_list_of_models_of_the_header_and_an_old_event_reads_its_lead_s_completion():
+    old, new = full_event()
+    lead, other = new["models"][0], new["models"][1]
+    assert "complete_models" in el.EVENT_OPTIONAL and es.event_complete_models is el.event_complete_models
+    assert el.event_line_problems({**new, "complete_models": [lead, other]}) == []
+    assert el.event_line_problems({**new, "complete_models": [lead]}) == []
+    assert any(p.startswith("complete_models must be") for p in el.event_line_problems({**new, "complete_models": [lead, "a-model"]}))
+    assert any(p.startswith("complete_models must be") for p in el.event_line_problems({**new, "complete_models": [lead, lead]}))
+    assert any(p.startswith("complete_models must be") for p in el.event_line_problems({**new, "complete_models": lead}))
+    assert any(p.startswith("complete_models must be") for p in el.event_line_problems({**old, "complete_models": [lead]}))  # a list header only
+    assert any("complete for its lead model" in p for p in el.event_line_problems({**new, "complete_models": [other]}))
+    assert el.event_line_problems({**new, "complete": False, "complete_models": [other], "gate": {other: GATE_OF_ONE}}) == [
+        "gate is written by a complete full test only: an event closed as abandoned evaluates no gate"]
+    assert any(p.startswith("gate must be {model id") for p in el.event_line_problems(
+        {**new, "complete_models": [lead], "gate": {other: GATE_OF_ONE}}))  # a gate only for a model the event is complete for
+    # What a line without the key says: its lead model's "complete", nothing for another.
+    assert el.event_complete_models(old) == [old["models"]["strong"]] and el.event_complete_models(new) == [lead]
+    assert el.event_complete_models({**old, "complete": False}) == [] and el.event_complete_models("x") == []
+    assert el.event_complete_models({**new, "complete_models": [other]}) == [other]
+    assert el.lead_model(old) == old["models"]["strong"] and el.lead_model(new) == lead and el.lead_model({}) is None
+
+
+def test_a_new_file_must_be_of_the_lab_models_through_their_configured_adapters(tmp_path, monkeypatch):
+    root, old, gate = committed_tree(tmp_path)
+    monkeypatch.setenv("WB_BASE_REF", git(root, "rev-parse", "HEAD"))
+    gate_file = root / "evals" / "eval-gate.json"
+    new_name = "lab-20300102T030405Z-0a1b2c3d.jsonl"
+    rel = lambda path: str(path.relative_to(root))
+    problems_of = lambda: es.evidence_problems(str(root))[0]
+    event = read(old)[0]
+    strong, floor = event["models"]["strong"], event["models"]["floor"]
+    # The file as it is: the lab models through their configured adapters. New, and valid.
+    forged = write(old.parent / new_name, forged_copy(old, new_name))
+    assert rel(forged) not in problems_of()
+    # A model of the gate file's list that is not a lab model: its evidence stays local.
+    gate_file.write_text(json.dumps({**gate, "lab_models": [strong]}))
+    found = problems_of()
+    assert rel(old) not in found  # the committed file is judged by its own event line
+    assert any(f"{floor} is not one of the gate file's lab models" in p for p in found[rel(forged)])
+    # A lab model through another adapter than its entry's.
+    gate_file.write_text(json.dumps(gate))
+    swapped = forged_copy(old, new_name, adapters={"strong": event["adapters"]["floor"], "floor": event["adapters"]["strong"]})
+    write(old.parent / new_name, swapped)
+    found = problems_of()
+    assert any(f"{strong} ran through the adapter" in p and "evidence in the repository is of the configured pair" in p
+               for p in found[rel(forged)])
+    # Without lab_models the configured strong and floor models are the lab models.
+    without = {k: v for k, v in gate.items() if k != "lab_models"}
+    gate_file.write_text(json.dumps(without))
+    write(old.parent / new_name, forged_copy(old, new_name))
+    assert rel(forged) not in problems_of()
+    assert es.lab_pairs(without) == es.lab_pairs(gate) and set(es.lab_pairs(gate)) == {strong, floor}
+
+
 def test_an_old_evidence_file_stays_valid_against_a_changed_gate_file_and_a_line_may_carry_usage(tmp_path):
     source = COMMITTED[0]
     gate = json.loads((REPO / "evals" / "eval-gate.json").read_text())

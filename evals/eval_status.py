@@ -146,8 +146,11 @@ on that model's lines (as_reference: that model in the reference model's place),
 tests whose event line lists it (model_events). The newest full test, its X.Y, the cases pending, the pool, the
 Y changes since the newest complete full test and the gate a full test wrote when no baseline is in force
 (event_gate: "gate": {model id: result}; an old event's single gate is its strong tier's) are all selected that
-way, so a full test of one model changes none of them for another. One rule belongs to the configured reference
-model alone: the earlier reference model's lines that count as inherited. Without a baseline of its own in force,
+way, so a full test of one model changes none of them for another, and a full test counts in a model's selection only
+when it is complete for that model (complete_models_of: the event's "complete_models", or for an event written before
+it the lead model's "complete" and the models whose with-skill lines are all there). One rule belongs to the
+configured reference model alone: the earlier reference model's lines that count as inherited. It reads the old
+header's strong tier (tier_model), so it applies to events written before the list header; P3 decides its future. Without a baseline of its own in force,
 and without a gate a full test wrote for it, another model's gate is not computed. A skill is done on a model
 when that model's first full test passed.
 Only the reference model's band decides a skill's standing and the gate; another model's band is information.
@@ -887,18 +890,36 @@ _is, _date, _number, _count, _model, _case_id, _keys = (
     EVIDENCE_LINES._is, EVIDENCE_LINES._date, EVIDENCE_LINES._number, EVIDENCE_LINES._count, EVIDENCE_LINES._model,
     EVIDENCE_LINES._case_id, EVIDENCE_LINES._keys)
 (event_line_problems, run_line_problems, read_evidence_file, evidence_files, event_model_pairs,
- tier_model, run_count_problems, event_gates, USAGE_KEYS) = (
+ tier_model, run_count_problems, event_gates, USAGE_KEYS, event_complete_models, lead_model) = (
     EVIDENCE_LINES.event_line_problems, EVIDENCE_LINES.run_line_problems, EVIDENCE_LINES.read_evidence_file,
     EVIDENCE_LINES.evidence_files, EVIDENCE_LINES.event_model_pairs,
-    EVIDENCE_LINES.tier_model, EVIDENCE_LINES.run_count_problems, EVIDENCE_LINES.event_gates, EVIDENCE_LINES.USAGE_KEYS)
+    EVIDENCE_LINES.tier_model, EVIDENCE_LINES.run_count_problems, EVIDENCE_LINES.event_gates, EVIDENCE_LINES.USAGE_KEYS,
+    EVIDENCE_LINES.event_complete_models, EVIDENCE_LINES.lead_model)
+
+
+def lab_pairs(cfg):
+    """{model id: the adapter the repository's evidence of it goes through, or None when the gate file names none}: the
+    gate file's "lab_models" (without that key, its strong and floor models), each with the adapter its entry in "models"
+    names, else the configured strong or floor harness. The repository holds evidence of these pairs only (D18)."""
+    out = {}
+    for name in cfg.get("lab_models") or [cfg.get("strong_model"), cfg.get("floor_model")]:
+        if not name:
+            continue
+        listed = model_id(cfg, name)
+        entry = model_entry(cfg, name)
+        out[listed] = ((entry or {}).get("adapter")
+                       or (cfg.get("strong_harness") if name == cfg.get("strong_model") else
+                           cfg.get("floor_harness") if name == cfg.get("floor_model") else None))
+    return out
 
 
 def strict_reading(root=ROOT):
     """The strict reading of a new evidence file (evidence_lines.py, the module docstring): every model id in the
-    current gate file's "models" and the event's "runs" equal to the configured number. None for a tree with no
-    gate file (a case folder that builds a skill of its own configures nothing)."""
+    current gate file's "models", every model one of the lab models through its configured adapter (lab_pairs), and the
+    event's "runs" equal to the configured number. None for a tree with no gate file (a case folder that builds a skill
+    of its own configures nothing)."""
     cfg = load_gate(root)
-    return {"models": set(known_models(cfg)), "runs": event_config(cfg)["runs"]} if cfg else None
+    return ({"models": set(known_models(cfg)), "runs": event_config(cfg)["runs"], "lab": lab_pairs(cfg)} if cfg else None)
 
 
 def base_resolution(root=ROOT):
@@ -1029,13 +1050,36 @@ def local_evidence_base():
     return os.path.join(os.path.abspath(data), "openhora", "evidence")
 
 
-def local_base_problem(base, root=ROOT):
-    """Why `base` cannot hold a person's local evidence (it is the checkout or inside it, where a pull and a commit
-    would meet it), or None."""
-    real, top = os.path.realpath(base), os.path.realpath(root)
-    if real == top or real.startswith(top + os.sep):
-        return (f"the local evidence folder {base} is inside the workbench checkout {root}: it must be outside it "
-                f"({LOCAL_EVIDENCE_ENV} names another folder)")
+def inside_checkout(path, root=ROOT):
+    """True when `path` is the checkout or inside it. Not by strings: the real path of `path` (links resolved) and each of
+    its parents are compared with the checkout by device and inode (os.path.samestat), so a link into the checkout, a
+    path spelled in another case on a case-insensitive filesystem or a parent that is the checkout by another name all
+    count. A part that does not exist yet is walked past to the first one that does."""
+    try:
+        top = os.stat(root)
+    except OSError:
+        return False
+    here = os.path.realpath(path)
+    while True:
+        try:
+            if os.path.samestat(os.stat(here), top):
+                return True
+        except OSError:
+            pass  # not there yet: its parent decides
+        parent = os.path.dirname(here)
+        if parent == here:
+            return False
+        here = parent
+
+
+def local_base_problem(base, root=ROOT, skill=None):
+    """Why `base` (and, given a skill, <base>/<skill>, the folder its files go to) cannot hold a person's local evidence:
+    it is the checkout or inside it, by any route (inside_checkout), where a pull and a commit would meet it. None
+    when it can. Called before the folder is made and again after it is: the skill's folder may be a link."""
+    for target in [base] + ([os.path.join(base, skill)] if skill else []):
+        if inside_checkout(target, root):
+            return (f"the local evidence folder {target} is inside the workbench checkout {root}: it must be outside it "
+                    f"({LOCAL_EVIDENCE_ENV} names another folder)")
     return None
 
 
@@ -1148,6 +1192,38 @@ def model_events(events, model):
     return [(event, runs) for event, runs in events if lists_model(event, model)]
 
 
+def complete_models_of(event, runs):
+    """[model id] the event is complete for (every run of the model in it graded). The event's "complete_models" when it
+    has the key. An event written before it says only whether its lead model finished ("complete"); the others it
+    lists are then complete when each case of the event has at least as many with-skill lines of the model as the event's "runs"
+    (the way the runner counts: a full test runs every case with the skill that many times), which is what every
+    committed event does. [] for an event that is not complete."""
+    if isinstance(event, dict) and isinstance(event.get("complete_models"), list):
+        return event_complete_models(event)
+    pairs = event_model_pairs(event)
+    if not pairs or event.get("complete") is not True:
+        return []
+    cases = [str(c) for c in (event.get("cases") or {})]
+    have = {}
+    for line in runs:
+        if line.get("variant") == "with" and "platform" not in line:
+            key = (line["model"], str(line["case"]))
+            have[key] = have.get(key, 0) + 1
+    return [pairs[0][0]] + [m for m, _ in pairs[1:] if cases and all(have.get((m, c), 0) >= event.get("runs", 1) for c in cases)]
+
+
+def counts_for(event, runs, model):
+    """True when a full test counts in `model`'s selection (its newest full test, its X.Y, its Y count, its stored gate):
+    the event lists the model and is complete for it (complete_models_of). One exception, kept from the rule that an
+    abandoned full test keeps its lines in the gate of its version: an event that is not complete counts for its lead
+    model, the one it is a test of. A test that lists a model it only part-ran moves nothing of that model."""
+    if model is None:
+        return True
+    if not lists_model(event, model):
+        return False
+    return model in complete_models_of(event, runs) or (event.get("complete") is not True and lead_model(event) == model)
+
+
 def event_gate(event, model):
     """The gate a full test wrote for `model` (evidence_lines.event_gates), or None. With no model, the first gate the
     event carries."""
@@ -1185,7 +1261,8 @@ def gate_of(skill_dir, cfg, extra=(), evidence=None):
     out = {"computed": False, "passed": None, "with": None, "baseline": None, "threshold": threshold, "tolerance": tolerance,
            "version": None, "test": None, "cases": [], "pending": [], "note": None, "cause": None, "changed": [], "dropped": {}}
     major = version.split(".")[0] if version else None
-    full = [e for e in events if e[0].get("kind") == "full" and str(e[0].get("version", "")).split(".")[0] == major]
+    full = [e for e in events if e[0].get("kind") == "full" and str(e[0].get("version", "")).split(".")[0] == major
+            and counts_for(e[0], e[1], ref)]  # a full test of which this model ran only part is not one of its tests
     if not full:
         return {**out, "cause": "no full test of the current major version"}
     newest = full[-1][0]
@@ -1897,7 +1974,8 @@ def lab_view(root, skill_dir, cfg, events=None):
     grader and dated after the newest epoch that reaches the skill on that model. The rest is inherited: lines
     of an earlier X.Y, lines of the current X.Y before an epoch or with another context, lines graded by an earlier
     grader (a grader that did not agree would have raised the floor), and, on the reference model, the lines of
-    the earlier reference model (the model an event ran on its strong tier, when it is not the reference now)."""
+    the earlier reference model (the model an event ran on its strong tier, when it is not the reference now; this reads
+    the old header's tiers, so it covers events written before the list header only)."""
     skill = os.path.basename(os.path.normpath(skill_dir))
     version = skill_version(skill_dir)
     hashes, cases = case_hashes(skill_dir), skill_cases(skill_dir)
@@ -2042,9 +2120,12 @@ def skill_band(root, skill_dir, cfg, authors=None, per_model=True, events=None):
     floor = cfg.get("measurement_floor", 1)
     major, xy = (_major(version), _xy(version)) if version else (None, None)
     mine = model_events(events, ref)  # the tests that list this model
-    fulls = [e for e, _ in mine if e.get("kind") == "full" and _major(e.get("version", "")) == major]
+    mine_full = [(e, runs) for e, runs in mine if e.get("kind") == "full" and _major(e.get("version", "")) == major
+                 and counts_for(e, runs, ref)]  # complete for this model, or the abandoned test of which it is the lead
+    fulls = [e for e, _ in mine_full]
     measured_fulls = [e for e in fulls if isinstance(e.get("measurement_version"), int) and e["measurement_version"] >= floor]
-    complete_fulls = [e for e in measured_fulls if e.get("complete") is True]
+    complete_of = {id(e): (ref is None and e.get("complete") is True) or ref in complete_models_of(e, runs) for e, runs in mine_full}
+    complete_fulls = [e for e in measured_fulls if complete_of[id(e)]]
     last_full = fulls[-1] if fulls else None
     run_full = f"python3 evals/eval_run.py --skill {skill}"
     causes = []  # (kind, text, command), in the order of the model's section 5

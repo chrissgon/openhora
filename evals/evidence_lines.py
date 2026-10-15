@@ -34,6 +34,11 @@ as evidence. Without a base (not a git checkout) every file is judged by its own
 of the validator are skipped there too. The optional `models` argument of `event_line_problems` and
 `run_line_problems` is that same allowlist, for a caller that wants the strict reading of one line.
 
+With `strict["lab"]`, {model id: its configured adapter or None} (eval_status.lab_pairs: the gate file's "lab_models" and
+the adapter each one's entry names), a new file also needs every model of its header to be one of those, through that
+adapter (D18): evidence of any other model, or of a lab model through another adapter, is a person's own and stays in
+the local evidence folder.
+
 Field evidence lines (scripts/evidence.py, `field_line_problems` of eval_status.py) have no event line to
 state their models and keep being read against the gate file's list; that is outside this module.
 
@@ -61,6 +66,15 @@ The gate of an event line, in both shapes
   carries the single one, so that a gate always says whose it is. `event_gates(line)` returns {model id: gate} for
   either shape, so callers never branch on it. A model that has no gate in the event (no baseline of its own ran
   or was in force for it) has no key.
+
+Completion, model by model
+--------------------------
+An event line may carry "complete_models": the models of its header (a list header only) whose runs in the event were
+all graded, and whose baseline ran or was in force. The runner writes it on every new event. `event_complete_models(line)`
+returns it, or, for a line without it, the event's "complete" read as its lead model's (an old event's strong tier, the
+first model of a list header), so callers never branch. A complete event is complete for its lead model. A full test
+counts in a model's selection (its newest full test, X.Y, Y count, stored gate: eval_status.py) only when it is complete
+for that model; an abandoned event (not complete) keeps its lead model's lines, as it always did.
 
 The usage of a run
 ------------------
@@ -96,7 +110,7 @@ EVENT_REQUIRED = ("record", "skill", "test", "kind", "version", "content_sha256"
                   "adapter_sha256", "grader", "runs", "timeout_seconds", "retries", "measurement_version",
                   "measurement_sha256", "image_digest", "image_platform", "grading_template_sha256", "tools", "cases",
                   "baseline", "web_cases", "counts", "extra_pass_env", "complete")
-EVENT_OPTIONAL = ("gate", "upstream", "image_source")
+EVENT_OPTIONAL = ("gate", "upstream", "image_source", "complete_models")
 RUN_REQUIRED = ("record", "skill", "version", "content_sha256", "model", "adapter", "kind", "test", "date",
                 "measurement_version", "measurement_sha256", "case", "case_sha256", "variant", "outcome", "score", "results")
 # "platform" names a social platform; "cpu_platform" the CPU platform the run's container ran on (linux/arm64, linux/amd64).
@@ -221,6 +235,26 @@ def event_gates(line):
     return {model: g} if isinstance(model, str) and _gate_ok(g) else {}
 
 
+def event_complete_models(line):
+    """[model id] an event line says it is complete for: every run of the model in the event was graded (and, for a full
+    test, its baseline ran or was in force). "complete_models" when the line has it (the list header's events write it);
+    otherwise the event's own "complete" read as its lead model's: an old event's strong tier, a list header's first
+    model. [] for an event that is not complete or whose header is malformed."""
+    if not isinstance(line, dict):
+        return []
+    given = line.get("complete_models")
+    if isinstance(given, list):
+        return [m for m in given if isinstance(m, str)]
+    pairs = event_model_pairs(line)
+    return [pairs[0][0]] if pairs and line.get("complete") is True else []
+
+
+def lead_model(line):
+    """The model an event is a test of before any other: the first of its header (an old event's strong tier), or None."""
+    pairs = event_model_pairs(line)
+    return pairs[0][0] if pairs else None
+
+
 def event_line_problems(line, models=None):
     """Why an event line is outside its form. Its model ids are judged by what the line itself names (the
     module docstring); models is an optional set of known model ids, an extra allowlist that is None for the
@@ -295,15 +329,27 @@ def event_line_problems(line, models=None):
         bad("extra_pass_env", "a list of variable names")
     if not isinstance(line["complete"], bool):
         bad("complete", "true or false")
+    if "complete_models" in line:
+        done = line["complete_models"]
+        ids = [m for m, _ in pairs]
+        if not (isinstance(line["models"], list) and isinstance(done, list) and len(set(map(str, done))) == len(done)
+                and all(isinstance(m, str) and (not ids or m in ids) for m in done)):
+            bad("complete_models", "a list of distinct models of the event's models (a list header only): those whose "
+                "runs in the event were all graded")
+        elif line["complete"] is True and ids and ids[0] not in done:
+            out.append("a complete event is complete for its lead model, the first of models: complete_models must hold it")
     if "gate" in line:
         g = line["gate"]
         keyed = isinstance(line["models"], list)  # a list header carries a gate for each model, an old one a single gate
         if line["kind"] != "full":
             out.append("gate belongs to a full test only: a partial test never evaluates the gate")
         elif keyed and not (isinstance(g, dict) and g and all(is_named(k) and (named is None or k in {m for m, _ in pairs})
+                                                               and (not isinstance(line.get("complete_models"), list)
+                                                                    or k in line["complete_models"])
                                                                and _gate_ok(v) for k, v in g.items())):
-            bad("gate", "{model id of the event's models: {\"passed\": bool, \"with\": mean, \"baseline\": mean or null, "
-                "\"threshold\", \"tolerance\"[, \"note\": \"baseline expired\"]}}, at least one")
+            bad("gate", "{model id of the event's models (and of complete_models, when the line has it): {\"passed\": bool, "
+                "\"with\": mean, \"baseline\": mean or null, \"threshold\", \"tolerance\"[, \"note\": \"baseline expired\"]}}, "
+                "at least one")
         elif not keyed and not _gate_ok(g):
             bad("gate", "{\"passed\": bool, \"with\": mean, \"baseline\": mean or null, \"threshold\", \"tolerance\"[, \"note\": \"baseline expired\"]}")
         elif line["complete"] is not True:
@@ -447,6 +493,14 @@ def evidence_file_problems(path, root=None, skill=None, strict=None):
             problems.append("line 1: test differs from the file's name")
         if skill is not None and event["skill"] != skill:
             problems.append(f"line 1: skill must be the folder's name, {skill}")
+        for model, adapter in event_model_pairs(event) if strict and "lab" in strict else []:
+            if model not in strict["lab"]:
+                problems.append(f"line 1: {model} is not one of the gate file's lab models ({', '.join(sorted(strict['lab']))}): "
+                                "evidence of any other model stays on the machine that made it (the local evidence folder), "
+                                "never in the repository")
+            elif strict["lab"][model] is not None and adapter != strict["lab"][model]:
+                problems.append(f"line 1: {model} ran through the adapter {adapter}, and the one its entry in the gate file "
+                                f"names is {strict['lab'][model]}: evidence in the repository is of the configured pair")
         if strict and event["runs"] != strict["runs"]:
             problems.append(f"line 1: runs is {event['runs']}, and the configured number is {strict['runs']} "
                             "(\"runs\" of evals/eval-gate.json): a new evidence file comes only from an event that used the "

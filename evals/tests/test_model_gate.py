@@ -25,9 +25,9 @@ def root(tmp_path):
     return tmp_path
 
 
-def listing(path, models, gate=None):
+def listing(path, models, gate=None, complete_models=None):
     """Rewrite the header of the evidence file at `path` into the list shape: the models, an adapter for each, and, when
-    given, the gate keyed by model id (None leaves the event without one)."""
+    given, the gate keyed by model id and the models the event is complete for (None leaves either out)."""
     lines = [json.loads(line) for line in path.read_text().splitlines()]
     head = lines[0]
     head["models"], head["adapters"] = list(models), {m: "h" for m in models}
@@ -35,6 +35,8 @@ def listing(path, models, gate=None):
     head.pop("gate", None)
     if gate is not None:
         head["gate"] = gate
+    if complete_models is not None:
+        head["complete_models"] = list(complete_models)
     path.write_text("".join(json.dumps(line) + "\n" for line in lines))
     return path
 
@@ -92,6 +94,43 @@ def test_a_full_test_on_another_model_resets_no_y_count(root):
     third = row(root, folder)
     assert (third["band"], third["kind"]) == ("reliable", None)
     assert third["models"]["z-model"]["kind"] == "y changes" and "3 Y changes" in third["models"]["z-model"]["cause"]
+
+
+@pytest.mark.parametrize("says", [True, False])
+def test_a_full_test_that_lists_a_model_it_ran_only_in_part_moves_nothing_of_that_model(root, says):
+    folder = skill(root, version="1.0.3")
+    versions(folder, ("1.0.0", "new"), ("1.0.1", "y"), ("1.0.2", "y"), ("1.0.3", "y"))
+    tb.full(folder, version="1.0.0", date="2030-01-01")  # s-model: a complete full test, then 3 Y changes
+    before = row(root, folder)
+    assert (before["band"], before["kind"]) == ("watch", "y changes")
+    # A z-led full test at the newest version that lists s-model, of which s-model ran 1 of 3 runs per case.
+    part = [(c, "with", 0.9, {"model": "s-model", "adapter": "h"}) for c in (1, 2, 3)]
+    path = event(folder, "full", "1.0.3", "2030-02-01", lines_of(model_runs=3) + part, strong="z-model", gate=PASS)
+    listing(path, ["z-model", "s-model"], {"z-model": PASS}, ["z-model"] if says else None)  # without the key: the lead's
+    after = row(root, folder)
+    assert after["gate"] == before["gate"] and after["last_full_test"] == before["last_full_test"]
+    assert (after["band"], after["kind"], after["cause"]) == (before["band"], before["kind"], before["cause"])  # Y count: 3
+    assert after["models"]["s-model"]["gate"] == before["gate"]
+    z = after["models"]["z-model"]
+    assert z["gate"]["test"] != before["gate"]["test"] and (z["band"], z["kind"]) == ("reliable", None)
+    # Once s-model has run it whole, the test is one of its own: its newest full test, its count of Y changes.
+    whole = [(c, "with", 0.9, {"model": "s-model", "adapter": "h"}) for c in (1, 2, 3) for _ in range(3)]
+    path = event(folder, "full", "1.0.3", "2030-03-01", lines_of(model_runs=3) + whole, strong="z-model", gate=PASS)
+    listing(path, ["z-model", "s-model"], {"z-model": PASS}, ["z-model", "s-model"])
+    final = row(root, folder)
+    assert final["gate"]["test"] != before["gate"]["test"] and (final["band"], final["kind"]) == ("reliable", None)
+
+
+def test_an_abandoned_full_test_keeps_the_lines_of_its_lead_model_and_no_other_model_s(root):
+    folder = skill(root, version="1.0.0")
+    part = [(c, "with", 0.9, {"model": "s-model", "adapter": "h"}) for c in (1, 2, 3)]
+    path = event(folder, "full", "1.0.0", "2030-01-01", lines_of() + part, strong="z-model", complete=False)
+    listing(path, ["z-model", "s-model"], None, [])
+    cfg = CFG
+    z = es.gate_of(str(folder), es.as_reference(cfg, "z-model"))
+    assert z["test"] is not None and z["version"] == "1.0"  # the lead's lines stay in the gate of the version
+    s = es.gate_of(str(folder), es.as_reference(cfg, "s-model"))
+    assert s["test"] is None and "no full test" in s["cause"]
 
 
 def test_the_stored_gate_is_the_one_a_full_test_wrote_for_that_model(root):
@@ -158,9 +197,33 @@ def test_the_local_evidence_folder_follows_the_environment(monkeypatch, tmp_path
 
 
 def test_a_local_folder_inside_the_checkout_is_refused(tmp_path):
-    assert es.local_base_problem(str(tmp_path / "outside"), str(tmp_path / "checkout")) is None
-    assert "must be outside it" in es.local_base_problem(str(tmp_path / "checkout" / "evidence"), str(tmp_path / "checkout"))
-    assert es.local_base_problem(str(tmp_path / "checkout"), str(tmp_path / "checkout")) is not None
+    checkout = tmp_path / "checkout"
+    (checkout / "skills" / "demo" / "evals" / "evidence").mkdir(parents=True)
+    root = str(checkout)
+    assert es.local_base_problem(str(tmp_path / "outside"), root) is None
+    assert "must be outside it" in es.local_base_problem(str(checkout / "evidence"), root)  # not made yet: its parent decides
+    assert es.local_base_problem(root, root) is not None
+    # Not by strings: another spelling of the checkout, a link into it, and a skill folder that is a link into it.
+    assert es.local_base_problem(str(checkout / "skills" / ".." / "evidence"), root) is not None
+    (tmp_path / "link").symlink_to(checkout / "skills")
+    assert es.local_base_problem(str(tmp_path / "link"), root) is not None
+    assert es.local_base_problem(str(tmp_path / "link" / "new" / "deeper"), root) is not None
+    base = tmp_path / "mine"
+    base.mkdir()
+    assert es.local_base_problem(str(base), root, "demo") is None
+    (base / "demo").symlink_to(checkout / "skills" / "demo" / "evals" / "evidence")
+    assert es.local_base_problem(str(base), root) is None  # the base alone is outside
+    assert "must be outside it" in es.local_base_problem(str(base), root, "demo")  # its skill folder is a link into the checkout
+
+
+def test_the_checkout_spelled_in_another_case_is_still_the_checkout(tmp_path):
+    checkout = tmp_path / "Checkout"
+    checkout.mkdir()
+    swapped = tmp_path / "cHECKOUT"
+    if not swapped.exists():  # a case-sensitive filesystem has no such alias
+        pytest.skip("this filesystem tells Checkout and cHECKOUT apart")
+    assert es.local_base_problem(str(swapped / "evidence"), str(checkout)) is not None
+    assert es.local_base_problem(str(swapped), str(checkout)) is not None
 
 
 def test_the_status_shows_local_evidence_in_a_section_of_its_own(root, tmp_path_factory):

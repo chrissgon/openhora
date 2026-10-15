@@ -1402,7 +1402,7 @@ def test_a_complete_full_test_writes_its_evidence_file_into_the_skill(tmp_path, 
     # The event line: what describes the event as a whole.
     assert (event["record"], event["skill"], event["kind"], event["complete"], event["version"]) == ("test", "demo", "full", True, "0.3.0")
     assert event["content_sha256"] == bench["content_sha256"] == before == status.content_hash(str(skill))  # evidence changes no hash
-    assert event["models"] == ["m", "f"] and event["adapters"] == {"m": "h", "f": "h"}
+    assert event["models"] == ["m", "f"] and event["adapters"] == {"m": "h", "f": "h"} and event["complete_models"] == ["m", "f"]
     assert event["adapter_sha256"] == {"h": status.file_sha256(str(tmp_path / "adapters" / "h" / "run-prompt.sh"))}
     assert (event["grader"], event["runs"], event["timeout_seconds"], event["retries"]) == ("m", 1, 900, 2)
     assert event["gate"]["m"] == {"passed": True, "with": 1.0, "baseline": 1.0, "threshold": 0.8, "tolerance": 0}
@@ -1471,6 +1471,7 @@ def test_an_infrastructure_failure_is_listed_left_out_of_the_mean_and_exits_1(tm
     (event, runs), = evidence_of(skill)
     assert out["evidence"]["written"] is True and event["complete"] is True and event["gate"]["m"]["passed"] is True
     assert set(event["gate"]) == {"m"}  # the floor model's runs are not all graded: no gate is written for it
+    assert event["complete_models"] == ["m"]  # and the event says it is complete for the model that finished only
     assert len(runs) == 14 and not [l for l in runs if l["case"] == 2 and l["model"] == "f" and l["variant"] == "with"]
 
 
@@ -1994,6 +1995,42 @@ def test_a_model_outside_the_lab_models_writes_its_evidence_outside_the_checkout
     status = er.load_status()
     assert status.evidence_file_problems(str(written), str(tmp_path), "demo") == []
     assert status.evidence_problems(str(tmp_path)) == ({}, 0)  # the repository holds none of it
+
+
+def test_a_skill_folder_of_the_local_evidence_that_links_into_the_checkout_is_refused(tmp_path, tmp_path_factory, monkeypatch, capsys):
+    skill, local = local_demo(tmp_path, tmp_path_factory, monkeypatch)
+    (local / "demo").symlink_to(skill / "evals" / "evidence")  # <base>/<skill> is the skill's own evidence folder
+    with pytest.raises(SystemExit) as e:
+        er.main(["--skill", "demo", "--harness", "h", "--model", "other-model", "--runs", "1"])
+    assert e.value.code == 2 and "must be outside it" in capsys.readouterr().err
+    assert list((skill / "evals" / "evidence").glob("*")) == [] and not (tmp_path / "evals-workspace").exists()
+
+
+def entry_of(pass_env, route):
+    return {"aliases": [], "price_source": "https://example.test/price", "run_token_budget": 1000, "upstream_models": ["x"],
+            "adapter": "h", "pass_env": pass_env, "route": route, "provider_pin": None}
+
+
+def test_a_model_takes_its_key_variables_from_its_entry_in_whichever_slot_it_runs(tmp_path, monkeypatch, capsys):
+    write_demo(tmp_path, monkeypatch, FAKE)
+    configure_gate(tmp_path, strong_pass_env=["CLAUDE_CODE_OAUTH_TOKEN"], floor_pass_env=["OPENROUTER_API_KEY"], models={
+        "m": entry_of(["CLAUDE_CODE_OAUTH_TOKEN"], "anthropic"), "f": entry_of(["OPENROUTER_API_KEY"], "openrouter")})
+    # As configured.
+    o = er.parse(["--skill", "demo"])
+    assert (o["strong_pass_env"], o["floor_pass_env"], o["extra_pass_env"]) == (["CLAUDE_CODE_OAUTH_TOKEN"], ["OPENROUTER_API_KEY"], [])
+    # Swapped: the model that holds the account token runs in the floor slot, the other in the strong slot.
+    o = er.parse(["--skill", "demo", "--model", "f", "--floor-model", "m"])
+    assert o["strong_pass_env"] == ["OPENROUTER_API_KEY"] and o["floor_pass_env"] == ["CLAUDE_CODE_OAUTH_TOKEN"]
+    assert o["extra_pass_env"] == []  # variables of the models' own entries are not extra ones: the event is no trial
+    assert (o["harness"], o["floor_harness"]) == ("h", "h")
+    assert er.main(["--skill", "demo", "--model", "f", "--floor-model", "m", "--dry-run"]) == 0
+    plan = json.loads(capsys.readouterr().out)
+    assert plan["floor_pass_env"] == ["CLAUDE_CODE_OAUTH_TOKEN"] and {r["model_tier"] for r in plan["runs"]} == {"strong", "floor"}
+    # A variable named by hand that no entry names stays an extra one.
+    o = er.parse(["--skill", "demo", "--model", "f", "--floor-model", "m", "--floor-pass-env", "MY_KEY"])
+    assert o["floor_pass_env"] == ["MY_KEY"] and o["extra_pass_env"] == ["MY_KEY"]
+    # A floor model the gate file does not list has no variables of its own.
+    assert er.parse(["--skill", "demo", "--floor-model", "other-model"])["floor_pass_env"] == []
 
 
 def test_a_listed_model_outside_the_lab_models_is_local_too_and_a_lab_model_through_another_adapter(tmp_path, tmp_path_factory, monkeypatch, capsys):

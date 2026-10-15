@@ -100,6 +100,35 @@ def test_a_raw_file_that_cannot_be_read_is_unknown_and_the_stream_is_not_asked_i
     assert er.run_usage(None, str(tmp_path)) is None
 
 
+def test_a_run_whose_key_was_held_and_has_no_readable_meter_has_no_usage(tmp_path):
+    lying = result({"m": {"inputTokens": 999999, "outputTokens": 999999}})
+    out = raw(tmp_path, lying)
+    assert er.run_usage(None, out, held=True) is None  # the run's own report, which it could have written, is never read
+    assert er.run_usage(None, stream(tmp_path, step({"input": 1, "output": 1, "cache": {}})), held=True) is None
+    assert er.run_usage(None, out) == {"input": 999999, "output": 999999, "cache_read": 0, "cache_write": 0}  # no proxy: its own report
+    meter = {"input": 1, "output": 2, "cache_read": 3, "cache_write": 4, "unknown_responses": 0}
+    assert er.run_usage(meter, out, held=True) == {"input": 1, "output": 2, "cache_read": 3, "cache_write": 4}
+
+
+def test_key_held_is_true_only_in_the_container_for_a_model_whose_route_the_passed_key_belongs_to(monkeypatch):
+    executor = er.load_executor()
+    seen = []
+
+    def held_route(names, env, network, model, gate=None):
+        seen.append((tuple(names), network, model))
+        if model == "broken":
+            raise executor.ExecutorError("no route")
+        return "anthropic" if names else None
+
+    monkeypatch.setattr(executor, "held_route", held_route)
+    monkeypatch.setattr(er, "EXECUTOR", "host")
+    assert er.key_held("m", ["TOKEN"], False) is False and seen == []  # outside the container nothing is held
+    monkeypatch.setattr(er, "EXECUTOR", "container")
+    assert er.key_held("m", ["TOKEN"], False) is True and er.key_held("m", [], False) is False
+    assert er.key_held("m", ["TOKEN"], True) is True and seen[-1][1] == "open" and seen[0][1] == "proxy"
+    assert er.key_held("broken", ["TOKEN"], False) is False
+
+
 def test_a_linked_file_is_not_read(tmp_path):
     outside = tmp_path / "outside"
     outside.mkdir()
