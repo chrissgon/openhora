@@ -24,6 +24,12 @@
 /scripts/test_dirs.py          @chrissgon
 /scripts/evidence.py           @chrissgon
 /scripts/image_lock.py         @chrissgon
+# Community evidence (decision D19): the official reusable workflow that signs it, the check that verifies it, and the
+# script that packs it. A change to any of them changes what a fork's attested run can be, so the owner sees it.
+/.github/workflows/community-eval.yml    @chrissgon
+/.github/workflows/community-verify.yml  @chrissgon
+/scripts/verify_community.py   @chrissgon
+/scripts/community_pack.py     @chrissgon
 /.security-scan-allow          @chrissgon
 /shared/                       @chrissgon
 /skills/*/evals/evidence/      @chrissgon
