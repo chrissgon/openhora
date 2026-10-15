@@ -21,10 +21,10 @@ openhora is a workbench of skills that let a model build a digital solution end 
 
    With a pack installed you can run any skill by hand in your tool. The rest of this section is the runtime, which runs skills without you at the keyboard.
 
-2. **Prepare a project for the runtime.** A project starts with the workbench state file, which the project-init skill writes (`skills/core-project-init/scripts/init_project.py --root <project> --apply --autonomy milestones`, or run the skill in your tool), and a configuration, `<project>/docs/workbench/runtime.json`, with three absolute paths ([runtime/README.md](../../../runtime/README.md), "Trying it"):
+2. **Prepare a project for the runtime.** A project starts with the workbench state file, which the project-init skill writes (`skills/core-project-init/scripts/init_project.py --root <project> --apply --autonomy milestones`, or run the skill in your tool), and a configuration, `<project>/docs/workbench/runtime.json`, with four absolute paths ([runtime/README.md](../../../runtime/README.md), "Trying it"):
 
    ```json
-   {"workbench": "<this checkout>", "data_dir": "<a folder outside every repository>", "store_db": "<data folder>/tasks.sqlite"}
+   {"workbench": "<this checkout>", "data_dir": "<a folder outside every repository>", "store_db": "<data folder>/tasks.sqlite", "sources_dir": "<a dedicated folder, apart from the data folder>"}
    ```
 
    Every operation but `accept-config`, `config` and `service-check` refuses a configuration whose hash is not the one you accepted last (`config` reports the hash and never refuses). The refusal names the hash and the command that gets past it; read the file, then accept it:
