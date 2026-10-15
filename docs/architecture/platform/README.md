@@ -62,13 +62,31 @@ openhora is a workbench of skills that let a model build a digital solution end 
 
 7. **A project's sources.** To give a project a file or a Notion page to read, read [sources.md](sources.md): the sources folder and its numbered guardrails (L21 to L27), the immutable versions, the catalog the planner reads, the document converter that runs in a container with no network, and the copies a task receives. It is a feature page like messaging, not a layer. `sources_dir` is a key every project's `runtime.json` must hold; register and import with `python3 runtime/cli.py source-add` and `source-import`, and see what the planner will read with `sources`.
 
-7. **A machine that runs for weeks.** To run the runtime on a server with nobody logged in, read [unattended.md](unattended.md): the SSH tunnel to reach the page (never `--lan` across networks), the credentials directory for secrets with no desktop session, the OAuth consent on a machine with a browser, the retention of run folders and source versions, the sweep of orphan containers, the lease of a synced sources folder, and `python3 scripts/doctor.py --unattended`.
+8. **A machine that runs for weeks.** To run the runtime on a server with nobody logged in, read [unattended.md](unattended.md): the SSH tunnel to reach the page (never `--lan` across networks), the credentials directory for secrets with no desktop session, the OAuth consent on a machine with a browser, the retention of run folders and source versions, the sweep of orphan containers, the lease of a synced sources folder, and `python3 scripts/doctor.py --unattended`.
 
-7. **What is not yet a replaceable piece.** If you want to know which layers cannot yet be swapped on their own, read the review of 2026-10-06 (removed on 2026-10-14; `git show d3e60770:docs/architecture/platform/review-2026-10-06.md`): the findings, ranked, each with its state in a table at the top.
+9. **What is not yet a replaceable piece.** If you want to know which layers cannot yet be swapped on their own, read the review of 2026-10-06 (removed on 2026-10-14; `git show d3e60770:docs/architecture/platform/review-2026-10-06.md`): the findings, ranked, each with its state in a table at the top.
 
 ## Keeping the pages current
 
 A table that changes with the code is generated, never edited by hand: it sits between `<!-- generated: <table> -->` and `<!-- /generated -->`, and `python3 scripts/architecture_tables.py --help` names each table and its one source. After a change to one of those sources, run `python3 scripts/architecture_tables.py --write`; `--check` names the stale blocks, and `scripts/validate.py` reports each one as a warning (`[architecture-tables]`). The prose around a block stays hand-written.
+
+## The pages
+
+Every page of this folder, once. The eight layer pages share a template; the three feature pages cross layers.
+
+| Page | What it covers |
+|---|---|
+| [skills-and-flows.md](skills-and-flows.md) | Layer 1: the skills, agents, packs, the flow files under `flows/` and the runtime manifest of a skill |
+| [contracts-and-references.md](contracts-and-references.md) | Layer 2: the contracts under `contracts/`, the references under `shared/references/` and the templates |
+| [providers.md](providers.md) | Layer 3: the providers by requirement class, `providers/resolve.py`, the store and the secrets resolver |
+| [lab.md](lab.md) | Layer 4: the eval runner, the container, the measurement, evidence, the lab models and the execution kit the runtime reads |
+| [adapters.md](adapters.md) | Layer 5: what is specific to one AI tool, the installers and the eval entry `run-prompt.sh` |
+| [runtime.md](runtime.md) | Layer 6: the task runtime, its artifacts, abstractions, business rules, the table of operations and its known limits |
+| [shells.md](shells.md) | Layer 7: the terminal, the conversation, the local service, the MCP mode and the shell kit |
+| [project.md](project.md) | Layer 8: the target project, its documents, state file, configuration and work data |
+| [messaging.md](messaging.md) | A feature across layers: the messaging bridge, the channel policy, the five messenger providers and a runbook |
+| [sources.md](sources.md) | A feature across layers: the sources folder (limits L21 to L27), versions, the catalog, the converter, Notion pages and Drive files |
+| [unattended.md](unattended.md) | A feature across layers: remote access, the credentials directory, retention, orphan containers, the lease and the doctor's `--unattended` |
 
 ## The layers
 
@@ -252,6 +270,21 @@ The names fixed for this work. Use each exactly.
 | Dispatcher | The function that decides the next run and the releases a mode makes, started by the scheduler's two jobs and by the local service's own dispatch loop |
 | Held task | A ready task the last dispatcher round did not start; its reason is one word of `REASONS` in `runtime/dispatcher.py`, kept in the cursor `dispatch:held` |
 | Step task, step kind | A step task is a task of a request that runs no skill and calls no model: code runs it, as the step engine of `runtime/steps.py`, in a process of its own (`run-step`), and its owner is the runtime's pseudo-agent `runtime` (migration 12 of the store). A step kind is a kind of step task in the engine's registry (`ingest` today, `runtime/step_ingest.py`); it is not an effect kind (a key of `effects.KINDS`) and not a pending-decision kind |
+| Sources folder | `sources_dir` of `runtime.json`: the dedicated, private folder where a project's sources live, mandatory and with no default; the older plans called it a data folder, which is `data_dir`'s other name and not this folder ([sources.md](sources.md); limits L21 to L27 of [contracts/runtime.md](../../../contracts/runtime.md)) |
+| Source | A file, a Notion page or a Google Drive file a person gave a project to read: an id, a type (`file`, `notion` or `drive`) and an origin; never deleted ([sources.md](sources.md), "Abstractions") |
+| Version | An immutable import of a source (`original.<ext>`, `converted.md` or `converted.csv`, `manifest.json`); a refresh is the next number, and a task records the version it received ([sources.md](sources.md)) |
+| Catalog | What the planner reads of a project's sources: for each, the name, type, size, date, sheets and columns with a few values, first headings and warnings, built by code from the converted text only (limit L27; `sources.list_catalog`) |
+| Converter | The provider of the class `converter:document` (`providers/converter/`): a container with no network that turns a source's bytes into text with adopted tools ([sources.md](sources.md); [providers.md](providers.md)) |
+| Runtime owner, brake | The owner of step tasks is the pseudo-agent `runtime` (not an entry of `area_agents`); its brake is `set-mode --agent runtime --mode stopped|autonomous`, kept in the store's cursor `steps:mode` ([runtime.md](runtime.md), "Step task and the step engine") |
+| Workflow | A flow file the person can read: tasks (skills or steps), their written dependencies and parameters; files and code still say "flow" (`flows/`, `runtime/flow_files.py`) ([contracts/runtime.md](../../../contracts/runtime.md), "Workflows") |
+| Project workflow | A workflow of the project's own, `docs/workbench/flows/<name>.json` of the project; a run never writes that folder, and a name of a workbench flow is never read there |
+| Parameter | What a workflow's request fills in: a name, a type (`text` or `file`) and for a text a default; any string of a task may hold `{name}`, and the plan's hash covers the values |
+| Date variable | `{today}` (the ISO date) and `{week}` (`YYYY-Www`) in a workflow's strings, filled when the plan is built from the machine's clock and time zone (`runtime/flow_files.py`, `bind`) |
+| Flow check | `runtime/flow_check.py`: a skill task that requires the web must not receive sources; for a skill that reads a research brief it offers the split code makes; run by `flow-check` and before `flow-save` |
+| Consent (agent) | The person's agreement, stored with an area agent as `consent` (`{"model", "mode"}`), that the runs of a model fixed on an autonomous agent are released by the agent's mode even where the skill is not proven on that model; given in the terminal with `--consent` or on the page by `give-consent`, after `autonomy.CONSENT_WARNING`; consent for a routine arrives with P6b and is not built ([contracts/runtime.md](../../../contracts/runtime.md), "The choice of the model") |
+| Local evidence | Lab evidence written by a test the person ran on a model of their own choice, in `<XDG data home>/openhora/evidence/`, outside the checkout; the runtime reads it to rank and release for that person ([lab.md](lab.md); `evals/README.md`, "Whose evidence goes where") |
+| Community evidence | Lab evidence produced by the official workflow in a contributor's fork and attested by GitHub, verified offline in CI; it ranks models and never releases unattended work by itself ([docs/community-evidence.md](../../community-evidence.md)) |
+| Lease | The claim on the sources folder, `.openhora-lease`: two hosts do not write within one lease window, and a live lease of another host refuses the write and names that host (limit L28; `runtime/lease.py`; [unattended.md](unattended.md)) |
 | Handler | A routine under `runtime/handlers/` that the dispatcher ticks, with verbs of its own: the weekly published-posts routine and the three files of the social agent (`social.py`, `social_vote.py`, `social_vote_job.py`, the last started by the scheduler and never by hand) |
 | Roles file | `runtime/roles.json`: the skills the runtime is wired to, the code areas and the packs in use, as data read by `runtime/roles.py` |
 | Isolated runner | `runtime/isolated.py`: runs a skill's script as a subprocess with a scrubbed environment, so that no module of the runtime loads a skill's file |
@@ -306,3 +339,4 @@ The names fixed for this work. Use each exactly.
 - 2026-10-09: the workbench is called openhora (it was `ai-workbench`): the first sentence of the page, and the three names other machines hold (the secret store's service, the install marker, the plugin's name and link), each with a compatibility stage removed with the next change of the lab default list or of the grader (T23); the dated records keep the old name.
 - 2026-10-13: the messaging channels have a page of their own (messaging.md): the bridge, the channel policy, the messenger interface and the five platforms, the security model, a runbook and the open items.
 - 2026-10-14: the map follows the messaging channels (MSG-14): the messaging page has the eight sections of a layer page, the layer table and the diagram name the bridge as a fifth shell (with its arrow to the providers), the cross-cutting rules gain the channel policy and the card binding, the glossary gains twelve terms (bridge, messenger, card, neutral message, ledger, capabilities, listen mode, paused, deferred, channel policy, permissions, window) and the channel terms name `messaging`, and a known-limits row points to the messaging page.
+- 2026-10-15: the platform map follows the delegation platform's first packages: an index of every page of the folder, the glossary gains the terms of the sources, workflows, consent, local and community evidence and the lease, and the numbering of "Start here" is mended.
