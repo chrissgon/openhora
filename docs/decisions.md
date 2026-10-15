@@ -175,7 +175,7 @@ Decided by the maintainer: before a container environment is tried (backlog T16)
 
 ## 2026-10-01: Evals run only in a container; the runner leaves the skill; a record says how it was measured
 
-Decided by the maintainer on the review of that day (`docs/architecture/review-2026-10-01.md`, D1, D2, D3, D5, D6):
+Decided by the maintainer on the review of that day (`docs/architecture/review-2026-10-01.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/review-2026-10-01.md`), D1, D2, D3, D5, D6):
 
 - **One environment, no alternative.** Every eval run executes in a container built from one pinned image, one container per run, started by an executor layer between the runner and the adapters. The container is the boundary for both tiers, which get the same rights; nothing of the workbench or of the person's home is mounted. There is no host mode: one standard, so that every record is comparable. This closes backlog S19 and replaces T6.
 - **The eval runner moves out of `core-skill-creator`** to a top-level `evals/` folder with its tests, the grading template and the gate configuration.
@@ -201,7 +201,7 @@ Done as decided (D3, D4). `evals/eval-gate.json` gains `grader`, `strong_toleran
 
 ## 2026-10-01: The eval container, as built
 
-The proof of concept confirmed D1, D5 and D6 (`docs/architecture/container-poc-2026-10-01.md`). Every command of an eval (model run, grading, setup, fixture commit) runs in its own container, started by `evals/executor.py` from the definition in `evals/container/`. A container sees the run folder, the adapters, the shared references and the skill; it reaches the model providers through an allowlisting proxy on an internal network, nothing at all for setup, and the open network only for a case with `allow_web`. The strong runner's token and the floor runner's key come from the secret store and travel by variable name. A record names the definition's hash and the image id. Measurement version 3.
+The proof of concept confirmed D1, D5 and D6 (`docs/architecture/container-poc-2026-10-01.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/container-poc-2026-10-01.md`)). Every command of an eval (model run, grading, setup, fixture commit) runs in its own container, started by `evals/executor.py` from the definition in `evals/container/`. A container sees the run folder, the adapters, the shared references and the skill; it reaches the model providers through an allowlisting proxy on an internal network, nothing at all for setup, and the open network only for a case with `allow_web`. The strong runner's token and the floor runner's key come from the secret store and travel by variable name. A record names the definition's hash and the image id. Measurement version 3.
 
 The unit tests of the runner drive stand-in adapters on the host through a module switch; that switch is not an option of the runner and no record can be written through it by a person running the command.
 
@@ -241,25 +241,25 @@ Decided by the maintainer for the last two skills without a record.
 
 ## 2026-10-02: Flows that are not built are named as planned; capabilities state the artifact they need
 
-Decision D12 of `docs/architecture/review-2026-10-01.md`, as built. Only `flow-fix-bug` exists, so every other flow name is marked planned wherever it is cited as a route (the orchestrator, its routing table, the area map, the inventory); the orchestrator keeps its rule for a missing skill, which is to name it as the route with the status `pending` and propose one fallback for the user to accept. A capability no longer tells the model to run or route to another skill: it states the artifact it needs, names the skill that writes it, and stops for the user to run it, so that only flows invoke skills (principle 4). The alternative, removing the citations, would have left the orchestrator without a name for requests that are flows, and its eval cases expect those names.
+Decision D12 of `docs/architecture/review-2026-10-01.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/review-2026-10-01.md`), as built. Only `flow-fix-bug` exists, so every other flow name is marked planned wherever it is cited as a route (the orchestrator, its routing table, the area map, the inventory); the orchestrator keeps its rule for a missing skill, which is to name it as the route with the status `pending` and propose one fallback for the user to accept. A capability no longer tells the model to run or route to another skill: it states the artifact it needs, names the skill that writes it, and stops for the user to run it, so that only flows invoke skills (principle 4). The alternative, removing the citations, would have left the orchestrator without a name for requests that are flows, and its eval cases expect those names.
 
 ## 2026-10-02: Phase 5 decisions: D7 to D10 and D12 approved; a skill's tests live in the skill and outside its hash
 
-Decided by the maintainer, on the decision table of `docs/architecture/review-2026-10-01.md`.
+Decided by the maintainer, on the decision table of `docs/architecture/review-2026-10-01.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/review-2026-10-01.md`).
 
-- **D7, D8, D9, D10 and D12 are approved as recommended**: the artifact contract (D7), one source for shared code (D8), providers named by class (D9), tests of skill scripts in the skill (D10), and flows that cite only what exists (D12). They are phase 5 of `docs/architecture/plan-2026-10.md`.
+- **D7, D8, D9, D10 and D12 are approved as recommended**: the artifact contract (D7), one source for shared code (D8), providers named by class (D9), tests of skill scripts in the skill (D10), and flows that cite only what exists (D12). They are phase 5 of `docs/architecture/plan-2026-10.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/plan-2026-10.md`).
 - **A skill's script tests do not count for its content hash and are not copied into an eval run.** They live in `skills/<name>/scripts/tests/`. `evals/eval_status.py` leaves everything under that folder out of the hash, and the eval adapters remove it from the copy of the skill a model gets, as they do with `evals/`. Reason: a test is not part of what a model uses, so a new or changed test measures nothing differently and must not cost a measurement. The alternative, tests kept in `scripts/tests/` so that the hash never sees them, left skill scripts far from their tests and the hook unable to tell which tests a changed script needs. The skills that already had tests inside their folder read `stale` once, because their recorded hash was computed with those files.
 - **Phase 5 is carried out in full without measuring the skills again for now.** A skill whose folder phase 5 changes reads `stale` until a later measurement round, which is done together with backlog T19 (assertions that pass in every run). Until then `stale` on such a skill means "changed by phase 5, last measured before it", not a defect.
 
 ## 2026-10-02: The orchestrator is the one capability that hands a request over; requirement classes keep their names
 
-**Reversed in part the same day** (decision 14a of `docs/architecture/final-plan-2026-10-02.md`): requirement classes are renamed; every class takes the form `<role>:<target>` (`mailer` becomes `sender:email`, `mailbox` `reader:email`, `scheduler` `scheduler:job`, `store` `store:runtime`), in phase C of that plan. What stands: the orchestrator is the one exception to principle 4.
+**Reversed in part the same day** (decision 14a of `docs/architecture/final-plan-2026-10-02.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/final-plan-2026-10-02.md`)): requirement classes are renamed; every class takes the form `<role>:<target>` (`mailer` becomes `sender:email`, `mailbox` `reader:email`, `scheduler` `scheduler:job`, `store` `store:runtime`), in phase C of that plan. What stands: the orchestrator is the one exception to principle 4.
 
 Approved by the maintainer, closing what backlog item T20 left open. `core-orchestrator` is the one exception to principle 4: it is the router, so it names a skill and hands the request over to it, and does none of that skill's work; every other capability reads and writes artifacts, and `AGENTS.md` says so in the principle, in "Skill kinds" and in "Never". Requirement class names are not renamed: some carry a prefix and some are bare (`mailer`, `mailbox`, `scheduler`, `store`), a skill copies a name exactly as `contracts/environment.md` spells it; renaming would change every skill and provider that declares one.
 
 ## 2026-10-02: Providers are resolved by class; one interpreter rule; ledgers in a data folder (D9, D13)
 
-Decisions D9 and D13 of `docs/architecture/review-2026-10-01.md`, as built.
+Decisions D9 and D13 of `docs/architecture/review-2026-10-01.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/review-2026-10-01.md`), as built.
 
 - **One resolution function.** `providers/resolve.py` turns a requirement class into the provider script, in this order: the class's environment variable (`<CLASS>_<SUBCLASS>_PROVIDER`, then `<CLASS>_PROVIDER`; the naming that existed), the platform default where one exists (`scheduler`: launchd on macOS, systemd on Linux), the only implementation when the class ships exactly one. Nothing resolving is exit 3 with the variable to set; an unknown class is exit 2. A name is accepted only when it is a script shipped in the class's folder, never as a path.
 - **Who uses it.** `scripts/runtime.py` and `scripts/runtime_vote.py` (the store was a fixed path, the scheduler was launchd on every platform), `scripts/doctor.py` (it had its own lookup, and reported a class as missing unless its variable was set; it now checks the provider the function chooses), and the skills, which run `python3 <workbench root>/providers/resolve.py --class <class>` and use the printed path. A name in `runtime.json` still wins, so existing files keep working.
@@ -275,7 +275,7 @@ Decisions D9 and D13 of `docs/architecture/review-2026-10-01.md`, as built.
 
 The 48 skills were measured once in the container (backlog T11), and the changes merged since then left 15 of them `stale`. The maintainer decided that the skills are measured one more time and that this round is to be the last for the skills as they are: everything that has to be fixed is fixed before it, even at the cost of measuring all 48 again, and whatever changes a skill's folder or what a run measures is frozen after it.
 
-So that the round is planned from what is true, the whole repository was audited first: nine read-only audits run in parallel (six over the 48 skills in groups, one over the eval harness, one over what crosses skills, one over every backlog item), none changing a file or calling a model. The reports are in `docs/architecture/audit-2026-10-02/`.
+So that the round is planned from what is true, the whole repository was audited first: nine read-only audits run in parallel (six over the 48 skills in groups, one over the eval harness, one over what crosses skills, one over every backlog item), none changing a file or calling a model. The reports are in `docs/architecture/audit-2026-10-02/` (removed on 2026-10-14; `git show d3e60770:docs/architecture/audit-2026-10-02/`).
 
 What the audit found, in short:
 
@@ -283,7 +283,7 @@ What the audit found, in short:
 - **In the harness.** A grader that is inconsistent rather than biased, mostly for what its template does not say and what it cannot see; three runs per case, where one iteration's mean moves by about 0.045 between identical reruns; an early-end detector wrong in 7 of 12 detections; runs that can read more of the workbench than they should; an image that cannot be rebuilt and whose scratch folder the floor runner cannot write; a contamination check that cannot fire; nothing that stops a change to the measurement without raising its version.
 - **In the backlog.** 82 items: 38 done, 18 partly done, 26 not done; nine ticks that do not match the code; 19 pieces of work that no item covered; one CI job failing on `main`.
 
-The plan in force is `docs/architecture/final-plan-2026-10-02.md`. It replaces `docs/architecture/plan-2026-10.md`, whose phases 0 to 4 are done. Its order follows one rule: repairs that touch neither a skill nor the measurement, then the measurement changed once (version 5), then every skill edited once, then a dry run, then the round, and only after it the work that is independent of skills.
+The plan in force is `docs/architecture/final-plan-2026-10-02.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/final-plan-2026-10-02.md`). It replaces `docs/architecture/plan-2026-10.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/plan-2026-10.md`), whose phases 0 to 4 are done. Its order follows one rule: repairs that touch neither a skill nor the measurement, then the measurement changed once (version 5), then every skill edited once, then a dry run, then the round, and only after it the work that is independent of skills.
 
 Its section "Decisions for the maintainer" awaits the maintainer: 14 decisions that change the plan (among them the runs per case, single or double grading, how the freeze is enforced, the image's platform, a fixed clock, the owners of the shared ledgers, what the runtime is, and what is done with fixtures that carry a real case) and 76 defaults that apply unless the maintainer objects. Until they are answered nothing in that section is decided. Rejected as an alternative: measuring the 15 stale skills now and fixing the rest later, which would have cost a second round for most skills.
 
@@ -297,11 +297,11 @@ Why: under the three states any change inside a skill folder discarded all its e
 
 Rejected: keeping the states and making the round cheaper (the cost of every later change stays); a score with no lab requirement (the behaviours ordinary use never exercises, such as stopping before a side effect, would go unmeasured, so guard cases are always run in the container); thresholds on the score alone (a backtest on the 48 records shows they cannot separate a fresh full test from a version bump with no new evidence, so two rules stand beside the score); a decay by age (a score that moves with the calendar makes the generated table stale with no commit).
 
-The model, its backtest, its limits and its changes to the plan are in `docs/architecture/reliability-model-2026-10-02.md`, which awaits review; where it differs from `docs/architecture/final-plan-2026-10-02.md` it wins, and the plan is amended after the review.
+The model, its backtest, its limits and its changes to the plan are in `docs/architecture/reliability-model-2026-10-02.md`, which awaits review; where it differs from `docs/architecture/final-plan-2026-10-02.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/final-plan-2026-10-02.md`) it wins, and the plan is amended after the review.
 
 ## 2026-10-02: The reliability model, simplified after its independent review: bands by rules from lab evidence only
 
-The model of the entry above was reviewed the same day by an independent reviewer (4 blockers, 14 important findings, 9 minor ones; digest in `docs/architecture/audit-2026-10-02/model-review.md`). The maintainer adopted the simpler version that review recommends, with every correction it proposes. The same reviewer then read the pull request that carried the result and found ten points where a rule did not work as written (P1 to P10 in the digest); all were accepted, and this entry states the model with them applied. This entry replaces the details of the entry above; its direction (evidence per model instead of three states, a full test once, small tests afterwards) stands.
+The model of the entry above was reviewed the same day by an independent reviewer (4 blockers, 14 important findings, 9 minor ones; digest in `docs/architecture/audit-2026-10-02/model-review.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/audit-2026-10-02/model-review.md`)). The maintainer adopted the simpler version that review recommends, with every correction it proposes. The same reviewer then read the pull request that carried the result and found ten points where a rule did not work as written (P1 to P10 in the digest); all were accepted, and this entry states the model with them applied. This entry replaces the details of the entry above; its direction (evidence per model instead of three states, a full test once, small tests afterwards) stands.
 
 What is decided:
 
@@ -326,7 +326,7 @@ What it costs: the first full test of the 48 skills is 1,437 runs and 1,437 grad
 
 Left for later, on purpose: field evidence counting toward a band, once recorded uses can be compared with verdicts; the numeric decays.
 
-The model is in `docs/architecture/reliability-model-2026-10-02.md` and the work in `docs/architecture/final-plan-2026-10-02.md`: the first describes the model, the second the work, and the plan already contains the model's consequences.
+The model is in `docs/architecture/reliability-model-2026-10-02.md` and the work in `docs/architecture/final-plan-2026-10-02.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/final-plan-2026-10-02.md`): the first describes the model, the second the work, and the plan already contains the model's consequences.
 
 ## 2026-10-02: Principle 8 is separation, not masking (decision 11 of the final plan, as narrowed)
 
@@ -354,7 +354,7 @@ Decided by the maintainer; it reverses the part "requirement classes keep their 
 
 Rejected: moving the provider folders to `providers/<role>/<target>/` (it would drop the provider tests from CI, break the hook's path mapping, each provider's lookup of the secret resolver and the jobs already scheduled, and a skill sees a class name, never a folder); renaming later (after the first full test a rename is a tested change of every skill that names a class).
 
-Why now: every skill is being edited once anyway, so the rename costs nothing in evidence. The work is item C0.2 of `docs/architecture/final-plan-2026-10-02.md` and the rows of the skills that name a renamed class.
+Why now: every skill is being edited once anyway, so the rename costs nothing in evidence. The work is item C0.2 of `docs/architecture/final-plan-2026-10-02.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/final-plan-2026-10-02.md`) and the rows of the skills that name a renamed class.
 
 ## 2026-10-02: Four design rules in `AGENTS.md` (decision 14b)
 
@@ -381,15 +381,15 @@ Decided by the maintainer.
 
 Rejected: platform knowledge in each provider (one provider may serve several platforms, and six of the eight skills that need the knowledge declare no publisher); a table of platforms inside each skill (adding a platform would edit every skill and ask for a test of each).
 
-The work is items C0.2 and C0.9 and the skills' rows of `docs/architecture/final-plan-2026-10-02.md`; the inventory of platform knowledge is `docs/architecture/audit-2026-10-02/platform-inventory.md`.
+The work is items C0.2 and C0.9 and the skills' rows of `docs/architecture/final-plan-2026-10-02.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/final-plan-2026-10-02.md`); the inventory of platform knowledge is `docs/architecture/audit-2026-10-02/platform-inventory.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/audit-2026-10-02/platform-inventory.md`).
 
 ## 2026-10-02: Dependency alerts raised by eval fixtures: a standing rule
 
-The code host's dependency graph reads every manifest in the repository, whatever `.github/dependabot.yml` says, so an eval fixture that names real packages raises alerts on packages nothing here ever installs. It has happened twice: 30 alerts from two fixtures of `ops-ci-pipeline`, dismissed by hand on 2026-09-28 (`docs/security/dependabot-triage-2026-09-28.md`), and 21 open on 2026-10-02, all from one manifest, `skills/eng-architecture/evals/files/content-model/package.json` (read from the host's alerts API that day). New advisories keep arriving against fixtures that do not change.
+The code host's dependency graph reads every manifest in the repository, whatever `.github/dependabot.yml` says, so an eval fixture that names real packages raises alerts on packages nothing here ever installs. It has happened twice: 30 alerts from two fixtures of `ops-ci-pipeline`, dismissed by hand on 2026-09-28 (`docs/security/dependabot-triage-2026-09-28.md` (removed on 2026-10-14; `git show d3e60770:docs/security/dependabot-triage-2026-09-28.md`)), and 21 open on 2026-10-02, all from one manifest, `skills/eng-architecture/evals/files/content-model/package.json` (read from the host's alerts API that day). New advisories keep arriving against fixtures that do not change.
 
 Bumping the fixture each time is not the answer. A fixture's manifest is part of its case, so a bump changes the case's hash, which drops that case's lab evidence and asks for a test of the skill, to silence an alert about code that never runs.
 
-The rule, item A14 of `docs/architecture/final-plan-2026-10-02.md`:
+The rule, item A14 of `docs/architecture/final-plan-2026-10-02.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/final-plan-2026-10-02.md`):
 
 1. **Invented packages wherever the case does not need the real ones.** A fixture manifest names packages that exist in no registry, under a fictional scope, as the fixture of `eng-security-review` already does: such a manifest raises no alert at all.
 2. **Where the case needs real packages** (the skill must read a real framework's version, or a real tool's configuration), the versions are current on the day the skill's row is written, and **no lockfile that lists real transitive packages is committed**: a lockfile puts hundreds of packages into the dependency graph for one case. A lockfile of invented packages is fine.
@@ -423,7 +423,7 @@ Not yet run, and listed in the pull request that closed the version as the proof
 
 ## 2026-10-03: The proof run of phase B; the skill-listing measurement taken again; the grading's tokens
 
-The first part of phase D ran on `main` at `cbe3321`: D1, D2, the proof run of phase B on `ops-branch-sync` (a trial of 2 runs per case, no evidence) and the listing measurement of A8 and C0.10. The full record is `docs/architecture/phase-d-proof-2026-10-03.md`. No fingerprinted file changed: measurement version 5 stands, with the same fingerprint.
+The first part of phase D ran on `main` at `cbe3321`: D1, D2, the proof run of phase B on `ops-branch-sync` (a trial of 2 runs per case, no evidence) and the listing measurement of A8 and C0.10. The full record is `docs/architecture/phase-d-proof-2026-10-03.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/phase-d-proof-2026-10-03.md`). No fingerprinted file changed: measurement version 5 stands, with the same fingerprint.
 
 - **The strong model id.** The pinned CLI accepts `claude-sonnet-5-5`, names it as the model of every run, and gives it a 200,000-token context and 32,000 output tokens. The gate file stays as it is.
 - **One grading without tools: 11,622 tokens** on average over 24 gradings (11,013 to 12,032), against 29.6 thousand in the first round. A guard's second grading cost 11,987 tokens.
@@ -449,7 +449,7 @@ The grader writes its evidence before its verdict, ends it on Passes. or Fails:,
 - Fingerprint: `03c1199923074eb689e8d10366e76b421464dac7fe1632601e2db794f448e6bf`.
 - Written by `python3 evals/eval_status.py measurement --kind grader`.
 
-The maintainer decided on 2026-10-03 to fix the grader now, knowing that it is a grader-side change. The cause was read in the stored run folders of the smoke pass (`docs/architecture/phase-d-smoke-2026-10-03.md`): the nine grader verdicts it classed as harness defects, the three answers it refused for their form, and all 2,562 verdicts of the 557 stored gradings.
+The maintainer decided on 2026-10-03 to fix the grader now, knowing that it is a grader-side change. The cause was read in the stored run folders of the smoke pass (`docs/architecture/phase-d-smoke-2026-10-03.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/phase-d-smoke-2026-10-03.md`)): the nine grader verdicts it classed as harness defects, the three answers it refused for their form, and all 2,562 verdicts of the 557 stored gradings.
 
 - **The common cause: the verdict came before the evidence.** The template's answer form was `{"id", "passed", "evidence"}`, so the grader committed to a verdict and then reasoned inside the evidence. Where that reasoning turned, the verdict could not follow it:
   - 6 verdicts of `false` whose evidence ends on a pass: "..., so this should pass" (4), "..., so on a literal reading this should pass", "..., so this part holds". Four are those the report names (`brand-voice` 2, `core-skill-creator` 2 twice, `core-project-init` 2); two more were found in the scan (a guard run of `eng-security-review` 2 and a second grading of `ops-ci-pipeline` 1).
@@ -528,7 +528,7 @@ The battery of T21 is closed: every one of the 48 skills has a full test under m
 - Image digest: `sha256:4a446f8ae551e20ccca1728602c6fa8ce510b73db4b1fdb17cf87ad21351eb28`.
 - Reference model `claude-sonnet-5-5`; floor model `openrouter/deepseek/deepseek-v4.1-flash`, pinned to `deepinfra`.
 - The run folders (`evals-workspace/`, 967 MB, 3,360 run streams) are archived outside the repository as one file, `battery-runs-2026-10-04-final.tar.gz`, sha256 `74ed34ba6a18f3bd749b531390ac43ba87e47c3e057f8df5d4a3e96e02b197bc`, inspected only in a copy (T26).
-- Order: the routing pass of the 48 (no description collision); wave 1, the five skills of the pilot, and its reading (`docs/architecture/battery-wave-1-2026-10-04.md`: no stop condition, 20 gradings read with none wrong, 1.4% of the grader's verdicts differing on a second grading); wave 2, the other 43.
+- Order: the routing pass of the 48 (no description collision); wave 1, the five skills of the pilot, and its reading (`docs/architecture/battery-wave-1-2026-10-04.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/battery-wave-1-2026-10-04.md`): no stop condition, 20 gradings read with none wrong, 1.4% of the grader's verdicts differing on a second grading); wave 2, the other 43.
 - Repairs on the reference model, each a change followed by the test its class asks for: `flow-fix-bug` 1.2.0 (#115, a full test), `core-security-audit` case 2 (#119), `ops-repo-baseline` case 1 (#121), `core-orchestrator` 2.2.0 (#120, a full test).
 - **Reference model: 48 `reliable`, 0 `watch`, 0 `needs a test`.**
 - **Floor model, by the same rules, information only: 43 `reliable`, 1 `watch`, 4 `needs a test`; the gate passes on the floor model for all 48.** After the per-model display (#123) the floor model's gaps were run (more runs of four skills, two missing floor baselines) and two of its guard failures were repaired: `mkt-engage` 1.2.0 (#125) and `ops-ci-pipeline` case 1 (#124), both `reliable` on both models after their tests (#126). The floor model's skills that are not `reliable`, each with its cause:
@@ -544,7 +544,7 @@ The battery of T21 is closed: every one of the 48 skills has a full test under m
 
 ## 2026-10-07: the architecture fixes, and eight decisions they rest on
 
-The review of 2026-10-06 (`docs/architecture/platform/review-2026-10-06.md`) found seventeen gaps between the layers and the goal of replaceable pieces; nine are fixed, one is partly fixed and seven wait for the next change of their layer (principle 12). The decisions taken to fix them:
+The review of 2026-10-06 (`docs/architecture/platform/review-2026-10-06.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/platform/review-2026-10-06.md`)) found seventeen gaps between the layers and the goal of replaceable pieces; nine are fixed, one is partly fixed and seven wait for the next change of their layer (principle 12). The decisions taken to fix them:
 
 - D1. `evals/run_attempts.py` stays outside the measurement fingerprint, because retries, locks and pacing are infrastructure in the repository's taxonomy; the review's point is answered by the extraction of the execution kit, and no fingerprinted file changed.
 - D2. The store's task functions are the runtime's own persistence (finding 7, the first option): no conformance suite and no second backend are promised, and `providers/CONTRACT.md` says so.

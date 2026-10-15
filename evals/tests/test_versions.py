@@ -1,5 +1,5 @@
 """Offline tests of the version rules (the reliability model, section 3; item B13 of
-docs/architecture/final-plan-2026-10-02.md): the bump command, the migration, the change classes and the three
+the final plan, removed on 2026-10-14: git show d3e60770:docs/architecture/final-plan-2026-10-02.md): the bump command, the migration, the change classes and the three
 checks of scripts/validate.py, each against the base of a change in a small git repository.
 
 Run: uv run --with pytest pytest evals/tests/test_versions.py

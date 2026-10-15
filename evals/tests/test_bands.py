@@ -1,5 +1,5 @@
 """Offline tests of the score and the bands (the reliability model, sections 4 to 7; item B7b of
-docs/architecture/final-plan-2026-10-02.md): the pessimistic score against the model's worked examples and its
+the final plan, removed on 2026-10-14: git show d3e60770:docs/architecture/final-plan-2026-10-02.md): the pessimistic score against the model's worked examples and its
 backtest, the current set and the inherited sets, the three causes of `needs a test`, the causes of `watch`, the
 field columns and the field signal, and the validator's lines. No model is called: evidence is written here.
 

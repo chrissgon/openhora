@@ -10,7 +10,7 @@ A skill is a set of instructions a model executes with a terminal, files and net
 2. Answer each item below for the component, with `yes`, `no` or `n/a: <why>`. Any `no` is fixed before evals, or the skill does not ship.
 3. Copy the result into the report's "Security" line (see the output template of the skill that loaded this file).
 
-The scan finds patterns in text. Every item below is about what the scan cannot see: an outward action written as prose ("use the available integration"), an approval reused beyond what was shown, a script that trusts a name or path from its input. The first audit (`docs/security/audit-2026-09-27.md`) found 61 such findings with the scan at zero errors.
+The scan finds patterns in text. Every item below is about what the scan cannot see: an outward action written as prose ("use the available integration"), an approval reused beyond what was shown, a script that trusts a name or path from its input. The first audit (`docs/security/audit-2026-09-27.md` (removed on 2026-10-14; `git show d3e60770:docs/security/audit-2026-09-27.md`)) found 61 such findings with the scan at zero errors.
 
 ## Checklist
 

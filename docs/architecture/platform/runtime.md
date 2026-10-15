@@ -529,10 +529,10 @@ The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-
 
 | Limit or improvement | Where it is recorded |
 |---|---|
-| Closing an open question when the person's answer settles it | [stage 3 findings](../stage-3-findings-2026-10-06.md), finding 10 |
-| A bulleted request becomes one router run per bullet; the count could be shown first, or deliveries that route to one skill offered as one | [stage 3 findings](../stage-3-findings-2026-10-06.md), finding 12 |
-| The imported-edit line is built and tested, not yet seen in a live run | [stage 3 findings](../stage-3-findings-2026-10-06.md), findings 8 and 15 |
-| A sync lists comments for every mirrored item and page at every pull, so its cost grows with the store | [stage 3 findings](../stage-3-findings-2026-10-06.md), finding 7 |
+| Closing an open question when the person's answer settles it | stage 3 findings (removed on 2026-10-14; `git show d3e60770:docs/architecture/stage-3-findings-2026-10-06.md`), finding 10 |
+| A bulleted request becomes one router run per bullet; the count could be shown first, or deliveries that route to one skill offered as one | stage 3 findings (removed on 2026-10-14; `git show d3e60770:docs/architecture/stage-3-findings-2026-10-06.md`), finding 12 |
+| The imported-edit line is built and tested, not yet seen in a live run | stage 3 findings (removed on 2026-10-14; `git show d3e60770:docs/architecture/stage-3-findings-2026-10-06.md`), findings 8 and 15 |
+| A sync lists comments for every mirrored item and page at every pull, so its cost grows with the store | stage 3 findings (removed on 2026-10-14; `git show d3e60770:docs/architecture/stage-3-findings-2026-10-06.md`), finding 7 |
 | `skill_loaded` is stored as reported and read by no rule | [backlog](../../backlog.md), R12 |
 | The board's own status property is not written | [backlog](../../backlog.md), R13 |
 | The checkout's revision is not in the dispatcher's pin (open point O11), and a scheduled job's interpreter may not read the secret store (open point O1) | [contracts/runtime.md](../../../contracts/runtime.md), "The dispatcher's two jobs" |
@@ -540,9 +540,9 @@ The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-
 | An effect document written before the registry of kinds names its kind `pull-request`; it is read as an unknown kind, so approving it is refused with the reason (`_approve_effect` in `ops.py`) and it opens no review | `runtime/effects.py` (`KINDS`), #225 |
 | Two glob rules: a `protected_paths` entry's `*` crosses `/` (`changeset.matches`), a policy's `files` glob's `*` does not (`autonomy.covers`) | the module docstrings of `runtime/project_config.py` and `runtime/autonomy.py` |
 | The social handlers keep two exemptions that CONS-2b, after the launch, removes: the paths that confirm and record an exact content the person approved by its hash (`EXACT_CONTENT_PORTS`: `cmd_approve`, the vote post's approval and record, the vote job) and the skill scripts they run as host subprocesses (the tolerated edges of the layer map, review finding 9: the notification parser and the vote step's scripts); a third difference, `social.py`'s own loaders, has no listed removal. The auto reply is no longer one of them (CONS-2a) | `runtime/tests/test_runtime_rules.py` (`EXACT_CONTENT_PORTS`); `scripts/tests/test_layer_map.py` (`TOLERATED`); [runtime/README.md](../../../runtime/README.md), `handlers/social.py` |
-| `runtime/ops.py` still holds the domain (the run pipeline, the approvals, the policy, the configuration, the dispatcher's operations), and `runtime/dispatcher.py` is both the decision and the scheduler's entry; the split waits for the next change of that layer, and `ops.py`'s size budget (`test_runtime_rules.py`) is lowered as code leaves it | [the review](review-2026-10-06.md), finding 10 |
+| `runtime/ops.py` still holds the domain (the run pipeline, the approvals, the policy, the configuration, the dispatcher's operations), and `runtime/dispatcher.py` is both the decision and the scheduler's entry; the split waits for the next change of that layer, and `ops.py`'s size budget (`test_runtime_rules.py`) is lowered as code leaves it | the review (removed on 2026-10-14; `git show d3e60770:docs/architecture/platform/review-2026-10-06.md`), finding 10 |
 | The messaging bridge's ledger is never pruned, the bridge is not restarted when it exits, and a line that arrives while a run holds the project is answered busy and not queued | [messaging.md](messaging.md), "Known limits and improvements" |
-| `_effect_words` reads the side-effect vocabulary from the source text of `scripts/validate.py` with a regular expression | `scripts/tests/test_layer_map.py` (`TOLERATED`), [the review](review-2026-10-06.md), finding 11 |
+| `_effect_words` reads the side-effect vocabulary from the source text of `scripts/validate.py` with a regular expression | `scripts/tests/test_layer_map.py` (`TOLERATED`), the review (removed on 2026-10-14; `git show d3e60770:docs/architecture/platform/review-2026-10-06.md`), finding 11 |
 
 ## Changes
 

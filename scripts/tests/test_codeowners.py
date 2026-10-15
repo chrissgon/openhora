@@ -1,5 +1,5 @@
 """The code owners file covers what decides what a run measures and what moves a skill's standing (the
-reliability model, section 8; item B11 of docs/architecture/final-plan-2026-10-02.md), and every pattern in it
+reliability model, section 8; item B11 of the final plan, removed on 2026-10-14: git show d3e60770:docs/architecture/final-plan-2026-10-02.md), and every pattern in it
 matches something of the repository.
 
 Run: uv run --with pytest pytest scripts/tests/test_codeowners.py

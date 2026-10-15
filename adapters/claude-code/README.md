@@ -17,7 +17,7 @@ The plugin was called `ai-workbench` until 2026-10-09. An install run removes th
 
 ## The skill-listing budget
 
-Claude Code lists the installed skills to the model within a character budget, its bundled skills first, and lists a skill past the budget by name only. Measured on 2026-10-03 with the default budget, 28 of the default pack's 48 descriptions reached the model (`docs/architecture/phase-d-proof-2026-10-03.md`). A skill listed by name only is one the model cannot tell when to use. By decision 9 of the plan the installer writes the budget when the person agrees, and no description is shortened for it.
+Claude Code lists the installed skills to the model within a character budget, its bundled skills first, and lists a skill past the budget by name only. Measured on 2026-10-03 with the default budget, 28 of the default pack's 48 descriptions reached the model (`docs/architecture/phase-d-proof-2026-10-03.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/phase-d-proof-2026-10-03.md`)). A skill listed by name only is one the model cannot tell when to use. By decision 9 of the plan the installer writes the budget when the person agrees, and no description is shortened for it.
 
 - **The setting.** `SLASH_COMMAND_TOOL_CHAR_BUDGET`, a variable of the CLI's environment. Its only source in this repository is this adapter's eval runner, which raises it (see "Evals" below; checked 2026-10-01, CLI 2.1.283). A settings file sets a variable for every session through its `env` object; that an installed project gets every description this way is what the re-measurement below checks.
 - **What the installer computes.** Each skill of the pack counted as the line `- openhora:<name>: <description>` (the plugin's name prefixes the skill's), plus a margin of a quarter of that, at least 10,000 characters, rounded up to the next 1,000. The margin is for what the CLI lists before the pack: its bundled skills and any other skill or plugin of the person's. No source in the repository gives their size, so the margin is an assumption, proportionate to the pack so that it grows with it and is never a fixed huge number. `python3 adapters/claude-code/listing_budget.py compute --pack <name>` prints it.
@@ -32,7 +32,7 @@ To apply it to a project:
 bash adapters/claude-code/install.sh --pack default --listing-budget write --project /path/to/project
 ```
 
-To check what reaches the model afterwards (one model call, the maintainer's to run, with the CLI's credential in the environment as in the phase D measurement): the measurement of `docs/architecture/phase-d-proof-2026-10-03.md` again, with the budget written into a scratch project and the call made from it. Run from the checkout; it removes its scratch folders and keeps the reply in `listing-reply.json` of a fresh temporary folder, whose path it prints.
+To check what reaches the model afterwards (one model call, the maintainer's to run, with the CLI's credential in the environment as in the phase D measurement): the measurement of `docs/architecture/phase-d-proof-2026-10-03.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/phase-d-proof-2026-10-03.md`) again, with the budget written into a scratch project and the call made from it. Run from the checkout; it removes its scratch folders and keeps the reply in `listing-reply.json` of a fresh temporary folder, whose path it prints.
 
 ```bash
 WB="$PWD" S="$(mktemp -d)" OUT="$(mktemp -d)" && mkdir -p "$S/home" "$S/proj" \

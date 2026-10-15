@@ -95,4 +95,4 @@ Every skill is tested in the lab: its eval cases (`skills/<name>/evals/evals.jso
 
 ## Status
 
-What is built and how each skill stands: [docs/inventory.md](docs/inventory.md). What remains: [docs/backlog.md](docs/backlog.md) and the plan in [docs/architecture/final-plan-2026-10-02.md](docs/architecture/final-plan-2026-10-02.md).
+What is built and how each skill stands: [docs/inventory.md](docs/inventory.md). What remains: [docs/backlog.md](docs/backlog.md) and the plan in `docs/architecture/final-plan-2026-10-02.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/final-plan-2026-10-02.md`).

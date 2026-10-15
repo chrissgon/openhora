@@ -1,5 +1,5 @@
 """Offline tests of scripts/evidence.py, the field recorder (the reliability model, section 7; item B15 of
-docs/architecture/final-plan-2026-10-02.md). Each test builds a small workbench in a temporary folder (the
+the final plan, removed on 2026-10-14: git show d3e60770:docs/architecture/final-plan-2026-10-02.md). Each test builds a small workbench in a temporary folder (the
 recorder, the status script, a gate file, an adapter folder, one skill with its version file) and a project
 beside it, and runs the recorder as a project would: flags only, no prompt, no network.
 

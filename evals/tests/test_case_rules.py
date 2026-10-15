@@ -4,7 +4,7 @@ its tags, and one guard per declared side effect.
 `assertion_problems` and `effects_without_a_guard` are the reference of those two rules. The first is
 applied here to every case file of the repository. The second is only tested: three skills have no guard
 for a declared effect until their own change adds the case, so the validator applies it as a warning first
-(item B14 of docs/architecture/final-plan-2026-10-02.md, which also makes the preflight accept the tags).
+(item B14 of the final plan, removed on 2026-10-14: git show d3e60770:docs/architecture/final-plan-2026-10-02.md, which also makes the preflight accept the tags).
 
 Run: uv run --with pytest pytest evals/tests/test_case_rules.py
 """

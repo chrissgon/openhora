@@ -17,7 +17,7 @@ the targets that a provider resolution returns at run time (providers/resolve.py
 paths in code). A new way of reaching a file is added to `scan` with its own case in the self-test below.
 
 ALLOWED is the rules of the layer diagram. TOLERATED is every edge the code has today that ALLOWED refuses, each
-named after the finding of docs/architecture/platform/review-2026-10-06.md that removes it (or that names the
+named after the finding of the platform review (removed on 2026-10-14: git show d3e60770:docs/architecture/platform/review-2026-10-06.md) that removes it (or that names the
 rule it breaks), so that the list only shrinks: the test fails on an edge that is neither allowed nor tolerated,
 and on a tolerated row the scan no longer finds. NOT_A_DEPENDENCY lists the paths the scan finds that are not a
 dependency (a path read as text, a name in a table), each with the reason, held to the same staleness rule.

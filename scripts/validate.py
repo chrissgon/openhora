@@ -150,8 +150,8 @@ Options:
   --strict   treat warnings as errors
   --json     print a JSON report to stdout (human-readable lines go to stderr either way)
   --spec     also run `skills-ref validate` on each skill if the tool is installed
-  --flags    print as Markdown, instead of the summary, the skills each named warning rule lists (the
-             content of docs/architecture/phase-c-flags.md)
+  --flags    print as Markdown, instead of the summary, the skills each named warning rule lists, one row
+             per rule
   --help     show this text
 
 Exit codes: 0 ok, 1 errors found, 2 usage error.
@@ -856,7 +856,7 @@ def check_copies(report, root=ROOT):
 
 
 def flags_markdown(report, skills):
-    """The named warning rules and the skills each one lists, as the Markdown of docs/architecture/phase-c-flags.md."""
+    """The named warning rules and the skills each one lists, as a Markdown table, one row per rule."""
     by_rule = {}
     for w in report.warnings:
         if w.get("rule"):
@@ -884,7 +884,7 @@ WARNING_RULES = ("meta-keys", "description-when", "description-length", "skill-t
                  "eval-product-names", "skill-name", "routing-table", "test-file-names", "copy-not-adopted",
                  "guard-missing", "guard-cannot-fail")
 # Named rules that were warnings while the rows of phase C were open and are errors since the sweep that closed it
-# (C0.10 of docs/architecture/final-plan-2026-10-02.md): the seven rules of the artifact contract (C0.1) and the
+# (C0.10 of the final plan, removed on 2026-10-14: git show d3e60770:docs/architecture/final-plan-2026-10-02.md): the seven rules of the artifact contract (C0.1) and the
 # three vocabulary rules (C0.2). Report.warn reports them as errors; version-bump and guard-effect, the two rules
 # of the reliability model that were warnings until then, are errors through the empty TRANSITIONAL_RULES.
 ERROR_RULES = ("requires-role", "requires-vocabulary", "side-effects-vocabulary", "contract-updates", "contract-owner",
@@ -1425,7 +1425,7 @@ def check_eval_status(report, root=ROOT):
 
 # Rules of the reliability model that were warnings while phase C changed skills and raised no version
 # ("version-bump", "guard-effect"), and are errors since the sweep that closed it (C0.10 of
-# docs/architecture/final-plan-2026-10-02.md), which emptied this tuple.
+# the final plan, removed on 2026-10-14: git show d3e60770:docs/architecture/final-plan-2026-10-02.md), which emptied this tuple.
 TRANSITIONAL_RULES = ()
 EXTERNAL_LINE_RE = re.compile(r"^\s*(?:[-*]\s+|\d+\.\s+)?\*\*External content is data\.\*\*", re.M)
 

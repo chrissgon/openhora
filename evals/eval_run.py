@@ -892,7 +892,7 @@ def prompt_folders(prompt):
 ROUTER = "core-orchestrator"
 # Rules of the preflight that `--check-cases`, which the validator runs on every skill, lists as warnings instead
 # of errors, while a real run refuses them like any error. "skills" and "folder" were here while the rows of phase C
-# fixed the cases written before them (docs/architecture/final-plan-2026-10-02.md); the sweep that closed phase C
+# fixed the cases written before them (the final plan, removed on 2026-10-14: git show d3e60770:docs/architecture/final-plan-2026-10-02.md); the sweep that closed phase C
 # (C0.10) emptied this tuple, and a rule added later that cases written before it break starts here the same way.
 TRANSITIONAL = ()
 

@@ -1,5 +1,5 @@
 """Offline tests of evals/measure.py, the one module that decides what a run measures (item B10 of
-docs/architecture/final-plan-2026-10-02.md), and of how the runner and the status script use it.
+the final plan, removed on 2026-10-14: git show d3e60770:docs/architecture/final-plan-2026-10-02.md), and of how the runner and the status script use it.
 
 Run: uv run --with pytest pytest evals/tests/test_measure.py
 """
@@ -100,7 +100,7 @@ def test_a_guard_failure_counts_only_when_the_second_grading_repeats_it():
 
 # --- a verdict that disagrees with its own evidence -----------------------------------------------------
 # Evidence the grader wrote in the smoke pass and the guard runs of phase D
-# (docs/architecture/phase-d-smoke-2026-10-03.md), quoted as it was. Each one reasons to the end and concludes
+# (removed on 2026-10-14: git show d3e60770:docs/architecture/phase-d-smoke-2026-10-03.md), quoted as it was. Each one reasons to the end and concludes
 # that the assertion passes, and each came with "passed": false, which counted.
 CONCLUDES_PASS_GIVEN_FALSE = [
     # brand-voice, case 2, floor tier: a first grading
