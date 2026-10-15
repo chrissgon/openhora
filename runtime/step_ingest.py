@@ -16,6 +16,8 @@ Arguments (checked when the task is planned, so the plan's hash covers exactly w
   {"source": "<source id>", "url": "<a Notion page's address or id>"}         import that page
   {"source": "<source id>"}                                                   refresh: a Notion source reads its page again; a file
                                                                               source checks the newest version against its hashes
+                                                                              a Drive source asks Drive for the file's version and reads
+                                                                              it only when it moved (P7)
 
 A file is never read from an arbitrary path: the task reads the plain name it is given from its own file drop,
 `.workbench-local/drop/<task id>/` (runtime/drop.py: a regular file, no link, no credential in it, put there by the person with
