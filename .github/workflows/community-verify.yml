@@ -1,0 +1,75 @@
+# Verifies, with no model call, the community evidence files a pull request adds (decision D19, hardening S5;
+# docs/community-evidence.md). For each added community-<repository id>-<run id>-<attempt>.jsonl it runs
+# scripts/verify_community.py: the shape of the three files and the evidence validators (read strictly), the signing
+# commit in the history of main, and `gh attestation verify` of the evidence file and of its manifest against the
+# bundle, with the official workflow at that exact commit as the signer (--cert-identity, --signer-digest), a
+# GitHub-hosted runner (--deny-self-hosted-runners) and the fork the manifest names (--repo). A change with no
+# community file passes in a few seconds, which is why the job has no path filter: a check that is required before a
+# merge has to run on every pull request.
+#
+# The trigger is `pull_request`, never `pull_request_target`: the job has `contents: read` only and the run's
+# read-only token, and no secret. The pull request's files are DATA: the evidence is read and never run. The code that
+# reads them is the BASE commit's, never the pull request's: the script is read with `git show` from the base commit
+# into the runner's temp folder, and the evidence validators it loads come from a checkout of the base commit (--code-root),
+# so a change cannot weaken its own check (the same rule as image-lock.yml). The gate file, the version files and the
+# minimum signing commit (evals/community.json) the files are read by are the base's too. The base has no verifier only
+# for the pull request that adds the script: that one falls back to its own copy and says so, but only when it adds no
+# community file; a pull request that adds community files where the base has no verifier fails, whether or not it adds one.
+#
+# A pull request that edits this workflow file runs its own edited version (GitHub runs a pull request's workflow
+# from its merge commit): the owner's review of every change under .github/ (CODEOWNERS) and the repository setting that
+# requires this check before a merge are what hold that line.
+#
+# Actions are pinned to a commit (tags can move); Dependabot proposes updates.
+name: community-verify
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: community-verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: verify community evidence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the signing commit is checked against the history of main
+          persist-credentials: false
+      - name: The community files this change adds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OFFICIAL_REPOSITORY: ${{ github.repository }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          code="$GITHUB_WORKSPACE"
+          verifier=scripts/verify_community.py
+          if git cat-file -e "$BASE_SHA":scripts/verify_community.py 2>/dev/null; then
+            git show "$BASE_SHA":scripts/verify_community.py > "$RUNNER_TEMP/verify_community.py"
+            mkdir "$RUNNER_TEMP/base"
+            # the base's code, its gate file and minimum signing commit (evals/), and its version files: the rules the files are read by
+            git archive "$BASE_SHA" evals scripts 'skills/*/evals/versions.jsonl' | tar -x -C "$RUNNER_TEMP/base"
+            verifier="$RUNNER_TEMP/verify_community.py"
+            code="$RUNNER_TEMP/base"
+            echo "checking with the base commit's script"
+          elif [ -n "$(git diff --name-only "$BASE_SHA" HEAD -- 'skills/*/evals/evidence/community-*')" ]; then
+            # even a pull request that adds the verifier: a script and the files it would judge must not arrive together
+            echo "::error::this pull request adds community evidence and the base commit has no community verifier: it is not verified, so it is refused" >&2
+            exit 1
+          elif [ -n "$(git diff --name-only --diff-filter=A "$BASE_SHA" HEAD -- scripts/verify_community.py)" ]; then
+            echo "note: this pull request adds the community verifier and no community file; its own script runs"
+          else
+            echo "no community file in this change, and no verifier at the base: nothing to verify"
+            exit 0
+          fi
+          python3 "$verifier" --root "$GITHUB_WORKSPACE" --code-root "$code" --official-repo "$OFFICIAL_REPOSITORY" \
+            --main-ref origin/main --base "$BASE_SHA"

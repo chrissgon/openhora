@@ -82,10 +82,25 @@ A run line may carry "usage": {"input", "output", "cache_read", "cache_write"}, 
 four kinds of tokens a run used (runtime/costs.py KINDS). Optional, and never a guess: it is written when the
 run's tokens could be read (eval_run.py run_usage), otherwise the key is absent.
 
+Community evidence (the plan's decision D19, package P10)
+---------------------------------------------------------
+A contributor runs the official reusable workflow (.github/workflows/community-eval.yml) in their fork; the workflow
+attests the evidence file, and the contributor's pull request adds three files to the skill's evidence folder, named
+after the fork's run: community-<repository id>-<run id>-<run attempt>.jsonl (the evidence), .manifest.json (what the
+run was, attested with the file) and .sigstore.json (the attestation bundle). The event line of the evidence file
+carries the closed marker "source": "community" (SOURCES); a lab file, and a person's local file, never carries it.
+Everything else about the lines is the lab form (the list header, the run lines, the usage). A community file names
+one model, its image is the published one, and a new file is read strictly: the model is one of the gate file's
+listed models with a route (so that its key was held by a key proxy) and it ran through the adapter its entry names.
+community_file_problems checks the shape and the agreement of the three files with one another without a network
+call; the signature itself is verified by scripts/verify_community.py, in CI, on the pull request that adds the
+files. The manifest is a closed form with no free text (MANIFEST_KEYS).
+
 Usage (a library):
   python3 evals/evidence_lines.py --help        print this text
 """
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -110,7 +125,7 @@ EVENT_REQUIRED = ("record", "skill", "test", "kind", "version", "content_sha256"
                   "adapter_sha256", "grader", "runs", "timeout_seconds", "retries", "measurement_version",
                   "measurement_sha256", "image_digest", "image_platform", "grading_template_sha256", "tools", "cases",
                   "baseline", "web_cases", "counts", "extra_pass_env", "complete")
-EVENT_OPTIONAL = ("gate", "upstream", "image_source", "complete_models")
+EVENT_OPTIONAL = ("gate", "upstream", "image_source", "complete_models", "source")
 RUN_REQUIRED = ("record", "skill", "version", "content_sha256", "model", "adapter", "kind", "test", "date",
                 "measurement_version", "measurement_sha256", "case", "case_sha256", "variant", "outcome", "score", "results")
 # "platform" names a social platform; "cpu_platform" the CPU platform the run's container ran on (linux/arm64, linux/amd64).
@@ -121,6 +136,23 @@ USAGE_KEYS = ("input", "output", "cache_read", "cache_write")
 IMAGE_SOURCES = ("published", "local")
 CPU_PLATFORM_RE = re.compile(r"linux/[a-z0-9]+(/[a-z0-9]+)?")
 GATE_KEYS = ("passed", "with", "baseline", "threshold", "tolerance")
+SOURCES = ("community",)  # the closed list of the event line's "source" marker; absent in a lab file and in a local one
+COMMUNITY_FILE_RE = re.compile(r"community-([0-9]{1,20})-([0-9]{1,20})-([0-9]{1,4})(\.jsonl|\.manifest\.json|\.sigstore\.json)")
+# The manifest of a community run says what the run was. It is attested with the evidence file (one attestation, two
+# subjects), so its values are the workflow's and not the contributor's. No free text: every value has a form below.
+MANIFEST_KEYS = ("record", "repository", "repository_id", "run_id", "run_attempt", "run_number", "workflow", "commit",
+                 "skill", "model", "evidence_sha256", "run_runner_group")
+# "run_runner_group" is added by the attestation job, which reads this run attempt's jobs through the API and requires the
+# `run` job to have run in the group of GitHub's own runners: the one proof, beside the attest job's own certificate, that
+# the job that ran the model was not on a self-hosted runner. The pack step writes the manifest without it (partial).
+RUNNER_GROUP = "GitHub Actions"
+# The one file name a fork's caller workflow has; a manifest that names another is flagged (the run numbers of a
+# workflow count per file, so one file per fork keeps the count whole).
+CALLER_WORKFLOW = ".github/workflows/openhora-community.yml"
+REPOSITORY_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}")
+WORKFLOW_PATH_RE = re.compile(r"\.github/workflows/[A-Za-z0-9._-]{1,100}\.ya?ml")
+COMMIT_RE = re.compile(r"[0-9a-f]{40}")
+BUNDLE_MAX_BYTES = 1_000_000
 
 
 def _is(pattern, value):
@@ -356,6 +388,8 @@ def event_line_problems(line, models=None):
             out.append("gate is written by a complete full test only: an event closed as abandoned evaluates no gate")
     elif line["kind"] == "full" and line["complete"] is True:
         out.append("a complete full test carries its gate")
+    if "source" in line and line["source"] not in SOURCES:
+        bad("source", "\"community\" (the marker the community workflow's pack step writes; a lab or local file has none)")
     if "upstream" in line and not (isinstance(line["upstream"], dict) and all(
             is_named(k) and _is(TOOL_RE, v) for k, v in line["upstream"].items())):
         bad("upstream", "{model id the line names: the upstream provider the key proxy's route pins}")
@@ -501,6 +535,9 @@ def evidence_file_problems(path, root=None, skill=None, strict=None):
             elif strict["lab"][model] is not None and adapter != strict["lab"][model]:
                 problems.append(f"line 1: {model} ran through the adapter {adapter}, and the one its entry in the gate file "
                                 f"names is {strict['lab'][model]}: evidence in the repository is of the configured pair")
+        if "source" in event:
+            problems.append("line 1: source belongs to a community evidence file (community-<run id>.jsonl) only: a lab file, "
+                            "and a person's local file, never carries it")
         if strict and event["runs"] != strict["runs"]:
             problems.append(f"line 1: runs is {event['runs']}, and the configured number is {strict['runs']} "
                             "(\"runs\" of evals/eval-gate.json): a new evidence file comes only from an event that used the "
@@ -526,6 +563,162 @@ def run_count_problems(event, runs):
     return out
 
 
+# --- community evidence (the module docstring) --------------------------------------------------------------
+
+def community_ids(name):
+    """(repository id, run id, run attempt, suffix) of a community file name, else None; the suffix is .jsonl,
+    .manifest.json or .sigstore.json."""
+    m = COMMUNITY_FILE_RE.fullmatch(name)
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3)), m.group(4)) if m else None
+
+
+def manifest_problems(manifest, partial=False):
+    """Why a community manifest is outside its closed form (MANIFEST_KEYS); [] when it is valid. partial leaves out
+    "run_runner_group", which the attestation job adds: only the pack step reads a manifest that way."""
+    if not isinstance(manifest, dict):
+        return ["must be a JSON object"]
+    keys = tuple(k for k in MANIFEST_KEYS if not (partial and k == "run_runner_group"))
+    out = _keys(manifest, keys, ())
+    if out:
+        return out
+    bad = lambda key, form: out.append(f"{key} must be {form}")
+    if manifest["record"] != "community-manifest":
+        bad("record", "\"community-manifest\"")
+    if not _is(REPOSITORY_RE, manifest["repository"]):
+        bad("repository", "owner/name of the fork the run ran in")
+    for key in ("repository_id", "run_id", "run_attempt", "run_number"):
+        if not _count(manifest[key], 1):
+            bad(key, "a whole number, 1 or more")
+    if not _is(WORKFLOW_PATH_RE, manifest["workflow"]):
+        bad("workflow", "the path of the caller's workflow file (.github/workflows/<file>.yml)")
+    if not _is(COMMIT_RE, manifest["commit"]):
+        bad("commit", "the 40 hexadecimal characters of the official workflow's commit")
+    if not _is(NAME_RE, manifest["skill"]):
+        bad("skill", "a skill name")
+    if not (isinstance(manifest["model"], str) and _model(manifest["model"], None) and manifest["model"] != "unknown"):
+        bad("model", "a well-formed model id")
+    if not _is(HEX64_RE, manifest["evidence_sha256"]):
+        bad("evidence_sha256", "64 hexadecimal characters")
+    if not partial and manifest["run_runner_group"] != RUNNER_GROUP:
+        bad("run_runner_group", f"\"{RUNNER_GROUP}\", the runner group of GitHub's own runners: the job that ran the model "
+            "was not shown to be on one")
+    return out
+
+
+def bundle_problems(data):
+    """Why the bytes of a .sigstore.json file cannot be an attestation bundle. The shape only: the signature is
+    verified by scripts/verify_community.py with the GitHub CLI."""
+    if len(data) > BUNDLE_MAX_BYTES:
+        return [f"is larger than {BUNDLE_MAX_BYTES} bytes"]
+    try:
+        bundle = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return ["is not JSON"]
+    if not (isinstance(bundle, dict) and isinstance(bundle.get("mediaType"), str)
+            and bundle["mediaType"].startswith("application/vnd.dev.sigstore.bundle") and "verificationMaterial" in bundle
+            and ("dsseEnvelope" in bundle or "messageSignature" in bundle)):
+        return ["is not a Sigstore bundle (mediaType, verificationMaterial and a signed envelope)"]
+    return []
+
+
+def community_companion_problems(path):
+    """Why a .manifest.json or .sigstore.json file has no place in the folder: its evidence file is not there."""
+    name = os.path.basename(path)
+    ids = community_ids(name)
+    stem = name[:-len(ids[3])] if ids else name
+    if not os.path.isfile(os.path.join(os.path.dirname(path), stem + ".jsonl")):
+        return [f"{stem}.jsonl is not in the folder: a manifest and a bundle belong to their evidence file"]
+    return []
+
+
+def community_file_problems(path, root=None, skill=None, strict=None):
+    """Why one community evidence file is not valid (its manifest and bundle included); [] when it is. The shape of
+    the three files and their agreement with one another, with no network call. skill is the folder the file belongs
+    to (by default read from the path). strict, {"models": ids, "runs": number, "entries": {model id: its adapter}} or
+    None, is the strict reading of a file that is new against the base: the model is one of "entries" (a listed model
+    with a route) and ran through the adapter its entry names, the event's "runs" is the configured number. root is
+    accepted for the callers that pass it and is not read."""
+    name = os.path.basename(path)
+    parts = os.path.normpath(os.path.abspath(path)).split(os.sep)
+    if skill is None and len(parts) >= 5 and parts[-3:-1] == ["evals", "evidence"] and parts[-5] == "skills":
+        skill = parts[-4]
+    ids = community_ids(name)
+    if not ids or ids[3] != ".jsonl":
+        return [f"the name must be community-<repository id>-<run id>-<run attempt>.jsonl, not {name}"]
+    stem, folder = name[:-len(".jsonl")], os.path.dirname(path)
+    problems = []
+    for suffix in (".jsonl", ".manifest.json", ".sigstore.json"):
+        if os.path.islink(os.path.join(folder, stem + suffix)):
+            return [f"{stem}{suffix} is a link: a community file is a plain file (a link could read what is not evidence)"]
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except OSError as e:
+        return [f"cannot be read: {e}"]
+    manifest = None
+    try:
+        with open(os.path.join(folder, stem + ".manifest.json"), encoding="utf-8") as f:
+            manifest = json.load(f)
+    except OSError:
+        problems.append(f"{stem}.manifest.json is missing: the manifest is what the attestation covers beside the file")
+    except ValueError:
+        problems.append(f"{stem}.manifest.json is not valid JSON")
+    if manifest is not None:
+        found = manifest_problems(manifest)
+        problems += [f"manifest: {p}" for p in found]
+        if not found:
+            if (manifest["repository_id"], manifest["run_id"], manifest["run_attempt"]) != ids[:3]:
+                problems.append("manifest: repository_id, run_id and run_attempt are not the ones the file's name carries")
+            if manifest["evidence_sha256"] != hashlib.sha256(data).hexdigest():
+                problems.append("manifest: evidence_sha256 is not the sha256 of the file")
+            if skill is not None and manifest["skill"] != skill:
+                problems.append(f"manifest: skill must be the folder's name, {skill}")
+    try:
+        with open(os.path.join(folder, stem + ".sigstore.json"), "rb") as f:
+            problems += [f"bundle: {p}" for p in bundle_problems(f.read())]
+    except OSError:
+        problems.append(f"{stem}.sigstore.json is missing: a community file is evidence only with its attestation bundle")
+    event, runs, read = read_evidence_file(path)
+    problems += read
+    if event is None:
+        return problems
+    models = set(strict["models"]) if strict else None
+    first = event_line_problems(event, models)
+    problems += [f"line 1: {p}" for p in first]
+    if not first:
+        if event.get("source") != "community":
+            problems.append("line 1: source must be \"community\" in a community evidence file")
+        if skill is not None and event["skill"] != skill:
+            problems.append(f"line 1: skill must be the folder's name, {skill}")
+        if event.get("image_source") != "published":
+            problems.append("line 1: image_source must be \"published\": a community run uses the published eval image, "
+                            "pulled by the digest of the lock file")
+        pairs = event_model_pairs(event)
+        if len(pairs) != 1:
+            problems.append("line 1: a community file tests one model: models must name exactly one")
+        elif isinstance(manifest, dict) and not manifest_problems(manifest) and pairs[0][0] != manifest["model"]:
+            problems.append("line 1: the model is not the one the manifest names")
+        elif strict and "entries" in strict:
+            model, adapter = pairs[0]
+            if model not in strict["entries"]:
+                problems.append(f"line 1: {model} is not a model of the gate file with a route: a community run tests a listed "
+                                "model whose key a key proxy held (a pull request adds the model to the gate file first)")
+            elif strict["entries"][model] != adapter:
+                problems.append(f"line 1: {model} ran through the adapter {adapter}, and the one its entry in the gate file "
+                                f"names is {strict['entries'][model]}")
+        if strict and event["runs"] != strict["runs"]:
+            problems.append(f"line 1: runs is {event['runs']}, and the configured number is {strict['runs']} "
+                            "(\"runs\" of evals/eval-gate.json)")
+    for n, line in runs:
+        found = run_line_problems(line, None if first else event, models)
+        problems += [f"line {n}: {p}" for p in found]
+        if not found and isinstance(manifest, dict) and not manifest_problems(manifest) and line["model"] != manifest["model"]:
+            problems.append(f"line {n}: model is not the one the manifest names")
+    if not first and not problems:
+        problems += run_count_problems(event, [line for _, line in runs])
+    return problems
+
+
 def evidence_files(skill_dir):
     """The lab evidence files of a skill, oldest first (a test id starts with its time)."""
     folder = os.path.join(skill_dir, EVIDENCE_REL)
@@ -534,13 +727,18 @@ def evidence_files(skill_dir):
     return [os.path.join(folder, n) for n in sorted(os.listdir(folder)) if n.startswith("lab-") and n.endswith(".jsonl")]
 
 
-def evidence_problems(root=ROOT, only=None, field_problems=None, strict_for=None):
+def evidence_problems(root=ROOT, only=None, field_problems=None, strict_for=None, community_problems=None,
+                      community_for=None):
     """({relative path: [problems]}, files checked) for the evidence folders of every skill, or of one. A file
-    whose name is neither lab-<test id>.jsonl nor field-<id>.jsonl is a problem: nothing else belongs in that
-    folder. field_problems(path, root, skill) judges a field-<id>.jsonl file, and strict_for(relative path)
-    answers, for a lab file, the `strict` argument of evidence_file_problems (None: judge it by its own event
+    whose name is neither lab-<test id>.jsonl, field-<id>.jsonl nor one of the three files of a community run
+    (community-<repository id>-<run id>-<attempt>.jsonl, .manifest.json, .sigstore.json) is a problem: nothing else
+    belongs in that folder. field_problems(path, root, skill) judges a field-<id>.jsonl file, and strict_for(relative
+    path) answers, for a lab file, the `strict` argument of evidence_file_problems (None: judge it by its own event
     line), or a text, in which case the file is refused with that text and not read; both belong to
-    eval_status.py, which passes them (without field_problems a field file is reported as unread)."""
+    eval_status.py, which passes them (without field_problems a field file is reported as unread).
+    community_problems(path, root, skill, strict) judges a community .jsonl file and community_for(relative path)
+    answers, for any of the three files, the `strict` argument of community_file_problems or a text (a file
+    that is edited), as strict_for does for a lab file."""
     found, checked = {}, 0
     for name in [only] if only else skill_names(root):
         folder = os.path.join(root, "skills", name, EVIDENCE_REL)
@@ -552,6 +750,20 @@ def evidence_problems(root=ROOT, only=None, field_problems=None, strict_for=None
                     problems = ["a field evidence file is judged by eval_status.py, which passes its reader"]
                 else:
                     problems = field_problems(os.path.join(folder, entry), root, name)
+            elif entry.startswith("community-"):  # contributed community evidence (scripts/verify_community.py)
+                ids = community_ids(entry)
+                reading = community_for(rel) if community_for else None
+                if ids is None:
+                    problems = [f"the name must be community-<repository id>-<run id>-<run attempt>.jsonl, .manifest.json "
+                                f"or .sigstore.json, not {entry}"]
+                elif isinstance(reading, str):
+                    problems = [reading]
+                elif ids[3] != ".jsonl":
+                    problems = community_companion_problems(os.path.join(folder, entry))
+                elif community_problems is None:
+                    problems = ["a community evidence file is judged by eval_status.py, which passes its reader"]
+                else:
+                    problems = community_problems(os.path.join(folder, entry), root, name, reading)
             else:
                 reading = strict_for(rel) if strict_for else None
                 problems = ([reading] if isinstance(reading, str)
