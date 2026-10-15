@@ -393,6 +393,40 @@ def test_a_run_under_its_budget_is_never_stopped(provider, make):
     assert run.file()["total"] == 5 * 216 and run.file()["budget_reached"] is False
 
 
+def test_a_reservation_is_given_back_when_the_answer_is_counted_not_when_the_request_ends(provider, make, monkeypatch):
+    """The run's next request, sent the moment it has read an answer, must meet room: the reservation goes in the same
+    step as the count, so a slow end of the request (release() delayed 200 ms here) cannot hold it. In_flight, and a
+    reservation never counted (an error), are still given back when the request ends, once."""
+    real = kp.Meter.release
+
+    def slow_release(self, reserve, ticket=0):
+        time.sleep(0.2)
+        real(self, reserve, ticket)
+    monkeypatch.setattr(kp.Meter, "release", slow_release)
+    run = make(OPENROUTER, budget=10_000)
+    provider.reply, provider.headers = fixture("openrouter_completion.json"), {"Content-Type": "application/json"}
+    assert [run.post(CHAT, {"model": "deepseek/deepseek-v4.1-flash"})[0] for _ in range(5)] == [200] * 5
+    for _ in range(100):  # the last request ends
+        if run.file()["in_flight"] == 0:
+            break
+        time.sleep(0.05)
+    assert run.file()["total"] == 5 * 216 and run.file()["refused"]["budget"] == 0
+    assert run.meter.reserved == 0 and run.meter.held == {} and run.file()["in_flight"] == 0  # given back once, not twice
+
+
+def test_a_reservation_that_was_never_counted_is_given_back_when_the_request_ends(provider, make):
+    """A request to an endpoint that is not metered (count_tokens) is never counted: its reservation goes at its end."""
+    run = make(ANTHROPIC, ("claude-sonnet-5-5",), budget=10_000)
+    provider.reply, provider.headers = b"{}", {"Content-Type": "application/json"}
+    assert run.post(COUNT, {"model": "claude-sonnet-5-5"})[0] == 200
+    for _ in range(100):
+        if run.file()["in_flight"] == 0:
+            break
+        time.sleep(0.05)
+    assert run.file()["responses"] == 0
+    assert run.meter.reserved == 0 and run.meter.held == {} and run.file()["in_flight"] == 0
+
+
 # --- the command line -------------------------------------------------------------------------------------------
 
 

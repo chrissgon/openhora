@@ -666,3 +666,11 @@ SEC and P2b (with the review fixes): a held run reaches only its own per-run key
 - Fingerprint: `f3fd40d5361113d83f51134223616005799564822f37001d5421f2410d32f9f3` (it replaces the ones of the entries above).
 - Written by `python3 evals/eval_status.py measurement --close`.
 - What the second round changed: the meter file is written when a request is admitted and when it ends, with `in_flight`; the runner waits until no request is under way (at most the route's timeout, not at all on a stop) before it stops the proxy; `release()` sends SIGTERM first (`docker stop`) and the proxy records each answer it was still reading as unknown, so that a run that ends in the middle of a request has the answer counted or flagged as a lower bound, never a silent zero; a `max_tokens` below 1 reserves the route's default; `image_platform()` defaults to the docker host's platform when it is arm64 or amd64 (arm64 otherwise), and `runtime/lab.py` `image()` reports the evidence platform as the image's when it is one of the accepted pair.
+
+## 2026-10-15: measurement change, infrastructure
+
+Key proxy: a request's token reservation is released when its answer is counted, not after the client has it; executor: native_platform caches only a real answer and docker info has a short timeout. Infrastructure: no result a run records changes.
+
+- Kind: infrastructure: locks, resumption, retries, pacing or reports changed in a file the fingerprint covers. No version is raised; the new fingerprint is committed with the reason.
+- Fingerprint: `81abce6456adb8ba4f4a686b09ffc62b80ddbd78248068a3803adcca169c5f94`.
+- Written by `python3 evals/eval_status.py measurement --kind infrastructure`.

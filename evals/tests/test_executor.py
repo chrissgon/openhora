@@ -508,3 +508,40 @@ def test_the_environment_variable_still_wins_and_a_docker_that_says_nothing_leav
     monkeypatch.delenv(ex.PLATFORM_ENV)
     fake_info(monkeypatch, "", fail=True)  # docker is not installed: the default stays as it was
     assert ex.image_platform() == "linux/arm64" and ex.native_platform() is None
+
+
+def test_a_docker_that_does_not_answer_yet_is_not_remembered_as_an_answer(monkeypatch):
+    """A runtime started before the docker daemon must not default to arm64 for its life on an amd64 host."""
+    import subprocess
+    monkeypatch.delenv(ex.PLATFORM_ENV, raising=False)
+    state, calls = {"now": None}, []
+
+    def docker(*args, env=None, check=True, timeout=1800):
+        calls.append(timeout)
+        if isinstance(state["now"], BaseException):
+            raise state["now"]
+        return state["now"]
+    monkeypatch.setattr(ex, "docker", docker)
+    ex._NATIVE.clear()
+    for state["now"] in (subprocess.CompletedProcess(["docker"], 1, "", "Cannot connect to the Docker daemon"),
+                         ex.ExecutorError("docker is not installed or not on PATH"),
+                         subprocess.TimeoutExpired(["docker", "info"], 15)):  # the daemon is not up
+        assert ex.native_platform() is None and ex.image_platform() == "linux/arm64"
+        assert ex._NATIVE == {}  # and nothing is kept
+    state["now"] = subprocess.CompletedProcess(["docker"], 0, "x86_64\n", "")  # the daemon is up: a real answer
+    assert ex.native_platform() == "linux/amd64" and ex.image_platform() == "linux/amd64"
+    asked = len(calls)
+    assert ex.native_platform() == "linux/amd64" and len(calls) == asked  # and kept
+    assert set(calls) == {ex.HOST_INFO_TIMEOUT}
+
+
+def test_docker_info_has_a_short_timeout_and_a_timeout_reads_as_unknown(monkeypatch):
+    import subprocess
+    seen = {}
+
+    def run(argv, **kw):
+        seen.update(kw, argv=argv)
+        raise subprocess.TimeoutExpired(argv, kw["timeout"])
+    monkeypatch.setattr(ex.subprocess, "run", run)
+    assert ex.host_platform() is None
+    assert seen["argv"][:2] == ["docker", "info"] and 0 < seen["timeout"] <= 30

@@ -151,16 +151,22 @@ def definition_hash(folder=DEFINITION):
     return h.hexdigest()
 
 
-_NATIVE = {}  # the docker host's platform, asked once per process
+_NATIVE = {}  # the docker host's platform, asked until docker answers, then once per process
 
 
 def native_platform():
-    """The docker host's CPU platform, asked of docker once per process (None when docker does not say, or says another)."""
+    """The docker host's CPU platform, asked of docker until it answers and then once per process (None when docker
+    says another platform than the listed ones). A docker that does not answer (not running yet, not installed, timed
+    out) is not an answer: None is returned and nothing is kept, so that a long-lived process started before the
+    docker daemon asks again instead of defaulting to arm64 for its whole life."""
     if "platform" not in _NATIVE:
         try:
-            _NATIVE["platform"] = host_platform()
+            answered, platform = asked_host_platform()
         except (ExecutorError, subprocess.SubprocessError, OSError):
-            _NATIVE["platform"] = None
+            return None
+        if not answered:
+            return None
+        _NATIVE["platform"] = platform
     return _NATIVE["platform"]
 
 
@@ -369,11 +375,27 @@ def repo_digests(image, env=None):
 HOST_ARCHITECTURES = {"aarch64": "linux/arm64", "arm64": "linux/arm64", "x86_64": "linux/amd64", "amd64": "linux/amd64"}
 
 
+HOST_INFO_TIMEOUT = 15  # seconds `docker info` has: a daemon that hangs reads as "unknown", it never stalls the runner
+
+
+def asked_host_platform(env=None):
+    """(answered, platform): answered is True when `docker info` ran and succeeded, platform is the host's CPU platform
+    mapped to linux/arm64 or linux/amd64, or None when docker says another. A docker that fails, or does not answer
+    within HOST_INFO_TIMEOUT, is (False, None): unknown, not a platform."""
+    try:
+        r = docker("info", "--format", "{{.Architecture}}", env=env, check=False, timeout=HOST_INFO_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return False, None
+    if r.returncode != 0:
+        return False, None
+    return True, HOST_ARCHITECTURES.get(r.stdout.strip().lower())
+
+
 def host_platform(env=None):
     """The CPU platform of the docker host (`docker info`, mapped to linux/arm64 or linux/amd64), or None when docker
-    does not say or says another. An image of another platform than this runs emulated: that run is a trial."""
-    r = docker("info", "--format", "{{.Architecture}}", env=env, check=False)
-    return HOST_ARCHITECTURES.get(r.stdout.strip().lower()) if r.returncode == 0 else None
+    does not say, does not answer in time, or says another. An image of another platform than this runs emulated:
+    that run is a trial."""
+    return asked_host_platform(env)[1]
 
 
 def ensure(env=None):
