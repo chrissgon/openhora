@@ -70,7 +70,10 @@ SOURCE_REF = "refs/heads/main"
 PLATFORMS = ("linux/amd64", "linux/arm64")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 HEX64 = re.compile(r"[0-9a-f]{64}")
-REPOSITORY = re.compile(r"ghcr\.io/([a-z0-9][a-z0-9-]*)/([a-z0-9][a-z0-9._-]*)")
+# The same language as the executor's reader of the lock (evals/executor.py), written with non-capturing groups so
+# that group 1 is the owner: lower case, an owner that neither starts nor ends with a hyphen, a name of runs joined by
+# one separator (no "..", no trailing separator).
+REPOSITORY = re.compile(r"ghcr\.io/([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)/([a-z0-9]+(?:[._-][a-z0-9]+)*)")
 SOURCE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+")
 TIMEOUT = 120
 

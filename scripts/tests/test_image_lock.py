@@ -160,6 +160,27 @@ def test_a_malformed_artifact_is_rejected(tmp_path, art, why):
     assert not (tmp_path / "lock.json").exists()
 
 
+@pytest.mark.parametrize("repository", [
+    "ghcr.io/example-owner/x..y", "ghcr.io/example-owner/x-", "ghcr.io/example-owner/-x", "ghcr.io/example-owner/x_.y",
+    "ghcr.io/example-owner-/openhora-eval", "ghcr.io/-example-owner/openhora-eval", "ghcr.io/Example-Owner/openhora-eval",
+    "ghcr.io/example-owner/OpenHora", "ghcr.io/example-owner/", "ghcr.io//openhora-eval", "docker.io/example-owner/x",
+    "ghcr.io/example-owner/a/b", "ghcr.io/example-owner/x y", "ghcr.io/example-owner/x:latest",
+])
+def test_a_repository_the_executor_would_refuse_is_refused_in_the_artifact_and_in_the_lock(tmp_path, repository):
+    code, _, err = go(tmp_path, [], art=artifact(repository=repository), fetch=lambda *a: {})
+    assert code == 1 and "repository must be" in err
+    assert not (tmp_path / "lock.json").exists()
+    bad_lock = {"repository": repository, "images": {}}
+    assert any("repository must be" in p for p in image_lock.lock_problems(bad_lock))
+
+
+@pytest.mark.parametrize("repository", [
+    "ghcr.io/example-owner/openhora-eval", "ghcr.io/a/b", "ghcr.io/a1-b2/c.d_e-f", "ghcr.io/0/0",
+])
+def test_a_repository_in_the_executors_language_is_accepted(repository):
+    assert image_lock.lock_problems({"repository": repository, "images": {}}) == []
+
+
 def test_an_artifact_that_is_not_json_is_rejected(tmp_path):
     code, _, err = go(tmp_path, [], text="not json")
     assert code == 1 and "cannot be read" in err
