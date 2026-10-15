@@ -1196,20 +1196,32 @@ def complete_models_of(event, runs):
     """[model id] the event is complete for (every run of the model in it graded). The event's "complete_models" when it
     has the key. An event written before it says only whether its lead model finished ("complete"); the others it
     lists are then complete when each case of the event has at least as many with-skill lines of the model as the event's "runs"
-    (the way the runner counts: a full test runs every case with the skill that many times), which is what every
-    committed event does. [] for an event that is not complete."""
+    (the way the runner counts: a full test runs every case with the skill that many times) and, when the model has any
+    baseline line in the event (--baseline-on), a baseline line on each case whose baseline the event ran (a case
+    missing all of them is a baseline job that did not finish; the runner counts a model's baseline jobs in its
+    completion too). Every committed event satisfies
+    both. [] for an event that is not complete."""
     if isinstance(event, dict) and isinstance(event.get("complete_models"), list):
         return event_complete_models(event)
     pairs = event_model_pairs(event)
     if not pairs or event.get("complete") is not True:
         return []
     cases = [str(c) for c in (event.get("cases") or {})]
+    ran = [str(c) for c, how in (event.get("baseline") or {}).items() if how == "run"]
     have = {}
     for line in runs:
-        if line.get("variant") == "with" and "platform" not in line:
-            key = (line["model"], str(line["case"]))
+        if "platform" not in line:
+            key = (line["variant"], line["model"], str(line["case"]))
             have[key] = have.get(key, 0) + 1
-    return [pairs[0][0]] + [m for m, _ in pairs[1:] if cases and all(have.get((m, c), 0) >= event.get("runs", 1) for c in cases)]
+    lead = pairs[0][0]
+
+    def whole(m):
+        if not (cases and all(have.get(("with", m, c), 0) >= event.get("runs", 1) for c in cases)):
+            return False
+        if not any(have.get(("without", m, c)) for c in cases):
+            return True  # no baseline of its own in the event
+        return all(have.get(("without", m, c), 0) >= 1 for c in ran)
+    return [lead] + [m for m, _ in pairs[1:] if whole(m)]
 
 
 def counts_for(event, runs, model):

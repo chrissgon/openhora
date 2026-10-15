@@ -2022,6 +2022,21 @@ def upstream_of(models, model_ids, passed):
     return out or None
 
 
+def grader_adapter_problem(o, gate):
+    """Why this event's gradings do not run as the configured grader's do, or None. Every grading goes through the strong
+    slot's adapter with the strong slot's key (until P3 gives the grader its own entry), so the strong slot's adapter must
+    be the one the grader's entry in the gate file names (else the configured strong harness): a model swapped into the
+    strong slot would be graded through its own adapter and key, which is another measurement."""
+    if not gate:
+        return None
+    entry = load_status().model_entry(gate, gate.get("grader"))
+    configured = (entry or {}).get("adapter") or gate.get("strong_harness")
+    if o["harness"] != configured:
+        return (f"the gradings run through the strong slot's adapter, {o['harness']}, and the grader {gate.get('grader')} is "
+                f"graded through {configured}: a run with another adapter in the strong slot is graded another way")
+    return None
+
+
 def scratch_reason(o, gate, environment, version=None, fingerprint=None):
     """Why this event writes its files into the scratch tree of its run folder and never into the skill's
     folder, or None when it may write evidence. Evidence comes only from an event that used the configured
@@ -2060,6 +2075,8 @@ def scratch_reason(o, gate, environment, version=None, fingerprint=None):
         if o["grader"] != gate.get("grader"):
             return (f"the grader of the event is {o['grader']}, and the configured one is {gate.get('grader')}: evidence is "
                     "made with the configured grader")
+        if (why := grader_adapter_problem(o, gate)):
+            return why
         if fingerprint != gate.get("measurement_sha256"):
             return ("the measurement fingerprint of this checkout differs from the committed one (evals/eval-gate.json, "
                     "measurement_sha256): a file that decides what a run measures changed, so nothing is written as evidence")
@@ -2302,6 +2319,7 @@ def run(argv):
         print(json.dumps({"dry_run": True, "iteration_dir": os.path.relpath(it_dir, ROOT), "runner": os.path.relpath(runner, ROOT),
                           "floor_runner": os.path.relpath(floor_runner, ROOT), "grader": o["grader"], "pass_env": o["pass_env"],
                           "evidence_home": {"home": home, "why": home_reason, "folder": local_base},
+                          "trial": grader_adapter_problem(o, gate),  # a reason the event writes no evidence, or null
                           "floor_pass_env": o["floor_pass_env"],
                           "cases": [{"case": c["id"], "files": c.get("files") or [], "skills": c.get("skills") or [],
                                      "setup": c.get("setup") or []} for c in cases],

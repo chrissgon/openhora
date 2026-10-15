@@ -2048,7 +2048,28 @@ def test_a_listed_model_outside_the_lab_models_is_local_too_and_a_lab_model_thro
     shutil.copytree(tmp_path / "adapters" / "h", other)
     assert er.main(["--skill", "demo", "--harness", "h2", "--model", "m", "--floor-model", "f", "--runs", "1"]) == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["evidence"]["home"] == "local" and evidence_of(skill) == []
+    # (It is also graded through that adapter, in the strong slot: a trial, which writes no evidence anywhere.)
+    assert out["evidence"]["home"] == "local" and out["evidence"]["written"] is False and evidence_of(skill) == []
+    assert "graded another way" in out["evidence"]["reason"]
+
+
+def test_a_model_swapped_into_the_strong_slot_is_graded_another_way_and_is_a_trial(tmp_path, monkeypatch, capsys):
+    skill = write_demo(tmp_path, monkeypatch, FAKE)
+    other = tmp_path / "adapters" / "fh"
+    shutil.copytree(tmp_path / "adapters" / "h", other)
+    configure_gate(tmp_path, floor_harness="fh", lab_models=["m", "f"])
+    swapped = ["--skill", "demo", "--model", "f", "--harness", "fh", "--floor-model", "m", "--floor-harness", "h", "--runs", "1"]
+    # The strong slot's adapter, fh, is not the one the grader m is graded through, h.
+    assert er.main(swapped + ["--dry-run"]) == 0
+    plan = json.loads(capsys.readouterr().out)
+    assert "graded another way" in plan["trial"]
+    assert er.main(swapped) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["evidence"]["written"] is False and "graded another way" in out["evidence"]["reason"]
+    assert evidence_of(skill) == [] and bench_of(tmp_path)["scratch"] == out["evidence"]["reason"]
+    # As configured, nothing is wrong with the event.
+    assert er.main(["--skill", "demo", "--runs", "1", "--dry-run"]) == 0
+    assert json.loads(capsys.readouterr().out)["trial"] is None
 
 
 def test_the_models_of_the_gate_file_s_lab_set_keep_writing_into_the_skill(tmp_path, tmp_path_factory, monkeypatch, capsys):
