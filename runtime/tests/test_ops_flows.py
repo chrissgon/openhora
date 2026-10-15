@@ -238,7 +238,6 @@ def test_a_workflow_with_a_parameter_or_a_step_or_of_the_project_is_planned_and_
     write_flow(world, "survey-web", WEB_WITH_SOURCES)
     with pytest.raises(ops_core.OpsError, match="workflow of this project: record the request, then route it"):
         ops.request(world["path"], "go", flow="survey-web")
-    write_flow(world, "demo", {})                                    # never read: the workbench's demo flow stays what it is
     assert ops.request(world["path"], "go", flow="demo")["flow"] == "demo"      # the workbench flow of skills with no parameter: as before
     tree = world["tree"]
     (tree / "flows" / "with-step.json").write_text(json.dumps({"flow": "with-step", "title": "With a step", "tasks": [
@@ -247,7 +246,7 @@ def test_a_workflow_with_a_parameter_or_a_step_or_of_the_project_is_planned_and_
         "topic": {"description": "t", "default": "x"}}, "tasks": [
         {"key": "a", "skill": "demo-writes", "title": "A", "text": "do {topic}."}]}), encoding="utf-8")
     for name in ("with-step", "with-param"):
-        with pytest.raises(ops_core.OpsError, match="has parameters or steps: record the request, then route it"):
+        with pytest.raises(ops_core.OpsError, match="has parameters, steps, sources or a task that runs without the web: record the request, then route it"):
             ops.request(world["path"], "go", flow=name)
     rid = new_request(world)
     assert ops.route(world["path"], rid, flow="with-param")["routed"] is True       # a default fills the parameter
@@ -428,5 +427,6 @@ def test_a_free_text_plan_keeps_the_highlight_for_a_web_task_with_sources_and_ca
     on_disk = json.loads((world["project"] / saved["path"]).read_text(encoding="utf-8"))
     assert saved["split"] is True and [t["key"] for t in on_disk["tasks"]] == ["demo-web-research", "demo-web"]
     assert on_disk["tasks"][1]["web"] is False and on_disk["tasks"][1]["sources"] == ["survey"]
+    ops.source_import(world["path"], "survey", file=csv_file(world))      # a source the plan names must be one the project holds when it runs again
     shown = pending(world, ops.route(world["path"], new_request(world), flow="web-study")["pending_id"])
     assert "A task that uses the web receives sources" not in shown["body"]

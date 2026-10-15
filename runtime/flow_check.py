@@ -43,6 +43,7 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 import flow_files  # noqa: E402
 import skill_meta  # noqa: E402
+import steps  # noqa: E402  (the kinds that bring a source in)
 
 BRIEF_DIR = "docs/workbench/research/"      # the brief a research task writes (core-research's output); a skill that reads one lists a path here
 RESEARCH_SKILL = "core-research"
@@ -77,7 +78,7 @@ def check(flow: dict, root: str = flow_files.ROOT) -> dict:
     """The findings of a loaded flow (flow_files.load / normalise). {"ok": bool, "findings": [...]}; a finding is {"task": key,
     "skill", "sources": [ids], "sentence": why, "split": whether apply_split would split it, "ask": the question for the person
     when it would not (None when it would)}."""
-    received = flow_files.sources_of(flow)
+    received = flow_files.sources_of(flow, steps.sourcing_kinds())
     findings = []
     for task in flow["tasks"]:
         if "skill" not in task or task.get("web") is False:
@@ -105,7 +106,7 @@ def _reaches_ingest(flow: dict, key: str) -> bool:
         if k in seen or k not in by_key:
             continue
         seen.add(k)
-        if by_key[k].get("step") == flow_files.INGEST:
+        if by_key[k].get("step") in steps.sourcing_kinds():
             return True
         todo += list(by_key[k].get("depends_on") or [])
     return False

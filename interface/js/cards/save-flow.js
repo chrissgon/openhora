@@ -17,7 +17,7 @@ let counter = 0;
 
 /** A workflow name from a title: lowercase words joined by hyphens, at most 40 characters, "workflow" when nothing is left. */
 export function suggestName(title) {
-  const words = String(title || "").toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const words = String(title || "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   const cut = words.slice(0, NAME_MAX).replace(/-+$/g, "");
   return cut || "workflow";
 }

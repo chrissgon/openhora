@@ -231,6 +231,7 @@ import progress as progress_calc  # noqa: E402  (the operation `progress` would 
 import proof as proof_rules  # noqa: E402  (the operation `proof` would hide the module: part 0, F.1, rule 5)
 import project_config  # noqa: E402
 import router  # noqa: E402
+import secret_state  # noqa: E402  (a locked secret store is told apart from a missing key)
 import skill_meta  # noqa: E402
 import state_merge  # noqa: E402
 import workcopy  # noqa: E402
@@ -1164,7 +1165,9 @@ def go_ahead(project: str, task_id: int, drop_after: bool = False) -> dict:
 def cancel(project: str, request_id: int) -> dict:
     """Cancel a request, its tasks that are not done, and their open pending decisions."""
     ctx = core.context(project)
-    return ops_waits.settled(ctx, core._stored(ctx, ctx["store"].request_cancel, request_id, by="user"))
+    out = ops_waits.settled(ctx, core._stored(ctx, ctx["store"].request_cancel, request_id, by="user"))
+    ops_flows.discard_staged(ctx, request_id)      # the files handed over for its plan go with it
+    return out
 
 
 def proof(project: str, skill: str | None = None) -> dict:
@@ -1633,6 +1636,8 @@ def route(project: str, request_id: int, flow: str | None = None, channel: str |
     the flow is the workbench's or the project's, its parameters and dates are filled, a file parameter names a file stage-file handed
     over for the request). Returns {"routed": true or false, "pending_id", "source", ...}."""
     ctx = core.context(project)
+    if flow is None and params:
+        raise core.OpsError("--param fills the parameters of a flow: name the flow (--flow)", 2)
     if flow is None:
         try:
             if channel in ops_say.QUEUING_CHANNELS and ops_say.waiting(ctx):  # first in, first out
@@ -2167,7 +2172,9 @@ def reject(project: str, pending_id: int, note: str | None = None) -> dict:
     item = core._stored(ctx, ctx["store"].pending_get, pending_id)
     if item["kind"] == "plan":
         said = core._text(note, "the note") if note is not None else None
-        return core._stored(ctx, ctx["store"].plan_reject, pending_id, by="user", note=said)
+        out = core._stored(ctx, ctx["store"].plan_reject, pending_id, by="user", note=said)
+        ops_flows.discard_staged(ctx, item["task_id"])      # and the files handed over for it
+        return out
     if item["kind"] == "acceptance":
         return core._stored(ctx, ctx["store"].acceptance_resolve, pending_id, resolution="rejected", by="user")
     if item["kind"] == "effect":
@@ -2399,8 +2406,10 @@ def _credential_stop(model: str | None = None):
     if not missing:
         return None
     reason = "credential" if dispatcher.store_readable() == "ok" else "secret store"
-    return reason, (f"the credential of {model} ({', '.join(missing)}) is neither set nor found in the secret store "
-                    f"from {sys.executable} (Python {sys.version.split()[0]}): no run starts. See contracts/runtime.md, "
+    locked = secret_state.unreadable_sentence(core.ROOT) if reason == "credential" else ""   # a locked store is not a missing key (I3)
+    return reason, (f"{locked}; the credential of {model} ({', '.join(missing)}) cannot be read" if locked else
+                    f"the credential of {model} ({', '.join(missing)}) is neither set nor found in the secret store") + (
+                    f" from {sys.executable} (Python {sys.version.split()[0]}): no run starts. See contracts/runtime.md, "
                     "\"The dispatcher's two jobs\""), list(missing)
 
 

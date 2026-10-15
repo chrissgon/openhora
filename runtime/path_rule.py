@@ -61,7 +61,8 @@ def classify(rel: str, facts: dict | None = None) -> str:
     track]}; a key that is missing is an empty list. The first rule that matches decides."""
     facts = facts or {}
     path = normal(rel)
-    if path is None or path == CONFIG or path == FLOWS_DIR or path.startswith(FLOWS_DIR + "/"):
+    folded = path.lower() if path is not None else None   # a case-insensitive disk lands docs/workbench/Flows in the same folder: the compare ignores case
+    if path is None or folded == CONFIG or folded == FLOWS_DIR or folded.startswith(FLOWS_DIR + "/"):
         return "other"   # the runtime's configuration, and the project's workflows: what a run would change to change what runs next
     if path == STATE:
         return "state"

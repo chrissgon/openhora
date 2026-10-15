@@ -15,7 +15,7 @@ the engine. The kinds registered today: `ingest` (runtime/step_ingest.py), which
 write a file (P8) and the media pipeline of the short-video rebase register the same way.
 
   Kind(name, order, executors, stops=(), decisions={}, footprint=..., check=..., cleanup={}, side_steps={}, errors=(), prepared=None,
-       rejected={}, unattended=False)
+       rejected={}, unattended=False, brings_source=False)
   register(kind) / kind_of(name) / load_builtin()   the registry; load_builtin imports every runtime/step_*.py
   plan_task(kind, args, key=, title=, text=, ...)   a plan's task for a step: the kind, its checked arguments (canonical, so the plan
                                                     hash covers them) and the footprint the kind derived. StepFailure when the kind is
@@ -119,6 +119,8 @@ class Kind:
                 the code `rejected`); a stop with no hook only fails
     unattended  whether the dispatcher may start a task of this kind on its own (a routine, a round): False unless the kind says so; a
                 task of a kind that is not unattended starts only by the person's own start (run-next, run-step)
+    brings_source  whether the kind's `source` argument names a source the tasks after it receive (`ingest`): a workflow's task that
+                depends on such a step receives that source (flow_files.sources_of), and the flow check counts it (runtime/flow_check.py)
     """
 
     name: str
@@ -134,6 +136,7 @@ class Kind:
     prepared: Callable = None
     rejected: dict = dataclasses.field(default_factory=dict)
     unattended: bool = False
+    brings_source: bool = False
 
     def steps(self) -> tuple:
         """The steps the summary lists: the order, without the side steps."""
@@ -219,6 +222,12 @@ def load_builtin() -> list:
             if isinstance(found, Kind) and found.name not in REGISTRY:
                 register(found)
     return sorted(REGISTRY)
+
+
+def sourcing_kinds() -> tuple:
+    """The names of the registered kinds that bring a source in (Kind.brings_source), sorted."""
+    load_builtin()
+    return tuple(sorted(n for n, k in REGISTRY.items() if k.brings_source))
 
 
 def kind_of(name) -> Kind:

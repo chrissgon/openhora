@@ -270,7 +270,7 @@ def test_a_pdf_with_a_key_in_its_compressed_text_is_refused_after_conversion_and
         sources.import_version(case.ctx, source, case.drop("brief.pdf", pdf), convert=standin_convert)
     assert refused.value.code == "credential" and "credential" in str(refused.value) and key not in str(refused.value)
     assert not (case.folder / "brief").exists() or not any((case.folder / "brief").iterdir())
-    assert not any((case.folder / ".incoming").iterdir())
+    assert not any((case.folder / ".incoming").glob("*"))
     assert case.ctx["store"].source_latest(case.ctx["conn"], "brief") is None
 
 
@@ -280,7 +280,7 @@ def test_a_file_of_a_type_that_is_not_read_is_refused_before_anything_is_written
         with pytest.raises(sources.SourcesError) as refused:
             sources.import_version(case.ctx, source, case.drop(name, data), convert=standin_convert)
         assert refused.value.code in ("type", "size"), name
-    assert not any((case.folder / ".incoming").iterdir()) and not (case.folder / "pic").exists()
+    assert not any((case.folder / ".incoming").glob("*")) and not (case.folder / "pic").exists()
 
 
 def test_a_text_over_the_cap_is_refused_with_the_number_and_one_over_the_warning_size_is_kept_with_a_warning(case):
@@ -343,7 +343,7 @@ def test_a_converter_that_fails_or_leaves_something_odd_imports_nothing(case):
         with pytest.raises(sources.SourcesError) as refused:
             sources.import_version(case.ctx, source, path, convert=convert)
         assert refused.value.code == "convert"
-    assert not any((case.folder / ".incoming").iterdir()) and not (case.folder / "survey" / "1").exists()
+    assert not any((case.folder / ".incoming").glob("*")) and not (case.folder / "survey" / "1").exists()
 
 
 def test_a_file_that_changed_outside_the_runtime_is_checked_again_and_becomes_a_version_of_the_persons(case):

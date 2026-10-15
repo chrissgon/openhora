@@ -131,4 +131,5 @@ def test_the_help_and_the_report_carry_the_image(monkeypatch, capsys):
     monkeypatch.setattr(doctor, "secrets_report", lambda classes: [])
     monkeypatch.setattr(doctor, "collect_requires", lambda: {})
     assert doctor.main(["--json"]) == 0
-    assert json.loads(capsys.readouterr().out)["image"] == {"state": "published-not-pulled", "detail": "x"}
+    assert json.loads(capsys.readouterr().out)["image"] == {"state": "published-not-pulled", "detail": "x",
+                                                            "setup": "python3 scripts/image_lock.py pull"}

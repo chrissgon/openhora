@@ -55,6 +55,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
@@ -63,7 +64,9 @@ import drop  # noqa: E402
 import flow_check  # noqa: E402
 import flow_files  # noqa: E402
 import ops_core as core  # noqa: E402
+import ops_sources  # noqa: E402
 import plan  # noqa: E402
+import sources  # noqa: E402
 import steps  # noqa: E402
 
 STAGE_PREFIX = "request-"         # the staging folder of a request is .workbench-local/drop/request-<id>/ (no task has a non-numeric id)
@@ -155,10 +158,11 @@ def _from_plan(ctx: dict, item: dict, name: str, title) -> dict:
     tasks = payload.get("tasks") or []
     request = core._stored(ctx, ctx["store"].task_get, item["task_id"])
     out, needs_request = [], False
+    files = ((payload.get("bound") or {}).get("files") or {})      # {parameter: {"name", "sha256"}} of a plan built from a workflow
     for t in tasks:
         one = {"key": t["key"]}
         if t.get("step"):
-            one.update(step=t["step"], args=json.loads(json.dumps(t.get("args") or {})))
+            one.update(step=t["step"], args=_with_file_parameters(json.loads(json.dumps(t.get("args") or {})), files))
         else:
             one["skill"] = t["skill"]
         text = (t.get("text") or "").strip()
@@ -173,12 +177,30 @@ def _from_plan(ctx: dict, item: dict, name: str, title) -> dict:
         out.append(one)
     params = {}
     if needs_request:
-        words = (request.get("text") or "").strip()
+        words = (request.get("text") or "").replace("\r\n", "\n").replace("\r", "\n").strip()
         if not words or len(words) > flow_files.MAX_PARAM:
             raise core.OpsError(f"the request's words are longer than a parameter holds ({flow_files.MAX_PARAM} characters): "
                                 "the plan cannot be saved as a workflow", 1)
         params[PLAN_REQUEST] = {"description": "what the workflow is asked for, in your words", "type": "text", "default": words}
+    for param in files:      # a file the plan carried stays a parameter: the workflow is run again with another file, not with this one
+        params[param] = {"description": "a file of yours, handed over for the request (stage-file)", "type": "file"}
     return {"flow": name, "title": " ".join((title or plan.request_title(request)).split()), "params": params, "tasks": out}
+
+
+def _with_file_parameters(value, files: dict):
+    """The arguments of a step with the name and the hash of a file the plan bound written back as `{param}` and `{param.sha256}`."""
+    if isinstance(value, str):
+        for param, f in files.items():
+            if value == f.get("sha256"):
+                return "{" + param + ".sha256}"
+            if value == f.get("name"):
+                return "{" + param + "}"
+        return value
+    if isinstance(value, dict):
+        return {k: _with_file_parameters(v, files) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_with_file_parameters(v, files) for v in value]
+    return value
 
 
 def _validate_steps(flow: dict) -> None:
@@ -194,8 +216,10 @@ def _validate_steps(flow: dict) -> None:
 
 
 def _write(ctx: dict, flow: dict, replace: bool) -> dict:
-    """Write docs/workbench/flows/<name>.json: a temporary file beside it, then a link (a new file) or a rename (a replacement), so
-    that a file is never half written and an existing one is never overwritten by accident. Returns {"path", "sha256"}."""
+    """Write docs/workbench/flows/<name>.json: a temporary file of a name of its own beside it (so a stale one of a dead process is no
+    obstacle), then a link (a new file) or a rename (a replacement), so that a file is never half written and an existing one is
+    never overwritten by accident; on a filesystem with no hard links a new file is renamed into place when none is there. Any failure
+    of the disk is an OpsError. Returns {"path", "sha256"}."""
     project = os.path.realpath(_project(ctx))
     folder = flow_files.project_folder(project)
     rel = f"{flow_files.PROJECT_DIR}/{flow['flow']}.json"
@@ -205,13 +229,14 @@ def _write(ctx: dict, flow: dict, replace: bool) -> dict:
     for part in (os.path.join(project, "docs"), os.path.join(project, "docs", "workbench"), folder):
         if os.path.islink(part):
             raise core.OpsError(f"{os.path.relpath(part, project)} is a link: no workflow is written through it", 1)
-    os.makedirs(folder, exist_ok=True)
     final = os.path.join(folder, flow["flow"] + ".json")
-    temp = os.path.join(folder, f".{flow['flow']}.{os.getpid()}.tmp")
-    fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    temp = None
     try:
+        os.makedirs(folder, exist_ok=True)
+        fd, temp = tempfile.mkstemp(prefix=f".{flow['flow']}.", suffix=".tmp", dir=folder)
         with os.fdopen(fd, "wb") as f:
             f.write(body)
+        os.chmod(temp, 0o644)
         if replace:
             os.replace(temp, final)
         else:
@@ -219,9 +244,18 @@ def _write(ctx: dict, flow: dict, replace: bool) -> dict:
                 os.link(temp, final)
             except FileExistsError:
                 raise core.OpsError(f"{rel} exists: use replace to change it", 1) from None
+            except OSError:      # no hard links on this filesystem: rename, when nothing is there (the write lock is held)
+                if os.path.lexists(final):
+                    raise core.OpsError(f"{rel} exists: use replace to change it", 1) from None
+                os.rename(temp, final)
+    except OSError as e:
+        raise core.OpsError(f"{rel} could not be written: {type(e).__name__}", 1) from None
     finally:
-        if os.path.lexists(temp):
-            os.unlink(temp)
+        if temp is not None and os.path.lexists(temp):
+            try:
+                os.unlink(temp)
+            except OSError:
+                pass
     return {"path": rel, "sha256": hashlib.sha256(body).hexdigest()}
 
 
@@ -328,6 +362,8 @@ def stage_file(project: str, request_id: int, file: str) -> dict:
 def direct(ctx: dict, name: str) -> dict:
     """The workbench flow `request --flow` may start at once, as it always did. A flow of the project, a flow with a step and a flow
     with parameters are planned: the person approves the plan by its hash. OpsError (2) says how."""
+    if name in flow_files.project_names(_project(ctx)) and name in flow_files.names(core.ROOT):
+        raise core.OpsError(f"docs/workbench/flows/{name}.json has the name of a workbench flow and is never read: rename it", 2)
     try:
         loaded = flow_files.load(name, core.ROOT)
     except flow_files.FlowError as e:
@@ -336,8 +372,9 @@ def direct(ctx: dict, name: str) -> dict:
                                 f"route --request <id> --flow {name}, so that you approve its plan", 2) from None
         raise core.OpsError(str(e), 2) from None
     if flow_files.needs_plan(loaded):
-        raise core.OpsError(f"the flow {name} has parameters or steps: record the request, then route it with "
-                            f"route --request <id> --flow {name} (and --param name=value), so that you approve its plan", 2)
+        raise core.OpsError(f"the flow {name} has parameters, steps, sources or a task that runs without the web: record the request, "
+                            f"then route it with route --request <id> --flow {name} (and --param name=value), so that you approve its "
+                            "plan", 2)
     return loaded
 
 
@@ -363,7 +400,26 @@ def bound(ctx: dict, name: str, params, request_id: int) -> tuple:
         got = flow_files.bind(loaded, given, now(), files)
     except (flow_files.FlowError, ValueError) as e:
         raise core.OpsError(str(e), 2) from None
+    _check_sources(ctx, got["flow"])
     return got["flow"], got["bound"]
+
+
+def _check_sources(ctx: dict, flow: dict) -> None:
+    """The sources a bound flow's skill tasks list are source ids, and each is a source the project holds (it has a version) or one a
+    step of the flow brings in (as the router's choice is checked, runtime/router.py check_route). OpsError (2) otherwise: a parameter
+    can fill a source id, and the plan is not built on a word that is no source."""
+    brought = {t["args"]["source"] for t in flow["tasks"] if t.get("step") in steps.sourcing_kinds() and isinstance((t.get("args") or {}).get("source"), str)}
+    held = set(ops_sources.known_ids(ctx))
+    for t in flow["tasks"]:
+        for ident in t.get("sources") or []:
+            try:
+                sources.check_id(ident)
+            except sources.SourcesError:
+                raise core.OpsError(f"the task {t['key']} lists {ident!r}, which is not a source id (lowercase letters, digits and hyphens, "
+                                    "at most 40)", 2) from None
+            if ident not in held and ident not in brought:
+                raise core.OpsError(f"the task {t['key']} receives the source {ident}, which the project does not hold (register it with "
+                                    "source-import first) and no step of the workflow brings in", 2)
 
 
 # --- a file named by a plan reaches the task that reads it --------------------------------------------------------------------------
@@ -399,22 +455,46 @@ def before_approve(ctx: dict, item: dict) -> None:
                                 "file over (stage-file) and plan the workflow again (route)", 1)
 
 
+def discard_staged(ctx: dict, request_id) -> None:
+    """Remove what was handed over for a request (.workbench-local/drop/request-<id>/): regular files and links, then the folder. It
+    follows nothing and never fails (a file that cannot be removed stays; the folder is the person's own, git-ignored)."""
+    folder = _stage_folder(os.path.realpath(_project(ctx)), request_id)
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return
+    if os.path.islink(folder):
+        return
+    for name in names:
+        try:
+            os.unlink(os.path.join(folder, name))
+        except OSError:
+            pass
+    try:
+        os.rmdir(folder)
+    except OSError:
+        pass
+
+
 def after_approve(ctx: dict, item: dict, done: dict):
     """Move the staged files into the drop of the tasks that read them: for each ingest step that names a file staged for the request,
-    a copy of the staged bytes (checked against the plan's hash) at .workbench-local/drop/<task id>/<name>, then the staged copies
-    are removed. Returns {"placed": [{"task", "file"}], "failed": [{"task", "file", "reason"}]} (a failure leaves the task to fail at
-    its step with `file_missing`, and the person hands the file to the task: hand-over --task <id> --file <path>), or None when
-    nothing was staged and nothing was promised."""
+    a copy of the staged bytes (checked against the plan's hash) at .workbench-local/drop/<task id>/<name>. Whatever else was handed
+    over for the request is then removed, the files the plan names and those it does not. This runs after the approval is committed:
+    it never fails it. Returns {"placed": [{"task", "file"}], "failed": [{"task", "file", "reason"}]} (a failure leaves the task to
+    fail at its step with `file_missing`, and the person hands the file to the task: hand-over --task <id> --file <path>), or None
+    when nothing was staged and nothing was promised."""
     payload = item.get("payload")
     need = _needs(payload)
-    if not need:
-        return None
     project = os.path.realpath(_project(ctx))
-    have = staged(project, item["task_id"]) if os.path.isdir(_stage_folder(project, item["task_id"])) else {}
+    out = {"placed": [], "failed": []}
+    try:
+        have = staged(project, item["task_id"]) if os.path.isdir(_stage_folder(project, item["task_id"])) else {}
+    except (OSError, core.OpsError) as e:      # a file over the cap, or one that vanished: the files cannot be read now
+        have = {}
+        out["failed"] += [{"task": None, "file": file, "reason": type(e).__name__} for _key, file, _digest in need]
+        need = []
     strict = _strict(payload)
     ids = {t["key"]: t["id"] for t in done.get("tasks") or []}
-    out = {"placed": [], "failed": []}
-    used = set()
     for key, file, digest in need:
         if file not in have and file not in strict:
             continue
@@ -431,19 +511,10 @@ def after_approve(ctx: dict, item: dict, done: dict):
             fd = os.open(os.path.join(target, file), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             with os.fdopen(fd, "wb") as f:
                 f.write(data)
-            used.add(source)
             out["placed"].append({"task": ids[key], "file": file})
         except (OSError, core.OpsError, KeyError) as e:
             out["failed"].append({"task": ids.get(key), "file": file, "reason": type(e).__name__})
-    for source in used:
-        try:
-            os.unlink(source)
-        except OSError:
-            pass
-    try:
-        os.rmdir(_stage_folder(project, item["task_id"]))
-    except OSError:
-        pass
+    discard_staged(ctx, item["task_id"])
     return out if out["placed"] or out["failed"] else None
 
 

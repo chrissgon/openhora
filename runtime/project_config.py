@@ -60,6 +60,12 @@ from a recipe of the closed table of runtime/deps.py, checked there (deps.declar
 
   "dependencies": [{"recipe": "python-requirements", "file": ".workbench-local/requirements-dev.txt"}]
 
+It also reads two optional integers for retention (runtime/upkeep.py): "run_retention_days" (absent means 30; 1 to 3650), the age after
+which the folder of a finished run under data_dir is removed; and "source_versions_kept" (absent means 5; 2 to 1000), how many
+versions of each source stay in the sources folder, the oldest beyond it removed except one a task that is not finished received.
+"sweep_orphan_containers" (absent means true) lets the dispatcher's round remove the eval harness's orphan containers that cannot belong
+to a run in progress (runtime/orphans.py); false turns that off. Accepted in the terminal like every key, so it reaches a scheduler's job.
+
 It also reads "default_model" (absent means auto): the model a request or a task is routed to when nothing else chooses
 one (not the request, not the task, not the agent's fixed model): a model id of the gate file, or "auto" (the cheapest
 reliable pair, runtime/proof.py). When auto finds no pair it can choose, this model runs supervised, if it is an id, else the
@@ -95,6 +101,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import autonomy  # noqa: E402  (the same folder: the check of the key "area_agents")
 import deps  # noqa: E402  (the same folder: the recipes and the check of the key "dependencies")
+import lease  # noqa: E402  (the same folder: a database or a lock is refused in a synced folder)
 import operations  # noqa: E402  (the same folder: the groups and the ceilings the key "channels" is checked against)
 import sources  # noqa: E402  (the same folder: the paths rules of the key "sources_dir")
 
@@ -103,7 +110,8 @@ REQUIRED = ("workbench", "data_dir", "store_db", "sources_dir")
 # The top-level keys of the task runtime: the three required ones and every key this module checks or passes on.
 TASK_RUNTIME_KEYS = ("workbench", "data_dir", "store_db", "sources_dir", "area_agents", "handlers", "task_board", "documents",
                      "protected_paths", "code", "dependencies", "max_cost_usd_per_run", "model_prices", "messaging", "channels",
-                     "max_running", "default_model", "price_max_age_days")
+                     "max_running", "default_model", "price_max_age_days", "run_retention_days", "source_versions_kept",
+                     "sweep_orphan_containers")
 # The top-level keys scripts/runtime.py, scripts/runtime_vote.py and scripts/vote_job.py read from the same file
 # (the first runtime). Leaves with stage 7.
 FIRST_RUNTIME_KEYS = ("agent", "harness", "model", "mailbox", "publisher", "store", "scheduler", "notification_query",
@@ -158,6 +166,11 @@ def load(project: str) -> dict:
         for inside, what in ((project, "the project"), (out["workbench"], "the workbench checkout")):
             if out[key] == inside or out[key].startswith(inside + os.sep):
                 raise ConfigError(f"runtime.json {key} is inside {what}: work data lives outside every repository")
+    for key, where in (("data_dir", out["data_dir"]), ("store_db", os.path.dirname(out["store_db"]))):
+        synced = lease.synced_reason(where)
+        if synced:   # decision D30: nothing but the sources folder may live where a sync client merges files (limit L28)
+            raise ConfigError(f"runtime.json {key} is in a synced folder ({synced}): a database or a lock file does not survive a sync "
+                              "client; use a local folder, and keep only sources_dir in the synced drive")
     problems = sources.path_problems(out["sources_dir"], project=project, data_dir=out["data_dir"], store_db=out["store_db"],
                                      workbench=out["workbench"])
     if problems:
@@ -184,7 +197,28 @@ def load(project: str) -> dict:
     out["messaging"] = _messaging(raw.get("messaging"))
     out["channels"] = _channels(raw.get("channels"))
     out["max_running"] = _max_running(raw)
+    out["run_retention_days"] = _bounded(raw, "run_retention_days", RUN_RETENTION_DEFAULT, 1, RUN_RETENTION_MAX)
+    out["source_versions_kept"] = _bounded(raw, "source_versions_kept", SOURCE_VERSIONS_DEFAULT, SOURCE_VERSIONS_MIN, SOURCE_VERSIONS_MAX)
+    sweep = raw.get("sweep_orphan_containers", True)
+    if not isinstance(sweep, bool):
+        raise ConfigError("runtime.json sweep_orphan_containers must be true or false")
+    out["sweep_orphan_containers"] = sweep
     return out
+
+
+# Retention (package P-OPS, runtime/upkeep.py): both keys optional, accepted in the terminal like every key of the file.
+RUN_RETENTION_DEFAULT, RUN_RETENTION_MAX = 30, 3650   # days a run folder is kept; a longer wish is 3650 (ten years)
+SOURCE_VERSIONS_DEFAULT, SOURCE_VERSIONS_MIN, SOURCE_VERSIONS_MAX = 5, 2, 1000   # versions of a source kept; 2 is the least, see upkeep.py
+
+
+def _bounded(raw: dict, key: str, default: int, low: int, high: int) -> int:
+    """An optional integer key of runtime.json from low to high; absent means the default."""
+    if key not in raw:
+        return default
+    value = raw[key]
+    if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
+        raise ConfigError(f"runtime.json {key} must be an integer from {low} to {high}")
+    return value
 
 
 MAX_RUNNING_DEFAULT, MAX_RUNNING_CEILING = 3, 14  # the ceiling is the lab's total_jobs, the machine-wide limit of model calls

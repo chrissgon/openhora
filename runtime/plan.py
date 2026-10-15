@@ -275,7 +275,7 @@ def from_flow(flow: dict, root: str, pack) -> list:
     if outside:
         raise PlanError(scope_refusal(flow["flow"], outside, root))
     tasks = []
-    received = flow_files.sources_of(flow)   # a skill task receives the sources it lists and those of the ingest steps before it
+    received = flow_files.sources_of(flow, steps.sourcing_kinds())   # a skill task receives the sources it lists and those of the ingest steps before it
     for t in flow["tasks"]:
         if t.get("step"):    # a step of the engine (runtime/steps.py): its kind checks the arguments and derives the footprint
             try:

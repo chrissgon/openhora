@@ -249,3 +249,21 @@ def test_no_credential_is_ever_printed(case):
         for secret in SECRETS:
             assert secret not in text
 
+
+def test_the_authorization_record_is_read_from_the_credentials_directory_as_the_json_text_it_is(case, tmp_path):
+    """A headless machine keeps GDRIVE_SOURCES_TOKEN as a file of the credentials directory (docs/architecture/platform/unattended.md): the file
+    holds the whole JSON record, not a bare token, exactly as the environment variable does."""
+    folder = tmp_path / "credentials"
+    folder.mkdir(mode=0o700)
+    file = folder / "GDRIVE_SOURCES_TOKEN"
+    file.write_text(case.fake.record_json() + "\n", encoding="utf-8")
+    file.chmod(0o600)
+    folder.chmod(0o700)
+    env = {"GDRIVE_SOURCES_TOKEN": "", "OPENHORA_CREDENTIALS_DIR": str(folder)}
+    code, out, said = case.run("stat", "--id", DOC_ID, "--as-source", env=env)
+    assert code == 0 and out["version"], said
+    assert not any(secret in said for secret in SECRETS)
+    # a bare token in the file is not a record: the provider says the authorization is unreadable, and does not call a service
+    file.write_text(fake_drive.REFRESH_TOKEN, encoding="utf-8")
+    code, out, said = case.run("stat", "--id", DOC_ID, "--as-source", env=env)
+    assert code == 3 and "unreadable or incomplete" in said and fake_drive.REFRESH_TOKEN not in said

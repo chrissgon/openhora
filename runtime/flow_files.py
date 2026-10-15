@@ -445,10 +445,12 @@ def to_file(flow: dict) -> dict:
 
 
 def needs_plan(flow: dict) -> bool:
-    """Whether a flow is started only through a plan the person approves by its hash: a project flow, a flow with a step or a
-    flow with parameters. (The request that names a workbench flow of skills and no parameter plans it and starts it, as it
+    """Whether a flow is started only through a plan the person approves by its hash: a project flow, a flow with a step, with
+    parameters, with a task that lists sources or says `web: false` (the plan carries them, and the plan card and the flow check read
+    them). (The request that names a workbench flow of skills and no parameter plans it and starts it, as it
     always did.)"""
-    return flow.get("origin") == "project" or bool(flow.get("params")) or any("step" in t for t in flow["tasks"])
+    return flow.get("origin") == "project" or bool(flow.get("params")) or any(
+        "step" in t or t.get("sources") or "web" in t for t in flow["tasks"])
 
 
 def file_params(flow: dict) -> list:
@@ -459,9 +461,12 @@ def file_params(flow: dict) -> list:
 # --- the sources a task receives ---------------------------------------------------------------------------------------------
 
 
-def sources_of(flow: dict) -> dict:
-    """{task key: [source ids]} for every skill task: the ids it lists, then the `source` of every `ingest` step it depends on,
-    directly or through other tasks, once each, in that order. A task that receives none has an empty list."""
+def sources_of(flow: dict, bringing=(INGEST,)) -> dict:
+    """{task key: [source ids]} for every skill task: the ids it lists, then the `source` argument of every step it depends on,
+    directly or through other tasks, whose kind is one of `bringing` (the kinds that declare Kind.brings_source: runtime/steps.py
+    sourcing_kinds(); `ingest` when none is given), once each, in that order. A task that receives none has an empty list. What a
+    task receives through an artifact (a task that depends on a task that received a source) is not followed: D16 speaks of what a
+    task receives."""
     by_key = {t["key"]: t for t in flow["tasks"]}
 
     def ingested(key: str) -> list:
@@ -472,7 +477,7 @@ def sources_of(flow: dict) -> dict:
                 continue
             seen.add(k)
             t = by_key[k]
-            if t.get("step") == INGEST and isinstance((t.get("args") or {}).get("source"), str):
+            if t.get("step") in bringing and isinstance((t.get("args") or {}).get("source"), str):
                 found.append(t["args"]["source"])
             todo += list(t.get("depends_on") or [])
         return found
