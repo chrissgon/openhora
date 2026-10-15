@@ -75,6 +75,15 @@ The secrets the core reads. Each cell is the text of the same field in `REGISTRY
 
 `keyring set` stands for the command of the "Local machine" row above, with the store username of the row.
 
+## The runtime's own keys
+
+The task runtime may keep a key of its own for a model, apart from the lab's. They are not rows of the registry above: `runtime/secrets.json` lists them, and the runtime hands that file to the resolver (`register_file`), as an adapter's manifest is handed. Each is optional and is named `WB_RUNTIME_KEY_<the variable a model's credential travels under>`; when it is stored, every run the runtime routes to a model that passes that variable uses it, and otherwise the run uses the lab's key for the model (`contracts/runtime.md`, "The choice of the model").
+
+| Secret | Store username | For the models whose credential is |
+|---|---|---|
+| `WB_RUNTIME_KEY_OPENROUTER_API_KEY` | `runtime-floor` | `OPENROUTER_API_KEY` |
+| the second entry of `runtime/secrets.json` (the same pattern, for the account token of a lab model's harness) | the entry's `store_username` | that account token's variable |
+
 ## Credential files that are not resolver secrets
 
 The WhatsApp provider (`providers/messenger/whatsapp.py`) has no token in the registry: its credential is a file, the session of a linked device, `session.db`, in the `whatsapp/` folder of the per-user state folder (`$OPENHORA_STATE_DIR`, else `$XDG_STATE_HOME/openhora`, else `~/.local/state/openhora`). The file is 0600 and the folder 0700, checked before every use; SQLite's `-wal`, `-shm` and `-journal` files beside it are made under umask 077. It is made by the program's `pair` command and read only by that program. Whoever holds the file holds a linked device of the account (it can read and send as that number), so it is never copied, never put in a project, a repository, a backup or a log (the README of the messenger providers says how to exclude it from backups), and it is revoked from the phone (Linked devices). It is not read through `providers/secrets/resolver.py` and appears in no table above.
