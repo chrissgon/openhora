@@ -151,6 +151,25 @@ def test_the_image_really_has_no_network_a_read_only_root_a_scratch_with_no_exec
     assert tools == "[True, True]"
 
 
+def test_hidden_text_in_a_page_and_in_a_pdf_is_flagged_in_the_info_the_container_prints_and_a_plain_file_is_not_examined(tmp_path, image):
+    """Package P8, finding S9: the detection of providers/converter/_inner.py with the real pdftohtml of the image."""
+    done, files = convert(tmp_path, image, "hidden.html", "html")
+    found = json.loads(files["info.json"])["hidden_text"]
+    assert found["examined"] is True and found["count"] == 15 and found["kinds"]["display_none"] == 2
+    assert "this block is display none" not in json.dumps(found), "the hints name a kind and an element, never a word"
+    done, files = convert(tmp_path, image, "hidden.pdf", "pdf")
+    found = json.loads(files["info.json"])["hidden_text"]
+    assert found == {"examined": True, "count": 3, "kinds": {"tiny_text": 1, "white_on_white": 1, "invisible_text": 1},
+                     "hints": ["tiny_text on page 1 count 1", "white_on_white on page 1 count 1", "invisible_text on page 1 count 1"]}
+    text = files["converted.md"].decode()
+    assert "WHITE injected words" in text and "INVISIBLE render mode words" in text, "the converted text holds what the flag is about"
+    assert "OFFPAGE" not in text, "text off the page is not extracted, so it is not read and not flagged"
+    done, files = convert(tmp_path, image, "brief.pdf", "pdf")
+    assert json.loads(files["info.json"])["hidden_text"] == {"examined": True, "count": 0, "kinds": {}, "hints": []}
+    done, files = convert(tmp_path, image, "plain.txt", "text")
+    assert json.loads(files["info.json"])["hidden_text"] is None
+
+
 def test_the_label_that_marks_the_containers_leaves_none_behind(image):
     done = box.docker(["ps", "-a", "--filter", f"label={container.LABEL_RUN}=1", "--format", "{{.ID}}"])
     assert done.returncode == 0 and re.findall(r"[0-9a-f]{12}", done.stdout) == []

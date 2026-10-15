@@ -1,0 +1,42 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+2 0 obj
+<< /Length 474 >>
+stream
+BT /F1 14 Tf 72 720 Td (Visible heading text.) Tj ET
+BT /F1 14 Tf 1 g 72 700 Td (WHITE injected words) Tj ET
+0 g
+BT /F1 1 Tf 72 680 Td (TINY injected words) Tj ET
+BT /F1 14 Tf 3 Tr 72 660 Td (INVISIBLE render mode words) Tj 0 Tr ET
+BT /F1 14 Tf -900 640 Td (OFFPAGE left words) Tj ET
+BT /F1 14 Tf 5000 640 Td (OFFPAGE right words) Tj ET
+0.5 g 72 600 100 20 re f
+BT /F1 14 Tf 0.5 g 72 605 Td (GRAY on gray words) Tj ET
+0 g
+BT /F1 14 Tf 72 560 Td (Another visible line.) Tj ET
+endstream
+endobj
+3 0 obj
+<< /Type /Page /Parent 4 0 R /MediaBox [0 0 612 792] /Contents 2 0 R /Resources << /Font << /F1 1 0 R >> >> >>
+endobj
+4 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+5 0 obj
+<< /Type /Catalog /Pages 4 0 R >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000079 00000 n 
+0000000604 00000 n 
+0000000730 00000 n 
+0000000787 00000 n 
+trailer
+<< /Size 6 /Root 5 0 R >>
+startxref
+836
+%%EOF
