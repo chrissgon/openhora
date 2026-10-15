@@ -135,7 +135,7 @@ def test_the_hook_maps_each_folder_to_the_tests_that_cover_it(tmp_path):
 def tree(tmp_path, cited):
     """A repository with the real runner and one skill whose case ships `shipped.md` and cites `cited`."""
     (tmp_path / "evals").mkdir()
-    for name in ("eval_run.py", "execution.py", "eval_status.py", "grading-prompt.md"):
+    for name in ("eval_run.py", "execution.py", "eval_status.py", "evidence_lines.py", "grading-prompt.md"):
         shutil.copy(REPO / "evals" / name, tmp_path / "evals" / name)
     skill = tmp_path / "skills" / "core-demo"
     (skill / "evals" / "files").mkdir(parents=True)

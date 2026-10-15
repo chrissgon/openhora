@@ -776,14 +776,24 @@ def dependency_dirs(case):
     return dirs
 
 
+# A file that cannot run without a module beside it brings that module into the case folder, so that a case
+# which lists the file keeps working when the file is split (the case's hash, which reads the listed paths, is
+# unchanged by a companion). evals/eval_status.py loads evals/evidence_lines.py by path.
+COMPANIONS = {"evals/eval_status.py": ("evals/evidence_lines.py",)}
+
+
 def workbench_files(case):
     """The case's "workbench_files" entries as (source path, path in the case folder): files and folders of
     this repository copied into the case at the same relative path, for a skill whose job is the workbench
     itself (it creates, validates or evaluates skills and needs the real tooling to act on). Refused: a path
     that leaves the repository, the repository root, version control, eval workspaces and any skill's eval
-    cases (they hold expected outputs)."""
+    cases (they hold expected outputs). The companions of a listed file (COMPANIONS) come with it."""
     base, out = os.path.realpath(ROOT), []
-    for rel in case.get("workbench_files") or []:
+    listed = list(case.get("workbench_files") or [])
+    for rel in list(listed):
+        if isinstance(rel, str):
+            listed += [c for c in COMPANIONS.get(rel.replace("\\", "/"), ()) if c not in listed]
+    for rel in listed:
         parts = [p for p in re.split(r"[\\/]", rel) if p] if isinstance(rel, str) else [".."]
         if not parts or os.path.isabs(rel) or rel.startswith("~") or ".." in parts:
             die(f"case {case.get('id')}: workbench_files entry {rel!r} must be a relative path inside the repository, without '..'.")
@@ -2545,7 +2555,8 @@ def run(argv):
         elif status.content_hash(skill_dir) != start_hash and not closing:
             evidence["reason"] = "the skill folder changed during the event: its runs are of another content"
         else:
-            problems = status.evidence_file_problems(in_run_folder, ROOT, o["skill"])
+            # A file about to enter a skill is new evidence: read strictly (the current gate file's models and runs).
+            problems = status.evidence_file_problems(in_run_folder, ROOT, o["skill"], strict=True)
             if problems:  # the runner never puts into a skill a file its own validation refuses
                 evidence["reason"] = "the evidence file is not valid: " + "; ".join(problems[:5])
             else:

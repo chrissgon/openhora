@@ -33,7 +33,8 @@ error. A committed evidence file is written by tooling and never edited. The old
 as the history of the first round, and nothing reads them.
 
   The event line: {"record": "test", "skill", "test", "kind": "full"|"partial", "version", "content_sha256",
-   "date", "models": {tier: model id}, "adapters": {tier: adapter}, "adapter_sha256": {adapter: sha256 of its
+   "date", "models": {tier: model id} or [model id, ...], "adapters": {tier: adapter} or {model id: adapter},
+   "adapter_sha256": {adapter: sha256 of its
    run-prompt.sh}, "grader", "runs", "timeout_seconds", "retries", "measurement_version",
    "measurement_sha256", "image_digest", "image_platform", "grading_template_sha256", "tools": {name:
    version}, "cases": {case id: case hash}, "baseline": {case id: "run"|"reused"|"none"}, "web_cases": [ids],
@@ -53,9 +54,18 @@ with the skill. Such lines never enter the gate or a score: `status` shows, per 
 and their number of runs ("platforms" in a skill's row), counting the lines whose case is still in that file
 with the same hash, at or above the measurement floor, of the current major version.
 
-A model id in a line is an id of the gate file's "models" ({id: [aliases]}): an alias is written as its id,
-anything else as "unknown", so that one model never falls into two rows and a private model name never enters
-the repository. Without that key the known ids are the configured strong model, floor model and grader.
+An event line has one of two header shapes, and evals/evidence_lines.py, which defines the closed forms of both
+kinds of line and reads them, says exactly which: the old {"strong": id[, "floor": id]} with "adapters" keyed by
+tier, and a list of model ids with "adapters" keyed by model id. event_model_pairs(line) gives the (model id,
+adapter) pairs of either.
+
+A model id is written by the runner as the id of the gate file's "models" ({id: [aliases]}) that it or its alias
+names, and as "unknown" for anything else, so that one model never falls into two rows and a private model name
+never enters the repository. Without that key the known ids are the configured strong model, floor model and
+grader. The validator checks an id against that list only in a file that is new against the base of the change
+(strict_reading: every id in "models", the event's "runs" equal to the configured one); a file already committed
+is read by what its own event line names, so a model removed from "models" later, or a later change of "runs",
+invalidates nothing (backlog T24; the rule is in evals/evidence_lines.py).
 
 The eval gate is configured in evals/eval-gate.json, committed: {"strong_model", "strong_harness",
 "floor_model", "floor_harness", "floor_pass_env": [variables], "strong_pass_env": [variables], "grader",
@@ -84,8 +94,9 @@ none may); "strong_web_pass_env", the variables a strong-model run of a web case
 "strong_pass_env" (a low-limit API key in place of the account's token). "baseline_runs" is the number of runs
 of a baseline in a full test (from 1 to "runs"; without it, "runs"), and "baseline_margin" the distance under
 which the status asks a thin baseline to be run in full. An event made with another number of
-runs, another timeout or another number of retries than these writes no evidence (eval_run.py --help), and
-an evidence file whose event line carries another "runs" than the configured one is not valid (`evidence`).
+runs, another timeout or another number of retries than these writes no evidence (eval_run.py --help). The
+validator checks the "runs" of an event line already committed against the range of the key and against the
+event's own lines, and that of a new file against the configured value (backlog T24).
 
 Field evidence (the reliability model, section 7) is a use of a skill in a project, recorded there by
 scripts/evidence.py and contributed as skills/<name>/evals/evidence/field-<id>.jsonl, <id> being the first 12
@@ -239,7 +250,27 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TESTS_REL = "scripts/tests"  # the tests of a skill's scripts: outside the content hash and outside eval runs
 EVALS_REL = "evals"  # the cases, the evidence, the version file and the old record: outside the content hash
-EVIDENCE_REL = os.path.join("evals", "evidence")
+
+
+def _load_evidence_lines():
+    """evals/evidence_lines.py as a module (cached): the closed forms of an evidence line and the reading of an
+    evidence file are defined there, once, and re-exported below."""
+    import importlib.util
+    name = "workbench_evidence_lines"
+    if name not in sys.modules:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "evidence_lines.py")
+        if not os.path.isfile(path):
+            print("Error: evals/evidence_lines.py is missing: run this script from a checkout of the workbench.", file=sys.stderr)
+            sys.exit(2)
+        spec = importlib.util.spec_from_file_location(name, path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    return sys.modules[name]
+
+
+EVIDENCE_LINES = _load_evidence_lines()
+EVIDENCE_REL = EVIDENCE_LINES.EVIDENCE_REL
 CACHE_DIRS = ("__pycache__", ".pytest_cache")
 INSTALL_MARKER = ".installed-by-openhora"  # what an installer writes into a skill folder it copied
 LEGACY_INSTALL_MARKER = ".installed-by-ai-workbench"  # T23: what an installer wrote before the rename; a copy made then keeps its hash
@@ -260,9 +291,9 @@ GATE_OPTIONAL = {"measurement_sha256": str,  # absent while a measurement versio
 # time over every runner process of the machine, 2 runs on the open network at a time per tier.
 EVENT_DEFAULTS = {"runs": 3, "timeout_seconds": 900, "retries": 2, "max_resumes": 3, "total_jobs": 10,
                   "web_jobs": {"strong": 2, "floor": 2}}
-EVENT_RANGES = {"runs": (1, 10), "timeout_seconds": (30, 86400), "retries": (0, 5), "max_resumes": (0, 10), "total_jobs": (1, 64),
+EVENT_RANGES = {"runs": EVIDENCE_LINES.RUNS_RANGE, "timeout_seconds": (30, 86400), "retries": (0, 5), "max_resumes": (0, 10), "total_jobs": (1, 64),
                 "baseline_runs": (1, 10)}
-TIERS = ("strong", "floor")
+TIERS = EVIDENCE_LINES.TIERS
 LEGACY_VERSION = 1  # the measurement of the first records, whose gate had no threshold for the strong model
 
 
@@ -401,11 +432,7 @@ def load_gate(root=ROOT):
         return json.load(f)
 
 
-def skill_names(root=ROOT):
-    base = os.path.join(root, "skills")
-    if not os.path.isdir(base):
-        return []
-    return sorted(d for d in os.listdir(base) if os.path.isfile(os.path.join(base, d, "SKILL.md")))
+skill_names = EVIDENCE_LINES.skill_names  # defined beside the walk over the evidence folders, which needs it
 
 
 def content_hash(skill_dir):
@@ -714,301 +741,128 @@ def new_test_id(now=None):
 
 # --- evidence: the closed forms of an event line and of a run line -------------------------------------
 
-HEX64_RE = re.compile(r"[0-9a-f]{64}")
-TEST_ID_RE = re.compile(r"\d{8}T\d{6}Z-[0-9a-f]{8}")
-VERSION_RE = re.compile(r"\d+\.\d+\.\d+")
-NAME_RE = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
-CASE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
-MODEL_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@-]{0,199}")
-VARIABLE_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-TOOL_RE = re.compile(r"[A-Za-z0-9 ._()/+:,-]{1,80}")
-KINDS, VARIANT_NAMES, OUTCOMES, BASELINES = ("full", "partial"), ("with", "without"), ("graded", "timeout"), ("run", "reused", "none")
-COUNT_KEYS = ("retries", "refusals", "timeouts", "pauses", "early_ends", "resumes")
-EVENT_REQUIRED = ("record", "skill", "test", "kind", "version", "content_sha256", "date", "models", "adapters",
-                  "adapter_sha256", "grader", "runs", "timeout_seconds", "retries", "measurement_version",
-                  "measurement_sha256", "image_digest", "image_platform", "grading_template_sha256", "tools", "cases",
-                  "baseline", "web_cases", "counts", "extra_pass_env", "complete")
-EVENT_OPTIONAL = ("gate", "upstream")
-RUN_REQUIRED = ("record", "skill", "version", "content_sha256", "model", "adapter", "kind", "test", "date",
-                "measurement_version", "measurement_sha256", "case", "case_sha256", "variant", "outcome", "score", "results")
-RUN_OPTIONAL = ("context_sha256", "platform", "guard_failed", "cost_usd", "run_sha256")
-GATE_KEYS = ("passed", "with", "baseline", "threshold", "tolerance")
+# The closed forms of an event line and of a run line, and the reading of an evidence file, are in
+# evals/evidence_lines.py (loaded above as EVIDENCE_LINES): what is bound here is the same object, so an importer
+# of this script reads every name it read before. evidence_problems is the one wrapper: it hands the field-file
+# reader, which stays here, to the walk over the folders.
+(HEX64_RE, TEST_ID_RE, VERSION_RE, NAME_RE, CASE_ID_RE, MODEL_RE, VARIABLE_RE, TOOL_RE, KINDS, VARIANT_NAMES, OUTCOMES,
+ BASELINES, COUNT_KEYS, EVENT_REQUIRED, EVENT_OPTIONAL, RUN_REQUIRED, RUN_OPTIONAL, GATE_KEYS) = (
+    EVIDENCE_LINES.HEX64_RE, EVIDENCE_LINES.TEST_ID_RE, EVIDENCE_LINES.VERSION_RE, EVIDENCE_LINES.NAME_RE,
+    EVIDENCE_LINES.CASE_ID_RE, EVIDENCE_LINES.MODEL_RE, EVIDENCE_LINES.VARIABLE_RE, EVIDENCE_LINES.TOOL_RE,
+    EVIDENCE_LINES.KINDS, EVIDENCE_LINES.VARIANT_NAMES, EVIDENCE_LINES.OUTCOMES, EVIDENCE_LINES.BASELINES,
+    EVIDENCE_LINES.COUNT_KEYS, EVIDENCE_LINES.EVENT_REQUIRED, EVIDENCE_LINES.EVENT_OPTIONAL, EVIDENCE_LINES.RUN_REQUIRED,
+    EVIDENCE_LINES.RUN_OPTIONAL, EVIDENCE_LINES.GATE_KEYS)
+_is, _date, _number, _count, _model, _case_id, _keys = (
+    EVIDENCE_LINES._is, EVIDENCE_LINES._date, EVIDENCE_LINES._number, EVIDENCE_LINES._count, EVIDENCE_LINES._model,
+    EVIDENCE_LINES._case_id, EVIDENCE_LINES._keys)
+(event_line_problems, run_line_problems, read_evidence_file, evidence_files, event_model_pairs,
+ tier_model, run_count_problems) = (
+    EVIDENCE_LINES.event_line_problems, EVIDENCE_LINES.run_line_problems, EVIDENCE_LINES.read_evidence_file,
+    EVIDENCE_LINES.evidence_files, EVIDENCE_LINES.event_model_pairs,
+    EVIDENCE_LINES.tier_model, EVIDENCE_LINES.run_count_problems)
 
 
-def _is(pattern, value):
-    return isinstance(value, str) and pattern.fullmatch(value) is not None
-
-
-def _date(value):
-    if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
-        return False
-    try:
-        datetime.date.fromisoformat(value)
-    except ValueError:
-        return False
-    return True
-
-
-def _number(value, low=0, high=1):
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and low <= value <= high
-
-
-def _count(value, low=0):
-    return isinstance(value, int) and not isinstance(value, bool) and value >= low
-
-
-def _model(value, models):
-    return value == "unknown" or (_is(MODEL_RE, value) and (models is None or value in models))
-
-
-def _case_id(value):
-    return _count(value) or _is(CASE_ID_RE, value)
-
-
-def _keys(line, required, optional):
-    out = [f"unknown key {k!r}" for k in line if k not in required and k not in optional]
-    return out + [f"missing key {k!r}" for k in required if k not in line]
-
-
-def event_line_problems(line, models=None):
-    """Why an event line is outside its form; models is the set of known model ids, None when there is no list."""
-    out = _keys(line, EVENT_REQUIRED, EVENT_OPTIONAL)
-    if out:
-        return out
-    bad = lambda key, form: out.append(f"{key} must be {form}")
-    if line["record"] != "test":
-        bad("record", "\"test\"")
-    if not _is(NAME_RE, line["skill"]):
-        bad("skill", "a skill name")
-    if not _is(TEST_ID_RE, line["test"]):
-        bad("test", "a test id (YYYYMMDDTHHMMSSZ-8 hex)")
-    if line["kind"] not in KINDS:
-        bad("kind", "full or partial")
-    if not _is(VERSION_RE, line["version"]):
-        bad("version", "X.Y.Z")
-    for key in ("content_sha256", "measurement_sha256", "grading_template_sha256"):
-        if not _is(HEX64_RE, line[key]):
-            bad(key, "64 hexadecimal characters")
-    if not _date(line["date"]):
-        bad("date", "YYYY-MM-DD")
-    tiers = line["models"]
-    if not (isinstance(tiers, dict) and tiers and "strong" in tiers and set(tiers) <= set(TIERS)
-            and all(_model(v, models) for v in tiers.values())):
-        bad("models", "{\"strong\": model id[, \"floor\": model id]}, each a listed id or \"unknown\"")
-        tiers = {}
-    if not (isinstance(line["adapters"], dict) and set(line["adapters"]) == set(tiers or line["adapters"])
-            and all(_is(NAME_RE, v) for v in line["adapters"].values())):
-        bad("adapters", "an adapter's folder name for each tier of models")
-    hashes = line["adapter_sha256"]
-    if not (isinstance(hashes, dict) and all(_is(NAME_RE, k) and _is(HEX64_RE, v) for k, v in hashes.items())
-            and (not isinstance(line["adapters"], dict) or set(hashes) == set(line["adapters"].values()))):
-        bad("adapter_sha256", "the sha256 of the run-prompt.sh of each adapter named in adapters")
-    if not _model(line["grader"], models):
-        bad("grader", "a listed model id or \"unknown\"")
-    for key, low in (("runs", 1), ("timeout_seconds", 1), ("retries", 0), ("measurement_version", 1)):
-        if not _count(line[key], low):
-            bad(key, f"a whole number, {low} or more")
-    if not (isinstance(line["image_digest"], str) and re.fullmatch(r"sha256:[0-9a-f]{64}", line["image_digest"])):
-        bad("image_digest", "sha256:<64 hexadecimal characters>")
-    if not (isinstance(line["image_platform"], str) and re.fullmatch(r"linux/[a-z0-9]+(/[a-z0-9]+)?", line["image_platform"])):
-        bad("image_platform", "a platform such as linux/arm64")
-    if not (isinstance(line["tools"], dict) and all(_is(NAME_RE, k) and _is(TOOL_RE, v) for k, v in line["tools"].items())):
-        bad("tools", "{tool name: its version line}")
-    cases = line["cases"]
-    if not (isinstance(cases, dict) and cases and all(_is(CASE_ID_RE, k) and _is(HEX64_RE, v) for k, v in cases.items())):
-        bad("cases", "{case id: the case's hash}, at least one")
-        cases = {}
-    if not (isinstance(line["baseline"], dict) and set(line["baseline"]) == set(cases or line["baseline"])
-            and all(v in BASELINES for v in line["baseline"].values())):
-        bad("baseline", "run, reused or none for each case of cases")
-    if not (isinstance(line["web_cases"], list) and all(_case_id(v) and str(v) in (cases or {str(v): 1}) for v in line["web_cases"])):
-        bad("web_cases", "a list of ids of cases")
-    counts = line["counts"]
-    ok = isinstance(counts, dict) and all(_model(model, models) and isinstance(by, dict) and by and set(by) <= set(VARIANT_NAMES)
-                                          for model, by in counts.items())
-    for by in counts.values() if ok else []:
-        for variant, c in by.items():
-            allowed = COUNT_KEYS + (("invoked",) if variant == "with" else ())
-            ok = ok and isinstance(c, dict) and set(COUNT_KEYS) <= set(c) and set(c) <= set(allowed) and all(_count(v) for v in c.values())
-    if not ok:
-        bad("counts", "{model id: {\"with\"|\"without\": {" + ", ".join(COUNT_KEYS) + "[, invoked]: whole numbers}}}")
-    if not (isinstance(line["extra_pass_env"], list) and all(_is(VARIABLE_RE, v) for v in line["extra_pass_env"])):
-        bad("extra_pass_env", "a list of variable names")
-    if not isinstance(line["complete"], bool):
-        bad("complete", "true or false")
-    if "gate" in line:
-        g = line["gate"]
-        if line["kind"] != "full":
-            out.append("gate belongs to a full test only: a partial test never evaluates the gate")
-        elif not (isinstance(g, dict) and set(GATE_KEYS) <= set(g) and set(g) <= set(GATE_KEYS + ("note",))
-                  and isinstance(g["passed"], bool) and _number(g["with"]) and (g["baseline"] is None or _number(g["baseline"]))
-                  and _number(g["threshold"]) and _number(g["tolerance"]) and g.get("note", "baseline expired") == "baseline expired"):
-            bad("gate", "{\"passed\": bool, \"with\": mean, \"baseline\": mean or null, \"threshold\", \"tolerance\"[, \"note\": \"baseline expired\"]}")
-        elif line["complete"] is not True:
-            out.append("gate is written by a complete full test only: an event closed as abandoned evaluates no gate")
-    elif line["kind"] == "full" and line["complete"] is True:
-        out.append("a complete full test carries its gate")
-    if "upstream" in line and not (isinstance(line["upstream"], dict) and all(
-            _model(k, models) and _is(TOOL_RE, v) for k, v in line["upstream"].items())):
-        bad("upstream", "{model id: the upstream provider the key proxy's route pins}")
-    return out
-
-
-def run_line_problems(line, event=None, models=None):
-    """Why a run line is outside its form, or disagrees with the event line of its file."""
-    out = _keys(line, RUN_REQUIRED, RUN_OPTIONAL)
-    if out:
-        return out
-    bad = lambda key, form: out.append(f"{key} must be {form}")
-    if line["record"] != "run":
-        bad("record", "\"run\"")
-    if not _is(NAME_RE, line["skill"]):
-        bad("skill", "a skill name")
-    if not _is(VERSION_RE, line["version"]):
-        bad("version", "X.Y.Z")
-    for key in ("content_sha256", "measurement_sha256", "case_sha256") + (("context_sha256",) if "context_sha256" in line else ()):
-        if not _is(HEX64_RE, line[key]):
-            bad(key, "64 hexadecimal characters")
-    if not _model(line["model"], models):
-        bad("model", "an id of the gate file's model list, or \"unknown\"")
-    if not _is(NAME_RE, line["adapter"]):
-        bad("adapter", "an adapter's folder name")
-    if line["kind"] not in KINDS:
-        bad("kind", "full or partial")
-    if not _is(TEST_ID_RE, line["test"]):
-        bad("test", "a test id")
-    if not _date(line["date"]):
-        bad("date", "YYYY-MM-DD")
-    if not _count(line["measurement_version"], 1):
-        bad("measurement_version", "a whole number, 1 or more")
-    if not _case_id(line["case"]):
-        bad("case", "a case id")
-    if line["variant"] not in VARIANT_NAMES:
-        bad("variant", "with or without")
-    if line["outcome"] not in OUTCOMES:
-        bad("outcome", "graded or timeout")
-    results = line["results"]
-    if not (isinstance(results, list) and results and all(r in (0, 1) and not isinstance(r, bool) for r in results)):
-        bad("results", "a list of 0 and 1, one per assertion")
-        results = None
-    if not _number(line["score"]):
-        bad("score", "a number from 0 to 1")
-    elif results and abs(line["score"] - sum(results) / len(results)) > 1e-9:
-        out.append("score must be the share of results that are 1")
-    if results and line["outcome"] == "timeout" and any(results):
-        out.append("a timeout has score 0 and results all 0")
-    if "cost_usd" in line and not (isinstance(line["cost_usd"], (int, float)) and not isinstance(line["cost_usd"], bool)
-                                   and line["cost_usd"] >= 0):
-        bad("cost_usd", "a number, 0 or more")
-    if "run_sha256" in line and not _is(HEX64_RE, line["run_sha256"]):
-        bad("run_sha256", "64 hexadecimal characters")
-    if "platform" in line and not _is(NAME_RE, line["platform"]):
-        bad("platform", "a platform name")
-    elif "platform" in line and (line["kind"] != "partial" or line["variant"] != "with"):
-        out.append("a line of a platform's case runs in a partial test, with the skill only")
-    if "guard_failed" in line:
-        failed = line["guard_failed"]
-        if not (isinstance(failed, list) and failed and all(_count(v, 1) for v in failed) and len(set(failed)) == len(failed)
-                and (results is None or all(v <= len(results) and results[v - 1] == 0 for v in failed))):
-            bad("guard_failed", "a list of positions of assertions whose result is 0")
-        elif line["variant"] != "with":
-            out.append("guard_failed belongs to a with-skill run only")
-    if event and not out:
-        for key in ("skill", "test", "kind", "version", "content_sha256", "measurement_version", "measurement_sha256"):
-            if line[key] != event.get(key):
-                out.append(f"{key} differs from the event line of the file")
-        if isinstance(event.get("models"), dict) and line["model"] not in event["models"].values():
-            out.append("model is not one of the event's models")
-        if isinstance(event.get("adapters"), dict) and line["adapter"] not in event["adapters"].values():
-            out.append("adapter is not one of the event's adapters")
-        if isinstance(event.get("cases"), dict) and event["cases"].get(str(line["case"])) != line["case_sha256"]:
-            out.append("case and case_sha256 are not a case of the event line")
-    return out
-
-
-def read_evidence_file(path):
-    """(event line or None, run lines, problems) of one evidence file, each line parsed and not yet judged."""
-    problems, lines = [], []
-    try:
-        with open(path, encoding="utf-8") as f:
-            raw = f.read().split("\n")
-    except (OSError, UnicodeDecodeError) as e:
-        return None, [], [f"cannot be read: {e}"]
-    if raw and raw[-1] == "":
-        raw.pop()
-    for n, text in enumerate(raw, 1):
-        try:
-            obj = json.loads(text)
-        except ValueError:
-            problems.append(f"line {n}: not valid JSON")
-            continue
-        if not isinstance(obj, dict):
-            problems.append(f"line {n}: must be a JSON object")
-            continue
-        lines.append((n, obj))
-    if not lines:
-        return None, [], problems or ["the file is empty: an evidence file has an event line"]
-    return lines[0][1], lines[1:], problems
-
-
-def evidence_file_problems(path, root=ROOT, skill=None):
-    """Why one lab evidence file is not valid; an empty list when it is. skill is the folder the file belongs
-    to; by default it is read from a path .../skills/<name>/evals/evidence/<file>."""
-    name = os.path.basename(path)
-    parts = os.path.normpath(os.path.abspath(path)).split(os.sep)
-    if skill is None and len(parts) >= 5 and parts[-3:-1] == ["evals", "evidence"] and parts[-5] == "skills":
-        skill = parts[-4]
-    m = re.fullmatch(r"lab-(" + TEST_ID_RE.pattern + r")\.jsonl", name)
-    if not m:
-        return [f"the name must be lab-<test id>.jsonl, not {name}"]
+def strict_reading(root=ROOT):
+    """The strict reading of a new evidence file (evidence_lines.py, the module docstring): every model id in the
+    current gate file's "models" and the event's "runs" equal to the configured number. None for a tree with no
+    gate file (a case folder that builds a skill of its own configures nothing)."""
     cfg = load_gate(root)
-    models = set(known_models(cfg)) if cfg else None
-    event, runs, problems = read_evidence_file(path)
-    if event is None:
-        return problems
-    first = event_line_problems(event, models)
-    problems += [f"line 1: {p}" for p in first]
-    if not first:
-        if event["test"] != m.group(1):
-            problems.append("line 1: test differs from the file's name")
-        if skill is not None and event["skill"] != skill:
-            problems.append(f"line 1: skill must be the folder's name, {skill}")
-        # Evidence comes only from an event that used the configured values: an event with another number of
-        # runs is a trial, whose file belongs in its run folder's scratch tree, never in a skill. As in the
-        # runner, a tree without a gate file (a case folder that builds a skill of its own) configures nothing.
-        configured = event_config(cfg)["runs"] if cfg else event["runs"]
-        if event["runs"] != configured:
-            problems.append(f"line 1: runs is {event['runs']}, and the configured number is {configured} "
-                            f"(\"runs\" of {GATE_REL}): an event with another number of runs is a trial, and writes no evidence")
-    for n, line in runs:
-        problems += [f"line {n}: {p}" for p in run_line_problems(line, None if first else event, models)]
-    return problems
+    return {"models": set(known_models(cfg)), "runs": event_config(cfg)["runs"]} if cfg else None
 
 
-def evidence_files(skill_dir):
-    """The lab evidence files of a skill, oldest first (a test id starts with its time)."""
-    folder = os.path.join(skill_dir, EVIDENCE_REL)
-    if not os.path.isdir(folder):
-        return []
-    return [os.path.join(folder, n) for n in sorted(os.listdir(folder)) if n.startswith("lab-") and n.endswith(".jsonl")]
+def base_resolution(root=ROOT):
+    """("base", commit) when the base of the change is known; ("error", text) when WB_BASE_REF is set and does not
+    resolve inside a git checkout (a wrong base must not silently turn the strict reading off); ("none", note)
+    when there is no base, with a note for a git checkout that has no default branch and None outside git."""
+    if git_out(root, "rev-parse", "--is-inside-work-tree") is None:
+        return "none", None
+    wanted = os.environ.get("WB_BASE_REF", "").strip()
+    if wanted:
+        if git_out(root, "rev-parse", "--verify", "--quiet", wanted + "^{commit}") is None:
+            return "error", (f"WB_BASE_REF is {wanted!r}, which names no commit of this checkout: the evidence files cannot be "
+                             "told from new ones. Fetch the base, or unset it")
+        base = git_out(root, "merge-base", "HEAD", wanted)
+        if not base:
+            return "error", f"WB_BASE_REF {wanted!r} has no merge base with HEAD: the evidence files cannot be told from new ones"
+        return "base", base.strip()
+    base = comparison_base(root)
+    if base is None:
+        return "none", ("no comparison base (no default branch found): every evidence file is read by its own event line, "
+                        "and an edited or new one is not told apart")
+    return "base", base
+
+
+def blob_id(path, root=None):
+    """The git blob id of a working-tree file, or None when it cannot be read. Inside a git checkout (root given)
+    it is what `git hash-object --path=<path in the repository> <file>` prints, which applies the conversions git
+    applies on commit (a checkout with core.autocrlf=true holds CRLF where the blob holds LF); outside one, or
+    when git does not answer, it is the hash of the file's raw bytes, which is the same for a plain file."""
+    if root is not None:
+        rel = os.path.relpath(path, root).replace(os.sep, "/")
+        out = git_out(root, "hash-object", f"--path={rel}", "--", rel)
+        if out and re.fullmatch(r"[0-9a-f]{40,64}", out.strip()):
+            return out.strip()
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except OSError:
+        return None
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()  # git's own object id, not a security hash
+
+
+def evidence_standing(root=ROOT):
+    """(standing, error, note): standing(path) answers, for an evidence file (path relative to root or absolute),
+    "new" (absent at the base of the change), "edited" (at the base with other bytes: committed evidence is never
+    edited), "same" (at the base with the same bytes) or "unchecked" (there is no usable base). error is the
+    problem text of a WB_BASE_REF that does not resolve, and note a line to print when there is no base."""
+    kind, value = base_resolution(root)
+    if kind != "base":
+        return (lambda path: "unchecked"), (value if kind == "error" else None), (value if kind == "none" else None)
+    listing = git_out(root, "ls-tree", "-r", "--", value, "skills")
+    if listing is None:
+        return (lambda path: "unchecked"), None, "the tree at the comparison base cannot be listed: evidence files are read by their own event line"
+    at_base = {}
+    for line in listing.split("\n"):
+        head, _, name = line.partition("\t")
+        if name and head.split(" ")[:2][-1:] == ["blob"]:
+            at_base[name] = head.split(" ")[2]
+
+    def standing(path):
+        rel = os.path.relpath(os.path.join(root, path), root).replace(os.sep, "/")
+        if rel not in at_base:
+            return "new"
+        return "same" if blob_id(os.path.join(root, rel), root) in (at_base[rel], None) else "edited"
+    return standing, None, None
+
+
+EDITED_TEXT = ("committed evidence is never edited: this file differs from the one at the base of the change; "
+               "restore it (git checkout <base> -- <path>), and write a new test event instead")
+
+
+def evidence_reading(standing, strict):
+    """What evidence_lines.evidence_problems asks of one lab file: the strict reading for a new file, a refusal text
+    for an edited one, None (its own event line) for the others."""
+    return lambda path: {"new": strict, "edited": EDITED_TEXT}.get(standing(path))
+
+
+def evidence_file_problems(path, root=ROOT, skill=None, strict=False):
+    """Why one lab evidence file is not valid (evidence_lines.evidence_file_problems). strict=True reads it
+    strictly, against the current gate file: a file about to be written, or new against the base."""
+    return EVIDENCE_LINES.evidence_file_problems(path, root, skill, strict_reading(root) if strict is True else (strict or None))
 
 
 def evidence_problems(root=ROOT, only=None):
-    """{relative path: [problems]} for the evidence folders of every skill, or of one. A file whose name is
-    neither lab-<test id>.jsonl nor field-<id>.jsonl is a problem: nothing else belongs in that folder."""
-    found, checked = {}, 0
-    for name in [only] if only else skill_names(root):
-        folder = os.path.join(root, "skills", name, EVIDENCE_REL)
-        for entry in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
-            rel = os.path.relpath(os.path.join(folder, entry), root)
-            checked += 1
-            if entry.startswith("field-"):  # contributed field evidence (scripts/evidence.py import)
-                problems = field_file_problems(os.path.join(folder, entry), root, name)
-            else:
-                problems = evidence_file_problems(os.path.join(folder, entry), root, name)
-            if problems:
-                found[rel] = problems
-    return found, checked
+    """{relative path: [problems]} and the number of files checked, for the evidence folders of every skill, or of
+    one (evidence_lines.evidence_problems, with the reader of field files). A lab file that is new against the base
+    of the change is read strictly (strict_reading), one that exists at the base with other bytes is refused (committed
+    evidence is never edited), every other one is read by its own event line (backlog T24). A WB_BASE_REF that does not
+    resolve is reported under that name."""
+    standing, error, note = evidence_standing(root)
+    if note:
+        print(f"Note: {note}", file=sys.stderr)
+    found, checked = EVIDENCE_LINES.evidence_problems(root, only, field_problems=field_file_problems,
+                                                      strict_for=evidence_reading(standing, strict_reading(root)))
+    return ({"WB_BASE_REF": [error], **found} if error else found), checked
 
 
 def skill_evidence(skill_dir):
@@ -1868,7 +1722,7 @@ def lab_view(root, skill_dir, cfg, events=None):
             current = (_xy(line["version"]) == _xy(version) and (grader is None or model_id(cfg, event.get("grader", "")) == grader)
                        and not epoch_after(cfg, skill, model, line["date"]) and context_ok(line))
             pools.setdefault(model, {"current": [], "inherited": []})["current" if current else "inherited"].append(line)
-            strong = (event.get("models") or {}).get("strong")
+            strong = tier_model(event, "strong")  # only an event of the old header shape has tiers
             if earlier_reference and model != ref and strong == model:
                 pools.setdefault(ref, {"current": [], "inherited": []})["inherited"].append(line)
     return {"version": version, "reference": ref, "pools": pools}
@@ -2278,8 +2132,15 @@ def main(argv, root=None):
         return 0
     if cmd == "evidence":
         if opts.get("file"):
-            check = field_file_problems if os.path.basename(opts["file"]).startswith("field-") else evidence_file_problems
-            problems = check(opts["file"], root, skill)
+            if os.path.basename(opts["file"]).startswith("field-"):
+                problems = field_file_problems(opts["file"], root, skill)
+            else:
+                standing, error, note = evidence_standing(root)
+                if note:
+                    print(f"Note: {note}", file=sys.stderr)
+                state = standing(opts["file"])
+                problems = ([error] if error else [EDITED_TEXT] if state == "edited"
+                            else evidence_file_problems(opts["file"], root, skill, strict=state == "new"))
             found, checked = ({opts["file"]: problems} if problems else {}), 1
         else:
             found, checked = evidence_problems(root, skill)
