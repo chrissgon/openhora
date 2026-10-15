@@ -57,11 +57,15 @@ def image():
         return container.image_id(container.image_tag())
 
 
-def convert(tmp_path, image, name, kind):
+def convert_path(tmp_path, image, path, kind):
     out = tmp_path / ("out-" + uuid.uuid4().hex[:6])
     out.mkdir(mode=0o700)
-    done = container.convert(str(FIXTURES / name), kind, str(out), image=image)
+    done = container.convert(str(path), kind, str(out), image=image)
     return done, {p.name: p.read_bytes() for p in out.iterdir()}
+
+
+def convert(tmp_path, image, name, kind):
+    return convert_path(tmp_path, image, FIXTURES / name, kind)
 
 
 @pytest.mark.parametrize("name,kind,expects", [
@@ -120,6 +124,54 @@ def test_a_key_in_the_compressed_text_of_a_pdf_is_in_the_converted_text_and_not_
     assert key in (out / "converted.md").read_text()
     reason = workcopy.scan((out / "converted.md").read_bytes())
     assert reason and "credential" in reason and key not in reason, "the credential scan after the conversion refuses it"
+
+
+def rewritten(source: Path, target: Path, changes: dict, extra: dict | None = None) -> Path:
+    """A copy of an Office package in which the named parts are changed by `changes[name](bytes) -> bytes`, and `extra` parts are added."""
+    with zipfile.ZipFile(source) as z, zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as out:
+        for member in z.infolist():
+            data = z.read(member.filename)
+            out.writestr(member.filename, changes[member.filename](data) if member.filename in changes else data)
+        for name, data in (extra or {}).items():
+            out.writestr(name, data)
+    return target
+
+
+def test_a_presentation_keeps_its_levels_boxes_tables_and_notes_and_skips_a_hidden_slide_and_says_so(tmp_path, image):
+    done, files = convert(tmp_path, image, "rich.pptx", "pptx")
+    text = files["converted.md"].decode()
+    assert "- Unlock the doors\n  - Disarm the alarm\n- Count the cash float" in text, "a level is an indent"
+    assert "Call the manager if the float is short" in text and "| Quay Beans | net 30 \\| invoice by mail |" in text
+    assert "# Slide 4\n\nA slide with no title" in text
+    assert "Draft pricing" not in text and "the hidden slide 3 was not read" in json.loads(files["info.json"])["notes"]
+    done, files = convert(tmp_path, image, "review.pptx", "pptx")
+    text = files["converted.md"].decode()
+    assert [ln for ln in text.splitlines() if ln.startswith("# ")] == ["# Harbor Cafe Quarterly Review", "# Highlights", "# Sites"]
+    assert "| Site | Revenue | Visits |\n| --- | --- | --- |\n| Dock Street | 48200 | 9100 |\n| Mill Lane | 39750 | 7400 |" in text
+    assert "### Notes\n\nSpeaker note: thank the Dock Street team." in text
+    assert text.index("# Highlights") < text.index("### Notes") < text.index("# Sites")
+
+
+@pytest.mark.parametrize("spelling", ["0", "false", "1", "true"])
+def test_a_slide_is_hidden_when_show_is_false_in_either_spelling_and_shown_otherwise(tmp_path, image, spelling):
+    import re as regex
+    marked = tmp_path / "marked.pptx"
+    rewritten(FIXTURES / "review.pptx", marked, {"ppt/slides/slide2.xml": lambda d: regex.sub(rb"<p:sld ", b'<p:sld show="' + spelling.encode() + b'" ', d, count=1)})
+    done, files = convert_path(tmp_path, image, marked, "pptx")
+    text = files["converted.md"].decode()
+    hidden = spelling in ("0", "false")
+    assert ("Staff turnover fell to 8 percent" not in text) == hidden and ("# Highlights" not in text) == hidden
+    assert ("the hidden slide 2 was not read" in json.loads(files["info.json"])["notes"]) == hidden
+    assert "# Sites" in text
+
+
+def test_a_presentation_with_a_chart_is_a_presentation_even_with_a_workbook_inside(tmp_path, image):
+    types = lambda d: d.replace(b"</Types>", b'<Override PartName="/ppt/embeddings/Microsoft_Excel_Sheet1.xlsx" ContentType='
+                                              b'"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"/></Types>')
+    chart = tmp_path / "chart.pptx"
+    rewritten(FIXTURES / "review.pptx", chart, {"[Content_Types].xml": types}, {"ppt/embeddings/Microsoft_Excel_Sheet1.xlsx": b"PK"})
+    done, files = convert_path(tmp_path, image, chart, "ooxml")
+    assert json.loads(files["info.json"])["kind"] == "pptx" and "# Harbor Cafe Quarterly Review" in files["converted.md"].decode()
 
 
 def test_a_key_in_a_slide_is_in_the_converted_text_and_the_credential_scan_refuses_it(tmp_path, image):
@@ -190,11 +242,13 @@ def test_the_image_really_has_no_network_a_read_only_root_a_scratch_with_no_exec
 def test_python_pptx_in_the_image_is_the_pinned_version_with_no_pip_no_markitdown_and_an_address_refused(tmp_path, image):
     code = ("import sys, importlib.util\nsys.path.insert(0, '/opt/converter')\nimport pptx\n"
             "print(pptx.__version__, importlib.util.find_spec('markitdown'), importlib.util.find_spec('onnxruntime'), "
-            "importlib.util.find_spec('numpy'))\n"
+            "importlib.util.find_spec('numpy'), importlib.util.find_spec('setuptools'))\n"
+            "import importlib.metadata as m\nprint(sorted(d.metadata['Name'].lower().replace('_', '-') for d in m.distributions()))\n"
             "try:\n import pip\n print('pip present')\nexcept ImportError:\n print('no pip')")
     code_, err, out = probe(image, tmp_path, code)
     assert code_ == 0, err
-    assert out.splitlines() == ["1.0.2 None None None", "no pip"]
+    assert out.splitlines() == ["1.0.2 None None None None",
+                                "['et-xmlfile', 'lxml', 'openpyxl', 'pillow', 'python-pptx', 'typing-extensions', 'xlsxwriter']", "no pip"]
     for address in ("https://cafe.example/menu.pptx", "file:///etc/passwd", "data:text/plain;base64,aGk="):
         code_, err, out = probe(image, tmp_path, "import subprocess, sys\nr = subprocess.run([sys.executable, '-I', '/opt/converter/_inner.py', "
                                                   f"'--type', 'pptx', '--input', {address!r}], capture_output=True)\n"
@@ -209,3 +263,16 @@ def test_python_pptx_in_the_image_is_the_pinned_version_with_no_pip_no_markitdow
 def test_the_label_that_marks_the_containers_leaves_none_behind(image):
     done = box.docker(["ps", "-a", "--filter", f"label={container.LABEL_RUN}=1", "--format", "{{.ID}}"])
     assert done.returncode == 0 and re.findall(r"[0-9a-f]{12}", done.stdout) == []
+
+
+def test_a_deck_with_too_much_xml_is_a_named_error_in_the_container_and_not_an_out_of_memory_kill(tmp_path, image):
+    big = tmp_path / "big.pptx"
+    with zipfile.ZipFile(big, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", "<Types/>")
+        z.writestr("ppt/slides/slide1.xml", b"a" * (60 * 1024 * 1024))     # about 60 KiB on disk
+    assert big.stat().st_size < 1024 * 1024
+    out = tmp_path / "out"
+    out.mkdir(mode=0o700)
+    with pytest.raises(container.ProviderError) as failed:
+        container.convert(str(big), "pptx", str(out), image=image)
+    assert "the package declares too much XML" in str(failed.value) and os.listdir(out) == []

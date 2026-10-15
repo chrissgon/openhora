@@ -229,3 +229,71 @@ def test_a_broken_presentation_is_a_conversion_error_with_a_closed_message_and_n
     fake = tmp_path / "fake.pptx"
     fake.write_bytes(b"not a package")
     assert inner.main(["--type", "pptx", "--input", str(fake), "--work", str(tmp_path / "w")]) == 3
+
+
+# --- the kind of an Office package, the size caps of a presentation, the spreadsheet's link ------------------------------------------
+
+
+@pytest.fixture
+def sockets_restored(monkeypatch):
+    """convert_pptx switches the socket guard on for the process; the monkeypatch puts the real functions back after the test."""
+    import socket
+    for attribute in ("connect", "connect_ex"):
+        monkeypatch.setattr(socket.socket, attribute, getattr(socket.socket, attribute))
+    monkeypatch.setattr(socket, "create_connection", socket.create_connection)
+    monkeypatch.setattr(socket, "getaddrinfo", socket.getaddrinfo)
+
+
+def package(path, names, types=""):
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", f"<Types xmlns='http://schemas.openxmlformats.org/package/2006/content-types'>{types}</Types>")
+        for name in names:
+            z.writestr(name, "<x/>")
+    return str(path)
+
+
+def test_the_main_part_decides_the_kind_of_a_package_not_a_type_string_so_a_deck_with_a_chart_is_not_a_workbook(inner, tmp_path):
+    sheet = ("<Override PartName='/ppt/embeddings/Microsoft_Excel_Sheet1.xlsx' "
+             "ContentType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'/>"
+             "<Override PartName='/word/document.xml' ContentType='application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml'/>")
+    deck = package(tmp_path / "deck.pptx", ["ppt/presentation.xml", "ppt/slides/slide1.xml", "ppt/embeddings/Microsoft_Excel_Sheet1.xlsx"], sheet)
+    assert inner.ooxml_kind(deck) == "pptx"
+    document = package(tmp_path / "doc.docx", ["word/document.xml", "word/embeddings/Microsoft_Excel_Sheet1.xlsx"], sheet)
+    assert inner.ooxml_kind(document) == "docx"
+    book = package(tmp_path / "book.xlsx", ["xl/workbook.xml", "xl/worksheets/sheet1.xml"], sheet)
+    assert inner.ooxml_kind(book) == "xlsx"
+    with pytest.raises(inner.Failed):
+        inner.ooxml_kind(package(tmp_path / "other.zip", ["docProps/app.xml"], sheet))
+    no_types = tmp_path / "no-types.pptx"
+    with zipfile.ZipFile(no_types, "w") as z:
+        z.writestr("ppt/presentation.xml", "<x/>")
+    with pytest.raises(inner.Failed):
+        inner.ooxml_kind(str(no_types))
+
+
+def test_a_presentation_has_lower_caps_so_a_huge_deck_is_a_named_error_before_the_library_reads_it(inner, tmp_path, sockets_restored, monkeypatch):
+    big = tmp_path / "big.pptx"
+    with zipfile.ZipFile(big, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", "<Types/>")
+        z.writestr("ppt/slides/slide1.xml", "a" * 300000)
+        z.writestr("ppt/media/image1.png", "b" * 300000)
+    assert inner.PPTX_BYTES_MAX < inner.ZIP_BYTES_MAX and inner.PPTX_XML_MAX < inner.PPTX_BYTES_MAX
+    monkeypatch.setattr(inner, "PPTX_XML_MAX", 100000)
+    with pytest.raises(inner.Failed) as refused:
+        inner.convert_pptx(str(big), str(tmp_path))
+    assert "too much XML" in str(refused.value)
+    monkeypatch.setattr(inner, "PPTX_XML_MAX", 10 ** 9)
+    monkeypatch.setattr(inner, "PPTX_BYTES_MAX", 500000)
+    with pytest.raises(inner.Failed) as refused:
+        inner.convert_pptx(str(big), str(tmp_path))
+    assert "too much data" in str(refused.value)
+    assert inner.check_package(str(big), 10 ** 9, 10 ** 9)[0] == "[Content_Types].xml", "the media are not counted as XML"
+
+
+def test_two_spreadsheets_converted_with_one_work_folder_each_give_their_own_content(inner, tmp_path):
+    pytest.importorskip("openpyxl")
+    first = inner.convert("xlsx", str(FIXTURES / "answers.xlsx"), str(tmp_path))
+    second = inner.convert("xlsx", str(FIXTURES / "survey.xlsx"), str(tmp_path))
+    assert first[2].decode().startswith("clinic,forms per day") and b"## Sheet: Prices" in second[2]
+    third = inner.convert("xlsx", str(FIXTURES / "review.xlsx"), str(tmp_path))
+    assert b"Dock Street" in third[2], "a link left by an earlier conversion is never reused"

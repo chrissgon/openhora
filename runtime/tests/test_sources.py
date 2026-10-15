@@ -99,7 +99,7 @@ def test_the_sniffers_read_the_document_types_from_the_bytes_and_leave_the_other
     with zipfile.ZipFile(buffer, "w") as z:
         z.writestr("[Content_Types].xml", "<Types/>")
         z.writestr("ppt/presentation.xml", "<p/>")
-    assert sniff(buffer.getvalue()) == ("document", "pptx")   # a presentation is a document the converter takes (MarkItDown)
+    assert sniff(buffer.getvalue()) == ("document", "pptx")   # a presentation is a document the converter takes (python-pptx)
     sources.accept_type(("document", "pptx"))
     with pytest.raises(intake.IntakeError):
         sources.accept_type(("image", "png"))

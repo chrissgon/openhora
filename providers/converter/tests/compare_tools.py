@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The comparison that chose the converter's tool per format (decisions.md, "The converter adopts MarkItDown where it is at least as good").
+"""The comparison that chose the converter's tool per format (docs/decisions.md, "MarkItDown measured against the converter's tools and not adopted").
 It runs INSIDE the converter image (it needs both the adopted tools and MarkItDown), on the committed fixtures, and prints a Markdown
 table on standard output. It is a measuring tool, not a test: nothing imports it and no test depends on it.
 
@@ -79,8 +79,8 @@ kind, path, tool = sys.argv[1:4]
 start = time.perf_counter()
 import _inner
 if tool == "markitdown":
-    # every candidate converter, one registered at a time as the production program does (the program itself registers only the
-    # ones the comparison chose); local stream API, built-ins and plugins off
+    # every candidate converter, one registered at a time (the production program does not use MarkItDown); local stream API,
+    # built-ins and plugins off
     import markitdown
     from markitdown import MarkItDown, StreamInfo, converters
     wanted = {"docx": "DocxConverter", "pptx": "PptxConverter", "xlsx": "XlsxConverter", "pdf": "PdfConverter", "html": "HtmlConverter"}[kind]

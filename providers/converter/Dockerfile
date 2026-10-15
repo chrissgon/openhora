@@ -40,13 +40,13 @@ RUN rm -f /etc/apt/sources.list.d/debian.sources \
 
 # python-pptx, openpyxl and what they need, from the lock: exact versions, every file checked against its sha256 (`--require-hashes`), wheels
 # only (the image holds no compiler), no dependency resolved at build time (`--no-deps`: the lock lists them all). The virtual
-# environment is /opt/venv; the program runs with its interpreter. pip is removed afterwards, and the byte code is compiled now
+# environment is /opt/venv; the program runs with its interpreter. pip and setuptools are removed afterwards, and the byte code is compiled now
 # because the root file system is read-only when a conversion runs.
 COPY requirements.lock /opt/converter/requirements.lock
 RUN python3 -m venv /opt/venv \
     && /opt/venv/bin/python -m pip install --no-cache-dir --disable-pip-version-check --require-hashes --only-binary=:all: --no-deps \
       -r /opt/converter/requirements.lock \
-    && /opt/venv/bin/python -m pip uninstall -y pip \
+    && /opt/venv/bin/python -m pip uninstall -y pip setuptools \
     && /opt/venv/bin/python -m compileall -q /opt/venv/lib
 
 COPY _inner.py /opt/converter/_inner.py

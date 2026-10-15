@@ -120,7 +120,7 @@ def test_the_dockerfile_pins_its_base_by_digest_and_its_packages_by_a_dated_snap
     assert (HERE.parent / ".dockerignore").read_text().split() == ["*", "!_inner.py", "!requirements.lock"]
     install = next(line for line in text.splitlines() if "pip install" in line)
     assert "--require-hashes" in install and "--only-binary=:all:" in install and "--no-deps" in install and "requirements.lock" in install
-    assert "pip uninstall" in text, "pip is removed from the environment after the install"
+    assert "pip uninstall -y pip setuptools" in text, "the installer is removed from the environment after the install"
 
 
 def lock_entries():

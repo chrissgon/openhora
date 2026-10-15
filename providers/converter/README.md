@@ -11,7 +11,7 @@ Nothing here converts a document by code written for the purpose. The tools are 
 | PDF | poppler's `pdftotext` (package `poppler-utils`) | a text layer only; a PDF of scanned pages has none and the manifest says so (no OCR). One `[page n]` line before each page |
 | Word (docx) | `pandoc` (`--sandbox`: no file but the input is read) to GitHub-flavoured Markdown | pictures are dropped |
 | HTML | `pandoc --sandbox` after `<script>`, `<style>`, `<noscript>` and `<template>` blocks are removed | text hidden by CSS is not detected yet: the hidden-text flag is P8 |
-| Presentation (pptx) | `python-pptx` (1.0.2, from the lock), written as Markdown by `convert_pptx` in `_inner.py` | one section per visible slide: `# <title>` (`# Slide n` when it has none), its text (the body placeholder as list items, indented by level), its tables as Markdown tables, its speaker notes under `### Notes`; a hidden slide is not read and the manifest says so; pictures and charts are dropped |
+| Presentation (pptx) | `python-pptx` (1.0.2, from the lock), written as Markdown by `convert_pptx` in `_inner.py` | one section per visible slide: `# <title>` (`# Slide n` when it has none), its text (the body placeholder as list items, indented by level), its tables as Markdown tables, its speaker notes under `### Notes`; a hidden slide (`show` is `0` or `false`) is not read and the manifest says so; pictures and charts are dropped |
 | Spreadsheet (xlsx) | `openpyxl` (3.1.5, from the lock), stored values only (`data_only`), visible sheets only | one sheet comes out as `converted.csv`; several as `converted.md` with a `## Sheet: <name>` section and a `csv` fence each; a hidden sheet is not read and the manifest says so |
 | CSV | the standard library's `csv` | the delimiter (`,` `;` tab `|`) is detected and the file is written with commas; UTF-8, else Windows-1252 |
 | Text | the standard library | UTF-8 (a byte order mark dropped), else Windows-1252; NUL characters out |
@@ -31,11 +31,11 @@ Microsoft's MarkItDown was measured and not adopted. `tests/compare_tools.py` ra
 
 ### The Python packages
 
-`requirements.in` names `python-pptx==1.0.2` and `openpyxl==3.1.5` (openpyxl moved from the Debian package into the same environment, so that the image has one Python environment and one hash-checked lock, and the version the comparison measured is the version that runs). `requirements.lock` holds the 7 packages they need, each at an exact version with every sha256 of its wheels, for every platform (one lock serves the amd64 and arm64 images). The Dockerfile installs it into `/opt/venv` with `pip install --require-hashes --only-binary=:all: --no-deps`: a file whose hash is not in the lock is refused, nothing is resolved at build time and no compiler is in the image. pip is removed afterwards. The build needs the network once (`container.py build --confirmed`); a conversion never does. To remake the lock, run the command in `requirements.in`.
+`requirements.in` names `python-pptx==1.0.2` and `openpyxl==3.1.5` (openpyxl moved from the Debian package into the same environment, so that the image has one Python environment and one hash-checked lock, and the version the comparison measured is the version that runs). `requirements.lock` holds the 7 packages they need, each at an exact version with every sha256 of its wheels, for every platform (one lock serves the amd64 and arm64 images). The Dockerfile installs it into `/opt/venv` with `pip install --require-hashes --only-binary=:all: --no-deps`: a file whose hash is not in the lock is refused, nothing is resolved at build time and no compiler is in the image. pip and setuptools are removed afterwards (the environment holds the 7 packages of the lock and nothing else). The build needs the network once (`container.py build --confirmed`); a conversion never does. To remake the lock, run the command in `requirements.in`.
 
 ### The presentation function
 
-`convert_pptx` reads the one package with python-pptx; it makes no network connection (before the library is imported `socket.connect`, `create_connection` and `getaddrinfo` raise, behind the container's `--network none`) and loads no plugin. Any input of the program that is an address (`http:`, `file:`, `data:`) or not an absolute path is refused before anything is read (exit 3, nothing on standard output). A failure of the library is `error: python-pptx could not convert the pptx file: <ExceptionName>` (no path, no text of the file) and exit 3, which the host reports as a failed conversion and which writes nothing.
+`convert_pptx` reads the one package with python-pptx, after a check of its size that is stricter than the other Office files' (150 MiB declared in all, 48 MiB of XML: python-pptx keeps every part in memory in a container of 1024 MiB, so a deck of hundreds of megabytes of slide XML is the named error "the package declares too much XML" and not an out-of-memory kill); it makes no network connection (before the library is imported `socket.connect`, `create_connection` and `getaddrinfo` raise, behind the container's `--network none`) and loads no plugin. Any input of the program that is an address (`http:`, `file:`, `data:`) or not an absolute path is refused before anything is read (exit 3, nothing on standard output). A failure of the library is `error: python-pptx could not convert the pptx file: <ExceptionName>` (no path, no text of the file) and exit 3, which the host reports as a failed conversion and which writes nothing.
 
 ## How a conversion runs
 
@@ -45,7 +45,7 @@ The result leaves the container as a stream of frames on its standard output (`O
 
 ## The image
 
-`Dockerfile`, `.dockerignore`, `_inner.py` and `requirements.lock` are the definition; the image is named `openhora-converter:<12 characters of the hash of those four files>`. It is built here, by a step the person starts, and never pulled when a conversion runs:
+`Dockerfile`, `.dockerignore`, `_inner.py` and `requirements.lock` are the definition (`requirements.in` is not: the lock is what is installed); the image is named `openhora-converter:<12 characters of the hash of those four files>`. It is built here, by a step the person starts, and never pulled when a conversion runs:
 
 ```sh
 python3 providers/converter/container.py build --dry-run       # the command, nothing built
