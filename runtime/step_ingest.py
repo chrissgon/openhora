@@ -146,6 +146,7 @@ KIND = steps.register(steps.Kind(
     footprint=lambda args: (),
     check=check,
     unattended=True,
+    brings_source=True,
 ))
 
 

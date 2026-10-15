@@ -114,7 +114,7 @@ def store_module():
     return _load("workbench_store_" + found["implementation"], found["path"])
 
 
-def _command(name: str, project: str, **args) -> str:
+def _command(name: str, project: str, /, **args) -> str:
     """The terminal's command for one operation, as a sentence of this layer names it: absolute, from the checkout
     this process runs from (ROOT), with the uv prefix when it was started through uv (operations.command_line, the
     one place that spells the syntax)."""
