@@ -2747,6 +2747,10 @@ from ops_steps import run_step  # noqa: E402,F401
 # The workflows (runtime/ops_flows.py): the list, the flow check, saving a plan as one, and a file staged for a request.
 import ops_flows  # noqa: E402
 from ops_flows import check_flow, flow_save, flows, stage_file  # noqa: E402,F401
+# The routines (runtime/ops_routines.py): the schedule's workflows, their approval by hash, the brakes and the tick a round calls.
+import ops_routines  # noqa: E402
+from ops_routines import (routine_approve, routine_cancel, routine_change, routine_create, routine_pause, routine_resume,  # noqa: E402,F401
+                          routines_read)
 # The reads of the local interface (runtime/ops_reads.py): the operations, and the one constant a test reads.
 from ops_reads import agents, artifact, artifact_raw, artifacts, connections, conversation, costs, service_check, skills  # noqa: E402,F401
 from ops_reads import commands, stop_runs, version  # noqa: E402,F401

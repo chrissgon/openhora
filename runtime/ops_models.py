@@ -130,12 +130,33 @@ def route(ctx: dict, skill: str, meta: dict, keys, task: dict | None = None, req
     routing["billing"] = core._model_billing(routing["model"], routing["adapter"])
     agent =(cfg["area_agents"].get(task.get("agent")) if task is not None and task.get("agent") else None) or {}
     routing["consent"] = False
-    if (routing["autonomy"] != "proven" and named_by == "agent" and routing["mode"] == "named"
+    mine = _routine_of(ctx, task)      # a task of a routine's fire: the routine's own consent (D34) decides, never the agent's (D38)
+    if mine is not None:
+        if routing["autonomy"] != "proven" and routing["mode"] == "named" and _routines().consent_in_force(mine, routing["model"]):
+            routing["autonomy"], routing["consent"] = "consent", True
+            routing["reasons"].append(f"{routing['model']} is unproven for this skill; the routine {mine['name']} carries the person's consent "
+                                      "for it: its reviews are released by the agent's mode, and the run is recorded as autonomy by consent")
+    elif (routing["autonomy"] != "proven" and named_by == "agent" and routing["mode"] == "named"
             and autonomy.consent_valid(agent, routing["model"])):
         routing["autonomy"], routing["consent"] = "consent", True
         routing["reasons"].append(f"{routing['model']} is unproven for this skill; the person consented to it for this agent: "
                                   "its reviews are released by the mode, and the run is recorded as autonomy by consent")
     return routing
+
+
+def _routines():
+    import ops_routines      # imported when a routine's task is routed: ops_routines imports this module
+    return ops_routines
+
+
+def _routine_of(ctx: dict, task: dict | None):
+    """The routine whose fire made the request this task belongs to, or None (a task of an ordinary request)."""
+    if task is None or task.get("parent_id") is None:
+        return None
+    try:
+        return _routines().routine_of_task(ctx, task)
+    except Exception:       # a store that cannot say is not a routine's
+        return None
 
 
 def consent_for_review(ctx: dict, run: dict | None, agent_entry: dict | None, routed_proven: bool) -> tuple:
@@ -152,6 +173,9 @@ def consent_for_review(ctx: dict, run: dict | None, agent_entry: dict | None, ro
     if word == "proven":
         return bool(routed_proven), False
     if word == "consent":
+        mine = _routine_of(ctx, core._stored(ctx, ctx["store"].task_get, run["task_id"])) if run and run.get("task_id") else None
+        if mine is not None:     # the run of a routine's task: the routine's consent, not the agent's
+            return False, _routines().consent_in_force(mine, (run or {}).get("model"))
         return False, autonomy.consent_valid(agent_entry, (run or {}).get("model"))
     return False, False
 

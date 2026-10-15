@@ -26,6 +26,13 @@ Usage:
   python3 runtime/cli.py flow-check --project <dir> --flow <name>
   python3 runtime/cli.py flow-save --project <dir> --name <name> (--id <plan's pending id> | --flow <name>) [--title <text>] [--split] [--replace]
   python3 runtime/cli.py stage-file --project <dir> --request <request id> --file <path>
+  python3 runtime/cli.py routines --project <dir> [--id <routine id>]
+  python3 runtime/cli.py routine-create --project <dir> --name <name> --flow <workflow> [--param <name>=<value>]... (--every day --at HH:MM | --every week --weekday 1-7 --at HH:MM | --every minutes --minutes N) [--model <id>|auto] [--provider <name>]... [--window-seconds <n>] [--consent]
+  python3 runtime/cli.py routine-change --project <dir> --id <routine id> [the fields of routine-create, except --name]
+  python3 runtime/cli.py routine-approve --project <dir> --id <routine id> [--sha256 <hash>]
+  python3 runtime/cli.py routine-pause --project <dir> --id <routine id>
+  python3 runtime/cli.py routine-resume --project <dir> --id <routine id>
+  python3 runtime/cli.py routine-cancel --project <dir> --id <routine id>
   python3 runtime/cli.py agents   --project <dir>
   python3 runtime/cli.py conversation --project <dir> [--conversation <name>] [--after <message id>]
   python3 runtime/cli.py skills   --project <dir>
@@ -147,6 +154,23 @@ flow-save saves an approved plan (--id: the plan's pending decision, resolved ap
           refuses the save, nothing is written, unless --split makes the code-made split. An existing file is replaced only with
           --replace. A name of a workbench flow is refused. Run it by `route --request <id> --flow <name>` (with --param
           name=value for its parameters).
+routines  the routines: a workflow started by a schedule. Each with its state (draft, active, paused, stopped, cancelled), schedule,
+          the hash of its content now against the hash you approved, and its last fire; with --id, its fires (a slot is fired once; a slot
+          missed is skipped and noted, and only the newest missed slot younger than the window is made up) and, for a routine not approved,
+          what approving it needs.
+routine-create  makes a routine as a draft; it fires nothing until you approve it. The workflow must pass the flow check and take no file. The
+          schedule is every day at HH:MM, every week on a weekday at HH:MM, or every N minutes (15 to 720, dividing a day). --model is an id of the
+          gate file, auto (with --provider, the providers it may use: the cheapest reliable pair inside them, and a better candidate outside
+          them stops the routine and asks) or none (the project's default). --consent (terminal only; the page sends the hash of the warning)
+          is the routine's own consent for a fixed model that has no evidence: its tasks' reviews are released by their agent's mode, each
+          run recorded as autonomy by consent; a change of the model asks again. The agent's consent is never read for a routine.
+routine-change  changes the fields given; the approval is cleared and the routine is a draft again.
+routine-approve  without --sha256 prints the preview and the hash; with it, approves exactly that content: the schedule, the workflow's template and
+          fixed arguments (not the dates), the X.Y of each skill (a Z change stops nothing), the eval image, the model and consent, the
+          providers. At each fire the hash is computed again; if it differs the routine stops and a question says what changed.
+routine-pause  pauses an active routine: nothing fires while it is paused, and the slots it passes are not made up.
+routine-resume  resumes a paused routine; its approval stands, and every fire still compares the hash.
+routine-cancel  cancels a routine for good (it is never deleted; its fires stay on record).
 stage-file  copies one file of yours for a request that waits for its plan (.workbench-local/drop/request-<id>/), with every
           check of hand-over (a regular file, a plain name, a size cap, no credential, a git project that ignores the folder, a
           name not taken). A workflow with a file parameter names it (route ... --param survey=<name>) and its plan carries the

@@ -108,11 +108,11 @@ def pick(*ids):
 # --- a Drive source in the registry --------------------------------------------------------------------------------------------------
 
 
-def test_a_drive_source_is_stored_as_a_file_row_and_read_everywhere_as_a_drive_source(drive):
+def test_a_drive_source_is_stored_with_its_own_type_and_read_everywhere_as_a_drive_source(drive):
     row = sources.register(drive.ctx, "notes", "drive", DOC, "The weekly notes.")
     assert row["type"] == "drive" and row["origin"] == DOC and row["description"] == "The weekly notes."
     stored = drive.ctx["store"].source_get(drive.ctx["conn"], "notes")
-    assert stored["type"] == "file" and stored["origin"] == "drive:" + DOC, "no migration: the registry's type column is unchanged"
+    assert stored["type"] == "drive" and stored["origin"] == DOC, "since migration 14 the registry holds the type and the bare id"
     assert sources.public_row(stored) == row and sources.drive_id_of(stored) == DOC
     [listed] = sources.list_catalog(drive.ctx, hashes=False)
     assert listed["type"] == "drive" and listed["origin"] == DOC

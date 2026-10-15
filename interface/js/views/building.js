@@ -21,6 +21,7 @@ import { floorCardNode, rowNode } from "../scene/plates.js";
 import { worldModel } from "../world-model.js";
 import { cancelCount } from "./lobby-model.js";
 import { createCancelDialog } from "./lobby-request.js";
+import { createRoutines } from "./lobby-routines.js";
 import { createStepsBrake } from "./lobby-steps-brake.js";
 
 export const PLATE_GAP_X = 14;
@@ -81,6 +82,9 @@ export function createBuildingView(frame, env) {
   // the brake of the step tasks (views/lobby-steps-brake.js): a state line and one button, drawn only when the agents read carried the brake
   const stepsBrake = createStepsBrake({ api, get project() { return projectId; }, refresh: async () => { if (env && env.refresh) await env.refresh(); },
     entry: () => (last && last.snapshot ? (last.snapshot.projects || []).find((p) => p.id === projectId) || null : null) });
+  // the routines of the project (views/lobby-routines.js): the list, the approval by hash, the brakes; drawn when the project is accepted
+  const routines = createRoutines({ api, get project() { return projectId; }, refresh: async () => { if (env && env.refresh) await env.refresh(); },
+    entry: () => (last && last.snapshot ? (last.snapshot.projects || []).find((p) => p.id === projectId) || null : null) });
   const docsCount = h("span", { class: "wb-muted" });
   const docsLink = h("a", { class: "wb-docs-link", href: "#" }, icon("file-text", 16), h("strong", { text: "Documents" }), " ", docsCount, h("span", { class: "wb-fl-chev" }, icon("chevron-right", 14)));
   const docsSection = h("section", { class: "wb-sec wb-docs", hidden: true }, docsLink);
@@ -89,7 +93,7 @@ export function createBuildingView(frame, env) {
   const moreLine = h("p", { class: "wb-muted wb-sec-empty", hidden: true });
   const noneLine = h("p", { class: "wb-muted wb-sec-empty", text: "This project has no area agents in its configuration.", hidden: true });
   const floorSection = h("section", { id: "wb-scene-list", tabindex: "-1", class: "wb-sec", hidden: true }, listHeading, moreLine, list, noneLine);
-  const body = h("div", { class: "wb-panel-body" }, loadingLine, factsBox, requestsSection, docsSection, floorSection, stepsBrake.el);
+  const body = h("div", { class: "wb-panel-body" }, loadingLine, factsBox, requestsSection, docsSection, floorSection, stepsBrake.el, routines.el);
   const grip = createGrip();
   const panel = h("section", { class: "pui-card wb-panel wb-drawer wb-panel-building wb-bpanel", role: "region", "aria-labelledby": "wb-building-title", id: "wb-panel", tabindex: "-1" }, grip, head, body);
   const drawer = bindDrawer(panel, { screen: "building", grip });
@@ -399,6 +403,7 @@ export function createBuildingView(frame, env) {
       drawRequests(view, detail && detail.status ? detail.status : null);
       drawDocuments(view);
       stepsBrake.update(detail, view.accepted || view.kept);
+      routines.update(detail, view.accepted || view.kept);
       floorSection.hidden = false;
       const sig = JSON.stringify([view.rows.map((r) => [fm.plateOf(r, false), r.link, r.linkName]), view.more, view.none]);
       if (sig !== listShown) {
@@ -411,6 +416,7 @@ export function createBuildingView(frame, env) {
       docsSection.hidden = true;
       floorSection.hidden = true;
       stepsBrake.update(null, false);
+      routines.update(null, false);
       requestsShown = "";
       listShown = "";
     }
