@@ -120,7 +120,7 @@ def standin(environment, tmp_path_factory):
     (folder / "server.py").write_text(STANDIN_SERVER)
     os.chmod(folder / "key.pem", 0o644)  # read by the image's user, inside the container only
     n = ex.names()
-    docker("run", "-d", "--rm", "--platform", ex.image_platform(), "--name", STANDIN, "--network", n["network"],
+    docker("run", "-d", "--rm", "--platform", ex.image_platform(), "--name", STANDIN, "--network", n["keys_network"],
            "-e", "STANDIN_EXPECTED_KEY", "-v", f"{os.path.realpath(folder)}:/standin:ro", n["image"],
            "python3", "/standin/server.py", env={"STANDIN_EXPECTED_KEY": FAKE_KEY})
     try:
@@ -243,9 +243,10 @@ def resolves(network, host):
 
 def test_a_run_of_one_tier_cannot_reach_the_other_tiers_key_proxy(keys, strong_keys):
     n = ex.names()
-    assert resolves(n["network"], keys) and resolves(n["strong_network"], strong_keys)  # each reaches its own
-    assert not resolves(n["network"], strong_keys)  # the floor model's network: no strong key proxy
+    assert resolves(n["keys_network"], keys) and resolves(n["strong_network"], strong_keys)  # each on its own network
+    assert not resolves(n["keys_network"], strong_keys)  # the floor key proxy's network: no strong key proxy
     assert not resolves(n["strong_network"], keys)  # the strong model's network: no floor key proxy
+    assert not resolves(n["network"], keys) and not resolves(n["network"], strong_keys)  # the run network: neither
 
 
 # --- package SEC: a held run reaches its key proxy and nothing else ---------------------------------------
@@ -279,10 +280,11 @@ def code(url, extra=""):
 
 def test_the_egress_proxy_is_on_neither_held_network_and_each_key_proxy_is_on_its_own(strong_keys, keys):
     n = ex.names()
-    assert {n["network"], n["strong_network"]} <= set(networks_of(n["proxy"]))
+    assert {n["network"], n["keys_network"], n["strong_network"]} <= set(networks_of(n["proxy"]))
     assert n["held_network"] not in networks_of(n["proxy"]) and n["strong_held_network"] not in networks_of(n["proxy"])
     floor, strong = networks_of(keys), networks_of(strong_keys)
-    assert {n["network"], n["open_network"], n["held_network"]} <= set(floor) and n["strong_held_network"] not in floor
+    assert {n["keys_network"], n["open_network"], n["held_network"]} <= set(floor) and n["strong_held_network"] not in floor
+    assert n["network"] not in floor + strong  # the network of the runs without a held key has no key proxy on it
     assert {n["strong_network"], n["strong_open_network"], n["strong_held_network"]} <= set(strong) and n["held_network"] not in strong
     for network in (n["held_network"], n["strong_held_network"]):
         inspected = docker("network", "inspect", "--format", "{{.Internal}}", network)
@@ -345,3 +347,26 @@ def test_a_held_strong_run_reaches_its_key_proxy_and_neither_the_egress_proxy_no
     codes = [x for x in out[2:] if x.isdigit() and len(x) == 3]
     assert codes and set(codes) == {"000"}, r.stdout
     assert out[-2:] == ["0", "done"]
+
+
+def test_a_run_without_a_held_key_cannot_reach_either_key_proxy(keys, strong_keys, root):
+    """The runs that use the egress proxy's network share it with no key proxy: they could otherwise call one and
+    spend its key."""
+    n = ex.names()
+    before = len(seen())
+    script = (f"getent hosts {KEYS} >/dev/null; echo rc=$?; getent hosts {KEYS_STRONG} >/dev/null; echo rc=$?; "
+              + code(f"http://{KEYS}:{ROUTE['port']}/api/v1/chat/completions", "--noproxy '*' -X POST -d '{}'") + "; echo; "
+              + code(f"http://{address_of(keys, n['keys_network'])}:{ROUTE['port']}/api/v1/chat/completions",
+                     "--noproxy '*' -X POST -d '{}'") + "; echo; "
+              # through the egress proxy, as the run's proxy variables send it: the proxy's own refusal, not the key proxy's
+              + code(f"http://{KEYS}:{ROUTE['port']}/api/v1/chat/completions", "-X POST -d '{}'") + "; echo")
+    # security-scan: allow shell-string -- every script is a literal of this test file, run inside the container
+    argv, name = ex.command(["bash", "-c", script], str(root), cwd=str(root / "case"), env={}, pass_names=[], network="proxy")
+    assert argv[argv.index("--network") + 1] == n["network"]  # on the run network, with no held key
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=180)
+    finally:
+        ex.remove(name)
+    direct, direct_by_address, through_the_proxy = r.stdout.split()[2:]
+    assert r.stdout.split()[:2] == ["rc=2", "rc=2"] and direct == direct_by_address == "000", (r.stdout, r.stderr)
+    assert through_the_proxy != "200" and len(seen()) == before  # nothing reached the stand-in

@@ -318,6 +318,11 @@ SENT = (  # every header a run sends in the test below: (name, value, forwarded)
     ("Anthropic-Version", "2023-06-01", True),
     ("Anthropic-Beta", "tools-2024-04-04", True),
     ("X-Stainless-Retry-Count", "0", True),
+    ("X-Claude-Code-Session-Id", "0b8f-session-id", True),  # sent by the reference runner on every call
+    ("x-session-affinity", "affinity-1", True),  # sent by the floor runner
+    ("X-Session-Id", "session-1", True),
+    ("x-parent-session-id", "parent-1", True),
+    ("Idempotency-Key", "idem-1", True),
     ("X-Api-Key", FROM_THE_RUN, False),
     ("x-api-key", FROM_THE_RUN + "-second", False),
     ("Api-Key", FROM_THE_RUN, False),
@@ -328,7 +333,7 @@ SENT = (  # every header a run sends in the test below: (name, value, forwarded)
     ("Authorization", "Bearer " + FROM_THE_RUN, False),
     ("X-Custom-Token", FROM_THE_RUN, False),
     ("X-Client-Secret", FROM_THE_RUN, False),
-    ("X-Session-Id", FROM_THE_RUN, False),
+    ("X_Api_Key", FROM_THE_RUN, False),
     ("X-Credential-Id", FROM_THE_RUN, False),
     ("X-Password-Hint", FROM_THE_RUN, False),
 )
@@ -374,14 +379,15 @@ def test_each_of_the_three_named_cases_is_dropped_alone(provider, proxied, name)
 
 @pytest.mark.parametrize("name", ["x-api-key", "X-API-KEY", "api-key", "x-goog-api-key", "anthropic-auth-token", "cookie",
                                   "Proxy-Authorization", "authorization", "x-custom-token", "x-xsrf-token", "x-client-secret",
-                                  "set-cookie", "x-session-id", "x-credential", "x-password", "Idempotency-Key", "x-auth", "OAuth"])
+                                  "set-cookie", "x-credential", "x-password", "x_api_key", "x-api-key ", "x-auth", "OAuth"])
 def test_a_name_that_can_carry_a_credential_is_a_credential_header(name):
     assert kp.credential_header(name)
 
 
 @pytest.mark.parametrize("name", ["content-type", "Content-Length", "accept", "accept-encoding", "user-agent", "x-title",
                                   "http-referer", "anthropic-version", "anthropic-beta", "x-stainless-lang", "x-stainless-retry-count",
-                                  "x-request-id", "traceparent", "x-app", "openai-organization"])
+                                  "x-request-id", "traceparent", "x-app", "openai-organization", "x-session-id", "x-claude-code-session-id",
+                                  "x-session-affinity", "x-parent-session-id", "idempotency-key"])
 def test_a_name_that_carries_none_is_not(name):
     assert not kp.credential_header(name)
 

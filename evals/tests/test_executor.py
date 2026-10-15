@@ -42,7 +42,7 @@ def test_the_definition_hash_follows_the_files_and_names_everything(tmp_path):
     n = ex.names(str(tmp_path))
     assert all(second[:12] in value for value in n.values())
     assert set(n) == {"image", "proxy_image", "network", "proxy", "keys_image", "keys", "open_network", "keys_strong",
-                      "strong_network", "strong_open_network", "held_network", "strong_held_network"}
+                      "strong_network", "strong_open_network", "held_network", "strong_held_network", "keys_network"}
 
 
 def test_a_command_sees_the_run_folder_and_the_one_adapter_script_and_nothing_else(tmp_path):
@@ -278,7 +278,7 @@ def test_the_key_proxy_gets_the_key_by_name_and_is_reused_until_the_key_changes(
     run = next(c for c in docker.calls if c[0] == "run")
     assert all(FLOOR_KEY not in a for c in docker.calls for a in c)  # never on a command line, the label included
     assert ["-e", r["secret"]] in pairs(list(run)) and docker.envs[docker.calls.index(run)][r["secret"]] == FLOOR_KEY
-    assert ["--network", n["network"]] in pairs(list(run)) and f"HTTPS_PROXY=http://{n['proxy']}:{ex.PROXY_PORT}" in run
+    assert ["--network", n["keys_network"]] in pairs(list(run)) and f"HTTPS_PROXY=http://{n['proxy']}:{ex.PROXY_PORT}" in run
     assert ["--cap-drop", "ALL"] in pairs(list(run)) and "--rm" in run and "--restart" not in run
     assert not any(a in ("-p", "--publish", "--network=host") for a in run)  # nothing published on the host
     assert run[run.index(n["keys_image"]) + 1:] == ()  # the provider of the route: no upstream given

@@ -264,10 +264,11 @@ def test_ensure_makes_each_routes_held_network_internal_and_never_connects_the_e
     monkeypatch.setattr(ex, "docker", docker)
     ex.ensure()
     created = {c[-1]: "--internal" in c for c in docker.calls if c[:2] == ("network", "create")}
-    assert created == {n["network"]: True, n["open_network"]: False, n["held_network"]: True, n["strong_network"]: True,
-                       n["strong_open_network"]: False, n["strong_held_network"]: True}
+    assert created == {n["network"]: True, n["keys_network"]: True, n["open_network"]: False, n["held_network"]: True,
+                       n["strong_network"]: True, n["strong_open_network"]: False, n["strong_held_network"]: True}
     connected = [c for c in docker.calls if c[:2] == ("network", "connect")]
-    assert connected and all(c[3] == n["proxy"] and c[2] in (n["network"], n["strong_network"]) for c in connected)
+    assert connected and all(c[3] == n["proxy"] for c in connected)
+    assert {c[2] for c in connected} == {n["network"], n["keys_network"], n["strong_network"]}
     assert not any(n["held_network"] in c or n["strong_held_network"] in c for c in connected)
 
 
@@ -277,4 +278,41 @@ def test_clean_removes_the_held_networks_too(monkeypatch):
     monkeypatch.setattr(ex, "docker", docker)
     ex.clean()
     removed = {c[-1] for c in docker.calls if c[:2] == ("network", "rm")}
-    assert {n["held_network"], n["strong_held_network"]} <= removed
+    assert {n["held_network"], n["strong_held_network"], n["keys_network"]} <= removed
+
+
+def test_a_key_proxy_is_never_on_the_network_every_run_without_a_held_key_uses(monkeypatch):
+    """The floor key proxy had been on "network" with the non-held proxy runs, which could call it and spend its key."""
+    n = ex.names()
+    assert ex.places("floor")[1] == n["keys_network"] != n["network"]
+    assert ex.places("strong")[1] == n["strong_network"] != n["network"]
+    for name, key, internal in (("floor", FLOOR, n["keys_network"]), ("strong", STRONG, n["strong_network"])):
+        docker = FakeDocker()
+        monkeypatch.setattr(ex, "docker", docker)
+        ex.keyproxy(env={key: FLOOR_KEY, "PATH": "/usr/bin"}, name=name)
+        run = next(c for c in docker.calls if c[0] == "run")
+        assert run[run.index("--network") + 1] == internal
+        connects = [c for c in docker.calls if c[:2] == ("network", "connect")]
+        assert n["network"] not in [c[2] for c in connects] and n["network"] not in run
+        assert [c[2] for c in connects] == [ex.places(name)[2], ex.held_network(name)]
+
+
+@pytest.mark.parametrize("failing", ["open", "held"])
+def test_a_key_proxy_that_cannot_join_a_network_is_removed_before_the_error(monkeypatch, failing):
+    """A half-connected proxy must not stay for a later call to reuse by its label."""
+    n = ex.names()
+    docker = FakeDocker()
+    target = n["open_network"] if failing == "open" else n["held_network"]
+
+    def refusing(*args, env=None, check=True, timeout=1800):
+        import subprocess
+        result = docker(*args, env=env, check=check, timeout=timeout)
+        if args[:2] == ("network", "connect") and args[2] == target:
+            return subprocess.CompletedProcess(["docker", *args], 1, "", "network is gone")
+        return result
+    monkeypatch.setattr(ex, "docker", refusing)
+    with pytest.raises(ex.ExecutorError) as e:
+        ex.keyproxy(env={FLOOR: FLOOR_KEY, "PATH": "/usr/bin"})
+    assert f"{failing} network" in str(e.value) and FLOOR_KEY not in str(e.value)
+    assert docker.calls[-1] == ("rm", "-f", n["keys"])
+    assert not any(c[0] == "logs" for c in docker.calls)  # it did not go on to wait for the proxy

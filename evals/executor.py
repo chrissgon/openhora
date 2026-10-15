@@ -29,8 +29,10 @@ variables, the run container gets a placeholder in it and its proxy's base URL i
 "base_url_env"; that key proxy, a container of its own, holds the value, forwards the route's model
 endpoints only ("paths"), to the provider's one host, over HTTPS and through the egress proxy, drops every
 credential header a run sends, and adds the key to each call.
-The key proxy is on three networks of its route: the internal network, where the egress proxy is (its own
-way to the provider), the open network (where a web run reaches it) and the held network. The held network
+The key proxy is on three networks of its route: its own internal network, where the egress proxy is and
+no run is (its way to the provider; the floor route's is "keys_network", the strong route's "strong_network",
+and the network every run without a held key uses, "network", has no key proxy on it), the open network (where
+a web run reaches it) and the held network. The held network
 is an internal network that holds only the route's key proxy and its held runs: a run on "proxy" with a held
 key is put there and nowhere else, with no proxy variable, so the egress proxy is out of its reach. It can
 reach its key proxy, and through it its provider's model endpoints with the key the proxy holds; it cannot
@@ -129,7 +131,8 @@ def names(folder=DEFINITION):
             "proxy": f"wb-eval-proxy-{tag}", "keys_image": f"wb-eval-keys:{tag}", "keys": f"wb-eval-keys-{tag}",
             "open_network": f"wb-eval-open-{tag}", "keys_strong": f"wb-eval-keys-strong-{tag}",
             "strong_network": f"wb-eval-strong-{tag}", "strong_open_network": f"wb-eval-strong-open-{tag}",
-            "held_network": f"wb-eval-held-{tag}", "strong_held_network": f"wb-eval-strong-held-{tag}"}
+            "held_network": f"wb-eval-held-{tag}", "strong_held_network": f"wb-eval-strong-held-{tag}",
+            "keys_network": f"wb-eval-keys-net-{tag}"}
 
 
 def route(folder=KEYPROXY, name="floor"):
@@ -162,11 +165,13 @@ def holds(pass_names, env=None, network="proxy"):
 
 
 def places(name, n=None):
-    """(the key proxy's container, its internal network, its open network) of one route."""
+    """(the key proxy's container, its internal network, its open network) of one route. The internal network of a
+    key proxy is its route's own, where the egress proxy is and no run is: "network" is the one every run without
+    a held key uses, and a key proxy is never on it."""
     n = n or names()
     if name == "strong":
         return n["keys_strong"], n["strong_network"], n["strong_open_network"]
-    return n["keys"], n["network"], n["open_network"]
+    return n["keys"], n["keys_network"], n["open_network"]
 
 
 def held_network(name, n=None):
@@ -195,8 +200,8 @@ def docker(*args, env=None, check=True, timeout=1800):
 
 def ensure(env=None):
     """Build the images that are missing, create the eval's networks (an internal and a held network per route,
-    an open network per route), and start the egress proxy, which joins the two internal networks and never a
-    held one (the key proxy starts when a command needs it: keyproxy()). Idempotent, and
+    an open network per route, and a network where each key proxy and the egress proxy meet), and start the egress
+    proxy, which joins the run network and the two key proxies' networks and never a held one (the key proxy starts when a command needs it: keyproxy()). Idempotent, and
     safe when several runners call it at once (a second create of the same name is not an error).
     Returns the environment a record names: the definition's hash, the image, its digest and its platform."""
     n, platform = names(), image_platform()
@@ -206,7 +211,7 @@ def ensure(env=None):
                           (n["keys_image"], KEYPROXY)):
         if docker("image", "inspect", image, env=env, check=False).returncode != 0:
             docker("build", "-q", "--platform", platform, "-t", image, folder, env=env)
-    for network, internal in ((n["network"], True), (n["open_network"], False), (n["held_network"], True),
+    for network, internal in ((n["network"], True), (n["keys_network"], True), (n["open_network"], False), (n["held_network"], True),
                               (n["strong_network"], True), (n["strong_open_network"], False),
                               (n["strong_held_network"], True)):
         if docker("network", "inspect", network, env=env, check=False).returncode != 0:
@@ -223,9 +228,10 @@ def ensure(env=None):
         r = docker("network", "connect", n["network"], n["proxy"], env=env, check=False)
         if r.returncode != 0 and "already exists" not in r.stderr:
             raise ExecutorError(f"cannot connect the eval proxy: {r.stderr.strip()[-300:]}")
-    r = docker("network", "connect", n["strong_network"], n["proxy"], env=env, check=False)
-    if r.returncode != 0 and "already exists" not in r.stderr:
-        raise ExecutorError(f"cannot connect the eval proxy to the strong model's network: {r.stderr.strip()[-300:]}")
+    for network in (n["keys_network"], n["strong_network"]):  # the networks of the key proxies, where no run is
+        r = docker("network", "connect", network, n["proxy"], env=env, check=False)
+        if r.returncode != 0 and "already exists" not in r.stderr:
+            raise ExecutorError(f"cannot connect the eval proxy to the key proxies' network {network}: {r.stderr.strip()[-300:]}")
     image_id = docker("image", "inspect", "--format", "{{.Id}}", n["image"], env=env).stdout.strip()
     # image_digest is the id of the built image: it survives `docker save` and `docker load`, so the kept
     # archive and the image a run executed in can be told to be the same. image_id is the same value under
@@ -268,16 +274,16 @@ def keyproxy(env=None, upstream=None, cafile=None, egress=True, name="floor"):
         started = docker(*argv, env={**(env or {}), r["secret"]: value}, check=False)
         if started.returncode != 0 and "already in use" not in started.stderr:
             raise ExecutorError(f"cannot start the key proxy: {started.stderr.strip()[-300:]}")
-        joined = docker("network", "connect", opened, keys, env=env, check=False)
-        if joined.returncode != 0 and "already exists" not in joined.stderr:
-            raise ExecutorError(f"cannot connect the key proxy to the open network: {joined.stderr.strip()[-300:]}")
-        held = docker("network", "connect", held_network(name, n), keys, env=env, check=False)
-        if held.returncode != 0 and "already exists" not in held.stderr:
-            raise ExecutorError(f"cannot connect the key proxy to the held network: {held.stderr.strip()[-300:]}")
+        for what, network in (("open", opened), ("held", held_network(name, n))):
+            joined = docker("network", "connect", network, keys, env=env, check=False)
+            if joined.returncode != 0 and "already exists" not in joined.stderr:
+                docker("rm", "-f", keys, env=env, check=False)  # never left half connected for a later call to reuse by its label
+                raise ExecutorError(f"cannot connect the key proxy to the {what} network: {joined.stderr.strip()[-300:]}")
         deadline = time.monotonic() + KEYPROXY_READY_SECONDS
         while "keyproxy: listening" not in docker("logs", keys, env=env, check=False).stderr:
             if time.monotonic() > deadline:
                 logs = docker("logs", keys, env=env, check=False)
+                docker("rm", "-f", keys, env=env, check=False)
                 raise ExecutorError(f"the key proxy did not start: {(logs.stderr or logs.stdout).strip()[-300:]}")
             time.sleep(0.2)
     return keys
@@ -304,8 +310,8 @@ def clean(env=None):
     docker("rm", "-f", n["keys"], env=env, check=False)
     docker("rm", "-f", n["keys_strong"], env=env, check=False)
     docker("rm", "-f", n["proxy"], env=env, check=False)
-    for network in (n["network"], n["open_network"], n["held_network"], n["strong_network"], n["strong_open_network"],
-                    n["strong_held_network"]):
+    for network in (n["network"], n["keys_network"], n["open_network"], n["held_network"], n["strong_network"],
+                    n["strong_open_network"], n["strong_held_network"]):
         docker("network", "rm", network, env=env, check=False)
 
 

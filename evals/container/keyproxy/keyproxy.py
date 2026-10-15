@@ -15,8 +15,8 @@ header made from the key it alone holds. It:
   - never routes by the Host header: the upstream is fixed when the proxy starts;
   - removes every header that can carry a credential a run sends or makes up (Authorization,
     Proxy-Authorization, x-api-key, api-key, x-goog-api-key, anthropic-auth-token, cookie, and any header
-    whose name has auth, key, token, secret, cookie, session, credential or password in it), forwards every
-    other header unchanged, and adds one Authorization of its own;
+    whose name has auth, api-key (or api_key), token, secret, cookie, credential or password in it), forwards
+    every other header unchanged (a session id or an idempotency key is not a credential), and adds one Authorization of its own;
   - when the route names "provider_only", sets "provider": {"only": [that name], "allow_fallbacks": false} in the body of every POST to a path that ends in /chat/completions, and refuses a body it cannot read as a JSON object;
   - passes the response through as it arrives, so a streamed answer streams, with the route's timeout
     ("timeout_seconds", the egress proxy's own) on the run's side and on the provider's;
@@ -53,11 +53,14 @@ NOT_FORWARDED = HOP | {"authorization", "host", "content-length", "expect"}
 # A header that can carry a credential is never forwarded: the run holds a placeholder and the proxy adds the
 # only credential a call carries. A name in the explicit set, or a name with one of these words anywhere in it,
 # is dropped; every other header is forwarded unchanged, so that the call reaching the provider is the one the
-# runner made, apart from its credentials. A block list and a pattern, not an allow list, by decision of the
-# maintainer: an allow list would change the request a runner sends whenever a runner adds a harmless header.
+# runner made, apart from its credentials. A block list and a pattern, not an allow list, by decision
+# (docs/decisions.md, 2026-10-15): an allow list would change the request a runner sends whenever a runner adds a
+# harmless header. The pattern leaves out "key" and "session" alone: the measured runners send a session id
+# (X-Claude-Code-Session-Id, X-Session-Id, x-session-affinity, x-parent-session-id) and an idempotency key on
+# every call, and none of them is a credential.
 CREDENTIAL_HEADERS = frozenset(("x-api-key", "api-key", "x-goog-api-key", "anthropic-auth-token", "cookie",
                                 "proxy-authorization", "authorization"))
-CREDENTIAL_NAME = re.compile(r"auth|key|token|secret|cookie|session|credential|password")
+CREDENTIAL_NAME = re.compile(r"auth|api[-_]?key|token|secret|cookie|credential|password")
 NOT_RETURNED = HOP | {"content-length"}
 BLOCK = 65536
 
