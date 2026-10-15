@@ -22,20 +22,36 @@ export function milestoneWord(task) {
   return task.milestone ? "yes" : "no";
 }
 
-/** The rows of the tasks table: #, Task, Skill, Agent, After, Milestone, Web. */
+/** The source ids a task receives (the plan carries them, so its hash covers them): a list of text, [] when the task has none. */
+export function sourcesOf(task) {
+  return Array.isArray(task.sources) ? task.sources.filter((id) => typeof id === "string" && id) : [];
+}
+
+/** The rows of the tasks table: #, Task, Skill, Agent, After, Milestone, Web (and, for a task that receives sources, `sources`: their ids). */
 export function taskRows(item) {
   const tasks = Array.isArray(payloadOf(item).tasks) ? payloadOf(item).tasks : [];
   const keys = new Map(tasks.map((t, i) => [t.key, i + 1]));
-  return tasks.map((t, i) => ({
-    n: String(i + 1),
-    task: typeof t.title === "string" && t.title ? t.title : String(t.key || DASH),
-    skill: typeof t.skill === "string" && t.skill ? t.skill : DASH,
-    agent: typeof t.agent === "string" && t.agent ? t.agent : DASH,
-    after: afterOf(t, keys),
-    milestone: milestoneWord(t),
-    web: t.web ? "yes" : "no",
-  }));
+  return tasks.map((t, i) => {
+    const sources = sourcesOf(t);
+    return {
+      n: String(i + 1),
+      task: typeof t.title === "string" && t.title ? t.title : String(t.key || DASH),
+      skill: typeof t.skill === "string" && t.skill ? t.skill : DASH,
+      agent: typeof t.agent === "string" && t.agent ? t.agent : DASH,
+      after: afterOf(t, keys),
+      milestone: milestoneWord(t),
+      web: t.web ? "yes" : "no",
+      ...(sources.length ? { sources } : {}),
+    };
+  });
 }
+
+/** Whether a row is a task that uses the web and receives sources: the plan card highlights it (decision D16, manual use). */
+export function webWithSources(row) {
+  return row.web === "yes" && Array.isArray(row.sources) && row.sources.length > 0;
+}
+
+export const WEB_SOURCES_NOTE = "This task uses the open web and receives sources: what it reads of them is visible to a run with the open network. Approving the plan is your choice about that.";
 
 export const COLUMNS = Object.freeze(["#", "Task", "Skill", "Agent", "After", "Milestone", "Web"]);
 
@@ -80,6 +96,6 @@ export function stackedRow(row) {
     head: `${row.n}  ${row.task}`,
     skill: row.skill,
     agent: row.agent === DASH ? "" : row.agent,
-    tail: `After ${row.after} · Milestone ${row.milestone} · Web ${row.web}`,
+    tail: `After ${row.after} · Milestone ${row.milestone} · Web ${row.web}${Array.isArray(row.sources) && row.sources.length ? ` · Sources ${row.sources.join(", ")}` : ""}`,
   };
 }

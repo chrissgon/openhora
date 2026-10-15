@@ -53,7 +53,7 @@ def setup(tmp_path):
     tools.mkdir()
     config = project / "docs" / "workbench" / "runtime.json"
     config.write_text(json.dumps({"workbench": str(bench), "data_dir": str(data), "store_db": str(data / "t.sqlite"),
-                                  "path": [str(tools)]}), encoding="utf-8")
+                                  "sources_dir": str(tmp_path / "sources"), "path": [str(tools)]}), encoding="utf-8")
     job.mkdir()
     entry = job / "dispatcher.py"
     shutil.copyfile(st.RUNTIME / "dispatcher.py", entry)  # the scheduler runs a copy kept in its job folder

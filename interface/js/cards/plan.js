@@ -12,7 +12,7 @@ import { replyView } from "../floor/reply.js";
 import { withheldLine } from "../floor/widgets.js";
 import { wordOf } from "../permissions.js";
 import * as router from "../router.js";
-import { failureText, limitsLine, planHash, planText, stackedRow, taskRows } from "./plan-rows.js";
+import { WEB_SOURCES_NOTE, failureText, limitsLine, planHash, planText, stackedRow, taskRows, webWithSources } from "./plan-rows.js";
 import { createWaitsBlock } from "./plan-waits.js";
 
 let counter = 0;
@@ -48,12 +48,15 @@ export function createPlanCard({ api, project, item, now, onChanged, signal, ann
   // what it waits for; the table the card had is gone
   const list = h("ol", { class: "wb-plan-list", "aria-label": "Plan tasks" }, rows.map((r) => {
     const s = stackedRow(r);
-    return h("li", { class: "wb-plan-task" },
+    const flagged = webWithSources(r);   // D16: a task that uses the web and receives sources is shown as such, before the person approves
+    return h("li", { class: flagged ? "wb-plan-task wb-plan-task-web-sources" : "wb-plan-task" },
       h("span", { class: "wb-task-n", text: r.n }),
       h("div", { class: "wb-plan-task-text" },
         h("strong", { class: "wb-cell-task", text: r.task }),
         h("span", { class: "wb-muted wb-cur-sub" }, h("code", { class: "mono wb-cell-skill", text: s.skill }), s.agent ? ` · ${s.agent}` : ""),
-        h("span", { class: "wb-muted wb-cur-sub", text: s.tail })));
+        h("span", { class: "wb-muted wb-cur-sub", text: s.tail }),
+        flagged ? h("span", { class: "pui-badge pui-warn pui-soft wb-plan-web-sources", title: WEB_SOURCES_NOTE, text: "Web task with sources" }) : null,
+        flagged ? h("span", { class: "wb-cur-sub wb-plan-web-sources-note", text: WEB_SOURCES_NOTE }) : null));
   }));
 
   const waits = createWaitsBlock(item.payload, { can });

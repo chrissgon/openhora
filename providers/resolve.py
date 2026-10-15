@@ -23,6 +23,8 @@ Usage:
 A class is <role>:<target> (providers/CONTRACT.md). How it maps to a folder and to its variables:
   <role>:<target>        -> providers/<role>/      generator:image -> providers/generator/
                             <ROLE>_<TARGET>_PROVIDER, then <ROLE>_PROVIDER
+                         (the runtime-only roles, which no skill requires, are the same: messenger:<platform> ->
+                         providers/messenger/, converter:document -> providers/converter/)
   integration:<service>  -> providers/<service>/   integration:vcs -> providers/vcs/
                             INTEGRATION_<SERVICE>_PROVIDER only: one integration never serves another
   the four classes of the table FIXED keep the folder and the variable they had when their names
@@ -91,8 +93,10 @@ NOT_IMPLEMENTATIONS = {"auth"}  # helpers that live next to providers (providers
 LISTED = ["generator:image", "generator:video", "integration:design-tool", "integration:issue-tracker",
           "integration:vcs", "publisher:<platform>", "reader:email", "scheduler:job", "search:web", "sender:email",
           "store:runtime"]
-# Roles whose folder and variables are derived from the text of the class.
-ROLES = {"integration", "search", "generator", "publisher", "messenger"}
+# Roles whose folder and variables are derived from the text of the class. `messenger` and `converter` are in ROLES and not in
+# LISTED, on purpose: the runtime uses them (the messaging bridge, the sources module), and no skill may require them, so they are
+# not in contracts/environment.md (providers/CONTRACT.md says so in their rows).
+ROLES = {"integration", "search", "generator", "publisher", "messenger", "converter"}
 # The four classes that were bare names: (folder, variable), both kept as they were, so that no provider file,
 # no test folder, no scheduled job and no project's environment has to move.
 FIXED = {"reader:email": ("mailbox", "MAILBOX_PROVIDER"), "sender:email": ("mailer", "MAILER_PROVIDER"),
@@ -173,6 +177,22 @@ def variables(cls: str) -> list[str]:
     if head != "integration":  # integration:<service> classes are unrelated services: no shared fallback
         names.append(key([head]))
     return names
+
+
+# What a provider's process keeps of the environment besides the variables that select its class: what finds a program, a home, the
+# user's secret store, a docker daemon and the state folder. No key, no token and no choice of another class's provider is here.
+ENV_MINIMUM = ("PATH", "HOME", "USER", "TMPDIR", "LANG", "LC_ALL", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_STATE_HOME",
+               "OPENHORA_STATE_DIR", "DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH")
+
+
+def provider_environment(cls: str, env=None, passes=()) -> dict:
+    """The whole environment a provider's process gets for the class `cls`: ENV_MINIMUM plus the variables `variables(cls)` returns,
+    plus the names in `passes` (the one secret a provider reads from its environment), each only if it is set and not empty. No
+    other variable of `env` (default: this process's) passes: not a key, not a token, not the choice of another class's provider.
+    An unknown class is refused (UnknownClass). `call(..., env=provider_environment(cls))` starts the provider with it."""
+    env = os.environ if env is None else env
+    names = ENV_MINIMUM + tuple(variables(cls)) + tuple(passes)
+    return {k: env[k] for k in names if env.get(k)}
 
 
 def workbench_root(root=None, env=None) -> Path:

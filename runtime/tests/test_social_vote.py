@@ -184,7 +184,7 @@ def env(tmp_path, monkeypatch):
     data = tmp_path / "data"
     (proj / "docs/workbench/runtime.json").write_text(json.dumps({
         "agent": "social-manager", "workbench": str(wb), "data_dir": str(data),
-        "store_db": str(data / "store.sqlite"), "mailbox": "none", "publisher": "linkedin", "daily_cost_cap_usd": 1,
+        "store_db": str(data / "store.sqlite"), "sources_dir": str(tmp_path / "sources"), "mailbox": "none", "publisher": "linkedin", "daily_cost_cap_usd": 1,
         "vote": {"repo": "dana/dana", "branch": "main", "pillars": PILLARS}}))
     calls = tmp_path / "calls.jsonl"
     resp = tmp_path / "response.md"

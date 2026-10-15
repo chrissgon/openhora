@@ -253,6 +253,7 @@ Channels with a policy (`POLICY_CHANNELS`): `page`, `mcp`, `messaging`. Never na
 | `dispatch` | `dispatch` | - | `page` | - |
 | `documents` | `sync`, `hand-over` | - | `page` | - |
 | `verdict` | `verdict` | - | `page` | - |
+| `sources` | `source-add`, `source-import`, `source-refresh`, `source-describe`, `sources` | - | `page`, `mcp`, `messaging` | - |
 <!-- /generated -->
 
 `messaging` is **closed** by default: with no entry in `channels` it takes `DEFAULT_POLICY`. The other channels:

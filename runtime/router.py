@@ -11,6 +11,16 @@ the route line and whether the reply asks. The route line is the first line of t
 
   Route: <name> (<capability or flow>, <ready or pending>)
 
+and, since P4, an optional line that says which sources of the project each skill of the plan reads (the planner was given
+the catalog of the project's sources; the catalog is third-party text, data and never instruction):
+
+  Sources: <skill>: <source id>, <source id>; <skill>: <source id>      or      Sources: none
+
+A bare list (`Sources: <source id>, <source id>`) is for every task of the delivery. A reply with no Sources line, or `Sources:
+none`, chooses none: the key `sources` of the route is then absent. A reply with more than one Sources line, or one that does not
+read in that form, is unclassified. Which ids exist and which skills are in the plan is checked later (check_route, plan.combine);
+an @mention in the request forces a source into the plan whatever this line says (runtime/ops_sources.py).
+
 A reply that asks (a line `Q<n>: ...`, also on the template's `Next:` line) is a question for the person, whatever
 its route line says. A reply with exactly one route line is a route; anything else (no route line, `Route: none`,
 a name in prose, two route lines) is unclassified and reaches the person whole. Nothing here guesses.
@@ -21,7 +31,7 @@ text of the template's `Next:` line, and the person is answered from the project
 
 Functions:
   read_route(reply)                             {"kind": "question"} | {"kind": "direct", "next"} | {"kind": "route", ...} | {"kind": "unclassified", "why"}
-  check_route(route, flow_names, pack_skills)   {"ok": true, "flow" | "skill"} | {"ok": false, "why"}
+  check_route(route, flow_names, pack_skills, known_sources=None)   {"ok": true, "flow" | "skill"} | {"ok": false, "why"}
 
 Pure: text in, a route out. It imports nothing of the lab or the store and calls no model.
 
@@ -54,6 +64,39 @@ NEXT_RE = re.compile(r"^Next: (.*\S)\s*$")
 DIRECT_SHAPE = "direct"
 FLOW_PREFIX = "flow-"
 NO_ROUTE = "none"  # `Route: none`: the skill's stop rule for a request nothing installed can handle
+SOURCES_RE = re.compile(r"^Sources: (.*\S)\s*$")
+SOURCE_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
+SKILL_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+ALL_TASKS = "*"    # the key of a bare list in the sources a reply chose: every task of the delivery
+
+
+def read_sources(lines) -> dict:
+    """The sources a reply chose, from its `Sources:` line: {"sources": {skill or "*": [ids]}} (empty for none or no line), or
+    {"error": why} for a line that does not read in the form of the module's text or for more than one."""
+    found = [m.group(1) for m in map(SOURCES_RE.match, lines) if m]
+    if not found:
+        return {"sources": {}}
+    if len(found) > 1:
+        return {"error": f"{len(found)} Sources lines"}
+    if found[0].strip().lower() == "none":
+        return {"sources": {}}
+    chosen = {}
+    for part in found[0].split(";"):
+        key, colon, listed = part.partition(":")
+        if colon:
+            key, listed = key.strip(), listed
+            if not SKILL_NAME.fullmatch(key):
+                return {"error": f"{key!r} is not a skill name in the Sources line"}
+        else:
+            key, listed = ALL_TASKS, part
+        ids = [i.strip() for i in listed.split(",") if i.strip()]
+        if not ids or not all(SOURCE_ID.fullmatch(i) for i in ids):
+            return {"error": "the Sources line lists something that is not a source id"}
+        bucket = chosen.setdefault(key, [])
+        for i in ids:
+            if i not in bucket:
+                bucket.append(i)
+    return {"sources": chosen}
 
 
 def read_route(reply: str) -> dict:
@@ -71,13 +114,25 @@ def read_route(reply: str) -> dict:
     line, m = found[0]
     if m.group(1) == NO_ROUTE:
         return {"kind": "unclassified", "why": "the router names no route"}
-    return {"kind": "route", "name": m.group(1), "shape": m.group(2), "status": m.group(3), "line": line}
+    chosen = read_sources(lines)
+    if "error" in chosen:
+        return {"kind": "unclassified", "why": chosen["error"]}
+    route = {"kind": "route", "name": m.group(1), "shape": m.group(2), "status": m.group(3), "line": line}
+    if chosen["sources"]:
+        route["sources"] = chosen["sources"]
+    return route
 
 
-def check_route(route: dict, flow_names, pack_skills) -> dict:
+def check_route(route: dict, flow_names, pack_skills, known_sources=None) -> dict:
     """Whether a route can be planned here: a flow route names `flow-<name>` with a flow file flows/<name>.json; a
     capability route names a skill of the pack in scope. The status word is not read: the router's run sees only the
-    router installed, so it cannot know what is."""
+    router installed, so it cannot know what is. With `known_sources` (the ids of the project's registered sources that have a
+    version), a source id the reply chose that is not one of them makes the route not ok: a planner that names a source the
+    project does not hold is wrong, and the plan is not built on its word."""
+    unknown = sorted({i for ids in (route.get("sources") or {}).values() for i in ids} - set(known_sources)) \
+        if known_sources is not None else []
+    if unknown:
+        return {"ok": False, "why": f"the router chose a source the project does not hold: {', '.join(unknown)}"}
     name, shape = route.get("name") or "", route.get("shape")
     if shape == "flow":
         if not name.startswith(FLOW_PREFIX):

@@ -35,6 +35,11 @@ Usage:
   python3 runtime/cli.py verdict  --project <dir> --run <run id> --word worked|corrected|failed
   python3 runtime/cli.py sync     --project <dir> [--dry-run] [--take page|project --path <relative path>]
   python3 runtime/cli.py hand-over --project <dir> --task <task id> --file <path>
+  python3 runtime/cli.py source-add --project <dir> --source <id> --type file|notion --origin <file name | Notion page address> [--description <text>]
+  python3 runtime/cli.py source-import --project <dir> --source <id> (--file <path> | --url <Notion page address or id>) [--origin <text>] [--description <text>]
+  python3 runtime/cli.py source-refresh --project <dir> --source <id> [--file <path>]
+  python3 runtime/cli.py source-describe --project <dir> --source <id> [--description <text>]
+  python3 runtime/cli.py sources  --project <dir>
   python3 runtime/cli.py progress --project <dir> [--since 7d | <n>d | YYYY-MM-DD]
   python3 runtime/cli.py approve-policy --project <dir> --file <docs/...> --agent <name> [--sha256 <hash> --expires <YYYY-MM-DD>] [--what <text>]
   python3 runtime/cli.py revoke-policy --project <dir> --id <approval id>
@@ -165,6 +170,20 @@ hand-over copies one file of yours into the task's file drop, <project>/.workben
           file holding what looks like a credential, and a git project that does not ignore .workbench-local/. A task
           whose skill uses the web takes the file too (the maintainer's decision: the file is the person's own choice)
           and the answer carries "web": true and the line "this file will be visible to a run with the open network".
+source-add  registers a source of the project: an id (lowercase letters, digits, hyphens), its type (file, or notion) and its origin (a
+          file's name, or a Notion page's address or id); nothing is imported and no credential is kept. The registry is in the
+          store; the versions are in the project's sources folder (sources_dir of runtime.json, runtime/sources.py).
+source-import  imports a version of a source from a file of yours (--file) or from a Notion page (--url): the generic intake
+          bounds the length and reads the type from the bytes (PDF, Word, spreadsheet, CSV, HTML, text), a container with no network
+          converts it to text with adopted open tools, the text is scanned for credentials (a key inside a PDF's compressed text is
+          found there), and the original, the converted text and a manifest are kept as an immutable version. A Notion page is read
+          with its own read-only secret (NOTION_SOURCES_TOKEN), never the one that writes. An unregistered id is registered.
+source-refresh  makes a new version: from a new file (--file), from the Notion page again, or, with neither, from the file you
+          changed in the sources folder (the files are hashed against the record; a changed one is sniffed, converted and scanned
+          again, and becomes a version labelled as yours, which a task that starts on its own never receives).
+source-describe  sets your description of a source, which the planner reads with its catalog; no --description clears it.
+sources   the catalog of the sources: each one's newest version (name, type, size, date, sheets and columns with sample values,
+          first headings), your description, and whether its files changed outside the runtime. It calls no model.
 deps      installs the dependency sets of runtime.json ("dependencies") by code, with no model: in the eval
           image, in a step that sees only the dependency files, on the open network; the result is cached under
           the data folder by the files and the image, and a run whose copy holds versioned files gets a copy of it.

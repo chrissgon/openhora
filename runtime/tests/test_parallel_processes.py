@@ -38,7 +38,7 @@ def real(tmp_path, monkeypatch):
               for name in ("business", "brand")}
     (project / "docs" / "workbench" / "runtime.json").write_text(json.dumps({
         "workbench": REPO, "data_dir": str(data), "store_db": str(tmp_path / "store" / "tasks.sqlite"),
-        "area_agents": agents, "max_running": 3}), encoding="utf-8")
+        "sources_dir": str(tmp_path / "sources"), "area_agents": agents, "max_running": 3}), encoding="utf-8")
     path = str(project)
     ops.accept_config(path, ops.project_config.load(path)["sha256"])
     ctx = ops_core.context(path)

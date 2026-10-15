@@ -35,6 +35,7 @@ Usage:
   uv run providers/documents/notion.py --check --config-file <f>
   uv run providers/documents/notion.py stat  --config-file <f> --id <id>
   uv run providers/documents/notion.py read  --config-file <f> --id <id>
+  uv run providers/documents/notion.py read  --id <id> --as-source
   uv run providers/documents/notion.py comments --config-file <f> --id <id>
   uv run providers/documents/notion.py write --config-file <f> [--id <id>] --path <project-relative path>
                                        --markdown-file <f> --idempotency-key <k> [--notice <text>]
@@ -42,6 +43,12 @@ Usage:
   uv run providers/documents/notion.py notice --config-file <f> --id <id> --text <text> (--dry-run | --confirmed)
   uv run providers/documents/notion.py resolve --config-file <f> --idempotency-key <k>
                                        (--id <id> | --not-created) (--dry-run | --confirmed)
+
+`read --as-source` reads a page the person chose as a SOURCE of the project (runtime/sources.py, decision D13), not a document of the
+project: it takes no --config-file (a page chosen as a source has no parent in the project's documents object), and it uses a
+SEPARATE secret, NOTION_SOURCES_TOKEN, the token of an integration that can only read content and was given only the pages chosen
+as sources (secret S7). It never uses NOTION_TOKEN, which can write. It prints the page's text and version, and no comments: a
+source is the page's content, and the integration needs no comment capability. No other verb takes --as-source.
 
 --config-file is a JSON file holding the documents object, whole: {"provider": "notion", "parent": "<page id>",
 "expires": "YYYY-MM-DD"}. An id that is not a page identifier names no document (exit 1).
@@ -56,6 +63,8 @@ elsewhere), mode 0600.
 Environment:
   NOTION_TOKEN                             the integration's token, read only through providers/secrets/resolver.py
                                            (else the OS secret store, username notion); never printed
+  NOTION_SOURCES_TOKEN                     the read-only integration of `read --as-source` (else the OS secret store, username
+                                           notion-sources); the only token that verb uses
   INTEGRATION_DOCUMENTS_NOTION_LEDGER      another ledger file (an absolute path)
   INTEGRATION_DOCUMENTS_NOTION_API_BASE    tests only: a loopback URL that replaces the service's address; the
                                            secret store is then never read
@@ -111,6 +120,8 @@ ENV_BASE = "INTEGRATION_DOCUMENTS_NOTION_API_BASE"
 ENV_LEDGER = "INTEGRATION_DOCUMENTS_NOTION_LEDGER"
 SECRET = "NOTION_TOKEN"
 KEYRING_USERNAME = "notion"
+SOURCES_SECRET = "NOTION_SOURCES_TOKEN"   # the separate, read-only secret of `read --as-source` (secret S7)
+SOURCES_USERNAME = "notion-sources"
 LEDGER_NAME = "documents-notion.json"
 EXIT_OK, EXIT_SERVICE, EXIT_USAGE, EXIT_NOT_CONFIGURED = 0, 1, 2, 3
 
@@ -191,12 +202,12 @@ def secret_resolver():
     return module
 
 
-def load_token(test_mode: bool) -> str:
-    found = secret_resolver().resolve(SECRET, allow_store=not test_mode)
+def load_token(test_mode: bool, secret: str = SECRET, username: str = KEYRING_USERNAME) -> str:
+    found = secret_resolver().resolve(secret, allow_store=not test_mode)
     token = found[0] if found else ""
     if not token:
-        raise ProviderError(f"no Notion token: export {SECRET}, or store one with "
-                            f"uv run --with keyring==25.7.0 keyring set openhora {KEYRING_USERNAME}",
+        raise ProviderError(f"no Notion token: export {secret}, or store one with "
+                            f"uv run --with keyring==25.7.0 keyring set openhora {username}",
                             EXIT_NOT_CONFIGURED)
     if any(ch.isspace() or not ch.isprintable() for ch in token):
         raise ProviderError("the Notion token contains whitespace or control characters", EXIT_NOT_CONFIGURED)
@@ -221,9 +232,9 @@ OPENER = urllib.request.build_opener(RefuseRedirect)
 
 
 class Service:
-    def __init__(self):
+    def __init__(self, secret: str = SECRET, username: str = KEYRING_USERNAME):
         self.base, test_mode = api_base()
-        self.token = load_token(test_mode)
+        self.token = load_token(test_mode, secret, username)
 
     def call(self, name: str, ident: str | None = None, body=None, query=None) -> dict:
         method, template = CALLS[name]
@@ -587,6 +598,8 @@ def cmd_stat(args: dict) -> int:
 
 
 def cmd_read(args: dict) -> int:
+    if args.get("--as-source"):
+        return read_as_source(args)
     documents_config(args.get("--config-file"))
     ident = doc_id(args.get("--id"))
     service = Service()
@@ -596,6 +609,21 @@ def cmd_read(args: dict) -> int:
     body = blocks[1:] if notice is not None else blocks
     return emit({"id": ident, "version": page.get("last_edited_time"), "markdown": nb.to_markdown(body),
                  "notice": notice, "comments": comments_of(service, ident, blocks)})
+
+
+def read_as_source(args: dict) -> int:
+    """A page chosen as a source: its text and version, read with the read-only secret of sources, no comments, no documents
+    configuration. The page is a person's page and may hold anything: what comes back is text for the caller to treat as data."""
+    ident = doc_id(args.get("--id"))
+    service = Service(SOURCES_SECRET, SOURCES_USERNAME)
+    page = retrieve(service, ident)
+    if archived(page):
+        raise ProviderError(f"the page {ident} is in the trash")
+    blocks = service.blocks(ident)
+    notice = notice_of(blocks[0]) if blocks else None
+    body = blocks[1:] if notice is not None else blocks
+    return emit({"id": ident, "version": page.get("last_edited_time"), "markdown": nb.to_markdown(body), "notice": notice,
+                 "comments": [], "as_source": True})
 
 
 def cmd_comments(args: dict) -> int:
@@ -707,7 +735,7 @@ def cmd_resolve(args: dict) -> int:
 VERBS = {"stat": cmd_stat, "read": cmd_read, "comments": cmd_comments, "write": cmd_write, "notice": cmd_notice,
          "resolve": cmd_resolve}
 VALUE_FLAGS = ("--config-file", "--id", "--path", "--markdown-file", "--idempotency-key", "--notice", "--text")
-SWITCHES = ("--dry-run", "--confirmed", "--not-created", "--check")
+SWITCHES = ("--dry-run", "--confirmed", "--not-created", "--check", "--as-source")
 
 
 def parse_args(argv: list) -> tuple:
@@ -743,6 +771,8 @@ def main(argv=None) -> int:
             return cmd_check(args)
         if verb is None:
             raise ProviderError("give a verb or --check; see --help", EXIT_USAGE)
+        if args.get("--as-source") and verb != "read":
+            raise ProviderError("--as-source is for the verb read only", EXIT_USAGE)
         return VERBS[verb](args)
     except ProviderError as e:
         print(f"error: {e}", file=sys.stderr)

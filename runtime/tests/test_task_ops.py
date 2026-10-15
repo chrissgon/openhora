@@ -281,7 +281,7 @@ def test_the_configuration_is_read_with_its_hash_and_unknown_keys_are_ignored(tm
     project = tmp_path / "project"
     (project / "docs" / "workbench").mkdir(parents=True)
     text = json.dumps({"workbench": str(tmp_path / "wb"), "data_dir": str(tmp_path / "data"), "store_db": str(tmp_path / "s.sqlite"),
-                       "agent": "social-manager", "area_agents": {}})
+                       "sources_dir": str(tmp_path / "sources"), "agent": "social-manager", "area_agents": {}})
     (project / "docs" / "workbench" / "runtime.json").write_text(text)
     cfg = ops.project_config.load(str(project))
     assert cfg["sha256"] == hashlib.sha256(text.encode()).hexdigest() and cfg["raw"]["agent"] == "social-manager"

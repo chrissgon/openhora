@@ -52,8 +52,10 @@ import operations
 import ops_core as core
 import autonomy
 import ops_models
+import lab
 import path_rule
 import project_config
+import sources
 import state_merge
 
 ACCEPTED_BY = "config:accepted-by"  # the store's cursor that says who accepted the hash in ACCEPTED: "person" or "code:narrowing"
@@ -83,6 +85,14 @@ def _record_acceptance(ctx: dict, cfg: dict, sha256: str, by: str) -> dict:
     line. The one writer of the accepted hash: accept_config (the person, in the terminal) and set_mode (code, for a
     move down the order of the modes, which widens nothing; the person, for a move up, with `accept` from the terminal)
     call it, and nothing else does. Returns {"previous", "checkpoints"}."""
+    try:
+        try:
+            evidence = lab.local_evidence_base()
+        except lab.LabError:
+            evidence = None  # a checkout without its lab runs nothing: every later use of the folder asks again and needs the lab
+        sources.ready_for_acceptance(cfg, evidence)  # limit L21: the sources folder is dedicated, 0700, marked
+    except sources.SourcesError as e:
+        raise core.OpsError(f"the configuration was not accepted: the sources folder is refused ({e})", 1) from None
     previous = core._stored(ctx, ctx["store"].cursor_get, project_config.ACCEPTED)
     core._stored(ctx, ctx["store"].cursor_set, ACCEPTED_BY, by)
     core._stored(ctx, ctx["store"].cursor_set, project_config.ACCEPTED, sha256)

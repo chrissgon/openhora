@@ -20,6 +20,16 @@ import standin_tree as st
 
 intake = st.load("intake")
 
+BUILTIN_ENTRIES = 3  # video, heif, image: the intake's own table; the modules that own a kind of source (runtime/sources.py) add theirs on import
+
+
+@pytest.fixture(autouse=True)
+def only_the_intakes_own_table(monkeypatch):
+    """These tests are about the generic intake. Whatever a source module added to the process-wide table (runtime/sources.py adds
+    the document types when it is imported, which another test file may have done in this process) is left out here."""
+    monkeypatch.setattr(intake, "SNIFF_TABLE", list(intake.SNIFF_TABLE[:BUILTIN_ENTRIES]))
+
+
 MOVHEAD = b"\x00\x00\x00\x14ftypqt  \x00\x00\x00\x00qt  "
 MP4HEAD = b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2"
 PNGHEAD = b"\x89PNG\r\n\x1a\n" + b"\x00" * 24

@@ -316,6 +316,11 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `artifact` | `--path` | `artifact` |
 | `stop-runs` | `[--all]` | `stop_runs` |
 | `service-check` | `[--dispatch-every]` | `service_check` |
+| `source-add` | `--source` `--type` `--origin` `[--description]` | `source_add` |
+| `source-import` | `--source` `[--file]` `[--url]` `[--origin]` `[--description]` | `source_import` |
+| `source-refresh` | `--source` `[--file]` | `source_refresh` |
+| `source-describe` | `--source` `[--description]` | `source_describe` |
+| `sources` | - | `sources_catalog` |
 <!-- /generated -->
 
 Every verb also takes `--project <dir>`. The parser is built from `terminal_verbs()` of the table, so a row that does not list `terminal` (`version`) has no verb. The verbs that call a model: `route` (without `--flow`), `run-next`, `dispatch`, `contained-run`, and `say` for a new request or an answer to the router.
@@ -404,6 +409,13 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | GET | `/versions` | the service's own `versions` | - | - | - | - |
 | POST | `/projects/{p}/conversation` | `say` | - | every other argument | - | - |
 | POST | `/projects/{p}/sync` | `sync` | - | every other argument | - | - |
+| GET | `/projects/{p}/sources` | `sources` | - | none | - | - |
+| POST | `/projects/{p}/sources` | `source-add` | - | every other argument | - | - |
+| POST | `/projects/{p}/sources/{name}/files` | `source-import` | `source_id` from `{name}` | every other argument | `file`, `url`, `origin`, `description` | file upload |
+| POST | `/projects/{p}/sources/{name}/import` | `source-import` | `source_id` from `{name}` | `url`, `origin`, `description` | `file` | - |
+| POST | `/projects/{p}/sources/{name}/refresh` | `source-refresh` | `source_id` from `{name}` | none | `file` | - |
+| POST | `/projects/{p}/sources/{name}/refresh/files` | `source-refresh` | `source_id` from `{name}` | every other argument | `file` | file upload |
+| POST | `/projects/{p}/sources/{name}/description` | `source-describe` | `source_id` from `{name}` | `description` | - | - |
 | POST | `/projects/{p}/dispatch` | `dispatch` | - | none | - | - |
 | GET | `/jobs/{id}` | the service's own `job` | - | - | - | - |
 <!-- /generated -->

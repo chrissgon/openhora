@@ -91,6 +91,11 @@
       "where": null
     },
     {
+      "name": "NOTION_SOURCES_TOKEN",
+      "found": false,
+      "where": null
+    },
+    {
       "name": "NOTION_TOKEN",
       "found": false,
       "where": null

@@ -204,6 +204,7 @@ import ops_core as core  # noqa: E402  (the shared names: read as core.<name>, n
 import ops_reads  # noqa: E402  (the reads of the interface; this file re-exports them at its end)
 import ops_runs  # noqa: E402  (the runs of tasks and the dispatcher's round; this file re-exports `run_task`, `dispatch` and `reap`)
 import ops_say  # noqa: E402  (the conversation and its queue; this file re-exports `say` at its end)
+import ops_sources  # noqa: E402  (the sources of the project: the ingest operations and the pieces the planner and a run ask of them)
 import ops_config  # noqa: E402  (the configuration's acceptance: accept_config, set_mode, set_model; this file re-exports them at its end)
 import ops_models  # noqa: E402  (which model a run goes to: the choice, the key, the billing and the consent)
 import ops_waits  # noqa: E402  (the derived waits between requests: rederive, for_plan, annotate, approve_plan)
@@ -269,7 +270,7 @@ def _read(path: str):
 # --- what enters a run: runtime/workcopy.py (limits L1 to L6) --------------------------------------------------
 
 
-def task_prompt(request_text: str, task_text: str, answered, handed=None, edited=None) -> str:
+def task_prompt(request_text: str, task_text: str, answered, handed=None, edited=None, sourced=None) -> str:
     """The text of one run: the request in the person's words, the task's own text, and, on a run made after
     an answer, every earlier question of this task with its answer. It names no skill: the one skill staged
     for the run loads by its description, as in a lab run. An empty task text (a plan of one skill) leaves out
@@ -277,13 +278,16 @@ def task_prompt(request_text: str, task_text: str, answered, handed=None, edited
     files the person handed over to this task (the file drop): one paragraph after the task's text names them;
     absent or empty, the prompt is unchanged. edited lists the documents the mirror imported from the platform
     since the task's last run (runtime/documents.py, imported_since): one line each, EDITED_LINE, right before
-    the answers, so that the person's edit is read as the person's word and not as external content. Only code
-    gives it, never a run's text."""
+    the answers, so that the person's edit is read as the person's word and not as external content. sourced lists
+    the lines that name the copies of the sources the plan chose (ops_sources.prompt_lines): after the handed files.
+    Only code gives it, never a run's text."""
     parts = [request_text.strip()]
     if (task_text or "").strip():
         parts += ["", "For this task: " + task_text.strip()]
     if handed:
         parts += ["", HANDED_LINE, *[f"- {rel}" for rel in handed]]
+    if sourced:
+        parts += ["", *sourced]
     if edited:
         parts += ["", *[EDITED_LINE.format(path=rel) for rel in edited]]
     if answered:
@@ -504,9 +508,17 @@ def _run_body(ctx: dict, started: dict) -> dict:
         if handed and routing["web"] and not drop.WEB_TASK_TAKES_DROP:
             refused = [{"path": rel, "reason": drop.WEB_REFUSAL} for _source, rel in handed]
             handed = []
+        try:   # decision D29: the newest version of each source the plan chose, as of this start; the rows say which
+            sourced = ops_sources.copies_for(ctx, task, prepared_dir, started.get("unattended", True))
+        except ops_sources.SourcesRefused as e:
+            return fail("internal", str(e))
+        ops_sources.record_copies(ctx, run_id, task, sourced["records"])
+        if sourced["records"]:   # a task with no source returns what it always returned
+            out["sources"] = [{k: r[k] for k in ("source", "version", "sha256")} for r in sourced["records"]]
         try:
             entered = workcopy.entering(cfg["project"], meta, web=routing["web"], cfg=cfg,
-                                        settings_names=lab.settings_names(), prepared_dir=prepared_dir, handed=handed)
+                                        settings_names=lab.settings_names(), prepared_dir=prepared_dir, handed=handed,
+                                        sourced=sourced["files"])
         except workcopy.CopyError as e:
             return fail("internal", f"the copy could not be built: {e}")
         files, base, out["left_out"] = entered["files"], entered["base"], entered["left_out"] + refused
@@ -520,7 +532,8 @@ def _run_body(ctx: dict, started: dict) -> dict:
         edited = [rel for rel in documents.imported_since(cfg, earlier[-1]["started_at"] if earlier else None)
                   if rel in entered_rels and skill_meta.matches(meta["inputs"], rel)]
         prompt = task_prompt(request_text, task["text"], answered,
-                             handed=[rel for _source, rel in handed if rel in entered_rels], edited=edited)
+                             handed=[rel for _source, rel in handed if rel in entered_rels], edited=edited,
+                             sourced=[line for line in sourced["lines"] if not line.startswith("- ") or any(f"- {rel} " in line for rel in entered_rels)])
         code = None
         if entered.get("tracked") and code_task(meta):
             code = _code_state(ctx, task)
@@ -1729,7 +1742,7 @@ def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False) 
         out["entered"] = {"kind": entered["kind"], "agents_md": entered["agents_md"], "files": len(entered["files"])}
         answered = [] if reroute else [p for p in core._stored(ctx, store.pending_list, "resolved", request["id"])
                                        if p["kind"] == "question" and p["resolution"] == "answered"]
-        prompt = task_prompt(text, router.ROUTE_TASK_TEXT, answered)
+        prompt = task_prompt(text, router.ROUTE_TASK_TEXT, answered) + ops_sources.router_block(ctx, request["text"])
         # Two router runs of two projects in one service process share the lab's process-wide session (lab.session ends
         # every container of the process when it closes): the whole session is held under one guard. Task runs are
         # processes of their own and never take it.
@@ -1772,7 +1785,8 @@ def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False) 
 
 def _checked(ctx: dict, read: dict) -> dict:
     """read_route() of a reply with "checked": router.check_route() against the flow files and the pack in scope."""
-    return dict(read, checked=router.check_route(read, flow_files.names(core.ROOT), plan.pack_skills(ctx["cfg"], core.ROOT)))
+    return dict(read, checked=router.check_route(read, flow_files.names(core.ROOT), plan.pack_skills(ctx["cfg"], core.ROOT),
+                                                 known_sources=ops_sources.known_ids(ctx)))
 
 
 def _combined(ctx: dict, request: dict, routed: list) -> dict:
@@ -1789,11 +1803,12 @@ def _combined(ctx: dict, request: dict, routed: list) -> dict:
               "retries": reference["retries"]}
     skills = plan.agent_skills(cfg, core.ROOT)
     pack = plan.pack_skills(cfg, core.ROOT)
-    out = plan.combine(request, routed, flows, skills, core.ROOT, pack=pack, limits=limits, past=[])
+    forced = ops_sources.forced_for(ctx, request["text"])  # the sources an @mention names are in the plan whatever the router chose
+    out = plan.combine(request, routed, flows, skills, core.ROOT, pack=pack, limits=limits, past=[], forced=forced)
     past = []
     for skill in dict.fromkeys(t["skill"] for t in out["tasks"]):
         past += core._stored(ctx, ctx["store"].task_runs_of_skill, skill)
-    return plan.combine(request, routed, flows, skills, core.ROOT, pack=pack, limits=limits, past=past) if past else out
+    return plan.combine(request, routed, flows, skills, core.ROOT, pack=pack, limits=limits, past=past, forced=forced) if past else out
 
 
 def _route_run(ctx: dict, request: dict) -> dict:
@@ -1811,8 +1826,11 @@ def _route_run(ctx: dict, request: dict) -> dict:
         try:
             route_read = _checked(ctx, read)
             if route_read["checked"]["ok"]:
-                built = _combined(ctx, request, [{"item": request["text"], "route": route_read, "reply": body}])["plan"]
-                decision = ops_waits.annotate(ctx, request, {"kind": "plan", **built})
+                combined = _combined(ctx, request, [{"item": request["text"], "route": route_read, "reply": body}])
+                if combined["plan"] is not None:
+                    decision = ops_waits.annotate(ctx, request, {"kind": "plan", **combined["plan"]})
+                else:  # the route was valid and the plan was not: the one delivery was left out (plan.combine says why)
+                    why = combined["unrouted"][0]["why"] if combined["unrouted"] else why
             else:
                 why = route_read["checked"]["why"]
         except (flow_files.FlowError, plan.PlanError, ValueError) as e:
@@ -2710,6 +2728,8 @@ from ops_say import chat_memory, route_queued, say  # noqa: E402,F401
 from ops_say import ASK_NEXT, CONVERSATION, MEMORY_CHARS, MEMORY_CUT, MEMORY_HEAD, MEMORY_TAIL, MEMORY_TURNS, PLAN_NEXT  # noqa: E402,F401
 # The configuration's acceptance (runtime/ops_config.py): its two operations, and the names a shell and a test read.
 from ops_config import accept_config, give_consent, set_mode, set_model  # noqa: E402,F401
+# The sources of the project (runtime/ops_sources.py): the ingest operations.
+from ops_sources import source_add, source_describe, source_import, source_refresh, sources_catalog  # noqa: E402,F401
 # The reads of the local interface (runtime/ops_reads.py): the operations, and the one constant a test reads.
 from ops_reads import agents, artifact, artifact_raw, artifacts, connections, conversation, costs, service_check, skills  # noqa: E402,F401
 from ops_reads import commands, stop_runs, version  # noqa: E402,F401

@@ -144,6 +144,12 @@ def _gate() -> tuple:
     return status, gate
 
 
+def local_evidence_base() -> str:
+    """The folder a person's own lab evidence lives in (the status script's local_evidence_base). The sources folder must be
+    disjoint from it (limit L22, runtime/sources.py): the runtime asks the lab for it and holds no copy of the rule."""
+    return _lab_call(_lab_call(LAB.load_status).local_evidence_base)
+
+
 def models() -> list:
     """The ids of the models the gate file lists, in a stable order: the lab models first (the gate file's lab_models, in
     its order), then the others as the file lists them. A model is run by the lab only when it is listed here: its entry

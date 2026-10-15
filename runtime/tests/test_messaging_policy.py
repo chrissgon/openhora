@@ -20,7 +20,7 @@ operations = st.load("operations")
 project_config = st.load("project_config")
 
 ON_MESSAGING = ["status", "progress", "pending", "task", "agents", "costs", "skills", "artifacts", "artifact", "say", "answer",
-                "release", "approve", "reject", "retry", "cancel"]
+                "release", "approve", "reject", "retry", "cancel", "sources"]
 ALL_GROUPS = list(operations.GROUPS)
 NOT_ENABLED = "is not enabled for this channel; the project's configuration (channels.messaging) turns it on"
 
@@ -86,7 +86,7 @@ def test_permitted_follows_the_groups_the_ceiling_and_the_closed_default():
     assert not operations.permitted("set-mode", "messaging", {"messaging": ALL_GROUPS}) and not operations.permitted("nothing", "messaging", None)
     # the closed default: read, talk, answer
     for name in rows:
-        expected = name in ON_MESSAGING and name not in ("release", "approve", "reject", "retry", "cancel")
+        expected = name in ON_MESSAGING and name not in ("release", "approve", "reject", "retry", "cancel", "sources")  # the catalog holds the person's data: its group is turned on, never by default
         assert operations.permitted(name, "messaging", None) is expected, name
         assert operations.permitted(name, "messaging", {}, "plan") is expected, name
     assert operations.permitted("approve", "messaging", {"messaging": []}) is False

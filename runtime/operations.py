@@ -253,6 +253,31 @@ OPERATIONS = (
     {"name": "service-check", "call": "service_check", "args": ({"name": "dispatch_every", "kind": "int", "flag": "dispatch-every"},),
      "channels": ("terminal",), "model": False,
      "help": "what the local service checks at its start: the secret store, the credential, docker, the eval image and whether it dispatches (the service calls it for each project)"},
+    {"name": "source-add", "call": "source_add",
+     "args": ({"name": "source_id", "kind": "str", "required": True, "flag": "source", "label": "source id"},
+              {"name": "source_type", "kind": "choice", "choices": ("file", "notion"), "required": True, "flag": "type"},
+              {"name": "origin", "kind": "str", "required": True},
+              {"name": "description", "kind": "str"}),
+     "channels": ("terminal", "page"), "model": False,
+     "help": "register a source of this project: its id, its type (file or notion) and its origin (a file's name, or a Notion page's address or id); nothing is imported and no credential is kept"},
+    {"name": "source-import", "call": "source_import",
+     "args": ({"name": "source_id", "kind": "str", "required": True, "flag": "source", "label": "source id"},
+              {"name": "file", "kind": "str"}, {"name": "url", "kind": "str"}, {"name": "origin", "kind": "str"},
+              {"name": "description", "kind": "str"}),
+     "channels": ("terminal", "page"), "model": False,
+     "help": "import a version of a source from a file of yours (--file) or from a Notion page (--url, its address or id): read, converted to text in a container with no network, scanned, and kept as an immutable version in the sources folder"},
+    {"name": "source-refresh", "call": "source_refresh",
+     "args": ({"name": "source_id", "kind": "str", "required": True, "flag": "source", "label": "source id"},
+              {"name": "file", "kind": "str"}),
+     "channels": ("terminal", "page"), "model": False,
+     "help": "a new version of a source: from a new file, from its Notion page again, or, with neither, from the file you changed in the sources folder (it becomes a version labelled as yours, which a task that starts on its own never receives)"},
+    {"name": "source-describe", "call": "source_describe",
+     "args": ({"name": "source_id", "kind": "str", "required": True, "flag": "source", "label": "source id"},
+              {"name": "description", "kind": "str"}),
+     "channels": ("terminal", "page"), "model": False,
+     "help": "set your description of a source (what it is, what it is for); the planner reads it with the catalog; an empty one clears it"},
+    {"name": "sources", "call": "sources_catalog", "args": (), "channels": ("terminal", "page", "mcp", "messaging"), "model": False,
+     "help": "the catalog of the project's sources: each source, its newest version (name, type, size, date, sheets and columns with sample values, first headings), your description and whether its files changed outside the runtime"},
 )
 
 # What the conversation answers itself, with no operation: the help, and a new request whatever is open.
@@ -285,6 +310,7 @@ GROUPS = {
     "dispatch": {"operations": ("dispatch",), "kind": None},
     "documents": {"operations": ("sync", "hand-over"), "kind": None},
     "verdict": {"operations": ("verdict",), "kind": None},
+    "sources": {"operations": ("source-add", "source-import", "source-refresh", "source-describe", "sources"), "kind": None},
 }
 # The policy of a channel that has no entry in the project's configuration. A channel absent from this table keeps its
 # whole ceiling; the terminal is never narrowed. The messaging channel is closed: what changes the work other than a

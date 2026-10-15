@@ -82,6 +82,9 @@
 .wb-panel-lobby .wb-plan-task .wb-task-n { color: var(--pui-text-muted); font-variant-numeric: tabular-nums; }
 .wb-panel-lobby .wb-plan-task .wb-cur-sub { font-size: 12px; overflow-wrap: anywhere; }
 .wb-panel-lobby .wb-plan-task .wb-cell-skill { font-size: 12px; }
+.wb-panel-lobby .wb-plan-task-web-sources { border-inline-start: 3px solid var(--pui-warn); }
+.wb-panel-lobby .wb-plan-task .wb-plan-web-sources { justify-self: start; }
+.wb-panel-lobby .wb-plan-task .wb-plan-web-sources-note { color: var(--wb-ink-warn); }
 .wb-panel-lobby .wb-waits { gap: 4px; padding: 0; border: 0; border-radius: 0; background: none; font-size: 13px; }
 .wb-panel-lobby .wb-waits-title { color: var(--pui-text-muted); font-size: 12px; font-weight: 400; }
 .wb-panel-lobby .wb-waits-task { font-weight: 400; }

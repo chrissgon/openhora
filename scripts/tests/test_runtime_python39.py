@@ -54,6 +54,9 @@ ON_SYSTEM_PYTHON = [
     "runtime/costs.py",
     # The generic streaming intake of a body (P0): a source module of the runtime calls it.
     "runtime/intake.py",
+    # The sources of a project (P4): the registry, the versions, the catalog and the guardrails of the folder, and the ingest operations.
+    # The document converter's provider runs a container; the host side is plain Python and runs on the scheduler's interpreter too.
+    "runtime/sources.py", "runtime/ops_sources.py", "providers/converter/container.py",
     # The rules of tasks that run at once (PAR-2): pure functions the dispatcher's caller passes in.
     "runtime/parallel.py",
     # How the credential of a run is billed, read from the adapters' manifests (ADJ-R3): the operations layer imports it.

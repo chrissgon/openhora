@@ -39,6 +39,7 @@ RETURNED = ("state", "machine", "document")
 DROPPED_DIRS = (".git", "node_modules", "__pycache__", ".pytest_cache", ".venv")
 LOCAL_DIR = ".workbench-local/"
 DROP_DIR = ".workbench-local/drop"  # the file drop (runtime/drop.py): staged for every run, so never brought back
+SOURCES_DIR = ".workbench-local/sources"  # the copies of the sources a task receives (runtime/sources.py task_copies): staged, so never brought back
 DOCS_DIR = "docs/"
 DOCUMENT_SUFFIXES = (".md",)
 
