@@ -234,14 +234,14 @@ class OneShotServer:
                 return handler._send(404)
             self.callback_used = True
         if not same(query.get("state", [""])[0], self.state):
-            handler._note(401, "State mismatch. Nothing was stored. You can close this tab.")
-            return self._fail("the state parameter does not match; possible CSRF, nothing stored")
+            self._fail("the state parameter does not match; possible CSRF, nothing stored")   # the outcome is set before the answer is sent
+            return handler._note(401, "State mismatch. Nothing was stored. You can close this tab.")
         if "error" in query:
-            handler._note(400, "Authorization was not granted. You can close this tab.")
-            return self._fail("Google returned an error instead of an authorization; nothing stored")
+            self._fail("Google returned an error instead of an authorization; nothing stored")
+            return handler._note(400, "Authorization was not granted. You can close this tab.")
         if not query.get("code"):
-            handler._note(400, "No authorization code received. You can close this tab.")
-            return self._fail("the callback carried no code")
+            self._fail("the callback carried no code")
+            return handler._note(400, "No authorization code received. You can close this tab.")
         try:
             response = self._exchange(query["code"][0], self.redirect_uri)
             scopes = set(str(response.get("scope") or "").split())
@@ -251,8 +251,8 @@ class OneShotServer:
             if self._on_token is not None:
                 self._on_token(response)
         except Exception as exc:   # a failed exchange or store ends the session; the reason is the caller's to print
-            handler._note(400, "The sign-in did not give what is needed. See the terminal. You can close this tab.")
-            return self._fail(str(exc) or type(exc).__name__)
+            self._fail(str(exc) or type(exc).__name__)
+            return handler._note(400, "The sign-in did not give what is needed. See the terminal. You can close this tab.")
         self.access_token, self.response = response["access_token"], response
         handler._send(302, location="/picker?n=" + urllib.parse.quote(self.nonce))
 
@@ -280,8 +280,8 @@ class OneShotServer:
             try:
                 self.picks = clean_picks(data.get("documents"))
             except ValueError:
-                handler._send(400)
-                return self._fail("the page sent picks that are not a list")
+                self._fail("the page sent picks that are not a list")
+                return handler._send(400)
         handler._send(200, json.dumps({"ok": True, "picked": len(self.picks)}).encode(), "application/json")
         self.done.set()
 

@@ -53,6 +53,7 @@ import json
 import os
 import secrets
 import sys
+import time
 import urllib.parse
 import webbrowser
 from datetime import datetime, timezone
@@ -78,6 +79,7 @@ KEYRING_SERVICE = "openhora"
 GOOGLE_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 SCOPE = gdrive.SCOPE
 SESSION_TIMEOUT_SECONDS = 600
+FLUSH_SECONDS = 0.5
 INPUTS = (("GDRIVE_CLIENT_ID", "the Desktop app OAuth client id"), ("GDRIVE_CLIENT_SECRET", "that client's secret"),
           ("GDRIVE_PICKER_API_KEY", "the API key for the Google Picker API"))
 __doc__ = __doc__.format(scope=SCOPE, host=picker.HOST, username=gdrive.KEYRING_USERNAME, secret=gdrive.SECRET)
@@ -146,6 +148,7 @@ def run_session(server, open_browser: bool) -> None:
             webbrowser.open(server.start_url)
         log(f"Waiting up to {SESSION_TIMEOUT_SECONDS // 60} minutes on {server.redirect_uri}; the page stops after one use ...")
         finished = server.wait(SESSION_TIMEOUT_SECONDS)
+        time.sleep(FLUSH_SECONDS)   # the page's last answer is on its way when the session ends: let it reach the browser
     finally:
         server.close()
     if not finished:

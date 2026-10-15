@@ -182,7 +182,7 @@ def test_the_picks_are_checked_and_the_session_stops_after_them(session):
     assert status == 200 and json.loads(body) == {"ok": True, "picked": 2}
     assert session.server.picks == [{"id": IDS[0], "name": "Survey results (final)", "mime_type": "application/vnd.google-apps.spreadsheet"},
                                     {"id": IDS[2], "name": "report.pdf", "mime_type": "application/pdf"}]
-    assert session.server.done.is_set() and session.server.error is None and session.server.cancelled is False
+    assert session.server.wait(5) and session.server.error is None and session.server.cancelled is False
     assert session.req("POST", "/picked", body={"n": nonce, "documents": documents})[0] == 409
     assert session.get(f"/token?n={nonce}")[0] == 403, "no token after the pick"
     session.server.close()
@@ -193,7 +193,7 @@ def test_the_picks_are_checked_and_the_session_stops_after_them(session):
 def test_a_cancel_is_a_session_that_ends_with_no_picks(session):
     nonce = session.to_picker()
     assert session.req("POST", "/picked", body={"n": nonce, "cancelled": True, "documents": []})[0] == 200
-    assert session.server.cancelled is True and session.server.picks == [] and session.server.done.is_set()
+    assert session.server.wait(5) and session.server.cancelled is True and session.server.picks == []
 
 
 def test_a_post_needs_the_nonce_the_own_origin_and_a_reasonable_body(session):
