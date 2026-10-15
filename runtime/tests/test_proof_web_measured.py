@@ -27,13 +27,28 @@ def line(case, model, variant="with"):
     return {"case": case, "model": model, "variant": variant}
 
 
+def write_cases(root, cases, top_allow_web=None):
+    folder = Path(root) / "skills" / "demo" / "evals"
+    folder.mkdir(parents=True, exist_ok=True)
+    data = {"skill": "demo", "evals": cases}
+    if top_allow_web is not None:
+        data["allow_web"] = top_allow_web
+    (folder / "evals.json").write_text(json.dumps(data), encoding="utf-8")
+
+
+WEB_CASES = [{"id": 1, "allow_web": True}, {"id": 2}, {"id": 3, "allow_web": True}]
+
+
 @pytest.fixture
-def status(monkeypatch):
-    """The status script's four functions lab.standing reads, replaced; returns the knobs a test turns. The pools
-    are what lab_view returns: per model, the current set and the inherited lines."""
+def status(monkeypatch, tmp_path):
+    """The status script's functions lab.standing reads, replaced, and a tree with a case file of the skill; returns
+    the knobs a test turns. The pools are what lab_view returns: per model, the current set and the inherited lines.
+    Cases 1 and 3 set allow_web, case 2 does not; the gate file lists 1 and 3."""
     module = lab.LAB.load_status()
     monkeypatch.setattr(lab.LAB, "load_status", lambda: module)  # the facade loads the script afresh on every call
-    knobs = {"web_cases": {"demo": [1, 3]}, "pools": {}, "views": []}
+    monkeypatch.setattr(lab.load(), "ROOT", str(tmp_path))  # the case file is read from here
+    write_cases(tmp_path, WEB_CASES)
+    knobs = {"web_cases": {"demo": [1, 3]}, "pools": {}, "views": [], "root": tmp_path}
 
     monkeypatch.setattr(module, "load_gate", lambda root: {
         "strong_model": "ref-model", "strong_harness": "ref-adapter", "floor_model": "floor-model",
@@ -58,8 +73,6 @@ def test_a_case_listed_as_a_web_case_with_no_evidence_does_not_turn_the_web_on(s
     found = lab.standing("demo")
     assert found["web_cases"] == [1, 3]  # kept, for information
     assert web(found) == {"ref-model": False, "floor-model": False}
-    status["pools"] = {"ref-model": {"current": [], "inherited": [line(1, "ref-model")]}}  # inherited lines do not count
-    assert web(lab.standing("demo")) == {"ref-model": False, "floor-model": False}
 
 
 def test_a_web_case_with_evidence_on_one_model_turns_the_web_on_for_that_model_only(status):
@@ -68,6 +81,29 @@ def test_a_web_case_with_evidence_on_one_model_turns_the_web_on_for_that_model_o
     assert web(lab.standing("demo")) == {"ref-model": False, "floor-model": True}
     status["pools"] = {"ref-model": {"current": [line("1", "ref-model")], "inherited": []}}  # case ids compare as text
     assert web(lab.standing("demo")) == {"ref-model": True, "floor-model": False}
+
+
+def test_a_web_case_whose_only_lines_are_inherited_still_turns_the_web_on(status):
+    # After a Y change that does not rerun the case, or an execution epoch, the band can stay reliable on inherited
+    # lines (they weigh above zero in the score): the flag follows the same lines.
+    status["pools"] = {"ref-model": {"current": [line(2, "ref-model")], "inherited": [line(1, "ref-model")]},
+                       "floor-model": {"current": [], "inherited": [line(3, "floor-model")]}}
+    assert web(lab.standing("demo")) == {"ref-model": True, "floor-model": True}
+    status["pools"] = {"ref-model": {"current": [], "inherited": []}, "floor-model": {"current": [line(2, "floor-model")]}}
+    assert web(lab.standing("demo")) == {"ref-model": False, "floor-model": False}  # no line of a web case at all
+
+
+def test_being_listed_is_only_the_permission_the_case_must_set_allow_web(status):
+    status["pools"] = {"ref-model": {"current": [line(1, "ref-model")], "inherited": []},
+                       "floor-model": {"current": [line(3, "floor-model")], "inherited": []}}
+    write_cases(status["root"], [{"id": 1}, {"id": 3, "allow_web": True}])  # case 1 no longer sets it
+    assert web(lab.standing("demo")) == {"ref-model": False, "floor-model": True}
+    write_cases(status["root"], [{"id": 1}, {"id": 3}], top_allow_web=True)  # the top level applies to every case
+    assert web(lab.standing("demo")) == {"ref-model": True, "floor-model": True}
+    write_cases(status["root"], [{"id": 1, "allow_web": False}, {"id": 3}], top_allow_web=False)
+    assert web(lab.standing("demo")) == {"ref-model": False, "floor-model": False}
+    write_cases(status["root"], [{"id": 3, "allow_web": True}])  # the listed case 1 is gone from the file
+    assert web(lab.standing("demo")) == {"ref-model": False, "floor-model": True}
 
 
 def test_the_current_set_is_the_status_scripts_own_for_the_skill_and_its_gate(status):
