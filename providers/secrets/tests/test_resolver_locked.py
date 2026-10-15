@@ -247,5 +247,31 @@ def test_the_credentials_status_says_absent_ok_or_unsafe_with_the_fix_and_the_no
     assert res.unsafe_note() == ""
 
 
+def test_the_drive_record_is_one_json_text_and_the_directory_returns_it_whole(tmp_path):
+    record = json.dumps({"refresh_token": "r-" + SENTINEL, "client_id": "c.example", "client_secret": "s-" + SENTINEL, "api_key": "k-" + SENTINEL,
+                         "project_number": "123", "scope": "https://www.googleapis.com/auth/drive.file", "obtained_at": "2027-01-15T08:00:00Z"})
+    folder = make_dir(tmp_path, {"GDRIVE_SOURCES_TOKEN": record + "\n"})
+    got = res.resolve_state("GDRIVE_SOURCES_TOKEN", environ={"OPENHORA_CREDENTIALS_DIR": str(folder)}, store=None)
+    assert got.state == "found" and got.source == "credentials directory"
+    assert json.loads(got.value)["refresh_token"] == "r-" + SENTINEL and got.value == record, "the whole JSON text, trimmed, and not a field of it"
+    assert res.REGISTRY["GDRIVE_SOURCES_TOKEN"].store_username == "gdrive-sources"
+
+
+def test_the_notes_follow_the_last_look_at_their_own_source_and_clear_when_it_reads_fine(tmp_path):
+    folder = make_dir(tmp_path, {NAME: SENTINEL}, mode=0o755)
+    env = {"OPENHORA_CREDENTIALS_DIR": str(folder)}
+    assert res.credentials_status(env)["state"] == "unsafe" and "chmod 700" in res.unsafe_note()
+    folder.chmod(0o700)
+    assert res.credentials_status(env)["state"] == "ok" and res.unsafe_note() == ""
+    folder.chmod(0o755)
+    res.credentials_status(env)
+    assert res.credentials_status({})["state"] == "absent" and res.unsafe_note() == "", "no directory at all is not an unsafe one"
+    # the store's note: set by a failure, cleared by the next answer, whatever the answer
+    res.resolve(NAME, environ={}, store=FakeStore(error=KeyringLocked("locked")))
+    assert res.store_locked_note() == res.LOCKED_SENTENCE
+    res.resolve(NAME, environ={}, store=FakeStore())
+    assert res.store_locked_note() == "" and res.store_failure() is None
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))

@@ -469,6 +469,7 @@ The limit's text and the stage that built it come from the contract's table; the
 | `source-add` | `--source` `--type` `--origin` `[--description]` | `source_add` |
 | `source-import` | `--source` `[--file]` `[--url]` `[--origin]` `[--description]` | `source_import` |
 | `source-refresh` | `--source` `[--file]` | `source_refresh` |
+| `source-drive` | `[--file-id]` `[--source]` `[--description]` | `source_drive` |
 | `source-describe` | `--source` `[--description]` | `source_describe` |
 | `sources` | - | `sources_catalog` |
 <!-- /generated -->
@@ -550,9 +551,10 @@ The verbs that call a model: `route` (without `--flow`), `run-next`, `contained-
 | `commands` | `commands` | page | no | the commands of the conversation as rows, command, arguments and help line, in the order /help prints them (the page lists them when the person types /) |
 | `stop_runs` | `stop-runs` | terminal | no | end the runs this process started (the local service calls it before it exits); with --all, every task run of the project that a live process holds |
 | `service_check` | `service-check` | terminal | no | what the local service checks at its start: the secret store, the credential, docker, the eval image and whether it dispatches (the service calls it for each project) |
-| `source_add` | `source-add` | terminal, page | no | register a source of this project: its id, its type (file or notion) and its origin (a file's name, or a Notion page's address or id); nothing is imported and no credential is kept |
+| `source_add` | `source-add` | terminal, page | no | register a source of this project: its id, its type (file, notion or drive) and its origin (a file's name, a Notion page's address or id, or a Drive file's id); nothing is imported and no credential is kept |
 | `source_import` | `source-import` | terminal, page | no | import a version of a source from a file of yours (--file) or from a Notion page (--url, its address or id): read, converted to text in a container with no network, scanned, and kept as an immutable version in the sources folder |
 | `source_refresh` | `source-refresh` | terminal, page | no | a new version of a source: from a new file, from its Notion page again, or, with neither, from the file you changed in the sources folder (it becomes a version labelled as yours, which a task that starts on its own never receives) |
+| `source_drive` | `source-drive` | terminal | no | make Google Drive files sources: the Picker opens on a one-shot page on 127.0.0.1 and you choose one or more files (never a folder); each becomes a source and its first version is imported; with --file-id and --source, one file already picked is imported or refreshed |
 | `source_describe` | `source-describe` | terminal, page | no | set your description of a source (what it is, what it is for); the planner reads it with the catalog; an empty one clears it |
 | `sources_catalog` | `sources` | terminal, page, mcp, messaging | no | the catalog of the project's sources: each source, its newest version (name, type, size, date, sheets and columns with sample values, first headings), your description and whether its files changed outside the runtime |
 <!-- /generated -->

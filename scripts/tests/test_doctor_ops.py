@@ -326,6 +326,32 @@ def test_a_takeover_of_another_hosts_lease_is_a_warning_with_the_way_to_clear_it
     assert ops.lease_check(str(tmp_path))["status"] == "ok"
     (tmp_path / "lease-takeover.json").write_text(json.dumps({"at": "2027-01-15 08:00:00 UTC", "from_host": "old-desktop"}))
     got = ops.lease_check(str(tmp_path))
-    assert got["status"] == "warn" and "old-desktop" in got["detail"] and "2027-01-15" in got["detail"] and "delete" in got["fix"]
+    assert got["status"] == "warn" and "old-desktop" in got["detail"] and "2027-01-15" in got["detail"]
+    assert "--ack-lease" in got["fix"] and "<project>" in got["fix"] and "--project /p " in ops.lease_check(str(tmp_path), "/p")["fix"]
     (tmp_path / "lease-takeover.json").write_text("{not json")
     assert ops.lease_check(str(tmp_path))["status"] == "unverified"
+
+
+def test_the_doctor_acknowledges_a_lease_takeover_and_the_warning_goes(monkeypatch, tmp_path, capsys):
+    stub_doctor(monkeypatch, tmp_path, linger="yes")
+    (tmp_path / "lease-takeover.json").write_text(json.dumps({"at": "2027-01-15 08:00:00 UTC", "from_host": "old-desktop"}))
+    (tmp_path / "other.txt").write_text("not touched")
+    assert doctor.main(["--unattended", "--project", str(tmp_path), "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["unattended"]["lease"]["status"] == "warn"
+    assert doctor.main(["--unattended", "--project", str(tmp_path), "--json", "--ack-lease"]) == 0
+    captured = capsys.readouterr()
+    assert "lease takeover acknowledged" in captured.err
+    assert json.loads(captured.out)["unattended"]["lease"]["status"] == "ok"
+    assert not (tmp_path / "lease-takeover.json").exists() and (tmp_path / "other.txt").exists()
+    assert doctor.main(["--unattended", "--project", str(tmp_path), "--ack-lease"]) == 0
+    assert "no lease takeover was recorded" in capsys.readouterr().err
+
+
+def test_ack_lease_needs_the_project_and_the_unattended_mode_and_removes_only_the_record(tmp_path):
+    assert doctor.main(["--ack-lease"]) == 2
+    assert doctor.main(["--unattended", "--ack-lease"]) == 2
+    assert ops.ack_lease(str(tmp_path)) is False
+    target = tmp_path / "elsewhere.json"
+    target.write_text("keep")
+    (tmp_path / "lease-takeover.json").symlink_to(target)
+    assert ops.ack_lease(str(tmp_path)) is False and target.exists(), "a link is not followed and not removed as a record"

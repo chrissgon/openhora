@@ -268,7 +268,7 @@ def current(run_dirs):
     for run_dir in run_dirs:
         if not os.path.isdir(run_dir):
             raise ChangesetError("missing", f"the run folder {run_dir} of this request is gone, and the change set it held with it: "
-                                            "cancel the request and start it again")
+                                            "cancel the request if it is still open, and start a new request for the work")
         found = load(run_dir)
         if found is not None and not found.get("blocked"):
             return found

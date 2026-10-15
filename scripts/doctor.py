@@ -2,7 +2,7 @@
 """Report which environment requirement classes are satisfied.
 
 Usage: python3 scripts/doctor.py [--harness <name>] [--json] [--strict]
-       python3 scripts/doctor.py --unattended [--project <dir>] [--min-free-gib <n>] [--json] [--strict]
+       python3 scripts/doctor.py --unattended [--project <dir>] [--min-free-gib <n>] [--ack-lease] [--json] [--strict]
 
 Collects `metadata.requires` from every skill, then checks each class against:
   1. connectors declared by the chosen adapter in adapters/<harness>/connectors.json
@@ -31,6 +31,8 @@ Options:
                     to list and inspect the harness's containers, which no other mode does.
   --project <dir>   with --unattended: the project whose runtime.json names data_dir and sources_dir
   --min-free-gib <n>  with --unattended: the free space under which a disk warns (default 5)
+  --ack-lease       with --unattended and --project: acknowledge a takeover of another host's lease (removes the record
+                    <data_dir>/lease-takeover.json, which the `lease` check warns about), then run the checks
   --help            show this text
 
 It also reports the eval image (evals/image-lock.json, evals/executor.py), in one of four states, and never pulls or
@@ -282,7 +284,7 @@ def main(argv):
         print(__doc__)
         return 0
     harness, as_json, strict = None, "--json" in argv, "--strict" in argv
-    unattended, project, min_free = "--unattended" in argv, None, None
+    unattended, project, min_free, ack_lease = "--unattended" in argv, None, None, "--ack-lease" in argv
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -309,7 +311,7 @@ def main(argv):
             harness = argv[i + 1]
             i += 2
             continue
-        if a not in ("--json", "--strict", "--unattended"):
+        if a not in ("--json", "--strict", "--unattended", "--ack-lease"):
             print(f"Error: unknown option {a!r}. See --help.", file=sys.stderr)
             return 2
         i += 1
@@ -317,6 +319,9 @@ def main(argv):
         print(f"Error: adapter {harness!r} not found under adapters/.", file=sys.stderr)
         return 2
 
+    if ack_lease and not (unattended and project):
+        print("Error: --ack-lease goes with --unattended and --project <dir>.", file=sys.stderr)
+        return 2
     connectors = load_connectors(harness)
     report, missing = {}, 0
     for cls, skills in sorted(collect_requires().items()):
@@ -338,6 +343,13 @@ def main(argv):
     checks = None
     if unattended:
         import doctor_ops
+        if ack_lease:
+            try:
+                acknowledged = doctor_ops.ack_lease(load_project_config(project)["data_dir"])
+            except (OSError, ValueError) as e:
+                print(f"Error: --ack-lease could not read the project: {e}", file=sys.stderr)
+                return 2
+            print("lease takeover acknowledged" if acknowledged else "no lease takeover was recorded", file=sys.stderr)
         checks = doctor_ops.run_all(project=project, min_free_gib=min_free or doctor_ops.MIN_FREE_GIB, image=image,
                                     probe=store_probe, load_config=load_project_config)
     if as_json:

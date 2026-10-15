@@ -472,6 +472,17 @@ def bounds_problem(cfg: dict, today=None, key: str = "task_board"):
     return None
 
 
+def _sources_only(workbench: str, cls: str, name: str) -> bool:
+    """Whether the shipped implementation declares `SOURCES_ONLY = True` at the top of its file (it serves the files a person picked as
+    sources and writes nothing: providers/documents/gdrive.py), read as text."""
+    path = os.path.join(workbench, "providers", resolver(workbench).folder(cls), f"{name}.py")
+    try:
+        with open(path, encoding="utf-8") as f:
+            return re.search(r"^SOURCES_ONLY\s*=\s*True\b", f.read(), re.M) is not None
+    except OSError:
+        return False
+
+
 def _platform(value, key: str, cls: str, project: str, workbench: str):
     """A task_board or documents object, checked (see the module's text); None when absent."""
     if value is None:
@@ -482,6 +493,9 @@ def _platform(value, key: str, cls: str, project: str, workbench: str):
     provider = value.get("provider")
     if provider not in shipped:
         raise ConfigError(f"runtime.json {key}.provider must be one of {', '.join(shipped) or 'none: no provider is shipped'}")
+    if _sources_only(workbench, cls, provider):
+        raise ConfigError(f"runtime.json {key}.provider {provider!r} serves sources only and writes nothing: choose another provider "
+                          f"({', '.join(n for n in shipped if not _sources_only(workbench, cls, n))})")
     if provider == "local":
         folder = value.get("dir")
         if not isinstance(folder, str) or not os.path.isabs(folder):

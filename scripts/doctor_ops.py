@@ -232,7 +232,20 @@ def image_check(image) -> dict:
             "fix": image.get("setup")}
 
 
-def lease_check(data_dir) -> dict:
+def ack_lease(data_dir) -> bool:
+    """Clear the record of a lease takeover (`<data_dir>/lease-takeover.json`) once a person has looked at it. True when a record was there.
+    Only that one regular file of data_dir is removed, and never through a link."""
+    path = os.path.join(data_dir, "lease-takeover.json")
+    try:
+        if not os.path.isfile(path) or os.path.islink(path):
+            return False
+        os.unlink(path)
+        return True
+    except OSError:
+        return False
+
+
+def lease_check(data_dir, project=None) -> dict:
     """Whether this host took over the expired lease of another host's write of the sources folder (the runtime records it in
     `<data_dir>/lease-takeover.json`). A takeover is not an error, but two machines were writing one folder not long ago, so it is told."""
     if not data_dir:
@@ -248,7 +261,8 @@ def lease_check(data_dir) -> dict:
         return {"status": "unverified", "detail": f"{path} cannot be read"}
     return {"status": "warn", "detail": f"on {record.get('at')} this host took over the expired lease of the host {record.get('from_host')!r}: "
                                           "another machine wrote the sources folder shortly before. Check that only one runtime writes it",
-            "fix": f"if that is expected, delete {path} to clear this warning"}
+            "fix": "if that is expected, acknowledge it: python3 scripts/doctor.py --unattended --project "
+                   f"{project or '<project>'} --ack-lease"}
 
 
 def run_all(*, project=None, min_free_gib=MIN_FREE_GIB, image=None, probe=None, load_config=None, tool=None, run=None,
@@ -267,7 +281,7 @@ def run_all(*, project=None, min_free_gib=MIN_FREE_GIB, image=None, probe=None, 
         "sources_access": sources_access_check(paths.get("sources_dir"), system=system, home=home, listdir=listdir),
         "disk": disk_check(paths, min_free_gib, usage),
         "proxy_logs": proxy_logs_check(tool),
-        "lease": lease_check(paths.get("data_dir")),
+        "lease": lease_check(paths.get("data_dir"), project),
         "secret_store": secret_store_check(probe) if probe else {"status": "unverified", "detail": "no probe was given"},
         "image": image_check(image),
         "project": {"status": "warn" if note else ("ok" if project else "na"), "detail": note or (project or "no --project given")},

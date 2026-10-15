@@ -168,6 +168,16 @@ REGISTRY: dict[str, Secret] = {s.name: s for s in (
            "sources: a separate integration from the one behind NOTION_TOKEN, which can write",
            ("providers/documents/notion.py",),
            store_username="notion-sources"),
+    Secret("GDRIVE_SOURCES_TOKEN",
+           "read the Google Drive files the person picked as sources of a project (their content and version)",
+           "OAuth scope https://www.googleapis.com/auth/drive.file only (providers/documents/gdrive_auth.py): it lets the app read and "
+           "write every file the person picked in the Picker, so it is not read-only; the provider sends GET requests only",
+           ("providers/documents/gdrive.py", "providers/documents/gdrive_auth.py"),
+           store_username="gdrive-sources",
+           set_local="uv run providers/documents/gdrive_auth.py authorize (writes the record after the browser consent)",
+           note="one JSON record (refresh_token, client_id, client_secret, api_key, project_number, scope, obtained_at) written by "
+                "providers/documents/gdrive_auth.py; the Desktop app client and the Picker's API key travel with the refresh token so "
+                "that this is the only entry; from the environment, the same JSON text"),
     Secret("MESSENGER_TELEGRAM_BOT_TOKEN",
            "receive the person's messages and send the notices of the messaging bridge, as a Telegram bot",
            "a bot created for this person with the platform's bot service, used only by this bridge",
@@ -338,12 +348,15 @@ def credentials_status(environ=None) -> dict:
     the folder and the mode, owner and kind of each registered secret's file in it; the doctor and the runtime's messages ask it."""
     path = credentials_dir(environ)
     if path is None or not os.path.lexists(path):
+        _UNSAFE["detail"] = ""
         return {"state": "absent", "path": path, "detail": "no credentials directory is set or present"}
     try:
         for secret in REGISTRY.values():
             _from_directory(secret, {"OPENHORA_CREDENTIALS_DIR": path})
     except CredentialsUnsafe as e:
+        _UNSAFE["detail"] = str(e)
         return {"state": "unsafe", "path": path, "detail": str(e)}
+    _UNSAFE["detail"] = ""   # the note follows the last look at the directory: one that reads fine clears it
     return {"state": "ok", "path": path, "detail": f"{path} is safe to read"}
 
 
