@@ -14,8 +14,9 @@ Usage:
   python3 evals/eval_status.py bump --skill <name> [--class x|y|z] [--date YYYY-MM-DD]
   python3 evals/eval_status.py migrate-versions [--date YYYY-MM-DD]
 
-The records of the first round, skills/<name>/evals/result.json, are history (the reliability model, section 1):
-nothing writes one any more, nothing reads one, and no evidence is converted from them.
+The records of the first round, skills/<name>/evals/result.json, were removed on 2026-10-15 (`git show
+bc830832:skills/<name>/evals/result.json`). Nothing writes one, nothing reads one, and no evidence is converted
+from them.
 
 Content hash: sha256 over the files of the skill folder (sorted relative paths and their bytes), leaving out
 all of evals/ (the cases, the evidence, the version file, the old record), everything under scripts/tests/,
@@ -29,8 +30,8 @@ with "workbench_files" as the list of paths, never as the content of those files
 Evidence. The eval runner writes one file per test event, skills/<name>/evals/evidence/lab-<test id>.jsonl
 (the reliability model, section 1): a first line that describes the event and one line per run. Both have
 closed keys: `evidence` below validates every file, and an unknown key or a value outside its form is an
-error. A committed evidence file is written by tooling and never edited. The old records, result.json, stay
-as the history of the first round, and nothing reads them.
+error. A committed evidence file is written by tooling and never edited. The old records, result.json, were
+removed on 2026-10-15 (see the top of this file), and nothing reads one that is added back.
 
   The event line: {"record": "test", "skill", "test", "kind": "full"|"partial", "version", "content_sha256",
    "date", "models": {tier: model id} or [model id, ...], "adapters": {tier: adapter} or {model id: adapter},

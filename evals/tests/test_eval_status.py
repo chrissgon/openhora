@@ -154,7 +154,7 @@ def test_only_the_tests_folder_directly_under_scripts_is_left_out(root):
 
 def test_nothing_writes_or_reads_a_record_any_more(root, capsys):
     """The runner writes evidence; the command that built a record is gone (default 27), and since the snapshot
-    tables replaced the generated block (B16) nothing reads one: the 48 old records are history."""
+    tables replaced the generated block (B16) nothing reads one: the 48 old records were removed on 2026-10-15."""
     with pytest.raises(SystemExit) as e:
         es.main(["record", "--skill", "core-demo", "--benchmark", "b.json"], root=str(root))
     assert e.value.code == 2
@@ -691,9 +691,9 @@ def test_the_hash_command_prints_the_content_hash_the_version_and_the_case_hashe
     assert out == {"skill": "core-demo", "content_sha256": es.content_hash(skill), "version": "0.4.0", "cases": es.case_hashes(skill)}
 
 
-def test_the_48_old_records_stay_as_history_and_no_evidence_is_converted_from_them():
-    records = sorted(REPO.glob("skills/*/evals/result.json"))
-    assert len(records) >= 48
+def test_the_old_records_are_removed_and_no_evidence_is_converted_from_them():
+    # The 48 records of the first round were removed on 2026-10-15 (see the head of evals/eval_status.py).
+    assert sorted(REPO.glob("skills/*/evals/result.json")) == []
     # Evidence exists only as files the runner wrote for a test event (lab-<UTC start>-<hex>.jsonl), never as a
     # conversion of an old record, and every committed file is valid.
     evidence = list(REPO.glob("skills/*/evals/evidence/*"))

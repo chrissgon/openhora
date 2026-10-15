@@ -234,6 +234,16 @@ def test_product_names_in_a_case_and_in_a_fixture_but_not_in_a_record(tree):
         ": evals/evals.json (Figma Make); evals/files/site/notes.md (Claude Design)")
 
 
+def test_a_result_json_added_back_is_ignored_not_reported(tree):
+    """The records of the first round were removed on 2026-10-15. One added back is tolerated: no finding, whatever it holds."""
+    add_skill(tree)
+    write(tree, "skills/eng-demo/evals/result.json", "{not even json, and it names Claude Design and claude-code}")
+    report = run_skill(tree)
+    assert report.errors == [] and report.warnings == []
+    assert harness_errors(tree) == {}
+    assert validate.harness_scope("skills/eng-demo/evals/result.json") is None
+
+
 def test_a_cited_skill_is_built_or_its_line_says_planned(tree):
     add_skill(tree, body="# Demo\n\nSee `eng-other`, `eng-ghost` and `flow-ship` (planned).\nThen `ops-later`.\n"
                          "Example: `mkt-seo` <!-- validate: allow skill-name -- an invented example -->\n"

@@ -11,8 +11,9 @@ Checks every skill under skills/ and every agent under agents/:
   - SKILL.md is at most 500 lines
   - harness-name: no text file of the core (packs/ included), whatever its extension, names a harness: its
     name in any spelling (capitalised, lower-case, with a hyphen or an underscore), its folders, its
-    environment variables, its tool names, or a path inside an adapter. Exempt: skills/*/evals/result.json and
-    everything under skills/*/evals/evidence/ (a record and an evidence line name their adapter by design);
+    environment variables, its tool names, or a path inside an adapter. Exempt: everything under
+    skills/*/evals/evidence/ (an evidence line names its adapter by design), and a skills/*/evals/result.json
+    added back (the records of the first round were removed on 2026-10-15; the file is ignored, not reported);
     the values of `workbench_files` in a case file; the placeholder form adapters/<harness>/. The fixtures of
     eval cases, and a file listed in .security-scan-allow with the rule harness-name, are read for the
     harness names and folders only (the rule as it was before it was widened)
@@ -47,7 +48,7 @@ Checks every skill under skills/ and every agent under agents/:
     snapshot regenerated in a pull request of its own with python3 evals/eval_status.py inventory --write); [band]
     the skills in `needs a test` and in `watch` (the reliability model, section 5), one warning line per band
     with each skill's cause, never an error (they are errors only with --strict). The records of the first
-    round, result.json, are history and are not read
+    round, result.json, were removed on 2026-10-15; one added back is not read
   - the version rules of the reliability model's section 3 (evals/eval_status.py, version_findings), against
     the base of the pull request: WB_BASE_REF when set (CI sets the pull request's base), else the merge base
     of HEAD with the default branch, in the hook and in CI alike. [version-file] skills/<name>/evals/
@@ -740,7 +741,7 @@ def report_case_findings(name, report, root, cases, keys, few, conditional, is_r
     scanner, hits = load_scanner(), {}
     evals_dir = os.path.dirname(path)
     for dirpath, dirs, files in os.walk(evals_dir):
-        if dirpath == evals_dir:  # the cases and their fixtures; records and evidence name their adapter by design
+        if dirpath == evals_dir:  # the cases and their fixtures; evidence names its adapter by design, and a stray result.json is ignored
             dirs[:] = [d for d in dirs if d != "evidence"]
             files = [f for f in files if f != "result.json"]
         dirs[:] = sorted(d for d in dirs if d not in scanner.SKIP_DIRS)
@@ -1221,7 +1222,7 @@ def harness_scope(rel):
     parts = rel.split("/")
     if parts[0] == "skills" and len(parts) > 3 and parts[2] == "evals":
         if parts[3:] == ["result.json"] or parts[3] == "evidence":
-            return None  # an old record and an evidence line name their adapter by design
+            return None  # an evidence line names its adapter by design; a stray result.json (a removed first-round record) is ignored
         if "files" in parts[3:-1]:
             return "narrow"  # evals/files/... and evals/platforms/<platform>/files/...
     return "wide"
