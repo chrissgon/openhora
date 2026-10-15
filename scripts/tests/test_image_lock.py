@@ -368,3 +368,33 @@ def test_pull_takes_no_other_mode(tmp_path):
     for extra in (["--check"], ["--replace"], ["--verify-provenance"]):
         code, _, err, puller = pull(tmp_path, extra=extra)
         assert code == 2 and puller.calls == 0
+
+
+def test_check_with_root_reads_another_checkouts_lock_and_runs_none_of_its_code(tmp_path, monkeypatch):
+    go(tmp_path, [])  # writes tmp_path/lock.json
+    root = tmp_path / "checkout"
+    (root / "evals").mkdir(parents=True)
+    (tmp_path / "lock.json").rename(root / "evals" / "image-lock.json")
+    called = []
+
+    def never():
+        called.append("executor")
+        raise AssertionError("the checkout's executor was loaded")
+
+    monkeypatch.setattr(image_lock, "_executor", never)
+    verify, out, err = Verifier(), io.StringIO(), io.StringIO()
+    code = image_lock.run(["--check", "--verify-provenance", "--root", str(root), "--source-repo", SOURCE], verify=verify,
+                          out=out, err=err)
+    assert code == 0 and out.getvalue().strip() == "ok: 1 image(s) in the lock" and called == []
+    assert sorted(c[1] for c in verify.calls) == sorted([INDEX, AMD, ARM])
+    # the lock of that checkout is the one judged
+    (root / "evals" / "image-lock.json").write_text(json.dumps({"repository": REPO, "images": {"short": {}}}))
+    assert image_lock.run(["--check", "--root", str(root), "--source-repo", SOURCE], out=out, err=err) == 1
+    (root / "evals" / "image-lock.json").write_text(json.dumps({"repository": "ghcr.io/other/openhora-eval", "images": {}}))
+    assert image_lock.run(["--check", "--root", str(root), "--source-repo", SOURCE], out=out, err=err) == 1
+    assert called == []
+
+
+def test_root_is_for_check_only(tmp_path):
+    for argv in (["pull", "--root", str(tmp_path)], ["--print-definition-hash", "--root", str(tmp_path)]):
+        assert image_lock.run(argv, expected_definition=DEF, out=io.StringIO(), err=io.StringIO()) == 2

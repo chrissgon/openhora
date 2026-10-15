@@ -114,9 +114,24 @@ def test_the_lock_is_verified_by_a_read_only_job_on_every_change_of_it():
     assert re.search(r"^permissions:\n  contents: read\s*$", text, re.M) and "write" not in text
     assert "push:" in text and "pull_request:" in text and "pull_request_target" not in text
     assert text.count('"evals/image-lock.json"') == 2  # a push and a pull request
-    assert 'python3 scripts/image_lock.py --check --verify-provenance --source-repo "$SOURCE_REPOSITORY"' in text
+    assert 'python3 "$checker" --check --verify-provenance --root "$GITHUB_WORKSPACE" --source-repo "$SOURCE_REPOSITORY"' in text
     assert "GH_TOKEN: ${{ github.token }}" in text and "SOURCE_REPOSITORY: ${{ github.repository }}" in text
     assert re.search(r"^    timeout-minutes: [1-9]\d*\s*$", text, re.M)
     for ref in re.findall(r"^\s*-?\s*uses:\s*(\S+)", text, re.M):
         assert re.fullmatch(r"[\w.-]+/[\w./-]+@[0-9a-f]{40}", ref), ref
     assert "${{" not in "".join(re.findall(r"run: (.*)", text))  # values reach the script through env
+
+
+def test_a_pull_request_is_checked_by_the_script_of_its_base_never_by_its_own():
+    text = code(LOCK_WORKFLOW)
+    assert "BASE_SHA: ${{ github.event.pull_request.base.sha }}" in text and "EVENT_NAME: ${{ github.event_name }}" in text
+    assert 'fetch --no-tags --depth=1 origin "$BASE_SHA"' in text
+    assert 'show "$BASE_SHA":scripts/image_lock.py > "$RUNNER_TEMP/image_lock.py"' in text
+    assert 'python3 "$checker" --check --verify-provenance --root "$GITHUB_WORKSPACE" --source-repo "$SOURCE_REPOSITORY"' in text
+    # the checkout's own script runs on a pull request only when the base has no checker yet, and the job says so
+    assert text.index('checker="$RUNNER_TEMP/image_lock.py"') < text.index('python3 "$checker"')
+    assert "note: the base commit has no checker" in text
+    assert "python3 scripts/image_lock.py" not in text  # never run by its path in the checkout
+    assert "pull_request_target" not in text
+    scripted = "".join(re.findall(r"^\s+(?:python3|if|set|checker|echo|fi|else) .*$", text, re.M))
+    assert "${{" not in scripted

@@ -9,7 +9,7 @@ script is the only thing that writes it, and it writes it only for what it has v
 
 Usage:
   python3 scripts/image_lock.py --from-json <artifact.json> [--source-repo <owner/name>] [--replace] [--lock <file>]
-  python3 scripts/image_lock.py --check [--verify-provenance] [--source-repo <owner/name>] [--lock <file>]
+  python3 scripts/image_lock.py --check [--verify-provenance] [--source-repo <owner/name>] [--lock <file>] [--root <checkout>]
   python3 scripts/image_lock.py pull [--source-repo <owner/name>] [--lock <file>]
   python3 scripts/image_lock.py --print-definition-hash
 
@@ -35,7 +35,10 @@ unless --replace is given (evidence measured in the old digest would no longer m
 repository's owner (offline too; the source repository is --source-repo or the origin remote), and says whether the
 current definition has an entry. It makes no network call unless --verify-provenance is given, which verifies the
 provenance of every digest the lock holds. CI runs it with --verify-provenance on every change of the lock
-(.github/workflows/image-lock.yml).
+(.github/workflows/image-lock.yml). --root <checkout> reads the lock of another checkout (<checkout>/evals/image-lock.json)
+and runs none of its code: CI uses it to check a pull request's lock with the script of the pull request's base, so a
+change cannot weaken its own check. --root is for --check only, and the line about the current definition is left out
+(it needs the executor of that checkout).
 
 pull is the setup step for a published image (decision D39): it verifies the provenance of the lock's entry for this
 definition and this platform (the index and the platform manifest), then runs `python3 evals/executor.py pull`, which
@@ -365,7 +368,8 @@ def run(argv, *, verify=None, fetch=None, expected_definition=None, platform=Non
     parser.add_argument("--print-definition-hash", action="store_true")
     parser.add_argument("--replace", action="store_true")
     parser.add_argument("--source-repo")
-    parser.add_argument("--lock", default=LOCK_PATH)
+    parser.add_argument("--lock")
+    parser.add_argument("--root")
     try:
         args = parser.parse_args(argv)
     except (argparse.ArgumentError, SystemExit):
@@ -374,12 +378,18 @@ def run(argv, *, verify=None, fetch=None, expected_definition=None, platform=Non
     if args.help:
         print(__doc__.strip(), file=out)
         return 0
+    if args.root and not args.check:
+        print("Error: --root is for --check only. See --help.", file=err)
+        return 2
+    if args.lock is None:
+        args.lock = os.path.join(args.root, "evals", "image-lock.json") if args.root else LOCK_PATH
     modes = [bool(args.from_json), args.check, args.print_definition_hash, pulling]
     if sum(modes) != 1 or (pulling and (args.verify_provenance or args.replace)):
         print("Error: give exactly one of --from-json, --check, pull, --print-definition-hash. See --help.", file=err)
         return 2
     try:
-        current = expected_definition or definition_hash()
+        # With --root nothing of that checkout runs: its executor is not imported, so the current definition is not known.
+        current = None if args.root else (expected_definition or definition_hash())
         if args.print_definition_hash:
             print(current, file=out)
             return 0
@@ -416,6 +426,9 @@ def run(argv, *, verify=None, fetch=None, expected_definition=None, platform=Non
                         why = verify(lock["repository"], digest, source)
                         if why:
                             raise Refused(f"{lock['repository']}@{digest} (definition {sha[:12]}): {why}")
+            if current is None:
+                print(f"ok: {len(lock['images'])} image(s) in the lock", file=out)
+                return 0
             names = "published: " + ", ".join(sorted(lock["images"][current]["platforms"])) \
                 if current in lock["images"] else "no published image for this definition"
             print(f"ok: {len(lock['images'])} image(s) in the lock; the current definition {current[:12]}: {names}", file=out)
