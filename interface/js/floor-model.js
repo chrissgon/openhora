@@ -62,6 +62,7 @@ export const HELD_SENTENCES = Object.freeze({
   "artifact in use": "Another running task writes the same document; it starts when that one ends.",
   "a code task of the request runs": "Another code task of this request is running; code of one request runs one task at a time.",
   "could not start, tried again shortly": "It could not start just now; the next round tries again.",
+  "start it by hand": "The dispatcher never starts this kind of task on its own; run it from the terminal (run-next or run-step).",
   waiting: "The task waits for another task; its reason is on its row.",
   "no enabled agent owns the task": "No enabled agent owns this task.",
   other: "The dispatcher held this task for a reason the page does not know.",

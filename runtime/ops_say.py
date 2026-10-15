@@ -605,7 +605,7 @@ def _say_route(project: str, ctx: dict, said: str, line_id: int, channel: str, a
     if item["kind"] == "plan":
         payload = item["payload"]
         lines = [item["title"]]
-        lines += [f"- {t['key']}: {t['title']} ({t['skill']})" for t in payload.get("tasks") or []]
+        lines += [f"- {t['key']}: {t['title']} ({t.get('skill') or 'step ' + t['step']})" for t in payload.get("tasks") or []]
         estimate = payload.get("estimate") or {}
         lines += [f"Estimate: {estimate.get('runs', estimate.get('runs_at_least'))} runs"
                   + (f" ({estimate['formula']})" if estimate.get("formula") else ""), ""]

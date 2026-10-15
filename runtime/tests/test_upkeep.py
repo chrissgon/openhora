@@ -485,5 +485,39 @@ def test_the_switch_of_the_automatic_container_sweep_is_a_key_of_runtime_json(tm
     assert "sweep_orphan_containers" in project_config.TASK_RUNTIME_KEYS
 
 
+# --- step tasks (P5): no run row, no run folder in data_dir; their drop lives in the project -----------------------------------------
+
+
+def test_upkeep_leaves_a_step_tasks_drop_folder_and_its_task_lock_alone_and_a_step_task_that_is_not_finished_keeps_what_it_may_need(case):
+    """A step task runs no skill: it has no row in task_runs and no folder under task-runs, and the file it reads is in the project's
+    drop folder (.workbench-local/drop/<task id>/), outside data_dir and the sources folder, which upkeep never reaches. Its lock is
+    task-<id>.lock like any task's, and upkeep neither takes, deletes nor reads it as stale."""
+    store, conn = case.ctx["store"], case.ctx["conn"]
+    made = store.request_add(conn, title="Ingest", text="Import the survey.", flow="demo", tasks=[
+        {"key": "ingest", "step": "ingest", "args": {"source": "survey", "file": "survey.csv"}, "footprint": [], "agent": "runtime",
+         "title": "Import", "text": "Import the survey.", "depends_on": [], "milestone": False}])
+    task = made["tasks"][0]["id"]
+    drop = Path(case.cfg["project"]) / ".workbench-local" / "drop" / str(task)
+    drop.mkdir(parents=True)
+    (drop / "survey.csv").write_text("name,price\napple,1.00\n")
+    age(drop, 400)
+    lock = case.data / "locks" / f"task-{task}.lock"
+    lock.parent.mkdir(mode=0o700, exist_ok=True)
+    lock.write_text("")
+    old = make_run(case.data / "task-runs", "77", 90)           # a folder of no run the store knows: removed by age, as before
+    cfg = {**case.cfg, "run_retention_days": 30, "source_versions_kept": 2}
+    result = upkeep.run({**case.ctx, "cfg": cfg}, now=time.time(), tool=RecordingDocker(), force=True)
+    assert "skipped" not in result and not old.exists()
+    assert (drop / "survey.csv").exists() and lock.exists(), "nothing of a step task was touched"
+    assert upkeep.task_lock_held(str(case.data), task) is False, "a lock file nobody holds is not held, and is left where it is"
+    held = os.open(lock, os.O_RDWR)
+    try:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        assert upkeep.task_lock_held(str(case.data), task) is True
+    finally:
+        os.close(held)
+    assert upkeep.protected_versions(case.ctx) == set(), "a step task records no version it received"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
