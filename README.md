@@ -41,30 +41,48 @@ shared/references/  security.md, the one cross-cutting reference, and platforms/
 shared/scripts/     the one source of every script more than one skill carries; scripts/sync_copies.py writes the copies
 contracts/          what skills read and write in a target project: project-layout.md, state.md, environment.md, runtime.md, secrets.md, vote-data.md
 providers/          native implementations of requirement classes, resolved by providers/resolve.py: reader:email, publisher:<platform>,
-                    messenger:<platform>, scheduler:job, store:runtime, integration:vcs, integration:issue-tracker, integration:documents;
+                    messenger:<platform>, scheduler:job, store:runtime, integration:vcs, integration:issue-tracker, integration:documents
+                    (Notion and Google Drive files as sources), converter:document (the container that turns a source into text);
                     the interface is providers/CONTRACT.md
 templates/          capability.SKILL.md, flow.SKILL.md and agent.md, used by scripts/new-skill.sh
 packs/              installation subsets: default (every area but the optional ones), all, assistant, business, brand, design, planning, code, marketing, content
 adapters/           one folder per AI tool: claude-code and agents-dir install the skills; api runs the agent runtime with one model call and no tools;
                     openclaw is documentation only (the runtime's MCP mode from an OpenClaw gateway), not an adapter
 evals/              the eval harness: eval_run.py (the runner), executor.py and container/ (every run executes in a container),
-                    eval_status.py (status, hashes, the inventory table), eval-gate.json (models, grader, gate, measurement version), tests/
+                    eval_status.py (status, hashes, the inventory table), eval-gate.json (models, grader, gate, measurement version),
+                    image-lock.json (the published eval image), community.json (community evidence), tests/
 scripts/            repository tooling: validate.py, security_scan.py, sync_copies.py, owner_table.py, architecture_tables.py, new-skill.sh,
-                    install-hooks.sh, select_skills.py, stage_skills.py, test_dirs.py, doctor.py, evidence.py, redact.py, build_demo.py and
-                    demo_fixtures.py (the interface's demo mode), and the agent runtime (runtime.py, runtime_vote.py, vote_job.py)
-runtime/            the task runtime: a request becomes tasks, each task runs one skill in the eval container, a person decides
-                    through pending decisions; lab.py is the one file that imports the eval runner, ops.py the operations, cli.py the shell
+                    install-hooks.sh, select_skills.py, stage_skills.py, test_dirs.py, doctor.py (with doctor_ops.py: `--unattended`), evidence.py,
+                    verify_community.py and community_pack.py (community evidence), image_lock.py (the eval image's lock file),
+                    update_prices.py (the price table), redact.py, build_demo.py and demo_fixtures.py (the interface's demo mode),
+                    and the agent runtime (runtime.py, runtime_vote.py, vote_job.py)
+runtime/            the task runtime: a request becomes tasks, each task runs one skill in the eval container (or, for a step task, code
+                    with no model), a person decides through pending decisions; lab.py is the one file that imports the eval runner,
+                    ops.py the operations, cli.py the shell (runtime/README.md lists the modules)
 interface/          the local interface the runtime's service serves: an isometric 3D scene (City, Building, floor) with plain panels as the
                     equivalent of every scene action, vendored libraries only, no build step, and a demo mode with fictional data and no service
                     (interface/README.md)
 site/               the public website: static pages, its own styles and fonts, its tests and tools (site/README.md); its Interface page embeds
                     the demo, which is built into site/demo/ at deploy time by scripts/build_demo.py and is not committed
 netlify.toml        how Netlify publishes site/ (the build command and the response headers, the content security policy among them)
-flows/              one data file per flow: the tasks and their written dependencies, read by the task runtime
+flows/              one data file per workflow: the tasks, their written dependencies and parameters, read by the task runtime (a project's own are docs/workbench/flows/ in the project)
 .github/            CI workflows, the code owners file, the dependency-update configuration and brand/ (the banner and social images, the mark)
 .githooks/          the versioned pre-commit hook
 docs/               area map, decisions, inventory, backlog, and architecture notes (plans, reviews, findings, the platform pages)
 ```
+
+## The task runtime
+
+The runtime (`runtime/`, [layer page](docs/architecture/platform/runtime.md), contract in [contracts/runtime.md](contracts/runtime.md)) turns a request into a plan the person approves by its hash, then runs each task in the container its skill was proven in. What a project gives it and how it runs:
+
+- **Sources.** A project reads uploaded files (PDF, Word, spreadsheet, presentation, CSV, HTML, text), Notion pages and Google Drive files (chosen in Google's Picker, `drive.file` scope, files only) that sit, as immutable versions, in a sources folder (`sources_dir` of `runtime.json`) a run never sees whole. The planner reads a catalog built from the converted text and names, for each task, the sources it needs; the plan shows them. [sources.md](docs/architecture/platform/sources.md).
+- **Model choice.** A request, a task or an area agent names a model of `evals/eval-gate.json`, or `auto`, which picks the cheapest model on which the skill is `reliable`; a model the person names runs, supervised unless it is proven. Fixing a model on an agent that works in an autonomous mode needs the person's consent for that agent. [contracts/runtime.md](contracts/runtime.md), "The choice of the model".
+- **Step tasks.** A task can be a step that code runs with no skill and no model; the one kind today is `ingest` (import or refresh a source). [runtime.md](docs/architecture/platform/runtime.md).
+- **Workflows.** A flow file holds tasks (skills or steps), their dependencies, parameters the request fills in and the dates `{today}` and `{week}`; a project keeps its own in `docs/workbench/flows/`, and an approved plan can be saved as one. [contracts/runtime.md](contracts/runtime.md), "Workflows".
+- **Running unattended.** Secrets for a machine with no desktop session (a credentials directory), retention of old runs and source versions, the sweep of orphan containers, one writer at a time for a synced sources folder, and `python3 scripts/doctor.py --unattended`. [unattended.md](docs/architecture/platform/unattended.md).
+- **Community evidence.** Anyone can test a skill on a model the maintainer has not tested, with their own keys, in a fork; the attested result ranks the model and never releases work on its own. [docs/community-evidence.md](docs/community-evidence.md).
+
+In progress, not built: scheduled routines, the output exporter with write-back, and a project script ([the plan](docs/architecture/delegation-platform-plan-2026-10-14.md)).
 
 ## Install
 
