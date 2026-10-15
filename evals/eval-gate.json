@@ -72,6 +72,5 @@
       "skills": "all",
       "cause": "SEC and P2b: a held run reaches only its own key proxy; the key proxy drops credential headers and forwards only the model endpoints; P2b adds a key proxy per run and model, metering and the platform per line (one epoch for both)"
     }
-  ],
-  "measurement_sha256": "eca913d50a556ffa206c2141f609226ef1d5cd3d65d0cd228fcb1b32aa0e5b5d"
+  ]
 }
