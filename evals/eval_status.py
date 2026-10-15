@@ -1013,7 +1013,9 @@ def evidence_problems(root=ROOT, only=None):
     if note:
         print(f"Note: {note}", file=sys.stderr)
     found, checked = EVIDENCE_LINES.evidence_problems(root, only, field_problems=field_file_problems,
-                                                      strict_for=evidence_reading(standing, strict_reading(root)))
+                                                      strict_for=evidence_reading(standing, strict_reading(root)),
+                                                      community_problems=community_file_problems,
+                                                      community_for=evidence_reading(standing, community_strict_reading(root)))
     return ({"WB_BASE_REF": [error], **found} if error else found), checked
 
 
@@ -1025,6 +1027,8 @@ def events_of(paths):
         event, runs, _ = read_evidence_file(path)
         if not isinstance(event, dict) or event.get("record") != "test" or not isinstance(event.get("test"), str):
             continue
+        if "source" in event:
+            continue  # a lab or local file never carries a source marker: community evidence is read by community_pool alone
         found.append((event, [line for _, line in runs if all(k in line for k in RUN_REQUIRED)]))
     return found
 
@@ -2268,11 +2272,201 @@ def local_status(root, name, config, base):
     return found
 
 
+# --- community evidence (the plan's decision D19 as D36 clarifies it; package P10) --------------------------------------
+#
+# A contributor's lab test, run by the official reusable workflow in their fork and attested by GitHub, enters the
+# repository as three files in the skill's evidence folder (evals/evidence_lines.py, "Community evidence"). The
+# signature is checked by scripts/verify_community.py in the pull request that adds the files; here the files are
+# read as they stand in the checkout. Community evidence has a column of its own: the figures below are computed by
+# skill_band on the community lines alone, per model, and are never added to a lab figure, a band or a gate. It
+# ranks (it is evidence for choosing a model) and it never releases unattended work by itself (D36): a pair
+# that is reliable only through it carries "community_only": true, and the runtime holds such a pair's output for
+# review.
+
+COMMUNITY_CAP = 30  # with-skill run lines one contributor adds to the community column of one skill and one model (the newest)
+COMMUNITY_ROW_KEYS = LOCAL_ROW_KEYS + ("last_full_test",)
+
+
+def community_strict_reading(root=ROOT):
+    """The strict reading of a new community file (evidence_lines.community_file_problems): the models of the current gate
+    file, the configured number of runs, and {model id: its adapter} for each listed model that has a route (its key is
+    held by a key proxy) and an adapter. None for a tree with no gate file."""
+    cfg = load_gate(root)
+    if not cfg:
+        return None
+    entries = {}
+    for listed in known_models(cfg):
+        entry = model_entry(cfg, listed)
+        if entry and entry.get("route") and entry.get("adapter"):
+            entries[listed] = entry["adapter"]
+    return {"models": set(known_models(cfg)), "runs": event_config(cfg)["runs"], "entries": entries}
+
+
+def community_file_problems(path, root=ROOT, skill=None, strict=False):
+    """Why one community evidence file is not valid: the shape and the agreement of its three files
+    (evidence_lines.community_file_problems), and the version file of the skill giving the event's content hash for
+    its version (a skill edited locally is not evidence). strict=True reads it against the current gate file (a file
+    about to be added, or new against the base); a dict is the reading itself; None reads it by its own event line."""
+    parts = os.path.normpath(os.path.abspath(path)).split(os.sep)
+    if skill is None and len(parts) >= 5 and parts[-3:-1] == ["evals", "evidence"] and parts[-5] == "skills":
+        skill = parts[-4]
+    reading = community_strict_reading(root) if strict is True else (strict or None)
+    problems = EVIDENCE_LINES.community_file_problems(path, root, skill, reading)
+    if problems or skill is None:
+        return problems
+    event, _, _ = read_evidence_file(path)
+    lines, _, _ = read_versions(os.path.join(root, "skills", skill))
+    if {l.get("version"): l.get("content_sha256") for l in lines}.get(event.get("version")) != event.get("content_sha256"):
+        problems.append(f"line 1: content_sha256 is not the hash the version file gives for {event.get('version')}: "
+                        "a locally edited skill is not evidence")
+    return problems
+
+
+def community_files(skill_dir):
+    """The community evidence files (.jsonl) of a skill, oldest first by name."""
+    folder = os.path.join(skill_dir, EVIDENCE_REL)
+    if not os.path.isdir(folder):
+        return []
+    return [os.path.join(folder, n) for n in sorted(os.listdir(folder))
+            if (EVIDENCE_LINES.community_ids(n) or (0, 0, 0, ""))[3] == ".jsonl"]
+
+
+def community_manifest_of(path):
+    """The manifest of a community evidence file when it is valid, else None."""
+    try:
+        with open(path[:-len(".jsonl")] + ".manifest.json", encoding="utf-8") as f:
+            manifest = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return manifest if not EVIDENCE_LINES.manifest_problems(manifest) else None
+
+
+def community_gaps(manifests):
+    """{(repository id, caller workflow): [missing run numbers]} over the manifests of valid community files, for the
+    groups that have any. The run number of a workflow counts up from 1 in the fork, so a number between 1 and the highest
+    one submitted that no file carries is a run that was not submitted (a failed run that wrote no evidence is one too):
+    a gap is flagged, never refused (decision D19). Attempts of one run share its number."""
+    seen = {}
+    for m in manifests:
+        seen.setdefault((m["repository_id"], m["workflow"]), set()).add(m["run_number"])
+    gaps = {}
+    for key, numbers in sorted(seen.items()):
+        missing = sorted(set(range(1, max(numbers) + 1)) - numbers)
+        if missing:
+            gaps[key] = missing
+    return gaps
+
+
+def community_manifests(root, names=None):
+    """[(skill, manifest)] of every valid community file of the skills (default: all)."""
+    found = []
+    for name in names or skill_names(root):
+        skill_dir = os.path.join(root, "skills", name)
+        for path in community_files(skill_dir):
+            if not community_file_problems(path, root, name):
+                manifest = community_manifest_of(path)
+                if manifest:
+                    found.append((name, manifest))
+    return found
+
+
+def community_pool(root, skill_dir, authors):
+    """({model id: [(event line, run lines)]}, {model id: info}) of a skill's valid community files, the newest
+    COMMUNITY_CAP with-skill run lines of each contributor kept per model (the contributor is the author of the commit
+    that added the file: authors, evidence_authors; a file not yet committed is the contributor "(not committed)").
+    A line dropped by the cap takes its place in the count of "capped"; the baseline lines of an event that keeps no
+    with-skill line go with it. info: {"files", "contributors", "capped", "manifests"}."""
+    skill = os.path.basename(os.path.normpath(skill_dir))
+    loaded = {}
+    for path in community_files(skill_dir):
+        if community_file_problems(path, root, skill):
+            continue  # the validator reports it; an invalid file is not evidence
+        event, runs, _ = read_evidence_file(path)
+        pairs = event_model_pairs(event)
+        manifest = community_manifest_of(path)
+        if not pairs or manifest is None:
+            continue
+        rel = os.path.relpath(path, root).replace(os.sep, "/")
+        loaded.setdefault(pairs[0][0], []).append({
+            "event": event, "runs": [l for _, l in runs if all(k in l for k in RUN_REQUIRED)], "who": (authors or {}).get(rel, "(not committed)"),
+            "manifest": manifest, "name": os.path.basename(path)})
+    pool, info = {}, {}
+    for model, files in sorted(loaded.items()):
+        kept, dropped = {}, 0
+        by_who = {}
+        for n, f in enumerate(files):
+            for i, line in enumerate(f["runs"]):
+                if line["variant"] == "with" and "platform" not in line:
+                    by_who.setdefault(f["who"], []).append((str(f["event"].get("date")), str(f["event"].get("test")), f["name"], i, n))
+        for who, found in by_who.items():
+            found.sort()
+            for _, _, _, i, n in found[-COMMUNITY_CAP:]:
+                kept.setdefault(n, set()).add(i)
+            dropped += max(0, len(found) - COMMUNITY_CAP)
+        events = []
+        for n, f in enumerate(files):
+            keep = kept.get(n, set())
+            has_with = any(l["variant"] == "with" and "platform" not in l for l in f["runs"])
+            if has_with and not keep:
+                continue  # the contributor's cap left nothing of this event with the skill
+            runs = [l for i, l in enumerate(f["runs"]) if not (l["variant"] == "with" and "platform" not in l) or i in keep]
+            events.append((f["event"], runs))
+        pool[model] = events
+        info[model] = {"files": len(files), "contributors": len({f["who"] for f in files}), "capped": dropped,
+                       "manifests": [f["manifest"] for f in files]}
+    return pool, info
+
+
+def community_status(root, name, config, authors):
+    """({model id: figures}, {model id: info}) of one skill's community evidence, or ({}, {}) when it has none. Each model's figures are the ones a
+    lab model gets (skill_band on that model's lines, by the same rules, field signal included: three `failed` verdicts
+    on the pair demote it here as they do a lab pair), computed from the community lines alone."""
+    skill_dir = os.path.join(root, "skills", name)
+    pool, info = community_pool(root, skill_dir, authors)
+    found = {}
+    for model, events in pool.items():
+        row = skill_band(root, skill_dir, as_reference(config, model), authors, per_model=False, events=events)
+        found[model] = {key: row[key] for key in COMMUNITY_ROW_KEYS}
+        found[model]["tests"] = len(events)
+        found[model].update({k: v for k, v in info[model].items() if k != "manifests"})
+    return found, info
+
+
+def community_section(root, names, config, authors, rows):
+    """The "community" section of the status: {"computed", "cap", "gaps", "skills": {skill: {model id: figures}}}, or None
+    when no skill has a community file. "gaps" is the number of run numbers missing among all the files' runs, and each
+    model's figures carry the ones of the forks that contributed to it. "community_only" is true when the model's
+    community band is `reliable` and its lab band for the skill is not (no lab row, or any other band): such a pair is
+    reliable only through community evidence, which ranks and never releases unattended work. Without history to read the
+    contributors from (authors None) the figures are not computed; the gaps are, since they need none."""
+    manifests = community_manifests(root, names)
+    if not manifests:
+        return None
+    gaps = community_gaps([m for _, m in manifests])
+    section = {"computed": authors is not None, "cap": COMMUNITY_CAP, "gaps": sum(len(v) for v in gaps.values()), "skills": {}}
+    if authors is None:
+        return section
+    lab = {r["skill"]: r["models"] for r in rows}
+    for name in names:
+        figures, info = community_status(root, name, config, authors)
+        if not figures:
+            continue
+        for model, f in figures.items():
+            mine = {(m["repository_id"], m["workflow"]) for m in info[model]["manifests"]}
+            f["gaps"] = sum(len(gaps.get(key, ())) for key in mine)
+            f["community_only"] = f["band"] == "reliable" and (lab.get(name, {}).get(model) or {}).get("band") != "reliable"
+        section["skills"][name] = figures
+    return section
+
+
 def all_status(root=ROOT, only=None, local_base=None):
     """{"skills": [one row of skill_band per skill], "counts": {band: n}, "causes": {kind: n}, "gate": the
     configured gate}: everything computed from the evidence files, live. With local_base (the folder of
     local_evidence_base) a "local" section is added when any skill has local evidence there: {"folder",
-    "skills": {skill: {model id: figures}}}, its own section, never mixed into the rows above."""
+    "skills": {skill: {model id: figures}}}, its own section, never mixed into the rows above. A "community" section
+    is added when any skill holds a community evidence file (community_section): the column of community verified
+    evidence, per skill and model, with the flag "community_only" and the number of "gaps"; it too is never mixed into
+    the rows above."""
     names = [only] if only else skill_names(root)
     config = load_gate(root)
     authors = evidence_authors(root)
@@ -2286,6 +2480,9 @@ def all_status(root=ROOT, only=None, local_base=None):
         local = {n: found for n in names for found in [local_status(root, n, config, local_base)] if found}
         if local:
             out["local"] = {"folder": local_base, "skills": local}
+    community = community_section(root, names, config, authors, rows)
+    if community:
+        out["community"] = community
     return out
 
 
@@ -2323,6 +2520,14 @@ def _gate_cell(gate):
     return f"{verdict}, {_num(gate.get('with'))} vs {_num(gate.get('baseline'))}"
 
 
+def _community_cell(figures):
+    """runs, mean and score of a pair's community evidence, with the marker of a pair that is reliable only through it."""
+    if not figures:
+        return "-"
+    return (f"{figures['runs']:g}, {_num(figures['mean'])}, {_num(figures['score'])}"
+            + (" (community only)" if figures.get("community_only") else ""))
+
+
 def inventory_block(root=ROOT):
     """The two snapshot tables of the reliability model's section 10, with the commit they were generated at:
     the band table (one row per skill, on the reference model; its field column sums every model) and the
@@ -2349,18 +2554,27 @@ def inventory_block(root=ROOT):
     lines += ["", f"Counts: {c['needs a test']} needs a test, {c['watch']} watch, {c['reliable']} reliable; "
               f"{len(data['skills'])} skills.", ""]
     rows = []
+    community = (data.get("community") or {}).get("skills") or {}  # a column only once any skill has community evidence
     for r in data["skills"]:
         for model, m in sorted(r["models"].items(), key=lambda item: (item[0] != ref, item[0])):
             platforms = ", ".join(f"`{name}`: {_num(p['mean'])} ({p['runs']})" for name, p in sorted((m.get("platforms") or {}).items()))
             field = m.get("field", {"uses": 0, "judged": 0, "mean": None}) if r["field"]["computed"] else None
             rows.append(f"| `{r['skill']}` | `{model}` | {m.get('band') or 'n/a'} | {_cell(m.get('cause') or '') or '-'} | "
                         f"{_gate_cell(m.get('gate'))} | {_num(m['score'])} | {_num(m['mean'])} | {m['runs']:g} | "
-                        f"{_field_cell(field)} | {platforms or '-'} |")
+                        f"{_field_cell(field)} | {platforms or '-'} |"
+                        + (f" {_community_cell((community.get(r['skill']) or {}).get(model))} |" if community else ""))
+    for name, by in sorted(community.items()):  # a pair with community evidence and no lab evidence has a row of its own
+        have = {m for r in data["skills"] if r["skill"] == name for m in r["models"]}
+        for model, c in sorted(by.items()):
+            if model not in have:
+                rows.append(f"| `{name}` | `{model}` | n/a | no lab evidence | not computed | n/a | n/a | 0 | not computed | - | "
+                            f"{_community_cell(c)} |")
     if rows:
         lines += ["| Skill | Model | Band | Cause | Gate: with vs baseline | Score | Mean | Lab runs (N) | "
-                  "Field: uses, judged, mean (self-reported) | Platforms: mean (runs) |",
+                  "Field: uses, judged, mean (self-reported) | Platforms: mean (runs) |"
+                  + (" Community verified: runs, mean, score |" if community else ""),
                   "|-------|-------|------|-------|------------------------|-------|------|--------------|"
-                  "-------------------------------------------|------------------------|"] + rows
+                  "-------------------------------------------|------------------------|" + ("---|" if community else "")] + rows
     else:
         lines.append("Model table: no skill has lab or field evidence yet.")
     return "\n".join(lines)
@@ -2467,6 +2681,12 @@ def main(argv, root=None):
         if opts.get("file"):
             if os.path.basename(opts["file"]).startswith("field-"):
                 problems = field_file_problems(opts["file"], root, skill)
+            elif os.path.basename(opts["file"]).startswith("community-"):
+                standing, error, note = evidence_standing(root)
+                inside = os.path.realpath(opts["file"]).startswith(os.path.realpath(root) + os.sep)
+                state = standing(opts["file"]) if inside else "unchecked"
+                problems = ([error] if error else [EDITED_TEXT] if state == "edited"
+                            else community_file_problems(opts["file"], root, skill, strict=state == "new"))
             else:
                 standing, error, note = evidence_standing(root)
                 if note:
