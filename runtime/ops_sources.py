@@ -20,6 +20,8 @@ operation here is ever written from a messaging channel, and none approves anyth
   source_refresh(project, source_id[, file])                           a new version: from a new file, from the page again, or,
                                     with neither, from the file the person changed in the folder (limit L25)
   source_describe(project, source_id, description)                     the person's description of a source
+  source_drive(project[, file_id, source_id, description])             Google Drive: pick files in the Picker (a one-shot page on
+                                    127.0.0.1) and make each a source, or import one file already picked; terminal only
   sources_catalog(project)                                             the catalog: every source, its newest version, its status
 
 For the rest of the layer:
@@ -67,7 +69,7 @@ def _evidence_base():
 def _row(ctx, source_id: str) -> dict:
     sources.check_id(source_id)
     try:
-        return ctx["store"].source_get(ctx["conn"], source_id)
+        return sources.public_row(ctx["store"].source_get(ctx["conn"], source_id))
     except ctx["store"].StoreError:
         raise core.OpsError(f"there is no source {source_id}: register it first (source-add), or import a file or a page "
                             "under that id", 1) from None
@@ -78,8 +80,8 @@ def _convert(ctx):
 
 
 def source_add(project: str, source_id: str, source_type: str, origin: str, description: str | None = None) -> dict:
-    """Register a source: its id, its type (`file` or `notion`), its origin (a file's name, or the address or the id of a Notion
-    page) and an optional description. Nothing is imported and no credential is kept. Returns {"source": the row}."""
+    """Register a source: its id, its type (`file`, `notion` or `drive`), its origin (a file's name, the address or the id of a Notion
+    page, or a Drive file's id) and an optional description. Nothing is imported and no credential is kept. Returns {"source": the row}."""
     ctx = core.context(project)
     try:
         return {"source": sources.register(ctx, source_id, source_type, origin, description)}
@@ -102,7 +104,7 @@ def source_import(project: str, source_id: str, file: str | None = None, url: st
     try:
         sources.check_id(source_id)
         try:
-            row = ctx["store"].source_get(ctx["conn"], source_id)
+            row = sources.public_row(ctx["store"].source_get(ctx["conn"], source_id))
         except ctx["store"].StoreError:
             named = origin or (os.path.basename(file) if file is not None else url)
             row = sources.register(ctx, source_id, kind, named, description)
@@ -111,7 +113,7 @@ def source_import(project: str, source_id: str, file: str | None = None, url: st
                 raise sources.SourcesError(f"{source_id} is a {row['type']} source: import a {row['type']} into it, or register "
                                            "another id", "usage")
             if description is not None:
-                row = ctx["store"].source_describe(ctx["conn"], source_id, description)
+                row = sources.public_row(ctx["store"].source_describe(ctx["conn"], source_id, description))
         evidence = _evidence_base()
         label = _label(ctx, row)
         if kind == "file":
@@ -141,7 +143,8 @@ def _import_notion(ctx, row: dict, address: str, evidence, label: str) -> dict:
 
 
 def source_refresh(project: str, source_id: str, file: str | None = None) -> dict:
-    """A new version of a source. A Notion source reads its page again (a new version only when the text changed). A file source
+    """A new version of a source. A Drive source asks Drive for the file's version and reads the file only when it moved. A Notion
+    source reads its page again (a new version only when the text changed). A file source
     with `file` imports that file as a refresh. A file source with no `file` checks the newest version's files against the
     recorded hashes: unchanged, nothing is made; changed outside the runtime (limit L25), the changed file is sniffed, converted
     and scanned again and becomes a new version labelled as yours, which a task that starts on its own never receives. Returns
@@ -150,6 +153,11 @@ def source_refresh(project: str, source_id: str, file: str | None = None) -> dic
     row = _row(ctx, source_id)
     evidence = _evidence_base()
     try:
+        if row["type"] == "drive":
+            if file is not None:
+                raise sources.SourcesError("a Drive source is refreshed from Drive, not from a file", "usage")
+            done = sources.drive_refresh(ctx, row, convert=_convert(ctx), evidence_base=evidence)
+            return {**done, "refreshed": bool(done.get("imported"))}
         if row["type"] == "notion":
             if file is not None:
                 raise sources.SourcesError("a Notion source is refreshed from its page, not from a file", "usage")
@@ -172,7 +180,7 @@ def source_describe(project: str, source_id: str, description: str | None = None
     _row(ctx, source_id)
     text = description.strip() if isinstance(description, str) and description.strip() else None
     try:
-        return {"source": ctx["store"].source_describe(ctx["conn"], source_id, text)}
+        return {"source": sources.public_row(ctx["store"].source_describe(ctx["conn"], source_id, text))}
     except ctx["store"].StoreError as e:
         raise core.OpsError(str(e), 2) from None
 
@@ -191,6 +199,73 @@ def sources_catalog(project: str) -> dict:
     return {"sources": sources.list_catalog(ctx, evidence_base=evidence), "folder": cfg["sources_dir"],
             "caps": {"original_bytes": sources.ORIGINAL_CAP, "converted_bytes": sources.CONVERTED_CAP,
                      "warn_converted_bytes": sources.CONVERTED_WARN}}
+
+
+# --- Google Drive (P7) ------------------------------------------------------------------------------------------------------
+
+
+def _drive_one(ctx, pick: dict, evidence, source_id=None, description=None, convert=None, call=None) -> dict:
+    """Make one picked file a source and import its first version: ask Drive about it (a file the app was not given, a folder or a type
+    that is not read stops here), register it under `source_id` or an id made from its name (a file picked again is the source it
+    already is), then import. Returns {"file", "name", "source", "registered", "imported"/"error", ...}; never raises for one file."""
+    out = {"file": pick["id"], "name": pick.get("name")}
+    try:
+        file_id = sources.drive_file_id(pick["id"])
+        info = sources.drive_stat(ctx["cfg"], file_id, call=call)
+        out["name"] = sources._clean(info.get("name") or pick.get("name") or "", 200) or None
+        if not info["supported"]:
+            raise sources.SourcesError(sources._clean(info.get("reason") or "Drive says it cannot be read", 300), "drive")
+        existing = next((r for r in sources.list_catalog(ctx, hashes=False) if r["type"] == "drive" and r["origin"] == file_id), None)
+        if existing is not None:
+            row, registered = ctx["store"].source_get(ctx["conn"], existing["id"]), False
+            row = sources.public_row(row)
+            if source_id not in (None, row["id"]):
+                raise sources.SourcesError(f"this file is already the source {row['id']}", "usage")
+        else:
+            taken = [r["id"] for r in sources.list_catalog(ctx, hashes=False)]
+            if source_id is not None:
+                sources.check_id(source_id)
+                if source_id in taken:
+                    raise sources.SourcesError(f"the source id {source_id} is taken by another source", "usage")
+            chosen = source_id or sources.drive_source_id(out["name"], taken)
+            row = sources.register(ctx, chosen, "drive", file_id, description if description is not None else out["name"])
+            registered = True
+        out.update({"source": row["id"], "registered": registered})
+        if registered:
+            done = sources.drive_import(ctx, row, convert=convert or _convert(ctx), label="import", call=call, evidence_base=evidence)
+        else:   # a file picked again is a refresh: Drive's version is asked first, and nothing is read when it has not moved
+            done = sources.drive_refresh(ctx, row, convert=convert or _convert(ctx), call=call, evidence_base=evidence)
+        out.update({k: done[k] for k in ("imported", "version", "kind", "warnings", "images_removed") if k in done})
+        if done.get("unchanged"):
+            out["unchanged"] = True
+    except sources.SourcesError as e:
+        out["error"] = str(e)
+    return out
+
+
+def source_drive(project: str, file_id: str | None = None, source_id: str | None = None, description: str | None = None) -> dict:
+    """Make Google Drive files sources. With no `file_id`, the Picker opens for you (a one-shot page on 127.0.0.1 and your browser; the
+    command prints its address): you choose one or more FILES, never a folder, and each becomes a source named from the file (a file you
+    picked before is the source it already is) with its first version imported. With `file_id` (a file already picked, together with
+    `source_id`), that file alone is imported or refreshed. A file that cannot be read stops itself and not the others. Nothing is written
+    to Drive: the provider sends reads only, and `drive.file`, the one scope asked, is wider than read. Returns {"picked": n,
+    "cancelled", "results": [one per file: "source", "registered", "imported", "version" or "error"]}."""
+    if file_id is None and source_id is not None:
+        raise core.OpsError("--source goes with --file-id: with no file id the Picker opens and each file gets an id from its name", 2)
+    ctx = core.context(project)
+    evidence = _evidence_base()
+    try:
+        if file_id is not None:
+            if source_id is None:
+                raise core.OpsError("give --source with --file-id: the id the source will have", 2)
+            picks, cancelled = [{"id": sources.drive_file_id(file_id), "name": None}], False
+        else:
+            got = sources.pick_drive(ctx["cfg"])
+            picks, cancelled = got["picked"], bool(got.get("cancelled"))
+    except sources.SourcesError as e:
+        raise _refused(e) from None
+    results = [_drive_one(ctx, pick, evidence, source_id=source_id, description=description) for pick in picks if isinstance(pick, dict)]
+    return {"picked": len(results), "cancelled": cancelled, "results": results}
 
 
 # --- what the rest of the layer asks ----------------------------------------------------------------------------------------

@@ -710,21 +710,21 @@ Also: `evals/eval_status.py` `as_reference` (line 1095) and `skill_band` (line 1
 
 ### P7. Sources II: Google Drive (L)
 
-**Goal.** A person picks a Drive folder or file, and it becomes a source like any other.
+**Goal.** A person picks Drive files, and each becomes a source like any other (a folder, after the spike of 2026-10-15, is not).
 
 **Reuses.** `providers/mailbox/README.md` and `providers/mailbox/auth.py` (the Desktop OAuth client, the app "In production", the refresh token in the OS secret store, lines 17, 18 and 26 of the README; the loopback host, line 67; `pkce_pair`, line 144; `authorize_url`, line 151, with PKCE S256 and a state checked on the callback); `providers/secrets/resolver.py`; the source registry, versions and converter of P4; the documents class (`integration:documents`, whose folder is `providers/documents/`, `providers/CONTRACT.md`, line 116; the Notion provider's verbs, `providers/documents/notion.py`, `VERBS`, line 707).
 
 **Builds.**
 
-- **First step, in parallel with earlier packages: a spike** that answers "does picking a folder under `drive.file` give access to the files inside it?" If not, multi-select of files, and a new question to the maintainer about `drive.readonly` for folder sources.
-- **Drive as an implementation of `integration:documents`** (`providers/documents/gdrive.py`, `new`) under the existing verbs, which P8's write-back reuses; OAuth like Gmail with the scope `drive.file` (D14); folders and single files; export of native Google files by the Drive API and conversion; download and conversion of other files. The documentation states that `drive.file` lets the app read and write every file the person picks, so the scope is not read-only; the provider uses its read verbs for sources.
+- **First step, in parallel with earlier packages: a spike** that answers "does picking a folder under `drive.file` give access to the files inside it?" If not, multi-select of files, and a new question to the maintainer about `drive.readonly` for folder sources. **Done 2026-10-15: it does not (item 1 of "To verify"); the maintainer decided files only, so P7 builds multi-select of files, one scope and no folder source.**
+- **Drive as an implementation of `integration:documents`** (`providers/documents/gdrive.py`, `new`) under the existing verbs, which P8's write-back reuses; OAuth like Gmail with the scope `drive.file` (D14); files only, several at once (folders were dropped after the spike, item 1 of "To verify"); export of native Google files by the Drive API and conversion; download and conversion of other files. The documentation states that `drive.file` lets the app read and write every file the person picks, so the scope is not read-only; the provider uses its read verbs for sources.
 - **The Picker runs on a one-shot loopback page** served by the authorization script, with state and PKCE as `auth.py` already does, and closed after the callback. It never runs inside the interface: the interface's rule is "nothing from another host" (`interface/README.md`, line 112), and the page's policy is `default-src 'self'` (`runtime/service.py`, line 228), which the Picker's script from Google's host would break (S7). Whether the Picker's desktop flow works with a loopback page is item 8 of "To verify".
 - **Change detection for refresh (D12):** each refresh is a new version, and a task records which version it read.
 
 **Done when.**
 
 - The spike's answer is written in this document's "To verify" list as confirmed or refuted, with the date and how it was checked.
-- With a recorded or fake Drive, a folder and a file source import, convert, version and refresh; a refresh with no change creates no version.
+- With a recorded or fake Drive, a multi-select of file sources imports, converts, versions and refreshes; a refresh with no change creates no version.
 - The provider holds no scope beyond `drive.file`, and a credential never enters a run (a test on the environment passed to the provider).
 - A test shows the one-shot page refusing a callback with a wrong state, and no file of `interface/` naming a host other than its own.
 - The class and provider rows of `providers/CONTRACT.md` and the generated tables are updated (rule 4).
@@ -901,14 +901,14 @@ OPEN-1 to OPEN-6 of version 1 are closed. Each is a decision of section 3.
 
 Third-party facts that were not confirmed. None is stated as fact anywhere in this document; each decision that rests on one says so.
 
-1. Whether picking a folder under `drive.file` grants access to the files inside it (P7's spike).
-2. Whether the Drive API exports Google Docs directly to Markdown, and the export size limit (recalled as 10 MB).
+1. Whether picking a folder under `drive.file` grants access to the files inside it (P7's spike). **Refuted, 2026-10-15.** Checked by the maintainer with the supervisor's one-shot spike: a page on 127.0.0.1 serving the Picker with folders selectable (`setIncludeFolders(true)`, `setSelectFolderEnabled(true)`), the scope `drive.file` alone, a real folder that held files. `files.get` on the picked folder answered and `files.list` with `'<folderId>' in parents` listed 0 children. Picking a folder does not give access to the files inside it. Decision (maintainer, 2026-10-15): files only; the scope stays `drive.file`, the person picks one or more files (multi-select, folders not selectable), a Drive folder as a source is deferred (section 9), and `drive.readonly` is not requested.
+2. Whether the Drive API exports Google Docs directly to Markdown, and the export size limit (recalled as 10 MB). Still open: P7 asks for `text/markdown` first and falls back to the Word format on a 400, and reports a 403 `exportSizeLimitExceeded` as the 10 MB limit; the first real import of a Doc records which format served it. Risk to watch: the Markdown export may embed pasted pictures as base64 `data:` URIs, which would push a Doc with screenshots past the converted cap; P7 replaces them with placeholders before the cap (`strip_embedded_images`), tested on a fixture, not on the live service.
 3. Whether GitHub offers free arm64 hosted runners to public repositories.
 4. Whether the identity signed for a reusable workflow called from a fork is the official repository's workflow, so that `--signer-workflow` pins it.
 5. Whether artifact attestations require a public repository (the workbench is public, so it does not block).
 6. Whether the subscription OAuth token of the reference model works in CI, for the later move of the maintainer's tests.
 7. The size of the published eval image (estimated 1 to 2 GB, not measured).
-8. Whether the Picker's desktop flow works with the loopback page.
+8. Whether the Picker's desktop flow works with the loopback page. **Confirmed, 2026-10-15.** Checked by the maintainer with the same spike: the Picker's desktop flow worked on the one-shot page on 127.0.0.1 (the pick came back to the local server, which then called the Drive API with the token it held).
 9. Whether the provider API prefers a client's `x-api-key` over the proxy's bearer token when both are present (SEC: how strict the header rule must be).
 10. Whether the `.Id` of a pulled image differs between the classic and the containerd image stores (P2d: why the repo digest is the identity).
 11. How DNS behaves on Docker `--internal` networks (P9: whether an undeclared name cannot be resolved).
@@ -951,6 +951,7 @@ Third-party facts that were not confirmed. None is stated as fact anywhere in th
 - Free-text routines (D31). A request that should repeat is saved as a workflow first (D32).
 - Remote access to the page other than an SSH tunnel: `--lan` (plain HTTP with the bearer token) is a risk the person accepts for a phone on the same network, and this plan adds no other way (P-OPS).
 - Releasing unattended work on community evidence alone (D36).
+- A Drive folder as a source (decided 2026-10-15, after the spike in item 1 of "To verify"): `drive.file` does not reach the files inside a picked folder, so P7 reads picked files only. A folder source would need `drive.readonly`, a wider and sensitive scope (Google's review of the app), and the maintainer's decision; it waits for a real case.
 
 ## 10. Assumptions and what was not verified
 
