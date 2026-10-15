@@ -188,9 +188,12 @@ def test_authorize_with_a_wrong_state_stores_nothing_and_fails(fake, monkeypatch
     assert "state parameter does not match" in capsys.readouterr().err
 
 
-def run_pick(fake, extra_env=None, record=None):
+PROVIDER = REPO / "providers" / "documents" / "gdrive.py"
+
+
+def run_pick(fake, extra_env=None, record=None, script=SCRIPT):
     env = {**{k: v for k, v in os.environ.items() if not k.startswith("GDRIVE_")}, **fake.env(**(record or {})), **(extra_env or {})}
-    return subprocess.Popen([sys.executable, str(SCRIPT), "pick", "--no-browser"], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    return subprocess.Popen([sys.executable, str(script), "pick", "--no-browser"], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             text=True, env=env)
 
 
@@ -239,3 +242,18 @@ def test_the_commands_are_checked_before_anything_starts(fake):
     missing = subprocess.run([sys.executable, str(SCRIPT), "--check"], capture_output=True, text=True, timeout=60,
                              env={**os.environ, **fake.env(), "GDRIVE_SOURCES_TOKEN": ""})
     assert missing.returncode == 3 and json.loads(missing.stdout) == {"found": False}
+
+
+def test_the_provider_has_a_pick_verb_that_is_the_same_command_and_the_runtime_starts_it_through_the_resolver(fake):
+    proc = run_pick(fake, script=PROVIDER)
+    results = {}
+    browse(printed_url(proc), PICKED, results)
+    out, err = proc.communicate(timeout=60)
+    assert proc.returncode == 0, err
+    assert [p["id"] for p in json.loads(out)["picked"]] == [FILE_A, FILE_B] and "consent" not in results
+    missing = run_pick(fake, extra_env={"GDRIVE_SOURCES_TOKEN": ""}, script=PROVIDER)
+    out, err = missing.communicate(timeout=60)
+    assert missing.returncode == 3 and "gdrive_auth.py authorize" in err and out == ""
+    for argv in (["stat", "--id", FILE_A, "--as-source", "--no-browser"], ["pick", "--as-source"]):
+        done = subprocess.run([sys.executable, str(PROVIDER), *argv], capture_output=True, text=True, timeout=60, env={**os.environ, **fake.env()})
+        assert done.returncode == 2, argv

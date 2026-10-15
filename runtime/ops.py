@@ -2731,7 +2731,7 @@ from ops_say import ASK_NEXT, CONVERSATION, MEMORY_CHARS, MEMORY_CUT, MEMORY_HEA
 # The configuration's acceptance (runtime/ops_config.py): its two operations, and the names a shell and a test read.
 from ops_config import accept_config, give_consent, set_mode, set_model  # noqa: E402,F401
 # The sources of the project (runtime/ops_sources.py): the ingest operations.
-from ops_sources import source_add, source_describe, source_import, source_refresh, sources_catalog  # noqa: E402,F401
+from ops_sources import source_add, source_describe, source_drive, source_import, source_refresh, sources_catalog  # noqa: E402,F401
 # The reads of the local interface (runtime/ops_reads.py): the operations, and the one constant a test reads.
 from ops_reads import agents, artifact, artifact_raw, artifacts, connections, conversation, costs, service_check, skills  # noqa: E402,F401
 from ops_reads import commands, stop_runs, version  # noqa: E402,F401

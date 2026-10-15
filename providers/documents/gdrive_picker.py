@@ -290,6 +290,6 @@ class OneShotServer:
         return self.done.wait(timeout)
 
     def close(self) -> None:
-        self.access_token = None   # the token was in memory only
+        self.access_token = self.response = None   # the tokens were in memory only
         self.server.shutdown()
         self.server.server_close()

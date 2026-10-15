@@ -176,6 +176,8 @@ def test_the_flags_are_checked_before_anything_is_asked(case):
     link.symlink_to(case.out)
     assert case.run("read", "--id", DOC_ID, "--as-source", "--out-dir", str(link))[0] == 2, "a link is not a folder of ours"
     assert case.run()[0] == 2 and case.run("--check", "stat")[0] == 2
+    assert case.run("stat", "--id", DOC_ID, "--as-source", "--no-browser")[0] == 2, "--no-browser belongs to pick"
+    assert case.run("pick", "--as-source")[0] == 2
     assert case.fake.requests == []
 
 

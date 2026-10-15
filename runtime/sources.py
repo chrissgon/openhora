@@ -37,6 +37,9 @@ of staging; collect_outputs reads them back; the converted text is scanned for c
 because text compressed inside a raw file is invisible to a scan of its bytes; only then is the version moved into place
 and its rows written. A refusal at any step leaves nothing in the folder and no row.
 
+A Google Drive file is a source too (P7, decision D13): see "Google Drive files" near the end of this file. Its bytes come from the
+Drive provider (providers/documents/gdrive.py) into the runtime's staging area and go through the same steps.
+
 Where the bytes wait. The file received by the intake, the folder the converter writes to and the container's mount are in the runtime's
 own private folder, `<data_dir>/sources-staging/<token>/`, never inside the sources folder: nothing is written by path inside the
 sources folder (limit L23), the folder (often a synced one) sees no temporary file, and the intake's free-space check counts the
@@ -64,8 +67,10 @@ import os
 import re
 import secrets
 import shutil
+import signal
 import stat
 import sys
+import threading
 import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -73,7 +78,7 @@ sys.path.insert(0, HERE)
 import intake  # noqa: E402  (the same folder: the generic streaming intake)
 
 SOURCE_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
-TYPES = ("file", "notion")
+TYPES = ("file", "notion", "drive")
 MARKER = ".openhora-sources"
 INCOMING = ".incoming"                           # inside the folder: where a version is assembled before the rename that puts it in place
 STAGING = "sources-staging"                      # inside data_dir: where the bytes of an import are received and converted
@@ -89,7 +94,7 @@ INFO_CAP = 16 * 1024
 INCOMING_KEPT_SECONDS = 24 * 3600                # a staging entry older than this is a crash's leftover and is removed
 LABELS = ("import", "refresh", "changed-by-person")
 SUBTYPES = ("pdf", "docx", "xlsx", "ooxml", "html", "csv", "text")  # what the sniffers answer for kind "document", and the converter takes
-EXTENSION = {"pdf": "pdf", "docx": "docx", "xlsx": "xlsx", "html": "html", "csv": "csv", "text": "txt", "notion": "md"}
+EXTENSION = {"pdf": "pdf", "docx": "docx", "xlsx": "xlsx", "html": "html", "csv": "csv", "text": "txt", "notion": "md", "markdown": "md"}
 SAMPLE_VALUES, SAMPLE_CHARS, COLUMNS_SHOWN, SHEETS_SHOWN = 3, 40, 30, 12
 HEADINGS_SHOWN, HEADING_CHARS = 8, 80
 CATALOG_ENTRY_CHARS = 1800                       # one source in the planner's text
@@ -106,7 +111,7 @@ MENTION = re.compile(r"(?<![\w@./+-])@([a-z0-9][a-z0-9-]{0,39})(?![\w-])")
 
 class SourcesError(Exception):
     """A refusal of this module. `code` is a machine word: folder, path, type, size, credential, convert, integrity, notion,
-    usage, unattended, missing. The message is for a person."""
+    usage, unattended, missing, drive. The message is for a person."""
 
     def __init__(self, message: str, code: str = "usage"):
         super().__init__(message)
@@ -906,20 +911,27 @@ def _stored(ctx, name: str, *args, **kwargs):
 
 
 def register(ctx, source_id: str, source_type: str, origin: str, description=None) -> dict:
-    """Add a source to the registry: its id, type, origin (a file name, or a Notion page address or id) and an optional
-    description. No credential is ever kept, and nothing is imported. A Notion origin must hold a page id. Returns the row."""
+    """Add a source to the registry: its id, type, origin (a file name, a Notion page address or id, or a Drive file id) and an
+    optional description. No credential is ever kept, and nothing is imported. A Notion origin must hold a page id, a Drive origin
+    a file id. Returns the row (a Drive source reads as type `drive` with the file id as its origin: public_row)."""
     check_id(source_id)
     if source_type not in TYPES:
         raise SourcesError(f"a source is a {' or a '.join(TYPES)}", "usage")
     if not isinstance(origin, str) or not origin.strip() or CONTROL.search(origin) or len(origin) > 512:
         raise SourcesError("the origin is one line of at most 512 characters", "usage")
+    stored_type = source_type
     if source_type == "notion":
         notion_page_id(origin)
+    elif source_type == "drive":
+        origin, stored_type = DRIVE_PREFIX + drive_file_id(origin), "file"   # see "Drive sources" below: no registry migration yet
     elif "/" in origin or "\\" in origin:
         origin = os.path.basename(origin.replace("\\", "/"))
         if not origin:
             raise SourcesError("the origin of a file source is the file's name", "usage")
-    return _stored(ctx, "source_add", source_id=source_id, source_type=source_type, origin=origin.strip(), description=description)
+    if source_type == "file" and origin.strip().startswith(DRIVE_PREFIX):
+        raise SourcesError(f"a file source's origin cannot start with {DRIVE_PREFIX!r}: that marks a Drive source", "usage")
+    return public_row(_stored(ctx, "source_add", source_id=source_id, source_type=stored_type, origin=origin.strip(),
+                              description=description))
 
 
 def sources_lock_path(cfg: dict) -> str:
@@ -972,12 +984,13 @@ def _refuse_intake(e: "intake.IntakeError") -> "SourcesError":
 
 
 def import_version(ctx, source: dict, data, *, convert, label: str = "import", by: str = "runtime", kind=None,
-                   origin_version=None, clock=None, evidence_base=None, free_margin=intake.FREE_MARGIN_BYTES) -> dict:
+                   origin_version=None, clock=None, evidence_base=None, free_margin=intake.FREE_MARGIN_BYTES, name=None) -> dict:
     """Import one version of a source. `source` is the registry row; `data` is a path, bytes, or (file, length);
     `convert(input_path, subtype, out_dir) -> info` is the converter (the provider of converter:document in production: a
     function that writes its outputs to `out_dir`, a folder of the staging area, and returns {"converter", "tool_versions",
-    "kind"}) and is not called for `kind="notion"` (the page was read as Markdown already; it is text and goes through the
-    same bounds, scan and rows). Returns {"imported": True, "source", "version", ...}, or {"imported": False, "unchanged":
+    "kind"}) and is not called for `kind="notion"` or `kind="markdown"` (the page, or the exported Google Doc, was read as Markdown
+    already; it is text and goes through the same bounds, scan and rows). `name` is what the origin calls the file (a Drive file's
+    name), shown in the catalog in place of the origin. Returns {"imported": True, "source", "version", ...}, or {"imported": False, "unchanged":
     True, "version"} when a refresh brings the bytes already held (same original and same converted text) with label other
     than changed-by-person. SourcesError on any refusal, with nothing written in the folder and no row (limit L24 and L27 are
     in the steps below)."""
@@ -996,7 +1009,7 @@ def import_version(ctx, source: dict, data, *, convert, label: str = "import", b
             _sweep_staging(os.path.join(cfg["data_dir"], STAGING), keep=token)
             try:
                 return _import_in(ctx, folder, source, stream, length, stage_path, token, convert=convert, label=label, by=by,
-                                  kind=kind, origin_version=origin_version, clock=clock, free_margin=free_margin)
+                                  kind=kind, origin_version=origin_version, clock=clock, free_margin=free_margin, name=name)
             finally:
                 shutil.rmtree(stage_path, ignore_errors=True)
     finally:
@@ -1068,11 +1081,14 @@ def _sweep_staging(folder: str, keep: str) -> None:
             continue
 
 
+READY_TEXT = ("notion", "markdown")   # kinds that arrive as Markdown text already: no sniffing, no converter
+
+
 def _import_in(ctx, folder, source, stream, length, stage_path, token, *, convert, label, by, kind, origin_version, clock,
-               free_margin) -> dict:
+               free_margin, name=None) -> dict:
     cfg = ctx["cfg"]
     in_dir, out_dir = os.path.join(stage_path, "in"), os.path.join(stage_path, "out")
-    notion = kind == "notion"
+    notion = kind in READY_TEXT
     try:
         received = intake.stream_in(stream, length, in_dir, cap=ORIGINAL_CAP, minimum=1, free_margin=free_margin,
                                     accept=None if notion else accept_type, lock_path=upload_lock_path(cfg))
@@ -1080,15 +1096,15 @@ def _import_in(ctx, folder, source, stream, length, stage_path, token, *, conver
         raise _refuse_intake(e) from None
     input_path = os.path.join(in_dir, "input")
     os.rename(received.path, input_path)
-    subtype = "notion" if notion else received.type[1]
+    subtype = kind if notion else received.type[1]
     if notion:
         try:
             with open(input_path, "rb") as f:
                 converted = f.read()
             text = converted.decode("utf-8")
         except (OSError, UnicodeDecodeError):
-            raise SourcesError("the Notion page is not UTF-8 text", "convert") from None
-        converted_name, info = "converted.md", {"converter": "notion", "kind": "notion", "tool_versions": {}}
+            raise SourcesError(f"the {'Notion page' if kind == 'notion' else 'exported document'} is not UTF-8 text", "convert") from None
+        converted_name, info = "converted.md", {"converter": kind, "kind": kind, "tool_versions": {}}
     else:
         try:
             info = convert(input_path, subtype, out_dir)
@@ -1140,7 +1156,7 @@ def _import_in(ctx, folder, source, stream, length, stage_path, token, *, conver
                 and latest["converted_sha256"] == converted_sha:
             return {"imported": False, "unchanged": True, "source": source["id"], "version": latest["version"]}
         version = _next_version(ctx, folder, source["id"], latest)
-        catalog = catalog_entry(source_id=source["id"], source_type=source["type"], origin=source["origin"], kind=subtype,
+        catalog = catalog_entry(source_id=source["id"], source_type=source["type"], origin=name or source["origin"], kind=subtype,
                                 converted_name=converted_name, converted=converted, original_bytes=received.size,
                                 imported_at=when, warnings=warnings)
         manifest = {"manifest": 1, "source": source["id"], "version": version, "type": source["type"], "origin": source["origin"],
@@ -1150,6 +1166,8 @@ def _import_in(ctx, folder, source, stream, length, stage_path, token, *, conver
                     "converter": {"name": str((info or {}).get("converter") or "unknown"),
                                   "tools": (info or {}).get("tool_versions") or {}},
                     "hidden_text": None, "origin_version": origin_version, "warnings": warnings}
+        if name:
+            manifest["name"] = _clean(name, 200)
         manifest_bytes = (json.dumps(manifest, indent=1, sort_keys=True) + "\n").encode("utf-8")
         _place(folder, token, source["id"], version, input_path, original_name, converted_name, converted, manifest_bytes, original_sha)
         try:
@@ -1301,7 +1319,7 @@ def list_catalog(ctx, *, evidence_base=None, hashes: bool = True) -> list:
                 folder = Folder(cfg, evidence_base)
             except SourcesError:
                 folder = None
-        for source in _stored(ctx, "sources_list"):
+        for source in map(public_row, _stored(ctx, "sources_list")):
             latest = _stored(ctx, "source_latest", source["id"])
             row = {"id": source["id"], "type": source["type"], "origin": source["origin"], "description": source["description"],
                    "version": latest["version"] if latest else None,
@@ -1467,6 +1485,218 @@ def fetch_notion(cfg: dict, address: str, *, call=None) -> dict:
     if not isinstance(markdown, str):
         raise SourcesError("the documents provider answered no Markdown for the page", "notion")
     return {"id": page, "markdown": markdown, "version": out.get("version") if isinstance(out.get("version"), str) else None}
+
+
+# --- Google Drive files (decision D13, P7) ---------------------------------------------------------------------------------
+#
+# A Drive source is one FILE the person picked in Google's Picker (the scope is drive.file; a picked folder gives the app nothing inside
+# it, so folders are not sources). The registry's type column admits `file` and `notion` only (migration 11), and a migration is not
+# added for this: a Drive source is stored as a `file` row whose origin is `drive:<file id>`, and public_row() is the one place that
+# reads it back as {"type": "drive", "origin": "<file id>"}. register() and list_catalog() return public rows, ops_sources reads every
+# row through it, and a plain file source can never carry an origin that starts with `drive:` (register refuses it). A later migration
+# that admits `drive` makes the stored row equal the public one; nothing else changes.
+#
+# The provider is `providers/documents/gdrive.py` (class integration:documents, implementation gdrive), run as a process with the
+# minimum environment plus the one secret it reads (GDRIVE_SOURCES_TOKEN). It writes the exported or downloaded bytes to a folder of the
+# runtime's private staging area and prints their description; they enter through the same intake, converter, scan and rows as a file
+# of the person's, never parsed here (limit L27). The refresh compares the provider's `version` with the one recorded with the newest
+# version (`origin_version`) before it reads anything.
+
+DRIVE_CLASS = "integration:documents"
+DRIVE_IMPLEMENTATION = "gdrive"
+DRIVE_SECRET = "GDRIVE_SOURCES_TOKEN"   # providers/secrets/resolver.py: the one record (token, client, Picker key); read by the provider alone
+DRIVE_TIMEOUT = 300
+DRIVE_PICK_TIMEOUT = 900                # the Picker session stops itself after 10 minutes
+DRIVE_PREFIX = "drive:"
+DRIVE_FILE_ID = re.compile(r"[A-Za-z0-9_-]{10,100}")
+DRIVE_CONTENT = "content"               # the name of the file the provider writes in its --out-dir
+DRIVE_CONTENT_KINDS = ("markdown", "file")
+
+
+def drive_file_id(text) -> str:
+    """The Drive file id from a bare id or from `drive:<id>`. SourcesError (usage) for anything else: an address is not accepted, since
+    the id is what the Picker gives and the provider checks the file by it."""
+    raw = text.strip() if isinstance(text, str) else ""
+    if raw.startswith(DRIVE_PREFIX):
+        raw = raw[len(DRIVE_PREFIX):]
+    if not DRIVE_FILE_ID.fullmatch(raw):
+        raise SourcesError("a Drive file id is 10 to 100 letters, digits, hyphens and underscores (the Picker gives it)", "usage")
+    return raw
+
+
+def public_row(row: dict) -> dict:
+    """A registry row as the rest of the runtime reads it: a Drive source (stored as a `file` row with a `drive:<id>` origin) reads as
+    type `drive` with the file id as its origin; every other row is returned as it is."""
+    if row.get("type") == "file" and str(row.get("origin", "")).startswith(DRIVE_PREFIX):
+        return {**row, "type": "drive", "origin": row["origin"][len(DRIVE_PREFIX):]}
+    return row
+
+
+def drive_call(cfg: dict, verb: str, args: list, *, call=None, timeout: int = DRIVE_TIMEOUT) -> dict:
+    """One verb of the Drive provider, through providers/resolve.py, in a process that has the minimum environment and the one secret.
+    `call(cls, verb, args, implementation=, root=, timeout=, env=)` is the seam a test replaces. SourcesError (drive) on any failure,
+    with the provider's reason."""
+    resolver = None
+    if call is None:
+        resolver = _lazy("workbench_sources_resolve", os.path.join(cfg["workbench"], "providers", "resolve.py"))
+        call = resolver.call
+    extra = {"env": _provider_env(cfg, DRIVE_CLASS, (DRIVE_SECRET,))} if resolver is not None else {}
+    try:
+        out = call(DRIVE_CLASS, verb, args, root=cfg["workbench"], implementation=DRIVE_IMPLEMENTATION, timeout=timeout, **extra)
+    except Exception as e:
+        kind = getattr(e, "kind", None)
+        reason = getattr(e, "reason", None) or str(e)
+        raise SourcesError(f"the Drive file could not be read ({kind or type(e).__name__}): {_clean(reason, 300)}", "drive") from None
+    if not isinstance(out, dict):
+        raise SourcesError("the Drive provider answered no object", "drive")
+    return out
+
+
+def drive_id_of(source: dict) -> str:
+    """The Drive file id of a source row (stored or public)."""
+    if public_row(source).get("type") != "drive":
+        raise SourcesError(f"{source.get('id')} is not a Drive source", "usage")
+    return drive_file_id(public_row(source)["origin"])
+
+
+def drive_stat(cfg: dict, file_id: str, *, call=None) -> dict:
+    """The provider's `stat`: {"id", "name", "mime_type", "version" (text), "archived", "supported", "reason", ...}. One metadata call."""
+    out = drive_call(cfg, "stat", ["--id", drive_file_id(file_id), "--as-source"], call=call)
+    if not isinstance(out.get("version"), str) or not out["version"] or not isinstance(out.get("supported"), bool):
+        raise SourcesError("the Drive provider's answer has no version", "drive")
+    return out
+
+
+def drive_import(ctx, source: dict, *, convert, label: str, call=None, clock=None, evidence_base=None) -> dict:
+    """Read a Drive file through the provider and import it as a version of `source`. The provider writes the bytes into a folder of the
+    runtime's staging area; a Google Doc exported as Markdown goes in as text (kind `markdown`, no converter), everything else through
+    import_version's intake and the converter like a file of the person's. The version of the file the provider read is recorded with
+    the new version (origin_version). Returns import_version's answer. SourcesError on any refusal, with nothing kept."""
+    cfg = ctx["cfg"]
+    file_id = drive_id_of(source)
+    check_folder(cfg, evidence_base)   # a folder that cannot be used is found before the file is read, not after
+    stage = _make_staging(cfg["data_dir"], secrets.token_hex(8))
+    try:
+        out_dir = os.path.join(stage, "out")
+        info = drive_call(cfg, "read", ["--id", file_id, "--as-source", "--out-dir", out_dir, "--max-bytes", str(ORIGINAL_CAP)], call=call)
+        if info.get("content") not in DRIVE_CONTENT_KINDS or not isinstance(info.get("version"), str) or not info["version"]:
+            raise SourcesError("the Drive provider's answer is not one this runtime reads", "drive")
+        path = os.path.join(out_dir, DRIVE_CONTENT)
+        stream, length, closer = _stream_of(path)   # a regular file, opened without following a link
+        with closer:
+            if length > ORIGINAL_CAP:
+                raise SourcesError(f"the file is larger than {ORIGINAL_CAP} bytes", "size")
+            data = stream.read(ORIGINAL_CAP + 1)
+        if _sha(data) != info.get("sha256") or len(data) != info.get("bytes"):
+            raise SourcesError("what the Drive provider wrote is not what it described; nothing was kept", "drive")
+        name = _clean(info.get("name") or "", 200) or None
+        if info["content"] == "markdown":
+            return import_version(ctx, source, data, convert=None, kind="markdown", label=label, origin_version=info["version"],
+                                  clock=clock, evidence_base=evidence_base, name=name)
+        return import_version(ctx, source, data, convert=convert, label=label, origin_version=info["version"], clock=clock,
+                              evidence_base=evidence_base, name=name)
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+
+
+def drive_refresh(ctx, source: dict, *, convert, call=None, clock=None, evidence_base=None) -> dict:
+    """A refresh of a Drive source (decision D12). The provider's `stat` is asked first: when its version is the one recorded with the
+    newest version, nothing is read and no version is made (the files in the folder are still checked against the record, limit L25).
+    When it differs, the file is read and imported; bytes already held make no version either. Returns {"imported", "unchanged",
+    "read" (whether the file was read), "remote_version", "version", ...}."""
+    cfg = ctx["cfg"]
+    info = drive_stat(cfg, drive_id_of(source), call=call)
+    if not info["supported"]:
+        raise SourcesError(f"{source['id']} is not read: {_clean(info.get('reason') or 'Drive says it cannot be read', 300)}", "drive")
+    latest = _stored(ctx, "source_latest", source["id"])
+    if latest is not None and latest.get("origin_version") == info["version"]:
+        done = recheck(ctx, source, convert=convert, clock=clock, evidence_base=evidence_base)
+        if done.get("changed"):
+            return {**done, "read": False, "remote_version": info["version"]}
+        return {"imported": False, "unchanged": True, "read": False, "source": source["id"], "version": latest["version"],
+                "remote_version": info["version"]}
+    done = drive_import(ctx, source, convert=convert, label="refresh" if latest else "import", call=call, clock=clock,
+                        evidence_base=evidence_base)
+    return {**done, "read": True}
+
+
+def drive_source_id(name: str, taken) -> str:
+    """A source id for a picked file, from its name: lowercase letters, digits and hyphens, at most 36 characters, not in `taken`
+    (a number is added when it is)."""
+    base = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")[:36].strip("-") or "drive-file"
+    if not SOURCE_ID.fullmatch(base):
+        base = "drive-file"
+    taken, candidate, n = set(taken), base, 1
+    while candidate in taken:
+        n += 1
+        candidate = f"{base[:36 - len(str(n)) - 1].rstrip('-')}-{n}"
+    return candidate
+
+
+def _stop_group(proc) -> None:
+    """End a child started in a session of its own, and what it started. A child that is already gone is not an error."""
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+def _run_pick(resolver, cfg: dict, env: dict, timeout: int):
+    """Run the provider's `pick` verb for the person: the resolver starts it (the class resolves to the Drive implementation), its
+    messages (the local address to open) are copied to this process's error output as they come, and its output is read to the end.
+    Returns (exit code, output). The child is ended when the time is up or this process is interrupted."""
+    try:
+        proc = resolver.start(DRIVE_CLASS, "pick", [], root=cfg["workbench"], implementation=DRIVE_IMPLEMENTATION, env=env)
+    except Exception as e:
+        raise SourcesError(f"the Picker could not be started: {_clean(getattr(e, 'reason', None) or e, 300)}", "drive") from None
+    proc.stdin.close()
+
+    def relay():
+        for line in iter(proc.stderr.readline, b""):
+            text = line.decode("utf-8", "replace")
+            sys.stderr.write(text)
+            sys.stderr.flush()
+
+    copier = threading.Thread(target=relay, daemon=True)
+    copier.start()
+    timer = threading.Timer(timeout, _stop_group, args=(proc,))
+    timer.start()
+    try:
+        out = proc.stdout.read()
+        proc.wait()
+    except BaseException:
+        _stop_group(proc)
+        raise
+    finally:
+        timer.cancel()
+        copier.join(2)
+        for pipe in (proc.stdout, proc.stderr):
+            pipe.close()
+    return proc.returncode, out.decode("utf-8", "replace")
+
+
+def pick_drive(cfg: dict, *, run=None) -> dict:
+    """Open the Picker for the person (the Drive provider's `pick` verb: a one-shot page on 127.0.0.1 that this process never serves) and
+    return what the person chose: {"picked": [{"id", "name", "mime_type"}], "cancelled": bool}. The verb's messages (the local address to
+    open) go to this process's own error output. `run(argv, env, timeout)` -> (exit code, output) is the seam a test replaces; argv is
+    the verb and its arguments. SourcesError (drive) when the command fails or answers something else."""
+    resolver = _lazy("workbench_sources_resolve", os.path.join(cfg["workbench"], "providers", "resolve.py"))
+    env = _provider_env(cfg, DRIVE_CLASS, (DRIVE_SECRET,))
+    if run is None:
+        code, out = _run_pick(resolver, cfg, env, DRIVE_PICK_TIMEOUT)
+    else:
+        verb = ["pick"]
+        code, out = run(verb, env, DRIVE_PICK_TIMEOUT)
+    if code != 0:
+        raise SourcesError(f"the Picker ended with exit {code} (its message is above); the Drive provider's --check says whether Drive is "
+                           "authorized (providers/documents/README.md, Google Drive)", "drive")
+    try:
+        got = json.loads(out)
+    except ValueError:
+        got = None
+    if not isinstance(got, dict) or not isinstance(got.get("picked"), list):
+        raise SourcesError("the Picker answered something this runtime does not read", "drive")
+    return got
 
 
 def main(argv=None) -> int:

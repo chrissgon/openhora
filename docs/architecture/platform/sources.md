@@ -64,21 +64,26 @@ Beside them:
 12. **A Notion page is read with its own read-only secret** (`NOTION_SOURCES_TOKEN`, store username `notion-sources`), by `read --as-source`; `NOTION_TOKEN`, which writes, is never used for sources. The page's id is extracted from the address (every URL shape the provider knows: a bare id, `Title-<id>`, a workspace path, a `p=` query, a `notion.site` host); anything else is refused.
 13. **The channels.** The four writes (`source-add`, `source-import`, `source-refresh`, `source-describe`) are for the terminal and the page; the catalog read (`sources`) is also for the MCP mode and the messaging channel, and sits in the group `sources`, which a project's policy turns on (it is not in the default policy of messaging: the catalog shows samples of the person's data).
 
+14. **A Google Drive file is a source by its id, with one scope and no folder** (P7). The person picks one or more FILES in Google's Picker (`source-drive`); each file id is registered as a source of type `drive` and imported like any other. The registry's type column admits `file` and `notion` only, and no migration was added for this: a Drive source is stored as a `file` row whose origin is `drive:<file id>`, and `sources.public_row` is the one place that reads it back as type `drive` with the id as its origin (a plain file source can never carry that prefix). The provider is `providers/documents/gdrive.py` (the documents class, read only, `SOURCES_ONLY`), with the scope `drive.file` and the secret `GDRIVE_SOURCES_TOKEN`. **`drive.file` is not read-only**: it lets the app read and write every file the person picked. The provider sends GET requests only and the runtime calls only its read verbs; the token is as private as those files. **A folder is not a source**: under `drive.file`, a picked folder gives the app nothing inside it (the spike of 2026-10-15: `files.get` on the folder answered, `files.list` of its children returned none while it held files), so the Picker lets the person open folders and not pick them. A Google Doc is read as Markdown (its text, no converter), a Sheet as a workbook, Slides as a PDF, any other file as it is; the bytes go through the same intake, converter, credential scan and rows as a file of the person's, and the manifest and the catalog name the file. **A refresh asks Drive for the file's version first** (`stat`: Drive's `version` and `modifiedTime`, recorded as the version's `origin_version`) and reads nothing when it matches; bytes already held make no version either. The files of a version are still checked against their hashes when Drive did not change (limit L25).
+15. **The Picker never runs in the runtime's page.** Its script and frames come from Google's hosts, which the page's policy (`default-src 'self'`) and the interface's rule (nothing from another host) forbid. It runs on a one-shot server on 127.0.0.1 (`providers/documents/gdrive_picker.py`, started by `providers/documents/gdrive_auth.py`): a random port; every request must carry that exact `Host` (no DNS rebinding); the OAuth callback is served once and its state compared in constant time; the page, the token and the picks need a nonce only the redirected page carries; a post must carry no `Origin` or the server's own; it stops after the picks, a cancel, a failure or ten minutes. The authorization asks for `drive.file` and nothing else (PKCE S256, a state, offline access); the refresh token, the client and the Picker's API key are one record in the OS secret store, and the access token is made in memory for each call. The provider's process has the minimum environment and that one secret; a run receives converted text only, and its environment is an allow-list that holds no Drive secret.
+
 ## Entry points
 
 | Call | What it does |
 |---|---|
-| `source-add --source <id> --type file\|notion --origin <name or address>` | register a source |
+| `source-add --source <id> --type file\|notion\|drive --origin <name, address or Drive file id>` | register a source |
 | `source-import --source <id> (--file <path> \| --url <address>)` | import a version; an unregistered id is registered |
 | `source-refresh --source <id> [--file <path>]` | a new version: a new file, the page again, or the file the person changed in the folder |
 | `source-describe --source <id> --description <text>` | the person's description |
+| `source-drive [--file-id <id> --source <id>]` | terminal only: open the Picker and make each picked FILE a source with its first version; or import one file already picked |
 | `sources` | the catalog, with each source's status (`ok`, `changed`, `missing`, `empty`) |
 | the page | `GET/POST /projects/{p}/sources`, `/sources/{id}/files` (the upload follows the existing file route), `/import`, `/refresh`, `/refresh/files`, `/description` |
 
 ## Known limits and improvements
 
 - There is no screen for the sources yet; the page's routes exist and the plan card shows each task's sources (and highlights a web task that receives them). An ingest is not a task before the step engine (P5).
-- Google Drive and write-back are P7 and P8; the hidden-text flag of a converted HTML or PDF is P8 (`hidden_text` is null today).
+- A Drive folder as a source is not built (`drive.file` does not reach a picked folder's files; it would need `drive.readonly`, a wider scope, and the maintainer's decision). Drive write-back is P8; the hidden-text flag of a converted HTML or PDF is P8 (`hidden_text` is null today).
+- A Drive source is stored as a `file` row with a `drive:` origin until a migration lets the registry's type column say `drive`. The Markdown export of a Google Doc, Google's 10 MB export limit and the Picker's behaviour with the page's headers are not verified against the live service (`providers/documents/README.md`, "Google Drive").
 - A PDF of scanned pages has no text layer; no OCR is made, and the manifest notes it.
 - A formula cell with no stored value in a workbook comes out empty (the converter reads stored values, it calculates nothing).
 - A source over the converted cap is refused, not indexed: indexing and retrieval wait for a real case.
@@ -87,4 +92,5 @@ Beside them:
 
 ## Changes
 
+- 2026-10-15: Google Drive files as sources (P7): `providers/documents/gdrive.py`, its authorization and the one-shot Picker page, `source-drive`, the refresh by version, `public_row`; files only, one scope.
 - 2026-10-15: first version, with package P4 (the sources folder and limits L21 to L27, the registry and versions of migration 11, the catalog, `converter:document`, Notion pages by address, the planner's choice in `core-orchestrator` 3.0.0, the plan card, the copies a task receives).

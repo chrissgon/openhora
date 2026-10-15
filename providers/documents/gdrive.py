@@ -22,6 +22,7 @@ Usage:
   uv run providers/documents/gdrive.py --check
   uv run providers/documents/gdrive.py stat --id <file id> --as-source
   uv run providers/documents/gdrive.py read --id <file id> --as-source --out-dir <folder> [--max-bytes <n>]
+  uv run providers/documents/gdrive.py pick  [--no-browser]
 
   --check     refreshes the access token (the one network call) and checks that it carries drive.file and nothing wider;
               prints {"ok": true, "scope", "obtained_at"}. Exit 3 when there is no authorization or it was refused.
@@ -33,6 +34,9 @@ Usage:
               `content` is "markdown" (a Google Doc exported as text/markdown: text already) or "file" (anything else: the
               runtime sniffs the type from the bytes). --max-bytes bounds the content (default 25 MiB, the intake's cap).
   Both take --as-source, as the Notion provider's read does, so that the verbs of a later write-back keep their own flags.
+  pick        opens Google's Picker for the person on a one-shot page on 127.0.0.1 (gdrive_auth.py pick, which see) and prints
+              {"picked": [{"id", "name", "mime_type"}], "cancelled": bool}. It registers nothing and reads no file; the runtime does,
+              with `stat` and `read`. The local address to open is printed on stderr. Needs the one-time `gdrive_auth.py authorize`.
 
 What each Google type is exported to (Drive's own export, `files.export`, limited by Google to 10 MB of exported content):
   Google Doc        text/markdown; if the service answers 400 (it does not offer that format), the Word format
@@ -443,17 +447,28 @@ def cmd_read(args: dict) -> int:
                  "sha256": hashlib.sha256(data).hexdigest(), "file": OUT_NAME, "as_source": True})
 
 
+def cmd_pick(args: dict) -> int:
+    """The Picker, for the runtime: gdrive_auth.py's `pick` (it runs the one-shot page and prints the picks), through its own main so that its
+    errors keep their exit codes."""
+    path = Path(__file__).resolve().parent / "gdrive_auth.py"
+    spec = importlib.util.spec_from_file_location("workbench_documents_gdrive_auth", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module.main(["pick"] + (["--no-browser"] if args.get("--no-browser") else []))
+
+
 def cmd_unsupported(args: dict) -> int:
     raise ProviderError("this verb is not supported by the Drive provider: it reads the files a person picked as sources and writes "
                         "nothing to Drive", EXIT_USAGE)
 
 
-VERBS = {"stat": cmd_stat, "read": cmd_read, "comments": cmd_unsupported, "write": cmd_unsupported, "notice": cmd_unsupported,
+VERBS = {"stat": cmd_stat, "read": cmd_read, "pick": cmd_pick, "comments": cmd_unsupported, "write": cmd_unsupported, "notice": cmd_unsupported,
          "resolve": cmd_unsupported}
 READS = ("stat", "read")
 VALUE_FLAGS = ("--id", "--out-dir", "--max-bytes", "--config-file", "--path", "--markdown-file", "--idempotency-key", "--notice",
                "--text")
-SWITCHES = ("--check", "--as-source", "--dry-run", "--confirmed", "--not-created")
+SWITCHES = ("--check", "--as-source", "--no-browser", "--dry-run", "--confirmed", "--not-created")
 
 
 def parse_args(argv: list) -> tuple:
@@ -493,6 +508,8 @@ def main(argv=None) -> int:
             raise ProviderError("the Drive provider serves sources only: give --as-source", EXIT_USAGE)
         if args.get("--as-source") and verb not in READS:
             raise ProviderError("--as-source is for the verbs stat and read only", EXIT_USAGE)
+        if args.get("--no-browser") and verb != "pick":
+            raise ProviderError("--no-browser is for the verb pick only", EXIT_USAGE)
         return VERBS[verb](args)
     except ProviderError as e:
         print(f"error: {e}", file=sys.stderr)
