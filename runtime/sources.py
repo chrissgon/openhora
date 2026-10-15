@@ -177,7 +177,7 @@ def path_problems(sources_dir: str, *, project: str, data_dir: str, store_db: st
     problems = []
     if not isinstance(sources_dir, str) or not os.path.isabs(sources_dir):
         return ["sources_dir must be an absolute path"]
-    if os.path.islink(sources_dir.rstrip(os.sep) or os.sep):   # "link/" is not seen as a link by islink, though it is one
+    if os.path.islink(os.path.normpath(sources_dir)):   # "link/" and "link/." are links too, though islink does not say so
         problems.append("sources_dir is a symbolic link: name the folder itself (the runtime never follows a link out)")
     real = os.path.realpath(sources_dir)
     if real == os.path.dirname(real):
@@ -192,6 +192,11 @@ def path_problems(sources_dir: str, *, project: str, data_dir: str, store_db: st
             problems.append("sources_dir is your home folder: choose a dedicated folder")
     if _inside(project, real):
         problems.append("sources_dir contains the project: choose a folder the project is not inside")
+    for rel, what in ((".workbench-local", "the file drop, the copies of the sources a task receives and the work data live there"),
+                      ("docs", "the documents mirror writes there")):
+        if _inside(real, os.path.join(project, rel)):
+            problems.append(f"sources_dir is, or is inside, the project's {rel}/ ({what}): choose another folder, which may be "
+                            "inside the project (for example <project>/sources)")
     for what, other in (("data_dir", data_dir), ("the store", store_db), ("the workbench checkout", workbench),
                         ("the local evidence folder", evidence_base)):
         if other and related(real, other):
@@ -202,14 +207,23 @@ def path_problems(sources_dir: str, *, project: str, data_dir: str, store_db: st
 # --- the folder (L21) ------------------------------------------------------------------------------------------------
 
 
+def project_identity(project: str) -> dict:
+    """The identity of a project's folder: {"id": "<st_dev>:<st_ino>", "path": the real path as it is spelled now}. The id is what the
+    file system calls the folder, not how a path spells it (a case-insensitive disk keeps the case a person typed), so the same
+    project opened under two spellings is the same project."""
+    info = os.stat(project)
+    return {"id": f"{info.st_dev}:{info.st_ino}", "path": os.path.realpath(project)}
+
+
 def project_key(project: str) -> str:
-    """The identity of a project in a marker: the sha256 of the project's real path. One sources folder serves one project."""
-    return hashlib.sha256(os.path.realpath(project).encode("utf-8")).hexdigest()
+    """The key of a project in a marker: project_identity()'s id. One sources folder serves one project."""
+    return project_identity(project)["id"]
 
 
 def _marker_text(project=None) -> str:
-    return json.dumps({"kind": MARKER_KIND, "version": 2, "id": secrets.token_hex(8),
-                       "project": project_key(project) if project else None}) + "\n"
+    who = project_identity(project) if project else {"id": None, "path": None}
+    return json.dumps({"kind": MARKER_KIND, "version": 3, "id": secrets.token_hex(8),
+                       "project": who["id"], "project_path": who["path"]}) + "\n"
 
 
 def _marker_data(fd: int):
@@ -238,9 +252,24 @@ def _marker_ok(fd: int, project=None) -> bool:
     return project is None or data.get("project") == project_key(project)
 
 
-def _other_project(path: str) -> "SourcesError":
-    return SourcesError(f"the sources folder {path} was marked by another project (or by this one at another path): one sources "
-                        "folder serves one project; name a separate folder for each project in runtime.json sources_dir", "folder")
+def _describe(who) -> str:
+    who = who or {}
+    return f"folder {who.get('id') or 'none'} at {who.get('path') or 'no path recorded'}"
+
+
+def _other_project(path: str, data=None, project=None) -> "SourcesError":
+    """The refusal of a folder marked for another project. The two identities are in the sentence (the marker's and this project's),
+    so that a person can tell a different project from the same one moved, renamed or on a disk mounted again. `.old` and `.new`
+    carry them for the caller that builds the command to take the folder over."""
+    old = {"id": (data or {}).get("project"), "path": (data or {}).get("project_path")}
+    new = project_identity(project) if project else {"id": None, "path": None}
+    error = SourcesError(f"the sources folder {path} was marked for another project: its marker names {_describe(old)}, and this "
+                         f"project is {_describe(new)}. One sources folder serves one project: name a separate folder for each "
+                         "project in runtime.json sources_dir. If this is the same project (moved, renamed, or on a disk mounted "
+                         "again) and it should take the folder over, accept the configuration in the terminal with --adopt-sources",
+                         "foreign")
+    error.old, error.new = old, new
+    return error
 
 
 def _open_folder_fd(path: str) -> int:
@@ -267,13 +296,30 @@ def _open_folder_fd(path: str) -> int:
     return fd
 
 
-def accept_folder(path: str, project=None) -> dict:
+def _rewrite_marker(fd: int, project: str) -> None:
+    """Replace the marker with one for `project`: a new file written whole through the folder's descriptor, then one rename."""
+    temporary = f"{MARKER}.new"
+    try:
+        os.unlink(temporary, dir_fd=fd)
+    except OSError:
+        pass
+    mark = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd)
+    with os.fdopen(mark, "w", encoding="utf-8") as f:
+        f.write(_marker_text(project))
+        f.flush()
+        os.fsync(f.fileno())
+    os.rename(temporary, MARKER, src_dir_fd=fd, dst_dir_fd=fd)
+
+
+def accept_folder(path: str, project=None, adopt: bool = False) -> dict:
     """Make the sources folder ready at the acceptance of the configuration (limit L21), or refuse. A folder that does not
     exist is created with mode 0700 (its parent must exist) and marked. An existing folder must be a real folder of this
     user with mode exactly 0700 and either hold the marker or be empty (then it is marked); a folder that holds anything
     else is not dedicated and is refused. Returns {"path", "created", "marked"}. The paths rules (disjointness and so on) are
     path_problems', checked by the caller first. With `project`, the marker written names it, and a marker that names another
-    project (or none) is refused (_other_project)."""
+    project (or none) is refused (_other_project, code `foreign`) unless `adopt`: then the marker is rewritten for this project
+    (the person's own act: accept-config --adopt-sources in the terminal) and the answer carries "adopted": {"from", "to"}, the old
+    and the new identity."""
     created = False
     if not os.path.lexists(path):
         parent = os.path.dirname(path.rstrip(os.sep))
@@ -287,9 +333,14 @@ def accept_folder(path: str, project=None) -> dict:
         created = True
     fd = _open_folder_fd(path)
     try:
-        if _marker_data(fd) is not None:
+        data = _marker_data(fd)
+        if data is not None:
             if project is not None and not _marker_ok(fd, project):
-                raise _other_project(path)
+                error = _other_project(path, data, project)
+                if not adopt:
+                    raise error
+                _rewrite_marker(fd, project)
+                return {"path": path, "created": created, "marked": False, "adopted": {"from": error.old, "to": error.new}}
             return {"path": path, "created": created, "marked": False}
         if os.listdir(fd):
             raise SourcesError(f"the sources folder {path} is not dedicated: it holds files that are not the runtime's and has no "
@@ -302,7 +353,7 @@ def accept_folder(path: str, project=None) -> dict:
         os.close(fd)
 
 
-def ready_for_acceptance(cfg: dict, evidence_base) -> dict:
+def ready_for_acceptance(cfg: dict, evidence_base, adopt: bool = False) -> dict:
     """What the acceptance of a configuration does to its sources folder (limits L21 to L23): the paths are checked first,
     all rules, the local evidence folder included (`evidence_base` is lab.local_evidence_base()); then the folder is created
     or marked, or refused. Returns accept_folder's answer. SourcesError otherwise, and nothing is accepted."""
@@ -310,7 +361,7 @@ def ready_for_acceptance(cfg: dict, evidence_base) -> dict:
                              workbench=cfg["workbench"], evidence_base=evidence_base)
     if problems:
         raise SourcesError("; ".join(problems), "path")
-    return accept_folder(cfg["sources_dir"], cfg["project"])
+    return accept_folder(cfg["sources_dir"], cfg["project"], adopt)
 
 
 def check_folder(cfg: dict, evidence_base=None) -> None:
@@ -327,7 +378,7 @@ def check_folder(cfg: dict, evidence_base=None) -> None:
             raise SourcesError(f"the sources folder {cfg['sources_dir']} holds no marker ({MARKER}): accept the configuration "
                                "to mark it, and use a folder that holds only sources", "folder")
         if not _marker_ok(fd, cfg["project"]):
-            raise _other_project(cfg["sources_dir"])
+            raise _other_project(cfg["sources_dir"], _marker_data(fd), cfg["project"])
     finally:
         os.close(fd)
 
@@ -1192,6 +1243,10 @@ def _place(folder: Folder, token: str, source_id: str, version: int, input_path:
             # assembly area (swept there later), through the descriptors and without following a link, never replaced in place.
             try:
                 os.rename(str(version), f"{token}-orphan", src_dir_fd=source_fd, dst_dir_fd=incoming_fd)
+                try:   # the sweep counts its 24 hours from now, not from the leftover's own old date
+                    os.utime(f"{token}-orphan", dir_fd=incoming_fd, follow_symlinks=False)
+                except (OSError, NotImplementedError):
+                    pass
             except OSError as e:
                 raise SourcesError(f"{source_id}/{version} is a leftover that cannot be moved aside: {e.strerror}", "folder") from None
         os.rename(token, str(version), src_dir_fd=incoming_fd, dst_dir_fd=source_fd)
@@ -1328,8 +1383,22 @@ def protected_paths(cfg: dict) -> list:
         real_project = os.path.realpath(project)
         real_folder = os.path.realpath(folder)
         if real_folder.startswith(real_project + os.sep):
-            listed.append(os.path.relpath(real_folder, real_project).replace(os.sep, "/") + "/")
+            listed.append(_any_case(os.path.relpath(real_folder, real_project).replace(os.sep, "/") + "/") + "*")
     return listed
+
+
+def _any_case(text: str) -> str:
+    """A glob that matches `text` whatever the case of its letters (a case-insensitive disk lands docs/Sources in the folder): each
+    letter becomes a class of both cases and the glob characters are escaped. It protects too much rather than too little."""
+    out = []
+    for ch in text:
+        if ch.isalpha() and ch.lower() != ch.upper():
+            out.append(f"[{ch.lower()}{ch.upper()}]")
+        elif ch in "*?[":
+            out.append(f"[{ch}]")
+        else:
+            out.append(ch)
+    return "".join(out)
 
 
 # --- the converter: the provider of converter:document ------------------------------------------------------------------------------

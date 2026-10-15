@@ -237,22 +237,22 @@ def test_a_task_whose_source_copy_fails_the_scan_again_stops_with_the_reason_and
 
 
 def test_a_run_that_leaves_files_in_a_sources_folder_inside_the_project_brings_none_of_them_back(tree, monkeypatch):
-    """The return direction of L26 end to end: the folder is docs/sources of the project; the run's result names paths in it."""
+    """The return direction of L26 end to end: the folder is sources of the project; the run's result names paths in it."""
     project = tree["project"]
     config = project / "docs" / "workbench" / "runtime.json"
     raw = json.loads(config.read_text())
-    raw["sources_dir"] = str(project / "docs" / "sources")
+    raw["sources_dir"] = str(project / "sources")
     config.write_text(json.dumps(raw))
     ops.accept_config(str(project), ops.project_config.load(str(project))["sha256"])
     import_source(tree)
     planned_task(tree)
-    folder = project / "docs" / "sources"
+    folder = project / "sources"
     before = sorted(str(p.relative_to(folder)) for p in folder.rglob("*"))
     real = lab.run_skill
 
     def leaves_files(skill, prompt, files, dest, **kwargs):
         result = real(skill, prompt, files, dest, **kwargs)
-        for rel in ("docs/sources/survey/1/planted.md", "docs/sources/survey/9/converted.md"):
+        for rel in ("sources/survey/1/planted.md", "sources/survey/9/converted.md"):
             target = Path(result["cwd"]) / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text("planted\n")
@@ -262,8 +262,8 @@ def test_a_run_that_leaves_files_in_a_sources_folder_inside_the_project_brings_n
     ran = ops.run_next(str(project))
     assert ran["status"] == "ok"
     assert sorted(item["path"] for item in ran["kept"] if item["reason"] == workcopy.SOURCES_KEPT) == [
-        "docs/sources/survey/1/planted.md", "docs/sources/survey/9/converted.md"]
-    assert not any(item["path"].startswith("docs/sources") for item in ran["returned"])
+        "sources/survey/1/planted.md", "sources/survey/9/converted.md"]
+    assert not any(item["path"].startswith("sources") for item in ran["returned"])
     assert sorted(str(p.relative_to(folder)) for p in folder.rglob("*")) == before
 
 

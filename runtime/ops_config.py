@@ -80,29 +80,37 @@ def _read(path: str):
         return None
 
 
-def _record_acceptance(ctx: dict, cfg: dict, sha256: str, by: str, folder: bool = True) -> dict:
+def _record_acceptance(ctx: dict, cfg: dict, sha256: str, by: str, folder: bool = True, adopt: bool = False) -> dict:
     """Record sha256 as the accepted hash of cfg's file, and who accepted it, and rewrite the state file's Checkpoints
     line. The one writer of the accepted hash: accept_config (the person, in the terminal) and set_mode (code, for a
     move down the order of the modes, which widens nothing; the person, for a move up, with `accept` from the terminal)
     call it, and nothing else does. `folder` is False for a narrowing that code accepts (set_mode, a move down): a brake is
-    accepted whatever the state of the sources folder, which every use of the folder checks again (limits L21 to L23). Returns
-    {"previous", "checkpoints"}."""
+    accepted whatever the state of the sources folder, which every use of the folder checks again (limits L21 to L23). `adopt`
+    (accept_config only, so the person in the terminal) lets a folder marked for another project be taken over by this one; the
+    answer then carries "adopted" {"from", "to"}, the old and the new identity. Returns {"previous", "checkpoints"}."""
+    adopted = None
     if folder:
         try:
             try:
                 evidence = lab.local_evidence_base()
             except lab.LabError:
                 evidence = None  # a checkout without its lab runs nothing: every later use of the folder asks again and needs the lab
-            sources.ready_for_acceptance(cfg, evidence)  # limit L21: the sources folder is dedicated, 0700, marked
+            adopted = sources.ready_for_acceptance(cfg, evidence, adopt).get("adopted")  # limit L21: dedicated, 0700, marked for this project
         except sources.SourcesError as e:
-            raise core.OpsError(f"the configuration was not accepted: the sources folder is refused ({e})", 1) from None
+            more = ""
+            if e.code == "foreign":   # the command that takes the folder over, with the hash of the file just read
+                more = ". To take it over: " + core._command("accept-config", cfg["project"], sha256=sha256, adopt_sources=True)
+            raise core.OpsError(f"the configuration was not accepted: the sources folder is refused ({e}){more}", 1) from None
     previous = core._stored(ctx, ctx["store"].cursor_get, project_config.ACCEPTED)
     core._stored(ctx, ctx["store"].cursor_set, ACCEPTED_BY, by)
     core._stored(ctx, ctx["store"].cursor_set, project_config.ACCEPTED, sha256)
-    return {"previous": previous, "checkpoints": write_checkpoints(cfg)}
+    done = {"previous": previous, "checkpoints": write_checkpoints(cfg)}
+    if adopted:
+        done["adopted"] = adopted
+    return done
 
 
-def accept_config(project: str, sha256: str) -> dict:
+def accept_config(project: str, sha256: str, adopt_sources: bool = False) -> dict:
     """Record the hash of the project's configuration that the person accepts, after reading the file. The only
     operation that accepts any change of it (set_mode accepts a move down the order of the modes, and, for the person
     in the terminal, the one move up it sets), and the only one that runs on a configuration that was not accepted.
@@ -113,8 +121,11 @@ def accept_config(project: str, sha256: str) -> dict:
         cfg = core._config_of(project)  # the file as it is now, under the lock
         if sha256 != cfg["sha256"]:
             raise core.OpsError(f"the file's hash is {cfg['sha256']} and you typed {sha256}: nothing was accepted", 1)
-        done = _record_acceptance(ctx, cfg, sha256, "person")
-    return {"accepted": sha256, "previous": done["previous"], "path": cfg["path"], "checkpoints": done["checkpoints"]}
+        done = _record_acceptance(ctx, cfg, sha256, "person", adopt=adopt_sources)
+    out = {"accepted": sha256, "previous": done["previous"], "path": cfg["path"], "checkpoints": done["checkpoints"]}
+    if done.get("adopted"):
+        out["sources_folder_adopted"] = done["adopted"]
+    return out
 
 
 def write_checkpoints(cfg: dict):

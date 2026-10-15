@@ -296,7 +296,7 @@ def test_limit_07_the_destination_of_each_returned_file_comes_from_the_path_rule
     created = [rel for rel in left if rel != "docs/workbench/state.md"]
     result = finished(tree, left, created=created, modified=["docs/workbench/state.md"])
     base = base_of(tree, *left)
-    returned, kept, _ = workcopy.returning(str(project), result, base, state, "demo-writes")
+    returned, kept, _ = workcopy.returning(str(project), result, base, state, "demo-writes", cfg={})
     assert returned == [{"path": ".workbench-local/notes/run.json", "class": "machine"},
                         {"path": "docs/business/icp.lint.json", "class": "machine"},
                         {"path": "docs/business/icp.md", "class": "document"},
@@ -310,7 +310,7 @@ def test_limit_07_the_destination_of_each_returned_file_comes_from_the_path_rule
     (project / "docs" / "workbench" / "state.md").write_text(state, encoding="utf-8")
     bound = manifest.bound_among(known, created)
     assert bound == ["docs/business/icp.md"]
-    returned, _, _ = workcopy.returning(str(project), result, base, state, "demo-writes", bound=bound)
+    returned, _, _ = workcopy.returning(str(project), result, base, state, "demo-writes", bound=bound, cfg={})
     assert {"path": "docs/business/icp.md", "class": "machine"} in returned
 
 
@@ -323,7 +323,7 @@ def test_limit_08_only_a_regular_file_with_its_real_path_inside_the_copy_comes_b
     os.symlink(outside, cwd / "docs" / "business" / "out.md")
     os.symlink(cwd / "docs" / "business" / "real.md", cwd / "docs" / "business" / "in.md")
     result["changes"]["created"] = ["docs/business/in.md", "docs/business/out.md"]
-    returned, kept, _ = workcopy.returning(str(project), result, {}, None, "demo-writes")
+    returned, kept, _ = workcopy.returning(str(project), result, {}, None, "demo-writes", cfg={})
     assert returned == []
     assert {item["path"]: item["reason"] for item in kept} == {
         "docs/business/in.md": "not a regular file inside the copy",
@@ -383,7 +383,7 @@ def test_limit_12_what_comes_back_never_overwrites_what_changed_at_the_origin(tr
             "docs/business/new.md": "by the run\n"}
     result = finished(tree, left, created=["docs/business/new.md"],
                       modified=["docs/business/changed.md", "docs/business/same.md"])
-    returned, kept, _ = workcopy.returning(str(project), result, base, None, "demo-writes")
+    returned, kept, _ = workcopy.returning(str(project), result, base, None, "demo-writes", cfg={})
     assert returned == [{"path": "docs/business/same.md", "class": "document"}]
     reason = "the project's file changed while the run was in progress"
     assert {item["path"]: item["reason"] for item in kept} == {"docs/business/changed.md": reason,
@@ -430,7 +430,7 @@ def test_limit_18_a_document_bound_to_an_approval_by_hash_is_a_machine_file(tree
     bound = manifest.bound_among(manifest.load(str(tree["tree"]), "demo-writes"), [rel])
     assert bound == [rel]
     # It comes back as a machine file, stays one when the project versions it, and is never mirrored as a document.
-    returned, kept, _ = workcopy.returning(str(project), result, base_of(tree, rel), None, "demo-writes", bound=bound)
+    returned, kept, _ = workcopy.returning(str(project), result, base_of(tree, rel), None, "demo-writes", bound=bound, cfg={})
     assert returned == [{"path": rel, "class": "machine"}] and kept == []
     assert path_rule.classify(rel, {"bound": bound, "versioned": [rel]}) == "machine"
     assert documents.entry_for(str(tree["tree"]), rel) is None
@@ -473,7 +473,7 @@ def test_nothing_is_deleted_in_the_project_because_a_run_deleted_it(tree):
     project = tree["project"]
     write(project, "docs/business/old.md", "kept\n")
     result = finished(tree, {}, deleted=["docs/business/old.md"])
-    returned, kept, _ = workcopy.returning(str(project), result, base_of(tree, "docs/business/old.md"), None, "demo-writes")
+    returned, kept, _ = workcopy.returning(str(project), result, base_of(tree, "docs/business/old.md"), None, "demo-writes", cfg={})
     assert returned == [] and kept == [{"path": "docs/business/old.md", "class": "document",
                                         "reason": "the run deleted it; the project's file is left as it is"}]
     assert (project / "docs" / "business" / "old.md").read_text() == "kept\n"

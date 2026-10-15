@@ -150,7 +150,7 @@ def load(project: str) -> dict:
         value = raw.get(key)
         if not isinstance(value, str) or not value or not os.path.isabs(value):
             raise ConfigError(f"runtime.json needs {key}: an absolute path")
-        if key == "sources_dir" and os.path.islink(value.rstrip(os.sep) or os.sep):   # "link/" is not a link to islink, but it is one
+        if key == "sources_dir" and os.path.islink(os.path.normpath(value)):   # "link/" and "link/." are not links to islink, but they are
             raise ConfigError("runtime.json sources_dir is a symbolic link: name the folder itself (the runtime never follows a "
                               "link out of the sources folder)")
         out[key] = os.path.realpath(value)

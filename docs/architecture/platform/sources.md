@@ -17,7 +17,7 @@ The idea behind each piece, in one line each:
 
 | Artifact | Where | Notes |
 |---|---|---|
-| The sources folder | `sources_dir` of `runtime.json` (mandatory, no default; accepted only in the terminal) | `.openhora-sources` (the marker; it names the project, so a folder serves one project), `.incoming/` (the assembly area; it also takes a leftover numbered folder aside), `<source id>/<version>/original.<ext>`, `converted.md` or `converted.csv`, `manifest.json`. Files are mode 0400; a version is moved into place with one rename and never written again |
+| The sources folder | `sources_dir` of `runtime.json` (mandatory, no default; accepted only in the terminal) | `.openhora-sources` (the marker; it names the project folder's device and inode, so a folder serves one project), `.incoming/` (the assembly area; it also takes a leftover numbered folder aside), `<source id>/<version>/original.<ext>`, `converted.md` or `converted.csv`, `manifest.json`. Files are mode 0400; a version is moved into place with one rename and never written again |
 | The registry | table `sources` of the store (migration 11) | id, type (`file` or `notion`), origin (a file's name, or a Notion page's address; never a credential), the person's description. Never deleted; only the description changes |
 | The versions | table `source_versions` | one row per version: label (`import`, `refresh`, `changed-by-person`), who made it (`runtime` or `person`), the sniffed kind, the hashes and sizes of the original and the converted text, the converter and its tools, `hidden_text` (null: reserved for P8), warnings, the catalog entry, the origin's own version (a Notion page's `last_edited_time`), the date from the clock. Never changed, never deleted |
 | What a task received | table `task_sources` | for each run: the source id, the version and the sha256 of the converted text copied; plus `tasks.sources`, the ids the approved plan chose |
@@ -49,7 +49,7 @@ The numbered limits L21 to L27 of `contracts/runtime.md`, each with a test named
 
 1. **L21** dedicated, private, marked for this project, mode 0700 (at acceptance and before every use).
 2. **L22** disjoint from `data_dir`, `store_db`, the checkout and the local evidence folder, by device and inode.
-3. **L23** the runtime writes only inside it and never follows a link out (the import staging folder in `data_dir` included); a pipe where a file is expected is refused before it is opened; the home folder, the root and a folder that contains the project are refused.
+3. **L23** the runtime writes only inside it and never follows a link out (the import staging folder in `data_dir` included); a pipe where a file is expected is refused before it is opened; the home folder, the root, a folder that contains the project and a folder at or under the project's `docs/` or `.workbench-local/` are refused.
 4. **L24** what a container writes comes back only as regular files, with closed names, under a byte cap.
 5. **L25** a file changed outside the runtime is found by its hash, checked again, labelled as the person's, and never used unattended.
 6. **L26** the work copy excludes the folder, even inside a tracked tree, and nothing a run leaves is written into it (a returned path inside it is kept; a change set that touches it is refused).

@@ -455,31 +455,43 @@ def test_limit_26_nothing_a_run_leaves_is_written_into_the_sources_folder_even_w
     """The return direction: a run's result that names a path inside the folder (docs/sources/...) is kept, with a reason, and
     nothing is written there; a path beside it still comes back; a change set that touches the folder is protected."""
     project = tmp_path / "project"
-    path = write_config(tmp_path, sources_dir=str(project / "docs" / "sources"))
+    path = write_config(tmp_path, sources_dir=str(project / "sources"))
     ops.accept_config(path, project_config.load(path)["sha256"])
     ctx = ops_core.context(path)
     monkeypatch.setattr(sources, "provider_convert", lambda cfg, call=None: standin_convert)
     row = sources.register(ctx, "survey", "file", "survey.csv")
     (tmp_path / "survey.csv").write_text(CSV)
     sources.import_version(ctx, row, str(tmp_path / "survey.csv"), convert=standin_convert)
-    folder = project / "docs" / "sources"
+    folder = project / "sources"
     before = sorted(str(p.relative_to(folder)) for p in folder.rglob("*"))
     cwd = tmp_path / "copy"
-    left = {"docs/sources/survey/1/planted.md": "planted\n", "docs/sources/survey/9/converted.md": "# a version nobody imported\n",
-            "docs/sources/.openhora-sources": "{}\n", "docs/business/note.md": "# A note\n"}
+    left = {"sources/survey/1/planted.md": "planted\n", "sources/survey/9/converted.md": "# a version nobody imported\n",
+            "sources/.openhora-sources": "{}\n", "docs/business/note.md": "# A note\n"}
     for rel, text in left.items():
         (cwd / rel).parent.mkdir(parents=True, exist_ok=True)
         (cwd / rel).write_text(text)
     result = {"cwd": str(cwd), "staged": [], "changes": {"created": sorted(left), "modified": [], "deleted": [], "unchanged": []}}
     returned, kept, _ = workcopy.returning(path, result, {}, None, "demo-writes", cfg=ctx["cfg"])
     assert [item["path"] for item in returned] == ["docs/business/note.md"], "the file beside the folder comes back"
-    assert sorted(item["path"] for item in kept) == sorted(rel for rel in left if rel.startswith("docs/sources/"))
+    assert sorted(item["path"] for item in kept) == sorted(rel for rel in left if rel.startswith("sources/"))
     assert all(item["reason"] == workcopy.SOURCES_KEPT for item in kept)
     assert sorted(str(p.relative_to(folder)) for p in folder.rglob("*")) == before, "nothing was written into the folder"
     assert not (folder / "survey" / "9").exists() and not (folder / "survey" / "1" / "planted.md").exists()
+    # defence in depth: whatever the path rule calls the path (here a document of docs/), the folder is never written
+    docs = {"cwd": str(cwd), "staged": [], "changes": {"created": ["docs/sources/survey/1/note.md"], "modified": [], "deleted": [], "unchanged": []}}
+    (cwd / "docs" / "sources" / "survey" / "1").mkdir(parents=True)
+    (cwd / "docs" / "sources" / "survey" / "1" / "note.md").write_text("planted\n")
+    inside_docs = {"sources_dir": str(project / "docs" / "sources")}
+    returned, kept, _ = workcopy.returning(path, docs, {}, None, "demo-writes", cfg=inside_docs)
+    assert returned == [] and [(k["class"], k["reason"]) for k in kept] == [("document", workcopy.SOURCES_KEPT)]
+    assert not (project / "docs" / "sources").exists(), "nothing was written there"
     # a change set that touches the folder is refused whoever wrote it: the folder is a protected path of the project
     protected = sources.protected_paths(ctx["cfg"])
-    assert "docs/sources/" in protected and "docs/business/" not in protected
+    changeset = st.load("changeset")
+    for inside in ("sources/survey/1/planted.md", "Sources/survey/1/planted.md", "SOURCES/x", "sOuRcEs/a/b/c.md"):
+        assert changeset.matches(inside, protected), inside   # whatever the case a disk keeps
+    for beside in ("docs/business/note.md", "sourcesx/a.md", "src/sources.md", "docs/sources.md"):
+        assert not changeset.matches(beside, protected), beside
     assert sources.protected_paths({"protected_paths": ["x/*"], "project": path, "sources_dir": str(tmp_path / "elsewhere")}) == ["x/*"]
 
 
@@ -524,6 +536,46 @@ def test_the_sources_modules_import_nothing_of_the_operations_layer():
         assert not {n for n in names if n == "ops" or n.startswith("ops_")}, name
 
 
+def test_limit_26_returning_cannot_be_called_without_the_sources_configuration():
+    """The return check cannot be left out by a caller: cfg is a required keyword with no default."""
+    import inspect
+    parameter = inspect.signature(workcopy.returning).parameters["cfg"]
+    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY and parameter.default is inspect.Parameter.empty
+    with pytest.raises(TypeError):
+        workcopy.returning("/nowhere", {"cwd": "/x", "staged": [], "changes": {"created": [], "modified": [], "deleted": []}}, {}, None, "demo")
+
+
+def test_limit_23_a_sources_folder_inside_the_project_s_local_work_folder_is_refused(tmp_path):
+    """The file drop, the copies of the sources a task receives and the work data live under .workbench-local/, and the runtime writes
+    there by path: the sources folder is never that folder or inside it. It may be elsewhere inside the project."""
+    project = tmp_path / "project"
+    for name in (".workbench-local", ".workbench-local/drop", ".workbench-local/sources", ".workbench-local/deeper/still"):
+        path = write_config(tmp_path, sources_dir=str(project / name))
+        text = refused(project_config.load, path)
+        assert ".workbench-local/" in text and "sources_dir" in text, name
+    # nothing was made there, and an acceptance cannot get round the check
+    assert not (project / ".workbench-local").exists()
+    path = write_config(tmp_path, sources_dir=str(project / "sources"))
+    ops.accept_config(path, project_config.load(path)["sha256"])
+    assert (project / "sources" / sources.MARKER).is_file()
+    problems = sources.path_problems(str(project / ".workbench-local" / "drop"), project=path, data_dir=str(tmp_path / "data"),
+                                     store_db=str(tmp_path / "store" / "tasks.sqlite"), workbench=str(REPO))
+    assert any(".workbench-local/" in p for p in problems)
+
+
+def test_limit_23_a_sources_folder_inside_the_project_s_docs_folder_is_refused(tmp_path):
+    """The documents mirror writes under docs/ by path: the sources folder is never docs/ or inside it."""
+    project = tmp_path / "project"
+    for name in ("docs", "docs/sources", "docs/workbench/vault", "docs/a/b/c"):
+        path = write_config(tmp_path, sources_dir=str(project / name))
+        text = refused(project_config.load, path)
+        assert "docs/" in text and "sources_dir" in text, name
+    # a neighbour whose name only starts the same way is fine
+    for name in ("docs-archive", "docsx/sources", "sources"):
+        path = write_config(tmp_path, sources_dir=str(project / name))
+        assert project_config.load(path)["sources_dir"] == str(project / name)
+
+
 # --- the folder, after review: leftovers, pipes, links with a closing slash, the marker's project, the staging folder ---------------
 
 
@@ -541,11 +593,14 @@ def test_a_numbered_folder_with_no_record_never_blocks_the_next_import_it_is_mov
     assert import_text(case, CSV)["version"] == 1
     (case.folder / "survey" / "2").mkdir()
     (case.folder / "survey" / "2" / "planted.md").write_text("planted")
+    long_ago = __import__("time").time() - 5 * 86400
+    os.utime(case.folder / "survey" / "2", (long_ago, long_ago))   # a leftover of an older backup: its own date is old
     second = import_text(case, CSV + "fig,9.00\n", label="refresh")
     assert second["version"] == 2, "the number after the recorded ones, not after the folders"
     assert (case.folder / "survey" / "2" / "manifest.json").is_file() and not (case.folder / "survey" / "2" / "planted.md").exists()
     [aside] = orphans(case)
     assert (case.folder / ".incoming" / aside / "planted.md").read_text() == "planted", "moved aside, not lost"
+    assert __import__("time").time() - (case.folder / ".incoming" / aside).stat().st_mtime < 600, "the sweep counts its 24 hours from the move"
     # a stray file and a link at the next numbers are leftovers too; nothing goes out through the link
     outside = case.tmp / "outside"
     outside.mkdir()
@@ -630,6 +685,15 @@ def test_a_link_named_with_a_closing_slash_is_still_a_link(tmp_path):
     problems = sources.path_problems(str(link) + "/", project=path, data_dir=str(tmp_path / "data"),
                                      store_db=str(tmp_path / "store" / "tasks.sqlite"), workbench=str(REPO))
     assert any("symbolic link" in p for p in problems)
+    for spelling in (str(link) + "/.", str(link) + "/./", str(link) + "//"):
+        assert "symbolic link" in refused(project_config.load, write_config(tmp_path, sources_dir=spelling)), spelling
+    assert not any("symbolic link" in p for p in sources.path_problems(str(real) + "/.", project=path, data_dir=str(tmp_path / "data"),
+                                                                       store_db=str(tmp_path / "store" / "tasks.sqlite"), workbench=str(REPO)))
+    # a link higher up (as /tmp and /var are on macOS) is not refused for that: the folder's own name decides
+    above = tmp_path / "above"
+    os.symlink(tmp_path / "real", above)
+    assert not any("symbolic link" in p for p in sources.path_problems(str(above / "inner"), project=path, data_dir=str(tmp_path / "data"),
+                                                                       store_db=str(tmp_path / "store" / "tasks.sqlite"), workbench=str(REPO)))
     assert not any("symbolic link" in p for p in sources.path_problems(
         str(real) + "/", project=path, data_dir=str(tmp_path / "data"), store_db=str(tmp_path / "store" / "tasks.sqlite"),
         workbench=str(REPO)))
@@ -641,14 +705,68 @@ def test_a_folder_marked_by_one_project_is_refused_to_another_and_a_marker_that_
     ops.accept_config(a, project_config.load(a)["sha256"])
     marker = json.loads((Path(shared) / sources.MARKER).read_text())
     assert marker["project"] == sources.project_key(a) and marker["project"] != sources.project_key(b)
+    assert marker["project"] == f"{os.stat(a).st_dev}:{os.stat(a).st_ino}" and marker["project_path"] == os.path.realpath(a)
     refusal = refused(ops.accept_config, b, project_config.load(b)["sha256"])
     assert "another project" in refusal and "separate folder for each project" in refusal and "sources_dir" in refusal
+    assert marker["project"] in refusal and sources.project_key(b) in refusal, "the old and the new identity are shown"
+    assert "--adopt-sources" in refusal and "accept-config" in refusal
     assert "another project" in refused(sources.check_folder, project_config.load(b))
     sources.check_folder(project_config.load(a))   # the first project still uses it
     unbound = str(tmp_path / "unbound")
     sources.accept_folder(unbound)   # a marker that names no project
     c = write_config(tmp_path / "c", sources_dir=unbound)
     assert "another project" in refused(ops.accept_config, c, project_config.load(c)["sha256"])
+
+
+def test_the_marker_names_the_project_folder_not_its_spelling(tmp_path, monkeypatch):
+    """On a case-insensitive disk (macOS) the same project is opened as .../A/PROJECT and as .../a/project: the key is what the file
+    system calls the folder, so the spelling cannot change it."""
+    a = write_config(tmp_path / "a", sources_dir=str(tmp_path / "shared"))
+    before = sources.project_key(a)
+    monkeypatch.setattr(os.path, "realpath", lambda path, **kw: "/Some/Other/SPELLING")   # a spelling is never what the key is made of
+    assert sources.project_key(a) == before
+    monkeypatch.undo()
+    assert sources.project_key(a + "/.") == before and sources.project_key(a + "/../project") == before
+    link = tmp_path / "alias"
+    os.symlink(a, link)
+    assert sources.project_key(str(link)) == before
+    upper = a[:-len("project")] + "PROJECT"
+    if os.path.isdir(upper):   # a case-insensitive disk: the real thing
+        assert sources.project_key(upper) == before
+        ops.accept_config(a, project_config.load(a)["sha256"])
+        sources.check_folder(dict(project_config.load(a), project=upper))
+
+
+def test_a_folder_marked_for_another_project_is_taken_over_only_by_accept_config_in_the_terminal_with_its_flag(tmp_path):
+    shared = str(tmp_path / "shared")
+    a, b = write_config(tmp_path / "a", sources_dir=shared), write_config(tmp_path / "b", sources_dir=shared)
+    ops.accept_config(a, project_config.load(a)["sha256"])
+    sha_b = project_config.load(b)["sha256"]
+    # the page, the conversation and the other channels cannot: the operation is a terminal verb, and no other call takes the flag
+    operations = st.load("operations")
+    [row] = [r for r in operations.OPERATIONS if r["name"] == "accept-config"]
+    assert row["channels"] == ("terminal",) and [x["name"] for x in row["args"]] == ["sha256", "adopt_sources"]
+    import inspect
+    for name in ("set_mode", "give_consent", "set_model"):
+        if hasattr(ops, name):
+            assert "adopt_sources" not in inspect.signature(getattr(ops, name)).parameters, name
+    # without the flag: refused, nothing changes
+    assert "--adopt-sources" in refused(ops.accept_config, b, sha_b)
+    assert json.loads((Path(shared) / sources.MARKER).read_text())["project"] == sources.project_key(a)
+    # the use of the folder by b is refused too, and says what to do
+    assert "--adopt-sources" in refused(sources.check_folder, project_config.load(b))
+    # with the flag: taken over, and the old and the new identity are in the answer
+    done = ops.accept_config(b, sha_b, adopt_sources=True)
+    assert done["sources_folder_adopted"] == {"from": {"id": sources.project_key(a), "path": os.path.realpath(a)},
+                                              "to": {"id": sources.project_key(b), "path": os.path.realpath(b)}}
+    marker = json.loads((Path(shared) / sources.MARKER).read_text())
+    assert marker["project"] == sources.project_key(b) and marker["project_path"] == os.path.realpath(b)
+    assert stat.S_IMODE((Path(shared) / sources.MARKER).stat().st_mode) == 0o600 and not (Path(shared) / (sources.MARKER + ".new")).exists()
+    sources.check_folder(project_config.load(b))
+    assert "another project" in refused(sources.check_folder, project_config.load(a)), "the first project no longer holds it"
+    # the flag changes nothing for a folder that is not foreign, and an acceptance without it never adopts
+    again = ops.accept_config(b, sha_b, adopt_sources=True)
+    assert "sources_folder_adopted" not in again
 
 
 def test_the_staging_folder_of_an_import_is_opened_without_following_a_link_and_is_private(case):

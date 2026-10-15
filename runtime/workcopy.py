@@ -375,8 +375,8 @@ def _write(target: str, data: bytes) -> None:
     os.replace(temporary, target)
 
 
-def returning(project: str, result: dict, base: dict, base_state, skill: str, *, bound=(), versioned=(),
-              tracked=(), cfg=None) -> tuple:
+def returning(project: str, result: dict, base: dict, base_state, skill: str, *, cfg: dict, bound=(), versioned=(),
+              tracked=()) -> tuple:
     """(returned, kept, state_report): bring back what a completed run left, by the path rule. returned lists
     {"path", "class"} of what was written into the project; kept lists {"path", "class", "reason"} of what stays
     in the run folder only; state_report is the state file's merge report without its text ({"accepted",
@@ -388,8 +388,8 @@ def returning(project: str, result: dict, base: dict, base_state, skill: str, *,
     (L14). Nothing is deleted in the project. versioned lists the paths the path rule calls versioned (the change
     set's, runtime/changeset.py): they never come back as loose files and are not listed here. tracked lists the
     versioned paths of a run that makes no change set (a document task, ops.code_task): one of them the run changed
-    outside docs/ is kept, with the reason TRACKED_KEPT. cfg is the project's configuration (project_config.load()): a
-    returned path that is, or is inside, the sources folder is kept with the reason SOURCES_KEPT and never written (limit L26,
+    outside docs/ is kept, with the reason TRACKED_KEPT. cfg is the project's configuration (project_config.load()), required
+    so that no caller can leave the check out ({} for a caller that has no sources folder): a returned path that is, or is inside, the sources folder is kept with the reason SOURCES_KEPT and never written (limit L26,
     the return direction: the folder is the runtime's, even when it sits inside the project)."""
     project = os.path.realpath(project)
     cwd, changes = result["cwd"], result["changes"]
@@ -402,12 +402,12 @@ def returning(project: str, result: dict, base: dict, base_state, skill: str, *,
         keep = lambda reason: kept.append({"path": rel, "class": cls, "reason": reason})
         if cls in ("ignored", "versioned"):
             continue  # a versioned path travels in the change set
+        target = os.path.join(project, *rel.split("/"))
+        if sources.inside(cfg, target):   # before the class: whatever the path rule says of it, this folder is never written
+            keep(SOURCES_KEPT)
+            continue
         if cls not in path_rule.RETURNED:
             keep(TRACKED_KEPT if rel in tracked else "this class of path is not brought back yet")
-            continue
-        target = os.path.join(project, *rel.split("/"))
-        if cfg is not None and sources.inside(cfg, target):
-            keep(SOURCES_KEPT)
             continue
         if not lab.readable(cwd, rel):
             keep("not a regular file inside the copy")
