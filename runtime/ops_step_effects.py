@@ -50,6 +50,18 @@ def effect_dir(cfg: dict, task_id: int, cycle: int) -> str:
     return os.path.join(cfg["data_dir"], EFFECTS_DIR, str(task_id), str(cycle))
 
 
+def make_effect_dir(cfg: dict, task_id: int, cycle: int) -> str:
+    """The folder of a cycle's effect document, made with mode 0700 at every level it creates (os.makedirs would give the parents the
+    umask's mode). Returns its path."""
+    path = ""
+    for part in (EFFECTS_DIR, str(task_id), str(cycle)):
+        path = os.path.join(path, part)
+        full = os.path.join(cfg["data_dir"], path)
+        os.makedirs(full, mode=0o700, exist_ok=True)
+        os.chmod(full, 0o700)
+    return effect_dir(cfg, task_id, cycle)
+
+
 def step_effect_of(ctx: dict, item: dict):
     """(task row, the kind, its gate) when the decision is the effect of a step task's gate, else None. Never taken from the payload
     alone: the task must be a step task of a kind this checkout has, with a gate at the step the payload names."""

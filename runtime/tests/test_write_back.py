@@ -131,7 +131,9 @@ def test_the_hash_is_the_hash_of_the_effect_file_and_covers_the_target_and_the_c
     assert hashlib.sha256(path.read_bytes()).hexdigest() == item["payload_sha256"]
     doc = json.loads(path.read_text(encoding="ascii"))
     assert doc["target"]["id"] == world["page"] and doc["content"] == CONTENT and doc["effect"] == "write" and doc["provider"] == "notion"
-    assert oct(path.stat().st_mode & 0o777) == "0o600" and oct(path.parent.stat().st_mode & 0o777) == "0o700"
+    assert oct(path.stat().st_mode & 0o777) == "0o600"
+    for folder in (path.parent, path.parent.parent, path.parent.parent.parent):
+        assert oct(folder.stat().st_mode & 0o777) == "0o700", folder
 
 
 def test_a_different_target_is_a_different_hash_and_the_first_approval_covers_nothing_of_it(world):
@@ -164,7 +166,7 @@ def test_an_effect_file_edited_after_the_preview_is_not_the_approved_one_and_not
 # --- the approval ------------------------------------------------------------------------------------------------------------------
 
 
-def test_limit_29_a_write_without_the_approval_of_its_exact_content_is_refused_by_structure(world):
+def test_limit_31_a_write_without_the_approval_of_its_exact_content_is_refused_by_structure(world):
     task, item = opened(world)
     sha_wrong = "0" * 64
     for channel in ("messaging", "mcp", "conversation", None):

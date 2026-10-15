@@ -94,7 +94,7 @@ def test_the_arguments_are_checked_when_the_task_is_planned(fmt, args):
 
 
 @pytest.mark.parametrize("cell", ["=1+1", "+1+1", "-1+1", "@SUM(A1:A2)", "\tcmd", "\rcmd", "\ncmd", "\uff1d1+1", "  =lead", "\u200b=lead"])
-def test_limit_30_a_cell_that_starts_with_a_formula_character_is_written_as_text(project, tmp_path, cell):
+def test_limit_32_a_cell_that_starts_with_a_formula_character_is_written_as_text(project, tmp_path, cell):
     quoted = '"' + cell.replace('"', '""') + '"'
     (project / "docs" / "table.csv").write_text(f"name,note\nrow,{quoted}\n", encoding="utf-8", newline="")
     out, _ = run(project, "csv", {"input": "docs/table.csv", "name": "table"}, {"render": csv_through_the_real_program(tmp_path)})

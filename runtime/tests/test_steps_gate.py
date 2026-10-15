@@ -142,7 +142,7 @@ REVIEWED = dict(order=("a", "review", "c"), executors={"a": lambda c, s: {}, "c"
                 decisions={"review": decision})
 
 
-def test_limit_28_a_step_that_performs_an_external_effect_after_a_review_is_refused_when_the_kind_is_registered():
+def test_limit_30_a_step_that_performs_an_external_effect_after_a_review_is_refused_when_the_kind_is_registered():
     why = refused(**REVIEWED, effectful=("c",))
     assert "after a stop" in why and "effect gate" in why
     with pytest.raises(ValueError):

@@ -151,9 +151,7 @@ def _prepare(ctx: steps.Context, state: dict) -> dict:
                                     path=args["content"], content=content, base_text_sha256=base, base_version=read.get("version"))
     except effects.EffectError as e:
         raise steps.StepFailure("content_refused", "content", "", e.reason[:200]) from None
-    cycle_folder = ops_step_effects.effect_dir(cfg, ctx.task_id, _cycle(state))
-    os.makedirs(cycle_folder, mode=0o700, exist_ok=True)
-    os.chmod(cycle_folder, 0o700)
+    cycle_folder = ops_step_effects.make_effect_dir(cfg, ctx.task_id, _cycle(state))
     path, digest = effects.write(cycle_folder, doc)
     os.chmod(path, 0o600)
     return {"effect_sha256": digest, "content_sha256": doc["content_sha256"], "bytes": doc["bytes"], "base_sha256": base}

@@ -28,6 +28,21 @@ def a_stopping_flag_does_not_outlive_its_test():
     clear_stopping_flags()
 
 
+@pytest.fixture(autouse=True)
+def no_test_reaches_the_real_secret_store(monkeypatch, tmp_path):
+    """A message of the runtime that tells a locked secret store from a missing key asks the store for a name nothing stores
+    (runtime/secret_state.py). No test may reach the real keyring or the real credentials directory: the keyring library, when it
+    is installed, gets its null backend, and the answer kept between two tests is dropped."""
+    monkeypatch.setenv("PYTHON_KEYRING_BACKEND", "keyring.backends.null.Keyring")
+    monkeypatch.setenv("OPENHORA_CREDENTIALS_DIR", str(tmp_path / "no-credentials-directory"))   # never the home folder's real one
+    monkeypatch.delenv("CREDENTIALS_DIRECTORY", raising=False)
+    monkeypatch.setenv("OPENHORA_UPKEEP_CONTAINERS", "off")   # the sweep of orphan containers never reaches the real docker from a test
+    kept = getattr(sys.modules.get("secret_state"), "forget", None)
+    if kept is not None:
+        kept()
+    yield
+
+
 # The Python 3.9 job (.github/workflows/checks.yml) tests what the scheduler starts with the system interpreter. The
 # test_interface_*.py files drive Node over JavaScript, CSS and HTML, and Python's version changes nothing for them, so
 # that job sets WB_SKIP_JS_ONLY_TESTS=1 and they are not collected there; every other job and a plain run collect

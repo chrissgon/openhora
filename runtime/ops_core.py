@@ -201,13 +201,13 @@ def _own_key(variable: str) -> tuple:
                                 "permission": "optional: a key used only by the task runtime, with a spend cap set at the provider",
                                 "readers": ["runtime/ops_core.py"],
                                 "store_username": "runtime-" + variable.lower().replace("_", "-")}], origin="the runtime")
-        found = resolver.resolve(name)
+        got = resolver.resolve_state(name)
     except Exception as e:  # an interpreter the resolver does not run on, a missing store library, a bad registry
         sys.modules.pop("workbench_secret_resolver_runtime", None)
         return None, f"the secret resolver could not be used: {type(e).__name__}"
-    if not found:
-        return None, None
-    return found[0], None
+    if got.state in ("locked", "unsafe"):   # a store that cannot be read is not a key that is not stored (finding I3)
+        return None, got.detail
+    return (got.value, None) if got.state == "found" else (None, None)
 
 
 def _model_key(model: str) -> dict:
