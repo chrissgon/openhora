@@ -361,6 +361,18 @@ def test_the_proof_inputs_change_when_a_case_file_or_a_dependency_of_a_case_chan
     assert REAL_PROOF_INPUTS("demo-asks") != third
 
 
+def test_a_malformed_case_does_not_stop_the_proof_inputs(tree):
+    cases = tree["tree"] / "skills" / "demo-asks" / "evals" / "evals.json"
+    cases.parent.mkdir(parents=True, exist_ok=True)
+    seen = set()
+    for bad in ({"skills": 1}, {"platforms": 1}):
+        cases.write_text(json.dumps({"skill": "demo-asks", "evals": [{"id": 1, "prompt": "p", **bad}]}), encoding="utf-8")
+        found = REAL_PROOF_INPUTS("demo-asks")  # no TypeError
+        assert len(found) == 64 and found == REAL_PROOF_INPUTS("demo-asks")
+        seen.add(found)
+    assert len(seen) == 2  # the case file's bytes still count
+
+
 def test_run_command_runs_with_no_model_no_credential_and_no_network_unless_asked(tree, tmp_path, monkeypatch):
     er = lab.load()
     seen = []

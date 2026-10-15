@@ -272,7 +272,10 @@ def proof_inputs(skill: str) -> str:
         digest.update(b"\0" + name.encode("utf-8") + b"\0")
         add(os.path.join(platforms, name))
     for case_id, case in sorted(_cases(skill_dir)[1].items()):
-        context = status.case_context(LAB.ROOT, skill_dir, case, True)
+        try:
+            context = status.case_context(LAB.ROOT, skill_dir, case, True)
+        except Exception:  # a malformed case ("skills": 1): the preflight refuses it; here it only has no context
+            context = "unknown"
         digest.update(b"\0context " + case_id.encode("utf-8") + b" "
                       + (str(context) if isinstance(context, (str, type(None))) else "unknown").encode("utf-8") + b"\0")
     evidence = os.path.join(skill_dir, "evals", "evidence")
