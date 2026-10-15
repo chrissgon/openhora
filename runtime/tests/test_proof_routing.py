@@ -41,7 +41,8 @@ def standing(floor_band="reliable", web_cases=(1,), images=(IMAGE,), web_models=
 @pytest.fixture
 def facade(monkeypatch):
     """The facade's four functions, replaced. Returns the knobs a test turns and the count of standing calls."""
-    knobs = {"standing": standing(), "inputs": "inputs-1", "measurement": None, "digest": IMAGE, "calls": 0}
+    knobs = {"standing": standing(), "inputs": "inputs-1", "measurement": None, "digest": IMAGE, "calls": 0,
+             "source": "local", "published": [], "setup": None}
 
     def fake_standing(skill):
         knobs["calls"] += 1
@@ -50,7 +51,9 @@ def facade(monkeypatch):
     monkeypatch.setattr(lab, "standing", fake_standing)
     monkeypatch.setattr(lab, "proof_inputs", lambda skill: knobs["inputs"])
     monkeypatch.setattr(lab, "measurement_problem", lambda: knobs["measurement"])
-    monkeypatch.setattr(lab, "image", lambda: {"name": "img", "digest": knobs["digest"], "platform": "linux/arm64"})
+    monkeypatch.setattr(lab, "image", lambda: {"name": "img", "digest": knobs["digest"], "platform": "linux/arm64",
+                                               "source": knobs["source"], "setup": knobs["setup"]})
+    monkeypatch.setattr(lab, "published_digests", lambda: list(knobs["published"]))
     return knobs
 
 
@@ -83,7 +86,8 @@ def test_when_the_measurement_files_differ_the_skill_runs_on_the_reference_model
 
 @pytest.mark.parametrize("digest, reason", [
     (None, "the eval image is not on this machine"),
-    (OTHER, "the image on this machine is not the one the evidence was measured in"),
+    (OTHER, "the image on this machine is not the one the evidence was measured in (evidence measured in a locally "
+            "built image holds on the machine that built it only; the published image is the one every machine can have)"),
 ])
 def test_when_the_image_is_not_the_evidences_the_skill_runs_on_the_reference_model_and_without_autonomy(facade, cfg, digest, reason):
     facade["digest"] = digest
@@ -149,3 +153,33 @@ def test_no_operation_of_ops_has_the_name_of_a_module_it_imports():
             imported.update(alias.asname or alias.name for alias in node.names)  # the name the module is bound to
     operations = {node.name for node in tree.body if isinstance(node, ast.FunctionDef) and not node.name.startswith("_")}
     assert "proof" in operations and not operations & imported, operations & imported
+
+
+# --- the published image (P2d): identity is the repo digest, and local evidence is local-only (D21) --------------------
+
+def test_a_published_image_that_is_not_pulled_names_the_command(facade, cfg):
+    facade["digest"], facade["source"], facade["setup"] = None, "published", "python3 scripts/image_lock.py pull"
+    found = proof.checks(proof.row(cfg, "demo"))
+    assert found["image"] == "the published eval image is not on this machine: run python3 scripts/image_lock.py pull"
+
+
+def test_the_image_holds_when_the_published_digest_here_is_the_one_the_evidence_recorded(facade, cfg):
+    facade["digest"], facade["source"], facade["published"] = IMAGE, "published", [IMAGE]
+    assert proof.checks(proof.row(cfg, "demo"))["image"] is None
+    r = proof.route(cfg, "demo", WEB, floor_key=True)
+    assert (r["tier"], r["proven"], r["checks"]["image"]) == ("floor", True, None)
+
+
+def test_evidence_measured_in_a_published_image_is_not_called_local_when_the_machine_has_another(facade, cfg):
+    """The machine has a local build; the evidence names a published image: the plain reason, no local-only note."""
+    facade["digest"], facade["source"], facade["published"] = OTHER, "local", [IMAGE]
+    assert proof.checks(proof.row(cfg, "demo"))["image"] == "the image on this machine is not the one the evidence was measured in"
+
+
+def test_evidence_measured_in_a_local_image_holds_on_that_machine_and_says_so_elsewhere(facade, cfg):
+    facade["digest"], facade["source"] = IMAGE, "local"
+    assert proof.checks(proof.row(cfg, "demo"))["image"] is None  # the machine that built it
+    facade["digest"] = OTHER  # another machine, or a rebuild
+    reason = proof.checks(proof.row(cfg, "demo"))["image"]
+    assert reason.startswith("the image on this machine is not the one the evidence was measured in")
+    assert "locally built image holds on the machine that built it only" in reason

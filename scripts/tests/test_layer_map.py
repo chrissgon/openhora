@@ -236,7 +236,8 @@ ALLOWED = (
     # a handler reaches the resolver, the terminal shell, the shared credential formats and its sibling handlers
     ("runtime/handlers/*.py", ("providers/resolve.py", "runtime/cli.py", "scripts/redact.py", "runtime/handlers/")),
     # layer 6, the runtime: runtime/lab.py is the one file that reaches evals/ and, through the lab, the adapters
-    ("runtime/lab.py", ("runtime/", "evals/", "adapters/") + RUNTIME_OUTSIDE),
+    # (it also loads scripts/image_lock.py, the one reading of the published eval image's lock file: no other module does)
+    ("runtime/lab.py", ("runtime/", "evals/", "adapters/", "scripts/image_lock.py") + RUNTIME_OUTSIDE),
     # the one runner of a skill's script, as an isolated subprocess with a scrubbed environment; no other module of
     # runtime/ reaches skills/ as code (runtime/tests/test_isolated.py holds that)
     ("runtime/isolated.py", ("runtime/", "skills/*/scripts/*") + RUNTIME_OUTSIDE),
