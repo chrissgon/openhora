@@ -657,3 +657,12 @@ SEC and P2b (with the review fixes): a held run reaches only its own per-run key
 - The golden recording was made again: the allowed differences are `Accept-Encoding` and the `usage` body key of the OpenRouter route.
 
 Measurement version 9 was reopened a second time on 2026-10-15 for the second round of review fixes of P2b (requests under way in the meter, the reserve floor, the platform default); nothing was measured while it was open. It is closed again by the last commit of that pull request.
+
+## 2026-10-15: measurement version 9 closed (a third time, after the second round of review fixes of P2b)
+
+SEC and P2b (with the review fixes): a held run reaches only its own per-run key proxy, which serves one model, drops credential headers, forwards only the model endpoints, meters the tokens (also after a hang-up and for a request under way when the run ends, failing closed) and stops at a per-run budget with reservations; route by provider and pin by model from the gate file; CPU platform on each run line, defaulting to the docker host's, emulated platforms are trials
+
+- Measurement version 9, floor 6: nothing was measured while it was open; from this commit on the runner writes evidence under it.
+- Fingerprint: `f3fd40d5361113d83f51134223616005799564822f37001d5421f2410d32f9f3` (it replaces the ones of the entries above).
+- Written by `python3 evals/eval_status.py measurement --close`.
+- What the second round changed: the meter file is written when a request is admitted and when it ends, with `in_flight`; the runner waits until no request is under way (at most the route's timeout, not at all on a stop) before it stops the proxy; `release()` sends SIGTERM first (`docker stop`) and the proxy records each answer it was still reading as unknown, so that a run that ends in the middle of a request has the answer counted or flagged as a lower bound, never a silent zero; a `max_tokens` below 1 reserves the route's default; `image_platform()` defaults to the docker host's platform when it is arm64 or amd64 (arm64 otherwise), and `runtime/lab.py` `image()` reports the evidence platform as the image's when it is one of the accepted pair.
