@@ -6,6 +6,8 @@ The documents of the task runtime (`runtime/`), mirrored where the project keeps
 |------|------------|
 | `local.py` | The documents as Markdown files in a folder of the machine, outside the project (`dir`); comments are the `- ` lines of a side file `<path>.comments.md`, which does not move the version (the sha256 of the document's bytes). Standard library only, Python 3.9 |
 | `notion.py` | The documents as pages of a Notion workspace under one parent page: `{"provider": "notion", "parent": "<page id>", "expires": "YYYY-MM-DD"}`. Python 3.10 or newer, with `keyring`: run with `uv run` |
+| `gdrive.py` | The files a person picked in Google Drive, read as sources of a project (`SOURCES_ONLY`: it writes nothing). Scope `drive.file`. Python 3.10 or newer, with `keyring`: run with `uv run` |
+| `gdrive_auth.py`, `gdrive_picker.py` | Helpers, not implementations: the one-time authorization and the later picks, and the one-shot loopback page that runs Google's Picker (see "Google Drive" below) |
 | `notion_blocks.py` | A pure helper, not an implementation: Markdown to the blocks of a page and back (`round_trip`), the platform's side of the trip for an implementation that stores blocks |
 
 The class is found by its folder; its row in `contracts/environment.md` (and `LISTED` of `providers/resolve.py`) comes with the router's first change of its routing table.
@@ -74,6 +76,32 @@ The ten measurements of the platform plan (stage 3, WP-3.10, step 4) were made o
 ### A page read as a source (`read --as-source`)
 
 `read --id <id> --as-source` reads a page the person chose as a source of a project (`runtime/sources.py`, decision D13), not a document of it. It needs no `--config-file`: a page chosen as a source has no parent in the project's `documents` object. It uses a separate secret, `NOTION_SOURCES_TOKEN` (stored with `uv run --with keyring==25.7.0 keyring set openhora notion-sources`): an internal integration with read content only, given only the pages chosen as sources. It never uses `NOTION_TOKEN`, which writes, even when that one is set and the other is not (exit 3, no request made). It prints the same object as `read` with `comments: []` and `as_source: true`, and asks the service for no comments. No other verb takes `--as-source`. The tests are `providers/documents/tests/test_documents_notion_as_source.py`, against the stand-in service.
+
+## Google Drive (`gdrive.py`)
+
+`gdrive.py` serves the files a person picked as **sources** of a project (`runtime/sources.py`, decision D13). It is an implementation of this class by its folder and its verbs, and it is read only: `stat` and `read` take `--as-source` (as the Notion provider's `read` does, so that a later write-back keeps its own flags); `comments`, `write`, `notice` and `resolve` answer "not supported" (exit 2). It declares `SOURCES_ONLY = True`, which the contract tests of the class read to skip the write-and-read cases for it (`gdrive.py`, `gdrive_auth.py` and `gdrive_picker.py` have their own suites, `tests/test_documents_gdrive*.py`, against the stand-in service `tests/fake_drive.py`).
+
+**Files only, one scope.** The scope is `https://www.googleapis.com/auth/drive.file`, and nothing wider is requested (a test reads the consent URL; `gdrive.py` refuses a token that carries any other scope). Under it a file the person picks in the Picker is given to the app. A picked **folder** is not: the spike on a one-shot loopback page (2026-10-15) found `files.get` on the folder answered, and `files.list` with `'<folderId>' in parents` listed 0 children of a folder that held files. So the Picker is configured to open folders for navigation and not to select them, and several files can be picked at once; a Drive folder as a source is deferred, and `drive.readonly` is not requested. **`drive.file` is not read-only**: it lets the app read and write every file the person picked. The provider sends GET requests only (a test records the method of every request), and the sources code calls only the read verbs; the token itself could write, so it is kept like the files it opens (below).
+
+**What `read` does with each type.** It writes the bytes to `<out-dir>/content` and prints their description; it never parses a file (the runtime hands the bytes to the converter, a container with no network, limit L27). The export is Drive's own (`files.export`):
+
+| Drive type | Read as | Then |
+|---|---|---|
+| Google Doc | `text/markdown`; if the service answers 400 for that format, `.docx` | Markdown text goes in as a version with the converter `markdown` (it is text already, scanned for credentials like a Notion page); `.docx` goes to the converter |
+| Google Sheet | `.xlsx` (every sheet) | the converter |
+| Google Slides | `application/pdf` | the converter |
+| any other file | downloaded as it is (`alt=media`), its md5 checked against the one Drive recorded | its type read from its bytes (PDF, Word, Excel, HTML, CSV, text; any other type is refused by the intake) |
+| a folder, a drawing, a form, a script, a shortcut, a file in the trash | refused (exit 1) with the reason | |
+
+Limits: `--max-bytes` (the runtime passes 25 MiB, the intake's cap) bounds a download, checked against the size Drive reports before the bytes are asked for, and an export; Google limits exported content to 10 MB, and a 403 for it is reported as that. These two numbers and the Markdown export of a Doc are from the API reference as recalled, and the live service has not been called for them (item 2 of the plan's "To verify" stays open): the fallback to `.docx` is there because of that.
+
+**Change detection.** `stat` returns `version`: Drive's `version` counter and `modifiedTime` together, which moves when the file changes. A refresh asks `stat` first and reads the file only when `version` differs from the one recorded with the newest version of the source (`origin_version`); when the bytes read turn out to be the ones already held, no version is made.
+
+**Authorization and the secret.** `GDRIVE_SOURCES_TOKEN` is the one secret entry: a JSON record `{refresh_token, client_id, client_secret, api_key, project_number, scope, obtained_at}`, written to the OS secret store (service `openhora`, username `gdrive-sources`) by `gdrive_auth.py authorize` after the person's consent, or exported as the same JSON text in an environment. The client and the Picker's API key travel in it so that one entry covers a refresh and a later pick. The access token is made in memory for each call and never stored.
+
+**The Picker page.** Google's Picker is a script and frames from Google's hosts, so it never runs inside the runtime's page (`default-src 'self'`; `interface/` loads nothing from another host). `gdrive_auth.py authorize` (once) and `gdrive_auth.py pick` (later, no new consent) serve it from a one-shot server (`gdrive_picker.py`): bound to 127.0.0.1 on a random port; every request must carry that exact `Host`; the OAuth callback is served once and its state compared in constant time; the page, the token and the picks need a nonce only the redirected page carries; a post must carry no `Origin` or this server's own; it stops after the picks (or a cancel, a failure or 10 minutes). It sets no `script-src` policy, because the hosts the Picker needs cannot be checked offline; it sets `frame-ancestors 'none'`, no referrer and no caching.
+
+**Setup, once.** The steps are in `uv run providers/documents/gdrive_auth.py --help`: a Google Cloud project with the Drive API and the Picker API enabled, the consent screen "In production" (in "Testing" the refresh token dies after seven days), the scope `drive.file` added, a Desktop app client, an API key restricted to the Picker API; then `uv run providers/documents/gdrive_auth.py authorize`, which asks for the client id, the client secret and the key at a hidden prompt (or reads `GDRIVE_CLIENT_ID`, `GDRIVE_CLIENT_SECRET` and `GDRIVE_PICKER_API_KEY` from the environment of that one command), and verify with `uv run providers/documents/gdrive.py --check`. In the project, `python3 runtime/cli.py source-drive --project <dir>` opens the Picker and registers each file as a source.
 
 ## Tests
 
