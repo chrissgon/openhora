@@ -361,3 +361,22 @@ def test_without_a_base_in_a_git_checkout_the_reading_is_lenient_and_a_note_is_p
     (root / "evals" / "eval-gate.json").write_text(json.dumps(retired(gate, 7)))
     assert es.evidence_problems(str(root)) == ({}, 1)
     assert "no comparison base" in capsys.readouterr().err
+
+
+def test_the_blob_id_of_a_working_file_is_the_one_git_gives_and_survives_a_crlf_checkout(tmp_path, monkeypatch):
+    root, old, gate = committed_tree(tmp_path)
+    rel = str(old.relative_to(root))
+    committed = git(root, "rev-parse", "HEAD:" + rel)
+    import hashlib
+    raw = hashlib.sha1(b"blob %d\0" % len(old.read_bytes()) + old.read_bytes()).hexdigest()
+    assert es.blob_id(str(old), str(root)) == committed == raw  # a plain file: git and the raw bytes agree
+    assert es.blob_id(str(old)) == raw and es.blob_id(str(tmp_path / "nonesuch")) is None
+    # A checkout that converts line endings (core.autocrlf=true) holds CRLF where the blob holds LF: not an edit.
+    git(root, "config", "core.autocrlf", "true")
+    old.write_bytes(old.read_bytes().replace(b"\n", b"\r\n"))
+    assert es.blob_id(str(old), str(root)) == committed
+    assert es.blob_id(str(old)) != committed  # the raw bytes alone would call it an edit
+    monkeypatch.setenv("WB_BASE_REF", git(root, "rev-parse", "HEAD"))
+    standing, error, note = es.evidence_standing(str(root))
+    assert error is None and standing(rel) == "same"
+    assert es.evidence_problems(str(root)) == ({}, 1)

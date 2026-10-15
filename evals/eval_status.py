@@ -792,8 +792,16 @@ def base_resolution(root=ROOT):
     return "base", base
 
 
-def blob_id(path):
-    """The git blob id of a file's bytes (what `git hash-object` prints), or None when it cannot be read."""
+def blob_id(path, root=None):
+    """The git blob id of a working-tree file, or None when it cannot be read. Inside a git checkout (root given)
+    it is what `git hash-object --path=<path in the repository> <file>` prints, which applies the conversions git
+    applies on commit (a checkout with core.autocrlf=true holds CRLF where the blob holds LF); outside one, or
+    when git does not answer, it is the hash of the file's raw bytes, which is the same for a plain file."""
+    if root is not None:
+        rel = os.path.relpath(path, root).replace(os.sep, "/")
+        out = git_out(root, "hash-object", f"--path={rel}", "--", rel)
+        if out and re.fullmatch(r"[0-9a-f]{40,64}", out.strip()):
+            return out.strip()
     try:
         with open(path, "rb") as f:
             data = f.read()
@@ -823,7 +831,7 @@ def evidence_standing(root=ROOT):
         rel = os.path.relpath(os.path.join(root, path), root).replace(os.sep, "/")
         if rel not in at_base:
             return "new"
-        return "same" if blob_id(os.path.join(root, rel)) in (at_base[rel], None) else "edited"
+        return "same" if blob_id(os.path.join(root, rel), root) in (at_base[rel], None) else "edited"
     return standing, None, None
 
 
