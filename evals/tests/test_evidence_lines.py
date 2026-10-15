@@ -316,3 +316,48 @@ def test_a_run_count_is_by_case_model_adapter_and_variant():
     assert el.run_count_problems(event, [line("a", "with")] * 2 + [line("b", "with")] * 2 + [line("a", "without")] * 2) == []
     problems = el.run_count_problems(event, [line("a", "with")] * 3)
     assert problems == ["case 1 has 3 lines with the skill on m (a), more than the event's \"runs\", 2"]
+
+
+# --- committed evidence is never edited; a wrong base is an error, a missing one a note ------------------------
+
+def test_a_committed_file_edited_in_place_is_refused_and_an_unchanged_one_is_not(tmp_path, monkeypatch, capsys):
+    root, old, gate = committed_tree(tmp_path)
+    monkeypatch.setenv("WB_BASE_REF", git(root, "rev-parse", "HEAD"))
+    rel = str(old.relative_to(root))
+    (root / "evals" / "eval-gate.json").write_text(json.dumps(retired(gate, 7)))
+    assert es.evidence_problems(str(root)) == ({}, 1)  # unchanged, and the gate dropped its models
+    lines = read(old)
+    lines[0]["models"]["floor"] = "a-private-model-name"
+    lines[1]["model"] = "a-private-model-name"
+    write(old, lines)  # a well-formed edit that the lenient reading alone would accept
+    found = es.evidence_problems(str(root))[0]
+    assert len(found[rel]) == 1 and "committed evidence is never edited" in found[rel][0]
+    assert es.main(["evidence"], root=str(root)) == 1 and "committed evidence is never edited" in capsys.readouterr().err
+    assert es.main(["evidence", "--file", str(old)], root=str(root)) == 1
+    git(root, "checkout", "--", rel)  # restored: the base's bytes again
+    assert es.evidence_problems(str(root)) == ({}, 1)
+    assert es.main(["evidence", "--file", str(old)], root=str(root)) == 0
+
+
+def test_a_base_ref_that_does_not_resolve_is_an_error_and_not_a_lenient_reading(tmp_path, tmp_path_factory, monkeypatch):
+    root, old, gate = committed_tree(tmp_path)
+    monkeypatch.setenv("WB_BASE_REF", "no-such-ref")
+    found, checked = es.evidence_problems(str(root))
+    assert checked == 1 and list(found) == ["WB_BASE_REF"] and "names no commit of this checkout" in found["WB_BASE_REF"][0]
+    assert es.main(["evidence"], root=str(root)) == 1
+    # Outside a git checkout the variable is not read: there is no base to name.
+    plain, _ = tree(tmp_path_factory.mktemp("plain"), COMMITTED[0], gate)
+    assert es.evidence_problems(str(plain)) == ({}, 1)
+
+
+def test_without_a_base_in_a_git_checkout_the_reading_is_lenient_and_a_note_is_printed(tmp_path, monkeypatch, capsys):
+    source = COMMITTED[0]
+    gate = json.loads((REPO / "evals" / "eval-gate.json").read_text())
+    root, old = tree(tmp_path, source, gate)
+    git(root, "init", "-q", "-b", "feature")  # no main, master or origin: no default branch to compare with
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "base")
+    monkeypatch.delenv("WB_BASE_REF", raising=False)
+    (root / "evals" / "eval-gate.json").write_text(json.dumps(retired(gate, 7)))
+    assert es.evidence_problems(str(root)) == ({}, 1)
+    assert "no comparison base" in capsys.readouterr().err

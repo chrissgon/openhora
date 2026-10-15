@@ -770,17 +770,71 @@ def strict_reading(root=ROOT):
     return {"models": set(known_models(cfg)), "runs": event_config(cfg)["runs"]} if cfg else None
 
 
-def new_evidence_checker(root=ROOT):
-    """A function from the path of an evidence file (relative to root, or absolute) to True when the file is new
-    against the base of the change (comparison_base: WB_BASE_REF, else the merge base with the default branch),
-    that is, absent from the tree at that commit. Without a base every file is reported as not new, which is
-    what the class checks of the validator do too: they are skipped there."""
+def base_resolution(root=ROOT):
+    """("base", commit) when the base of the change is known; ("error", text) when WB_BASE_REF is set and does not
+    resolve inside a git checkout (a wrong base must not silently turn the strict reading off); ("none", note)
+    when there is no base, with a note for a git checkout that has no default branch and None outside git."""
+    if git_out(root, "rev-parse", "--is-inside-work-tree") is None:
+        return "none", None
+    wanted = os.environ.get("WB_BASE_REF", "").strip()
+    if wanted:
+        if git_out(root, "rev-parse", "--verify", "--quiet", wanted + "^{commit}") is None:
+            return "error", (f"WB_BASE_REF is {wanted!r}, which names no commit of this checkout: the evidence files cannot be "
+                             "told from new ones. Fetch the base, or unset it")
+        base = git_out(root, "merge-base", "HEAD", wanted)
+        if not base:
+            return "error", f"WB_BASE_REF {wanted!r} has no merge base with HEAD: the evidence files cannot be told from new ones"
+        return "base", base.strip()
     base = comparison_base(root)
-    listing = git_out(root, "ls-tree", "-r", "--name-only", base, "--", "skills") if base else None
+    if base is None:
+        return "none", ("no comparison base (no default branch found): every evidence file is read by its own event line, "
+                        "and an edited or new one is not told apart")
+    return "base", base
+
+
+def blob_id(path):
+    """The git blob id of a file's bytes (what `git hash-object` prints), or None when it cannot be read."""
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except OSError:
+        return None
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()  # git's own object id, not a security hash
+
+
+def evidence_standing(root=ROOT):
+    """(standing, error, note): standing(path) answers, for an evidence file (path relative to root or absolute),
+    "new" (absent at the base of the change), "edited" (at the base with other bytes: committed evidence is never
+    edited), "same" (at the base with the same bytes) or "unchecked" (there is no usable base). error is the
+    problem text of a WB_BASE_REF that does not resolve, and note a line to print when there is no base."""
+    kind, value = base_resolution(root)
+    if kind != "base":
+        return (lambda path: "unchecked"), (value if kind == "error" else None), (value if kind == "none" else None)
+    listing = git_out(root, "ls-tree", "-r", "--", value, "skills")
     if listing is None:
-        return lambda path: False
-    old = set(listing.split("\n"))
-    return lambda path: os.path.relpath(os.path.join(root, path), root).replace(os.sep, "/") not in old
+        return (lambda path: "unchecked"), None, "the tree at the comparison base cannot be listed: evidence files are read by their own event line"
+    at_base = {}
+    for line in listing.split("\n"):
+        head, _, name = line.partition("\t")
+        if name and head.split(" ")[:2][-1:] == ["blob"]:
+            at_base[name] = head.split(" ")[2]
+
+    def standing(path):
+        rel = os.path.relpath(os.path.join(root, path), root).replace(os.sep, "/")
+        if rel not in at_base:
+            return "new"
+        return "same" if blob_id(os.path.join(root, rel)) in (at_base[rel], None) else "edited"
+    return standing, None, None
+
+
+EDITED_TEXT = ("committed evidence is never edited: this file differs from the one at the base of the change; "
+               "restore it (git checkout <base> -- <path>), and write a new test event instead")
+
+
+def evidence_reading(standing, strict):
+    """What evidence_lines.evidence_problems asks of one lab file: the strict reading for a new file, a refusal text
+    for an edited one, None (its own event line) for the others."""
+    return lambda path: {"new": strict, "edited": EDITED_TEXT}.get(standing(path))
 
 
 def evidence_file_problems(path, root=ROOT, skill=None, strict=False):
@@ -792,10 +846,15 @@ def evidence_file_problems(path, root=ROOT, skill=None, strict=False):
 def evidence_problems(root=ROOT, only=None):
     """{relative path: [problems]} and the number of files checked, for the evidence folders of every skill, or of
     one (evidence_lines.evidence_problems, with the reader of field files). A lab file that is new against the base
-    of the change is read strictly (strict_reading), every other one by its own event line (backlog T24)."""
-    is_new, strict = new_evidence_checker(root), strict_reading(root)
-    return EVIDENCE_LINES.evidence_problems(root, only, field_problems=field_file_problems,
-                                            strict_for=lambda rel: strict if is_new(rel) else None)
+    of the change is read strictly (strict_reading), one that exists at the base with other bytes is refused (committed
+    evidence is never edited), every other one is read by its own event line (backlog T24). A WB_BASE_REF that does not
+    resolve is reported under that name."""
+    standing, error, note = evidence_standing(root)
+    if note:
+        print(f"Note: {note}", file=sys.stderr)
+    found, checked = EVIDENCE_LINES.evidence_problems(root, only, field_problems=field_file_problems,
+                                                      strict_for=evidence_reading(standing, strict_reading(root)))
+    return ({"WB_BASE_REF": [error], **found} if error else found), checked
 
 
 def skill_evidence(skill_dir):
@@ -2068,7 +2127,12 @@ def main(argv, root=None):
             if os.path.basename(opts["file"]).startswith("field-"):
                 problems = field_file_problems(opts["file"], root, skill)
             else:
-                problems = evidence_file_problems(opts["file"], root, skill, strict=new_evidence_checker(root)(opts["file"]))
+                standing, error, note = evidence_standing(root)
+                if note:
+                    print(f"Note: {note}", file=sys.stderr)
+                state = standing(opts["file"])
+                problems = ([error] if error else [EDITED_TEXT] if state == "edited"
+                            else evidence_file_problems(opts["file"], root, skill, strict=state == "new"))
             found, checked = ({opts["file"]: problems} if problems else {}), 1
         else:
             found, checked = evidence_problems(root, skill)

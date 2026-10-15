@@ -25,7 +25,8 @@ against today's gate file:
      "models" later keeps its old lines valid. A malformed id is always refused.
 
 A file that is new against the base of the change (scripts/validate.py reads the base the class checks read;
-the runner checks the file it is about to copy into a skill) is read strictly, with `strict`, a dict
+the runner checks the file it is about to copy into a skill) is read strictly. A file that exists at the base
+with other bytes than the base's is refused unread: committed evidence is never edited. With `strict`, a dict
 {"models": the ids of the gate file's "models", "runs": the gate file's configured runs}: every model id of the
 event line and of the run lines is in that list (or "unknown"), so that a private model name never enters the
 repository, and the event's "runs" equals the configured number, so that a trial or a forged event cannot enter
@@ -429,9 +430,9 @@ def evidence_problems(root=ROOT, only=None, field_problems=None, strict_for=None
     """({relative path: [problems]}, files checked) for the evidence folders of every skill, or of one. A file
     whose name is neither lab-<test id>.jsonl nor field-<id>.jsonl is a problem: nothing else belongs in that
     folder. field_problems(path, root, skill) judges a field-<id>.jsonl file, and strict_for(relative path)
-    answers the `strict` argument of evidence_file_problems for a lab file (None: judge it by its own event
-    line); both belong to eval_status.py, which passes them (without field_problems a field file is reported
-    as unread)."""
+    answers, for a lab file, the `strict` argument of evidence_file_problems (None: judge it by its own event
+    line), or a text, in which case the file is refused with that text and not read; both belong to
+    eval_status.py, which passes them (without field_problems a field file is reported as unread)."""
     found, checked = {}, 0
     for name in [only] if only else skill_names(root):
         folder = os.path.join(root, "skills", name, EVIDENCE_REL)
@@ -444,8 +445,9 @@ def evidence_problems(root=ROOT, only=None, field_problems=None, strict_for=None
                 else:
                     problems = field_problems(os.path.join(folder, entry), root, name)
             else:
-                problems = evidence_file_problems(os.path.join(folder, entry), root, name,
-                                                  strict_for(rel) if strict_for else None)
+                reading = strict_for(rel) if strict_for else None
+                problems = ([reading] if isinstance(reading, str)
+                            else evidence_file_problems(os.path.join(folder, entry), root, name, reading))
             if problems:
                 found[rel] = problems
     return found, checked
