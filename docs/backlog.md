@@ -98,7 +98,7 @@ The workbench is a set of instructions that models execute with a terminal, file
   - `run_sha256` covers a case folder's `.git/index`, which a plain `git status` rewrites: an archived run folder is kept as an archive with its checksum and inspected only in a copy, with `git --no-optional-locks`.
   - `--routing`, `--resume`, `--close`, `--regrade` and the iteration numbers belong to the checkout an event ran in: a battery, its repairs and its archive use one checkout.
   - `test_the_48_old_records_stay_as_history_and_no_evidence_is_converted_from_them` (`evals/tests/test_eval_status.py`) requires every evidence file to start with `lab-`: the first imported `field-*.jsonl` fails it.
-  - The event line's `upstream` states the provider the key proxy's route pins, not one observed in the responses; the provider's quantization is not pinned.
+  - The event line's `upstream` states, for every model that ran through a key proxy, the provider its gate-file entry pins (or the route's host), not one observed in the responses; the provider's quantization is not pinned.
   - Done when: each point is fixed in the code or the documents, or dropped with a reason.
   - Plan: phase F.
 

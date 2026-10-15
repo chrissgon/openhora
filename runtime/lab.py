@@ -36,6 +36,7 @@ Standard library only. Runs on Python 3.9.
 from __future__ import annotations
 
 import contextlib
+import costs
 import glob
 import hashlib
 import importlib.util
@@ -382,7 +383,8 @@ def stop_runs() -> dict:
 
 def reported_usage(dest: str) -> dict:
     """What the attempts of a run reported, whether it ended or failed: {"cost_usd", "total_tokens"}, each the sum over the
-    attempts' timing.json (the run folder's outputs/ and those the lab kept from the attempts it set aside, failed-<n>/,
+    attempts' timing.json (the tokens are the key proxy's count instead, runtime/costs.py metered_usage, when the run and
+    every attempt it set aside have one) (the run folder's outputs/ and those the lab kept from the attempts it set aside, failed-<n>/,
     early-end-<n>/ and paused-<n>/), or None when no attempt reported it. A paused attempt (the account limit) counts as no
     result, but it may have spent before it stopped, so its usage is read: reading it only adds spend. A run id is never
     reused over a leftover run folder (the store's ids are AUTOINCREMENT), so every folder under dest is this run's.
@@ -401,6 +403,9 @@ def reported_usage(dest: str) -> dict:
             value = timing.get(key) if isinstance(timing, dict) else None
             if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
                 sums[key] = (sums[key] or 0) + value
+    metered = costs.metered_usage(dest)  # the key proxy's own count, which the run could not change, when it has one
+    if metered is not None:
+        sums["total_tokens"] = sum(metered.values())
     return sums
 
 

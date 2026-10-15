@@ -80,10 +80,13 @@ EVENT_REQUIRED = ("record", "skill", "test", "kind", "version", "content_sha256"
                   "adapter_sha256", "grader", "runs", "timeout_seconds", "retries", "measurement_version",
                   "measurement_sha256", "image_digest", "image_platform", "grading_template_sha256", "tools", "cases",
                   "baseline", "web_cases", "counts", "extra_pass_env", "complete")
-EVENT_OPTIONAL = ("gate", "upstream")
+EVENT_OPTIONAL = ("gate", "upstream", "image_source")
 RUN_REQUIRED = ("record", "skill", "version", "content_sha256", "model", "adapter", "kind", "test", "date",
                 "measurement_version", "measurement_sha256", "case", "case_sha256", "variant", "outcome", "score", "results")
-RUN_OPTIONAL = ("context_sha256", "platform", "guard_failed", "cost_usd", "run_sha256")
+# "platform" names a social platform; "cpu_platform" the CPU platform the run's container ran on (linux/arm64, linux/amd64).
+RUN_OPTIONAL = ("context_sha256", "platform", "guard_failed", "cost_usd", "run_sha256", "cpu_platform")
+IMAGE_SOURCES = ("published", "local")
+CPU_PLATFORM_RE = re.compile(r"linux/[a-z0-9]+(/[a-z0-9]+)?")
 GATE_KEYS = ("passed", "with", "baseline", "threshold", "tolerance")
 
 
@@ -224,6 +227,8 @@ def event_line_problems(line, models=None):
         bad("image_digest", "sha256:<64 hexadecimal characters>")
     if not (isinstance(line["image_platform"], str) and re.fullmatch(r"linux/[a-z0-9]+(/[a-z0-9]+)?", line["image_platform"])):
         bad("image_platform", "a platform such as linux/arm64")
+    if "image_source" in line and line["image_source"] not in IMAGE_SOURCES:
+        bad("image_source", "\"published\" (a pulled image, its digest the platform manifest's) or \"local\" (built here, its digest the image id)")
     if not (isinstance(line["tools"], dict) and all(_is(NAME_RE, k) and _is(TOOL_RE, v) for k, v in line["tools"].items())):
         bad("tools", "{tool name: its version line}")
     cases = line["cases"]
@@ -319,6 +324,8 @@ def run_line_problems(line, event=None, models=None):
         bad("cost_usd", "a number, 0 or more")
     if "run_sha256" in line and not _is(HEX64_RE, line["run_sha256"]):
         bad("run_sha256", "64 hexadecimal characters")
+    if "cpu_platform" in line and not (isinstance(line["cpu_platform"], str) and CPU_PLATFORM_RE.fullmatch(line["cpu_platform"])):
+        bad("cpu_platform", "the CPU platform the run's container ran on, such as linux/arm64 or linux/amd64")
     if "platform" in line and not _is(NAME_RE, line["platform"]):
         bad("platform", "a platform name")
     elif "platform" in line and (line["kind"] != "partial" or line["variant"] != "with"):

@@ -40,12 +40,17 @@ as the history of the first round, and nothing reads them.
    version}, "cases": {case id: case hash}, "baseline": {case id: "run"|"reused"|"none"}, "web_cases": [ids],
    "counts": {model id: {"with"|"without": {"retries", "refusals", "timeouts", "pauses", "early_ends",
    "resumes"[, "invoked"]}}}, "extra_pass_env": [names], "complete": bool[, "gate": {"passed", "with",
-   "baseline", "threshold", "tolerance"[, "note"]}][, "upstream": {model id: provider}]}
+   "baseline", "threshold", "tolerance"[, "note"]}][, "upstream": {model id: provider or host}]
+   [, "image_source": "published"|"local"]}
   A run line: {"record": "run", "skill", "version", "content_sha256", "model", "adapter", "kind", "test",
    "date", "measurement_version", "measurement_sha256", "case", "case_sha256", "variant": "with"|"without",
-   "outcome": "graded"|"timeout", "score", "results": [0|1, ...][, "context_sha256"][, "platform"]
+   "outcome": "graded"|"timeout", "score", "results": [0|1, ...][, "context_sha256"][, "platform"][, "cpu_platform"]
    [, "guard_failed": [positions]][, "cost_usd"][, "run_sha256"]}
   "cost_usd" is the cost the adapter reported for the run; it is absent when the adapter reported none.
+  "cpu_platform" is the CPU platform the run's container ran on (linux/arm64 or linux/amd64: evidence is made on
+  either); "platform" names a social platform and never this. "upstream" names, for each model that ran through a
+  key proxy, the provider its entry pins or the route's host; "image_source" says whether the image was pulled
+  ("published": "image_digest" is the platform manifest's repo digest) or built here ("local": the image id).
   "run_sha256" is a hash of what the run left and a re-grading would read (eval_run.py run_record_hash).
 
 A run line with "platform" is a run of a case of that platform's case file, skills/<name>/evals/platforms/
@@ -70,8 +75,11 @@ invalidates nothing (backlog T24; the rule is in evals/evidence_lines.py).
 The eval gate is configured in evals/eval-gate.json, committed: {"strong_model", "strong_harness",
 "floor_model", "floor_harness", "floor_pass_env": [variables], "strong_pass_env": [variables], "grader",
 "threshold", "strong_tolerance", "measurement_version", "measurement_floor"}, once a measurement version is
-closed "measurement_sha256", the optional "models" ({model id: [aliases]}, the ids an evidence line may
-carry) and the optional keys that control a test event (below). It names the models, the adapters and the grader a test uses (eval_run.py takes
+closed "measurement_sha256", the optional "models" ({model id: [aliases]} or {model id: {"aliases", "adapter",
+"pass_env", "route", "provider_pin", "upstream_models", "price_source", "run_token_budget"}}: the ids an evidence
+line may carry and, in the object form, what the key proxy of a run of that model is started with; the old keys
+above stay until a later package retires them and must agree with the entries; model_entry_problems()), the
+optional "lab_models" (the ids the lab tests by default) and the optional keys that control a test event (below). It names the models, the adapters and the grader a test uses (eval_run.py takes
 them as defaults) and what the gate and the bands are computed against. "measurement_version" is a number raised when a change alters what a run measures (the
 `measurement` command below says how, by kind). The file sits outside skills/, so changing it changes no
 content hash; the status reacts instead. Without the file there is no model list, no threshold of its own
@@ -285,6 +293,7 @@ GATE_OPTIONAL = {"measurement_sha256": str,  # absent while a measurement versio
                  # Control of a test event (event_config below): absent keys take the defaults of EVENT_DEFAULTS.
                  "runs": int, "timeout_seconds": int, "retries": int, "max_resumes": int, "total_jobs": int,
                  "web_jobs": dict, "web_cases": dict, "strong_web_pass_env": list, "models": dict, "baseline_runs": int, "baseline_margin": (int, float),
+                 "lab_models": list,  # the ids the lab tests by default (a subset of "models")
                  "epochs": list}  # [{"date", "models", "skills", "cause"}]: the model's section 8
 # What an event uses when the gate file does not say: 3 runs per case (the plan's decision 1), 900 seconds per
 # run, 2 retries inside the event, 3 resumptions of one run before it is written as a timeout, 10 runs at a
@@ -364,21 +373,90 @@ def event_problems(cfg):
                 for why in epoch_problems(entry)]
     models = cfg.get("models")
     if "models" in cfg:
-        names = [n for k, v in models.items() for n in [k] + (v if isinstance(v, list) else [])] if isinstance(models, dict) else []
-        if not (isinstance(models, dict) and models and all(isinstance(v, list) for v in models.values())
+        entries = {k: v for k, v in models.items() if isinstance(v, (list, dict))} if isinstance(models, dict) else {}
+        aliases = {k: (v if isinstance(v, list) else v.get("aliases")) for k, v in entries.items()}
+        names = [n for k, v in aliases.items() for n in [k] + (v if isinstance(v, list) else [])]
+        if not (isinstance(models, dict) and models and len(entries) == len(models)
+                and all(isinstance(v, list) for v in aliases.values())
                 and all(isinstance(n, str) and MODEL_RE.fullmatch(n) and n != "unknown" for n in names)):
-            out.append("models must map each known model id to the list of its aliases")
+            out.append("models must map each known model id to the list of its aliases, or to an object that holds them")
         elif len(set(names)) != len(names):
             out.append("models names an id or an alias twice: one model is one id")
         else:
             for key in ("strong_model", "floor_model", "grader"):
                 if cfg.get(key) not in names:
                     out.append(f"{key} {cfg.get(key)!r} is not in models: every configured model is a known one")
+            for model, entry in entries.items():
+                if isinstance(entry, dict):
+                    out += [f"models[{model!r}] {why}" for why in model_entry_problems(entry)]
+            out += old_key_disagreements(cfg)
+    if "lab_models" in cfg:
+        lab = cfg["lab_models"]
+        if not (isinstance(lab, list) and lab and all(isinstance(m, str) for m in lab) and len(set(lab)) == len(lab)):
+            out.append("lab_models must be a non-empty list of distinct model ids")
+        elif isinstance(models, dict) and not set(lab) <= set(known_models(cfg)):
+            out.append("lab_models names a model that is not an id of models")
     if "baseline_runs" in cfg and whole(cfg["baseline_runs"], 1, 10) and cfg["baseline_runs"] > cfg.get("runs", EVENT_DEFAULTS["runs"]):
         out.append("baseline_runs must not be above runs")
     margin = cfg.get("baseline_margin")
     if "baseline_margin" in cfg and (isinstance(margin, bool) or not isinstance(margin, (int, float)) or not 0 <= margin <= 1):
         out.append("baseline_margin must be a number from 0 to 1")
+    return out
+
+
+MODEL_ENTRY_KEYS = {"aliases": list, "adapter": str, "pass_env": list, "route": (str, type(None)),
+                    "provider_pin": (str, type(None)), "upstream_models": list, "price_source": str, "run_token_budget": int}
+
+
+def model_entry_problems(entry):
+    """Why an object-shaped entry of the gate file's "models" is outside its form; [] when it is valid. The entry
+    is what a run of the model needs and the key proxy of its run is started from: {"aliases", "adapter" (the
+    adapter folder), "pass_env" (the variables its runs are passed), "route" (the provider route file
+    evals/container/keyproxy/route-<name>.json, or null for a model that holds no key), "provider_pin" (the one
+    upstream provider the route's chat calls are pinned to, or null), "upstream_models" (the model names the
+    runner sends in a request body: the key proxy refuses any other), "price_source" (the URL of the price),
+    "run_token_budget" (the tokens a run of the model may use before its key proxy stops answering it)}."""
+    out = [f"has the unknown key {k!r}" for k in entry if k not in MODEL_ENTRY_KEYS]
+    for key, kind in MODEL_ENTRY_KEYS.items():
+        if key not in entry:
+            out.append(f"lacks the key {key!r}")
+        elif not isinstance(entry[key], kind) or isinstance(entry[key], bool):
+            out.append(f"has the wrong type for {key!r}")
+    if out:
+        return out
+    if not NAME_RE.fullmatch(entry["adapter"]):
+        out.append("adapter must be an adapter's folder name")
+    if not all(isinstance(v, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", v) for v in entry["pass_env"]):
+        out.append("pass_env must list variable names")
+    if entry["route"] is not None and not NAME_RE.fullmatch(entry["route"]):
+        out.append("route must be the name of a route file, or null")
+    if entry["route"] is None and (entry["provider_pin"] is not None or entry["pass_env"]):
+        out.append("a model with no route holds no key: its pass_env must be empty and its provider_pin null")
+    if entry["provider_pin"] is not None and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._/-]{0,79}", entry["provider_pin"]):
+        out.append("provider_pin must name one upstream provider")
+    if not (entry["upstream_models"] and all(isinstance(m, str) and MODEL_RE.fullmatch(m) for m in entry["upstream_models"])
+            and len(set(entry["upstream_models"])) == len(entry["upstream_models"])):
+        out.append("upstream_models must list the distinct model names the runner sends")
+    if not re.fullmatch(r"https://\S+", entry["price_source"]):
+        out.append("price_source must be an https URL")
+    if entry["run_token_budget"] < 1:
+        out.append("run_token_budget must be a positive number of tokens")
+    return out
+
+
+def old_key_disagreements(cfg):
+    """Where an object-shaped entry of "models" and the old keys of the gate file (strong_model, strong_harness,
+    strong_pass_env, floor_model, floor_harness, floor_pass_env) name different things. The old keys stay until
+    the package that retires them; until then the two forms must say the same."""
+    out = []
+    for tier in TIERS:
+        entry = model_entry(cfg, cfg.get(f"{tier}_model"))
+        if entry is None or "adapter" not in entry:
+            continue
+        if entry["adapter"] != cfg.get(f"{tier}_harness"):
+            out.append(f"models[{entry['id']!r}] names the adapter {entry['adapter']!r}, and {tier}_harness {cfg.get(f'{tier}_harness')!r}")
+        if entry["pass_env"] != cfg.get(f"{tier}_pass_env"):
+            out.append(f"models[{entry['id']!r}] names pass_env {entry['pass_env']!r}, and {tier}_pass_env {cfg.get(f'{tier}_pass_env')!r}")
     return out
 
 
@@ -557,11 +635,26 @@ def skill_version(skill_dir):
 
 
 def known_models(cfg):
-    """{model id: [aliases]} of a gate configuration: its "models", or, without that key, the configured
-    strong model, floor model and grader with no alias."""
+    """{model id: [aliases]} of a gate configuration: its "models" (a value is the list of aliases, or an object
+    that holds them under "aliases"), or, without that key, the configured strong model, floor model and grader
+    with no alias."""
     if isinstance(cfg.get("models"), dict):
-        return {k: list(v) for k, v in cfg["models"].items()}
+        return {k: list(v["aliases"] if isinstance(v, dict) else v) for k, v in cfg["models"].items()}
     return {cfg[k]: [] for k in ("strong_model", "floor_model", "grader") if cfg.get(k)}
+
+
+def model_entry(cfg, name):
+    """The object-shaped entry of the gate file's "models" for the model id or alias name, with its listed id
+    under "id", or None: no gate configuration, an old-shape (list) entry and a model the file does not list
+    have none."""
+    models = (cfg or {}).get("models")
+    if not isinstance(models, dict) or not isinstance(name, str):
+        return None
+    for listed, aliases in known_models(cfg).items():
+        if name == listed or name in aliases:
+            entry = models.get(listed)
+            return {**entry, "id": listed} if isinstance(entry, dict) else None
+    return None
 
 
 def model_id(cfg, name):

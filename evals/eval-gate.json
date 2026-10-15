@@ -31,9 +31,28 @@
     "eng-architecture": [1]
   },
   "models": {
-    "claude-sonnet-5-5": [],
-    "openrouter/deepseek/deepseek-v4.1-flash": ["deepseek/deepseek-v4.1-flash", "deepseek-v4.1-flash"]
+    "claude-sonnet-5-5": {
+      "aliases": [],
+      "adapter": "claude-code",
+      "pass_env": ["CLAUDE_CODE_OAUTH_TOKEN"],
+      "route": "anthropic",
+      "provider_pin": null,
+      "upstream_models": ["claude-sonnet-5-5", "claude-haiku-4-5", "claude-haiku-4-5-20251001"],
+      "price_source": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "run_token_budget": 5000000
+    },
+    "openrouter/deepseek/deepseek-v4.1-flash": {
+      "aliases": ["deepseek/deepseek-v4.1-flash", "deepseek-v4.1-flash"],
+      "adapter": "agents-dir",
+      "pass_env": ["OPENROUTER_API_KEY"],
+      "route": "openrouter",
+      "provider_pin": "deepinfra",
+      "upstream_models": ["deepseek/deepseek-v4.1-flash", "google/gemini-3.8-flash"],
+      "price_source": "https://openrouter.ai/deepseek/deepseek-v4.1-flash",
+      "run_token_budget": 5000000
+    }
   },
+  "lab_models": ["claude-sonnet-5-5", "openrouter/deepseek/deepseek-v4.1-flash"],
   "epochs": [
     {
       "date": "2026-10-04",

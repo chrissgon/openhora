@@ -12,7 +12,8 @@ price the reference model either. So the page and the report recompute it: the t
 that kind per million, summed. Arithmetic only. Nothing here guesses: a run whose folder holds no usage, or whose model
 has no price, has no recomputed cost; it is `unknown`, and the summary counts it (`unknown_runs`).
 
-  usage_of(run_dir)               the token counts of one run by kind, or None
+  usage_of(run_dir)               the token counts of one run by kind, or None: the key proxy's count when the run has one
+  metered_usage(run_dir)          the key proxy's count alone (the run could not change it), or None
   recompute(usage, price)         the cost in dollars of one usage at one price
   summary(runs, prices, since)    rows by day, agent, model and adapter
 
@@ -53,9 +54,15 @@ def usage_of(run_dir) -> dict | None:
     each `step_finish` event summed). None when the folder holds neither, when a file is a link, is not a regular
     file or is over its size limit, or when what it holds is not in one of these two forms (a missing or negative
     count, a count that is not a whole number). A cache count the reference form leaves out is 0, as the adapter
-    sums it; the input and output counts must be there. Never a guess."""
+    sums it; the input and output counts must be there. Never a guess.
+
+    The key proxy's own count comes first (metered_usage): when the run has one, the usage is that count, which the
+    run could not change; only without it is the run's own output read."""
     if not isinstance(run_dir, str) or not run_dir or not os.path.isabs(run_dir):
         return None
+    metered = metered_usage(run_dir)
+    if metered is not None:
+        return metered
     raw = _text(os.path.join(run_dir, RAW), RAW_MAX)
     if raw is not None:
         return _from_result(raw)
@@ -63,6 +70,49 @@ def usage_of(run_dir) -> dict | None:
         return None  # a raw.json that cannot be read is unknown; the stream is not asked in its place
     stream = _text(os.path.join(run_dir, STREAM), STREAM_MAX)
     return None if stream is None else _from_stream(stream)
+
+
+METER = "meter.json"  # what the run's key proxy counted, which the lab leaves beside the run's other outputs
+ATTEMPT_PREFIXES = ("failed-", "early-end-", "paused-")  # the folders of the attempts a run set aside, as the lab keeps them
+METER_MAX = 1024 * 1024
+
+
+def metered_usage(run_dir) -> dict | None:
+    """The token counts of one run by kind as its key proxy counted them: the sum of <run_dir>/outputs/meter.json and
+    of the meter of each attempt the run set aside (failed-<n>/, early-end-<n>/, paused-<n>/ under run_dir), which spent
+    too. {"input", "output", "cache_read", "cache_write"}, or None unless every one of those folders holds a meter that
+    counted every response of its attempt: a run without a key proxy has no meter; a meter that names an unreadable
+    response (unknown_responses above 0), is not a regular file, is over its size limit or is not in its form is not
+    used, and the caller reads the run's own output as before. The set-aside folders are looked at only when the run's
+    own outputs hold a meter. Never a guess."""
+    if not isinstance(run_dir, str) or not run_dir or not os.path.isabs(run_dir):
+        return None
+    folders = [os.path.join(run_dir, "outputs")]
+    if _text(os.path.join(folders[0], METER), METER_MAX) is None:
+        return None
+    try:
+        names = sorted(os.listdir(run_dir))
+    except OSError:
+        return None
+    folders += [os.path.join(run_dir, n, "outputs") for n in names if n.startswith(ATTEMPT_PREFIXES) and not os.path.islink(os.path.join(run_dir, n))
+                and os.path.isdir(os.path.join(run_dir, n, "outputs"))]
+    total = {kind: 0 for kind in KINDS}
+    for folder in folders:
+        text = _text(os.path.join(folder, METER), METER_MAX)
+        if text is None:
+            return None
+        try:
+            meter = json.loads(text)
+        except ValueError:
+            return None
+        if not isinstance(meter, dict) or meter.get("unknown_responses") != 0:
+            return None
+        for kind in KINDS:
+            value = _count(meter.get(kind))
+            if value is None:
+                return None
+            total[kind] += value
+    return total
 
 
 def _text(path: str, limit: int):

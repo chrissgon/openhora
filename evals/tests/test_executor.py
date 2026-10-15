@@ -41,8 +41,7 @@ def test_the_definition_hash_follows_the_files_and_names_everything(tmp_path):
     assert second != first
     n = ex.names(str(tmp_path))
     assert all(second[:12] in value for value in n.values())
-    assert set(n) == {"image", "proxy_image", "network", "proxy", "keys_image", "keys", "open_network", "keys_strong",
-                      "strong_network", "strong_open_network", "held_network", "strong_held_network", "keys_network"}
+    assert set(n) == {"image", "proxy_image", "network", "proxy", "keys_image", "tag"}
 
 
 def test_a_command_sees_the_run_folder_and_the_one_adapter_script_and_nothing_else(tmp_path):
@@ -203,6 +202,20 @@ def test_a_setup_command_sees_only_the_run_folder_and_a_missing_script_is_refuse
 
 
 FLOOR_KEY = "fake-floor-key-for-the-executor-tests-0003"
+SECRET = "OPENROUTER_API_KEY"
+
+
+def held_gate(tmp_path, monkeypatch, models=None):
+    """A gate file whose model "m" is served by the OpenRouter route and "s" by the Anthropic one; the executor reads it."""
+    import json
+    entry = {"aliases": [], "adapter": "h", "price_source": "https://example.test/price", "run_token_budget": 1000}
+    models = models or {
+        "m": {**entry, "pass_env": [SECRET], "route": "openrouter", "provider_pin": "deepinfra", "upstream_models": ["vendor/m"]},
+        "s": {**entry, "pass_env": ["CLAUDE_CODE_OAUTH_TOKEN"], "route": "anthropic", "provider_pin": None, "upstream_models": ["s-1"]}}
+    path = tmp_path / "gate.json"
+    path.write_text(json.dumps({"models": models}))
+    monkeypatch.setattr(ex, "GATE_FILE", str(path))
+    return models
 
 
 def env_pairs(argv):
@@ -210,100 +223,236 @@ def env_pairs(argv):
 
 
 @pytest.mark.parametrize("network", ["proxy", "open", "none"])
-def test_the_key_the_key_proxy_holds_never_enters_a_run(tmp_path, network):
+def test_the_key_the_key_proxy_holds_never_enters_a_run(tmp_path, monkeypatch, network):
+    held_gate(tmp_path, monkeypatch)
     root, _ = run_folder(tmp_path)
-    r, n = ex.route(), ex.names()
+    r = ex.route(name="openrouter")
+    run_id = ex.new_run_id()
     env = {r["secret"]: FLOOR_KEY, "MODEL_KEY": "another-value"}
-    argv, _ = ex.command(["true"], str(root), env=env, pass_names=[r["secret"], "MODEL_KEY"], network=network)
+    argv, name = ex.command(["true"], str(root), env=env, pass_names=[r["secret"], "MODEL_KEY"], network=network, model="m", run_id=run_id)
     given = env_pairs(argv)
-    assert FLOOR_KEY not in " ".join(argv)
+    assert FLOOR_KEY not in " ".join(argv) and name == f"wb-eval-run-{run_id}"
     assert f"{r['secret']}={r['placeholder']}" in given and r["secret"] not in given  # never by name, so never its value
     assert "MODEL_KEY" in given  # any other passed variable travels as before
-    url = f"{r['base_url_env']}={ex.keyproxy_url()}"
+    url = f"{r['base_url_env']}={ex.keyproxy_url(run_id, 'openrouter')}"
     if network == "none":
         assert url not in given and argv[argv.index("--network") + 1] == "none"
         return
-    assert url in given and ex.keyproxy_url() == f"http://{n['keys']}:{r['port']}/api/v1"
-    if network == "proxy":
-        assert argv[argv.index("--network") + 1] == n["held_network"]  # where only its key proxy is, never the egress proxy
-        assert not [e for e in given if e.split("=")[0].upper() in ("HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY")]
-    else:
-        assert argv[argv.index("--network") + 1] == n["open_network"]  # the open network the key proxy also listens on
+    assert url in given and ex.keyproxy_url(run_id, "openrouter") == f"http://wb-eval-keys-{run_id}:{r['port']}/api/v1"
+    # on its own network, where only its own key proxy is, never the egress proxy: the same name for a web run
+    assert argv[argv.index("--network") + 1] == f"wb-eval-held-{run_id}" and argv.count("--network") == 1
+    assert not [e for e in given if e.split("=")[0].upper() in ("HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY")]
 
 
-def test_a_run_without_the_held_key_is_as_it_was(tmp_path):
+def test_a_run_without_the_held_key_is_as_it_was(tmp_path, monkeypatch):
+    held_gate(tmp_path, monkeypatch)
     root, _ = run_folder(tmp_path)
-    r = ex.route()
-    argv, _ = ex.command(["true"], str(root), env={"MODEL_KEY": "v"}, pass_names=["MODEL_KEY", r["secret"]], network="proxy")
+    r = ex.route(name="openrouter")
+    argv, _ = ex.command(["true"], str(root), env={"MODEL_KEY": "v"}, pass_names=["MODEL_KEY", r["secret"]], network="proxy", model="m")
     given = env_pairs(argv)
     assert not any(e.startswith(r["secret"]) or e.startswith(r["base_url_env"]) for e in given)
-    assert "NO_PROXY=localhost,127.0.0.1" in given
+    assert "NO_PROXY=localhost,127.0.0.1" in given and argv[argv.index("--network") + 1] == ex.names()["network"]
     argv, _ = ex.command(["true"], str(root), env={"MODEL_KEY": "v"}, pass_names=["MODEL_KEY"], network="open")
-    assert "--network" not in argv  # a web case of the strong tier stays on the default network
+    assert "--network" not in argv  # a web case with no held key stays on the default network
     held = {r["secret"]: FLOOR_KEY}
-    assert ex.holds([r["secret"]], held, "proxy") and ex.holds([r["secret"]], held, "open")
-    assert not ex.holds([r["secret"]], held, "none") and not ex.holds([r["secret"]], {}, "proxy")
-    assert not ex.holds(["MODEL_KEY"], {"MODEL_KEY": "v", **held}, "proxy")
+    assert ex.holds([r["secret"]], held, "proxy", "m") and ex.holds([r["secret"]], held, "open", "m")
+    assert not ex.holds([r["secret"]], held, "none", "m") and not ex.holds([r["secret"]], {}, "proxy", "m")
+    assert not ex.holds(["MODEL_KEY"], {"MODEL_KEY": "v", **held}, "proxy", "m")
 
 
-class FakeDocker:
-    """docker as the key proxy's start sees it: a container that runs with a label, or none."""
+def test_a_held_key_is_never_given_to_a_command_whose_model_the_gate_file_does_not_serve_by_that_route(tmp_path, monkeypatch):
+    held_gate(tmp_path, monkeypatch)
+    root, _ = run_folder(tmp_path)
+    env = {SECRET: FLOOR_KEY}
+    for model in (None, "not-listed", "vendor/m"):  # the upstream name is not the model's id
+        with pytest.raises(ex.ExecutorError) as e:
+            ex.command(["true"], str(root), env=env, pass_names=[SECRET], network="proxy", model=model)
+        assert FLOOR_KEY not in str(e.value)
+    with pytest.raises(ex.ExecutorError):  # the model "s" is served by the other provider's route
+        ex.command(["true"], str(root), env=env, pass_names=[SECRET], network="proxy", model="s")
+    with pytest.raises(ex.ExecutorError):  # both providers' keys in one command: one command, one key proxy
+        ex.command(["true"], str(root), env={SECRET: FLOOR_KEY, "CLAUDE_CODE_OAUTH_TOKEN": "fake-token-0004"},
+                   pass_names=[SECRET, "CLAUDE_CODE_OAUTH_TOKEN"], network="proxy", model="m")
+    held_gate(tmp_path, monkeypatch, models={"m": ["m-alias"]})  # a model listed in the old form has no route
+    with pytest.raises(ex.ExecutorError):
+        ex.command(["true"], str(root), env=env, pass_names=[SECRET], network="proxy", model="m")
+    argv, _ = ex.command(["true"], str(root), env=env, pass_names=[SECRET], network="none", model=None)  # no network: no proxy needed
+    assert f"{SECRET}=held-by-the-eval-key-proxy" in env_pairs(argv)
 
-    def __init__(self):
-        self.calls, self.envs, self.running_label = [], [], None
+
+def test_an_alias_of_a_model_is_served_like_its_id(tmp_path, monkeypatch):
+    models = held_gate(tmp_path, monkeypatch)
+    models["m"]["aliases"] = ["m-short"]
+    held_gate(tmp_path, monkeypatch, models=models)
+    assert ex.model_entry("m-short")["id"] == "m" and ex.model_entry("m")["route"] == "openrouter"
+    assert ex.model_entry("nobody") is None and ex.model_entry(None) is None
+    assert ex.held_route([SECRET], {SECRET: FLOOR_KEY}, "proxy", "m-short") == "openrouter"
+
+
+# --- the CPU platforms evidence is made on -------------------------------------------------------------------
+
+
+def test_evidence_is_made_on_either_listed_platform_and_the_other_gets_its_own_names(monkeypatch):
+    assert ex.IMAGE_PLATFORMS == ("linux/arm64", "linux/amd64") and ex.IMAGE_PLATFORM in ex.IMAGE_PLATFORMS
+    monkeypatch.delenv(ex.PLATFORM_ENV, raising=False)
+    default = ex.names()
+    monkeypatch.setenv(ex.PLATFORM_ENV, "linux/amd64")
+    other = ex.names()
+    assert ex.image_platform() in ex.IMAGE_PLATFORMS and not set(default.values()) & set(other.values())
+
+
+# --- the published image: evals/image-lock.json --------------------------------------------------------------
+
+MANIFEST = {"linux/arm64": "sha256:" + "a" * 64, "linux/amd64": "sha256:" + "b" * 64}
+
+
+def write_lock(tmp_path, monkeypatch, definition=None, repository="ghcr.io/example/wb-eval"):
+    import json
+    images = {}
+    if definition:
+        images[definition] = {"index_digest": "sha256:" + "c" * 64, "platforms": {
+            platform: {"manifest_digest": digest, "config_digest": "sha256:" + "d" * 64} for platform, digest in MANIFEST.items()}}
+    path = tmp_path / "image-lock.json"
+    path.write_text(json.dumps({"repository": repository, "images": images}))
+    monkeypatch.setattr(ex, "LOCK_FILE", str(path))
+    return path
+
+
+class Daemon:
+    """docker as ensure() and pull() see it: images that exist, and the repo digests they list."""
+
+    def __init__(self, present=(), digests=None):
+        self.present, self.digests, self.calls = set(present), digests or {}, []
 
     def __call__(self, *args, env=None, check=True, timeout=1800):
+        import json
         import subprocess
         self.calls.append(args)
-        self.envs.append(dict(env or {}))
         out, err, code = "", "", 0
-        if args[0] == "inspect":
-            if self.running_label is None:
-                code, err = 1, "No such object"
+        if args[0] == "info":
+            out = "29.0\n"
+        elif args[:2] == ("image", "inspect"):
+            image = args[-1]
+            if image not in self.present:
+                code, err = 1, "No such image"
+            elif "{{json .RepoDigests}}" in args:
+                out = json.dumps(self.digests.get(image, [])) + "\n"
             else:
-                out = f"true {self.running_label}\n"
-        elif args[0] == "run":
-            self.running_label = next(a.split("=", 1)[1] for a in args if a.startswith(ex.KEYPROXY_LABEL + "="))
-        elif args[0] == "logs":
-            err = "keyproxy: listening on port 8890, forwarding /api/v1/ to https://openrouter.ai through the egress proxy\n"
+                out = "sha256:" + "f" * 64 + "\n"
+        elif args[0] == "pull":
+            self.present.add(args[-1])
+        elif args[0] == "build":
+            self.present.add(args[args.index("-t") + 1])
+        elif args[0] == "inspect" or args[:2] == ("network", "inspect"):
+            code, err = 1, "No such object"
         return subprocess.CompletedProcess(["docker", *args], code, out, err)
 
 
-def test_the_key_proxy_gets_the_key_by_name_and_is_reused_until_the_key_changes(monkeypatch):
-    r, n = ex.route(), ex.names()
-    docker = FakeDocker()
-    monkeypatch.setattr(ex, "docker", docker)
-    env = {r["secret"]: FLOOR_KEY, "PATH": "/usr/bin"}
-    assert ex.keyproxy(env=env) == n["keys"]
-    run = next(c for c in docker.calls if c[0] == "run")
-    assert all(FLOOR_KEY not in a for c in docker.calls for a in c)  # never on a command line, the label included
-    assert ["-e", r["secret"]] in pairs(list(run)) and docker.envs[docker.calls.index(run)][r["secret"]] == FLOOR_KEY
-    assert ["--network", n["keys_network"]] in pairs(list(run)) and f"HTTPS_PROXY=http://{n['proxy']}:{ex.PROXY_PORT}" in run
-    assert ["--cap-drop", "ALL"] in pairs(list(run)) and "--rm" in run and "--restart" not in run
-    assert not any(a in ("-p", "--publish", "--network=host") for a in run)  # nothing published on the host
-    assert run[run.index(n["keys_image"]) + 1:] == ()  # the provider of the route: no upstream given
-    assert ("network", "connect", n["open_network"], n["keys"]) in docker.calls
-    assert ("network", "connect", n["held_network"], n["keys"]) in docker.calls  # the held runs reach it by name there
-    started = len(docker.calls)
-    assert ex.keyproxy(env=env) == n["keys"]  # running with that key: reused
-    assert [c[0] for c in docker.calls[started:]] == ["inspect"]
-    ex.keyproxy(env={**env, r["secret"]: FLOOR_KEY + "-stored-again"})  # a key stored again replaces it
-    assert [c[:2] for c in docker.calls[started + 1:started + 4]] == [("inspect", "--format"), ("rm", "-f"), ("run", "-d")]
-    with pytest.raises(ex.ExecutorError):
-        ex.keyproxy(env={"PATH": "/usr/bin"})
+def test_without_a_lock_entry_the_image_is_built_here_and_its_identity_is_the_local_id(tmp_path, monkeypatch):
+    write_lock(tmp_path, monkeypatch)
+    daemon = Daemon()
+    monkeypatch.setattr(ex, "docker", daemon)
+    environment = ex.ensure()
+    n = ex.names()
+    assert n["image"] == f"wb-eval:{n['tag']}" and environment["image_source"] == "local"
+    assert environment["image_digest"] == environment["image_id"] == "sha256:" + "f" * 64
+    assert ("build", "-q", "--platform", ex.image_platform(), "-t", n["image"], ex.DEFINITION) in daemon.calls
+    assert not any(c[0] == "pull" for c in daemon.calls)
 
 
-def test_a_key_proxy_that_does_not_start_is_an_error_that_names_no_key(monkeypatch):
-    docker = FakeDocker()
+@pytest.mark.parametrize("platform", ["linux/arm64", "linux/amd64"])
+def test_with_a_lock_entry_the_image_is_the_published_one_by_digest_and_ensure_never_pulls_or_builds_it(tmp_path, monkeypatch, platform):
+    write_lock(tmp_path, monkeypatch, ex.definition_hash())
+    monkeypatch.setenv(ex.PLATFORM_ENV, platform)
+    ref = f"ghcr.io/example/wb-eval@{MANIFEST[platform]}"
+    assert ex.names()["image"] == ref
+    daemon = Daemon(present={ref}, digests={ref: [ref]})
+    monkeypatch.setattr(ex, "docker", daemon)
+    environment = ex.ensure()
+    assert environment["image_source"] == "published" and environment["image"] == ref and environment["image_platform"] == platform
+    assert environment["image_digest"] == MANIFEST[platform]  # the platform manifest's digest: the repo digest, not the local id
+    assert environment["image_id"] is None
+    assert not any(c[0] == "pull" for c in daemon.calls) and not any(c[0] == "build" and ex.DEFINITION in c for c in daemon.calls)
+    assert not any("{{.Id}}" in c for c in daemon.calls)  # the local id is never read for a published image
+    # the proxies are small and built here whatever the run image is
+    assert any(c[0] == "build" and c[-1].endswith("keyproxy") for c in daemon.calls)
 
-    def silent(*args, env=None, check=True, timeout=1800):
-        r = docker(*args, env=env, check=check, timeout=timeout)
-        if args[0] == "logs":
-            r.stderr = "keyproxy: cannot start: OSError: address in use\n"
-        return r
-    monkeypatch.setattr(ex, "docker", silent)
-    monkeypatch.setattr(ex, "KEYPROXY_READY_SECONDS", 0)
+
+def test_a_published_image_that_is_not_present_is_an_error_that_names_the_command_and_nothing_is_pulled(tmp_path, monkeypatch):
+    write_lock(tmp_path, monkeypatch, ex.definition_hash())
+    daemon = Daemon()
+    monkeypatch.setattr(ex, "docker", daemon)
     with pytest.raises(ex.ExecutorError) as e:
-        ex.keyproxy(env={ex.route()["secret"]: FLOOR_KEY})
-    assert "did not start" in str(e.value) and FLOOR_KEY not in str(e.value)
+        ex.ensure()
+    assert "python3 scripts/image_lock.py pull" in str(e.value) and ex.names()["image"] in str(e.value)
+    assert not any(c[0] == "pull" for c in daemon.calls)
 
+
+def test_a_published_image_that_lists_another_repo_digest_is_refused(tmp_path, monkeypatch):
+    write_lock(tmp_path, monkeypatch, ex.definition_hash())
+    ref = ex.names()["image"]
+    monkeypatch.setattr(ex, "docker", Daemon(present={ref}, digests={ref: ["ghcr.io/example/wb-eval@sha256:" + "9" * 64]}))
+    with pytest.raises(ex.ExecutorError) as e:
+        ex.ensure()
+    assert "does not list that repo digest" in str(e.value)
+
+
+def test_pull_fetches_the_image_the_lock_names_and_checks_its_repo_digest(tmp_path, monkeypatch, capsys):
+    write_lock(tmp_path, monkeypatch, ex.definition_hash())
+    ref = ex.names()["image"]
+    daemon = Daemon(digests={ref: [ref]})
+    monkeypatch.setattr(ex, "docker", daemon)
+    result = ex.pull()
+    assert result == {"image": ref, "image_digest": MANIFEST[ex.image_platform()], "image_platform": ex.image_platform()}
+    assert ("pull", "--platform", ex.image_platform(), ref) in daemon.calls
+    assert ex.main(["pull"]) == 0 and ref in capsys.readouterr().out
+    wrong = Daemon(digests={ref: ["ghcr.io/example/wb-eval@sha256:" + "9" * 64]})
+    monkeypatch.setattr(ex, "docker", wrong)
+    with pytest.raises(ex.ExecutorError):
+        ex.pull()
+
+
+def test_pull_without_a_lock_entry_for_this_definition_says_so(tmp_path, monkeypatch):
+    write_lock(tmp_path, monkeypatch)
+    monkeypatch.setattr(ex, "docker", Daemon())
+    with pytest.raises(ex.ExecutorError) as e:
+        ex.pull()
+    assert "names no published image" in str(e.value)
+
+
+def test_a_lock_file_that_is_not_in_its_form_is_an_error_and_the_committed_one_is_empty_until_a_script_fills_it(tmp_path):
+    import json
+    committed = ex.image_lock(str(Path(ex.LOCK_FILE)))
+    assert committed == {"repository": None, "images": {}}  # P2d fills it, through a script that verifies the image first
+    for bad in ({}, {"repository": "Not A Repo", "images": {}}, {"repository": None, "images": {"abc": {}}},
+                {"repository": None, "images": {"a" * 64: {"index_digest": "sha256:" + "c" * 64, "platforms": {"linux/arm64": {}}}}},
+                {"repository": "ghcr.io/x/y", "images": []}, {"repository": None, "images": {"a" * 64: {}}}, [],
+                {"repository": "ghcr.io/Owner/name", "images": {}}, {"repository": "docker.io/owner/name", "images": {}},
+                {"repository": "ghcr.io/owner", "images": {}}, {"repository": "ghcr.io/owner/name", "images": {}, "extra": 1},
+                {"repository": "ghcr.io/o/n", "images": {"a" * 64: {"index_digest": "sha256:" + "c" * 64, "extra": 1, "platforms": {
+                    "linux/arm64": {"manifest_digest": "sha256:" + "a" * 64, "config_digest": "sha256:" + "d" * 64}}}}},
+                {"repository": "ghcr.io/o/n", "images": {"a" * 64: {"index_digest": "sha256:" + "c" * 64, "platforms": {
+                    "linux/arm64": {"manifest_digest": "sha256:" + "a" * 64, "config_digest": "sha256:" + "d" * 64, "x": 1}}}}},
+                {"repository": "ghcr.io/o/n", "images": {"a" * 64: {"index_digest": "sha256:" + "C" * 64, "platforms": {
+                    "linux/arm64": {"manifest_digest": "sha256:" + "a" * 64, "config_digest": "sha256:" + "d" * 64}}}}}):
+        path = tmp_path / "bad.json"
+        path.write_text(json.dumps(bad))
+        with pytest.raises(ex.ExecutorError):
+            ex.image_lock(str(path))
+    (tmp_path / "bad.json").write_text("{")
+    with pytest.raises(ex.ExecutorError):
+        ex.image_lock(str(tmp_path / "bad.json"))
+    assert ex.image_lock(str(tmp_path / "missing.json")) == {"repository": None, "images": {}}
+
+
+def test_a_published_image_is_never_identified_by_the_local_image_id_anywhere_in_evals():
+    """Item 12 of the amendment: `.Id` is the identity of a local build only; a published image is its repo digest."""
+    root = Path(ex.HERE)
+    for path in list(root.glob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        for number, line in enumerate(text.splitlines(), 1):
+            if "{{.Id}}" in line:
+                assert path.name == "executor.py", f"{path.name}:{number} reads the image id"
+    source = (root / "executor.py").read_text(encoding="utf-8")
+    assert source.count("{{.Id}}") == 1  # the local build's identity, after the branch that returns a published image's digest
+    assert source.index('"image_source": "published"') < source.index("{{.Id}}")

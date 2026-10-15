@@ -507,11 +507,16 @@ def stop_all_groups(grace=STOP_GRACE):
     """End every group still registered; no new one starts afterwards."""
     STOPPING.set()
     with GROUPS_LOCK:
-        pending, containers = list(GROUPS), list(CONTAINERS)
+        pending, containers, held = list(GROUPS), list(CONTAINERS), list(HELD)
     for name in containers:  # first, so that the work stops; their docker clients end with them
         try:
             load_executor().remove(name)
         except Exception:  # stopping goes on whatever one removal does
+            pass
+    for run_id in held:  # a run's key proxy and network go with its container (the run's own end releases them again: safe)
+        try:
+            load_executor().release(run_id)
+        except Exception:
             pass
     for pgid in pending:
         try:
@@ -529,29 +534,48 @@ def stop_all_groups(grace=STOP_GRACE):
 
 
 CONTAINERS = set()  # names of containers started and not yet ended; guarded by GROUPS_LOCK
+HELD = set()  # run ids whose key proxy and network are up and not yet released; guarded by GROUPS_LOCK
+METER_POLL = 0.25  # how long the meter file must stay unchanged, after the run container is gone, before it is read
 
 
 def run_group(cmd, timeout, cwd=None, env=None, box=None):
     """subprocess.run for a command in a session of its own: its whole process group ends on a timeout
     (subprocess.TimeoutExpired is raised) and when the command returns, so nothing it started outlives it.
 
-    box = {"root", "runner", "pass", "network"} runs the command in a container (evals/executor.py): root is
+    box = {"root", "runner", "pass", "network", "model"} runs the command in a container (evals/executor.py): root is
     the run's folder, the only thing it can change; runner is the one run-prompt.sh the command starts, the
-    only file of the workbench the container sees. The container is removed by name when the command
-    returns, times out or the script is stopped, since ending the docker client does not end it. A command
-    passed the variable a key proxy holds starts that key proxy first (executor.held_route(), keyproxy()); when
-    it cannot start, the command fails as an infrastructure failure, before any container runs."""
-    container = None
+    only file of the workbench the container sees; model is the model it runs (an id or alias of the gate file's
+    list). The container is removed by name when the command returns, times out or the script is stopped, since
+    ending the docker client does not end it. A command passed the variable a key proxy holds gets a key proxy and
+    a network of its own first (executor.held_route(), hold()), both removed with the container on every way out,
+    and the proxy's count of the run's tokens is read when the run ends into box["meter"] (None when there is none,
+    which the key proxy not writing it or a command that holds no key both mean); when they cannot start, or the
+    model has no route, the command fails as an infrastructure failure, before any container runs."""
+    container = held = run_id = None
     if box is not None and EXECUTOR == "container":
         executor = load_executor()
-        held = executor.held_route(box.get("pass") or (), env, box.get("network") or "none")
-        if held:
-            try:  # the key stays there; the run gets a placeholder and the proxy's address
-                executor.keyproxy(env=env, name=held)
-            except executor.ExecutorError as e:  # an infrastructure failure of this command, never a score
-                return subprocess.CompletedProcess(cmd, 1, "", f"Error: {e}\n")
-        cmd, container = executor.command(cmd, box["root"], cwd=cwd, env=env, runner=box.get("runner"),
-                                          pass_names=box.get("pass") or (), network=box.get("network") or "none")
+        box["meter"] = None
+        model, network = box.get("model"), box.get("network") or "none"
+        meter_dir = None
+        try:
+            route = executor.held_route(box.get("pass") or (), env, network, model)
+            run_id = executor.new_run_id()
+            if route:  # the key stays there; the run gets a placeholder and its own proxy's address
+                meter_dir = executor.meter_folder(temp_base())
+                with GROUPS_LOCK:
+                    HELD.add(run_id)  # before it starts: a stop in the meantime releases what hold() has made so far
+                try:
+                    held = executor.hold(run_id, model, env, network, meter_dir=meter_dir)
+                except BaseException:
+                    with GROUPS_LOCK:
+                        HELD.discard(run_id)
+                    raise
+            cmd, container = executor.command(cmd, box["root"], cwd=cwd, env=env, runner=box.get("runner"),
+                                              pass_names=box.get("pass") or (), network=network, model=model, run_id=run_id)
+        except executor.ExecutorError as e:  # an infrastructure failure of this command, never a score
+            if meter_dir:
+                shutil.rmtree(meter_dir, ignore_errors=True)
+            return subprocess.CompletedProcess(cmd, 1, "", f"Error: {e}\n")
         cwd = None
     try:
         return _run_group(cmd, timeout, cwd, env, container)
@@ -560,6 +584,43 @@ def run_group(cmd, timeout, cwd=None, env=None, box=None):
             load_executor().remove(container, env=env)
             with GROUPS_LOCK:
                 CONTAINERS.discard(container)
+        if held:
+            executor = load_executor()
+            try:
+                box["meter"] = stable_meter(executor, held["meter"])
+            finally:
+                executor.release(run_id, env=env)
+                with GROUPS_LOCK:
+                    HELD.discard(run_id)
+                shutil.rmtree(os.path.dirname(held["meter"]), ignore_errors=True)
+
+
+def stable_meter(executor, path):
+    """The key proxy's meter file once it has stopped changing (a response still being counted when the run's
+    container went away is counted within moments), or None when there is none."""
+    last = executor.read_meter(path)
+    for _ in range(12):
+        time.sleep(METER_POLL)
+        again = executor.read_meter(path)
+        if again == last:
+            return again
+        last = again
+    return last
+
+
+def write_meter(out_dir, box):
+    """Leave the run's meter in <out>/meter.json, or remove a file of that name: the run could have made one, and
+    only the key proxy's count is the run's meter. Called by the host after the run's container is gone."""
+    path = os.path.join(out_dir, "meter.json")
+    meter = (box or {}).get("meter")
+    try:
+        if os.path.lexists(path):
+            os.remove(path)
+        if meter:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(meter, f)
+    except OSError:
+        pass
 
 
 def _run_group(cmd, timeout, cwd, env, container):
@@ -590,7 +651,9 @@ def run_failure(runner, prompt_path, cwd, model, out, env=None, timeout=900, max
                 start_dir=None, box=None, no_tools=False):
     """Run the adapter once. Returns None when it exited 0, else why it failed: an infrastructure failure,
     never a score (the adapter exits non-zero when the provider or the harness fails, not when the answer is poor).
-    The adapter is told nothing about skills: the runner staged them in <cwd> before this call."""
+    The adapter is told nothing about skills: the runner staged them in <cwd> before this call.
+    The model also goes into the box, so that the executor starts the key proxy of that model; a run whose key proxy
+    counted its tokens leaves the count in <out>/meter.json (write_meter())."""
     cmd = ["bash", runner, "--prompt-file", prompt_path, "--cwd", cwd, "--model", model, "--out", out]
     if max_cost:
         cmd += ["--max-cost-usd", max_cost]
@@ -598,18 +661,25 @@ def run_failure(runner, prompt_path, cwd, model, out, env=None, timeout=900, max
         cmd += ["--allow-web"]
     if no_tools:  # a grading call: the model judges text and is given nothing to act with
         cmd += ["--no-tools"]
+    box = {**box, "model": model} if box is not None else None
+
+    def stopped():
+        return " (the key proxy stopped the run at its token budget)" if ((box or {}).get("meter") or {}).get("budget_reached") else ""
     try:
         # start_dir: the adapter's shell exports the folder it starts in as OLDPWD once it changes to <cwd>.
-        r = run_group(cmd, timeout, cwd=start_dir, env=env, box=box)
+        try:
+            r = run_group(cmd, timeout, cwd=start_dir, env=env, box=box)
+        finally:
+            write_meter(out, box)
     except subprocess.TimeoutExpired:
         with open(os.path.join(out, "error.log"), "w", encoding="utf-8") as f:
             f.write(f"stopped after --timeout {timeout}s\n")
-        return f"timeout: stopped after {timeout}s"
+        return f"timeout: stopped after {timeout}s" + stopped()
     if r.returncode != 0:
         with open(os.path.join(out, "error.log"), "w", encoding="utf-8") as f:
             f.write(r.stdout + "\n" + r.stderr)
         last = [line.strip() for line in (r.stderr or r.stdout).splitlines() if line.strip()]
-        return f"adapter exit {r.returncode}" + (f": {last[-1][:200]}" if last else "")
+        return f"adapter exit {r.returncode}" + (f": {last[-1][:200]}" if last else "") + stopped()
     return None
 
 

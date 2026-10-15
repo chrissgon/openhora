@@ -52,6 +52,7 @@ def retired(gate, runs):
     out.update(runs=runs, strong_model="next-strong", floor_model="next-floor", grader="next-grader",
                models={"next-strong": [], "next-floor": [], "next-grader": []})
     out["baseline_runs"] = min(out.get("baseline_runs", runs), runs)
+    out.pop("lab_models", None)  # it names models of the list that is being replaced
     return out
 
 
@@ -380,3 +381,16 @@ def test_the_blob_id_of_a_working_file_is_the_one_git_gives_and_survives_a_crlf_
     standing, error, note = es.evidence_standing(str(root))
     assert error is None and standing(rel) == "same"
     assert es.evidence_problems(str(root)) == ({}, 1)
+
+
+# --- package P2b: where the image came from, and an upstream for every model that ran through a key proxy ---------
+
+def test_image_source_is_an_optional_key_of_the_event_line_and_upstream_may_name_several_models():
+    event = read(COMMITTED[0])[0]
+    assert "image_source" in el.EVENT_OPTIONAL and "image_source" not in event  # every committed file predates it
+    for source in ("published", "local"):
+        assert el.event_line_problems({**event, "image_source": source}) == []
+    for bad in ("pulled", "", None, 3):
+        assert el.event_line_problems({**event, "image_source": bad})[0].startswith("image_source must be")
+    upstream = {model: "a-provider" for model in event["models"].values()}
+    assert el.event_line_problems({**event, "upstream": upstream}) == []  # one for each model that ran through a proxy, not the floor only

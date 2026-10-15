@@ -3,9 +3,10 @@
   "placeholder": "held-by-the-eval-key-proxy",
   "base_url_env": "OPENROUTER_BASE_URL",
   "upstream": "https://openrouter.ai",
-  "provider_only": "deepinfra",
   "prefix": "/api/v1/",
   "paths": ["/api/v1/chat/completions"],
+  "usage": "openrouter-chat",
+  "metered": ["/api/v1/chat/completions"],
   "port": 8890,
   "timeout_seconds": 600,
   "max_body_bytes": 67108864
