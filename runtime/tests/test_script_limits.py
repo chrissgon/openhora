@@ -1,4 +1,4 @@
-"""The hard limits of a project script (L33 to L37 of contracts/runtime.md, package P9), one test each, named after the limit. Each test
+"""The hard limits of a project script (L34 to L38 of contracts/runtime.md, package P9), one test each, named after the limit. Each test
 is offline and reads the code that holds the limit: the commands the runner builds, the rules of the proxy, the checks of the step. The
 same limits against real containers are in providers/script/tests/test_script_docker.py (opt-in, WB_SCRIPT_DOCKER_TESTS=1), which the
 last assertion of each test names.
@@ -67,7 +67,7 @@ def options(command, name):
     return [command[i + 1] for i, w in enumerate(command) if w == name]
 
 
-def test_limit_33_no_credential_reaches_a_project_script_its_environment_is_a_list_and_a_file_that_holds_one_is_refused_before_approval_and_again_before_it_runs(world, monkeypatch):
+def test_limit_34_no_credential_reaches_a_project_script_its_environment_is_a_list_and_a_file_that_holds_one_is_refused_before_approval_and_again_before_it_runs(world, monkeypatch):
     # the environment of the container: only the pairs of ENV_ALLOWED, written as NAME=VALUE from the call's arguments, never this process's
     monkeypatch.setenv("OPENAI_API_KEY", "planted-" + "a1" * 10)
     monkeypatch.setenv("NOTION_TOKEN", "planted-" + "b2" * 10)
@@ -92,7 +92,7 @@ def test_limit_33_no_credential_reaches_a_project_script_its_environment_is_a_li
     # against a real container: test_script_docker.py::test_no_credential_of_the_calling_environment_is_inside_the_container
 
 
-def test_limit_34_a_project_script_writes_only_through_the_import_of_a_source_its_footprint_is_empty_its_root_is_read_only_and_its_result_comes_back_as_frames(world):
+def test_limit_35_a_project_script_writes_only_through_the_import_of_a_source_its_footprint_is_empty_its_root_is_read_only_and_its_result_comes_back_as_frames(world):
     assert steps.footprint_of(steps.kind_of("project-script"), {}) == []
     command = host.run_command("openhora-script-run-" + STEP_ID, IMAGE, "py", "/work/script", deadline=5, platform="darwin")
     assert "--read-only" in command and options(command, "-v") == ["/work/script:/in/script:ro"]
@@ -123,7 +123,7 @@ def test_limit_34_a_project_script_writes_only_through_the_import_of_a_source_it
     # against a real container: test_script_docker.py::test_the_root_is_read_only_the_user_is_not_root_and_no_capability_is_held
 
 
-def test_limit_35_a_project_script_reaches_no_network_except_the_destinations_declared_and_approved_none_by_default_an_internal_network_and_a_proxy_that_refuses_by_name_and_by_address():
+def test_limit_36_a_project_script_reaches_no_network_except_the_destinations_declared_and_approved_none_by_default_an_internal_network_and_a_proxy_that_refuses_by_name_and_by_address():
     default = host.run_command("openhora-script-run-" + STEP_ID, IMAGE, "py", "/work/script", deadline=5, platform="darwin")
     assert options(default, "--network") == ["none"]
     # declared destinations: the script is on the internal network of its step and on no other; the proxy is the only way out
@@ -148,7 +148,7 @@ def test_limit_35_a_project_script_reaches_no_network_except_the_destinations_de
     # ::test_an_undeclared_name_cannot_be_resolved_from_the_script_container_and_there_is_no_way_out_but_the_proxy
 
 
-def test_limit_36_a_changed_script_never_runs_and_the_kind_is_never_started_by_the_dispatcher(world):
+def test_limit_37_a_changed_script_never_runs_and_the_kind_is_never_started_by_the_dispatcher(world):
     made = add(world, "# fake: md=The approved script\n")
     (world["project"] / "scripts" / "report.py").write_text("# fake: md=Another script\n")
     out = ops.run_step(world["path"], made["task"])
@@ -165,7 +165,7 @@ def test_limit_36_a_changed_script_never_runs_and_the_kind_is_never_started_by_t
     # the provider is handed the staged copy, never the project's path (tested in test_step_project_script.py)
 
 
-def test_limit_37_a_dependency_build_has_no_mount_installs_only_what_a_hashed_lock_names_and_only_its_image_layer_reaches_a_run():
+def test_limit_38_a_dependency_build_has_no_mount_installs_only_what_a_hashed_lock_names_and_only_its_image_layer_reaches_a_run():
     command = host.build_command("openhora-script-build-" + STEP_ID, IMAGE, deadline=5, network=NET, env={"HTTPS_PROXY": "http://egress:3128"}, platform="darwin")
     for word in ("-v", "--volume", "--mount", "--volumes-from"):
         assert word not in command
