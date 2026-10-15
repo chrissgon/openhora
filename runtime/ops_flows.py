@@ -162,7 +162,7 @@ def _from_plan(ctx: dict, item: dict, name: str, title) -> dict:
     for t in tasks:
         one = {"key": t["key"]}
         if t.get("step"):
-            one.update(step=t["step"], args=_with_file_parameters(json.loads(json.dumps(t.get("args") or {})), files))
+            one.update(step=t["step"], args=_with_file_parameters(t["step"], json.loads(json.dumps(t.get("args") or {})), files))
         else:
             one["skill"] = t["skill"]
         text = (t.get("text") or "").strip()
@@ -187,20 +187,19 @@ def _from_plan(ctx: dict, item: dict, name: str, title) -> dict:
     return {"flow": name, "title": " ".join((title or plan.request_title(request)).split()), "params": params, "tasks": out}
 
 
-def _with_file_parameters(value, files: dict):
-    """The arguments of a step with the name and the hash of a file the plan bound written back as `{param}` and `{param.sha256}`."""
-    if isinstance(value, str):
-        for param, f in files.items():
-            if value == f.get("sha256"):
-                return "{" + param + ".sha256}"
-            if value == f.get("name"):
-                return "{" + param + "}"
-        return value
-    if isinstance(value, dict):
-        return {k: _with_file_parameters(v, files) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_with_file_parameters(v, files) for v in value]
-    return value
+def _with_file_parameters(step: str, args: dict, files: dict) -> dict:
+    """The arguments of a step with the name and the hash of a file the plan bound written back as `{param}` and `{param.sha256}`: the
+    `file` and `sha256` arguments, and only those, of a kind that brings a source in (the kinds that read a file from the drop). Any
+    other argument, a `source` equal to the file's name for one, is left as it is."""
+    if step not in steps.sourcing_kinds():
+        return args
+    out = dict(args)
+    for param, f in files.items():
+        if out.get("file") == f.get("name"):
+            out["file"] = "{" + param + "}"
+        if out.get("sha256") == f.get("sha256"):
+            out["sha256"] = "{" + param + ".sha256}"
+    return out
 
 
 def _validate_steps(flow: dict) -> None:
@@ -390,6 +389,7 @@ def bound(ctx: dict, name: str, params, request_id: int) -> tuple:
     if not loaded["params"] and not flow_files.placeholders(loaded):
         if given:
             raise core.OpsError(f"the flow {name} has no parameter; it was given {', '.join(given)}", 2)
+        _check_sources(ctx, loaded)
         return loaded, None
     files = {}
     for p in flow_files.file_params(loaded):
@@ -459,11 +459,11 @@ def discard_staged(ctx: dict, request_id) -> None:
     """Remove what was handed over for a request (.workbench-local/drop/request-<id>/): regular files and links, then the folder. It
     follows nothing and never fails (a file that cannot be removed stays; the folder is the person's own, git-ignored)."""
     folder = _stage_folder(os.path.realpath(_project(ctx)), request_id)
+    if os.path.islink(folder):
+        return
     try:
         names = os.listdir(folder)
     except OSError:
-        return
-    if os.path.islink(folder):
         return
     for name in names:
         try:
@@ -474,6 +474,11 @@ def discard_staged(ctx: dict, request_id) -> None:
         os.rmdir(folder)
     except OSError:
         pass
+
+
+def _hand_over(ctx: dict, task_id):
+    """The command that hands the file to the task by hand, after a placement that failed."""
+    return core._command("hand-over", _project(ctx), task_id=task_id, file="<path>") if task_id else None
 
 
 def after_approve(ctx: dict, item: dict, done: dict):
@@ -487,14 +492,15 @@ def after_approve(ctx: dict, item: dict, done: dict):
     need = _needs(payload)
     project = os.path.realpath(_project(ctx))
     out = {"placed": [], "failed": []}
+    ids = {t["key"]: t["id"] for t in done.get("tasks") or []}
     try:
         have = staged(project, item["task_id"]) if os.path.isdir(_stage_folder(project, item["task_id"])) else {}
     except (OSError, core.OpsError) as e:      # a file over the cap, or one that vanished: the files cannot be read now
         have = {}
-        out["failed"] += [{"task": None, "file": file, "reason": type(e).__name__} for _key, file, _digest in need]
+        out["failed"] += [{"task": ids.get(key), "file": file, "reason": type(e).__name__, "next": _hand_over(ctx, ids.get(key))}
+                          for key, file, _digest in need]
         need = []
     strict = _strict(payload)
-    ids = {t["key"]: t["id"] for t in done.get("tasks") or []}
     for key, file, digest in need:
         if file not in have and file not in strict:
             continue
@@ -513,7 +519,7 @@ def after_approve(ctx: dict, item: dict, done: dict):
                 f.write(data)
             out["placed"].append({"task": ids[key], "file": file})
         except (OSError, core.OpsError, KeyError) as e:
-            out["failed"].append({"task": ids.get(key), "file": file, "reason": type(e).__name__})
+            out["failed"].append({"task": ids.get(key), "file": file, "reason": type(e).__name__, "next": _hand_over(ctx, ids.get(key))})
     discard_staged(ctx, item["task_id"])
     return out if out["placed"] or out["failed"] else None
 

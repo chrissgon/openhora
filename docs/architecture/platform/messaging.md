@@ -234,11 +234,11 @@ The `channels` column of the table (`runtime/operations.py`) is the **ceiling** 
 The groups are a closed list in `operations.GROUPS` (`runtime/operations.py:259`), a pure literal, and the block below is generated from it:
 
 <!-- generated: channel-groups -->
-Channels with a policy (`POLICY_CHANNELS`): `page`, `mcp`, `messaging`. Never narrowed (`NEVER_NARROWED`): `terminal`. A policy for `page`, `mcp` must list `read` (`MUST_READ`). A channel with no entry in the project's `channels` takes its `DEFAULT_POLICY`: `messaging`: `read`, `talk`, `answer`; any other channel keeps its whole ceiling. Valid on the page only (`PAGE_ONLY_GROUPS`): `approve-effects`. An effect is approved only from (`EFFECT_CHANNELS`): `terminal`, `page`. Brakes (`BRAKES`), permitted on the page whatever its policy says: `cancel`, `set-mode`.
+Channels with a policy (`POLICY_CHANNELS`): `page`, `mcp`, `messaging`. Never narrowed (`NEVER_NARROWED`): `terminal`. A policy for `page`, `mcp` must list `read` (`MUST_READ`). A channel with no entry in the project's `channels` takes its `DEFAULT_POLICY`: `messaging`: `read`, `talk`, `answer`, `routine-brakes`; any other channel keeps its whole ceiling. Valid on the page only (`PAGE_ONLY_GROUPS`): `approve-effects`. An effect is approved only from (`EFFECT_CHANNELS`): `terminal`, `page`. Brakes (`BRAKES`), permitted on the page whatever its policy says: `cancel`, `set-mode`, `routine-pause`, `routine-cancel`.
 
 | Group | Operations | Decision kind | Valid on | In the default policy of |
 |---|---|---|---|---|
-| `read` | `status`, `progress`, `pending`, `task`, `agents`, `costs`, `skills`, `artifacts`, `artifact`, `flows`, `flow-check`, `conversation`, `connections`, `version`, `config`, `commands`, `artifact-raw` | - | `page`, `mcp`, `messaging` | `messaging` |
+| `read` | `status`, `progress`, `pending`, `task`, `agents`, `costs`, `skills`, `artifacts`, `artifact`, `flows`, `flow-check`, `routines`, `conversation`, `connections`, `version`, `config`, `commands`, `artifact-raw` | - | `page`, `mcp`, `messaging` | `messaging` |
 | `talk` | `say` | - | `page`, `mcp`, `messaging` | `messaging` |
 | `answer` | `answer` | - | `page`, `mcp`, `messaging` | `messaging` |
 | `release` | `release` | - | `page`, `mcp`, `messaging` | - |
@@ -254,6 +254,9 @@ Channels with a policy (`POLICY_CHANNELS`): `page`, `mcp`, `messaging`. Never na
 | `dispatch` | `dispatch` | - | `page` | - |
 | `documents` | `sync`, `hand-over` | - | `page` | - |
 | `workflows` | `flow-save`, `stage-file` | - | `page` | - |
+| `routine-brakes` | `routine-pause`, `routine-cancel` | - | `page`, `messaging` | `messaging` |
+| `routine-edit` | `routine-create`, `routine-change` | - | `page`, `messaging` | - |
+| `routine-approve` | `routine-approve`, `routine-resume` | - | `page` | - |
 | `verdict` | `verdict` | - | `page` | - |
 | `sources` | `source-add`, `source-import`, `source-refresh`, `source-describe`, `sources` | - | `page`, `mcp`, `messaging` | - |
 <!-- /generated -->

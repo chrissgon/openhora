@@ -26,6 +26,10 @@ export const OPS = Object.freeze({
   handOver: "hand-over",
   stageFile: "stage-file",
   flowSave: "flow-save",
+  routineCreate: "routine-create",
+  routineChange: "routine-change",
+  routineApprove: "routine-approve",
+  routineResume: "routine-resume",
   verdict: "verdict",
   say: "say",
   giveConsent: "give-consent",
@@ -34,6 +38,8 @@ export const OPS = Object.freeze({
 /** The write functions of api.js that are never withheld, or that the page has no control for, each with its reason. */
 export const EXEMPT = Object.freeze({
   cancel: "a brake: cancelling a request is never withheld from the page",
+  routinePause: "a brake: pausing a routine is never withheld from the page",
+  routineCancel: "a brake: cancelling a routine is never withheld from the page",
   setMode: "narrowing only, a brake: the page offers Stop agent and Supervise, a wider mode is a terminal command to copy",
   setModel: "the service decides: fixing a model needs the project's group set-mode; the consent that an autonomous agent needs is not given by this call (it has its own, giveConsent, and its own group, consent)",
   sync: "no control on the page",
@@ -43,7 +49,7 @@ export const EXEMPT = Object.freeze({
 /** Every plain name and pair that the controls ask about (the redraw key of a part is built from these). */
 export const ASKED = Object.freeze([
   ["answer"], ["release"], ["reject"], ["retry"], ["go-ahead"], ["hand-over"], ["verdict"], ["say"], ["request"], ["route"], ["give-consent"],
-  ["stage-file"], ["flow-save"],
+  ["stage-file"], ["flow-save"], ["routine-create"], ["routine-change"], ["routine-approve"], ["routine-resume"],
   ["approve", "plan"], ["approve", "acceptance"], ["approve", "effect"], ["approve", "go-ahead"],
 ]);
 

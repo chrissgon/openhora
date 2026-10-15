@@ -52,7 +52,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 BUSY_TIMEOUT_SECONDS = 10
 PATH_ENV = "STORE_SQLITE_PATH"
 
@@ -416,6 +416,70 @@ MIGRATIONS = {
     # task that says nothing, and every row older than the column) leaves it to the skill. The plan's hash covers the word, and the run reads this column only.
     13: ("a task that runs its skill without the web", [
         "ALTER TABLE tasks ADD COLUMN web_off INTEGER CHECK (web_off IS NULL OR web_off = 1)",
+    ]),
+    # P6b: routines, their fires, and the Drive source type. A routine is a workflow started by a schedule; it is created as a draft and
+    # becomes active only when the person approves the sha256 of its exact content (decision D23, D35): `approved_sha256` is that hash and
+    # any change to the record clears it. It carries no mode, cap, policy or standing approval of its own. A fire is keyed by the routine
+    # and the slot (`UNIQUE (routine_id, slot)`), so one slot never creates tasks twice (finding I5): a fire, its skipped slots and the
+    # stop that asks for a decision are rows, and a fire's request is created in the same transaction as its row. Nothing here is deleted
+    # or changed once written (limit L13). The sources table is rebuilt to admit `drive` (P7 stored a Drive file as a `file` row whose
+    # origin was `drive:<file id>`; those rows are rewritten to type `drive` and the bare id, and their versions are not touched).
+    14: ("routines, their fires, and the Drive source type", [
+        "PRAGMA defer_foreign_keys = ON",
+        "CREATE TABLE sources_before_14 AS SELECT * FROM sources",
+        "DROP TABLE sources",
+        """CREATE TABLE sources (
+            id TEXT PRIMARY KEY,
+            type TEXT NOT NULL CHECK (type IN ('file', 'notion', 'drive')),
+            origin TEXT NOT NULL,
+            description TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL)""",
+        """INSERT INTO sources (id, type, origin, description, created_at, updated_at)
+            SELECT id,
+                   CASE WHEN type = 'file' AND origin LIKE 'drive:%' THEN 'drive' ELSE type END,
+                   CASE WHEN type = 'file' AND origin LIKE 'drive:%' THEN substr(origin, 7) ELSE origin END,
+                   description, created_at, updated_at FROM sources_before_14""",
+        "DROP TABLE sources_before_14",
+        """CREATE TRIGGER sources_never_deleted BEFORE DELETE ON sources
+            BEGIN SELECT RAISE(ABORT, 'a source is never deleted'); END""",
+        """CREATE TRIGGER sources_only_description_moves BEFORE UPDATE ON sources
+            WHEN NEW.id IS NOT OLD.id OR NEW.type IS NOT OLD.type OR NEW.origin IS NOT OLD.origin OR NEW.created_at IS NOT OLD.created_at
+            BEGIN SELECT RAISE(ABORT, 'a source keeps its id, type and origin: only its description changes'); END""",
+        """CREATE TABLE routines (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            flow TEXT NOT NULL,
+            params TEXT NOT NULL DEFAULT '{}',
+            schedule TEXT NOT NULL,
+            model TEXT,
+            consent INTEGER NOT NULL DEFAULT 0 CHECK (consent IN (0, 1)),
+            providers TEXT NOT NULL DEFAULT '[]',
+            window_seconds INTEGER CHECK (window_seconds IS NULL OR window_seconds >= 60),
+            state TEXT NOT NULL CHECK (state IN ('draft', 'active', 'paused', 'stopped', 'cancelled')),
+            approved_sha256 TEXT,
+            approved_content TEXT,
+            approved_at TEXT,
+            approved_by TEXT,
+            resumed_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL)""",
+        """CREATE TABLE routine_fires (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            routine_id INTEGER NOT NULL REFERENCES routines (id),
+            slot TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('created', 'asked', 'skipped')),
+            reason TEXT,
+            request_id INTEGER REFERENCES tasks (id),
+            fired_at TEXT NOT NULL,
+            UNIQUE (routine_id, slot))""",
+        "CREATE INDEX routine_fires_by_request ON routine_fires (request_id)",
+        """CREATE TRIGGER routines_never_deleted BEFORE DELETE ON routines
+            BEGIN SELECT RAISE(ABORT, 'a routine is never deleted: it is cancelled'); END""",
+        """CREATE TRIGGER routine_fires_never_deleted BEFORE DELETE ON routine_fires
+            BEGIN SELECT RAISE(ABORT, 'the record of a fire is never deleted'); END""",
+        """CREATE TRIGGER routine_fires_never_changed BEFORE UPDATE ON routine_fires
+            BEGIN SELECT RAISE(ABORT, 'the record of a fire is never changed'); END""",
     ]),
 }
 
@@ -1159,7 +1223,7 @@ def _model_arg(value):
 
 
 SOURCE_ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
-SOURCE_TYPES = ("file", "notion")
+SOURCE_TYPES = ("file", "notion", "drive")
 SOURCE_LABELS = ("import", "refresh", "changed-by-person")
 SOURCE_BYS = ("runtime", "person")
 
@@ -1360,17 +1424,23 @@ def request_add(conn: sqlite3.Connection, *, title: str, text: str, flow: str | 
         raise StoreError("a plan names its flow", EXIT_USAGE)
     now = iso(utcnow())
     with write(conn):
-        after = _check_after(conn, None, after)
-        request_id = conn.execute(
-            "INSERT INTO tasks (flow, title, text, state, after_request, model, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (flow, title, text, "planned" if plan else "requested", after, model, now,
-                                                now)).lastrowid
-        ids = _insert_plan(conn, request_id, flow, plan, now)
-        _insert_waits(conn, request_id, dict(zip([p["key"] for p in plan], ids)), waits or [], now)
-        _refresh(conn, now)
-        rows = conn.execute("SELECT id, key, skill, state FROM tasks WHERE parent_id = ? ORDER BY id",
-                            (request_id,)).fetchall()
-        state = conn.execute("SELECT state FROM tasks WHERE id = ?", (request_id,)).fetchone()["state"]
+        return _request_in(conn, title, text, flow, plan, after, waits, model, now)
+
+
+def _request_in(conn: sqlite3.Connection, title: str, text: str, flow, plan: list, after, waits, model, now: str) -> dict:
+    """Inside a write transaction: the request and its checked plan, as request_add makes them (a routine's fire makes its request
+    in the transaction that writes the fire's row)."""
+    after = _check_after(conn, None, after)
+    request_id = conn.execute(
+        "INSERT INTO tasks (flow, title, text, state, after_request, model, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (flow, title, text, "planned" if plan else "requested", after, model, now,
+                                            now)).lastrowid
+    ids = _insert_plan(conn, request_id, flow, plan, now)
+    _insert_waits(conn, request_id, dict(zip([p["key"] for p in plan], ids)), waits or [], now)
+    _refresh(conn, now)
+    rows = conn.execute("SELECT id, key, skill, state FROM tasks WHERE parent_id = ? ORDER BY id",
+                        (request_id,)).fetchall()
+    state = conn.execute("SELECT state FROM tasks WHERE id = ?", (request_id,)).fetchone()["state"]
     return {"request": request_id, "state": state, "tasks": [row_dict(r) for r in rows]}
 
 
@@ -2840,8 +2910,222 @@ def _source_row(conn: sqlite3.Connection, source_id: str):
     return conn.execute("SELECT * FROM sources WHERE id = ?", (source_id,)).fetchone()
 
 
+# --- routines (P6b, migration 14) ---------------------------------------------------------------------------------------------
+#
+# A routine is a workflow started by a schedule. The store keeps the record and the fires and knows no rule of the work: what a hash
+# covers, when a slot is due and what a fire does are the runtime's (runtime/routines.py, runtime/ops_routines.py). Here: a draft
+# becomes active only through routine_approve, with the sha256 the runtime computed; any change clears the approval; a fire is one row
+# keyed by (routine, slot), written in the same transaction as the request it creates.
+
+ROUTINE_STATES = ("draft", "active", "paused", "stopped", "cancelled")
+ROUTINE_JSON = ("params", "schedule", "providers", "approved_content")
+ROUTINE_FIELDS = ("flow", "params", "schedule", "model", "consent", "providers", "window_seconds")
+FIRE_STATUSES = ("created", "asked", "skipped")
+ROUTINE_NAME_RE = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
+
+
+def _routine_row(conn: sqlite3.Connection, routine_id) -> dict:
+    row = conn.execute("SELECT * FROM routines WHERE id = ?", (routine_id,)).fetchone()
+    if row is None:
+        raise StoreError(f"no routine {routine_id}")
+    return row_dict(row, ROUTINE_JSON)
+
+
+def _routine_args(fields: dict) -> dict:
+    out = {}
+    if "flow" in fields:
+        flow = text_arg(fields["flow"], "flow", LABEL_MAX)
+        if not ROUTINE_NAME_RE.fullmatch(flow):
+            raise StoreError("a routine's flow is a workflow name", EXIT_USAGE)
+        out["flow"] = flow
+    for key in ("params", "schedule"):
+        if key in fields:
+            if not isinstance(fields[key], dict) or (key == "schedule" and not fields[key]):
+                raise StoreError(f"a routine's {key} is an object", EXIT_USAGE)
+            out[key] = json.dumps(fields[key], sort_keys=True, separators=(",", ":"))
+    if "providers" in fields:
+        if not isinstance(fields["providers"], list) or not all(isinstance(v, str) and v for v in fields["providers"]):
+            raise StoreError("a routine's providers are a list of provider names", EXIT_USAGE)
+        out["providers"] = json.dumps(sorted(set(fields["providers"])), separators=(",", ":"))
+    if "model" in fields:
+        out["model"] = _model_arg(fields["model"])
+    if "consent" in fields:
+        out["consent"] = 1 if fields["consent"] else 0
+    if "window_seconds" in fields:
+        window = fields["window_seconds"]
+        if window is not None and (isinstance(window, bool) or not isinstance(window, int) or window < 60):
+            raise StoreError("a routine's catch-up window is a whole number of seconds, at least 60", EXIT_USAGE)
+        out["window_seconds"] = window
+    if len(json.dumps(out)) > PAYLOAD_MAX:
+        raise StoreError("a routine's record is over the cap", EXIT_USAGE)
+    return out
+
+
+def routine_add(conn: sqlite3.Connection, *, name: str, flow: str, params: dict, schedule: dict, model=None, consent=False,
+                providers=(), window_seconds=None) -> dict:
+    """Create a routine as a draft. The name is lowercase words joined by hyphens, once. Returns the row."""
+    name = text_arg(name, "name", LABEL_MAX)
+    if not ROUTINE_NAME_RE.fullmatch(name):
+        raise StoreError("a routine's name is lowercase words joined by hyphens", EXIT_USAGE)
+    args = _routine_args({"flow": flow, "params": params, "schedule": schedule, "model": model, "consent": consent,
+                          "providers": list(providers), "window_seconds": window_seconds})
+    now = iso(utcnow())
+    with write(conn):
+        if conn.execute("SELECT 1 FROM routines WHERE name = ?", (name,)).fetchone():
+            raise StoreError(f"there is a routine named {name}", EXIT_USAGE)
+        new = conn.execute(
+            "INSERT INTO routines (name, flow, params, schedule, model, consent, providers, window_seconds, state, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)",
+            (name, args["flow"], args["params"], args["schedule"], args["model"], args["consent"], args["providers"],
+             args["window_seconds"], now, now)).lastrowid
+        return _routine_row(conn, new)
+
+
+def routine_get(conn: sqlite3.Connection, routine_id: int) -> dict:
+    return _routine_row(conn, routine_id)
+
+
+def routines_list(conn: sqlite3.Connection) -> list:
+    """Every routine, oldest first, each with its last fire ({"slot", "status", "reason", "request_id", "fired_at"} or None)."""
+    out = []
+    for row in conn.execute("SELECT * FROM routines ORDER BY id").fetchall():
+        item = row_dict(row, ROUTINE_JSON)
+        last = conn.execute("SELECT slot, status, reason, request_id, fired_at FROM routine_fires WHERE routine_id = ? "
+                            "ORDER BY id DESC LIMIT 1", (item["id"],)).fetchone()
+        item["last_fire"] = row_dict(last) if last else None
+        out.append(item)
+    return out
+
+
+def routine_change(conn: sqlite3.Connection, routine_id: int, **fields) -> dict:
+    """Change the fields of a routine (flow, params, schedule, model, consent, providers, window_seconds). The approval is cleared and the
+    routine is a draft again: it fires nothing until the person approves the new content's hash. A cancelled routine is not changed."""
+    unknown = sorted(set(fields) - set(ROUTINE_FIELDS))
+    if unknown:
+        raise StoreError(f"a routine has no field {', '.join(unknown)}", EXIT_USAGE)
+    args = _routine_args(fields)
+    now = iso(utcnow())
+    with write(conn):
+        row = _routine_row(conn, routine_id)
+        if row["state"] == "cancelled":
+            raise StoreError(f"routine {routine_id} is cancelled: it is not changed")
+        sets = ", ".join(f"{k} = ?" for k in args)
+        conn.execute(f"UPDATE routines SET {sets + ', ' if sets else ''}state = 'draft', approved_sha256 = NULL, approved_content = NULL, "
+                     "approved_at = NULL, approved_by = NULL, updated_at = ? WHERE id = ?", (*args.values(), now, routine_id))
+        return _routine_row(conn, routine_id)
+
+
+def routine_approve(conn: sqlite3.Connection, routine_id: int, *, sha256: str, by: str, content: dict | None = None) -> dict:
+    """Record the approval of a routine's content by its hash: it becomes active. content is what the hash covers, kept so that a fire
+    that finds the hash changed can say what differs. A cancelled routine is not approved."""
+    digest = sha_arg(sha256)
+    kept = json.dumps(content or {}, sort_keys=True, separators=(",", ":"))
+    if len(kept) > PAYLOAD_MAX:
+        raise StoreError("a routine's approved content is over the cap", EXIT_USAGE)
+    by = text_arg(by, "by", LABEL_MAX)
+    now = iso(utcnow())
+    with write(conn):
+        row = _routine_row(conn, routine_id)
+        if row["state"] == "cancelled":
+            raise StoreError(f"routine {routine_id} is cancelled: it is not approved")
+        conn.execute("UPDATE routines SET state = 'active', approved_sha256 = ?, approved_content = ?, approved_at = ?, approved_by = ?, "
+                     "updated_at = ? WHERE id = ?", (digest, kept, now, by, now, routine_id))
+        return _routine_row(conn, routine_id)
+
+
+ROUTINE_MOVES = {"pause": (("active",), "paused"), "resume": (("paused",), "active"), "stop": (("active", "paused"), "stopped"),
+                 "cancel": (("draft", "active", "paused", "stopped"), "cancelled")}
+
+
+def routine_move(conn: sqlite3.Connection, routine_id: int, move: str) -> dict:
+    """pause (active to paused), resume (paused to active: its approval stays, and `resumed_at` is the moment from which its slots count
+    again: what passed while it was paused is not made up), stop (the runtime stops it when a fire finds its content
+    changed) or cancel (a routine is never deleted). The approval is kept by all of them."""
+    if move not in ROUTINE_MOVES:
+        raise StoreError(f"a routine move is one of {', '.join(ROUTINE_MOVES)}", EXIT_USAGE)
+    allowed, state = ROUTINE_MOVES[move]
+    now = iso(utcnow())
+    with write(conn):
+        row = _routine_row(conn, routine_id)
+        if row["state"] not in allowed:
+            raise StoreError(f"routine {routine_id} is {row['state']}: it is {move}d only from {' or '.join(allowed)}")
+        conn.execute("UPDATE routines SET state = ?, resumed_at = CASE WHEN ? = 'resume' THEN ? ELSE resumed_at END, updated_at = ? "
+                     "WHERE id = ?", (state, move, now, now, routine_id))
+        return _routine_row(conn, routine_id)
+
+
+def routine_fire(conn: sqlite3.Connection, *, routine_id: int, slot: str, status: str, reason: str | None = None,
+                 request: dict | None = None, question: dict | None = None, state: str | None = None,
+                 approved_sha256: str | None = None) -> dict:
+    """Write the fire of one slot, once: the row (routine, slot) and, in the same transaction, what it created. status `created`
+    carries `request` ({"title", "text", "flow", "tasks", "waits", "model"}: the request and its plan, as request_add makes them);
+    `asked` carries `question` ({"title", "body", "payload"}: a request that waits for its route with one question on it, which the
+    person answers) and may move the routine to `state` (stopped); `skipped` carries neither. A slot already recorded creates nothing:
+    {"fired": False, "duplicate": True}. Inside the transaction the routine must still be `active`, and, when approved_sha256 is given, still
+    approved with that hash: a pause, a change or a new approval made between the caller's read and this write wins, and nothing is written
+    ({"fired": False, "inactive": True}). Returns {"fired": True, "fire": the row, "request": id or None, "tasks": [...],
+    "pending_id": id or None}."""
+    if status not in FIRE_STATUSES:
+        raise StoreError(f"a fire's status is one of {', '.join(FIRE_STATUSES)}", EXIT_USAGE)
+    slot = text_arg(slot, "slot", LABEL_MAX)
+    reason = text_arg(reason, "reason", NOTE_MAX, multiline=True, required=False)
+    made = None
+    if request is not None:
+        title = text_arg(request.get("title"), "title", TITLE_MAX)
+        text = text_arg(request.get("text"), "text", TEXT_MAX, multiline=True)
+        flow = text_arg(request.get("flow"), "flow", LABEL_MAX)
+        plan = _plan_items(request.get("tasks") or [])
+        made = (title, text, flow, plan, request.get("waits"), _model_arg(request.get("model")))
+    asking = None
+    if question is not None:
+        asking = (text_arg(question.get("title"), "title", TITLE_MAX), text_arg(question.get("body"), "body", TEXT_MAX, multiline=True),
+                  json.dumps(question.get("payload") or {}, sort_keys=True))
+    if (status == "created") != (made is not None) or (status == "asked") != (asking is not None):
+        raise StoreError("a created fire carries a request and an asked fire a question, and no other does", EXIT_USAGE)
+    now = iso(utcnow())
+    with write(conn):
+        routine = _routine_row(conn, routine_id)
+        if routine["state"] != "active" or not routine["approved_sha256"] or (approved_sha256 is not None and routine["approved_sha256"] != approved_sha256):
+            return {"fired": False, "inactive": True}
+        if conn.execute("SELECT 1 FROM routine_fires WHERE routine_id = ? AND slot = ?", (routine_id, slot)).fetchone():
+            return {"fired": False, "duplicate": True}
+        result, request_id, pending_id = None, None, None
+        if made is not None:
+            result = _request_in(conn, made[0], made[1], made[2], made[3], None, made[4], made[5], now)
+            request_id = result["request"]
+        if asking is not None:
+            request_id = conn.execute("INSERT INTO tasks (title, text, state, created_at, updated_at) VALUES (?, ?, 'requested', ?, ?)",
+                                      (asking[0], asking[1], now, now)).lastrowid
+            pending_id = conn.execute("INSERT INTO pending_decisions (task_id, kind, title, body, payload, created_at) "
+                                      "VALUES (?, 'question', ?, ?, ?, ?)", (request_id, asking[0], asking[1], asking[2], now)).lastrowid
+        fire = conn.execute("INSERT INTO routine_fires (routine_id, slot, status, reason, request_id, fired_at) VALUES (?, ?, ?, ?, ?, ?)",
+                            (routine_id, slot, status, reason, request_id, now)).lastrowid
+        if state is not None:
+            if state not in ROUTINE_STATES:
+                raise StoreError(f"a routine's state is one of {', '.join(ROUTINE_STATES)}", EXIT_USAGE)
+            conn.execute("UPDATE routines SET state = ?, updated_at = ? WHERE id = ? AND state != 'cancelled'", (state, now, routine_id))
+        row = conn.execute("SELECT * FROM routine_fires WHERE id = ?", (fire,)).fetchone()
+        return {"fired": True, "fire": row_dict(row), "request": request_id, "tasks": (result or {}).get("tasks", []),
+                "pending_id": pending_id, "routine": routine["name"]}
+
+
+def routine_fires_list(conn: sqlite3.Connection, routine_id: int | None = None, limit: int = 50) -> list:
+    """The fires, newest first (at most `limit`), of one routine or of all."""
+    rows = conn.execute("SELECT * FROM routine_fires WHERE (?1 IS NULL OR routine_id = ?1) ORDER BY id DESC LIMIT ?2",
+                        (routine_id, int(limit))).fetchall()
+    return [row_dict(r) for r in rows]
+
+
+def routine_of_request(conn: sqlite3.Connection, request_id: int):
+    """The routine whose fire created a request, with the fire: {"routine": row, "fire": row}, or None."""
+    fire = conn.execute("SELECT * FROM routine_fires WHERE request_id = ? AND status = 'created'", (request_id,)).fetchone()
+    if fire is None:
+        return None
+    return {"routine": _routine_row(conn, fire["routine_id"]), "fire": row_dict(fire)}
+
+
 def source_add(conn: sqlite3.Connection, *, source_id: str, source_type: str, origin: str, description: str | None = None) -> dict:
-    """Register a source: an id (lowercase letters, digits, hyphens), a type (`file` or `notion`), an origin (a file's name, or a
+    """Register a source: an id (lowercase letters, digits, hyphens), a type (`file`, `notion` or `drive`), an origin (a file's name, or a
     Notion page's address or id: no credential is ever kept here) and an optional description. An id taken is refused: the
     registry only grows. Returns the row."""
     if not isinstance(source_id, str) or not SOURCE_ID_RE.fullmatch(source_id):

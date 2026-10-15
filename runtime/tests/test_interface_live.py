@@ -726,7 +726,7 @@ def test_the_lobby_reads_the_open_document_again_and_a_request_body_that_a_secon
 @needs_node
 def test_the_building_reads_the_documents_again_when_the_page_reloads_and_not_otherwise(tmp_path):
     got = run_node(tmp_path, BUILDING, FLOOR_DOM + VIEW_EXTRA)
-    assert got["first"] == ["GET /artifacts"] and got["sameStamp"] == []
+    assert got["first"][0] == "GET /artifacts" and sorted(got["first"][1:]) == ["GET /flows", "GET /routines"] and got["sameStamp"] == []   # the Routines section (P6b) reads its list once, and the flows for its form
     assert got["reloaded"] == ["GET /artifacts"], "the floors list is the snapshot's; the sheets and drawers are the documents"
 
 

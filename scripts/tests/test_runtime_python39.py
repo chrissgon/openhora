@@ -64,6 +64,8 @@ ON_SYSTEM_PYTHON = [
     "runtime/effect_write.py", "runtime/ops_step_effects.py", "runtime/write_document.py", "runtime/ops_step_seams.py",
     # The workflows (P6a): the flow check, and the operations over flow files (list, check, save a plan, stage a file).
     "runtime/flow_check.py", "runtime/ops_flows.py",
+    # The routines (P6b): the pure schedule and content, and the operations and the tick.
+    "runtime/routines.py", "runtime/ops_routines.py",
     # The rules of tasks that run at once (PAR-2): pure functions the dispatcher's caller passes in.
     "runtime/parallel.py",
     # How the credential of a run is billed, read from the adapters' manifests (ADJ-R3): the operations layer imports it.

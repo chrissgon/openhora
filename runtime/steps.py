@@ -15,7 +15,7 @@ the engine. The kinds registered today: `ingest` (runtime/step_ingest.py), which
 write a file (P8) and the media pipeline of the short-video rebase register the same way.
 
   Kind(name, order, executors, stops=(), decisions={}, footprint=..., check=..., cleanup={}, side_steps={}, errors=(), prepared=None,
-       rejected={}, unattended=False, brings_source=False, gates={}, effectful=())
+       rejected={}, unattended=False, brings_source=False, networked=False, gates={}, effectful=())
   register(kind) / kind_of(name) / load_builtin()   the registry; load_builtin imports every runtime/step_*.py
   plan_task(kind, args, key=, title=, text=, ...)   a plan's task for a step: the kind, its checked arguments (canonical, so the plan
                                                     hash covers them) and the footprint the kind derived. StepFailure when the kind is
@@ -125,6 +125,8 @@ class Kind:
                 the code `rejected`); a stop with no hook only fails
     unattended  whether the dispatcher may start a task of this kind on its own (a routine, a round): False unless the kind says so; a
                 task of a kind that is not unattended starts only by the person's own start (run-next, run-step)
+    networked   whether a task of this kind reaches the network (the project script of package P9, with the destinations it declares): a routine
+                whose workflow holds one is made and changed only in the terminal or on the page (limit L33, runtime/ops_routines.py)
     brings_source  whether the kind's `source` argument names a source the tasks after it receive (`ingest`): a workflow's task that
                 depends on such a step receives that source (flow_files.sources_of), and the flow check counts it (runtime/flow_check.py)
     gates       {step: Gate}: the step that opens an external effect for the person's approval. At most one, and the last of the order;
@@ -148,6 +150,7 @@ class Kind:
     rejected: dict = dataclasses.field(default_factory=dict)
     unattended: bool = False
     brings_source: bool = False
+    networked: bool = False
     gates: dict = dataclasses.field(default_factory=dict)
     effectful: tuple = ()
 
