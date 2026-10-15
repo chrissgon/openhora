@@ -228,7 +228,7 @@ def test_the_status_script_compares_the_gate_through_the_module(monkeypatch, tmp
     (skill / "evals" / "evals.json").write_text(json.dumps({"evals": [{"id": 1, "prompt": "p", "assertions": ["a"]}]}))
     h = es.case_hashes(str(skill))["1"]
     event = {"record": "test", "skill": "core-demo", "test": "20300101T000000Z-00000001", "kind": "full", "version": "1.0.0",
-             "date": "2030-01-01", "cases": {"1": h}}
+             "date": "2030-01-01", "cases": {"1": h}, "models": ["s"], "adapters": {"s": "h"}}
     line = lambda variant, score: {"record": "run", "skill": "core-demo", "version": "1.0.0", "content_sha256": "a" * 64,
                                    "model": "s", "adapter": "h", "kind": "full", "test": event["test"], "date": "2030-01-01",
                                    "measurement_version": 5, "measurement_sha256": "b" * 64, "case": 1, "case_sha256": h,

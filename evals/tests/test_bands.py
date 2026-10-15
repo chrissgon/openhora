@@ -94,14 +94,14 @@ def results(score, count=10):
 SEQ = iter(range(1, 10 ** 6))
 
 
-def event(folder, kind, version, date, runs, complete=True, grader="s-model", strong="s-model", mv=5, gate=None):
+def event(folder, kind, version, date, runs, complete=True, grader="s-model", strong="s-model", mv=5, gate=None, floor="f-model"):
     """Write one evidence file. runs: [(case, variant, score, extra)] with extra a dict of run-line keys (model,
     context_sha256, guard_failed, results, date...)."""
     test = f"{date.replace('-', '')}T000000Z-{next(SEQ):08x}"
     hashes = es.case_hashes(str(folder))
     cases = sorted({str(c) for c, _, _, _ in runs} | (set(hashes) if kind == "full" else set()))
     line = {"record": "test", "skill": folder.name, "test": test, "kind": kind, "version": version, "content_sha256": H["a"],
-            "date": date, "models": {"strong": strong, "floor": "f-model"}, "adapters": {"strong": "h", "floor": "fh"},
+            "date": date, "models": {"strong": strong, "floor": floor}, "adapters": {"strong": "h", "floor": "fh"},
             "adapter_sha256": {"h": H["b"], "fh": H["c"]}, "grader": grader, "runs": 3, "timeout_seconds": 900,
             "retries": 2, "measurement_version": mv, "measurement_sha256": H["d"], "image_digest": "sha256:" + H["e"],
             "image_platform": "linux/arm64", "grading_template_sha256": H["f"], "tools": {},

@@ -6,7 +6,7 @@ Usage:
   python3 evals/eval_status.py status [--skill <name>]
   python3 evals/eval_status.py hash --skill <name>
   python3 evals/eval_status.py evidence [--skill <name> | --file <path>]
-  python3 evals/eval_status.py gate --skill <name>
+  python3 evals/eval_status.py gate --skill <name> [--model <id>]
   python3 evals/eval_status.py inventory --write | --check
   python3 evals/eval_status.py measurement --kind grader|execution|infrastructure --cause "<why>"
                                [--skills <name>,...|all] [--models <id>,...|all] [--date YYYY-MM-DD]
@@ -39,14 +39,17 @@ as the history of the first round, and nothing reads them.
    "measurement_sha256", "image_digest", "image_platform", "grading_template_sha256", "tools": {name:
    version}, "cases": {case id: case hash}, "baseline": {case id: "run"|"reused"|"none"}, "web_cases": [ids],
    "counts": {model id: {"with"|"without": {"retries", "refusals", "timeouts", "pauses", "early_ends",
-   "resumes"[, "invoked"]}}}, "extra_pass_env": [names], "complete": bool[, "gate": {"passed", "with",
-   "baseline", "threshold", "tolerance"[, "note"]}][, "upstream": {model id: provider or host}]
-   [, "image_source": "published"|"local"]}
+   "resumes"[, "invoked"]}}}, "extra_pass_env": [names], "complete": bool[, "gate": {model id: {"passed",
+   "with", "baseline", "threshold", "tolerance"[, "note"]}} (an old event: the single gate of its strong
+   tier)][, "upstream": {model id: provider or host}][, "image_source": "published"|"local"]}
   A run line: {"record": "run", "skill", "version", "content_sha256", "model", "adapter", "kind", "test",
    "date", "measurement_version", "measurement_sha256", "case", "case_sha256", "variant": "with"|"without",
    "outcome": "graded"|"timeout", "score", "results": [0|1, ...][, "context_sha256"][, "platform"][, "cpu_platform"]
-   [, "guard_failed": [positions]][, "cost_usd"][, "run_sha256"]}
+   [, "guard_failed": [positions]][, "cost_usd"][, "run_sha256"][, "usage": {"input", "output", "cache_read",
+   "cache_write"}]}
   "cost_usd" is the cost the adapter reported for the run; it is absent when the adapter reported none.
+  "usage" is the tokens the run used by kind, whole numbers: the key proxy's count, else the model usage of the run's
+  raw output (eval_run.py run_usage); absent when no count could be read whole.
   "cpu_platform" is the CPU platform the run's container ran on (linux/arm64 or linux/amd64: evidence is made on
   either); "platform" names a social platform and never this. "upstream" names, for each model that ran through a
   key proxy, the provider its entry pins or the route's host; "image_source" says whether the image was pulled
@@ -139,11 +142,21 @@ The band, on the reference model (strong_model), the first that applies:
                 within "baseline_margin" of the mean with the skill; or the field signal is on
   reliable      otherwise
 The same band, cause and gate are computed for every other model that has evidence of the skill, by the same rules
-on that model's lines (as_reference: that model in the reference model's place). Two rules belong to the
-configured reference model alone, and are not given to another model: the earlier reference model's lines that
-count as inherited, and the result a full test wrote into its event line when no baseline is in force (it was
-computed on the reference model); without a baseline of its own in force another model's gate is not computed.
+on that model's lines (as_reference: that model in the reference model's place), and on that model's tests: the
+tests whose event line lists it (model_events). The newest full test, its X.Y, the cases pending, the pool, the
+Y changes since the newest complete full test and the gate a full test wrote when no baseline is in force
+(event_gate: "gate": {model id: result}; an old event's single gate is its strong tier's) are all selected that
+way, so a full test of one model changes none of them for another, and a full test counts in a model's selection only
+when it is complete for that model (complete_models_of: the event's "complete_models", or for an event written before
+it the lead model's "complete" and the models whose with-skill lines are all there). One rule belongs to the
+configured reference model alone: the earlier reference model's lines that count as inherited. It reads the old
+header's strong tier (tier_model), so it applies to events written before the list header; P3 decides its future. Without a baseline of its own in force,
+and without a gate a full test wrote for it, another model's gate is not computed. A skill is done on a model
+when that model's first full test passed.
 Only the reference model's band decides a skill's standing and the gate; another model's band is information.
+A person's own tests of any model are in the local evidence folder (local_evidence_base) and are read by `status`
+into a section of its own, "local": {"folder", "skills": {skill: {model id: figures}}}, the figures of a model of
+the repository computed from the local files alone; never mixed into the rows above.
 The field signal: three or more `failed` verdicts on the current X.Y, on the reference model, in the weeks after
 the newest lab event of that X.Y (all of them when it has none), at most one per contributor except the
 repository's owner. The contributor of a field file is the author of the commit that added it, read from git
@@ -152,7 +165,9 @@ most 20 uses and 20 verdicts to the field columns of one skill. Field evidence n
 history the field columns are not computed and the signal is off.
 
 Commands:
-  status     prints {"skills": [row], "counts": {band: n}, "causes": {kind: n}, "gate": {the configured gate}}.
+  status     prints {"skills": [row], "counts": {band: n}, "causes": {kind: n}, "gate": {the configured gate}[,
+             "local": {"folder", "skills": {skill: {model id: figures}}}]}, "local" only when a person's own evidence
+             folder (local_evidence_base) holds any.
              A row: {"skill", "version", "band", "cause", "kind", "command" (what clears it), "causes": [{"kind",
              "cause", "command"}], "pending": [case ids added and not run yet; "pending_command"], "score",
              "mean", "runs" (N), "current_runs", "inherited_runs", "gate", "last_full_test", "guards": [{"case",
@@ -223,9 +238,10 @@ it differs from a committed "measurement_sha256"; the runner computes it when an
 every evidence line and writes no evidence when it differs.
 
 The gate (the reliability model, section 2). Only a full test evaluates it, and the runner writes its result
-into the event line when the test ends; `gate` computes it again from the lines. It is computed over the run
-lines with the skill, of kind full, on the reference model (strong_model), of the X.Y version the newest full
-test ran on and of the same epoch as that test, every current case being required and only lines of weight
+into the event line when the test ends; `gate` computes it again from the lines (`gate --model <id>` for another
+model than the reference model). It is computed over the run lines with the skill, of kind full, on the model
+(by default the reference model, strong_model), of the X.Y version the newest full test that lists the model
+ran on and of the same epoch as that test, every current case being required and only lines of weight
 above zero being counted: the case exists with the same hash, the measurement version is at or above the
 floor, and the line's major version is the current one. A second full test of an unchanged X.Y adds its runs
 to the first and replaces none; a full test closed as abandoned keeps its lines. The mean of those lines
@@ -238,7 +254,8 @@ full test is treated as an added case, once: it is pending ("changed" lists it),
 the gate ("dropped" shows how many and their mean), and its new runs enter it as an added case's do. When a
 case changes again after an earlier changed text of it has run since that full test, the gate cannot be
 computed until a full test runs every case. When a case of the gate has no baseline in force (after an epoch
-that reaches the skill), the result the newest full test wrote stands, with the note "baseline expired".
+that reaches the skill), the result the newest full test that lists the model wrote for that model stands, with the
+note "baseline expired".
 A baseline line is in force while three things are unchanged: the case (its hash), the reference model (no
 epoch of it after the line's date: "epochs" of the gate file, [{"date", "models", "skills", "cause"}], where
 models and skills are lists or "all"), and the measurement (its version at or above the floor). The skill's
@@ -873,18 +890,36 @@ _is, _date, _number, _count, _model, _case_id, _keys = (
     EVIDENCE_LINES._is, EVIDENCE_LINES._date, EVIDENCE_LINES._number, EVIDENCE_LINES._count, EVIDENCE_LINES._model,
     EVIDENCE_LINES._case_id, EVIDENCE_LINES._keys)
 (event_line_problems, run_line_problems, read_evidence_file, evidence_files, event_model_pairs,
- tier_model, run_count_problems) = (
+ tier_model, run_count_problems, event_gates, USAGE_KEYS, event_complete_models, lead_model) = (
     EVIDENCE_LINES.event_line_problems, EVIDENCE_LINES.run_line_problems, EVIDENCE_LINES.read_evidence_file,
     EVIDENCE_LINES.evidence_files, EVIDENCE_LINES.event_model_pairs,
-    EVIDENCE_LINES.tier_model, EVIDENCE_LINES.run_count_problems)
+    EVIDENCE_LINES.tier_model, EVIDENCE_LINES.run_count_problems, EVIDENCE_LINES.event_gates, EVIDENCE_LINES.USAGE_KEYS,
+    EVIDENCE_LINES.event_complete_models, EVIDENCE_LINES.lead_model)
+
+
+def lab_pairs(cfg):
+    """{model id: the adapter the repository's evidence of it goes through, or None when the gate file names none}: the
+    gate file's "lab_models" (without that key, its strong and floor models), each with the adapter its entry in "models"
+    names, else the configured strong or floor harness. The repository holds evidence of these pairs only (D18)."""
+    out = {}
+    for name in cfg.get("lab_models") or [cfg.get("strong_model"), cfg.get("floor_model")]:
+        if not name:
+            continue
+        listed = model_id(cfg, name)
+        entry = model_entry(cfg, name)
+        out[listed] = ((entry or {}).get("adapter")
+                       or (cfg.get("strong_harness") if name == cfg.get("strong_model") else
+                           cfg.get("floor_harness") if name == cfg.get("floor_model") else None))
+    return out
 
 
 def strict_reading(root=ROOT):
     """The strict reading of a new evidence file (evidence_lines.py, the module docstring): every model id in the
-    current gate file's "models" and the event's "runs" equal to the configured number. None for a tree with no
-    gate file (a case folder that builds a skill of its own configures nothing)."""
+    current gate file's "models", every model one of the lab models through its configured adapter (lab_pairs), and the
+    event's "runs" equal to the configured number. None for a tree with no gate file (a case folder that builds a skill
+    of its own configures nothing)."""
     cfg = load_gate(root)
-    return {"models": set(known_models(cfg)), "runs": event_config(cfg)["runs"]} if cfg else None
+    return ({"models": set(known_models(cfg)), "runs": event_config(cfg)["runs"], "lab": lab_pairs(cfg)} if cfg else None)
 
 
 def base_resolution(root=ROOT):
@@ -982,16 +1017,84 @@ def evidence_problems(root=ROOT, only=None):
     return ({"WB_BASE_REF": [error], **found} if error else found), checked
 
 
-def skill_evidence(skill_dir):
-    """[(event line, run lines)] of a skill's lab evidence files, oldest first. A file whose first line is not an
+def events_of(paths):
+    """[(event line, run lines)] of the lab evidence files at `paths`, in that order. A file whose first line is not an
     event line is left out (`evidence` reports it); so is a run line that lacks a key the rules below read."""
     found = []
-    for path in evidence_files(skill_dir):
+    for path in paths:
         event, runs, _ = read_evidence_file(path)
         if not isinstance(event, dict) or event.get("record") != "test" or not isinstance(event.get("test"), str):
             continue
         found.append((event, [line for _, line in runs if all(k in line for k in RUN_REQUIRED)]))
     return found
+
+
+def skill_evidence(skill_dir):
+    """[(event line, run lines)] of a skill's lab evidence files, oldest first (events_of)."""
+    return events_of(evidence_files(skill_dir))
+
+
+# --- a person's own evidence, outside the checkout (D18) -------------------------------------------------
+
+LOCAL_EVIDENCE_ENV = "WB_LOCAL_EVIDENCE_DIR"  # replaces the default base folder below
+
+
+def local_evidence_base():
+    """The folder a person's own lab evidence lives in, one folder per skill under it: WB_LOCAL_EVIDENCE_DIR when it is
+    set, else <XDG data home>/openhora/evidence (the data home is XDG_DATA_HOME, else ~/.local/share). It is never
+    inside the workbench checkout: local_base_problem says so for one that is."""
+    explicit = os.environ.get(LOCAL_EVIDENCE_ENV, "").strip()
+    if explicit:
+        return os.path.abspath(os.path.expanduser(explicit))
+    data = os.environ.get("XDG_DATA_HOME", "").strip() or os.path.join(os.path.expanduser("~"), ".local", "share")
+    return os.path.join(os.path.abspath(data), "openhora", "evidence")
+
+
+def inside_checkout(path, root=ROOT):
+    """True when `path` is the checkout or inside it. Not by strings: the real path of `path` (links resolved) and each of
+    its parents are compared with the checkout by device and inode (os.path.samestat), so a link into the checkout, a
+    path spelled in another case on a case-insensitive filesystem or a parent that is the checkout by another name all
+    count. A part that does not exist yet is walked past to the first one that does."""
+    try:
+        top = os.stat(root)
+    except OSError:
+        return False
+    here = os.path.realpath(path)
+    while True:
+        try:
+            if os.path.samestat(os.stat(here), top):
+                return True
+        except OSError:
+            pass  # not there yet: its parent decides
+        parent = os.path.dirname(here)
+        if parent == here:
+            return False
+        here = parent
+
+
+def local_base_problem(base, root=ROOT, skill=None):
+    """Why `base` (and, given a skill, <base>/<skill>, the folder its files go to) cannot hold a person's local evidence:
+    it is the checkout or inside it, by any route (inside_checkout), where a pull and a commit would meet it. None
+    when it can. Called before the folder is made and again after it is: the skill's folder may be a link."""
+    for target in [base] + ([os.path.join(base, skill)] if skill else []):
+        if inside_checkout(target, root):
+            return (f"the local evidence folder {target} is inside the workbench checkout {root}: it must be outside it "
+                    f"({LOCAL_EVIDENCE_ENV} names another folder)")
+    return None
+
+
+def local_evidence_files(skill, base=None):
+    """The lab evidence files of a skill under the local evidence folder, oldest first."""
+    folder = os.path.join(base or local_evidence_base(), skill)
+    if not os.path.isdir(folder):
+        return []
+    return [os.path.join(folder, n) for n in sorted(os.listdir(folder))
+            if re.fullmatch(r"lab-" + TEST_ID_RE.pattern + r"\.jsonl", n) and os.path.isfile(os.path.join(folder, n))]
+
+
+def local_skill_evidence(skill, base=None):
+    """[(event line, run lines)] of a skill's local lab evidence, oldest first (events_of)."""
+    return events_of(local_evidence_files(skill, base))
 
 
 def base_lines(runs):
@@ -1058,7 +1161,8 @@ def reference_model(cfg):
 
 def configured_reference(cfg):
     """The id of the reference model the gate file names, also in a configuration as_reference made for another
-    model: two rules belong to it alone (lab_view's earlier reference model, gate_of's written result)."""
+    model: one rule belongs to it alone (lab_view's earlier reference model). The gate, the Y count and the stored
+    gate are read model by model and name no model in particular."""
     name = cfg["configured_strong_model"] if "configured_strong_model" in cfg else cfg.get("strong_model")
     return model_id(cfg, name) if name else None
 
@@ -1073,6 +1177,70 @@ def as_reference(cfg, model):
     if cfg:
         out["models"] = known_models(cfg)
     return out
+
+
+def lists_model(event, model):
+    """True when the event line names `model` in its header, whichever shape the header has (event_model_pairs). With
+    no model (a configuration that names none) every event counts."""
+    return model is None or any(m == model for m, _ in event_model_pairs(event))
+
+
+def model_events(events, model):
+    """The (event line, run lines) pairs whose event line lists `model`: the tests that can say anything about it. A
+    test of another model is not among them, so it moves nothing of this model's gate, its X.Y, its Y count or its
+    stored gate."""
+    return [(event, runs) for event, runs in events if lists_model(event, model)]
+
+
+def complete_models_of(event, runs):
+    """[model id] the event is complete for (every run of the model in it graded). The event's "complete_models" when it
+    has the key. An event written before it says only whether its lead model finished ("complete"); the others it
+    lists are then complete when each case of the event has at least as many with-skill lines of the model as the event's "runs"
+    (the way the runner counts: a full test runs every case with the skill that many times) and, when the model has any
+    baseline line in the event (--baseline-on), a baseline line on each case whose baseline the event ran (a case
+    missing all of them is a baseline job that did not finish; the runner counts a model's baseline jobs in its
+    completion too). Every committed event satisfies
+    both. [] for an event that is not complete."""
+    if isinstance(event, dict) and isinstance(event.get("complete_models"), list):
+        return event_complete_models(event)
+    pairs = event_model_pairs(event)
+    if not pairs or event.get("complete") is not True:
+        return []
+    cases = [str(c) for c in (event.get("cases") or {})]
+    ran = [str(c) for c, how in (event.get("baseline") or {}).items() if how == "run"]
+    have = {}
+    for line in runs:
+        if "platform" not in line:
+            key = (line["variant"], line["model"], str(line["case"]))
+            have[key] = have.get(key, 0) + 1
+    lead = pairs[0][0]
+
+    def whole(m):
+        if not (cases and all(have.get(("with", m, c), 0) >= event.get("runs", 1) for c in cases)):
+            return False
+        if not any(have.get(("without", m, c)) for c in cases):
+            return True  # no baseline of its own in the event
+        return all(have.get(("without", m, c), 0) >= 1 for c in ran)
+    return [lead] + [m for m, _ in pairs[1:] if whole(m)]
+
+
+def counts_for(event, runs, model):
+    """True when a full test counts in `model`'s selection (its newest full test, its X.Y, its Y count, its stored gate):
+    the event lists the model and is complete for it (complete_models_of). One exception, kept from the rule that an
+    abandoned full test keeps its lines in the gate of its version: an event that is not complete counts for its lead
+    model, the one it is a test of. A test that lists a model it only part-ran moves nothing of that model."""
+    if model is None:
+        return True
+    if not lists_model(event, model):
+        return False
+    return model in complete_models_of(event, runs) or (event.get("complete") is not True and lead_model(event) == model)
+
+
+def event_gate(event, model):
+    """The gate a full test wrote for `model` (evidence_lines.event_gates), or None. With no model, the first gate the
+    event carries."""
+    gates = event_gates(event)
+    return gates.get(model) if model is not None else next(iter(gates.values()), None)
 
 
 def baseline_lines(skill_dir, cfg, events=None):
@@ -1090,18 +1258,23 @@ def baseline_lines(skill_dir, cfg, events=None):
     return found
 
 
-def gate_of(skill_dir, cfg, extra=()):
-    """The gate of a skill from its lab evidence and the events in extra (the event the runner is ending, whose
-    file is not in the skill yet), by the rule of the model's section 2 (see the module's help)."""
+def gate_of(skill_dir, cfg, extra=(), evidence=None):
+    """The gate of a skill on the model cfg puts in the reference model's place, from its lab evidence (evidence, as
+    skill_evidence lists it, or the skill's own files) and the events in extra (the event the runner is ending, whose
+    file is not in the skill yet), by the rule of the model's section 2 (see the module's help). Only the tests whose
+    event line lists that model are read: the newest full test, its X.Y, the pending cases, the pool and the stored
+    gate are all that model's, so a full test of another model changes none of them."""
     skill = os.path.basename(os.path.normpath(skill_dir))
-    events = sorted(((e, base_lines(runs)) for e, runs in skill_evidence(skill_dir) + list(extra)), key=lambda e: e[0]["test"])
-    current, version = case_hashes(skill_dir), skill_version(skill_dir)
     ref, floor = reference_model(cfg), cfg.get("measurement_floor", 1)
+    read = skill_evidence(skill_dir) if evidence is None else list(evidence)
+    events = model_events(sorted(((e, base_lines(runs)) for e, runs in read + list(extra)), key=lambda e: e[0]["test"]), ref)
+    current, version = case_hashes(skill_dir), skill_version(skill_dir)
     threshold, tolerance = cfg.get("threshold", 0.8), cfg.get("strong_tolerance", 0)
     out = {"computed": False, "passed": None, "with": None, "baseline": None, "threshold": threshold, "tolerance": tolerance,
            "version": None, "test": None, "cases": [], "pending": [], "note": None, "cause": None, "changed": [], "dropped": {}}
     major = version.split(".")[0] if version else None
-    full = [e for e in events if e[0].get("kind") == "full" and str(e[0].get("version", "")).split(".")[0] == major]
+    full = [e for e in events if e[0].get("kind") == "full" and str(e[0].get("version", "")).split(".")[0] == major
+            and counts_for(e[0], e[1], ref)]  # a full test of which this model ran only part is not one of its tests
     if not full:
         return {**out, "cause": "no full test of the current major version"}
     newest = full[-1][0]
@@ -1148,11 +1321,12 @@ def gate_of(skill_dir, cfg, extra=()):
     if not in_gate:
         return {**out, "cause": "no current case is in the gate"}
     if any(not baselines.get(cid) for cid in in_gate):
-        if ref != configured_reference(cfg):  # the result a full test wrote is the configured reference model's
-            return {**out, "cause": f"no baseline in force on {ref} for case(s) "
-                                    f"{', '.join(c for c in in_gate if not baselines.get(c))}"}
-        stored = next((e["gate"] for e, _ in reversed(full) if isinstance(e.get("gate"), dict)), None)
+        # The result a full test wrote FOR THIS MODEL stands: the newest one that carries a gate for it.
+        stored = next((g for e, _ in reversed(full) for g in [event_gate(e, ref)] if g), None)
         if stored is None:
+            if any(event_gates(e) for e, _ in full):  # the full tests wrote a gate for another model, none for this one
+                return {**out, "cause": f"no baseline in force on {ref} for case(s) "
+                                        f"{', '.join(c for c in in_gate if not baselines.get(c))}"}
             return {**out, "cause": "no baseline in force and no full test that wrote a gate"}
         return {**out, "computed": False, "passed": stored["passed"], "with": stored["with"], "baseline": stored["baseline"],
                 "note": "baseline expired"}
@@ -1812,7 +1986,8 @@ def lab_view(root, skill_dir, cfg, events=None):
     grader and dated after the newest epoch that reaches the skill on that model. The rest is inherited: lines
     of an earlier X.Y, lines of the current X.Y before an epoch or with another context, lines graded by an earlier
     grader (a grader that did not agree would have raised the floor), and, on the reference model, the lines of
-    the earlier reference model (the model an event ran on its strong tier, when it is not the reference now)."""
+    the earlier reference model (the model an event ran on its strong tier, when it is not the reference now; this reads
+    the old header's tiers, so it covers events written before the list header only)."""
     skill = os.path.basename(os.path.normpath(skill_dir))
     version = skill_version(skill_dir)
     hashes, cases = case_hashes(skill_dir), skill_cases(skill_dir)
@@ -1858,7 +2033,8 @@ def pool_score(pool):
 
 def y_changes_since(skill_dir, version):
     """The Y lines of the version file above the version the newest full test ran on (all of them when the
-    version file does not reach back to it)."""
+    version file does not reach back to it). The caller gives the version of the newest full test that lists the
+    model it counts for (skill_band), so each model has a count of its own."""
     lines, _, _ = read_versions(skill_dir)
     start = _vkey(version)
     return sum(1 for l in lines if l.get("class") == "y" and _vkey(l.get("version")) > start)
@@ -1933,27 +2109,35 @@ def assertion_counts(cases, ref_current, baselines):
     return rows, (round(sum(diffs) / len(diffs), 4) if diffs else None)
 
 
-def skill_band(root, skill_dir, cfg, authors=None, per_model=True):
+def skill_band(root, skill_dir, cfg, authors=None, per_model=True, events=None):
     """The band of one skill on the reference model, with its cause and the command that clears it, the score,
     the gate, the guards, the field columns and a row per model (the model's sections 4 to 7; see --help).
 
     Each model's row carries the same band, cause and gate, computed by this same function on that model's lines
     (as_reference; per_model=False there, so that it does not recurse); the reference model's row copies the
-    skill's own. Only the reference model's band decides the skill's standing."""
+    skill's own. Only the reference model's band decides the skill's standing. The newest full test, its X.Y, the
+    Y changes since it and the gate are those of the tests that list the model (model_events). events is the lab
+    evidence read, as skill_evidence lists it (by default the skill's own files; a person's local evidence is read
+    by passing it)."""
     skill = os.path.basename(os.path.normpath(skill_dir))
-    events = skill_evidence(skill_dir)
+    events = skill_evidence(skill_dir) if events is None else events
     view = lab_view(root, skill_dir, cfg, events)
     version, ref, pools = view["version"], view["reference"], view["pools"]
     cases = skill_cases(skill_dir)
     ref_pool = pools.get(ref) or {"current": [], "inherited": []} if ref is not None else {"current": [], "inherited": []}
     ref_score = pool_score(ref_pool)
-    gate = gate_of(skill_dir, cfg) if version else {"computed": False, "passed": None, "pending": [], "note": None,
-                                                    "cause": "metadata.version is missing", "cases": []}
+    gate = gate_of(skill_dir, cfg, evidence=events) if version else {"computed": False, "passed": None, "pending": [],
+                                                                      "note": None, "cause": "metadata.version is missing",
+                                                                      "cases": []}
     floor = cfg.get("measurement_floor", 1)
     major, xy = (_major(version), _xy(version)) if version else (None, None)
-    fulls = [e for e, _ in events if e.get("kind") == "full" and _major(e.get("version", "")) == major]
+    mine = model_events(events, ref)  # the tests that list this model
+    mine_full = [(e, runs) for e, runs in mine if e.get("kind") == "full" and _major(e.get("version", "")) == major
+                 and counts_for(e, runs, ref)]  # complete for this model, or the abandoned test of which it is the lead
+    fulls = [e for e, _ in mine_full]
     measured_fulls = [e for e in fulls if isinstance(e.get("measurement_version"), int) and e["measurement_version"] >= floor]
-    complete_fulls = [e for e in measured_fulls if e.get("complete") is True]
+    complete_of = {id(e): (ref is None and e.get("complete") is True) or ref in complete_models_of(e, runs) for e, runs in mine_full}
+    complete_fulls = [e for e in measured_fulls if complete_of[id(e)]]
     last_full = fulls[-1] if fulls else None
     run_full = f"python3 evals/eval_run.py --skill {skill}"
     causes = []  # (kind, text, command), in the order of the model's section 5
@@ -2020,7 +2204,7 @@ def skill_band(root, skill_dir, cfg, authors=None, per_model=True):
             watch.append(("thin baseline", f"the baseline ({gate['baseline']:.3f}) is within {margin:.2f} of the mean with the skill "
                           f"({gate['with']:.3f}) and has fewer than {control['runs']} runs per case",
                           f"python3 evals/eval_run.py --skill {skill} --cases {every} --baseline"))
-    field = field_view(root, skill_dir, cfg, authors, events, version)
+    field = field_view(root, skill_dir, cfg, authors, mine, version)
     if not causes and field["on"]:
         watch.append(("field signal", f"{field['signal']} `failed` verdicts on {xy} since its newest lab test",
                       f"a lab test of {xy}: {run_full}, or a partial test"))
@@ -2042,7 +2226,8 @@ def skill_band(root, skill_dir, cfg, authors=None, per_model=True):
                 "gate": {k: gate.get(k) for k in GATE_ROW_KEYS}}
     if per_model:
         for model, figures in models.items():
-            other = standing if model == ref else skill_band(root, skill_dir, as_reference(cfg, model), authors, per_model=False)
+            other = standing if model == ref else skill_band(root, skill_dir, as_reference(cfg, model), authors, per_model=False,
+                                                             events=events)
             figures.update({k: other[k] for k in MODEL_BAND_KEYS})
     row = {"skill": skill, "version": version, "band": band, "cause": first[1], "kind": first[0], "command": first[2],
            "causes": standing["causes"],
@@ -2051,7 +2236,7 @@ def skill_band(root, skill_dir, cfg, authors=None, per_model=True):
            "gate": standing["gate"],
            "last_full_test": ({"test": last_full["test"], "date": last_full.get("date"), "version": last_full.get("version"),
                                "complete": last_full.get("complete"),
-                               "passed": (last_full.get("gate") or {}).get("passed")} if last_full else None),
+                               "passed": (event_gate(last_full, ref) or {}).get("passed")} if last_full else None),
            "guards": guards, "field": {"computed": field["computed"], "signal": field["signal"], "on": field["on"]},
            "models": models}
     if gate.get("pending"):
@@ -2061,18 +2246,47 @@ def skill_band(root, skill_dir, cfg, authors=None, per_model=True):
     return row
 
 
-def all_status(root=ROOT, only=None):
+LOCAL_ROW_KEYS = ("score", "mean", "runs", "current_runs", "inherited_runs") + MODEL_BAND_KEYS
+
+
+def local_status(root, name, config, base):
+    """{model id: figures} of one skill's local evidence (a person's own tests, outside the checkout), or {} when it has
+    none. Each model's figures are the ones a model of the repository gets (skill_band on that model's lines, by the
+    same rules), computed from the local files alone: they are never added to the repository's figures, and they are
+    information for the person's own choice of a model. The model need not be in the gate file's list."""
+    events = local_skill_evidence(name, base)
+    if not events:
+        return {}
+    skill_dir = os.path.join(root, "skills", name)
+    found = {}
+    for model in sorted({line["model"] for _, runs in events for line in base_lines(runs)}):
+        cfg = as_reference({**config, "models": {**known_models(config), model: []}}, model)
+        row = skill_band(root, skill_dir, cfg, None, per_model=False, events=events)
+        found[model] = {key: row[key] for key in LOCAL_ROW_KEYS}
+        found[model]["tests"] = sum(1 for event, _ in model_events(events, model))
+        found[model]["last_full_test"] = row["last_full_test"]
+    return found
+
+
+def all_status(root=ROOT, only=None, local_base=None):
     """{"skills": [one row of skill_band per skill], "counts": {band: n}, "causes": {kind: n}, "gate": the
-    configured gate}: everything computed from the evidence files, live."""
+    configured gate}: everything computed from the evidence files, live. With local_base (the folder of
+    local_evidence_base) a "local" section is added when any skill has local evidence there: {"folder",
+    "skills": {skill: {model id: figures}}}, its own section, never mixed into the rows above."""
     names = [only] if only else skill_names(root)
     config = load_gate(root)
     authors = evidence_authors(root)
     rows = [skill_band(root, os.path.join(root, "skills", n), config, authors) for n in names]
     counts = {b: sum(1 for r in rows if r["band"] == b) for b in BANDS}
     causes = {k: sum(1 for r in rows if any(c["kind"] == k for c in r["causes"])) for k in CAUSE_KINDS}
-    return {"skills": rows, "counts": counts, "causes": {k: v for k, v in causes.items() if v},
-            "gate": {k: config.get(k) for k in ("strong_model", "floor_model", "grader", "threshold", "strong_tolerance",
-                                                "measurement_version", "measurement_floor")}}
+    out = {"skills": rows, "counts": counts, "causes": {k: v for k, v in causes.items() if v},
+           "gate": {k: config.get(k) for k in ("strong_model", "floor_model", "grader", "threshold", "strong_tolerance",
+                                               "measurement_version", "measurement_floor")}}
+    if local_base:
+        local = {n: found for n in names for found in [local_status(root, n, config, local_base)] if found}
+        if local:
+            out["local"] = {"folder": local_base, "skills": local}
+    return out
 
 
 STAMP_RE = re.compile(r"^Generated at commit `[^`]*` by `python3 evals/eval_status\.py inventory --write`\.$", re.M)
@@ -2183,7 +2397,7 @@ def main(argv, root=None):
         return 0
     opts, flags, i = {}, set(), 0
     while i < len(rest):
-        if rest[i] in ("--skill", "--file", "--kind", "--cause", "--skills", "--models", "--date", "--class"):
+        if rest[i] in ("--skill", "--file", "--kind", "--cause", "--skills", "--models", "--date", "--class", "--model"):
             if i + 1 >= len(rest):
                 die(f"{rest[i]} needs a value.")
             opts[rest[i][2:]] = rest[i + 1]
@@ -2202,6 +2416,8 @@ def main(argv, root=None):
         die("--kind, --cause, --skills, --models and --close go with the measurement command. See --help.")
     if "class" in opts and cmd != "bump":
         die("--class goes with the bump command. See --help.")
+    if "model" in opts and cmd != "gate":
+        die("--model goes with the gate command. See --help.")
     if "date" in opts and cmd not in ("measurement", "bump", "migrate-versions"):
         die("--date goes with measurement, bump and migrate-versions. See --help.")
     if cmd == "bump":
@@ -2237,7 +2453,7 @@ def main(argv, root=None):
         print(json.dumps(out, indent=2))
         return 0
     if cmd == "status":
-        print(json.dumps(all_status(root, skill), indent=2))
+        print(json.dumps(all_status(root, skill, local_evidence_base()), indent=2))
         return 0
     if cmd == "hash":
         if not skill:
@@ -2255,7 +2471,8 @@ def main(argv, root=None):
                 standing, error, note = evidence_standing(root)
                 if note:
                     print(f"Note: {note}", file=sys.stderr)
-                state = standing(opts["file"])
+                inside = os.path.realpath(opts["file"]).startswith(os.path.realpath(root) + os.sep)
+                state = standing(opts["file"]) if inside else "unchecked"  # a person's local file is no part of the checkout
                 problems = ([error] if error else [EDITED_TEXT] if state == "edited"
                             else evidence_file_problems(opts["file"], root, skill, strict=state == "new"))
             found, checked = ({opts["file"]: problems} if problems else {}), 1
@@ -2269,7 +2486,12 @@ def main(argv, root=None):
     if cmd == "gate":
         if not skill:
             die("gate needs --skill <name>.")
-        print(json.dumps(gate_of(os.path.join(root, "skills", skill), load_gate(root)), indent=2))
+        config = load_gate(root)
+        if opts.get("model"):  # the gate on another model's lines (the model's section 10)
+            if not MODEL_RE.fullmatch(opts["model"]):
+                die(f"--model {opts['model']!r} is not a model id.")
+            config = as_reference(config, model_id(config, opts["model"]))
+        print(json.dumps(gate_of(os.path.join(root, "skills", skill), config), indent=2))
         return 0
     if cmd == "inventory":
         if len(flags) != 1:
