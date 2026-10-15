@@ -440,8 +440,12 @@ def firings(s, job_id="tick") -> list:
 
 def test_a_firing_records_its_commands_process_group_while_it_runs(s):
     seen = s.tmp / "seen.txt"
-    code = (f"import os; open({str(seen)!r}, 'w').write("
-            f"open({str(s.folder('tick') / 'run.group')!r}).read().strip() + ' ' + str(os.getpgrp()))")
+    group = str(s.folder('tick') / 'run.group')
+    # The runner records the group right after it starts the command, so the command waits for the file: on a busy
+    # machine (tests split across processes) it can run its first line before the runner has written it.
+    code = (f"import os, time; deadline = time.time() + 30\n"
+            f"while not os.path.exists({group!r}) and time.time() < deadline: time.sleep(0.02)\n"
+            f"open({str(seen)!r}, 'w').write(open({group!r}).read().strip() + ' ' + str(os.getpgrp()))")
     assert schedule_every(s, s.command_file(code)).returncode == 0
     assert s.run("run", "--id", "tick").returncode == 0, firings(s)
     recorded, actual = seen.read_text().split()

@@ -308,7 +308,7 @@ def test_the_image_is_only_inspected_and_never_built(monkeypatch):
     # platform is what the image runs as here; evidence_platform is the one the lab evidence is made on (the executor's
     # IMAGE_PLATFORM): the two may differ, and the proof holds for the second.
     assert lab.image() == {"name": "wb-eval:demo", "digest": "sha256:" + "c" * 64, "platform": "linux/arm64",
-                           "evidence_platform": "linux/amd64"}
+                           "evidence_platform": "linux/amd64", "source": "local", "setup": None, "problem": None}
     assert seen and all(a[:2] == ("image", "inspect") for a in seen)
     monkeypatch.setattr(fake, "docker", staticmethod(lambda *a, **k: _Done(1)))
     assert lab.image()["digest"] is None

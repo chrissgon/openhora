@@ -23,6 +23,7 @@
 /scripts/redact.py             @chrissgon
 /scripts/test_dirs.py          @chrissgon
 /scripts/evidence.py           @chrissgon
+/scripts/image_lock.py         @chrissgon
 /.security-scan-allow          @chrissgon
 /shared/                       @chrissgon
 /skills/*/evals/evidence/      @chrissgon
