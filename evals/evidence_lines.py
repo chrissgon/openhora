@@ -9,21 +9,29 @@ this file by path and re-exports every name below, so the status script behaves 
 name its importers use. It is not a measurement file (it is not in FINGERPRINT_FILES of eval_status.py): a
 change to it asks for no new measurement version. Standard library only; runs on Python 3.9.
 
-An evidence file is judged by itself (backlog T24)
---------------------------------------------------
-A committed evidence file is never edited, so it has to stay valid whatever the gate file says later. The
-file is therefore checked against what its own event line states, never against today's gate file:
+An evidence file is judged by itself (backlog T24), and a new one strictly
+-------------------------------------------------------------------------
+A committed evidence file is never edited, so it has to stay valid whatever the gate file says later. A file
+already committed at the base of a change is therefore checked against what its own event line states, never
+against today's gate file:
 
-  1. "runs" is checked against the event line itself. It is a whole number from RUNS_RANGE[0] to RUNS_RANGE[1]
-     (the range the gate file's "runs" may take), and no case has more lines with the skill, on one model, than
-     the event's "runs" (a line without the skill may be repeated up to RUNS_RANGE[1] times, since a baseline
-     of a full test has its own number of runs). A later change of "runs" in the gate file changes nothing here.
-  2. A model id is valid when it is well formed (MODEL_RE) or the word "unknown". The ids an event line
-     names are those of its "models", its "grader" and "unknown"; the keys of its "counts" and "upstream" must
-     be among them, and so must the "model" of each run line of the file. A model removed from the gate
-     file's "models" later keeps its old lines valid. A malformed id is always refused.
-  3. The optional `models` argument of `event_line_problems` and `run_line_problems` is an extra allowlist for
-     a caller that wants the old, stricter reading; evidence_file_problems never passes one.
+  1. "runs" is a whole number from RUNS_RANGE[0] to RUNS_RANGE[1] (the range the gate file's "runs" may take),
+     and no case has more lines, on one model and one adapter, in one variant, than the event's "runs". A later
+     change of "runs" in the gate file changes nothing here.
+  2. A model id is valid when it is well formed (MODEL_RE) or the word "unknown". The ids an event line names
+     are those of its "models", its "grader" and "unknown". The keys of its "counts" and "upstream" must be among
+     them. The "model" of a run line must be one of the event's "models" (the word "unknown" only when the
+     header names it); a run line is not allowed to name the grader. A model removed from the gate file's
+     "models" later keeps its old lines valid. A malformed id is always refused.
+
+A file that is new against the base of the change (scripts/validate.py reads the base the class checks read;
+the runner checks the file it is about to copy into a skill) is read strictly, with `strict`, a dict
+{"models": the ids of the gate file's "models", "runs": the gate file's configured runs}: every model id of the
+event line and of the run lines is in that list (or "unknown"), so that a private model name never enters the
+repository, and the event's "runs" equals the configured number, so that a trial or a forged event cannot enter
+as evidence. Without a base (not a git checkout) every file is judged by its own event line, as the class checks
+of the validator are skipped there too. The optional `models` argument of `event_line_problems` and
+`run_line_problems` is that same allowlist, for a caller that wants the strict reading of one line.
 
 Field evidence lines (scripts/evidence.py, `field_line_problems` of eval_status.py) have no event line to
 state their models and keep being read against the gate file's list; that is outside this module.
@@ -124,6 +132,7 @@ def skill_names(root=ROOT):
 
 MODELS_FORM = ("{\"strong\": model id[, \"floor\": model id]} or a non-empty list of distinct model ids, "
                "each a well-formed id or \"unknown\"")
+LISTED = " in the gate file's model list"  # said when the strict reading (a models allowlist) is on
 ADAPTERS_FORM_OLD = "an adapter's folder name for each tier of models"
 ADAPTERS_FORM_NEW = "{model id: an adapter's folder name}, one for each model of models"
 
@@ -199,7 +208,7 @@ def event_line_problems(line, models=None):
             and (not isinstance(line["adapters"], dict) or set(hashes) == set(line["adapters"].values()))):
         bad("adapter_sha256", "the sha256 of the run-prompt.sh of each adapter named in adapters")
     if not (isinstance(line["grader"], str) and _model(line["grader"], models)):
-        bad("grader", "a well-formed model id or \"unknown\"")
+        bad("grader", "a well-formed model id" + (LISTED if models is not None else "") + ", or \"unknown\"")
     # The ids the line names: its models, its grader and "unknown". While the header is malformed there is no
     # such list, and a model id is judged by its form alone, so that one fault is reported once.
     named = None
@@ -261,8 +270,8 @@ def event_line_problems(line, models=None):
 
 def run_line_problems(line, event=None, models=None):
     """Why a run line is outside its form, or disagrees with the event line of its file. Given the event line, the
-    run's model is one the event names (or "unknown") and its adapter one of the event's adapters; models is the
-    optional extra allowlist of event_line_problems."""
+    run's model is one of the event's models ("unknown" only when the event's header names it) and its adapter one
+    of the event's adapters; models is the optional extra allowlist of event_line_problems."""
     out = _keys(line, RUN_REQUIRED, RUN_OPTIONAL)
     if out:
         return out
@@ -277,7 +286,7 @@ def run_line_problems(line, event=None, models=None):
         if not _is(HEX64_RE, line[key]):
             bad(key, "64 hexadecimal characters")
     if not (isinstance(line["model"], str) and _model(line["model"], models)):
-        bad("model", "a well-formed model id, or \"unknown\"")
+        bad("model", "a well-formed model id" + (LISTED if models is not None else "") + ", or \"unknown\"")
     if not _is(NAME_RE, line["adapter"]):
         bad("adapter", "an adapter's folder name")
     if line["kind"] not in KINDS:
@@ -325,7 +334,7 @@ def run_line_problems(line, event=None, models=None):
             if line[key] != event.get(key):
                 out.append(f"{key} differs from the event line of the file")
         pairs = event_model_pairs(event)
-        if pairs and line["model"] != "unknown" and line["model"] not in {m for m, _ in pairs}:
+        if pairs and line["model"] not in {m for m, _ in pairs}:
             out.append("model is not one of the event's models")
         if pairs and line["adapter"] not in {a for _, a in pairs}:
             out.append("adapter is not one of the event's adapters")
@@ -359,11 +368,12 @@ def read_evidence_file(path):
     return lines[0][1], lines[1:], problems
 
 
-def evidence_file_problems(path, root=None, skill=None):
+def evidence_file_problems(path, root=None, skill=None, strict=None):
     """Why one lab evidence file is not valid; an empty list when it is. skill is the folder the file belongs
     to; by default it is read from a path .../skills/<name>/evals/evidence/<file>. The file is judged by its own
-    event line (the module docstring, backlog T24): root is accepted for the callers that pass it and is not
-    read, since no gate file takes part."""
+    event line (the module docstring, backlog T24); strict, {"models": ids, "runs": number} or None, is the
+    strict reading of a file that is new against the base. root is accepted for the callers that pass it and is
+    not read."""
     name = os.path.basename(path)
     parts = os.path.normpath(os.path.abspath(path)).split(os.sep)
     if skill is None and len(parts) >= 5 and parts[-3:-1] == ["evals", "evidence"] and parts[-5] == "skills":
@@ -374,15 +384,20 @@ def evidence_file_problems(path, root=None, skill=None):
     event, runs, problems = read_evidence_file(path)
     if event is None:
         return problems
-    first = event_line_problems(event)
+    models = set(strict["models"]) if strict else None
+    first = event_line_problems(event, models)
     problems += [f"line 1: {p}" for p in first]
     if not first:
         if event["test"] != m.group(1):
             problems.append("line 1: test differs from the file's name")
         if skill is not None and event["skill"] != skill:
             problems.append(f"line 1: skill must be the folder's name, {skill}")
+        if strict and event["runs"] != strict["runs"]:
+            problems.append(f"line 1: runs is {event['runs']}, and the configured number is {strict['runs']} "
+                            "(\"runs\" of evals/eval-gate.json): a new evidence file comes only from an event that used the "
+                            "configured number; another number is a trial, and writes no evidence")
     for n, line in runs:
-        problems += [f"line {n}: {p}" for p in run_line_problems(line, None if first else event)]
+        problems += [f"line {n}: {p}" for p in run_line_problems(line, None if first else event, models)]
     if not first and not problems:
         problems += run_count_problems(event, [line for _, line in runs])
     return problems
@@ -390,16 +405,15 @@ def evidence_file_problems(path, root=None, skill=None):
 
 def run_count_problems(event, runs):
     """Why the number of run lines of a case disagrees with the event's own "runs": a case has at most that many
-    lines with the skill on one model, and at most RUNS_RANGE[1] without it (a baseline has a number of its own)."""
+    lines on one model and one adapter in one variant, with the skill or without it (a baseline never has more)."""
     out, seen = [], {}
     for line in runs:
-        key = (str(line["case"]), line["model"], line["variant"])
+        key = (str(line["case"]), line["model"], line["adapter"], line["variant"])
         seen[key] = seen.get(key, 0) + 1
-    for (case, model, variant), n in sorted(seen.items()):
-        limit = event["runs"] if variant == "with" else RUNS_RANGE[1]
-        if n > limit:
-            out.append(f"case {case} has {n} lines {variant} the skill on {model}, more than the {limit} the event allows "
-                       f"(\"runs\" of its event line is {event['runs']})")
+    for (case, model, adapter, variant), n in sorted(seen.items()):
+        if n > event["runs"]:
+            out.append(f"case {case} has {n} lines {variant} the skill on {model} ({adapter}), more than the event's "
+                       f"\"runs\", {event['runs']}")
     return out
 
 
@@ -411,11 +425,13 @@ def evidence_files(skill_dir):
     return [os.path.join(folder, n) for n in sorted(os.listdir(folder)) if n.startswith("lab-") and n.endswith(".jsonl")]
 
 
-def evidence_problems(root=ROOT, only=None, field_problems=None):
+def evidence_problems(root=ROOT, only=None, field_problems=None, strict_for=None):
     """({relative path: [problems]}, files checked) for the evidence folders of every skill, or of one. A file
     whose name is neither lab-<test id>.jsonl nor field-<id>.jsonl is a problem: nothing else belongs in that
-    folder. field_problems(path, root, skill) judges a field-<id>.jsonl file; it belongs to eval_status.py, which
-    passes it (without it a field file is reported as unread)."""
+    folder. field_problems(path, root, skill) judges a field-<id>.jsonl file, and strict_for(relative path)
+    answers the `strict` argument of evidence_file_problems for a lab file (None: judge it by its own event
+    line); both belong to eval_status.py, which passes them (without field_problems a field file is reported
+    as unread)."""
     found, checked = {}, 0
     for name in [only] if only else skill_names(root):
         folder = os.path.join(root, "skills", name, EVIDENCE_REL)
@@ -428,7 +444,8 @@ def evidence_problems(root=ROOT, only=None, field_problems=None):
                 else:
                     problems = field_problems(os.path.join(folder, entry), root, name)
             else:
-                problems = evidence_file_problems(os.path.join(folder, entry), root, name)
+                problems = evidence_file_problems(os.path.join(folder, entry), root, name,
+                                                  strict_for(rel) if strict_for else None)
             if problems:
                 found[rel] = problems
     return found, checked

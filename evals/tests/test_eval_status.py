@@ -534,6 +534,7 @@ def test_a_well_formed_evidence_file_is_valid_and_changes_no_status(root, capsys
     ({"content_sha256": "abc"}, "content_sha256 must be 64 hexadecimal characters"),
     ({"model": "a private model"}, "model must be a well-formed model id"),
     ({"model": "a-private-model"}, "model is not one of the event's models"),
+    ({"model": "unknown"}, "model is not one of the event's models"),
     ({"adapter": "../h"}, "adapter must be an adapter's folder name"),
     ({"kind": "smoke"}, "kind must be full or partial"),
     ({"date": "2030-13-01"}, "date must be YYYY-MM-DD"),
@@ -625,9 +626,12 @@ def test_an_event_is_judged_by_its_own_runs_never_by_the_configured_number(root)
     # No case has more lines with the skill, on one model, than the event's own runs.
     path = evidence(root, [event_line(runs=2), run_line(), run_line(), run_line()])
     problems = es.evidence_file_problems(str(path), str(root))
-    assert len(problems) == 1 and "case 1 has 3 lines with the skill on s-model, more than the 2 the event allows" in problems[0]
+    assert len(problems) == 1 and "case 1 has 3 lines with the skill on s-model (h), more than the event's \"runs\", 2" in problems[0]
     path = evidence(root, [event_line(runs=2)] + [run_line(variant="without", score=0.0, results=[0, 0])] * 3)
-    assert es.evidence_file_problems(str(path), str(root)) == []  # a baseline has a number of runs of its own
+    assert "3 lines without the skill on s-model (h), more than the event's \"runs\", 2" in es.evidence_file_problems(str(path), str(root))[0]
+    # A count is by case, model, adapter and variant: the same case on two adapters is two counts.
+    path = evidence(root, [event_line(runs=1), run_line(), run_line(adapter="fh")])
+    assert es.evidence_file_problems(str(path), str(root)) == []
 
 
 def test_the_forms_that_are_optional_or_depend_on_the_kind(root):
@@ -638,7 +642,10 @@ def test_the_forms_that_are_optional_or_depend_on_the_kind(root):
                                                                             adapter_sha256={"h": H["b"]}, counts={})):
         assert es.event_line_problems(line, {"s-model", "f-model"}) == [], line
     assert es.run_line_problems(run_line(model="unknown")) == [] and es.run_line_problems(run_line(case="a-case"), None, None) == []
-    assert es.run_line_problems(run_line(model="unknown"), event_line()) == []  # "unknown" is always a model the line may name
+    # "unknown" is a model of a run line only when the event line's header names it.
+    assert es.run_line_problems(run_line(model="unknown"), event_line()) == ["model is not one of the event's models"]
+    assert es.run_line_problems(run_line(model="unknown"), event_line(models={"strong": "unknown"}, adapters={"strong": "h"},
+                                                                       adapter_sha256={"h": H["b"]}, counts={})) == []
 
 
 def test_a_file_that_is_no_evidence_file_is_an_error(root, capsys):

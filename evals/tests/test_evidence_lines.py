@@ -45,6 +45,16 @@ def as_list_shape(lines):
     return [event] + lines[1:]
 
 
+def retired(gate, runs):
+    """The gate file after a later change: another number of runs, and every model it listed replaced by others
+    (a valid gate file: the configured models are among the listed ones)."""
+    out = copy.deepcopy(gate)
+    out.update(runs=runs, strong_model="next-strong", floor_model="next-floor", grader="next-grader",
+               models={"next-strong": [], "next-floor": [], "next-grader": []})
+    out["baseline_runs"] = min(out.get("baseline_runs", runs), runs)
+    return out
+
+
 def tree(tmp_path, source, gate):
     """A tree with a copy of one committed evidence file and a gate file; returns (root, the copied path)."""
     skill = source.parents[2].name
@@ -72,11 +82,9 @@ def test_a_committed_file_stays_valid_when_the_gate_file_changes_runs_and_drops_
     assert es.evidence_file_problems(str(path), str(root)) == [] and es.evidence_problems(str(root)) == ({}, 1)
     # The gate file as a later change leaves it: another number of runs, and every model the file names removed.
     named = set(event["models"].values()) | {event["grader"]}
-    later = copy.deepcopy(gate)
-    later["runs"] = 5 if event["runs"] != 5 else 4
-    later["models"] = {k: v for k, v in later["models"].items() if k not in named} or {"another-model": []}
+    later = retired(gate, 5 if event["runs"] != 5 else 4)
     (root / "evals" / "eval-gate.json").write_text(json.dumps(later))
-    assert not (named & set(es.known_models(es.load_gate(str(root)))))
+    assert es.gate_problems(str(root)) == [] and not (named & set(es.known_models(es.load_gate(str(root)))))
     assert es.evidence_file_problems(str(path), str(root)) == []
     assert es.evidence_problems(str(root))[0] == {}
     assert es.main(["evidence"], root=str(root)) == 0
@@ -102,14 +110,14 @@ def test_a_malformed_model_id_is_still_refused(tmp_path):
     assert any(p.startswith("line 1: models must be") for p in el.evidence_file_problems(str(path()), skill="demo"))
 
 
-def test_a_run_line_names_a_model_of_its_event_line_or_unknown(tmp_path):
+def test_a_run_line_names_a_model_of_its_event_line_and_unknown_only_when_the_header_names_it(tmp_path):
     lines = read(COMMITTED[0])
     run = lines[1]
     assert el.run_line_problems(run, lines[0]) == []
-    assert el.run_line_problems({**run, "model": "unknown"}, lines[0]) == []
+    assert el.run_line_problems({**run, "model": "unknown"}, lines[0]) == ["model is not one of the event's models"]
     assert el.run_line_problems({**run, "model": "some/well-formed-model"}, lines[0]) == ["model is not one of the event's models"]
     # The extra allowlist is the old, stricter reading; the validator never passes one.
-    assert el.run_line_problems(run, None, {"another-model"}) == ["model must be a well-formed model id, or \"unknown\""]
+    assert el.run_line_problems(run, None, {"another-model"}) == ["model must be a well-formed model id in the gate file's model list, or \"unknown\""]
 
 
 def test_counts_and_upstream_name_only_models_the_event_line_names(tmp_path):
@@ -189,7 +197,7 @@ def test_the_runs_of_an_event_are_checked_against_its_range_and_its_lines_only()
 
 # --- the module is the one source of what eval_status.py re-exports -------------------------------------------
 
-@pytest.mark.parametrize("name", ["event_line_problems", "run_line_problems", "read_evidence_file", "evidence_file_problems",
+@pytest.mark.parametrize("name", ["event_line_problems", "run_line_problems", "read_evidence_file",
                                   "evidence_files", "skill_names", "event_model_pairs", "tier_model", "EVENT_REQUIRED",
                                   "EVENT_OPTIONAL", "RUN_REQUIRED", "RUN_OPTIONAL", "COUNT_KEYS", "MODEL_RE", "NAME_RE",
                                   "TEST_ID_RE", "HEX64_RE", "_model", "_is", "_keys", "_date", "_count", "_number", "_case_id"])
@@ -216,3 +224,95 @@ def test_a_case_that_brings_the_status_script_into_its_folder_brings_the_module_
     assert [rel for _, rel in er.workbench_files({"id": 1, "workbench_files": ["evals/evidence_lines.py", "evals/eval_status.py"]})] == [
         "evals/evidence_lines.py", "evals/eval_status.py"]  # listed already: not added twice
     assert er.workbench_files({"id": 1}) == []
+
+
+# --- a new file is read strictly (against the base), an old one by its own event line --------------------------
+
+import os
+import subprocess
+
+GIT = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.test", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.test",
+       "PATH": os.environ.get("PATH", ""), "HOME": os.environ.get("HOME", ""), "GIT_CONFIG_GLOBAL": os.devnull,
+       "GIT_CONFIG_SYSTEM": os.devnull}
+
+
+def git(root, *args):
+    return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, env=GIT, check=True).stdout.strip()
+
+
+def committed_tree(tmp_path):
+    """A git tree whose base commit holds one committed evidence file and the gate file; returns (root, old path, gate)."""
+    source = COMMITTED[0]
+    gate = json.loads((REPO / "evals" / "eval-gate.json").read_text())
+    root, old = tree(tmp_path, source, gate)
+    git(root, "init", "-q")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "base")
+    return root, old, gate
+
+
+def forged_copy(old, name, **event_changes):
+    lines = read(old)
+    lines[0].update(event_changes)
+    lines[0]["test"] = lines[1]["test"] = name[4:-6]
+    for line in lines[2:]:
+        line["test"] = lines[0]["test"]
+    return lines
+
+
+def test_a_new_file_is_read_strictly_and_the_same_file_at_the_base_is_not(tmp_path, monkeypatch):
+    root, old, gate = committed_tree(tmp_path)
+    monkeypatch.setenv("WB_BASE_REF", git(root, "rev-parse", "HEAD"))
+    gate_file = root / "evals" / "eval-gate.json"
+    new_name = "lab-20300102T030405Z-0a1b2c3d.jsonl"
+    problems_of = lambda: es.evidence_problems(str(root))[0]
+    rel = lambda path: str(path.relative_to(root))
+    # A forged event: runs 10 where the gate file configures 7. A new file is refused; the committed one is not.
+    gate_file.write_text(json.dumps({**gate, "runs": 7, "baseline_runs": min(gate.get("baseline_runs", 7), 7)}))
+    forged = write(old.parent / new_name, forged_copy(old, new_name, runs=10))
+    found = problems_of()
+    assert rel(old) not in found and any("runs is 10, and the configured number is 7" in p for p in found[rel(forged)])
+    assert es.main(["evidence"], root=str(root)) == 1
+    # A well-formed model name the gate file does not list: refused in a new file.
+    forged = write(old.parent / new_name, forged_copy(old, new_name, grader="a-private-model-name"))
+    assert any("grader must be a well-formed model id in the gate file's model list" in p for p in problems_of()[rel(forged)])
+    # The gate file as a later change leaves it: another number of runs, every model replaced. The file committed
+    # at the base stays valid; the new one is refused.
+    gate_file.write_text(json.dumps(retired(gate, 7)))
+    forged = write(old.parent / new_name, forged_copy(old, new_name))
+    found = problems_of()
+    assert rel(old) not in found and any(p.startswith("line 1: models must be") for p in found[rel(forged)])
+    # Once the file is committed it is the base's, and is judged by its own event line.
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "second")
+    monkeypatch.setenv("WB_BASE_REF", git(root, "rev-parse", "HEAD"))
+    assert problems_of() == {}
+
+
+def test_without_a_base_every_file_is_judged_by_its_own_event_line(tmp_path, monkeypatch):
+    source = COMMITTED[0]
+    gate = json.loads((REPO / "evals" / "eval-gate.json").read_text())
+    root, path = tree(tmp_path, source, retired(gate, 7))  # not a git tree
+    assert es.comparison_base(str(root)) is None
+    assert es.evidence_problems(str(root)) == ({}, 1)
+
+
+def test_the_strict_reading_of_one_file_is_asked_for_by_the_caller(tmp_path):
+    source = COMMITTED[0]
+    event = read(source)[0]
+    gate = json.loads((REPO / "evals" / "eval-gate.json").read_text())
+    gate["runs"] = event["runs"] + 1 if event["runs"] < 10 else event["runs"] - 1
+    root, path = tree(tmp_path, source, gate)
+    assert es.evidence_file_problems(str(path), str(root)) == []
+    problems = es.evidence_file_problems(str(path), str(root), strict=True)
+    assert problems and "the configured number is" in problems[0]
+    (root / "evals" / "eval-gate.json").write_text(json.dumps(retired(gate, event["runs"])))
+    assert any(p.startswith("line 1: models must be") for p in es.evidence_file_problems(str(path), str(root), strict=True))
+
+
+def test_a_run_count_is_by_case_model_adapter_and_variant():
+    event = {"runs": 2}
+    line = lambda adapter, variant: {"case": 1, "model": "m", "adapter": adapter, "variant": variant}
+    assert el.run_count_problems(event, [line("a", "with")] * 2 + [line("b", "with")] * 2 + [line("a", "without")] * 2) == []
+    problems = el.run_count_problems(event, [line("a", "with")] * 3)
+    assert problems == ["case 1 has 3 lines with the skill on m (a), more than the event's \"runs\", 2"]

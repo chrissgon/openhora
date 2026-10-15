@@ -2523,7 +2523,14 @@ def test_an_event_with_other_values_than_the_configured_ones_writes_to_its_scrat
     # A valid file by what its own event line states (backlog T24): the validator no longer compares the event's
     # "runs" with the gate file's current value, so a file stays valid when the gate file changes later. What keeps
     # a trial out of a skill's folder is this runner (above) and the review of every evidence file.
-    assert er.load_status().evidence_file_problems(str(scratch), str(tmp_path), "demo") == []
+    status = er.load_status()
+    assert status.evidence_file_problems(str(scratch), str(tmp_path), "demo") == []
+    # Read strictly, as the runner reads a file it is about to copy into a skill, the one value an event line
+    # records that is not the configured one is refused.
+    assert status.evidence_file_problems(str(scratch), str(tmp_path), "demo", strict=True) == (
+        ["line 1: runs is 2, and the configured number is 1 (\"runs\" of evals/eval-gate.json): a new evidence file comes only "
+         "from an event that used the configured number; another number is a trial, and writes no evidence"]
+        if extra == ["--runs", "2"] else [])
     assert why in bench_of(tmp_path)["scratch"]
     # The configured values, and the same event is evidence.
     assert er.main(["--skill", "demo"]) == 0

@@ -2555,7 +2555,8 @@ def run(argv):
         elif status.content_hash(skill_dir) != start_hash and not closing:
             evidence["reason"] = "the skill folder changed during the event: its runs are of another content"
         else:
-            problems = status.evidence_file_problems(in_run_folder, ROOT, o["skill"])
+            # A file about to enter a skill is new evidence: read strictly (the current gate file's models and runs).
+            problems = status.evidence_file_problems(in_run_folder, ROOT, o["skill"], strict=True)
             if problems:  # the runner never puts into a skill a file its own validation refuses
                 evidence["reason"] = "the evidence file is not valid: " + "; ".join(problems[:5])
             else:

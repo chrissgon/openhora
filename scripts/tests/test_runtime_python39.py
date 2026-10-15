@@ -34,7 +34,7 @@ ON_SYSTEM_PYTHON = [
     "shared/scripts/sensitive_topics.py", "shared/scripts/redact.py",
     # The field recorder: the runtime calls `record --start` before it starts an agent (the reliability model,
     # section 7), and it loads the status script for the form of a field line and the content hash.
-    "scripts/evidence.py", "evals/eval_status.py",
+    "scripts/evidence.py", "evals/eval_status.py", "evals/evidence_lines.py",
     # The task runtime: its shell runs on the system interpreter, and a scheduler will start its dispatcher.
     "runtime/lab.py", "runtime/ops.py", "runtime/ops_core.py", "runtime/ops_say.py", "runtime/ops_reads.py", "runtime/ops_waits.py", "runtime/ops_config.py", "runtime/ops_runs.py", "runtime/cli.py", "runtime/flow_files.py", "runtime/skill_meta.py",
     "runtime/path_rule.py", "runtime/state_merge.py", "runtime/endings.py", "runtime/project_config.py",

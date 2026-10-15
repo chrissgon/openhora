@@ -62,9 +62,10 @@ adapter) pairs of either.
 A model id is written by the runner as the id of the gate file's "models" ({id: [aliases]}) that it or its alias
 names, and as "unknown" for anything else, so that one model never falls into two rows and a private model name
 never enters the repository. Without that key the known ids are the configured strong model, floor model and
-grader. The validator does not check an id against that list (backlog T24): an evidence file is committed once
-and never edited, so it is read by what its own event line names, and a model removed from "models" later, or a
-later change of "runs", invalidates nothing (the rule is in evals/evidence_lines.py).
+grader. The validator checks an id against that list only in a file that is new against the base of the change
+(strict_reading: every id in "models", the event's "runs" equal to the configured one); a file already committed
+is read by what its own event line names, so a model removed from "models" later, or a later change of "runs",
+invalidates nothing (backlog T24; the rule is in evals/evidence_lines.py).
 
 The eval gate is configured in evals/eval-gate.json, committed: {"strong_model", "strong_harness",
 "floor_model", "floor_harness", "floor_pass_env": [variables], "strong_pass_env": [variables], "grader",
@@ -94,8 +95,8 @@ none may); "strong_web_pass_env", the variables a strong-model run of a web case
 of a baseline in a full test (from 1 to "runs"; without it, "runs"), and "baseline_margin" the distance under
 which the status asks a thin baseline to be run in full. An event made with another number of
 runs, another timeout or another number of retries than these writes no evidence (eval_run.py --help). The
-validator checks an event line's "runs" against the range of the key and against the event's own lines, never
-against the configured value (backlog T24).
+validator checks the "runs" of an event line already committed against the range of the key and against the
+event's own lines, and that of a new file against the configured value (backlog T24).
 
 Field evidence (the reliability model, section 7) is a use of a skill in a project, recorded there by
 scripts/evidence.py and contributed as skills/<name>/evals/evidence/field-<id>.jsonl, <id> being the first 12
@@ -754,17 +755,47 @@ def new_test_id(now=None):
 _is, _date, _number, _count, _model, _case_id, _keys = (
     EVIDENCE_LINES._is, EVIDENCE_LINES._date, EVIDENCE_LINES._number, EVIDENCE_LINES._count, EVIDENCE_LINES._model,
     EVIDENCE_LINES._case_id, EVIDENCE_LINES._keys)
-(event_line_problems, run_line_problems, read_evidence_file, evidence_file_problems, evidence_files, event_model_pairs,
+(event_line_problems, run_line_problems, read_evidence_file, evidence_files, event_model_pairs,
  tier_model, run_count_problems) = (
     EVIDENCE_LINES.event_line_problems, EVIDENCE_LINES.run_line_problems, EVIDENCE_LINES.read_evidence_file,
-    EVIDENCE_LINES.evidence_file_problems, EVIDENCE_LINES.evidence_files, EVIDENCE_LINES.event_model_pairs,
+    EVIDENCE_LINES.evidence_files, EVIDENCE_LINES.event_model_pairs,
     EVIDENCE_LINES.tier_model, EVIDENCE_LINES.run_count_problems)
+
+
+def strict_reading(root=ROOT):
+    """The strict reading of a new evidence file (evidence_lines.py, the module docstring): every model id in the
+    current gate file's "models" and the event's "runs" equal to the configured number. None for a tree with no
+    gate file (a case folder that builds a skill of its own configures nothing)."""
+    cfg = load_gate(root)
+    return {"models": set(known_models(cfg)), "runs": event_config(cfg)["runs"]} if cfg else None
+
+
+def new_evidence_checker(root=ROOT):
+    """A function from the path of an evidence file (relative to root, or absolute) to True when the file is new
+    against the base of the change (comparison_base: WB_BASE_REF, else the merge base with the default branch),
+    that is, absent from the tree at that commit. Without a base every file is reported as not new, which is
+    what the class checks of the validator do too: they are skipped there."""
+    base = comparison_base(root)
+    listing = git_out(root, "ls-tree", "-r", "--name-only", base, "--", "skills") if base else None
+    if listing is None:
+        return lambda path: False
+    old = set(listing.split("\n"))
+    return lambda path: os.path.relpath(os.path.join(root, path), root).replace(os.sep, "/") not in old
+
+
+def evidence_file_problems(path, root=ROOT, skill=None, strict=False):
+    """Why one lab evidence file is not valid (evidence_lines.evidence_file_problems). strict=True reads it
+    strictly, against the current gate file: a file about to be written, or new against the base."""
+    return EVIDENCE_LINES.evidence_file_problems(path, root, skill, strict_reading(root) if strict is True else (strict or None))
 
 
 def evidence_problems(root=ROOT, only=None):
     """{relative path: [problems]} and the number of files checked, for the evidence folders of every skill, or of
-    one (evidence_lines.evidence_problems, with the reader of field files)."""
-    return EVIDENCE_LINES.evidence_problems(root, only, field_problems=field_file_problems)
+    one (evidence_lines.evidence_problems, with the reader of field files). A lab file that is new against the base
+    of the change is read strictly (strict_reading), every other one by its own event line (backlog T24)."""
+    is_new, strict = new_evidence_checker(root), strict_reading(root)
+    return EVIDENCE_LINES.evidence_problems(root, only, field_problems=field_file_problems,
+                                            strict_for=lambda rel: strict if is_new(rel) else None)
 
 
 def skill_evidence(skill_dir):
@@ -2034,8 +2065,10 @@ def main(argv, root=None):
         return 0
     if cmd == "evidence":
         if opts.get("file"):
-            check = field_file_problems if os.path.basename(opts["file"]).startswith("field-") else evidence_file_problems
-            problems = check(opts["file"], root, skill)
+            if os.path.basename(opts["file"]).startswith("field-"):
+                problems = field_file_problems(opts["file"], root, skill)
+            else:
+                problems = evidence_file_problems(opts["file"], root, skill, strict=new_evidence_checker(root)(opts["file"]))
             found, checked = ({opts["file"]: problems} if problems else {}), 1
         else:
             found, checked = evidence_problems(root, skill)
