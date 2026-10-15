@@ -40,6 +40,7 @@ import threading
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ops_core as core  # noqa: E402
 import ops_runs  # noqa: E402
+import ops_step_seams  # noqa: E402
 import ops_waits  # noqa: E402
 import dispatcher  # noqa: E402
 import operations  # noqa: E402
@@ -120,7 +121,8 @@ def _context(ctx: dict, task: dict) -> steps.Context:
 
     return steps.Context(task_id=task_id, request_id=task["parent_id"], project=ctx["cfg"]["project"],
                          args=task.get("step_args") or {}, move=move, save=save, alive=alive, decisions=decisions, now=_now,
-                         footprint=tuple(task.get("step_footprint") or ()), protected=lambda path: sources.inside(ctx["cfg"], path))
+                         footprint=tuple(task.get("step_footprint") or ()), protected=lambda path: sources.inside(ctx["cfg"], path),
+                         services=ops_step_seams.services(ctx))
 
 
 def _start(ctx: dict, task_id: int, unattended: bool = False) -> dict:

@@ -633,3 +633,21 @@ def test_changing_or_cancelling_a_routine_closes_the_request_of_its_stop_as_appr
         write_flow(world, "daily-demo", {"flow": "daily-demo", "title": "Daily", "tasks": [
             {"key": "market", "skill": "demo-asks", "title": "Market", "text": "Do it."}]})
 
+
+def test_a_routines_export_or_write_back_step_is_held_for_the_person_and_its_gate_is_approved_in_the_terminal_or_on_the_page_only(world, clock):
+    write_flow(world, "outputs", {"flow": "outputs", "title": "Outputs", "tasks": [
+        {"key": "table", "step": "export-csv", "title": "Make the table", "args": {"input": "docs/data/prices.csv", "name": "prices"}},
+        {"key": "page", "step": "write-back", "title": "Write it back", "args": {"target": "page-id-1234", "content": "docs/notes/summary.md"},
+         "depends_on": ["table"]}]})
+    rid = approved_routine(world, flow="outputs")
+    [one] = tick(world, clock.to(minutes=61))
+    assert one["status"] == "created"
+    ctx = ctx_of(world)
+    rows = {t["key"]: t for t in ctx["store"].tasks_list(ctx["conn"]) if t["parent_id"] == one["request"]}
+    assert rows["table"]["step_kind"] == "export-csv" and rows["page"]["step_kind"] == "write-back" and rows["table"]["agent"] == "runtime"
+    assert ops_steps.held_reason(ctx, rows["table"]) == "start it by hand" and ops_steps.held_reason(ctx, rows["page"]) == "start it by hand"
+    assert not ops_steps.may_dispatch(ctx, rows["table"]) and not ops_steps.may_dispatch(ctx, rows["page"]), "the dispatcher starts neither on its own"
+    operations = st.load("operations")
+    for channel in ("messaging", "mcp"):
+        assert not operations.permitted("approve", channel, {channel: list(operations.GROUPS)}, "effect"), "a write-back's gate is approved nowhere but the terminal and the page"
+    assert set(operations.EFFECT_CHANNELS) == {"terminal", "page"} and routine(world, rid)["state"] == "active"
