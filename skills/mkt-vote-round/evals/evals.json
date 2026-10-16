@@ -64,7 +64,7 @@
     },
     {
       "id": 3,
-      "prompt": "vote closed this morning (mon oct 12). profile repo is cloned at profile/, vote files in profile/data. write the winner post and set up the next round. put the tinykv 0.5 TTL thing as one of the options, people keep asking about TTL",
+      "prompt": "vote closed this morning (mon oct 12 2026). profile repo is cloned at profile/, vote files in profile/data. write the winner post and set up the next round. put the tinykv 0.5 TTL thing as one of the options, people keep asking about TTL",
       "expected_output": "The skill runs vote_state.py with --today 2026-10-12: round 2026-10-05 (Small tools) was won by B, 'Deleting code is my favourite feature'; the slot is calendar row 7, 2026-10-19, EN; the next pillar is Small tools. It writes docs/marketing/content/2026-10-19-<slug>.md in the post file's template with the Vote line, the English post on removing the colour crate (binary from 2.1 MB to 1.4 MB, from docs/notes/2026-10.md), and runs its own copy of check_post.py. It does not put the TTL topic in the next round, because 'tinykv 0.5: TTL without a dependency' is already in the calendar (row 4, 2026-10-12), and tells Dana so. The three options come from fresh notes (the 212-test suite, the 40-line script, the README cut), vote_update.py computes the queue into a temporary folder and prints each file's path and sha256, the files in profile/data stay as they are, nothing is committed or published, the calendar row waits for the yes, and the reply asks for the one approval.",
       "files": [
         "evals/files/dana-vote",

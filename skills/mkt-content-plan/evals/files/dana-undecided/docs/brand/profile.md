@@ -2,7 +2,7 @@
 
 - Owner: brand-profile
 - Status: confirmed
-- Date: 2027-09-20
+- Date: 2038-09-20
 - Language of artifacts: English; language of posts: English and Portuguese [2]
 
 ## Who they are
@@ -34,5 +34,5 @@
 ```
 
 ## Sources
-[1] LinkedIn export and code host, 2027-09-19.
-[2] Decisions in docs/workbench/state.md, 2027-09-19 and 2027-09-22.
+[1] LinkedIn export and code host, 2038-09-19.
+[2] Decisions in docs/workbench/state.md, 2038-09-19 and 2038-09-22.
