@@ -2,7 +2,7 @@
 
 **Status: decided.** The maintainer decided the model in outline on 2026-10-02; version 1 of this document wrote it out; an independent review of version 1 found four blockers and recommended a simpler version; the maintainer adopted that simpler version, with every correction the review proposes, the same day. The pull request that carried version 2 was then read by the same reviewer, who found ten points where a rule did not work as written and a list of minor ones; all were accepted and are applied here. This document states the model as it now is. The work that builds it is in `docs/architecture/final-plan-2026-10-02.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/final-plan-2026-10-02.md`): this document describes the model, the plan describes the work, and neither amends the other. The review's findings are cited by their ids (MB1 to MB4, MI1 to MI14, MM1 to MM9) and the points of the reading of the pull request as P1 to P10; a digest with one entry per finding is `docs/architecture/audit-2026-10-02/model-review.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/audit-2026-10-02/model-review.md`), and the last section here says what each one changed.
 
-Every number called a parameter is a starting value. The section "Backtest" says which ones the 48 records of the first round (removed on 2026-10-15) support and which they cannot judge.
+Every number called a parameter is a starting value. The section "Backtest" says which ones the 48 records of the first round (removed on 2026-10-15; `git show bc830832:skills/<name>/evals/result.json`) support and which they cannot judge.
 
 ## Why
 
@@ -447,7 +447,7 @@ One line per finding of the review.
 | MI5. The 0.8 per measurement step was wrong both ways | Three kinds of measurement change, no factor (section 8) |
 | MI6. The baseline ages with the model, the measurement and the case, not with the skill | The baseline is reused until one of the three changes; an X change runs with the skill only (section 2) |
 | MI7. The X class was too coarse | X is `side_effects`, removals and renames, the gate, the stop rules and the external-content rule; additions are Y (section 3) |
-| MI8. The conversion of the 48 records kept nothing | No conversion; the old records were removed on 2026-10-15 (section 1) |
+| MI8. The conversion of the 48 records kept nothing | No conversion; the old records were removed on 2026-10-15 (section 1; `git show bc830832:skills/<name>/evals/result.json`) |
 | MI9. Two files conflicted in every evidence pull request | One file per test event; the tables are a snapshot that no pull request must regenerate; one comparison base in the hook and in CI; an idempotent bump (sections 1, 3, 10) |
 | MI10. Model ids were free text | A list of known models with aliases; `unknown` for the rest (section 1) |
 | MI11. Items kept as written whose object had gone | A timeout after the cap is a line with score 0 in both variants; stub runs write to a scratch tree; the plan restates each item (section 1; the plan's phase B) |

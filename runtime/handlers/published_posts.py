@@ -3,7 +3,7 @@
 # requires-python = ">=3.9"
 # dependencies = []
 # ///
-"""The weekly routine that lists the published posts (backlog item PB16 (removed on 2026-10-15; `git show bc830832:docs/backlog.md`)): the first handler of the task runtime.
+"""The weekly routine that lists the published posts (backlog item PB16): the first handler of the task runtime.
 
 Once a week, after its time, it lists the posts the publisher's ledger records as published in the last 7 days,
 takes each post's title, language, date and image from the project's own post file (never from the network), and

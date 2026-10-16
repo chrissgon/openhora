@@ -270,6 +270,25 @@ def test_the_routing_table_names_every_built_skill_and_marks_the_others_planned(
         "eng-gone; marked (planned) and built: eng-early")
 
 
+def test_the_route_of_a_flow_file_is_built_for_the_routing_table_and_for_a_cited_name(tree):
+    for name in ("core-orchestrator", "eng-demo"):
+        add_skill(tree, name=name)
+    write(tree, "flows/ship.json", "{}")
+    write(tree, validate.ROUTING_TABLE, "# Routing\n\n| Intent | Skill |\n|---|---|\n| Review | eng-demo |\n"
+          "| Ship | flow-ship |\n| Gone | flow-gone |\n")
+    report = validate.Report()
+    validate.check_routing(report, validate.built_skills(str(tree)), root=str(tree))
+    assert report.warnings[0]["message"] == ("[routing-table] in the table, not built and not marked (planned): flow-gone")
+    write(tree, validate.ROUTING_TABLE, "# Routing\n\n| Intent | Skill |\n|---|---|\n| Review | eng-demo |\n| Ship | flow-ship (planned) |\n")
+    report = validate.Report()
+    validate.check_routing(report, validate.built_skills(str(tree)), root=str(tree))
+    assert report.warnings[0]["message"] == "[routing-table] marked (planned) and a flow file exists: flow-ship"
+    write(tree, validate.ROUTING_TABLE, "# Routing\n\n| Intent | Skill |\n|---|---|\n| Review | eng-demo |\n| Ship | flow-ship |\n| Gone | flow-gone |\n")
+    write(tree, "skills/eng-demo/references/more.md", "A flow `flow-ship` and `flow-gone`.\n")
+    assert messages(run_skill(tree), "skill-name") == [
+        '[skill-name] cites a skill that is not built, with no "planned" on the line: flow-gone (references/more.md:1)']
+
+
 def test_without_the_router_the_routing_rule_is_skipped_with_a_note(tree):
     add_skill(tree)
     report = validate.Report()

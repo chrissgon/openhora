@@ -127,7 +127,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/upkeep.py` | Upkeep of a runtime meant to run for weeks: retention of what it leaves on disk, and the orphans a crash leaves in docker (package P-OPS, finding I6). |
 | `runtime/workcopy.py` | What enters a run copy, and what comes back from it: the limits of the task runtime that decide which files of a project a run sees (L1 to L6) and which files a run leaves come back (L7, L8, L12, L14). |
 | `runtime/write_document.py` | The document of a write-back, and nothing that writes (package P8): what the step kind `write-back` builds and the effect kind `write` approves (its operation `update_page`; the operations that make a new page or table are runtime/output_document.py, and the hash covers the operation in both). |
-| `runtime/handlers/published_posts.py` | The weekly routine that lists the published posts (backlog item PB16 (removed on 2026-10-15; `git show bc830832:docs/backlog.md`)): the first handler of the task runtime. |
+| `runtime/handlers/published_posts.py` | The weekly routine that lists the published posts (backlog item PB16): the first handler of the task runtime. |
 | `runtime/handlers/social.py` | Agent runtime: find new work, run an agent on it read-only, gate its proposal, execute or queue it. |
 | `runtime/handlers/social_vote.py` | The runtime's weekly vote step (docs/architecture/weekly-vote.md), imported by runtime/handlers/social.py (ported from scripts/runtime_vote.py, which scripts/runtime.py still imports). |
 | `runtime/handlers/social_vote_job.py` | Publish the weekly vote post at its slot time, then record it in the profile repository's vote files. |

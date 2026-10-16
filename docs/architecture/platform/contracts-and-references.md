@@ -216,7 +216,6 @@ Each invariant with its guard. A rule of `scripts/validate.py` is named in brack
 | The approvals copied into the state file are a workaround: the policy gate reads the runtime's record only with the next change of the lab default list or of the grader | [backlog](../../backlog.md), T23 |
 | The header rule of an artifact (`Owner`, `Status`, `Date`), the "a class when a second skill needs it" rule, the degrade section and the security checklist's items are kept by review, not by a check | this page, "Business rules" |
 | The platform layer holds one platform of one shape | [AGENTS.md](../../../AGENTS.md), design rule 3 |
-| A password manager as a place for secrets, after the OS store | [backlog](../../backlog.md), S16 |
 | An installed skill gets `shared/references/` beside it, never `providers/`; a skill that reaches a provider needs `WORKBENCH_ROOT`, and nothing tells the installer to set or print it | [backlog](../../backlog.md), T31 (N13 is folded into it; removed on 2026-10-15; `git show bc830832:docs/backlog.md`) |
 
 ## Changes
