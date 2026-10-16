@@ -46,6 +46,7 @@ The flow files, one row each, with their tasks in order. A flow file is not a fl
 | `improve-code` | Improve existing code, to its pull request | `impact` (`eng-impact-analysis`), `options` (`eng-tradeoffs`), `refactor` (`eng-refactor`), `review` (`eng-code-review`), `pull-request` (`ops-pull-request`) |
 | `market-positioning` | Market and positioning | `market` (`biz-market-analysis`), `positioning` (`biz-icp-positioning`) |
 | `new-project` | A new project, from the idea to its backlog | `brief` (`core-clarify`), `spec` (`product-feature-spec`), `design` (`eng-architecture`), `backlog` (`product-backlog`) |
+| `publish-post` | Publish one drafted post now, after you approve its exact text | `publish` (step `publish-post`) |
 | `send-email` | Send an e-mail from the project's outbox, after you approve it | `send` (step `send-email`) |
 | `short-video` | Script and caption of a short video post | `script` (`mkt-social-copy`) |
 | `website` | Website | `prd` (`product-prd`), `spec` (`product-feature-spec`), `flows` (`design-ux-flows`), `system` (`design-system`), `brief` (`design-brief`), `execute` (`design-execute`), `handoff` (`design-handoff`), `implement` (`eng-implement`) |
