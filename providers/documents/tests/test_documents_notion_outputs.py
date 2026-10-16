@@ -497,3 +497,91 @@ def test_done_entries_of_the_outputs_older_than_ninety_days_are_dropped_when_the
     out.run("page-create", "--parent", out.parent, "--title", "New", "--markdown-file", md, "--idempotency-key", "new", "--confirmed")
     kept = json.loads(ledger.read_text(encoding="utf-8"))["entries"]
     assert not any(k.endswith("/old") for k in kept) and any(k.endswith("/new") for k in kept)
+
+
+# --- review round 2: a ledger the table must bear out, the lock of a key, the age of a key ----------------------------------------------------
+
+
+def test_rows_state_counts_only_rows_the_table_still_lists_and_the_dry_run_says_it_reads_the_ledger_alone(out):
+    source = out.create_table(key="k0", table=out.table(rows=ROWS[:1]))[1]["data_source_id"]
+    scope = ["--scope", "task-9"]
+    assert out.run("rows-append", "--id", source, "--table-file", out.table(rows=ROWS[1:]), "--idempotency-key", "k1", "--confirmed", *scope)[0] == 0
+    gone = next(r for r in out.fake.rows_of(source) if out.fake.cells(r)["Stall"] == "Candles")
+    out.fake.person_trashes(gone["id"])
+    code, state, said = out.run("rows-state", "--id", source, "--table-file", out.table(rows=ROWS[1:]), "--scope", "task-9",
+                                "--idempotency-key", "k1")
+    assert code == 0 and state["verified"] is True and state["rows_done"] == 1 and state["rows_new"] == 1, said
+    code, dry, _ = out.run("rows-append", "--id", source, "--table-file", out.table(rows=ROWS[1:]), "--idempotency-key", "k1", "--dry-run",
+                           *scope)
+    assert dry["would"]["rows_done"] == 2 and dry["would"]["verified"] is False
+
+
+def test_a_row_the_person_trashed_is_written_again_and_one_still_there_is_not(out):
+    source = out.create_table(key="k0", table=out.table(rows=ROWS[:1]))[1]["data_source_id"]
+    assert out.append(source, key="k1", table=out.table(rows=ROWS[1:]))[0] == 0
+    gone = next(r for r in out.fake.rows_of(source) if out.fake.cells(r)["Stall"] == "Candles")
+    out.fake.person_trashes(gone["id"])
+    code, done, said = out.append(source, key="k1", table=out.table(rows=ROWS[1:]))
+    assert code == 0 and done["rows_created"] == 1 and done["rows_replayed"] == 1, said
+    assert sorted(c["Stall"] for c in cells(out, source)) == ["Bread", "Candles", "Tea"]
+
+
+def test_a_table_longer_than_the_listing_reads_is_refused_and_not_guessed_at(out):
+    source = out.create_table(key="k0", table=out.table(rows=ROWS[:1]))[1]["data_source_id"]
+    for _ in range(2001):
+        out.fake.create_page({"type": "data_source_id", "data_source_id": source}, {})
+    code, _, said = out.append(source, key="k1", table=out.table(rows=ROWS[1:]))
+    assert code == 1 and "will not guess" in said and len(out.fake.rows_of(source)) == 2002 and out.creates() == 1, "only the seed row was written through the provider"
+    code, _, said = out.run("rows-state", "--id", source, "--table-file", out.table(rows=ROWS[1:]), "--scope", "task-1")
+    assert code == 1 and "will not guess" in said
+
+
+def test_a_key_that_still_has_a_row_of_unknown_outcome_loses_none_of_its_done_rows_to_the_pruning(out):
+    source = out.create_table(key="k0", table=out.table(rows=ROWS[:1]))[1]["data_source_id"]
+    out.fake.fail_at("create_page", 2, 500)                    # row 1 done, row 2 of unknown outcome
+    assert out.append(source, key="k1", table=out.table(rows=ROWS[1:]))[0] == 1
+    ledger = out.harness.ledger
+    data = json.loads(ledger.read_text(encoding="utf-8"))
+    done = [k for k, e in data["entries"].items() if k.startswith(f"{source}/k1/") and e["status"] == "done"]
+    assert done
+    for k in done:
+        data["entries"][k]["recorded_at"] = "2020-01-01T00:00:00Z"
+    ledger.write_text(json.dumps(data), encoding="utf-8")
+    md = out.file("page.md", "Hello.\n")
+    out.run("page-create", "--parent", out.parent, "--title", "Other", "--markdown-file", md, "--idempotency-key", "other", "--confirmed")
+    kept = json.loads(ledger.read_text(encoding="utf-8"))["entries"]
+    assert all(k in kept for k in done), "the key has a pending row, so none of its done rows was dropped"
+    code, finished, said = out.append(source, key="k1", table=out.table(rows=ROWS[1:]))
+    assert code == 0 and finished["rows_replayed"] == 1 and len(cells(out, source)) == 3, said
+
+
+def test_two_runs_of_the_same_key_do_not_write_together(out):
+    import fcntl
+    md = out.file("page.md", "Hello.\n")
+    ledger = out.harness.ledger
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    digest = __import__("hashlib").sha256(f"{out.parent}/held".encode("utf-8")).hexdigest()[:24]
+    lock = ledger.parent / f"{ledger.name}.{digest}.key.lock"
+    fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        before = len(out.fake.requests)
+        code, _, said = out.run("page-create", "--parent", out.parent, "--title", "T", "--markdown-file", md, "--idempotency-key", "held",
+                                "--confirmed")
+        assert code == 1 and "another run of this provider is writing this key" in said and len(out.fake.requests) == before
+        assert out.run("page-create", "--parent", out.parent, "--title", "T", "--markdown-file", md, "--idempotency-key", "held",
+                       "--dry-run")[0] == 0, "a dry run takes no lock"
+    finally:
+        os.close(fd)
+    code, made, said = out.run("page-create", "--parent", out.parent, "--title", "T", "--markdown-file", md, "--idempotency-key", "held",
+                               "--confirmed")
+    assert code == 0 and made["created"] is True, said
+    assert not list(ledger.parent.glob("*.key.lock")), "the lock file goes with the lock"
+
+
+def test_a_date_time_at_the_edge_of_the_calendar_names_no_moment_and_matches_nothing():
+    for text in ("0001-01-01T00:00:00+01:00", "9999-12-31T23:59:59-01:00"):
+        assert nt.instant(text) is None
+    page = {"properties": {"D": {"type": "date", "date": {"start": "0001-01-01T00:00:00.000+01:00"}}}}
+    assert nt.row_matches(page, [{"name": "D", "type": "date"}], ["0001-01-01T00:00:00+01:00"]) is False
+    assert nt.instant("0001-01-01T00:00:00Z") is not None and nt.instant("9999-12-31T23:59:59Z") is not None

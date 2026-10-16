@@ -113,6 +113,14 @@ def check_table(args) -> dict:
     return out
 
 
+def _store(ctx: steps.Context) -> str:
+    """The name of the project's store for the document (the services' configuration holds its path)."""
+    cfg = ctx.services.get("config")
+    if not isinstance(cfg, dict) or not isinstance(cfg.get("store_db"), str):
+        raise steps.StepFailure("not_configured", "config")
+    return output_document.store_id(cfg["store_db"])
+
+
 def _service(ctx: steps.Context, name: str):
     found = ctx.services.get(name)
     if found is None:
@@ -160,7 +168,7 @@ def _parent_ok(ctx: steps.Context, reader, parent: str):
 
 def _document(ctx: steps.Context, **fields) -> dict:
     try:
-        return output_document.document(task_id=ctx.task_id, **fields)
+        return output_document.document(task_id=ctx.task_id, store=_store(ctx), **fields)
     except Exception as e:      # an EffectError of the document: its reason names a limit, never the content
         raise steps.StepFailure("content_refused", "content", "", str(getattr(e, "reason", ""))[:200]) from None
 
@@ -213,7 +221,7 @@ def _rows_done(ctx: steps.Context, reader, table_id: str, table: dict) -> int:
     """How many of these rows an EARLIER approval of this task already wrote into the table (the provider's ledger knows them by the
     task's scope), so that the preview says so and they are not sent again. 0 for a task that has written nothing."""
     content = {"columns": table["columns"], "rows": table["rows"]}
-    found = _asked(reader.rows_state, "table", table_id, output_document.scope_of(ctx.task_id), table_data.canonical(content))
+    found = _asked(reader.rows_state, "table", table_id, output_document.scope_of(_store(ctx), ctx.task_id), table_data.canonical(content))
     done = found.get("rows_done") if isinstance(found, dict) else None
     if not isinstance(done, int) or isinstance(done, bool) or not 0 <= done <= len(table["rows"]):
         raise steps.StepFailure("provider_failed", "table", "documents")

@@ -11,7 +11,7 @@ module builds those services, once, for the process that runs the task (runtime/
   config           the project's configuration (runtime/project_config.py load), read once
   documents        DocumentsReader: `read`, `stat`, `table_read` and `rows_state` of the project's documents provider (a page's text; a
                    page's existence and name; a table's columns, name, row count and newest edit; how many rows of a file the provider's
-                   ledger already holds), and what the kind asks about it (`enabled`, `provider`, `problem`: why a write to it is not
+                   ledger holds that the table still lists), and what the kind asks about it (`enabled`, `provider`, `problem`: why a write to it is not
                    allowed now). It has no `write`: the verbs it calls are four literals, all reads.
   source_pin       function(source id) -> {"sha256": the converted text of the source's newest version, "page": the source's page as a
                    normalised identifier or None} or None: what a write-back compares the target with
@@ -87,7 +87,8 @@ class DocumentsReader:
 
     def rows_state(self, table: str, scope: str, table_bytes: bytes) -> dict:
         """How many of a table file's rows the provider's ledger already holds as written under a scope (an earlier approval of the same
-        task): a read of the local ledger, no call to the platform. The rows are handed over as a private file, removed at once."""
+        task) and the table still lists: the provider reads its ledger and lists the table (a read; it writes nothing). The rows are handed
+        over as a private file, removed at once."""
         folder = tempfile.mkdtemp(prefix="openhora-rows-state-")
         try:
             path = os.path.join(folder, "table.json")

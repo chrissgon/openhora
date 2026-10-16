@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import shutil
 import zipfile
 from datetime import date
@@ -37,6 +38,7 @@ table_data = st.load("table_data")
 step_output = st.load("step_output")
 steps = st.load("steps")
 
+STORE = "0123456789ab"
 PAGE_MD = "# Weekly report\n\nSales were up in week 44.\n\n- stalls: forty\n- music: yes\n"
 PAGE_PATH = "docs/outputs/weekly-report.md"
 CSV = ("Stall,Notes,Fee,Opens,Paid,Site,Zip\n"
@@ -286,7 +288,7 @@ def test_a_parent_that_is_gone_stops_the_preview_and_the_write(world):
 def doc_of(operation="create_table", **change):
     columns = [{"name": "Stall", "type": "title"}, {"name": "Fee", "type": "number"}, {"name": "Paid", "type": "checkbox"}]
     base = None if operation != "append_rows" else {"schema_sha256": "a" * 64, "row_count": 2, "version": None, "rows_done": 0}
-    fields = dict(operation=operation, task_id=1, provider="notion", target_id="a" * 32, path="docs/outputs/stalls.csv",
+    fields = dict(store=STORE, operation=operation, task_id=1, provider="notion", target_id="a" * 32, path="docs/outputs/stalls.csv",
                   title="Stalls" if operation != "append_rows" else None,
                   content={"columns": columns, "rows": [["Bread", 12.5, True], ["Tea", None, False]]}, base=base,
                   notes=["given: the title", "inferred: every filled cell is a plain number", "inferred: every cell is true or false"])
@@ -388,7 +390,7 @@ def test_limit_31_an_output_without_the_approval_of_its_exact_content_is_refused
                      {"scope": "action", "status": "pending-execution", "payload_sha256": "0" * 64}):
         for operation in ("create_table", "create_page", "append_rows"):
             other = doc_of(operation) if operation != "create_page" else output_document.document(
-                operation="create_page", task_id=1, provider="notion", target_id="a" * 32, path="docs/a.md", title="T", content="Text\n")
+                store=STORE, operation="create_page", task_id=1, provider="notion", target_id="a" * 32, path="docs/a.md", title="T", content="Text\n")
             with pytest.raises(effects.EffectError):
                 effect_write.execute(other, approval, lambda verb, args: pytest.fail("the platform was called"), "k")
 
@@ -807,7 +809,7 @@ def test_the_long_verbs_get_their_own_time_limit_and_the_short_ones_the_usual(wo
     monkeypatch.setattr(docs, "call", spy)
     approve(world, opened(world, table_task(world)))
     assert seen["table-create"] == {ops_step_effects.OUTPUT_TIMEOUT} and seen["stat"] == {docs.TIMEOUT}
-    assert ops_step_effects.OUTPUT_TIMEOUT >= 500 * 0.35 * 2 and set(ops_step_effects.OUTPUT_VERBS) == {"page-create", "table-create", "rows-append", "table-read"}
+    assert ops_step_effects.OUTPUT_TIMEOUT >= 500 * 0.35 * 2 and set(ops_step_effects.OUTPUT_VERBS) == {"page-create", "table-create", "rows-append", "table-read", "rows-state"}
 
 
 # --- the effect kind and the module split --------------------------------------------------------------------------------------------------------------
@@ -823,7 +825,7 @@ def test_the_effect_word_stays_write_and_the_kinds_are_registered_without_an_eff
 
 
 def test_the_effect_module_dispatches_each_document_to_its_own_pure_half():
-    page = output_document.document(operation="create_page", task_id=1, provider="notion", target_id="a" * 32, path="docs/a.md", title="T",
+    page = output_document.document(store=STORE, operation="create_page", task_id=1, provider="notion", target_id="a" * 32, path="docs/a.md", title="T",
                                     content="Text\n")
     table = doc_of()
     update = effect_write.document(task_id=1, provider="notion", target_id="a" * 32, path="docs/a.md", content="Text\n",
@@ -1226,11 +1228,195 @@ def test_a_cell_is_counted_in_utf16_code_units_by_the_step(world):
 
 def test_the_cycle_is_in_the_document_and_the_key_of_a_task_that_started_over_is_another(world):
     a = doc_of()
-    b = output_document.document(operation="create_table", task_id=1, provider="notion", target_id="a" * 32, path="docs/outputs/stalls.csv",
+    b = output_document.document(store=STORE, operation="create_table", task_id=1, provider="notion", target_id="a" * 32, path="docs/outputs/stalls.csv",
                                  title="Stalls", content=a["content"], notes=a["notes"], cycle=1)
     assert a["cycle"] == 0 and b["cycle"] == 1 and a["idempotency_key"] != b["idempotency_key"] and digest(a) != digest(b)
-    named = output_document.document(operation="create_table", task_id=1, provider="notion", target_id="a" * 32, path="docs/outputs/stalls.csv",
+    named = output_document.document(store=STORE, operation="create_table", task_id=1, provider="notion", target_id="a" * 32, path="docs/outputs/stalls.csv",
                                      title="Stalls", content=a["content"], notes=a["notes"], target_name="Reports\n  2026")
     assert named["target_name"] == "Reports 2026" and digest(named) != digest(a)
     with pytest.raises(effects.EffectError):
         output_document.check(dict(named, target_name="two\nlines"))
+
+
+# --- review round 2: reject during a write, a ledger the table does not bear out, two projects, the ledger's age -----------------------------
+
+
+def locks_of(world):
+    return os.listdir(ops_core._locks_dir(ops_core.context(world["path"])["cfg"]))
+
+
+def during_a_table_write(world, monkeypatch, item, while_held):
+    """Run the approval of `item` in a thread that is paused inside the provider's table-create, call `while_held()` meanwhile, and let
+    it finish; returns what the approval returned."""
+    import threading
+    real = docs.call
+    started, release = threading.Event(), threading.Event()
+
+    def slow(cfg, root, verb, args, timeout=docs.TIMEOUT):
+        if verb == "table-create" and "--confirmed" in args:
+            started.set()
+            assert release.wait(60)
+        return real(cfg, root, verb, args, timeout)
+    monkeypatch.setattr(docs, "call", slow)
+    result, failure = {}, []
+
+    def approving():
+        try:
+            result["done"] = approve(world, item)
+        except Exception as e:      # reported by the assertion below
+            failure.append(e)
+    writer = threading.Thread(target=approving)
+    writer.start()
+    try:
+        assert started.wait(60)
+        while_held()
+    finally:
+        release.set()
+        writer.join(60)
+    assert not failure, failure
+    return result["done"]
+
+
+def test_a_decision_cannot_be_rejected_or_answered_while_its_write_runs_and_the_write_is_recorded(world, monkeypatch):
+    task = table_task(world)
+    item = opened(world, task)
+
+    def meanwhile():
+        with pytest.raises(ops_core.OpsError) as rejected:
+            ops.reject(world["path"], item["id"], "not now")
+        assert "being written; wait for the write to finish" in str(rejected.value)
+        with pytest.raises(ops_core.OpsError) as answered:
+            ops.answer(world["path"], item["id"], "use another title")
+        assert "being written; wait for the write to finish" in str(answered.value)
+        ctx = ops_core.context(world["path"])
+        assert ctx["store"].pending_get(ctx["conn"], item["id"])["status"] == "open", "neither of them cancelled it"
+        assert f"output-{item['id']}.lock" in locks_of(world)
+    done = during_a_table_write(world, monkeypatch, item, meanwhile)
+    assert done["task_state"] == "done" and made_table(world)[1] == EXPECTED_ROWS
+    ctx = ops_core.context(world["path"])
+    assert ctx["store"].pending_get(ctx["conn"], item["id"])["resolution"] == "approved", "recorded, not cancelled"
+    assert ctx["store"].approval_get(ctx["conn"], done["approval_id"])["status"] == "executed"
+    assert f"output-{item['id']}.lock" not in locks_of(world), "the lock file is removed with the lock"
+    assert f"sha256:{item['payload_sha256']}" in (world["root"] / "docs" / "workbench" / "state.md").read_text(encoding="utf-8")
+
+
+def test_a_decision_nobody_is_writing_is_rejected_at_once_and_leaves_no_lock_file(world):
+    task = table_task(world)
+    item = opened(world, task)
+    ops.reject(world["path"], item["id"], "not now")
+    assert task_state(world, task) == "cancelled" and writes(world) == [] and f"output-{item['id']}.lock" not in locks_of(world)
+
+
+def test_the_ledger_is_not_trusted_over_the_table_a_row_a_person_trashed_is_a_row_to_write(world):
+    source = existing_table(world, ["Pie"])
+    task = add(world, "output-table", table=source, rows=MORE_PATH)
+    item = opened(world, task)
+    fake = world["fake"]
+    fake.fail_at("create_page", 2, 500)               # Honey is written; Jam's outcome is unknown
+    with pytest.raises(ops_core.OpsError):
+        approve(world, item)
+    honey = next(r for r in fake.rows_of(source) if fake.cells(r)["Stall"] == "Honey")
+    fake.person_trashes(honey["id"])
+    done = approve(world, item)                       # not stale: no row of this document is in the table now, one may have landed
+    assert done["task_state"] == "done"
+    assert sorted(fake.cells(r)["Stall"] for r in fake.rows_of(source)) == ["Honey", "Jam", "Pie"]
+    assert done["result"]["rows_created"] == 2 and done["result"]["rows_replayed"] == 0
+
+
+def test_the_preview_and_the_stale_answer_count_only_rows_the_table_still_lists(world):
+    source = existing_table(world, ["Pie"])
+    task = add(world, "output-table", table=source, rows=MORE_PATH)
+    first = opened(world, task)
+    fake = world["fake"]
+    fake.fail_at("create_page", 2, 400)               # Honey is written; Jam is refused
+    with pytest.raises(ops_core.OpsError):
+        approve(world, first)
+    fake.person_sets(fake.create_page({"type": "data_source_id", "data_source_id": source}, {})["id"], "Stall", "Cake")
+    with pytest.raises(ops_core.OpsError) as stopped:
+        approve(world, first)
+    assert "already wrote 1 row(s)" in str(stopped.value)
+    honey = next(r for r in fake.rows_of(source) if fake.cells(r)["Stall"] == "Honey")
+    fake.person_trashes(honey["id"])                  # the person removes the row the earlier attempt wrote
+    second = opened(world, task)
+    _, doc = effect_doc(world, task, 1)
+    assert doc["base"]["rows_done"] == 0 and "ALREADY" not in second["body"], "the ledger says Honey; the table does not"
+    done = approve(world, second)
+    assert done["result"]["rows_created"] == 2 and sorted(fake.cells(r)["Stall"] for r in fake.rows_of(source)) == ["Cake", "Honey", "Jam", "Pie"]
+
+
+def test_fewer_of_the_tasks_rows_than_the_task_counted_is_stale_and_sends_nothing(world):
+    source = existing_table(world, ["Pie"])
+    task = add(world, "output-table", table=source, rows=MORE_PATH)
+    first = opened(world, task)
+    fake = world["fake"]
+    fake.fail_at("create_page", 2, 400)
+    with pytest.raises(ops_core.OpsError):
+        approve(world, first)
+    fake.person_sets(fake.create_page({"type": "data_source_id", "data_source_id": source}, {})["id"], "Stall", "Cake")
+    with pytest.raises(ops_core.OpsError):
+        approve(world, first)
+    second = opened(world, task)
+    _, doc = effect_doc(world, task, 1)
+    assert doc["base"]["rows_done"] == 1 and "1 of these 2 rows are ALREADY in the table" in second["body"]
+    assert "the platform's own listing of the table" in second["body"]
+    honey = next(r for r in fake.rows_of(source) if fake.cells(r)["Stall"] == "Honey")
+    fake.person_trashes(honey["id"])                  # after the preview: the row the preview counted is gone
+    before = len(writes(world))
+    with pytest.raises(ops_core.OpsError) as stopped:
+        approve(world, second)
+    assert "fewer of this task's rows" in str(stopped.value) and len(writes(world)) == before, "nothing was sent"
+    assert task_state(world, task) == "ready"
+
+
+def test_a_table_longer_than_the_listing_reads_is_refused_and_not_guessed_at(world):
+    source = existing_table(world, ["Pie"])
+    fake = world["fake"]
+    for n in range(2000):
+        fake.create_page({"type": "data_source_id", "data_source_id": source}, {})
+    out = run_task(world, add(world, "output-table", table=source, rows=MORE_PATH))
+    assert out["ok"] is False and out["code"] == "provider_failed" and writes(world) == []
+
+
+def test_the_scope_and_the_key_carry_the_projects_store_so_two_projects_never_share_rows(world):
+    a, b = output_document.store_id("/projects/a/store.sqlite"), output_document.store_id("/projects/b/store.sqlite")
+    assert a != b and output_document.scope_of(a, 1) != output_document.scope_of(b, 1) and len(output_document.scope_of(a, 1)) <= 80
+    one = doc_of()
+    other = output_document.document(store=b, operation="create_table", task_id=1, provider="notion", target_id="a" * 32,
+                                     path="docs/outputs/stalls.csv", title="Stalls", content=one["content"], notes=one["notes"])
+    assert one["idempotency_key"] != other["idempotency_key"] and digest(one) != digest(other), "the same task number in another project"
+    item = opened(world, table_task(world))
+    task_id = item["task_id"]
+    _, doc = effect_doc(world, task_id)
+    cfg = ops_core.context(world["path"])["cfg"]
+    assert doc["store"] == output_document.store_id(cfg["store_db"]) and doc["store"] != STORE
+    approve(world, item)
+    ledger = json.loads(Path(world["platform"].env["INTEGRATION_DOCUMENTS_NOTION_LEDGER"]).read_text(encoding="utf-8"))["entries"]
+    assert {e.get("scope") for k, e in ledger.items() if "/row-" in k} == {output_document.scope_of(doc["store"], task_id)}
+
+
+def test_a_decision_older_than_the_ledger_remembers_is_refused_for_an_output_only(world, monkeypatch):
+    item = opened(world, table_task(world))
+    ctx = ops_core.context(world["path"])
+    assert ops_step_effects.decision_age_days(ctx["store"].pending_get(ctx["conn"], item["id"])) == 0
+    assert ops_step_effects.decision_age_days({"created_at": "2020-01-01T00:00:00Z"}) > 365
+    assert ops_step_effects.decision_age_days({"created_at": "never"}) is None
+    monkeypatch.setattr(ops_step_effects, "decision_age_days", lambda item: 91)
+    with pytest.raises(ops_core.OpsError) as old:
+        approve(world, item)
+    assert "91 days old" in str(old.value) and "could write twice" in str(old.value) and writes(world) == []
+    monkeypatch.setattr(ops_step_effects, "decision_age_days", lambda item: 89)
+    assert approve(world, item)["task_state"] == "done"
+
+
+def test_the_retention_of_the_runtime_and_of_the_provider_are_the_same_number():
+    spec = __import__("importlib.util", fromlist=["util"]).spec_from_file_location(
+        "notion_for_retention", st.REPO / "providers" / "documents" / "notion.py")
+    text = (st.REPO / "providers" / "documents" / "notion.py").read_text(encoding="utf-8")
+    assert f"RETENTION_DAYS = {ops_step_effects.OUTPUT_RETENTION_DAYS} " in text and spec is not None
+
+
+def test_a_cell_with_a_value_and_no_reference_is_refused():
+    sheet = f'<row r="1">{inline("A1", "H")}</row><row r="2"><c t="inlineStr"><is><t>x</t></is></c></row>'
+    with pytest.raises(table_data.TableError) as refused:
+        table_data.parse_xlsx(small_book(sheet))
+    assert refused.value.code == "xlsx_unreadable"

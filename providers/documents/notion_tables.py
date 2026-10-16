@@ -78,7 +78,10 @@ def instant(text):
     zone = m.group(8)
     offset = timedelta(0) if zone == "Z" else (1 if zone[0] == "+" else -1) * timedelta(hours=int(zone[1:3]), minutes=int(zone[4:6]))
     moment = datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4)), int(m.group(5)), int(m.group(6) or 0), micro)
-    return ("instant", moment - offset)
+    try:
+        return ("instant", moment - offset)
+    except OverflowError:      # 0001-01-01T00:00+01:00 and 9999-12-31T23:59-01:00 name a moment before or after the range of a datetime
+        return None
 
 
 def check_value(kind: str, value, where: str) -> None:

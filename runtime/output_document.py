@@ -18,6 +18,8 @@ approval covers nothing of it:
   effect            "write" (the word of the side-effect vocabulary)
   operation         "create_page" | "create_table" | "append_rows"
   task              the step task that prepared it
+  store             the first 12 hex characters of the sha256 of the project's store path: task numbers start again in every project, and
+                    the provider's ledger is one file for the person, so a task's rows are found again only under its own project's name
   cycle             the cycle of the task that prepared it (it advances when a decision was answered because the table had changed)
   provider          the name the project's documents object carries; the write is refused if the configuration names another now
   target            {"id": the parent page (create_*) or the table's data source (append_rows), "path": the project file the content came
@@ -62,7 +64,7 @@ import workcopy  # noqa: E402
 from write_document import CONTENT_MAX, PROVIDER, SHA256, TARGET_ID, WORD, sha  # noqa: E402
 
 OPERATIONS = ("create_page", "create_table", "append_rows")
-KEYS = ("effect", "operation", "task", "cycle", "provider", "target", "target_name", "title", "base", "content", "content_sha256", "bytes",
+KEYS = ("effect", "operation", "task", "store", "cycle", "provider", "target", "target_name", "title", "base", "content", "content_sha256", "bytes",
         "idempotency_key", "notes", "remarks")
 PATHS = {"create_page": re.compile(r"[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*\.md"),
          "create_table": re.compile(r"[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*\.(csv|xlsx)"),
@@ -82,7 +84,7 @@ def _usage(reason: str):
 
 def key_of(doc: dict) -> str:
     """The idempotency key of a document: derived from the pieces that make it what it is."""
-    parts = [str(doc["task"]), str(doc["cycle"]), doc["operation"], doc["target"]["id"], doc["title"] or "", doc["content_sha256"],
+    parts = [doc["store"], str(doc["task"]), str(doc["cycle"]), doc["operation"], doc["target"]["id"], doc["title"] or "", doc["content_sha256"],
              str(doc["base"]["schema_sha256"]), str(doc["base"]["row_count"]), str(doc["base"]["version"]), str(doc["base"]["rows_done"])]
     return "o-" + sha("\n".join(parts))[:40]
 
@@ -94,9 +96,18 @@ def content_bytes(operation: str, content) -> bytes:
     return table_data.canonical(content) if isinstance(content, dict) else b""
 
 
-def scope_of(task_id: int) -> str:
-    """The scope under which the provider's ledger finds again the rows an earlier attempt of the same task wrote (`--scope`)."""
-    return f"task-{task_id}"
+STORE = re.compile(r"[0-9a-f]{12}")
+
+
+def store_id(store_db: str) -> str:
+    """The name of a project's store inside a key and a scope (as the key of a write-back builds it)."""
+    return sha(store_db)[:12]
+
+
+def scope_of(store: str, task_id: int) -> str:
+    """The scope under which the provider's ledger finds again the rows an earlier attempt of the same task of the same project wrote
+    (`--scope`)."""
+    return f"s{store}-task-{task_id}"
 
 
 def clean_name(value):
@@ -107,12 +118,12 @@ def clean_name(value):
     return text or None
 
 
-def document(*, operation: str, task_id: int, provider: str, target_id: str, path: str, title, content, base=None, notes=(), cycle: int = 0,
-             target_name=None, remarks=()) -> dict:
+def document(*, operation: str, task_id: int, store: str, provider: str, target_id: str, path: str, title, content, base=None, notes=(),
+             cycle: int = 0, target_name=None, remarks=()) -> dict:
     """The effect document, checked. EffectError usage when a piece is not in its form, a cap is over, the content is empty or
     holds what looks like a credential."""
     data = content_bytes(operation, content)
-    doc = {"effect": WORD, "operation": operation, "task": task_id, "cycle": cycle, "provider": provider,
+    doc = {"effect": WORD, "operation": operation, "task": task_id, "store": store, "cycle": cycle, "provider": provider,
            "target": {"id": target_id, "path": path}, "target_name": clean_name(target_name), "title": title,
            "base": dict(base or NO_BASE), "content": content, "content_sha256": sha(data), "bytes": len(data), "idempotency_key": "",
            "notes": list(notes), "remarks": list(remarks)}
@@ -128,6 +139,8 @@ def check(doc) -> dict:
     operation, target, base, content, title = doc["operation"], doc["target"], doc["base"], doc["content"], doc["title"]
     if not isinstance(doc["task"], int) or isinstance(doc["task"], bool) or doc["task"] < 1:
         raise _usage("task is a task id")
+    if not isinstance(doc["store"], str) or not STORE.fullmatch(doc["store"]):
+        raise _usage("store is the name of the project's store")
     if not isinstance(doc["cycle"], int) or isinstance(doc["cycle"], bool) or not 0 <= doc["cycle"] < 1_000_000:
         raise _usage("cycle is a number")
     if doc["target_name"] is not None and (not isinstance(doc["target_name"], str) or doc["target_name"] != clean_name(doc["target_name"])):
@@ -259,7 +272,9 @@ def body(doc: dict, digest: str) -> str:
         if done:
             lines += ["", f"{done} of these {rows} rows are ALREADY in the table: an earlier approval of this task wrote them, and the "
                           "task started over because the table changed meanwhile. They are not sent again; approving writes the other "
-                          f"{rows - done}" + (" (none: approving only records that they are all there)." if rows == done else ".")]
+                          f"{rows - done}" + (" (none: approving only records that they are all there)." if rows == done else ".")
+                  + " The count comes from the platform's own listing of the table: a row the provider's ledger says was written and the "
+                    "table no longer lists is not counted."]
     else:
         lines += [f"Parent: the page {target['id']}{named} (provider {doc['provider']}); the content comes from {target['path']}",
                   f"Title: {doc['title']}"]

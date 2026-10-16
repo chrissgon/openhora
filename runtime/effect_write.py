@@ -258,18 +258,20 @@ def _execute_output(doc: dict, call, work_dir) -> dict:
         if operation == "create_table":
             _parent_reachable(call, target["id"])
             args = ["--parent", target["id"], "--title", doc["title"], "--table-file", path, "--idempotency-key", key,
-                    "--scope", output_document.scope_of(doc["task"])]
+                    "--scope", output_document.scope_of(doc["store"], doc["task"])]
             done = _confirmed(call, "table-create", args, "the table")
             made, again = _number(done.get("rows_created"), "rows_created"), _number(done.get("rows_replayed"), "rows_replayed")
             return {**facts, "id": done["id"], "data_source_id": done.get("data_source_id"), "url": _url(done), "version": None,
                     "rows": total, "rows_created": made, "rows_replayed": again, "replayed": made == 0}
-        args = ["--id", target["id"], "--table-file", path, "--idempotency-key", key, "--scope", output_document.scope_of(doc["task"])]
+        args = ["--id", target["id"], "--table-file", path, "--idempotency-key", key,
+                "--scope", output_document.scope_of(doc["store"], doc["task"])]
         current = call("table-read", ["--id", target["id"]])
-        plan = call("rows-append", args + ["--dry-run"])
-        would = plan.get("would") if isinstance(plan, dict) else None
-        if not isinstance(current, dict) or not isinstance(would, dict):
-            raise effects.EffectError("provider", "the provider's table-read or dry run printed no facts about the table")
-        done_before, pending = _number(would.get("rows_done"), "rows_done"), _number(would.get("rows_pending"), "rows_pending")
+        # The rows the ledger holds as written count only if the table lists them now (a row a person trashed is a row to write): that is
+        # `rows-state`, which reads the table, and not the dry run of rows-append, which reads the ledger alone.
+        state = call("rows-state", args)
+        if not isinstance(current, dict) or not isinstance(state, dict) or state.get("verified") is not True:
+            raise effects.EffectError("provider", "the provider's table-read or rows-state printed no facts about the table")
+        done_before, pending = _number(state.get("rows_done"), "rows_done"), _number(state.get("rows_pending"), "rows_pending")
         if done_before == total:      # every row is already there: there is nothing to compare and nothing to write
             return {**facts, "id": target["id"], "url": None, "version": None, "rows": total, "rows_created": 0, "rows_replayed": total,
                     "replayed": True}
@@ -282,7 +284,10 @@ def _execute_output(doc: dict, call, work_dir) -> dict:
         # of unknown outcome (a row of unknown outcome may or may not have landed). The time of the newest edit is not compared then:
         # this document's own rows move it. The gap, stated: with a row of unknown outcome pending, one row added by a person in the
         # same window is not told from it.
-        count, written = current.get("row_count"), max(0, done_before - base["rows_done"])
+        if done_before < base["rows_done"]:      # the task counted rows that are no longer there (trashed) or no longer in the ledger
+            raise StaleError("the table is not the one the task read: fewer of this task's rows are in it than when the task counted them "
+                             "(a person removed some, or the provider's ledger lost them)", done_before)
+        count, written = current.get("row_count"), done_before - base["rows_done"]
         if written + pending == 0:
             moved = count != base["row_count"] or current.get("last_edited") != base["version"]
         else:
