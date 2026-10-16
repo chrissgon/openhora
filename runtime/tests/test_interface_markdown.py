@@ -273,21 +273,40 @@ out.small = [...small.walk()].filter((n) => (n.attrs.class || "").match(/wb-md-(
 const exact = renderMarkdown("a\n".repeat(RENDER_LIMIT / 2));
 out.exact = [...exact.walk()].filter((n) => (n.attrs.class || "").match(/wb-md-(rest|note)/)).length;
 
-// A shape is built for a size n by make(n) and rendered at n / 8 and at n, alternately seven times each: the best of the seven is the time
-// of that size. A render that grows with its text takes about eight times as long at n as at n / 8; a quadratic one sixty-four times. The test
-// compares the two, never a clock. The time is the processor time this process spent (process.cpuUsage), so that a machine busy with
-// other work, which deschedules the process, does not make a render slower, and the two sizes are rendered in turn so that a burst of
-// load reaches both.
+// WORK. The renderer reads its text through the string and regular-expression methods and builds it up by slicing; this counts the
+// characters those calls look at. It is deterministic, which a clock is not: the same text costs the same on a busy machine as on an idle
+// one (a clock showed a render of the same code taking four and five times as long for a doubled size on a loaded CI runner, from the memory
+// alone). A render whose work grows with its text costs about as much more as the text is larger; a quadratic one, its square. Where a call
+// looks at "until the match" (indexOf, lastIndexOf, a regular expression) only the characters up to the match, or the end of the text, count.
+// What stays uncounted: a loop over the characters by index (`text[i]`, `charCodeAt`), the array methods other than `join` (`map`, `filter`,
+// `concat`, `sort`...), and a method captured by reference when the module loaded (`const { slice } = String.prototype`): the
+// counters are installed after the module was imported (imports run first), so a reference the module took at load is the real, uncounted one.
+// For those the absolute bounds of processor time below stay.
+let work = 0;
+const wrap = (proto, name, cost) => { const real = proto[name]; proto[name] = function (...args) { const out = real.apply(this, args); work += cost(this, args, out); return out; }; };
+const upto = (text, from, hit) => (hit < 0 ? text.length - from : hit - from + 1);
+const realIndexOf = String.prototype.indexOf;   // the real one, for the span an `includes` scans
+for (const name of ["slice", "substring", "substr", "trim", "trimStart", "trimEnd", "trimLeft", "trimRight", "repeat", "toLowerCase", "toUpperCase", "normalize"]) wrap(String.prototype, name, (t, a, out) => (typeof out === "string" ? out.length : 1));
+for (const name of ["indexOf", "lastIndexOf"]) wrap(String.prototype, name, (t, a, out) => (name === "indexOf" ? upto(t, a[1] || 0, out) : (out < 0 ? t.length : t.length - out)));
+for (const name of ["startsWith", "endsWith"]) wrap(String.prototype, name, (t, a) => String(a[0]).length);
+wrap(String.prototype, "includes", (t, a) => { const from = a[1] || 0; return upto(t, from, realIndexOf.call(t, String(a[0]), from)); });   // the span scanned, like indexOf
+wrap(Array.prototype, "join", (list, a, out) => out.length);   // the text built
+for (const name of ["split", "replace", "replaceAll", "match", "matchAll", "search", "localeCompare"]) wrap(String.prototype, name, (t) => t.length);
+wrap(RegExp.prototype, "test", (re, a, out) => { const t = String(a[0]); return out ? Math.min(t.length, 64) : t.length; });
+wrap(RegExp.prototype, "exec", (re, a, out) => { const t = String(a[0]); return out ? out.index + out[0].length : t.length; });
 import v8 from "node:v8";
 import vm from "node:vm";
 v8.setFlagsFromString("--expose-gc");
 const collect = vm.runInNewContext("gc");   // a collection before each render, so that the garbage of the shapes before it is not collected during this one
-function cpuMs(md) { collect(); const c = process.cpuUsage(); const root = renderMarkdown(md); const d = process.cpuUsage(c); return { ms: (d.user + d.system) / 1000, root }; }
+function measure(md) { collect(); work = 0; const c = process.cpuUsage(); const root = renderMarkdown(md); const d = process.cpuUsage(c); return { ms: (d.user + d.system) / 1000, work, root }; }
+// A shape is built for a size n by make(n) and rendered at n / 8 and at n. The work of each is counted once (it does not vary); the processor
+// time of the large render is the best of seven (for the absolute bounds: a hang, and the four-paragraph shapes).
 function timed(make, n) {
   const small = make(Math.floor(n / 8)), large = make(n);
-  let half = Infinity, full = Infinity, root;
-  for (let i = 0; i < 7; i++) { const o = cpuMs(large); full = Math.min(full, o.ms); root = o.root; half = Math.min(half, cpuMs(small).ms); }
-  return { half: Math.round(half * 10) / 10, full: Math.round(full * 10) / 10, depth: depth(root), bad: violations(root).length };
+  const first = measure(small), workSmall = first.work, nodesSmall = [...first.root.walk()].length;
+  let full = Infinity, root, workLarge;
+  for (let i = 0; i < 7; i++) { const o = measure(large); full = Math.min(full, o.ms); root = o.root; workLarge = o.work; }
+  return { full: Math.round(full * 10) / 10, workSmall, workLarge, nodes: [nodesSmall, [...root.walk()].length], chars: [small.length, large.length], depth: depth(root), bad: violations(root).length };
 }
 const N = 199000;   // one paragraph over the inline cap: it falls back to text
 const M = 49000;    // one paragraph inside the cap: the worst case the parser really parses
@@ -302,16 +321,16 @@ out.shapes = {
   quotes: timed((n) => ">".repeat(n), N), quoteLines: timed((n) => ">>>>>>>>>>>>>>>>>>>>>>>> x\n".repeat(n / 30), N),
   lists: timed((n) => "- ".repeat(n) + "x", 5000), orderedLists: timed((n) => "1. ".repeat(n) + "x", 5000),
   indentedLists: timed((n) => Array.from({ length: n }, (_, i) => " ".repeat(i * 2) + "- x").join("\n"), 1500),
-  table: timed((n) => "|" + " a |".repeat(20) + "\n|" + "---|".repeat(20) + "\n" + ("|" + " b |".repeat(20) + "\n").repeat(n / 90), N / 2),
+  table: timed((n) => "|" + " a |".repeat(20) + "\n|" + "---|".repeat(20) + "\n" + ("|" + " b |".repeat(20) + "\n").repeat(n / 90), N),
   longLine: timed((n) => "word ".repeat(n / 5), N),
-  fences: timed((n) => "```\n".repeat(n / 4), N / 2),
+  fences: timed((n) => "```\n".repeat(n / 4), N),
   spaces: timed((n) => " ".repeat(n) + "x", N),
   hashes: timed((n) => "#".repeat(n), N),
   tabs: timed((n) => "\t".repeat(n) + "x", N),
   hardBreaks: timed((n) => "a  \n".repeat(n / 4), N),
   fourParagraphs: timed((n) => ["[".repeat(n), "[a](".repeat(n / 4), "![".repeat(n / 2), "[a](<".repeat(n / 5)].join("\n\n"), M),
   fourParagraphsB: timed((n) => ["[a]".repeat(n / 3), "[a](b ".repeat(n / 6), "[a](<b ".repeat(n / 7), "[a](" + " ".repeat(n - 10)].join("\n\n"), M),
-  manyParagraphs: timed((n) => "p\n\n".repeat(n / 3), N / 2),
+  manyParagraphs: timed((n) => "p\n\n".repeat(n / 3), N),
 };
 console.log(JSON.stringify(out));
 """
@@ -331,27 +350,27 @@ def test_a_document_over_200_kb_renders_its_first_200_kb_and_says_the_rest_is_pl
 
 @needs_node
 def test_hostile_shapes_of_200_kb_end_quickly_and_neither_nest_deeply_nor_build_an_unsafe_node(tmp_path):
-    """"Quickly" is a growth, not a clock: each shape is rendered at an eighth of its size and at its size (rendered in turn seven times, the best
-    of each, in processor time), and the render of the larger may take at most thirty times that of the smaller plus 15 ms (linear is
-    about eight times, quadratic sixty-four; the factor leaves room for the time per character to grow with the memory under a busy
-    machine, which CI has shown at four to five times for a doubled size of a shape that allocates much, and the 15 ms is what a few
-    milliseconds of render can gain from it). One generous
-    absolute bound per shape (3000 ms) guards against a hang, and the four-paragraph shapes, which the caps of the renderer bound, keep their
-    absolute bound of 100 ms of processor time (which a busy machine does not inflate).
-
-    What the test can see (measured in a review of the package, so that a green result is read for what it is). The growth check
-    catches a quadratic render only when that render takes more than about 400 ms at 200 KB: a quadratic shape whose cost at the
-    larger size is below that stays inside thirty times the smaller plus 15 ms, so a quadratic cost that is small in absolute terms
-    is not seen, and neither is a shape that grows as n^1.5 (eight times the size costs about 23 times as much, under thirty) or
-    as n log n. The absolute bound of 100 ms on the fourParagraphs shapes is what catches the removal of a cap (MAX_LINKS, MAX_BRACKET,
-    MAX_URL, MAX_SPACE): the caps make the cost the same at an eighth of the size and at the size, so the growth check cannot tell
-    that one was removed, and only the absolute cost shows it."""
+    """"Quickly" is a growth of work, not a clock. Each shape is rendered at an eighth of its size and at its size, and the characters the
+    string and regular-expression methods look at are counted (a count, the same on every machine): the work at the size may be at most one
+    and a half times the growth of the text (linear: the growth itself; quadratic: its square) times the work at the eighth, plus a
+    constant; so may the number of nodes built. (The `table` shape at a hundred thousand characters builds 23 thousand nodes in 7 ms on an idle
+    machine, 0.3 microseconds a node at every size, and what makes it slower on a busy one is the collector: a fake document of 2 KB a node
+    is 50 MB of garbage at that size. Sizes and nodes are linear; the time is not a measure of growth.) Two absolute bounds of processor time (which a busy machine does not inflate as it does a wall clock) stay: 3000 ms for every
+    shape, against a hang, and 100 ms for the four-paragraph shapes, which the caps of the renderer (MAX_LINKS, MAX_BRACKET, MAX_URL,
+    MAX_SPACE) bound, so that a removed cap fails (the work counted is no help there: with the cap gone the work is large at both sizes).
+    A loop over the characters by index is not counted; only the absolute bounds see it."""
     got = floor_tests.run_node(tmp_path, SIZE)
     for name, shape in got["shapes"].items():
         assert shape["bad"] == 0, name
-        assert shape["full"] <= 30 * shape["half"] + 15, f"{name} took {shape['half']} ms at an eighth of its size and {shape['full']} ms at its size"
+        small_chars, large_chars = shape["chars"]
+        allowed = 1.5 * (large_chars / small_chars) * shape["workSmall"] + 2000
+        assert shape["workLarge"] <= allowed, (f"{name}: the text grew {large_chars / small_chars:.1f} times ({small_chars} to {large_chars} characters) "
+                                              f"and the work {shape['workLarge'] / max(shape['workSmall'], 1):.1f} times ({shape['workSmall']} to {shape['workLarge']})")
+        small_nodes, large_nodes = shape["nodes"]
+        assert large_nodes <= 1.5 * (large_chars / small_chars) * small_nodes + 50, \
+            f"{name}: the text grew {large_chars / small_chars:.1f} times and the nodes built {small_nodes} to {large_nodes}"
         assert shape["full"] < 3000, f"{name} took {shape['full']} ms in the fake document"
-        if name.startswith("fourParagraphs"):   # the caps (MAX_LINKS, MAX_BRACKET, MAX_URL, MAX_SPACE) make the cost the same at an eighth of the size and at the size, so growth cannot see one removed
+        if name.startswith("fourParagraphs"):
             assert shape["full"] < 100, f"{name} took {shape['full']} ms of processor time; the caps of markdown.js bound it far under 100 ms"
         assert shape["depth"] <= 80, f"{name} nests {shape['depth']} levels deep"
 
