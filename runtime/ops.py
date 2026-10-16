@@ -315,6 +315,14 @@ def _count(value):
     return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
 
 
+def _skill_loaded(timing: dict, skill: str):
+    """Whether the run touched the skill: it is in `skills_loaded` (its SKILL.md was read) or in `skills_used` (a tool
+    named its folder: a script run, a reference read, a listing; R12). None when the adapter reported neither list.
+    No rule reads it yet."""
+    lists = [timing.get(key) for key in ("skills_loaded", "skills_used") if isinstance(timing.get(key), list)]
+    return any(skill in names for names in lists) if lists else None
+
+
 def _ending(result: dict, meta: dict, skill: str, gate_files=()) -> tuple:
     """(ending, why) of a completed run, from runtime/endings.py, with the skill's facts (manifest.ending_facts),
     the declared outputs without a placeholder that the copy held, unchanged, after the run, and the files found
@@ -598,7 +606,6 @@ def _run_body(ctx: dict, started: dict) -> dict:
     gate_files = _tmp_files(result.get("tmp"))
     ending, why = _ending(result, meta, skill, [rel for rel, _size in gate_files])
     gate_found = _gate_payload(result, dest, gate_files, kind) if known.get("gate") else None
-    loaded = timing.get("skills_loaded")
     body, masked = workcopy.masked_reply(result["response"])
     if state_report is not None:
         out["state"] = {"accepted": len(state_report["accepted"]), "rejected": state_report["rejected"]}
@@ -608,7 +615,7 @@ def _run_body(ctx: dict, started: dict) -> dict:
     finish = dict(status="ok", ending=ending, attempts=counts["attempts"],
                   cost_usd=every.get("cost_usd", number("cost_usd", (int, float)) if routing["billing"] == "metered" else None),
                   tokens=every.get("tokens", number("total_tokens", int)), duration_ms=number("duration_ms", int),
-                  skill_loaded=(skill in loaded) if isinstance(loaded, list) else None,
+                  skill_loaded=_skill_loaded(timing, skill),
                   image_digest=result["image_digest"], run_dir=dest, redactions=_count(counts.get("redactions")))
     if ending == "blocked":
         # The skill stopped on a missing input that another skill writes: the task is blocked, with no pending
@@ -1787,13 +1794,12 @@ def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False) 
                    if path_rule.classify(rel, facts) != "ignored"]
     body, masked = workcopy.masked_reply(result["response"])
     body = body.encode("utf-8")[:store.BODY_MAX].decode("utf-8", errors="ignore")
-    loaded = timing.get("skills_loaded")
     number = lambda key, kind: timing.get(key) if isinstance(timing.get(key), kind) and not isinstance(timing.get(key), bool) else None
     every = _reported_usage(lab.reported_usage(dest), routing)  # the usage of every attempt, the retried ones too (R4-C7b)
     finish = dict(status="ok", attempts=counts["attempts"],
                   cost_usd=every.get("cost_usd", number("cost_usd", (int, float)) if routing["billing"] == "metered" else None),
                   tokens=every.get("tokens", number("total_tokens", int)), duration_ms=number("duration_ms", int),
-                  skill_loaded=(skill in loaded) if isinstance(loaded, list) else None,
+                  skill_loaded=_skill_loaded(timing, skill),
                   image_digest=result["image_digest"], run_dir=dest, redactions=_count(counts.get("redactions")))
     common = {"run_dir": dest, "response_file": os.path.join(result["outputs"], "response.md"), "kept": out["kept"],
               "routing": routing, "use": out["use"], "body_masked": masked}

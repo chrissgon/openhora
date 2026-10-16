@@ -97,10 +97,22 @@ def test_contained_env_is_an_allowlist(tmp_path, monkeypatch):
     assert er.contained_env(str(tmp_path), ["PROVIDER_API_KEY"])["PROVIDER_API_KEY"] == "k"
 
 
-@pytest.mark.parametrize("name", ["GITHUB_TOKEN", "VCS_GITHUB_TOKEN"])
+@pytest.mark.parametrize("name", ["GITHUB_TOKEN", "VCS_GITHUB_TOKEN", "OP_SERVICE_ACCOUNT_TOKEN", "OP_SESSION_demo",
+                                  "OP_CONNECT_TOKEN", "OP_CONNECT_HOST"])
 def test_pass_env_refuses_token_variables(name):
     with pytest.raises(SystemExit):
         er.parse(["--skill", "s", "--harness", "h", "--model", "m", "--pass-env", name])
+
+
+def test_contained_env_drops_the_password_managers_variables_even_when_passed(tmp_path, monkeypatch):
+    names = ["OP_SERVICE_ACCOUNT_TOKEN", "OP_SESSION_demo", "OP_CONNECT_TOKEN", "OP_CONNECT_HOST"]
+    for name in names:
+        monkeypatch.setenv(name, "not-a-real-value")
+    monkeypatch.setenv("PROVIDER_API_KEY", "k")
+    env = er.contained_env(str(tmp_path), names + ["PROVIDER_API_KEY"])
+    assert env["PROVIDER_API_KEY"] == "k"
+    assert not [k for k in env if k.startswith("OP_")]
+    assert er.token_var("OP_ANYTHING") and er.token_var("GH_TOKEN") and not er.token_var("OPENROUTER_API_KEY")
 
 
 def test_setup_and_fixture_commit_never_reach_an_outer_repository(tmp_path, monkeypatch):

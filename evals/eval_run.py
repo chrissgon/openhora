@@ -415,7 +415,9 @@ a run measures changed in this checkout); chosen variants (--only, --ablate, --n
 with no version; a skill folder that changed during the event. An incomplete event writes nothing into the
 skill either: resume it. The reason is printed, and stored in benchmark.json "scratch".
 Extra variables. A variable named with --pass-env changes what a run is (an adapter reads several, and one replaces the runner by a command). The event
-line names them in "extra_pass_env", and such an event is a trial.
+line names them in "extra_pass_env", and such an event is a trial. The runner refuses the variables that would sign a host
+or the password manager back in: the git-host and npm tokens, and the whole OP_ family (OP_SERVICE_ACCOUNT_TOKEN, OP_SESSION_*,
+OP_CONNECT_TOKEN, OP_CONNECT_HOST); a run's environment never holds one either.
 
 Outside the repository. A model that runs inside the workbench finds it: it walks up from the case folder,
 reads the instruction file and the skills, and a without-skill run then scores with the skill's help. So every
@@ -502,7 +504,7 @@ KIT_BOUND = (
     "ROOT", "STATUS_SCRIPT", "EXECUTOR_SCRIPT", "STAGE_SCRIPT", "EXECUTOR", "SETUP_TIMEOUT", "die",
     "load_executor", "STAGE_LOCK", "load_stage", "adapter_eval", "harness_settings", "settings_in",
     "case_platforms", "stage_run", "exclude_from_git", "MEASURE_SCRIPT", "MEASURE_LOCK", "load_measure",
-    "ATTEMPTS_SCRIPT", "ATTEMPTS_LOCK", "load_attempts", "load_status", "resolve_pass_env", "TOKEN_VARS",
+    "ATTEMPTS_SCRIPT", "ATTEMPTS_LOCK", "load_attempts", "load_status", "resolve_pass_env", "TOKEN_VARS", "TOKEN_PREFIXES", "token_var",
     "ENV_ALLOW", "repo_paths", "temp_base", "RUN_ROOTS", "RUN_ROOTS_LOCK", "new_run_root", "return_run",
     "return_all_runs", "provider_refusal", "AUTH_STATUS", "AUTH_KEY_WORDS", "AUTH_WINDOW", "auth_refusal",
     "credential_label", "contained_env", "GROUPS", "GROUPS_LOCK", "STOPPING", "STOP_GRACE", "group_alive",
@@ -860,8 +862,8 @@ def parse(argv):
     for name in opts["pass_env"]:
         if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name):
             die(f"--pass-env {name!r} is not a variable name.")
-        if name in TOKEN_VARS:
-            die(f"--pass-env {name}: token variables for git hosts and npm never reach a model run.")
+        if token_var(name):
+            die(f"--pass-env {name}: token variables for git hosts, npm and the password manager never reach a model run.")
     if opts["regrade"] is not None and not (opts["grader_harness"] and opts["grader"]):
         die("--regrade needs a grader and its adapter: evals/eval-gate.json, or --grader and --harness.")
     return opts

@@ -55,7 +55,7 @@ __all__ = (
     # the adapter's data and what a run sees of the skills
     "adapter_eval", "harness_settings", "settings_in", "stage_run",
     # credentials by name, and the environment of a contained command
-    "resolve_pass_env", "contained_env", "credential_label",
+    "resolve_pass_env", "contained_env", "credential_label", "token_var",
     # the fresh folder of a run, and its way back
     "new_run_root", "return_run", "return_all_runs",
     # running: the fixture commit, the adapter, the stopping of what was started
@@ -329,9 +329,17 @@ def resolve_pass_env(names):
     return filled
 
 
-# Credentials in the environment would sign gh, npm or git hosts back in.
+# Credentials in the environment would sign gh, npm or git hosts back in; the password manager's whole OP_ family
+# (OP_SERVICE_ACCOUNT_TOKEN, OP_SESSION_*, OP_CONNECT_TOKEN, OP_CONNECT_HOST) would sign the manager in (limit L39).
 TOKEN_VARS = {"GH_TOKEN", "GITHUB_TOKEN", "VCS_GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN",
               "NPM_TOKEN", "NODE_AUTH_TOKEN"}
+TOKEN_PREFIXES = ("OP_",)
+
+
+def token_var(name):
+    """True for a variable that never reaches a model run: a token variable, or one of a prefix family."""
+    return name in TOKEN_VARS or name.startswith(TOKEN_PREFIXES)
+
 # The only variables a model run, a setup or the grader receives from the caller, besides --pass-env.
 ENV_ALLOW = {"PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LANGUAGE", "TERM", "TMPDIR", "TZ",
              "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "REQUESTS_CA_BUNDLE"}
@@ -469,7 +477,7 @@ def contained_env(run_dir, pass_env=()):
     for path in (npmrc, gitconfig):
         open(path, "w").close()
     env = {k: v for k, v in os.environ.items()
-           if (k in ENV_ALLOW or k.startswith("LC_") or k in pass_env) and k not in TOKEN_VARS}
+           if (k in ENV_ALLOW or k.startswith("LC_") or k in pass_env) and not token_var(k)}
     # Nothing tells the run where the repository is: PATH entries inside it go, an allowlisted variable that
     # points into it goes, and TMPDIR is the base the run folders are made in. A --pass-env variable is the
     # caller's own choice and stays as it is.
