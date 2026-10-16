@@ -9,11 +9,19 @@ import http.server
 import json
 import sys
 import threading
+import time
 
 ARGS = sys.argv[1:]
 PORT = int(ARGS[ARGS.index("--port") + 1]) if "--port" in ARGS else 8080
 ALIAS = ARGS[ARGS.index("--alias") + 1] if "--alias" in ARGS else "standin"
 REPLY = "stand-in reply"
+START = time.monotonic()
+try:  # a "weights" file that starts with "SLOW <seconds>" makes the server answer /health with 503 for that long, as a loading model does
+    with open("/models/model.gguf", "rb") as _f:
+        _head = _f.read(32)
+    DELAY = float(_head[5:].split()[0]) if _head.startswith(b"SLOW ") else 0.0
+except (OSError, ValueError, IndexError):
+    DELAY = 0.0
 USAGE = {"prompt_tokens": 11, "completion_tokens": 3, "total_tokens": 14}
 
 
@@ -34,7 +42,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         print("seen " + json.dumps({"method": "GET", "path": self.path}), flush=True)
         if self.path == "/health":
-            self.send_json(200, {"status": "ok"})
+            if time.monotonic() - START < DELAY:
+                self.send_json(503, {"error": {"message": "Loading model", "code": 503}})
+            else:
+                self.send_json(200, {"status": "ok"})
         elif self.path in ("/v1/models", "/models"):
             self.send_json(200, {"object": "list", "data": [{"id": ALIAS, "object": "model", "owned_by": "standin"}]})
         else:

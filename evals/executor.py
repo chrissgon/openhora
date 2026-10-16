@@ -147,6 +147,7 @@ MODEL_PORT = 8080  # where the model server listens, on the run's internal netwo
 LOCAL_POLL_SECONDS = 1.0  # how often a starting model server is looked at
 LOCAL_HEALTH_INTERVAL = "2s"  # the image's HEALTHCHECK runs every 30 s by default: a server that is ready is seen within seconds
 LOCAL_LOAD_DEFAULT = 900  # seconds a model server has to load its weights (the configuration may lower or raise it, up to 1500)
+LOCAL_MAX_THREADS = 128  # the server's threads are capped well under its process limit (256): its own helper threads count too
 STOP_SECONDS = 10  # how long a stopping key proxy has to write what it still holds
 RUN_ID_RE = re.compile(r"[0-9a-f]{16}")
 DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
@@ -657,19 +658,24 @@ def local_user():
 
 def local_server_argv(run_id, spec, image, platform, weights, user_args):
     """The docker arguments (after `docker`) that start the model server of one run. spec: {"alias", "context",
-    "memory_gb", "accelerator", "cpus"}. The server has a read-only root and a small temporary folder, no capability, no
+    "memory_gb", "accelerator", "cpus"[, "load_timeout_seconds"]}. The server has a read-only root and a small temporary folder, no capability, no
     new privilege, a limit on processes, memory with no swap, a limit on CPUs, the log limits and the labels of the run,
     and is on the run's network and no other. It has no published port, no mount but the weights (read-only), no added host
-    and no environment variable. One slot (--parallel 1): the run's model calls come one at a time."""
+    and no environment variable. One slot (--parallel 1): the run's model calls come one at a time. The image's health
+    check answers 503 while the weights load, so the container is given a start period as long as the load limit
+    (load_timeout_seconds): failures in it do not count, and the status stays `starting` until the server answers. The
+    threads are the CPUs, at most LOCAL_MAX_THREADS, so that the server stays inside its process limit."""
     names_ = run_names(run_id)
     cuda = spec["accelerator"] == "cuda"
     memory = f"{spec['memory_gb']}g"
+    start_period = f"{spec.get('load_timeout_seconds') or LOCAL_LOAD_DEFAULT}s"
+    threads = min(spec["cpus"], LOCAL_MAX_THREADS)
     return ["run", "-d", NO_PULL, "--rm", "--init", "--platform", platform, *CONFINED, "--pids-limit", "256", "--read-only",
             "--tmpfs", "/tmp:rw,nosuid,nodev,size=256m", "--memory", memory, "--memory-swap", memory, "--cpus", str(spec["cpus"]),
-            *LOG_OPTS, "--health-interval", LOCAL_HEALTH_INTERVAL, *labels(run_id), *user_args, "--name", names_["model"],
+            *LOG_OPTS, "--health-interval", LOCAL_HEALTH_INTERVAL, "--health-start-period", start_period, *labels(run_id), *user_args, "--name", names_["model"],
             "--network", names_["network"], "-v", f"{weights}:/models/model.gguf:ro", *(["--gpus", "all"] if cuda else []), image,
             "-m", "/models/model.gguf", "--host", "0.0.0.0", "--port", str(MODEL_PORT), "-c", str(spec["context"]),
-            "--alias", spec["alias"], "--jinja", "--parallel", "1", "--threads", str(spec["cpus"]),
+            "--alias", spec["alias"], "--jinja", "--parallel", "1", "--threads", str(threads),
             "-ngl", "999" if cuda else "0", "--no-webui", "--no-slots", "--no-context-shift"]
 
 
@@ -838,7 +844,7 @@ def command(cmd, root, cwd=None, env=None, runner=None, pass_names=(), network="
         if env.get(key):
             argv += ["-e", f"{key}={env[key]}"]
     held_by = None if local else held_route(pass_names, env, network, model)  # a local model holds no key
-    kept ={r["secret"]: r["placeholder"] for r in routes().values()}  # what a key proxy holds never enters a container
+    kept = {r["secret"]: r["placeholder"] for r in routes().values()}  # what a key proxy holds never enters a container
     for key in dict.fromkeys(pass_names):
         if key in kept and env.get(key):
             argv += ["-e", f"{key}={kept[key]}"]  # the key stays with its key proxy

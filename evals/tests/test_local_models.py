@@ -82,6 +82,20 @@ def test_the_configuration_of_a_model_has_the_defaults_the_docs_state(tmp_path, 
     assert lm.check_entry("example-coder", full, root=str(tmp_path / "checkout"))["load_timeout_seconds"] == 1200
 
 
+def test_a_relative_xdg_config_home_is_ignored(tmp_path):
+    assert lm.config_path({"XDG_CONFIG_HOME": "relative/dir", "HOME": str(tmp_path)}) == os.path.join(
+        os.path.expanduser("~"), ".config", "openhora", "local-models.json")
+    assert lm.config_path({"XDG_CONFIG_HOME": ""}).endswith(os.path.join(".config", "openhora", "local-models.json"))
+    assert os.path.isabs(lm.config_path({"XDG_CONFIG_HOME": "relative/dir"}))
+
+
+def test_a_path_that_docker_would_read_as_more_than_a_path_is_refused(tmp_path):
+    for name in ("a:b.gguf", "a:ro.gguf", "new\nline.gguf"):
+        path = gguf(tmp_path / "w" / name)
+        with pytest.raises(lm.LocalModelError, match="colon or a newline"):
+            lm.check_entry("example-coder", entry(path), root=str(tmp_path / "checkout"))
+
+
 def test_the_configuration_file_lives_outside_the_repository_by_default(tmp_path):
     assert lm.config_path({"XDG_CONFIG_HOME": str(tmp_path)}) == str(tmp_path / "openhora" / "local-models.json")
     assert lm.config_path({"WB_LOCAL_MODELS_FILE": str(tmp_path / "x.json"), "XDG_CONFIG_HOME": "/nope"}) == str(tmp_path / "x.json")

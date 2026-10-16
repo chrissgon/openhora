@@ -90,8 +90,10 @@ def config_path(env=None):
     explicit = (env.get(CONFIG_ENV) or "").strip()
     if explicit:
         return os.path.abspath(os.path.expanduser(explicit))
-    base = (env.get("XDG_CONFIG_HOME") or "").strip() or os.path.join(os.path.expanduser("~"), ".config")
-    return os.path.join(os.path.abspath(base), "openhora", "local-models.json")
+    base = (env.get("XDG_CONFIG_HOME") or "").strip()
+    if not os.path.isabs(base):  # the XDG rule: a relative XDG_CONFIG_HOME is ignored
+        base = os.path.join(os.path.expanduser("~"), ".config")
+    return os.path.join(base, "openhora", "local-models.json")
 
 
 def inside_checkout(path, root=ROOT):
@@ -135,6 +137,8 @@ def check_entry(name, entry, root=ROOT):
     weights = entry["weights"]
     if not (isinstance(weights, str) and weights and os.path.isabs(weights)):
         raise LocalModelError(f"{where}: weights must be an absolute path")
+    if ":" in weights or "\n" in weights:  # the path becomes the host side of a `-v host:container:ro` argument
+        raise LocalModelError(f"{where}: weights may not have a colon or a newline in its path (docker reads it as part of the mount); move or rename the file")
     if not weights.endswith(".gguf"):
         raise LocalModelError(f"{where}: weights must be a .gguf file")
     if os.path.islink(weights):

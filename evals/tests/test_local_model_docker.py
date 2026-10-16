@@ -227,6 +227,39 @@ def test_two_concurrent_local_runs_cannot_reach_each_others_server(patched, weig
 
 
 @stand_in
+def test_a_server_that_answers_503_while_it_loads_is_waited_for_past_what_the_default_health_check_would_allow(patched, tmp_path):
+    """The pinned image's health check is `curl -f /health`, which fails with 503 while the weights load: with docker's defaults
+    (no start period, 3 retries) at an interval of 2 s the container is `unhealthy` after about 6 s. The start period of the load
+    limit keeps it `starting` instead. The stand-in answers 503 for 14 s, as its weights file says."""
+    ex = patched
+    slow = tmp_path / "slow" / "model.gguf"
+    slow.parent.mkdir()
+    slow.write_bytes(b"SLOW 14\n")
+    run_id = ex.new_run_id()
+    started = time.monotonic()
+    held = ex.hold_local(run_id, spec_of(slow, load_timeout_seconds=90))
+    try:
+        assert 10 <= time.monotonic() - started < 60 and held["seconds"] >= 10, held
+        health = docker("inspect", "--format", "{{.State.Health.Status}}", held["model"]).stdout.strip()
+        assert health == "healthy"
+    finally:
+        ex.release_local(run_id)
+    assert gone(ex, run_id)
+
+
+@stand_in
+def test_a_server_that_never_finishes_loading_fails_when_the_load_limit_is_reached(patched, tmp_path):
+    ex = patched
+    slow = tmp_path / "never" / "model.gguf"
+    slow.parent.mkdir()
+    slow.write_bytes(b"SLOW 600\n")
+    run_id = ex.new_run_id()
+    with pytest.raises(ex.ExecutorError, match=r"(not ready within 12 seconds|is unhealthy)"):
+        ex.hold_local(run_id, spec_of(slow, load_timeout_seconds=12))
+    assert gone(ex, run_id)
+
+
+@stand_in
 def test_a_failed_start_and_a_stopped_run_leave_nothing_behind(patched, weights, tmp_path, monkeypatch):
     ex = patched
     # a server that never becomes ready: the weights file is missing at the mount, so the start fails and releases what it made
@@ -281,7 +314,9 @@ def tiny_gguf(tmp_path_factory):
     path = Path(explicit) if explicit else tmp_path_factory.mktemp("tiny") / "stories260K.gguf"
     if not path.exists():
         with urllib.request.urlopen(TINY["url"], timeout=120) as r, open(path, "wb") as f:  # the one download of these tests, 1.2 MB
-            f.write(r.read())
+            data = r.read(TINY["size"] + 1)  # never more than the pinned size
+            assert len(data) == TINY["size"], "the download is not the size of the pinned file"
+            f.write(data)
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     assert digest == TINY["sha256"] and path.stat().st_size == TINY["size"], "the tiny model is not the file whose checksum is pinned"
     return path

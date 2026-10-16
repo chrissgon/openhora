@@ -391,6 +391,37 @@ def test_a_resumed_event_of_unchanged_weights_runs_its_failed_runs_and_keeps_its
     assert list(event["local_model"]) == [full_id(weights)] and [b["local"]["cpus"] for b in boxes if b and b.get("local")][-1] == 4
 
 
+def test_a_resumed_event_describes_the_model_again_and_refuses_another_server_or_file(tmp_path, tmp_path_factory, monkeypatch, weights, capsys):
+    fail_one = t.FAKE.replace('echo ok > "$out/response.md"', 'if [ -f "$(dirname "$0")/fail" ]; then echo broken >&2; exit 7; fi\necho ok > "$out/response.md"')
+    skill, local, boxes = local_event(tmp_path, tmp_path_factory, monkeypatch, weights, runner=fail_one)
+    (tmp_path / "adapters" / "agents-dir" / "fail").write_text("")
+    er.main(["--skill", "demo", "--model", "local/example-coder", "--runs", "1"])
+    folder = str(tmp_path / json.loads(capsys.readouterr().out)["iteration_dir"])
+    (tmp_path / "adapters" / "agents-dir" / "fail").unlink()
+    real = er.describe_local
+    for field, value in (("server_image", "sha256:" + "9" * 64), ("server_args_sha256", "8" * 64), ("server_version", "version: another build")):
+        monkeypatch.setattr(er, "describe_local", lambda spec, field=field, value=value: {k: {**v, field: value} for k, v in real(spec).items()})
+        with pytest.raises(SystemExit) as e:
+            er.main(["--resume", folder])
+        err = capsys.readouterr().err
+        assert e.value.code == 2 and "cannot be resumed" in err and field not in err.split("(its local_model")[0] and value in err, err
+    monkeypatch.setattr(er, "describe_local", real)
+    assert er.main(["--resume", folder]) == 0  # the same server and file: the event goes on
+
+
+def test_a_dry_run_of_a_local_model_prints_its_plan_and_hashes_nothing(tmp_path, tmp_path_factory, monkeypatch, weights, capsys):
+    skill, local, boxes = local_event(tmp_path, tmp_path_factory, monkeypatch, weights)
+
+    def never(*a, **k):
+        raise AssertionError("a plan hashed the file or described the server")
+    monkeypatch.setattr(er, "resolve_local", never)
+    monkeypatch.setattr(er, "describe_local", never)
+    assert er.main(["--skill", "demo", "--model", "local/example-coder", "--runs", "1", "--dry-run"]) == 0
+    plan = json.loads(capsys.readouterr().out)
+    assert plan["dry_run"] is True and plan["models"] == ["local/example-coder"] and plan["runners"]["local/example-coder"].endswith("agents-dir/run-prompt.sh")
+    assert boxes == [] and {r["model"] for r in plan["runs"]} == {"local/example-coder"}
+
+
 # --- the line ---------------------------------------------------------------------------------------------------------------------------------
 
 def valid_local_event():

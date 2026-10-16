@@ -618,7 +618,8 @@ def resolve_local(name, typed_hex, config):
 def local_server_spec(local, cpus=None):
     """What the model server of a local model is started with (executor.local_server_argv)."""
     return {"alias": local["alias"], "context": local["context"], "memory_gb": local["memory_gb"],
-            "accelerator": local["accelerator"], "cpus": cpus or local["cpus"]}
+            "accelerator": local["accelerator"], "cpus": cpus or local["cpus"],
+            "load_timeout_seconds": local.get("load_timeout_seconds")}
 
 
 def describe_local(local):
@@ -2442,11 +2443,18 @@ def run(argv):
         try:  # the model server image is present (a test never pulls); what served the model is described once per event
             if not local.get("cpus"):
                 local = o["local"] = {**local, "cpus": load_executor().host_cpus()}
-            local_line = (resumed or {}).get("local_model") or describe_local(local)
+            saved = (resumed or {}).get("local_model")
+            # Described again on a resumption (the full hash of the weights, the pinned image and the arguments): runs of two
+            # servers or two files are not one measurement, and the event line states one.
+            local_line = saved if (closing and saved) else describe_local(local)
         except Exception as e:
             die(f"the local model's server is not available: {e}", 1)
+        if saved and local_line != saved:
+            die(f"the event {os.path.relpath(it_dir, ROOT)} cannot be resumed: the weights, the model server image or its arguments are "
+                f"not those it began with (its local_model {json.dumps(saved, sort_keys=True)}, now {json.dumps(local_line, sort_keys=True)}). "
+                "Start a new event.", 2)
     local_box = ({k: local[k] for k in ("alias", "weights", "stat", "context", "memory_gb", "accelerator", "cpus", "load_timeout_seconds")}
-                 if local else None)
+                 if local and not o["dry"] else None)  # a plan (--dry-run) hashed no file and has none of this
     if resumed is None:
         it_dir = next_iteration(os.path.join(ROOT, "evals-workspace", o["skill"]), claim=not o["dry"])
     ablated_dir, ablated_lines = None, 0

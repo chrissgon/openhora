@@ -15,6 +15,11 @@ hold() and release(), and what run-prompt.sh writes and starts. Both are shown h
 If either differs, the change is an execution change (`eval_status.py measurement --kind execution`), not infrastructure.
 Both tests are skipped when the base commit is not in the checkout (a shallow clone).
 
+The base is pinned to the commit before package N14 on purpose: a moving ref would make the test compare a file with itself. After a REAL
+execution-side change to command(), hold(), release() or run-prompt.sh (one committed with `eval_status.py measurement --kind execution`),
+these tests are meant to fail: move BASE to the commit before that change, say why in the commit, and keep the scenarios; a change that
+leaves hosted runs byte-identical never moves it.
+
 Run: uv run --with pytest pytest evals/tests/test_executor_local_golden.py
 """
 from __future__ import annotations

@@ -174,7 +174,7 @@ def test_the_model_server_is_started_with_exactly_the_arguments_of_the_spec(tmp_
     assert list(run) == [
         "run", "-d", "--pull=never", "--rm", "--init", "--platform", "linux/arm64", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
         "--pids-limit", "256", "--read-only", "--tmpfs", "/tmp:rw,nosuid,nodev,size=256m", "--memory", "24g", "--memory-swap", "24g",
-        "--cpus", "8", "--log-opt", "max-size=10m", "--log-opt", "max-file=3", "--health-interval", "2s",
+        "--cpus", "8", "--log-opt", "max-size=10m", "--log-opt", "max-file=3", "--health-interval", "2s", "--health-start-period", "900s",
         "--label", "wb.eval=1", "--label", f"wb.eval.run={RUN}", "--user", user, "--name", f"wb-eval-model-{RUN}",
         "--network", f"wb-eval-held-{RUN}", "-v", f"{weights}:/models/model.gguf:ro", image,
         "-m", "/models/model.gguf", "--host", "0.0.0.0", "--port", "8080", "-c", "32768", "--alias", "example-coder@047bf46455a5",
@@ -234,6 +234,45 @@ def test_the_server_is_ready_when_the_image_says_healthy_and_not_before(tmp_path
     monkeypatch.setattr(ex, "docker", docker)
     ex.hold_local(RUN, spec_of(tmp_path))
     assert len(docker.named("inspect")) == 3 and not docker.named("rm")
+
+
+def test_a_server_still_loading_is_waited_for_while_the_status_is_starting_however_many_polls_it_takes(tmp_path, monkeypatch):
+    """The image's health check answers 503 while the weights load: the status is `starting` for the whole start period (the
+    load limit), and the wait goes on; it ends when the status is healthy."""
+    docker = FakeDocker(health=("starting",) * 400 + ("healthy",))
+    monkeypatch.setattr(ex, "docker", docker)
+    held = ex.hold_local(RUN, spec_of(tmp_path, load_timeout_seconds=900))
+    assert len(docker.named("inspect")) == 401 and held["model"] == f"wb-eval-model-{RUN}" and not docker.named("rm")
+    run = docker.named("run")[0]
+    assert run[run.index("--health-start-period") + 1] == "900s" and run[run.index("--health-interval") + 1] == "2s"
+
+
+def test_the_start_period_is_the_load_limit_of_the_model(tmp_path, monkeypatch):
+    docker = FakeDocker()
+    monkeypatch.setattr(ex, "docker", docker)
+    ex.hold_local(RUN, spec_of(tmp_path, load_timeout_seconds=1500))
+    run = docker.named("run")[0]
+    assert run[run.index("--health-start-period") + 1] == "1500s"
+    default = FakeDocker()
+    monkeypatch.setattr(ex, "docker", default)
+    ex.hold_local(RUN, {k: v for k, v in spec_of(tmp_path).items() if k != "load_timeout_seconds"})
+    assert default.named("run")[0][default.named("run")[0].index("--health-start-period") + 1] == f"{ex.LOCAL_LOAD_DEFAULT}s"
+
+
+def test_a_server_that_turns_unhealthy_after_its_start_period_fails_and_is_released(tmp_path, monkeypatch):
+    docker = FakeDocker(health=("starting",) * 30 + ("unhealthy",), logs="srv: the model failed to load")
+    monkeypatch.setattr(ex, "docker", docker)
+    with pytest.raises(ex.ExecutorError, match="is unhealthy: srv: the model failed to load"):
+        ex.hold_local(RUN, spec_of(tmp_path))
+    assert len(docker.named("inspect")) == 31
+    assert ("rm", "-f", f"wb-eval-model-{RUN}") in docker.calls and ("network", "rm", f"wb-eval-held-{RUN}") in docker.calls
+
+
+def test_the_threads_follow_the_cpus_up_to_a_cap_under_the_process_limit(tmp_path):
+    for cpus, threads in ((1, "1"), (8, "8"), (128, "128"), (512, "128")):
+        argv = ex.local_server_argv(RUN, spec_of(tmp_path, cpus=cpus), "image", "linux/arm64", "/w/model.gguf", ["--user", "0:0"])
+        assert argv[argv.index("--threads") + 1] == threads and argv[argv.index("--cpus") + 1] == str(cpus)
+        assert argv[argv.index("--pids-limit") + 1] == "256" and int(threads) < 256
 
 
 def test_an_image_without_a_healthcheck_is_ready_when_its_log_says_the_server_listens(tmp_path, monkeypatch):
