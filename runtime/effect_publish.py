@@ -28,7 +28,9 @@ document's canonical text) and `key` is the document's own. Then the post is bui
 (runtime/publish_payload.py) in a private folder, and the document must still be that post: the key, the slot, the text, the first comment and the
 image (its source file opened with no link on the way and its hash) are compared, and another is `stale` (nothing is published, the decision is
 answered and the task starts over from `prepare`). The files the script wrote are the files the publisher is given. The provider's dry run is made
-again and, without the ledger's lines and the private folder's path, must equal the one in the document (else `deviation`); then `publish
+again and, without the ledger's lines and the private folder's path, must equal the one in the document (else `deviation`; where a published key's
+dry run names the post it holds, the document's placeholder stands for it), and print the document's ledger; the person's ledger variable and the
+scheduled jobs pinned to this key are read too (else `deviation`); then `publish
 --confirmed` is called with the document's key. Results: `published`; `replayed` (the ledger held this key with this content already, from the
 publishing skill's job or from an earlier approval: nothing was published again); `unknown` (a timeout, or a failure after which the ledger
 holds the key `pending`, or cannot be read: the post may or may not be out; the effect stays open, approving it again meets the ledger, and the
@@ -193,6 +195,10 @@ class Call:
     def build(self, doc: dict, project: str, work_dir=None):
         return publish_payload.build(self.root, project, doc["content"], doc["platform"], work_dir)
 
+    def ledger_problem(self, doc: dict, args: list):
+        """Why the ledger of the document may not be the one that decides whether this key was published (publish_payload.ledger_problem), or None."""
+        return publish_payload.ledger_problem(_resolve(self.root), self.root, doc["platform"], doc["idempotency_key"], args, doc["ledger"])
+
 
 def caller(cfg: dict, root: str):
     """The `call` that reaches the provider (see Call)."""
@@ -254,8 +260,13 @@ def execute(doc: dict, approval: dict, call, key: str, work_dir=None, project=No
         paths = built.paths
         args = publish_document.provider_args(doc["platform"], doc["idempotency_key"], paths["text"], paths["comment"], paths["image"])
         shown = call("publish", args + ["--dry-run"])
-        if publish_document.stable_dry_run(shown, (built.folder,)) != doc["dry_run"]:
+        if not publish_document.same_dry_run(doc["dry_run"], publish_document.stable_dry_run(shown, (built.folder,))):
             raise effects.EffectError("deviation", "the provider would publish something other than the post that was previewed: nothing is published")
+        if doc["ledger"] is not None and shown.get("ledger") != doc["ledger"]:
+            raise effects.EffectError("deviation", "the publisher's ledger is not the one the post was prepared with: nothing is published")
+        why = getattr(call, "ledger_problem", lambda doc, args: None)(doc, args)
+        if why:
+            raise effects.EffectError("deviation", f"{why}: nothing is published")
         try:
             done = call("publish", args + ["--confirmed"])
         except UnknownError:

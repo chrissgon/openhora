@@ -51,7 +51,10 @@ import publish_document  # noqa: E402
 import steps  # noqa: E402
 
 KEYS = ("post", "platform")
-SERVICE_CODES = {"not_configured": "not_configured", "provider_failed": "provider_failed", "refused": "refused", "payload_refused": "payload_refused"}
+SERVICE_CODES = {"not_configured": "not_configured", "provider_failed": "provider_failed", "refused": "refused", "payload_refused": "payload_refused",
+                 "ledger_differs": "ledger_differs"}
+LEDGER_NEXT = ("the publisher's ledger is named differently by your environment or by a scheduled job for this key than by this path: make them one "
+               "file (providers/publisher/README.md), then start the task again")
 GATE_STEP = "publish"
 REFUSED_NEXT = ("the publishing skill's payload builder refused this post (a limit of the platform, a missing block or time, an image it does not take): "
                 "run `skills/mkt-publish/scripts/payload.py build` by hand on the file to read why, fix the file, and start the task again")
@@ -89,8 +92,8 @@ def _asked(call, *args):
         raise
     except Exception as e:      # the services raise errors that carry a `code`; anything else is a provider failure
         code = SERVICE_CODES.get(getattr(e, "code", ""), "provider_failed")
-        raise steps.StepFailure(code, "publisher", "publisher", REFUSED_NEXT if code == "payload_refused" else TOKEN_NEXT if code == "not_configured" else "") \
-            from None
+        raise steps.StepFailure(code, "publisher", "publisher", REFUSED_NEXT if code == "payload_refused" else LEDGER_NEXT if code == "ledger_differs" else
+                                TOKEN_NEXT if code == "not_configured" else "") from None
 
 
 def _read(ctx: steps.Context, rel: str, limit: int, field: str, what: str) -> bytes:
@@ -137,7 +140,8 @@ def _prepare(ctx: steps.Context, state: dict) -> dict:
     try:
         doc = publish_document.document(task_id=ctx.task_id, provider=provider, platform=platform, content=content, slot=post["at"], text=post["text"],
                                         comment=post["comment"], image=image, checks=facts["checks"],
-                                        token_expires_at=expires if isinstance(expires, str) and expires else None, dry_run=shown["dry_run"])
+                                        token_expires_at=expires if isinstance(expires, str) and expires else None, ledger=shown["ledger"],
+                                        dry_run=shown["dry_run"])
     except Exception as e:      # an EffectError of the document: its reason names a limit, never the content
         raise steps.StepFailure("content_refused", "post", "", str(getattr(e, "reason", ""))[:200]) from None
     if doc["idempotency_key"] != post["key"]:

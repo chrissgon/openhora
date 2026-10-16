@@ -105,6 +105,37 @@ def _read(folder: str, path, expected, what: str) -> bytes:
     return data
 
 
+def ledger_problem(resolve, root: str, platform: str, key: str, args: list, ledger):
+    """Why the ledger this path would use may not be the one that decides whether `key` was published, or None. Two ways the same key can be looked up
+    in another ledger and a post go out twice: the person's own environment names a ledger (a variable whose name has LEDGER in it) that the publisher,
+    started with the minimum environment, does not see; and a scheduled job for this key was pinned to a ledger by `--ledger` (the vote job does it, from the
+    tick's environment). `args` are the publisher's `publish` flags without the dry run's; `ledger` is the path a dry run printed (None: the provider names
+    none, and there is nothing to compare). A scheduler that cannot be listed has no job to compare with."""
+    if not ledger:
+        return None
+    cls, extra = publisher_class(platform), {k: v for k, v in os.environ.items() if "LEDGER" in k.upper() and v}
+    if extra:
+        try:
+            other = resolve.call(cls, "publish", args + ["--dry-run"], root=root, timeout=120, env={**environment(resolve, platform), **extra})
+        except resolve.ProviderCallError as e:
+            return f"the publisher's dry run with your ledger variable failed ({e.reason}), so it is not known which ledger you use"
+        if isinstance(other, dict) and isinstance(other.get("ledger"), str) and other["ledger"] != ledger:
+            return f"your environment names the ledger {other['ledger']} and this path would use {ledger}: set them to one file"
+    try:
+        listed = resolve.call("scheduler:job", "list", [], root=root, timeout=60, env=resolve.provider_environment("scheduler:job", None, ()))
+    except (resolve.ProviderCallError, resolve.UnknownClass):
+        return None
+    for job in (listed.get("jobs") if isinstance(listed, dict) else None) or []:
+        argv = job.get("argv") if isinstance(job, dict) else None
+        if not isinstance(argv, list) or not all(isinstance(a, str) for a in argv):
+            continue
+        keyed = any(argv[i] in ("--idempotency-key", "--key") and argv[i + 1] == key for i in range(len(argv) - 1))
+        pinned = [argv[i + 1] for i in range(len(argv) - 1) if argv[i] == "--ledger"]
+        if keyed and any(path != ledger for path in pinned):
+            return f"a scheduled job for this key is pinned to the ledger {pinned[0]} and this path would use {ledger}: they would not see each other's keys"
+    return None
+
+
 def token_problem(ready, now=None):
     """Why the provider's `--check` answer is no ground to publish now, or None. The publishing skill compares the token's expiry with the last
     slot it schedules; this path publishes now, so the token must be valid now: the answer says ready, and its expiry, when it states one that this

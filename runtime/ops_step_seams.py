@@ -203,9 +203,10 @@ class PublisherReader:
         return ready
 
     def preview(self, content: str, platform: str) -> dict:
-        """{"post": {key, at, text, comment, image}, "dry_run": the provider's dry run without the ledger's lines, "recorded": what the ledger holds
-        under the key ("published", "pending", None for nothing, or "unreported" when the provider does not say)}. The files the script wrote are
-        handed to the provider where they are, in their private folder, which is removed when this returns."""
+        """{"post": {key, at, text, comment, image}, "dry_run": the provider's dry run without the ledger's lines, "ledger": the path it printed
+        (or None), "recorded": what the ledger holds under the key ("published", "pending", None for nothing, or "unreported" when the provider does
+        not say)}. The files the script wrote are handed to the provider where they are, in their private folder, which is removed when this returns.
+        StepServiceError ledger_differs when the person's environment or a scheduled job for the key names another ledger (publish_payload.ledger_problem)."""
         try:
             built = publish_payload.build(self._root, self._cfg["project"], content, platform, work_dir=self._cfg["data_dir"])
         except publish_payload.PayloadError as e:
@@ -220,7 +221,11 @@ class PublisherReader:
                 shown = publish_document.stable_dry_run(answer, (built.folder,))
             except effects.EffectError as e:
                 raise StepServiceError("provider_failed", e.reason) from None
-            return {"post": built.data(), "dry_run": shown, "recorded": answer.get("existing_status", "unreported")}
+            ledger = answer.get("ledger") if isinstance(answer.get("ledger"), str) else None
+            why = publish_payload.ledger_problem(self._resolver(), self._root, platform, built.key, args, ledger)
+            if why:
+                raise StepServiceError("ledger_differs", why)
+            return {"post": built.data(), "dry_run": shown, "ledger": ledger, "recorded": answer.get("existing_status", "unreported")}
         finally:
             built.cleanup()
 

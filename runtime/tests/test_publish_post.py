@@ -235,11 +235,12 @@ def test_the_key_is_the_publishing_skills_and_the_files_are_the_files_its_own_jo
 def test_a_different_text_comment_or_image_is_a_different_hash_and_one_approval_covers_one_post():
     base = dict(task_id=1, provider="standin", platform="linkedin", content=CONTENT, slot=SLOT, text=TEXT + "\n", comment=COMMENT + "\n",
                 image={"source": IMAGE, "name": "image.png", "bytes": len(PNG), "sha256": sha(PNG)}, checks="ok", token_expires_at=None,
-                dry_run={"requests": []})
+                ledger="/data/ledger.json", dry_run={"requests": []})
     docs = [publish_document.document(**base), publish_document.document(**{**base, "text": TEXT + " more\n"}),
             publish_document.document(**{**base, "comment": None}), publish_document.document(**{**base, "image": None}),
             publish_document.document(**{**base, "image": {**base["image"], "sha256": sha(b"x")}}),
-            publish_document.document(**{**base, "content": "docs/marketing/content/other.md"})]
+            publish_document.document(**{**base, "content": "docs/marketing/content/other.md"}),
+            publish_document.document(**{**base, "ledger": "/elsewhere/ledger.json"})]
     digests = [sha(effects._text(d)) for d in docs]
     assert len(set(digests)) == len(docs)
     approval = {"scope": "action", "status": "pending-execution", "payload_sha256": digests[0]}
@@ -646,6 +647,103 @@ def test_the_reply_path_of_the_same_word_is_the_replys_names_unchanged():
     assert kind.describe(reply) == effect_reply.describe(reply) == "reply to a comment on post t"
     step = {"operation": "post", "platform": "linkedin", "idempotency_key": KEY, "text": "Hello there\n"}
     assert kind.describe(step) == f"publish a post on linkedin ({KEY}): Hello there"
+
+
+# --- a published key's dry run names the post --------------------------------------------------------------------------------------------------
+
+
+def real_shaped(posted=None):
+    """A dry run of a post with a first comment, as providers/publisher/linkedin.py prints it: once the key is published, the comment's request names the
+    post it comments on (raw in the body, percent-encoded in the address), and the ledger's lines say what it holds."""
+    import urllib.parse
+    out = {"dry_run": True, "platform": "linkedin", "idempotency_key": "k", "ledger": "/data/ledger.json",
+           "requests": [{"method": "POST", "url": "https://api.example/rest/posts", "body": {"commentary": "the post"}},
+                        {"method": "POST", "url": "https://api.example/v2/socialActions/" + (urllib.parse.quote(posted, safe="") if posted else "<URL-encoded post URN>")
+                         + "/comments", "body": {"actor": "urn:li:person:<sub>", "object": posted or "<post URN returned by the Posts API>",
+                                                 "message": {"text": "the comment"}}}],
+           "existing_status": "published" if posted else None, "existing_post_urn": posted}
+    return out
+
+
+def test_the_dry_run_of_a_published_key_differs_only_where_it_names_the_post_and_a_changed_comment_still_differs():
+    urn = "urn:li:share:7000000000000000001"
+    before, after = publish_document.stable_dry_run(real_shaped()), publish_document.stable_dry_run(real_shaped(urn))
+    assert before != after, "the real dry run does change once the key is published"
+    assert urn not in json.dumps(after) and "urn%3Ali%3Ashare" not in json.dumps(after), "the post's id is a mark, in every form"
+    assert publish_document.same_dry_run(before, after) and publish_document.same_dry_run(before, before)
+    for change in (lambda d: d["requests"][1]["body"]["message"].update(text="another comment"), lambda d: d["requests"][0]["body"].update(commentary="x"),
+                   lambda d: d["requests"][0].update(url="https://evil.example/rest/posts"), lambda d: d["requests"].append({}),
+                   lambda d: d["requests"][1]["body"].update(object="a" * 400)):
+        edited = real_shaped(urn)
+        change(edited)
+        assert not publish_document.same_dry_run(before, publish_document.stable_dry_run(edited)), change
+
+
+# --- the ledger ------------------------------------------------------------------------------------------------------------------------------
+
+SCHEDULER = '''# /// script
+# requires-python = ">=3.9"
+# dependencies = []
+# ///
+import json, os, sys
+here = os.path.dirname(os.path.abspath(__file__))
+path = os.path.join(here, "jobs.json")
+print(json.dumps({"jobs": json.load(open(path)) if os.path.isfile(path) else []}))
+'''
+
+
+def scheduled(world, jobs):
+    """A stand-in scheduler (class scheduler:job) whose list is `jobs`."""
+    folder = world["tree"] / "providers" / "scheduler"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "standin.py").write_text(SCHEDULER, encoding="utf-8")
+    (folder / "jobs.json").write_text(json.dumps(jobs), encoding="utf-8")
+
+
+def test_the_ledger_is_in_the_document_and_on_the_card_and_the_provider_must_still_print_it_at_the_approval(world):
+    task, item = opened(world)
+    doc = effect_doc(world, task)
+    where = str(world["provider"] / "standin-ledger.json")
+    assert doc["ledger"] == where and where in item["body"] and item["title"].startswith("Publish now on linkedin")
+    other = world["tmp"] / "moved"
+    other.mkdir()
+    os.environ["XDG_DATA_HOME"] = str(other)      # the provider now prints another ledger than the one the post was prepared with
+    try:
+        with pytest.raises(ops_core.OpsError) as refused:
+            approve(world, item)
+    finally:
+        del os.environ["XDG_DATA_HOME"]
+    assert "not the one the post was prepared with" in str(refused.value) and confirmed(world) == [] and posts(world) == []
+    assert approve(world, item)["task_state"] == "done" and len(posts(world)) == 1
+
+
+def test_a_ledger_variable_of_the_persons_environment_that_names_another_file_opens_no_effect(world, monkeypatch):
+    monkeypatch.setenv("PUBLISHER_LINKEDIN_LEDGER", str(world["tmp"] / "mine" / "ledger.json"))
+    out = run_task(world, add(world))
+    assert out["ok"] is False and out["code"] == "ledger_differs" and "make them one file" in out["next"] and str(world["tmp"]) not in json.dumps(out)
+    monkeypatch.setenv("PUBLISHER_LINKEDIN_LEDGER", str(world["provider"] / "standin-ledger.json"))      # the same file: nothing differs
+    task, item = opened(world)
+    monkeypatch.setenv("PUBLISHER_LINKEDIN_LEDGER", str(world["tmp"] / "mine" / "ledger.json"))      # changed after the preview
+    with pytest.raises(ops_core.OpsError) as refused:
+        approve(world, item)
+    assert "your environment names the ledger" in str(refused.value) and posts(world) == []
+    monkeypatch.delenv("PUBLISHER_LINKEDIN_LEDGER")
+    assert approve(world, item)["task_state"] == "done" and len(posts(world)) == 1
+
+
+def test_a_scheduled_job_for_this_key_pinned_to_another_ledger_opens_no_effect_and_blocks_the_approval(world):
+    mine = str(world["provider"] / "standin-ledger.json")
+    scheduled(world, [{"id": "2027-10-13-other", "argv": ["python", "/x/vote_job.py", "--key", "2027-10-13-other", "--ledger", "/elsewhere/l.json"]},
+                      {"id": KEY, "argv": ["python", "/x/job.py", "--idempotency-key", KEY, "--ledger", mine]}, {"id": "no-argv"}, "junk"])
+    task, item = opened(world)      # another key's job, and a job of this key on the same ledger, are no problem
+    scheduled(world, [{"id": KEY, "argv": ["python", "/x/vote_job.py", "--key", KEY, "--ledger", "/elsewhere/l.json"]}])
+    with pytest.raises(ops_core.OpsError) as refused:
+        approve(world, item)
+    assert "a scheduled job for this key is pinned to the ledger /elsewhere/l.json" in str(refused.value) and posts(world) == []
+    out = run_task(world, add(world))
+    assert out["code"] == "ledger_differs" and confirmed(world) == []
+    scheduled(world, [])
+    assert approve(world, item)["task_state"] == "done" and len(posts(world)) == 1
 
 
 # --- the structure: a step kind can reach nothing that publishes ----------------------------------------------------------------------------------

@@ -2,9 +2,9 @@
 providers/publisher/linkedin.py does where the runtime depends on it, with no network and no token. Not a test file.
 
 What it models, and nothing else: the verbs `--check` and `publish` (`--dry-run`, `--confirmed`), the idempotency ledger with its states and its
-refusals (a published key replays; a key holds one content; a pending key blocks), the dry run that prints the request it would make, the ledger path
-and what the ledger holds under the key (`existing_status`), and the failures a real publisher has. It records each call in `calls.jsonl` and each post
-it "published" in `posts.jsonl`, both beside the script. The folder of the ledger is $XDG_DATA_HOME when the environment has it, else the script's folder.
+refusals (a published key replays; a key holds one content; a pending key blocks), the dry run that prints the request it would make (the first comment's names the post once the key is published), the ledger path
+and what the ledger holds under the key (`existing_status`, `existing_post_urn`), and the failures a real publisher has. It records each call in `calls.jsonl` and each post
+it "published" in `posts.jsonl`, both beside the script. The ledger is the file $PUBLISHER_LINKEDIN_LEDGER names when the environment has it, else standin-ledger.json in $XDG_DATA_HOME, else beside the script.
 `mode.json` beside the script says how it behaves:
 
   {"check": {...}}                the answer of --check (default: ready, a token that expires in 2099)
@@ -24,13 +24,13 @@ PUBLISHER = r'''# /// script
 # dependencies = []
 # ///
 PLATFORMS = ("linkedin",)
-import hashlib, json, os, sys, time
+import hashlib, json, os, sys, time, urllib.parse
 
 here = os.path.dirname(os.path.abspath(__file__))
 argv = sys.argv[1:]
 mode_file = os.path.join(here, "mode.json")
 mode = json.load(open(mode_file)) if os.path.isfile(mode_file) else {}
-ledger_path = os.path.join(os.environ.get("XDG_DATA_HOME") or here, "standin-ledger.json")
+ledger_path = os.environ.get("PUBLISHER_LINKEDIN_LEDGER") or os.path.join(os.environ.get("XDG_DATA_HOME") or here, "standin-ledger.json")
 EXPIRES = "2099-01-01T00:00:00Z"
 FLAGS = {"--platform": 1, "--text-file": 1, "--first-comment-file": 1, "--media": 1, "--idempotency-key": 1, "--dry-run": 0, "--confirmed": 0,
          "--check": 0}
@@ -101,8 +101,15 @@ if "--dry-run" in seen:
     out = {"dry_run": True, "platform": "linkedin", "requests": [{"method": "POST", "url": "https://api.example/rest/posts", "body": body}],
            "idempotency_key": key, "ledger": ledger_path, "existing_status": entry["status"] if entry else None}
     if comment is not None:
+        # As the real publisher's dry run: the first comment's request names the post it comments on, a placeholder until the key is published.
+        posted = entry["post_urn"] if entry and entry["status"] == "published" else None
+        out["requests"].append({"method": "POST", "url": "https://api.example/v2/socialActions/" + (urllib.parse.quote(posted, safe="") if posted else
+                                "<URL-encoded post URN>") + "/comments", "body": {"object": posted or "<post URN returned by the Posts API>",
+                                                                                  "message": {"text": comment}}})
         out["first_comment_idempotency_key"] = key + ".first-comment"
         out["first_comment_existing_status"] = (ledger["entries"].get(key + ".first-comment") or {}).get("status")
+        if posted:
+            out["existing_post_urn"] = posted
     print(json.dumps(out))
     sys.exit(0)
 

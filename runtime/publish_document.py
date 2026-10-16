@@ -16,11 +16,14 @@ publication is refused if it resolves to another now), `platform`, `content` (th
 file names; the post is published now and not then), `text` and `text_sha256` (the post exactly as the publishing skill's own script wrote it for
 the publisher), `comment` and `comment_sha256` (the first comment, or null), `image` (null, or `{source, name, bytes, sha256}`: the file is not in
 the document, only its hash), `checks` (the content file's own line about its check, or null), `token_expires_at` (what the provider's check said, or
-null), `dry_run` (what the provider's dry run printed, without what changes with the ledger or the private folder) and `idempotency_key`.
+null), `ledger` (the path of the publisher's ledger, as its dry run printed it, or null: the file whose record of keys makes a post go out once),
+`dry_run` (what the provider's dry run printed, without what changes with the ledger or the private folder) and `idempotency_key`.
 
 The key is the one the publishing skill uses: the content file's name without `.md` (skills/mkt-publish/scripts/payload.py). The publisher's ledger
-holds a key for one content and publishes it once, so a post that the skill published or scheduled is never published again by this path, and one
-published by this path is never published again by the skill's job: the same key, the same texts, the same image, the same ledger.
+holds a key for one content and publishes it once, so a post that the skill's job already published is never published again by this path (a job
+that is scheduled and has not run has written nothing to the ledger yet: if this path publishes first, the job is replayed when it runs), and one
+published by this path is never published again by the skill's job: the same key, the same texts, the same image, the same ledger. This module
+keeps the ledger's path in the document so that the approval covers it and the execution can tell a ledger that moved.
 
 Standard library only, plus the credential scan of runtime/workcopy.py and the error class of runtime/effects.py. Runs on Python 3.9.
 """
@@ -31,6 +34,7 @@ import json
 import os
 import re
 import sys
+import urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -41,7 +45,7 @@ import workcopy  # noqa: E402  (the credential formats, loaded from this checkou
 WORD = "publish"
 OPERATION = "post"
 KEYS = ("effect", "operation", "task", "provider", "platform", "content", "slot", "text", "text_sha256", "comment", "comment_sha256", "image",
-        "checks", "token_expires_at", "dry_run", "idempotency_key")
+        "checks", "token_expires_at", "ledger", "dry_run", "idempotency_key")
 IMAGE_KEYS = ("source", "name", "bytes", "sha256")
 CONTENT_DIR = "docs/marketing/content/"
 KEY = re.compile(r"[a-z0-9][a-z0-9.-]{0,79}")           # the publishing skill's own rule for a key (payload.py KEY)
@@ -63,6 +67,8 @@ IMAGE_MAX = 20 * 1024 * 1024   # bytes: a sanity cap; the platform's data file h
 DRY_RUN_MAX = 64 * 1024        # bytes of the dry run, as JSON
 CONTENT_MAX = 256 * 1024       # bytes of the content file the task reads
 STABLE_DROP = ("ledger",)      # the dry run's keys that say where the ledger is; the ones with "existing_" say what it holds now
+POST_MARK = "<existing-post-id>"      # where a dry run of a published key names the post it holds (its address, its id): the same in every form
+WILDCARD_MAX = 200      # characters of a document's placeholder that a post id may stand for
 
 
 def sha(data) -> str:
@@ -117,12 +123,44 @@ def stable_dry_run(answer, folders=()) -> dict:
         raise _usage("the provider's dry run is one JSON object")
     kept = {k: v for k, v in answer.items() if k not in STABLE_DROP and "existing_" not in k}
     text = json.dumps(kept, sort_keys=True, ensure_ascii=True)
+    held = answer.get("existing_post_urn")      # once a key is published, a dry run puts the post it holds into the first comment's request
+    if isinstance(held, str) and held:
+        for form in sorted({held, urllib.parse.quote(held, safe=""), urllib.parse.quote(held)}, key=len, reverse=True):
+            text = text.replace(json.dumps(form)[1:-1], POST_MARK)
     for folder in sorted({f for path in folders for f in (path, os.path.realpath(path))}, key=len, reverse=True):
         if folder:
             text = text.replace(json.dumps(folder, ensure_ascii=True)[1:-1], "<private>")
     if len(text.encode("utf-8")) > DRY_RUN_MAX:
         raise _usage(f"the provider's dry run is over {DRY_RUN_MAX} bytes")
     return json.loads(text)
+
+
+def _wildcard(expected: str, shown: str) -> bool:
+    """Whether `shown`, which names the post a published key holds (POST_MARK), is `expected`, a dry run made before the post existed, with a
+    placeholder where the mark is: the text around each mark is equal, and the placeholder is at most WILDCARD_MAX characters."""
+    parts = shown.split(POST_MARK)
+    if not expected.startswith(parts[0]) or not expected.endswith(parts[-1]) or len(expected) < len(parts[0]) + len(parts[-1]):
+        return False
+    position, end = len(parts[0]), len(expected) - len(parts[-1])
+    for middle in parts[1:-1]:
+        found = expected.find(middle, position, end)
+        if found < 0 or found - position > WILDCARD_MAX:
+            return False
+        position = found + len(middle)
+    return end - position <= WILDCARD_MAX
+
+
+def same_dry_run(expected, shown) -> bool:
+    """Whether the dry run now (stable_dry_run's result) is the one in the document. They are equal, except that where the dry run now names the post
+    a published key holds (POST_MARK), the document, made before the post existed, has the provider's placeholder: the first comment's request
+    names the post it comments on. Everything else, the text of the comment included, must be equal."""
+    if isinstance(expected, dict) and isinstance(shown, dict):
+        return set(expected) == set(shown) and all(same_dry_run(expected[k], shown[k]) for k in expected)
+    if isinstance(expected, list) and isinstance(shown, list):
+        return len(expected) == len(shown) and all(same_dry_run(a, b) for a, b in zip(expected, shown))
+    if isinstance(expected, str) and isinstance(shown, str):
+        return expected == shown or (POST_MARK in shown and _wildcard(expected, shown))
+    return type(expected) is type(shown) and expected == shown
 
 
 def _checked_text(value, what: str, limit: int) -> str:
@@ -132,13 +170,13 @@ def _checked_text(value, what: str, limit: int) -> str:
 
 
 def document(*, task_id: int, provider: str, platform: str, content: str, slot: str, text: str, comment, image, checks, token_expires_at,
-             dry_run: dict) -> dict:
+             ledger, dry_run: dict) -> dict:
     """The effect document, checked. `image` is None or {source, name, bytes, sha256}; `dry_run` is stable_dry_run's result. EffectError usage when
     a piece is not in its form, a limit is passed, or the text or the comment holds what looks like a credential."""
     doc = {"effect": WORD, "operation": OPERATION, "task": task_id, "provider": provider, "platform": platform, "content": content, "slot": slot,
            "text": text, "text_sha256": sha(text) if isinstance(text, str) else "", "comment": comment,
            "comment_sha256": sha(comment) if isinstance(comment, str) else None, "image": image, "checks": checks,
-           "token_expires_at": token_expires_at, "dry_run": dry_run, "idempotency_key": content_key(content)}
+           "token_expires_at": token_expires_at, "ledger": ledger, "dry_run": dry_run, "idempotency_key": content_key(content)}
     check(doc)
     return doc
 
@@ -186,6 +224,9 @@ def check(doc) -> dict:
     expires = doc["token_expires_at"]
     if expires is not None and (not isinstance(expires, str) or not expires or len(expires) > 40 or CONTROL.search(expires)):
         raise _usage("token_expires_at is the provider's time, or null")
+    ledger = doc["ledger"]
+    if ledger is not None and (not isinstance(ledger, str) or not os.path.isabs(ledger) or len(ledger) > 1000 or CONTROL.search(ledger)):
+        raise _usage("ledger is the absolute path the publisher's dry run printed, or null")
     dry = doc["dry_run"]
     if not isinstance(dry, dict) or stable_dry_run(dry) != dry:
         raise _usage("dry_run is the provider's dry run without the ledger and what it holds now")
@@ -198,7 +239,7 @@ def check(doc) -> dict:
 def title(doc: dict) -> str:
     """The title of the pending decision."""
     first = doc["text"].strip().splitlines()[0] if doc["text"].strip() else ""
-    return f"Publish a post on {doc['platform']}: {first[:80]}"
+    return f"Publish now on {doc['platform']}: {first[:80]}"
 
 
 def describe(doc: dict) -> str:
@@ -231,7 +272,8 @@ def body(doc: dict, digest: str) -> str:
              f"Key: {doc['idempotency_key']} (the publisher publishes a key once, and the publishing skill uses the same key: a post that went out by "
              "either path is not published again by the other)",
              f"Token: valid until {doc['token_expires_at']}" if doc["token_expires_at"] else "Token: the provider states no expiry",
-             f"The content file's own check line: {doc['checks'] or 'none recorded'}", "",
+             f"The content file's own check line: {doc['checks'] or 'none recorded'}",
+             f"Ledger (the publisher's record of the keys it published): {doc['ledger'] or 'the provider names none'}", "",
              "----- the post, exactly as written -----", doc["text"].rstrip("\n"), "----- end of the post -----", ""]
     if comment is None:
         lines += ["First comment: (none)", ""]
@@ -245,7 +287,7 @@ def body(doc: dict, digest: str) -> str:
                   "same file)", "The image itself is not on this card: look at it in the project before you approve.", ""]
     lines += ["----- what the provider's dry run says it will send (the ledger's own lines left out) -----",
               json.dumps(doc["dry_run"], indent=1, sort_keys=True, ensure_ascii=False), "----- end of the dry run -----", "",
-              f"Hash of this effect (it covers the text, the first comment, the image and the dry run): {digest}",
+              f"Hash of this effect (it covers the text, the first comment, the image, the ledger and the dry run): {digest}",
               "Approve exactly this: " + operations.command_line("approve", "<project>", pending_id="<this pending decision's id>", sha256=digest),
               "It is published once, whatever the number of approvals of this hash. Or answer with what to change, or reject it: nothing is published "
               "until you approve."]
