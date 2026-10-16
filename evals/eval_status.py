@@ -1406,19 +1406,25 @@ def _on_default_branch(root, branch):
     return branch in names
 
 
+OWN_REFLOG_SUBJECTS = ("commit", "cherry-pick", "rebase", "revert", "am")  # entries that a person's own work makes
+
+
 def _is_own_copy(root, branch, upstream):
-    """True when the upstream is this branch's own pushed copy under another name (git push -u origin x:y): it is
-    the branch's push destination, or it was made after the branch was created and holds only history of HEAD. The
-    creation point is the oldest entry of the branch's reflog; without one the upstream is kept."""
-    push = (git_out(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", f"{branch}@{{push}}") or "").strip()
-    if push and push == upstream:
-        return True
-    created = (git_out(root, "reflog", "show", "--format=%H", f"refs/heads/{branch}") or "").split()
+    """True when the upstream is this branch's own pushed copy under another name (git push -u origin x:y): its tip is
+    a commit this branch made itself, which the branch's reflog shows as an entry of its own work (a commit, a
+    cherry-pick, a rebase, a revert, an am). The creation point, a fast-forward, a merge and a reset are not: an
+    upstream the branch was cut from, pulled or merged forward is the integration branch, not a copy. Without a
+    reflog (a fresh clone) the upstream is kept. push.default=upstream makes @{push} equal @{upstream} for any
+    branch, so that equality tells nothing."""
     tip = (git_out(root, "rev-parse", "--verify", "--quiet", upstream + "^{commit}") or "").strip()
-    if not created or not tip or tip == created[-1]:
+    entries = (git_out(root, "reflog", "show", "--format=%H %gs", f"refs/heads/{branch}") or "").splitlines()
+    if not tip or len(entries) < 2:
         return False
-    return (git_out(root, "merge-base", "--is-ancestor", created[-1], tip) is not None
-            and git_out(root, "merge-base", "--is-ancestor", tip, "HEAD") is not None)
+    for entry in entries[:-1]:  # the last entry is the creation of the branch
+        commit, _, subject = entry.partition(" ")
+        if commit == tip and subject.startswith(OWN_REFLOG_SUBJECTS) and "Fast-forward" not in subject:
+            return True
+    return False
 
 
 def resolve_base(root=ROOT):
@@ -1441,10 +1447,11 @@ def resolve_base(root=ROOT):
         base = git_out(root, "merge-base", "HEAD", ref)
         return (base.strip(), None) if base and base.strip() else (None, "has no merge base with HEAD")
 
-    branch = (git_out(root, "symbolic-ref", "--short", "-q", "HEAD") or "").strip()
+    branch = (git_out(root, "symbolic-ref", "--short", "-q", "HEAD") or "").strip()  # "" on a detached HEAD
     wanted = [("WB_BASE_REF", os.environ.get("WB_BASE_REF", "").strip(), "WB_BASE_REF")]
-    if branch and not _on_default_branch(root, branch):
+    if not (branch and _on_default_branch(root, branch)):  # the worktree's key is read on a detached HEAD as well
         wanted.append((BASE_CONFIG_KEY, _worktree_value(root, BASE_CONFIG_KEY) or "", f"git config --worktree {BASE_CONFIG_KEY}"))
+    if branch and not _on_default_branch(root, branch):
         branch_key = f"branch.{branch}.{BRANCH_CONFIG_KEY}"
         wanted.append((branch_key, (git_out(root, "config", "--get", branch_key) or "").strip(), f"git config {branch_key}"))
     for name, value, label in wanted:
@@ -1818,12 +1825,14 @@ def bump(root, name, cls=None, date=None):
             f"refused, nothing written: {rel} has {len(current_lines)} line(s) and does not read as the "
             f"{len(base_lines_text)} line(s) of {where} plus at most one, so that base is probably wrong. {WRONG_BASE_HINT}")
     replaced = current_lines[len(base_lines_text):]
-    if replaced:
+    named = bool(source) and source.startswith(("WB_BASE_REF", "git config"))  # the person named the base: it is not a guess
+    if replaced and not named:
         elsewhere = _other_refs_with_line(root, rel, replaced[0])
         if elsewhere:
             raise BaseMismatch(
                 f"refused, nothing written: the line {rel} has beyond {where} is already on {', '.join(elsewhere[:3])}, so it is "
-                f"not this change's line and that base is probably wrong. {WRONG_BASE_HINT}")
+                f"not this change's line and that base is probably wrong; if this line is this change's own (pushed or copied "
+                f"elsewhere), name the base with WB_BASE_REF. {WRONG_BASE_HINT}")
     date = date or datetime.datetime.now(datetime.timezone.utc).date().isoformat()
     if cls is None:
         if base_lines:
@@ -1845,7 +1854,9 @@ def bump(root, name, cls=None, date=None):
         if held and _version_tuple(version) < max(held):
             raise BaseMismatch(
                 f"refused, nothing written: {cls} on the last line of {where} gives {version}, lower than the "
-                f"{'.'.join(map(str, max(held)))} the skill already has, so that base is probably wrong. {WRONG_BASE_HINT}")
+                f"{'.'.join(map(str, max(held)))} the skill already has. If this lowers the class this change already wrote, "
+                f"the version would fall below the one this change already wrote: restore SKILL.md and {rel} from the base to "
+                f"re-classify. Otherwise that base is probably wrong. {WRONG_BASE_HINT}")
         new_text = set_version(text, version)
         if new_text != text:
             with open(path, "w", encoding="utf-8") as f:
