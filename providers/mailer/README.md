@@ -12,7 +12,7 @@ The outbox of the task runtime: it sends one e-mail from the machine's one outbo
 
 ```
 python3 providers/mailer/smtp.py setup --from outbox@office.example --smtp-host smtp.office.example --imap-host imap.office.example --sent-folder Sent
-uv run --with keyring==25.7.0 keyring set openhora mailer-smtp      # the app password, at a hidden prompt (or export MAILER_SMTP_PASSWORD); type it without the spaces some hosts show it with
+uv run --with keyring==25.7.0 keyring set openhora mailer-smtp      # the app password, at a hidden prompt (or export MAILER_SMTP_PASSWORD); spaces in it are dropped (hosts show an app password in groups)
 python3 providers/mailer/smtp.py --check                           # logs in to SMTP and IMAP; sends nothing
 ```
 
@@ -45,7 +45,7 @@ Use a **dedicated account** made for the runtime, never a person's own mailbox: 
 - **A lost answer.** The next `send` with that key runs `lookup` first: the Message-ID found in the Sent folder means the e-mail was sent (`"replayed": true`, nothing is sent again); not found, or no Sent folder set up, is exit 4 and the key is blocked until `resolve --idempotency-key <k> --sent` or `--not-sent --confirmed`, which the person runs after looking in the Sent folder.
 - **TLS before any password.** SMTP 465 (TLS from the first byte) or 587 with a required STARTTLS; IMAP 993; the certificate and the name are verified. A server that does not offer STARTTLS, or whose certificate is not trusted, gets no `AUTH`. A port that says nothing about TLS is refused unless `--smtp-security ssl|starttls` names it. A connection without TLS exists for tests only: `OPENHORA_MAIL_TEST_PLAIN=1` and a loopback host (the variable refuses any other host).
 - **What is read back.** A mail library decodes some texts into more than was approved (an RFC 2047 encoded word such as `=?utf-8?b?...?=` in a subject or an address, which on some Python versions can put a line break on the wire). So `=?` is refused in the subject, in every address and in a reply id (exit 2), a lone `\r` in the text is refused, a domain that is not ASCII is refused unless it is given in its `xn--` form, and the message is built and **read back** (`providers/_email.py` `inspect_message`) before the dry run prints and before anything is sent: its headers, its text and its attachments must be exactly the ones asked for, with no other header, part or line end; else exit 2 and nothing is sent. The dry run's `would.wire` is that reading, and its hash covers it.
-- **The Sent folder is read only.** `lookup` sends `EXAMINE` and `UID SEARCH` and nothing that changes a mailbox; the provider never files, moves or deletes a message. A Sent folder is named in plain ASCII (letters, digits, spaces and `. _ / [ ] -`): a localized name that IMAP writes in modified UTF-7 with `&` is refused by `setup`.
+- **The Sent folder is read only.** `lookup` sends `EXAMINE` and `UID SEARCH` and nothing that changes a mailbox; the provider never files, moves or deletes a message. A Sent folder is named in plain ASCII (letters, digits, spaces and `. _ / [ ] - & , +`): a localized name in IMAP's modified UTF-7 (`&AOc-...-`) is accepted as written, with `& , +` allowed, and is not decoded.
 
 ## To verify on first use
 

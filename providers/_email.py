@@ -27,6 +27,7 @@ Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
 
+import email.header
 import email.message
 import email.policy
 import email.utils
@@ -258,17 +259,44 @@ def _close(server) -> None:
 # --- the message ------------------------------------------------------------------------------------------------------------------
 
 
+SUBJECT_PLACEHOLDER = "openhora-subject-placeholder"
+
+
+def encode_subject(subject: str) -> str:
+    """The Subject value as it goes on the wire, written here and not by the mail library: ASCII as it is, anything else as RFC 2047 encoded
+    words that this function folds (Header, 76 columns). The library, given a long non-ASCII subject, folds it into several encoded words and
+    leaves the space between two outside them, so the reader gets the words without it; written already encoded, it is not refolded."""
+    if subject.isascii():
+        return subject
+    return email.header.Header(subject, "utf-8", maxlinelen=76, header_name="Subject").encode(linesep="\r\n")
+
+
+class Message(email.message.EmailMessage):
+    """An EmailMessage whose Subject is put in the serialised bytes as encode_subject wrote it. `as_bytes` is the one way out of it."""
+
+    subject_wire = ""
+
+    def as_bytes(self, *args, **kwargs):
+        data = super().as_bytes(*args, **kwargs)
+        head, sep, rest = data.partition(b"\r\n\r\n")
+        line = b"Subject: " + SUBJECT_PLACEHOLDER.encode("ascii")
+        if not sep or head.count(line) != 1 or not self.subject_wire:
+            raise EmailError("the message has no subject to write")
+        return head.replace(line, b"Subject: " + self.subject_wire.encode("ascii")) + sep + rest
+
+
 def build_message(*, from_addr: str, to, cc, subject: str, body: str, attachments, message_id_value: str, in_reply_to=None,
-                  date=None) -> email.message.EmailMessage:
+                  date=None) -> Message:
     """The message. Every header is built here from parts that were checked (addresses by normalize_address, text by header_text); the
     Bcc is never a header. `attachments` is [(name, media type, bytes)]. `date` is a datetime, or None to leave the header out (a dry run).
     The body is a single text/plain part in UTF-8, quoted-printable."""
-    msg = email.message.EmailMessage(policy=email.policy.SMTP)
+    msg = Message(policy=email.policy.SMTP)
     msg["From"] = from_addr
     msg["To"] = ", ".join(to)
     if cc:
         msg["Cc"] = ", ".join(cc)
-    msg["Subject"] = header_text(subject, "the subject")
+    msg["Subject"] = SUBJECT_PLACEHOLDER
+    msg.subject_wire = encode_subject(header_text(subject, "the subject"))
     msg["Message-ID"] = message_id_value
     if in_reply_to:
         msg["In-Reply-To"] = in_reply_to

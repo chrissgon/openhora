@@ -512,3 +512,35 @@ def test_the_dry_run_says_what_the_built_message_reads_back_as_and_the_hash_cove
     assert wire["text_sha256"] == hashlib.sha256(b"Hello Ana,\n\nThe invoice is attached.").hexdigest()
     two = json.loads(run(capsys, *send_args(world, "--dry-run", subject="Your invoice for November"))[1])
     assert one["would_sha256"] != two["would_sha256"]
+
+
+def test_a_long_pt_br_subject_is_sent_exactly(world, capsys):
+    set_up(world, capsys)
+    subject = ("reuni\u00e3o fatura pr\u00f3xima 100% aten\u00e7\u00e3o reuni\u00e3o Paulo reuni\u00e3o " * 2).strip()
+    assert len(subject) > 100
+    code, out, err = run(capsys, *send_args(world, subject=subject))
+    assert code == 0, err
+    assert message_of(world["smtp"].messages[0]["data"])["Subject"] == subject
+
+
+def test_a_subject_the_library_cannot_write_exactly_is_refused_by_the_read_back_with_a_sentence_about_the_subject(world, capsys, monkeypatch):
+    set_up(world, capsys)
+    mail = smtp.helpers()
+    monkeypatch.setattr(mail, "encode_subject", lambda subject: "squashed words")
+    code, out, err = run(capsys, *send_args(world))
+    assert code == 2 and "subject could not be encoded exactly" in err and world["smtp"].connections == 0
+
+
+def test_an_app_password_shown_in_groups_with_spaces_is_used_without_them(world, capsys, monkeypatch):
+    set_up(world, capsys)
+    monkeypatch.setenv("MAILER_SMTP_PASSWORD", "app-pas sword- x")
+    code, out, err = run(capsys, *send_args(world))
+    assert code == 0, err
+    assert world["smtp"].logins[-1][1] == "app-password-x"
+
+
+def test_a_sent_folder_named_in_modified_utf_7_is_accepted_as_written(world, capsys):
+    code, out, err = run(capsys, "setup", "--from", FROM, "--smtp-host", "127.0.0.1", "--smtp-port", str(world["smtp"].port), "--smtp-security",
+                         "plain", "--imap-host", "127.0.0.1", "--imap-port", str(world["imap"].port), "--sent-folder", "Enviados &AOc-")
+    assert code == 0, err
+    assert json.loads(out)["settings"]["sent_folder"] == "Enviados &AOc-"

@@ -62,7 +62,7 @@ ATTACH_TOTAL_MAX = 18 * 1024 * 1024
 MESSAGE_MAX = 25 * 1024 * 1024      # what most servers accept, encoding included
 SUBJECT_MAX = 998
 KEY = re.compile(r"[A-Za-z0-9._-]{1,128}")
-FOLDER_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._/\[\]-]{0,99}")
+FOLDER_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._/\[\]&,+-]{0,99}")      # `&` and `,` and `+`: a name IMAP writes in modified UTF-7
 LOCK_SECONDS = 10.0
 TIMEOUT_ENV = "MAILER_SMTP_TIMEOUT"       # tests only: seconds before a connection or a read gives up
 
@@ -112,7 +112,7 @@ def secret_resolver():
 def load_password() -> str:
     """The outbox password, or a not-configured ProviderError that names how to store it (never its value)."""
     hit = secret_resolver().resolve(PASSWORD_NAME)
-    value = hit[0] if hit else ""
+    value = (hit[0] if hit else "").replace(" ", "")      # a host shows an app password in groups of four letters with spaces; it is the letters
     if not value or not re.fullmatch(r"[\x21-\x7e]{1,512}", value):
         raise ProviderError(f"no usable {PASSWORD_NAME}: export it, or uv run --with keyring==25.7.0 keyring set openhora {STORE_USERNAME}",
                             EXIT_NOT_CONFIGURED)
@@ -372,6 +372,11 @@ def message_bytes(plan: dict, mail, date) -> bytes:
     except (mail.EmailError, ValueError, TypeError, UnicodeError) as e:
         raise ProviderError(f"the message cannot be built: {getattr(e, 'reason', e.__class__.__name__)}", EXIT_USAGE) from None
     if view != expected_view(plan):
+        wanted = expected_view(plan)
+        if {k: v for k, v in view["headers"].items() if k != "Subject"} == {k: v for k, v in wanted["headers"].items() if k != "Subject"} \
+                and view["text_sha256"] == wanted["text_sha256"] and view["attachments"] == wanted["attachments"]:
+            raise ProviderError("the subject could not be encoded exactly (read back, it differs from the one approved): write it with fewer special "
+                                "characters or spaces in a row, or shorter; nothing is sent", EXIT_USAGE)
         raise ProviderError("the message built is not the message approved (read back, its headers, text or attachments differ): nothing is sent",
                             EXIT_USAGE)
     if len(data) > MESSAGE_MAX:

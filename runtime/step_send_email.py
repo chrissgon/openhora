@@ -52,6 +52,8 @@ import steps  # noqa: E402
 KEYS = ("to", "cc", "bcc", "subject", "body", "attach", "in_reply_to")
 SERVICE_CODES = {"not_configured": "not_configured", "provider_failed": "provider_failed", "refused": "refused"}
 GATE_STEP = "send"
+REFUSED_NEXT = ("the provider would not build this e-mail exactly as written (an address, a subject it could not encode exactly, a text it could "
+                "not read back the same): shorten or simplify the subject, check the addresses, and start the task again")
 
 
 def _text(args: dict, field: str) -> str:
@@ -118,7 +120,8 @@ def _asked(call, *args):
     except steps.StepFailure:
         raise
     except Exception as e:      # the services raise errors that carry a `code`; anything else is a provider failure
-        raise steps.StepFailure(SERVICE_CODES.get(getattr(e, "code", ""), "provider_failed"), "outbox", "mailer") from None
+        code = SERVICE_CODES.get(getattr(e, "code", ""), "provider_failed")
+        raise steps.StepFailure(code, "outbox", "mailer", REFUSED_NEXT if code == "refused" else "") from None
 
 
 def _attachments(ctx: steps.Context) -> list:

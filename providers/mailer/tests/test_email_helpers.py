@@ -163,3 +163,36 @@ def test_a_message_with_another_header_a_header_twice_a_bare_line_end_or_another
             mail.inspect_message(bad)
     other_part = message(attachments=[("a.txt", "text/plain", b"x")]).as_bytes().replace(b"Content-Disposition: attachment", b"X-Other: 1\r\nContent-Disposition: attachment")
     assert mail.inspect_message(other_part)["attachments"][0][0] == "a.txt", "a header of an attachment is not a header of the message"
+
+
+# Words of an ordinary pt-BR subject, as the escapes of the file's language rule ask (no letter outside ASCII is typed here).
+PT_WORDS = ["fatura", "outubro", "aten\u00e7\u00e3o", "Jo\u00e3o", "a\u00e7\u00e3o", "necess\u00e1ria", "reuni\u00e3o", "or\u00e7amento", "\u2014",
+            "pr\u00f3xima", "semana", "cl\u00ednica", "(urgente)", "Re:", "S\u00e3o", "Paulo", "100%", "R$", "1.234,56"]
+
+
+def read_subject(subject):
+    return mail.inspect_message(message(subject=subject).as_bytes())["headers"]["Subject"]
+
+
+def test_a_long_non_ascii_subject_reads_back_exactly_with_every_space_where_it_was():
+    for subject in ("reuni\u00e3o fatura pr\u00f3xima 100% aten\u00e7\u00e3o reuni\u00e3o Paulo reuni\u00e3o",
+                    "aten\u00e7\u00e3o reuni\u00e3o", " ".join(PT_WORDS) + " " + " ".join(PT_WORDS[:6]),
+                    "Fatura de outubro: a\u00e7\u00e3o necess\u00e1ria da cl\u00ednica de S\u00e3o Paulo, reuni\u00e3o na pr\u00f3xima semana, or\u00e7amento "
+                    "de R$ 1.234,56 e aten\u00e7\u00e3o ao prazo (urgente) \u2014 Jo\u00e3o"):
+        assert read_subject(subject) == subject
+        wire = message(subject=subject).as_bytes()
+        assert max(len(line) for line in wire.split(b"\r\n")) <= 998 and b"\n" not in wire.replace(b"\r\n", b"")
+
+
+def test_a_sample_of_ordinary_subjects_of_all_lengths_reads_back_exactly():
+    import random
+    random.seed(7)
+    subjects = []
+    for n in range(1, 40):
+        for _ in range(25):
+            text = " ".join(random.choice(PT_WORDS) for _ in range(n))[:200].strip()
+            if text:
+                subjects.append(text)
+    assert len(subjects) > 900
+    refused = [s for s in subjects if read_subject(s) != s]
+    assert refused == []

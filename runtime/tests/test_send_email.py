@@ -690,3 +690,21 @@ def test_every_send_is_made_under_the_decision_lock_and_not_the_write_lock_so_a_
     assert settled["status"] == "resolved" and settled["resolution"] == "approved", "the record of the send was made"
     text = (Path(world["path"]) / "docs" / "workbench" / "state.md").read_text(encoding="utf-8")
     assert f"sha256:{item['payload_sha256']}" in text, "and the state row"
+
+
+def test_an_ordinary_long_pt_br_subject_is_prepared_approved_and_arrives_as_written(world):
+    subject = "reuni\u00e3o fatura pr\u00f3xima 100% aten\u00e7\u00e3o reuni\u00e3o Paulo reuni\u00e3o"
+    task, item = opened(world, subject=subject)
+    assert subject in item["body"]
+    approve(world, item)
+    import email
+    import email.policy
+    assert email.message_from_bytes(sent(world)[0]["data"], policy=email.policy.default)["Subject"] == subject
+
+
+def test_a_refusal_of_the_provider_at_prepare_says_what_to_do(world, monkeypatch):
+    task = add(world)
+    monkeypatch.setattr(ops_step_seams.OutboxReader, "dry_run", lambda self, doc, blobs: (_ for _ in ()).throw(
+        ops_step_seams.StepServiceError("refused", "the subject could not be encoded exactly")))
+    out = run_task(world, task)
+    assert out["ok"] is False and out["code"] == "refused" and "shorten or simplify the subject" in json.dumps(out)
