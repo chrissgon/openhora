@@ -39,7 +39,10 @@ import secrets
 import shutil
 import subprocess
 import sys
+import urllib.parse
 import zipfile
+import zlib
+from xml.parsers import expat
 
 CAP = 1024 * 1024                 # providers/converter/container.py CONVERTED_CAP and runtime/sources.py CONVERTED_CAP
 INFO_CAP = 16 * 1024
@@ -118,42 +121,94 @@ def check_package(path: str, bytes_max: int = 0, xml_max: int = 0) -> list:
 
 
 MACRO_REFUSAL = "the package holds macros (VBA code or macro sheets): a macro-enabled Office file is not converted"
-CONTENT_TYPES_CAP = 2 * 1024 * 1024     # what is read of [Content_Types].xml; a larger one is no honest package
+XML_PARTS_CAP = 2 * 1024 * 1024         # what is read of one XML part of the package's plumbing ([Content_Types].xml, a .rels part)
+XML_PARTS_TOTAL = 32 * 1024 * 1024      # and of all of them together
 MACRO_PART_NAMES = ("vbaproject.bin", "vbaprojectsignature.bin", "vbadata.xml")   # the last part of a part's name, lower case
-MACRO_PART_FOLDERS = ("xl/macrosheets/", "xl/dialogs/")                            # Excel 4 macro sheets and dialog sheets
-MACRO_TYPE_WORDS = ("macroenabled", "vbaproject", "vbadata", "macrosheet")        # in a content type, lower case
-CONTENT_TYPE_VALUES = re.compile(r"""ContentType\s*=\s*(?:"([^"]*)"|'([^']*)')""", re.I)
+MACRO_PART_FOLDERS = ("xl/macrosheets/",)                                          # Excel 4 macro sheets (code with no VBA project)
+MACRO_WORDS = ("macroenabled", "vbaproject", "vbadata", "macrosheet")             # in a content type or a relationship type, lower case
+
+
+def part_key(name: str) -> str:
+    """A part's name as every reader of the package may read it: backslashes as slashes, percent escapes decoded, no leading slash, no
+    space at either end, case folded. Two names with the same key are one part for some reader, and a package that holds them is refused."""
+    text = urllib.parse.unquote(name.replace("\\", "/"), errors="replace").replace("\\", "/")
+    return text.strip().lstrip("/").casefold()
+
+
+def xml_attributes(raw: bytes, wanted: str) -> list:
+    """The values of every attribute called `wanted` in an XML part, read by expat with the character and predefined references
+    decoded (so that `m&#97;croEnabled` is read as it is). A part with a document type declaration or an entity is refused before it
+    is expanded: an Office package never has either and an entity could hide a word."""
+    values = []
+
+    def refuse_declaration(*args):
+        raise Failed("the package holds an XML part with a document type declaration")
+
+    def collect(tag, attributes):
+        if wanted in attributes:
+            values.append(attributes[wanted])
+
+    parser = expat.ParserCreate()
+    parser.StartDoctypeDeclHandler = refuse_declaration
+    parser.EntityDeclHandler = refuse_declaration
+    parser.StartElementHandler = collect
+    try:
+        parser.Parse(raw, True)
+    except expat.ExpatError:
+        raise Failed("an XML part of the package cannot be read") from None
+    return values
+
+
+def read_part(z, info, budget: list) -> bytes:
+    """The bytes of one part, at most XML_PARTS_CAP, counted against the budget of all the XML read. Failed on a part that is larger, on a
+    budget that is used up and on a part the zip reader cannot decompress (a damaged stream, an unsupported method)."""
+    try:
+        with z.open(info) as part:
+            raw = part.read(XML_PARTS_CAP + 1)
+    except (zipfile.BadZipFile, zlib.error, OSError, RuntimeError, NotImplementedError, EOFError, ValueError):
+        raise Failed("the package's XML part cannot be read") from None
+    budget[0] += len(raw)
+    if len(raw) > XML_PARTS_CAP or budget[0] > XML_PARTS_TOTAL:
+        raise Failed("the package's XML parts are too large")
+    return raw
 
 
 def refuse_macros(path: str) -> None:
     """Failed with MACRO_REFUSAL when an Office package carries macros, judged by its content and never by its name (the input is
-    mounted as /in/input and a sender chooses a file's name): a part named `vbaProject.bin` (also its signature and `vbaData.xml`) at
-    any depth, a part under `xl/macrosheets/` or `xl/dialogs/`, or a content type in [Content_Types].xml that names a macro (any
-    `macroEnabled` type, which is what .docm, .dotm, .xlsm, .xltm, .xlam, .pptm, .potm, .ppsm, .ppam and .sldm declare for their main
-    part, a VBA project, a VBA data part or a macro sheet). It runs before any tool reads the file and after check_package's size
-    guard. No macro is run or read: only names and the content-types list are looked at. A file that is not a package is not judged
-    here (the conversion refuses it); the old binary formats (.doc, .xls, .ppt, .dot) are not a zip, are not a type the intake takes,
-    and are refused by check_package if one is named."""
+    mounted as /in/input and a sender chooses a file's name). It runs before any tool reads the file and after check_package's size
+    guard. No macro is run or read: only the part names, the content types and the relationship types are looked at.
+
+    Part names are compared by their key (`part_key`), and a package with two parts of one key is refused, so the part a reader opens is
+    the part this check opened. Refused: a part named vbaProject.bin, vbaProjectSignature.bin or vbaData.xml at any depth, a part under
+    xl/macrosheets/, a content type of [Content_Types].xml (Default or Override) and a relationship type of any .rels part that names a
+    macro (macroEnabled, which is what .docm, .dotm, .xlsm, .xltm, .xlam, .pptm, .potm, .ppsm, .ppam and .sldm declare, vbaProject,
+    vbaData or macrosheet), the XML read with the references decoded. A package without [Content_Types].xml is refused. Old binary
+    formats (.doc, .xls, .ppt) are not a zip and fail check_package."""
     names = check_package(path)
+    keys = {}
     for name in names:
-        lower = name.lower()
-        if lower.rsplit("/", 1)[-1] in MACRO_PART_NAMES or lower.startswith(MACRO_PART_FOLDERS):
+        if name.endswith("/"):
+            continue
+        key = part_key(name)
+        if key in keys:
+            raise Failed("the package holds two parts with the same name")
+        keys[key] = name
+        if key.rsplit("/", 1)[-1] in MACRO_PART_NAMES or key.startswith(MACRO_PART_FOLDERS):
             raise Failed(MACRO_REFUSAL)
-    declared = next((n for n in names if n.lower() == "[content_types].xml"), None)
-    if declared is None:
-        return
+    if "[content_types].xml" not in keys:
+        raise Failed("the package has no [Content_Types].xml")
+    budget = [0]
     try:
-        with zipfile.ZipFile(path) as z, z.open(declared) as part:
-            raw = part.read(CONTENT_TYPES_CAP + 1)
-    except (zipfile.BadZipFile, OSError, RuntimeError, NotImplementedError, EOFError):
-        raise Failed("the package's [Content_Types].xml cannot be read") from None
-    if len(raw) > CONTENT_TYPES_CAP:
-        raise Failed("the package's [Content_Types].xml is too large")
-    text = utf8(raw)
-    for found in CONTENT_TYPE_VALUES.finditer(text):
-        value = (found.group(1) or found.group(2) or "").lower()
-        if any(word in value for word in MACRO_TYPE_WORDS):
-            raise Failed(MACRO_REFUSAL)
+        with zipfile.ZipFile(path) as z:
+            infos = {i.filename: i for i in z.infolist()}
+            plumbing = [("ContentType", keys["[content_types].xml"])]
+            plumbing += [("Type", keys[k]) for k in sorted(keys) if k.endswith(".rels")]
+            for attribute, name in plumbing:
+                for value in xml_attributes(read_part(z, infos[name], budget), attribute):
+                    if any(word in value.lower() for word in MACRO_WORDS):
+                        raise Failed(MACRO_REFUSAL)
+    except zipfile.BadZipFile:
+        raise Failed("the file is not a valid Office package") from None
 
 
 def ooxml_kind(path: str) -> str:

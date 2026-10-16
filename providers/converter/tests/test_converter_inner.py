@@ -359,9 +359,8 @@ def test_a_vba_project_part_is_refused_by_its_name_at_any_depth_and_in_any_case_
 
 def test_a_macro_sheet_or_a_vba_content_type_is_refused_even_without_a_project_part(inner, tmp_path):
     sheet = macro_package(tmp_path / "xlm.xlsx", "xlsx", extra_parts=["xl/macrosheets/sheet1.xml"])
-    dialog = macro_package(tmp_path / "dialog.xlsx", "xlsx", extra_parts=["xl/dialogs/dialog1.xml"])
     unrelated = macro_package(tmp_path / "unrelated.xlsx", "xlsx", extra_parts=["xl/sheetdata.bin"])
-    for refused_path in (sheet, dialog):
+    for refused_path in (sheet,):
         with pytest.raises(inner.Failed) as refused:
             inner.refuse_macros(refused_path)
         assert str(refused.value) == inner.MACRO_REFUSAL
@@ -411,7 +410,7 @@ def test_the_macro_check_does_not_read_a_huge_content_types_part_and_an_old_bina
     with zipfile.ZipFile(big, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("[Content_Types].xml", "<Types>" + " " * 3000 + "</Types>")
         z.writestr(MAIN_PARTS["docx"], "<x/>")
-    monkeypatch.setattr(inner, "CONTENT_TYPES_CAP", 1000)
+    monkeypatch.setattr(inner, "XML_PARTS_CAP", 1000)
     with pytest.raises(inner.Failed) as refused:
         inner.refuse_macros(str(big))
     assert "too large" in str(refused.value)
@@ -429,3 +428,190 @@ def test_a_macro_enabled_file_exits_3_with_the_sentence_and_prints_nothing_on_st
                               capture_output=True, timeout=60, env={"PATH": os.environ.get("PATH", ""), "CONVERTER_TOOL_PATH": tool_path()})
         assert done.returncode == 3 and done.stdout == b""
         assert done.stderr.decode().strip() == f"error: {inner.MACRO_REFUSAL}"
+
+
+# --- the bypasses an independent review built: references, names, duplicates, relationships, damaged streams ------------------------------
+
+PLAIN_DOC = "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
+PLAIN_SHEET = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"
+DOCM_TYPE = "application/vnd.ms-word.document.macroEnabled.main+xml"
+VBA_REL = "http://schemas.microsoft.com/office/2006/relationships/vbaProject"
+TYPES_HEAD = ('<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+              '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>')
+FICTIONAL = b"fictional bytes, never read"
+
+
+def content_types(*items):
+    return TYPES_HEAD + "".join(items) + "</Types>"
+
+
+def override(part, content_type):
+    return f'<Override PartName="{part}" ContentType="{content_type}"/>'
+
+
+def relationships(target, relation_type=VBA_REL, extra=""):
+    return ('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            f'<Relationship Id="rId9" Type="{relation_type}" Target="{target}"{extra}/></Relationships>')
+
+
+def make_zip(path, entries):
+    """A package with these (name, data) entries in this order; a name twice is allowed (zipfile warns, the test does not care)."""
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+            for name, data in entries:
+                z.writestr(name, data)
+    return str(path)
+
+
+def assert_macro_refusal(inner, path, tmp_path):
+    for kind in ("docx", "xlsx", "pptx", "ooxml"):
+        with pytest.raises(inner.Failed) as refused:
+            inner.convert(kind, path, str(tmp_path / "work"))
+        assert str(refused.value) == inner.MACRO_REFUSAL
+
+
+REFERENCE_CASES = [
+    ("charref-in-an-override-type", [("[Content_Types].xml", content_types(override("/word/document.xml", PLAIN_DOC),
+                                                                         override("/word/blob.bin", "application/vnd.ms-office.vbaPr&#111;ject"))),
+                                     ("word/document.xml", "<w/>"), ("word/blob.bin", FICTIONAL)]),
+    ("charref-in-the-main-type", [("[Content_Types].xml", content_types(override("/word/document.xml",
+                                                                               "application/vnd.ms-word.document.&#x6D;acroEnabled.main+xml"))),
+                                  ("word/document.xml", "<w/>")]),
+    ("charref-macro-sheet-renamed", [("[Content_Types].xml", content_types(override("/xl/workbook.xml", PLAIN_SHEET),
+                                                                          override("/xl/worksheets/sheet9.xml", "application/vnd.ms-excel.m&#97;crosheet+xml"))),
+                                     ("xl/workbook.xml", "<w/>"), ("xl/worksheets/sheet9.xml", "<x/>")]),
+    ("default-extension-type", [("[Content_Types].xml", content_types('<Default Extension="bin" ContentType="application/vnd.ms-office.vba&#80;roject"/>')),
+                                ("word/document.xml", "<w/>"), ("word/blob.bin", FICTIONAL)]),
+    ("attribute-across-lines", [("[Content_Types].xml", content_types('<Override PartName="/word/document.xml"\n ContentType\n=\n"' + DOCM_TYPE + '"/>')),
+                                ("word/document.xml", "<w/>")]),
+    ("prefixed-namespace", [("[Content_Types].xml", '<?xml version="1.0"?><t:Types xmlns:t="http://schemas.openxmlformats.org/package/2006/content-types">'
+                             f'<t:Override PartName="/word/document.xml" ContentType="{DOCM_TYPE}"/></t:Types>'),
+                            ("word/document.xml", "<w/>")]),
+    ("utf-16-content-types", [("[Content_Types].xml", content_types(override("/word/document.xml", DOCM_TYPE)).replace("UTF-8", "UTF-16").encode("utf-16")),
+                              ("word/document.xml", "<w/>")]),
+    ("relationship-to-a-renamed-project", [("[Content_Types].xml", content_types(override("/word/document.xml", PLAIN_DOC),
+                                                                                 '<Default Extension="bin" ContentType="application/octet-stream"/>')),
+                                           ("word/document.xml", "<w/>"), ("word/_rels/document.xml.rels", relationships("blob.bin")),
+                                           ("word/blob.bin", FICTIONAL)]),
+    ("relationship-to-a-macro-sheet", [("[Content_Types].xml", content_types(override("/word/document.xml", PLAIN_DOC))), ("word/document.xml", "<w/>"),
+                                       ("_rels/.rels", relationships("x.xml", "http://schemas.microsoft.com/office/2006/relationships/xlMacrosheet")),
+                                       ("x.xml", "<x/>")]),
+    ("relationship-type-by-a-charref", [("[Content_Types].xml", content_types(override("/word/document.xml", PLAIN_DOC))), ("word/document.xml", "<w/>"),
+                                        ("word/_rels/document.xml.rels", relationships("b.bin", "http://schemas.microsoft.com/office/2006/relationships/wordVba&#68;ata"))]),
+]
+
+
+@pytest.mark.parametrize("case, entries", REFERENCE_CASES, ids=[c[0] for c in REFERENCE_CASES])
+def test_a_reference_or_a_relationship_cannot_hide_a_macro_word(inner, tmp_path, case, entries):
+    assert_macro_refusal(inner, make_zip(tmp_path / case, entries), tmp_path)
+
+
+@pytest.mark.parametrize("name", ["word/vbaProject%2Ebin", "word\\vbaProject.bin", "/word/vbaProject.bin", "word/vbaProject.bin ",
+                                  "word/VBAProject.BIN", "word/%76baProject.bin"])
+def test_a_part_name_is_compared_as_a_reader_would_read_it(inner, tmp_path, name):
+    path = make_zip(tmp_path / "named", [("[Content_Types].xml", content_types(override("/word/document.xml", PLAIN_DOC))),
+                                         ("word/document.xml", "<w/>"), (name, FICTIONAL)])
+    assert_macro_refusal(inner, path, tmp_path)
+
+
+@pytest.mark.parametrize("name", ["/xl/macrosheets/sheet1.xml", "xl\\macrosheets\\sheet1.xml", "XL/MacroSheets/sheet1.xml", "xl/macrosheets%2Fsheet1.xml"])
+def test_a_macro_sheet_folder_is_found_whatever_the_spelling_of_its_name(inner, tmp_path, name):
+    path = make_zip(tmp_path / "sheets", [("[Content_Types].xml", content_types(override("/xl/workbook.xml", PLAIN_SHEET))),
+                                          ("xl/workbook.xml", "<w/>"), (name, "<x/>")])
+    assert_macro_refusal(inner, path, tmp_path)
+
+
+@pytest.mark.parametrize("first, second", [("benign", "macro"), ("macro", "benign")])
+def test_a_package_with_two_content_types_parts_is_refused_whichever_one_a_reader_would_open(inner, tmp_path, first, second):
+    chosen = {"benign": content_types(override("/word/document.xml", PLAIN_DOC)), "macro": content_types(override("/word/document.xml", DOCM_TYPE))}
+    path = make_zip(tmp_path / "twice", [("[Content_Types].xml", chosen[first]), ("word/document.xml", "<w/>"), ("[Content_Types].xml", chosen[second])])
+    for kind in ("docx", "ooxml"):
+        with pytest.raises(inner.Failed) as refused:
+            inner.convert(kind, path, str(tmp_path / "work"))
+        assert "two parts with the same name" in str(refused.value)
+
+
+def test_a_content_types_part_in_another_case_beside_the_real_one_is_refused(inner, tmp_path):
+    path = make_zip(tmp_path / "case", [("[Content_Types].xml", content_types(override("/word/document.xml", PLAIN_DOC))), ("word/document.xml", "<w/>"),
+                                        ("[CONTENT_TYPES].XML", content_types(override("/word/document.xml", DOCM_TYPE)))])
+    with pytest.raises(inner.Failed) as refused:
+        inner.convert("docx", path, str(tmp_path / "work"))
+    assert "two parts with the same name" in str(refused.value)
+
+
+def test_a_declared_office_package_without_content_types_is_refused_for_every_type(inner, tmp_path):
+    path = make_zip(tmp_path / "none", [("word/document.xml", "<w/>"), ("word/blob.bin", FICTIONAL),
+                                        ("word/_rels/document.xml.rels", relationships("blob.bin"))])
+    for kind in ("docx", "xlsx", "pptx", "ooxml"):
+        with pytest.raises(inner.Failed) as refused:
+            inner.convert(kind, path, str(tmp_path / "work"))
+        assert "no [Content_Types].xml" in str(refused.value)
+
+
+def test_a_document_type_declaration_or_an_entity_is_refused_and_is_never_expanded(inner, tmp_path):
+    declared = ('<?xml version="1.0"?><!DOCTYPE Types [<!ENTITY m "macroEnabled">]><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+                + override("/word/document.xml", "application/vnd.ms-word.document.&m;.main+xml") + "</Types>")
+    bomb = '<?xml version="1.0"?><!DOCTYPE Types [<!ENTITY a "aaaaaaaaaa"><!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;">]><Types>&b;</Types>'
+    for case, body in (("entity", declared), ("expansion", bomb)):
+        path = make_zip(tmp_path / case, [("[Content_Types].xml", body), ("word/document.xml", "<w/>")])
+        with pytest.raises(inner.Failed) as refused:
+            inner.convert("docx", path, str(tmp_path / "work"))
+        assert "document type declaration" in str(refused.value)
+    rel = make_zip(tmp_path / "rels", [("[Content_Types].xml", content_types(override("/word/document.xml", PLAIN_DOC))), ("word/document.xml", "<w/>"),
+                                       ("_rels/.rels", '<?xml version="1.0"?><!DOCTYPE r [<!ENTITY t "x">]><Relationships/>')])
+    with pytest.raises(inner.Failed) as refused:
+        inner.refuse_macros(rel)
+    assert "document type declaration" in str(refused.value)
+
+
+def test_an_xml_part_that_is_not_well_formed_or_has_an_undefined_entity_is_a_closed_failure(inner, tmp_path):
+    for case, body in (("broken", "<Types><Override"), ("undefined", "<Types a='&nothing;'/>")):
+        path = make_zip(tmp_path / case, [("[Content_Types].xml", body), ("word/document.xml", "<w/>")])
+        with pytest.raises(inner.Failed) as refused:
+            inner.refuse_macros(path)
+        assert str(refused.value) == "an XML part of the package cannot be read"
+
+
+def test_a_damaged_compressed_stream_is_a_closed_failure_and_the_program_exits_3_with_no_traceback(inner, tmp_path):
+    path = tmp_path / "damaged"
+    body = ("<Types>" + "<Override PartName='/x' ContentType='text/plain'/>" * 200 + "</Types>").encode()
+    make_zip(path, [("[Content_Types].xml", body), ("word/document.xml", "<w/>")])
+    data = bytearray(path.read_bytes())
+    start = 30 + len("[Content_Types].xml")
+    for i in range(start + 2, start + 12):
+        data[i] ^= 0xFF
+    path.write_bytes(bytes(data))
+    with pytest.raises(inner.Failed) as refused:
+        inner.refuse_macros(str(path))
+    assert "cannot be read" in str(refused.value)
+    done = subprocess.run([sys.executable, "-I", str(INNER), "--type", "docx", "--input", str(path), "--work", str(tmp_path / "w")],
+                          capture_output=True, timeout=60, env={"PATH": os.environ.get("PATH", ""), "CONVERTER_TOOL_PATH": tool_path()})
+    assert done.returncode == 3 and done.stdout == b"" and b"Traceback" not in done.stderr
+    assert done.stderr.decode().strip() == "error: the package's XML part cannot be read"
+
+
+def test_all_the_xml_read_for_the_check_has_a_total_budget(inner, tmp_path, monkeypatch):
+    entries = [("[Content_Types].xml", content_types(override("/word/document.xml", PLAIN_DOC))), ("word/document.xml", "<w/>")]
+    entries += [(f"word/_rels/part{n}.xml.rels", relationships(f"t{n}.xml", "http://example.invalid/rel") + " " * 600) for n in range(5)]
+    path = make_zip(tmp_path / "many", entries)
+    inner.refuse_macros(path)
+    monkeypatch.setattr(inner, "XML_PARTS_TOTAL", 2000)
+    with pytest.raises(inner.Failed) as refused:
+        inner.refuse_macros(path)
+    assert "too large" in str(refused.value)
+
+
+def test_what_is_outside_the_scope_passes_the_check(inner, tmp_path):
+    """The check judges macro parts, not ActiveX controls, OLE objects, ribbon callbacks, a remote template or a dialog sheet: the
+    container has no network and runs nothing (providers/converter/README.md, "Not covered")."""
+    template = relationships("https://example.invalid/t.dotm", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/attachedTemplate",
+                             ' TargetMode="External"')
+    path = make_zip(tmp_path / "outside", [
+        ("[Content_Types].xml", content_types(override("/word/document.xml", PLAIN_DOC),
+                                              '<Default Extension="bin" ContentType="application/vnd.ms-office.activeX"/>')),
+        ("word/document.xml", "<w/>"), ("word/activeX/activeX1.bin", FICTIONAL), ("word/embeddings/oleObject1.bin", b"\xd0\xcf\x11\xe0" + FICTIONAL),
+        ("customUI/customUI14.xml", '<customUI onLoad="RibbonLoaded"/>'), ("word/_rels/settings.xml.rels", template),
+        ("xl/dialogsheets/sheet1.xml", "<x/>")])
+    inner.refuse_macros(path)
