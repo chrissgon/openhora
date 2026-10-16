@@ -9,8 +9,9 @@ A step kind (runtime/step_*.py) imports no module that calls a provider. Whateve
 module builds those services, once, for the process that runs the task (runtime/ops_steps.py). Each is as narrow as the kind's need:
 
   config           the project's configuration (runtime/project_config.py load), read once
-  documents        DocumentsReader: `read` and `stat` of the project's documents provider, and what the kind asks about it (`enabled`,
-                   `provider`, `problem`: why a write to it is not allowed now). It has no `write`: the verbs it calls are two literals.
+  documents        DocumentsReader: `read`, `stat` and `table_read` of the project's documents provider (a page's text; a page's existence;
+                   a table's columns, row count and newest edit), and what the kind asks about it (`enabled`, `provider`, `problem`: why a
+                   write to it is not allowed now). It has no `write`: the verbs it calls are three literals, all reads.
   source_pin       function(source id) -> {"sha256": the converted text of the source's newest version, "page": the source's page as a
                    normalised identifier or None} or None: what a write-back compares the target with
   effect_files     EffectFiles: write and read the effect document of a cycle of a task, by hash (runtime/ops_step_effects.py holds the
@@ -40,7 +41,7 @@ import ops_step_effects  # noqa: E402
 import project_config  # noqa: E402
 import sources  # noqa: E402
 
-READ_VERBS = ("read", "stat")      # the only verbs of the documents provider a step kind can reach
+READ_VERBS = ("read", "stat", "table-read")      # the only verbs of the documents provider a step kind can reach
 EXPORTER_CLASS = "exporter:document"
 EXPORTER_TIMEOUT = 300
 OUTPUT_MAX = 8 * 1024 * 1024       # the exporter's own cap (providers/exporter/container.py OUTPUT_CAP)
@@ -82,6 +83,10 @@ class DocumentsReader:
 
     def stat(self, target: str) -> dict:
         return self._call("stat", target)
+
+    def table_read(self, table: str) -> dict:
+        """A table's columns, their hash, its row count and the time of its newest edit (the provider's table-read; it changes nothing)."""
+        return self._call("table-read", table)
 
 
 class EffectFiles:

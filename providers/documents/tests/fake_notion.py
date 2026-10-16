@@ -15,6 +15,14 @@ position other than end or start (after_block, which the providers do not use, i
 as measured (N11), a code block whose language is not one of the reference's list (LANGUAGES of
 providers/documents/notion_blocks.py, the one copy of that list).
 
+Databases (package NOTION-OUT): `POST /v1/databases` makes a database under a page with one data source (its own id) and the
+properties given (exactly one title; the types title, rich_text, number, date, select, checkbox and url), and `GET /v1/databases/{id}`
+answers it with its `data_sources`; a page created under a data source takes a value of each of those types (a select option named in
+a row is added to the schema, as the live service does); `POST /v1/data_sources/{id}/query` understands the created_time timestamp
+filter (`on_or_after`) and nothing else; and the children of a page list the pages and the databases made under it (a `child_page`
+and a `child_database` block, with `created_time`). Faults: fail_next(name, status) as before, and fail_at(name, n, status) makes the
+n-th call of that name from now answer status (n = 1 is the next one).
+
 Usage (from a test or a harness):
   fake = fake_notion.shared()        one server per process, started on first use (a daemon thread)
   fake.base, fake.token              what the provider's environment names
@@ -41,6 +49,8 @@ MAX_CHILDREN = 100
 MAX_NESTING = 2
 TEXT_LIMIT = 2000
 MAX_PAGE_SIZE = 100
+PROPERTY_TYPES = ("title", "rich_text", "number", "date", "select", "checkbox", "url")
+URL_LIMIT = 2000
 EPOCH = datetime(2026, 1, 1, tzinfo=timezone.utc)
 _spec = importlib.util.spec_from_file_location(
     "notion_blocks_for_fake", Path(__file__).resolve().parents[1] / "notion_blocks.py")
@@ -49,6 +59,8 @@ _spec.loader.exec_module(_blocks)
 LANGUAGES = _blocks.LANGUAGES
 
 ROUTES = [  # (call name, method, path pattern): the union of the two providers' tables
+    ("create_database", "POST", r"/v1/databases"),
+    ("retrieve_database", "GET", r"/v1/databases/(?P<id>[^/]+)"),
     ("retrieve_base", "GET", r"/v1/data_sources/(?P<id>[^/]+)"),
     ("query_base", "POST", r"/v1/data_sources/(?P<id>[^/]+)/query"),
     ("retrieve_page", "GET", r"/v1/pages/(?P<id>[^/]+)"),
@@ -113,7 +125,9 @@ class FakeNotion:
         self.lock = threading.RLock()
         self.clock = 0
         self.bases, self.pages, self.blocks, self.children, self.comments = {}, {}, {}, {}, {}
+        self.databases = {}
         self.requests, self.failures, self.redirect_next, self.redirected = [], {}, False, 0
+        self.failing_at = {}
         self.user_agents = []
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), self.handler())
         self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
@@ -122,8 +136,12 @@ class FakeNotion:
     # --- the model -------------------------------------------------------------
 
     def tick(self) -> str:
+        """The next time: the real time, but never less than a second after the last one, so that every change moves a version and a
+        page made after a moment has a created_time after it."""
         self.clock += 1
-        return (EPOCH + timedelta(seconds=self.clock)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        self.last = max(getattr(self, "last", EPOCH) + timedelta(seconds=1), now)
+        return self.last.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
     def page_of(self, ident: str):
         while ident in self.blocks:
@@ -152,11 +170,32 @@ class FakeNotion:
                 names[2]: {"id": "rt", "name": names[2], "type": "rich_text", "rich_text": {}}}}
         return ident
 
+    @staticmethod
+    def blank(kind: str):
+        return {"title": [], "rich_text": [], "checkbox": False}.get(kind)
+
     def property_value(self, kind: str, value) -> dict:
         if kind in ("title", "rich_text"):
             check_text(value)
             return {"type": kind, kind: [{**r, "plain_text": (r.get("text") or {}).get("content", ""), "href": None}
                                          for r in value or []]}
+        if kind == "number":
+            if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))):
+                raise Answer(400, "validation_error", "number should be a number or null")
+            return {"type": kind, kind: value}
+        if kind == "checkbox":
+            if not isinstance(value, bool):
+                raise Answer(400, "validation_error", "checkbox should be true or false")
+            return {"type": kind, kind: value}
+        if kind == "url":
+            if value is not None and (not isinstance(value, str) or len(value) > URL_LIMIT):
+                raise Answer(400, "validation_error", f"url should be a string of at most {URL_LIMIT} characters or null")
+            return {"type": kind, kind: value}
+        if kind == "date":
+            if value is not None and (not isinstance(value, dict) or not isinstance(value.get("start"), str)):
+                raise Answer(400, "validation_error", "date should be an object with a start")
+            return {"type": kind, kind: ({"start": value["start"], "end": value.get("end"), "time_zone": value.get("time_zone")}
+                                         if value else None)}
         return {"type": kind, kind: ({"name": value["name"]} if isinstance(value, dict) and value.get("name") else None)}
 
     def set_properties(self, page: dict, values: dict) -> None:
@@ -166,7 +205,48 @@ class FakeNotion:
             if name not in schema or not isinstance(value, dict) or schema[name]["type"] not in value:
                 raise Answer(400, "validation_error", f"{name} is not a property that exists")
             kind = schema[name]["type"]
+            if kind == "select" and isinstance(value[kind], dict) and value[kind].get("name"):
+                if "," in value[kind]["name"]:
+                    raise Answer(400, "validation_error", "select option names cannot contain commas")
+                options = schema[name][kind].setdefault("options", [])
+                if value[kind]["name"] not in [o["name"] for o in options]:
+                    options.append({"id": new_id(), "name": value[kind]["name"], "color": "default"})
             page["properties"][name] = {"id": schema[name].get("id", name), **self.property_value(kind, value[kind])}
+
+    def create_database(self, body: dict) -> dict:
+        """POST /v1/databases: one database with one data source, under a page that exists."""
+        with self.lock:
+            parent = body.get("parent") or {}
+            if parent.get("type") != "page_id" or parent.get("page_id") not in self.pages or self.pages[parent["page_id"]]["in_trash"]:
+                raise Answer(404, "object_not_found", "Could not find the parent.")
+            props = ((body.get("initial_data_source") or {}).get("properties")) or {}
+            if not props or sum(1 for p in props.values() if isinstance(p, dict) and p.get("type") == "title") != 1:
+                raise Answer(400, "validation_error", "a data source has exactly one title property")
+            title = body.get("title") or []
+            check_text(title)
+            if len(title) > 100:
+                raise Answer(400, "validation_error", "title should have at most 100 items")
+            schema = {}
+            for name, p in props.items():
+                if not isinstance(p, dict) or p.get("type") not in PROPERTY_TYPES or not isinstance(p.get(p["type"]), dict):
+                    raise Answer(400, "validation_error", f"{name} is not a property this stand-in makes")
+                kind = p["type"]
+                config = json.loads(json.dumps(p[kind]))
+                if kind == "select":
+                    config = {"options": [{"id": new_id(), "color": "default", **o} for o in config.get("options") or []]}
+                    if len(config["options"]) > 100:
+                        raise Answer(400, "validation_error", "a select has at most 100 options")
+                schema[name] = {"id": new_id()[:4], "name": name, "type": kind, kind: config}
+            database, source = new_id(), new_id()
+            when = self.tick()
+            plain_title = "".join((r.get("text") or {}).get("content", "") for r in title)
+            self.bases[source] = {"object": "data_source", "id": source, "properties": schema, "database_id": database,
+                                  "title": rich(plain_title)}
+            self.databases[database] = {"object": "database", "id": database, "title": rich(plain_title), "created_time": when,
+                                        "last_edited_time": when, "in_trash": False, "parent": dict(parent),
+                                        "data_sources": [{"id": source, "name": plain_title}],
+                                        "url": f"https://notion.example/{database.replace('-', '')}"}
+            return self.databases[database]
 
     def create_root(self) -> str:
         """A page at the top of the workspace, as a person makes one to share with the integration."""
@@ -184,8 +264,7 @@ class FakeNotion:
         with self.lock:
             if parent.get("type") == "data_source_id" and parent.get("data_source_id") in self.bases:
                 schema = self.bases[parent["data_source_id"]]["properties"]
-                props = {n: {"id": p.get("id", n), "type": p["type"], p["type"]: [] if p["type"] in ("title", "rich_text")
-                             else None} for n, p in schema.items()}
+                props = {n: {"id": p.get("id", n), "type": p["type"], p["type"]: self.blank(p["type"])} for n, p in schema.items()}
             elif parent.get("type") == "page_id" and parent.get("page_id") in self.pages:
                 if set(properties) - {"title"}:
                     raise Answer(400, "validation_error", "title is the only valid property of a page under a page")
@@ -260,8 +339,34 @@ class FakeNotion:
             kind = page["properties"][name]["type"]
             page["properties"][name] = {**page["properties"][name], **self.property_value(
                 kind, [{"type": "text", "text": {"content": value}}] if kind in ("title", "rich_text")
+                else value if kind in ("number", "checkbox", "url") else {"start": value} if kind == "date" and value
                 else ({"name": value} if value else None))}
+            page["last_edited_time"] = self.tick()
             self.touch(ident)
+
+    def person_adds_property(self, source: str, name: str, kind: str = "rich_text") -> None:
+        """A person adds a column to a table (a data source)."""
+        with self.lock:
+            self.bases[source]["properties"][name] = {"id": new_id()[:4], "name": name, "type": kind, kind: {}}
+
+    def rows_of(self, source: str) -> list:
+        """The rows (pages) of a data source that are not in the trash, in creation order."""
+        with self.lock:
+            return [p for p in self.pages.values() if p["parent"].get("data_source_id") == source and not p["in_trash"]]
+
+    def cells(self, row: dict) -> dict:
+        """A row's values by property name, as plain Python values (text for a title or text, the number, the date's start, ...)."""
+        out = {}
+        for name, prop in row["properties"].items():
+            value = prop[prop["type"]]
+            if prop["type"] in ("title", "rich_text"):
+                value = "".join(r.get("plain_text", "") for r in value)
+            elif prop["type"] == "date" and value:
+                value = value["start"]
+            elif prop["type"] == "select" and value:
+                value = value["name"]
+            out[name] = value
+        return out
 
     def person_trashes(self, ident: str) -> None:
         with self.lock:
@@ -271,6 +376,10 @@ class FakeNotion:
     def fail_next(self, name: str, status: int, carried_out: bool = False) -> None:
         """The next call of that name answers status; carried_out: it is made first, as a lost answer would be."""
         self.failures[name] = (status, carried_out)
+
+    def fail_at(self, name: str, n: int, status: int, carried_out: bool = False) -> None:
+        """The n-th call of that name from now (1 = the next) answers status; carried_out: it is made first, as a lost answer would be."""
+        self.failing_at[name] = [n, status, carried_out]
 
     def count(self, name: str) -> int:
         method, pattern = next((m, p) for n, m, p in ROUTES if n == name)
@@ -294,7 +403,26 @@ class FakeNotion:
             if ids["id"] not in self.bases:
                 raise Answer(404, "object_not_found", "Could not find data source.")
             rows = [p for p in self.pages.values() if p["parent"].get("data_source_id") == ids["id"] and not p["in_trash"]]
+            flt = (body or {}).get("filter")
+            if flt is not None:
+                if not (isinstance(flt, dict) and flt.get("timestamp") == "created_time" and set(flt) == {"timestamp", "created_time"}
+                        and isinstance(flt["created_time"], dict) and isinstance(flt["created_time"].get("on_or_after"), str)):
+                    raise Answer(400, "validation_error", "this stand-in understands only the created_time on_or_after filter")
+                since = flt["created_time"]["on_or_after"].replace("Z", "+00:00")
+                try:
+                    floor = datetime.fromisoformat(since)
+                except ValueError:
+                    raise Answer(400, "validation_error", "on_or_after should be an ISO 8601 date or date-time") from None
+                if floor.tzinfo is None:
+                    floor = floor.replace(tzinfo=timezone.utc)
+                rows = [p for p in rows if datetime.fromisoformat(p["created_time"].replace("Z", "+00:00")) >= floor]
             return self.listing(rows, (body or {}).get("start_cursor"), (body or {}).get("page_size"))
+        if name == "create_database":
+            return self.create_database(body or {})
+        if name == "retrieve_database":
+            if ids["id"] not in self.databases:
+                raise Answer(404, "object_not_found", "Could not find database.")
+            return self.databases[ids["id"]]
         if name == "create_page":
             return self.create_page((body or {}).get("parent") or {}, (body or {}).get("properties") or {},
                                     self.checked_children(body or {}))
@@ -321,7 +449,7 @@ class FakeNotion:
                 return {"object": "list", "results": [self.shown(i) for i in made], "has_more": False,
                         "next_cursor": None}
             kids = [self.shown(i) for i in self.children[ids["id"]] if not self.blocks[i]["in_trash"]]
-            return self.listing(kids, query.get("start_cursor"), query.get("page_size"))
+            return self.listing(kids + self.sub_objects(ids["id"]), query.get("start_cursor"), query.get("page_size"))
         if name == "delete_block":
             block = self.blocks.get(ids["id"])
             if block is None or block["in_trash"]:
@@ -340,6 +468,24 @@ class FakeNotion:
                            and self.page_of(b) == target for c in cs]
             return self.listing(listed, query.get("start_cursor"), query.get("page_size"))
         raise Answer(400, "invalid_request_url", "Invalid request URL.")
+
+    def sub_objects(self, parent: str) -> list:
+        """The pages and databases made under a page, as the blocks `child_page` and `child_database` the live service lists
+        among its children (read in the reference; the stand-in lists them after the page's own blocks)."""
+        if parent not in self.pages:
+            return []
+        out = []
+        for ident, page in self.pages.items():
+            if page["parent"].get("page_id") == parent and not page["in_trash"]:
+                title = "".join(r.get("plain_text", "") for r in page["properties"]["title"]["title"])
+                out.append({"object": "block", "id": ident, "type": "child_page", "child_page": {"title": title}, "has_children": False,
+                            "created_time": page["created_time"], "in_trash": False})
+        for ident, base in self.databases.items():
+            if base["parent"].get("page_id") == parent and not base["in_trash"]:
+                title = "".join(r.get("plain_text", "") for r in base["title"])
+                out.append({"object": "block", "id": ident, "type": "child_database", "child_database": {"title": title},
+                            "has_children": False, "created_time": base["created_time"], "in_trash": False})
+        return sorted(out, key=lambda b: b["created_time"])
 
     def checked_children(self, body: dict) -> list:
         kids = body.get("children") or []
@@ -397,6 +543,10 @@ class FakeNotion:
                                                  "message": "Invalid request URL."})
                     name, match = route
                     failure = fake.failures.pop(name, None)
+                    if failure is None and name in fake.failing_at:
+                        fake.failing_at[name][0] -= 1
+                        if fake.failing_at[name][0] <= 0:
+                            failure = tuple(fake.failing_at.pop(name)[1:])
                     query = {k: v[0] for k, v in parse_qs(url.query).items()}
                     try:
                         if failure and failure[1]:

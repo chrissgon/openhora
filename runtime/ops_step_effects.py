@@ -42,12 +42,14 @@ import ops_waits  # noqa: E402
 import project_config  # noqa: E402
 import steps  # noqa: E402
 
+OUTPUT_VERBS = ("page-create", "table-create", "rows-append", "table-read")      # the provider verbs of the outputs (runtime/effect_write.py)
+OUTPUT_TIMEOUT = 900                  # seconds: 500 rows at 2.8 calls a second take about 3 minutes; 429 waits and the table's listing add to it
 EFFECTS_DIR = "step-effects"          # <data_dir>/step-effects/<task id>/<cycle>/effect.json: written by the kind, read here by its hash
-STALE_ANSWER = ("Nothing was written by this attempt: the document is not the one the task read (it was edited, or an earlier attempt of "
-                "this write did not finish: read the page). The task starts over from the step that reads it; start it again to be asked "
-                "about the document as it is now.")
-UNKNOWN_NEXT = ("the outcome is unknown: read the page. The effect stays open, and approving it again with the same hash reads the page "
-                "first and records the write if the content is there")
+STALE_ANSWER = ("Nothing was written by this attempt: the document or table is not the one the task read (it was edited, or an earlier "
+                "attempt of this write did not finish: read the page or the table). The task starts over from the step that reads it; "
+                "start it again to be asked about it as it is now.")
+UNKNOWN_NEXT = ("the outcome is unknown: read the page or the table. The effect stays open, and approving it again with the same hash "
+                "reads what is there first and writes only what is missing, recording the write as replayed if everything is there")
 
 
 def effect_dir(cfg: dict, task_id: int, cycle: int) -> str:
@@ -117,8 +119,8 @@ def approve(ctx: dict, item: dict, sha256: str, found, call=None) -> dict:
         raise core.OpsError(f"nothing was written: {expired}", 1)
 
     def default_call(verb, args):
-        try:
-            return documents.call(cfg, ctx["root"], verb, args)
+        try:     # a table of 500 rows is written one call a row, kept to the platform's rate: a long verb gets its own time limit
+            return documents.call(cfg, ctx["root"], verb, args, timeout=OUTPUT_TIMEOUT if verb in OUTPUT_VERBS else documents.TIMEOUT)
         except documents.DocumentsError as e:
             raise effects.EffectError("not-configured" if e.kind == "not configured" else "provider", f"{verb}: {e.detail}") from None
 
