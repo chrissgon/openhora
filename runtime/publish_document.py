@@ -68,6 +68,7 @@ DRY_RUN_MAX = 64 * 1024        # bytes of the dry run, as JSON
 CONTENT_MAX = 256 * 1024       # bytes of the content file the task reads
 STABLE_DROP = ("ledger",)      # the dry run's keys that say where the ledger is; the ones with "existing_" say what it holds now
 POST_MARK = "<existing-post-id>"      # where a dry run of a published key names the post it holds (its address, its id): the same in every form
+POST_ID_MIN = 8      # characters: the shortest post id the mark replaces
 WILDCARD_MAX = 200      # characters of a document's placeholder that a post id may stand for
 
 
@@ -122,17 +123,30 @@ def stable_dry_run(answer, folders=()) -> dict:
     if not isinstance(answer, dict):
         raise _usage("the provider's dry run is one JSON object")
     kept = {k: v for k, v in answer.items() if k not in STABLE_DROP and "existing_" not in k}
-    text = json.dumps(kept, sort_keys=True, ensure_ascii=True)
     held = answer.get("existing_post_urn")      # once a key is published, a dry run puts the post it holds into the first comment's request
-    if isinstance(held, str) and held:
-        for form in sorted({held, urllib.parse.quote(held, safe=""), urllib.parse.quote(held)}, key=len, reverse=True):
-            text = text.replace(json.dumps(form)[1:-1], POST_MARK)
-    for folder in sorted({f for path in folders for f in (path, os.path.realpath(path))}, key=len, reverse=True):
-        if folder:
-            text = text.replace(json.dumps(folder, ensure_ascii=True)[1:-1], "<private>")
-    if len(text.encode("utf-8")) > DRY_RUN_MAX:
-        raise _usage(f"the provider's dry run is over {DRY_RUN_MAX} bytes")
-    return json.loads(text)
+    swaps = []
+    if isinstance(held, str) and len(held) >= POST_ID_MIN:      # a short id would match inside any word
+        swaps += [(form, POST_MARK) for form in sorted({held, urllib.parse.quote(held, safe=""), urllib.parse.quote(held)}, key=len, reverse=True)]
+    swaps += [(folder, "<private>") for folder in sorted({f for path in folders for f in (path, os.path.realpath(path))}, key=len, reverse=True) if folder]
+
+    def swapped(value):
+        """The value with each swap applied inside its strings; keys and every other type stay as they are."""
+        if isinstance(value, str):
+            for old, new in swaps:
+                value = value.replace(old, new)
+            return value
+        if isinstance(value, list):
+            return [swapped(item) for item in value]
+        if isinstance(value, dict):
+            return {key: swapped(item) for key, item in value.items()}
+        return value
+    try:
+        text = json.dumps(swapped(kept), sort_keys=True, ensure_ascii=True)
+        if len(text.encode("utf-8")) > DRY_RUN_MAX:
+            raise _usage(f"the provider's dry run is over {DRY_RUN_MAX} bytes")
+        return json.loads(text)
+    except (ValueError, TypeError, RecursionError):
+        raise _usage("the provider's dry run is not plain JSON") from None
 
 
 def _wildcard(expected: str, shown: str) -> bool:

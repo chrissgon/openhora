@@ -26,6 +26,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -69,6 +70,7 @@ class Built:
         return {"key": self.key, "at": self.at, "text": self.text, "comment": self.comment, "image": self.image}
 
 
+LEDGER_VARIABLE = re.compile(r"PUBLISHER_[A-Z0-9_]+_LEDGER")      # the name the contract gives the variable that moves a publisher's ledger
 PASSES = ("XDG_DATA_HOME",)   # the publisher's ledger is in the data folder; the skill's own job and this path must see the same one
 
 
@@ -107,13 +109,14 @@ def _read(folder: str, path, expected, what: str) -> bytes:
 
 def ledger_problem(resolve, root: str, platform: str, key: str, args: list, ledger):
     """Why the ledger this path would use may not be the one that decides whether `key` was published, or None. Two ways the same key can be looked up
-    in another ledger and a post go out twice: the person's own environment names a ledger (a variable whose name has LEDGER in it) that the publisher,
+    in another ledger and a post go out twice: the person's own environment names a ledger (a variable named PUBLISHER_<PLATFORM>_LEDGER) that the publisher,
     started with the minimum environment, does not see; and a scheduled job for this key was pinned to a ledger by `--ledger` (the vote job does it, from the
     tick's environment). `args` are the publisher's `publish` flags without the dry run's; `ledger` is the path a dry run printed (None: the provider names
-    none, and there is nothing to compare). A scheduler that cannot be listed has no job to compare with."""
+    none, and there is nothing to compare). A scheduler that is not configured has no job to compare with; one that fails, times out or answers
+    something else than a list of jobs is a refusal, since a job pinned to another ledger could be there."""
     if not ledger:
         return None
-    cls, extra = publisher_class(platform), {k: v for k, v in os.environ.items() if "LEDGER" in k.upper() and v}
+    cls, extra = publisher_class(platform), {k: v for k, v in os.environ.items() if LEDGER_VARIABLE.fullmatch(k) and v}
     if extra:
         try:
             other = resolve.call(cls, "publish", args + ["--dry-run"], root=root, timeout=120, env={**environment(resolve, platform), **extra})
@@ -122,10 +125,16 @@ def ledger_problem(resolve, root: str, platform: str, key: str, args: list, ledg
         if isinstance(other, dict) and isinstance(other.get("ledger"), str) and other["ledger"] != ledger:
             return f"your environment names the ledger {other['ledger']} and this path would use {ledger}: set them to one file"
     try:
-        listed = resolve.call("scheduler:job", "list", [], root=root, timeout=60, env=resolve.provider_environment("scheduler:job", None, ()))
-    except (resolve.ProviderCallError, resolve.UnknownClass):
-        return None
-    for job in (listed.get("jobs") if isinstance(listed, dict) else None) or []:
+        # SCHEDULER_HOME is the folder the scheduler keeps its jobs in: the one the tick schedules into, so the list must read it too.
+        listed = resolve.call("scheduler:job", "list", [], root=root, timeout=60, env=resolve.provider_environment("scheduler:job", None, ("SCHEDULER_HOME",)))
+    except resolve.ProviderCallError as e:
+        if e.kind == "not-configured":
+            return None
+        return f"the scheduler's list failed ({e.reason}), so it is not known whether a job for this key is pinned to another ledger"
+    jobs = listed.get("jobs") if isinstance(listed, dict) else None
+    if not isinstance(jobs, list):
+        return "the scheduler's list is not a list of jobs, so it is not known whether a job for this key is pinned to another ledger"
+    for job in jobs:
         argv = job.get("argv") if isinstance(job, dict) else None
         if not isinstance(argv, list) or not all(isinstance(a, str) for a in argv):
             continue

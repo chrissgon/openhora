@@ -687,6 +687,14 @@ SCHEDULER = '''# /// script
 # ///
 import json, os, sys
 here = os.path.dirname(os.path.abspath(__file__))
+json.dump({"SCHEDULER_HOME": os.environ.get("SCHEDULER_HOME")}, open(os.path.join(here, "env.json"), "w"))
+mode = json.load(open(os.path.join(here, "mode.json"))) if os.path.isfile(os.path.join(here, "mode.json")) else {}
+if mode.get("exit"):
+    print("the scheduler failed", file=sys.stderr)
+    sys.exit(mode["exit"])
+if "raw" in mode:
+    print(json.dumps(mode["raw"]))
+    sys.exit(0)
 path = os.path.join(here, "jobs.json")
 print(json.dumps({"jobs": json.load(open(path)) if os.path.isfile(path) else []}))
 '''
@@ -744,6 +752,68 @@ def test_a_scheduled_job_for_this_key_pinned_to_another_ledger_opens_no_effect_a
     assert out["code"] == "ledger_differs" and confirmed(world) == []
     scheduled(world, [])
     assert approve(world, item)["task_state"] == "done" and len(posts(world)) == 1
+
+
+def scheduler_mode(world, **mode):
+    (world["tree"] / "providers" / "scheduler" / "mode.json").write_text(json.dumps(mode), encoding="utf-8")
+
+
+def test_a_scheduler_that_fails_or_answers_something_else_is_a_refusal_and_only_one_not_configured_is_no_jobs(world, monkeypatch):
+    task, item = opened(world)      # no scheduler provider in the tree: not configured, so no job to compare with
+    scheduled(world, [])
+    for mode in ({"exit": 1}, {"raw": []}, {"raw": {"jobs": "none"}}, {"raw": {"nojobs": []}}):
+        scheduler_mode(world, **mode)
+        out = run_task(world, add(world))
+        assert out["ok"] is False and out["code"] == "ledger_differs", mode
+        with pytest.raises(ops_core.OpsError) as refused:
+            approve(world, item)
+        assert "not known whether a job for this key is pinned" in str(refused.value) and posts(world) == [], mode
+    scheduler_mode(world, exit=3)      # the provider's own "not configured"
+    assert approve(world, item)["task_state"] == "done" and len(posts(world)) == 1
+
+
+def test_a_scheduler_that_times_out_is_a_refusal():
+    class Resolve:
+        class ProviderCallError(Exception):
+            def __init__(self, kind, reason):
+                super().__init__(reason)
+                self.kind, self.reason = kind, reason
+
+        @staticmethod
+        def provider_environment(cls, env=None, passes=()):
+            return {}
+
+        @classmethod
+        def call(cls, *a, **k):
+            raise cls.ProviderCallError("timeout", "the provider ran over 60 s")
+    why = publish_payload.ledger_problem(Resolve, "/nowhere", "linkedin", KEY, [], "/data/ledger.json")
+    assert why and "not known whether a job for this key is pinned" in why
+
+
+def test_the_scheduler_is_listed_with_the_folder_it_schedules_into_and_only_a_publishers_ledger_variable_is_passed_on(world, monkeypatch):
+    scheduled(world, [])
+    monkeypatch.setenv("SCHEDULER_HOME", str(world["tmp"] / "jobs-home"))
+    monkeypatch.setenv("SOME_OTHER_LEDGER", str(world["tmp"] / "unrelated" / "ledger.json"))      # not a publisher's variable: never passed, never compared
+    monkeypatch.setenv("PUBLISHER_NOWHERE_LEDGERS", str(world["tmp"] / "unrelated" / "ledger.json"))
+    task, item = opened(world)
+    assert json.loads((world["tree"] / "providers" / "scheduler" / "env.json").read_text())["SCHEDULER_HOME"] == str(world["tmp"] / "jobs-home")
+    assert all(c["env"] and "SOME_OTHER_LEDGER" not in c["env"] and "PUBLISHER_NOWHERE_LEDGERS" not in c["env"] for c in calls(world))
+    assert approve(world, item)["task_state"] == "done"
+
+
+def test_the_mark_goes_only_inside_string_values_and_only_for_a_post_id_of_eight_characters_or_more():
+    urn = "urn:li:share:7000000000000000001"
+    answer = {"existing_post_urn": urn, "requests": [{"url": "https://api.example/" + urn + "/c", "body": {urn: 1, "object": urn, "n": 7}}]}
+    kept = publish_document.stable_dry_run(answer)
+    assert kept["requests"][0]["url"] == "https://api.example/" + publish_document.POST_MARK + "/c"
+    assert kept["requests"][0]["body"] == {urn: 1, "object": publish_document.POST_MARK, "n": 7}, "a key and a number stay as they are"
+    short = publish_document.stable_dry_run({"existing_post_urn": "abc", "requests": [{"url": "https://abc.example/abc", "abc": "abcabc"}]})
+    assert short["requests"][0] == {"url": "https://abc.example/abc", "abc": "abcabc"}, "a short id is never swapped"
+    with pytest.raises(effects.EffectError) as refused:
+        publish_document.stable_dry_run({"a": object()})
+    assert refused.value.kind == "usage"
+    with pytest.raises(effects.EffectError):
+        publish_document.stable_dry_run({"a": "b" * (publish_document.DRY_RUN_MAX + 1)})
 
 
 # --- the structure: a step kind can reach nothing that publishes ----------------------------------------------------------------------------------
