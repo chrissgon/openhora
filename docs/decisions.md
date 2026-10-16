@@ -1077,3 +1077,12 @@ The independent review of the pull request found the early-end rule of T27 too n
 - **R12, the detection narrowed and widened.** The folder ends at `;`, `|`, `)`, `&`, `<`, `>`, `:` and a backtick too. `skills_used` reads only the inputs that name files (a command, a path, a pattern, a glob), never a write's content, an edit's text or a subagent's prompt. `skills_loaded` counts a `Read`, `Grep` or `Bash` input only when it names the `SKILL.md` of one skill: a command or a grep over several skills' `SKILL.md` loads none of them (they are used), so the routing mode does not mark every skill such a grep names as loaded.
 - **T39, the gate file.** `model_entry_problems` of `evals/eval_status.py` reads `token_var` from `evals/execution.py` and reports a `pass_env` or `web_pass_env` (the grader's included: it is a model entry) that names a git-host, npm or `OP_` variable, as an error of the gate file and so of the validator, where the runner would have dropped it without a word.
 - **Wording.** The opening entry's fingerprint is measurement version 9's own (N14 left it unchanged). The epoch's cause says staging leaves a dangling link out of the folder it copies. `AGENTS.md` says a thin baseline is one closer than `baseline_margin`, the tie rule of the reliability model.
+
+## 2026-10-16: measurement version 10 closed (again, after the review of the pre-battery package)
+
+Review fixes of the pre-battery package: the early-end rule for a loop of call syntax counts the lines of a call block and tags anywhere in a line and ignores indented code and an unclosed fence, the R12 lists read only the inputs that name files and one skill's SKILL.md, and the gate file's token variables are an error; the image build and the golden recording are still to be run before the battery
+
+- Measurement version 10, floor 6: nothing was measured while it was open; from this commit on the runner writes evidence under it.
+- Fingerprint: `f817f03b6465361a8487e484bc5102b65cb0d6e8b4db8455045f3139ccaee151` (it replaces the one of the entry above).
+- Written by `python3 evals/eval_status.py measurement --close`.
+- Changed since the first closing: `evals/measure.py` (`collapse_loop` and its helpers) and the two `run-prompt.sh`. The image definition, the runner pin and the lock are unchanged, so the image build and the golden recording still to run are the ones the previous entry lists.
