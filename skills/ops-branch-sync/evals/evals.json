@@ -145,7 +145,7 @@
     {
       "id": 4,
       "prompt": "The favicon PR just landed on main. Bring docs/launch up to date with it.",
-      "expected_output": "The skill fetches and merges origin/main into docs/launch; nothing conflicts. It runs npm run lint and npm test, then pushes without asking, because the state file holds a standing approval for pushing a merge of origin/main into docs/* branches when no conflict was resolved, and its expiry (2027-12-31) is still ahead; it names that row, adds no approval row, quotes what git push printed, and reports the checks as not followed for lack of a code-hosting integration.",
+      "expected_output": "The skill fetches and merges origin/main into docs/launch; nothing conflicts. It runs npm run lint and npm test, then pushes without asking, because the state file holds a standing approval for pushing a merge of origin/main into docs/* branches when no conflict was resolved, and its expiry (2038-12-31) is still ahead; it names that row, adds no approval row, quotes what git push printed, and reports the checks as not followed for lack of a code-hosting integration.",
       "files": [
         "evals/files/shop-standing"
       ],
