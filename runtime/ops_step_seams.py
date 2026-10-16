@@ -17,6 +17,10 @@ module builds those services, once, for the process that runs the task (runtime/
                    normalised identifier or None} or None: what a write-back compares the target with
   effect_files     EffectFiles: write and read the effect document of a cycle of a task, by hash (runtime/ops_step_effects.py holds the
                    folder); the approval and the execution are not here
+  outbox           OutboxReader: `enabled`, `sender` and `provider` (the project's outbox, and the implementation of the class sender:email it
+                   resolves to) and `dry_run(doc, attachments)`: the provider's `send --dry-run` for a document and the bytes of its
+                   attachments (what it would send: its headers, its envelope, its text, each attachment's name, size and hash). It reads no
+                   credential, opens no connection, sends nothing and has no way to: the one flag it adds to the provider's verb is that dry run
   render           function(format, data) -> {"output", "tool_versions"}: the exporter (class exporter:document), called through the
                    resolver with the minimum environment; it makes a file from a text, on this machine, and changes nothing else
 
@@ -40,9 +44,12 @@ import effects  # noqa: E402
 import ops_core as core  # noqa: E402
 import ops_step_effects  # noqa: E402
 import project_config  # noqa: E402
+import send_document  # noqa: E402
 import sources  # noqa: E402
 
 READ_VERBS = ("read", "stat", "table-read", "rows-state")      # the only verbs of the documents provider a step kind can reach
+OUTBOX_CLASS = "sender:email"
+OUTBOX_TIMEOUT = 120
 EXPORTER_CLASS = "exporter:document"
 EXPORTER_TIMEOUT = 300
 OUTPUT_MAX = 8 * 1024 * 1024       # the exporter's own cap (providers/exporter/container.py OUTPUT_CAP)
@@ -102,6 +109,54 @@ class DocumentsReader:
     def table_read(self, table: str) -> dict:
         """A table's columns, their hash, its row count and the time of its newest edit (the provider's table-read; it changes nothing)."""
         return self._call("table-read", table)
+
+
+class OutboxReader:
+    """The project's outbox, for a dry run only: what the provider would send for a document, nothing sent and no credential read."""
+
+    def __init__(self, cfg: dict, root: str):
+        self._cfg, self._root = cfg, root
+
+    def enabled(self) -> bool:
+        return self._cfg.get("outbox") is not None
+
+    def sender(self) -> str:
+        return self._cfg["outbox"]["from"]
+
+    def _implementation(self):
+        chosen = self._cfg["outbox"].get("provider", "auto")
+        return None if chosen == "auto" else chosen
+
+    def provider(self) -> str:
+        """The implementation of the class sender:email that this project and this machine resolve to."""
+        resolve = project_config.resolver(self._root)
+        try:
+            return resolve.resolve(OUTBOX_CLASS, root=self._root, implementation=self._implementation())["implementation"]
+        except (resolve.UnknownClass, resolve.Unresolved) as e:
+            raise StepServiceError("not_configured", str(e)) from None
+
+    def dry_run(self, doc: dict, attachments) -> dict:
+        """The provider's dry run of `doc` (runtime/send_document.py): the subject, the text and each attachment are handed over as private
+        files that are removed at once, and the provider starts with the minimum environment, with no secret in it."""
+        folder = tempfile.mkdtemp(prefix="openhora-dry-run-")
+        try:
+            def put(name: str, data: bytes) -> str:
+                path = os.path.join(folder, name)
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                with os.fdopen(fd, "wb") as f:
+                    f.write(data)
+                return path
+            files = [put(f"attachment-{i}", data) for i, data in enumerate(attachments)]
+            args = send_document.provider_args(doc, put("subject.txt", doc["subject"].encode("utf-8")), put("body.txt", doc["body"].encode("utf-8")),
+                                               files) + ["--dry-run"]
+            resolve = project_config.resolver(self._root)
+            try:
+                return resolve.call(OUTBOX_CLASS, "send", args, root=self._root, implementation=self._implementation(), timeout=OUTBOX_TIMEOUT,
+                                    env=resolve.provider_environment(OUTBOX_CLASS, None, ()))
+            except resolve.ProviderCallError as e:
+                raise StepServiceError({"not-configured": "not_configured", "usage": "refused"}.get(e.kind, "provider_failed"), e.reason) from None
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
 
 
 class EffectFiles:
@@ -181,7 +236,7 @@ def services(ctx: dict) -> dict:
     """The services of the Context for the task a process runs: `ctx` is the operations layer's context (ops_core.context)."""
     cfg, root = ctx["cfg"], os.path.dirname(HERE)
     return {"config": cfg, "documents": DocumentsReader(cfg, root), "source_pin": source_pin(cfg["project"]), "effect_files": EffectFiles(cfg),
-            "render": renderer(root)}
+            "outbox": OutboxReader(cfg, root), "render": renderer(root)}
 
 
 if __name__ == "__main__":

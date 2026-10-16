@@ -45,6 +45,13 @@ document) nor inside the workbench checkout; any other provider has "expires", a
 runtime writes nothing to it. Every other key is the implementation's, passed on untouched. These objects are the
 bounds of what the runtime writes to a platform: they are inside the file whose hash the person accepts.
 
+It also reads "outbox" (package EMAIL-SEND; absent: the project sends no e-mail): the account an e-mail leaves from, an object
+{"provider": "auto" | "<implementation>", "from": "<address>"}. "provider" is "auto" (the class sender:email resolves as providers/resolve.py
+says) or an implementation shipped in providers/mailer/; "from" is one plain address, which is the sender of every e-mail the project sends
+and which the provider of this machine must hold the account of (one outbox account per machine). No recipient list is kept here: the person
+approves the exact recipients of each e-mail by its hash, and a cap of 20 is code. Like every key, it is changed only in the terminal and
+accepted with accept-config; it holds no secret (the password is the secret MAILER_SMTP_PASSWORD).
+
 It also reads "protected_paths" (a list of non-empty texts; absent means none): stage 2 asks it whether a glob
 matches AGENTS.md (runtime/workcopy.py, limit L5); from stage 4 no change set may touch a path one of them covers
 (runtime/changeset.py, matches(): the whole relative path against the entry with fnmatch, so `*` crosses `/`, and an
@@ -102,6 +109,7 @@ sys.path.insert(0, HERE)
 import autonomy  # noqa: E402  (the same folder: the check of the key "area_agents")
 import deps  # noqa: E402  (the same folder: the recipes and the check of the key "dependencies")
 import lease  # noqa: E402  (the same folder: a database or a lock is refused in a synced folder)
+import mail_address  # noqa: E402  (the same folder: the form of the outbox's sender)
 import operations  # noqa: E402  (the same folder: the groups and the ceilings the key "channels" is checked against)
 import sources  # noqa: E402  (the same folder: the paths rules of the key "sources_dir")
 
@@ -111,7 +119,7 @@ REQUIRED = ("workbench", "data_dir", "store_db", "sources_dir")
 TASK_RUNTIME_KEYS = ("workbench", "data_dir", "store_db", "sources_dir", "area_agents", "handlers", "task_board", "documents",
                      "protected_paths", "code", "dependencies", "max_cost_usd_per_run", "model_prices", "messaging", "channels",
                      "max_running", "default_model", "price_max_age_days", "run_retention_days", "source_versions_kept",
-                     "sweep_orphan_containers", "language")
+                     "sweep_orphan_containers", "language", "outbox")
 # The top-level keys scripts/runtime.py, scripts/runtime_vote.py and scripts/vote_job.py read from the same file
 # (the first runtime). Leaves with stage 7.
 FIRST_RUNTIME_KEYS = ("agent", "harness", "model", "mailbox", "publisher", "store", "scheduler", "notification_query",
@@ -204,6 +212,7 @@ def load(project: str) -> dict:
         raise ConfigError("runtime.json sweep_orphan_containers must be true or false")
     out["sweep_orphan_containers"] = sweep
     out["language"] = _language(raw.get("language"))
+    out["outbox"] = _outbox(raw.get("outbox"), out["workbench"])
     return out
 
 
@@ -452,6 +461,27 @@ def _code(value):
         if not isinstance(branch, str) or not BRANCH.fullmatch(branch) or ".." in branch or branch.endswith(".lock"):
             raise ConfigError(f"runtime.json code.{key} must be a branch name")
     return {"provider": value["provider"], "repo": value["repo"], "base": value["base"], "branch_prefix": prefix}
+
+
+OUTBOX_KEYS = ("provider", "from")
+OUTBOX_CLASS = "sender:email"
+
+
+def _outbox(value, workbench: str):
+    """The key "outbox", checked; None when absent."""
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) - set(OUTBOX_KEYS) or "from" not in value:
+        raise ConfigError(f"runtime.json outbox must be an object with the keys {', '.join(OUTBOX_KEYS)} (from is required)")
+    provider = value.get("provider", "auto")
+    shipped = _implementations(workbench, OUTBOX_CLASS)
+    if provider != "auto" and provider not in shipped:
+        raise ConfigError(f"runtime.json outbox.provider must be auto or one of {', '.join(shipped) or 'none: no provider is shipped'}")
+    try:
+        sender = mail_address.normalize_address(value["from"])
+    except mail_address.AddressError as e:
+        raise ConfigError(f"runtime.json outbox.from: {e.reason}") from None
+    return {"provider": provider, "from": sender}
 
 
 def resolver(workbench: str):

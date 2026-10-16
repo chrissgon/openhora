@@ -54,6 +54,8 @@ BEFORE = {
     "MESSENGER_WHATSAPP_TWILIO_API_KEY_SID": ((), "messenger-whatsapp-twilio-api-key-sid", ("providers/messenger/whatsapp-twilio.py",)),
     "MESSENGER_WHATSAPP_TWILIO_API_KEY_SECRET": ((), "messenger-whatsapp-twilio-api-key-secret", ("providers/messenger/whatsapp-twilio.py",)),
     "MESSENGER_WHATSAPP_TWILIO_AUTH_TOKEN": ((), "messenger-whatsapp-twilio-auth-token", ("providers/messenger/whatsapp-twilio.py",)),
+    # EMAIL-SEND: the password of the outbox account that sends the e-mails the person approved.
+    "MAILER_SMTP_PASSWORD": ((), "mailer-smtp", ("providers/mailer/smtp.py",)),
     # S16: the sign-in of the password manager (1Password), found only in the environment, the credentials directory or the OS store.
     "OP_SERVICE_ACCOUNT_TOKEN": ((), "password-manager-1password", ("providers/secrets/resolver.py",)),
     # The key proxy of the eval network became a reader of the floor key on 2026-10-03: it holds the value of an eval run.

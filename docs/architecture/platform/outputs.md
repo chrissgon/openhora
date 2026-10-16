@@ -9,6 +9,7 @@ Four things, one idea: **nothing leaves the project, and nothing reaches a model
 - **A file made by code.** A task's result, a Markdown or a CSV file, becomes a CSV file, a workbook, a Word document or a PDF, by adopted open tools in a container with no network and no model. The file is written into `docs/outputs/` of the project.
 - **A write-back.** The text of a project document replaces, whole, a document on the platform (a Notion page today). It is an **external effect**: the person is shown the exact content, approves its hash once, code writes it once, and the approval and the result are recorded. If the document was edited after the task read it, nothing is written and the person is asked again.
 - **Something new on the platform.** The same effect word and the same approval make a new page under a parent page, a new table (a Notion database with its columns) filled from a CSV file or a workbook, or add rows to a table the task read. The weekly report that ends as a table the team already uses is the case. The hash covers the operation, the parent or table, the title and every column, type and cell. Package NOTION-OUT; the section "A new page, a new table, rows added" below.
+- **An e-mail is sent after the person approves it.** A step task prepares an e-mail from the project's outbox (a dedicated account); the person is shown the sender, every recipient (the Bcc too), the subject, the text whole and each attachment by name and hash, approves the hash once, and code sends it once, to exactly those recipients. It is the same effect path as the write-back with another word, `send`. Package EMAIL-SEND; the section "Sending an e-mail" below.
 - **Hidden text is flagged.** An HTML page or a PDF can hold text a person cannot see (white on white, a one-pixel font, `display: none`, the invisible render mode of a PDF) that a model reads. The converter counts it, names the kinds and gives location hints, never the text, and the version's manifest and the catalog say so.
 
 ## Artifacts it owns
@@ -34,10 +35,13 @@ Four things, one idea: **nothing leaves the project, and nothing reaches a model
 | Effectful step | a step whose executor would perform an external effect itself; refused for every kind when it is registered | `runtime/steps.py` `Kind.effectful`, `_check_effects` |
 | Write-back kind | `write-back`: `prepare` (read the content and the target, write the effect document) and the gate `write` | `runtime/step_write_back.py` |
 | Output kinds | `output-page` and `output-table`: `prepare` and the gate `approval`; a new page, a new table, rows added | `runtime/step_output.py` |
+| Send-email kind | `send-email`: `prepare` (check the recipients, the subject, the text and the attachments, take the sender from the project's `outbox`, ask the provider for a dry run, write the effect document) and the gate `send` | `runtime/step_send_email.py` |
 | Table reader | CSV or the first sheet of a workbook to `{columns, rows}`: the type of each column given or inferred, the caps | `runtime/table_data.py` |
 | Output document | the document of the three operations that make something new, its hash fields, its preview; no function that writes | `runtime/output_document.py` |
 | Effect kind `write` | the side-effect word and module of the write, one word for four operations (`update_page`, `create_page`, `create_table`, `append_rows`); the third path of an effect, the **step path** | `runtime/effect_write.py`, `effects.KINDS` |
-| Step-effect approval | the approval and the execution of a gate's effect | `runtime/ops_step_effects.py`, called by `ops._approve_effect` |
+| E-mail document | the document of an e-mail: sender, To, Cc, Bcc, subject, text, attachments by hash, the derived key and Message-ID, the hash of the provider's dry run; its preview; no function that sends | `runtime/send_document.py` |
+| Effect kind `send` | the side-effect word and module of the send; the step path, `POLICY` false (no standing approval) | `runtime/effect_send.py`, `effects.KINDS` |
+| Step-effect approval | the approval and the execution of a gate's effect; it names no platform: each kind's module gives it `preflight`, `caller` and `idempotency_key` | `runtime/ops_step_effects.py`, called by `ops._approve_effect` |
 | Hidden-text record | `{"examined", "count", "kinds", "hints"}`, checked on the host against the closed list `HIDDEN_KINDS` | `providers/converter/_inner.py` (finds), `runtime/sources.py` `hidden_text_record` (keeps) |
 
 ## Entry points
@@ -48,7 +52,8 @@ Four things, one idea: **nothing leaves the project, and nothing reaches a model
 | a step task of kind `write-back` with `{"target": "<document id>", "content": "docs/<file>.md"[, "source": "<source id>"]}` | reads, prepares, and stops at an `effect` decision |
 | a step task of kind `output-page` with `{"parent": "<page id>", "title": "<title>", "content": "docs/<file>.md"}` | prepares a new page and stops at an `effect` decision |
 | a step task of kind `output-table` with `{"parent": "<page id>", "title": "<title>", "rows": "docs/<file>.csv or .xlsx"[, "columns": {"<name>": "<type>"}]}` or `{"table": "<data source id>", "rows": "docs/<file>.csv or .xlsx"}` | prepares a new table, or rows added to one, and stops at an `effect` decision |
-| `approve --id <pending id> --sha256 <the hash shown>` | the terminal and the page only: executes the write once |
+| a step task of kind `send-email` with `{"to": "<a@x.example, b@y.example>", "subject": "<one line>", "body": "<text>"[, "cc": "...", "bcc": "...", "attach": ["docs/<file>.pdf"], "in_reply_to": "<id@host>"]}`, or the flow `send-email` (`route --request <id> --flow send-email --param to=... --param subject=... --param body=...`; `cc` is `none` by default, the word that means no one: a flow's parameter cannot be blank) | prepares an e-mail and stops at an `effect` decision |
+| `approve --id <pending id> --sha256 <the hash shown>` | the terminal and the page only: executes the write (or the send) once |
 | `cancel --request <id>` (and the board's `cancelled` move, a direct reply's cancel, a routine closing its stops) | cancels the request and what is open under it, **except** an output whose write is running: its decision stays open and its task as it is, so that the write records its outcome when it ends (the answer says "the write of <target> is running and will be recorded; everything else is cancelled"); the request is cancelled and ends cancelled |
 | `reject --id <pending id>` | cancels the task; nothing is written, unless the write of an output is running: then it is refused ("being written; wait for the write to finish"), because the decision would otherwise be cancelled after the page or table was made, with no record. An answer to the decision is refused the same way |
 | `python3 providers/exporter/container.py --check \| build (--dry-run \| --confirmed) \| render --format <f> --input <file> --out-dir <folder>` | the renderer's image and a render by hand |
@@ -178,6 +183,40 @@ A row the platform refuses (a 4xx) is released and named in the message; it fail
 
 **Limits.** L30 and L31 hold unchanged for the new operations: `runtime/step_output.py` imports only `output_document`, `steps`, `table_data` and `write_document`, holds no write verb, and reaches the platform only through `ctx.services`, where `documents` gained four reads (`stat` with a name, `table-read`, `rows-state`); the one function that writes is still `effect_write.execute`; the approval comes from the terminal or the page only; L31's row lists the new tests. No new limit was needed.
 
+## Sending an e-mail
+
+```
+step task "send-email"                 person                           code
+  prepare: check To/Cc/Bcc (plain addresses, at most 20 in all, none twice),
+           the subject (one line, <= 200), the text (<= 100 KB, no credential)
+           read each attachment (a file under docs/, no link, not the sources folder, <= 18 MB together)
+           the sender is the `from` of the project's `outbox`
+           the provider's dry run (no connection, no credential): what it would send
+           write effect.json (sender, recipients, text, attachments by hash, key, Message-ID, dry-run hash)
+  send (gate): opens an `effect` decision      ->  reads sender, every recipient, subject, text
+               the hash covers all of it            approve --sha256 <hash>  (terminal or page)
+                                                                         ->  execute: read each attachment again, compare its
+                                                                             sha256 (changed: stale, nothing sent, start over),
+                                                                             dry run must hash to the document's, then
+                                                                             `send --confirmed` once; record
+```
+
+**The document** (`runtime/send_document.py`): `effect`, `task`, `provider`, `from`, `to`, `cc`, `bcc`, `subject`, `body`, `body_sha256`, `in_reply_to`, `attachments` (path, name, media type, size, sha256), `message_id`, `idempotency_key`, `dry_run_sha256`. The key is `send-` and 32 hex digits of the sha256 of the task, the sender, the recipients, the subject, the text, the reply and the attachments (name and hash); the Message-ID `<oh.<32 hex>@domain>` derives from it. So the recipients are inside the hash: an approval of one e-mail covers no other recipient, and an e-mail is sent once however many decisions reach it. The date and the MIME boundaries are not content: the provider makes them.
+
+**What the person sees** (`body(doc, digest)`): the sender, To, Cc and Bcc first (so that a long text cannot hide a recipient), the subject, the reply, the number of recipients, the text exactly, one line per attachment (name, size, sha256, path), the hash and the command that approves it. The Bcc is shown to the approver and hidden from the others.
+
+**The configuration.** `outbox` in `docs/workbench/runtime.json`: `{"provider": "auto" | "<implementation>", "from": "<address>"}`, accepted with `accept-config`. There is no list of allowed recipients (the person approves the exact recipients of each e-mail by its hash) and a cap of 20 recipients in all is code. One outbox account per machine: the provider holds the account (`setup`), and another `from` is refused. At the approval `preflight` checks that the outbox still names the document's sender and resolves to the document's provider.
+
+**What the message says is what was approved.** A mail library decodes some texts into more than they say (an RFC 2047 encoded word in a subject or an address), so `=?` is refused in the subject, every address and the reply id, a lone `\r` in the text is written `\n` when the task is planned (the hash and the message then agree), a non-ASCII domain must be given as `xn--`, and the provider builds the message and reads it back before the dry run and before the send: the headers, the text and the attachments must be exactly the document's, else nothing is sent. The dry run's hash covers that reading.
+
+**Refused by structure.** The gate has no executor and `prepare` only asks for a dry run: `ctx.services.outbox` has `enabled`, `sender`, `provider` and `dry_run` and no way to send (`runtime/ops_step_seams.py`; a test holds the names and that the file holds no `--confirmed`). The one function that sends is `effect_send.execute`, reached only from the operation `approve`, under the lock of the decision (every send is `is_long`): a reject or an answer of the decision is refused while it runs, and the project's write lock is not held while the e-mail is sent. `POLICY` is false and the word is a STEP kind, so no standing approval can name it (`ops._bounds_words`). Limit L42.
+
+**Results.** `sent`; `replayed` (the key was done already, or the provider found the message in the Sent folder after an earlier attempt lost its answer: nothing was sent again); `unknown` (the provider's exit 4 or a timeout: the e-mail may or may not have been sent; the decision stays open, and approving it again meets the provider's ledger, which looks in the Sent folder first); a refusal with nothing sent (exit 1 of the provider guarantees it; one refused recipient is all-or-nothing); `stale` (an attachment is not the file the task read: the decision is answered, the approval revoked, the task starts over from `prepare`).
+
+**Where it can be approved.** In the terminal and on the page (`operations.EFFECT_CHANNELS`). A messaging app may approve it only when the project's policy grants the group `approve-effect-send` (decision POL-1; until it merges, the seam is the name `effect_send.APPROVAL_GROUP` and nothing grants it), and an e-mail with an attachment is never whole on a messaging card: `effect_send.on_cards(doc)` is false, because the card cannot carry the file the hash covers.
+
+**What code cannot enforce, and the live checks.** What a server does with a message once it said 250 (the host's); whether the host files a copy in the Sent folder, which `lookup` depends on; the size the host accepts (the cap is 18 MB of attachments, about 24 MB after encoding). To verify on first use: [providers/mailer/README.md](../../../providers/mailer/README.md).
+
 ## The rule that a review is harmless to pass
 
 A stop of a step task passes on the word `continue` from any channel, including a messaging app. So no step performs an external effect itself, before a stop or after one, and every external effect goes through a gate, whose approval is the hash of the exact content from the terminal or the page. What is **code**, and what is a **test**:
@@ -185,7 +224,7 @@ A stop of a step task passes on the word `continue` from any channel, including 
 - Code: `steps.register` refuses a kind that declares an `effectful` step, whatever its place and whether or not the kind starts on its own. A step kind is handed its services through `ctx.services` (`runtime/ops_step_seams.py`): `documents` has `read` and `stat` and no way to write (its two verbs are literals), `effect_files` writes and reads the effect document and does not execute it, `render` makes a file from a text. The document of a write-back and its preview are in `runtime/write_document.py`, which holds no function that calls a provider; the one function that writes to a platform is `effect_write.execute`, which only the operation `approve` reaches, and which refuses unless given the approval of exactly the document it writes. So a step kind has no function in reach that could write.
 - Test, not code: Python cannot stop a module from importing another. A static test over `runtime/step_*.py` (`runtime/tests/test_steps_gate.py`) holds each step module to a row of the modules it may import (none that calls a provider: not `documents`, `board`, `effects`, the operations layer or `project_config`), and fails on `--confirmed`, `--dry-run`, `.execute`, a network module of the standard library. It is a tripwire; a new kind is reviewed for what it imports, and adding one to the table is a visible change. `step_ingest` is the one kind with a wider row (it imports a source through the operations of the sources).
 
-A standing approval cannot name the word `write` either (`ops._bounds_words`): each write-back is approved by its own hash.
+A standing approval cannot name the word `write` or the word `send` either (`ops._bounds_words`): each write-back and each e-mail is approved by its own hash.
 
 ## Hidden text
 
@@ -210,4 +249,5 @@ The record is `{"examined": true, "count": n, "kinds": {kind: n}, "hints": ["dis
 - A signed number in a table is text (above). A Markdown table cannot be the input of a workbook: the task writes a CSV.
 - The renderer's PDF uses fonts of the image (DejaVu); a script they do not cover (for example Chinese) comes out as boxes.
 - The renderer's image is about 500 MB and is built once by a step the person starts; the lock of WeasyPrint's wheels is refreshed by hand.
+- An e-mail is sent from the plain text the task prepared: no HTML, no inline image, no threading beyond `in_reply_to`, no read of the replies (that is the e-mail channel's, a later package). A recipient is a plain address. Starting an e-mail from a phone needs the router to route it (a later package, EMAIL-ROUTE); today it is started in the terminal or on the page.
 - A write-back replaces the whole document; there is no merge and no diff against the page beyond the hash. A person who wants to see what changes compares the preview with the page.
