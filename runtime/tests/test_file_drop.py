@@ -190,3 +190,145 @@ def test_a_hand_over_is_refused_in_a_git_repository_that_does_not_ignore_the_dro
     assert "add .workbench-local/ to .gitignore" in str(refused.value)
     (tree["project"] / ".gitignore").write_text(".workbench-local/\n", encoding="utf-8")
     assert ops.hand_over(project, ids["market"], handed_file(tree, "second.txt"))["task"] == ids["market"]
+
+
+# --- the drop folder is opened from the project root one component at a time, never through a link (limit L2) ------------------------
+
+LEVELS = ["local", "drop", "task", "file"]
+
+
+def linked(tree, task_id: int, level: str) -> Path:
+    """.workbench-local/drop/<task id>/logo.svg with a link at one `level` (.workbench-local, drop, the task's folder, the file) to a real
+    folder or file outside the project that holds a logo.svg. Returns the outside folder."""
+    outside = tree["hand"].parent / "outside"
+    local = tree["project"] / ".workbench-local"
+    if level == "local":
+        real = outside / "drop" / str(task_id)
+        real.mkdir(parents=True)
+        (real / "logo.svg").write_text("outside\n", encoding="utf-8")
+        local.symlink_to(outside)
+    elif level == "drop":
+        real = outside / str(task_id)
+        real.mkdir(parents=True)
+        (real / "logo.svg").write_text("outside\n", encoding="utf-8")
+        local.mkdir()
+        (local / "drop").symlink_to(outside)
+    elif level == "task":
+        outside.mkdir()
+        (outside / "logo.svg").write_text("outside\n", encoding="utf-8")
+        (local / "drop").mkdir(parents=True)
+        (local / "drop" / str(task_id)).symlink_to(outside)
+    else:
+        outside.mkdir()
+        (outside / "logo.svg").write_text("outside\n", encoding="utf-8")
+        (local / "drop" / str(task_id)).mkdir(parents=True)
+        (local / "drop" / str(task_id) / "logo.svg").symlink_to(outside / "logo.svg")
+    return outside
+
+
+def contents(folder: Path) -> dict:
+    return {str(p.relative_to(folder)): p.read_bytes() for p in sorted(folder.rglob("*")) if p.is_file()}
+
+
+@pytest.mark.parametrize("level", LEVELS)
+def test_a_link_at_any_level_of_the_drop_refuses_the_hand_over_and_writes_nothing_outside(tree, level):
+    ids = planned(tree)
+    outside = linked(tree, ids["market"], level)
+    before = contents(outside)
+    with pytest.raises(ops.OpsError) as refused:
+        ops.hand_over(str(tree["project"]), ids["market"], handed_file(tree, "logo.svg", "new\n"))
+    if level == "file":
+        assert "already there" in str(refused.value)   # the link is a file of that name: a hand-over never replaces it
+    else:
+        assert "never reached through a link" in str(refused.value)
+        assert {"local": ".workbench-local", "drop": "drop", "task": str(ids["market"])}[level] in str(refused.value)
+    assert contents(outside) == before
+
+
+@pytest.mark.parametrize("level", LEVELS)
+def test_a_link_at_any_level_of_the_drop_lists_no_file_and_no_run_copy_receives_one(tree, level):
+    ids = planned(tree)
+    project = str(tree["project"])
+    outside = linked(tree, ids["market"], level)
+    before = contents(outside)
+    assert drop.files(project, ids["market"]) == []
+    asked = ops.run_next(project)
+    assert "logo.svg" not in " ".join(seen_by(asked))
+    # defence in depth: workcopy refuses a file of the drop that is named to it, the way drop.files would never list it
+    rel = f".workbench-local/drop/{ids['market']}/logo.svg"
+    entered = workcopy.entering(project, {"inputs": [], "outputs": [], "updates": [], "area": "business", "web": False}, web=False,
+                                cfg=ops_core.context(project)["cfg"], settings_names=[], prepared_dir=str(tree["hand"].parent / "prepared"),
+                                handed=[(str(tree["project"] / rel), rel)])
+    assert rel not in [r for _s, r in entered["files"]]
+    assert contents(outside) == before
+
+
+def test_a_plain_folder_still_works_through_the_descriptors(tree):
+    ids = planned(tree)
+    project = str(tree["project"])
+    done = ops.hand_over(project, ids["market"], handed_file(tree, "logo.svg", "plain\n"))
+    fd = drop.open_folder(project, ids["market"])
+    try:
+        assert drop.read_file(fd, "logo.svg") == b"plain\n"
+    finally:
+        os.close(fd)
+    assert [rel for _s, rel in drop.files(project, ids["market"])] == [done["path"]]
+    asked = ops.run_next(project)
+    assert "./" + done["path"] in seen_by(asked)
+    assert (Path(project) / done["path"]).stat().st_mode & 0o777 == 0o600
+    assert (Path(project) / ".workbench-local" / "drop").stat().st_mode & 0o777 == 0o700
+
+
+def test_the_descriptor_helpers_refuse_a_link_a_pipe_and_a_name_with_a_slash(tree):
+    ids = planned(tree)
+    project = str(tree["project"])
+    ops.hand_over(project, ids["market"], handed_file(tree, "real.txt"))
+    folder = Path(drop.folder(project, ids["market"]))
+    os.symlink(tree["hand"] / "real.txt", folder / "link.txt")
+    os.mkfifo(folder / "pipe.txt")
+    fd = drop.open_folder(project, ids["market"])
+    try:
+        for name in ("link.txt", "pipe.txt", "../real.txt", "..", ""):
+            with pytest.raises(drop.DropError):
+                drop.read_file(fd, name)
+        with pytest.raises(FileNotFoundError):
+            drop.read_file(fd, "absent.txt")
+        with pytest.raises(FileExistsError):
+            drop.write_new(fd, "real.txt", b"x")
+        with pytest.raises(OSError):
+            drop.write_new(fd, "link.txt", b"x")
+    finally:
+        os.close(fd)
+    assert [rel.rsplit("/", 1)[1] for _s, rel in drop.files(project, ids["market"])] == ["real.txt"]
+
+
+@pytest.mark.parametrize("bad", ["", "..", ".", "../x", "a/b", "7x", "request-", "request-../x", "-1", "1.5", True, None])
+def test_open_folder_refuses_a_task_id_that_is_not_a_number_or_a_request_staging_name(tree, bad):
+    with pytest.raises(drop.DropError, match="not a task id"):
+        drop.open_folder(str(tree["project"]), bad)
+    assert not (tree["project"] / ".workbench-local").exists()                       # nothing was opened or made
+
+
+def test_open_folder_takes_a_number_and_a_request_staging_name(tree):
+    project = str(tree["project"])
+    for good in (7, "request-7"):
+        with pytest.raises(FileNotFoundError):    # well formed, and not there
+            drop.open_folder(project, good)
+        os.close(drop.open_folder(project, good, create=True))
+    os.close(drop.open_folder(project, "7"))      # the number 7 and the text "7" are the same folder
+    assert (tree["project"] / ".workbench-local" / "drop" / "request-7").is_dir()
+
+
+def test_a_file_that_grew_after_its_size_was_read_is_refused(tree, monkeypatch):
+    ids = planned(tree)
+    monkeypatch.setattr(drop, "MAX_BYTES", 10)
+    real = os.fstat
+
+    def small_when_asked(fd):    # the size the hand-over reads is stale: the file is larger by the time it is read
+        info = real(fd)
+        return os.stat_result((info.st_mode, info.st_ino, info.st_dev, info.st_nlink, info.st_uid, info.st_gid, 0, 0, 0, 0)) \
+            if info.st_size > 10 else info
+    monkeypatch.setattr(drop.os, "fstat", small_when_asked)
+    with pytest.raises(ops.OpsError, match="larger than 10"):
+        ops.hand_over(str(tree["project"]), ids["market"], handed_file(tree, "grew.txt", "x" * 30))
+    assert drop.files(str(tree["project"]), ids["market"]) == []

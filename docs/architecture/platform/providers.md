@@ -273,7 +273,6 @@ Every provider takes `--help` and `--check`. Side-effect verbs take `--dry-run` 
 | The platform's comment endpoint for a member is an undocumented path; its behaviour may change | [providers/publisher/README.md](../../../providers/publisher/README.md), "To verify on first use" |
 | No test runs one contract over every messenger implementation: each provider has its own suite, and only the two WhatsApp renderers share a corpus; none of the five has been run against its live platform for every verb (the unofficial WhatsApp client and the Meta Cloud API not at all) | [messaging.md](messaging.md), "Known limits and improvements"; `providers/messenger/README.md` |
 | `sender:email`, `generator:*`, `search:web` and `integration:design-tool` have no implementation | [providers/CONTRACT.md](../../../providers/CONTRACT.md), "Verbs per class" |
-| A password manager as a secrets backend | [backlog](../../backlog.md), S16 |
 | The store's task functions are the task runtime's own persistence, not a substitutable class; no second backend is promised and no suite checks one (decision D2); the first runtime still calls the verbs through the command line | [providers/store/README.md](../../../providers/store/README.md), first paragraph; [providers/CONTRACT.md](../../../providers/CONTRACT.md), "Functions of the store" |
 | A provider a test starts with an environment of its own is not under the loopback guard; there only the provider's own refusal of a base address that is not loopback holds | `providers/loopback_only.py`, its docstring |
 

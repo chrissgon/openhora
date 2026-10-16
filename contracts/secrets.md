@@ -94,6 +94,6 @@ The WhatsApp provider (`providers/messenger/whatsapp.py`) has no token in the re
 
 ## Why
 
-Decided on 2026-09-28 (backlog S13): the first calls to real services showed each provider resolving its credential its own way, a cloud session's own `GITHUB_TOKEN` shadowing the maintainer's token (fixed with `VCS_GITHUB_TOKEN`), and a model provider's key living only in one shell and lost to later sessions. The lookup order (environment, then the OS secret store) is the one the providers already used; a password manager waits for a real case (backlog S16).
+Decided on 2026-09-28 (backlog S13): the first calls to real services showed each provider resolving its credential its own way, a cloud session's own `GITHUB_TOKEN` shadowing the maintainer's token (fixed with `VCS_GITHUB_TOKEN`), and a model provider's key living only in one shell and lost to later sessions. The lookup order (environment, then the OS secret store) is the one the providers already used; a password manager was added as a fourth place on 2026-10-15 (backlog S16, built in pull request #421; `git show 156a08cb:docs/backlog.md`).
 
 Decided on 2026-10-02: the registry named one AI tool's credential variable, its store name and three adapter paths, against the rule that the core names no AI tool and never reads an adapter. Each adapter now registers its own secrets, and the names passed into eval runs stay in the gate file alone.

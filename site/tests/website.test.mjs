@@ -505,6 +505,19 @@ const TOUR = `document.querySelector("#tour-player")`;
 const demoPoint = (sel) => `(() => { const fr = ${TOUR}.querySelector("iframe"), f = fr.getBoundingClientRect(), k = f.width / fr.offsetWidth, e = fr.contentDocument.querySelector(${JSON.stringify(sel)});
   const b = e ? e.getBoundingClientRect() : null; return b ? [Math.round(f.left + (b.left + b.width / 2) * k), Math.round(f.top + (b.top + b.height / 2) * k)] : [Math.round(f.left + f.width / 2), Math.round(f.top + f.height / 2)]; })()`;
 
+// Click an element of the demo only once it is what the pointer would hit there: the point is computed again on every look, and the click
+// waits until the demo's own elementFromPoint, in the frame's own coordinates, answers with the element (or a child of it). A click
+// aimed blindly at a point can land on whatever the autopilot has opened or moved there at that moment.
+const hitsOf = (sel) => `(() => { const d = ${TOUR}.querySelector("iframe").contentDocument, e = d && d.querySelector(${JSON.stringify(sel)}); if (!e) return false;
+  const b = e.getBoundingClientRect(), top = d.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2); return !!top && (top === e || e.contains(top)); })()`;
+const clickDemo = async (sel) => {
+  assert.ok(await page.waitFor(hitsOf(sel), 15000), `${sel} never became what the pointer hits at its own centre`);
+  const [x, y] = await page.eval(demoPoint(sel));
+  await page.mouseClick(x, y);
+};
+// The visitor takes over by clicking the ribbon's badge: nothing the autopilot does can open or move something over it, and it does nothing itself.
+const BADGE = ".wb-demo-ribbon .pui-badge";
+
 describe("interface: the tour frame", () => {
   const open = async (size = WIDTHS[0], mode = "light", opts = {}) => { await page.setup(size, mode, opts); await page.goto(base + "/interface"); };
 
@@ -542,13 +555,10 @@ describe("interface: the tour frame", () => {
     await page.eval(`${TOUR}.querySelector("[data-tour-start]").click()`);
     assert.ok(await page.waitFor(`${TOUR}.dataset.state === "playing"`), `the tour did not reach "playing" (state ${await page.eval(`${TOUR}.dataset.state`)})`);
     assert.ok(await page.waitFor(`!!${TOUR}.querySelector("iframe").contentDocument?.querySelector(".wb-demo-ribbon")`), "the demo did not draw");
-    const at = (sel) => demoPoint(sel);
-    const [x, y] = await page.eval(at("#app"));
-    await page.mouseClick(x, y);
+    await clickDemo(BADGE);
     assert.ok(await page.waitFor(`${TOUR}.dataset.state === "takeover"`), "a visitor's click inside the demo did not put the frame in the takeover state");
     assert.equal(await page.eval(`!!${TOUR}.querySelector(".tour-takeover") || /story is paused|You have the controls/i.test(${TOUR}.textContent)`), false, "a take-over message appears after a click inside the demo");
-    const [sx, sy] = await page.eval(at(".wb-demo-ribbon button:last-child"));
-    await page.mouseClick(sx, sy);
+    await clickDemo(".wb-demo-ribbon button:last-child");
     assert.ok(await page.waitFor(`${TOUR}.dataset.state === "playing"`), "the demo's own Start over did not put the frame back to playing");
   });
 
@@ -713,15 +723,13 @@ describe("interface: the tour frame is scaled", () => {
       await start(width);
       assert.equal(await page.eval(`${TOUR}.querySelector("iframe").offsetWidth / ${TOUR}.querySelector("iframe").getBoundingClientRect().width > 1`), true, "the demo is not scaled down, so the click proves nothing");
       await page.eval(`(() => { const d = ${TOUR}.querySelector("iframe").contentDocument; window.__hits = []; d.addEventListener("pointerdown", (e) => window.__hits.push([e.clientX, e.clientY, e.target.id || e.target.tagName]), true); })()`);
-      const [x, y] = await page.eval(demoPoint("#app"));
-      const want = await page.eval(`(() => { const e = ${TOUR}.querySelector("iframe").contentDocument.querySelector("#app").getBoundingClientRect(); return [e.left + e.width / 2, e.top + e.height / 2]; })()`);
-      await page.mouseClick(x, y);
+      const want = await page.eval(`(() => { const e = ${TOUR}.querySelector("iframe").contentDocument.querySelector(${JSON.stringify(BADGE)}).getBoundingClientRect(); return [e.left + e.width / 2, e.top + e.height / 2]; })()`);
+      await clickDemo(BADGE);
       assert.ok(await page.waitFor(`${TOUR}.dataset.state === "takeover"`), "a click inside the scaled demo did not reach it");
       const [hit] = await page.eval("window.__hits");
       assert.ok(hit, "the demo heard no pointer");
       near(hit[0], want[0], "the pointer's x in the demo's own pixels"); near(hit[1], want[1], "the pointer's y in the demo's own pixels");
-      const [sx, sy] = await page.eval(demoPoint(".wb-demo-ribbon button:last-child"));
-      await page.mouseClick(sx, sy);
+      await clickDemo(".wb-demo-ribbon button:last-child");
       assert.ok(await page.waitFor(`${TOUR}.dataset.state === "playing"`), "the demo's own Start over, clicked through the scale, did not play again");
     });
   }

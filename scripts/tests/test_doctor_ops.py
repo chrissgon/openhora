@@ -238,7 +238,7 @@ def test_run_all_reads_the_project_and_gives_every_check(tmp_path):
     cfg = {"data_dir": str(tmp_path / "data"), "sources_dir": str(tmp_path / "sources")}
     got = ops.run_all(project="/p", load_config=lambda p: cfg, tool=FakeDocker([], {}), run=runner(out="yes"), system="Linux",
                       usage=usage_of({str(tmp_path): 30 * GIB}), probe=lambda: {"state": "ok", "detail": ""}, image={"state": "published-present"})
-    assert set(got) == {"linger", "sources_access", "disk", "proxy_logs", "lease", "secret_store", "password_manager", "image", "project"}
+    assert set(got) == {"linger", "sources_access", "disk", "proxy_logs", "lease", "secret_store", "password_manager", "image", "images", "project"}
     assert got["linger"]["status"] == "ok" and got["disk"]["status"] == "ok" and got["sources_access"]["status"] == "na"
     assert got["project"]["status"] == "ok"
     bad = ops.run_all(project="/p", load_config=lambda p: (_ for _ in ()).throw(ValueError("runtime.json not found")), tool=FakeDocker([], {}),
@@ -264,6 +264,7 @@ def stub_doctor(monkeypatch, tmp_path, *, linger="no", docker=None):
         {"name": "A", "found": False, "state": "locked", "source": None, "service": None, "store": "locked", "detail": "d", "classes": [], "readers": ["x"], "set": "s"},
         {"name": "B", "found": False, "state": "missing", "source": None, "service": None, "store": "available", "detail": "", "classes": [], "readers": ["x"], "set": "s"}])
     monkeypatch.setattr(doctor, "store_probe", lambda: {"state": "locked", "detail": "d"})
+    monkeypatch.setattr(doctor, "image_families", lambda: [])    # no provider image is looked for: tests/test_container_images.py asks for them
     monkeypatch.setattr(doctor, "load_project_config", lambda p: {"data_dir": str(tmp_path), "sources_dir": str(tmp_path)})
     import platform
     monkeypatch.setattr(platform, "system", lambda: "Linux")
@@ -297,7 +298,7 @@ def test_the_json_carries_the_unattended_key_the_image_setup_and_the_state_of_ea
     stub_doctor(monkeypatch, tmp_path, linger="yes")
     assert doctor.main(["--unattended", "--project", str(tmp_path), "--json", "--min-free-gib", "3"]) == 0
     report = json.loads(capsys.readouterr().out)
-    assert set(report["unattended"]) == {"linger", "sources_access", "disk", "proxy_logs", "lease", "secret_store", "password_manager", "image", "project"}
+    assert set(report["unattended"]) == {"linger", "sources_access", "disk", "proxy_logs", "lease", "secret_store", "password_manager", "image", "images", "project"}
     assert report["unattended"]["linger"]["status"] == "ok" and report["unattended"]["secret_store"]["status"] == "warn"
     assert report["image"]["setup"].startswith("python3 scripts/image_lock.py pull")
     assert {s["name"]: s["state"] for s in report["secrets"]} == {"A": "locked", "B": "missing"}

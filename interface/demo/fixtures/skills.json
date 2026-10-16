@@ -2311,76 +2311,6 @@
       "runs_here": 0
     },
     {
-      "name": "flow-fix-bug",
-      "version": "1.2.0",
-      "area": "core",
-      "manifest": true,
-      "proof": [
-        {
-          "model": "demo-model-a",
-          "adapter": "adapter",
-          "provider": null,
-          "band": "needs a test",
-          "cause": "guard assertion(s) 1.4, 1.5, 2.4, 2.5, 3.3, 3.4, 3.5, 4.5, 4.6, 5.5, 5.6 have no run in the current set",
-          "score": 0.6,
-          "mean": 0.96,
-          "runs": 3,
-          "web_measured": false,
-          "usage_mean": {
-            "cache_read": 0.0,
-            "cache_write": 0.0,
-            "input": 1000.0,
-            "output": 200.0
-          },
-          "source": "lab",
-          "price": {
-            "input": 3.0,
-            "output": 15.0,
-            "cache_read": 0.3,
-            "cache_write": 3.75,
-            "source": "https://prices.example/models",
-            "accessed": "2026-10-01",
-            "age_days": 14,
-            "stale": false
-          },
-          "expected_cost": 0.0124,
-          "key": "lab"
-        },
-        {
-          "model": "demo-model-b",
-          "adapter": "adapter",
-          "provider": null,
-          "band": "needs a test",
-          "cause": "no baseline in force on openrouter/deepseek/deepseek-v4.1-flash for case(s) 1, 2, 3, 4, 5",
-          "score": 0.65,
-          "mean": 1.0,
-          "runs": 3,
-          "web_measured": false,
-          "usage_mean": {
-            "cache_read": 0.0,
-            "cache_write": 0.0,
-            "input": 1000.0,
-            "output": 200.0
-          },
-          "source": "lab",
-          "price": {
-            "input": 0.1,
-            "output": 0.5,
-            "cache_read": 0.01,
-            "cache_write": 0.125,
-            "source": "https://prices.example/models",
-            "accessed": "2026-10-01",
-            "age_days": 14,
-            "stale": false
-          },
-          "expected_cost": 0.0006,
-          "key": "lab"
-        }
-      ],
-      "recommended": null,
-      "runs_here": 0
-    },
-    {
       "name": "mkt-content-plan",
       "version": "1.0.0",
       "area": "marketing",
@@ -3342,7 +3272,7 @@
       "model": "demo-model-a",
       "adapter": "adapter",
       "provider": null,
-      "skills": 48,
+      "skills": 47,
       "reliable": 0,
       "community_only": 0,
       "expected_cost": 0.0124,
@@ -3362,7 +3292,7 @@
       "model": "demo-model-b",
       "adapter": "adapter",
       "provider": null,
-      "skills": 48,
+      "skills": 47,
       "reliable": 0,
       "community_only": 0,
       "expected_cost": 0.0006,

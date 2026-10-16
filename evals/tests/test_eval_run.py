@@ -839,22 +839,48 @@ def test_a_pass_env_variable_that_stays_unset_stops_the_run(tmp_path, monkeypatc
 
 
 def test_jobs_runs_model_runs_at_the_same_time_and_keeps_the_order(tmp_path, monkeypatch):
-    import time
+    """No clock: each fake run leaves a marker in a folder and waits until all four markers exist (at most 60 s), and writes
+    its response only then. The runs complete only if the four were alive at the same time, however slow the machine is."""
     skill = make_skill(tmp_path)
     (skill / "evals" / "evals.json").write_text(json.dumps({"evals": [{"id": 1, "prompt": "p", "assertions": ["a"]},
                                                                       {"id": 2, "prompt": "q", "assertions": ["a"]}]}))
     adapter = tmp_path / "adapters" / "h"
     adapter.mkdir(parents=True)
     (adapter / "eval.json").write_text(EVAL_JSON)
-    (adapter / "run-prompt.sh").write_text('sleep 1; echo ok > "$8/response.md"\n')
+    markers = tmp_path / "markers"
+    markers.mkdir()
+    (adapter / "run-prompt.sh").write_text(
+        f'd={markers}\n: > "$d/$$"\ni=0\n'
+        'while [ "$(ls "$d" | wc -l)" -lt 4 ] && [ "$i" -lt 600 ]; do sleep 0.1; i=$((i + 1)); done\n'
+        '[ "$(ls "$d" | wc -l)" -ge 4 ] && echo ok > "$8/response.md"\n')
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
     monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
-    start = time.monotonic()
     assert er.main(["--skill", "demo", "--harness", "h", "--model", "m", "--runs", "2", "--jobs", "4",
                     "--only", "with", "--no-grade"]) == 0
-    assert time.monotonic() - start < 3.5  # four one-second runs, not one after another
+    assert len(list(markers.iterdir())) == 4  # the four runs were alive together: each saw all four markers
     bench = json.loads((tmp_path / "evals-workspace" / "demo" / "iteration-1" / "benchmark.json").read_text())
     assert [(r["case"], r["run"]) for r in bench["run_summary"]["with_skill"]["cases"]] == [(1, 1), (1, 2), (2, 1), (2, 2)]
+
+
+def test_the_executor_module_is_whole_for_every_thread_that_loads_it(tmp_path, monkeypatch):
+    """Runs load evals/executor.py from several threads. A thread that came while another was still running the module
+    took the half-made one and found no `read_meter` (a flake of the test above under load). A stand-in module that is slow
+    to finish makes that every time."""
+    import threading
+    import time
+    slow = tmp_path / "executor.py"
+    slow.write_text("import time\ntime.sleep(0.4)\ndef read_meter(path):\n    return {}\n")
+    monkeypatch.setattr(er.KIT, "EXECUTOR_SCRIPT", str(slow))
+    monkeypatch.delitem(sys.modules, "workbench_eval_executor", raising=False)
+    seen = []
+    threads = [threading.Thread(target=lambda: seen.append(hasattr(er.KIT.load_executor(), "read_meter"))) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+        time.sleep(0.1)
+    for thread in threads:
+        thread.join(10)
+    sys.modules.pop("workbench_eval_executor", None)  # the stand-in must not be what the next test finds
+    assert seen == [True, True]
 
 
 @pytest.mark.parametrize("jobs", ["0", "9", "x"])
@@ -2911,7 +2937,7 @@ def test_an_event_with_other_values_than_the_configured_ones_writes_to_its_scrat
     assert out["evidence"]["scratch"] == str(scratch.relative_to(tmp_path))
     event, runs = event_file(tmp_path, out)
     assert event["skill"] == "demo" and event["complete"] is True and len(runs) == out["evidence"]["lines"] > 0
-    # A valid file by what its own event line states (backlog T24): the validator no longer compares the event's
+    # A valid file by what its own event line states (backlog T24 (removed on 2026-10-15; `git show bc830832:docs/backlog.md`)): the validator no longer compares the event's
     # "runs" with the gate file's current value, so a file stays valid when the gate file changes later. What keeps
     # a trial out of a skill's folder is this runner (above) and the review of every evidence file.
     status = er.load_status()

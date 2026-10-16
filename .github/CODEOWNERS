@@ -34,7 +34,6 @@
 /shared/                       @chrissgon
 /skills/*/evals/evidence/      @chrissgon
 /skills/*/evals/versions.jsonl @chrissgon
-/skills/*/evals/result.json    @chrissgon
 
 # The task runtime: what runs a skill for a person, what may enter a run and what may come back from it.
 /runtime/                      @chrissgon

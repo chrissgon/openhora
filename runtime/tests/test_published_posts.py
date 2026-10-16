@@ -1,4 +1,4 @@
-"""The weekly routine that lists the published posts (stage 6, WP-6.9; backlog item PB16), the first handler.
+"""The weekly routine that lists the published posts (stage 6, WP-6.9; backlog item PB16 (removed on 2026-10-15; `git show bc830832:docs/backlog.md`)), the first handler.
 
 A stand-in workbench is built in a temporary folder: the handler, providers/resolve.py and the store are the real
 files; the publisher, the code provider and runtime/cli.py are stand-ins written here, and `uv` is a stand-in that
