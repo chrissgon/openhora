@@ -85,6 +85,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/messaging_provider.py` | The messaging bridge's access to a messenger provider (class messenger:&lt;platform&gt;, providers/messenger/README.md): the four verbs as methods, started through providers/resolve.py, the one function that resolves a class and runs a provider's verb. |
 | `runtime/operations.py` | The table of operations: the one place that says what the operations layer (runtime/ops.py) offers to a shell. |
 | `runtime/ops.py` | The operations layer of the task runtime: every operation a person or a scheduler can perform, once. |
+| `runtime/ops_cancel.py` | Cancelling a request while the write of an output runs (package NOTION-OUT). |
 | `runtime/ops_config.py` | The configuration's acceptance in the operations layer: who may accept a change of docs/workbench/runtime.json, and the three operations that change or accept it. |
 | `runtime/ops_core.py` | The names every module of the operations layer shares, once: the checkout (ROOT), the refusal (OpsError), the project's context and the store call, the locks, the runtime's own key and the data-folder names. |
 | `runtime/ops_flows.py` | The operations over workflows (flow files, P6a): list them, check one, save a plan as one, hand a file over for a request, and the pieces the rest of the layer asks of them (binding a flow's parameters and dates, and moving a handed-over file into the task that reads it). |

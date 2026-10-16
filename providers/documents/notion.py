@@ -504,7 +504,8 @@ def ledger_prune(data: dict) -> None:
     rows it wrote would let the next run write them again. (A pending entry, a page made by `write` and an entry the person recorded
     with `resolve` are kept.)"""
     floor = (datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-    group = lambda full: full.split("/row-")[0]
+    # A key's entries: a page or a database is `<parent>/<key>`, its rows `<data source>/<key>/row-<n>`; the key is what they share.
+    group = lambda full: full.split("/")[1] if "/" in full else full
     open_groups = {group(k) for k, e in data["entries"].items() if isinstance(e, dict) and e.get("status") == "pending"}
     for full in [k for k, e in data["entries"].items() if isinstance(e, dict) and e.get("kind") == OUTPUT and e.get("status") == "done"
                  and str(e.get("recorded_at") or "9") < floor and group(k) not in open_groups]:
@@ -1112,12 +1113,14 @@ def cmd_rows_state(args: dict) -> int:
 
 
 @contextlib.contextmanager
-def key_locked(scope: str, key: str):
-    """An exclusive lock on one key of the ledger for the life of a write: a provider that outlives a killed runtime cannot run beside the
-    next one that approves the same key. Not waited for (KEY_LOCK_WAIT seconds), then refused. Released when the process ends."""
+def key_locked(identity: str):
+    """An exclusive lock for the life of a write: a provider that outlives a killed runtime cannot run beside the next one that approves
+    the same work. The identity is the SCOPE of the approvals of a task when the call gives one (`scope/<scope>`: a run under a new key
+    of the same task, after the table changed, is held back by an orphan still writing under the old one), else the key under its
+    target (`key/<target>/<key>`). Not waited for (KEY_LOCK_WAIT seconds), then refused. Released when the process ends."""
     path = ledger_path()
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    lock = path.parent / f"{path.name}.{hashlib.sha256(f'{scope}/{key}'.encode('utf-8')).hexdigest()[:24]}.key.lock"
+    lock = path.parent / f"{path.name}.{hashlib.sha256(identity.encode('utf-8')).hexdigest()[:24]}.key.lock"
     deadline = time.monotonic() + KEY_LOCK_WAIT
     while True:
         fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
@@ -1146,12 +1149,14 @@ def key_locked(scope: str, key: str):
 
 
 def under_key_lock(scope_flag: str):
-    """A verb that writes, run holding the lock of its key (a dry run takes none)."""
+    """A verb that writes, run holding the lock of its scope or key (a dry run takes none)."""
     def decorate(verb):
         def run(args: dict) -> int:
             if not args.get("--confirmed"):
                 return verb(args)
-            with key_locked(notion_id(args.get(scope_flag), scope_flag), key_of(args)):
+            scope = scope_arg(args)
+            identity = f"scope/{scope}" if scope else f"key/{notion_id(args.get(scope_flag), scope_flag)}/{key_of(args)}"
+            with key_locked(identity):
                 return verb(args)
         return run
     return decorate

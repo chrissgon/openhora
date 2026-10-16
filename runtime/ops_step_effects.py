@@ -41,6 +41,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import documents  # noqa: E402
 import effects  # noqa: E402
+import ops_cancel  # noqa: E402  (the name of the lock of a decision's write, shared with the cancel)
 import ops_core as core  # noqa: E402
 import ops_waits  # noqa: E402
 import project_config  # noqa: E402
@@ -162,7 +163,7 @@ def approve(ctx: dict, item: dict, sha256: str, found, call=None) -> dict:
             except effects.EffectError as e:
                 if e.kind == "stale":
                     answer = stale_answer(getattr(e, "rows_written", 0))
-                    with core._write_lock(cfg):
+                    with core._write_lock(cfg, wait=None):
                         ops_waits.settled(ctx, core._stored(ctx, store.pending_resolve, pending_id, resolution="answered", by="code",
                                                             answer=answer))
                     raise core.OpsError(f"{e.reason}. {answer}", 1) from None
@@ -170,7 +171,9 @@ def approve(ctx: dict, item: dict, sha256: str, found, call=None) -> dict:
                     raise core.OpsError(f"{e.reason}; {UNKNOWN_NEXT}", 1) from None
                 raise core.OpsError(f"nothing was written: {e.reason}; the effect stays open, and approving it again with the same hash "
                                     f"tries again", 3 if e.kind == "not-configured" else 1) from None
-            with core._write_lock(cfg):
+            # The record of a write that landed must not fail because another writer held the project's files for the usual wait
+            # (core.WRITE_LOCK_WAIT): it waits for as long as it takes. Every holder is bounded (a provider call has its timeout).
+            with core._write_lock(cfg, wait=None):
                 done = core._stored(ctx, store.effect_done, pending_id, approval["id"], by="user", result=result)
     return {"done": done, "approval": approval, "doc": doc, "result": result}
 
@@ -185,17 +188,13 @@ def _decision_lock(cfg: dict, pending_id: int, busy: str = APPROVE_BUSY):
     together, and a reject or an answer of it is refused while one runs (`busy` is the sentence). The file is removed as the last act
     while the lock is held (ops_core._try_lock depends on that order), so none is left behind; a decision still open gets a new one at
     its next approval. Released when the write ends or its process dies."""
-    fd = core._try_lock(cfg, f"output-{pending_id}.lock")
+    fd = core._try_lock(cfg, ops_cancel.lock_name(pending_id))
     if fd is None:
         raise core.OpsError(f"pending decision {pending_id} {busy}", 1)
     try:
         yield
     finally:
-        try:
-            os.unlink(os.path.join(core._locks_dir(cfg), f"output-{pending_id}.lock"))
-        except OSError:
-            pass
-        os.close(fd)
+        ops_cancel.release(cfg, pending_id, fd)
 
 
 @contextlib.contextmanager

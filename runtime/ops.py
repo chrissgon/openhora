@@ -212,6 +212,7 @@ import ops_models  # noqa: E402  (which model a run goes to: the choice, the key
 import ops_waits  # noqa: E402  (the derived waits between requests: rederive, for_plan, annotate, approve_plan)
 import autonomy  # noqa: E402  (the same folder, as scripts/runtime.py imports runtime_vote)
 import board  # noqa: E402
+import ops_cancel  # noqa: E402  (a cancel leaves open the effect whose write is running)
 import changeset  # noqa: E402
 import deps as deps_sets  # noqa: E402  (the operation `deps` would hide the module: part 0, F.1, rule 5)
 import dispatcher  # noqa: E402
@@ -1179,7 +1180,7 @@ def go_ahead(project: str, task_id: int, drop_after: bool = False) -> dict:
 def cancel(project: str, request_id: int) -> dict:
     """Cancel a request, its tasks that are not done, and their open pending decisions."""
     ctx = core.context(project)
-    out = ops_waits.settled(ctx, core._stored(ctx, ctx["store"].request_cancel, request_id, by="user"))
+    out = ops_waits.settled(ctx, core._stored(ctx, ops_cancel.request_cancel, request_id, by="user", context=ctx))
     ops_flows.discard_staged(ctx, request_id)      # the files handed over for its plan go with it
     return out
 

@@ -1420,3 +1420,124 @@ def test_a_cell_with_a_value_and_no_reference_is_refused():
     with pytest.raises(table_data.TableError) as refused:
         table_data.parse_xlsx(small_book(sheet))
     assert refused.value.code == "xlsx_unreadable"
+
+
+# --- review round 3: cancelling the request during a write, and the record of a write that landed -----------------------------------------------
+
+
+def request_of(world, task):
+    ctx = ops_core.context(world["path"])
+    return ctx["store"].task_get(ctx["conn"], task)["parent_id"]
+
+
+def cancel_by(world, how, request, monkeypatch):
+    """Cancel the request by one of the four ways the runtime has; returns what the way returned (None when it returns nothing)."""
+    ctx = ops_core.context(world["path"])
+    if how == "ops":
+        return ops.cancel(world["path"], request)
+    if how == "board":
+        board = st.load("board")
+        assert board._take_state(ctx, ctx["store"].task_get(ctx["conn"], request), "cancelled") is None
+        return None
+    if how == "routine":
+        monkeypatch.setattr(ctx["store"], "routine_fires_list", lambda conn, routine, limit: [{"status": "asked", "request_id": request}])
+        st.load("ops_routines")._close_stops(ctx, 1)
+        return None
+    say = st.load("ops_say")
+    fake_ops = type("Ops", (), {"request": staticmethod(lambda project, text, **kw: {"request": request}),
+                                "route": staticmethod(lambda project, request_id, channel=None: {"kind": "direct", "next": None, "run_id": None})})
+    monkeypatch.setattr(say, "_ops", lambda: fake_ops)
+    monkeypatch.setattr(say, "_planning_may_start", lambda ctx: (True, ""))
+    monkeypatch.setattr(say, "state_reply", lambda project, nxt: "a direct reply")
+    say._say_route(world["path"], ctx, "what is the plan?", 10**9, "terminal")
+    return None
+
+
+@pytest.mark.parametrize("how", ["ops", "board", "say", "routine"])
+def test_cancelling_the_request_during_a_write_leaves_the_running_write_open_to_record_its_outcome(world, monkeypatch, how):
+    task = table_task(world)
+    item = opened(world, task)
+    request = request_of(world, task)
+    other = add(world, "output-page", parent=world["parent"], title="Other", content=PAGE_PATH)
+    ctx = ops_core.context(world["path"])
+    ctx["conn"].execute("UPDATE tasks SET parent_id = ? WHERE id = ?", (request, other))     # a second task of the same request
+    ctx["conn"].commit()
+    seen = {}
+
+    def meanwhile():
+        seen["out"] = cancel_by(world, how, request, monkeypatch)
+        c = ops_core.context(world["path"])
+        assert c["store"].pending_get(c["conn"], item["id"])["status"] == "open", "the decision of the running write stays open"
+        assert c["store"].task_get(c["conn"], task)["state"] == "waiting", "and so does its task"
+        assert c["store"].task_get(c["conn"], request)["state"] == "cancelled", "the request is cancelled"
+        assert c["store"].task_get(c["conn"], other)["state"] == "cancelled", "everything else too"
+    done = during_a_table_write(world, monkeypatch, item, meanwhile)
+    c = ops_core.context(world["path"])
+    assert done["task_state"] == "done" and made_table(world)[1] == EXPECTED_ROWS
+    assert c["store"].pending_get(c["conn"], item["id"])["resolution"] == "approved", "the running write recorded its outcome"
+    assert c["store"].approval_get(c["conn"], done["approval_id"])["status"] == "executed"
+    assert c["store"].task_get(c["conn"], request)["state"] == "cancelled", "and the request ends cancelled"
+    assert f"sha256:{item['payload_sha256']}" in (world["root"] / "docs" / "workbench" / "state.md").read_text(encoding="utf-8")
+    assert f"output-{item['id']}.lock" not in locks_of(world)
+    if how == "ops":
+        assert seen["out"]["kept"] == [item["id"]] and seen["out"]["writing"][0]["pending"] == item["id"]
+        assert seen["out"]["said"] == f"the write of {world['parent']} is running and will be recorded; everything else is cancelled"
+        assert item["id"] not in seen["out"]["pending"] and task not in seen["out"]["cancelled"]
+
+
+def test_cancelling_a_request_nobody_is_writing_cancels_everything_as_before_and_leaves_no_lock_file(world):
+    task = table_task(world)
+    item = opened(world, task)
+    out = ops.cancel(world["path"], request_of(world, task))
+    assert item["id"] in out["pending"] and "kept" not in out and "writing" not in out and "said" not in out
+    assert task_state(world, task) == "cancelled" and f"output-{item['id']}.lock" not in locks_of(world) and writes(world) == []
+    with pytest.raises(ops_core.OpsError):
+        approve(world, item)
+
+
+def test_every_way_of_cancelling_a_request_goes_through_the_one_function_that_leaves_a_running_write_open():
+    import re
+    calls = {}
+    for path in sorted((st.REPO / "runtime").glob("*.py")):
+        for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if re.search(r"\.request_cancel[,(]", line) and "ops_cancel.request_cancel" not in line and path.name != "ops_cancel.py":
+                calls.setdefault(path.name, []).append(line.strip())
+    assert not calls, f"a way to cancel a request that does not go through ops_cancel.request_cancel: {calls}"
+    for name in ("ops.py", "board.py", "ops_say.py", "ops_routines.py"):
+        assert "ops_cancel.request_cancel" in (st.REPO / "runtime" / name).read_text(encoding="utf-8"), name
+
+
+def test_the_record_of_a_write_that_landed_waits_for_the_project_files_as_long_as_it_takes(world, monkeypatch):
+    import threading
+    import time
+    item = opened(world, table_task(world))
+    monkeypatch.setattr(ops_core, "WRITE_LOCK_WAIT", 0.3)      # the usual wait a writer gives the project's files
+    cfg = ops_core.context(world["path"])["cfg"]
+    real = docs.call
+    started, release = threading.Event(), threading.Event()
+
+    def slow(cfg_, root, verb, args, timeout=docs.TIMEOUT):
+        if verb == "table-create" and "--confirmed" in args:
+            started.set()
+            assert release.wait(60)
+        return real(cfg_, root, verb, args, timeout)
+    monkeypatch.setattr(docs, "call", slow)
+    result, failure = {}, []
+
+    def approving():
+        try:
+            result["done"] = approve(world, item)
+        except Exception as e:
+            failure.append(e)
+    writer = threading.Thread(target=approving)
+    writer.start()
+    try:
+        assert started.wait(60)
+        with ops_core._write_lock(cfg):          # another writer holds the project's files when the write ends...
+            release.set()
+            time.sleep(1.0)                      # ...for longer than the usual wait
+    finally:
+        release.set()
+        writer.join(60)
+    assert not failure, failure
+    assert result["done"]["task_state"] == "done" and made_table(world)[1] == EXPECTED_ROWS, "the record waited and was made"

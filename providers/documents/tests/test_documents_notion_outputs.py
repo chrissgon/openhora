@@ -560,7 +560,7 @@ def test_two_runs_of_the_same_key_do_not_write_together(out):
     md = out.file("page.md", "Hello.\n")
     ledger = out.harness.ledger
     ledger.parent.mkdir(parents=True, exist_ok=True)
-    digest = __import__("hashlib").sha256(f"{out.parent}/held".encode("utf-8")).hexdigest()[:24]
+    digest = __import__("hashlib").sha256(f"key/{out.parent}/held".encode("utf-8")).hexdigest()[:24]
     lock = ledger.parent / f"{ledger.name}.{digest}.key.lock"
     fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
     try:
@@ -585,3 +585,52 @@ def test_a_date_time_at_the_edge_of_the_calendar_names_no_moment_and_matches_not
     page = {"properties": {"D": {"type": "date", "date": {"start": "0001-01-01T00:00:00.000+01:00"}}}}
     assert nt.row_matches(page, [{"name": "D", "type": "date"}], ["0001-01-01T00:00:00+01:00"]) is False
     assert nt.instant("0001-01-01T00:00:00Z") is not None and nt.instant("9999-12-31T23:59:59Z") is not None
+
+
+# --- review round 3: the lock of a scope, the pruning of a key made of a database and its rows -----------------------------------------------
+
+
+def held_lock(out, identity):
+    """Take the exclusive lock the provider takes for an identity, as an orphaned provider would hold it; returns the descriptor."""
+    import fcntl
+    ledger = out.harness.ledger
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    digest = __import__("hashlib").sha256(identity.encode("utf-8")).hexdigest()[:24]
+    fd = os.open(ledger.parent / f"{ledger.name}.{digest}.key.lock", os.O_RDWR | os.O_CREAT, 0o600)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    return fd
+
+
+def test_the_lock_is_of_the_scope_so_a_new_key_of_the_same_task_waits_for_an_orphan_still_writing_under_the_old_one(out):
+    source = out.create_table(key="k0", table=out.table(rows=ROWS[:1]))[1]["data_source_id"]
+    fd = held_lock(out, "scope/task-7")
+    try:
+        before = len(out.fake.requests)
+        code, _, said = out.run("rows-append", "--id", source, "--table-file", out.table(rows=ROWS[1:]), "--idempotency-key", "k2",
+                                "--scope", "task-7", "--confirmed")
+        assert code == 1 and "another run of this provider is writing this key now" in said and len(out.fake.requests) == before
+        code, done, said = out.run("rows-append", "--id", source, "--table-file", out.table(rows=ROWS[1:]), "--idempotency-key", "k3",
+                                   "--scope", "task-8", "--confirmed")
+        assert code == 0, f"another task is not held back: {said}"
+    finally:
+        os.close(fd)
+    code, done, said = out.run("rows-append", "--id", source, "--table-file", out.table(rows=ROWS[1:]), "--idempotency-key", "k2",
+                               "--scope", "task-7", "--confirmed")
+    assert code == 0, said
+
+
+def test_a_database_with_a_pending_entry_keeps_the_done_rows_of_its_key_from_the_pruning(out):
+    ledger = out.harness.ledger
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    old = "2020-01-01T00:00:00Z"
+    source, parent = "a" * 32, out.parent
+    ledger.write_text(json.dumps({"version": 1, "entries": {
+        f"{parent}/kz": {"status": "pending", "kind": "output", "started_at": old},
+        f"{source}/kz/row-0001": {"status": "done", "kind": "output", "id": "b" * 32, "recorded_at": old, "row_sha": "c" * 64},
+        f"{source}/ky/row-0001": {"status": "done", "kind": "output", "id": "d" * 32, "recorded_at": old, "row_sha": "e" * 64}}}),
+        encoding="utf-8")
+    md = out.file("page.md", "Hello.\n")
+    out.run("page-create", "--parent", out.parent, "--title", "Other", "--markdown-file", md, "--idempotency-key", "other", "--confirmed")
+    kept = json.loads(ledger.read_text(encoding="utf-8"))["entries"]
+    assert f"{source}/kz/row-0001" in kept, "a pending database of that key: its rows stay"
+    assert f"{source}/ky/row-0001" not in kept, "a key with nothing pending is pruned"
