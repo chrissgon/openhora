@@ -1045,7 +1045,7 @@ Pull request: https://github.com/chrissgon/openhora/pull/436.
 - **What changed no band:** no skill, no evidence and no fingerprinted file changed.
 ## 2026-10-16: e-mail: sending is a step effect, approved by the hash of the whole message (EMAIL-SEND)
 
-Pull request: to be filled by the pull request that carries this entry.
+Pull request: https://github.com/chrissgon/openhora/pull/438.
 
 Decided by recommendation while the maintainer was away; each default below may be revised.
 
