@@ -20,7 +20,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: [search:web]
   side_effects: []
-  version: "1.2.0"
+  version: "1.3.0"
 ---
 
 # Architecture design

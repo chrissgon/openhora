@@ -111,7 +111,7 @@ REQUIRED = ("workbench", "data_dir", "store_db", "sources_dir")
 TASK_RUNTIME_KEYS = ("workbench", "data_dir", "store_db", "sources_dir", "area_agents", "handlers", "task_board", "documents",
                      "protected_paths", "code", "dependencies", "max_cost_usd_per_run", "model_prices", "messaging", "channels",
                      "max_running", "default_model", "price_max_age_days", "run_retention_days", "source_versions_kept",
-                     "sweep_orphan_containers")
+                     "sweep_orphan_containers", "language")
 # The top-level keys scripts/runtime.py, scripts/runtime_vote.py and scripts/vote_job.py read from the same file
 # (the first runtime). Leaves with stage 7.
 FIRST_RUNTIME_KEYS = ("agent", "harness", "model", "mailbox", "publisher", "store", "scheduler", "notification_query",
@@ -203,6 +203,7 @@ def load(project: str) -> dict:
     if not isinstance(sweep, bool):
         raise ConfigError("runtime.json sweep_orphan_containers must be true or false")
     out["sweep_orphan_containers"] = sweep
+    out["language"] = _language(raw.get("language"))
     return out
 
 
@@ -325,6 +326,28 @@ def _default_model(value):
     if not isinstance(value, str) or not value.strip() or value != value.strip() or len(value) > 200:
         raise ConfigError("runtime.json default_model must be a model id or \"auto\"")
     return value
+
+
+LANGUAGE_RE = re.compile(r"^[a-z]{2}(-[A-Z]{2})?$")
+_LANGUAGE_LOOSE = re.compile(r"^([a-zA-Z]{2})(?:[-_]([a-zA-Z]{2}))?$")
+
+
+def _language(value):
+    """The key "language": the language artifacts are written in, a tag of two lower-case letters and, optionally, a hyphen and
+    two upper-case letters (pt-BR, en, en-US). None when absent (English). A tag in the wrong case, or with an underscore, is
+    refused with the right form, never rewritten. Nothing reads the value yet besides this check."""
+    if value is None:
+        return None
+    if isinstance(value, str) and LANGUAGE_RE.fullmatch(value):
+        return value
+    hint = ""
+    if isinstance(value, str):
+        loose = _LANGUAGE_LOOSE.fullmatch(value)
+        if loose:
+            canonical = loose.group(1).lower() + (("-" + loose.group(2).upper()) if loose.group(2) else "")
+            hint = f"; did you mean {canonical}?"
+    raise ConfigError("runtime.json language must be a language tag of two lower-case letters, optionally a hyphen and two upper-case "
+                      f"letters, such as en or pt-BR{hint}")
 
 
 def _price_max_age(raw: dict) -> int:

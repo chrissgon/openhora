@@ -195,6 +195,18 @@ The public website (`site/`, published by Netlify at https://openhora.dev).
   - Done when: Search Console shows the pages indexed and a search for "openhora" finds openhora.dev.
   - Plan: a site package, together with W3's `llms.txt`.
 
+## Project language
+
+- [ ] **L1. The language in field evidence.** From the language decisions of 2026-10-16. Field evidence records a use of a skill, never the language it ran in, so a result cannot be split by language.
+  - What: a closed field `language_set: true|false` in the use record (never the tag itself: a tag identifies a project), shown beside the field columns of the status.
+  - Done when: `scripts/evidence.py` records the field and the status prints it.
+- [ ] **L2. A routine's language.** The runtime package of the language decisions gives a request the project's language or a per-request option; a routine's requests use the project key. Setting a language on a routine changes what the person approved, so it belongs to the routine's approved content and its hash.
+  - What: a `language` key in a routine's content, checked by the same rule as the project key, covered by the routine's hash and shown in the approval.
+  - Done when: a routine created with a language runs every request in it, and changing it asks for a new approval.
+- [ ] **L3. Translated headings per skill.** The skills keep their headings and labels in English unless a skill says to translate them; many templates say it ("headings translated into the artifact language"). A project that writes in another language may want every heading translated.
+  - What: for each skill whose script reads a heading, a flag naming the translated heading (as `check_guide.py --examples-heading` does for the examples table), then the sentence "headings translated into the artifact language" in its template.
+  - Done when: the scripts of those skills pass on a document in a second language, with a test.
+
 ## Brand skills and the social agent
 
 Decided on 2026-09-29: the skills for a personal brand, then an agent from this repository that runs around the clock and manages social networks, interacting as the brand and the person's profile say. Every item is refined against a real case before it is generalised.
