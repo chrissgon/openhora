@@ -26,6 +26,7 @@ def load(name, folder):
 
 es, validate = load("eval_status", "evals"), load("validate", "scripts")
 ENV = {k: v for k, v in os.environ.items() if not k.startswith("GIT_") and k != "WB_BASE_REF"}
+ENV.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")  # no global or system key reaches the test repositories
 
 SKILL = """---
 name: eng-demo
@@ -75,6 +76,8 @@ def repo(tmp_path, monkeypatch):
     """A repository whose main holds eng-demo at 1.2.0 with its first version line; HEAD is a branch off main."""
     for key in [k for k in os.environ if k.startswith("GIT_")] + ["WB_BASE_REF"]:
         monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
     skill = tmp_path / "skills" / "eng-demo"
     (skill / "evals").mkdir(parents=True)
     (skill / "references").mkdir()
