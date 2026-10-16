@@ -32,7 +32,8 @@ workcopy = st.load("workcopy")
 
 
 @pytest.mark.parametrize("rel", ["docs/workbench/Flows/evil.json", "DOCS/WORKBENCH/FLOWS/evil.json", "docs/workbench/fLoWs", "docs/workbench/Runtime.json",
-                                 "docs/workbench/RUNTIME.JSON"])
+                                 "docs/workbench/RUNTIME.JSON", "docs/workbench/runtime.j\u017fon", "docs/workbench/flow\u017f/weekly.json",
+                                 "docs/workbench/fLoW\u017f"])
 def test_a_path_of_the_workflows_or_the_configuration_in_any_case_is_class_other(rel):
     assert path_rule.classify(rel) == "other"
     assert path_rule.classify(rel, {"versioned": [rel]}) == "other"        # a versioned folder does not change it
@@ -46,6 +47,16 @@ def test_what_a_run_leaves_in_the_workflows_folder_under_another_case_is_not_ret
     assert [r["path"] for r in returned] == ["docs/business/icp.md"]
     assert [k["path"] for k in kept] == ["docs/workbench/Flows/evil.json"]
     assert not (tree["project"] / "docs" / "workbench" / "flows").exists() or not any((tree["project"] / "docs" / "workbench" / "flows").iterdir())
+
+
+def test_what_a_run_leaves_under_a_unicode_fold_of_the_flows_folder_or_the_configuration_is_not_returned(limits_tree):
+    tree = limits_tree
+    left = {"docs/workbench/flow\u017f/weekly.json": "{}\n", "docs/workbench/runtime.j\u017fon": "{}\n", "docs/business/icp.md": "# Profile\n"}
+    result = finished(tree, left, created=list(left))
+    returned, kept, _ = workcopy.returning(str(tree["project"]), result, base_of(tree, *left), None, "demo-writes", cfg={})
+    assert [r["path"] for r in returned] == ["docs/business/icp.md"]
+    assert {k["path"] for k in kept} == {"docs/workbench/flow\u017f/weekly.json", "docs/workbench/runtime.j\u017fon"}
+    assert not (tree["project"] / "docs" / "workbench" / "flows").exists()
 
 
 def test_the_change_set_never_carries_a_workflow_under_another_case(protected_tree, tmp_path):
