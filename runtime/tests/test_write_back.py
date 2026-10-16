@@ -45,7 +45,7 @@ def world(tmp_path, monkeypatch):
     built = st.build(tmp_path, monkeypatch, lab)
     folder = built["tree"] / "providers" / "documents"
     folder.mkdir(parents=True)
-    for name in ("notion.py", "notion_blocks.py"):
+    for name in ("notion.py", "notion_blocks.py", "notion_tables.py"):
         shutil.copyfile(st.REPO / "providers" / "documents" / name, folder / name)
     platform = Platform(tmp_path)
     config = json.loads(platform.config.read_text(encoding="utf-8"))
