@@ -167,7 +167,7 @@ instructions  the project's standing instructions: docs/workbench/instructions.m
           over the cap) and the text. A file with a problem stops every run of the project until it is fixed; nothing is cut.
 instructions-set  replaces the whole text of the file (--text or --text-file; an empty text clears it). --base-sha256 is the sha256 that
           `instructions` printed (none when the file is not there): a file changed since is never overwritten, and the refusal shows the
-          current hash. Only the terminal and the page write the file (limit L40). A change of the file changes the hash of every routine
+          current hash. By default only the terminal and the page write the file (limit L40). A change of the file changes the hash of every routine
           of the project, which then stops at its next fire and asks you to approve it again.
 instructions-add  appends one line `- <text>` to the file, with the same base hash and the same rules.
 routines  the routines: a workflow started by a schedule. Each with its state (draft, active, paused, stopped, cancelled), schedule,

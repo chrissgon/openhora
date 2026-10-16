@@ -312,11 +312,11 @@ OPERATIONS = (
      "args": ({"name": "text", "kind": "text", "required": True},
               {"name": "base_sha256", "kind": "str", "required": True, "flag": "base-sha256", "label": "sha256 or none"}),
      "channels": ("terminal", "page"), "model": False, "channel_arg": True,
-     "help": "replace the whole text of the project's standing instructions (--text or --text-file; an empty text clears them); --base-sha256 is the sha256 you read (none for a file that is not there), and a file that changed since is never overwritten; only the terminal and the page write it, whatever a channel policy grants (limit L40)"},
+     "help": "replace the whole text of the project's standing instructions (--text or --text-file; an empty text clears them); --base-sha256 is the sha256 you read (none for a file that is not there), and a file that changed since is never overwritten; by default only the terminal and the page write it (limit L40; `INSTRUCTIONS_CHANNELS`; no policy of today widens it)"},
     {"name": "instructions-add", "call": "instructions_add",
      "args": ({"name": "line", "kind": "str", "required": True}, {"name": "base_sha256", "kind": "str", "required": True, "flag": "base-sha256", "label": "sha256 or none"}),
      "channels": ("terminal", "page"), "model": False, "channel_arg": True,
-     "help": "append one line `- <text>` to the project's standing instructions; --base-sha256 is the sha256 you read (none for a file that is not there); only the terminal and the page write it, whatever a channel policy grants (limit L40)"},
+     "help": "append one line `- <text>` to the project's standing instructions; --base-sha256 is the sha256 you read (none for a file that is not there); by default only the terminal and the page write it (limit L40; `INSTRUCTIONS_CHANNELS`; no policy of today widens it)"},
     {"name": "routines", "call": "routines_read", "args": ({"name": "routine_id", "kind": "int", "flag": "id"},),
      "channels": ("terminal", "page", "mcp", "messaging"), "model": False,
      "help": "the routines (a workflow started by a schedule): state, schedule, the hash of the content now against the approved one, the last fire; with an id, its fires and what approving it needs"},
@@ -398,7 +398,7 @@ POLICY_CHANNELS = ("page", "mcp", "messaging")     # the channels a project's co
 MUST_READ = ("page", "mcp")                        # a policy for these lists `read`
 PAGE_ONLY_GROUPS = ("approve-effects",)            # valid on the page alone (an effect is approved nowhere else, by EFFECT_CHANNELS)
 EFFECT_CHANNELS = ("terminal", "page")             # the channels an effect may be approved from (decision D8, extended)
-INSTRUCTIONS_CHANNELS = ("terminal", "page")       # the channels that write the person's standing instructions (limit L40): the rows instructions-set and instructions-add list exactly these (a literal each, as the table is read by ast.literal_eval; a test compares), and no policy widens a row's channels
+INSTRUCTIONS_CHANNELS = ("terminal", "page")       # the channels that write the person's standing instructions BY DEFAULT (limit L40; a later package of channel policies makes it a grant): the rows instructions-set and instructions-add list exactly these (a literal each, as the table is read by ast.literal_eval; a test compares), and no policy widens a row's channels
 ROUTINE_LOCAL_CHANNELS = ("terminal", "page")      # the channels a routine whose workflow holds a networked script, or that a standing effect policy covers, is made and changed from (limit L33, S10)
 BRAKES = ("cancel", "set-mode", "routine-pause", "routine-cancel")                    # never withheld from the page: cancel, and a move of a mode DOWN (the direction is checked by ops_config.set_mode)
 

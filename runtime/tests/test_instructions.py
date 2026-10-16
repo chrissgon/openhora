@@ -196,7 +196,7 @@ def test_limit_40_the_standing_instructions_are_written_only_by_the_person(limit
         assert documents.entry_for(str(tree["tree"]), PATH) is None and documents.entry_for(str(tree["tree"]), "docs/workbench/Instructions.md") is None
     finally:
         documents._entries = original
-    # 5. The writers: no channel but the terminal and the page, whatever a policy grants; a changed file is never overwritten.
+    # 5. The writers: by default no channel but the terminal and the page, and no policy of today widens it; a changed file is never overwritten.
     assert operations.INSTRUCTIONS_CHANNELS == ("terminal", "page")
     for name in ("instructions-set", "instructions-add"):
         row = operations.by_name(name)

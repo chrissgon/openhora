@@ -186,7 +186,7 @@ Each invariant with its guard. A test is in `runtime/tests/` unless its path is 
 
 **The standing instructions are the person's** ([contracts/runtime.md](../../../contracts/runtime.md), "Standing instructions", limit L40).
 
-- The file is the project's, never the workbench's, and only the person writes it: no run returns it, the documents mirror never sends it, no change set carries it, and it never enters a copy as a file; the two operations that write it are the terminal's and the page's whatever a channel policy grants: `test_limit_40_the_standing_instructions_are_written_only_by_the_person`.
+- The file is the project's, never the workbench's, and only the person writes it: no run returns it, the documents mirror never sends it, no change set carries it, and it never enters a copy as a file; the two operations that write it are the terminal's and the page's by default (a later package of channel policies will make it a grant): `test_limit_40_the_standing_instructions_are_written_only_by_the_person`.
 - Every model run of the project receives its text in the prompt, at most 4,000 characters, under a sentence that says it never replaces a stop rule, a gate or an approval; a file that fails a check stops the run with one sentence: `test_instructions_runs.py`.
 - An answer may end with a proposal to add the person's own line; code never adds it: `test_an_answer_to_the_routers_question_may_end_with_one_proposal_of_the_persons_own_line_once_per_request`.
 

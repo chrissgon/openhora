@@ -14,7 +14,7 @@ call time, never imported at module level.
   instructions   (read, with the terminal, the page, the MCP mode and messaging) the path, whether the file is there, its
                  sha256, its characters, the cap, the problem if any, and the text. It writes nothing.
   instructions-set / instructions-add   (group `instructions`, the terminal and the page only: operations.INSTRUCTIONS_CHANNELS,
-                 whatever a channel policy grants; limit L40) replace the whole text, or append one line `- <text>`. No model
+                 by default, and no policy of today widens it; limit L40) replace the whole text, or append one line `- <text>`. No model
                  call, an atomic write (a temporary file, then os.replace) under the project's write lock, and a
                  compare-and-set on the sha256 of the file the person read (`none` for a file that was not there): a file
                  changed meanwhile, by hand or by the other operation, is never overwritten.
@@ -48,7 +48,7 @@ PROPOSAL_MAX = 300         # characters of the one line a proposal offers
 PROPOSED = "instructions:proposed:"      # the store's cursor <this><request id>: a proposal was made for the request
 PROPOSAL_ASK = "Add this line to the project's instructions?"
 BASE = re.compile(r"none|[0-9a-f]{64}")
-NOT_HERE = "the standing instructions are written from the terminal or from the page, whatever the project's channel policy grants (limit L40)"
+NOT_HERE = "the standing instructions are written from the terminal or from the page, by default, and no channel policy widens it yet (limit L40)"
 ROUTINE_CHANGED = ("the project's instructions changed after the routine {name} was approved: approve the routine again "
                    "(routine-approve --id {id}; the preview names the project's instructions)")
 
