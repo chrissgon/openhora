@@ -49,23 +49,31 @@ Usage:
   uv run providers/documents/notion.py table-create --config-file <f> --parent <page id> --title <text>
                                        --table-file <json> --idempotency-key <k> (--dry-run | --confirmed)
   uv run providers/documents/notion.py rows-append --config-file <f> --id <data source id> --table-file <json>
-                                       --schema-sha256 <hash> --idempotency-key <k> (--dry-run | --confirmed)
+                                       --schema-sha256 <hash> [--scope <word>] --idempotency-key <k> (--dry-run | --confirmed)
+  uv run providers/documents/notion.py rows-state --config-file <f> --id <data source id> --table-file <json> --scope <word>
 
 The outputs of a task (package NOTION-OUT; runtime/effect_write.py is the only caller of the three that write): `page-create` makes
 a page under the page `--parent` (any page the integration was given, not only the configured parent), titled `--title`, with the
 Markdown as its body; `table-create` makes a database under `--parent` with the columns and rows of the table file and fills it;
 `rows-append` adds the rows of the table file to an existing data source after checking that its columns are the file's (and that
-its whole schema hashes to `--schema-sha256`, when given); `table-read` prints the data source's columns, the hash of them, its
-row count and the time of its newest edit, and changes nothing. The table file is described in notion_tables.py: at most 500 rows
-and 30 columns, a text of at most 2,000 characters. These verbs retry a 429 and a 529 (up to 4 times, waiting the `Retry-After`
-the service names, at most 60 s) and keep to 2.8 calls a second, under the 3 a second of a workspace that is not on a Business or
-Enterprise plan; the verbs above never retry. Idempotency, per operation and per row: the key is recorded in the ledger before
-the call and marked done after it (a page or a database under its parent; a row under its data source, as `<key>/row-<n>`); a row
-whose outcome is unknown (a lost answer, a timeout, a 5xx) is looked for in the table on the next run (a row created since the
-attempt began, holding exactly the row's values, that no other row of the ledger claims) and written only if it is not there; a
-page or a database whose outcome is unknown is looked for the same way among its parent's children (exactly one with the title,
-created since), and, when there is none or more than one, the key stays pending until `resolve`. A dry run of these verbs reads
-the ledger and prints what a run would do, and makes no call and reads no credential.
+its whole schema hashes to `--schema-sha256`, when given); `table-read` prints the data source's name, columns, the hash of them, its
+select options, its row count and the time of its newest edit, and changes nothing; `stat` also prints a page's title. The table file is
+described in notion_tables.py: at most 500 rows and 30 columns, a text of at most 2,000 UTF-16 code units, a date as a date or a
+date-time with its Z or offset. These verbs retry a 429 and a 529 (up to 4 times, waiting the `Retry-After` the service names, at most
+60 s) and keep to 2.8 calls a second, under the 3 a second of a workspace that is not on a Business or Enterprise plan; the verbs above
+never retry.
+
+Idempotency, per operation and per row: the key is recorded in the ledger before the call and marked done after it (a page or a
+database under its parent; a row under its data source, as `<key>/row-<n>`, with the hash of its values and the `--scope`). A row
+whose outcome is unknown (a lost answer, a timeout, a 5xx) is looked for in the table on the next run (a row created since the attempt
+began, holding exactly the row's values, dates compared as moments, that NO entry of the ledger, under any key, claims) and written
+only if it is not there. A page or a database whose outcome is unknown is looked for the same way among its parent's children (exactly
+one with the title, created since, claimed by no entry), and, when there is none or more than one, the key stays pending until
+`resolve`. `--scope` names the approvals of one task: a row of this attempt that hashes like a row an EARLIER attempt of the same scope
+wrote under another key is that row and is not written again (the entry moves under this key); `rows-state` counts such rows without
+a call. A page or a database that the person put in the trash since is not the one a key made: it is made again. A done entry of
+these verbs older than 90 days is dropped when the ledger is next saved. A dry run of these verbs reads the ledger and prints what a
+run would do, and makes no call and reads no credential.
 
 `read --as-source` reads a page the person chose as a SOURCE of the project (runtime/sources.py, decision D13), not a document of the
 project: it takes no --config-file (a page chosen as a source has no parent in the project's documents object), and it uses a
@@ -147,6 +155,8 @@ RETRY_MAX = 4  # retries of one call, after the first attempt
 RETRY_WAIT_CAP = 60  # seconds: the service's Retry-After for a connection is at most 60
 PACE_SECONDS = 0.35  # between two calls of the verbs of the outputs: 2.8 a second, under the 3 a second of the plans without a Business tier
 ADOPT_SKEW_SECONDS = 120  # a row, page or database created this long before the attempt began still counts as made by it (clock skew)
+OUTPUT = "output"  # the `kind` of a ledger entry made by the verbs of the outputs (the only ones that are ever pruned)
+RETENTION_DAYS = 90  # a done entry of the outputs older than this is dropped from the ledger when it is next saved
 TABLE_ROWS_MAX = 2000  # table-read counts a table's rows by listing them: a longer table is refused (21 calls at most)
 
 ENV_BASE = "INTEGRATION_DOCUMENTS_NOTION_API_BASE"
@@ -484,8 +494,18 @@ def ledger_entry(scope: str, key: str):
     return ledger_read()["entries"].get(f"{scope}/{key}")
 
 
+def ledger_prune(data: dict) -> None:
+    """Drop the done entries of the outputs older than RETENTION_DAYS: a key that old is not run again, and the ledger would only grow.
+    (A pending entry, a page made by `write` and an entry the person recorded with `resolve` are kept.)"""
+    floor = (datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    for full in [k for k, e in data["entries"].items() if isinstance(e, dict) and e.get("kind") == OUTPUT and e.get("status") == "done"
+                 and str(e.get("recorded_at") or "9") < floor]:
+        del data["entries"][full]
+
+
 def ledger_set(scope: str, key: str, entry) -> None:
     with ledger_locked() as data:
+        ledger_prune(data)
         if entry is None:
             data["entries"].pop(f"{scope}/{key}", None)
         else:
@@ -668,7 +688,7 @@ def cmd_stat(args: dict) -> int:
     documents_config(args.get("--config-file"))
     ident = doc_id(args.get("--id"))
     page = retrieve(Service(), ident)
-    return emit({"id": ident, "version": page.get("last_edited_time"), "archived": archived(page)})
+    return emit({"id": ident, "version": page.get("last_edited_time"), "archived": archived(page), "title": page_title(page)})
 
 
 def cmd_read(args: dict) -> int:
@@ -827,6 +847,25 @@ def title_arg(args: dict) -> str:
     return value.strip()
 
 
+def scope_arg(args: dict):
+    """The scope of an approval's rows (--scope): the name under which rows already written by earlier attempts of the same task are
+    found again, whatever the key of the attempt. One word of letters, digits and . _ : -; None when absent."""
+    value = args.get("--scope")
+    if value is None:
+        return None
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9._:-]{1,80}", value):
+        raise ProviderError("--scope is a word of at most 80 letters, digits and . _ : -", EXIT_USAGE)
+    return value
+
+
+def page_title(page: dict):
+    """The title of a page the service describes, one line, or None."""
+    for prop in (page.get("properties") or {}).values():
+        if isinstance(prop, dict) and prop.get("type") == "title":
+            return one_line(nt.plain(prop.get("title")), 200) or None
+    return None
+
+
 def since_of(entry: dict) -> str:
     """When an attempt began, less the clock skew: what a thing made by it is looked for after."""
     try:
@@ -837,9 +876,16 @@ def since_of(entry: dict) -> str:
 
 
 def claimed(scope: str, prefix: str = "") -> set:
-    """The ids the ledger holds as made under a scope (a parent page or a data source), by any key."""
+    """The ids the ledger holds as made under a scope (a parent page or a data source), by ANY key."""
     return {e.get("id") for k, e in ledger_read()["entries"].items()
             if k.startswith(scope + "/" + prefix) and isinstance(e, dict) and e.get("status") in ("done", "created") and e.get("id")}
+
+
+def ledger_drop(full_key: str) -> None:
+    """Remove one entry of the ledger by its whole key (`<scope>/<key>`)."""
+    with ledger_locked() as data:
+        data["entries"].pop(full_key, None)
+        ledger_save(data)
 
 
 def adopt_child(service: Service, parent: str, kind: str, title: str, entry: dict):
@@ -881,14 +927,18 @@ def query_rows(service: Service, source: str, since: str | None = None, limit: i
     return out, True
 
 
-def retrieve_source(service: Service, source: str) -> list:
-    """The data source's columns: [{"name", "type"}], sorted by name. A data source the integration was not given is exit 3."""
+def fetch_source(service: Service, source: str) -> dict:
+    """The data source as the service describes it. A data source the integration was not given is exit 3."""
     try:
-        answer = service.call("retrieve_base", source)
+        return service.call("retrieve_base", source)
     except ProviderError as exc:
         raise not_given(exc, "the table") from None
+
+
+def retrieve_source(service: Service, source: str) -> list:
+    """The data source's columns: [{"name", "type"}], sorted by name."""
     try:
-        return nt.schema_of(answer)
+        return nt.schema_of(fetch_source(service, source))
     except nt.TableError as exc:
         raise ProviderError(str(exc)) from None
 
@@ -897,52 +947,111 @@ def cmd_table_read(args: dict) -> int:
     documents_config(args.get("--config-file"))
     source = notion_id(args.get("--id"), "--id")
     service = Service(bulk=True)
-    schema = retrieve_source(service, source)
+    answer = fetch_source(service, source)
+    try:
+        schema = nt.schema_of(answer)
+    except nt.TableError as exc:
+        raise ProviderError(str(exc)) from None
     rows, capped = query_rows(service, source)
     if capped:
         raise ProviderError(f"the table holds more than {TABLE_ROWS_MAX} rows: this provider does not count a table longer than that",
                             EXIT_SERVICE)
     edited = max((str(r.get("last_edited_time") or "") for r in rows), default="") or None
-    return emit({"id": source, "schema": schema, "schema_sha256": nt.schema_sha256(schema), "row_count": len(rows), "last_edited": edited,
-                 "title": next((c["name"] for c in schema if c["type"] == "title"), None)})
+    return emit({"id": source, "name": one_line(nt.plain(answer.get("title")), 200) or None, "schema": schema,
+                 "schema_sha256": nt.schema_sha256(schema), "select_options": nt.select_options(answer), "row_count": len(rows),
+                 "last_edited": edited, "title": next((c["name"] for c in schema if c["type"] == "title"), None)})
 
 
-def fill(service: Service, source: str, table: dict, key: str) -> dict:
-    """The rows of the table into the data source, one by one, each once for the key. A row done in the ledger is skipped; a row
-    pending (its call's outcome is unknown) is looked for in the table and written only if it is not there. {"created", "replayed"}."""
+# The ledger of the rows. A row's entry is `<data source>/<key>/row-<nnnn>` with its status (pending, done), the page it made, the hash of
+# its values (`row_sha`) and, when the call gave one, the scope of the approval (`--scope`). The scope is what finds again, in a LATER
+# attempt with another key (a task started over after the table changed), the rows an EARLIER attempt of the same task already wrote:
+# a row of this attempt whose values hash like a row of an entry with the scope, under another key, is that row; it is not written
+# again and the entry is moved under this attempt's key.
+
+
+def row_entry(status: str, sha: str, scope, **more) -> dict:
+    return {"status": status, "kind": OUTPUT, "row_sha": sha, **({"scope": scope} if scope else {}), **more}
+
+
+def plan_rows(source: str, key, table: dict, scope) -> list:
+    """For each row of the table, what the ledger says: ("done", None, entry) and ("pending", None, entry) under this key; ("pool-done",
+    full key, entry) and ("pool-pending", full key, entry) under another key with the same scope and the same row (each entry
+    matches one row); ("new", None, None). Reads the ledger and nothing else."""
+    entries = ledger_read()["entries"]
+    hashes = [nt.row_sha256(table["columns"], row) for row in table["rows"]]
+    own_prefix = f"{source}/{key}/" if key else None
+    pool = {}
+    if scope:
+        for full, entry in sorted(entries.items()):
+            if not full.startswith(f"{source}/") or (own_prefix and full.startswith(own_prefix)):
+                continue
+            if isinstance(entry, dict) and entry.get("scope") == scope and entry.get("row_sha") and entry.get("status") in ("done", "pending"):
+                pool.setdefault((entry["row_sha"], entry["status"]), []).append((full, entry))
+    plan = []
+    for n, sha in enumerate(hashes):
+        own = entries.get(f"{source}/{key}/row-{n + 1:04d}") if key else None
+        if isinstance(own, dict) and own.get("status") in ("done", "pending"):
+            plan.append((own["status"], None, own))
+        elif pool.get((sha, "done")):
+            full, entry = pool[(sha, "done")].pop(0)
+            plan.append(("pool-done", full, entry))
+        elif pool.get((sha, "pending")):
+            full, entry = pool[(sha, "pending")].pop(0)
+            plan.append(("pool-pending", full, entry))
+        else:
+            plan.append(("new", None, None))
+    return plan
+
+
+def plan_counts(plan: list) -> dict:
+    done = sum(1 for state, _, _ in plan if state in ("done", "pool-done"))
+    pending = sum(1 for state, _, _ in plan if state in ("pending", "pool-pending"))
+    return {"rows": len(plan), "rows_done": done, "rows_pending": pending, "rows_new": len(plan) - done - pending}
+
+
+def fill(service: Service, source: str, table: dict, key: str, scope) -> dict:
+    """The rows of the table into the data source, one by one, each once. A row the ledger holds as done (under this key, or under another
+    key of the same scope) is skipped; a row of unknown outcome is looked for in the table and written only if it is not there.
+    {"created", "replayed"}."""
     columns, rows = table["columns"], table["rows"]
     created = replayed = 0
     candidates = None
-    taken = claimed(source, key + "/")
-    for n, row in enumerate(rows):
+    taken = claimed(source)       # the ids any key of the ledger holds: a row found in the table is never one that another entry owns
+    plan = plan_rows(source, key, table, scope)
+    for n, (state, owner, entry) in enumerate(plan):
         row_key = f"{key}/row-{n + 1:04d}"
-        entry = ledger_entry(source, row_key)
-        if entry and entry.get("status") == "done":
+        sha = nt.row_sha256(columns, rows[n])
+        if state == "done":
             replayed += 1
             continue
-        if entry:  # pending: did it land?
+        if state == "pool-done":
+            ledger_set(source, row_key, row_entry("done", sha, scope, id=entry["id"], recorded_at=now_iso(), adopted="earlier approval"))
+            ledger_drop(owner)
+            replayed += 1
+            continue
+        if state in ("pending", "pool-pending"):  # did it land?
             if candidates is None:
-                since = min([since_of(e) for k, e in ledger_read()["entries"].items()
-                             if k.startswith(f"{source}/{key}/row-") and isinstance(e, dict) and e.get("status") == "pending"]
-                            or [since_of(entry)])
+                since = min(since_of(e) for s, _, e in plan if s in ("pending", "pool-pending"))
                 candidates, _ = query_rows(service, source, since)
-            hits = [p for p in candidates if p.get("id") not in taken and nt.row_matches(p, columns, row)]
+            hits = [p for p in candidates if p.get("id") not in taken and nt.row_matches(p, columns, rows[n])]
+            if owner:
+                ledger_drop(owner)
             if hits:
                 page = notion_id(hits[0].get("id"), "a row's id", EXIT_SERVICE)
                 taken.add(page)
-                ledger_set(source, row_key, {"status": "done", "id": page, "recorded_at": now_iso(), "adopted": True})
+                ledger_set(source, row_key, row_entry("done", sha, scope, id=page, recorded_at=now_iso(), adopted="found in the table"))
                 replayed += 1
                 continue
-        ledger_set(source, row_key, {"status": "pending", "started_at": now_iso()})
+        ledger_set(source, row_key, row_entry("pending", sha, scope, started_at=now_iso()))
         try:
             made = service.call("create_page", body={"parent": {"type": "data_source_id", "data_source_id": source},
-                                                     "properties": nt.row_properties(columns, row)})
+                                                     "properties": nt.row_properties(columns, rows[n])})
         except ProviderError as exc:
             if refused_status(exc):
                 ledger_set(source, row_key, None)
                 raise ProviderError(f"row {n + 1} was refused ({exc}); {created} rows were written by this run, {replayed} were already "
                                     "there", EXIT_SERVICE, exc.status) from None
-            ledger_set(source, row_key, {"status": "pending", "started_at": now_iso(), "error": one_line(exc, 120)})
+            ledger_set(source, row_key, row_entry("pending", sha, scope, started_at=now_iso(), error=one_line(exc, 120)))
             raise ProviderError(f"row {n + 1}: {exc}; its outcome is unknown ({created} rows written by this run, {replayed} already "
                                 "there): running again looks for it in the table before it writes it", EXIT_SERVICE, exc.status) from None
         try:
@@ -950,20 +1059,19 @@ def fill(service: Service, source: str, table: dict, key: str) -> dict:
         except ProviderError:
             raise ProviderError(f"row {n + 1}: the answer named no page; running again looks for the row before it writes it") from None
         taken.add(page)
-        ledger_set(source, row_key, {"status": "done", "id": page, "recorded_at": now_iso()})
+        ledger_set(source, row_key, row_entry("done", sha, scope, id=page, recorded_at=now_iso()))
         created += 1
     return {"created": created, "replayed": replayed}
 
 
-def ledger_counts(source: str, key: str, total: int) -> dict:
-    done = pending = 0
-    for n in range(total):
-        entry = ledger_entry(source, f"{key}/row-{n + 1:04d}")
-        if entry and entry.get("status") == "done":
-            done += 1
-        elif entry:
-            pending += 1
-    return {"rows": total, "rows_done": done, "rows_pending": pending, "rows_new": total - done - pending}
+def cmd_rows_state(args: dict) -> int:
+    """What the ledger already holds of a table file's rows under a scope: a read of the local ledger, no call, no credential."""
+    documents_config(args.get("--config-file"))
+    source = notion_id(args.get("--id"), "--id")
+    scope = scope_arg(args)
+    if scope is None:
+        raise ProviderError("--scope is required", EXIT_USAGE)
+    return emit({"id": source, "scope": scope, **plan_counts(plan_rows(source, None, table_file(args), scope))})
 
 
 def cmd_rows_append(args: dict) -> int:
@@ -972,11 +1080,12 @@ def cmd_rows_append(args: dict) -> int:
     key = key_of(args)
     source = notion_id(args.get("--id"), "--id")
     table = table_file(args)
+    scope = scope_arg(args)
     expected = args.get("--schema-sha256")
     if expected is not None and not re.fullmatch(r"[0-9a-f]{64}", expected):
         raise ProviderError("--schema-sha256 is the 64-hex hash table-read printed", EXIT_USAGE)
     if mode == "dry":
-        return emit({"dry_run": True, "would": {"verb": "rows-append", "id": source, **ledger_counts(source, key, len(table["rows"]))}})
+        return emit({"dry_run": True, "would": {"verb": "rows-append", "id": source, **plan_counts(plan_rows(source, key, table, scope))}})
     service = Service(bulk=True)
     schema = retrieve_source(service, source)
     if expected is not None and nt.schema_sha256(schema) != expected:
@@ -984,7 +1093,7 @@ def cmd_rows_append(args: dict) -> int:
     problem = nt.problem_with(table["columns"], schema)
     if problem:
         raise ProviderError(f"the rows do not fit the table ({problem}): nothing was written")
-    done = fill(service, source, table, key)
+    done = fill(service, source, table, key, scope)
     return emit({"id": source, "rows": len(table["rows"]), "rows_created": done["created"], "rows_replayed": done["replayed"],
                  "schema_sha256": nt.schema_sha256(schema)})
 
@@ -1008,15 +1117,21 @@ def cmd_table_create(args: dict) -> int:
     parent = notion_id(args.get("--parent"), "--parent")
     title = title_arg(args)
     table = table_file(args)
+    scope = scope_arg(args)
     entry = ledger_entry(parent, key)
     state = "new" if not entry else ("done" if entry.get("status") == "done" else "pending")
     if mode == "dry":
-        counts = ledger_counts(entry["data_source"], key, len(table["rows"])) if state == "done" and entry.get("data_source") \
+        counts = plan_counts(plan_rows(entry["data_source"], key, table, scope)) if state == "done" and entry.get("data_source") \
             else {"rows": len(table["rows"]), "rows_done": 0, "rows_pending": 0, "rows_new": len(table["rows"])}
         return emit({"dry_run": True, "would": {"verb": "table-create", "parent": parent, "state": state,
                                                  "id": entry.get("id") if entry else None, **counts}})
     service = Service(bulk=True)
     created = state == "new"
+    if state == "done":  # a database the person put in the trash since is not the one this key made: it is made again
+        ident, source, url = database_of(service, {"id": entry["id"]})
+        if archived(service.call("retrieve_database", ident)):
+            ledger_set(parent, key, None)
+            state, created = "new", True
     if state == "new":
         if ledger_claim(parent, key):  # another run claimed it meanwhile
             raise ProviderError(pending_message(key, ledger_entry(parent, key) or {}))
@@ -1036,26 +1151,21 @@ def cmd_table_create(args: dict) -> int:
             ledger_set(parent, key, {"status": "pending", "started_at": now_iso(), "error": "the answer named no usable database"})
             raise ProviderError("the answer to the creation names no usable database; running again looks for it among the "
                                 "parent's children before it creates another") from None
-        entry = {"status": "done", "id": ident, "data_source": source, "url": url, "title": title, "recorded_at": now_iso()}
-        ledger_set(parent, key, entry)
+        ledger_set(parent, key, {"status": "done", "kind": OUTPUT, "id": ident, "data_source": source, "url": url, "title": title,
+                                 "recorded_at": now_iso()})
     elif state == "pending":
         found = adopt_child(service, parent, "child_database", title, entry)
         if found is None:
             raise ProviderError(pending_message(key, entry))
         ident, source, url = database_of(service, {"id": found})
-        entry = {"status": "done", "id": ident, "data_source": source, "url": url, "title": title, "recorded_at": now_iso(),
-                 "adopted": True}
-        ledger_set(parent, key, entry)
+        ledger_set(parent, key, {"status": "done", "kind": OUTPUT, "id": ident, "data_source": source, "url": url, "title": title,
+                                 "recorded_at": now_iso(), "adopted": True})
         created = False
-    else:
-        ident, source, url = entry["id"], entry.get("data_source"), entry.get("url")
-        if not source:  # a database the person recorded with resolve: its data source is asked for
-            ident, source, url = database_of(service, {"id": ident})
     schema = retrieve_source(service, source)
     problem = nt.problem_with(table["columns"], schema)
     if problem:
         raise ProviderError(f"the database made is not the one asked for ({problem}): nothing more was written")
-    done = fill(service, source, table, key)
+    done = fill(service, source, table, key, scope)
     return emit({"id": ident, "data_source_id": source, "url": url, "created": created, "rows": len(table["rows"]),
                  "rows_created": done["created"], "rows_replayed": done["replayed"], "schema_sha256": nt.schema_sha256(schema)})
 
@@ -1083,6 +1193,11 @@ def cmd_page_create(args: dict) -> int:
                                                  "id": entry.get("id") if entry else None, "blocks": len(blocks),
                                                  "bytes": len(markdown.encode("utf-8")), "expected_sha256": expected}})
     service = Service(bulk=True)
+    if state in ("created", "done"):  # a page the person put in the trash since is not the one this key made: it is made again
+        ident = notion_id(entry.get("id"), "the ledger's page id", EXIT_SERVICE)
+        if archived(retrieve(service, ident)):
+            ledger_set(parent, key, None)
+            state = "new"
     replayed = state != "new"
     if state == "new":
         if ledger_claim(parent, key):
@@ -1102,7 +1217,7 @@ def cmd_page_create(args: dict) -> int:
             ledger_set(parent, key, {"status": "pending", "started_at": now_iso(), "error": "the answer named no page"})
             raise ProviderError("the answer to the creation names no page; running again looks for it among the parent's children "
                                 "before it creates another") from None
-        ledger_set(parent, key, {"status": "created", "id": ident, "title": title, "recorded_at": now_iso()})
+        ledger_set(parent, key, {"status": "created", "kind": OUTPUT, "id": ident, "title": title, "recorded_at": now_iso()})
         service.append(ident, blocks)
     else:
         if state == "pending":
@@ -1115,7 +1230,7 @@ def cmd_page_create(args: dict) -> int:
         retrieve(service, ident)
         if state != "done":  # made by this key but not finished: the body is written again whole (the page is ours alone)
             service.replace_body(ident, blocks)
-    ledger_set(parent, key, {"status": "done", "id": ident, "title": title, "recorded_at": now_iso()})
+    ledger_set(parent, key, {"status": "done", "kind": OUTPUT, "id": ident, "title": title, "recorded_at": now_iso()})
     page = retrieve(service, ident)
     return emit({"id": ident, "version": page.get("last_edited_time"), "created": not replayed, "replayed": replayed,
                  "url": page.get("url"), "expected_sha256": expected})
@@ -1123,9 +1238,9 @@ def cmd_page_create(args: dict) -> int:
 
 VERBS = {"stat": cmd_stat, "read": cmd_read, "comments": cmd_comments, "write": cmd_write, "notice": cmd_notice,
          "resolve": cmd_resolve, "page-create": cmd_page_create, "table-read": cmd_table_read, "table-create": cmd_table_create,
-         "rows-append": cmd_rows_append}
+         "rows-append": cmd_rows_append, "rows-state": cmd_rows_state}
 VALUE_FLAGS = ("--config-file", "--id", "--path", "--markdown-file", "--idempotency-key", "--notice", "--text", "--parent", "--title",
-               "--table-file", "--schema-sha256")
+               "--table-file", "--schema-sha256", "--scope")
 SWITCHES = ("--dry-run", "--confirmed", "--not-created", "--check", "--as-source")
 
 

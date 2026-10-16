@@ -150,11 +150,12 @@ def _read(ctx: steps.Context, field: str, rel: str, limit: int) -> bytes:
                                 "split the file: an output takes a part you can read whole" if code == f"{field}_too_large" else "") from None
 
 
-def _parent_ok(ctx: steps.Context, reader, parent: str) -> None:
-    """The parent page exists, the integration reaches it and it is not in the trash."""
+def _parent_ok(ctx: steps.Context, reader, parent: str):
+    """The parent page exists, the integration reaches it and it is not in the trash; returns its name (or None) for the preview."""
     seen = _asked(reader.stat, "parent", parent)
     if not isinstance(seen, dict) or seen.get("archived") is not False:
         raise steps.StepFailure("parent_unreachable", "parent", "documents", "the parent page is in the trash or cannot be read")
+    return seen.get("title") if isinstance(seen.get("title"), str) else None
 
 
 def _document(ctx: steps.Context, **fields) -> dict:
@@ -172,9 +173,9 @@ def _prepare_page(ctx: steps.Context, state: dict) -> dict:
         content = raw.decode("utf-8")
     except UnicodeDecodeError:
         raise steps.StepFailure("content_not_text", "content") from None
-    _parent_ok(ctx, reader, args["parent"])
+    name = _parent_ok(ctx, reader, args["parent"])
     doc = _document(ctx, operation="create_page", provider=reader.provider(), target_id=args["parent"], path=args["content"],
-                    title=args["title"], content=content)
+                    title=args["title"], content=content, cycle=int(state.get("cycle", 0)), target_name=name)
     digest = _asked(files.write, "target", ctx.task_id, int(state.get("cycle", 0)), doc)
     return {"effect_sha256": digest, "content_sha256": doc["content_sha256"], "bytes": doc["bytes"]}
 
@@ -184,24 +185,39 @@ def _prepare_table(ctx: steps.Context, state: dict) -> dict:
     reader, files = _ready(ctx)
     suffix = ".xlsx" if args["rows"].endswith(".xlsx") else ".csv"
     raw = _read(ctx, "rows", args["rows"], table_data.XLSX_MAX if suffix == ".xlsx" else table_data.CSV_MAX)
+    adding, cycle = "table" in args, int(state.get("cycle", 0))
     try:
-        header, rows = table_data.parse(raw, suffix)
-        if "table" in args:
+        header, rows, extras = table_data.parse(raw, suffix)
+        if adding:
             read = _asked(reader.table_read, "table", args["table"])
             base = _base_of(read)
-            table = table_data.build(header, rows, args.get("columns"), schema=read["schema"])
+            options = read.get("select_options") if isinstance(read.get("select_options"), dict) else {}
+            table = table_data.build(header, rows, args.get("columns"), schema=read["schema"], options=options, extras=extras)
+            name = read.get("name") if isinstance(read.get("name"), str) else None
+            base["rows_done"] = _rows_done(ctx, reader, args["table"], table)
         else:
-            _parent_ok(ctx, reader, args["parent"])
-            base, table = None, table_data.build(header, rows, args.get("columns"))
+            name = _parent_ok(ctx, reader, args["parent"])
+            base, table = None, table_data.build(header, rows, args.get("columns"), extras=extras)
     except table_data.TableError as e:
         raise steps.StepFailure(e.code, e.field, "", e.hint) from None
-    adding = "table" in args
     doc = _document(ctx, operation="append_rows" if adding else "create_table", provider=reader.provider(),
                     target_id=args["table"] if adding else args["parent"], path=args["rows"], title=None if adding else args["title"],
-                    content={"columns": table["columns"], "rows": table["rows"]}, base=base, notes=table["notes"])
+                    content={"columns": table["columns"], "rows": table["rows"]}, base=base, notes=table["notes"], cycle=cycle,
+                    target_name=name, remarks=table["remarks"])
     digest = _asked(files.write, "target", ctx.task_id, int(state.get("cycle", 0)), doc)
     return {"effect_sha256": digest, "content_sha256": doc["content_sha256"], "bytes": doc["bytes"], "rows": len(table["rows"]),
             "columns": len(table["columns"])}
+
+
+def _rows_done(ctx: steps.Context, reader, table_id: str, table: dict) -> int:
+    """How many of these rows an EARLIER approval of this task already wrote into the table (the provider's ledger knows them by the
+    task's scope), so that the preview says so and they are not sent again. 0 for a task that has written nothing."""
+    content = {"columns": table["columns"], "rows": table["rows"]}
+    found = _asked(reader.rows_state, "table", table_id, output_document.scope_of(ctx.task_id), table_data.canonical(content))
+    done = found.get("rows_done") if isinstance(found, dict) else None
+    if not isinstance(done, int) or isinstance(done, bool) or not 0 <= done <= len(table["rows"]):
+        raise steps.StepFailure("provider_failed", "table", "documents")
+    return done
 
 
 def _base_of(read) -> dict:
@@ -214,7 +230,7 @@ def _base_of(read) -> dict:
         raise steps.StepFailure("provider_failed", "table", "documents")
     if read["row_count"] > table_data.TABLE_ROWS_MAX:
         raise steps.StepFailure("table_too_large", "table", "", f"rows are not added to a table of more than {table_data.TABLE_ROWS_MAX} rows")
-    return {"schema_sha256": read["schema_sha256"], "row_count": read["row_count"], "version": read.get("last_edited")}
+    return {"schema_sha256": read["schema_sha256"], "row_count": read["row_count"], "version": read.get("last_edited"), "rows_done": 0}
 
 
 def _open(ctx: steps.Context, state: dict) -> dict:

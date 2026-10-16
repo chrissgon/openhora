@@ -18,18 +18,24 @@ approval covers nothing of it:
   effect            "write" (the word of the side-effect vocabulary)
   operation         "create_page" | "create_table" | "append_rows"
   task              the step task that prepared it
+  cycle             the cycle of the task that prepared it (it advances when a decision was answered because the table had changed)
   provider          the name the project's documents object carries; the write is refused if the configuration names another now
   target            {"id": the parent page (create_*) or the table's data source (append_rows), "path": the project file the content came
                     from: docs/<path>.md for a page, docs/<path>.csv or .xlsx for rows}
+  target_name       the name the platform gave the parent page or the table when the task read it (or null): shown next to the id
   title             the new page's or table's title; null for append_rows
-  base              what the task read of the target: {"schema_sha256", "row_count", "version"}; for append_rows the table's columns
-                    hashed, its row count and the time of its newest edit; for a new page or table, three nulls
+  base              what the task read of the target: {"schema_sha256", "row_count", "version", "rows_done"}; for append_rows the
+                    table's columns hashed, its row count, the time of its newest edit, and how many of these rows the platform already
+                    holds from an EARLIER approval of the same task (the ledger of the provider finds them by the task's scope);
+                    for a new page or table, four nulls
   content           a page's Markdown (text), or a table's {"columns": [{"name", "type"}], "rows": [[...]]}
   content_sha256    the sha256 of the content: the UTF-8 text, or the table's canonical JSON (runtime/table_data.py canonical)
   bytes             the size of those bytes
   idempotency_key   derived from the task, the operation, the target, the title, the content's hash and the base: the same document
                     always carries the same key, so the platform's ledger writes it once, whatever pending decision it reaches
   notes             how each column's type was settled, one phrase for each (given, inferred, ambiguous); [] for a page
+  remarks           what is true of the table as a whole and the person should read: the sheet of the workbook that was read, formulas
+                    with no stored value, select options the platform will add to the person's table; [] for a page
 
 The credential scan of runtime/workcopy.py runs on the content, and the caps are the ones of docs/architecture/platform/outputs.md:
 a page's Markdown at most CONTENT_MAX bytes, a table at most ROWS_MAX rows, COLUMNS_MAX columns, CELL_MAX characters a cell and
@@ -56,7 +62,8 @@ import workcopy  # noqa: E402
 from write_document import CONTENT_MAX, PROVIDER, SHA256, TARGET_ID, WORD, sha  # noqa: E402
 
 OPERATIONS = ("create_page", "create_table", "append_rows")
-KEYS = ("effect", "operation", "task", "provider", "target", "title", "base", "content", "content_sha256", "bytes", "idempotency_key", "notes")
+KEYS = ("effect", "operation", "task", "cycle", "provider", "target", "target_name", "title", "base", "content", "content_sha256", "bytes",
+        "idempotency_key", "notes", "remarks")
 PATHS = {"create_page": re.compile(r"[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*\.md"),
          "create_table": re.compile(r"[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*\.(csv|xlsx)"),
          "append_rows": re.compile(r"[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*\.(csv|xlsx)")}
@@ -64,7 +71,9 @@ TITLE_MAX = 200
 NOTE_MAX = 200
 PREVIEW_ROWS = 20       # the rows the preview shows whole (the first ones; the last three follow); the hash covers every row
 PREVIEW_CELL = 60       # characters of a cell in the preview
-NO_BASE = {"schema_sha256": None, "row_count": None, "version": None}
+NO_BASE = {"schema_sha256": None, "row_count": None, "version": None, "rows_done": None}
+NAME_MAX = 200
+REMARKS_MAX = table_data.REMARKS_MAX
 
 
 def _usage(reason: str):
@@ -73,8 +82,8 @@ def _usage(reason: str):
 
 def key_of(doc: dict) -> str:
     """The idempotency key of a document: derived from the pieces that make it what it is."""
-    parts = [str(doc["task"]), doc["operation"], doc["target"]["id"], doc["title"] or "", doc["content_sha256"],
-             str(doc["base"]["schema_sha256"]), str(doc["base"]["row_count"]), str(doc["base"]["version"])]
+    parts = [str(doc["task"]), str(doc["cycle"]), doc["operation"], doc["target"]["id"], doc["title"] or "", doc["content_sha256"],
+             str(doc["base"]["schema_sha256"]), str(doc["base"]["row_count"]), str(doc["base"]["version"]), str(doc["base"]["rows_done"])]
     return "o-" + sha("\n".join(parts))[:40]
 
 
@@ -85,13 +94,28 @@ def content_bytes(operation: str, content) -> bytes:
     return table_data.canonical(content) if isinstance(content, dict) else b""
 
 
-def document(*, operation: str, task_id: int, provider: str, target_id: str, path: str, title, content, base=None, notes=()) -> dict:
+def scope_of(task_id: int) -> str:
+    """The scope under which the provider's ledger finds again the rows an earlier attempt of the same task wrote (`--scope`)."""
+    return f"task-{task_id}"
+
+
+def clean_name(value):
+    """A name the platform gave, as one line of at most NAME_MAX characters without control characters, or None."""
+    if not isinstance(value, str):
+        return None
+    text = " ".join(re.sub(r"[\x00-\x1f\x7f]", " ", value).split())[:NAME_MAX]
+    return text or None
+
+
+def document(*, operation: str, task_id: int, provider: str, target_id: str, path: str, title, content, base=None, notes=(), cycle: int = 0,
+             target_name=None, remarks=()) -> dict:
     """The effect document, checked. EffectError usage when a piece is not in its form, a cap is over, the content is empty or
     holds what looks like a credential."""
     data = content_bytes(operation, content)
-    doc = {"effect": WORD, "operation": operation, "task": task_id, "provider": provider, "target": {"id": target_id, "path": path},
-           "title": title, "base": dict(base or NO_BASE), "content": content, "content_sha256": sha(data), "bytes": len(data),
-           "idempotency_key": "", "notes": list(notes)}
+    doc = {"effect": WORD, "operation": operation, "task": task_id, "cycle": cycle, "provider": provider,
+           "target": {"id": target_id, "path": path}, "target_name": clean_name(target_name), "title": title,
+           "base": dict(base or NO_BASE), "content": content, "content_sha256": sha(data), "bytes": len(data), "idempotency_key": "",
+           "notes": list(notes), "remarks": list(remarks)}
     doc["idempotency_key"] = key_of(doc) if isinstance(doc["base"], dict) and set(doc["base"]) == set(NO_BASE) else ""
     check(doc)
     return doc
@@ -104,6 +128,10 @@ def check(doc) -> dict:
     operation, target, base, content, title = doc["operation"], doc["target"], doc["base"], doc["content"], doc["title"]
     if not isinstance(doc["task"], int) or isinstance(doc["task"], bool) or doc["task"] < 1:
         raise _usage("task is a task id")
+    if not isinstance(doc["cycle"], int) or isinstance(doc["cycle"], bool) or not 0 <= doc["cycle"] < 1_000_000:
+        raise _usage("cycle is a number")
+    if doc["target_name"] is not None and (not isinstance(doc["target_name"], str) or doc["target_name"] != clean_name(doc["target_name"])):
+        raise _usage("the target's name is one line of at most %d characters" % NAME_MAX)
     if not isinstance(doc["provider"], str) or not PROVIDER.fullmatch(doc["provider"]):
         raise _usage("provider is the name of an implementation")
     if not isinstance(target, dict) or set(target) != {"id", "path"} or not isinstance(target["id"], str) \
@@ -120,8 +148,12 @@ def check(doc) -> dict:
     if operation == "append_rows":
         if not isinstance(base["schema_sha256"], str) or not SHA256.fullmatch(base["schema_sha256"]) \
                 or not isinstance(base["row_count"], int) or isinstance(base["row_count"], bool) \
-                or not 0 <= base["row_count"] <= table_data.TABLE_ROWS_MAX or not (base["version"] is None or isinstance(base["version"], str)):
-            raise _usage("the base of rows added to a table is the hash of its columns, its row count and the time of its newest edit")
+                or not 0 <= base["row_count"] <= table_data.TABLE_ROWS_MAX or not (base["version"] is None or isinstance(base["version"], str)) \
+                or not isinstance(base["rows_done"], int) or isinstance(base["rows_done"], bool) or base["rows_done"] < 0:
+            raise _usage("the base of rows added to a table is the hash of its columns, its row count, the time of its newest edit and the "
+                         "rows an earlier approval already wrote")
+        if isinstance(content, dict) and isinstance(content.get("rows"), list) and base["rows_done"] > len(content["rows"]):
+            raise _usage("more rows are said to be there already than the document has")
     elif base != NO_BASE:
         raise _usage("a new page or table has no base")
     if operation == "create_page":
@@ -145,6 +177,11 @@ def check(doc) -> dict:
     if not isinstance(notes, list) or len(notes) > table_data.COLUMNS_MAX or any(not isinstance(n, str) or len(n) > NOTE_MAX for n in notes) \
             or (operation == "create_page" and notes) or (operation != "create_page" and len(notes) != len(content["columns"])):
         raise _usage("notes: one phrase for each column of a table, none for a page")
+    remarks = doc["remarks"]
+    if not isinstance(remarks, list) or len(remarks) > REMARKS_MAX or any(not isinstance(r, str) or not r or len(r) > table_data.REMARK_MAX
+                                                                          or re.search(r"[\x00-\x1f\x7f]", r) for r in remarks) \
+            or (operation == "create_page" and remarks):
+        raise _usage("remarks: up to %d lines about a table as a whole, none for a page" % REMARKS_MAX)
     if doc["idempotency_key"] != key_of(doc):
         raise _usage("the idempotency key is not the one this document derives")
     why = workcopy.scan(data)
@@ -211,14 +248,20 @@ def body(doc: dict, digest: str) -> str:
            "append_rows": "Code adds these rows to a table of your platform after your approval, and nothing else. No row is changed or "
                           "removed, and no column is added."}[operation]
     lines = [say, ""]
+    named = f" named {doc['target_name']!r}" if doc["target_name"] else ""
     if operation == "append_rows":
-        lines += [f"Table: the data source {target['id']} (provider {doc['provider']}); the rows come from {target['path']}",
+        rows, done = len(doc["content"]["rows"]), doc["base"]["rows_done"]
+        lines += [f"Table: the data source {target['id']}{named} (provider {doc['provider']}); the rows come from {target['path']}",
                   f"When it was read the table had {doc['base']['row_count']} rows, columns with hash {doc['base']['schema_sha256']}"
                   + (f" and its newest edit was {doc['base']['version']}" if doc["base"]["version"] else ""),
                   "If its columns, its row count or its newest edit are not those when you approve, nothing is written and you are "
                   "asked again about the table as it is then. The columns of the rows must be columns of the table, with the types below."]
+        if done:
+            lines += ["", f"{done} of these {rows} rows are ALREADY in the table: an earlier approval of this task wrote them, and the "
+                          "task started over because the table changed meanwhile. They are not sent again; approving writes the other "
+                          f"{rows - done}" + (" (none: approving only records that they are all there)." if rows == done else ".")]
     else:
-        lines += [f"Parent: the page {target['id']} (provider {doc['provider']}); the content comes from {target['path']}",
+        lines += [f"Parent: the page {target['id']}{named} (provider {doc['provider']}); the content comes from {target['path']}",
                   f"Title: {doc['title']}"]
     lines += ["", f"Content: {doc['bytes']} bytes, sha256 {doc['content_sha256']}", "",
               f"Hash of this effect (it covers the operation, the parent or table, the title, every column, type and cell, and the key): {digest}",
@@ -228,6 +271,8 @@ def body(doc: dict, digest: str) -> str:
     if operation == "create_page":
         lines += ["----- the content, exactly as it will be written -----", doc["content"].rstrip("\n"), "----- end of the content -----"]
     else:
+        if doc["remarks"]:
+            lines += ["Read before approving:"] + [f"- {r}" for r in doc["remarks"]] + [""]
         lines += ["----- the table, as it will be written -----"] + _table_lines(doc) + ["----- end of the table -----"]
     return "\n".join(lines) + "\n"
 

@@ -21,7 +21,8 @@ answers it with its `data_sources`; a page created under a data source takes a v
 a row is added to the schema, as the live service does); `POST /v1/data_sources/{id}/query` understands the created_time timestamp
 filter (`on_or_after`) and nothing else; and the children of a page list the pages and the databases made under it (a `child_page`
 and a `child_database` block, with `created_time`). Faults: fail_next(name, status) as before, and fail_at(name, n, status) makes the
-n-th call of that name from now answer status (n = 1 is the next one).
+n-th call of that name from now answer status (n = 1 is the next one). A date-time is written back normalised (seconds and milliseconds,
+`+00:00` for `Z`), as the service does, so a caller must compare moments and not text.
 
 Usage (from a test or a harness):
   fake = fake_notion.shared()        one server per process, started on first use (a daemon thread)
@@ -87,6 +88,16 @@ def rich(text: str) -> list:
     return [{"type": "text", "text": {"content": text, "link": None}, "plain_text": text, "href": None,
              "annotations": {"bold": False, "italic": False, "strikethrough": False, "underline": False,
                              "code": False, "color": "default"}}] if text else []
+
+
+def normal_date(text: str) -> str:
+    """A date-time as the live service writes it back: seconds and milliseconds always, and the zone as an offset (`Z` becomes
+    `+00:00`, as observed); a date alone is kept as it is, and so is what is not a date (the stand-in does not judge it)."""
+    m = re.fullmatch(r"(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,6}))?)?(Z|[+-]\d{2}:\d{2})?", text)
+    if not m:
+        return text
+    milli = ((m.group(5) or "0") + "000")[:3]
+    return f"{m.group(1)}T{m.group(2)}:{m.group(3)}:{m.group(4) or '00'}.{milli}{'+00:00' if m.group(6) in (None, 'Z') else m.group(6)}"
 
 
 def depth(blocks: list) -> int:
@@ -194,7 +205,7 @@ class FakeNotion:
         if kind == "date":
             if value is not None and (not isinstance(value, dict) or not isinstance(value.get("start"), str)):
                 raise Answer(400, "validation_error", "date should be an object with a start")
-            return {"type": kind, kind: ({"start": value["start"], "end": value.get("end"), "time_zone": value.get("time_zone")}
+            return {"type": kind, kind: ({"start": normal_date(value["start"]), "end": value.get("end"), "time_zone": value.get("time_zone")}
                                          if value else None)}
         return {"type": kind, kind: ({"name": value["name"]} if isinstance(value, dict) and value.get("name") else None)}
 

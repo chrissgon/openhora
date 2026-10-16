@@ -32,7 +32,7 @@ COLUMNS = [{"name": "Stall", "type": "title"}, {"name": "Notes", "type": "rich_t
            {"name": "Opens", "type": "date"}, {"name": "Kind", "type": "select"}, {"name": "Paid", "type": "checkbox"},
            {"name": "Site", "type": "url"}]
 ROWS = [["Bread", "Fresh at six", 12.5, "2026-11-01", "food", True, "https://bread.example/shop"],
-        ["Candles", None, 8, "2026-11-02T09:30:00", "craft", False, None],
+        ["Candles", None, 8, "2026-11-02T09:30:00+02:00", "craft", False, None],
         ["Tea", "Loose leaf", None, None, "food", False, "https://tea.example"]]
 
 
@@ -198,7 +198,7 @@ def test_a_table_is_made_under_the_parent_with_its_columns_and_filled_with_the_r
     assert cells(out, made["data_source_id"]) == [
         {"Stall": "Bread", "Notes": "Fresh at six", "Fee": 12.5, "Opens": "2026-11-01", "Kind": "food", "Paid": True,
          "Site": "https://bread.example/shop"},
-        {"Stall": "Candles", "Notes": "", "Fee": 8, "Opens": "2026-11-02T09:30:00", "Kind": "craft", "Paid": False, "Site": None},
+        {"Stall": "Candles", "Notes": "", "Fee": 8, "Opens": "2026-11-02T09:30:00.000+02:00", "Kind": "craft", "Paid": False, "Site": None},
         {"Stall": "Tea", "Notes": "Loose leaf", "Fee": None, "Opens": None, "Kind": "food", "Paid": False, "Site": "https://tea.example"}]
     assert out.count("create_database") == 1 and out.creates() == 3
 
@@ -335,7 +335,7 @@ def test_a_table_the_integration_was_not_given_is_exit_3(out):
 @pytest.mark.parametrize("table, why", [
     ({"columns": COLUMNS, "rows": [ROWS[0]] * 501}, "at most 500 rows"),
     ({"columns": [{"name": f"c{i}", "type": "title" if i == 0 else "rich_text"} for i in range(31)], "rows": []}, "from 1 to 30 columns"),
-    ({"columns": COLUMNS, "rows": [["T", "x" * 2001, None, None, None, False, None]]}, "at most 2000 characters"),
+    ({"columns": COLUMNS, "rows": [["T", "x" * 2001, None, None, None, False, None]]}, "2000 UTF-16 code units"),
     ({"columns": COLUMNS + [{"name": "Other", "type": "title"}], "rows": []}, "exactly one title"),
     ({"columns": COLUMNS + [{"name": "Stall", "type": "rich_text"}], "rows": []}, "same name"),
     ({"columns": COLUMNS, "rows": [["T", None, "12", None, None, False, None]]}, "a number is"),
@@ -381,3 +381,119 @@ def test_the_requests_use_the_one_api_version_and_the_endpoints_of_the_table(out
     out.create_table()
     paths = {(m, re.sub(r"[0-9a-f-]{32,36}", "{id}", p)) for m, p, _ in out.fake.requests}
     assert {("POST", "/v1/databases"), ("GET", "/v1/data_sources/{id}"), ("POST", "/v1/pages")} <= paths
+
+
+# --- review round: dates as instants, a scope that finds rows again, claims across keys, the trash, the units, the ledger -----------------
+
+
+def test_a_row_with_a_date_time_whose_answer_was_lost_is_found_although_the_service_writes_the_moment_in_its_own_form(out):
+    rows = [["Bread", None, None, "2026-11-02T09:30:00Z", None, False, None], ["Tea", None, None, "2026-11-03T10:00:00+02:00", None, False, None]]
+    out.fake.fail_at("create_page", 1, 500, carried_out=True)
+    assert out.create_table(table=out.table(rows=rows))[0] == 1
+    source = out.source()
+    assert out.fake.cells(out.fake.rows_of(source)[0])["Opens"] == "2026-11-02T09:30:00.000+00:00", "the stand-in writes it back as the service does"
+    code, made, said = out.create_table(table=out.table(rows=rows))
+    assert code == 0, said
+    assert made["rows_created"] == 1 and len(out.fake.rows_of(source)) == 2
+
+
+def test_a_date_time_with_no_zone_is_refused_before_any_call(out):
+    rows = [["Bread", None, None, "2026-11-02T09:30:00", None, False, None]]
+    before = len(out.fake.requests)
+    code, _, said = out.create_table(table=out.table(rows=rows))
+    assert code == 2 and "Z or an offset" in said and len(out.fake.requests) == before
+
+
+def test_the_dates_compare_as_dates_and_as_moments():
+    same = [("2026-11-02T09:30:00Z", "2026-11-02T09:30:00.000+00:00"), ("2026-11-02T11:30:00+02:00", "2026-11-02T09:30:00.000+00:00"),
+            ("2026-11-02", "2026-11-02")]
+    for a, b in same:
+        assert nt.instant(a) == nt.instant(b), (a, b)
+    assert nt.instant("2026-11-02T09:30:00Z") != nt.instant("2026-11-02T09:30:00+01:00")
+    assert nt.instant("2026-11-02") != nt.instant("2026-11-02T00:00:00Z")
+    assert nt.instant("2026-11-02T09:30:00") is None and nt.instant("soon") is None
+    page = {"properties": {"D": {"type": "date", "date": {"start": "2026-11-02T09:30:00.000+00:00"}}, "T": {"type": "title", "title": []}}}
+    assert nt.row_matches(page, [{"name": "D", "type": "date"}], ["2026-11-02T10:30:00+01:00"])
+    assert not nt.row_matches(page, [{"name": "D", "type": "date"}], [None])
+
+
+def test_rows_an_earlier_attempt_of_the_same_scope_wrote_are_found_again_under_another_key_and_not_written_twice(out):
+    source = out.create_table(key="k0", table=out.table(rows=ROWS[:1]))[1]["data_source_id"]
+    scope = ["--scope", "task-7"]
+    out.fake.fail_at("create_page", 3, 500)           # rows 1 and 2 are written, the third fails and is of unknown outcome
+    code, _, _ = out.run("rows-append", "--id", source, "--table-file", out.table(), "--idempotency-key", "k1", "--confirmed", *scope)
+    assert code == 1 and len(out.fake.rows_of(source)) == 1 + 2
+    code, state, said = out.run("rows-state", "--id", source, "--table-file", out.table(), "--scope", "task-7")
+    assert code == 0 and state["rows_done"] == 2 and state["rows_pending"] == 1, said
+    code, state, _ = out.run("rows-state", "--id", source, "--table-file", out.table(), "--scope", "task-8")
+    assert state["rows_done"] == 0, "another scope finds nothing"
+    code, done, said = out.run("rows-append", "--id", source, "--table-file", out.table(), "--idempotency-key", "k2", "--confirmed", *scope)
+    assert code == 0, said
+    assert done["rows_replayed"] == 2 and done["rows_created"] == 1, "two found, the third looked for in the table, not there, written"
+    assert sorted(c["Stall"] for c in cells(out, source)) == ["Bread", "Bread", "Candles", "Tea"], "the seeded row, then the three once each"
+    code, again, _ = out.run("rows-append", "--id", source, "--table-file", out.table(), "--idempotency-key", "k3", "--dry-run", *scope)
+    assert again["would"]["rows_done"] == 3, "a later key of the same scope finds all three, now under k2"
+
+
+def test_no_scope_means_no_reconciliation_across_keys(out):
+    source = out.create_table(key="k0", table=out.table(rows=ROWS[:1]))[1]["data_source_id"]
+    assert out.append(source, key="k1", table=out.table(rows=ROWS[:2]))[0] == 0
+    code, done, _ = out.append(source, key="k2", table=out.table(rows=ROWS[:2]))
+    assert done["rows_created"] == 2 and len(out.fake.rows_of(source)) == 1 + 2 + 2
+
+
+def test_a_row_of_unknown_outcome_never_adopts_a_row_that_another_key_made(out):
+    source = out.create_table(key="k0", table=out.table(rows=ROWS[:1]))[1]["data_source_id"]
+    twin = out.table(rows=[["Bread", "Fresh at six", 12.5, "2026-11-01", "food", True, "https://bread.example/shop"]])
+    assert out.append(source, key="ka", table=twin)[0] == 0                   # another key made the same row
+    out.fake.fail_at("create_page", 1, 500)                                   # this key's attempt did not land
+    assert out.append(source, key="kb", table=twin)[0] == 1
+    code, done, said = out.append(source, key="kb", table=twin)
+    assert code == 0 and done["rows_created"] == 1, said
+    assert len([r for r in cells(out, source) if r["Stall"] == "Bread"]) == 3, "the seeded row, key ka's and key kb's: kb did not take ka's"
+
+
+def test_a_page_the_person_put_in_the_trash_is_made_again_and_not_called_replayed(out):
+    md = out.file("page.md", "Hello.\n")
+    args = ("page-create", "--parent", out.parent, "--title", "Dead soon", "--markdown-file", md, "--idempotency-key", "p1", "--confirmed")
+    first = out.run(*args)[1]
+    out.fake.person_trashes(first["id"])
+    code, again, said = out.run(*args)
+    assert code == 0 and again["created"] is True and again["id"] != first["id"], said
+
+
+def test_a_database_the_person_put_in_the_trash_is_made_again(out):
+    first = out.create_table()[1]
+    out.fake.databases[first["id"]]["in_trash"] = True
+    code, again, said = out.create_table()
+    assert code == 0 and again["created"] is True and again["id"] != first["id"] and again["rows_created"] == 3, said
+
+
+def test_a_cell_is_counted_in_utf16_code_units(out):
+    fits = [["x", "\U0001F600" * 1000, None, None, None, False, None]]
+    over = [["x", "\U0001F600" * 1001, None, None, None, False, None]]
+    assert out.create_table(mode="--dry-run", table=out.table(rows=fits))[0] == 0
+    code, _, said = out.create_table(mode="--dry-run", table=out.table(rows=over))
+    assert code == 2 and "2000 UTF-16 code units" in said
+
+
+def test_stat_and_table_read_name_what_they_describe_and_table_read_lists_the_select_options(out):
+    made = out.create_table()[1]
+    read = out.read(made["data_source_id"])[1]
+    assert read["name"] == "Market stalls" and read["select_options"] == {"Kind": ["food", "craft"]}
+    code, seen, _ = out.run("stat", "--id", out.parent)
+    assert code == 0 and seen["title"] == "Workbench" and seen["archived"] is False
+
+
+def test_done_entries_of_the_outputs_older_than_ninety_days_are_dropped_when_the_ledger_is_next_saved(out):
+    md = out.file("page.md", "Hello.\n")
+    out.run("page-create", "--parent", out.parent, "--title", "Old", "--markdown-file", md, "--idempotency-key", "old", "--confirmed")
+    ledger = out.harness.ledger
+    data = json.loads(ledger.read_text(encoding="utf-8"))
+    old = [k for k in data["entries"] if k.endswith("/old")]
+    assert old and data["entries"][old[0]]["kind"] == "output"
+    data["entries"][old[0]]["recorded_at"] = "2020-01-01T00:00:00Z"
+    ledger.write_text(json.dumps(data), encoding="utf-8")
+    out.run("page-create", "--parent", out.parent, "--title", "New", "--markdown-file", md, "--idempotency-key", "new", "--confirmed")
+    kept = json.loads(ledger.read_text(encoding="utf-8"))["entries"]
+    assert not any(k.endswith("/old") for k in kept) and any(k.endswith("/new") for k in kept)

@@ -41,7 +41,7 @@ PAGE_MD = "# Weekly report\n\nSales were up in week 44.\n\n- stalls: forty\n- mu
 PAGE_PATH = "docs/outputs/weekly-report.md"
 CSV = ("Stall,Notes,Fee,Opens,Paid,Site,Zip\n"
        "Bread,Fresh at six,12.5,2026-11-01,true,https://bread.example/shop,01234\n"
-       "Candles,,8,2026-11-02T09:30:00,false,,02345\n"
+       "Candles,,8,2026-11-02T09:30:00+02:00,false,,02345\n"
        "Tea,\"Loose leaf, green\",,,true,https://tea.example,\n")
 CSV_PATH = "docs/outputs/stalls.csv"
 XLSX_PATH = "docs/outputs/stalls.xlsx"
@@ -285,7 +285,7 @@ def test_a_parent_that_is_gone_stops_the_preview_and_the_write(world):
 
 def doc_of(operation="create_table", **change):
     columns = [{"name": "Stall", "type": "title"}, {"name": "Fee", "type": "number"}, {"name": "Paid", "type": "checkbox"}]
-    base = None if operation != "append_rows" else {"schema_sha256": "a" * 64, "row_count": 2, "version": None}
+    base = None if operation != "append_rows" else {"schema_sha256": "a" * 64, "row_count": 2, "version": None, "rows_done": 0}
     fields = dict(operation=operation, task_id=1, provider="notion", target_id="a" * 32, path="docs/outputs/stalls.csv",
                   title="Stalls" if operation != "append_rows" else None,
                   content={"columns": columns, "rows": [["Bread", 12.5, True], ["Tea", None, False]]}, base=base,
@@ -324,8 +324,8 @@ def test_a_changed_parent_title_column_type_cell_or_operation_is_another_hash_an
         assert refused.value.kind == "deviation" and "no approval of this exact content" in refused.value.reason, what
     rows = doc_of("append_rows")
     assert digest(rows) not in seen and rows["idempotency_key"] != original["idempotency_key"]
-    assert digest(doc_of("append_rows", base={"schema_sha256": "a" * 64, "row_count": 3, "version": None})) != digest(rows), "the base is covered"
-    assert digest(doc_of("append_rows", base={"schema_sha256": "c" * 64, "row_count": 2, "version": None})) != digest(rows)
+    assert digest(doc_of("append_rows", base={"schema_sha256": "a" * 64, "row_count": 3, "version": None, "rows_done": 0})) != digest(rows), "the base is covered"
+    assert digest(doc_of("append_rows", base={"schema_sha256": "c" * 64, "row_count": 2, "version": None, "rows_done": 0})) != digest(rows)
     assert doc_of()["idempotency_key"] == original["idempotency_key"], "the same document carries the same key"
 
 
@@ -404,7 +404,7 @@ EXPECTED_COLUMNS = [("Stall", "title"), ("Notes", "rich_text"), ("Fee", "number"
                     ("Zip", "rich_text")]
 EXPECTED_ROWS = [
     {"Stall": "Bread", "Notes": "Fresh at six", "Fee": 12.5, "Opens": "2026-11-01", "Paid": True, "Site": "https://bread.example/shop", "Zip": "01234"},
-    {"Stall": "Candles", "Notes": "", "Fee": 8, "Opens": "2026-11-02T09:30:00", "Paid": False, "Site": None, "Zip": "02345"},
+    {"Stall": "Candles", "Notes": "", "Fee": 8, "Opens": "2026-11-02T09:30:00.000+02:00", "Paid": False, "Site": None, "Zip": "02345"},
     {"Stall": "Tea", "Notes": "Loose leaf, green", "Fee": None, "Opens": None, "Paid": True, "Site": "https://tea.example", "Zip": ""}]
 
 
@@ -424,7 +424,7 @@ def test_a_table_is_made_with_inferred_columns_and_filled_from_a_csv_file_after_
     item = opened(world, task)
     path, doc = effect_doc(world, task)
     assert [(c["name"], c["type"]) for c in doc["content"]["columns"]] == EXPECTED_COLUMNS
-    assert doc["operation"] == "create_table" and doc["base"] == {"schema_sha256": None, "row_count": None, "version": None}
+    assert doc["operation"] == "create_table" and doc["base"] == {"schema_sha256": None, "row_count": None, "version": None, "rows_done": None}
     done = approve(world, item, "page")
     assert done["task_state"] == "done" and done["result"]["rows"] == 3 and done["result"]["rows_created"] == 3 and done["result"]["replayed"] is False
     source, rows = made_table(world)
@@ -868,7 +868,8 @@ def test_the_provider_side_caps_and_this_side_caps_are_the_same_numbers():
     (["1", "2.5", "-3", "0", "0.5"], "number"), (["1", None, "3"], "number"), (["007", "8"], "rich_text"), (["1,200", "5"], "rich_text"),
     (["1e3", "5"], "rich_text"), (["50%", "5"], "rich_text"), (["1234567890123456", "1"], "rich_text"), (["123456789012345", "1"], "number"),
     (["true", "false", "TRUE"], "checkbox"), (["true", None], "rich_text"), (["yes", "no"], "rich_text"),
-    (["2026-11-01", "2026-11-02T09:30"], "date"), (["2026-02-30"], "rich_text"), (["2026-11-01", "soon"], "rich_text"),
+    (["2026-11-01", "2026-11-02T09:30+02:00", "2026-11-03T10:00:00.5Z"], "date"), (["2026-11-01T09:30:00"], "rich_text"),
+    (["2026-11-01", "2026-11-02T09:30"], "rich_text"), (["2026-02-30"], "rich_text"), (["2026-11-01", "soon"], "rich_text"),
     (["https://a.example", None, "http://b.example/x?y=1"], "url"), (["https://a.example", "b.example"], "rich_text"),
     ([None, None], "rich_text"), (["a", "b"], "rich_text"), (["+31 6 12345678"], "rich_text"), (["1", "x"], "rich_text"),
 ])
@@ -895,7 +896,8 @@ def test_a_csv_reader_takes_a_bom_quotes_blank_lines_and_trims_the_space_around_
 
 
 def test_a_workbook_reader_takes_the_first_sheet_shared_strings_booleans_dates_and_cells_a_row_does_not_store():
-    header, rows = table_data.parse_xlsx(make_xlsx(XLSX_ROWS))
+    header, rows, extras = table_data.parse_xlsx(make_xlsx(XLSX_ROWS))
+    assert extras == {"sheet": "Stalls", "hidden": [], "no_value": {}}
     assert header == XLSX_ROWS[0] and rows[0] == ["Bread", "Fresh at six", "12.5", "2026-11-01", "true", "https://bread.example/shop", "01234"]
     assert rows[1] == ["Candles", None, "8", "2026-11-02", "false", None, "02345"]
     assert rows[2] == ["Tea", "Loose leaf, green", None, None, "true", "https://tea.example", None], "the cell a row does not store is empty"
@@ -916,7 +918,7 @@ def test_a_workbook_with_an_entity_a_bomb_a_missing_part_or_an_error_cell_is_ref
             "xl/worksheets/sheet1.xml": '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
                                         '<row r="1"><c r="A1" t="inlineStr"><is><t>H</t></is></c></row>'
                                         '<row r="2"><c r="A2" t="inlineStr"><is><t>x</t></is></c></row></sheetData></worksheet>'}
-    assert table_data.parse_xlsx(zipped(good)) == (["H"], [["x"]])
+    assert table_data.parse_xlsx(zipped(good))[:2] == (["H"], [["x"]])
     entity = dict(good, **{"xl/worksheets/sheet1.xml": '<!DOCTYPE x [<!ENTITY a "aaaa">]>' + good["xl/worksheets/sheet1.xml"]})
     with pytest.raises(table_data.TableError) as refused:
         table_data.parse_xlsx(zipped(entity))
@@ -952,7 +954,7 @@ def test_a_workbook_made_by_a_spreadsheet_library_is_read_the_same():
     book.create_sheet("Other").append(["x"])
     out = io.BytesIO()
     book.save(out)
-    header, rows = table_data.parse_xlsx(out.getvalue())
+    header, rows, _ = table_data.parse_xlsx(out.getvalue())
     assert header == ["Stall", "Fee", "Opens", "Paid", "Note"]
     assert rows[0][:4] == ["Bread", "12.5", "2026-11-01", "true"] and rows[1][0] == "Tea" and rows[1][1] is None
 
@@ -977,3 +979,258 @@ def test_the_state_of_a_task_that_waits_holds_the_decision_and_the_effect_file_i
     for folder in (path.parent, path.parent.parent, path.parent.parent.parent):
         assert oct(folder.stat().st_mode & 0o777) == "0o700", folder
     assert item["payload_sha256"] == sha(path.read_bytes())
+
+
+# --- review round: the rows an earlier approval wrote, a bomb, a long write, and what the preview says -----------------------------------------
+
+
+def select_table(world, options=("food",), rows=()):
+    """A table a person made, named Pantry, with a title column and a select column that has some options."""
+    fake = world["fake"]
+    props = {"Stall": {"type": "title", "title": {}},
+             "Kind": {"type": "select", "select": {"options": [{"name": o} for o in options]}}}
+    database = fake.create_database({"parent": {"type": "page_id", "page_id": world["parent"]},
+                                     "title": [{"type": "text", "text": {"content": "Pantry"}}], "initial_data_source": {"properties": props}})
+    return database["data_sources"][0]["id"]
+
+
+def test_rows_written_by_an_earlier_approval_are_not_sent_again_when_the_task_starts_over_after_the_table_changed(world):
+    source = existing_table(world, ["Pie"])
+    task = add(world, "output-table", table=source, rows=MORE_PATH)
+    first = opened(world, task)
+    fake = world["fake"]
+    fake.fail_at("create_page", 2, 400)                 # Honey is written; Jam is refused (nothing of it exists)
+    with pytest.raises(ops_core.OpsError):
+        approve(world, first)
+    assert [r["Stall"] for r in (fake.cells(p) for p in fake.rows_of(source))] == ["Pie", "Honey"]
+    fake.person_sets(fake.create_page({"type": "data_source_id", "data_source_id": source}, {})["id"], "Stall", "Cake")   # a colleague
+    with pytest.raises(ops_core.OpsError) as stopped:
+        approve(world, first)
+    text = str(stopped.value)
+    assert "1 row(s)" in text and "stay there" in text and "Nothing was written by this attempt" not in text, text
+    ctx = ops_core.context(world["path"])
+    assert "already wrote 1 row(s)" in ctx["store"].pending_get(ctx["conn"], first["id"])["answer"]
+    assert task_state(world, task) == "ready"
+    second = opened(world, task)
+    _, doc = effect_doc(world, task, 1)
+    assert doc["cycle"] == 1 and doc["base"]["rows_done"] == 1 and doc["base"]["row_count"] == 3
+    assert second["payload_sha256"] != first["payload_sha256"] and "1 of these 2 rows are ALREADY in the table" in second["body"]
+    done = approve(world, second)
+    assert done["task_state"] == "done" and done["result"]["rows_created"] == 1 and done["result"]["rows_replayed"] == 1
+    assert sorted(r["Stall"] for r in (fake.cells(p) for p in fake.rows_of(source))) == ["Cake", "Honey", "Jam", "Pie"], "each once"
+
+
+def test_when_every_row_is_already_there_the_new_preview_says_so_and_approving_only_records_it(world):
+    source = existing_table(world, ["Pie"])
+    task = add(world, "output-table", table=source, rows=MORE_PATH)
+    first = opened(world, task)
+    fake = world["fake"]
+    world["lost"].add("rows-append")                     # both rows are written; the answer is lost
+    with pytest.raises(ops_core.OpsError):
+        approve(world, first)
+    fake.person_sets(fake.create_page({"type": "data_source_id", "data_source_id": source}, {})["id"], "Stall", "Cake")
+    done = approve(world, first)                         # every row is there: nothing to compare, nothing to write
+    assert done["result"]["replayed"] is True and done["result"]["rows_replayed"] == 2 and len(fake.rows_of(source)) == 4
+
+
+def test_a_long_write_does_not_hold_the_projects_write_lock_and_a_second_approval_of_the_decision_is_refused(world, monkeypatch):
+    import threading
+    import time
+    item = opened(world, table_task(world))
+    real = docs.call
+    started, release = threading.Event(), threading.Event()
+
+    def slow(cfg, root, verb, args, timeout=docs.TIMEOUT):
+        if verb == "table-create" and "--confirmed" in args:
+            started.set()
+            assert release.wait(60)
+        return real(cfg, root, verb, args, timeout)
+    monkeypatch.setattr(docs, "call", slow)
+    monkeypatch.setattr(ops_core, "ROUTE_LOCK_WAIT", 0.3)
+    result, failure = {}, []
+
+    def approving():
+        try:
+            result["done"] = approve(world, item)
+        except Exception as e:      # reported by the assertion below
+            failure.append(e)
+    writer = threading.Thread(target=approving)
+    writer.start()
+    try:
+        assert started.wait(60)
+        cfg = ops_core.context(world["path"])["cfg"]
+        began = time.monotonic()
+        with ops_core._write_lock(cfg, wait=1):       # another writer of the project (a sync, the return of a run) is not made to wait
+            pass
+        assert time.monotonic() - began < 1
+        with pytest.raises(ops_core.OpsError) as busy:
+            approve(world, item)
+        assert "already executing" in str(busy.value) or "being written" in str(busy.value)
+    finally:
+        release.set()
+        writer.join(60)
+    assert not failure, failure
+    assert result["done"]["task_state"] == "done" and made_table(world)[1] == EXPECTED_ROWS
+
+
+def test_a_write_back_still_holds_the_write_lock_for_its_short_write(world):
+    assert effect_write.is_long(doc_of()) is True
+    update = effect_write.document(task_id=1, provider="notion", target_id="a" * 32, path="docs/a.md", content="Text\n",
+                                   base_text_sha256="b" * 64, base_version=None)
+    assert effect_write.is_long(update) is False
+
+
+def sheet_xml(rows_xml: str) -> str:
+    return f'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>{rows_xml}</sheetData></worksheet>'
+
+
+MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+BOOK = f'<workbook xmlns="{MAIN}"><sheets><sheet name="a" sheetId="1"/></sheets></workbook>'
+
+
+def small_book(rows_xml: str, book=BOOK, extra=None) -> bytes:
+    parts = {"xl/workbook.xml": book, "xl/worksheets/sheet1.xml": sheet_xml(rows_xml)}
+    parts.update(extra or {})
+    return zipped(parts)
+
+
+def inline(ref, text):
+    return f'<c r="{ref}" t="inlineStr"><is><t>{text}</t></is></c>'
+
+
+def test_a_cell_far_to_the_right_is_refused_before_any_list_is_built_and_an_empty_one_is_ignored():
+    head = f'<row r="1">{inline("A1", "H")}</row>'
+    for ref in ("ZZZZZ2", "XFD2", "AE2", "ZZZ2"):
+        with pytest.raises(table_data.TableError) as refused:
+            table_data.parse_xlsx(small_book(head + f'<row r="2">{inline(ref, "far")}</row>'))
+        assert refused.value.code in ("too_many_columns", "xlsx_unreadable"), ref
+    with pytest.raises(table_data.TableError) as refused:
+        table_data.parse_xlsx(small_book(head + f'<row r="2">{inline("AE2", "far")}</row>'))
+    assert refused.value.code == "too_many_columns"
+    empty = '<row r="2">' + inline("A2", "x") + '<c r="ZZZ2" s="1"/><c r="ZZZZZ2"/></row>'      # styled and empty: no value, no column
+    assert table_data.parse_xlsx(small_book(head + empty))[:2] == (["H"], [["x"]])
+    thirty = '<row r="2">' + "".join(inline(f"{chr(65 + n)}2", "v") for n in range(26)) + inline("AA2", "v") + inline("AB2", "v") \
+        + inline("AC2", "v") + inline("AD2", "v") + "</row>"
+    names = '<row r="1">' + "".join(inline(f"{chr(65 + n)}1", f"c{n}") for n in range(26)) + "".join(
+        inline(f"A{c}1", f"c{26 + i}") for i, c in enumerate("ABCD")) + "</row>"
+    assert len(table_data.parse_xlsx(small_book(names + thirty))[0]) == 30
+
+
+def test_a_workbook_in_another_encoding_cannot_hide_an_entity_a_nul_byte_is_refused():
+    sheet = ('<!DOCTYPE x [<!ENTITY a "aaaa">]>' + sheet_xml(f'<row r="1">{inline("A1", "H")}</row>')).encode("utf-16")
+    book = zipped({"xl/workbook.xml": BOOK})
+    out = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(book)) as z, zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as w:
+        w.writestr("xl/workbook.xml", z.read("xl/workbook.xml"))
+        w.writestr("xl/worksheets/sheet1.xml", sheet)
+    with pytest.raises(table_data.TableError) as refused:
+        table_data.parse_xlsx(out.getvalue())
+    assert refused.value.code == "xlsx_unsafe"
+
+
+@pytest.mark.parametrize("fault", [RuntimeError("encrypted"), NotImplementedError("compression type 99"), zipfile.BadZipFile("bad"),
+                                   __import__("zlib").error("bad data"), EOFError("short")])
+def test_a_damaged_encrypted_or_unsupported_part_is_a_closed_code(fault, monkeypatch):
+    good = small_book(f'<row r="1">{inline("A1", "H")}</row><row r="2">{inline("A2", "x")}</row>')
+
+    def broken(self, *args, **kwargs):
+        raise fault
+    monkeypatch.setattr(zipfile.ZipFile, "open", broken)
+    with pytest.raises(table_data.TableError) as refused:
+        table_data.parse_xlsx(good)
+    assert refused.value.code == "xlsx_unreadable"
+
+
+def test_a_corrupted_part_is_a_closed_code():
+    good = bytearray(small_book(f'<row r="1">{inline("A1", "H")}</row><row r="2">{inline("A2", "x")}</row>'))
+    marker = good.index(b"sheet1.xml") + 40
+    for n in range(marker, marker + 30):
+        good[n] ^= 0xFF
+    with pytest.raises(table_data.TableError) as refused:
+        table_data.parse_xlsx(bytes(good))
+    assert refused.value.code in ("xlsx_unreadable", "xlsx_unsafe")
+
+
+def test_a_negative_shared_string_index_and_one_past_the_end_are_refused():
+    for index in ("-1", "5"):
+        sheet = f'<row r="1"><c r="A1" t="s"><v>{index}</v></c></row>'
+        book = small_book(sheet, extra={"xl/sharedStrings.xml": f'<sst xmlns="{MAIN}"><si><t>H</t></si></sst>'})
+        with pytest.raises(table_data.TableError) as refused:
+            table_data.parse_xlsx(book)
+        assert refused.value.code == "xlsx_unreadable", index
+
+
+def test_the_first_visible_sheet_is_read_and_the_remarks_name_it_and_the_formulas_with_no_stored_value():
+    book = (f'<workbook xmlns="{MAIN}"><sheets><sheet name="Secret" sheetId="1" state="hidden"/><sheet name="Stalls" sheetId="2"/></sheets>'
+            "</workbook>")
+    rels = ('<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>')
+    rows = f'<row r="1">{inline("A1", "Stall")}{inline("B1", "Fee")}</row><row r="2">{inline("A2", "Bread")}<c r="B2"><f>1+1</f></c></row>'
+    parts = {"xl/workbook.xml": book, "xl/_rels/workbook.xml.rels": rels, "xl/worksheets/sheet1.xml": sheet_xml(rows)}
+    header, data, extras = table_data.parse_xlsx(zipped(parts))
+    assert header == ["Stall", "Fee"] and data == [["Bread", None]]
+    assert extras == {"sheet": "Stalls", "hidden": ["Secret"], "no_value": {1: 1}}
+    table = table_data.build(header, data, extras=extras)
+    assert any("read from the sheet 'Stalls'" in r and "1 hidden sheet(s)" in r for r in table["remarks"])
+    assert any("1 cell(s) of the column 'Fee' hold a formula with no stored value" in r for r in table["remarks"])
+    only_hidden = book.replace('<sheet name="Stalls" sheetId="2"/>', "")
+    with pytest.raises(table_data.TableError) as refused:
+        table_data.parse_xlsx(zipped({**parts, "xl/workbook.xml": only_hidden}))
+    assert refused.value.code == "xlsx_unreadable"
+
+
+def test_the_remarks_reach_the_preview_and_the_hash(world):
+    (world["root"] / XLSX_PATH).write_bytes(make_xlsx(XLSX_ROWS))
+    task = table_task(world, rows=XLSX_PATH)
+    item = opened(world, task)
+    _, doc = effect_doc(world, task)
+    assert doc["remarks"] and "read from the sheet 'Stalls'" in doc["remarks"][0] and "Read before approving:" in item["body"]
+    assert "- read from the sheet 'Stalls'" in item["body"]
+
+
+def test_new_select_options_the_platform_will_add_to_the_persons_table_are_said_in_the_preview(world):
+    source = select_table(world)
+    (world["root"] / MORE_PATH).write_text("Stall,Kind\nHoney,food\nJam,sweet\nTea,drink\n", encoding="utf-8")
+    item = opened(world, add(world, "output-table", table=source, rows=MORE_PATH))
+    assert "the column 'Kind' gets 2 NEW option(s) in the table: drink, sweet" in item["body"]
+    (world["root"] / MORE_PATH).write_text("Stall,Kind\nHoney,food\n", encoding="utf-8")
+    assert "NEW option" not in opened(world, add(world, "output-table", table=source, rows=MORE_PATH))["body"]
+
+
+def test_the_preview_shows_the_names_the_platform_gave_next_to_the_ids(world):
+    page = opened(world, page_task(world))
+    assert f"Parent: the page {world['parent']} named 'Workbench'" in page["body"]
+    source = select_table(world)
+    (world["root"] / MORE_PATH).write_text("Stall,Kind\nHoney,food\n", encoding="utf-8")
+    item = opened(world, add(world, "output-table", table=source, rows=MORE_PATH))
+    assert f"Table: the data source {source} named 'Pantry'" in item["body"]
+
+
+def test_a_date_time_with_no_zone_makes_a_text_column_that_says_why_and_a_named_date_column_stops(world):
+    (world["root"] / CSV_PATH).write_text("Stall,When\nBread,2026-11-01T09:30:00\nTea,2026-11-02T10:00:00\n", encoding="utf-8")
+    item = opened(world, table_task(world))
+    assert "| When | rich_text | text, ambiguous: a date-time with no Z or offset is not sent as a date" in item["body"]
+    out = run_task(world, table_task(world, columns={"When": "date"}))
+    assert out["code"] == "cell_not_type" and "Z or an offset" in out.get("next", "")
+    (world["root"] / CSV_PATH).write_text("Stall,When\nBread,2026-11-01T09:30:00+02:00\nTea,2026-11-02T10:00:00Z\n", encoding="utf-8")
+    ok = opened(world, table_task(world))
+    assert "| When | date | inferred: every filled cell is an ISO date |" in ok["body"]
+
+
+def test_a_cell_is_counted_in_utf16_code_units_by_the_step(world):
+    emoji = "\U0001F600"
+    (world["root"] / CSV_PATH).write_text(f"Stall,Note\nBread,{emoji * 1000}\n", encoding="utf-8")
+    refused_with(world, f"Stall,Note\nBread,{emoji * 1001}\n", "cell_too_long")
+    (world["root"] / CSV_PATH).write_text(f"Stall,Note\nBread,{emoji * 1000}\n", encoding="utf-8")
+    assert opened(world, table_task(world))["payload"]["effect"]["rows"] == 1
+
+
+def test_the_cycle_is_in_the_document_and_the_key_of_a_task_that_started_over_is_another(world):
+    a = doc_of()
+    b = output_document.document(operation="create_table", task_id=1, provider="notion", target_id="a" * 32, path="docs/outputs/stalls.csv",
+                                 title="Stalls", content=a["content"], notes=a["notes"], cycle=1)
+    assert a["cycle"] == 0 and b["cycle"] == 1 and a["idempotency_key"] != b["idempotency_key"] and digest(a) != digest(b)
+    named = output_document.document(operation="create_table", task_id=1, provider="notion", target_id="a" * 32, path="docs/outputs/stalls.csv",
+                                     title="Stalls", content=a["content"], notes=a["notes"], target_name="Reports\n  2026")
+    assert named["target_name"] == "Reports 2026" and digest(named) != digest(a)
+    with pytest.raises(effects.EffectError):
+        output_document.check(dict(named, target_name="two\nlines"))

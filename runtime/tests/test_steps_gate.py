@@ -226,8 +226,8 @@ def test_limit_30_the_documents_service_a_step_kind_is_given_can_only_read_and_s
     seam = st.load("ops_step_seams")
     docs = st.load("documents")
     reader = seam.DocumentsReader({"documents": {"provider": "notion", "parent": "p", "expires": "2099-12-31"}}, str(st.REPO))
-    assert {name for name in dir(reader) if not name.startswith("_")} == {"enabled", "provider", "problem", "read", "stat", "table_read"}
-    assert seam.READ_VERBS == ("read", "stat", "table-read")
+    assert {name for name in dir(reader) if not name.startswith("_")} == {"enabled", "provider", "problem", "read", "stat", "rows_state", "table_read"}
+    assert seam.READ_VERBS == ("read", "stat", "table-read", "rows-state")
     seen = []
     monkeypatch.setattr(docs, "call", lambda cfg, root, verb, args, timeout=0: seen.append((verb, args)) or {"markdown": "x"})
     reader.read("a" * 32)

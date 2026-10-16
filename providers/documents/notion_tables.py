@@ -13,7 +13,7 @@ boolean); for date, an ISO 8601 date or date-time text or null; for checkbox, tr
 
 The caps are the provider's own, checked again here although the runtime checks them before it asks for an approval (a file
 that did not come from the runtime meets the same walls): at most ROWS_MAX rows and COLUMNS_MAX columns, a text of at most
-CELL_MAX characters (one text object of the service, whose limit is 2,000), a name of at most NAME_MAX characters, a select
+CELL_MAX UTF-16 code units (one text object of the service, whose limit is 2,000 "characters", counted here in the larger unit), a name of at most NAME_MAX characters, a select
 value of at most SELECT_MAX characters with no comma, at most OPTIONS_MAX different options in a select column, and the whole file
 at most BYTES_MAX bytes. runtime/table_data.py holds the same numbers; a test holds them equal.
 
@@ -24,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from datetime import datetime, timedelta
 
 ROWS_MAX = 500
 COLUMNS_MAX = 30
@@ -34,7 +35,7 @@ OPTIONS_MAX = 100
 BYTES_MAX = 1024 * 1024
 TYPES = ("title", "rich_text", "number", "date", "select", "checkbox", "url")
 URL_RE = re.compile(r"https?://[^\s/$.?#][^\s]*")
-DATE_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,6})?)?(Z|[+-]\d{2}:\d{2})?)?")
+DATE_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(\.\d{1,6})?)?(Z|[+-]\d{2}:\d{2}))?")
 CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
@@ -42,7 +43,15 @@ class TableError(ValueError):
     """The table file is not in its form; the message names the column or the row, never a cell's text."""
 
 
+def units(text: str) -> int:
+    """The length of a text in UTF-16 code units. The service says "characters" for the 2,000 of one text object and does not say in
+    which unit; counting code units is the larger count for a character outside the basic plane, so a text that fits is safe."""
+    return len(text.encode("utf-16-le", "surrogatepass")) // 2
+
+
 def valid_date(text: str) -> bool:
+    """An ISO 8601 date (`2026-11-01`) or a date-time WITH its zone (`2026-11-01T09:30:00Z`, `...+02:00`): a date-time with no zone is
+    refused, because the service reads it in a zone this provider does not know."""
     m = DATE_RE.fullmatch(text)
     if not m:
         return False
@@ -52,8 +61,24 @@ def valid_date(text: str) -> bool:
         return False
     if m.group(4) is not None and not (int(m.group(4)) <= 23 and int(m.group(5)) <= 59 and int(m.group(6) or 0) <= 59):
         return False
-    zone = m.group(7)
+    zone = m.group(8)
     return not (zone and zone != "Z" and (int(zone[1:3]) > 23 or int(zone[4:6]) > 59))
+
+
+def instant(text):
+    """What a date text names, to compare two of them: ("date", "YYYY-MM-DD") for a date, ("instant", the UTC datetime) for a date-time
+    with its zone, whatever form the service writes it in (`.000`, `+00:00` for `Z`, another offset for the same moment). None when
+    it is neither."""
+    if not isinstance(text, str) or not valid_date(text):
+        return None
+    m = DATE_RE.fullmatch(text)
+    if m.group(4) is None:
+        return ("date", text)
+    micro = int(((m.group(7) or ".0")[1:] + "000000")[:6])
+    zone = m.group(8)
+    offset = timedelta(0) if zone == "Z" else (1 if zone[0] == "+" else -1) * timedelta(hours=int(zone[1:3]), minutes=int(zone[4:6]))
+    moment = datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4)), int(m.group(5)), int(m.group(6) or 0), micro)
+    return ("instant", moment - offset)
 
 
 def check_value(kind: str, value, where: str) -> None:
@@ -70,14 +95,14 @@ def check_value(kind: str, value, where: str) -> None:
             return
         if not isinstance(value, str) or (kind == "title" and not value.strip()):
             raise TableError(f"{where}: " + ("a title is a non-empty text" if kind == "title" else f"a {kind} value is a text or null"))
-        if len(value) > CELL_MAX or CONTROL.search(value):
-            raise TableError(f"{where}: a text of at most {CELL_MAX} characters without control characters")
+        if units(value) > CELL_MAX or CONTROL.search(value):
+            raise TableError(f"{where}: a text of at most {CELL_MAX} UTF-16 code units without control characters")
         if kind == "select" and (not value.strip() or len(value) > SELECT_MAX or "," in value):
             raise TableError(f"{where}: a select value is at most {SELECT_MAX} characters and has no comma")
         if kind == "url" and not URL_RE.fullmatch(value):
             raise TableError(f"{where}: a url starts with http:// or https:// and has no space")
         if kind == "date" and not valid_date(value):
-            raise TableError(f"{where}: a date is YYYY-MM-DD or an ISO 8601 date-time")
+            raise TableError(f"{where}: a date is YYYY-MM-DD or an ISO 8601 date-time with Z or an offset")
     else:
         raise TableError(f"{where}: the type {kind!r} is not one this provider makes")
 
@@ -200,6 +225,9 @@ def row_matches(page: dict, columns: list, row: list) -> bool:
         if c["type"] in ("title", "rich_text"):
             if (have or "") != (value or ""):
                 return False
+        elif c["type"] == "date":
+            if (have is None) != (value is None) or (value is not None and (instant(have) is None or instant(have) != instant(value))):
+                return False
         elif have != value:
             return False
     return True
@@ -216,6 +244,21 @@ def schema_of(source: dict) -> list:
             raise TableError("the answer holds a property with no type")
         out.append({"name": name, "type": p["type"]})
     return sorted(out, key=lambda c: c["name"])
+
+
+def row_sha256(columns: list, row: list) -> str:
+    """A row as the ledger knows it: the hash of its values with the names and types of the columns they are in."""
+    body = {"c": [[c["name"], c["type"]] for c in columns], "r": row}
+    return hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("ascii")).hexdigest()
+
+
+def select_options(source: dict) -> dict:
+    """{column name: [option names]} of the select columns of a data source as the service describes it."""
+    out = {}
+    for name, p in (source.get("properties") or {}).items():
+        if isinstance(p, dict) and p.get("type") == "select":
+            out[name] = [o.get("name") for o in ((p.get("select") or {}).get("options") or []) if isinstance(o, dict) and o.get("name")]
+    return out
 
 
 def schema_sha256(schema: list) -> str:

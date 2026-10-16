@@ -54,7 +54,7 @@ Where: **repo** is this repository, **data** is the provider's data folder on th
 | `integration:issue-tracker` | `issue-tracker/` | `notion.py` | `--check`, `list`, `get`, `comments`, `upsert`, `resolve` |
 | `integration:documents` | `documents/` | `gdrive.py` | `--check`, `stat`, `read`, `pick`, `comments`, `write`, `notice`, `resolve` |
 | `integration:documents` | `documents/` | `local.py` | `--check`, `stat`, `read`, `comments`, `write`, `notice`, `resolve` |
-| `integration:documents` | `documents/` | `notion.py` | `--check`, `stat`, `read`, `comments`, `write`, `notice`, `resolve`, `page-create`, `table-read`, `table-create`, `rows-append` |
+| `integration:documents` | `documents/` | `notion.py` | `--check`, `stat`, `read`, `comments`, `write`, `notice`, `resolve`, `page-create`, `table-read`, `table-create`, `rows-append`, `rows-state` |
 | `scheduler:job` | `scheduler/` | `launchd.py` | `--check`, `schedule`, `list`, `cancel`, `resolve`, `run` |
 | `scheduler:job` | `scheduler/` | `systemd.py` | `--check`, `schedule`, `list`, `cancel`, `resolve`, `run` |
 | `store:runtime` | `store/` | `sqlite.py` | `--check`, `init`, `cursor-get`, `cursor-set`, `cursor-clear`, `event-add`, `event-next`, `event-done`, `run-start`, `run-end`, `runs`, `inbox-add`, `inbox-list`, `inbox-resolve`, `action-add`, `actions`, `action-count`, `export` |

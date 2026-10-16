@@ -13,9 +13,10 @@ that the call came from the terminal or the page (EFFECT_CHANNELS) and that the 
       2. the effect file is read only if its bytes have the approved hash (effects.read_document); a document edited since the preview,
          or aimed at another target, has another hash and stops here;
       3. the documents configuration allows writing (its bounds have not expired), and names the provider the document names;
-      4. the approval row is recorded (scope action, bound to the decision and the hash), then, holding the write lock, the effect
-         module's `execute` runs: it reads the target again, stops if the target's text is not the one the task read, and otherwise
-         writes once;
+      4. the approval row is recorded (scope action, bound to the decision and the hash), then the effect
+         module's `execute` runs: it reads the target again, stops if the target is not the one the task read, and otherwise writes
+         once. A write-back (one call) runs holding the project's write lock; an output (a page, a table: minutes) runs under the lock
+         of the decision instead, so that the project's other writers are not made to wait, and takes the write lock for the record;
       5. only after it wrote is the decision resolved `approved` and the task `done` (store.effect_done, all or nothing).
   A write that is refused leaves the decision open and nothing written. A write call that fails leaves it open with the outcome unknown (the
   page may hold the content; approving again reads it first and records it as replayed if it does). One case answers the decision: a target edited since it was read
@@ -30,6 +31,7 @@ Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 import sys
@@ -50,6 +52,17 @@ STALE_ANSWER = ("Nothing was written by this attempt: the document or table is n
                 "start it again to be asked about it as it is now.")
 UNKNOWN_NEXT = ("the outcome is unknown: read the page or the table. The effect stays open, and approving it again with the same hash "
                 "reads what is there first and writes only what is missing, recording the write as replayed if everything is there")
+
+
+def stale_answer(rows_written: int) -> str:
+    """What a stale answer says. When an earlier attempt of the same task wrote rows (`rows_written`), it does not say that nothing was
+    written: it says how many rows are in the table, that they stay, and that the new preview counts them."""
+    if not rows_written:
+        return STALE_ANSWER
+    return (f"This attempt wrote nothing more, but an earlier attempt of this task already wrote {rows_written} row(s) into the table and "
+            "they stay there. The table is not the one the task read (it changed, or an earlier attempt of this write did not finish). "
+            "The task starts over from the step that reads the table; start it again: the new preview says how many rows are already "
+            "there, and approving it sends only the others.")
 
 
 def effect_dir(cfg: dict, task_id: int, cycle: int) -> str:
@@ -127,17 +140,40 @@ def approve(ctx: dict, item: dict, sha256: str, found, call=None) -> dict:
     approval = core._stored(ctx, store.approval_add, scope="action", what=" ".join(module.describe(doc).split())[:1000], by="user",
                             payload_sha256=sha256, pending_id=pending_id)
     key = f"wb-{hashlib.sha256(cfg['store_db'].encode('utf-8')).hexdigest()[:12]}-p{pending_id}"
-    with core._write_lock(cfg):
-        try:
-            result = module.execute(doc, approval, call or default_call, key, cfg["data_dir"])
-        except effects.EffectError as e:
-            if e.kind == "stale":
-                ops_waits.settled(ctx, core._stored(ctx, store.pending_resolve, pending_id, resolution="answered", by="code",
-                                                    answer=STALE_ANSWER))
-                raise core.OpsError(f"{e.reason}. {STALE_ANSWER}", 1) from None
-            if e.kind == "unknown":
-                raise core.OpsError(f"{e.reason}; {UNKNOWN_NEXT}", 1) from None
-            raise core.OpsError(f"nothing was written: {e.reason}; the effect stays open, and approving it again with the same hash "
-                                f"tries again", 3 if e.kind == "not-configured" else 1) from None
-        done = core._stored(ctx, store.effect_done, pending_id, approval["id"], by="user", result=result)
+    # A write of one page takes a call; an output (a table of 500 rows) takes minutes, so it is not made holding the project's write lock,
+    # which every sync, every return of a run and every other writer waits for. What keeps a second writer out is the lock of this
+    # decision (taken here: two approvals of one decision never write together), the effect lock of the request that
+    # ops._approve_effect already holds, and the provider's ledger (every call of the write is recorded before it is made). The write
+    # lock is taken for the parts that touch the project's own files and store: the reads above, the approval row, and the record below.
+    long = bool(getattr(module, "is_long", lambda d: False)(doc))
+    with (_decision_lock(cfg, pending_id) if long else contextlib.nullcontext()):
+        with (contextlib.nullcontext() if long else core._write_lock(cfg)):
+            try:
+                result = module.execute(doc, approval, call or default_call, key, cfg["data_dir"])
+            except effects.EffectError as e:
+                if e.kind == "stale":
+                    answer = stale_answer(getattr(e, "rows_written", 0))
+                    with core._write_lock(cfg):
+                        ops_waits.settled(ctx, core._stored(ctx, store.pending_resolve, pending_id, resolution="answered", by="code",
+                                                            answer=answer))
+                    raise core.OpsError(f"{e.reason}. {answer}", 1) from None
+                if e.kind == "unknown":
+                    raise core.OpsError(f"{e.reason}; {UNKNOWN_NEXT}", 1) from None
+                raise core.OpsError(f"nothing was written: {e.reason}; the effect stays open, and approving it again with the same hash "
+                                    f"tries again", 3 if e.kind == "not-configured" else 1) from None
+            with core._write_lock(cfg):
+                done = core._stored(ctx, store.effect_done, pending_id, approval["id"], by="user", result=result)
     return {"done": done, "approval": approval, "doc": doc, "result": result}
+
+
+@contextlib.contextmanager
+def _decision_lock(cfg: dict, pending_id: int):
+    """The lock of one decision's write (output-<pending id>.lock), taken without waiting: two approvals of the same decision never write
+    together, and a second one is told so. Released when the write ends or its process dies."""
+    fd = core._try_lock(cfg, f"output-{pending_id}.lock")
+    if fd is None:
+        raise core.OpsError(f"pending decision {pending_id} is being written by another approval; wait for it to end", 1)
+    try:
+        yield
+    finally:
+        os.close(fd)

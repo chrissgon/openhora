@@ -94,6 +94,21 @@ from write_document import (CONTENT_MAX, DOC_PATH, KEYS, PROVIDER, SHA256, TARGE
                             sha)  # the pure half, re-exported: the names of an effect kind of the step path
 
 
+class StaleError(effects.EffectError):
+    """The target is not the one the task read. rows_written: how many rows of this task the table already holds from earlier attempts
+    (the answer to the decision must not say that nothing was written when some were)."""
+
+    def __init__(self, reason: str, rows_written: int = 0):
+        super().__init__("stale", reason)
+        self.rows_written = rows_written
+
+
+def is_long(doc) -> bool:
+    """Whether the write of this document takes long (an output: a page body, a table of up to 500 rows one call a row), so that
+    runtime/ops_step_effects.py makes it without the project's write lock."""
+    return _output(doc)
+
+
 def _output(doc) -> bool:
     """Whether the document is of one of the operations that make something new (else it is, or fails as, an update_page)."""
     return isinstance(doc, dict) and doc.get("operation") in output_document.OPERATIONS
@@ -242,33 +257,40 @@ def _execute_output(doc: dict, call, work_dir) -> dict:
         total = len(doc["content"]["rows"])
         if operation == "create_table":
             _parent_reachable(call, target["id"])
-            args = ["--parent", target["id"], "--title", doc["title"], "--table-file", path, "--idempotency-key", key]
+            args = ["--parent", target["id"], "--title", doc["title"], "--table-file", path, "--idempotency-key", key,
+                    "--scope", output_document.scope_of(doc["task"])]
             done = _confirmed(call, "table-create", args, "the table")
             made, again = _number(done.get("rows_created"), "rows_created"), _number(done.get("rows_replayed"), "rows_replayed")
             return {**facts, "id": done["id"], "data_source_id": done.get("data_source_id"), "url": _url(done), "version": None,
                     "rows": total, "rows_created": made, "rows_replayed": again, "replayed": made == 0}
-        args = ["--id", target["id"], "--table-file", path, "--idempotency-key", key]
+        args = ["--id", target["id"], "--table-file", path, "--idempotency-key", key, "--scope", output_document.scope_of(doc["task"])]
         current = call("table-read", ["--id", target["id"]])
         plan = call("rows-append", args + ["--dry-run"])
         would = plan.get("would") if isinstance(plan, dict) else None
         if not isinstance(current, dict) or not isinstance(would, dict):
             raise effects.EffectError("provider", "the provider's table-read or dry run printed no facts about the table")
         done_before, pending = _number(would.get("rows_done"), "rows_done"), _number(would.get("rows_pending"), "rows_pending")
-        base = doc["base"]
-        if current.get("schema_sha256") != base["schema_sha256"]:
-            raise effects.EffectError("stale", "the table is not the one the task read: its columns changed")
-        count = current.get("row_count")
-        if done_before + pending == 0:
-            moved = count != base["row_count"] or current.get("last_edited") != base["version"]
-        else:       # rows of this document are in the table: the count is the base plus those done, and up to those of unknown outcome
-            low = base["row_count"] + done_before
-            moved = not isinstance(count, int) or isinstance(count, bool) or not low <= count <= low + pending
-        if moved:
-            raise effects.EffectError("stale", "the table is not the one the task read: its rows changed (a row was added, removed or "
-                                               "edited), or an earlier attempt of this write did not finish")
-        if done_before == total:
+        if done_before == total:      # every row is already there: there is nothing to compare and nothing to write
             return {**facts, "id": target["id"], "url": None, "version": None, "rows": total, "rows_created": 0, "rows_replayed": total,
                     "replayed": True}
+        base = doc["base"]
+        if current.get("schema_sha256") != base["schema_sha256"]:
+            raise StaleError("the table is not the one the task read: its columns changed", done_before)
+        # The rows this document's own attempts wrote are the rows the ledger holds now beyond the ones the task counted when it read
+        # the table (base.rows_done: written by an EARLIER approval of the same task). With none of them and none of unknown outcome the
+        # table must be exactly as it was read; otherwise its row count must be the base's plus those, and up to as many more as rows
+        # of unknown outcome (a row of unknown outcome may or may not have landed). The time of the newest edit is not compared then:
+        # this document's own rows move it. The gap, stated: with a row of unknown outcome pending, one row added by a person in the
+        # same window is not told from it.
+        count, written = current.get("row_count"), max(0, done_before - base["rows_done"])
+        if written + pending == 0:
+            moved = count != base["row_count"] or current.get("last_edited") != base["version"]
+        else:
+            low = base["row_count"] + written
+            moved = not isinstance(count, int) or isinstance(count, bool) or not low <= count <= low + pending
+        if moved:
+            raise StaleError("the table is not the one the task read: its rows changed (a row was added, removed or edited), or an "
+                             "earlier attempt of this write did not finish", done_before)
         done = _confirmed(call, "rows-append", args + ["--schema-sha256", base["schema_sha256"]], "the table")
         made, again = _number(done.get("rows_created"), "rows_created"), _number(done.get("rows_replayed"), "rows_replayed")
         return {**facts, "id": done["id"], "url": None, "version": None, "rows": total, "rows_created": made, "rows_replayed": again,
