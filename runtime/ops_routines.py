@@ -5,15 +5,15 @@
 # ///
 """The operations over routines (package P6b; decisions D23, D24, D31 to D35, findings S3, S10, I5, F4, F12) and the tick that fires them.
 
-A routine is a workflow started by a schedule, with no one at the plan card. It is created as a draft, from the terminal or the page
-(from messaging only when the project's `channels.messaging` grants the group `routine-edit`, and never for a workflow that holds a
+A routine is a flow started by a schedule, with no one at the plan card. It is created as a draft, from the terminal or the page
+(from messaging only when the project's `channels.messaging` grants the group `routine-edit`, and never for a flow that holds a
 networked script or that a standing effect policy covers: limit L33), and it is active only when the person has approved the sha256 of
 its exact content (runtime/routines.py, `content`). It carries no mode, cap, policy or standing approval of its own: the tasks a fire
 creates are the area agents' tasks, count against their daily caps and follow their modes.
 
   routines(project[, routine_id])                  the routines with their state, content, hash now and last fire; with an id, its fires and,
                                                    for a draft, what approving it needs (the preview)
-  routine_create(project, name, flow, ...)         a draft; the workflow must pass the flow check and take no file (nobody is there to hand one over)
+  routine_create(project, name, flow, ...)         a draft; the flow must pass the flow check and take no file (nobody is there to hand one over)
   routine_change(project, routine_id, ...)         change fields; the approval is cleared and the routine is a draft again
   routine_approve(project, routine_id[, sha256])   without sha256 a preview (the content, its hash, the consent warning when one is needed);
                                                    with it, refused unless it is the hash of the content now
@@ -21,7 +21,7 @@ creates are the area agents' tasks, count against their daily caps and follow th
 
 tick(ctx) is what a dispatcher round calls (runtime/ops_runs.py): for each active routine, the slots due (runtime/routines.py: the
 catch-up rule), and for the one to fire:
-  1. the workflow is read and passes the flow check again (D27); its content is recomputed and its hash must equal the approved one,
+  1. the flow is read and passes the flow check again (D27); its content is recomputed and its hash must equal the approved one,
      else the routine stops and asks: a stopped routine, and one request with a question that says what differs, which messaging
      notifies like any pending decision;
   2. the dates are filled from the clock, the plan is built as for a manual request, and each task is an ordinary task of its area
@@ -98,8 +98,8 @@ def _xy(skill: str) -> str:
 
 
 def content_of(ctx: dict, record: dict, loaded: dict | None = None) -> dict:
-    """The content an approval covers (routines.content) for the record as it is now, with the workflow, the skills' X.Y and the image
-    read now. OpsError (2) when the workflow cannot be read."""
+    """The content an approval covers (routines.content) for the record as it is now, with the flow, the skills' X.Y and the image
+    read now. OpsError (2) when the flow cannot be read."""
     loaded = loaded or _flow(ctx, record["flow"])
     word = effective_model(ctx, record)
     skills = {t["skill"]: _xy(t["skill"]) for t in loaded["tasks"] if "skill" in t}
@@ -124,7 +124,7 @@ def _preview(ctx: dict, record: dict) -> dict:
 
 
 def local_reason(ctx: dict, loaded: dict):
-    """Why a workflow may be made a routine, or a routine changed, only from the terminal or the page (limit L33), or None: it holds a
+    """Why a flow may be made a routine, or a routine changed, only from the terminal or the page (limit L33), or None: it holds a
     step of a kind that reaches the network (Kind.networked: the project script of package P9), or it holds a skill with a side effect
     that a standing approval of its area agent covers. Computed from the checkout and the store, never from what a channel says."""
     for t in loaded["tasks"]:
@@ -160,23 +160,23 @@ def _require_local(ctx: dict, channel, *flows) -> None:
     for loaded in flows:
         reason = local_reason(ctx, loaded)
         if reason:
-            raise core.OpsError(f"a routine whose workflow holds a networked script, or that a standing effect policy covers, is made and "
+            raise core.OpsError(f"a routine whose flow holds a networked script, or that a standing effect policy covers, is made and "
                                 f"changed only in the terminal or on the page, whatever the project's policy grants: {reason}", 1)
 
 
 # --- validating a record ---------------------------------------------------------------------------------------------------------------
 
 
-def _check_workflow(ctx: dict, name: str, params: dict) -> dict:
+def _check_flow(ctx: dict, name: str, params: dict) -> dict:
     loaded = _flow(ctx, name)
     for t in loaded["tasks"]:
         if "step" in t:
             try:
                 steps.kind_of(t["step"])
             except steps.StepFailure:
-                raise core.OpsError(f"the task {t['key']} of the workflow {name} is a step of a kind ({t['step']}) this checkout does not have", 2) from None
+                raise core.OpsError(f"the task {t['key']} of the flow {name} is a step of a kind ({t['step']}) this checkout does not have", 2) from None
     if flow_files.file_params(loaded):
-        raise core.OpsError(f"the workflow {name} takes a file ({', '.join(flow_files.file_params(loaded))}): nobody is there to hand a "
+        raise core.OpsError(f"the flow {name} takes a file ({', '.join(flow_files.file_params(loaded))}): nobody is there to hand a "
                             "file over when a routine fires, so it cannot be a routine's target", 2)
     try:
         flow_files.bind(loaded, params, ops_flows.now(), {})
@@ -184,7 +184,7 @@ def _check_workflow(ctx: dict, name: str, params: dict) -> dict:
         raise core.OpsError(str(e), 2) from None
     found = flow_check.check(loaded, core.ROOT)
     if not found["ok"]:
-        raise core.OpsError("the flow check refuses this workflow as a routine's target: " + " ".join(f["sentence"] + "." for f in found["findings"])
+        raise core.OpsError("the flow check refuses this flow as a routine's target: " + " ".join(f["sentence"] + "." for f in found["findings"])
                             + " Save a split of it (flow-save --split) or change it.", 1)
     return loaded
 
@@ -276,7 +276,7 @@ def routines_read(project: str, routine_id: int | None = None) -> dict:
 
 
 def _consent_needed(ctx: dict, record: dict) -> bool:
-    """Whether the model is fixed and unproven for a skill of the workflow, so that the routine's tasks wait at their first review
+    """Whether the model is fixed and unproven for a skill of the flow, so that the routine's tasks wait at their first review
     unless the routine carries its consent (D34)."""
     try:
         word = effective_model(ctx, record)
@@ -300,13 +300,13 @@ def routine_create(project: str, name: str, flow: str, params: list | None = Non
                    weekday: int | None = None, minutes: int | None = None, model: str | None = None, providers: list | None = None,
                    window_seconds: int | None = None, consent: bool = False, warning_sha256: str | None = None,
                    channel: str | None = None) -> dict:
-    """Create a routine as a draft (it fires nothing until routine_approve). `flow` is the workflow (a workbench's or the project's); `params`
+    """Create a routine as a draft (it fires nothing until routine_approve). `flow` is the flow (a workbench's or the project's); `params`
     its fixed arguments, "name=value" (the dates are filled at each fire); the schedule is every day at HH:MM, every week on a weekday at
     HH:MM, or every N minutes; `model` is a model id of the gate file, `auto` or nothing (the project's default); `providers` the
     approved set for `auto`; `consent` the routine's own consent for a fixed model (D34). Returns the routine and what approving it needs."""
     ctx = core.context(project)
     fixed = ops_flows.parse_params(params)
-    loaded = _check_workflow(ctx, flow, fixed)
+    loaded = _check_flow(ctx, flow, fixed)
     _require_local(ctx, channel, loaded)
     schedule = _schedule(None, {"every": every, "at": at, "weekday": weekday, "minutes": minutes})
     chosen = ops_models.check_word(model)
@@ -329,7 +329,7 @@ def routine_change(project: str, routine_id: int, flow: str | None = None, param
     old = _row(ctx, routine_id)
     new_flow = flow or old["flow"]
     fixed = ops_flows.parse_params(params) if params is not None else old["params"]
-    loaded = _check_workflow(ctx, new_flow, fixed)
+    loaded = _check_flow(ctx, new_flow, fixed)
     _require_local(ctx, channel, loaded, _flow(ctx, old["flow"]))
     fields = {"flow": new_flow, "params": fixed}
     if any(v is not None for v in (every, at, weekday, minutes)):
@@ -500,7 +500,7 @@ def fire(ctx: dict, record: dict, slot: str, now) -> dict:
         loaded = _flow(ctx, record["flow"])
         found = flow_check.check(loaded, core.ROOT)
         if not found["ok"]:
-            return _ask(ctx, record, slot, "the flow check refuses the workflow now: " + " ".join(f["sentence"] for f in found["findings"]))
+            return _ask(ctx, record, slot, "the flow check refuses the flow now: " + " ".join(f["sentence"] for f in found["findings"]))
         now_content = content_of(ctx, record, loaded)
         digest = routines.sha256_of(now_content)
         if digest != record["approved_sha256"]:

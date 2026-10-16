@@ -1,7 +1,7 @@
-"""The hard limit of the routines (limit L33, finding S10): a routine whose workflow holds a networked script, or that a standing effect
+"""The hard limit of the routines (limit L33, finding S10): a routine whose flow holds a networked script, or that a standing effect
 policy covers, is made and changed only from the terminal or the page, whatever `channels.messaging` grants; the brakes (list, pause,
 cancel) are the only routine verbs that reach messaging by default; the MCP mode lists routines and nothing else. Enforced in code
-like EFFECT_CHANNELS: the operation refuses by the channel it is told it was called from, computed from the workflow and the store.
+like EFFECT_CHANNELS: the operation refuses by the channel it is told it was called from, computed from the flow and the store.
 On the stand-in tree. Offline; invented names only.
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_routines_limit.py
@@ -41,7 +41,7 @@ def networked_flow(world, monkeypatch, name="with-script"):
 
 
 def standing_flow(world, monkeypatch):
-    """A workflow of a skill with a side effect, in the pack of an agent that holds an active standing approval."""
+    """A flow of a skill with a side effect, in the pack of an agent that holds an active standing approval."""
     monkeypatch.setattr(plan, "resolve_pack", lambda pack, root: ["demo-gate", "demo-code", "demo-asks", "demo-writes"])
     path = world["project"] / "docs" / "workbench" / "runtime.json"
     raw = __import__("json").loads(path.read_text(encoding="utf-8"))
@@ -73,13 +73,13 @@ def test_limit_33_a_routine_with_a_networked_script_or_under_a_standing_policy_i
     assert make(world, flow=net, name="from-page", channel="page")["state"] == "draft"
     with pytest.raises(ops_core.OpsError, match=REFUSAL):
         ops.routine_change(world["path"], made["id"], at="01:00", channel="messaging")
-    # a routine whose CURRENT workflow is such a one is not changed from messaging either, whatever the new workflow is
+    # a routine whose CURRENT flow is such a one is not changed from messaging either, whatever the new flow is
     plain = make(world, flow="demo", name="plain", channel="messaging")
-    assert plain["state"] == "draft", "a plain workflow may be made from messaging when the project grants it"
+    assert plain["state"] == "draft", "a plain flow may be made from messaging when the project grants it"
     with pytest.raises(ops_core.OpsError, match=REFUSAL):
         ops.routine_change(world["path"], made["id"], flow="demo", channel="messaging")
     assert ops.routine_change(world["path"], plain["id"], at="02:00", channel="messaging")["schedule"]["at"] == "02:00"
-    # a standing effect policy that covers the workflow's agent
+    # a standing effect policy that covers the flow's agent
     ships = standing_flow(world, monkeypatch)
     with pytest.raises(ops_core.OpsError, match=REFUSAL + ".*demo-gate.*a standing approval of delivery covers"):
         make(world, flow=ships, name="ship", channel="messaging")

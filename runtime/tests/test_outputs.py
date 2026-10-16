@@ -1300,6 +1300,22 @@ def test_a_decision_cannot_be_rejected_or_answered_while_its_write_runs_and_the_
     assert f"sha256:{item['payload_sha256']}" in (world["root"] / "docs" / "workbench" / "state.md").read_text(encoding="utf-8")
 
 
+def test_an_approval_refused_while_the_decision_is_cancelled_or_written_says_so(world):
+    """request_cancel holds a decision's lock while it cancels the request (as a write does), and an approval that meets the
+    lock is refused: its sentence names both, so a person who just cancelled does not read "written by another approval"."""
+    item = opened(world, table_task(world))
+    cfg = ops_core.context(world["path"])["cfg"]
+    fd = ops_core._try_lock(cfg, f"output-{item['id']}.lock")
+    assert fd is not None
+    try:
+        with pytest.raises(ops_core.OpsError) as busy:
+            approve(world, item)
+    finally:
+        os.close(fd)
+    assert f"pending decision {item['id']} is being cancelled with its request or written by another approval" in str(busy.value)
+    assert "approve it again if it is still open" in str(busy.value)
+
+
 def test_a_decision_nobody_is_writing_is_rejected_at_once_and_leaves_no_lock_file(world):
     task = table_task(world)
     item = opened(world, task)

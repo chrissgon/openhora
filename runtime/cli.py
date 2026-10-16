@@ -31,7 +31,7 @@ Usage:
   python3 runtime/cli.py instructions-set --project <dir> (--text <text> | --text-file <file>) --base-sha256 <sha256 | none>
   python3 runtime/cli.py instructions-add --project <dir> --line <text> --base-sha256 <sha256 | none>
   python3 runtime/cli.py routines --project <dir> [--id <routine id>]
-  python3 runtime/cli.py routine-create --project <dir> --name <name> --flow <workflow> [--param <name>=<value>]... (--every day --at HH:MM | --every week --weekday 1-7 --at HH:MM | --every minutes --minutes N) [--model <id>|auto] [--provider <name>]... [--window-seconds <n>] [--consent]
+  python3 runtime/cli.py routine-create --project <dir> --name <name> --flow <flow> [--param <name>=<value>]... (--every day --at HH:MM | --every week --weekday 1-7 --at HH:MM | --every minutes --minutes N) [--model <id>|auto] [--provider <name>]... [--window-seconds <n>] [--consent]
   python3 runtime/cli.py routine-change --project <dir> --id <routine id> [the fields of routine-create, except --name]
   python3 runtime/cli.py routine-approve --project <dir> --id <routine id> [--sha256 <hash>]
   python3 runtime/cli.py routine-pause --project <dir> --id <routine id>
@@ -153,16 +153,16 @@ status    requests, tasks (each with its title and area agent) and pending decis
 task      one task or request: its row, its runs (status, failure, ending, attempts, duration, tokens, cost, model) and
           its pending decisions of every status, each with "actions". For a request: the router's runs and the
           decisions on the request itself.
-flows     the workflows: the flow files of this checkout (flows/*.json) and of the project (docs/workbench/flows/*.json, the
+flows     the flows: the files of this checkout (flows/*.json) and of the project (docs/workbench/flows/*.json, the
           person's own, versioned with the project): each one's name, title, origin, number of tasks, parameters, step kinds and
           the result of the flow check; a file that fails its checks is listed with its error.
-flow-check  the flow check of one workflow: a task that requires the web must not receive sources (the ones it lists and those
+flow-check  the flow check of one flow: a task that requires the web must not receive sources (the ones it lists and those
           of the ingest steps before it). For a skill that reads a research brief it offers the split the code makes: a research
           task with the web and no source, then the skill without the web, with the sources and the brief. For any other skill it
           asks you which way to go. It writes nothing; `next` is the command that saves the split.
-flow-save saves an approved plan (--id: the plan's pending decision, resolved approved) or a workflow already there (--flow)
-          as the workflow --name of the project, in docs/workbench/flows/<name>.json: a plan without a text of its own for a task
-          becomes a workflow with the parameter `request` (your words are its default). The flow check runs first; a finding
+flow-save saves an approved plan (--id: the plan's pending decision, resolved approved) or a flow already there (--flow)
+          as the flow --name of the project, in docs/workbench/flows/<name>.json: a plan without a text of its own for a task
+          becomes a flow with the parameter `request` (your words are its default). The flow check runs first; a finding
           refuses the save, nothing is written, unless --split makes the code-made split. An existing file is replaced only with
           --replace. A name of a workbench flow is refused. Run it by `route --request <id> --flow <name>` (with --param
           name=value for its parameters).
@@ -177,18 +177,18 @@ instructions-set  replaces the whole text of the file (--text or --text-file; an
           current hash. By default only the terminal and the page write the file (limit L40). A change of the file changes the hash of every routine
           of the project, which then stops at its next fire and asks you to approve it again.
 instructions-add  appends one line `- <text>` to the file, with the same base hash and the same rules.
-routines  the routines: a workflow started by a schedule. Each with its state (draft, active, paused, stopped, cancelled), schedule,
+routines  the routines: a flow started by a schedule. Each with its state (draft, active, paused, stopped, cancelled), schedule,
           the hash of its content now against the hash you approved, and its last fire; with --id, its fires (a slot is fired once; a slot
           missed is skipped and noted, and only the newest missed slot younger than the window is made up) and, for a routine not approved,
           what approving it needs.
-routine-create  makes a routine as a draft; it fires nothing until you approve it. The workflow must pass the flow check and take no file. The
+routine-create  makes a routine as a draft; it fires nothing until you approve it. The flow must pass the flow check and take no file. The
           schedule is every day at HH:MM, every week on a weekday at HH:MM, or every N minutes (15 to 720, dividing a day). --model is an id of the
           gate file, auto (with --provider, the providers it may use: the cheapest reliable pair inside them, and a better candidate outside
           them stops the routine and asks) or none (the project's default). --consent (terminal only; the page sends the hash of the warning)
           is the routine's own consent for a fixed model that has no evidence: its tasks' reviews are released by their agent's mode, each
           run recorded as autonomy by consent; a change of the model asks again. The agent's consent is never read for a routine.
 routine-change  changes the fields given; the approval is cleared and the routine is a draft again.
-routine-approve  without --sha256 prints the preview and the hash; with it, approves exactly that content: the schedule, the workflow's template and
+routine-approve  without --sha256 prints the preview and the hash; with it, approves exactly that content: the schedule, the flow's template and
           fixed arguments (not the dates), the X.Y of each skill (a Z change stops nothing), the eval image, the model and consent, the
           providers, and the sha256 of the project's instructions when the file is there. At each fire the hash is computed again; if it differs the routine stops and a question says what changed.
 routine-pause  pauses an active routine: nothing fires while it is paused, and the slots it passes are not made up.
@@ -196,7 +196,7 @@ routine-resume  resumes a paused routine; its approval stands, and every fire st
 routine-cancel  cancels a routine for good (it is never deleted; its fires stay on record).
 stage-file  copies one file of yours for a request that waits for its plan (.workbench-local/drop/request-<id>/), with every
           check of hand-over (a regular file, a plain name, a size cap, no credential, a git project that ignores the folder, a
-          name not taken). A workflow with a file parameter names it (route ... --param survey=<name>) and its plan carries the
+          name not taken). A flow with a file parameter names it (route ... --param survey=<name>) and its plan carries the
           hash of those bytes; approving the plan checks the hash again and moves the file into the drop of the task that reads it.
 agents    each area agent of runtime.json: its pack, whether it is enabled, the mode it is set to and the mode it acts in now,
           its two daily caps, what it used today (runs on a subscription or free credential, dollars of runs on a metered

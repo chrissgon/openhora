@@ -24,7 +24,7 @@ CHANGED = [
     "permissions.js", "floor/cards.js", "floor/inbox.js", "floor/task-actions.js", "floor/tasks-tab.js", "floor/agent-tab.js", "floor/widgets.js",
     "cards/plan.js", "cards/plan-waits.js", "views/floor.js", "views/lobby.js", "views/lobby-composer.js", "views/lobby-request.js",
     "views/lobby-thread.js", "views/lobby-actions.js", "views/lobby-inbox.js", "views/lobby-agent.js",
-    "cards/save-flow.js", "views/lobby-params.js", "views/lobby-form.js", "views/lobby-routines.js", "views/lobby-instructions.js",      # P6a: the control that saves a plan as a workflow, and the parameters of a workflow; P6b: the routines
+    "cards/save-flow.js", "views/lobby-params.js", "views/lobby-form.js", "views/lobby-routines.js", "views/lobby-instructions.js",      # P6a: the control that saves a plan as a flow, and the parameters of a flow; P6b: the routines
 ]
 # the files that send a write on a person's click or key, each of which must ask `can` before it draws the control
 CALLERS = ["floor/cards.js", "cards/plan.js", "cards/plan-waits.js", "floor/task-actions.js", "floor/agent-tab.js", "views/lobby.js", "views/lobby-composer.js", "views/lobby-request.js", "cards/save-flow.js", "views/lobby-routines.js", "views/lobby-instructions.js"]

@@ -173,7 +173,7 @@ def test_a_task_receives_the_sources_it_lists_and_those_of_the_ingest_steps_befo
     assert flow_files.sources_of(flow) == {"alone": [], "after": ["survey", "extra", "notes"], "later": ["survey", "notes"]}
 
 
-def test_the_template_hash_moves_with_the_workflow_and_never_with_the_title_the_origin_or_the_dates(tree):
+def test_the_template_hash_moves_with_the_flow_and_never_with_the_title_the_origin_or_the_dates(tree):
     root, project = tree
     write(project, "survey", SURVEY)
     flow = flow_files.load("survey", str(root), str(project))

@@ -2627,13 +2627,13 @@ from ops_sources import source_add, source_describe, source_drive, source_import
 import ops_steps  # noqa: E402  (the step task's run and its brake; this file re-exports `run_step` below)
 from ops_steps import run_step  # noqa: E402,F401
 from ops_cancel import cancel, stop_task  # noqa: E402,F401  (the operations `cancel` and `stop-task`)
-# The workflows (runtime/ops_flows.py): the list, the flow check, saving a plan as one, and a file staged for a request.
+# The flows (runtime/ops_flows.py): the list, the flow check, saving a plan as one, and a file staged for a request.
 import ops_flows  # noqa: E402
 from ops_flows import check_flow, flow_save, flows, stage_file  # noqa: E402,F401
 import ops_instructions  # noqa: E402  (the standing instructions: three operations, the block of a prompt, the answer's proposal)
 from ops_instructions import answer_proposing, instructions_add, instructions_read, instructions_set  # noqa: E402,F401
 from ops_contained import contained_run  # noqa: E402,F401  (the contained run: a handler's agent run; moved out of this file, no change of logic)
-# The routines (runtime/ops_routines.py): the schedule's workflows, their approval by hash, the brakes and the tick a round calls.
+# The routines (runtime/ops_routines.py): the schedule's flows, their approval by hash, the brakes and the tick a round calls.
 import ops_routines  # noqa: E402
 from ops_routines import (routine_approve, routine_cancel, routine_change, routine_create, routine_pause, routine_resume,  # noqa: E402,F401
                           routines_read)

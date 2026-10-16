@@ -254,7 +254,7 @@ Channels with a policy (`POLICY_CHANNELS`): `page`, `mcp`, `messaging`. Never na
 | `consent` | `give-consent` | - | `page` | - |
 | `dispatch` | `dispatch` | - | `page` | - |
 | `documents` | `sync`, `hand-over` | - | `page` | - |
-| `workflows` | `flow-save`, `stage-file` | - | `page` | - |
+| `flow-write` | `flow-save`, `stage-file` | - | `page` | - |
 | `routine-brakes` | `routine-pause`, `routine-cancel` | - | `page`, `messaging` | `messaging` |
 | `routine-edit` | `routine-create`, `routine-change` | - | `page`, `messaging` | - |
 | `routine-approve` | `routine-approve`, `routine-resume` | - | `page` | - |
