@@ -232,7 +232,7 @@ The handler that carries the first runtime's steps, `runtime/handlers/social.py`
 | `core-project-init` does not add `.workbench-local/` to `.gitignore`, though the layout contract says git ignores it and the drop refuses a project that does not | `skills/core-project-init/scripts/init_project.py`; [contracts/project-layout.md](../../../contracts/project-layout.md) |
 | A skill's reply at its gate says the approval record is committed on the branch; the runtime writes the approval row uncommitted and commits only the change set | stage 4 findings (removed on 2026-10-14; `git show d3e60770:docs/architecture/stage-4-findings-2026-10-06.md`), finding 3 |
 | Two refusals have no test: the day of the caps starting at local midnight, and a code task refused when the request's change set was made against another commit | `runtime/ops.py`, `_agents_of_the_day`, `_code_state` |
-| The first runtime does not read the standing instructions, and the field evidence of a use does not record whether instructions were present | [backlog](../../backlog.md), R2; [contracts/runtime.md](../../../contracts/runtime.md), "Standing instructions" |
+| The first runtime does not read the standing instructions, and the field evidence of a use does not record whether instructions were present | [backlog](../../backlog.md), INSTRUCTIONS; [contracts/runtime.md](../../../contracts/runtime.md), "Standing instructions" |
 | The private-term check runs only on a machine that holds the local list | [AGENTS.md](../../../AGENTS.md), "Validation" |
 
 ## Changes

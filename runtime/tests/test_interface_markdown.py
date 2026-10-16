@@ -273,29 +273,45 @@ out.small = [...small.walk()].filter((n) => (n.attrs.class || "").match(/wb-md-(
 const exact = renderMarkdown("a\n".repeat(RENDER_LIMIT / 2));
 out.exact = [...exact.walk()].filter((n) => (n.attrs.class || "").match(/wb-md-(rest|note)/)).length;
 
-function timed(md) { const t = performance.now(); const r = renderMarkdown(md); return { ms: Math.round(performance.now() - t), depth: depth(r), bad: violations(r).length }; }
+// A shape is built for a size n by make(n) and rendered at n / 2 and at n, alternately seven times each: the best of the seven is the time
+// of that size. A render that grows with its text takes about twice as long at n as at n / 2; a quadratic one four times. The test
+// compares the two, never a clock. The time is the processor time this process spent (process.cpuUsage), so that a machine busy with
+// other work, which deschedules the process, does not make a render slower, and the two sizes are rendered in turn so that a burst of
+// load reaches both.
+import v8 from "node:v8";
+import vm from "node:vm";
+v8.setFlagsFromString("--expose-gc");
+const collect = vm.runInNewContext("gc");   // a collection before each render, so that the garbage of the shapes before it is not collected during this one
+function cpuMs(md) { collect(); const c = process.cpuUsage(); const root = renderMarkdown(md); const d = process.cpuUsage(c); return { ms: (d.user + d.system) / 1000, root }; }
+function timed(make, n) {
+  const small = make(Math.floor(n / 2)), large = make(n);
+  let half = Infinity, full = Infinity, root;
+  for (let i = 0; i < 7; i++) { const o = cpuMs(large); full = Math.min(full, o.ms); root = o.root; half = Math.min(half, cpuMs(small).ms); }
+  return { half: Math.round(half * 10) / 10, full: Math.round(full * 10) / 10, depth: depth(root), bad: violations(root).length };
+}
 const N = 199000;   // one paragraph over the inline cap: it falls back to text
 const M = 49000;    // one paragraph inside the cap: the worst case the parser really parses
+renderMarkdown("[a](b) *c* `d` ".repeat(2000));   // a warm-up, so that the first shape does not pay for the compiler
 out.shapes = {
-  brackets: timed("[".repeat(N)), bracketsIn: timed("[".repeat(M)),
-  bracketsLink: timed("[a](".repeat(N / 4)), bracketsLinkIn: timed("[a](".repeat(M / 4)), bracketsClose: timed("[a]".repeat(M / 3)),
-  backticks: timed("`a ".repeat(N / 3)), backticksIn: timed("`a ".repeat(M / 3)),
-  backtickRuns: timed(Array.from({ length: 4000 }, (_, i) => "`".repeat(1 + (i % 50)) + "x").join(" ")),
-  emphasis: timed("*a ".repeat(N / 3)), emphasisIn: timed("*a ".repeat(M / 3)), emphasisTight: timed("*a".repeat(M / 2)),
-  underscores: timed("_a_b ".repeat(M / 5)), nestedEmphasis: timed("**a *b ".repeat(M / 7)),
-  quotes: timed(">".repeat(N)), quoteLines: timed(">>>>>>>>>>>>>>>>>>>>>>>> x\n".repeat(N / 30)),
-  lists: timed("- ".repeat(5000) + "x"), orderedLists: timed("1. ".repeat(5000) + "x"),
-  indentedLists: timed(Array.from({ length: 1500 }, (_, i) => " ".repeat(i * 2) + "- x").join("\n")),
-  table: timed("|" + " a |".repeat(20) + "\n|" + "---|".repeat(20) + "\n" + ("|" + " b |".repeat(20) + "\n").repeat(N / 90)),
-  longLine: timed("word ".repeat(N / 5)),
-  fences: timed("```\n".repeat(N / 4)),
-  spaces: timed(" ".repeat(N) + "x"),
-  hashes: timed("#".repeat(N)),
-  tabs: timed("\t".repeat(N) + "x"),
-  hardBreaks: timed("a  \n".repeat(N / 4)),
-  fourParagraphs: timed(["[".repeat(M), "[a](".repeat(M / 4), "![".repeat(M / 2), "[a](<".repeat(M / 5)].join("\n\n")),
-  fourParagraphsB: timed(["[a]".repeat(M / 3), "[a](b ".repeat(M / 6), "[a](<b ".repeat(M / 7), "[a](" + " ".repeat(M - 10)].join("\n\n")),
-  manyParagraphs: timed("p\n\n".repeat(N / 3)),
+  brackets: timed((n) => "[".repeat(n), N), bracketsIn: timed((n) => "[".repeat(n), M),
+  bracketsLink: timed((n) => "[a](".repeat(n / 4), N), bracketsLinkIn: timed((n) => "[a](".repeat(n / 4), M), bracketsClose: timed((n) => "[a]".repeat(n / 3), M),
+  backticks: timed((n) => "`a ".repeat(n / 3), N), backticksIn: timed((n) => "`a ".repeat(n / 3), M),
+  backtickRuns: timed((n) => Array.from({ length: n }, (_, i) => "`".repeat(1 + (i % 50)) + "x").join(" "), 4000),
+  emphasis: timed((n) => "*a ".repeat(n / 3), N), emphasisIn: timed((n) => "*a ".repeat(n / 3), M), emphasisTight: timed((n) => "*a".repeat(n / 2), M),
+  underscores: timed((n) => "_a_b ".repeat(n / 5), M), nestedEmphasis: timed((n) => "**a *b ".repeat(n / 7), M),
+  quotes: timed((n) => ">".repeat(n), N), quoteLines: timed((n) => ">>>>>>>>>>>>>>>>>>>>>>>> x\n".repeat(n / 30), N),
+  lists: timed((n) => "- ".repeat(n) + "x", 5000), orderedLists: timed((n) => "1. ".repeat(n) + "x", 5000),
+  indentedLists: timed((n) => Array.from({ length: n }, (_, i) => " ".repeat(i * 2) + "- x").join("\n"), 1500),
+  table: timed((n) => "|" + " a |".repeat(20) + "\n|" + "---|".repeat(20) + "\n" + ("|" + " b |".repeat(20) + "\n").repeat(n / 90), N / 4),
+  longLine: timed((n) => "word ".repeat(n / 5), N),
+  fences: timed((n) => "```\n".repeat(n / 4), N / 4),
+  spaces: timed((n) => " ".repeat(n) + "x", N),
+  hashes: timed((n) => "#".repeat(n), N),
+  tabs: timed((n) => "\t".repeat(n) + "x", N),
+  hardBreaks: timed((n) => "a  \n".repeat(n / 4), N),
+  fourParagraphs: timed((n) => ["[".repeat(n), "[a](".repeat(n / 4), "![".repeat(n / 2), "[a](<".repeat(n / 5)].join("\n\n"), M),
+  fourParagraphsB: timed((n) => ["[a]".repeat(n / 3), "[a](b ".repeat(n / 6), "[a](<b ".repeat(n / 7), "[a](" + " ".repeat(n - 10)].join("\n\n"), M),
+  manyParagraphs: timed((n) => "p\n\n".repeat(n / 3), N / 4),
 };
 console.log(JSON.stringify(out));
 """
@@ -315,10 +331,19 @@ def test_a_document_over_200_kb_renders_its_first_200_kb_and_says_the_rest_is_pl
 
 @needs_node
 def test_hostile_shapes_of_200_kb_end_quickly_and_neither_nest_deeply_nor_build_an_unsafe_node(tmp_path):
+    """"Quickly" is a growth, not a clock: each shape is rendered at half its size and at its size (rendered in turn seven times, the best of each,
+    in processor time), and the render of the larger may take at most three times that of the smaller plus 15 ms (linear is
+    about twice, quadratic four times; the 15 ms is what a few milliseconds of render can gain from a machine busy with other
+    work, without which the shapes that take 1 to 3 ms could not be told from noise). One generous
+    absolute bound per shape (3000 ms) guards against a hang, and the four-paragraph shapes, which the caps of the renderer bound, keep their
+    absolute bound of 100 ms of processor time (which a busy machine does not inflate)."""
     got = floor_tests.run_node(tmp_path, SIZE)
     for name, shape in got["shapes"].items():
         assert shape["bad"] == 0, name
-        assert shape["ms"] < (100 if name.startswith("fourParagraphs") else 3000), f"{name} took {shape['ms']} ms in the fake document"
+        assert shape["full"] <= 3 * shape["half"] + 15, f"{name} took {shape['half']} ms at half its size and {shape['full']} ms at its size"
+        assert shape["full"] < 3000, f"{name} took {shape['full']} ms in the fake document"
+        if name.startswith("fourParagraphs"):   # the caps (MAX_LINKS, MAX_BRACKET, MAX_URL, MAX_SPACE) make the cost the same at half the size and at the size, so growth cannot see one removed
+            assert shape["full"] < 100, f"{name} took {shape['full']} ms of processor time; the caps of markdown.js bound it far under 100 ms"
         assert shape["depth"] <= 80, f"{name} nests {shape['depth']} levels deep"
 
 

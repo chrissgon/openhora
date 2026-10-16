@@ -2,7 +2,7 @@
 
 **Status: decided.** The maintainer decided the model in outline on 2026-10-02; version 1 of this document wrote it out; an independent review of version 1 found four blockers and recommended a simpler version; the maintainer adopted that simpler version, with every correction the review proposes, the same day. The pull request that carried version 2 was then read by the same reviewer, who found ten points where a rule did not work as written and a list of minor ones; all were accepted and are applied here. This document states the model as it now is. The work that builds it is in `docs/architecture/final-plan-2026-10-02.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/final-plan-2026-10-02.md`): this document describes the model, the plan describes the work, and neither amends the other. The review's findings are cited by their ids (MB1 to MB4, MI1 to MI14, MM1 to MM9) and the points of the reading of the pull request as P1 to P10; a digest with one entry per finding is `docs/architecture/audit-2026-10-02/model-review.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/audit-2026-10-02/model-review.md`), and the last section here says what each one changed.
 
-Every number called a parameter is a starting value. The section "Backtest" says which ones the 48 committed records support and which they cannot judge.
+Every number called a parameter is a starting value. The section "Backtest" says which ones the 48 records of the first round (removed on 2026-10-15; `git show bc830832:skills/<name>/evals/result.json`) support and which they cannot judge.
 
 ## Why
 
@@ -85,7 +85,7 @@ A run line (`"record": "run"`):
 - A run that is still incomplete after the cap of resumptions writes a line with `outcome: timeout` and score 0, with the skill and without it alike, so that dropping it cannot raise a mean (MI11).
 - A run made with a stub runner or a stub grader, with a number of runs other than the configured one, or with a measurement fingerprint that differs from the committed one, writes the same files into a scratch tree inside the run folder and never into a skill's evidence folder. The smoke pass of the plan's phase D is such a run: it writes no evidence (MI13).
 
-**The 48 old records.** `skills/<name>/evals/result.json` stays as the history of the first round. Nothing reads it, and no line is converted from it: the plan rewrites almost every case and changes what the grader sees, so those results are not comparable with what comes after (MI8).
+**The 48 old records.** `skills/<name>/evals/result.json` was the history of the first round; the files were removed on 2026-10-15 (`git show bc830832:skills/<name>/evals/result.json`). Nothing read it, and no line was converted from it: the plan rewrites almost every case and changes what the grader sees, so those results are not comparable with what comes after (MI8).
 
 ### 2. Two kinds of lab test
 
@@ -301,7 +301,7 @@ There is no factor of 0.8 per version step any more: it punished every skill for
 
 **A hosted model that changes under its id** is the same event as an execution-side change: an entry in `epochs` for that model, with its date. No score falls with the calendar: an age decay would make the published table go out of date on a day nothing changed.
 
-**Who may write lab evidence.** `CODEOWNERS` covers `evals/`, the evidence files, the version files and the old records, so a change to any of them is seen by the owner. Lab evidence of the lab models comes from tests run by the maintainer, on the maintainer's account for each model: nothing else proves that a line was written by the runner and not typed into a pull request, so the rule is stated instead of implied (MI12). A contributor without that account can still pass every check: the checks that fail CI need no model.
+**Who may write lab evidence.** `CODEOWNERS` covers `evals/`, the evidence files and the version files, so a change to any of them is seen by the owner. Lab evidence of the lab models comes from tests run by the maintainer, on the maintainer's account for each model: nothing else proves that a line was written by the runner and not typed into a pull request, so the rule is stated instead of implied (MI12). A contributor without that account can still pass every check: the checks that fail CI need no model.
 
 ### 9. A change of the lab default list or of the grader
 
@@ -361,7 +361,7 @@ This table lives here and nowhere else; the plan refers to it and says which of 
 
 ## Backtest
 
-Made with a throwaway script, outside the repository, from the 48 committed `result.json` files only, and made again after the reading of the pull request, which removed the evidence carried across a major version: the two rows on an X change and the last column of the example rows changed, and nothing else did. Each record gives, per model, the mean with the skill and the number of with-skill runs (cases x 3): 17 skills have 6 runs, 20 have 9, 9 have 12, one has 15 and one 18. All 48 records pass the gate. The means with the skill range from 0.833 to 1.0 on the reference model. **What is missing:** the per-run and per-case scores, which are in the stored runs outside the repository; so the backtest treats a record as runs at its mean, and the new runs of each scenario are taken at the skill's recorded mean unless said otherwise.
+Made with a throwaway script, outside the repository, from the 48 committed `result.json` files only (removed on 2026-10-15; `git show bc830832:skills/<name>/evals/result.json`), and made again after the reading of the pull request, which removed the evidence carried across a major version: the two rows on an X change and the last column of the example rows changed, and nothing else did. Each record gives, per model, the mean with the skill and the number of with-skill runs (cases x 3): 17 skills have 6 runs, 20 have 9, 9 have 12, one has 15 and one 18. All 48 records pass the gate. The means with the skill range from 0.833 to 1.0 on the reference model. **What is missing:** the per-run and per-case scores, which are in the stored runs outside the repository; so the backtest treats a record as runs at its mean, and the new runs of each scenario are taken at the skill's recorded mean unless said otherwise.
 
 Pessimistic scores of the 48 skills on the model of the record (called the reference model when it was written), and how many are at 0.70 or above:
 
@@ -447,7 +447,7 @@ One line per finding of the review.
 | MI5. The 0.8 per measurement step was wrong both ways | Three kinds of measurement change, no factor (section 8) |
 | MI6. The baseline ages with the model, the measurement and the case, not with the skill | The baseline is reused until one of the three changes; an X change runs with the skill only (section 2) |
 | MI7. The X class was too coarse | X is `side_effects`, removals and renames, the gate, the stop rules and the external-content rule; additions are Y (section 3) |
-| MI8. The conversion of the 48 records kept nothing | No conversion; the old records stay as history (section 1) |
+| MI8. The conversion of the 48 records kept nothing | No conversion; the old records were removed on 2026-10-15 (section 1; `git show bc830832:skills/<name>/evals/result.json`) |
 | MI9. Two files conflicted in every evidence pull request | One file per test event; the tables are a snapshot that no pull request must regenerate; one comparison base in the hook and in CI; an idempotent bump (sections 1, 3, 10) |
 | MI10. Model ids were free text | A list of known models with aliases; `unknown` for the rest (section 1) |
 | MI11. Items kept as written whose object had gone | A timeout after the cap is a line with score 0 in both variants; stub runs write to a scratch tree; the plan restates each item (section 1; the plan's phase B) |

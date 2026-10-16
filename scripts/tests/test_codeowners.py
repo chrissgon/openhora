@@ -19,7 +19,7 @@ REQUIRED = ["/evals/", "/adapters/claude-code/run-prompt.sh", "/adapters/claude-
             "/.github/workflows/community-eval.yml", "/.github/workflows/community-verify.yml",
             "/scripts/verify_community.py", "/scripts/community_pack.py",
             "/.security-scan-allow", "/shared/", "/skills/*/evals/evidence/", "/skills/*/evals/versions.jsonl",
-            "/skills/*/evals/result.json", "/AGENTS.md", "/scripts/validate.py", "/.github/", "/runtime/", "/interface/", "/flows/", "/skills/*/evals/runtime-manifest.json"]
+            "/AGENTS.md", "/scripts/validate.py", "/.github/", "/runtime/", "/interface/", "/flows/", "/skills/*/evals/runtime-manifest.json"]
 
 
 def patterns():

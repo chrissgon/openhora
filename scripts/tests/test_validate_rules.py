@@ -223,15 +223,26 @@ def test_the_prompt_rule_matches_the_whole_name_only(tree):
     assert messages(run_skill(tree), "eval-prompt-names-skill")[0].endswith(": case 2")
 
 
-def test_product_names_in_a_case_and_in_a_fixture_but_not_in_a_record(tree):
+def test_product_names_in_a_case_and_in_a_fixture_but_not_in_evidence(tree):
     add_skill(tree, cases=[case(1, prompt="The mockup came out of Figma Make."), case(2)])
     write(tree, "skills/eng-demo/evals/files/site/notes.md", "Drawn with Claude Design, exported twice.\n")
-    write(tree, "skills/eng-demo/evals/result.json", {"harness": "Claude"})
     write(tree, "skills/eng-demo/evals/evidence/lab-1.jsonl", '{"adapter": "Claude"}\n')
     write(tree, "skills/eng-demo/references/tools.md", "Figma is named here on purpose.\n")
     found = messages(run_skill(tree), "eval-product-names")
     assert len(found) == 1 and found[0].endswith(
         ": evals/evals.json (Figma Make); evals/files/site/notes.md (Claude Design)")
+
+
+def test_a_result_json_added_back_is_an_error(tree):
+    """The records of the first round were removed on 2026-10-15 and nothing reads them: one added back is an
+    error, whatever it holds, and it is read like any other file of the eval folder."""
+    add_skill(tree)
+    assert run_skill(tree).errors == []
+    write(tree, "skills/eng-demo/evals/result.json", "{not even json}")
+    errors = run_skill(tree).errors
+    assert [e["where"] for e in errors] == ["skills/eng-demo"]
+    assert errors[0]["message"].startswith("[result-json] evals/result.json is a removed first-round record; nothing reads it")
+    assert validate.harness_scope("skills/eng-demo/evals/result.json") == "wide"
 
 
 def test_a_cited_skill_is_built_or_its_line_says_planned(tree):
@@ -424,7 +435,6 @@ def test_every_text_file_of_the_core_is_read_whatever_its_extension(tree):
 
 def test_records_evidence_and_workbench_files_are_exempt_and_fixtures_keep_the_narrow_rule(tree):
     brought = "adapters/agents-dir/run-prompt.sh"
-    write(tree, "skills/eng-demo/evals/result.json", {"strong_harness": "claude-code"})
     write(tree, "skills/eng-demo/evals/evidence/lab-1.jsonl", '{"adapter": "agents-dir"}\n')
     write(tree, "skills/eng-demo/evals/evals.json", json.dumps(
         {"skill_name": "eng-demo", "evals": [case(1, prompt="Read adapters/api/README.md.", workbench_files=[brought])]},

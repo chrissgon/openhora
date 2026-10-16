@@ -768,6 +768,7 @@ class Listener:
         self.log = log or (lambda text: print(redact(text, token), file=sys.stderr, flush=True))
         self.gateway = Gateway(token, clock, rng)
         self.requests = queue.Queue()
+        self.threads = []   # the Gateway, sender and stdin threads once run() has started them
         self.channels = {}
         self.healthy = False
 
@@ -1005,8 +1006,9 @@ class Listener:
         return None
 
     def run(self) -> int:
-        threads = [threading.Thread(target=self.run_gateway, daemon=True), threading.Thread(target=self.work, daemon=True),
-                   threading.Thread(target=self.read_stdin, daemon=True)]
+        self.threads = threads = [threading.Thread(target=self.run_gateway, daemon=True),
+                                  threading.Thread(target=self.work, daemon=True),
+                                  threading.Thread(target=self.read_stdin, daemon=True)]
         for thread in threads:
             thread.start()
         self.stop.wait()
