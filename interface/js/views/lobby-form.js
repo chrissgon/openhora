@@ -12,7 +12,7 @@ import { MODEL_HINT, modelOptions } from "../models.js";
 import { AFTER_FORM_HINT, AUTO_FLOW, FORM_HINT, afterOptions, flowOptions } from "./lobby-model.js";
 import { createParams } from "./lobby-params.js";
 
-/** Create the form. options: {onCreate({text, flow, title, after?, model?, params?, files?}), onBack()}; params are the "name=value" of the chosen workflow's parameters and files the [{param, file}] to hand over (P6a). Returns {el, setFlows(list), setModels(list, defaultModel, recommended), setRequests(list), set(partial), markEmpty(), reset(), open(on), isOpen(), focus()}. */
+/** Create the form. options: {onCreate({text, flow, title, after?, model?, params?, files?}), onBack()}; params are the "name=value" of the chosen flow's parameters and files the [{param, file}] to hand over (P6a). Returns {el, setFlows(list), setModels(list, defaultModel, recommended), setRequests(list), set(partial), markEmpty(), reset(), open(on), isOpen(), focus()}. */
 export function createForm({ onCreate, onBack = () => {} }) {
   const textId = "wb-new-text";
   const flowId = "wb-new-flow";
@@ -30,7 +30,7 @@ export function createForm({ onCreate, onBack = () => {} }) {
   const back = h("button", { class: "pui-btn pui-surface pui-outline wb-small-button wb-newreq-back", type: "button" }, icon("chevron-left", 16), h("span", { text: "Back to the conversation" }));
   back.addEventListener("click", () => onBack());
   const flowField = h("label", { class: "pui-field-group wb-field", for: flowId }, h("span", { text: "Flow" }), flow);
-  const params = createParams();      // the chosen workflow's parameters, when it declares some
+  const params = createParams();      // the chosen flow's parameters, when it declares some
   let listed = [];                    // the flows the service listed (their parameters are read from here)
   const routeLine = h("div");      // the line under the form when the page may not route (js/permissions.js)
   let mayRoute = true;

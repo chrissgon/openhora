@@ -3,11 +3,11 @@
 # requires-python = ">=3.9"
 # dependencies = []
 # ///
-"""The flow check: what a workflow may not hold, decided by code when it is created or changed (decisions D27 and D31, P6a).
+"""The flow check: what a flow may not hold, decided by code when it is created or changed (decisions D27 and D31, P6a).
 
 A task that requires the web never receives sources. The reason is the one of D16: what a run reads of a source is visible to a
-run with the open network, and a workflow that runs again on its own (a routine, P6b) has no person at the plan card to decide.
-So when a workflow is saved, or checked, every skill task is looked at:
+run with the open network, and a flow that runs again on its own (a routine, P6b) has no person at the plan card to decide.
+So when a flow is saved, or checked, every skill task is looked at:
 
   - its skill requires the web (`requires` holds `search:web`) and the task does not say `"web": false`, and
   - it receives sources: the ones it lists, and the ones of the `ingest` steps it depends on (flow_files.sources_of).
@@ -23,7 +23,7 @@ Both together is a finding. For a finding the check says whether a split made by
     give the sources to another task, or run it without the web on purpose).
 
 A skill that requires the web and a task that has no source are left alone. In manual use (a plan the router or the person named)
-D16 stands: the plan card highlights a web task that receives sources and the person decides; this check runs when a workflow is
+D16 stands: the plan card highlights a web task that receives sources and the person decides; this check runs when a flow is
 created or changed (runtime/ops_flows.py: flow-save, flow-check, flows), never when a plan is built.
 
   check(flow, root)             {"ok", "findings": [{"task", "skill", "sources", "sentence", "split", "ask"}]}
@@ -90,7 +90,7 @@ def check(flow: dict, root: str = flow_files.ROOT) -> dict:
         findings.append({
             "task": task["key"], "skill": task["skill"], "sources": ids,
             "sentence": (f"task {task['key']} ({task['skill']}) requires the web and receives the source"
-                         f"{'s' if len(ids) > 1 else ''} {', '.join(ids)}: a workflow never gives sources to a task that uses "
+                         f"{'s' if len(ids) > 1 else ''} {', '.join(ids)}: a flow never gives sources to a task that uses "
                          "the web"),
             "split": split,
             "ask": None if split else ASK})

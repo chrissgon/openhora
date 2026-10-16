@@ -89,22 +89,22 @@ OPERATIONS = (
      "channels": ("terminal", "page", "mcp", "messaging"), "model": False,
      "help": "one task or request with its runs and its pending decisions"},
     {"name": "flows", "call": "flows", "args": (), "channels": ("terminal", "page", "mcp"), "model": False,
-     "help": "the workflows: the flow files of this checkout and of the project (docs/workbench/flows/), with their titles, how many tasks each holds, their parameters, step kinds and the result of the flow check"},
+     "help": "the flows: the files of this checkout and of the project (docs/workbench/flows/), with their titles, how many tasks each holds, their parameters, step kinds and the result of the flow check"},
     {"name": "flow-check", "call": "check_flow",
      "args": ({"name": "flow", "kind": "str", "required": True},),
      "channels": ("terminal", "page", "mcp"), "model": False,
-     "help": "the flow check of one workflow: a task that requires the web must not receive sources; for a skill that reads a research brief the check offers the split the code makes. It writes nothing"},
+     "help": "the flow check of one flow: a task that requires the web must not receive sources; for a skill that reads a research brief the check offers the split the code makes. It writes nothing"},
     {"name": "flow-save", "call": "flow_save",
      "args": ({"name": "name", "kind": "str", "required": True},
               {"name": "pending_id", "kind": "int", "flag": "id"}, {"name": "flow", "kind": "str"}, {"name": "title", "kind": "str"},
               {"name": "split", "kind": "flag"}, {"name": "replace", "kind": "flag"}),
      "channels": ("terminal", "page"), "model": False,
-     "help": "save an approved plan (--id) or a workflow already there (--flow) as the workflow --name of this project (docs/workbench/flows/); the flow check runs first and a finding refuses it, unless --split makes the code-made split; an existing file is replaced only with --replace"},
+     "help": "save an approved plan (--id) or a flow already there (--flow) as the flow --name of this project (docs/workbench/flows/); the flow check runs first and a finding refuses it, unless --split makes the code-made split; an existing file is replaced only with --replace"},
     {"name": "stage-file", "call": "stage_file",
      "args": ({"name": "request_id", "kind": "int", "required": True, "flag": "request", "label": "request id"},
               {"name": "file", "kind": "str", "required": True}),
      "channels": ("terminal", "page"), "model": False,
-     "help": "copy one file of yours for a request that waits for its plan, so that a workflow with a file parameter can name it and its plan carry the file's hash (the plan's approval moves it into the task that reads it)"},
+     "help": "copy one file of yours for a request that waits for its plan, so that a flow with a file parameter can name it and its plan carry the file's hash (the plan's approval moves it into the task that reads it)"},
     {"name": "config", "call": "config", "args": (), "channels": ("terminal", "page"), "model": False,
      "help": "the configuration's path and hash, whether you accepted it, and the data folder; it never refuses"},
     {"name": "progress", "call": "progress", "args": ({"name": "since", "kind": "str"},),
@@ -160,7 +160,7 @@ OPERATIONS = (
      "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"},
               {"name": "unattended", "kind": "flag"}),
      "channels": ("terminal",), "model": False,
-     "help": "run one named step task in this process, no model: what the dispatcher starts (with --unattended, which asks again for the brake and the kind's flag) for a step task of a kind it may start on its own (ingest, and the kinds that follow); a workflow can hold a step task since P6a"},
+     "help": "run one named step task in this process, no model: what the dispatcher starts (with --unattended, which asks again for the brake and the kind's flag) for a step task of a kind it may start on its own (ingest, and the kinds that follow); a flow can hold a step task since P6a"},
     {"name": "accept-config", "call": "accept_config",
      "args": ({"name": "sha256", "kind": "str", "required": True},
               {"name": "adopt_sources", "kind": "flag", "flag": "adopt-sources"}),
@@ -308,7 +308,7 @@ OPERATIONS = (
      "help": "the catalog of the project's sources: each source, its newest version (name, type, size, date, sheets and columns with sample values, first headings), your description and whether its files changed outside the runtime"},
     {"name": "routines", "call": "routines_read", "args": ({"name": "routine_id", "kind": "int", "flag": "id"},),
      "channels": ("terminal", "page", "mcp", "messaging"), "model": False,
-     "help": "the routines (a workflow started by a schedule): state, schedule, the hash of the content now against the approved one, the last fire; with an id, its fires and what approving it needs"},
+     "help": "the routines (a flow started by a schedule): state, schedule, the hash of the content now against the approved one, the last fire; with an id, its fires and what approving it needs"},
     {"name": "routine-create", "call": "routine_create",
      "args": ({"name": "name", "kind": "str", "required": True}, {"name": "flow", "kind": "str", "required": True}, {"name": "params", "kind": "list", "flag": "param"},
               {"name": "every", "kind": "choice", "choices": ("day", "week", "minutes")}, {"name": "at", "kind": "str"},
@@ -316,7 +316,7 @@ OPERATIONS = (
               {"name": "providers", "kind": "list", "flag": "provider"}, {"name": "window_seconds", "kind": "int", "flag": "window-seconds"},
               {"name": "consent", "kind": "flag"}, {"name": "warning_sha256", "kind": "str", "flag": "warning-sha256"}),
      "channels": ("terminal", "page", "messaging"), "model": False, "channel_arg": True,
-     "help": "create a routine as a draft: --flow a workflow, --param name=value its fixed arguments, --every day|week|minutes with --at HH:MM, --weekday, --minutes, --model (an id, auto, or the project's default), --provider (the approved set for auto), --window-seconds (the catch-up window, default its period), --consent (terminal; the page sends the hash of the warning) for a fixed model with no evidence; nothing fires until routine-approve; from messaging only when the project grants it, and never for a workflow with a networked script or one a standing policy covers"},
+     "help": "create a routine as a draft: --flow a flow, --param name=value its fixed arguments, --every day|week|minutes with --at HH:MM, --weekday, --minutes, --model (an id, auto, or the project's default), --provider (the approved set for auto), --window-seconds (the catch-up window, default its period), --consent (terminal; the page sends the hash of the warning) for a fixed model with no evidence; nothing fires until routine-approve; from messaging only when the project grants it, and never for a flow with a networked script or one a standing policy covers"},
     {"name": "routine-change", "call": "routine_change",
      "args": ({"name": "routine_id", "kind": "int", "required": True, "flag": "id"}, {"name": "flow", "kind": "str"}, {"name": "params", "kind": "list", "flag": "param"},
               {"name": "every", "kind": "choice", "choices": ("day", "week", "minutes")}, {"name": "at", "kind": "str"},
@@ -328,7 +328,7 @@ OPERATIONS = (
     {"name": "routine-approve", "call": "routine_approve",
      "args": ({"name": "routine_id", "kind": "int", "required": True, "flag": "id"}, {"name": "sha256", "kind": "str"}),
      "channels": ("terminal", "page"), "model": False,
-     "help": "approve a routine by the sha256 of its exact content (schedule, workflow template and fixed arguments, skill versions X.Y, eval image, model and consent, providers): without --sha256 the preview and the hash; a stopped routine is approved again the same way"},
+     "help": "approve a routine by the sha256 of its exact content (schedule, flow template and fixed arguments, skill versions X.Y, eval image, model and consent, providers): without --sha256 the preview and the hash; a stopped routine is approved again the same way"},
     {"name": "routine-pause", "call": "routine_pause", "args": ({"name": "routine_id", "kind": "int", "required": True, "flag": "id"},),
      "channels": ("terminal", "page", "messaging"), "model": False, "help": "pause an active routine: nothing fires while it is paused, and the slots it passes are not made up"},
     {"name": "routine-resume", "call": "routine_resume", "args": ({"name": "routine_id", "kind": "int", "required": True, "flag": "id"},),
@@ -367,9 +367,9 @@ GROUPS = {
     "consent": {"operations": ("give-consent",), "kind": None},   # the page's consent for an autonomous agent (D38): a group of its own, so granting set-mode never grants it
     "dispatch": {"operations": ("dispatch",), "kind": None},
     "documents": {"operations": ("sync", "hand-over"), "kind": None},
-    "workflows": {"operations": ("flow-save", "stage-file"), "kind": None},   # saving a workflow of the project, and handing a file over for the plan of one
+    "flows": {"operations": ("flow-save", "stage-file"), "kind": None},   # saving a flow of the project, and handing a file over for the plan of one
     # routines (P6b): the brakes reach the messaging channel by default; making and changing one is a grant of `channels.messaging`
-    # (and never for a workflow that holds a networked script or that a standing policy covers: ROUTINE_LOCAL_CHANNELS); approving one
+    # (and never for a flow that holds a networked script or that a standing policy covers: ROUTINE_LOCAL_CHANNELS); approving one
     # (by the hash of its content) and resuming it are the terminal's and the page's
     "routine-brakes": {"operations": ("routine-pause", "routine-cancel"), "kind": None},
     "routine-edit": {"operations": ("routine-create", "routine-change"), "kind": None},
@@ -386,7 +386,7 @@ POLICY_CHANNELS = ("page", "mcp", "messaging")     # the channels a project's co
 MUST_READ = ("page", "mcp")                        # a policy for these lists `read`
 PAGE_ONLY_GROUPS = ("approve-effects",)            # valid on the page alone (an effect is approved nowhere else, by EFFECT_CHANNELS)
 EFFECT_CHANNELS = ("terminal", "page")             # the channels an effect may be approved from (decision D8, extended)
-ROUTINE_LOCAL_CHANNELS = ("terminal", "page")      # the channels a routine whose workflow holds a networked script, or that a standing effect policy covers, is made and changed from (limit L33, S10)
+ROUTINE_LOCAL_CHANNELS = ("terminal", "page")      # the channels a routine whose flow holds a networked script, or that a standing effect policy covers, is made and changed from (limit L33, S10)
 BRAKES = ("cancel", "set-mode", "routine-pause", "routine-cancel")                    # never withheld from the page: cancel, and a move of a mode DOWN (the direction is checked by ops_config.set_mode)
 
 

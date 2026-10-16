@@ -1,6 +1,6 @@
-"""Tests added after the review of P6a: the case of the paths a run may not write, a workflow with sources or `web: false` that is never
+"""Tests added after the review of P6a: the case of the paths a run may not write, a flow with sources or `web: false` that is never
 started at once, an approval that never fails after it is committed, the staging folder cleaned, the sources a bound flow names checked,
-a kind that brings a source in, the write of a workflow on a poor disk, and a file parameter that survives "Save this plan as a workflow".
+a kind that brings a source in, the write of a flow on a poor disk, and a file parameter that survives "Save this plan as a flow".
 On the stand-in tree of standin_tree.py. Offline; invented names only.
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_ops_flows_review.py
@@ -33,12 +33,12 @@ workcopy = st.load("workcopy")
 
 @pytest.mark.parametrize("rel", ["docs/workbench/Flows/evil.json", "DOCS/WORKBENCH/FLOWS/evil.json", "docs/workbench/fLoWs", "docs/workbench/Runtime.json",
                                  "docs/workbench/RUNTIME.JSON"])
-def test_a_path_of_the_workflows_or_the_configuration_in_any_case_is_class_other(rel):
+def test_a_path_of_the_flows_or_the_configuration_in_any_case_is_class_other(rel):
     assert path_rule.classify(rel) == "other"
     assert path_rule.classify(rel, {"versioned": [rel]}) == "other"        # a versioned folder does not change it
 
 
-def test_what_a_run_leaves_in_the_workflows_folder_under_another_case_is_not_returned(limits_tree):
+def test_what_a_run_leaves_in_the_flows_folder_under_another_case_is_not_returned(limits_tree):
     tree = limits_tree
     left = {"docs/workbench/Flows/evil.json": "{}\n", "docs/business/icp.md": "# Profile\n"}
     result = finished(tree, left, created=list(left))
@@ -48,7 +48,7 @@ def test_what_a_run_leaves_in_the_workflows_folder_under_another_case_is_not_ret
     assert not (tree["project"] / "docs" / "workbench" / "flows").exists() or not any((tree["project"] / "docs" / "workbench" / "flows").iterdir())
 
 
-def test_the_change_set_never_carries_a_workflow_under_another_case(protected_tree, tmp_path):
+def test_the_change_set_never_carries_a_flow_under_another_case(protected_tree, tmp_path):
     run_dir, base = copy_of(tmp_path, {"README.md": "x\n"})
     (run_dir / "cwd" / "docs" / "workbench" / "Flows").mkdir(parents=True)
     (run_dir / "cwd" / "docs" / "workbench" / "Flows" / "evil.json").write_text("{}\n")
@@ -60,10 +60,10 @@ def test_the_change_set_never_carries_a_workflow_under_another_case(protected_tr
                                     {"versioned": ["docs/workbench/Flows/evil.json"]}, ())
 
 
-# --- major 2: a workflow with sources or `web: false` is planned -----------------------------------------------------------------------
+# --- major 2: a flow with sources or `web: false` is planned -----------------------------------------------------------------------
 
 
-def test_a_workflow_that_lists_sources_or_says_web_false_is_never_started_by_request_at_once(world):
+def test_a_flow_that_lists_sources_or_says_web_false_is_never_started_by_request_at_once(world):
     tree = world["tree"]
     research = {"key": "research", "skill": "core-research", "title": "Research", "text": "Research."}
     split_form = {"flow": "split-form", "title": "Split", "tasks": [
@@ -201,7 +201,7 @@ def test_only_a_kind_that_declares_it_brings_a_source_in_and_sources_of_reads_th
     assert flow_files.sources_of(flow, steps.sourcing_kinds()) == {"read": []}
 
 
-# --- minor 5: the write of a workflow --------------------------------------------------------------------------------------------------
+# --- minor 5: the write of a flow --------------------------------------------------------------------------------------------------
 
 
 def saved_flow(world):

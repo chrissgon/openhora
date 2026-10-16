@@ -1,5 +1,5 @@
-// The routines of the project (package P6b), a section of the Building's panel: the list of routines, "New routine" (a workflow, a schedule, a model), and for each
-// routine its approval, pause, resume and cancel. A routine is a workflow started by a schedule; it is a draft until the person approves the sha256 of its exact content,
+// The routines of the project (package P6b), a section of the Building's panel: the list of routines, "New routine" (a flow, a schedule, a model), and for each
+// routine its approval, pause, resume and cancel. A routine is a flow started by a schedule; it is a draft until the person approves the sha256 of its exact content,
 // which the service computes and this page shows whole beside the button. The page decides nothing: it sends what was typed or clicked and shows the service's sentence for
 // a refusal. When the model is fixed and has no evidence the preview carries the consent's warning (the agent consent's text, whole) and a button that gives the routine's own
 // consent, which changes the content and so its hash; the approval is a second, separate click on the new hash. Pause and cancel are brakes and are never withheld; the other
@@ -11,7 +11,7 @@ import { failureText } from "../cards/plan-rows.js";
 import { can as pageMay } from "../permissions.js";
 
 export const HEAD = "Routines";
-export const EMPTY = "No routine yet. A routine starts a workflow on a schedule, after you approve its exact content.";
+export const EMPTY = "No routine yet. A routine starts a flow on a schedule, after you approve its exact content.";
 const REREAD_MS = 15000;      // the list is read again when it is older than this, and after every write
 
 /** The words of a schedule: "every day at 08:00", "every Monday at 08:00", "every 30 minutes". */
@@ -30,18 +30,18 @@ export function stateWords(r) {
 }
 
 /**
- * The lines of a routine's content as the person approves it, next to the hash: the schedule, the workflow with its template hash, the fixed arguments, the skills with
+ * The lines of a routine's content as the person approves it, next to the hash: the schedule, the flow with its template hash, the fixed arguments, the skills with
  * their X.Y, the eval image's digest, the model and the consent, the providers. `content` is the service's (`routines --id`), shown as it is.
  */
 export function contentLines(content) {
   const c = content && typeof content === "object" ? content : {};
-  const workflow = c.workflow || {};
-  const args = workflow.params && typeof workflow.params === "object" ? Object.entries(workflow.params).map(([k, v]) => `${k}=${v}`).join(", ") : "";
+  const flow = c.flow || {};
+  const args = flow.params && typeof flow.params === "object" ? Object.entries(flow.params).map(([k, v]) => `${k}=${v}`).join(", ") : "";
   const skills = c.skills && typeof c.skills === "object" ? Object.entries(c.skills).map(([k, v]) => `${k} ${v}`).join(", ") : "";
   const consent = c.consent && c.consent.given ? "given by you for this model" : "not given";
   return [
     ["Schedule", `${scheduleWords(c.schedule)}${c.schedule && c.schedule.window_seconds ? `, a missed slot is made up for ${c.schedule.window_seconds} s` : ""}`],
-    ["Workflow", `${workflow.name || ""} (template ${workflow.template_sha256 || ""})`],
+    ["Flow", `${flow.name || ""} (template ${flow.template_sha256 || ""})`],
     ["Fixed arguments", args || "none"],
     ["Skills", skills || "none"],
     ["Eval image", String(c.image || "")],
@@ -100,7 +100,7 @@ export function createRoutines(env) {
     try {
       const got = await env.api.routines(env.project);
       items = Array.isArray(got && got.routines) ? got.routines : [];
-      const known = await env.api.flows(env.project);      // read again each time: a workflow saved since is offered
+      const known = await env.api.flows(env.project);      // read again each time: a flow saved since is offered
       flows = (Array.isArray(known && known.flows) ? known.flows : []).filter((f) => f && !f.error && !(f.params || []).some((p) => p.type === "file"));
       readAt = Date.now();
     } catch (e) {
@@ -132,7 +132,7 @@ export function createRoutines(env) {
     const a = got.approve;
     preview.hidden = !a;
     if (!a) return;
-    const rows = [h("strong", { text: `Approve ${got.name}` }), h("p", { class: "wb-steps-line", text: `${scheduleWords(got.schedule)} · workflow ${got.flow} · model ${got.model_word}` }),
+    const rows = [h("strong", { text: `Approve ${got.name}` }), h("p", { class: "wb-steps-line", text: `${scheduleWords(got.schedule)} · flow ${got.flow} · model ${got.model_word}` }),
       h("span", { class: "wb-card-label", text: "Hash of its exact content" }), h("code", { class: "wb-hash mono", "data-hash": "routine", tabindex: "0", text: a.sha256 }),
       h("dl", { class: "wb-rt-content", "aria-label": "What the hash covers" }, contentLines(got.content).flatMap(([k, v]) => [h("dt", { text: k }), h("dd", { class: "mono", text: v })]))];
     if (a.consent_needed && may("routine-change")) {
@@ -170,12 +170,12 @@ export function createRoutines(env) {
     }));
   }
 
-  /** "New routine": the fields of a routine, sent as typed; the service checks the workflow, the schedule and the model. */
+  /** "New routine": the fields of a routine, sent as typed; the service checks the flow, the schedule and the model. */
   function drawForm() {
     form.hidden = !may("routine-create");
     if (form.hidden) return;
     const name = h("input", { class: "pui-input wb-field-input", type: "text", autocomplete: "off", "aria-label": "Name of the routine" });
-    const flow = h("select", { class: "pui-input wb-select", "aria-label": "Workflow" }, flows.map((f) => h("option", { value: f.flow, text: f.title || f.flow })));
+    const flow = h("select", { class: "pui-input wb-select", "aria-label": "Flow" }, flows.map((f) => h("option", { value: f.flow, text: f.title || f.flow })));
     const every = h("select", { class: "pui-input wb-select", "aria-label": "Every" }, ["day", "week", "minutes"].map((w) => h("option", { value: w, text: w })));
     const at = h("input", { class: "pui-input wb-field-input", type: "text", value: "08:00", "aria-label": "At (HH:MM)" });
     const weekday = h("input", { class: "pui-input wb-field-input", type: "text", value: "1", "aria-label": "Weekday (1 Monday to 7 Sunday)" });
@@ -198,7 +198,7 @@ export function createRoutines(env) {
     }));
     const labelled = (text, input) => h("label", { class: "pui-field-group wb-field" }, h("span", { text }), input);
     form.replaceChildren(h("summary", { class: "wb-summary", text: "New routine" }), h("div", { class: "wb-card-body" },
-      labelled("Name", name), labelled("Workflow", flow), labelled("Every", every), labelled("At", at), labelled("Weekday", weekday), labelled("Minutes", minutes),
+      labelled("Name", name), labelled("Flow", flow), labelled("Every", every), labelled("At", at), labelled("Weekday", weekday), labelled("Minutes", minutes),
       labelled("Model", model), labelled("Providers (for auto)", providers), labelled("Fixed arguments", params), send));
   }
 

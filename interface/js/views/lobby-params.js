@@ -1,4 +1,4 @@
-// The parameters of a workflow in the "New request" form (package P6a): when the flow chosen declares parameters (flows: `params`), one field for
+// The parameters of a flow in the "New request" form (package P6a): when the flow chosen declares parameters (flows: `params`), one field for
 // each, under the Flow select. A text parameter is a line (its default is the placeholder: left empty it takes the default); a file parameter is a
 // file chosen on this machine, which the caller hands over for the request (`stage-file`) before the request is routed, so the plan carries the file's
 // hash. The module reports what was typed and chosen; it checks only what the service would refuse for a name, and the service checks again.
@@ -25,7 +25,7 @@ export function createParams() {
       const input = isFile ? h("input", { class: "pui-input wb-file", id, type: "file" })
         : h("input", { class: "pui-input wb-lobby-field wb-field-input", id, type: "text", autocomplete: "off" });
       input.disabled = disabled;
-      const hint = h("small", { class: "wb-card-hint wb-hint", id: `${id}-hint`, text: isFile ? "A file of yours: it is handed over for this request, and the plan carries its hash." : (p.required ? "Required." : "Optional: the workflow has a default.") });
+      const hint = h("small", { class: "wb-card-hint wb-hint", id: `${id}-hint`, text: isFile ? "A file of yours: it is handed over for this request, and the plan carries its hash." : (p.required ? "Required." : "Optional: the flow has a default.") });
       input.setAttribute("aria-describedby", `${id}-hint`);
       fields.push({ name: p.name, required: Boolean(p.required), file: isFile, input });
       return h("label", { class: "pui-field-group wb-field", for: id }, h("span", { text: p.description ? `${p.name}: ${p.description}` : p.name }), input, hint);

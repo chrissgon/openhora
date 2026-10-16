@@ -1,5 +1,5 @@
 """The page's part of the routines (P6b): the client's calls, the Routines section of the Building (the list, the approval of the exact content with its whole hash,
-the consent's warning, the brakes, the policy), and "Schedule it" under "Save this plan as a workflow". Run with Node over the real modules, a fake document and a
+the consent's warning, the brakes, the policy), and "Schedule it" under "Save this plan as a flow". Run with Node over the real modules, a fake document and a
 stand-in client. No browser, no service, no model.
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_interface_routines.py
@@ -52,7 +52,7 @@ let list = [
   { id: 2, name: "weekly", flow: "report", schedule: { every: "week", weekday: 1, at: "09:30" }, state: "active", current: true, model_word: "m", last_fire: { slot: "2026-10-12T09:30", status: "created" } },
   { id: 3, name: "changed", flow: "report", schedule: { every: "minutes", minutes: 30 }, state: "active", current: false, model_word: "m", last_fire: { slot: "x", status: "asked", reason: "its content changed" } },
   { id: 4, name: "held", flow: "report", schedule: { every: "day", at: "01:00" }, state: "paused", current: true, model_word: "m", last_fire: null }];
-const CONTENT = { schedule: { every: "day", at: "08:00", window_seconds: 86400 }, workflow: { name: "demo", template_sha256: "t".repeat(64), params: { topic: "dental" } },
+const CONTENT = { schedule: { every: "day", at: "08:00", window_seconds: 86400 }, flow: { name: "demo", template_sha256: "t".repeat(64), params: { topic: "dental" } },
   skills: { "demo-asks": "0.1", "demo-writes": "0.1" }, image: "sha256:" + "1".repeat(64), model: "fm", consent: { given: false }, providers: [] };
 let needed = true;
 const calls = [];

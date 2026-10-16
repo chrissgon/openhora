@@ -159,9 +159,6 @@ The goal decided on 2026-09-28 (`docs/decisions.md`): a company run by agents, o
   - From: the maintainer's decision of 2026-10-15.
   - Plan: package INSTRUCTIONS of the delegation platform plan, spec SPEC-INSTRUCTIONS, in progress: pull request #430 (limit L40).
   - Done when: the pull request has merged, and a project's instructions are shown to reach a task run's prompt.
-- [ ] **FLOW-WORD. The word is "flow" everywhere.** Decided by the maintainer on 2026-10-15 (T30, closed, asked for the opposite): in code, files and every text a person reads, the entity is a flow. The "workflow" wording that recent packages added is replaced (the exception is GitHub's `.github/workflows`).
-  - Plan: package FLOW-WORD of the delegation platform plan, spec SPEC-FLOW-WORD, after #419 and FLOWS1 (#426, merged), so after #419.
-  - Done when: no file a person reads, no operation and no setting says "workflow" for the entity, except `.github/workflows`, with a light test.
 
 ## Website
 

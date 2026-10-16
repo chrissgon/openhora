@@ -39,7 +39,7 @@ NOT_OPERATIONS = {"store_module", "context", "task_prompt", "code_task", "chat_m
                   "catalog_block", "router_block", "known_ids", "forced_for", "copies_for", "record_copies", "prompt_lines",
                   # ops_steps.py: the brake and what the dispatcher asks of the step tasks, beside run_step
                   "import_bytes", "set_steps_mode", "steps_mode", "unattended", "may_dispatch", "held_reason", "annotate",
-                  # ops_flows.py: what the plan, the approval and the request ask of the workflows, beside the four operations
+                  # ops_flows.py: what the plan, the approval and the request ask of the flows, beside the four operations
                   "parse_params", "now", "staged", "direct", "bound", "before_approve", "after_approve", "discard_staged",
                   # ops_routines.py: the tick a round calls, the fire, and what a routine's task asks of its routine, beside the seven operations
                   "effective_model", "content_of", "local_reason", "tick", "fire", "routine_of_task", "consent_in_force"}  # ops_config.py: the one writer of the accepted hash and the Checkpoints line

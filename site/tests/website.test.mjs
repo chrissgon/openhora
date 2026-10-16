@@ -146,11 +146,14 @@ const P3B_EDITS = {
     {"op": "replace", "ref": "P3b: the Skills tab shows the band of each lab model, not of a model tier (decision D34)", "match": ["[alt] The Control room, Skills tab: the workbench's own skills with version, area and the band of each model tier, at the captured commit.", "[alt] The Control room, Skills tab: the workbench's own skills with version, area and the band of each model tier, at the captured commit.", "[alt] The Control room, Skills tab: the workbench's own skills with version, area and the band of each model tier, at the captured commit.", "[alt] The Control room, Skills tab: the workbench's own skills with version, area and the band of each model tier, at the captured commit."], "with": ["[alt] The Control room, Skills tab: the workbench's own skills with version, area and the band of each lab model, at the captured commit.", "[alt] The Control room, Skills tab: the workbench's own skills with version, area and the band of each lab model, at the captured commit.", "[alt] The Control room, Skills tab: the workbench's own skills with version, area and the band of each lab model, at the captured commit.", "[alt] The Control room, Skills tab: the workbench's own skills with version, area and the band of each lab model, at the captured commit."]},
   ],
 };
+const FLOW_WORD = "FLOW-WORD: the entity is called flow everywhere (decision of 2026-10-16)";
 const TEXT_EDITS = {
   home: [NAV_EDIT,
+    { op: "replace", ref: FLOW_WORD, match: ["openhora is an open, self-hosted workbench of skills, agents and workflows that let an AI build a digital solution, in which"],
+      with: ["openhora is an open, self-hosted workbench of skills, agents and flows that let an AI build a digital solution, in which"] },
     { op: "replace", ref: "The Replay control is gone: the teaser's badge reads \"fictional project\"", match: ["Replay · fictional project"], with: ["fictional project"] },
     ...P3B_EDITS.home],
-  proof: [NAV_EDIT, SHOTS_EDIT(1), ...P3B_EDITS.proof], "first-steps": [NAV_EDIT, SHOTS_EDIT(1)], "how-its-built": [NAV_EDIT, ...P3B_EDITS["how-its-built"]], glossary: [NAV_EDIT, ...P3B_EDITS.glossary], "404": [NAV_EDIT],
+  proof: [NAV_EDIT, SHOTS_EDIT(1), ...P3B_EDITS.proof], "first-steps": [NAV_EDIT, SHOTS_EDIT(1)], "how-its-built": [NAV_EDIT, ...P3B_EDITS["how-its-built"]], glossary: [NAV_EDIT, ...P3B_EDITS.glossary, { op: "replace", ref: FLOW_WORD, match: ["workflow"], with: ["flow"] }], "404": [NAV_EDIT],
   interface: [NAV_EDIT, SHOTS_EDIT(5), ...P3B_EDITS.interface,
     { op: "insertAfter", ref: "DEV-7: the sentence that the interface runs on the person's machine and that the tour is a demo on fictional data",
       match: ["A person opens a local page and sees their projects as a small low-poly city: one building per project, one floor per area agent, an owl at a desk on each floor, and a card for whatever is waiting for the person. It is the view onto the task runtime, not a separate product."],

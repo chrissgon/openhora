@@ -3,21 +3,21 @@
 # requires-python = ">=3.9"
 # dependencies = []
 # ///
-"""The operations over workflows (flow files, P6a): list them, check one, save a plan as one, hand a file over for a request,
+"""The operations over flows (flow files, P6a): list them, check one, save a plan as one, hand a file over for a request,
 and the pieces the rest of the layer asks of them (binding a flow's parameters and dates, and moving a handed-over file into the
 task that reads it).
 
-A workflow is a flow file (runtime/flow_files.py): the workbench's own, flows/<name>.json, and the project's, which live in the
+A flow is a file read by code (runtime/flow_files.py): the workbench's own, flows/<name>.json, and the project's, which live in the
 project at docs/workbench/flows/<name>.json. That folder is the person's: it is under docs/, so the project's git versions it
 beside the other documents the person keeps; it is not under .workbench-local/, which is git-ignored and holds work data. A run can
 never write there (the path rule, runtime/path_rule.py, class `other`), so only the person, through the operations below (the
-terminal and the page), or by hand, changes a workflow.
+terminal and the page), or by hand, changes a flow.
 
-  flows(project)                       every workflow with its title, number of tasks, origin, parameters, step kinds and the result
+  flows(project)                       every flow with its title, number of tasks, origin, parameters, step kinds and the result
                                        of the flow check; a file that does not pass is listed with an `error`
-  check_flow(project, flow)            the flow check of one workflow (runtime/flow_check.py): its findings, the split it offers
+  check_flow(project, flow)            the flow check of one flow (runtime/flow_check.py): its findings, the split it offers
   flow_save(project, name[, pending_id, flow, title, split, replace])
-                                       save an approved plan (pending_id) or a flow already there (flow) as the project workflow
+                                       save an approved plan (pending_id) or a flow already there (flow) as the project flow
                                        `name`: the flow check runs first, and a finding refuses the save unless split makes the
                                        code-made split; an existing file is replaced only with replace
   stage_file(project, request_id, file)
@@ -127,7 +127,7 @@ def _summary(name: str, origin: str, ctx: dict) -> dict:
 
 
 def flows(project: str) -> dict:
-    """The workflows of this checkout and of the project: {"flows": [{"flow", "title", "tasks": <number of tasks>, "origin":
+    """The flows of this checkout and of the project: {"flows": [{"flow", "title", "tasks": <number of tasks>, "origin":
     "workbench" or "project", "params": [{"name", "description", "type", "required"}], "steps": [kinds], "check": {"ok",
     "findings"}}]}, the workbench's first, each group sorted by name. A file that does not pass its checks is listed with "title"
     None, "tasks" 0 and an "error" text, so one bad file hides no other."""
@@ -136,7 +136,7 @@ def flows(project: str) -> dict:
 
 
 def check_flow(project: str, flow: str) -> dict:
-    """The flow check of one workflow, the workbench's or the project's: {"flow", "origin", "ok", "findings", "template_sha256", "next"}.
+    """The flow check of one flow, the workbench's or the project's: {"flow", "origin", "ok", "findings", "template_sha256", "next"}.
     A finding is {"task", "skill", "sources", "sentence", "split", "ask"}; `next` is the command that saves the code-made split
     when every finding offers one. A read: it writes nothing."""
     ctx = core.context(project)
@@ -148,7 +148,7 @@ def check_flow(project: str, flow: str) -> dict:
             core._command("flow-save", project, flow=flow, name=f"{flow}-split", split=True)}
 
 
-# --- saving a plan, or a flow, as a project workflow ------------------------------------------------------------------------------
+# --- saving a plan, or a flow, as a project flow ------------------------------------------------------------------------------
 
 
 def _from_plan(ctx: dict, item: dict, name: str, title) -> dict:
@@ -158,7 +158,7 @@ def _from_plan(ctx: dict, item: dict, name: str, title) -> dict:
     tasks = payload.get("tasks") or []
     request = core._stored(ctx, ctx["store"].task_get, item["task_id"])
     out, needs_request = [], False
-    files = ((payload.get("bound") or {}).get("files") or {})      # {parameter: {"name", "sha256"}} of a plan built from a workflow
+    files = ((payload.get("bound") or {}).get("files") or {})      # {parameter: {"name", "sha256"}} of a plan built from a flow
     for t in tasks:
         one = {"key": t["key"]}
         if t.get("step"):
@@ -180,9 +180,9 @@ def _from_plan(ctx: dict, item: dict, name: str, title) -> dict:
         words = (request.get("text") or "").replace("\r\n", "\n").replace("\r", "\n").strip()
         if not words or len(words) > flow_files.MAX_PARAM:
             raise core.OpsError(f"the request's words are longer than a parameter holds ({flow_files.MAX_PARAM} characters): "
-                                "the plan cannot be saved as a workflow", 1)
-        params[PLAN_REQUEST] = {"description": "what the workflow is asked for, in your words", "type": "text", "default": words}
-    for param in files:      # a file the plan carried stays a parameter: the workflow is run again with another file, not with this one
+                                "the plan cannot be saved as a flow", 1)
+        params[PLAN_REQUEST] = {"description": "what the flow is asked for, in your words", "type": "text", "default": words}
+    for param in files:      # a file the plan carried stays a parameter: the flow is run again with another file, not with this one
         params[param] = {"description": "a file of yours, handed over for the request (stage-file)", "type": "file"}
     return {"flow": name, "title": " ".join((title or plan.request_title(request)).split()), "params": params, "tasks": out}
 
@@ -224,10 +224,10 @@ def _write(ctx: dict, flow: dict, replace: bool) -> dict:
     rel = f"{flow_files.PROJECT_DIR}/{flow['flow']}.json"
     body = (json.dumps(flow_files.to_file(flow), indent=2, ensure_ascii=False) + "\n").encode("utf-8")
     if len(body) > flow_files.PROJECT_FILE_BYTES:
-        raise core.OpsError(f"the workflow is larger than {flow_files.PROJECT_FILE_BYTES} bytes", 1)
+        raise core.OpsError(f"the flow is larger than {flow_files.PROJECT_FILE_BYTES} bytes", 1)
     for part in (os.path.join(project, "docs"), os.path.join(project, "docs", "workbench"), folder):
         if os.path.islink(part):
-            raise core.OpsError(f"{os.path.relpath(part, project)} is a link: no workflow is written through it", 1)
+            raise core.OpsError(f"{os.path.relpath(part, project)} is a link: no flow is written through it", 1)
     final = os.path.join(folder, flow["flow"] + ".json")
     temp = None
     try:
@@ -260,7 +260,7 @@ def _write(ctx: dict, flow: dict, replace: bool) -> dict:
 
 def flow_save(project: str, name: str, pending_id: int | None = None, flow: str | None = None, title: str | None = None,
               split: bool = False, replace: bool = False) -> dict:
-    """Save a workflow into the project (docs/workbench/flows/<name>.json) from an approved plan (pending_id: the plan decision, kind
+    """Save a flow into the project (docs/workbench/flows/<name>.json) from an approved plan (pending_id: the plan decision, kind
     `plan`, resolved `approved`, so the person has seen and approved exactly these tasks) or from a flow already there (flow: its
     name, for a flow written by hand that the check refused, to save it split). Exactly one of the two. The name is a flow name that
     no workbench flow has. The flow is checked as a file (flow_files.problems) and by the flow check (runtime/flow_check.py): a
@@ -273,7 +273,7 @@ def flow_save(project: str, name: str, pending_id: int | None = None, flow: str 
     if not isinstance(name, str) or not flow_files.NAME.fullmatch(name):
         raise core.OpsError(f"{name!r} is not a flow name: lowercase words joined by hyphens", 2)
     if name in flow_files.names(core.ROOT):
-        raise core.OpsError(f"{name} is the name of a workbench flow: a project workflow takes another name", 2)
+        raise core.OpsError(f"{name} is the name of a workbench flow: a project flow takes another name", 2)
     with core._write_lock(ctx["cfg"]):
         if pending_id is not None:
             item = core._stored(ctx, ctx["store"].pending_get, pending_id)
@@ -297,7 +297,7 @@ def flow_save(project: str, name: str, pending_id: int | None = None, flow: str 
                 lines = [f["sentence"] + ("." if f["split"] else ". " + f["ask"]) for f in found["findings"]]
                 offer = ("; the code can split it: research with the web and no source, then the skill without the web, with the "
                          "sources and the brief (run the same command with split)") if all(f["split"] for f in found["findings"]) else ""
-                raise core.OpsError("the flow check refuses this workflow: " + " ".join(lines) + offer, 1)
+                raise core.OpsError("the flow check refuses this flow: " + " ".join(lines) + offer, 1)
             try:
                 made = flow_check.apply_split(made, core.ROOT)
             except flow_files.FlowError as e:
@@ -305,7 +305,7 @@ def flow_save(project: str, name: str, pending_id: int | None = None, flow: str 
             did = True
         written = _write(ctx, made, replace)
     return {"flow": name, "tasks": len(made["tasks"]), "params": sorted(made["params"]), "split": did, **written,
-            "next": f"request the workflow: record a request, then route --request <id> --flow {name}"
+            "next": f"request the flow: record a request, then route --request <id> --flow {name}"
                     + "".join(f" --param {p}=<value>" for p, s in made["params"].items() if "default" not in s)}
 
 
@@ -367,7 +367,7 @@ def direct(ctx: dict, name: str) -> dict:
         loaded = flow_files.load(name, core.ROOT)
     except flow_files.FlowError as e:
         if name in flow_files.project_names(_project(ctx)):
-            raise core.OpsError(f"{name} is a workflow of this project: record the request, then route it with "
+            raise core.OpsError(f"{name} is a flow of this project: record the request, then route it with "
                                 f"route --request <id> --flow {name}, so that you approve its plan", 2) from None
         raise core.OpsError(str(e), 2) from None
     if flow_files.needs_plan(loaded):
@@ -419,7 +419,7 @@ def _check_sources(ctx: dict, flow: dict) -> None:
                                     "at most 40)", 2) from None
             if ident not in held and ident not in brought:
                 raise core.OpsError(f"the task {t['key']} receives the source {ident}, which the project does not hold (register it with "
-                                    "source-import first) and no step of the workflow brings in", 2)
+                                    "source-import first) and no step of the flow brings in", 2)
 
 
 # --- a file named by a plan reaches the task that reads it --------------------------------------------------------------------------
@@ -432,7 +432,7 @@ def _needs(payload: dict) -> list:
 
 
 def _strict(payload: dict) -> set:
-    """The names of the files a plan built from a workflow carries as handed over for the request (its `bound` block): for these the
+    """The names of the files a plan built from a flow carries as handed over for the request (its `bound` block): for these the
     plan promised the person a file, so approving without it is refused. A plan made another way (a router's, a test's) that names a
     file keeps the P5 path: the person hands the file to the task after the approval (hand-over --task), and the step checks its hash."""
     return {f["name"] for f in ((payload or {}).get("bound") or {}).get("files", {}).values()}
@@ -440,7 +440,7 @@ def _strict(payload: dict) -> set:
 
 def before_approve(ctx: dict, item: dict) -> None:
     """Refuse (OpsError 1, nothing approved) a plan whose ingest step names a file when the file staged for the request has other
-    bytes than the plan carries, or, for a plan built from a workflow (it bound the file at the planning), when the file is no longer
+    bytes than the plan carries, or, for a plan built from a flow (it bound the file at the planning), when the file is no longer
     staged: the person hands the file over (stage-file) and plans again."""
     payload = item.get("payload")
     need = _needs(payload)
@@ -452,7 +452,7 @@ def before_approve(ctx: dict, item: dict) -> None:
         if (file in have and have[file] != digest) or (file not in have and file in strict):
             why = "is not handed over for this request" if file not in have else "is not the file the plan carries (its hash changed)"
             raise core.OpsError(f"the task {key} reads the file {file} (sha256 {digest}), and it {why}: nothing was approved. Hand the "
-                                "file over (stage-file) and plan the workflow again (route)", 1)
+                                "file over (stage-file) and plan the flow again (route)", 1)
 
 
 def discard_staged(ctx: dict, request_id) -> None:

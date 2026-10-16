@@ -121,6 +121,17 @@ def test_the_hash_covers_the_schedule_the_template_the_arguments_the_skill_versi
 def test_what_differs_is_named_for_the_sentence_of_the_stop():
     old = sample()
     new = sample(template_sha256="b" * 64, skills={"biz-market-analysis": "2.0", "core-research": "1.1"}, image="sha256:" + "2" * 64, model="fm")
-    assert routines.differences(old, new) == ["the workflow's template", "the version of biz-market-analysis (1.2 to 2.0)", "the eval image", "the model"]
+    assert routines.differences(old, new) == ["the flow's template", "the version of biz-market-analysis (1.2 to 2.0)", "the eval image", "the model"]
     assert routines.differences({}, new) == ["the approved content is not on record"]
     assert routines.differences(old, old) == ["the content (its version)"]
+
+
+def test_the_flow_key_and_the_content_version_2_and_a_version_1_content_is_named_first():
+    new = sample()
+    assert new["version"] == routines.CONTENT_VERSION == 2 and "flow" in new and "workflow" not in new
+    old = {key: value for key, value in new.items() if key != "flow"}      # as version 1 stored it
+    old["version"], old["workflow"] = 1, new["flow"]
+    assert routines.sha256_of(old) != routines.sha256_of(new), "an approval of version 1 never matches the new content"
+    assert routines.differences(old, new) == ["the format of the approved content (version 1 to 2)"]
+    changed = sample(template_sha256="b" * 64)
+    assert routines.differences(old, changed) == ["the format of the approved content (version 1 to 2)", "the flow's template"]

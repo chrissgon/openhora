@@ -1,9 +1,9 @@
-"""Tests of the page's part of the workflows (P6a): the client's new calls (the parameters of a route, the hand-over for a request, saving a
-workflow), the control "Save this plan as a workflow" under an approved plan, the parameters of a workflow in the New request form, and the
+"""Tests of the page's part of the flows (P6a): the client's new calls (the parameters of a route, the hand-over for a request, saving a
+flow), the control "Save this plan as a flow" under an approved plan, the parameters of a flow in the New request form, and the
 order of a request that names a file (hand it over, then route with its name). Run with Node over the real modules, a fake document and a
 stand-in for the client or for `fetch`. No browser, no service, no model.
 
-Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_interface_workflows.py
+Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_interface_flows.py
 """
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ console.log(JSON.stringify(seen));
 
 
 @needs_node
-def test_the_client_sends_the_parameters_of_a_route_the_file_for_a_request_and_the_save_of_a_workflow(tmp_path):
+def test_the_client_sends_the_parameters_of_a_route_the_file_for_a_request_and_the_save_of_a_flow(tmp_path):
     got = run_node(tmp_path, API)
     base = "/api/v1/projects/abc"
     assert got[0] == ["POST", f"{base}/requests/5/route", {"flow": "survey", "params": ["topic=dental", "survey=s.csv"]}]
@@ -62,7 +62,7 @@ input.value = "dental-study";
 click(buttons[0]); await settle();
 out.saved = { calls: calls.slice(), done: textOf(tag(el, "p")[0]), splitShown: !buttons[1].hidden };
 calls.length = 0;
-answer = async (p, b) => { calls.push([p, b]); const e = Object.assign(new Error("the flow check refuses this workflow: task market requires the web; the code can split it: research with the web"), { name: "ApiError", status: 409, word: "refused" }); throw e; };
+answer = async (p, b) => { calls.push([p, b]); const e = Object.assign(new Error("the flow check refuses this flow: task market requires the web; the code can split it: research with the web"), { name: "ApiError", status: 409, word: "refused" }); throw e; };
 click(buttons[0]); await settle();
 out.refused = { text: textOf(byClass(el, "wb-card-error")[0]), splitShown: !buttons[1].hidden, calls: calls.length };
 answer = async (p, b) => { calls.push([p, b]); return { path: "docs/workbench/flows/dental-study.json", split: true }; };
@@ -78,9 +78,9 @@ console.log(JSON.stringify(out));
 @needs_node
 def test_the_control_to_save_an_approved_plan_sends_the_name_asks_for_the_split_only_when_the_service_offers_it_and_is_left_out_otherwise(tmp_path):
     got = run_node(tmp_path, SAVE)
-    assert got["names"] == ["study-the-dental-market", "unicode-and-symbols", "workflow", 40]
+    assert got["names"] == ["study-the-dental-market", "unicode-and-symbols", "flow", 40]
     assert got["none"] == [True, True, True, True], "a rejected plan, another kind, a policy that withholds flow-save, an open plan: no control"
-    assert got["start"] == {"value": "study-the-dental-market", "split": True, "summary": "Save this plan as a workflow"}
+    assert got["start"] == {"value": "study-the-dental-market", "split": True, "summary": "Save this plan as a flow"}
     assert got["badName"]["calls"] == 0 and "lowercase words joined by hyphens" in got["badName"]["error"] and got["badName"]["invalid"] == "true"
     assert got["saved"]["calls"] == [["p", {"name": "dental-study", "pendingId": 31, "split": None}]] or got["saved"]["calls"][0][1]["name"] == "dental-study"
     assert "Saved as docs/workbench/flows/study.json" in got["saved"]["done"] and got["saved"]["splitShown"] is False
@@ -138,7 +138,7 @@ console.log(JSON.stringify(out));
 
 
 @needs_node
-def test_a_workflow_with_parameters_draws_one_field_each_and_a_file_is_handed_over_for_the_request_before_it_is_routed_with_its_name(tmp_path):
+def test_a_flow_with_parameters_draws_one_field_each_and_a_file_is_handed_over_for_the_request_before_it_is_routed_with_its_name(tmp_path):
     got = run_node(tmp_path, FORM)
     assert got["hiddenAtStart"] is True
     assert got["shown"] == {"hidden": False, "inputs": 2, "types": ["text", "file"]}
