@@ -276,18 +276,22 @@ class Done:
 class FakeDocker:
     """Records every docker command; answers the few the runner asks."""
 
-    def __init__(self, internal="true", images=None, fail=(), options=None):
+    def __init__(self, internal="true", images=None, fail=(), options=None, gateway=None, ipv6="false", version="29.3.1"):
         self.calls, self.internal, self.images, self.fail = [], internal, images or {}, set(fail)
-        self.options = json.dumps(options if options is not None else {"com.docker.network.bridge.gateway_mode_ipv4": "isolated",
-                                                                       "com.docker.network.enable_ipv6": "false"})
+        self.options = json.dumps(options if options is not None else {"com.docker.network.bridge.gateway_mode_ipv4": "isolated"})
+        self.config = json.dumps([dict({"Subnet": "172.30.0.0/16"}, **({"Gateway": gateway} if gateway else {}))])
+        self.ipv6, self.version = ipv6, version
 
     def __call__(self, args, timeout=60):
         self.calls.append(list(args))
         verb = " ".join(args[:2])
         if verb in self.fail:
             return Done(1, "", "boom")
+        if args[:1] == ["version"]:
+            return Done(0, self.version + "\n")
         if args[:2] == ["network", "inspect"]:
-            return Done(0, self.internal + " " + self.options + "\n")
+            assert args[3] == host.INSPECT_FORMAT, "the read-back asks for the internal flag, IPv6, the address plan and the options"
+            return Done(0, f"{self.internal}\n{self.ipv6}\n{self.config}\n{self.options}\n")
         if args[:2] == ["image", "inspect"]:
             fmt, tag = args[3], args[4]
             found = self.images.get(tag)
@@ -366,12 +370,12 @@ def test_a_script_with_destinations_gets_an_internal_network_checked_before_anyt
     finally:
         host.Egress.__init__ = original
     assert egress is host.Egress
-    assert docker.verbs()[:2] == ["network create", "network inspect"]
-    create = docker.calls[0]
+    assert docker.verbs()[:3] == ["version --format", "network create", "network inspect"], "the daemon's version, then the network, then its read-back"
+    create = docker.calls[1]
     assert "--internal" in create and create[-1] == NET and "org.openhora.script=1" in create
     assert values(create, "-o") == ["com.docker.network.bridge.gateway_mode_ipv4=isolated"], "the host has no address on the step's network"
-    assert docker.calls[2][:3] == ["network", "create", "--driver"] and docker.calls[2][-1] == OUT and "--internal" not in docker.calls[2]
-    assert docker.calls[3] == ["network", "connect", "--alias", "egress", NET, "openhora-script-proxy-" + STEP_ID]
+    assert docker.calls[3][:3] == ["network", "create", "--driver"] and docker.calls[3][-1] == OUT and "--internal" not in docker.calls[3]
+    assert docker.calls[4] == ["network", "connect", "--alias", "egress", NET, "openhora-script-proxy-" + STEP_ID]
     (command, name, _, _), = log
     assert option(command, "--network") == NET
     env = dict(w.split("=", 1) for w in values(command, "-e"))
@@ -383,7 +387,8 @@ def test_a_script_with_destinations_gets_an_internal_network_checked_before_anyt
 def test_a_network_that_is_not_internal_stops_everything_before_a_proxy_or_a_script_starts(tmp_path, quiet):
     script, out = script_file(tmp_path)
     for docker in (FakeDocker(internal="false"), FakeDocker(options={}), FakeDocker(options={"com.docker.network.bridge.gateway_mode_ipv4": "nat"}),
-                   FakeDocker(options={"com.docker.network.bridge.gateway_mode_ipv4": "isolated", "com.docker.network.enable_ipv6": "true"})):
+                   FakeDocker(ipv6="true"),
+                   FakeDocker(gateway="172.30.0.1")):           # the option is echoed, as an old daemon does, and the network still has a gateway
         log = []
         with pytest.raises(host.ProviderError) as refused:
             host.run_script(script, "py", out, destinations=["api.example:443"], run=ran(log), docker=docker, base=IMAGE, platform="darwin")
@@ -394,6 +399,46 @@ def test_a_network_that_is_not_internal_stops_everything_before_a_proxy_or_a_scr
         host.run_script(script, "py", out, destinations=["api.example:443"], run=ran([]), docker=docker, base=IMAGE, platform="darwin")
     assert not any(v == "network connect" for v in docker.verbs()) and docker.calls[-1][:2] == ["network", "rm"]
     assert list(Path(out).iterdir()) == []
+
+
+def test_the_read_back_of_a_network_is_internal_without_ipv6_with_no_gateway_and_asked_isolated():
+    ok = "true\nfalse\n" + json.dumps([{"Subnet": "172.30.0.0/16"}]) + "\n" + json.dumps({host.GATEWAY_OPTION: "isolated"}) + "\n"
+    assert host.isolated(ok)
+    bad = {
+        "a gateway, the option echoed": ok.replace('{"Subnet": "172.30.0.0/16"}', '{"Subnet": "172.30.0.0/16", "Gateway": "172.30.0.1"}'),
+        "not internal": ok.replace("true\n", "false\n", 1), "ipv6 on": ok.replace("false\n", "true\n", 1),
+        "the option missing": ok.replace(host.GATEWAY_OPTION, "other"), "the option not isolated": ok.replace("isolated", "nat"),
+        "no address plan": ok.replace(json.dumps([{"Subnet": "172.30.0.0/16"}]), "[]"), "null plan": ok.replace(json.dumps([{"Subnet": "172.30.0.0/16"}]), "null"),
+        "not json": ok.replace("172.30.0.0/16", "x").replace("[{", "[{{"), "three lines": "true\nfalse\n[]\n", "empty": "",
+        "an extra line": ok + "more\n"}
+    for why, text in bad.items():
+        assert not host.isolated(text), why
+
+
+@pytest.mark.parametrize("text,fine", [("29.3.1", True), ("28.0.0", True), ("28.0.0-rc.1", True), ("30.1.0", True), ("27.5.1", False),
+                                       ("26.1.4", False), ("25.0.4", False), ("", False), ("unknown", False), ("v28.1", False)])
+def test_a_daemon_older_than_28_0_cannot_isolate_the_network_and_is_refused(text, fine):
+    assert (host.daemon_version_problem(text) is None) is fine
+
+
+def test_a_daemon_that_is_too_old_is_refused_before_any_network_is_made(tmp_path, quiet):
+    script, out = script_file(tmp_path)
+    for version in ("26.1.4", "25.0.4", "bogus"):
+        docker, log = FakeDocker(version=version), []
+        with pytest.raises(host.ProviderError) as refused:
+            host.run_script(script, "py", out, destinations=["api.example:443"], run=ran(log), docker=docker, base=IMAGE, platform="darwin")
+        assert refused.value.word == "daemon_unsupported" and log == []
+        assert "network create" not in docker.verbs() and "network connect" not in docker.verbs()
+
+
+def test_the_base_image_must_carry_the_whole_current_definition_hash_in_its_label():
+    tag = host.image_tag()
+    good = FakeDocker(images={tag: {"id": IMAGE, "lock": "", "definition": host.definition_hash()}})
+    assert host.image_id(tag, good) == IMAGE
+    other = FakeDocker(images={tag: {"id": IMAGE, "lock": "", "definition": host.definition_hash()[:12] + "0" * 52}})      # the same 12 characters
+    with pytest.raises(host.ProviderError) as refused:
+        host.image_id(tag, other)
+    assert refused.value.word == "not_configured" and "build" in str(refused.value)
 
 
 def test_a_declaration_the_proxy_refuses_ends_the_step_with_the_word_and_removes_the_networks(tmp_path, quiet, monkeypatch):

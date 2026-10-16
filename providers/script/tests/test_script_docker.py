@@ -383,6 +383,23 @@ def test_the_host_has_no_address_on_the_step_network_and_nothing_but_the_proxy_a
     assert seen["neighbours"] in ([], [seen["proxy"]]), seen["neighbours"]      # the only address that ever answered is the proxy's
 
 
+def test_the_real_daemon_is_new_enough_and_the_read_back_tells_a_plain_internal_network_from_an_isolated_one(image):
+    """What the code checks, against a real daemon: its version, and on two networks made here (one plain `--internal`, one isolated) the
+    read-back of INSPECT_FORMAT: the plain one has a gateway and is refused, the isolated one has none and is accepted."""
+    assert host.daemon_version_problem(docker("version", "--format", "{{.Server.Version}}").stdout) is None
+    token = uuid.uuid4().hex[:8]
+    plain, iso = f"openhora-script-test-plain-{token}", f"openhora-script-test-iso-{token}"
+    try:
+        docker("network", "create", "--internal", "--label", TEST_LABEL, plain)
+        docker("network", "create", *host.internal_network_args(iso, ["--label", TEST_LABEL])[2:])
+        plain_read = docker("network", "inspect", "--format", host.INSPECT_FORMAT, plain).stdout
+        iso_read = docker("network", "inspect", "--format", host.INSPECT_FORMAT, iso).stdout
+        assert not host.isolated(plain_read) and '"Gateway"' in plain_read
+        assert host.isolated(iso_read) and '"Gateway"' not in iso_read
+    finally:
+        docker("network", "rm", plain, iso, check=False)
+
+
 def test_a_run_on_a_network_without_the_isolation_is_refused_before_anything_starts(runner, monkeypatch):
     monkeypatch.setattr(host, "internal_network_args", lambda name, labels: ["network", "create", "--driver", "bridge", "--internal", *labels, name])
     with pytest.raises(host.ProviderError) as refused:

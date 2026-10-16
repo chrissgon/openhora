@@ -86,12 +86,28 @@ print(json.dumps({"exit": info["exit"], "signal": info["signal"], "duration_ms":
 '''
 
 
+IMAGE_FILES = ("Dockerfile", ".dockerignore", "_inner.py", "egress_proxy.py")      # what defines the script image (providers/script/container.py)
+
+
 def install(tree: Path) -> Path:
-    """The stand-in provider in the tree; returns the folder it sits in."""
+    """The stand-in provider in the tree, beside the real files that define the image (so that the definition hash a plan carries is the
+    real one); returns the folder it sits in."""
     folder = tree / "providers" / "script"
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "container.py").write_text(PROVIDER, encoding="utf-8")
+    real = Path(__file__).resolve().parents[2] / "providers" / "script"
+    for name in IMAGE_FILES:
+        (folder / name).write_bytes((real / name).read_bytes())
     return folder
+
+
+def image(tree: Path) -> str:
+    """The definition hash of the script image of the tree (what a plan's `image` argument holds)."""
+    import hashlib
+    digest = hashlib.sha256()
+    for name in sorted(IMAGE_FILES):
+        digest.update(name.encode() + b"\0" + (tree / "providers" / "script" / name).read_bytes() + b"\0")
+    return digest.hexdigest()
 
 
 def calls(tree: Path) -> list:

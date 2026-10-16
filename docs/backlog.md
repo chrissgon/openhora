@@ -112,6 +112,9 @@ The workbench is a set of instructions that models execute with a terminal, file
 - [ ] **T41. A step kind reaches the script provider through a `ctx.services` seam.** Found on 2026-10-15 in the review of P9 (m2): `runtime/step_project_script.py` calls the provider of `script:project` through `sources._lazy` and `sources._provider_env`, which is why its row of the step gate's allowed imports holds `ops_core`, `ops_sources` and `sources`. P8 gave documents and the exporter a seam (`runtime/ops_step_seams.py`) so that a step kind imports no module that calls a provider.
   - Done when: the script provider's `run` and `deps` verbs are services of the engine's Context (as narrow as the kind's need), `step_project_script.py` reads them from `ctx.services`, its row of `ALLOWED` in `runtime/tests/test_steps_gate.py` loses `ops_sources` and `sources` but what the import of a source needs, and the tests that replace the provider replace the service.
   - Plan: with the next change of `runtime/step_project_script.py` or `runtime/ops_step_seams.py`.
+- [ ] **T42. The stop list of #427 names the script runner's objects.** Found on 2026-10-16 in the review of P9: the containers `openhora-script-{run,proxy,build}-<16 hex>` and the networks `openhora-script-{in,out}-<16 hex>` are not the eval harness's, so the orphan sweep never selects them, and the provider reaps its own from their labels (`org.openhora.script` with a deadline). When #427 (stopping a run in progress) lands, its list of what a stop ends must include them.
+  - Done when: `stop-runs` (or its successor) ends a project script's containers and removes its networks, with a test that uses a fake container tool.
+  - Plan: with #427.
 
 ## Agent runtime
 

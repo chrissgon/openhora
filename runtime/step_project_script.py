@@ -15,6 +15,9 @@ Arguments (checked when the task is planned; `prepare` below builds them from th
                                          `.py` (Python) or `.sh` (bash), inside no sources folder
    "sha256": "<64 hex>",                 the sha256 of the script's exact bytes
    "source": "<source id>",              the source the result becomes a new version of (a `file` source; registered here when new)
+   "image": "<64 hex>",                  the definition hash of the script image (providers/script: its Dockerfile, .dockerignore, _inner.py and
+                                         egress_proxy.py): the image that runs the script and its proxy is part of what was approved, so an image
+                                         rebuilt from other code stops the step (`image_changed`), as a changed script does
    "destinations": ["api.example:443"],  the host:port pairs the script may reach, lowercase DNS names (no IP literal, no wildcard); [] for none
    "lock": "scripts/requirements.lock",  optional, Python only: a hashed lock file (`name==version --hash=sha256:...`, nothing else)
    "lock_sha256": "<64 hex>"}            the sha256 of the lock file's exact bytes (given with `lock`, never without)
@@ -73,7 +76,7 @@ import ops_sources  # noqa: E402
 import sources  # noqa: E402
 import steps  # noqa: E402
 
-KEYS = ("script", "sha256", "source", "destinations", "lock", "lock_sha256")
+KEYS = ("script", "sha256", "source", "image", "destinations", "lock", "lock_sha256")
 SHA256 = re.compile(r"[0-9a-f]{64}")
 SEGMENT = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]*")
 EXTENSIONS = {".py": "py", ".sh": "sh"}
@@ -95,7 +98,7 @@ ERROR_WORD = re.compile(r"error: ([a-z][a-z_]{1,40}):")
 # the runtime records is one of these or `provider_failed`.
 PROVIDER_WORDS = ("not_configured", "usage", "bad_image", "bad_output", "bad_lock", "lock_changed", "bad_environment", "build_failed",
                   "time_limit", "stopped", "output_too_large", "container_failed", "network_failed", "network_not_internal",
-                  "proxy_failed", "destination_unresolvable", "destination_not_public", "destination_bad_declaration",
+                  "proxy_failed", "daemon_unsupported", "destination_unresolvable", "destination_not_public", "destination_bad_declaration",
                   "destination_refused", "docker_missing", "docker_unusable", "docker_daemon_not_local", "docker_daemon_unknown")
 HOW_TO_PLAN = ("read the file, then plan the step again with `python3 runtime/step_project_script.py prepare ...`: its new hash is "
                "approved by the new plan")
@@ -147,9 +150,11 @@ def check(args) -> dict:
     """The arguments of a project script, checked and made canonical (the keys in a fixed set, the destinations sorted and distinct)."""
     if not isinstance(args, dict) or set(args) - set(KEYS):
         raise steps.StepFailure("bad_args", "args")
-    for key in ("script", "sha256", "source"):
+    for key in ("script", "sha256", "source", "image"):
         if args.get(key) is None:
             raise steps.StepFailure("bad_args", key)
+    if not isinstance(args["image"], str) or not SHA256.fullmatch(args["image"]):
+        raise steps.StepFailure("bad_args", "image")
     script = check_path(args["script"], "script")
     kind = kind_of_script(script)
     if not isinstance(args["sha256"], str) or not SHA256.fullmatch(args["sha256"]):
@@ -161,7 +166,7 @@ def check(args) -> dict:
     declared = args.get("destinations", [])
     if not isinstance(declared, (list, tuple)) or len(declared) > DESTINATIONS_MAX:
         raise steps.StepFailure("bad_args", "destinations")
-    out = {"script": script, "sha256": args["sha256"], "source": source,
+    out = {"script": script, "sha256": args["sha256"], "source": source, "image": args["image"],
            "destinations": sorted({check_destination(item) for item in declared})}
     if (args.get("lock") is None) != (args.get("lock_sha256") is None):
         raise steps.StepFailure("bad_args", "lock_sha256")
@@ -270,7 +275,10 @@ def prepare(project: str, script: str, source: str, destinations=(), lock=None, 
     """The arguments of a project script for a plan, from the files as they are now: read, scanned for credentials (a refusal names the
     line, never the value) and hashed. StepFailure when a file is refused. Writes nothing."""
     path = check_path(script, "script")
-    body = {"script": path, "source": source, "destinations": list(destinations)}
+    image = image_definition(workbench_of(project))
+    if image is None:
+        raise steps.StepFailure("image_missing", "image", "", "the script runner's files (providers/script/) are not in this checkout")
+    body = {"script": path, "source": source, "image": image, "destinations": list(destinations)}
     data = read_project_file(project, path, protected, "script")
     credential_line(data, "script")
     body["sha256"] = hashlib.sha256(data).hexdigest()
@@ -303,6 +311,8 @@ def load_checked(project: str, args: dict, protected=lambda path: False) -> File
     data = read_project_file(project, args["script"], protected, "script")
     if hashlib.sha256(data).hexdigest() != args["sha256"]:
         raise _script_error("script_changed", "script", HOW_TO_PLAN)
+    if image_definition(workbench_of(project)) != args["image"]:      # the image that would run it is not the one approved
+        raise _script_error("image_changed", "image", HOW_TO_PLAN)
     credential_line(data, "script")
     lock = None
     if args.get("lock"):
@@ -468,6 +478,14 @@ def _import(ctx: "steps.Context", cctx: dict, args: dict, files: Files, name: st
 
 
 SCRIPT_IMAGE_FILES = ("Dockerfile", ".dockerignore", "_inner.py", "egress_proxy.py")      # providers/script/container.py DEFINITION_FILES
+
+
+def workbench_of(project: str) -> str:
+    """The checkout the project's runtime.json names (where the provider is resolved from), else the checkout this file is in."""
+    try:
+        return core._config_of(project)["workbench"]
+    except (core.OpsError, KeyError):
+        return os.path.dirname(HERE)
 
 
 def image_definition(workbench_root: str):

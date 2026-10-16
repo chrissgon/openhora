@@ -58,7 +58,7 @@ def add(world, script="scripts/report.py", text="# fake: md=Hello from the scrip
         lock_text=None, key="report-script", sha=None):
     """A project-script step task for a script the test writes into the project; the arguments carry the hash of what was written."""
     digest = fx.write(world["project"], script, text)
-    args = {"script": script, "sha256": sha or digest, "source": source, "destinations": list(destinations)}
+    args = {"script": script, "sha256": sha or digest, "source": source, "image": fx.image(world["tree"]), "destinations": list(destinations)}
     if lock:
         args.update(lock=lock, lock_sha256=fx.write(world["project"], lock, lock_text))
     ctx = ctx_of(world)
@@ -89,13 +89,13 @@ def test_the_kind_is_registered_with_three_steps_an_empty_footprint_and_is_not_s
 
 
 def test_the_arguments_are_checked_and_made_canonical_so_the_plan_hash_covers_exactly_what_runs():
-    args = {"script": "scripts/report.py", "sha256": "a" * 64, "source": "report", "destinations": ["API.Example.:443", "b.example:8443", "api.example:443"]}
+    args = {"script": "scripts/report.py", "sha256": "a" * 64, "source": "report", "image": "e" * 64, "destinations": ["API.Example.:443", "b.example:8443", "api.example:443"]}
     assert steps.plan_task("project-script", args, key="k", title="T", text="X.")["args"] == {
-        "script": "scripts/report.py", "sha256": "a" * 64, "source": "report", "destinations": ["api.example:443", "b.example:8443"]}
+        "script": "scripts/report.py", "sha256": "a" * 64, "source": "report", "image": "e" * 64, "destinations": ["api.example:443", "b.example:8443"]}
     with_lock = {**args, "lock": "scripts/requirements.lock", "lock_sha256": "b" * 64}
     assert steps.plan_task("project-script", with_lock, key="k", title="T", text="X.")["args"]["lock_sha256"] == "b" * 64
     base = steps.plan_task("project-script", args, key="k", title="T", text="X.")
-    for change in ({"sha256": "c" * 64}, {"destinations": []}, {"source": "other"}, {"script": "scripts/other.py"}):
+    for change in ({"sha256": "c" * 64}, {"destinations": []}, {"source": "other"}, {"script": "scripts/other.py"}, {"image": "f" * 64}):
         other = steps.plan_task("project-script", {**args, **change}, key="k", title="T", text="X.")
         assert plan.plan_hash([base]) != plan.plan_hash([other]), change
     assert plan.plan_hash([base]) != plan.plan_hash([steps.plan_task("project-script", with_lock, key="k", title="T", text="X.")])
@@ -104,7 +104,7 @@ def test_the_arguments_are_checked_and_made_canonical_so_the_plan_hash_covers_ex
 @pytest.mark.parametrize("change", [
     {"script": "/etc/passwd"}, {"script": "../report.py"}, {"script": "scripts/../report.py"}, {"script": ".hidden/report.py"},
     {"script": "scripts/.env.py"}, {"script": "scripts/report.rb"}, {"script": "scripts/report"}, {"script": "a/b/c/d/e/f/g.py"},
-    {"script": "scripts\\report.py"}, {"script": ""}, {"script": None}, {"sha256": "A" * 64}, {"sha256": "a" * 63}, {"source": "Bad Id"},
+    {"script": "scripts\\report.py"}, {"script": ""}, {"script": None}, {"sha256": "A" * 64}, {"sha256": "a" * 63}, {"source": "Bad Id"}, {"image": "A" * 64}, {"image": "e" * 63}, {"image": None}, {"image": 5},
     {"destinations": ["127.0.0.1:443"]}, {"destinations": ["[::1]:443"]}, {"destinations": ["localhost:80"]}, {"destinations": ["api.example"]},
     {"destinations": ["api.example:0"]}, {"destinations": ["api.example:65536"]}, {"destinations": ["*.example:443"]},
     {"destinations": ["2130706433:80"]}, {"destinations": ["0x7f000001:80"]}, {"destinations": ["1.2.3.0x7f:80"]},
@@ -112,20 +112,20 @@ def test_the_arguments_are_checked_and_made_canonical_so_the_plan_hash_covers_ex
     {"lock": "scripts/r.lock"}, {"lock_sha256": "a" * 64}, {"lock": "scripts/r.lock", "lock_sha256": "x"},
     {"unknown": 1}])
 def test_a_bad_argument_is_refused_with_a_closed_code(change):
-    args = {"script": "scripts/report.py", "sha256": "a" * 64, "source": "report", "destinations": [], **change}
+    args = {"script": "scripts/report.py", "sha256": "a" * 64, "source": "report", "image": "e" * 64, "destinations": [], **change}
     with pytest.raises(steps.StepFailure) as refused:
         steps.plan_task("project-script", args, key="k", title="T", text="X.")
     assert refused.value.code == "bad_args"
 
 
 def test_a_shell_script_has_no_dependencies_and_a_missing_key_is_refused():
-    args = {"script": "scripts/run.sh", "sha256": "a" * 64, "source": "report", "lock": "scripts/r.lock", "lock_sha256": "b" * 64}
+    args = {"script": "scripts/run.sh", "sha256": "a" * 64, "source": "report", "image": "e" * 64, "lock": "scripts/r.lock", "lock_sha256": "b" * 64}
     with pytest.raises(steps.StepFailure) as refused:
         kind.check(args)
     assert (refused.value.code, refused.value.field) == ("bad_args", "lock")
-    for missing in ("script", "sha256", "source"):
+    for missing in ("script", "sha256", "source", "image"):
         with pytest.raises(steps.StepFailure) as refused:
-            kind.check({k: v for k, v in {"script": "scripts/run.sh", "sha256": "a" * 64, "source": "report"}.items() if k != missing})
+            kind.check({k: v for k, v in {"script": "scripts/run.sh", "sha256": "a" * 64, "source": "report", "image": "e" * 64}.items() if k != missing})
         assert refused.value.field == missing
 
 
@@ -177,7 +177,7 @@ def test_the_lock_rules_of_the_kind_and_of_the_build_container_are_the_same_rule
 def test_prepare_gives_the_arguments_with_the_hash_of_the_file_as_it_is_now(world):
     sha = fx.write(world["project"], "scripts/report.py", "# fake: md=Hi\nprint('x')\n")
     got = kind.prepare(world["path"], "scripts/report.py", "report", ["API.example:443"])
-    assert got == {"script": "scripts/report.py", "sha256": sha, "source": "report", "destinations": ["api.example:443"]}
+    assert got == {"script": "scripts/report.py", "sha256": sha, "source": "report", "image": fx.image(world["tree"]), "destinations": ["api.example:443"]}
     lock = ("requests==2.32.3 \\\n    --hash=sha256:" + "a" * 64 + " \\\n    --hash=sha256:" + "b" * 64 + "\n")
     lock_sha = fx.write(world["project"], "scripts/requirements.lock", lock)
     got = kind.prepare(world["path"], "scripts/report.py", "report", [], "scripts/requirements.lock")
@@ -431,9 +431,52 @@ def test_a_project_without_the_provider_folder_fails_cleanly(world):
     assert out["ok"] is False and out["code"] in ("provider_failed", "not_configured")
 
 
-def test_a_workflow_task_after_a_project_script_receives_the_source_the_script_makes():
+def test_a_flow_task_after_a_project_script_receives_the_source_the_script_makes():
     flow_files = st.load("flow_files")
     flow = {"flow": "weekly", "tasks": [
         {"key": "script", "step": "project-script", "args": {"source": "figures"}},
         {"key": "report", "skill": "biz-market-analysis", "depends_on": ["script"]}]}
     assert flow_files.sources_of(flow, steps.sourcing_kinds()) == {"report": ["figures"]}
+
+
+# --- the image is part of the approval (review round, MINOR 3) --------------------------------------------------------------------------
+
+
+def test_the_plan_carries_the_definition_hash_of_the_script_image_and_prepare_reads_it_from_the_checkout(world):
+    fx.write(world["project"], "scripts/report.py", "# fake: md=Hi\n")
+    got = kind.prepare(world["path"], "scripts/report.py", "report")
+    assert got["image"] == fx.image(world["tree"]) == kind.image_definition(str(world["tree"])) and len(got["image"]) == 64
+    for name in fx.IMAGE_FILES:                                  # each of the four files defines it
+        path = world["tree"] / "providers" / "script" / name
+        before = path.read_bytes()
+        path.write_bytes(before + b"\n# changed")
+        assert kind.prepare(world["path"], "scripts/report.py", "report")["image"] != got["image"], name
+        path.write_bytes(before)
+    for name in fx.IMAGE_FILES:                                  # the runner's files are not in the checkout: nothing to approve
+        (world["tree"] / "providers" / "script" / name).rename(world["tree"] / "providers" / "script" / (name + ".moved"))
+    with pytest.raises(steps.StepFailure) as refused:
+        kind.prepare(world["path"], "scripts/report.py", "report")
+    assert refused.value.code == "image_missing"
+
+
+def test_an_image_rebuilt_from_other_code_after_the_approval_stops_the_step_and_nothing_runs(world):
+    made = add(world)
+    (world["tree"] / "providers" / "script" / "egress_proxy.py").write_text("# other proxy code\n")
+    out = run(world, made)
+    assert out["ok"] is False and out["failed"] == "verify" and out["code"] == "image_changed" and out["field"] == "image"
+    assert "plan the step again" in out["next"] and calls(world) == []
+    ctx = ctx_of(world)
+    assert ctx["store"].source_latest(ctx["conn"], "report") is None
+
+
+def test_the_image_is_checked_when_a_plan_is_built_too(world):
+    made = add(world, key="vetted")
+    (world["tree"] / "providers" / "script" / "_inner.py").write_text("# other inner program\n")
+    task = {"key": "vetted", "step": "project-script", "args": task_args(world, made)}
+    with pytest.raises(steps.StepFailure) as refused:
+        steps.vet(world["path"], "project-script", task["args"])
+    assert refused.value.code == "image_changed"
+
+
+def task_args(world, made):
+    return ctx_of(world)["store"].task_get(ctx_of(world)["conn"], made["task"])["step_args"]

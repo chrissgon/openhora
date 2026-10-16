@@ -13,8 +13,8 @@ by name when the run ends; what a SIGKILL leaves is reaped by the next run (the 
 What a run is (the limits are providers/_container.py's argv, with the additions below; no flag is turned off):
 
   - no network, or, when the step declares destinations, only a per-step INTERNAL network (`docker network create --internal` with the
-    gateway mode `isolated`: no route out, no external DNS, and no address of the host on it; read back, and refused without the
-    isolation) whose other member is the step's egress proxy (providers/script/egress_proxy.py, same image): CONNECT
+    gateway mode `isolated`: no route out, no external DNS, and no address of the host on it; on a daemon of 28.0 or later only, and read
+    back: internal, no IPv6, no `Gateway` in its address plan, the isolated mode in its options, or the run is refused) whose other member is the step's egress proxy (providers/script/egress_proxy.py, same image): CONNECT
     to the declared host:port pairs and nothing else, refusing by name and by address;
   - the environment is an allow-list written out in `-e NAME=VALUE` pairs from the closed list ENV_ALLOWED, built from nothing but the
     arguments of the call: this process's own environment is never read into the container;
@@ -169,6 +169,9 @@ def image_id(tag: str, docker=None) -> str:
     if not found or not IMAGE_ID.fullmatch(found):
         raise ProviderError("not_configured", f"the script image {tag} is not built on this machine: run "
                             "`python3 providers/script/container.py build --confirmed` (once; it needs the network)", EXIT_NOT_CONFIGURED)
+    if inspect(tag, '{{index .Config.Labels "%s"}}' % LABEL_DEFINITION, docker) != definition_hash():     # the whole hash, not the 12 characters of the tag
+        raise ProviderError("not_configured", f"the script image {tag} does not carry the hash of the definition now current: build it again "
+                            "(`python3 providers/script/container.py build --confirmed`)", EXIT_NOT_CONFIGURED)
     return found
 
 
@@ -314,16 +317,36 @@ def internal_network_args(name: str, label_args) -> list:
     return ["network", "create", "--driver", "bridge", "--internal", "-o", f"{GATEWAY_OPTION}={GATEWAY_ISOLATED}", *label_args, name]
 
 
+INSPECT_FORMAT = "{{.Internal}}\n{{.EnableIPv6}}\n{{json .IPAM.Config}}\n{{json .Options}}"
+DOCKER_MINIMUM = (28, 0)        # the first release whose bridge driver has the gateway mode `isolated` (and whose embedded DNS does not forward)
+
+
 def isolated(inspected: str) -> bool:
-    """Whether the read-back of `docker network inspect --format '{{.Internal}} {{json .Options}}'` says: internal, the gateway mode isolated,
-    and no IPv6 (a second family nobody isolated)."""
-    head, _, rest = (inspected or "").strip().partition(" ")
+    """Whether the read-back of `docker network inspect --format INSPECT_FORMAT` shows a network the host has no address on. It must say, line
+    by line: internal; no IPv6 (`.EnableIPv6`, the top-level field, a second family nobody isolated); an address plan in which NO entry has a
+    gateway (the fact that matters: a daemon that ignores an option it does not know still echoes it in `.Options`, but then gives the
+    network a gateway); and the option `isolated` itself, as what was asked."""
+    lines = (inspected or "").strip().split("\n")
+    if len(lines) != 4:
+        return False
     try:
-        options = json.loads(rest) if rest else {}
+        config, options = json.loads(lines[2]), json.loads(lines[3])
     except ValueError:
         return False
-    return head == "true" and isinstance(options, dict) and options.get(GATEWAY_OPTION) == GATEWAY_ISOLATED \
-        and options.get(IPV6_OPTION, "false") != "true"
+    if not isinstance(config, list) or not config or not isinstance(options, dict):
+        return False
+    return lines[0].strip() == "true" and lines[1].strip() == "false" and options.get(GATEWAY_OPTION) == GATEWAY_ISOLATED \
+        and all(isinstance(entry, dict) and not entry.get("Gateway") for entry in config)
+
+
+def daemon_version_problem(text: str):
+    """Why the daemon is too old for the isolated gateway, or None: `docker version --format {{.Server.Version}}` must read as 28.0 or later."""
+    found = re.match(r"(\d+)\.(\d+)", (text or "").strip())
+    if found is None:
+        return "its version cannot be read"
+    if (int(found.group(1)), int(found.group(2))) < DOCKER_MINIMUM:
+        return f"its version is {text.strip()}, and the gateway mode `isolated` (and an embedded DNS that does not forward) need {DOCKER_MINIMUM[0]}.{DOCKER_MINIMUM[1]} or later"
+    return None
 
 
 def build_command(name: str, image: str, *, deadline: int, network: str, env=None, platform=None) -> list:
@@ -383,11 +406,14 @@ class Egress:
 
     def __enter__(self):
         try:
+            problem = daemon_version_problem(self._docker(["version", "--format", "{{.Server.Version}}"]).stdout)
+            if problem:
+                raise ProviderError("daemon_unsupported", f"the docker daemon cannot isolate the step's network: {problem}. Nothing was started")
             self._docker(internal_network_args(self.network, self._label_args()))
-            read_back = self._docker(["network", "inspect", "--format", "{{.Internal}} {{json .Options}}", self.network]).stdout
+            read_back = self._docker(["network", "inspect", "--format", INSPECT_FORMAT, self.network]).stdout
             if not isolated(read_back):
-                raise ProviderError("network_not_internal", "the step's network is not internal with an isolated gateway (an older daemon "
-                                    "cannot make one): nothing was started")
+                raise ProviderError("network_not_internal", "the step's network is not internal, without IPv6, with no gateway address and with the "
+                                    "isolated gateway mode: nothing was started")
             if self.own_egress:
                 self._docker(["network", "create", "--driver", "bridge", *self._label_args(), self.egress_network])
             command = proxy_command(self.names["proxy"], self.image, self.destinations, self.egress_network, deadline=self.deadline,

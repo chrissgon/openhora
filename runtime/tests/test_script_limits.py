@@ -59,7 +59,7 @@ def world(tmp_path, monkeypatch):
 
 def add(world, text, **extra):
     ctx = ops_core.context(world["path"])
-    args = {"script": "scripts/report.py", "sha256": fx.write(world["project"], "scripts/report.py", text), "source": "report", "destinations": [], **extra}
+    args = {"script": "scripts/report.py", "sha256": fx.write(world["project"], "scripts/report.py", text), "source": "report", "image": fx.image(world["tree"]), "destinations": [], **extra}
     return steps.add_task(ctx["store"], ctx["conn"], "project-script", args, key="report", title="Report", text="Run it.")
 
 
@@ -139,7 +139,7 @@ def test_limit_36_a_project_script_reaches_no_network_except_the_destinations_de
     with pytest.raises(proxy.Refused):
         proxy.freeze({("api.example", 443)}, resolver=lambda host_, port: ["10.0.0.1"])
     # the declaration is part of the plan hash and is checked the same way by the kind and by the proxy
-    base = {"script": "scripts/report.py", "sha256": "a" * 64, "source": "report"}
+    base = {"script": "scripts/report.py", "sha256": "a" * 64, "source": "report", "image": "e" * 64}
     one = steps.plan_task("project-script", {**base, "destinations": ["api.example:443"]}, key="k", title="T", text="X.")
     two = steps.plan_task("project-script", {**base, "destinations": ["api.example:444"]}, key="k", title="T", text="X.")
     assert one["args"]["destinations"] == ["api.example:443"]
