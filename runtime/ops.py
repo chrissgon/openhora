@@ -2425,7 +2425,7 @@ def _credential_stop(model: str | None = None):
     if not missing:
         return None
     reason = "credential" if dispatcher.store_readable() == "ok" else "secret store"
-    locked = secret_state.unreadable_sentence(core.ROOT) if reason == "credential" else ""   # a locked store is not a missing key (I3)
+    locked = secret_state.unreadable_sentence(core.ROOT, names=missing) if reason == "credential" else ""   # a locked store is not a missing key (I3)
     return reason, (f"{locked}; the credential of {model} ({', '.join(missing)}) cannot be read" if locked else
                     f"the credential of {model} ({', '.join(missing)}) is neither set nor found in the secret store") + (
                     f" from {sys.executable} (Python {sys.version.split()[0]}): no run starts. See contracts/runtime.md, "

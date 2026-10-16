@@ -200,7 +200,7 @@ Create `adapters/<harness>/` with `adapter.json`, `install.sh`, `README.md`, and
 ## Never
 
 - Never put a harness name, path or tool name in a core file.
-- Never store credentials in this repository. Providers read them from the environment or the OS secret store.
+- Never store credentials in this repository. Providers read them from the environment, the credentials directory, the OS secret store or, for a name the person mapped, a password manager through its own command-line tool (references only, never values).
 - Never commit what identifies a real project (its name, people, accounts, handles, hosts, identifiers) or a file of it as it is. Use fictional names in examples and fixtures; a number, a date or a lesson from a real case may stay; keep each project's data in that project.
 - Never let a capability invoke another skill. The only exception is `core-orchestrator`, the router, which hands a request over and does none of the routed skill's work.
 - Never ship an actuator without a confirmation gate.
