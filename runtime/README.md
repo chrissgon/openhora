@@ -3,7 +3,7 @@
 Code that turns a request into tasks and runs each task as one skill, once, in the container the skill was
 proven in (`evals/executor.py`), on a fresh copy that holds only what may enter it (`workcopy.py`). What a run leaves
 comes back to the project by one rule of paths, and the task then waits for the person. The design is the
-platform plan, `docs/architecture/platform-plan-2026-10-05.md`; this folder began as its stage 1, an end-to-end
+platform plan, `docs/architecture/platform-plan-2026-10-05.md` (removed on 2026-10-15; `git show bc830832:docs/architecture/platform-plan-2026-10-05.md`); this folder began as its stage 1, an end-to-end
 skeleton, and holds the stages built since: the limits that live in code, each with its test, are listed in
 `contracts/runtime.md` ("The limits").
 
