@@ -198,6 +198,20 @@ The public website (`site/`, published by Netlify at https://openhora.dev).
   - Done when: Search Console shows the pages indexed and a search for "openhora" finds openhora.dev.
   - Plan: a site package, together with W3's `llms.txt`.
 
+## E-mail
+
+- [ ] **EM1. Starting an e-mail from a phone (EMAIL-ROUTE).** The e-mail flow starts in the terminal or on the page. A messaging app's `say` reaches the router, whose stop rule 3 stops on a side effect no skill owns, and messaging has no `request`.
+  - What: the router routes "send an e-mail" to the flow `send-email` with the values of its parameters (a change to `core-orchestrator`, an X change with one full test, paid by the next battery), or a drafting skill of the assistant area writes the e-mail first; the drafting skill waits for two or three real e-mails of the pilot.
+  - Done when: a sentence from a messaging app produces a plan card whose arguments are the e-mail, and the e-mail is approved on the page or, when the project grants `approve-effect-send`, from a card that carries the whole message.
+- [ ] **EM2. A second implementation of `sender:email` over the Gmail API.** A host that forbids password logins (Microsoft 365 by default, Gmail without an app password) cannot use `providers/mailer/smtp.py`.
+  - What: `providers/mailer/gmail.py`, scope `gmail.send` on a record of its own (the reader `gmail.readonly` stays read-only), the same verbs, the same ledger, the same exit codes; the Google project is published before this (a token in Testing lasts 7 days).
+  - Done when: the contract tests of the class run on both implementations and a send through the API is approved and recorded like one through SMTP.
+- [ ] **EM3. Files on messaging cards.** An e-mail with an attachment is approved on the page or in the terminal only, because a card cannot carry the file the hash covers.
+  - What: the card lists the files with their hashes and says where to approve (the policy layer reads `effect_send.on_cards`); a messenger that can attach a file (Telegram, Discord, the e-mail channel) could carry the file itself.
+  - Done when: a card for an e-mail with an attachment either carries the file or says it cannot, and a test holds that an approve action is on no card that does not carry what the hash covers.
+- [ ] **EM4. The page's form for a flow's parameters.** The send-email flow takes `to`, `cc`, `subject` and `body` as parameters; whether the page shows them as a form is to verify on first use.
+  - Done when: the page starts `send-email` from a form, or the terminal path is the documented one.
+
 ## Project language
 
 - [ ] **L1. The language in field evidence.** From the language decisions of 2026-10-16. Field evidence records a use of a skill, never the language it ran in, so a result cannot be split by language.

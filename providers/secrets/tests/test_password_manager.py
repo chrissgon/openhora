@@ -29,7 +29,8 @@ OTHER = "NOTION_TOKEN"
 REF = "op://Example Vault/github-read/credential"
 REF2 = "op://Example Vault/notion/section one/credential"
 TOKEN = "OP_SERVICE_ACCOUNT_TOKEN"
-KNOWN_EXTRA = {"__CF_USER_TEXT_ENCODING", "LC_CTYPE", "PYTHONCOERCECLOCALE", "PYTHONUTF8"}   # what the interpreter itself adds on some systems
+KNOWN_EXTRA = {"__CF_USER_TEXT_ENCODING", "LC_CTYPE", "PYTHONCOERCECLOCALE", "PYTHONUTF8",   # what the interpreter itself adds on some systems
+               "PYTHON_KEYRING_BACKEND"}   # what the root conftest.py adds to every env a test starts a child with (never production code)
 
 NOT_SIGNED_IN = "[ERROR] 2026/10/15 10:00:00 You are not signed in. Please sign in to continue"
 NO_ITEM = '[ERROR] 2026/10/15 10:00:00 "github-read" isn\'t an item in the "Example Vault" vault. Specify the item with its UUID, name, or domain.'

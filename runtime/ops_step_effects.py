@@ -12,7 +12,8 @@ that the call came from the terminal or the page (EFFECT_CHANNELS) and that the 
       1. the decision is an `effect` of a step task of a kind this checkout has, whose gate names the effect word the document names;
       2. the effect file is read only if its bytes have the approved hash (effects.read_document); a document edited since the preview,
          or aimed at another target, has another hash and stops here;
-      3. the documents configuration allows writing (its bounds have not expired), and names the provider the document names;
+      3. the effect kind's `preflight` finds the project configured for it (for a write-back: the documents configuration allows writing,
+         its bounds have not expired, and it names the provider the document names; for a send: the outbox names the document's sender);
       4. the approval row is recorded (scope action, bound to the decision and the hash), then the effect
          module's `execute` runs: it reads the target again, stops if the target is not the one the task read, and otherwise writes
          once. A write-back (one call) runs holding the project's write lock. An output (a page, a table: minutes) runs under the lock of
@@ -28,6 +29,11 @@ that the call came from the terminal or the page (EFFECT_CHANNELS) and that the 
 It is a sibling of runtime/ops.py, which calls it from `_approve_effect`. The names every module of the layer shares are read as
 `core.<name>`.
 
+It names no platform and no provider: what is specific to a kind of effect is the kind's module (runtime/effects.py lists the names of a
+STEP kind): `preflight(cfg, doc, root)` (the configuration allows this effect now), `caller(cfg, root)` (the `call(verb, args)` that reaches
+its provider), `idempotency_key(doc, default)` (the key the execution carries) and the optional `is_long(doc)` and `FORGETS_KEYS`. A test
+holds that this file imports no module that calls a platform.
+
 Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
@@ -39,23 +45,26 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import documents  # noqa: E402
 import effects  # noqa: E402
 import ops_cancel  # noqa: E402  (the name of the lock of a decision's write, shared with the cancel)
 import ops_core as core  # noqa: E402
 import ops_waits  # noqa: E402
-import project_config  # noqa: E402
 import steps  # noqa: E402
 
-OUTPUT_VERBS = ("page-create", "table-create", "rows-append", "table-read", "rows-state")      # the provider verbs of the outputs (runtime/effect_write.py)
 OUTPUT_RETENTION_DAYS = 90            # the provider keeps a done key this long (providers/documents/notion.py RETENTION_DAYS); a decision older is refused
-OUTPUT_TIMEOUT = 900                  # seconds: 500 rows at 2.8 calls a second take about 3 minutes; 429 waits and the table's listing add to it
 EFFECTS_DIR = "step-effects"          # <data_dir>/step-effects/<task id>/<cycle>/effect.json: written by the kind, read here by its hash
 STALE_ANSWER = ("Nothing was written by this attempt: the document or table is not the one the task read (it was edited, or an earlier "
                 "attempt of this write did not finish: read the page or the table). The task starts over from the step that reads it; "
                 "start it again to be asked about it as it is now.")
 UNKNOWN_NEXT = ("the outcome is unknown: read the page or the table. The effect stays open, and approving it again with the same hash "
                 "reads what is there first and writes only what is missing, recording the write as replayed if everything is there")
+
+
+def __getattr__(name: str):
+    """OUTPUT_VERBS and OUTPUT_TIMEOUT moved to the kind that owns them (runtime/effect_write.py): read from here still, for what reads them."""
+    if name in ("OUTPUT_VERBS", "OUTPUT_TIMEOUT"):
+        return getattr(effects.module_for("write"), name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def stale_answer(rows_written: int) -> str:
@@ -105,7 +114,7 @@ def step_effect_of(ctx: dict, item: dict):
 
 def approve(ctx: dict, item: dict, sha256: str, found, call=None) -> dict:
     """Execute the effect of a step task's gate with the person's approval of `sha256`. `found` is step_effect_of's answer. `call(verb,
-    args)` is the seam a test replaces: by default the project's documents provider (runtime/documents.py call). Returns {"done": the
+    args)` is the seam a test replaces: by default the kind's own (`module.caller`: its provider). Returns {"done": the
     store's answer, "approval": the approval row, "doc": the document, "result": what the effect module returned}. core.OpsError on any
     refusal, with nothing written."""
     store, cfg, pending_id = ctx["store"], ctx["cfg"], item["id"]
@@ -122,24 +131,14 @@ def approve(ctx: dict, item: dict, sha256: str, found, call=None) -> dict:
         doc = effects.read_document(path, sha256)
         module.check(doc)
     except effects.EffectError as e:
-        raise core.OpsError(f"nothing was written: {e.reason}; the effect stays open", 1) from None
+        raise core.OpsError(f"{getattr(module, 'NOTHING_DONE', 'nothing was written')}: {e.reason}; the effect stays open", 1) from None
     except ValueError:
         raise core.OpsError(f"the effect document of pending decision {pending_id} cannot be read", 1) from None
     if doc.get("effect") != gate.word or doc.get("task") != task["id"]:
-        raise core.OpsError("nothing was written: the effect document is not the one this decision opened", 1)
-    if not documents.enabled(cfg):
-        raise core.OpsError("the project has no documents platform configured: nothing was written", 3)
-    if cfg["documents"].get("provider") != doc.get("provider"):
-        raise core.OpsError("nothing was written: the project's documents provider is not the one the effect was prepared for", 1)
-    expired = project_config.bounds_problem(cfg, key=documents.KEY)
-    if expired:
-        raise core.OpsError(f"nothing was written: {expired}", 1)
-
-    def default_call(verb, args):
-        try:     # a table of 500 rows is written one call a row, kept to the platform's rate: a long verb gets its own time limit
-            return documents.call(cfg, ctx["root"], verb, args, timeout=OUTPUT_TIMEOUT if verb in OUTPUT_VERBS else documents.TIMEOUT)
-        except documents.DocumentsError as e:
-            raise effects.EffectError("not-configured" if e.kind == "not configured" else "provider", f"{verb}: {e.detail}") from None
+        raise core.OpsError(f"{getattr(module, 'NOTHING_DONE', 'nothing was written')}: the effect document is not the one this decision opened", 1)
+    refused = module.preflight(cfg, doc, ctx["root"])      # the project is configured for this effect now (the kind says what that is)
+    if refused:
+        raise core.OpsError(refused[1], refused[0])
 
     # A write of one page takes a call; an output (a table of 500 rows) takes minutes, so it is not made holding the project's write lock,
     # which every sync, every return of a run and every other writer waits for. What keeps a second writer out is the lock of this
@@ -148,29 +147,29 @@ def approve(ctx: dict, item: dict, sha256: str, found, call=None) -> dict:
     # lock of the key, and its ledger (every call of the write is recorded before it is made). The write lock is taken ONLY for the
     # record at the end (the stale answer, or effect_done): the reads above, the approval row and the remote write take none.
     long = bool(getattr(module, "is_long", lambda d: False)(doc))
-    if long:
+    if long and getattr(module, "FORGETS_KEYS", True):
         old = decision_age_days(item)
         if old is not None and old > OUTPUT_RETENTION_DAYS:
             raise core.OpsError(f"nothing was written: this decision is {old} days old, and the provider's ledger forgets a key after "
                                 f"{OUTPUT_RETENTION_DAYS} days, so approving it could write twice. Reject it and start the task again", 1)
-    key = f"wb-{hashlib.sha256(cfg['store_db'].encode('utf-8')).hexdigest()[:12]}-p{pending_id}"
+    key = module.idempotency_key(doc, f"wb-{hashlib.sha256(cfg['store_db'].encode('utf-8')).hexdigest()[:12]}-p{pending_id}")
     with (_decision_lock(cfg, pending_id, APPROVE_BUSY) if long else contextlib.nullcontext()):
         approval = core._stored(ctx, store.approval_add, scope="action", what=" ".join(module.describe(doc).split())[:1000], by="user",
                                 payload_sha256=sha256, pending_id=pending_id)
         with (contextlib.nullcontext() if long else core._write_lock(cfg)):
             try:
-                result = module.execute(doc, approval, call or default_call, key, cfg["data_dir"])
+                result = module.execute(doc, approval, call or module.caller(cfg, ctx["root"]), key, cfg["data_dir"], project=cfg["project"])
             except effects.EffectError as e:
                 if e.kind == "stale":
-                    answer = stale_answer(getattr(e, "rows_written", 0))
+                    answer = getattr(e, "answer", None) or stale_answer(getattr(e, "rows_written", 0))      # a kind may word its own
                     with core._write_lock(cfg, wait=None):
                         ops_waits.settled(ctx, core._stored(ctx, store.pending_resolve, pending_id, resolution="answered", by="code",
                                                             answer=answer))
                     raise core.OpsError(f"{e.reason}. {answer}", 1) from None
                 if e.kind == "unknown":
-                    raise core.OpsError(f"{e.reason}; {UNKNOWN_NEXT}", 1) from None
-                raise core.OpsError(f"nothing was written: {e.reason}; the effect stays open, and approving it again with the same hash "
-                                    f"tries again", 3 if e.kind == "not-configured" else 1) from None
+                    raise core.OpsError(f"{e.reason}; {getattr(e, 'next', None) or UNKNOWN_NEXT}", 1) from None
+                raise core.OpsError(f"{getattr(module, 'NOTHING_DONE', 'nothing was written')}: {e.reason}; the effect stays open, and approving it "
+                                    f"again with the same hash tries again", 3 if e.kind == "not-configured" else 1) from None
             # The record of a write that landed must not fail because another writer held the project's files for the usual wait
             # (core.WRITE_LOCK_WAIT): it waits for as long as it takes. Every holder is bounded (a provider call has its timeout).
             with core._write_lock(cfg, wait=None):

@@ -185,6 +185,7 @@ ALLOWED = {
     "step_project_script.py": {"ops_core", "ops_sources", "sources", "steps"},      # P9: a script's result is a version of a source, imported by the sources module; the provider is reached through it
     "step_write_back.py": {"steps", "write_document"},
     "step_output.py": {"output_document", "steps", "table_data", "write_document"},
+    "step_send_email.py": {"send_document", "steps"},
 }
 
 
