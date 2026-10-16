@@ -206,8 +206,8 @@ def test_a_reply_answers_a_question_and_free_text_goes_to_say(tmp_path, monkeypa
     r = rig(script={"default": {"after_send": {"1": [reply, free]}}})
     r.items[2] = decision("question", 2, title="Which colour?", actions=["answered"])
     r.run()
-    assert wait_for(lambda: r.calls("answer") and r.calls("say"))
-    assert r.calls("answer")[0][2] == {"pending_id": 2, "text": "blue"}
+    assert wait_for(lambda: r.calls("answer_proposing") and r.calls("say"))
+    assert r.calls("answer_proposing")[0][2] == {"pending_id": 2, "text": "blue", "channel": "messaging"}
     assert r.calls("say")[0][2]["text"] == "what is the plan?"
     assert wait_for(lambda: "Noted." in r.texts() and "Answered #2." in r.texts())
     r.finish()

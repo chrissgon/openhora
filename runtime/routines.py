@@ -27,7 +27,9 @@ and noted. Never one run per missed slot. The window is the one the record holds
 What an approval covers (decision D35). content() is the dictionary whose sha256 the person approves: the schedule (with its window),
 the workflow's template hash and the fixed arguments (never the values the dates take), the `X.Y` of every skill the workflow names (a
 Z change moves nothing), the digest of the eval image, the scripts' hashes and destinations (a slot for package P9), the model and the
-routine's own consent (decision D34, with the hash of the warning it was given), and for `auto` the approved set of providers. A
+routine's own consent (decision D34, with the hash of the warning it was given), for `auto` the approved set of providers, and, only
+when the file is there, the sha256 of the project's standing instructions (runtime/instructions.py: a run reads the file, so the
+approval covers it). A
 routine has no mode, cap, policy or standing approval of its own. A new version of a source moves nothing: the workflow pins the id.
 differences() says which parts differ between two contents, for the sentence of the stop.
 
@@ -138,15 +140,21 @@ def due(schedule: dict, last_slot, since: datetime.datetime, now: datetime.datet
 
 
 def content(*, schedule: dict, window_seconds, flow: str, template_sha256: str, params: dict, skills: dict, image, scripts=(),
-            model, consent: bool, warning_sha256: str, providers) -> dict:
+            model, consent: bool, warning_sha256: str, providers, instructions=None) -> dict:
     """The content whose sha256 a routine's approval covers (module text). skills is {skill: "X.Y"}; scripts is [] until package P9
     (a project script's sha256 and declared destinations will be listed there); model is the model id, "auto" or "default" resolved by
-    the caller to the word that will choose; providers is the approved set for auto (sorted here)."""
-    return {"version": CONTENT_VERSION, "schedule": {**schedule, "window_seconds": window_of(schedule, window_seconds)},
+    the caller to the word that will choose; providers is the approved set for auto (sorted here); instructions is the sha256 of
+    the bytes of the project's standing instructions (docs/workbench/instructions.md), or None when the file is not there: the key
+    is then left out, so that the content, and the hash, of a routine of a project without the file are what they were before
+    the file existed (CONTENT_VERSION stays 1: no routine needs a new approval for it)."""
+    body = {"version": CONTENT_VERSION, "schedule": {**schedule, "window_seconds": window_of(schedule, window_seconds)},
             "workflow": {"name": flow, "template_sha256": template_sha256, "params": dict(sorted(params.items()))},
             "skills": dict(sorted(skills.items())), "image": image, "scripts": sorted(scripts, key=json.dumps),
             "model": model, "consent": {"given": True, "warning_sha256": warning_sha256} if consent else {"given": False},
             "providers": sorted(set(providers))}
+    if instructions is not None:
+        body["instructions"] = instructions
+    return body
 
 
 def sha256_of(body: dict) -> str:
@@ -169,8 +177,8 @@ def differences(old: dict, new: dict) -> list:
         if (old.get("skills") or {}).get(skill) != new["skills"].get(skill):
             out.append(f"the version of {skill} ({(old.get('skills') or {}).get(skill)} to {new['skills'].get(skill)})")
     for key, word in (("image", "the eval image"), ("scripts", "a script"), ("model", "the model"), ("consent", "the consent"),
-                      ("providers", "the approved providers")):
-        if old.get(key) != new[key]:
+                      ("providers", "the approved providers"), ("instructions", "the project's instructions")):
+        if old.get(key) != new.get(key):
             out.append(word)
     return out or ["the content (its version)"]
 

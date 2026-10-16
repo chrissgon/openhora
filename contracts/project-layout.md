@@ -10,6 +10,7 @@ Skills never keep state inside this repository. Everything they produce for a pr
     ├── workbench/
     │   ├── state.md              # phase, artifact status, decisions, open questions (schema: state.md)
     │   ├── runtime.json          # the agent runtime's configuration, written by the person who sets it up (schema: runtime.md)
+    │   ├── instructions.md       # the person's standing instructions for the project: plain Markdown, written only by the person, read into the prompt of every model run (runtime.md, "Standing instructions"; no skill declares it)
     │   ├── policies/<policy>.json # the bounds of a standing approval of the task runtime, written by the person (approve-policy binds its hash)
     │   ├── briefs/<topic>.md     # shared-understanding briefs written by core-clarify
     │   ├── critiques/<topic>.md  # adversarial reviews written by core-critique
@@ -71,6 +72,7 @@ An input that no skill owns is listed here, or the validator reports it. `Provid
 | `docs/business/idea-validation.md` | planned: biz-validate-idea |
 | `docs/marketing/launch-plan.md` | planned: mkt-launch-plan |
 | `docs/workbench/runtime.json` | user |
+| `docs/workbench/instructions.md` | user |
 | `docs/workbench/policies/<policy>.json` | user |
 
 ## Owning skills
