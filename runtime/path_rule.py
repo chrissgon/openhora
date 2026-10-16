@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 import sys
+import unicodedata
 
 STATE = "docs/workbench/state.md"
 CONFIG = "docs/workbench/runtime.json"
@@ -57,13 +58,21 @@ def normal(rel: str):
     return "/".join(parts)
 
 
+def fold(path: str) -> str:
+    """The form in which two spellings of one path compare equal on the disks a person may use: Unicode case folding and
+    compatibility forms, twice (a fold can make a new compatible form). APFS and NTFS open `inſtructions.md` (U+017F),
+    `inﬆructions.md` (U+FB06) and `Instructions.md` as the file `instructions.md`, so a compare with `str.lower()` is not enough:
+    the protected paths (the configuration, the person's instructions, the flows folder) are compared in this form."""
+    return unicodedata.normalize("NFKC", unicodedata.normalize("NFKC", path).casefold())
+
+
 def classify(rel: str, facts: dict | None = None) -> str:
     """The class of one path (see the module's text). facts is optional: {"staged": [paths the runtime put in
     the copy], "bound": [documents bound to an approval], "versioned": [paths the project's git tracks or would
     track]}; a key that is missing is an empty list. The first rule that matches decides."""
     facts = facts or {}
     path = normal(rel)
-    folded = path.lower() if path is not None else None   # a case-insensitive disk lands docs/workbench/Flows in the same folder: the compare ignores case
+    folded = fold(path) if path is not None else None   # a case-insensitive disk lands docs/workbench/Flows (or a Unicode fold of it) in the same folder: the compare folds
     if path is None or folded in (CONFIG, INSTRUCTIONS) or folded == FLOWS_DIR or folded.startswith(FLOWS_DIR + "/"):
         return "other"   # the configuration, the project's flows and the person's instructions: what a run would change to change what runs next
     if path == STATE:

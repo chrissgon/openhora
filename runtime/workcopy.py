@@ -211,9 +211,9 @@ def _never(project: str, rel: str, declared, cfg: dict, settings_names) -> str |
     source = os.path.join(project, *rel.split("/"))
     real = os.path.realpath(source)
     parts = rel.split("/")
-    if rel.lower() == path_rule.CONFIG:
+    if path_rule.fold(rel) == path_rule.CONFIG:
         return "the runtime's configuration never enters a run"
-    if rel.lower() == path_rule.INSTRUCTIONS:   # limit L40: the instructions reach a run in its prompt (runtime/instructions.py), never as a file
+    if path_rule.fold(rel) == path_rule.INSTRUCTIONS:   # limit L40: the instructions reach a run in its prompt (runtime/instructions.py), never as a file
         return "the person's standing instructions reach a run in its prompt, not as a file"
     if sources.inside(cfg, source) or sources.inside(cfg, real):
         return ""  # limit L26: silent, entering() lists the folder once
@@ -277,7 +277,7 @@ def entering(project: str, meta: dict, *, web: bool, cfg: dict, settings_names, 
             cls = path_rule.classify(rel)
             if cls in ("document", "state") or (cls == "machine" and skill_meta.matches(declared, rel)):
                 candidates.append(rel)
-            elif rel.lower() in (path_rule.CONFIG, path_rule.INSTRUCTIONS) or os.path.islink(os.path.join(project, *rel.split("/"))):
+            elif path_rule.fold(rel) in (path_rule.CONFIG, path_rule.INSTRUCTIONS) or os.path.islink(os.path.join(project, *rel.split("/"))):
                 candidates.append(rel)  # listed with its reason, so that the person sees it was kept out
         candidates += _walk(project, path_rule.LOCAL_DIR.rstrip("/"))
     drop, taken = path_rule.DROP_DIR + "/", path_rule.SOURCES_DIR + "/"
@@ -369,6 +369,33 @@ def _project_inside(project: str, rel: str) -> bool:
     return not os.path.islink(target) and (real == project or real.startswith(project + os.sep))
 
 
+PROTECTED_ALIAS = "the project's path is the runtime's configuration, the person's instructions or the flows folder under another spelling"
+
+
+def _protected_alias(project: str, target: str) -> bool:
+    """Whether the project's path `target`, as the disk opens it, is a protected path that exists (the configuration, the person's
+    instructions) or sits in the flows folder, whatever its spelling: the same file by inode, or a file whose folder is the flows
+    folder. The fold of the path rule catches the spellings it knows; this catches the ones a disk folds that it does not."""
+    try:
+        for protected in (path_rule.CONFIG, path_rule.INSTRUCTIONS):
+            full = os.path.join(project, *protected.split("/"))
+            if os.path.exists(full) and os.path.exists(target) and os.path.samefile(full, target):
+                return True
+        flows = os.path.join(project, *path_rule.FLOWS_DIR.split("/"))
+        if os.path.isdir(flows):
+            folder = target
+            while True:
+                parent = os.path.dirname(folder)
+                if parent == folder or not folder.startswith(project + os.sep):
+                    return False
+                if os.path.isdir(folder) and os.path.samefile(folder, flows):
+                    return True
+                folder = parent
+    except OSError:
+        return True      # a path the disk cannot be asked about is not brought back
+    return False
+
+
 def _write(target: str, data: bytes) -> None:
     os.makedirs(os.path.dirname(target), exist_ok=True)
     temporary = f"{target}.{os.getpid()}.tmp"
@@ -416,6 +443,9 @@ def returning(project: str, result: dict, base: dict, base_state, skill: str, *,
             continue
         if not _project_inside(project, rel):
             keep("the project's path is a link or leaves the project")
+            continue
+        if _protected_alias(project, target):
+            keep(PROTECTED_ALIAS)   # the same file or folder as a protected path under another spelling (limit L40, and the configuration and the flows)
             continue
         # L12. The state file is held line by line instead: the merge starts from what the project has now.
         if cls != "state" and (_sha256(target) if os.path.isfile(target) else None) != base.get(rel):

@@ -71,7 +71,7 @@ ON_SYSTEM_PYTHON = [
     # The routines (P6b): the pure schedule and content, and the operations and the tick.
     "runtime/routines.py", "runtime/ops_routines.py",
     # The person's standing instructions (package INSTRUCTIONS): the file and its checks, and the operations over it.
-    "runtime/instructions.py", "runtime/ops_instructions.py",
+    "runtime/instructions.py", "runtime/ops_instructions.py", "runtime/ops_contained.py",
     # The rules of tasks that run at once (PAR-2): pure functions the dispatcher's caller passes in.
     "runtime/parallel.py",
     # How the credential of a run is billed, read from the adapters' manifests (ADJ-R3): the operations layer imports it.

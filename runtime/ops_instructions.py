@@ -19,7 +19,8 @@ call time, never imported at module level.
                  compare-and-set on the sha256 of the file the person read (`none` for a file that was not there): a file
                  changed meanwhile, by hand or by the other operation, is never overwritten.
   answer         the proposal. The `answer` row calls `answer_proposing`: the answer is recorded as ever, and an answer to a
-                 question may end with one proposal to add the person's own line to the instructions. The proposal is made
+                 question may end with one proposal to add the person's own line to the instructions, on the channels that show the
+                 whole result (DISPLAYS), and through `say` on every channel. The proposal is made
                  by code: no model, no word list. It is offered only when the line is the person's own stored text (the
                  line they typed; never a model's reply, a source, a document of the mirror, an e-mail, a ticket or a
                  notification), one line of 20 to 300 characters, passes the checks of the file together with the file as
@@ -47,6 +48,12 @@ PROPOSAL_MIN = 20          # characters: an answer shorter than this is a choice
 PROPOSAL_MAX = 300         # characters of the one line a proposal offers
 PROPOSED = "instructions:proposed:"      # the store's cursor <this><request id>: a proposal was made for the request
 PROPOSAL_ASK = "Add this line to the project's instructions?"
+# Where a proposal is shown to the person: the terminal and the conversation print the whole result of an answer, MCP returns it to its client,
+# and `say` shows it in the reply on every channel. The page's inbox and a messaging app's reply to a card show "Answered #N." and nothing of
+# the result, so an answer through them proposes nothing and spends no request's one proposal where it would not be seen.
+DISPLAYS = ("terminal", "chat", "mcp")
+WHERE_SAYS = "or on the page: Building > Instructions"
+WHERE_ELSEWHERE = "accept it on the page (Building > Instructions) or in the terminal"
 BASE = re.compile(r"none|[0-9a-f]{64}")
 NOT_HERE = "the standing instructions are written from the terminal or from the page, by default, and no channel policy widens it yet (limit L40)"
 ROUTINE_CHANGED = ("the project's instructions changed after the routine {name} was approved: approve the routine again "
@@ -214,8 +221,7 @@ def proposal(ctx: dict, request_id, line, channel=None):
     core._stored(ctx, ctx["store"].cursor_set, name, standing.sha256(one.encode("utf-8")))
     base = found["sha256"] or "none"
     command = core._command("instructions-add", project, line=one, base_sha256=base)
-    where = "accept it on the page (Building > Instructions) or in the terminal" if channel == "messaging" else \
-        "or on the page: Building > Instructions"
+    where = WHERE_SAYS if channel in ("terminal", "page") else WHERE_ELSEWHERE      # a channel that cannot write the file is told where to accept it
     return {"line": one, "base_sha256": base, "command": command,
             "text": f'{PROPOSAL_ASK} "{one}"\n{command}\n{where}'}
 
@@ -226,7 +232,7 @@ def answer_proposing(project: str, pending_id: int, text: str, with_comments: bo
     ctx = core.context(project)
     item = core._stored(ctx, ctx["store"].pending_get, pending_id)
     out = _ops().answer(project, pending_id, text, with_comments=with_comments)
-    if item["kind"] == "question":
+    if item["kind"] == "question" and channel in DISPLAYS:
         offered = proposal(ctx, _request_of(ctx, item["task_id"]), text, channel)
         if offered:
             out = {**out, "instruction_proposal": offered}
