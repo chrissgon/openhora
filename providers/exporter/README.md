@@ -34,6 +34,8 @@ python3 providers/exporter/container.py render --format pdf --input /abs/path/re
 
 The base image and the Debian snapshot are the converter's (`debian:bookworm-20261005-slim`, snapshot `20261006T000000Z`).
 
+Each change of the definition leaves the earlier image on disk. They are never removed by a run or by the upkeep. `python3 scripts/doctor.py --unattended` shows their count and size in its `images` row; `python3 scripts/doctor.py --remove-old-images --dry-run` lists what would go and `--confirmed` removes it, by tag, never with `--force` or `prune` (an image that is in use is kept and reported). An image is selected only when it carries the label `org.openhora.definition`, its repository is `openhora-exporter` exactly and its label and tag differ from the current definition's.
+
 ## Tests
 
 - `tests/test_exporter_host.py` (offline): the definition and its hash, the Dockerfile's pins, the exact command with each limit, the frames and the rules that parse them, the private copy of the input and its removal, the verbs. No container is started.

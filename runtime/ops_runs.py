@@ -504,7 +504,9 @@ def stop_children(only_mine: bool = True, cfg=None, grace: float = STOP_GRACE) -
     leader of its session, so its pid is the group id and cannot be reused before it is reaped). Otherwise, for the
     project of cfg, the process group of every task whose lock is held by a live process (the group id its holder wrote:
     a lock that is free is never signalled). TERM first; after `grace` seconds KILL only those still alive. Returns the
-    task ids signalled."""
+    task ids signalled. A process that took the lock after the TERM is never signalled: the KILL goes to the (pid, pgid) that got the
+    TERM, and only while the lock is held and the file still names it. So when another process has taken the lock but has not yet
+    written its own line, what is killed is the process that got the TERM (which let the lock go and is ending), never the new holder."""
     signalled = []
     if only_mine:
         with SPAWNED_LOCK:
@@ -545,7 +547,9 @@ def stop_children(only_mine: bool = True, cfg=None, grace: float = STOP_GRACE) -
     while time.monotonic() < deadline and any(still_held(t) for t in holders):
         time.sleep(0.05)
     for task_id, termed in sorted(holders.items()):
-        # read again just before: KILL only a lock that is still held by the very process that got the TERM
+        # read again just before: KILL only while the lock is held and the file still names the process that got the TERM. In the moment
+        # between a new holder's lock and its write the file still names the old one: the old one is signalled (it got the TERM and
+        # is ending), the new holder, whose pid and group differ, never is.
         if still_held(task_id) and core._lock_owner(cfg, task_id) == termed:
             _signal_owner(termed, signal.SIGKILL)
     return signalled

@@ -11,6 +11,7 @@ import datetime
 import hashlib
 import json
 import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -361,6 +362,85 @@ def test_the_staging_folder_takes_a_file_only_for_a_request_that_waits_for_its_p
     ops.cancel(world["path"], rid)
     with pytest.raises(ops_core.OpsError, match="is cancelled: a file is staged for a request that waits for its plan"):
         ops.stage_file(world["path"], rid, csv_file(world, "again.csv"))
+
+
+def link_the_drop(world, name, level, outside):
+    """.workbench-local/drop/<name>/survey.csv with a link at one level to a real folder or file outside the project that holds a
+    survey.csv. Returns {path: bytes} of what the outside folder holds, to compare afterwards."""
+    local = world["project"] / ".workbench-local"
+    if level == "local":
+        (outside / "drop" / name).mkdir(parents=True)
+        (outside / "drop" / name / "survey.csv").write_text("outside\n", encoding="utf-8")
+        local.symlink_to(outside)
+    elif level == "drop":
+        (outside / name).mkdir(parents=True)
+        (outside / name / "survey.csv").write_text("outside\n", encoding="utf-8")
+        local.mkdir()
+        (local / "drop").symlink_to(outside)
+    elif level == "task":
+        outside.mkdir()
+        (outside / "survey.csv").write_text("outside\n", encoding="utf-8")
+        (local / "drop").mkdir(parents=True)
+        (local / "drop" / name).symlink_to(outside)
+    else:
+        outside.mkdir()
+        (outside / "survey.csv").write_text("outside\n", encoding="utf-8")
+        (local / "drop" / name).mkdir(parents=True)
+        (local / "drop" / name / "survey.csv").symlink_to(outside / "survey.csv")
+    return {str(p.relative_to(outside)): p.read_bytes() for p in sorted(outside.rglob("*")) if p.is_file()}
+
+
+def held(outside):
+    return {str(p.relative_to(outside)): p.read_bytes() for p in sorted(outside.rglob("*")) if p.is_file()}
+
+
+@pytest.mark.parametrize("level", ["local", "drop", "task", "file"])
+def test_stage_file_is_refused_through_a_link_at_any_level_of_the_drop_and_writes_nothing_outside(world, level):
+    rid = new_request(world)
+    outside = world["files"].parent / "outside"
+    before = link_the_drop(world, f"request-{rid}", level, outside)
+    with pytest.raises(ops_core.OpsError, match="already there" if level == "file" else "never reached through a link"):
+        ops.stage_file(world["path"], rid, csv_file(world))
+    assert held(outside) == before
+    assert ops_flows.staged(world["path"], rid) == {}                       # and nothing is read through the link either
+
+
+@pytest.mark.parametrize("level", ["local", "drop", "task"])
+def test_the_placement_at_the_approval_is_reported_failed_when_the_tasks_drop_is_reached_through_a_link(world, level):
+    write_flow(world, "survey-file", FILE_FLOW)
+    rid = new_request(world)
+    ops.stage_file(world["path"], rid, csv_file(world))
+    opened = ops.route(world["path"], rid, flow="survey-file", params=["survey=survey.csv"])["pending_id"]
+    ctx = ops_core.context(world["path"])
+    coming = str(max(t["id"] for t in ctx["store"].tasks_list(ctx["conn"])) + 1)       # the ingest task's id, as the store counts
+    outside = world["files"].parent / "outside"
+    drop_dir = world["project"] / ".workbench-local" / "drop"
+    if level == "local":                                        # the staged file is kept by moving the folder under the link's target
+        shutil.move(str(world["project"] / ".workbench-local"), str(outside))
+        (world["project"] / ".workbench-local").symlink_to(outside)
+        before = held(outside)
+        # a link at the project's .workbench-local: the staged file cannot be read either, so the approval stops before placing
+        with pytest.raises(ops_core.OpsError, match="nothing was approved"):
+            ops.approve(world["path"], opened, pending(world, opened)["payload"]["plan_sha256"])
+        assert held(outside) == before
+        return
+    if level == "drop":
+        shutil.move(str(drop_dir), str(outside))
+        drop_dir.symlink_to(outside)
+        before = held(outside)
+        with pytest.raises(ops_core.OpsError, match="nothing was approved"):
+            ops.approve(world["path"], opened, pending(world, opened)["payload"]["plan_sha256"])
+        assert held(outside) == before
+        return
+    other = world["files"].parent / "elsewhere"
+    other.mkdir()
+    (drop_dir / coming).symlink_to(other)                       # the task's own folder is a link to a folder outside the project
+    done = ops.approve(world["path"], opened, pending(world, opened)["payload"]["plan_sha256"])
+    ingest = tasks_of(world, rid)["ingest-survey"]
+    assert str(ingest["id"]) == coming
+    assert done["files"]["placed"] == [] and [(f["task"], f["file"], f["reason"]) for f in done["files"]["failed"]] == \
+        [(ingest["id"], "survey.csv", "DropError")]
+    assert list(other.iterdir()) == []                          # nothing was written outside the project
 
 
 def test_a_plan_made_another_way_that_names_a_file_keeps_the_hand_over_after_the_approval(world):
