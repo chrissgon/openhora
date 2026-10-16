@@ -121,14 +121,21 @@ def check_recipients(sender_address: str, to: list, cc: list, bcc: list) -> None
 
 
 def check_subject(subject) -> str:
-    if not isinstance(subject, str) or not subject.strip() or len(subject) > SUBJECT_MAX or CONTROL.search(subject):
-        raise _usage(f"the subject is one line of at most {SUBJECT_MAX} characters")
+    if not isinstance(subject, str) or not subject.strip() or subject != subject.strip() or len(subject) > SUBJECT_MAX or CONTROL.search(subject):
+        raise _usage(f"the subject is one line of at most {SUBJECT_MAX} characters, with no space around it")
+    if "=?" in subject:
+        raise _usage("the subject holds no =? (a mail library decodes an encoded word, and the text sent would not be the text approved)")
     return subject
 
 
+def lines_as_lf(text):
+    """The text with its line breaks (CRLF, CR) written LF, as the document holds it; anything that is not text is returned as it is."""
+    return text.replace("\r\n", "\n").replace("\r", "\n") if isinstance(text, str) else text
+
+
 def check_body(body) -> bytes:
-    if not isinstance(body, str) or not body.strip() or "\x00" in body or CONTROL_TEXT.search(body):
-        raise _usage("the body is non-empty text with no control character but a tab and a line break")
+    if not isinstance(body, str) or not body.strip() or "\x00" in body or "\r" in body or CONTROL_TEXT.search(body):
+        raise _usage("the body is non-empty text with line breaks written \\n (no \\r) and no control character but a tab")
     data = body.encode("utf-8")
     if len(data) > BODY_MAX:
         raise _usage(f"the body is {len(data)} bytes, over the {BODY_MAX} one e-mail takes")
@@ -136,7 +143,7 @@ def check_body(body) -> bytes:
 
 
 def check_reference(value):
-    if value is not None and (not isinstance(value, str) or not REFERENCE.fullmatch(value)):
+    if value is not None and (not isinstance(value, str) or not REFERENCE.fullmatch(value) or "=?" in value):
         raise _usage("in_reply_to is a Message-ID, one <local@domain> with no space")
     return value
 

@@ -20,7 +20,7 @@ SPEC.loader.exec_module(mail)
 @pytest.mark.parametrize("text, expected", [
     ("ana@client.example", "ana@client.example"),
     ("Ana.B+tag@Client.Example", "Ana.B+tag@client.example"),
-    ("ana@Bücher.Example", "ana@xn--bcher-kva.example"),
+    ("ana@XN--BCHER-KVA.Example", "ana@xn--bcher-kva.example"),
     ("o'neil@sub.client.example", "o'neil@sub.client.example"),
 ])
 def test_a_plain_address_is_normalised_with_the_domain_in_lower_case_ascii(text, expected):
@@ -32,7 +32,8 @@ def test_a_plain_address_is_normalised_with_the_domain_in_lower_case_ascii(text,
     "a@b@client.example", "Ana <ana@client.example>", "<ana@client.example>", "ana@client.example, bo@client.example", "ana (note)@client.example",
     "\"ana\"@client.example", "ana..b@client.example", ".ana@client.example", "ana.@client.example", "ana@client.example\n", "ana@client.example\r\nBcc: x@y.example",
     "ana\x00@client.example", "añá@client.example", "ana@-client.example", "ana@client-.example", "ana@[127.0.0.1]", "x" * 65 + "@client.example",
-    "ana@" + "a" * 64 + ".example", "-x@client.example", "--confirmed@client.example", "ana@client.example;bo@client.example", 12, None,
+    "ana@" + "a" * 64 + ".example", "-x@client.example", "--confirmed@client.example",
+    "=?utf-8?q?ceo?=@client.example", "ana@=?utf-8?q?x?=.example", "ana@Bücher.Example", "ana@straße.example", "ana@client.example=?", "ana@client.example;bo@client.example", 12, None,
 ])
 def test_a_display_name_comment_quote_break_or_second_at_is_not_an_address(text):
     with pytest.raises(mail.EmailError):
@@ -124,3 +125,41 @@ def test_the_message_builder_refuses_a_subject_with_a_line_break():
 def test_the_digest_is_the_hash_of_the_sorted_ascii_json():
     assert mail.canonical({"b": 1, "a": "é"}) == b'{"a":"\\u00e9","b":1}'
     assert mail.digest({"b": 1, "a": 2}) == mail.digest({"a": 2, "b": 1}) and len(mail.digest({})) == 64
+
+
+def test_an_encoded_word_is_refused_in_a_header_value_and_a_reference_because_a_mail_library_decodes_it():
+    sneaky = "=?utf-8?b?SGkNClJlcGx5LVRvOiB0aGllZkBldmlsLmV4YW1wbGUNCg0KUGF5IHRvIDk5OQ==?="
+    for text in (sneaky, "Invoice =?utf-8?q?ceo?= October", "=?"):
+        with pytest.raises(mail.EmailError):
+            mail.header_text(text, "the subject")
+    with pytest.raises(mail.EmailError):
+        mail.reference_id("<=?utf-8?q?x?=@client.example>")
+    assert mail.header_text("Invoice = what? yes", "the subject") == "Invoice = what? yes"
+
+
+def message(**extra):
+    base = dict(from_addr="outbox@office.example", to=["ana@client.example"], cc=[], subject="Your invoice", body="Hello Ana.\n", attachments=[],
+                message_id_value="<oh.0123456789abcdef0123456789abcdef@office.example>")
+    return mail.build_message(**{**base, **extra})
+
+
+def test_a_built_message_read_back_says_what_was_asked_and_nothing_else():
+    view = mail.inspect_message(message(cc=["bo@client.example"], in_reply_to="<earlier@client.example>",
+                                        attachments=[("Invoice.pdf", "application/pdf", b"%PDF-1.4")]).as_bytes())
+    assert view["headers"] == {"From": "outbox@office.example", "To": "ana@client.example", "Cc": "bo@client.example", "Subject": "Your invoice",
+                               "Message-ID": "<oh.0123456789abcdef0123456789abcdef@office.example>", "In-Reply-To": "<earlier@client.example>",
+                               "References": "<earlier@client.example>"}
+    assert view["text_sha256"] == mail.hashlib.sha256(b"Hello Ana.").hexdigest()
+    assert view["attachments"] == [["Invoice.pdf", "application/pdf", mail.hashlib.sha256(b"%PDF-1.4").hexdigest()]]
+
+
+def test_a_message_with_another_header_a_header_twice_a_bare_line_end_or_another_part_is_not_a_plain_message():
+    good = message().as_bytes()
+    crlf = good.replace(b"\r\n\r\n", b"\r\nReply-To: thief@evil.example\r\n\r\n", 1)
+    twice = good.replace(b"\r\n\r\n", b"\r\nFrom: thief@evil.example\r\n\r\n", 1)
+    bare = good.replace(b"Hello Ana.", b"Hello\rAna.")
+    for bad in (crlf, twice, bare, good.replace(b"\r\n", b"\n")):
+        with pytest.raises(mail.EmailError):
+            mail.inspect_message(bad)
+    other_part = message(attachments=[("a.txt", "text/plain", b"x")]).as_bytes().replace(b"Content-Disposition: attachment", b"X-Other: 1\r\nContent-Disposition: attachment")
+    assert mail.inspect_message(other_part)["attachments"][0][0] == "a.txt", "a header of an attachment is not a header of the message"

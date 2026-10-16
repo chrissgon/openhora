@@ -212,7 +212,7 @@ def test_an_effect_file_edited_after_the_preview_is_not_the_approved_one_and_not
 # --- the approval ---------------------------------------------------------------------------------------------------------------------------
 
 
-def test_limit_41_a_send_without_the_approval_of_its_exact_content_is_refused_by_structure(world):
+def test_limit_42_a_send_without_the_approval_of_its_exact_content_is_refused_by_structure(world):
     task, item = opened(world)
     for channel in ("messaging", "mcp", "conversation", None):
         with pytest.raises(ops_core.OpsError) as refused:
@@ -251,7 +251,7 @@ def test_a_standing_approval_never_covers_a_send_and_the_seam_for_a_messaging_gr
 
 
 @pytest.mark.parametrize("channel", ["terminal", "page"])
-def test_limit_41_with_the_approval_of_its_hash_from_the_terminal_or_the_page_it_is_sent_once_to_exactly_the_recipients_and_recorded(world, channel):
+def test_limit_42_with_the_approval_of_its_hash_from_the_terminal_or_the_page_it_is_sent_once_to_exactly_the_recipients_and_recorded(world, channel):
     task, item = opened(world, cc="Bo@Client.Example", bcc="dee@client.example")
     done = approve(world, item, channel)
     assert done["task_state"] == "done" and done["result"]["sent"] is True and done["result"]["replayed"] is False
@@ -317,7 +317,7 @@ def test_an_attachment_is_a_private_copy_of_the_file_the_task_read_and_travels_w
     assert attached.get_filename() == "invoice.pdf" and attached.get_content() == PDF
 
 
-def test_limit_41_an_attachment_changed_after_the_preview_stops_the_send_and_asks_again_about_the_file_as_it_is(world):
+def test_limit_42_an_attachment_changed_after_the_preview_stops_the_send_and_asks_again_about_the_file_as_it_is(world):
     task, item = opened(world, attach=[PATH])
     (Path(world["path"]) / PATH).write_bytes(PDF + b" and a changed line")
     with pytest.raises(ops_core.OpsError) as stopped:
@@ -361,7 +361,7 @@ def test_an_attachment_that_is_missing_a_link_or_in_the_sources_folder_opens_no_
 # --- the lost answer ------------------------------------------------------------------------------------------------------------------------
 
 
-def test_limit_41_a_lost_answer_is_unknown_the_effect_stays_open_and_approving_again_looks_in_the_sent_folder_first(world):
+def test_limit_42_a_lost_answer_is_unknown_the_effect_stays_open_and_approving_again_looks_in_the_sent_folder_first(world):
     task, item = opened(world)
     world["smtp"].drop_after_data = True
     with pytest.raises(ops_core.OpsError) as lost:
@@ -381,7 +381,7 @@ def test_limit_41_a_lost_answer_is_unknown_the_effect_stays_open_and_approving_a
     assert len(sent(world)) == 1 and world["smtp"].connections == connections
 
 
-def test_limit_41_a_recipient_the_server_refuses_sends_nothing_names_the_address_and_leaves_the_effect_open(world):
+def test_limit_42_a_recipient_the_server_refuses_sends_nothing_names_the_address_and_leaves_the_effect_open(world):
     task, item = opened(world, args={**ARGS, "to": "ana@client.example, bo@client.example"})
     world["smtp"].refuse.add("bo@client.example")
     with pytest.raises(ops_core.OpsError) as refused:
@@ -483,6 +483,9 @@ def test_a_project_without_an_outbox_cannot_prepare_an_e_mail(world):
     {**ARGS, "to": "ana@client.example; bo@client.example"}, {**ARGS, "to": "none"}, {**ARGS, "to": ""},
     {**ARGS, "cc": "ana@client.example"}, {**ARGS, "bcc": "ANA@client.example"},
     {**ARGS, "subject": "Hello\nBcc: mal@client.example"}, {**ARGS, "subject": "x" * 201}, {**ARGS, "subject": ""},
+    {**ARGS, "subject": "=?utf-8?b?SGkNClJlcGx5LVRvOiB0aGllZkBldmlsLmV4YW1wbGUNCg0KUGF5IHRvIDk5OQ==?="}, {**ARGS, "subject": " padded "},
+    {**ARGS, "to": "=?utf-8?q?ceo?=@client.example"}, {**ARGS, "cc": "=?utf-8?q?ceo?=@client.example"}, {**ARGS, "to": "ana@stra\u00dfe.example"},
+    {**ARGS, "in_reply_to": "<=?utf-8?q?x?=@client.example>"},
     {**ARGS, "body": ""}, {**ARGS, "body": "x" * (send_document.BODY_MAX + 1)}, {**ARGS, "body": "a\x00b"}, {**ARGS, "body": "a\x1bb"},
     {**ARGS, "to": ", ".join(f"p{i}@client.example" for i in range(21))},
     {**ARGS, "to": ", ".join(f"p{i}@client.example" for i in range(15)), "cc": ", ".join(f"q{i}@client.example" for i in range(6))},
@@ -621,3 +624,69 @@ def test_the_limits_and_the_derived_names_of_the_runtime_are_the_providers():
     assert mail_address.split_list("none") == [] and mail_address.split_list("  ") == []
     with pytest.raises(mail_address.AddressError):
         mail_address.split_list("ana@client.example, ")
+
+
+def test_a_lone_carriage_return_in_the_text_is_written_as_a_line_feed_so_the_hash_and_the_message_agree(world):
+    planned = steps.plan_task("send-email", {**ARGS, "body": "Pay to account 111\rPay to account 999\r\nBest\n"}, key="k", title="t", text="x")
+    assert planned["args"]["body"] == "Pay to account 111\nPay to account 999\nBest\n"
+    base = dict(task_id=1, provider="smtp", from_addr=FROM, to=["ana@client.example"], cc=[], bcc=[], subject=SUBJECT, in_reply_to=None, attachments=[],
+                dry_run_sha256="1" * 64)
+    with pytest.raises(effects.EffectError):
+        send_document.document(**base, body="one\rtwo\n")
+    task, item = opened(world, body="one\rtwo\n")
+    assert effect_doc(world, task)["body"] == "one\ntwo\n"
+    approve(world, item)
+    assert b"one\r\ntwo" in sent(world)[0]["data"] and b"one\r\r\ntwo" not in sent(world)[0]["data"]
+
+
+def test_an_encoded_word_cannot_reach_the_wire_through_the_runtime(world):
+    sneaky = "=?utf-8?b?" + __import__("base64").b64encode(b"Hi\r\nReply-To: thief@evil.example\r\n\r\nPay to 999").decode() + "?="
+    with pytest.raises(steps.StepFailure):
+        add(world, subject=sneaky)
+    with pytest.raises(steps.StepFailure):
+        add(world, to="=?utf-8?q?ceo?=@client.example")
+    assert world["smtp"].connections == 0 and sent(world) == []
+
+
+def test_every_send_is_made_under_the_decision_lock_and_not_the_write_lock_so_a_cancel_cannot_close_it_midway(world, monkeypatch):
+    import threading
+    task, item = opened(world)
+    cfg = ops_core.context(world["path"])["cfg"]
+    assert effect_send.is_long(effect_doc(world, task)) is True and effect_send.is_long({"attachments": []}) is True
+    real = effect_send.caller
+    seen = {}
+
+    def watching(cfg_, root):
+        call = real(cfg_, root)
+
+        def wrapper(verb, args):
+            if "--confirmed" in args:      # the send itself is running
+                for name, attempt in (("reject", lambda: ops.reject(world["path"], item["id"], "changed my mind")),
+                                      ("answer", lambda: ops.answer(world["path"], item["id"], "rather not"))):
+                    try:
+                        attempt()
+                        seen[name] = "accepted"
+                    except ops_core.OpsError as e:
+                        seen[name] = str(e)
+
+                def other_writer():
+                    try:
+                        with ops_core._write_lock(cfg, wait=0.3):
+                            seen["write_lock"] = "free"
+                    except ops_core.OpsError:
+                        seen["write_lock"] = "held"
+                thread = threading.Thread(target=other_writer)
+                thread.start()
+                thread.join()
+            return call(verb, args)
+        return wrapper
+    monkeypatch.setattr(effect_send, "caller", watching)
+    done = approve(world, item)
+    assert "being written" in seen["reject"] and "being written" in seen["answer"], seen
+    assert seen["write_lock"] == "free", "the project's write lock is not held while the e-mail is sent"
+    assert done["task_state"] == "done" and len(sent(world)) == 1
+    ctx = ops_core.context(world["path"])
+    settled = ctx["store"].pending_get(ctx["conn"], item["id"])
+    assert settled["status"] == "resolved" and settled["resolution"] == "approved", "the record of the send was made"
+    text = (Path(world["path"]) / "docs" / "workbench" / "state.md").read_text(encoding="utf-8")
+    assert f"sha256:{item['payload_sha256']}" in text, "and the state row"

@@ -325,13 +325,16 @@ def plan_of(args, mail) -> dict:
         reply = mail.reference_id(args.in_reply_to) if args.in_reply_to else None
     except mail.EmailError as e:
         raise ProviderError(e.reason, EXIT_USAGE) from None
-    if not body.strip() or "\x00" in body:
-        raise ProviderError("the body is non-empty text without a NUL character", EXIT_USAGE)
+    if not body.strip() or "\x00" in body or "\r" in body:
+        raise ProviderError("the body is non-empty text without a NUL character and with line breaks written \\n (no \\r)", EXIT_USAGE)
     attachments = [read_attachment(spec, mail) for spec in args.attach or []]
     if sum(len(a[2]) for a in attachments) > ATTACH_TOTAL_MAX:
         raise ProviderError(f"the attachments are over {ATTACH_TOTAL_MAX} bytes together", EXIT_USAGE)
     if len({a[0].lower() for a in attachments}) != len(attachments):
         raise ProviderError("two attachments have the same name", EXIT_USAGE)
+    plan = {"key": key, "sender": sender, "to": to, "cc": cc, "bcc": bcc, "everyone": everyone, "subject": subject, "body": body,
+            "message_id": mid, "in_reply_to": reply, "attachments": attachments}
+    message_bytes(plan, mail, None)      # the message is built and read back now: a text that would not arrive as approved is refused here
     would = {
         "envelope": {"from": sender, "to": everyone},
         "headers": {"From": sender, "To": ", ".join(to), "Cc": ", ".join(cc) if cc else None, "Subject": subject, "Message-ID": mid,
@@ -339,20 +342,38 @@ def plan_of(args, mail) -> dict:
         "body": body, "body_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(), "body_bytes": len(body.encode("utf-8")),
         "attachments": [{"name": n, "media_type": t, "bytes": len(d), "sha256": hashlib.sha256(d).hexdigest()} for n, t, d in attachments],
         "idempotency_key": key,
+        "wire": expected_view(plan),
     }
-    return {"key": key, "sender": sender, "to": to, "cc": cc, "bcc": bcc, "everyone": everyone, "subject": subject, "body": body,
-            "message_id": mid, "in_reply_to": reply, "attachments": attachments, "would": would, "would_sha256": mail.digest(would)}
+    return {**plan, "would": would, "would_sha256": mail.digest(would)}
 
 
-def message_bytes(plan: dict, mail) -> bytes:
-    """The message as it goes on the wire: built from the checked plan, with the Date of now. No Bcc header."""
+def expected_view(plan: dict) -> dict:
+    """What the built message must say when it is read back (providers/_email.py inspect_message): the headers, the text and the attachments."""
+    headers = {"From": plan["sender"], "To": ", ".join(plan["to"]), "Subject": plan["subject"], "Message-ID": plan["message_id"]}
+    if plan["cc"]:
+        headers["Cc"] = ", ".join(plan["cc"])
+    if plan["in_reply_to"]:
+        headers["In-Reply-To"] = headers["References"] = plan["in_reply_to"]
+    return {"headers": headers, "text_sha256": hashlib.sha256(plan["body"].rstrip("\n").encode("utf-8")).hexdigest(),
+            "attachments": [[name, kind, hashlib.sha256(data).hexdigest()] for name, kind, data in plan["attachments"]]}
+
+
+def message_bytes(plan: dict, mail, date) -> bytes:
+    """The message as it goes on the wire: built from the checked plan, with the Date `date` (None: none, for the dry run). No Bcc header.
+    The bytes are read back as a receiving library reads them, and they must say exactly what the plan says (the headers, the text, the
+    attachments) and hold no other header, part or line end: a mail library decodes some texts (an encoded word) into more than was
+    approved, and this is the check that no such text goes out. ProviderError usage otherwise."""
     try:
         msg = mail.build_message(from_addr=plan["sender"], to=plan["to"], cc=plan["cc"], subject=plan["subject"], body=plan["body"],
                                  attachments=plan["attachments"], message_id_value=plan["message_id"], in_reply_to=plan["in_reply_to"],
-                                 date=datetime.datetime.now(datetime.timezone.utc))
+                                 date=date)
         data = msg.as_bytes()
+        view = mail.inspect_message(data)
     except (mail.EmailError, ValueError, TypeError, UnicodeError) as e:
         raise ProviderError(f"the message cannot be built: {getattr(e, 'reason', e.__class__.__name__)}", EXIT_USAGE) from None
+    if view != expected_view(plan):
+        raise ProviderError("the message built is not the message approved (read back, its headers, text or attachments differ): nothing is sent",
+                            EXIT_USAGE)
     if len(data) > MESSAGE_MAX:
         raise ProviderError(f"the message is {len(data)} bytes, over the {MESSAGE_MAX} most servers take", EXIT_USAGE)
     return data
@@ -486,7 +507,7 @@ def record_done(key: str) -> None:
 def cmd_send(args) -> int:
     mail = helpers()
     plan = plan_of(args, mail)
-    data = message_bytes(plan, mail)        # built before anything is recorded or opened: a message that cannot be built sends nothing
+    data = message_bytes(plan, mail, None if args.dry_run else datetime.datetime.now(datetime.timezone.utc))      # built and read back before anything is recorded or opened
     if args.dry_run:
         print(json.dumps({"dry_run": True, "would": plan["would"], "would_sha256": plan["would_sha256"],
                           "ledger": (ledger_peek(plan["key"]) or {}).get("status", "absent")}, sort_keys=True))
@@ -508,7 +529,10 @@ def cmd_send(args) -> int:
                                 EXIT_UNKNOWN) from None
         if not found:
             raise ProviderError("an earlier attempt with this key did not say whether the e-mail was sent, and it is not in the Sent folder: "
-                                f"look there, then run resolve --idempotency-key {plan['key']} --sent or --not-sent", EXIT_UNKNOWN)
+                                "nothing is sent again until you settle the key. Some hosts do not file mail sent over SMTP in the Sent folder, and "
+                                "then 'not found' says nothing: check with a recipient or the host's log before you run "
+                                f"resolve --idempotency-key {plan['key']} --not-sent, which can lead to a second copy; --sent records it as delivered",
+                                EXIT_UNKNOWN)
         record_done(plan["key"])
         print(json.dumps(result(plan, True), sort_keys=True))
         return EXIT_OK

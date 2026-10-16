@@ -22,7 +22,7 @@ with the approval the person gave. What a kind module of this path exposes, besi
     caller(cfg, root)                    the `call(verb, args)` that reaches the provider (providers/mailer/smtp.py) with the outbox
                                          password in its environment and nothing else of the secrets
     idempotency_key(doc, default)        the document's own key: one e-mail is sent once, however many decisions reach it
-    is_long(doc)                         whether the decision takes the decision's lock (an e-mail with an attachment)
+    is_long(doc)                         whether the decision takes the decision's lock (every send does: a cancel is refused while it runs)
     on_cards(doc)                        whether the whole e-mail can be on a messaging card (False with an attachment: the card cannot
                                          carry the file the hash covers); read by the policy layer when it grants approval from a messaging app
     APPROVAL_GROUP                       the policy group that would let a messaging app approve this kind (`approve-effect-send`,
@@ -68,9 +68,11 @@ NOTHING_DONE = "nothing was sent"      # the words ops_step_effects.py starts a 
 PASSWORD = "MAILER_SMTP_PASSWORD"
 UNKNOWN_EXIT = 4          # the provider's exit code for "the e-mail may or may not have been sent"
 CALL_TIMEOUT = 300        # seconds: 18 MB of attachments over a slow line
-UNKNOWN_NEXT = ("the outcome is unknown: look in the outbox account's Sent folder. The effect stays open, and approving it again with the "
-                "same hash looks there first and sends only if the e-mail is not found; or settle it yourself with the provider's `resolve` "
-                "(providers/mailer/README.md)")
+UNKNOWN_NEXT = ("the outcome is unknown: look in the outbox account's Sent folder. The effect stays open. Approving it again with the same hash "
+                "looks there first: found, it is recorded as sent; not found, nothing is sent and it stays unknown until you settle the key with "
+                "the provider's `resolve` (providers/mailer/README.md): --sent if it was delivered, --not-sent if it was not, after which "
+                "approving again sends it. Some hosts do not file mail sent over SMTP in the Sent folder, and then 'not found' says nothing: "
+                "check with a recipient or the host's log first, because --not-sent can lead to a second copy")
 STALE_NOTE = ("Nothing was sent by this attempt: an attachment is not the file the task read (it was edited or replaced). The task starts "
               "over from the step that reads the files; start it again to be asked about the e-mail as it is now.")
 
@@ -92,9 +94,10 @@ class UnknownError(effects.EffectError):
 
 
 def is_long(doc) -> bool:
-    """Whether the send takes long and is made without the project's write lock, under the lock of the decision: an e-mail with an attachment
-    (up to 18 MB copied and sent)."""
-    return isinstance(doc, dict) and bool(doc.get("attachments"))
+    """Whether the send is made without the project's write lock, under the lock of the decision: every send is. It opens connections, takes
+    seconds to minutes (20 recipients, a slow line, 18 MB), and a cancel or an answer of the decision must be refused while it runs ("being
+    written"): the e-mail would otherwise be delivered after the decision was closed, and its record refused."""
+    return isinstance(doc, dict)
 
 
 def on_cards(doc) -> bool:

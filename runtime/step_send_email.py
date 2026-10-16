@@ -78,8 +78,9 @@ def check(args) -> dict:
         raise steps.StepFailure("bad_args", "to", "", "give at least one address")
     _checked(send_document.check_recipients, "", lists["to"], lists["cc"], lists["bcc"], field="to")
     subject = _checked(send_document.check_subject, _text(args, "subject") if "subject" in args else None, field="subject")
-    _checked(send_document.check_body, _text(args, "body") if "body" in args else None, field="body")
-    out = {"to": ", ".join(lists["to"]), "subject": subject, "body": args["body"]}
+    body = send_document.lines_as_lf(_text(args, "body")) if "body" in args else None
+    _checked(send_document.check_body, body, field="body")
+    out = {"to": ", ".join(lists["to"]), "subject": subject, "body": body}
     for name in ("cc", "bcc"):
         if lists[name]:
             out[name] = ", ".join(lists[name])

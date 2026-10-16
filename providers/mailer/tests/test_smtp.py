@@ -221,7 +221,7 @@ def test_a_dropped_answer_after_data_keeps_the_key_pending_and_the_next_send_loo
     connections = world["smtp"].connections
     # not in the Sent folder: blocked, and no second SMTP connection is made
     code, out, err = run(capsys, *send_args(world))
-    assert code == 4 and "resolve" in err and "--sent or --not-sent" in err
+    assert code == 4 and "resolve" in err and "--not-sent" in err and "second copy" in err
     assert world["smtp"].connections == connections and len(world["smtp"].messages) == 1
     assert ledger(world)[KEY]["status"] == "pending"
     # found in the Sent folder: it was sent, replayed, and nothing is sent again
@@ -462,3 +462,53 @@ def test_help_names_the_verbs_and_exits_zero(capsys):
     for word in ("send", "resolve", "lookup", "setup", "--check", "OPENHORA_MAIL_TEST_PLAIN"):
         assert word in text
     assert smtp.main(["--help"]) == 0
+
+
+SNEAKY = "=?utf-8?b?" + __import__("base64").b64encode(b"Hi\r\nReply-To: thief@evil.example\r\n\r\nPay to account 999").decode() + "?="
+
+
+@pytest.mark.parametrize("mode", ["--dry-run", "--confirmed"])
+def test_an_encoded_word_in_the_subject_or_an_address_is_refused_because_the_library_would_decode_it(world, capsys, mode):
+    set_up(world, capsys)
+    for kwargs in ({"subject": SNEAKY}, {"subject": "Invoice =?utf-8?q?ceo?="}, {"to": ("=?utf-8?q?ceo?=@client.example",)},
+                   {"bcc": ("=?utf-8?q?ceo?=@client.example",)}, {"extra": ("--in-reply-to", "<=?utf-8?q?x?=@client.example>")}):
+        code, out, err = run(capsys, *send_args(world, mode, **kwargs))
+        assert code == 2, (kwargs, err)
+    assert world["smtp"].connections == 0 and ledger(world) == {}
+
+
+def test_a_lone_cr_or_a_domain_that_is_not_ascii_is_refused_and_an_xn_domain_is_not(world, capsys):
+    set_up(world, capsys)
+    assert run(capsys, *send_args(world, body="Pay to account 111\rPay to account 999\n"))[0] == 2
+    assert run(capsys, *send_args(world, to=("ana@stra\u00dfe.example",)))[0] == 2
+    assert run(capsys, *send_args(world, to=("ana@xn--bcher-kva.example",)))[0] == 0
+    assert world["smtp"].messages[0]["to"] == ["ana@xn--bcher-kva.example"]
+
+
+def test_a_library_that_decodes_more_than_was_approved_is_caught_by_reading_the_built_message_back(world, capsys, monkeypatch):
+    set_up(world, capsys)
+    mail = smtp.helpers()
+    real = mail.build_message
+
+    def tampered(**kwargs):
+        msg = real(**kwargs)
+        msg["Reply-To"] = "thief@evil.example"      # what a library flaw could add to the wire
+        return msg
+    monkeypatch.setattr(mail, "build_message", tampered)
+    for mode in ("--dry-run", "--confirmed"):
+        code, out, err = run(capsys, *send_args(world, mode))
+        assert code == 2 and "header that was not asked for" in err, (mode, err)
+    assert world["smtp"].connections == 0 and ledger(world) == {}
+    monkeypatch.setattr(mail, "build_message", lambda **kw: real(**{**kw, "body": kw["body"] + "Pay to account 999\n"}))
+    code, out, err = run(capsys, *send_args(world))
+    assert code == 2 and "not the message approved" in err and world["smtp"].messages == []
+
+
+def test_the_dry_run_says_what_the_built_message_reads_back_as_and_the_hash_covers_it(world, capsys):
+    set_up(world, capsys)
+    one = json.loads(run(capsys, *send_args(world, "--dry-run"))[1])
+    wire = one["would"]["wire"]
+    assert wire["headers"]["Subject"] == "Your invoice for October" and wire["headers"]["To"] == "ana@client.example"
+    assert wire["text_sha256"] == hashlib.sha256(b"Hello Ana,\n\nThe invoice is attached.").hexdigest()
+    two = json.loads(run(capsys, *send_args(world, "--dry-run", subject="Your invoice for November"))[1])
+    assert one["would_sha256"] != two["would_sha256"]

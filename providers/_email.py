@@ -92,6 +92,8 @@ def normalize_address(text) -> str:
     bracket, a space, a comma, a control character, a second `@`, a local part over 64 characters, an address over 254 are refused."""
     if not isinstance(text, str) or not text or text != text.strip():
         raise EmailError("an address is plain text with no space around it")
+    if "=?" in text:
+        raise EmailError("an address holds no =? (an encoded word would change the address after it was approved)")
     if text.count("@") != 1:
         raise EmailError("an address has exactly one @")
     local, domain = text.split("@")
@@ -100,10 +102,9 @@ def normalize_address(text) -> str:
                          "comment, quote or space)")
     if not domain or domain.startswith(".") or domain.endswith(".") or ".." in domain:
         raise EmailError("the domain of an address has two or more labels")
-    try:
-        ascii_domain = domain.encode("idna").decode("ascii").lower()
-    except UnicodeError:
-        raise EmailError("the domain of an address cannot be written in ASCII") from None
+    if not domain.isascii():
+        raise EmailError("the domain of an address is ASCII: give an international domain in its xn-- form (no folding of letters is done for you)")
+    ascii_domain = domain.lower()
     labels = ascii_domain.split(".")
     if len(labels) < 2 or len(ascii_domain) > DOMAIN_MAX or not all(LABEL.fullmatch(label) for label in labels):
         raise EmailError("the domain of an address has two or more labels of letters, digits and hyphens")
@@ -125,8 +126,10 @@ def header_text(text, what: str, required: bool = True) -> str:
     """A header value taken from outside: one line, no control character, at most 998 characters. EmailError otherwise."""
     if not isinstance(text, str) or (required and not text.strip()):
         raise EmailError(f"{what} is one line of text")
-    if CONTROL.search(text) or " " in text or " " in text or "\x85" in text:
+    if CONTROL.search(text) or "\u2028" in text or "\u2029" in text or "\x85" in text:
         raise EmailError(f"{what} is one line: no line break or control character")
+    if "=?" in text:
+        raise EmailError(f"{what} holds no =? (a mail library decodes an encoded word, and the text sent would not be the text approved)")
     if len(text) > HEADER_MAX:
         raise EmailError(f"{what} is at most {HEADER_MAX} characters")
     return text
@@ -143,8 +146,8 @@ def message_id(domain: str, seed=None) -> str:
 
 def reference_id(text) -> str:
     """A Message-ID named by the caller (In-Reply-To): one `<local@domain>` with no space, else EmailError."""
-    if not isinstance(text, str) or not REFERENCE.fullmatch(text):
-        raise EmailError("a Message-ID is one <local@domain> with no space")
+    if not isinstance(text, str) or not REFERENCE.fullmatch(text) or "=?" in text:
+        raise EmailError("a Message-ID is one <local@domain> with no space and no =?")
     return text
 
 
@@ -277,6 +280,40 @@ def build_message(*, from_addr: str, to, cc, subject: str, body: str, attachment
         maintype, subtype = kind.split("/", 1)
         msg.add_attachment(data, maintype=maintype, subtype=subtype, filename=name)
     return msg
+
+
+HEADERS_SHOWN = ("From", "To", "Cc", "Subject", "Message-ID", "In-Reply-To", "References")
+HEADERS_OTHER = ("date", "mime-version", "content-type", "content-transfer-encoding")      # allowed, not compared: made by the library
+
+
+def inspect_message(data: bytes) -> dict:
+    """Read built bytes back, as a receiving server's library would, and say what they hold: {"headers": {name: value} of HEADERS_SHOWN
+    (decoded), "text_sha256": of the text part with its trailing line breaks cut, "attachments": [[name, media type, sha256]]}. EmailError
+    when the bytes are not a plain message of the expected shape: a line end other than CRLF, a parse defect, a header that is not one of
+    HEADERS_SHOWN and HEADERS_OTHER, a header twice, a part that is not the one text part and the attachments."""
+    flat = data.replace(b"\r\n", b"")
+    if b"\r" in flat or b"\n" in flat:
+        raise EmailError("the message has a line end other than CRLF")
+    msg = email.message_from_bytes(data, policy=email.policy.default)
+    parts = list(msg.walk())
+    if msg.defects or any(part.defects for part in parts):
+        raise EmailError("the message does not parse cleanly")
+    names = [name.lower() for name in msg.keys()]
+    if len(set(names)) != len(names) or set(names) - {h.lower() for h in HEADERS_SHOWN} - set(HEADERS_OTHER):
+        raise EmailError("the message has a header that was not asked for, or a header twice")
+    shown = {name: str(msg[name]) for name in HEADERS_SHOWN if msg[name] is not None}
+    leaves = [part for part in parts if not part.is_multipart()]
+    body = msg.get_body(("plain",))
+    kind = msg.get_content_type()
+    if body is None or kind not in ("text/plain", "multipart/mixed") or any(p.is_multipart() for p in parts[1:]):
+        raise EmailError("the message is not one text part and its attachments")
+    attached = [part for part in leaves if part is not body]
+    if len(attached) != len(list(msg.iter_attachments())) or (kind == "text/plain" and attached):
+        raise EmailError("the message is not one text part and its attachments")
+    text = body.get_content().replace("\r\n", "\n").rstrip("\n")
+    return {"headers": shown, "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            "attachments": [[part.get_filename(), part.get_content_type(), hashlib.sha256(part.get_payload(decode=True)).hexdigest()]
+                            for part in attached]}
 
 
 if __name__ == "__main__":

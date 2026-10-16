@@ -6,7 +6,7 @@
 """What the runtime needs to know of an e-mail address, and nothing else (package EMAIL-SEND): the same rule as providers/_email.py
 `normalize_address`, written again because the runtime does not import a provider; a test holds the two equal on a table of addresses.
 
-  normalize_address(text)    one plain address, the domain in lower-case IDNA ASCII, or AddressError. A display name, a comment, a quoted
+  normalize_address(text)    one plain address, the domain in lower-case ASCII (an international domain only in its xn-- form), or AddressError. A display name, a comment, a quoted
                              local part, an angle bracket, a space, a comma, a control character, a second `@`, a local part over 64
                              characters, an address over 254 are refused.
   address_key(address)       the form two addresses are compared by: the whole address lower-cased
@@ -39,6 +39,8 @@ class AddressError(ValueError):
 def normalize_address(text) -> str:
     if not isinstance(text, str) or not text or text != text.strip():
         raise AddressError("an address is plain text with no space around it")
+    if "=?" in text:
+        raise AddressError("an address holds no =? (an encoded word would change the address after it was approved)")
     if text.count("@") != 1:
         raise AddressError("an address has exactly one @")
     local, domain = text.split("@")
@@ -47,10 +49,9 @@ def normalize_address(text) -> str:
                            "name, comment, quote or space)")
     if not domain or domain.startswith(".") or domain.endswith(".") or ".." in domain:
         raise AddressError("the domain of an address has two or more labels")
-    try:
-        ascii_domain = domain.encode("idna").decode("ascii").lower()
-    except UnicodeError:
-        raise AddressError("the domain of an address cannot be written in ASCII") from None
+    if not domain.isascii():
+        raise AddressError("the domain of an address is ASCII: give an international domain in its xn-- form (no folding of letters is done for you)")
+    ascii_domain = domain.lower()
     labels = ascii_domain.split(".")
     if len(labels) < 2 or len(ascii_domain) > DOMAIN_MAX or not all(LABEL.fullmatch(label) for label in labels):
         raise AddressError("the domain of an address has two or more labels of letters, digits and hyphens")
