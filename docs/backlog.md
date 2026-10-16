@@ -22,7 +22,7 @@ The workbench is a set of instructions that models execute with a terminal, file
   - Needs: a real project with a finding of each kind to ground each part, and S8's eval runs done.
   - Done when: each added part has an eval case built from a finding met on a real project, rewritten with fictional names, and the report template covers it.
   - Plan: H (findings met on a real project), then G step 7: the skill's next version, tested when built.
-- [ ] **S16. A password manager as a secrets backend.** A lookup function in `providers/secrets/resolver.py` after the OS secret store, reading through the manager's CLI (for example 1Password `op read` or Bitwarden `bw get`), chosen with the user.
+- [x] **S16. A password manager as a secrets backend.** A lookup function in `providers/secrets/resolver.py` after the OS secret store, reading through the manager's CLI (for example 1Password `op read` or Bitwarden `bw get`), chosen with the user. Built 2026-10-15 (1Password first; a second manager is one class in `providers/secrets/password_managers.py`): the mapping file, one call per lookup, no cache, limit L39, the doctor's `password_manager` check; `docs/architecture/platform/unattended.md`, "Use with 1Password". Not verified on a real machine: the exact texts and exit codes of `op`, and the time and rate-limit cost of one process per lookup.
   - From: the user's decision on 2026-09-28 for S13: leave room for it, build it with a real case.
   - Needs: the user's manager, and a test with a fake CLI; the CLI's session must never be started by a skill.
   - Plan: H (a password manager in use), then lane F6.

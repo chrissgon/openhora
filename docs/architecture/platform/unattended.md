@@ -1,6 +1,6 @@
 # Running unattended
 
-What makes the task runtime supportable for weeks on a machine nobody sits at: a secret store that says when it is locked, a way to keep secrets with no desktop session, remote access that does not open the machine to a network, retention of what a run leaves on disk, the removal of orphan containers, one writer at a time for a synced sources folder, and a doctor that checks the machine. It crosses the layers of the platform map and belongs to none alone: the secret resolver is a provider (`providers/secrets/resolver.py`), the upkeep is the runtime's (`runtime/upkeep.py`, `runtime/orphans.py`, `runtime/lease.py`, `runtime/secret_state.py`) and the doctor is a script (`scripts/doctor.py`, `scripts/doctor_ops.py`). The package is P-OPS of the delegation plan (findings I3, I4 and I6).
+What makes the task runtime supportable for weeks on a machine nobody sits at: a secret store that says when it is locked, a way to keep secrets with no desktop session, a password manager as a fourth place for secrets, remote access that does not open the machine to a network, retention of what a run leaves on disk, the removal of orphan containers, one writer at a time for a synced sources folder, and a doctor that checks the machine. It crosses the layers of the platform map and belongs to none alone: the secret resolver is a provider (`providers/secrets/resolver.py`), the upkeep is the runtime's (`runtime/upkeep.py`, `runtime/orphans.py`, `runtime/lease.py`, `runtime/secret_state.py`) and the doctor is a script (`scripts/doctor.py`, `scripts/doctor_ops.py`). The package is P-OPS of the delegation plan (findings I3, I4 and I6).
 
 ## Purpose
 
@@ -20,16 +20,16 @@ Use the same port number at both ends: the service accepts a request only when i
 
 ## The secret store: locked is not missing
 
-The resolver looks for a secret in three places, in this order: the environment, the credentials directory, the OS secret store (service `openhora`). A store that raises instead of answering (a locked keychain or collection, or no backend on a machine with no desktop session) used to read as "not found". It is now told apart (`resolver.resolve_state`):
+The resolver looks for a secret in four places, in this order: the environment, the credentials directory, the OS secret store (service `openhora`), and, only for a name the person mapped in `password-manager.json`, the password manager ("Use with 1Password" below). The order is fixed and the person cannot change it. A store that raises instead of answering (a locked keychain or collection, or no backend on a machine with no desktop session) used to read as "not found". It is now told apart (`resolver.resolve_state`):
 
 | State | Meaning | What the person sees |
 |---|---|---|
-| `found` | a value, from one of the three places | where it was found, never the value |
-| `missing` | nothing holds it | "set it: ..." with the command |
-| `locked` | the store raised (locked, or no backend) | "the secret store is locked or unavailable: unlock it", in the held reason of a task, in what gets past it, in the connections read, in the three messengers' errors, in `--check` (exit 4), in `--list` and in the doctor |
-| `unsafe` | the credentials directory or its file is a link, too large, owned by neither this user nor root, writable by others, or (when this user owns it) readable by others | "the credentials directory is unsafe", the reason and the `chmod` that fixes it, wherever "missing" would have been said |
+| `found` | a value, from one of the four places | where it was found (for the manager, `password manager (1password)`), never the value or the reference |
+| `missing` | nothing holds it; for a mapped name, the manager says the item or field does not exist | "set it: ..." with the command; for the manager, "check the reference of NAME in the mapping file" |
+| `locked` | the store raised (locked, or no backend), or the password manager is locked, not signed in, its prompt dismissed or timed out, or its tool is not installed or answered something unrecognised (never read as missing) | "the secret store is locked or unavailable: unlock it", or the manager's own sentence ("the password manager (1Password) is locked or not signed in: ..."; the store's comes first when both fail), in the held reason of a task, in what gets past it, in the connections read, in the three messengers' errors, in `--check` (exit 4), in `--list` and in the doctor |
+| `unsafe` | the password-manager mapping file is refused (a link, not this user's, readable by others, too large, not JSON, an unknown key or backend, a reference that fails the syntax check, the manager's own token mapped), and the manager is not called; or the credentials directory or its file is a link, too large, owned by neither this user nor root, writable by others, or (when this user owns it) readable by others | "the credentials directory is unsafe", the reason and the `chmod` that fixes it, wherever "missing" would have been said |
 
-`resolve` and `resolve_detail` still return `None` for the last three, so a caller that reads only `None` is unchanged; the messages are the ones that ask for the state. The sentence a message adds comes from one place (`LOCKED_SENTENCE`); `runtime/secret_state.py` is the runtime's use of it (a probe of the store with a name nothing stores, kept for 30 seconds so a page that asks every few seconds does not make a locked keychain prompt every time). A message never carries the backend's own text.
+`resolve` and `resolve_detail` still return `None` for the last three, so a caller that reads only `None` is unchanged; the messages are the ones that ask for the state. The sentence a message adds comes from one place (`LOCKED_SENTENCE`); `runtime/secret_state.py` is the runtime's use of it (a probe of the store with a name nothing stores, then, when a mapping file exists, `op whoami` for the manager, each kept for 30 seconds so a page that asks every few seconds does not make a locked keychain or app prompt every time; a value is never cached, in the resolver or here). A message never carries the backend's own text.
 
 ### The credentials directory: the one supported headless backend
 
@@ -46,6 +46,33 @@ python3 providers/secrets/resolver.py --check VCS_GITHUB_TOKEN          # found 
 With systemd, the unit names the file and the service reads it from `$CREDENTIALS_DIRECTORY`, so the secret exists as a file only in a private memory-backed folder of the service while it runs; `LoadCredentialEncrypted=` keeps it encrypted at rest with the host's key (read the version of systemd the host runs for the user manager's support). The scheduler providers write the unit, and a person adds the `LoadCredential=` lines to it; the runtime does not write a secret.
 
 Why this one (decision recorded in `docs/decisions.md`, 2026-10-15): it adds no dependency, no daemon and no password to type at 3 a.m.; it is the convention systemd, containers and orchestrators already share, so the file can come from any of them; the resolver already treats a value from the environment the same way, so no provider changed; and it is honest about what it protects: a file readable only by its owner is the level of `~/.aws/credentials`, `~/.netrc` or a deploy key, and encryption at rest with a key on the same disk would add the look of protection and not the thing. The alternatives and why they were not chosen: `keyrings.alt`'s file backends (the encrypted one asks for a password the first time, which a headless start cannot give, and the plain one is this directory with a worse format); `pass` (needs a GPG key with no passphrase to be unattended, which is this directory with extra moving parts); a desktop keyring daemon under a virtual session (works until the session or the daemon dies, and then a locked store is back).
+
+### Use with 1Password
+
+The password manager is a **fourth place**, after the three above, for a company or a person who keeps secrets in 1Password. It never replaces the order (the environment first lets CI and a cloud session override), it is asked only for a name the person wrote in a mapping file, and it holds no value in the workbench: the mapping holds references. The package is S16; the decision is recorded in `docs/decisions.md`, 2026-10-15; the limit is L39 (a password manager's tool is never called inside a run container).
+
+1. **Install the vendor's command-line tool** (`op`, version 2) from the vendor's site and check that `op --version` answers. The resolver finds it on the `PATH` it was started with.
+2. **Sign in, once, as the person.** On a laptop, turn on the integration with the desktop app in the app's settings (Developer: "Integrate with 1Password CLI"); the app then asks for the unlock when a call arrives. On a headless company machine, create a **service account** in the 1Password admin with read access to only the vaults the mapping will name, and put its token in the credentials directory under the name `OP_SERVICE_ACCOUNT_TOKEN` (`umask 077 && cat > ~/.config/openhora/credentials/OP_SERVICE_ACCOUNT_TOKEN`, typed or piped, never on a command line). The token is found in the environment, the credentials directory or the OS secret store (store username `password-manager-1password`), never through the manager, and it cannot be mapped. Nothing in the workbench runs `op signin` or `op account add`, unlocks the app or touches the terminal.
+3. **Write the mapping file**, outside any repository: `$XDG_CONFIG_HOME/openhora/password-manager.json`, else `~/.config/openhora/password-manager.json`, then `chmod 600` it:
+
+```json
+{
+  "backend": "1password",
+  "account": "example-team.1password.example",
+  "timeout_seconds": 15,
+  "references": {
+    "VCS_GITHUB_TOKEN": "op://Example Vault/github-read/credential",
+    "NOTION_TOKEN": "op://Example Vault/notion-board/section one/credential"
+  }
+}
+```
+
+   `backend` and `references` are required; `account` (the sign-in address, passed as `--account`) and `timeout_seconds` (1 to 60, default 15) are optional; any other key is refused. A reference is `op://<vault>/<item>[/<section>]/<field>`, each part made of letters, digits, spaces, hyphens, underscores and periods (a name with other characters is written as its ID); a query (`?attribute=otp`), a variable or anything before `op://` is refused. Only a name written here is ever asked of the manager; without the file nothing changes.
+4. **Check it**, without printing a value: `python3 providers/secrets/resolver.py --check VCS_GITHUB_TOKEN` (exit 0 found, 3 missing, 4 locked or unsafe), `python3 providers/secrets/resolver.py --list`, and `python3 scripts/doctor.py --unattended --project <dir>`, whose `password_manager` row is `na` without a mapping, `ok` when `op whoami` answers, and `warn` with the fix when the manager is locked, the tool is not installed or the file is refused.
+
+What each state looks like: `found` says `password manager (1password)` and never the reference; `missing` (the tool says the item or field does not exist) says "check the reference of NAME in the mapping file"; `locked` is a manager that is locked, not signed in, whose prompt was dismissed or timed out, or whose tool is not installed or answered something unrecognised: "the password manager (1Password) is locked or not signed in: unlock the app, or on a headless machine provide OP_SERVICE_ACCOUNT_TOKEN in the credentials directory", in the same places the store's sentence is told (held reasons, the connections read, the three messengers' errors, `--check`, `--list`, the doctor), and never as "missing"; `unsafe` is the mapping file (a link, not this user's, readable by others, too large, not JSON, an unknown key or backend, a reference that fails the check, the token mapped), with the reason and the fix, and the tool is not called. A name found earlier that is also in the mapping is marked "mapped in the password manager, not asked: found earlier" in `--list` and the doctor, with no call: a stale entry in the OS secret store would shadow the manager, and this line shows it.
+
+How a call is made: `op read <reference>` (and `--account <a>` when set), as a list of arguments with no shell, stdin on `/dev/null`, a deadline, and an environment of only `PATH`, `HOME`, `USER`, `LANG`, `TMPDIR`, `XDG_CONFIG_HOME` and `XDG_RUNTIME_DIR` when set, plus `OP_SERVICE_ACCOUNT_TOKEN` when the resolver found it. What the tool prints on its error output is read for fixed markers and dropped: it is never shown, logged or put in an exception. Output over 64 KiB is refused. In `report` (`--list`, the doctor), once the manager has failed it is not asked again for the other mapped names, because each ask may prompt.
 
 ### OAuth consent: on a machine with a browser
 
@@ -120,6 +147,7 @@ The sources folder is the one place a person may keep in a synced drive, so that
 | `proxy_logs` | `docker inspect` of the containers labelled `wb.eval` whose names are a proxy's or a key holder's: whether a log size limit is set | a container not running here; it reads and never changes |
 | `lease` | whether this host took over the expired lease of another host's write of the sources folder (the record `<data_dir>/lease-takeover.json`; `--ack-lease` clears it) | whether another machine is running now (an idle runtime holds no lease) |
 | `secret_store` | whether the credentials directory is safe to read (an unsafe one is a warning, not a missing secret) and whether the OS secret store answers, is locked or has no backend | that a given secret is in either (`--list` says that) |
+| `password_manager` | `na` without a mapping file; otherwise `op whoami` (no secret read): ok when it answers, a warning with the fix when the manager is locked or not signed in, the tool is not installed, or the mapping file is refused | that a given reference points at an item, or that a service account's hourly limit is not spent; it may make a locked desktop app ask the person to unlock it |
 | `image` | the eval image in its four states, and the command that sets it up when it is not present: `python3 scripts/image_lock.py pull` (a published image, by digest, with the provenance check) or `python3 evals/executor.py ensure` (a local build). The first pull is an explicit step (decision D39), never automatic and never in the middle of a dispatch | whether the image runs: it is not started |
 
 A status is `ok`, `warn` (with the command that fixes it), `unverified` (the doctor cannot tell from here, and says what to check by hand) or `na` (the check does not apply on this machine).
@@ -135,8 +163,13 @@ A status is `ok`, `warn` (with the command that fixes it), `unverified` (the doc
 | A token that is a JSON record in the secret store is the bare token in the credentials directory; the expiry of a LinkedIn token is read from the environment only | above |
 | The automatic sweep never removes a running run container, so a stuck one stays until a person runs `python3 runtime/upkeep.py containers --include-running` | above |
 | A pruned source version leaves a row and no folder | above |
+| The password manager keeps no cache: each lookup starts one process of the vendor's tool (to verify: roughly a second, and a service account's hourly and daily request limits count each one). A cache, if ever needed, is in process memory, at most 60 seconds, never on disk, and a later decision | Use with 1Password |
+| `op signin` sessions (`OP_SESSION_*`, stripped from a provider's environment, and they expire in minutes) and a 1Password Connect server are not supported | Use with 1Password |
+| The order is fixed, so a stale OS secret store entry shadows the manager; `--list` and the doctor mark it, with no call | Use with 1Password |
+| The marker texts the tool prints are read from the vendor's documentation and public reports where they exist; the rest are to verify on a real machine, and an unrecognised error is read as `locked`, never `missing` | Use with 1Password |
 
 ## Changes
 
+- 2026-10-15: S16: the password manager (1Password first) as the fourth place a secret is looked up, with a mapping file of references, one call of the vendor's tool per lookup and no cache, its states told apart from a missing secret, the doctor's `password_manager` check and limit L39. `provider_environment` keeps `OPENHORA_CREDENTIALS_DIR` and `CREDENTIALS_DIRECTORY`, so a provider's process finds a credentials directory that only those variables name.
 - 2026-10-15: after review: a run folder is kept while its task, its request or a pending decision is open; the container sweep never removes a running container and can be turned off in `runtime.json`; the lease is taken only before a write and a takeover is told; an unsafe credentials directory is told, and root-provisioned read-only secrets are accepted; whole-name detection of synced folders.
 - 2026-10-15: first version, with package P-OPS (a locked secret store told apart from a missing one, the credentials directory, retention of run folders and source versions, the orphan sweep, the lease of the sources folder with limits L28 and L29, the doctor's unattended checks).
