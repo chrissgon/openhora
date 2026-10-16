@@ -20,7 +20,7 @@ metadata:
   updates: [docs/engineering/plans/<task>.md]
   requires: []
   side_effects: []
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Unit tests
@@ -63,7 +63,7 @@ Nothing was written: <the missing source of cases | the runner the request names
 |----------|----------|------------|
 | The cases: a plan's "Root cause" (the bug case and "What a fix must preserve"), a spec's REQ, EDGE and AC, a backlog task's Check, or values the user states | yes | Stop rule 1 |
 | The project's test runner and conventions (`AGENTS.md`, the test configuration, two existing tests) | yes | Read them from the repository; never add a runner, a framework or a dependency (Stop rule 2) |
-| `docs/engineering/plans/<task>.md` | no | Create it with the header `# Plan: <task>`, `- Task: <the user's words quoted>`, `- Date: <YYYY-MM-DD, from date +%F>`, where `<task>` is a short kebab-case name of the task |
+| `docs/engineering/plans/<task>.md` | no | Create it with the header `# Plan: <task>`, `- Task: <the user's words quoted>`, `- Language: <the tag this file is written in. On an update: the tag on its Language line (with none, the language the file is written in), unless the request sets another. For a new file: the project language (the `language` key of docs/workbench/runtime.json, or the task's language line; English when absent)>`, `- Date: <YYYY-MM-DD, from date +%F>`, where `<task>` is a short kebab-case name of the task |
 
 ## Procedure
 
