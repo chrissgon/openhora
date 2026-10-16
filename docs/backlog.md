@@ -231,6 +231,9 @@ The public website (`site/`, published by Netlify at https://openhora.dev).
 - [ ] **L3. Translated headings per skill.** The skills keep their headings and labels in English unless a skill says to translate them; many templates say it ("headings translated into the artifact language"). A project that writes in another language may want every heading translated.
   - What: for each skill whose script reads a heading, a flag naming the translated heading (as `check_guide.py --examples-heading` does for the examples table), then the sentence "headings translated into the artifact language" in its template.
   - Done when: the scripts of those skills pass on a document in a second language, with a test.
+- [ ] **L4. The language on a request's line.** The runtime part of the language decisions records the person's choice on the request and on each task (`tasks.language`) and shows it on the plan before approval, but `status`, `task` and the page's request line do not say which language a request was asked in, as they say its model (`Model: ...`).
+  - What: `language` among the keys of a request in `status`, and `Language: <tag>` on the request line of the page beside `Model: ...` (`js/models.js` `requestModelWords` is the pattern), nothing when none was asked.
+  - Done when: a request created with `--language en` shows `Language: en` in `status` and on its line, and one created without shows nothing.
 
 ## Brand skills and the social agent
 

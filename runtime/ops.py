@@ -211,6 +211,8 @@ import ops_step_effects  # noqa: E402  (the approval of an effect that a step ta
 import ops_config  # noqa: E402  (the configuration's acceptance: accept_config, set_mode, set_model; this file re-exports them at its end)
 import ops_models  # noqa: E402  (which model a run goes to: the choice, the key, the billing and the consent)
 import ops_waits  # noqa: E402  (the derived waits between requests: rederive, for_plan, annotate, approve_plan)
+import ops_language  # noqa: E402  (the language of a deliverable: the check of a request's choice and the line of a run)
+import language as language_rules  # noqa: E402  (the rule and the words; the operation `request` has an argument of the same name)
 import autonomy  # noqa: E402  (the same folder, as scripts/runtime.py imports runtime_vote)
 import board  # noqa: E402
 import ops_cancel  # noqa: E402  (a cancel leaves open the effect whose write is running)
@@ -275,7 +277,8 @@ def _read(path: str):
 # --- what enters a run: runtime/workcopy.py (limits L1 to L6) --------------------------------------------------
 
 
-def task_prompt(request_text: str, task_text: str, answered, handed=None, edited=None, sourced=None, instructions: str = "") -> str:
+def task_prompt(request_text: str, task_text: str, answered, handed=None, edited=None, sourced=None, instructions: str = "",
+                language_line: str = "") -> str:
     """The text of one run: the request in the person's words, the task's own text, and, on a run made after
     an answer, every earlier question of this task with its answer. It names no skill: the one skill staged
     for the run loads by its description, as in a lab run. An empty task text (a plan of one skill) leaves out
@@ -286,10 +289,14 @@ def task_prompt(request_text: str, task_text: str, answered, handed=None, edited
     the answers, so that the person's edit is read as the person's word and not as external content. sourced lists
     the lines that name the copies of the sources the plan chose (ops_sources.prompt_lines): after the handed files.
     instructions is the person's standing-instructions block (runtime/instructions.py), right after the task's paragraph,
-    before the handed files; "" leaves the prompt as it was. Only code gives it, never a run's text."""
+    before the handed files; "" leaves the prompt as it was. Only code gives it, never a run's text. language_line is the paragraph
+    that says which language the artifacts are written in (runtime/language.py), right after the task's paragraph and before the
+    instructions; the call sites of a task run and of the router's run always give it, "" leaves it out."""
     parts = [request_text.strip()]
     if (task_text or "").strip():
         parts += ["", "For this task: " + task_text.strip()]
+    if language_line:
+        parts += ["", language_line]
     if instructions:
         parts += ["", instructions]
     if handed:
@@ -398,30 +405,34 @@ def _key_in_environment(routing: dict, keys):
 
 
 def request(project: str, text: str, flow: str | None = None, title: str | None = None, after: int | None = None,
-            model: str | None = None) -> dict:
+            model: str | None = None, language: str | None = None) -> dict:
     """Record a request. With a flow, plan it from the flow file the person names (flows/<flow>.json): the tasks
     without a dependency or wait (ops_waits.py) are ready at once, and it returns {"request", "flow", "state", "tasks":
     [{"id", "key", "skill", "state"}], "waits", "missing"}. Without one, the request waits for its route (route()):
     {"request", "state": "requested", "next": "route"}; its title is plan.title_of(text). after: run it after that request.
     model: a model id of the gate file, or "auto", for every task of the request (runtime/ops_models.py: a model named on a
     request has no evidence behind it, so its runs are supervised unless the pair is proven); without one the agent's fixed model,
-    the project's default_model, or auto decides."""
+    the project's default_model, or auto decides. language: the tag the deliverable is written in (runtime/language.py: two lower-case
+    letters, optionally a hyphen and two upper-case letters), the person's own choice, recorded here and copied onto each task of
+    the plan; without one the project's `language` setting decides (en when none is set)."""
     ctx = core.context(project)
     model = ops_models.check_word(model)
+    language = ops_language.checked(language)
     if flow is None:
         said = core._text(text, "the request's text")
         out = core._stored(ctx, ctx["store"].request_add, title=core._text(plan.title_of(said, title),
                                                                  "the title").replace("\n", " "), text=said, after=after,
-                           model=model)
+                           model=model, language=language)
         return {"request": out["request"], "state": out["state"], "next": "route"}
     loaded = ops_flows.direct(ctx, flow)   # a workbench flow of skills with no parameter; any other is planned (route)
     try:
         # A skill whose manifest makes it a mandatory milestone is one whatever the flow file says.
         tasks = [{**t, "milestone": bool(t.get("milestone")) or plan.mandatory(t["skill"], core.ROOT)} for t in loaded["tasks"]]
+        language_rules.with_language(tasks, language)
     except manifest.ManifestError as e:
         raise core.OpsError(str(e), 1) from None
     out = ops_waits.request_flow(ctx, tasks, after, title=core._text(title or loaded["title"], "the title").replace("\n", " "),
-                                 text=core._text(text, "the request's text"), flow=loaded["flow"], model=model)
+                                 text=core._text(text, "the request's text"), flow=loaded["flow"], model=model, language=language)
     return {**out, "flow": loaded["flow"]}
 
 
@@ -541,7 +552,7 @@ def _run_body(ctx: dict, started: dict) -> dict:
         prompt = task_prompt(request_text, task["text"], answered,
                              handed=[rel for _source, rel in handed if rel in entered_rels], edited=edited,
                              sourced=[line for line in sourced["lines"] if not line.startswith("- ") or any(f"- {rel} " in line for rel in entered_rels)],
-                             instructions=started["instructions"])
+                             instructions=started["instructions"], language_line=ops_language.run_line(cfg, task))
         code = None
         if entered.get("tracked") and code_task(meta):
             code = _code_state(ctx, task)
@@ -1639,7 +1650,9 @@ def _plan_pending(ctx: dict, request: dict, tasks: list, route_read, source: str
     past = []
     for skill in dict.fromkeys(t["skill"] for t in tasks if t.get("skill")):
         past += core._stored(ctx, ctx["store"].task_runs_of_skill, skill)
-    built = plan.build(request, tasks, route_read, source, limits, past, flow=flow, bound=bound)
+    tasks = language_rules.with_language([dict(t) for t in tasks], request.get("language"))   # the person's choice is a field of each task: the hash covers it
+    built = plan.build(request, tasks, route_read, source, limits, past, flow=flow, bound=bound,
+                       project_language=ops_language.project_of(ctx["cfg"]))
     return ops_waits.annotate(ctx, request, {"kind": "plan", **built})
 
 
@@ -1755,7 +1768,8 @@ def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False) 
         out["entered"] = {"kind": entered["kind"], "agents_md": entered["agents_md"], "files": len(entered["files"])}
         answered = [] if reroute else [p for p in core._stored(ctx, store.pending_list, "resolved", request["id"])
                                        if p["kind"] == "question" and p["resolution"] == "answered"]
-        prompt = task_prompt(text, router.ROUTE_TASK_TEXT, answered, instructions=held) + ops_sources.router_block(ctx, request["text"])
+        prompt = task_prompt(text, router.ROUTE_TASK_TEXT, answered, instructions=held, language_line=ops_language.run_line(cfg, request)) \
+            + ops_sources.router_block(ctx, request["text"])
         # Two router runs of two projects in one service process share the lab's process-wide session (lab.session ends
         # every container of the process when it closes): the whole session is held under one guard. Task runs are
         # processes of their own and never take it.
@@ -1819,11 +1833,13 @@ def _combined(ctx: dict, request: dict, routed: list) -> dict:
     skills = plan.agent_skills(cfg, core.ROOT)
     pack = plan.pack_skills(cfg, core.ROOT)
     forced = ops_sources.forced_for(ctx, request["text"])  # the sources an @mention names are in the plan whatever the router chose
-    out = plan.combine(request, routed, flows, skills, core.ROOT, pack=pack, limits=limits, past=[], forced=forced)
+    mine = ops_language.project_of(cfg)
+    out = plan.combine(request, routed, flows, skills, core.ROOT, pack=pack, limits=limits, past=[], forced=forced, project_language=mine)
     past = []
     for skill in dict.fromkeys(t["skill"] for t in out["tasks"] if t.get("skill")):
         past += core._stored(ctx, ctx["store"].task_runs_of_skill, skill)
-    return plan.combine(request, routed, flows, skills, core.ROOT, pack=pack, limits=limits, past=past, forced=forced) if past else out
+    return plan.combine(request, routed, flows, skills, core.ROOT, pack=pack, limits=limits, past=past, forced=forced,
+                        project_language=mine) if past else out
 
 
 def _route_run(ctx: dict, request: dict) -> dict:
@@ -2017,6 +2033,7 @@ def _reroute(ctx: dict, task: dict, returned: list, k: int, delivery: dict, appr
                     if not [d for d in t["depends_on"] if d in inside]:
                         t["depends_on"] = [task["key"]] + t["depends_on"]
                     t["agent"] = plan.agent_for(t, skills)
+                language_rules.with_language(tasks, request.get("language") or route_read.get("language"))
             except (flow_files.FlowError, plan.PlanError, ValueError) as e:
                 why, tasks = f"no task can be planned from the route: {e}", None
     finish = call["finish"]
@@ -2069,6 +2086,7 @@ def _backlog_subtasks(ctx: dict, task: dict) -> dict:
     proposed = [p for p in proposed if p["key"] not in known]
     if not proposed:
         return {"created": [], "pending_id": None}
+    language_rules.with_language(proposed, ops_language.of_plan(approved, core._stored(ctx, store.task_get, request_id)))
     skills = plan.agent_skills(ctx["cfg"], core.ROOT)
     for p in proposed:
         try:

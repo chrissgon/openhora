@@ -33,6 +33,7 @@ import unicodedata
 import ops_core as core
 import autonomy
 import lab
+import language as language_rules
 import operations
 import plan
 import router
@@ -613,6 +614,7 @@ def _say_route(project: str, ctx: dict, said: str, line_id: int, channel: str, a
         payload = item["payload"]
         lines = [item["title"]]
         lines += [f"- {t['key']}: {t['title']} ({t.get('skill') or 'step ' + t['step']})" for t in payload.get("tasks") or []]
+        lines.append(language_rules.payload_line(payload))     # the language the plan writes in, before the person approves
         estimate = payload.get("estimate") or {}
         lines += [f"Estimate: {estimate.get('runs', estimate.get('runs_at_least'))} runs"
                   + (f" ({estimate['formula']})" if estimate.get("formula") else ""), ""]

@@ -147,7 +147,7 @@ def test_each_listed_line_is_one_delivery_and_the_rest_is_its_context(tree):
     first, second = (prompt_of(tree, run) for run in out["runs"])
     assert first.startswith("We are an invented studio.\n\nalpha: which market to go after\n") and "beta" not in first
     assert second.startswith("We are an invented studio.\n\nbeta: who buys first\n") and "alpha" not in second
-    assert all(p.rstrip("\n").endswith("For this task: " + router.ROUTE_TASK_TEXT) for p in (first, second))
+    assert all(p.rstrip("\n").endswith("For this task: " + router.ROUTE_TASK_TEXT + "\n\n" + st.load("language").line(None, None).rstrip("\n")) for p in (first, second))
 
 
 def test_more_deliveries_than_the_limit_are_refused_before_any_run(tree):

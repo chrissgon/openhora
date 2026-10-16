@@ -21,6 +21,15 @@ none`, chooses none: the key `sources` of the route is then absent. A reply with
 read in that form, is unclassified. Which ids exist and which skills are in the plan is checked later (check_route, plan.combine);
 an @mention in the request forces a source into the plan whatever this line says (runtime/ops_sources.py).
 
+and, since LANGUAGE, an optional line that proposes the language of the deliverable, written only when the request's words name one:
+
+  Language: <tag>                                                         for example en or pt-BR
+
+A reply with no Language line proposes none (the project's setting decides). A reply with more than one, or one whose tag is not
+two lower-case letters, optionally a hyphen and two upper-case letters (runtime/language.py RULE), is unclassified: the key
+`language` of the route is then absent. The line is a proposal the person sees on the plan card; the language a request is written in
+never decides it, and a request with an explicit language ignores the line (runtime/ops.py).
+
 A reply that asks (a line `Q<n>: ...`, also on the template's `Next:` line) is a question for the person, whatever
 its route line says. A reply with exactly one route line is a route; anything else (no route line, `Route: none`,
 a name in prose, two route lines) is unclassified and reaches the person whole. Nothing here guesses.
@@ -46,6 +55,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import language  # noqa: E402  (the same folder: the rule of a language tag)
 import roles  # noqa: E402  (the same folder)
 
 ROUTER_SKILL = roles.load()["router"]  # runtime/roles.json
@@ -68,6 +78,20 @@ SOURCES_RE = re.compile(r"^Sources: (.*\S)\s*$")
 SOURCE_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
 SKILL_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 ALL_TASKS = "*"    # the key of a bare list in the sources a reply chose: every task of the delivery
+LANGUAGE_LINE = re.compile(r"^Language: (.*\S)\s*$")
+
+
+def read_language(lines) -> dict:
+    """The language a reply proposed, from its `Language:` line: {"language": tag}, {} for no line, or {"error": why} for a line
+    whose text is not a language tag (language.RULE) or for more than one."""
+    found = [m.group(1) for m in map(LANGUAGE_LINE.match, lines) if m]
+    if not found:
+        return {}
+    if len(found) > 1:
+        return {"error": f"{len(found)} Language lines"}
+    if not language.RULE.fullmatch(found[0]):
+        return {"error": f"the Language line is not a language tag: {found[0][:40]!r}"}
+    return {"language": found[0]}
 
 
 def read_sources(lines) -> dict:
@@ -117,7 +141,10 @@ def read_route(reply: str) -> dict:
     chosen = read_sources(lines)
     if "error" in chosen:
         return {"kind": "unclassified", "why": chosen["error"]}
-    route = {"kind": "route", "name": m.group(1), "shape": m.group(2), "status": m.group(3), "line": line}
+    proposed = read_language(lines)
+    if "error" in proposed:
+        return {"kind": "unclassified", "why": proposed["error"]}
+    route = {"kind": "route", "name": m.group(1), "shape": m.group(2), "status": m.group(3), "line": line, **proposed}
     if chosen["sources"]:
         route["sources"] = chosen["sources"]
     return route

@@ -370,6 +370,62 @@
         },
         "The `Sources:` line lists `competitor-notes` as a source for `biz-market-analysis`"
       ]
+    },
+    {
+      "id": 13,
+      "prompt": "Write the feature spec for CSV export in Lumen Desk, our help-desk tool for small clinics, in English.\n\nFor this task: tell me which skill or flow would handle the request above, and whether it has what it needs. I only want the route: do not start it and do not do any of its work.",
+      "expected_output": "A routing block whose Route line names product-feature-spec (capability). The project's runtime.json sets `language: pt-BR`, and the request's words ask for this deliverable in English, so the block carries one line `Language: en`. No spec is written.",
+      "files": [
+        "evals/files/language-case"
+      ],
+      "assertions": [
+        {
+          "text": "The `Route:` line names `product-feature-spec` and no other skill is given as the route; a skill named as what creates the state file, as installed or not installed, or as the one fallback does not count",
+          "tags": [
+            "format"
+          ]
+        },
+        {
+          "text": "The routing block holds exactly one line that starts with `Language:`, and it reads `Language: en`",
+          "tags": [
+            "format"
+          ]
+        },
+        {
+          "text": "No feature spec is written in the output: no requirement, edge case or acceptance criterion is proposed",
+          "tags": [
+            "guard"
+          ]
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "prompt": "Escreva a especifica\u00e7\u00e3o da funcionalidade de exporta\u00e7\u00e3o em CSV do Lumen Desk, nossa ferramenta de atendimento para pequenas clínicas.\n\nFor this task: tell me which skill or flow would handle the request above, and whether it has what it needs. I only want the route: do not start it and do not do any of its work.",
+      "expected_output": "A routing block whose Route line names product-feature-spec (capability). The request is written in Portuguese but no word of it names a language for the deliverable, so the block carries no `Language:` line at all: the project's language decides.",
+      "files": [
+        "evals/files/language-case"
+      ],
+      "assertions": [
+        {
+          "text": "The `Route:` line names `product-feature-spec` and no other skill is given as the route; a skill named as what creates the state file, as installed or not installed, or as the one fallback does not count",
+          "tags": [
+            "format"
+          ]
+        },
+        {
+          "text": "No line of the reply starts with `Language:`: the request is written in Portuguese, but nothing in its words asks for the deliverable in a named language, and the language a request is written in never produces that line",
+          "tags": [
+            "format"
+          ]
+        },
+        {
+          "text": "No feature spec is written in the output: no requirement, edge case or acceptance criterion is proposed",
+          "tags": [
+            "guard"
+          ]
+        }
+      ]
     }
   ]
 }
