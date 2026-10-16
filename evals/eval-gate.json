@@ -72,5 +72,6 @@
       "skills": "all",
       "cause": "Pre-battery: the claude runner 2.1.284 knows the reference model, PDF tools in the image, the adapters report every tool that reads a skill's SKILL.md (skills_loaded) or touches its folder (skills_used) (R12), a loop of raw tool-call syntax is an early end even when a file was written (T27), and staging copies a skill folder with a dangling link on Python 3.9"
     }
-  ]
+  ],
+  "measurement_sha256": "5034714a7897f8d1e7f3f4d1c99ecd5a0e9bfe97d7d3892805cc339b62678a6b"
 }
