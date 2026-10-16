@@ -17,6 +17,7 @@ import ssl
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -195,9 +196,17 @@ def test_the_log_holds_no_header_and_no_key(provider, proxied, tls):
         down.shutdown()
         down.server_close()
     assert resp.status == 502 and KEY.encode() not in data
-    text = log.getvalue() + down_log.getvalue()
-    assert "POST /api/v1/chat/completions 200" in text and "GET /api/v2/other 403" in text
-    assert "POST /api/v1/chat/completions 502" in text
+    wanted = ("POST /api/v1/chat/completions 200", "GET /api/v2/other 403", "POST /api/v1/chat/completions 502")
+    # The proxy writes a request's log line after it has sent the response (note() follows the write), so the
+    # client can have its answer before the handler's thread has logged it: wait for the three lines, with a deadline.
+    deadline = time.monotonic() + 10
+    while True:
+        text = log.getvalue() + down_log.getvalue()
+        if all(line in text for line in wanted) or time.monotonic() > deadline:
+            break
+        time.sleep(0.01)
+    for line in wanted:
+        assert line in text
     for absent in (KEY, FROM_THE_RUN, "Authorization", "Bearer"):
         assert absent not in text
 
