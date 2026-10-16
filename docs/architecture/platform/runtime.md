@@ -6,7 +6,7 @@ Part of [the platform map](README.md). Every layer page has the same eight secti
 
 The task runtime (`runtime/`) turns a person's request into tasks and runs each task as one proven skill, once, in the container the skill was proven in, on a fresh copy of the project that holds only what may enter it. What a run leaves comes back by one rule of paths, and the task then waits for the person on one pending decision; every effect outside the project is executed by code under an approval bound by its hash. Five channels reach these operations (`terminal`, `chat`, `page`, `mcp`, `messaging`), and the runtime holds the one rule that says which channel may call which operation, narrowed per project by a channel policy; the messaging channel, a bridge to Telegram, Discord and WhatsApp, is followed across the layers on [messaging.md](messaging.md).
 
-The contract is [contracts/runtime.md](../../../contracts/runtime.md); the module list is [runtime/README.md](../../../runtime/README.md); the design and its stages are [the platform plan](../platform-plan-2026-10-05.md). This page maps them and does not repeat them.
+The contract is [contracts/runtime.md](../../../contracts/runtime.md); the module list is [runtime/README.md](../../../runtime/README.md); the design and its stages are the platform plan (removed on 2026-10-15; `git show bc830832:docs/architecture/platform-plan-2026-10-05.md`). This page maps them and does not repeat them.
 
 ## Artifacts it owns
 

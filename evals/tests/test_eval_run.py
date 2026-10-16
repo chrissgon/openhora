@@ -2911,7 +2911,7 @@ def test_an_event_with_other_values_than_the_configured_ones_writes_to_its_scrat
     assert out["evidence"]["scratch"] == str(scratch.relative_to(tmp_path))
     event, runs = event_file(tmp_path, out)
     assert event["skill"] == "demo" and event["complete"] is True and len(runs) == out["evidence"]["lines"] > 0
-    # A valid file by what its own event line states (backlog T24): the validator no longer compares the event's
+    # A valid file by what its own event line states (backlog T24 (removed on 2026-10-15; `git show bc830832:docs/backlog.md`)): the validator no longer compares the event's
     # "runs" with the gate file's current value, so a file stays valid when the gate file changes later. What keeps
     # a trial out of a skill's folder is this runner (above) and the review of every evidence file.
     status = er.load_status()

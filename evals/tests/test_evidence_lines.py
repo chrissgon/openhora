@@ -1,5 +1,5 @@
 """Offline tests of evals/evidence_lines.py: the reading of an evidence file by what its own event line states
-(backlog T24), and the two shapes of the model header (the old tiers and a list of models). No model is called."""
+(backlog T24 (removed on 2026-10-15; `git show bc830832:docs/backlog.md`)), and the two shapes of the model header (the old tiers and a list of models). No model is called."""
 import copy
 import importlib.util
 import json

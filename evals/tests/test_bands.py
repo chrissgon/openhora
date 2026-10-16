@@ -541,9 +541,9 @@ def test_the_validator_fails_on_an_evidence_file_that_is_not_valid(root):
 
 
 def test_the_repository_reads_needs_a_test_for_every_skill_until_it_has_a_full_test():
-    """Phase B's exit: a band for each of the 48 skills, computed from evidence; none has a full test yet."""
+    """Phase B's exit: a band for each of the 47 skills, computed from evidence; none has a full test yet."""
     out = es.all_status(str(REPO))
-    assert len(out["skills"]) >= 48
+    assert len(out["skills"]) >= 47
     no_evidence = [r for r in out["skills"] if not list((REPO / "skills" / r["skill"] / "evals" / "evidence").glob("lab-*"))]
     assert all(r["band"] == "needs a test" and r["kind"] == "no passing full test" for r in no_evidence)
 

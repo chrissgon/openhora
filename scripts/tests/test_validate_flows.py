@@ -173,3 +173,17 @@ def test_a_workbench_flow_with_a_step_task_a_parameter_and_a_date_passes_and_is_
     (tmp_path / "flows").mkdir()
     (tmp_path / "flows" / "demo.json").write_text(json.dumps(bad), encoding="utf-8")
     assert any("declares no parameter 'nothing'" in m for m in messages(check(root, listed), "flow-file"))
+
+
+def test_a_flow_file_and_a_skill_of_the_same_route_cannot_both_stand(tmp_path):
+    skills = dict(SKILLS, **{"flow-demo": ([], [], [])})
+    root, listed = tree(tmp_path, skills, demo(task("alpha", "biz-alpha")))
+    assert messages(check(root, listed), "flow-file") == [
+        "[flow-file] the route flow-demo is also a skill: skills/flow-demo/ and flows/demo.json cannot both stand "
+        "(the router could not tell them apart)"]
+
+
+def test_a_task_that_reads_what_only_a_later_task_writes_is_an_error(tmp_path):
+    root, listed = tree(tmp_path, SKILLS, demo(task("beta", "biz-beta"), task("alpha", "biz-alpha", ["beta"])))
+    assert messages(check(root, listed), "flow-dependencies") == [
+        "[flow-dependencies] task beta reads docs/business/alpha.md, which only a later task alpha writes: reorder the tasks"]

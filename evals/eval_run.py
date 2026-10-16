@@ -382,7 +382,8 @@ random hexadecimal characters, and the file is lab-<test id>.jsonl. While the ev
 that is a trial, the file lives in the run folder: <event folder>/scratch/skills/<name>/evals/evidence/. When
 the event ends complete, and nothing of "Control of a test event" makes it a trial, the file is copied to
 skills/<name>/evals/evidence/, where it is committed and never edited. Nothing else is written into a skill's
-folder: the old records, result.json, stay as the history of the first round, and no line is converted from them.
+folder: the old records, result.json, were removed on 2026-10-15 (`git show bc830832:skills/<name>/evals/result.json`), and no line is
+converted from them.
 A run line carries the skill's version (metadata.version as X.Y.Z; a two-part version is read as X.Y.0) and
 its content hash when the event started (the hash leaves out all of evals/, scripts/tests/, caches and an
 installer's marker file), the case and its hash (over the whole case object and the bytes of its fixture

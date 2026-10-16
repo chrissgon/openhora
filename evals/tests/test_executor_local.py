@@ -362,7 +362,9 @@ def run_argv(tmp_path, network="proxy", pass_names=(), env=None, local=True):
                       **({"local": {"context": 32768}} if local else {}))
 
 
-def test_a_local_run_is_on_its_own_network_only_with_no_proxy_and_no_key(tmp_path):
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+def test_a_local_run_is_on_its_own_network_only_with_no_proxy_and_no_key(tmp_path, monkeypatch, platform):
+    monkeypatch.setattr(ex.sys, "platform", platform)  # command() adds the run's home folder and the caller's user on Linux only
     argv, name = run_argv(tmp_path)
     assert name == f"wb-eval-run-{RUN}" and argv.count("--network") == 1 and argv[argv.index("--network") + 1] == f"wb-eval-held-{RUN}"
     assert f"LOCAL_MODEL_BASE_URL=http://wb-eval-model-{RUN}:8080/v1" in argv and "LOCAL_MODEL_CONTEXT=32768" in argv
@@ -370,7 +372,12 @@ def test_a_local_run_is_on_its_own_network_only_with_no_proxy_and_no_key(tmp_pat
     assert not any(k in text for k in ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy", "NO_PROXY", "wb-eval-proxy", "wb-eval-net-"))
     assert not any(a.endswith(("API_KEY", "_TOKEN")) or "KEY=" in a for a in argv)
     assert ["--cap-drop", "ALL"] in pairs(argv) and ["--security-opt", "no-new-privileges"] in pairs(argv) and "--pull=never" in argv
-    assert argv.count("-e") == 4  # the two variables of every run, and the two of the model
+    # the variables the run is given, exactly: the two of every run, the two of the model, and on Linux the home folder (command() sets it there only)
+    variables = {argv[i + 1] for i, a in enumerate(argv) if a == "-e"}
+    assert variables == {"ENABLE_CLAUDEAI_MCP_SERVERS=false", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
+                         f"LOCAL_MODEL_BASE_URL=http://wb-eval-model-{RUN}:8080/v1", "LOCAL_MODEL_CONTEXT=32768",
+                         *(["HOME=/home/eval"] if platform == "linux" else [])}
+    assert argv.count("-e") == len(variables)
     assert not {"-p", "--publish", "--add-host", "--privileged"} & set(argv)
 
 
