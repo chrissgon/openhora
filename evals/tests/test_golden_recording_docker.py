@@ -86,9 +86,10 @@ def old_proxy_files(folder, route_file):
     os.chmod(folder, 0o755)
 
 
-def record(ex, standin, tmp_path, which, proxy):
+def record(ex, standin, tmp_path, which, proxy, flags="", raw=False):
     """Run the pinned runner `which` through the key proxy `proxy` ("old" or "final") and return the stand-in's recording of
-    what it received: ([shapes], the model names, the runner's exit text)."""
+    what it received: ([shapes], the model names, the runner's exit text). flags are added to the adapter's command line;
+    with raw, the third value is the stand-in's own records (tools sent included) instead of the proxy's log."""
     runner = RUNNERS[which]
     n = ex.names()
     route = ex.route(name=runner["route"])
@@ -117,15 +118,16 @@ def record(ex, standin, tmp_path, which, proxy):
                     break
                 time.sleep(0.2)
         adapter = REPO / "adapters" / runner["adapter"] / "run-prompt.sh"
-        script = f"bash /wb/run-prompt.sh --prompt-file /eval/prompt.md --cwd /eval/case --model {runner['model']} --out /eval/out; echo rc=$?"
+        script = f"bash /wb/run-prompt.sh --prompt-file /eval/prompt.md --cwd /eval/case --model {runner['model']} --out /eval/out {flags}; echo rc=$?"
         out = ds.inside(ex, root, script, run_id, runner["model"], runner["key"], standin.key, runner=str(adapter), timeout=600)
         assert "rc=0" in out.stdout, out.stdout + out.stderr + (root / "out" / "stderr.log").read_text(errors="ignore")[-1500:]
         assert "pong from" in (root / "out" / "response.md").read_text()
         proxy_log = ds.docker("logs", names["keys"], check=False).stderr
     finally:
         ex.release(run_id)
-    shapes = ordered(shape(item) for item in standin.seen()[before:])
-    return shapes, sorted({s["model"] for s in shapes if s["model"]}), proxy_log
+    seen = standin.seen()[before:]
+    shapes = ordered(shape(item) for item in seen)
+    return shapes, sorted({s["model"] for s in shapes if s["model"]}), seen if raw else proxy_log
 
 
 @pytest.fixture(scope="module")
@@ -244,3 +246,17 @@ def test_every_model_name_a_runner_sends_is_listed_in_the_gate_file(which):
     entry = executor.model_entry(RUNNERS[which]["model"])
     sent = set(golden(BEFORE)[which]["models"])
     assert sent <= set(entry["upstream_models"]), f"{which} sends {sorted(sent - set(entry['upstream_models']))}, which the gate file does not list"
+
+
+@DOCKER
+def test_a_grading_call_with_a_budget_sends_no_tools_and_the_budget_flag_is_accepted(ex, standin, tmp_path):
+    """Step 5 of the image checklist: the claude-code adapter with --no-tools --max-cost-usd 0.05 against the stand-in. The CLI
+    accepts --max-budget-usd (exit 0, a reply), and the request it sends carries no tool: a grader judges text and does not act."""
+    (tmp_path / "control").mkdir()
+    (tmp_path / "no-tools").mkdir()
+    _, _, control = record(ex, standin, tmp_path / "control", "claude", "final", raw=True)  # the same run with its tools: the request does carry them
+    assert any(isinstance(item["tools"], int) and item["tools"] > 0 for item in control if item["method"] == "POST"), control
+    shapes, models, seen = record(ex, standin, tmp_path / "no-tools", "claude", "final", flags="--no-tools --max-cost-usd 0.05", raw=True)
+    posts = [item for item in seen if item["method"] == "POST" and item["path"].startswith("/v1/messages") and item["model"]]
+    assert posts and models == ["claude-sonnet-5-5"]
+    assert all(item["tools"] in (None, 0) for item in posts), [item["tools"] for item in posts]  # no tool in the request

@@ -53,6 +53,7 @@ class H(http.server.BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         print("seen " + json.dumps({"method": self.command, "path": self.path, "headers": headers, "body_keys": sorted(doc),
                                     "model": doc.get("model"), "stream": doc.get("stream") is True, "usage": doc.get("usage"),
+                                    "tools": len(doc["tools"]) if isinstance(doc.get("tools"), list) else None,
                                     "authorized": auth == [EXPECTED], "authorizations": len(auth)}), flush=True)
         stream = doc.get("stream") is True
         time.sleep(min(float(doc.get("standin_delay") or 0), 60))  # a slow provider, when a test asks for one

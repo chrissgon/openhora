@@ -1178,3 +1178,12 @@ Re-check fixes of the pre-battery package: a sentence that mentions a call tag o
 - Fingerprint: `0831d2a3ab27d9d35b08ed334022f23f3fc4a70ee87fc109ea136feb0bf15d4c` (it replaces the ones of the entries above).
 - Written by `python3 evals/eval_status.py measurement --close`.
 - Changed since the second closing: `evals/measure.py` (`_collapse_tags`, `_collapse_scan`, `collapse_loop`) and both `run-prompt.sh` (header comments only). The image definition, the runner pin and the lock are unchanged, so the image build and the golden recording still to run are the ones the first closing entry lists.
+
+## 2026-10-16: the image of measurement version 10 built, and the goldens recorded again (no measurement change)
+
+The maintainer authorised, in chat on 2026-10-16, the image build and the golden recording the pre-battery package had left to him, and accepted the one difference below.
+
+- The image was built from the version-10 definition (arm64): the container tests pass (49), `claude --help` inside it lists every flag the two claude-code scripts use, `pdftotext`, `pdftoppm` and `pypdf` 3.4.1 are there for the eval user.
+- Recorded again with the stand-in provider (no model call, no real key): the claude entries differ from the earlier goldens in the user agent (`claude-cli/2.1.283` to `2.1.284`) and in one value of `anthropic-beta`, the feature `mid-conversation-tool-changes-2026-07-01`, which the 2.1.284 CLI names `per-turn-control-2026-07-01`. Header names, body keys, method, path, the model sent (`claude-sonnet-5-5` only) and the side-call names are unchanged; no POST was refused; the opencode entries are byte-identical.
+- A new test records the claude-code adapter with `--no-tools --max-cost-usd 0.05`: the request carries an empty tool list (the same run without the flag carries tools), and the CLI accepts the budget flag.
+- The goldens are test files, outside the fingerprint: no measurement version is reopened. Publishing the image (P2d) stays the maintainer's.
