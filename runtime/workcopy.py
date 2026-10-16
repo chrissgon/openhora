@@ -372,11 +372,30 @@ def _project_inside(project: str, rel: str) -> bool:
 PROTECTED_ALIAS = "the project's path is the runtime's configuration, the person's instructions or the flows folder under another spelling"
 
 
+def _logical(project: str, target: str) -> str:
+    """The project-relative path the disk will write for `target`: the real path of its nearest existing ancestor (every link on the way
+    resolved) with the names that do not exist yet after it. `docs/wb/instructions.md`, where `docs/wb` is a link to `docs/workbench`,
+    is `docs/workbench/instructions.md` whether or not the file is there."""
+    tail, folder = [], target
+    while not os.path.lexists(folder):
+        folder, name = os.path.dirname(folder), os.path.basename(folder)
+        tail.append(name)
+    real = os.path.realpath(folder)
+    return "/".join(os.path.relpath(real, project).split(os.sep) + tail[::-1]) if real != project else "/".join(tail[::-1])
+
+
 def _protected_alias(project: str, target: str) -> bool:
     """Whether the project's path `target`, as the disk opens it, is a protected path that exists (the configuration, the person's
     instructions) or sits in the flows folder, whatever its spelling: the same file by inode, or a file whose folder is the flows
     folder. The fold of the path rule catches the spellings it knows; this catches the ones a disk folds that it does not."""
     try:
+        where = _logical(project, target)
+        if path_rule.protected(where):
+            return True      # the path the disk will write, through any link of a folder on the way, is a protected one (file absent or not)
+        for protected in (path_rule.CONFIG, path_rule.INSTRUCTIONS, path_rule.FLOWS_DIR):    # and the protected path may itself be reached through a link
+            there = path_rule.fold(_logical(project, os.path.join(project, *protected.split("/"))))
+            if path_rule.fold(where) == there or path_rule.fold(where).startswith(there + "/"):
+                return True
         for protected in (path_rule.CONFIG, path_rule.INSTRUCTIONS):
             full = os.path.join(project, *protected.split("/"))
             if os.path.exists(full) and os.path.exists(target) and os.path.samefile(full, target):
@@ -394,6 +413,22 @@ def _protected_alias(project: str, target: str) -> bool:
     except OSError:
         return True      # a path the disk cannot be asked about is not brought back
     return False
+
+
+NOT_WRITABLE = "the project's path is a folder, or has a file where a folder must be, or is a folder of another path of this return"
+
+
+def _cannot_be_written(target: str, others) -> bool:
+    """Whether writing the regular file `target` would fail or damage the project: it is a folder, a name on the way to it is a file, or it
+    is the folder of, or inside, a path this return writes. Asked for every path before any is written."""
+    if os.path.isdir(target):
+        return True
+    folder = os.path.dirname(target)
+    while not os.path.lexists(folder):
+        folder = os.path.dirname(folder)
+    if not os.path.isdir(folder):
+        return True
+    return any(o == target or o.startswith(target + os.sep) or target.startswith(o + os.sep) for o in others)
 
 
 def _write(target: str, data: bytes) -> None:
@@ -426,6 +461,7 @@ def returning(project: str, result: dict, base: dict, base_state, skill: str, *,
              "versioned": list(versioned)}
     returned, kept, state_report = [], [], None
     tracked = set(tracked)
+    writes = []   # (rel, cls, target, bytes, report): every path is checked before any is written, so a return is whole or it is not made
     for rel in sorted(changes["created"] + changes["modified"]):
         cls = path_rule.classify(rel, facts)
         keep = lambda reason: kept.append({"path": rel, "class": cls, "reason": reason})
@@ -447,6 +483,9 @@ def returning(project: str, result: dict, base: dict, base_state, skill: str, *,
         if _protected_alias(project, target):
             keep(PROTECTED_ALIAS)   # the same file or folder as a protected path under another spelling (limit L40, and the configuration and the flows)
             continue
+        if _cannot_be_written(target, [w[2] for w in writes]):
+            keep(NOT_WRITABLE)
+            continue
         # L12. The state file is held line by line instead: the merge starts from what the project has now.
         if cls != "state" and (_sha256(target) if os.path.isfile(target) else None) != base.get(rel):
             keep("the project's file changed while the run was in progress")
@@ -465,10 +504,13 @@ def returning(project: str, result: dict, base: dict, base_state, skill: str, *,
             except state_merge.Conflict as e:
                 keep(str(e))
                 continue
-            _write(target, report["text"].encode("utf-8"))
-            state_report = {"accepted": report["accepted"], "rejected": report["rejected"]}
+            writes.append((rel, cls, target, report["text"].encode("utf-8"), report))
         else:
-            _write(target, data)
+            writes.append((rel, cls, target, data, None))
+    for rel, cls, target, data, report in writes:
+        _write(target, data)
+        if report is not None:
+            state_report = {"accepted": report["accepted"], "rejected": report["rejected"]}
         returned.append({"path": rel, "class": cls})
     for rel in sorted(changes["deleted"]):
         cls = path_rule.classify(rel, facts)

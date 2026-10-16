@@ -66,6 +66,13 @@ def fold(path: str) -> str:
     return unicodedata.normalize("NFKC", unicodedata.normalize("NFKC", path).casefold())
 
 
+def protected(rel: str) -> bool:
+    """Whether a project-relative path, in whatever spelling, is a protected path of this module or lies under one: the configuration, the
+    person's instructions (a name that is a folder there is also theirs), or the flows folder or anything in it."""
+    folded = fold(rel)
+    return folded in (CONFIG, INSTRUCTIONS, FLOWS_DIR) or folded.startswith((FLOWS_DIR + "/", CONFIG + "/", INSTRUCTIONS + "/"))
+
+
 def classify(rel: str, facts: dict | None = None) -> str:
     """The class of one path (see the module's text). facts is optional: {"staged": [paths the runtime put in
     the copy], "bound": [documents bound to an approval], "versioned": [paths the project's git tracks or would
@@ -73,7 +80,7 @@ def classify(rel: str, facts: dict | None = None) -> str:
     facts = facts or {}
     path = normal(rel)
     folded = fold(path) if path is not None else None   # a case-insensitive disk lands docs/workbench/Flows (or a Unicode fold of it) in the same folder: the compare folds
-    if path is None or folded in (CONFIG, INSTRUCTIONS) or folded == FLOWS_DIR or folded.startswith(FLOWS_DIR + "/"):
+    if path is None or folded in (CONFIG, INSTRUCTIONS) or folded == FLOWS_DIR or folded.startswith((FLOWS_DIR + "/", CONFIG + "/", INSTRUCTIONS + "/")):
         return "other"   # the configuration, the project's flows and the person's instructions: what a run would change to change what runs next
     if path == STATE:
         return "state"
