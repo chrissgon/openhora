@@ -63,6 +63,8 @@ python3 providers/converter/container.py --check               # docker is usabl
 
 The base image is pinned by digest (`debian:bookworm-20261005-slim`, the digest the other container definitions of the project pin), the Debian packages by the snapshot `20261006T000000Z` and the Python packages by `requirements.lock` (remake it with the command in `requirements.in`). Changing the Dockerfile, `.dockerignore`, `_inner.py` or `requirements.lock` changes the tag: the next conversion asks for a build.
 
+Each change of the definition leaves the earlier image on disk. They are never removed by a run or by the upkeep. `python3 scripts/doctor.py --unattended` shows their count and size in its `images` row; `python3 scripts/doctor.py --remove-old-images --dry-run` lists what would go and `--confirmed` removes it, by tag, never with `--force` or `prune` (an image that is in use is kept and reported). An image is selected only when it carries the label `org.openhora.definition`, its repository is `openhora-converter` exactly and its label and tag differ from the current definition's.
+
 ## Tests
 
 - `tests/test_converter_host.py` (offline): the frames, the definition and its hash, the exact command with each limit, the checks on the input and on the out folder, the verbs. No container is started.

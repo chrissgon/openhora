@@ -241,10 +241,25 @@ class Rig:
     def eof(self):
         self.writer.close()
 
-    def join(self, timeout=5):
+    def join(self, timeout=5, threads=True):
+        """Wait for the listener to exit and return its code. threads: also wait for every thread it started (the Gateway,
+        the sender and the stdin reader) and assert that each ended, so that none outlives the test and posts through the
+        next test's router. False only for a test that holds a send on purpose; it ends the threads with `threads_ended`."""
         self.thread.join(timeout)
         assert not self.thread.is_alive(), "the listener did not exit"
+        if threads:
+            self.threads_ended(timeout)
         return self.code
+
+    def threads_ended(self, timeout=5):
+        """The test's end of the stdin pipe is closed (the reader of a listener that stopped on a fatal error or a signal is
+        still blocked on it), then every thread of the listener is waited for."""
+        self.writer.close()
+        end = time.time() + timeout
+        for thread in self.listener.threads:
+            thread.join(max(0.0, end - time.time()))
+        alive = [t for t in self.listener.threads if t.is_alive()]
+        assert not alive, f"{len(alive)} listener thread(s) did not end"
 
     def end(self):
         self.eof()
@@ -744,8 +759,10 @@ def test_a_blocked_send_does_not_delay_the_exit(monkeypatch):
     wait_for(lambda: opener.calls("POST", "channels$"))
     began = time.time()
     rig.eof()
-    assert rig.join(5) == 0 and time.time() - began < 4
-    gate.set()
+    assert rig.join(5, threads=False) == 0 and time.time() - began < 4  # the held send does not keep the exit
+    gate.set()  # let the held send go: it posts through this test's router, and no thread outlives the test
+    wait_for(lambda: opener.calls("POST", "^/channels/7001/messages$"))
+    rig.threads_ended()
 
 
 # --- sends ----------------------------------------------------------------------------------------------------------
