@@ -31,8 +31,10 @@ task. Its GATE and POLICY are False. Beside the names above, a STEP kind exposes
 one, so that the approval names no platform: `preflight(cfg, doc, root)` ((exit code, sentence) when the project is not configured for
 this effect now, else None), `caller(cfg, root)` (the `call(verb, args)` that reaches its provider) and `idempotency_key(doc, default)`
 (the key the execution carries); and, optional, `is_long(doc)`, `FORGETS_KEYS` (False when the provider's ledger never forgets a key) and
-`on_cards(doc)` (False when the whole effect cannot be on a messaging card). `write` is the write-back of a document (runtime/effect_write.py)
-and `send` an e-mail from the project's outbox (runtime/effect_send.py).
+`on_cards(doc)` (False when the whole effect cannot be on a messaging card). `write` is the write-back of a document (runtime/effect_write.py),
+`send` an e-mail from the project's outbox (runtime/effect_send.py) and `publish` a post (runtime/effect_publish.py), which is also the one word with
+both paths: its module is a facade over the reply to a comment under a standing approval (runtime/effect_reply.py, POLICY) and the post of a step
+task (STEP), and `describe` answers for both documents.
 
 The registry has one key per kind, and the key is a word of the side-effect vocabulary (contracts/environment.md,
 SIDE_EFFECTS of scripts/validate.py): the gate path reads the word a skill's manifest names in its gate, the policy
@@ -77,7 +79,7 @@ A kind of one path alone has only that path's names. EFFECT_KEYS and RESERVED_FL
 document a handler hands over and the flags the operation adds and a handler never may.
 
 Public names: recover_payload(reply, tmp_dir, readable), EffectError, KINDS, EFFECT_KEYS, RESERVED_FLAGS,
-module_for(kind), gate_kind(word, requires), policy_kinds(), write(run_dir, doc), read_document(effect_file, sha256),
+module_for(kind), gate_kind(word, requires), policy_kinds(), step_only_words(), write(run_dir, doc), read_document(effect_file, sha256),
 provider_call(provider, args[, run]), approval_row(approval, doc).
 
 Usage (a library): python3 runtime/effects.py --help
@@ -156,7 +158,7 @@ def recover_payload(reply: str, tmp_dir, readable) -> dict:
 # The registry of the kinds of effect: a word of the side-effect vocabulary -> the module of runtime/ that holds the
 # kind. For the gate path the word is the one a skill's manifest names in its gate (gate.effect); a word not here
 # opens a review, never an effect. For the policy path it is the kind of the document a handler hands over.
-KINDS = {"create": "effect_pull_request", "push": "effect_commit", "publish": "effect_reply", "write": "effect_write", "send": "effect_send"}
+KINDS = {"create": "effect_pull_request", "push": "effect_commit", "publish": "effect_publish", "write": "effect_write", "send": "effect_send"}
 
 # The keys of the effect document a handler hands to ops.execute_under_policy, and no others; and the flags only the
 # operation adds to the provider's verb, never a handler.
@@ -199,6 +201,12 @@ def gate_kind(word, requires):
     if getattr(module, "GATE", False) is not True or getattr(module, "PROVIDER_CLASS", None) not in (requires or ()):
         return None
     return module
+
+
+def step_only_words() -> list:
+    """The words of the registry whose module is a STEP kind and may not run under a standing approval (STEP true, POLICY not true), sorted: a bound
+    can never name them. A word that is both (`publish`: a post on the step path, a reply under a policy) is not among them."""
+    return sorted(word for word in KINDS if getattr(module_for(word), "STEP", False) is True and getattr(module_for(word), "POLICY", False) is not True)
 
 
 def policy_kinds() -> list:
