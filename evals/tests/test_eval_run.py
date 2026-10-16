@@ -4164,3 +4164,35 @@ def test_a_meter_with_a_request_under_way_or_one_the_proxy_could_not_write_is_re
         assert found["unknown_responses"] == unknown and found["input"] == 5 and found["total"] == 12, (name, found)
     assert er.meter_unfinished({"in_flight": 1}) and er.meter_unfinished({"failed": True}) and not er.meter_unfinished({"in_flight": 0})
     assert not er.meter_unfinished({"in_flight": True}) and not er.meter_unfinished({})  # a boolean is not a count
+
+
+# --- R12: "used" is kept in the run's timing.json and nowhere else --------------------------------------
+
+USES = INVOKES.replace('"skills_loaded\\": $loaded}"', '"skills_loaded\\": $loaded, \\"skills_used\\": $used}"').replace(
+    "loaded='[]'", "loaded='[]'; used='[]'").replace(
+    """loaded='["demo", "other"]'""", """loaded='["demo", "other"]'; used='["demo", "other"]'""").replace(
+    """loaded='["other"]'""", """loaded='["other"]'; used='["demo", "other"]'""")
+
+
+def test_used_is_kept_in_the_runs_timing_and_on_no_row_and_no_evidence_line(tmp_path, monkeypatch, capsys):
+    skill = write_demo(tmp_path, monkeypatch, USES)
+    assert er.main(FULL) == 0
+    bench = bench_of(tmp_path)
+    folder = tmp_path / "evals-workspace" / "demo" / "iteration-1" / "eval-1"
+    # The model f never read the skill's text (invoked false) and ran something of its folder (used true).
+    timing = json.loads((folder / "with_skill.m2" / "timing.json").read_text())
+    assert (timing["invoked"], timing["used"], timing["skills_used"]) == (False, True, ["demo", "other"])
+    assert json.loads((folder / "with_skill" / "timing.json").read_text())["used"] is True
+    assert "used" not in json.loads((folder / "without_skill" / "timing.json").read_text())
+    assert not [r for name in bench["run_summary"] for r in bench["run_summary"][name]["cases"] if "used" in r]
+    for path in (tmp_path / "skills" / "demo" / "evals" / "evidence").glob("*.jsonl"):
+        assert "skills_used" not in path.read_text() and '"used"' not in path.read_text()
+    (event, _), = evidence_of(skill)
+    assert event["counts"]["m"]["with"]["invoked"] == 2 and event["counts"]["f"]["with"]["invoked"] == 0
+    assert er.load_status().evidence_problems(str(tmp_path)) == ({}, 1)
+
+
+def test_a_loop_of_raw_call_syntax_is_an_early_end_even_when_the_run_wrote_a_file():
+    loop = "\n".join(["<｜DSML｜function_calls>", '<｜DSML｜invoke name="write_file">', "</｜DSML｜invoke>"] * 14)
+    assert er.early_end(loop, {"docs/prd.md": 1.0}).startswith("a loop of raw tool-call syntax printed as text (")
+    assert er.early_end("```\n" + loop + "\n```", {"docs/prd.md": 1.0}) is None  # quoted in a fence: a reply that shows a call

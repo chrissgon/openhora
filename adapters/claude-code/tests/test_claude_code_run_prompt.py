@@ -280,3 +280,56 @@ def test_a_failed_cli_is_exit_1_whatever_its_own_code_and_2_is_kept_for_usage(en
     stand_in(env, f"echo '{{\"result\": \"failed\"}}'\nexit {code}\n")
     r = run(env)
     assert r.returncode == 1 and json.loads((env["tmp"] / "out" / "timing.json").read_text())["exit_code"] == code
+
+
+# --- R12: what a run did with a skill's folder (skills_loaded, skills_used) -------------------------------
+
+def timing_after(env, *calls):
+    """The timing.json of a run whose stream is one assistant event per call: (tool, input) or (tool, input, parent id)."""
+    events = [{"type": "system", "subtype": "init", "model": "m"}]
+    for call in calls:
+        block = {"type": "tool_use", "name": call[0], "input": call[1]}
+        events.append({"type": "assistant", "parent_tool_use_id": call[2] if len(call) > 2 else None,
+                       "message": {"content": [block]}})
+    events.append({"type": "result", "subtype": "success", "result": "done", "usage": {"input_tokens": 1, "output_tokens": 1}})
+    lines = "\n".join(json.dumps(e) for e in events)
+    stand_in(env, f"cat > /dev/null\ncat <<'EOF'\n{lines}\nEOF\n")
+    r = run(env)
+    assert r.returncode == 0, r.stderr
+    return json.loads((env["tmp"] / "out" / "timing.json").read_text())
+
+
+def test_a_follow_up_that_only_ran_the_skills_script_used_the_skill_and_did_not_load_it(env):
+    timing = timing_after(env, ("Bash", {"command": "python3 .claude/skills/demo/scripts/check.py --help"}))
+    assert (timing["skills_loaded"], timing["skills_used"]) == ([], ["demo"])
+
+
+def test_reading_the_skills_text_with_a_shell_command_is_loading_it(env):
+    timing = timing_after(env, ("Bash", {"command": "cat /eval/case/.claude/skills/demo/SKILL.md | head -40"}),
+                          ("Grep", {"pattern": "Stop rules", "path": ".claude/skills/dep/SKILL.md"}))
+    assert (timing["skills_loaded"], timing["skills_used"]) == (["demo", "dep"], ["demo", "dep"])
+
+
+def test_a_reference_read_or_a_listing_of_the_skills_folder_is_use_and_a_listing_of_all_skills_is_neither(env):
+    timing = timing_after(env, ("Read", {"file_path": "/eval/case/.claude/skills/demo/references/guide.md"}),
+                          ("Bash", {"command": "ls .claude/skills"}), ("Bash", {"command": "ls .claude/skills/"}),
+                          ("Bash", {"command": "ls \".claude/skills/dep\""}))
+    assert (timing["skills_loaded"], timing["skills_used"]) == ([], ["demo", "dep"])
+    assert timing_after(env, ("Bash", {"command": "ls .claude/skills"}))["skills_used"] == []
+
+
+def test_a_subagents_read_of_a_skills_text_is_loading_it(env):
+    timing = timing_after(env, ("Read", {"file_path": "/eval/case/.claude/skills/demo/SKILL.md"}, "toolu_parent"))
+    assert (timing["skills_loaded"], timing["skills_used"]) == (["demo"], ["demo"])
+
+
+@pytest.mark.parametrize("path", [".claude/skills/../demo/SKILL.md", ".claude/skills/./demo/SKILL.md", ".claude/skills/.hidden/SKILL.md",
+                                  "/eval/case/x.claude/skills/demo/SKILL.md"])
+def test_a_path_that_does_not_name_a_skill_folder_is_neither(env, path):
+    timing = timing_after(env, ("Read", {"file_path": path}))
+    assert (timing["skills_loaded"], timing["skills_used"]) == ([], [])
+
+
+def test_the_skill_tool_loads_and_uses(env):
+    timing = timing_after(env, ("Skill", {"skill": "demo"}), ("Skill", {"command": "dep"}))
+    assert (timing["skills_loaded"], timing["skills_used"]) == (["demo", "dep"], ["demo", "dep"])

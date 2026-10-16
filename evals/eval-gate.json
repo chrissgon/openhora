@@ -2,7 +2,7 @@
   "grader": "claude-sonnet-5-5",
   "threshold": 0.8,
   "tolerance": 0.05,
-  "measurement_version": 9,
+  "measurement_version": 10,
   "measurement_floor": 6,
   "runs": 3,
   "baseline_runs": 1,
@@ -65,7 +65,12 @@
       "models": "all",
       "skills": "all",
       "cause": "SEC and P2b: a held run reaches only its own key proxy; the key proxy drops credential headers and forwards only the model endpoints; P2b adds a key proxy per run and model, metering and the platform per line (one epoch for both)"
+    },
+    {
+      "date": "2026-10-16",
+      "models": "all",
+      "skills": "all",
+      "cause": "Pre-battery: the claude runner 2.1.284 knows the reference model, PDF tools in the image, the adapters report every tool that reads a skill's SKILL.md (skills_loaded) or touches its folder (skills_used) (R12), a loop of raw tool-call syntax is an early end even when a file was written (T27), and staging copies a skill folder with a dangling link on Python 3.9"
     }
-  ],
-  "measurement_sha256": "c5b4ea6a11807931a93428835e3b8276793b5ef5519e74320980972ad800f23f"
+  ]
 }

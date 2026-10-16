@@ -181,9 +181,13 @@ Adapter contract: run-prompt.sh --prompt-file <f> --cwd <dir> --model <id> --out
 ({"total_tokens", "duration_ms", "cost_usd"}). The reply in response.md is the assistant's last message, on
 every adapter: narration between turns stays in the runner's event stream, which the adapter keeps beside it
 (<out>/stream.jsonl) and the grader never sees. timing.json may name "skills_loaded", the skills the stream
-shows the model loading; for a with-skill run the runner keeps "invoked" (whether the skill under test is
-among them) in the run's timing.json and row, and counts it per model in the event line. It is reported and
-never scored: a run that did not load the skill still scores, as the description's failure. The adapter of the grader also takes --no-tools: the model
+shows the model loading (the skill tool, or any tool that reads <skills folder>/<name>/SKILL.md); for a with-skill
+run the runner keeps "invoked" (whether the skill under test is among them) in the run's timing.json and row,
+and counts it per model in the event line. It is reported and never scored: a run that did not load the skill
+still scores, as the description's failure. timing.json may also name "skills_used" (R12), a superset of
+"skills_loaded": every skill whose folder any tool input names (a script run by its path, a reference read, a
+listing of the folder); the runner keeps "used" (whether the skill under test is among them) in the run's
+timing.json only, never on a row or an evidence line, and the routing mode reads "skills_loaded" alone. The adapter of the grader also takes --no-tools: the model
 then gets no tool at all (an adapter that cannot do it refuses the option, and the grading fails). It installs nothing: the runner stages the skills. What the
 runner needs to know about a harness is data, adapters/<harness>/eval.json:
 "skills_dir", the folder inside a project where the harness discovers skills, and "settings", the names of
@@ -364,7 +368,11 @@ know", "once you", ...). In the first round the earlier rule, any sentence of th
 "I'll", threw away seven legitimate replies of a model, each a stop that named what it lacked and
 asked for it in the imperative. A reply that asks the user a question and
 writes nothing is a stop-and-ask, never an early end; neither is a run that wrote a file and then stopped
-before finishing: that one is graded as it is. An early-ended run is rerun in a fresh folder up to
+before finishing: that one is graded as it is. One exception, which a written file does not excuse: (d) a loop
+of raw tool-call syntax printed as text, the lines outside fenced code blocks of which at least "min_lines"
+(20) and at least "share" (0.5) of all are markup (an entry of EARLY_END_MARKUP, which holds the call markup of
+DeepSeek's models too, or "<parameter"; a closing tag counts as its opening one): a model whose tool calls
+turned into such a loop wrote a file first and was graded once (T27). An early-ended run is rerun in a fresh folder up to
 --retries <n> times (default 2, 0 disables; each early attempt is kept in <run folder>/early-end-<j>/, the
 last attempt stays in the run folder). One that early-ends on every attempt is an infrastructure failure
 with reason "early_end". benchmark.json "early_ends" counts, per model, {"attempts", "early_ends",
@@ -2744,6 +2752,11 @@ def run(argv):
             # Whether the model loaded the skill under test: reported, never scored. A run that did not still scores,
             # as the description's failure.
             timing["invoked"] = o["skill"] in timing["skills_loaded"]
+            if isinstance(timing.get("skills_used"), list):
+                # R12: whether any tool named the skill's folder (a script run, a reference read, a listing), which a
+                # follow-up run can do without reading SKILL.md. Kept in the run's timing.json only: reported, never
+                # scored, and on no evidence line.
+                timing["used"] = o["skill"] in timing["skills_used"]
         with open(os.path.join(run_dir, "timing.json"), "w", encoding="utf-8") as f:
             json.dump(timing, f)
         g, failed = None, None

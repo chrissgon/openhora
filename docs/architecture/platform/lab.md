@@ -37,14 +37,14 @@ Where: **repo** is this repository, **work** is `evals-workspace/` of the checko
 **The gate file's keys**, generated from `evals/eval-gate.json` (a text value is shown only for a model or an adapter id). The models and their adapters: `lab_models` (the models a full test runs, in order), `grader` and `models` (the known ids, each with its aliases, its `adapter`, its credential names `pass_env` and, when one is set, `web_pass_env`, its `route`, `provider_pin`, `upstream_models`, `price_source` and `run_token_budget`). The gate: `threshold`, `tolerance`. The control of a test event: `runs`, `baseline_runs`, `baseline_margin`, `timeout_seconds`, `retries`, `max_resumes`, `total_jobs`, `web_jobs`, `web_cases`. The measurement: `measurement_version`, `measurement_floor`, `measurement_sha256`, `epochs`.
 
 <!-- generated: gate-keys -->
-Measurement version 9, measurement floor 6.
+Measurement version 10, measurement floor 6.
 
 | Key | Value, or its shape |
 |---|---|
 | `grader` | `claude-sonnet-5-5` |
 | `threshold` | 0.8 |
 | `tolerance` | 0.05 |
-| `measurement_version` | 9 |
+| `measurement_version` | 10 |
 | `measurement_floor` | 6 |
 | `runs` | 3 |
 | `baseline_runs` | 1 |
@@ -57,8 +57,7 @@ Measurement version 9, measurement floor 6.
 | `web_cases` | 7 keys: `biz-icp-positioning`, `biz-market-analysis`, `brand-identity`, `brand-name`, `brand-strategy`, `core-research`, `eng-architecture` |
 | `models` | 2 keys: `claude-sonnet-5-5`, `openrouter/deepseek/deepseek-v4.1-flash` |
 | `lab_models` | 2 names, not shown |
-| `epochs` | 3 entries, each with `date`, `models`, `skills`, `cause` |
-| `measurement_sha256` | text, not shown |
+| `epochs` | 4 entries, each with `date`, `models`, `skills`, `cause` |
 <!-- /generated -->
 
 ## Abstractions
@@ -90,7 +89,7 @@ Measurement version 9, measurement floor 6.
 
 **The case hash.** Over the whole case object and the bytes of its fixtures (`workbench_files` as a list of paths). A line whose case hash differs weighs 0, so a change to one case drops that case's evidence only. Beside it, the context hash covers the dependency skills and staged references.
 
-**The early-end rule.** A run that exited 0, changed no file and whose reply is not a reply to the user (empty, markup printed as text, or a short announcement of a next action) is made again and never scored; a stop that names what it lacks, or a question, is never one (`measure.early_end`).
+**The early-end rule.** A run that exited 0, changed no file and whose reply is not a reply to the user (empty, markup printed as text, or a short announcement of a next action) is made again and never scored; a stop that names what it lacks, or a question, is never one (`measure.early_end`). One rule no written file excuses: a loop of raw tool-call syntax printed as text (the call markup of a model, DeepSeek's `<｜DSML` included) is an early end, a file or not, when its markup lines outside fenced code blocks are at least 20 and at least half of the lines there (`early_end.collapse` of `evals/measurement.json`, T27).
 
 **Contamination.** A without-skill run must not reach the skill: by construction its container holds neither the skill nor the shared references; a run whose output names a workbench mount or the repository's path is an infrastructure failure, never a score; a shared passage of the skill's text in its output is a warning.
 
@@ -229,7 +228,7 @@ Trial options (`--runs`, `--timeout`, `--retries`, `--only`, `--ablate`, `--no-g
 | Limit or improvement | Where it is recorded |
 |---|---|
 | The proof covers one skill in one run with an input in the form of its cases; resuming with answers and running on another model's document were not measured | [contracts/runtime.md](../../../contracts/runtime.md), "What the proof covers" |
-| The adapter's report of the skills a run loaded is not reliable: a run that followed the skill can report 0; it is stored as reported, no rule reads it, and the routing mode counts what no adapter reported as `not_reported` | [backlog](../../backlog.md), R12; skeleton findings (removed on 2026-10-14; `git show d3e60770:docs/architecture/skeleton-findings-2026-10-05.md`), finding 6 |
+| The adapters report what a run did with a skill's folder (`skills_loaded`: the text was read; `skills_used`: any tool named the folder), built for R12, but no recorded follow-up run shows it yet; a run that followed the skill can still report 0 loaded; it is stored as reported, no rule reads it, and the routing mode reads `skills_loaded` alone and counts what no adapter reported as `not_reported` | [backlog](../../backlog.md), R12; skeleton findings (removed on 2026-10-14; `git show d3e60770:docs/architecture/skeleton-findings-2026-10-05.md`), finding 6 |
 | A run in which the model did not load the skill still scores, as the description's failure; a skill can fall to `needs a test` that way | stage 5 findings (removed on 2026-10-14; `git show d3e60770:docs/architecture/stage-5-findings-2026-10-06.md`), finding 3 |
 | The recorded cost of a Claude model is not reliable: the pinned tool does not know the model; the battery's cost is recomputed from each archived run's raw output | [backlog](../../backlog.md), T23 |
 | Lab evidence comes from tests the maintainer runs on the maintainer's account; nothing in code proves a line was written by the runner | [evals/README.md](../../../evals/README.md), "Who runs the lab tests"; [reliability model](../reliability-model-2026-10-02.md), section 8 |

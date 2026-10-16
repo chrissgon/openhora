@@ -21,7 +21,7 @@ neither. It holds:
 The constants that no other file owns (the file limit, the early-end phrase lists and the others above) are
 data in evals/measurement.json, read once when the module loads. The number of runs, the timeout and the
 retries of an event have their home in the gate file (evals/eval-gate.json); what an adapter's harness prints
-on a refusal or an exhausted account, in that adapter's adapter.json.
+on a refusal or an exhausted account, in that adapter's eval.json.
 
 This file and evals/measurement.json are in the measurement fingerprint (eval_status.py, FINGERPRINT_FILES):
 a change to either is committed as one of the three kinds of the reliability model's section 8
@@ -62,8 +62,18 @@ REDACT_MIN = _DATA["redact_min"]
 # An early end: the model ended its turn before doing the work, with no error (eval_run.py, "Early ends").
 # Markup of a tool call or a control block printed as text; it counts only at the start of a line, so a reply
 # that quotes such markup inline to the user is left alone. Seen from a floor model: <skill_tool>, and loops
-# of <system-reminder> blocks it wrote itself; the last entry is the model's own tool-call token.
+# of <system-reminder> blocks it wrote itself; the "tool" entries are the models' own tool-call tokens and the
+# "dsml" ones the call markup of DeepSeek's models (a loop of it, fullwidth bar included, was graded once because
+# the run had written a file).
 EARLY_END_MARKUP = tuple(_EARLY["markup"])
+# A loop of raw tool-call syntax is an early end even when a file was written (item T27): the markup lines, counted
+# outside fenced code blocks, are at least "min_lines" and at least "share" of the non-empty lines there. 20 and
+# 0.5 are measurement constants: no legitimate reply seen in the first round has 20 such lines outside a fence (a
+# reply that shows a tool call quotes a few lines, inside a fence), and a loop is nearly all markup.
+EARLY_END_COLLAPSE_MIN_LINES = _EARLY["collapse"]["min_lines"]
+EARLY_END_COLLAPSE_SHARE = _EARLY["collapse"]["share"]
+COLLAPSE_EXTRA = ("<parameter",)  # a parameter line of a call, beside the entries of EARLY_END_MARKUP
+FENCE_RE = re.compile(r"^(```|~~~)")
 # How a last line announces a next action instead of ending the turn's work. Matched, in lower case, at the
 # start of a sentence of the last line ("Let me update the file:", "Now I'll write the spec:").
 # Not a bare "i'll": "I'll also need to know where the code should go" ends a reply that states a blocker.
@@ -84,9 +94,40 @@ PSEUDO_TAG_LINE_RE = re.compile(r"^<([A-Za-z_-]+)>.*</\1>$")
 TAG_ONLY_LINE_RE = re.compile(r"^</?[A-Za-z_][\w-]*(\s[^<>]*)?/?>$")
 
 
+def collapse_loop(response):
+    """"<n> of <m> lines" when the reply is a loop of raw tool-call syntax, else None. It counts the non-empty
+    lines outside fenced code blocks (a line starting with three backticks or three tildes opens and closes one;
+    the fence lines themselves are not counted); a line is markup when, stripped, lower-cased and with a leading
+    "</" read as "<" (so a closing tag counts as its opening one), it starts with an entry of EARLY_END_MARKUP or
+    with "<parameter". A loop: at least EARLY_END_COLLAPSE_MIN_LINES markup lines and at least
+    EARLY_END_COLLAPSE_SHARE of the counted lines."""
+    counted = markup = 0
+    fenced = False
+    for raw in response.splitlines():
+        line = raw.strip()
+        if FENCE_RE.match(line):
+            fenced = not fenced
+            continue
+        if fenced or not line:
+            continue
+        counted += 1
+        low = line.lower()
+        if low.startswith("</"):
+            low = "<" + low[2:]
+        if low.startswith(EARLY_END_MARKUP + COLLAPSE_EXTRA):
+            markup += 1
+    if markup >= EARLY_END_COLLAPSE_MIN_LINES and markup >= EARLY_END_COLLAPSE_SHARE * counted:
+        return f"{markup} of {counted} lines"
+    return None
+
+
 def early_end(response, changed):
     """Why a run that exited 0 is an early end, or None. Conservative: a run that wrote a file, a reply that
-    asks the user a question and a reply that states a blocker are never one."""
+    asks the user a question and a reply that states a blocker are never one, with one exception that a written
+    file does not excuse: a loop of raw tool-call syntax (collapse_loop)."""
+    loop = collapse_loop(response)
+    if loop:
+        return f"a loop of raw tool-call syntax printed as text ({loop})"
     if changed:
         return None
     lines = [line.strip() for line in response.splitlines() if line.strip()]

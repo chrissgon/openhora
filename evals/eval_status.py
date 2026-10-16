@@ -149,7 +149,8 @@ that applies:
                 alone; or the pessimistic score is under 0.70; or three or more Y changes (the version file)
                 since the version the newest complete full test ran on; or a case changed after the newest
                 full test waits for its runs; or the baseline has fewer runs per case than "runs" and is
-                within "baseline_margin" of the mean with the skill; or the field signal is on
+                closer than "baseline_margin" to the mean with the skill (exactly the margin is not thin, with
+                the gate's float slack); or the field signal is on
   reliable      otherwise
 The same band, cause and gate are computed for every other model that has evidence of the skill, by the same rules
 on that model's lines (as_subject: the configuration read for that model), and on that model's tests: the
@@ -2350,8 +2351,10 @@ def skill_band(root, skill_dir, cfg, authors=None, per_model=True, events=None):
                           f"python3 evals/eval_run.py --skill {skill} --cases {','.join(waiting)} --baseline"))
         control = event_config(cfg)
         margin = control.get("baseline_margin")
+        # Under the margin by more than the slack the gate uses (FLOAT_SLACK): a distance of exactly the margin in
+        # decimals is not thin, whatever the floats give (0.19999999999999996 on one Python, 0.20000000000000007 on another).
         if (margin is not None and gate.get("computed") and gate.get("baseline_runs", control["runs"]) < control["runs"]
-                and gate["with"] - gate["baseline"] < margin):
+                and gate["with"] - gate["baseline"] < margin - load_measure().FLOAT_SLACK):
             every = ",".join(sorted(cases, key=_case_key))
             watch.append(("thin baseline", f"the baseline ({gate['baseline']:.3f}) is within {margin:.2f} of the mean with the skill "
                           f"({gate['with']:.3f}) and has fewer than {control['runs']} runs per case",

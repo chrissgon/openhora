@@ -243,3 +243,48 @@ def test_the_status_script_compares_the_gate_through_the_module(monkeypatch, tmp
     gate = es.gate_of(str(skill), {"lab_models": ["s"], "threshold": 0.8, "tolerance": 0.05, "measurement_floor": 5},
                       extra=[(event, [line("with", 1.0), line("without", 0.0)])])
     assert calls == [(1.0, 0.0, 0.8, 0.05)] and gate["passed"] is False
+
+
+# --- T27: a loop of raw tool-call syntax is an early end, a file written or not --------------------------
+
+DSML_CALL = ["<｜DSML｜function_calls>", '<｜DSML｜invoke name="write_file">', '<｜DSML｜parameter name="path">docs/spec.md</｜DSML｜parameter>',
+             "</｜DSML｜invoke>"]
+
+
+def test_the_collapse_constants_are_read_from_measurement_json():
+    early = json.loads((EVALS / "measurement.json").read_text(encoding="utf-8"))["early_end"]
+    assert (measure.EARLY_END_COLLAPSE_MIN_LINES, measure.EARLY_END_COLLAPSE_SHARE) == (early["collapse"]["min_lines"], early["collapse"]["share"])
+    assert (early["collapse"]["min_lines"], early["collapse"]["share"]) == (20, 0.5)
+    assert "<｜dsml" in early["markup"] and "<|dsml" in early["markup"]
+
+
+def test_a_forty_line_loop_of_call_markup_is_an_early_end_even_when_a_file_was_written():
+    loop = "\n".join(DSML_CALL * 10)
+    why = measure.early_end(loop, {"docs/spec.md": 1.0})
+    assert why == "a loop of raw tool-call syntax printed as text (40 of 40 lines)"
+    assert measure.early_end(loop, {}) == why  # no file written: the same answer, before the first line's own rule
+
+
+def test_a_closing_tag_only_loop_counts_and_so_do_parameter_lines():
+    assert "25 of 25" in measure.early_end("\n".join(["</｜DSML｜invoke>"] * 25), {"f.md": 1.0})
+    assert "25 of 25" in measure.early_end("\n".join(['<parameter name="path">x</parameter>'] * 25), {"f.md": 1.0})
+    assert "25 of 25" in measure.early_end("\n".join(["<|DSML|invoke>"] * 25), {"f.md": 1.0})  # the ASCII bar too
+
+
+def test_markup_inside_a_fence_or_among_prose_or_below_the_minimum_is_not_a_loop():
+    fenced = "Here is the call the tool takes:\n```\n" + "\n".join(["<invoke name=x>"] * 25) + "\n```\nThat is all."
+    assert measure.early_end(fenced, {"f.md": 1.0}) is None
+    tilde = "~~~xml\n" + "\n".join(["<invoke name=x>"] * 25) + "\n~~~"
+    assert measure.early_end(tilde, {"f.md": 1.0}) is None
+    prose = "\n".join(f"Line {i} of an ordinary report about the work." for i in range(60)) + "\n" + "\n".join(["<invoke name=x>"] * 25)
+    assert measure.early_end(prose, {"f.md": 1.0}) is None  # 25 of 85
+    assert measure.early_end("\n".join(["</｜DSML｜invoke>"] * 19), {"f.md": 1.0}) is None  # alone, but under the minimum
+
+
+def test_the_share_is_of_the_lines_outside_fences_and_a_run_that_wrote_a_file_keeps_every_other_result():
+    mixed = "\n".join(["<invoke name=x>"] * 20 + ["prose"] * 20)
+    assert measure.collapse_loop(mixed) == "20 of 40 lines"  # exactly the share
+    assert measure.collapse_loop(mixed + "\nmore prose") is None
+    assert measure.early_end("Now I'll write the PRD. First, let me create the Sources section.", {"docs/prd.md": 1.0}) is None
+    assert measure.early_end("<skill_tool>\n</skill_tool>", {"docs/prd.md": 1.0}) is None
+    assert measure.early_end("", {}) == "empty response and no file written"
