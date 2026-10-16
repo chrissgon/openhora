@@ -105,12 +105,16 @@ _STATE_COUNTER = itertools.count()
 
 
 def isolate_secrets_and_state(monkeypatch, site: str) -> None:
-    """No test can reach the OS secret store (even where the keyring library is installed) nor the person's state folder: the
+    """No test can reach the OS secret store (even where the keyring library is installed), the person's state folder nor the
+    person's password-manager mapping file (an empty XDG_CONFIG_HOME): the
     null keyring backend, for this process and the subprocesses it starts, and a fresh OPENHORA_STATE_DIR under `site`. A test that
     needs another state folder sets its own after this."""
     monkeypatch.setenv("PYTHON_KEYRING_BACKEND", "keyring.backends.null.Keyring")
     monkeypatch.setenv("OPENHORA_STATE_DIR", os.path.join(site, "isolated-state", str(next(_STATE_COUNTER))))
     monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    # The password-manager mapping file (S16) is looked for under XDG_CONFIG_HOME, else under the home folder: an empty folder here, so
+    # that a file the person wrote there is never read by a test, and no test starts the password manager's tool.
+    monkeypatch.setenv("XDG_CONFIG_HOME", os.path.join(site, "isolated-config", str(next(_STATE_COUNTER))))
     try:
         import keyring.core
         from keyring.backends import null

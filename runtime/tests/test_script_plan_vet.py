@@ -87,13 +87,14 @@ def test_limit_36_a_plan_that_holds_a_networked_step_is_approved_only_from_the_t
     for channel in ("messaging", "mcp", "chat", "bogus", None):          # no channel at all fails closed too
         with pytest.raises(ops.OpsError) as refused:
             ops.approve(world["path"], opened["pending_id"], digest, channel=channel)
-        assert "terminal or on the page" in str(refused.value) and "Nothing was approved" in str(refused.value) and "report" in str(refused.value)
+        assert "terminal or on the page by default" in str(refused.value) and "Nothing was approved" in str(refused.value) and "report" in str(refused.value)
     # whatever the messaging policy grants: the rule is before the policy
     generous = {"messaging": ["read", "approve-plans", "go-ahead"]}
     with pytest.raises(ops.OpsError) as refused:
         ops_waits.only_on_plans(item, None, digest, "messaging", generous)
     assert "terminal or on the page" in str(refused.value)
     assert tasks_of(world, rid) == {} and pending(world, opened["pending_id"])["status"] == "open"
+    assert st.load("operations").NETWORKED_PLAN_CHANNELS == ("terminal", "page"), "the default set is one named literal"
     assert ops.approve(world["path"], opened["pending_id"], digest, channel="page")["tasks"]       # the page approves it
     assert "report" in tasks_of(world, rid)
 

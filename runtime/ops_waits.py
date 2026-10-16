@@ -287,8 +287,8 @@ def current_tasks(ctx: dict) -> list:
 def networked_steps(item: dict) -> list:
     """[(task key, kind)] of the step tasks of a plan decision whose kind reaches the network (steps.Kind.networked), or whose kind this
     checkout does not have (it cannot be shown not to reach the network, so it counts). A script with declared destinations can send a
-    write to them, which is an external effect that the effect gate does not see: such a plan is approved by a person at the terminal or
-    on the page (limit L36)."""
+    write to them, which is an external effect that the effect gate does not see: by default such a plan is approved by a person at the
+    terminal or on the page (operations.NETWORKED_PLAN_CHANNELS, limit L36)."""
     found = []
     for t in (item.get("payload") or {}).get("tasks") or []:
         if isinstance(t, dict) and t.get("step"):
@@ -311,10 +311,10 @@ def only_on_plans(item: dict, go_ahead, sha256=None, channel=None, policy=None) 
     it to the card, runtime/messaging.py)."""
     if go_ahead and item["kind"] != "plan":
         raise core.OpsError(f"pending decision {item['id']} is a {item['kind']}: go ahead is said on the tasks of a plan", 2)
-    if item["kind"] == "plan" and channel not in operations.EFFECT_CHANNELS and networked_steps(item):   # fails closed: no channel is none
+    if item["kind"] == "plan" and channel not in operations.NETWORKED_PLAN_CHANNELS and networked_steps(item):   # by default; fails closed: no channel is none
         key, kind = networked_steps(item)[0]
         raise core.OpsError(f"the plan holds the task {key}, a {kind} step that reaches the network: a plan with one is approved in the "
-                            "terminal or on the page, never from a conversation, a messaging app or the MCP mode (limit L36). Nothing was approved", 1)
+                            "terminal or on the page by default, never from a conversation, a messaging app or the MCP mode (limit L36). Nothing was approved", 1)
     if channel and (item["kind"] != "effect" or channel in operations.EFFECT_CHANNELS):
         refused = operations.refusal("approve", channel, policy, item["kind"], bool(go_ahead))
         if refused:
