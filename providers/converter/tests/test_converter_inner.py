@@ -307,3 +307,125 @@ def test_two_spreadsheets_converted_with_one_work_folder_each_give_their_own_con
     assert first[2].decode().startswith("clinic,forms per day") and b"## Sheet: Prices" in second[2]
     third = inner.convert("xlsx", str(FIXTURES / "review.xlsx"), str(tmp_path))
     assert b"Dock Street" in third[2], "a link left by an earlier conversion is never reused"
+
+
+# --- macro-enabled packages are refused for every source (the content decides, never the name) -----------------------------------------
+
+MAIN_PARTS = {"docx": "word/document.xml", "xlsx": "xl/workbook.xml", "pptx": "ppt/presentation.xml"}
+MACRO_MAIN_TYPES = {
+    "docm": "application/vnd.ms-word.document.macroEnabled.main+xml",
+    "dotm": "application/vnd.ms-word.template.macroEnabledTemplate.main+xml",
+    "xlsm": "application/vnd.ms-excel.sheet.macroEnabled.main+xml",
+    "xltm": "application/vnd.ms-excel.template.macroEnabled.main+xml",
+    "xlam": "application/vnd.ms-excel.addin.macroEnabled.main+xml",
+    "pptm": "application/vnd.ms-powerpoint.presentation.macroEnabled.main+xml",
+    "potm": "application/vnd.ms-powerpoint.template.macroEnabled.main+xml",
+    "ppsm": "application/vnd.ms-powerpoint.slideshow.macroEnabled.main+xml",
+    "sldm": "application/vnd.ms-powerpoint.slide.macroEnabled.main+xml",
+}
+KIND_OF = {"d": "docx", "x": "xlsx", "p": "pptx", "s": "pptx"}
+
+
+def macro_package(path, kind, *, content_type=None, extra_parts=(), quote='"'):
+    """A crafted package (fictional, empty parts): the main part of `kind`, and optionally a main content type and more parts."""
+    types = ""
+    if content_type:
+        types = f"<Override PartName={quote}/{MAIN_PARTS[kind]}{quote} ContentType={quote}{content_type}{quote}/>"
+    return package(path, [MAIN_PARTS[kind], *extra_parts], types)
+
+
+@pytest.mark.parametrize("extension", sorted(MACRO_MAIN_TYPES))
+def test_every_macro_enabled_main_content_type_is_refused_whatever_the_file_is_called(inner, tmp_path, extension):
+    kind = KIND_OF[extension[0]]
+    for name in (f"report.{extension}", "report.docx", "input"):       # the input is /in/input in the container: its name says nothing
+        path = macro_package(tmp_path / name, kind, content_type=MACRO_MAIN_TYPES[extension])
+        for declared in (kind, "ooxml"):
+            with pytest.raises(inner.Failed) as refused:
+                inner.convert(declared, path, str(tmp_path / "work"))
+            assert str(refused.value) == inner.MACRO_REFUSAL
+
+
+def test_a_vba_project_part_is_refused_by_its_name_at_any_depth_and_in_any_case_even_in_a_package_typed_as_plain(inner, tmp_path):
+    plain_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
+    for kind in ("docx", "xlsx", "pptx"):
+        for part in ("word/vbaProject.bin", "xl/vbaProject.bin", "ppt/vbaProject.bin", "x/y/VBAPROJECT.BIN", "word/vbaProjectSignature.bin",
+                     "word/vbaData.xml"):
+            # the plain main type: a sender who relabels a .docm as a .docx still carries the project
+            path = macro_package(tmp_path / f"{kind}-{part.replace('/', '_')}", kind, content_type=plain_type, extra_parts=[part])
+            with pytest.raises(inner.Failed) as refused:
+                inner.convert(kind, path, str(tmp_path / "work"))
+            assert str(refused.value) == inner.MACRO_REFUSAL
+
+
+def test_a_macro_sheet_or_a_vba_content_type_is_refused_even_without_a_project_part(inner, tmp_path):
+    sheet = macro_package(tmp_path / "xlm.xlsx", "xlsx", extra_parts=["xl/macrosheets/sheet1.xml"])
+    dialog = macro_package(tmp_path / "dialog.xlsx", "xlsx", extra_parts=["xl/dialogs/dialog1.xml"])
+    unrelated = macro_package(tmp_path / "unrelated.xlsx", "xlsx", extra_parts=["xl/sheetdata.bin"])
+    for refused_path in (sheet, dialog):
+        with pytest.raises(inner.Failed) as refused:
+            inner.refuse_macros(refused_path)
+        assert str(refused.value) == inner.MACRO_REFUSAL
+    for case, content_type in (("vba", "application/vnd.ms-office.vbaProject"), ("sig", "application/vnd.ms-office.vbaProjectSignature"),
+                               ("sheet", "application/vnd.ms-excel.macrosheet+xml"), ("data", "application/vnd.ms-word.vbaData+xml")):
+        pkg = package(tmp_path / f"{case}.xlsx", [MAIN_PARTS["xlsx"], "xl/blob.bin"], f"<Default Extension='bin' ContentType='{content_type}'/>")
+        with pytest.raises(inner.Failed) as refused:
+            inner.convert("xlsx", pkg, str(tmp_path / "work"))
+        assert str(refused.value) == inner.MACRO_REFUSAL
+    inner.refuse_macros(unrelated)     # an unrelated part is not a macro
+
+
+def test_the_content_type_is_found_with_either_quote_and_in_any_case(inner, tmp_path):
+    for quote in ('"', "'"):
+        path = macro_package(tmp_path / f"q{ord(quote)}.docx", "docx", content_type=MACRO_MAIN_TYPES["docm"].upper(), quote=quote)
+        with pytest.raises(inner.Failed):
+            inner.refuse_macros(path)
+
+
+def test_a_real_word_document_with_a_project_injected_is_refused_and_the_committed_fixtures_hold_no_macro(inner, tmp_path):
+    clean = FIXTURES / "review.docx"
+    for name in ("review.docx", "review.xlsx", "review.pptx", "notes.docx", "rich.docx", "rich.pptx", "survey.xlsx", "answers.xlsx"):
+        inner.refuse_macros(str(FIXTURES / name))
+    injected = tmp_path / "injected.docx"
+    with zipfile.ZipFile(clean) as source, zipfile.ZipFile(injected, "w", zipfile.ZIP_DEFLATED) as target:
+        for info in source.infolist():
+            data = source.read(info.filename)
+            if info.filename == "[Content_Types].xml":
+                data = data.replace(b"</Types>", b"<Default Extension=\"bin\" ContentType=\"application/vnd.ms-office.vbaProject\"/></Types>")
+            target.writestr(info.filename, data)
+        target.writestr("word/vbaProject.bin", b"fictional bytes, never read")
+    with pytest.raises(inner.Failed) as refused:
+        inner.convert("docx", str(injected), str(tmp_path / "work"))
+    assert str(refused.value) == inner.MACRO_REFUSAL
+
+
+def test_a_workbook_with_macros_is_refused_before_openpyxl_is_imported(inner, tmp_path, monkeypatch):
+    path = macro_package(tmp_path / "book.xlsm", "xlsx", content_type=MACRO_MAIN_TYPES["xlsm"], extra_parts=["xl/vbaProject.bin"])
+    monkeypatch.setitem(sys.modules, "openpyxl", None)      # an import of it would raise ImportError: it is never reached
+    with pytest.raises(inner.Failed) as refused:
+        inner.convert("xlsx", path, str(tmp_path / "work"))
+    assert str(refused.value) == inner.MACRO_REFUSAL
+
+
+def test_the_macro_check_does_not_read_a_huge_content_types_part_and_an_old_binary_file_is_not_a_package(inner, tmp_path, monkeypatch):
+    big = tmp_path / "big.docx"
+    with zipfile.ZipFile(big, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", "<Types>" + " " * 3000 + "</Types>")
+        z.writestr(MAIN_PARTS["docx"], "<x/>")
+    monkeypatch.setattr(inner, "CONTENT_TYPES_CAP", 1000)
+    with pytest.raises(inner.Failed) as refused:
+        inner.refuse_macros(str(big))
+    assert "too large" in str(refused.value)
+    old = tmp_path / "old.doc"
+    old.write_bytes(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1 an old binary .doc is not a zip")     # an OLE file: never a package
+    with pytest.raises(inner.Failed) as refused:
+        inner.convert("docx", str(old), str(tmp_path / "work"))
+    assert "not a valid Office package" in str(refused.value)
+
+
+def test_a_macro_enabled_file_exits_3_with_the_sentence_and_prints_nothing_on_standard_output(inner, tmp_path):
+    path = macro_package(tmp_path / "input", "docx", content_type=MACRO_MAIN_TYPES["docm"], extra_parts=["word/vbaProject.bin"])
+    for kind in ("docx", "ooxml"):
+        done = subprocess.run([sys.executable, "-I", str(INNER), "--type", kind, "--input", path, "--work", str(tmp_path / "w")],
+                              capture_output=True, timeout=60, env={"PATH": os.environ.get("PATH", ""), "CONVERTER_TOOL_PATH": tool_path()})
+        assert done.returncode == 3 and done.stdout == b""
+        assert done.stderr.decode().strip() == f"error: {inner.MACRO_REFUSAL}"

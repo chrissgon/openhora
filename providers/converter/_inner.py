@@ -21,6 +21,9 @@ The host (providers/converter/container.py) parses them with fixed rules: the na
 there, not trusted from here. A conversion that fails prints nothing on standard output, a reason on standard error and exits
 with a code that is not 0.
 
+A Word document, a spreadsheet or a presentation that carries macros (a VBA project part, a macro sheet, a macro-enabled content type) is
+refused whole, before any tool reads it, with one fixed sentence (MACRO_REFUSAL) and exit 3, whatever the file is called.
+
 The converted text is cut at CAP + 1 bytes, so that the host sees it is over the cap and refuses the file; the host's cap is the
 one that counts. Standard library, plus openpyxl for a spreadsheet and python-pptx for a presentation (both in the image's virtual environment).
 """
@@ -112,6 +115,45 @@ def check_package(path: str, bytes_max: int = 0, xml_max: int = 0) -> list:
             return [i.filename for i in infos]
     except zipfile.BadZipFile:
         raise Failed("the file is not a valid Office package") from None
+
+
+MACRO_REFUSAL = "the package holds macros (VBA code or macro sheets): a macro-enabled Office file is not converted"
+CONTENT_TYPES_CAP = 2 * 1024 * 1024     # what is read of [Content_Types].xml; a larger one is no honest package
+MACRO_PART_NAMES = ("vbaproject.bin", "vbaprojectsignature.bin", "vbadata.xml")   # the last part of a part's name, lower case
+MACRO_PART_FOLDERS = ("xl/macrosheets/", "xl/dialogs/")                            # Excel 4 macro sheets and dialog sheets
+MACRO_TYPE_WORDS = ("macroenabled", "vbaproject", "vbadata", "macrosheet")        # in a content type, lower case
+CONTENT_TYPE_VALUES = re.compile(r"""ContentType\s*=\s*(?:"([^"]*)"|'([^']*)')""", re.I)
+
+
+def refuse_macros(path: str) -> None:
+    """Failed with MACRO_REFUSAL when an Office package carries macros, judged by its content and never by its name (the input is
+    mounted as /in/input and a sender chooses a file's name): a part named `vbaProject.bin` (also its signature and `vbaData.xml`) at
+    any depth, a part under `xl/macrosheets/` or `xl/dialogs/`, or a content type in [Content_Types].xml that names a macro (any
+    `macroEnabled` type, which is what .docm, .dotm, .xlsm, .xltm, .xlam, .pptm, .potm, .ppsm, .ppam and .sldm declare for their main
+    part, a VBA project, a VBA data part or a macro sheet). It runs before any tool reads the file and after check_package's size
+    guard. No macro is run or read: only names and the content-types list are looked at. A file that is not a package is not judged
+    here (the conversion refuses it); the old binary formats (.doc, .xls, .ppt, .dot) are not a zip, are not a type the intake takes,
+    and are refused by check_package if one is named."""
+    names = check_package(path)
+    for name in names:
+        lower = name.lower()
+        if lower.rsplit("/", 1)[-1] in MACRO_PART_NAMES or lower.startswith(MACRO_PART_FOLDERS):
+            raise Failed(MACRO_REFUSAL)
+    declared = next((n for n in names if n.lower() == "[content_types].xml"), None)
+    if declared is None:
+        return
+    try:
+        with zipfile.ZipFile(path) as z, z.open(declared) as part:
+            raw = part.read(CONTENT_TYPES_CAP + 1)
+    except (zipfile.BadZipFile, OSError, RuntimeError, NotImplementedError, EOFError):
+        raise Failed("the package's [Content_Types].xml cannot be read") from None
+    if len(raw) > CONTENT_TYPES_CAP:
+        raise Failed("the package's [Content_Types].xml is too large")
+    text = utf8(raw)
+    for found in CONTENT_TYPE_VALUES.finditer(text):
+        value = (found.group(1) or found.group(2) or "").lower()
+        if any(word in value for word in MACRO_TYPE_WORDS):
+            raise Failed(MACRO_REFUSAL)
 
 
 def ooxml_kind(path: str) -> str:
@@ -343,6 +385,8 @@ def convert_pptx(path: str, work: str):
 
 
 def convert(kind: str, path: str, work: str):
+    if kind in ("docx", "xlsx", "pptx", "ooxml"):
+        refuse_macros(path)     # for every Office package, whoever sent it and whatever the declared type says, before any tool runs
     if kind == "ooxml":
         kind = ooxml_kind(path)
     table = {"pdf": convert_pdf, "docx": convert_docx, "xlsx": convert_xlsx, "html": convert_html, "csv": convert_csv,
