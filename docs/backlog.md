@@ -22,7 +22,7 @@ The workbench is a set of instructions that models execute with a terminal, file
   - Needs: a real project with a finding of each kind to ground each part, and S8's eval runs done.
   - Done when: each added part has an eval case built from a finding met on a real project, rewritten with fictional names, and the report template covers it.
   - Plan: H (findings met on a real project), then G step 7: the skill's next version, tested when built.
-- [ ] **S16. A password manager as a secrets backend.** A lookup function in `providers/secrets/resolver.py` after the OS secret store, reading through the manager's CLI (for example 1Password `op read` or Bitwarden `bw get`), chosen with the user.
+- [x] **S16. A password manager as a secrets backend.** A lookup function in `providers/secrets/resolver.py` after the OS secret store, reading through the manager's CLI (for example 1Password `op read` or Bitwarden `bw get`), chosen with the user. Built 2026-10-15 (1Password first; a second manager is one class in `providers/secrets/password_managers.py`): the mapping file, one call per lookup, no cache, limit L39, the doctor's `password_manager` check; `docs/architecture/platform/unattended.md`, "Use with 1Password". Not verified on a real machine: the exact texts and exit codes of `op`, and the time and rate-limit cost of one process per lookup.
   - From: the user's decision on 2026-09-28 for S13: leave room for it, build it with a real case.
   - Needs: the user's manager, and a test with a fake CLI; the CLI's session must never be started by a skill.
   - Plan: H (a password manager in use), then lane F6.
@@ -150,6 +150,9 @@ The workbench is a set of instructions that models execute with a terminal, file
 - [ ] **T38. Converter images of earlier definitions are never removed.** Found on 2026-10-15 (P4b): the converter's image is tagged with the hash of its definition (`openhora-converter:<12 characters>`), so each change of `Dockerfile`, `_inner.py` or `requirements.lock` leaves the earlier image on disk, hundreds of megabytes each (the converter's current image is 444 MB); the exporter's image (`openhora-exporter:<12 characters>`, P8) does the same.
   - Done when: `runtime/upkeep.py` or `scripts/doctor.py` lists the images of earlier definitions and removes them on the person's word, never the one of the current definition, with a test that uses a fake container tool.
   - Plan: with the next change of the upkeep.
+- [ ] **T39. `--pass-env` does not refuse the password manager's token.** Found on 2026-10-15 in the review of S16: `TOKEN_VARS` in `evals/execution.py` (the credentials in the environment that would sign a host back in, refused by `--pass-env`) does not list `OP_SERVICE_ACCOUNT_TOKEN`, so a person who passes it by hand puts a service account's token in a run; limit L39 is enforced for the resolver and the executor's own variable lists, not for this flag. The file is in the measurement fingerprint, so it waits for a measurement change.
+  - Done when: `OP_SERVICE_ACCOUNT_TOKEN` (and the `OP_` family: `OP_SESSION_*`, `OP_CONNECT_TOKEN`) are refused by `--pass-env` with the other token variables, with a test, committed as an execution-side measurement change.
+  - Plan: with the next measurement change (`evals/eval_status.py measurement --kind execution`).
 
 ## Agent runtime
 
@@ -461,8 +464,9 @@ Decisions of the review of 2026-10-01 (`docs/architecture/review-2026-10-01.md` 
   - Plan: B1.
 - [ ] **PL-cases. The fixtures of `design-handoff` have no builder.** Recorded as edited by hand; no builder script is added (default 46 of the plan).
   - Plan: phase C, the row of `design-handoff`.
-- [ ] **PL-validation. Validation rules.** `scripts/validate.py` lacks: required metadata keys, `requires` against the known classes, the `side_effects` vocabulary, the token guide, the two-case minimum, skill names cited by agents and flows, `packs/` scanned as core, one frontmatter parser on every machine, and a check that a capability does not invoke a skill.
+- [x] **PL-validation. Validation rules.** `scripts/validate.py` lacks: required metadata keys, `requires` against the known classes, the `side_effects` vocabulary, the token guide, the two-case minimum, skill names cited by agents and flows, `packs/` scanned as core, one frontmatter parser on every machine, and a check that a capability does not invoke a skill. Closed on 2026-10-15 (package PLVAL of the delegation platform plan, https://github.com/chrissgon/openhora/pull/423): the last two rules, `agent-skill` (an error) and `capability-invokes` (a warning), are in `scripts/validate.py`; the others of the list were built earlier (see the docstring of that file); see the decision of that date.
   - Plan: A5 (as warnings), C0.1 and C0.2 (as errors).
+- [ ] **PL-runtime-skills-list. The runtime reads `metadata.skills` only as an inline list.** `scripts/runtime.py` (around line 583) reads the agent's skills with a regular expression for `skills: [a, b]`, while `scripts/validate.py` (`agent-skill`) and the frontmatter parser accept a block list. An agent written with a block list would be validated and then fail, or run with no skill, in the runtime. Fix: read the list with the frontmatter parser, or make the validator require the inline form; a test either way. Found in the review of PR #423.
 
 ## Cases the audit proposed and phase C does not add
 

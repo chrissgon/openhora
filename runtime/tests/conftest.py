@@ -36,6 +36,8 @@ def no_test_reaches_the_real_secret_store(monkeypatch, tmp_path):
     monkeypatch.setenv("PYTHON_KEYRING_BACKEND", "keyring.backends.null.Keyring")
     monkeypatch.setenv("OPENHORA_CREDENTIALS_DIR", str(tmp_path / "no-credentials-directory"))   # never the home folder's real one
     monkeypatch.delenv("CREDENTIALS_DIRECTORY", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "no-config-directory"))   # never the person's real password-manager mapping file (S16)
+    monkeypatch.delenv("WB_EVAL_CONTAINER", raising=False)
     monkeypatch.setenv("OPENHORA_UPKEEP_CONTAINERS", "off")   # the sweep of orphan containers never reaches the real docker from a test
     kept = getattr(sys.modules.get("secret_state"), "forget", None)
     if kept is not None:

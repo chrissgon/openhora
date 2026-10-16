@@ -26,8 +26,9 @@ Options:
   --unattended      also run the checks for a machine that runs the task runtime for weeks with nobody logged in (package P-OPS,
                     scripts/doctor_ops.py): the user manager's linger on Linux, whether a macOS scheduler job can read the sources
                     folder, free disk on data_dir and sources_dir, the log limits of the harness's proxy containers, whether the
-                    OS secret store answers, and the eval image with the command that sets it up. Each check says what it can and
-                    cannot verify (see the text of scripts/doctor_ops.py); in --json they are the "unattended" key. It asks docker
+                    OS secret store answers, whether the password manager answers (`password_manager`: na without a
+                    mapping file, otherwise `op whoami`, S16), and the eval image with the command that sets it up. Each
+                    check says what it can and cannot verify (see the text of scripts/doctor_ops.py); in --json they are the "unattended" key. It asks docker
                     to list and inspect the harness's containers, which no other mode does.
   --project <dir>   with --unattended: the project whose runtime.json names data_dir and sources_dir
   --min-free-gib <n>  with --unattended: the free space under which a disk warns (default 5)
@@ -51,9 +52,12 @@ command to run (the first pull of the published image is an explicit step, never
 
 It also lists every secret registered in providers/secrets/resolver.py or by an adapter (the
 "secrets" list of its adapter.json): found, missing, locked or unsafe, where
-it was found (environment, the credentials directory or the OS secret store), which classes read it and how to set it. "locked" means the OS
+it was found (environment, the credentials directory, the OS secret store or the password manager), which classes read it and how to
+set it. A name found earlier that the person also mapped in the password manager is marked "mapped in the password manager, not asked:
+found earlier" (the manager is not called to say it). "locked" means the OS
 secret store raised instead of answering (a locked keychain or collection, or no backend on a machine with no desktop session): the secret
-may be stored, and unlocking the store clears it; "unsafe" means the credentials directory or its file is readable by others or is a link.
+may be stored, and unlocking the store clears it (the line says which: the OS secret store, or the password manager that is locked or
+not installed); "unsafe" means the credentials directory or its file, or the password-manager mapping file, is readable by others or is a link.
 It never prints a value. Missing secrets do not change the exit code; see contracts/secrets.md.
 
 Exit codes: 0 ok, 1 missing classes with --strict, 2 usage error.
@@ -222,6 +226,13 @@ def image_setup(image):
     return "python3 scripts/image_lock.py pull (a published image), or python3 evals/executor.py ensure (build it here)"
 
 
+def manager_probe():
+    """The state of the password manager, by the resolver's probe_manager (`op whoami`, no secret read): {"state", "detail"}; "na" when
+    the person has no mapping file."""
+    path = str(resolution.secret_resolver(root=ROOT))
+    return _load("workbench_secret_resolver_manager_probe", path).probe_manager()
+
+
 def store_probe():
     """The state of the OS secret store, by the resolver's probe_store (it asks for a name nothing stores): {"state", "detail"}."""
     path = str(resolution.secret_resolver(root=ROOT))
@@ -275,7 +286,8 @@ def secrets_report(classes):
     for row in resolver.report():
         folders = {r.split("/")[1] for r in row["readers"] if r.startswith("providers/")}
         row["classes"] = sorted(c for c in classes if provider_folder(c) in folders)
-        rows.append({k: row[k] for k in ("name", "found", "state", "source", "service", "store", "detail", "classes", "readers", "set")})
+        rows.append({k: row[k] for k in ("name", "found", "state", "source", "service", "backend", "also_mapped", "store", "detail", "classes",
+                                         "readers", "set")})
     return rows
 
 
@@ -351,7 +363,7 @@ def main(argv):
                 return 2
             print("lease takeover acknowledged" if acknowledged else "no lease takeover was recorded", file=sys.stderr)
         checks = doctor_ops.run_all(project=project, min_free_gib=min_free or doctor_ops.MIN_FREE_GIB, image=image,
-                                    probe=store_probe, load_config=load_project_config)
+                                    probe=store_probe, load_config=load_project_config, manager_probe=manager_probe)
     if as_json:
         out = {"harness": harness, "classes": report, "missing": missing, "image": image, "secrets": secrets}
         if checks is not None:
@@ -367,15 +379,18 @@ def main(argv):
         for sec in secrets:
             if sec["found"]:
                 state = f"found     {sec['name']:<28} {sec['source']}{' (' + sec['service'] + ')' if sec['service'] else ''}"
+                if sec.get("also_mapped"):
+                    state += "; mapped in the password manager, not asked: found earlier"
             elif sec["state"] == "locked":
-                state = f"locked    {sec['name']:<28} the secret store is locked or unavailable: unlock it (it may hold this secret)"
+                # the sentence of the backend that failed (the OS secret store or the password manager), from the resolver's own Lookup
+                state = f"locked    {sec['name']:<28} {sec['detail'] or 'the secret store is locked or unavailable: unlock it (it may hold this secret)'}"
             elif sec["state"] == "unsafe":
                 state = f"unsafe    {sec['name']:<28} {sec['detail']}"
             else:
                 state = f"missing   {sec['name']:<28} set it: {sec['set']}"
             print(f"{state}  <- {', '.join(sec['classes'] or sec['readers'])}", file=sys.stderr)
         if checks is not None:
-            for name in ("linger", "sources_access", "disk", "proxy_logs", "lease", "secret_store", "project"):
+            for name in ("linger", "sources_access", "disk", "proxy_logs", "lease", "secret_store", "password_manager", "project"):
                 c = checks[name]
                 print(f"{c['status']:<10} {name:<28} {c['detail']}", file=sys.stderr)
                 if c.get("fix") and c["status"] in ("warn", "unverified"):
