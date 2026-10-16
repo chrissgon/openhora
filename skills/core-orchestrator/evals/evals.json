@@ -253,6 +253,12 @@
           ]
         },
         {
+          "text": "The `Route:` line ends with `(flow, ready)`: the flow is a built flow file, so it is not marked pending and no fallback is proposed for it",
+          "tags": [
+            "format"
+          ]
+        },
+        {
           "text": "No brand work is performed in the output: no brand name, positioning statement, palette, tone rule or strategy text is proposed",
           "tags": [
             "guard"

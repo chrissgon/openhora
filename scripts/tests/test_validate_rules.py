@@ -268,6 +268,11 @@ def test_the_route_of_a_flow_file_is_built_for_the_routing_table_and_for_a_cited
     report = validate.Report()
     validate.check_routing(report, validate.built_skills(str(tree)), root=str(tree))
     assert report.warnings[0]["message"] == ("[routing-table] in the table, not built and not marked (planned): flow-gone")
+    write(tree, validate.ROUTING_TABLE, "# Routing\n\n| Intent | Skill |\n|---|---|\n| Review | eng-demo |\n| Ship | flow-ship (planned) |\n")
+    report = validate.Report()
+    validate.check_routing(report, validate.built_skills(str(tree)), root=str(tree))
+    assert report.warnings[0]["message"] == "[routing-table] marked (planned) and a flow file exists: flow-ship"
+    write(tree, validate.ROUTING_TABLE, "# Routing\n\n| Intent | Skill |\n|---|---|\n| Review | eng-demo |\n| Ship | flow-ship |\n| Gone | flow-gone |\n")
     write(tree, "skills/eng-demo/references/more.md", "A flow `flow-ship` and `flow-gone`.\n")
     assert messages(run_skill(tree), "skill-name") == [
         '[skill-name] cites a skill that is not built, with no "planned" on the line: flow-gone (references/more.md:1)']

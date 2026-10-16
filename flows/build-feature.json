@@ -34,7 +34,7 @@
       "key": "implement",
       "skill": "eng-implement",
       "title": "Implement the feature",
-      "text": "the failing tests are written (the Failing tests section of the plan docs/engineering/plans/<task>.md, and the tests it lists) and the design is done (docs/engineering/designs/). Implement the feature so that those tests pass; the plan is the task, there is no backlog task. The check is the command the Failing tests section names: run it first and quote the failing line, make the smallest change that passes it, run the project's fast checks, and quote the passing lines. Add the Change section to the plan. Propose the commit and do not make it.",
+      "text": "the failing tests are written (the tests listed in the Failing tests section of the plan docs/engineering/plans/<task>.md) and the design is done (docs/engineering/designs/). There is no backlog task, and the plan is not a fix plan (it has no root cause): work as for a failing check with no task id, the check being the command that section names. Run it before touching any file and quote the failing line, make the smallest change that makes the tests pass without editing them, run the project's fast checks and quote the passing lines. Touch only the files the design names for this feature. Propose the commit and do not make it.",
       "depends_on": [
         "tests"
       ],
@@ -44,7 +44,7 @@
       "key": "integration",
       "skill": "eng-integration-tests",
       "title": "Integration tests",
-      "text": "the feature is implemented (the Change section of the plan docs/engineering/plans/<task>.md). Show that it works where people meet it, not only in the unit that was edited: write the integration tests the project's runner supports, run them, and make sure each test of new behaviour fails on the code before the change and each test of preserved behaviour passes on it. Record the result in the Integration tests section of the plan.",
+      "text": "the feature is implemented (the change on the current branch, read as its diff against the base). Show that it works where people meet it, not only in the unit that was edited: write the integration tests the project's runner supports, run them, and make sure each test of new behaviour fails on the code before the change and each test of preserved behaviour passes on it. Record the result in the Integration tests section of the plan.",
       "depends_on": [
         "implement"
       ],

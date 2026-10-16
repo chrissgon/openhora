@@ -1,6 +1,6 @@
 {
   "flow": "new-project",
-  "title": "A new project, from the idea to its first task",
+  "title": "A new project, from the idea to its backlog",
   "tasks": [
     {
       "key": "brief",
@@ -34,29 +34,9 @@
       "key": "backlog",
       "skill": "product-backlog",
       "title": "The backlog",
-      "text": "the specification and the design are done (docs/product/specs/ and docs/engineering/designs/). Cut them into tasks that can be started today, each with its check, in an order that never blocks on something not yet built: write docs/product/backlog.md. Create no ticket: that is a separate request with its own confirmation.",
+      "text": "the specification and the design are done (docs/product/specs/ and docs/engineering/designs/). Cut them into tasks that can be started today, each with its check, in an order that never blocks on something not yet built: write docs/product/backlog.md. Create no ticket: that is a separate request with its own confirmation. This flow ends here: when the backlog is released, the runtime offers one implementation task for each todo task of it, and the change of each becomes its pull request in a later request.",
       "depends_on": [
         "design"
-      ],
-      "milestone": true
-    },
-    {
-      "key": "implement",
-      "skill": "eng-implement",
-      "title": "Implement the first task",
-      "text": "the backlog is done (docs/product/backlog.md), and so are the specification and the design. This flow implements one task: the first whose status is todo and whose dependencies are done. Take its check from the backlog, write it first and quote the failing line, make the smallest change that passes it, run the project's fast checks, and update the task's status in the backlog. The other tasks are later requests. Propose the commit and do not make it.",
-      "depends_on": [
-        "backlog"
-      ],
-      "milestone": true
-    },
-    {
-      "key": "pull-request",
-      "skill": "ops-pull-request",
-      "title": "Prepare the pull request",
-      "text": "the first task is on the current branch, as one commit over its base. Prepare its pull request into the base branch and stop at the confirmation gate: show the payload and ask.",
-      "depends_on": [
-        "implement"
       ],
       "milestone": true
     }

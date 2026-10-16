@@ -289,7 +289,16 @@ def required_inputs(skill_md: str, declared_inputs: list) -> list:
     """The declared input paths a skill requires without a condition: in the table under `## Inputs`, a row
     whose `Required` cell, stripped and lowercased, is exactly `yes`; from it, every path of declared_inputs
     that occurs literally in its `Artifact` cell. A cell such as `yes for a person` is a condition and is not
-    computed, so this is a lower bound."""
+    computed, so this is a lower bound. The paths of all the rows, once each (required_rows keeps the rows)."""
+    out = []
+    for row in required_rows(skill_md, declared_inputs):
+        out += [p for p in row if p not in out]
+    return out
+
+
+def required_rows(skill_md: str, declared_inputs: list) -> list:
+    """The rows of required_inputs, one list of declared paths each (a row that names none is left out). A row that
+    lists several paths lists alternatives ("a task, or a fix plan, or a review finding"): one of them is enough."""
     lines = skill_md.splitlines()
     try:
         start = next(i for i, line in enumerate(lines) if line.strip() == "## Inputs")
@@ -314,7 +323,9 @@ def required_inputs(skill_md: str, declared_inputs: list) -> list:
             continue
         if len(cells) <= max(artifact, required) or cells[required].strip().lower() != "yes":
             continue
-        out += [p for p in declared_inputs if p in cells[artifact] and p not in out]
+        row = [p for p in declared_inputs if p in cells[artifact]]
+        if row:
+            out.append(row)
     return out
 
 
@@ -324,11 +335,13 @@ def _artifact(path: str) -> str:
 
 
 def dependency_problems(flow: dict, skills: dict) -> list:
-    """Each task T that requires (required_inputs) a path P which the skill of another task U of the same flow
-    owns (lists in its outputs) must reach U through depends_on. `skills` maps a skill name to {"inputs",
-    "outputs", "skill_md"}. One text per miss; a task whose skill is not in `skills` (a step task has none) is skipped.
-    A writer that depends on T itself is not a miss: it runs after T, so T cannot be reading what it writes (a row of
-    inputs that lists alternatives, such as a task, a plan or a review finding, names all of them)."""
+    """Each task T that requires (required_rows) a path which the skill of another task U of the same flow writes
+    must be run after U, and reach U through depends_on. `skills` maps a skill name to {"inputs", "outputs",
+    "skill_md"} and, optionally, "updates" (a task that updates a file after another created it also makes it exist).
+    A required row that lists several paths lists alternatives: it is met when one of them is written, or updated, by
+    a task T reaches; otherwise every path of the row that a task of the flow writes is a miss, and the text says
+    whether the writer is unrelated to T (add it to depends_on) or comes after T (reorder: only a later task writes
+    it). One text per miss; a task whose skill is not in `skills` (a step task has none) is skipped."""
     tasks = [t for t in flow.get("tasks", []) if isinstance(t, dict) and isinstance(t.get("key"), str)]
     by_key = {t["key"]: t for t in tasks}
 
@@ -342,20 +355,29 @@ def dependency_problems(flow: dict, skills: dict) -> list:
             todo += list(by_key[k].get("depends_on") or [])
         return seen
 
+    def writes(u: dict, path: str, kinds=("outputs",)) -> bool:
+        info = skills.get(u.get("skill")) or {}
+        return any(_artifact(o) == _artifact(path) for kind in kinds for o in info.get(kind, []))
+
     out = []
     for t in tasks:
         info = skills.get(t.get("skill"))
         if not info:
             continue
         reached = reachable(t["key"])
-        for path in required_inputs(info.get("skill_md", ""), info.get("inputs", [])):
-            for u in tasks:
-                if u is t or u["key"] in reached or t["key"] in reachable(u["key"]):   # a task downstream of t cannot feed t: the row lists alternatives
-                    continue
-                owned = (skills.get(u.get("skill")) or {}).get("outputs", [])
-                if any(_artifact(o) == _artifact(path) for o in owned):
-                    out.append(f"task {t['key']} reads {path}, which task {u['key']} writes: "
-                               f"add \"{u['key']}\" to its depends_on")
+        for row in required_rows(info.get("skill_md", ""), info.get("inputs", [])):
+            if any(writes(by_key[k], path, ("outputs", "updates")) for k in reached for path in row):
+                continue
+            for path in row:
+                for u in tasks:
+                    if u is t or u["key"] in reached or not writes(u, path):
+                        continue
+                    if t["key"] in reachable(u["key"]):
+                        out.append(f"task {t['key']} reads {path}, which only a later task {u['key']} writes: "
+                                   f"reorder the tasks")
+                    else:
+                        out.append(f"task {t['key']} reads {path}, which task {u['key']} writes: "
+                                   f"add \"{u['key']}\" to its depends_on")
     return out
 
 

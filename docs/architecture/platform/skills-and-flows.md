@@ -46,7 +46,7 @@ The flow files, one row each, with their tasks in order. A flow file is not a fl
 | `fix-bug` | Fix a bug, to its pull request | `root-cause` (`eng-root-cause`), `tests` (`eng-unit-tests`), `implement` (`eng-implement`), `review` (`eng-code-review`), `pull-request` (`ops-pull-request`) |
 | `improve-code` | Improve existing code, to its pull request | `impact` (`eng-impact-analysis`), `options` (`eng-tradeoffs`), `refactor` (`eng-refactor`), `review` (`eng-code-review`), `pull-request` (`ops-pull-request`) |
 | `market-positioning` | Market and positioning | `market` (`biz-market-analysis`), `positioning` (`biz-icp-positioning`) |
-| `new-project` | A new project, from the idea to its first task | `brief` (`core-clarify`), `spec` (`product-feature-spec`), `design` (`eng-architecture`), `backlog` (`product-backlog`), `implement` (`eng-implement`), `pull-request` (`ops-pull-request`) |
+| `new-project` | A new project, from the idea to its backlog | `brief` (`core-clarify`), `spec` (`product-feature-spec`), `design` (`eng-architecture`), `backlog` (`product-backlog`) |
 | `short-video` | Script and caption of a short video post | `script` (`mkt-social-copy`) |
 | `website` | Website | `prd` (`product-prd`), `spec` (`product-feature-spec`), `flows` (`design-ux-flows`), `system` (`design-system`), `brief` (`design-brief`), `execute` (`design-execute`), `handoff` (`design-handoff`), `implement` (`eng-implement`) |
 <!-- /generated -->

@@ -947,6 +947,9 @@ def check_routing(report, built, root=ROOT):
         problems.append(f"in the table, not built and not marked (planned): {', '.join(unbuilt)}")
     if sorted(planned & set(built)):
         problems.append(f"marked (planned) and built: {', '.join(sorted(planned & set(built)))}")
+    filed = sorted(planned & flow_routes(root))
+    if filed:
+        problems.append(f"marked (planned) and a flow file exists: {', '.join(filed)}")
     if problems:
         report.warn(ROUTING_TABLE, "; ".join(problems), "routing-table")
 
@@ -1310,7 +1313,7 @@ def check_flows(skills, report, root=ROOT):
                 text = f.read()
         except OSError:
             text = ""
-        info[s["name"]] = {"inputs": s["inputs"], "outputs": s["outputs"], "skill_md": text}
+        info[s["name"]] = {"inputs": s["inputs"], "outputs": s["outputs"], "updates": s.get("updates", []), "skill_md": text}
     rows = None
     inventory = os.path.join(root, "docs", "inventory.md")
     if os.path.isfile(inventory):
@@ -1318,6 +1321,9 @@ def check_flows(skills, report, root=ROOT):
             rows = markdown_table(f.read(), "Flow", after=FLOWS_HEADING)
     for name in flow_files.names(root):
         where = f"flows/{name}.json"
+        if any(s["name"] == f"flow-{name}" for s in skills):
+            report.error(where, f"[flow-file] the route flow-{name} is also a skill: skills/flow-{name}/ and {where} cannot both "
+                         "stand (the router could not tell them apart)")
         try:
             with open(os.path.join(folder, name + ".json"), encoding="utf-8") as f:
                 data = json.load(f)

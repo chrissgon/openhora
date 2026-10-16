@@ -1,6 +1,6 @@
 # Routing table: intent → area → skill
 
-Match the intent column, not the example words. Skills marked (planned) are not built yet, capabilities and flows alike: route to one by its name (the mark is not part of the name) with the status `pending`, say that it is not built, and propose the fallback of SKILL.md Stop rule 2. A flow is built when it is a flow file of the workbench, `flows/<name>.json`, routed as `flow-<name>`; it is not a skill, so it is not among the skills installed in a session, and its route is `ready` all the same. The built flows are `flow-fix-bug`, `flow-build-feature`, `flow-improve-code`, `flow-new-project`, `flow-code-change`, `flow-website`, `flow-brand`, `flow-market-positioning` and `flow-short-video`; every other flow below is planned. Every built skill and every built flow has a row, and a name without the mark is built.
+Match the intent column, not the example words. Skills marked (planned) are not built yet, capabilities and flows alike: route to one by its name (the mark is not part of the name) with the status `pending`, say that it is not built, and propose the fallback of SKILL.md Stop rule 2. A flow is built when it is a flow file of the workbench, `flows/<name>.json`, routed as `flow-<name>`; it is not a skill, so it is not among the skills installed in a session, and its route is `ready` all the same. The built flows are `flow-fix-bug`, `flow-build-feature`, `flow-improve-code`, `flow-new-project`, `flow-code-change`, `flow-website`, `flow-brand`, `flow-design`, `flow-market-positioning` and `flow-short-video`; every other flow below is planned. Every built skill and every built flow has a row, and a name without the mark is built.
 
 ## Business (`biz-`)
 
@@ -50,7 +50,7 @@ Match the intent column, not the example words. Skills marked (planned) are not 
 | Does the implementation match the design | design-implementation-validation (planned) |
 | Run a brief in a design tool, a generator or a code prototype; review what a tool produced | design-execute |
 | Accessibility audit | design-accessibility-review (planned) |
-| Design a product's experience end to end | flow-design (planned) |
+| Design the screens of the workbench's own interface (today the City and the Building screens): the specification, the UX flows, the design system and a brief for each screen. A general flow to design any product end to end is not built | flow-design |
 
 ## Engineering (`eng-`)
 

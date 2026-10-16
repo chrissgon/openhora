@@ -90,7 +90,7 @@ def skill_info(flow):
     for task in flow["tasks"]:
         folder = st.REPO / "skills" / task["skill"]
         meta = skill_meta.declared(str(folder))
-        info[task["skill"]] = {"inputs": meta["inputs"], "outputs": meta["outputs"],
+        info[task["skill"]] = {"inputs": meta["inputs"], "outputs": meta["outputs"], "updates": meta["updates"],
                                "skill_md": (folder / "SKILL.md").read_text(encoding="utf-8")}
     return info
 

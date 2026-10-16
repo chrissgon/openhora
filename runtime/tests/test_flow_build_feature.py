@@ -66,7 +66,7 @@ def test_the_texts_keep_the_rules_that_make_the_phases_safe():
     text = {t["key"]: t["text"] for t in flow_files.load(NAME, kit.ROOT)["tasks"]}
     assert "Ready for architecture: yes" in text["spec"] and "never invent a requirement" in text["spec"]
     assert "no source under test changes" in text["tests"] and "fail today" in text["tests"]
-    assert "quote the failing line" in text["implement"] and "there is no backlog task" in text["implement"]
+    assert "quote the failing line" in text["implement"] and "no task id" in text["implement"] and "not a fix plan" in text["implement"]
     assert "do not make it" in text["implement"]
     assert "each test of new behaviour fails on the code before the change" in text["integration"]
     assert "Fix nothing in this task" in text["review"]
