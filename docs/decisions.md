@@ -1062,7 +1062,7 @@ Decided by recommendation while the maintainer was away; each default below may 
 
 ## 2026-10-16: tests never touch the real secret store (KEYCHAIN-ISOLATION)
 
-Pull request: set when the pull request is opened (branch `pkg/keychain-isolation`).
+Pull request: https://github.com/chrissgon/openhora/pull/440.
 
 - **The problem.** On the maintainer's Mac, executors and reviewers running the suite kept being asked "python3.12 wants to access key 'openhora' in your keychain". The resolver reads the OS secret store through the `keyring` package when it is installed (`uv run --with keyring`), and only two places forced the null backend: `runtime/tests/conftest.py` and the loopback guard of `providers/loopback_only.py`.
 - **What reached the store (found with a test-only keyring backend that records and refuses every access, on all test folders).** `scripts/tests/test_adapter_secrets.py` started `scripts/doctor.py --json` with a minimal env (`PATH`, `HOME`, `XDG_CONFIG_HOME`), so the doctor looked up every registered secret under the services `openhora` and `ai-workbench` and ran `uv run <provider> --check` for each class; `providers/secrets/tests/test_resolver.py` ran `resolver.py --list`, `--list --json`, `--registry ... --list` and `--check <name>` the same way. 345 of 723 `uv run` calls of the suite carried no backend variable at all (mostly the vote and publisher tests of `scripts/tests/` and `runtime/tests/`, which held fake tokens in their env and so asked nothing). The in-process conftests of the provider folders could not help: a child with its own env does not inherit the parent's variable.
