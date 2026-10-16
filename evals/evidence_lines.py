@@ -19,7 +19,7 @@ against today's gate file:
      and no case has more lines, on one model and one adapter, in one variant, than the event's "runs". A later
      change of "runs" in the gate file changes nothing here.
   2. A model id is valid when it is well formed (MODEL_RE) or the word "unknown". The ids an event line names
-     are those of its "models", its "grader" and "unknown". The keys of its "counts" and "upstream" must be among
+     are those of its "models", its "grader" and "unknown". The keys of its "counts", "upstream" and "local_model" must be among
      them. The "model" of a run line must be one of the event's "models" (the word "unknown" only when the
      header names it); a run line is not allowed to name the grader. A model removed from the gate file's
      "models" later keeps its old lines valid. A malformed id is always refused.
@@ -126,7 +126,20 @@ EVENT_REQUIRED = ("record", "skill", "test", "kind", "version", "content_sha256"
                   "adapter_sha256", "grader", "runs", "timeout_seconds", "retries", "measurement_version",
                   "measurement_sha256", "image_digest", "image_platform", "grading_template_sha256", "tools", "cases",
                   "baseline", "web_cases", "counts", "extra_pass_env", "complete")
-EVENT_OPTIONAL = ("gate", "upstream", "image_source", "complete_models", "source")
+EVENT_OPTIONAL = ("gate", "upstream", "image_source", "complete_models", "source", "local_model")
+# "local_model" describes, for each model of a local-model test (an id local/<name>@<12 hex of the weights' sha256>), what served
+# it: {model id: {"weights_sha256", "file_type", "context", "accelerator", "server_image", "server_version",
+# "server_args_sha256"}}, each value in a closed form. The file types are llama.cpp's llama_ftype names, as
+# evals/local_models.py FILE_TYPES lists them (a test keeps the two equal), and "unknown".
+LOCAL_MODEL_KEYS = ("weights_sha256", "file_type", "context", "accelerator", "server_image", "server_version", "server_args_sha256")
+LOCAL_FILE_TYPES = (
+    "ALL_F32", "MOSTLY_BF16", "MOSTLY_F16", "MOSTLY_IQ1_M", "MOSTLY_IQ1_S", "MOSTLY_IQ2_M", "MOSTLY_IQ2_S", "MOSTLY_IQ2_XS",
+    "MOSTLY_IQ2_XXS", "MOSTLY_IQ3_M", "MOSTLY_IQ3_S", "MOSTLY_IQ3_XS", "MOSTLY_IQ3_XXS", "MOSTLY_IQ4_NL", "MOSTLY_IQ4_XS",
+    "MOSTLY_MXFP4_MOE", "MOSTLY_NVFP4", "MOSTLY_Q1_0", "MOSTLY_Q2_0", "MOSTLY_Q2_K", "MOSTLY_Q2_K_S", "MOSTLY_Q3_K_L",
+    "MOSTLY_Q3_K_M", "MOSTLY_Q3_K_S", "MOSTLY_Q4_0", "MOSTLY_Q4_1", "MOSTLY_Q4_K_M", "MOSTLY_Q4_K_S", "MOSTLY_Q5_0",
+    "MOSTLY_Q5_1", "MOSTLY_Q5_K_M", "MOSTLY_Q5_K_S", "MOSTLY_Q6_K", "MOSTLY_Q8_0", "MOSTLY_TQ1_0", "MOSTLY_TQ2_0", "unknown")
+LOCAL_ACCELERATORS = ("cpu", "cuda")
+LOCAL_ID_RE = re.compile(r"local/[a-z0-9][a-z0-9._-]{0,63}@([0-9a-f]{12})")
 RUN_REQUIRED = ("record", "skill", "version", "content_sha256", "model", "adapter", "kind", "test", "date",
                 "measurement_version", "measurement_sha256", "case", "case_sha256", "variant", "outcome", "score", "results")
 # "platform" names a social platform; "cpu_platform" the CPU platform the run's container ran on (linux/arm64, linux/amd64).
@@ -394,7 +407,24 @@ def event_line_problems(line, models=None):
     if "upstream" in line and not (isinstance(line["upstream"], dict) and all(
             is_named(k) and _is(TOOL_RE, v) for k, v in line["upstream"].items())):
         bad("upstream", "{model id the line names: the upstream provider the key proxy's route pins}")
+    if "local_model" in line:
+        local = line["local_model"]
+        if not (isinstance(local, dict) and local and all(is_named(k) and _local_model_ok(k, v) for k, v in local.items())):
+            bad("local_model", "{model id the line names, local/<name>@<12 hex>: {\"weights_sha256\": 64 hexadecimal characters the id starts "
+                "with, \"file_type\": one of llama.cpp's file types or \"unknown\", \"context\": a whole number, \"accelerator\": cpu or "
+                "cuda, \"server_image\": sha256:<64 hex>, \"server_version\": a version line, \"server_args_sha256\": 64 hexadecimal "
+                "characters}}")
     return out
+
+
+def _local_model_ok(model, value):
+    """Whether one entry of an event line's "local_model" is in its closed form, and the model id is the local id of its weights."""
+    m = LOCAL_ID_RE.fullmatch(model) if isinstance(model, str) else None
+    return bool(m and isinstance(value, dict) and set(value) == set(LOCAL_MODEL_KEYS) and _is(HEX64_RE, value["weights_sha256"])
+                and value["weights_sha256"].startswith(m.group(1)) and value["file_type"] in LOCAL_FILE_TYPES
+                and _count(value["context"], 1) and value["accelerator"] in LOCAL_ACCELERATORS
+                and _is(re.compile(r"sha256:[0-9a-f]{64}"), value["server_image"]) and _is(TOOL_RE, value["server_version"])
+                and _is(HEX64_RE, value["server_args_sha256"]))
 
 
 def run_line_problems(line, event=None, models=None):

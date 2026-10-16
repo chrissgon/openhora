@@ -49,6 +49,17 @@ run could still hand data to another account of the same provider through a prom
 network is not internal, by design) held apart from the open internet. The proxy is not a guarantee that
 nothing leaves.
 
+A local model. A model on the person's own machine (evals/local_models.py, evals/README.md "Testing a local model") is
+served by a container of its own beside the run, not by a key proxy: hold_local() starts, for each run, a network
+(wb-eval-held-<run id>, always internal) and on it a model server (wb-eval-model-<run id>), the llama.cpp server of the
+image evals/local-model-server.json pins by digest, with the weights mounted read-only and nothing else, and with no
+published port, no environment variable and no route to the host. The run container (command(local=...)) is put on that
+network only, with no proxy variable and no key, and is told two things: LOCAL_MODEL_BASE_URL, the server's address on
+that network, and LOCAL_MODEL_CONTEXT. It reaches the server and nothing else. The server is not shared between runs: a
+later run (a baseline) could be sped up by, or read, an earlier run's prompt cache, which holds the skill. release_local()
+stops the server and removes it and the network on every way out. Nothing here changes a run of a hosted model: its
+arguments and its call sequence are those of before (evals/tests/test_executor_local_golden.py proves it).
+
 Every container of the harness carries the labels wb.eval=1 and, for a run's own (the run container, its key
 proxy and its network), wb.eval.run=<run id>, so that an orphan left by a crash is found by label; the egress
 proxy's and the key proxies' logs are limited in size.
@@ -83,6 +94,9 @@ Usage (the runner imports this module; the commands are for a person):
   python3 evals/executor.py ensure     build what is missing, start the proxy, print the environment
   python3 evals/executor.py pull       pull the published image the lock names for this definition and platform,
                                        and check its repo digest equals the lock's
+  python3 evals/executor.py pull-local-server [--accelerator cpu|cuda]
+                                       pull the llama.cpp server image evals/local-model-server.json pins (by digest) and
+                                       check docker lists that digest for it; a test of a local model never pulls
   python3 evals/executor.py clean      remove the egress proxy and the networks of the current definition
   python3 evals/executor.py archive --out <file.tar>
                                        save the built image as an archive, to be kept: prints its
@@ -126,6 +140,13 @@ LOG_OPTS = ("--log-opt", "max-size=10m", "--log-opt", "max-file=3")
 NO_PULL = "--pull=never"  # no `docker run` of the harness fetches an image: a missing one is an error, never a download
 LABEL_ALL, LABEL_RUN = "wb.eval", "wb.eval.run"  # on every container and network of the harness; the run's id on a run's own
 KEYPROXY_READY_SECONDS = 20
+LOCAL_SERVER_FILE = os.path.join(HERE, "local-model-server.json")  # the pinned model server images, outside the fingerprint
+LOCAL_IMAGE_RE = re.compile(r"ghcr\.io/ggml-org/llama\.cpp:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}")
+LOCAL_REPOSITORY = "ghcr.io/ggml-org/llama.cpp"
+MODEL_PORT = 8080  # where the model server listens, on the run's internal network only
+LOCAL_POLL_SECONDS = 1.0  # how often a starting model server is looked at
+LOCAL_HEALTH_INTERVAL = "2s"  # the image's HEALTHCHECK runs every 30 s by default: a server that is ready is seen within seconds
+LOCAL_LOAD_DEFAULT = 900  # seconds a model server has to load its weights (the configuration may lower or raise it, up to 1500)
 STOP_SECONDS = 10  # how long a stopping key proxy has to write what it still holds
 RUN_ID_RE = re.compile(r"[0-9a-f]{16}")
 DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
@@ -329,10 +350,11 @@ def new_run_id():
 
 
 def run_names(run_id):
-    """The names of one run's own container, key proxy and network, after its id."""
+    """The names of one run's own container, key proxy, model server and network, after its id."""
     if not RUN_ID_RE.fullmatch(str(run_id)):
         raise ExecutorError("a run id is 16 hexadecimal characters")
-    return {"container": f"wb-eval-run-{run_id}", "keys": f"wb-eval-keys-{run_id}", "network": f"wb-eval-held-{run_id}"}
+    return {"container": f"wb-eval-run-{run_id}", "keys": f"wb-eval-keys-{run_id}", "network": f"wb-eval-held-{run_id}",
+            "model": f"wb-eval-model-{run_id}"}
 
 
 def labels(run_id=None):
@@ -566,6 +588,182 @@ def release(run_id, env=None):
         time.sleep(0.3 * (attempt + 1))
 
 
+def local_server_pins(path=None):
+    """{accelerator: {"image", "platforms", "source", "accessed"}} of evals/local-model-server.json: the llama.cpp server
+    images, each pinned by the digest of its index, with the manifest digest of each CPU platform. A file that is not in
+    its form is an error; the runner never guesses which image to trust."""
+    path = path or LOCAL_SERVER_FILE
+    try:
+        with open(path, encoding="utf-8") as f:
+            pins = json.load(f)
+    except (OSError, ValueError) as e:
+        raise ExecutorError(f"{path} is not readable JSON: {e}") from None
+    if not (isinstance(pins, dict) and pins and set(pins) <= {"cpu", "cuda"}):
+        raise ExecutorError(f"{path} must map cpu and cuda to their pinned image")
+    for accelerator, pin in pins.items():
+        platforms = pin.get("platforms") if isinstance(pin, dict) else None
+        if not (isinstance(pin, dict) and set(pin) == {"image", "platforms", "source", "accessed"}
+                and isinstance(pin["image"], str) and LOCAL_IMAGE_RE.fullmatch(pin["image"])
+                and isinstance(platforms, dict) and platforms and all(
+                    p in IMAGE_PLATFORMS and isinstance(d, str) and DIGEST_RE.fullmatch(d) for p, d in platforms.items())
+                and isinstance(pin["source"], str) and pin["source"] and re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(pin["accessed"]))):
+            raise ExecutorError(f"the entry {accelerator!r} of {path} must be exactly an image "
+                                f"({LOCAL_REPOSITORY}:<tag>@sha256:<digest>), the manifest digest of each platform, a source and the access date")
+    return pins
+
+
+def local_server(accelerator="cpu", platform=None, pins=None):
+    """{"image", "index_digest", "manifest_digest", "platform"} of the model server image for the accelerator on the
+    platform the run uses. The image is named by digest: docker ignores its tag, which is there for the reader."""
+    pins = local_server_pins() if pins is None else pins
+    if accelerator not in pins:
+        raise ExecutorError(f"no model server image is pinned for the accelerator {accelerator!r} ({', '.join(sorted(pins))} are)")
+    pin, platform = pins[accelerator], platform or image_platform()
+    if platform not in pin["platforms"]:
+        raise ExecutorError(f"the {accelerator} model server image is pinned for {', '.join(sorted(pin['platforms']))}, not {platform}")
+    return {"image": pin["image"], "index_digest": pin["image"].rsplit("@", 1)[1], "manifest_digest": pin["platforms"][platform],
+            "platform": platform}
+
+
+def verify_local_server(accelerator="cpu", env=None, pins=None):
+    """Raise unless the pinned model server image is present and docker lists the pinned digest for it. Never pulls."""
+    server = local_server(accelerator, pins=pins)
+    if docker("image", "inspect", server["image"], env=env, check=False).returncode != 0:
+        raise ExecutorError(f"the model server image {server['image']} is not present on this machine: run "
+                            f"`python3 evals/executor.py pull-local-server{'' if accelerator == 'cpu' else ' --accelerator ' + accelerator}` "
+                            "once, then start the test again (a test never pulls)")
+    if f"{LOCAL_REPOSITORY}@{server['index_digest']}" not in repo_digests(server["image"], env):
+        raise ExecutorError(f"the image present as {server['image']} does not list the pinned digest: remove it and run pull-local-server")
+    return server
+
+
+def pull_local_server(accelerator="cpu", env=None, pins=None):
+    """Pull the pinned model server image for this machine's platform, by digest, and check docker lists that digest for it.
+    Returns the image, its digests and the platform."""
+    server = local_server(accelerator, pins=pins)
+    if docker("info", "--format", "{{.ServerVersion}}", env=env, check=False).returncode != 0:
+        raise ExecutorError("the docker daemon is not running: start it")
+    docker("pull", "--platform", server["platform"], server["image"], env=env, timeout=3600)
+    verify_local_server(accelerator, env, pins)
+    return {"image": server["image"], "index_digest": server["index_digest"], "manifest_digest": server["manifest_digest"],
+            "platform": server["platform"]}
+
+
+def local_user():
+    """The docker arguments that run a model server as an unprivileged user: the caller on Linux, where a bind mount keeps
+    numeric owners, and the user "nobody" elsewhere. The weights are mounted read-only, and a server writes nothing."""
+    return ["--user", f"{os.getuid()}:{os.getgid()}" if sys.platform.startswith("linux") else "65534:65534"]
+
+
+def local_server_argv(run_id, spec, image, platform, weights, user_args):
+    """The docker arguments (after `docker`) that start the model server of one run. spec: {"alias", "context",
+    "memory_gb", "accelerator", "cpus"}. The server has a read-only root and a small temporary folder, no capability, no
+    new privilege, a limit on processes, memory with no swap, a limit on CPUs, the log limits and the labels of the run,
+    and is on the run's network and no other. It has no published port, no mount but the weights (read-only), no added host
+    and no environment variable. One slot (--parallel 1): the run's model calls come one at a time."""
+    names_ = run_names(run_id)
+    cuda = spec["accelerator"] == "cuda"
+    memory = f"{spec['memory_gb']}g"
+    return ["run", "-d", NO_PULL, "--rm", "--init", "--platform", platform, *CONFINED, "--pids-limit", "256", "--read-only",
+            "--tmpfs", "/tmp:rw,nosuid,nodev,size=256m", "--memory", memory, "--memory-swap", memory, "--cpus", str(spec["cpus"]),
+            *LOG_OPTS, "--health-interval", LOCAL_HEALTH_INTERVAL, *labels(run_id), *user_args, "--name", names_["model"],
+            "--network", names_["network"], "-v", f"{weights}:/models/model.gguf:ro", *(["--gpus", "all"] if cuda else []), image,
+            "-m", "/models/model.gguf", "--host", "0.0.0.0", "--port", str(MODEL_PORT), "-c", str(spec["context"]),
+            "--alias", spec["alias"], "--jinja", "--parallel", "1", "--threads", str(spec["cpus"]),
+            "-ngl", "999" if cuda else "0", "--no-webui", "--no-slots", "--no-context-shift"]
+
+
+def host_cpus(env=None):
+    """The docker host's CPU count, asked of docker."""
+    r = docker("info", "--format", "{{.NCPU}}", env=env, check=False, timeout=HOST_INFO_TIMEOUT)
+    if r.returncode != 0 or not r.stdout.strip().isdigit() or int(r.stdout.strip()) < 1:
+        raise ExecutorError("docker did not say how many CPUs it has: give \"cpus\" in the local models file")
+    return int(r.stdout.strip())
+
+
+def local_server_version(accelerator="cpu", env=None, pins=None):
+    """The version line of the model server (`--version`), read once per event in a container with no network, as the
+    runner's tool versions are; limited to the characters an evidence line allows."""
+    server = verify_local_server(accelerator, env, pins)
+    r = docker("run", "--rm", NO_PULL, "--platform", server["platform"], *CONFINED, "--pids-limit", "256", "--network", "none",
+               *labels(), *local_user(), server["image"], "--version", env=env, check=False, timeout=120)
+    text = (r.stderr or "") + (r.stdout or "")
+    line = next((l.strip() for l in text.splitlines() if l.strip().lower().startswith("version")), "")
+    line = re.sub(r"[^A-Za-z0-9 ._()/+:,-]", "?", line)[:80]
+    if r.returncode != 0 or not line:
+        raise ExecutorError(f"the model server did not say its version: {text.strip()[-200:]}")
+    return line
+
+
+def hold_local(run_id, spec, env=None, image=None):
+    """Start the run's own internal network and its model server, and wait until the server is ready. spec: {"alias",
+    "weights", "context", "memory_gb", "accelerator", "cpus", "load_timeout_seconds"}; image replaces the pinned image
+    (a test's stand-in). The weights are mounted read-only by their real path. Readiness is the image's HEALTHCHECK
+    (docker's health status `healthy`); an image with none is ready when its log says the server is listening. A server
+    that exits, is unhealthy or is not ready within load_timeout_seconds fails as ExecutorError with the last 300
+    characters of its log, after removing whatever was made. Returns {"model", "network", "url", "seconds"}."""
+    names_, platform = run_names(run_id), image_platform()
+    server = {"image": image} if image else local_server(spec["accelerator"], platform)
+    weights = os.path.realpath(spec["weights"])
+    if not os.path.isfile(weights):
+        raise ExecutorError(f"the weights {spec['weights']} are not a file")
+    timeout = spec.get("load_timeout_seconds") or LOCAL_LOAD_DEFAULT
+    started = time.monotonic()
+    try:
+        created = docker("network", "create", "--internal", *labels(run_id), names_["network"], env=env, check=False)
+        if created.returncode != 0:
+            why = created.stderr.strip()[-300:]
+            hint = (" (docker's address pools are used up: about 31 networks fit; run fewer runs at a time, or remove "
+                    "networks nothing uses)" if "pool" in why.lower() else "")
+            raise ExecutorError(f"cannot create the run's network {names_['network']}: {why}{hint}")
+        argv = local_server_argv(run_id, spec, server["image"], platform, weights, local_user())
+        begun = docker(*argv, env=env, check=False)
+        if begun.returncode != 0:
+            raise ExecutorError(f"cannot start the model server: {begun.stderr.strip()[-300:]}")
+        deadline = started + timeout
+        while True:
+            state = docker("inspect", "--format", "{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}",
+                           names_["model"], env=env, check=False)
+            status, _, health = state.stdout.strip().partition(" ")
+            if state.returncode != 0 or status in ("exited", "dead"):
+                raise ExecutorError(f"the model server stopped before it was ready: {local_log_tail(names_['model'], env)}")
+            if health == "healthy":
+                break
+            if health == "none" and "llama_server: listening on" in local_log_tail(names_["model"], env, 4000):
+                break
+            if health == "unhealthy":
+                raise ExecutorError(f"the model server is unhealthy: {local_log_tail(names_['model'], env)}")
+            if time.monotonic() > deadline:
+                raise ExecutorError(f"the model server was not ready within {timeout} seconds (load_timeout_seconds): "
+                                    f"{local_log_tail(names_['model'], env)}")
+            time.sleep(LOCAL_POLL_SECONDS)
+    except BaseException:
+        release_local(run_id, env)  # never left half made for a later call to find
+        raise
+    return {"model": names_["model"], "network": names_["network"], "url": f"http://{names_['model']}:{MODEL_PORT}/v1",
+            "seconds": round(time.monotonic() - started, 1)}
+
+
+def local_log_tail(name, env=None, chars=300):
+    """The last characters of a container's log (both streams), for an error message."""
+    logs = docker("logs", name, env=env, check=False)
+    return ((logs.stdout or "") + (logs.stderr or "")).strip()[-chars:]
+
+
+def release_local(run_id, env=None):
+    """Stop a run's model server and remove it and the run's network. Safe to call twice, and on a run whose server never
+    started: the run container is removed first by the caller (a network with a container on it is not removed; it is
+    tried again). The server gets STOP_SECONDS to end before it is killed."""
+    names_ = run_names(run_id)
+    docker("stop", "-t", str(STOP_SECONDS), names_["model"], env=env, check=False, timeout=STOP_SECONDS + 60)
+    docker("rm", "-f", names_["model"], env=env, check=False, timeout=60)
+    for attempt in range(5):
+        r = docker("network", "rm", names_["network"], env=env, check=False, timeout=60)
+        if r.returncode == 0 or "No such network" in r.stderr or "not found" in r.stderr:
+            return
+        time.sleep(0.3 * (attempt + 1))
+
+
 def archive(out, env=None):
     """Save the built image as an archive at out. Returns its checksum, the image's digest and its platform:
     the values docs/decisions.md records when a measurement version is closed."""
@@ -607,7 +805,7 @@ def translate(value, pairs):
     return value
 
 
-def command(cmd, root, cwd=None, env=None, runner=None, pass_names=(), network="none", model=None, run_id=None):
+def command(cmd, root, cwd=None, env=None, runner=None, pass_names=(), network="none", model=None, run_id=None, local=None):
     """(docker argv, container name) that runs cmd in a container. cmd, cwd and the mounts are host paths.
     runner is the adapter script cmd starts: a file, the only one of the workbench the container sees.
     model is the model the command runs (an id or alias of the gate file's list); it chooses the key proxy's route.
@@ -615,7 +813,10 @@ def command(cmd, root, cwd=None, env=None, runner=None, pass_names=(), network="
     also gets its own key proxy's base URL (the caller starts that proxy first with the same run_id: held_route(),
     hold()). A held run goes on its run's own network, where only its key proxy is, and gets no proxy variable:
     it has no way to the egress proxy and so none to a provider with a credential of its own. The container is
-    named after run_id (a fresh one when none is given) and labelled with it."""
+    named after run_id (a fresh one when none is given) and labelled with it.
+    local ({"context": n}) is a run of a local model (hold_local() started its server first, with the same run_id): the
+    run goes on the run's own network, where only its model server is, with no proxy variable, and gets two variables,
+    LOCAL_MODEL_BASE_URL and LOCAL_MODEL_CONTEXT. A command with no network stays on none."""
     if runner and not os.path.isfile(runner):
         raise ExecutorError(f"the adapter script {runner} does not exist")
     if network not in NETWORKS:
@@ -636,8 +837,8 @@ def command(cmd, root, cwd=None, env=None, runner=None, pass_names=(), network="
     for key in FORWARD:
         if env.get(key):
             argv += ["-e", f"{key}={env[key]}"]
-    held_by = held_route(pass_names, env, network, model)
-    kept = {r["secret"]: r["placeholder"] for r in routes().values()}  # what a key proxy holds never enters a container
+    held_by = None if local else held_route(pass_names, env, network, model)  # a local model holds no key
+    kept ={r["secret"]: r["placeholder"] for r in routes().values()}  # what a key proxy holds never enters a container
     for key in dict.fromkeys(pass_names):
         if key in kept and env.get(key):
             argv += ["-e", f"{key}={kept[key]}"]  # the key stays with its key proxy
@@ -645,8 +846,12 @@ def command(cmd, root, cwd=None, env=None, runner=None, pass_names=(), network="
             argv += ["-e", key]  # the value comes from the docker client's environment
     if held_by:
         argv += ["-e", f"{route(name=held_by)['base_url_env']}={keyproxy_url(run_id, held_by)}"]
+    if local and network != "none":  # the run's own network: its model server is the only host a run reaches
+        argv += ["-e", f"LOCAL_MODEL_BASE_URL=http://{run['model']}:{MODEL_PORT}/v1", "-e", f"LOCAL_MODEL_CONTEXT={int(local['context'])}"]
     if network == "none":
         argv += ["--network", "none"]
+    elif local:
+        argv += ["--network", run["network"]]
     elif held_by:  # the run's own network: its key proxy is the only host a run reaches
         argv += ["--network", run["network"]]
     elif network == "proxy":
@@ -694,6 +899,8 @@ def main(argv=None):
         print(json.dumps(ensure(), indent=2))
     elif argv == ["pull"]:
         print(json.dumps(pull(), indent=2))
+    elif argv[:1] == ["pull-local-server"] and (len(argv) == 1 or (len(argv) == 3 and argv[1] == "--accelerator" and argv[2] in ("cpu", "cuda"))):
+        print(json.dumps(pull_local_server(argv[2] if len(argv) == 3 else "cpu"), indent=2))
     elif argv == ["clean"]:
         clean()
     elif len(argv) == 3 and argv[:2] == ["archive", "--out"]:

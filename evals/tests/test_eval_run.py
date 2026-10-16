@@ -1831,9 +1831,9 @@ def test_explicit_flags_win_over_the_configuration(tmp_path, monkeypatch):
     monkeypatch.setattr(er, "ROOT", str(tmp_path))
     monkeypatch.setattr(er.KIT, "ROOT", str(tmp_path))
     configure_gate(tmp_path, f={"adapter": "fh", "pass_env": ["FLOOR_KEY"]})
-    o = er.parse(["--skill", "demo", "--harness", "h2", "--model", "m2", "--model", "local/x", "--threshold", "0.5"])
-    assert (o["models"], o["harness"], o["adapters"], o["threshold"]) == (["m2", "local/x"], "h2", {"m2": "h2", "local/x": "h2"}, 0.5)
-    assert o["pass_envs"] == {"m2": [], "local/x": []}  # the configured key belongs to the model whose entry names it
+    o = er.parse(["--skill", "demo", "--harness", "h2", "--model", "m2", "--model", "own/x", "--threshold", "0.5"])
+    assert (o["models"], o["harness"], o["adapters"], o["threshold"]) == (["m2", "own/x"], "h2", {"m2": "h2", "own/x": "h2"}, 0.5)
+    assert o["pass_envs"] == {"m2": [], "own/x": []}  # the configured key belongs to the model whose entry names it
     o = er.parse(["--skill", "demo", "--model", "f", "--pass-env", "MY_KEY"])
     assert (o["models"], o["adapters"], o["pass_envs"], o["extra_pass_env"]) == (["f"], {"f": "fh"}, {"f": ["FLOOR_KEY"]}, ["MY_KEY"])
 
@@ -2078,7 +2078,7 @@ def test_a_model_outside_the_lab_models_writes_its_evidence_outside_the_checkout
     for command in (["git", "init", "-q"], ["git", "add", "-A"], ["git", "-c", "user.name=t", "-c", "user.email=t@example.test",
                                                                   "commit", "-q", "-m", "tree"]):
         subprocess.run(command, cwd=tmp_path, check=True, capture_output=True)
-    assert er.main(["--skill", "demo", "--harness", "h", "--model", "other-model", "--model", "local/x", "--runs", "1"]) == 0
+    assert er.main(["--skill", "demo", "--harness", "h", "--model", "other-model", "--model", "own/x", "--runs", "1"]) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["evidence"]["written"] is True and out["evidence"]["home"] == "local" and out["evidence"]["kind"] == "full"
     written = Path(out["evidence"]["path"])
@@ -2089,8 +2089,8 @@ def test_a_model_outside_the_lab_models_writes_its_evidence_outside_the_checkout
     # The file is an ordinary evidence file with the real ids, valid by its own event line.
     lines = [json.loads(line) for line in written.read_text().splitlines()]
     event, runs = lines[0], lines[1:]
-    assert event["models"] == ["other-model", "local/x"] and event["adapters"] == {"other-model": "h", "local/x": "h"}
-    assert {line["model"] for line in runs} == {"other-model", "local/x"} and set(event["gate"]) == {"other-model"}
+    assert event["models"] == ["other-model", "own/x"] and event["adapters"] == {"other-model": "h", "own/x": "h"}
+    assert {line["model"] for line in runs} == {"other-model", "own/x"} and set(event["gate"]) == {"other-model"}
     status = er.load_status()
     assert status.evidence_file_problems(str(written), str(tmp_path), "demo") == []
     assert status.evidence_problems(str(tmp_path)) == ({}, 0)  # the repository holds none of it
