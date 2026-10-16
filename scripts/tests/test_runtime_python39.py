@@ -59,6 +59,8 @@ ON_SYSTEM_PYTHON = [
     "runtime/sources.py", "runtime/ops_sources.py", "providers/converter/container.py",
     # package P-OPS: upkeep (retention), the orphan containers, the lease of the sources folder, the secret store's state
     "runtime/upkeep.py", "runtime/orphans.py", "runtime/lease.py", "runtime/secret_state.py",
+    # S16: the password-manager backends, loaded by path by the resolver, which the runtime loads under the system interpreter too.
+    "providers/secrets/password_managers.py",
     # The step engine (P5): the engine, the run of a step task (a process the dispatcher starts), and the kind `ingest`.
     "runtime/steps.py", "runtime/ops_steps.py", "runtime/step_ingest.py", "runtime/step_export.py", "runtime/step_write_back.py",
     "runtime/effect_write.py", "runtime/ops_step_effects.py", "runtime/write_document.py", "runtime/ops_step_seams.py",

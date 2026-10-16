@@ -135,3 +135,43 @@ def test_an_unsafe_credentials_directory_is_told_by_the_runtime_and_is_not_a_mis
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# --- the password manager (package S16) ----------------------------------------------------------------------------------------------
+
+
+def manager_machine(monkeypatch, tmp_path, *, answer):
+    """A FAKE `op`, a mapping file and the environment that finds them; the resolver the runtime loads reads them from there."""
+    import importlib.util
+    import json
+    import os
+    spec = importlib.util.spec_from_file_location("fake_op_for_secret_state", st.REPO / "providers" / "secrets" / "tests" / "fake_op.py")
+    fake_op = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = fake_op
+    spec.loader.exec_module(fake_op)
+    op = fake_op.FakeOp(tmp_path / "bin")
+    op.answer("whoami", **answer)
+    mapping = tmp_path / "config" / "openhora" / "password-manager.json"
+    mapping.parent.mkdir(parents=True)
+    mapping.write_text(json.dumps({"backend": "1password", "references": {"VCS_GITHUB_TOKEN": "op://Example Vault/github-read/credential"}}),
+                       encoding="utf-8")
+    mapping.chmod(0o600)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("PATH", f"{op.folder}{os.pathsep}/usr/bin{os.pathsep}/bin")
+    secret_state.forget()
+    return op, mapping
+
+
+def test_a_locked_password_manager_is_a_sentence_after_the_store_and_is_not_asked_without_a_mapping(monkeypatch, tmp_path):
+    secret_state.forget()
+    assert secret_state.manager_probe(fresh=True)["state"] == "na", "no mapping file: the manager is not asked"
+    op, mapping = manager_machine(monkeypatch, tmp_path, answer={"rc": 1, "stderr": "[ERROR] You are not signed in."})
+    said = secret_state.unreadable_sentence(fresh=True)
+    assert said.startswith("the password manager (1Password) is locked or not signed in") and "[ERROR]" not in said
+    assert [c["argv"][1:] for c in op.calls()] == [["whoami"]], "a probe, and no secret read"
+    secret_state.unreadable_sentence()
+    assert len(op.calls()) == 1, "the answer is kept for a moment, so a page does not ask a locked app to prompt every time"
+    op.answer("whoami", stdout="signed in\n")
+    assert secret_state.unreadable_sentence(fresh=True) == ""
+    mapping.chmod(0o644)
+    assert "chmod 600" in secret_state.unreadable_sentence(fresh=True)

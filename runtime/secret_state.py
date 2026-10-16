@@ -3,16 +3,18 @@
 # requires-python = ">=3.9"
 # dependencies = []
 # ///
-"""Whether the OS secret store is locked or unavailable, for the messages of the runtime (package P-OPS, finding I3).
+"""Whether the OS secret store or the password manager is locked or unavailable, for the messages of the runtime (package P-OPS, finding I3;
+the password manager, package S16).
 
 A locked store used to read as a missing secret, and a routine that needed a key failed at night with "the credential is
 missing" while the key was stored. The resolver (providers/secrets/resolver.py) now tells the two apart; this module is the
 runtime's one use of that: it loads the resolver by path, asks the store for a name nothing stores (`probe_store`, no secret is
-read), and gives the sentence a message shows. The operations layer, the page's held reasons and the connections read call it
+read), and gives the sentence a message shows. When the person mapped secrets to a password manager it asks that too, after the store
+(`probe_manager`: `op whoami`, no secret is read; nothing is asked when there is no mapping file). The operations layer, the page's held reasons and the connections read call it
 only when a credential is already missing, so that a store in good order is never asked for nothing.
 
-The answer is kept for PROBE_SECONDS, so that a page that asks every few seconds does not ask a locked keychain to prompt the
-person each time. Never a value, never a message of the backend.
+The answer is kept for PROBE_SECONDS, so that a page that asks every few seconds does not ask a locked keychain (or a locked
+password manager) to prompt the person each time. Never a value, never a message of the backend.
 
 Standard library only. Runs on Python 3.9: python3 runtime/secret_state.py --help
 """
@@ -29,6 +31,7 @@ RESOLVER = ("providers", "secrets", "resolver.py")
 PROBE_SECONDS = 30.0
 LOCKED_NOTE = "the secret store is locked or unavailable: unlock it; a secret listed as missing may be stored"
 _CACHE = {}   # {root: (monotonic time, probe answer)}
+_MANAGER_CACHE = {}   # {root: (monotonic time, probe_manager answer)}
 
 
 def _resolver(root: str):
@@ -68,9 +71,28 @@ def locked_sentence(root=None, *, store="default", clock=time.monotonic, fresh: 
     return ""
 
 
+def manager_probe(root=None, *, environ=None, clock=time.monotonic, fresh: bool = False) -> dict:
+    """{"state": "na" | "ok" | "locked" | "unavailable" | "unsafe" | "unknown", "detail"}: the resolver's probe_manager. "na" when there is
+    no mapping file (nothing is asked). Kept PROBE_SECONDS, like the store's, when the process environment is the one asked."""
+    root = root or ROOT
+    now = clock()
+    if environ is None and not fresh:
+        kept = _MANAGER_CACHE.get(root)
+        if kept and now - kept[0] < PROBE_SECONDS:
+            return kept[1]
+    try:
+        answer = _resolver(root).probe_manager(environ)
+    except Exception as e:  # an interpreter the resolver does not run on, a resolver without the manager
+        answer = {"state": "unknown", "detail": f"the password manager could not be asked: {type(e).__name__}"}
+    if environ is None:
+        _MANAGER_CACHE[root] = (now, answer)
+    return answer
+
+
 def unreadable_sentence(root=None, *, store="default", fresh: bool = False) -> str:
     """The sentence that tells why a credential cannot be read although it may be stored: the credentials directory is refused as unsafe
-    (with the fix), else the OS secret store is locked or unavailable; "" when neither. A locked store and an unsafe directory are
+    (with the fix), else the OS secret store is locked or unavailable, else the password manager the person mapped secrets to is
+    locked, not installed or its mapping file is refused; "" when none. A locked store, an unsafe directory and a locked manager are
     not an absent key."""
     try:
         status = _resolver(root or ROOT).credentials_status()
@@ -78,12 +100,17 @@ def unreadable_sentence(root=None, *, store="default", fresh: bool = False) -> s
         status = {"state": "absent"}
     if status["state"] == "unsafe":
         return f"the credentials directory is unsafe, so no secret is read from it: {status['detail']}"
-    return locked_sentence(root, store=store, fresh=fresh)
+    said = locked_sentence(root, store=store, fresh=fresh)
+    if said or store != "default":   # a fake store is a test of the store alone
+        return said
+    managed = manager_probe(root, fresh=fresh)
+    return managed["detail"] if managed["state"] in ("locked", "unavailable", "unsafe") else ""
 
 
 def forget() -> None:
     """Drop the kept answers (a test, or after the person unlocks the store)."""
     _CACHE.clear()
+    _MANAGER_CACHE.clear()
 
 
 def main(argv=None) -> int:
