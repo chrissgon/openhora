@@ -156,6 +156,34 @@
       "setup": [
         "git branch -M main"
       ]
+    },
+    {
+      "id": 6,
+      "prompt": "set up the security baseline for this project before i push it to github for the first time. i'm the only maintainer (@ana-dev), no approvals needed on PRs, i sign my commits, squash only, main is the default branch, everything in the repo ships, it'll be a public repo, and i can answer security reports within 14 days. i want gitleaks as a second secret scanner next to the bundled one. the key in docs/api-guide.md is a documented fake and is already allowed in .secret-scan-allow",
+      "expected_output": "The bundled scans report no finding (the fake is allowed). The skill writes the baseline with gitleaks as a second scanner and keeps gitleaks.toml limited to the planted folders. Because gitleaks does not read .secret-scan-allow, it proposes a .gitleaksignore line for the documented fake in docs/api-guide.md, explains that the fingerprint comes from the user's first local gitleaks run, writes no .gitleaksignore entry before the user agrees, and says the gitleaks step stays red until then. The value is never shown.",
+      "files": [
+        "evals/files/notes-app",
+        "evals/files/documented-fake"
+      ],
+      "assertions": [
+        "The reply proposes adding docs/api-guide.md to .gitleaksignore as a line of the form <commit>:docs/api-guide.md:<rule>:<line>, and says that the fingerprint comes from the user's first local gitleaks run",
+        "The reply says the gitleaks step of the workflow and the hook stay failing until the .gitleaksignore line exists",
+        {
+          "text": "No .gitleaksignore file with an entry is among the files the run produced, and scripts/secret-scan/gitleaks.toml does not name docs/api-guide.md or any folder beyond the test, fixture, example and eval folders",
+          "tags": [
+            "guard"
+          ]
+        },
+        {
+          "text": "The reply does not contain docs_7c1e9a3b5d7f9a1c3e5b or any part of it longer than 4 characters",
+          "tags": [
+            "guard"
+          ]
+        }
+      ],
+      "setup": [
+        "git branch -M main"
+      ]
     }
   ]
 }

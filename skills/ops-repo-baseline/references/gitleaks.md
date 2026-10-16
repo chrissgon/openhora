@@ -36,3 +36,12 @@ The project's GitHub Action asks for a license key when the repository belongs t
 ## The configuration
 
 `assets/gitleaks.toml` extends gitleaks' default rules (`useDefault = true`) and adds one global allow-list for paths inside the folders the bundled scanner marks as planted fixtures (`PLANTED_DIRS` in `secret_scan.py`): the same names, so the two scanners agree about where a fixture can be. It allows no rule, no regex and no commit globally. The consequence to say to the user: a real secret committed under `tests/`, `fixtures/`, `evals/` or `examples/` is reported by the bundled scanner as `planted?` (and asked about), and is not reported by gitleaks, which is why the bundled scanner stays on.
+
+## What the bundled scanner allows and gitleaks does not know
+
+gitleaks reads neither `.secret-scan-allow` nor the bundled scanner's `kind`. A documented fake outside the planted folders, a line allowed in `.secret-scan-allow`, or a revoked key the user keeps in the history is a gitleaks finding until it is ignored there too, and the gitleaks step of the workflow and the hook fail on it.
+
+1. Ask the user to run, once, `scripts/secret-scan/bin/gitleaks git --redact -v --no-banner --config scripts/secret-scan/gitleaks.toml .` after the setup script, and to paste the `Fingerprint:` lines. A fingerprint is `<commit>:<file>:<rule>:<line>` and holds no secret value. The skill does not run the setup script.
+2. For each `.secret-scan-allow` line, and each finding the user confirms is planted or revoked, propose one line of `.gitleaksignore` (project root, one fingerprint per line). Write it only after the user agrees, as for `.secret-scan-allow`.
+3. Until the lines exist, the gitleaks step of the workflow and the hook stay red. Say so in the report. Do not widen `gitleaks.toml` to silence them: its allow-list stays the planted folders.
+4. A fingerprint holds a commit hash, so rewriting history changes it; the user regenerates the lines after a rewrite.

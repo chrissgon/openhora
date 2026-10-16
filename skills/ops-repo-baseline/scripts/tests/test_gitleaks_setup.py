@@ -204,3 +204,17 @@ def test_gitleaks_config_and_bundled_scanner_agree_on_a_path(rel):
     regex = re.compile(config["allowlists"][0]["paths"][0])
     bundled_says_planted = bool(scan.PLANTED_DIRS & set(rel.split("/")[:-1]))
     assert bool(regex.search(rel)) == bundled_says_planted
+
+
+# ---------- the gitleaks command and the way to ignore a finding are the same everywhere they are written ----------
+
+def test_local_command_in_the_skill_equals_the_workflow_command_and_ignore_file_is_explained():
+    skill_md = (SKILL / "SKILL.md").read_text()
+    workflow = (SKILL / "assets" / "checks.yml").read_text()
+    command = "git --redact --no-banner --exit-code 1 --config scripts/secret-scan/gitleaks.toml ."
+    assert f"scripts/secret-scan/bin/gitleaks {command}" in skill_md
+    assert command in workflow
+    for text in (skill_md, (SKILL / "references" / "gitleaks.md").read_text()):
+        assert ".gitleaksignore" in text
+        assert "<commit>:<file>:<rule>:<line>" in text
+    assert "stay red" in (SKILL / "references" / "gitleaks.md").read_text()
