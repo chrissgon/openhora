@@ -1412,22 +1412,30 @@ def _on_default_branch(root, branch):
 
 
 OWN_REFLOG_SUBJECTS = ("commit", "cherry-pick", "rebase", "revert", "am")  # entries that a person's own work makes
+MERGE_REFLOG_SUBJECTS = ("merge", "pull")  # entries that make a commit of the branch's own only when they are not a fast-forward
 
 
 def _is_own_copy(root, branch, upstream):
     """True when the upstream is this branch's own pushed copy under another name (git push -u origin x:y): its tip is
     a commit this branch made itself, which the branch's reflog shows as an entry of its own work (a commit, a
-    cherry-pick, a rebase, a revert, an am). The creation point, a fast-forward, a merge and a reset are not: an
-    upstream the branch was cut from, pulled or merged forward is the integration branch, not a copy. Without a
-    reflog (a fresh clone) the upstream is kept. push.default=upstream makes @{push} equal @{upstream} for any
-    branch, so that equality tells nothing."""
+    cherry-pick, a rebase, a revert, an am, and a merge or a pull that made a merge commit). Two entries are not:
+    a rebase whose commit is the commit it was rebased onto (a rebase before the branch had a commit of its own
+    leaves the upstream's tip as the branch's tip, and made nothing), and a fast-forward. The creation point and a
+    reset are not either: an upstream the branch was cut from, pulled or merged forward is the integration branch,
+    not a copy; a merge commit made here is a new commit, so a pushed tip that came from a merge (the integration
+    branch merged forward, then pushed) is the branch's own. Without a reflog (a fresh clone) the upstream is
+    kept. push.default=upstream makes @{push} equal @{upstream} for any branch, so that equality tells nothing."""
     tip = (git_out(root, "rev-parse", "--verify", "--quiet", upstream + "^{commit}") or "").strip()
     entries = (git_out(root, "reflog", "show", "--format=%H %gs", f"refs/heads/{branch}") or "").splitlines()
     if not tip or len(entries) < 2:
         return False
     for entry in entries[:-1]:  # the last entry is the creation of the branch
         commit, _, subject = entry.partition(" ")
-        if commit == tip and subject.startswith(OWN_REFLOG_SUBJECTS) and "Fast-forward" not in subject:
+        if commit != tip or "Fast-forward" in subject:
+            continue
+        if subject.startswith("rebase") and subject.rstrip().endswith(f" onto {tip}"):
+            continue  # rebased onto the upstream's own tip: the tip is the upstream's, not the branch's work
+        if subject.startswith(OWN_REFLOG_SUBJECTS + MERGE_REFLOG_SUBJECTS):
             return True
     return False
 
