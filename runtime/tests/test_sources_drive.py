@@ -242,18 +242,32 @@ def cpu_seconds(text: str) -> float:
     return spent
 
 
+SMALL_CHARACTERS = 125_000       # the two sizes of the growth check, in characters, the same for every shape: the large one is eight times the small
+
+
 @pytest.mark.parametrize("name", sorted(HOSTILE_SHAPES))
 def test_the_stripper_is_linear_on_hostile_text(name):
-    """A Doc another person owns cannot make a refresh spin: the work grows with the text. Each shape is scanned at a size n
-    and at 2n (the minimum of three scans each), and the scan of 2n may take at most three times
-    that of n plus 20 ms (a linear scan takes about twice as long, a quadratic one four times). One generous absolute bound
-    guards against a hang. Processor time, not wall clock: see cpu_seconds."""
-    build, n = HOSTILE_SHAPES[name]
-    small, large = build(n), build(2 * n)
-    t1 = min(cpu_seconds(small) for _ in range(3))
-    t2 = min(cpu_seconds(large) for _ in range(3))
-    assert t2 <= 3 * t1 + 0.020, f"{name}: {len(small)} characters took {t1 * 1000:.0f} ms, {len(large)} took {t2 * 1000:.0f} ms"
-    assert t2 < 30, f"{name}: a scan of {len(large)} characters took {t2:.1f} s of processor time"
+    """A Doc another person owns cannot make a refresh spin: the work grows with the text. Each shape is built at about 125 thousand
+    characters and at eight times that (about a million: both fit in the caches, where ten million characters make the time per
+    character grow with the memory alone, which a loaded machine multiplies), the two sizes are scanned in turn nine times each, and the
+    best processor time of each is the time of that size. A linear scan takes about eight times as long at the larger size, a quadratic
+    one sixty-four times; the bound is twenty-four times plus 3 ms. Then the shape is scanned once at its full size against one
+    generous bound of processor time, which a hang or a very bad growth cannot meet. Processor time, not wall clock: see cpu_seconds."""
+    import gc
+    build, full = HOSTILE_SHAPES[name]
+    unit = len(build(1000)) / 1000.0
+    n = max(int(SMALL_CHARACTERS / unit), 1)
+    small, large = build(n), build(8 * n)
+    best_small, best_large = float("inf"), float("inf")
+    for _ in range(9):
+        gc.collect()
+        best_small = min(best_small, cpu_seconds(small))
+        gc.collect()
+        best_large = min(best_large, cpu_seconds(large))
+    assert best_large <= 24 * best_small + 0.003, \
+        f"{name}: {len(small)} characters took {best_small * 1000:.1f} ms, {len(large)} took {best_large * 1000:.1f} ms"
+    whole = build(full)
+    assert cpu_seconds(whole) < 30, f"{name}: a scan of {len(whole)} characters took over 30 s of processor time"
 
 
 def test_the_stripper_finds_the_pictures_it_describes_wherever_they_sit():
