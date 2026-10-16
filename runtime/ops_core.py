@@ -25,6 +25,7 @@ import fcntl
 import importlib.util
 import os
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -366,7 +367,8 @@ def _task_lock(cfg: dict, task_id: int):
         raise OpsError(f"task {task_id} is already being run by another process", 1)
     try:
         os.ftruncate(fd, 0)
-        os.write(fd, f"{os.getpid()} {os.getpgrp()}\n".encode("ascii"))
+        started = _process_start(os.getpid())   # a cancel or a stop signals only a process whose start time is this one (R18)
+        os.write(fd, f"{os.getpid()} {os.getpgrp()}{' ' + started if started else ''}\n".encode("ascii"))
         yield
     finally:
         try:
@@ -383,9 +385,30 @@ def _lock_owner(cfg: dict, task_id: int):
             words = f.read(64).split()
     except OSError:
         return None
-    if len(words) != 2 or not all(w.isdigit() and int(w) > 1 for w in words):
+    if len(words) not in (2, 3) or not all(w.isdigit() and int(w) > 1 for w in words[:2]):
         return None
     return int(words[0]), int(words[1])
+
+
+def _process_start(pid: int):
+    """The start time of a process as `ps` gives it, five words joined by "_" (Fri_Oct_16_00:38:12_2026), or None when it cannot be asked:
+    with its pid it names a process for good, as the pid alone cannot (a pid is reused)."""
+    try:
+        done = subprocess.run(["ps", "-o", "lstart=", "-p", str(int(pid))], capture_output=True, text=True, timeout=10, check=False)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    words = done.stdout.split()
+    return "_".join(words) if len(words) == 5 else None
+
+
+def _lock_start(cfg: dict, task_id: int):
+    """The start time of the holder a task lock's text names (the third word), or None: an older text, or a holder that could not be asked."""
+    try:
+        with open(os.path.join(_locks_dir(cfg), f"task-{task_id}.lock"), encoding="ascii", errors="replace") as f:
+            words = f.read(128).split()
+    except OSError:
+        return None
+    return words[2] if len(words) == 3 else None
 
 
 def _lock_pgid(cfg: dict, task_id: int):

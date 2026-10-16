@@ -49,10 +49,10 @@ per project, with the policy that project accepted; a call the policy refuses is
 accept-config like every key). `say` is the group `talk`, which also creates and routes requests; `request` and `route` are the group
 `request`.
 An operation whose row does not list `mcp` has no tool (the table is read, nothing is spelled here): approve, reject,
-cancel, retry, accept-config, run-next, the standing approvals and the others are done in the terminal or on the page,
+cancel, stop-task, retry, accept-config, run-next, the standing approvals and the others are done in the terminal or on the page,
 where the person is. The same holds for a command typed into the tool `say`: the tool is called as the channel `mcp`
 (a client cannot name another) and the operations layer does a command of a line only when its row lists that channel,
-so "/approve", "/reject", "/retry" and "/cancel" in a line are refused with "/<command> is done in the terminal or on the
+so "/approve", "/reject", "/retry", "/cancel" and "/stop-task" in a line are refused with "/<command> is done in the terminal or on the
 page". A model client must not authorise runs on its own request chain, and the hash of an effect is typed in the terminal
 or clicked on the page, never sent from here.
 
@@ -178,7 +178,7 @@ def tool_of(row: dict, ids: list) -> dict:
     if row.get("channel_arg"):
         text += ". Called as the channel mcp"
         if row["name"] == "say":
-            text += ": a command typed in the line (approve, reject, retry, cancel) is refused, it is done in the terminal or on the page"
+            text += ": a command typed in the line (approve, reject, retry, cancel, stop-task) is refused, it is done in the terminal or on the page"
         if row.get("queues"):
             text += "; while a run of the project is in progress the call is refused, not queued (only the local service drains the queue)"
     return {"name": row["name"], "description": text, "inputSchema": {"type": "object", "properties": properties,

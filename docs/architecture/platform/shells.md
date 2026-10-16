@@ -291,6 +291,7 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `retry` | `--task` | `retry` |
 | `go-ahead` | `--task` `[--drop-after]` | `go_ahead` |
 | `cancel` | `--request` | `cancel` |
+| `stop-task` | `--task` | `stop_task` |
 | `deps` | - | `deps` |
 | `run-next` | `[--model]` | `run_next` |
 | `run-task` | `--task` `[--model]` | `run_task` |
@@ -355,7 +356,8 @@ Every verb also takes `--project <dir>`. The parser is built from `terminal_verb
 | `/approve <id> [sha256]` | approve a plan or an acceptance (a plan: --go-ahead <task key>, repeated, drops that task's derived waits); an effect is approved in the terminal or on the page, with its hash |
 | `/reject <id> [note]` | reject a plan, an acceptance or an effect |
 | `/retry <task id>` | make a failed or blocked task ready again |
-| `/cancel <request id>` | cancel a request |
+| `/cancel <request id>` | cancel a request at any moment, even while a task of it runs: the run is ended and returns nothing, what it used so far is spent |
+| `/stop-task <task id>` | stop one running task: its run is ended and returns nothing, the task is blocked, and retry resumes it |
 | `/new <text>` | start a new request, whatever is open (--after <id> before the text: run it after that request) |
 <!-- /generated -->
 
@@ -418,6 +420,7 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | POST | `/projects/{p}/requests/{id}/cancel` | `cancel` | `request_id` from `{id}` | every other argument | - | - |
 | GET | `/projects/{p}/tasks/{id}` | `task` | `task_id` from `{id}` | none | - | - |
 | POST | `/projects/{p}/tasks/{id}/retry` | `retry` | `task_id` from `{id}` | every other argument | - | - |
+| POST | `/projects/{p}/tasks/{id}/stop` | `stop-task` | `task_id` from `{id}` | every other argument | - | - |
 | POST | `/projects/{p}/tasks/{id}/go-ahead` | `go-ahead` | `task_id` from `{id}` | every other argument | - | - |
 | POST | `/projects/{p}/tasks/{id}/files` | `hand-over` | `task_id` from `{id}` | every other argument | `file` | file upload |
 | POST | `/projects/{p}/runs/{id}/verdict` | `verdict` | `run_id` from `{id}` | every other argument | - | - |

@@ -299,6 +299,11 @@ export function cancel(p, id, options) {
   return send("POST", `/projects/${enc(p)}/requests/${enc(id)}/cancel`, options);
 }
 
+/** POST /projects/{p}/tasks/{id}/stop: stop one running task; its run is cancelled (what it used so far is spent) and the task is blocked, for `retry`. */
+export function stopTask(p, id, options) {
+  return send("POST", `/projects/${enc(p)}/tasks/${enc(id)}/stop`, options);
+}
+
 /** GET /projects/{p}/tasks/{id}: the task, its runs and its decisions. */
 export function task(p, id, options) {
   return send("GET", `/projects/${enc(p)}/tasks/${enc(id)}`, options);

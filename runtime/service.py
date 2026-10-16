@@ -305,6 +305,7 @@ ROUTES = (
     _route("POST", "/projects/{p}/requests/{id}/cancel", "cancel", bind={"request_id": "id"}),
     _route("GET", "/projects/{p}/tasks/{id}", "task", bind={"task_id": "id"}, take=()),
     _route("POST", "/projects/{p}/tasks/{id}/retry", "retry", bind={"task_id": "id"}),
+    _route("POST", "/projects/{p}/tasks/{id}/stop", "stop-task", bind={"task_id": "id"}),
     _route("POST", "/projects/{p}/tasks/{id}/go-ahead", "go-ahead", bind={"task_id": "id"}),
     _route("POST", "/projects/{p}/tasks/{id}/files", "hand-over", bind={"task_id": "id"}, hidden=("file",), upload=True),
     _route("POST", "/projects/{p}/runs/{id}/verdict", "verdict", bind={"run_id": "id"}),

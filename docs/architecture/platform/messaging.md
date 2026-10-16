@@ -234,7 +234,7 @@ The `channels` column of the table (`runtime/operations.py`) is the **ceiling** 
 The groups are a closed list in `operations.GROUPS` (`runtime/operations.py:259`), a pure literal, and the block below is generated from it:
 
 <!-- generated: channel-groups -->
-Channels with a policy (`POLICY_CHANNELS`): `page`, `mcp`, `messaging`. Never narrowed (`NEVER_NARROWED`): `terminal`. A policy for `page`, `mcp` must list `read` (`MUST_READ`). A channel with no entry in the project's `channels` takes its `DEFAULT_POLICY`: `messaging`: `read`, `talk`, `answer`, `routine-brakes`; any other channel keeps its whole ceiling. Valid on the page only (`PAGE_ONLY_GROUPS`): `approve-effects`. An effect is approved only from (`EFFECT_CHANNELS`): `terminal`, `page`. Brakes (`BRAKES`), permitted on the page whatever its policy says: `cancel`, `set-mode`, `routine-pause`, `routine-cancel`.
+Channels with a policy (`POLICY_CHANNELS`): `page`, `mcp`, `messaging`. Never narrowed (`NEVER_NARROWED`): `terminal`. A policy for `page`, `mcp` must list `read` (`MUST_READ`). A channel with no entry in the project's `channels` takes its `DEFAULT_POLICY`: `messaging`: `read`, `talk`, `answer`, `routine-brakes`; any other channel keeps its whole ceiling. Valid on the page only (`PAGE_ONLY_GROUPS`): `approve-effects`. An effect is approved only from (`EFFECT_CHANNELS`): `terminal`, `page`. Brakes (`BRAKES`), permitted on the page whatever its policy says: `cancel`, `stop-task`, `set-mode`, `routine-pause`, `routine-cancel`.
 
 | Group | Operations | Decision kind | Valid on | In the default policy of |
 |---|---|---|---|---|
@@ -248,6 +248,7 @@ Channels with a policy (`POLICY_CHANNELS`): `page`, `mcp`, `messaging`. Never na
 | `approve-effects` | `approve` | `effect` | `page` | - |
 | `go-ahead` | `go-ahead` | - | `page` | - |
 | `reject-cancel` | `reject`, `cancel` | - | `page`, `messaging` | - |
+| `brakes` | `cancel`, `stop-task` | - | `page`, `messaging` | - |
 | `retry` | `retry` | - | `page`, `messaging` | - |
 | `set-mode` | `set-mode`, `set-model` | - | `page` | - |
 | `consent` | `give-consent` | - | `page` | - |
@@ -270,7 +271,7 @@ Channels with a policy (`POLICY_CHANNELS`): `page`, `mcp`, `messaging`. Never na
 | `chat` | the whole ceiling, always | never (an error to name it) |
 | `page` | the whole ceiling | `channels.page`, which must list `read` |
 | `mcp` | the whole ceiling | `channels.mcp`, which must list `read` |
-| `messaging` | **closed**: `read`, `talk`, `answer` (`operations.DEFAULT_POLICY`) | `channels.messaging`: approving, releasing, rejecting, cancelling and retrying are turned on one group at a time |
+| `messaging` | **closed**: `read`, `talk`, `answer`, `routine-brakes` (`operations.DEFAULT_POLICY`) | `channels.messaging`: approving, releasing, rejecting, cancelling, stopping a task (the group `brakes`, R18) and retrying are turned on one group at a time |
 
 **One helper, and every place it runs.** `operations.permitted(op, channel, policy, kind=None)` (`runtime/operations.py:335`) is pure; `operations.refusal(op, channel, policy, kind=None, go_ahead=False)` (`:350`) returns the sentence "/<operation> is not enabled for this channel; the project's configuration (channels.<channel>) turns it on" (`not_enabled`, `:345`), or `None`; the caller raises `OpsError` with code 1. It runs in code, never in a prompt:
 
@@ -286,7 +287,7 @@ Channels with a policy (`POLICY_CHANNELS`): `page`, `mcp`, `messaging`. Never na
 
 The policy is read from the project's accepted configuration at each call (`Bridge.settings` asks `ops.config` every time, `messaging_bridge.py:97-105`), so a change the person accepted takes effect without a restart, and a configuration that is not accepted refuses everything.
 
-**The brakes.** `operations.BRAKES = ("cancel", "set-mode")` (`:287`): on the page, `cancel` and a move **down** of an agent's mode are permitted whatever the policy says (`permitted`, `:340`), `--lan` included, so a person who has lost trust can always stop work from the page; a page policy may omit them without error. A move **up** is refused unless the policy lists `set-mode`; the direction is known only after the mode is read, so `ops_config.set_mode` checks it before its lock and any write (`:143-147`). The brakes do not leak to other channels: `cancel` on `messaging` still needs `reject-cancel`.
+**The brakes.** `operations.BRAKES = ("cancel", "stop-task", "set-mode", "routine-pause", "routine-cancel")`: on the page, `cancel`, `stop-task` and a move **down** of an agent's mode are permitted whatever the policy says (`permitted`, `:340`), `--lan` included, so a person who has lost trust can always stop work from the page; a page policy may omit them without error. A move **up** is refused unless the policy lists `set-mode`; the direction is known only after the mode is read, so `ops_config.set_mode` checks it before its lock and any write (`:143-147`). The brakes do not leak to the MCP mode, which has neither. On `messaging` `cancel` and `stop-task` are the group `brakes`, which is a grant: the channel's default policy stays closed (`routine-brakes` is in it, `brakes` is not), so a request to cancel or to stop a task from a messaging app needs `channels.messaging` to list `brakes` (or `reject-cancel`, for `cancel` alone), accepted in the terminal like every key; `cancel` is also in `reject-cancel`, the one operation in two groups, so that a policy written before stays valid.
 
 **The queue's stored group.** Only the page queues a line or a route while a run holds the project. Each queue entry stores the group that created it (`talk` for a line and for a request a line made, `request` for a route the page asked for, `QUEUE_GROUPS`, `ops_say.py:63`); `route_queued` re-checks that group under `page`, with the policy as it is at drain time, before it answers the line or routes the request. A refused entry gets a stored reply with the sentence and leaves the queue; an entry queued before the group was stored is checked as `talk` (a line) or `request` (a route), under `page` (`_drain_refusal`, `:364-370`).
 

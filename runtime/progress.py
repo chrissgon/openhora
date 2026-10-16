@@ -161,6 +161,7 @@ def summary(tasks, runs, pending, effects, start: datetime.datetime, end: dateti
             "tasks_done": len({d["task_id"] for d in deliveries}), "deliveries": deliveries,
             "runs": {"total": len(ended), "ok": sum(1 for r in ended if r.get("status") == "ok"),
                      "failed": sum(1 for r in ended if r.get("status") == "failed"),
+                     "cancelled": sum(1 for r in ended if r.get("status") == "cancelled"),
                      "by_model": by_model, "by_failure": by_failure},
             "cost_usd": {"known": round(sum(known), 6), "runs_without_cost": len(ended) - len(known)},
             "decisions": {"answered": words("answered"), "released_by_you": len(released) - by_mode,
@@ -192,9 +193,10 @@ def render(progress_out: dict, summary_out: dict) -> str:
     runs = summary_out["runs"]
     failures = ", ".join(f"{kind} {n}" for kind, n in sorted(runs["by_failure"].items()))
     failed = f'{runs["failed"]} failed' + (f": {failures}" if failures else "")
+    cancelled = f", {runs['cancelled']} cancelled" if runs.get("cancelled") else ""
     cost = summary_out["cost_usd"]
     lines.append(f'From {summary_out["from"]} to {summary_out["to"]}: {_plural(summary_out["tasks_done"], "task")} done, '
-                 f'{_plural(runs["total"], "run")} ({runs["ok"]} ok, {failed}), cost known {cost["known"]:g} USD, '
+                 f'{_plural(runs["total"], "run")} ({runs["ok"]} ok, {failed}{cancelled}), cost known {cost["known"]:g} USD, '
                  f'{_plural(cost["runs_without_cost"], "run")} without cost')
     delivered = [f'task {d["task_id"]} "{d["title"]}" released by {d["released_by"]}' for d in summary_out["deliveries"]]
     lines.append("Deliveries: " + ("; ".join(delivered) or "none"))

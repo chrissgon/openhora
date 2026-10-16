@@ -29,7 +29,7 @@ Operations of stage 1 of the platform plan:
   answer(project, pending_id, text)   answer a pending decision: the task runs again with the answer
   release(project, pending_id)     release a delivery: the task is done, and what depended on it becomes ready
   retry(project, task_id)          make a failed or blocked task ready again
-  cancel(project, request_id)      cancel a request and what is still open under it
+  cancel, stop_task                cancel a request, or stop one running task (it is blocked, `retry` resumes it), at any moment: ops_cancel.py
   status(project)                  requests, tasks, pending decisions
   proof(project[, skill])          the model each skill in use would run on when nothing chooses one, and its band on every model
                                    (runtime/proof.py); no model is called
@@ -201,6 +201,7 @@ import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ops_core as core  # noqa: E402  (the shared names: read as core.<name>, never bound at import)
+import ops_cancel  # noqa: E402  (cancel and stop-task at any moment; a run asks it whether it was stopped; re-exported below)
 import ops_reads  # noqa: E402  (the reads of the interface; this file re-exports them at its end)
 import ops_runs  # noqa: E402  (the runs of tasks and the dispatcher's round; this file re-exports `run_task`, `dispatch` and `reap`)
 import ops_say  # noqa: E402  (the conversation and its queue; this file re-exports `say` at its end)
@@ -499,10 +500,10 @@ def _run_body(ctx: dict, started: dict) -> dict:
            "entered": None, "state": None, "routing": routing, "use": None}
 
     def fail(kind: str, reason: str, attempts: int = 0, digest=None, redactions=None, reported=None) -> dict:
-        core._stored(ctx, store.task_run_finish, run_id, status="failed", failure=kind, task_state="failed",
+        done = core._stored(ctx, store.task_run_finish, run_id, status="failed", failure=kind, task_state="failed",
                 attempts=attempts, image_digest=digest, run_dir=dest, error=_note(reason), task_note=_note(reason),
                 redactions=redactions, **_reported_usage(reported, routing))
-        out["failure"] = {"kind": kind, "reason": _note(reason)}
+        out["failure"] = None if ops_cancel.cancelled_run(out, done) else {"kind": kind, "reason": _note(reason)}   # a stopped run is cancelled whatever it found (R18)
         return out
 
     out["use"] = _use_start(ctx, run_id, skill, routing)  # one use per run, also for a run made after an answer
@@ -590,70 +591,72 @@ def _run_body(ctx: dict, started: dict) -> dict:
     left = result["changes"]["created"] + result["changes"]["modified"]
     bound = manifest.bound_among(known, left)
     made = _changeset_of(ctx, task, run_id, dest, result, entered, code, bound) if code is not None else None
-    with core._write_lock(cfg, wait=None):  # the return waits for the other writers; their holders are bounded
+    with core._write_lock(cfg, wait=None):  # held from the check of the stop request to the finish: the stop request is written under it (L41)
+        if ops_cancel.stop_requested(ctx, task["id"]):   # a stopped run returns nothing
+            return fail("stopped", "stopped before it returned anything", counts["attempts"], result["image_digest"], _count(counts.get("redactions")), lab.reported_usage(dest))
         returned, kept, state_report = workcopy.returning(cfg["project"], result, base, base_state, skill, bound=bound,
                                                            versioned=(made or {}).get("versioned", ()),
                                                            tracked=entered.get("tracked") or () if code is None else (),
                                                            cfg=cfg)
-    gate_files = _tmp_files(result.get("tmp"))
-    ending, why = _ending(result, meta, skill, [rel for rel, _size in gate_files])
-    gate_found = _gate_payload(result, dest, gate_files, kind) if known.get("gate") else None
-    loaded = timing.get("skills_loaded")
-    body, masked = workcopy.masked_reply(result["response"])
-    if state_report is not None:
-        out["state"] = {"accepted": len(state_report["accepted"]), "rejected": state_report["rejected"]}
-    number = lambda key, kind: timing.get(key) if isinstance(timing.get(key), kind) and not isinstance(timing.get(key), bool) else None
-    # Only a metered run has a cost that is billed, whatever the model; a subscription or free run keeps none (costs.py recomputes it).
-    every = _reported_usage(lab.reported_usage(dest), routing)  # the usage of every attempt, the retried ones too (R4-C7b)
-    finish = dict(status="ok", ending=ending, attempts=counts["attempts"],
-                  cost_usd=every.get("cost_usd", number("cost_usd", (int, float)) if routing["billing"] == "metered" else None),
-                  tokens=every.get("tokens", number("total_tokens", int)), duration_ms=number("duration_ms", int),
-                  skill_loaded=(skill in loaded) if isinstance(loaded, list) else None,
-                  image_digest=result["image_digest"], run_dir=dest, redactions=_count(counts.get("redactions")))
-    if ending == "blocked":
-        # The skill stopped on a missing input that another skill writes: the task is blocked, with no pending
-        # decision; the note is the first sentence of the masked reply that names the missing input (else its start),
-        # and `retry` makes the task ready again.
-        sentence = endings.missing_input_line(body, manifest.ending_facts(core.ROOT, skill))
-        done = core._stored(ctx, store.task_run_finish, run_id, task_state="blocked", task_note=_note(sentence or body), **finish)
-        out.update(status="ok", ending=ending, task_state="blocked", pending_id=None, returned=returned, kept=kept)
+        gate_files = _tmp_files(result.get("tmp"))
+        ending, why = _ending(result, meta, skill, [rel for rel, _size in gate_files])
+        gate_found = _gate_payload(result, dest, gate_files, kind) if known.get("gate") else None
+        loaded = timing.get("skills_loaded")
+        body, masked = workcopy.masked_reply(result["response"])
+        if state_report is not None:
+            out["state"] = {"accepted": len(state_report["accepted"]), "rejected": state_report["rejected"]}
+        number = lambda key, kind: timing.get(key) if isinstance(timing.get(key), kind) and not isinstance(timing.get(key), bool) else None
+        # Only a metered run has a cost that is billed, whatever the model; a subscription or free run keeps none (costs.py recomputes it).
+        every = _reported_usage(lab.reported_usage(dest), routing)  # the usage of every attempt, the retried ones too (R4-C7b)
+        finish = dict(status="ok", ending=ending, attempts=counts["attempts"],
+                      cost_usd=every.get("cost_usd", number("cost_usd", (int, float)) if routing["billing"] == "metered" else None),
+                      tokens=every.get("tokens", number("total_tokens", int)), duration_ms=number("duration_ms", int),
+                      skill_loaded=(skill in loaded) if isinstance(loaded, list) else None,
+                      image_digest=result["image_digest"], run_dir=dest, redactions=_count(counts.get("redactions")))
+        if ending == "blocked":
+            # The skill stopped on a missing input that another skill writes: the task is blocked, with no pending
+            # decision; the note is the first sentence of the masked reply that names the missing input (else its start),
+            # and `retry` makes the task ready again.
+            sentence = endings.missing_input_line(body, manifest.ending_facts(core.ROOT, skill))
+            done = core._stored(ctx, store.task_run_finish, run_id, task_state="blocked", task_note=_note(sentence or body), **finish)
+            out.update(status="ok", ending=ending, task_state="blocked", pending_id=None, returned=returned, kept=kept)
+            return out
+        mandatory = ending == "done" and bool(known.get("mandatory_milestone"))
+        if made is not None:
+            body = body.rstrip("\n") + "\n\n" + made["text"]
+        if mandatory:
+            body = body.rstrip("\n") + "\n\n" + MANDATORY_LINE
+        cut = len(body.encode("utf-8")) > store.BODY_MAX
+        # A run that wrote nothing and asks opens a question, which is answered. A run that wrote a declared output
+        # opens a review, a draft with open questions included: its body is the whole reply, so the person reads the
+        # questions and either releases the draft as it stands (its open questions stay in it, its row stays a
+        # draft) or answers it, and the next run is given the answer. A run that stopped at its confirmation gate
+        # (ending `gate`) opens a review too until stage 4 of the platform plan turns it into an `effect`.
+        decision = {"kind": "question" if ending == "question" else "review",
+                    "title": f"{skill}: {ending.replace('_', ' ')}",
+                    "body": body.encode("utf-8")[:store.BODY_MAX].decode("utf-8", errors="ignore") if cut else body,
+                    "payload": {"ending": ending, "why": why, "returned": returned, "kept": kept, "run_dir": dest,
+                                "entered": out["entered"], "left_out": out["left_out"], "state": out["state"],
+                                "routing": routing, "use": out["use"],
+                                "response_file": os.path.join(result["outputs"], "response.md"), "body_cut": cut,
+                                "body_masked": masked}}
+        if made is not None:
+            decision["payload"]["changeset"] = made["summary"]
+        if gate_found is not None:
+            decision["payload"]["gate"] = gate_found if ending == "gate" else {**gate_found, "recovered": False,
+                                                                                "why": f"the run ended {ending}, not at its gate"}
+        if ending == "gate" and gate_found is not None:
+            decision = _effect_or_review(ctx, task, request, dest, decision, gate_found, made, code,
+                                         known["gate"]["effect"], meta["requires"])
+        if mandatory:
+            decision["payload"]["mandatory_milestone"] = True
+            if cut:  # the sentence stays at the end of a body that was cut
+                tail = "\n\n" + MANDATORY_LINE
+                room = store.BODY_MAX - len(tail.encode("utf-8"))
+                decision["body"] = body.encode("utf-8")[:room].decode("utf-8", errors="ignore") + tail
+        done = core._stored(ctx, store.task_run_finish, run_id, task_state="waiting", pending=decision, **finish)
+        out.update(status="ok", ending=ending, task_state="waiting", pending_id=done["pending_id"], returned=returned, kept=kept)
         return out
-    mandatory = ending == "done" and bool(known.get("mandatory_milestone"))
-    if made is not None:
-        body = body.rstrip("\n") + "\n\n" + made["text"]
-    if mandatory:
-        body = body.rstrip("\n") + "\n\n" + MANDATORY_LINE
-    cut = len(body.encode("utf-8")) > store.BODY_MAX
-    # A run that wrote nothing and asks opens a question, which is answered. A run that wrote a declared output
-    # opens a review, a draft with open questions included: its body is the whole reply, so the person reads the
-    # questions and either releases the draft as it stands (its open questions stay in it, its row stays a
-    # draft) or answers it, and the next run is given the answer. A run that stopped at its confirmation gate
-    # (ending `gate`) opens a review too until stage 4 of the platform plan turns it into an `effect`.
-    decision = {"kind": "question" if ending == "question" else "review",
-                "title": f"{skill}: {ending.replace('_', ' ')}",
-                "body": body.encode("utf-8")[:store.BODY_MAX].decode("utf-8", errors="ignore") if cut else body,
-                "payload": {"ending": ending, "why": why, "returned": returned, "kept": kept, "run_dir": dest,
-                            "entered": out["entered"], "left_out": out["left_out"], "state": out["state"],
-                            "routing": routing, "use": out["use"],
-                            "response_file": os.path.join(result["outputs"], "response.md"), "body_cut": cut,
-                            "body_masked": masked}}
-    if made is not None:
-        decision["payload"]["changeset"] = made["summary"]
-    if gate_found is not None:
-        decision["payload"]["gate"] = gate_found if ending == "gate" else {**gate_found, "recovered": False,
-                                                                            "why": f"the run ended {ending}, not at its gate"}
-    if ending == "gate" and gate_found is not None:
-        decision = _effect_or_review(ctx, task, request, dest, decision, gate_found, made, code,
-                                     known["gate"]["effect"], meta["requires"])
-    if mandatory:
-        decision["payload"]["mandatory_milestone"] = True
-        if cut:  # the sentence stays at the end of a body that was cut
-            tail = "\n\n" + MANDATORY_LINE
-            room = store.BODY_MAX - len(tail.encode("utf-8"))
-            decision["body"] = body.encode("utf-8")[:room].decode("utf-8", errors="ignore") + tail
-    done = core._stored(ctx, store.task_run_finish, run_id, task_state="waiting", pending=decision, **finish)
-    out.update(status="ok", ending=ending, task_state="waiting", pending_id=done["pending_id"], returned=returned, kept=kept)
-    return out
 
 
 def _reported_usage(reported, routing: dict) -> dict:
@@ -1180,14 +1183,6 @@ def retry(project: str, task_id: int) -> dict:
 def go_ahead(project: str, task_id: int, drop_after: bool = False) -> dict:
     """Go ahead on a task that waits for another request's task, or with drop_after on its `after` wait."""
     return ops_waits.go_ahead(core.context(project), task_id, drop_after)
-
-
-def cancel(project: str, request_id: int) -> dict:
-    """Cancel a request, its tasks that are not done, and their open pending decisions."""
-    ctx = core.context(project)
-    out = ops_waits.settled(ctx, core._stored(ctx, ops_cancel.request_cancel, request_id, by="user", context=ctx))
-    ops_flows.discard_staged(ctx, request_id)      # the files handed over for its plan go with it
-    return out
 
 
 def proof(project: str, skill: str | None = None) -> dict:
@@ -1739,10 +1734,10 @@ def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False) 
            "left_out": [], "entered": None, "routing": routing, "use": None}
 
     def fail(kind: str, reason: str, attempts: int = 0, digest=None, redactions=None, reported=None) -> dict:
-        core._stored(ctx, store.route_run_finish, run_id, status="failed", failure=kind, attempts=attempts,
+        done = core._stored(ctx, store.route_run_finish, run_id, status="failed", failure=kind, attempts=attempts,
                 image_digest=digest, run_dir=dest, error=_note(reason), redactions=redactions,
                 **_reported_usage(reported, routing))
-        out["failure"] = {"kind": kind, "reason": _note(reason)}
+        out["failure"] = None if ops_cancel.cancelled_run(out, done) else {"kind": kind, "reason": _note(reason)}   # a request being cancelled: cancelled (R18)
         return {"out": out, "failed": True}
 
     held, why = ops_instructions.for_run(cfg["project"])   # the standing instructions; a file that fails a check stops the run, before a use is recorded
@@ -1764,7 +1759,7 @@ def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False) 
         # Two router runs of two projects in one service process share the lab's process-wide session (lab.session ends
         # every container of the process when it closes): the whole session is held under one guard. Task runs are
         # processes of their own and never take it.
-        with core._LAB_GUARD, lab.session(), _key_in_environment(routing, keys):
+        with core._LAB_GUARD, lab.session(), _key_in_environment(routing, keys), ops_cancel.watch(ctx, request["id"]):
             result = lab.run_skill(skill, prompt, entered["files"], dest, web=False, model=routing["model"],
                                    max_cost=budget)
     except lab.LabError as e:
@@ -1779,6 +1774,8 @@ def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False) 
         failure = result["failure"]
         return fail(failure["kind"], failure["reason"], counts["attempts"], result["image_digest"],
                     _count(counts.get("redactions")), result.get("reported"))
+    if ops_cancel.stop_requested(ctx, request["id"]):   # the request is being cancelled: its reply is not read, nothing is opened
+        return fail("stopped", "cancelled while the router answered", counts["attempts"], result["image_digest"], _count(counts.get("redactions")), lab.reported_usage(dest))
     # Nothing a route-only run left comes back: the router's run sees only the router installed, so what it would
     # write (a line about a skill it finds missing) is wrong here by construction.
     facts = {"staged": result["staged"]}
@@ -1994,6 +1991,8 @@ def _reroute(ctx: dict, task: dict, returned: list, k: int, delivery: dict, appr
         f"\n\nThe brief is at {briefs[0]}."
     call = _router_call(ctx, request, text, reroute=True)
     if call["failed"]:
+        if call["out"]["status"] == "cancelled":   # the request is being cancelled: nothing is opened for it (R18)
+            return {"delivery": k, "run_id": call["out"]["run_id"], "pending_id": None, "routed": False, "why": "cancelled"}
         return _not_rerouted(ctx, request, k, delivery, f"the router's run failed: {call['out']['failure']['reason']}",
                              "", run_id=call["out"]["run_id"])
     read, body = call["read"], call["body"]
@@ -2034,7 +2033,7 @@ def _reroute(ctx: dict, task: dict, returned: list, k: int, delivery: dict, appr
         ending = "done"
     done = core._stored(ctx, store.route_run_finish, call["out"]["run_id"], ending=ending, pending=decision, **finish)
     return {"delivery": k, "run_id": call["out"]["run_id"], "pending_id": done["pending_id"],
-            "routed": tasks is not None, "why": why}
+            "routed": tasks is not None and not done["cancelled"], "why": why}
 
 
 def _not_rerouted_decision(request: dict, k: int, delivery: dict, why: str, reply: str, common: dict) -> dict:
@@ -2149,7 +2148,7 @@ def sync(project: str, dry_run: bool = False, take: str | None = None, path: str
         if board.enabled(ctx["cfg"]):
             try:
                 pulled = ({"pulled": [], "created": [], "edited": [], "refused": [], "gone": [], "comments": 0,
-                           "left_out_final": len(board.left_out(ctx))} if dry_run else ops_waits.settled(ctx, board.pull(ctx)))
+                           "left_out_final": len(board.left_out(ctx))} if dry_run else ops_waits.settled(ctx, board.pull(ctx, defer=True)))
                 out["board"] = {**pulled, **board.push(ctx, dry_run=dry_run)}
             except board.BoardError as e:
                 raise core.OpsError(f"the task board: {e}", 3 if e.kind == "not configured" else 1) from None
@@ -2159,7 +2158,7 @@ def sync(project: str, dry_run: bool = False, take: str | None = None, path: str
             pulled = _documents(ctx, documents.pull, ctx, dry_run=dry_run)
             pushed = _documents(ctx, lambda: documents.push(ctx, documents.mirrored_paths(ctx), dry_run=dry_run))
             out["documents"] = documents.merged(pulled, pushed)
-    return out
+    return ops_cancel.after_sync(ctx, out)   # the cancels a person made on the board, now that the write lock is let go
 
 
 def _documents(ctx: dict, function, *args, **kwargs):
@@ -2627,6 +2626,7 @@ from ops_config import accept_config, give_consent, set_mode, set_model  # noqa:
 from ops_sources import source_add, source_describe, source_drive, source_import, source_refresh, sources_catalog  # noqa: E402,F401
 import ops_steps  # noqa: E402  (the step task's run and its brake; this file re-exports `run_step` below)
 from ops_steps import run_step  # noqa: E402,F401
+from ops_cancel import cancel, stop_task  # noqa: E402,F401  (the operations `cancel` and `stop-task`)
 # The flows (runtime/ops_flows.py): the list, the flow check, saving a plan as one, and a file staged for a request.
 import ops_flows  # noqa: E402
 from ops_flows import check_flow, flow_save, flows, stage_file  # noqa: E402,F401

@@ -143,6 +143,7 @@ export function createWorld({ now = () => Date.now(), later = (fn, ms) => setTim
     if (parts[0] === "tasks" && parts.length === 3) {
       const id = idOf(parts[1]);
       if (parts[2] === "retry") return plain(P, async () => writes.retry(ctx, P, id));
+      if (parts[2] === "stop") throw notInDemo("Stopping a running task");
       if (parts[2] === "go-ahead") throw notInDemo("Going ahead on a task that waits for another request");
       if (parts[2] === "files") throw notInDemo("Handing a file to a task");
     }
