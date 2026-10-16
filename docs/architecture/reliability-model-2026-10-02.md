@@ -301,7 +301,7 @@ There is no factor of 0.8 per version step any more: it punished every skill for
 
 **A hosted model that changes under its id** is the same event as an execution-side change: an entry in `epochs` for that model, with its date. No score falls with the calendar: an age decay would make the published table go out of date on a day nothing changed.
 
-**Who may write lab evidence.** `CODEOWNERS` covers `evals/`, the evidence files, the version files, so a change to any of them is seen by the owner. Lab evidence of the lab models comes from tests run by the maintainer, on the maintainer's account for each model: nothing else proves that a line was written by the runner and not typed into a pull request, so the rule is stated instead of implied (MI12). A contributor without that account can still pass every check: the checks that fail CI need no model.
+**Who may write lab evidence.** `CODEOWNERS` covers `evals/`, the evidence files and the version files, so a change to any of them is seen by the owner. Lab evidence of the lab models comes from tests run by the maintainer, on the maintainer's account for each model: nothing else proves that a line was written by the runner and not typed into a pull request, so the rule is stated instead of implied (MI12). A contributor without that account can still pass every check: the checks that fail CI need no model.
 
 ### 9. A change of the lab default list or of the grader
 

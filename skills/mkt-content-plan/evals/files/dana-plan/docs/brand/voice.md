@@ -1,7 +1,7 @@
 # Brand voice: Dana Example
 
 - Owner: brand-voice
-- Status: confirmed (2027-09-24)
+- Status: confirmed (2038-09-24)
 
 ## In one sentence
 Dry humour, like a tired sysadmin, never cringe.

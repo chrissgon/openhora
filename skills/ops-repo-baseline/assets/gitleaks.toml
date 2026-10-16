@@ -1,0 +1,12 @@
+# Configuration of the optional second secret scanner (gitleaks), used by the checks workflow and the pre-commit hook.
+# It keeps every default rule and allows only the folders the bundled scanner (scripts/secret-scan/secret_scan.py)
+# marks as planted fixtures: a secret anywhere else is a finding. The list below equals PLANTED_DIRS of that
+# script; if one changes, change the other.
+title = "Project gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Folders the bundled scanner treats as planted test values"
+paths = ['''(^|/)(__fixtures__|__tests__|evals|example|examples|fixtures|spec|test|testdata|tests)/''']

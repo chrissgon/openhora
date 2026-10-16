@@ -12,7 +12,9 @@ Every script asks for a secret by name; the resolver looks in the same places, i
      "The credentials directory" below);
   3. the OS secret store (keyring): service "openhora", the username listed below; a name not found
      there is looked up under the service the workbench used before it was renamed, "ai-workbench"
-     (LEGACY_SERVICE), for one stage (removed with the next change of the lab models, T23).
+     (LEGACY_SERVICE), for one stage (removed with the next change of the lab models, T23);
+  4. a password manager (1Password first), only for a name the person mapped to a reference in the mapping file (see "The
+     password manager" below).
 The first non-empty value wins. Values are never printed, logged or written, not even partially.
 Adding a backend (a password manager) means adding one lookup function to the chain in resolve_state;
 callers do not change.
@@ -35,6 +37,20 @@ One this user owns must also be unreadable by anyone else (folder 0700, file 060
 readable by others (0755 and 0444): that is how an administrator or an orchestrator provisions it (systemd
 credentials, Docker or Kubernetes secrets), and who may read it is then their decision, not a leak this user made.
 
+The password manager. A fourth place, never a replacement: the order above is the contract and the person cannot change it, so a
+stale entry in the OS secret store shadows the manager (--list and the doctor mark a name that is also mapped: "mapped in the
+password manager, not asked: found earlier"). It is asked only for a name written in the mapping file,
+$XDG_CONFIG_HOME/openhora/password-manager.json, else ~/.config/openhora/password-manager.json, which holds references and never
+values: {"backend": "1password", "account": "<optional>", "timeout_seconds": 15, "references": {"VCS_GITHUB_TOKEN":
+"op://Example Vault/github-read/credential"}}. Without the file nothing changes. The file is checked like the credentials directory
+(not a link, a regular file, this user's, mode 0600; at most 64 KiB), and a file that fails, cannot be parsed, has an unknown key
+or backend, or a reference that fails the syntax check is state "unsafe" and the manager is not called. Each lookup calls the
+manager's tool once (providers/secrets/password_managers.py: no shell, no terminal, a deadline, a minimum environment, never inside
+an eval container) and keeps no value. The person signs in: the desktop app's unlock, or a service account's token registered as
+OP_SERVICE_ACCOUNT_TOKEN and found in the environment, the credentials directory or the OS secret store (never through the manager).
+A manager that is locked, not signed in or not installed is "locked", never "missing"; only the tool's answer that the item or field
+does not exist is "missing" (detail: check the reference in the mapping file).
+
 The registry below holds the secrets the core reads: the providers' credentials. An adapter
 registers the secrets its own runs need in the "secrets" list of adapters/<harness>/adapter.json.
 The resolver never opens an adapter by itself: a caller outside the core hands it the file
@@ -48,7 +64,8 @@ Usage:
               and where (environment or store, and which store service answered: "openhora" or
               "ai-workbench (legacy)", the name to move), and how to set it; never the value
   --check     exit 0 when <NAME> is found, 3 when not, 4 when the store is locked or unavailable or the
-              credentials directory is unsafe (the answer is not "missing"), 2 when <NAME> is not
+              credentials directory or the mapping file is unsafe or the password manager is locked or unavailable (the answer is not
+              "missing"), 2 when <NAME> is not
               registered; the line printed carries "service" when the store answered
   --registry  a JSON file whose "secrets" list is merged into the registry first (repeatable);
               each entry has name, purpose, permission and readers, and optionally
@@ -63,17 +80,21 @@ Setting a secret:
   local          uv run --with keyring==25.7.0 keyring set openhora <username>
                  (typed at a hidden prompt, never on the command line), or an export in the shell
   headless       a file in the credentials directory (chmod 600), see docs/architecture/platform/unattended.md
+  password mgr   a reference in the mapping file (chmod 600), see "Use with 1Password" in docs/architecture/platform/unattended.md;
+                 never the value, and nothing in the repository
 
 Without the keyring package (plain python3), the store is reported as unavailable and only the
-environment is read. Exit codes: 0 ok, 2 usage error, 3 not found, 4 the store is locked or unavailable.
+environment is read. Exit codes: 0 ok, 2 usage error, 3 not found, 4 the store is locked or unavailable, the password manager is locked or unavailable,
+or the credentials directory or the mapping file is unsafe (the answer is not "missing").
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import stat
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 SERVICE = "openhora"
 LEGACY_SERVICE = "ai-workbench"  # T23: what the store held before the rename; read as a fallback, never written
@@ -84,7 +105,11 @@ EXIT_LOCKED = 4
 CREDENTIALS_DIR_VARS = ("OPENHORA_CREDENTIALS_DIR", "CREDENTIALS_DIRECTORY")   # looked at in this order
 CREDENTIALS_DEFAULT = (".config", "openhora", "credentials")                  # under the home folder, used only when it exists
 CREDENTIAL_MAX_BYTES = 64 * 1024
+MAPPING_FILE = ("openhora", "password-manager.json")                          # under $XDG_CONFIG_HOME, else under ~/.config
+MAPPING_KEYS = ("backend", "account", "timeout_seconds", "references")
+MANAGER_SOURCE = "password manager"
 PROBE_USERNAME = "__store-probe__"                                            # a name nothing stores: asking for it reads no secret
+ALSO_MAPPED = "mapped in the password manager, not asked: found earlier"
 LOCKED_SENTENCE = ("the secret store is locked or unavailable: unlock it (a locked keychain or collection), or, on a machine with "
                    "no desktop session, put the secret in the credentials directory "
                    "(docs/architecture/platform/unattended.md). The secret may be stored; it cannot be read now")
@@ -220,6 +245,14 @@ REGISTRY: dict[str, Secret] = {s.name: s for s in (
            "the Twilio account's Auth Token; used only to compute an HMAC, never sent anywhere, never used to send",
            ("providers/messenger/whatsapp-twilio.py",),
            store_username="messenger-whatsapp-twilio-auth-token"),
+    Secret("OP_SERVICE_ACCOUNT_TOKEN",
+           "let this resolver read the secrets mapped to 1Password on a machine with no desktop session (the manager's own sign-in)",
+           "a 1Password service account with read access to only the vaults the mapping file names",
+           ("providers/secrets/resolver.py",),
+           store_username="password-manager-1password",
+           note="found only in the environment, the credentials directory or the OS secret store, never through the manager, and it "
+                "cannot be mapped; a provider the runtime starts does not get it from the environment (OP_* is stripped), so there only the "
+                "credentials directory or the OS secret store works; on a laptop the desktop app's unlock is used and this is not needed"),
 )}
 
 
@@ -328,12 +361,12 @@ class CredentialsUnsafe(Exception):
 
 
 _UNSAFE = {"detail": ""}    # the last credentials directory found unsafe in this process ("" when the last look found it fine or absent)
-_FAILURE = {"kind": None}   # the last read of the store: the kind of its failure, or None when it answered (found or not)
+_FAILURE = {"kind": None, "sentence": ""}   # the last read of the store or the password manager: the kind of its failure ("locked", "unavailable" or, for the mapping file, "unsafe"), or None when it answered (found or not), and the sentence to show
 
 
 def store_failure():
-    """The kind ("locked" or "unavailable") of the failure of the last read of the OS secret store in this process, or None
-    when the last read answered. Never a message of the backend."""
+    """The kind ("locked" or "unavailable"; "unsafe" for the mapping file) of the failure of the last read of the OS secret store or of the
+    password manager in this process, or None when the last read answered. Never a message of the backend."""
     return _FAILURE["kind"]
 
 
@@ -361,9 +394,10 @@ def credentials_status(environ=None) -> dict:
 
 
 def store_locked_note() -> str:
-    """LOCKED_SENTENCE when the last read of the OS secret store in this process failed, else "". A caller that found a secret
-    missing adds it first, so that a locked store is not reported as an absent secret."""
-    return LOCKED_SENTENCE if _FAILURE["kind"] else ""
+    """The sentence of the backend whose last read in this process failed (LOCKED_SENTENCE for the OS secret store, the manager's own
+    sentence for the password manager, the reason for an unsafe mapping file), else "". A caller that found a secret missing adds it
+    first, so that a locked store or manager is not reported as an absent secret."""
+    return (_FAILURE["sentence"] or LOCKED_SENTENCE) if _FAILURE["kind"] else ""
 
 
 def _ask(store, service: str, username: str) -> str:
@@ -372,9 +406,9 @@ def _ask(store, service: str, username: str) -> str:
     try:
         value = (store.get_password(service, username) or "").strip()
     except Exception as e:  # a locked or failing backend is told apart from an absent secret
-        _FAILURE["kind"] = "locked" if "locked" in type(e).__name__.lower() else "unavailable"
+        _FAILURE.update(kind="locked" if "locked" in type(e).__name__.lower() else "unavailable", sentence=LOCKED_SENTENCE)
         raise StoreLocked(_FAILURE["kind"]) from None
-    _FAILURE["kind"] = None
+    _FAILURE.update(kind=None, sentence="")
     return value
 
 
@@ -392,10 +426,10 @@ def _from_store(secret: Secret, store) -> tuple[str, str, str] | None:
             failed = failed or e
             continue
         if value:
-            _FAILURE["kind"] = None
+            _FAILURE.update(kind=None, sentence="")
             return value, "secret store", label
     if failed is not None:
-        _FAILURE["kind"] = failed.kind
+        _FAILURE.update(kind=failed.kind, sentence=LOCKED_SENTENCE)
         raise failed
     return None
 
@@ -488,23 +522,198 @@ def _from_directory(secret: Secret, environ) -> tuple[str, str] | None:
     return (value, "credentials directory") if value else None
 
 
+class MappingUnsafe(Exception):
+    """The password-manager mapping file is not safe to read or not valid; the message says why and how to fix it. No text of the file."""
+
+
+@dataclass(frozen=True)
+class Mapping:
+    """The mapping file as read: the backend's word, the optional account, the deadline of a call and {NAME: reference}."""
+    backend: str
+    account: str
+    timeout: int
+    references: dict
+    path: str
+
+
+_MANAGERS = {"module": None}
+
+
+def _managers():
+    """providers/secrets/password_managers.py, loaded by path next to this file (the way secret_state loads this one). Raises
+    ImportError when it cannot be: a resolver copied without its sibling then has no password manager, and says so."""
+    if _MANAGERS["module"] is None:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "password_managers.py")
+        if not os.path.isfile(path):
+            raise ImportError("password_managers.py is not next to the resolver")
+        spec = importlib.util.spec_from_file_location("workbench_password_managers", path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        _MANAGERS["module"] = module
+    return _MANAGERS["module"]
+
+
+def mapping_path(environ=None) -> str | None:
+    """$XDG_CONFIG_HOME/openhora/password-manager.json (an absolute XDG_CONFIG_HOME only, as the specification says), else
+    $HOME/.config/openhora/password-manager.json; None when neither variable gives a folder."""
+    environ = os.environ if environ is None else environ
+    xdg = (environ.get("XDG_CONFIG_HOME") or "").strip()
+    if xdg and os.path.isabs(xdg):
+        return os.path.join(xdg, *MAPPING_FILE)
+    home = (environ.get("HOME") or "").strip()
+    return os.path.join(home, ".config", *MAPPING_FILE) if home else None
+
+
+def _bad_mapping(path: str, why: str, fix: str = "") -> MappingUnsafe:
+    return MappingUnsafe(f"the password-manager mapping {path} {why}" + (f": {fix}" if fix else ""))
+
+
+def read_mapping(environ=None) -> Mapping | None:
+    """The mapping file as a Mapping, or None when there is none (the password manager is then never asked). MappingUnsafe when the
+    file is a link, not a regular file, not this user's (or root's), writable by others, readable by others when this user owns it,
+    larger than CREDENTIAL_MAX_BYTES, not JSON, has a key or backend this module does not know, or a reference its backend refuses, or
+    maps the backend's own token: a mapping someone else can write could point a name at another item. References are not secrets, but
+    no value is read or printed here."""
+    path = mapping_path(environ)
+    if path is None or not os.path.lexists(path):
+        return None
+    try:
+        if stat.S_ISLNK(os.lstat(path).st_mode):
+            raise _bad_mapping(path, "is a symbolic link", "name the file itself")
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+    except MappingUnsafe:
+        raise
+    except OSError as e:
+        raise _bad_mapping(path, f"cannot be opened as a plain file ({e.strerror})") from None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise _bad_mapping(path, "is not a regular file")
+        try:
+            _owned_private(info, f"the password-manager mapping {path}", "600")
+        except CredentialsUnsafe as e:
+            raise MappingUnsafe(str(e)) from None
+        if info.st_size > CREDENTIAL_MAX_BYTES:
+            raise _bad_mapping(path, f"is larger than {CREDENTIAL_MAX_BYTES} bytes")
+        with os.fdopen(fd, "rb", closefd=False) as f:
+            raw = f.read(CREDENTIAL_MAX_BYTES + 1)
+    finally:
+        os.close(fd)
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        raise _bad_mapping(path, "is not valid JSON", "fix the file") from None
+    if not isinstance(data, dict):
+        raise _bad_mapping(path, "must hold one JSON object")
+    unknown = len(set(data) - set(MAPPING_KEYS))
+    if unknown:   # counted, never listed: a key can be a value pasted in the wrong place
+        raise _bad_mapping(path, f"has {unknown} key{'s' if unknown > 1 else ''} this resolver does not know", f"the keys are {', '.join(MAPPING_KEYS)}")
+    try:
+        managers = _managers()
+    except ImportError:
+        raise _bad_mapping(path, "cannot be used: the password-manager module is missing next to the resolver") from None
+    word = data.get("backend")
+    if not isinstance(word, str) or word not in managers.BACKENDS:
+        raise _bad_mapping(path, "names a backend this resolver does not have", f"the backends are {', '.join(sorted(managers.BACKENDS))}")
+    cls = managers.BACKENDS[word]
+    account = data.get("account", "")
+    if "account" in data and cls.account_problem(account):
+        raise _bad_mapping(path, f"has an account that {cls.account_problem(account)}")
+    low, high = managers.TIMEOUT_RANGE
+    timeout = data.get("timeout_seconds", managers.DEFAULT_TIMEOUT)
+    if isinstance(timeout, bool) or not isinstance(timeout, int) or not low <= timeout <= high:
+        raise _bad_mapping(path, f"has a timeout_seconds that is not a whole number from {low} to {high}")
+    references = data.get("references")
+    if not isinstance(references, dict) or not references:
+        raise _bad_mapping(path, 'needs a "references" object: {"NAME": "<reference>"}')
+    for name, ref in references.items():
+        if not name or name[0].isdigit() or any(c not in _NAME_OK for c in name):
+            raise _bad_mapping(path, "maps a name that is not a secret name in capitals")
+        if name == cls.token_name:
+            raise _bad_mapping(path, f"maps {name}, the manager's own sign-in, which cannot be read through the manager",
+                               f"remove it and provide {name} in the environment, the credentials directory or the OS secret store")
+        if not cls.reference_ok(ref):
+            raise _bad_mapping(path, f"has a reference for {name} that {cls.reference_problem(ref) or 'is not text'}", "fix the reference")
+    return Mapping(word, account if isinstance(account, str) else "", timeout, dict(references), path)
+
+
 @dataclass(frozen=True)
 class Lookup:
     """The answer of resolve_state. state is "found" (value, source and, for the store, service are set), "missing" (nothing holds it),
     "locked" (the OS secret store raised: the secret may be stored, it cannot be read now; detail says what to do) or "unsafe" (the
-    credentials directory, or its file, is not safe to read; detail says why). `library` is False when the keyring library cannot be
-    imported (a plain python3): a "missing" may then only be a store that was not asked."""
+    credentials directory, its file or the password-manager mapping file is not safe to read; detail says why). "locked" also covers a
+    password manager that is locked, not signed in or not installed. `library` is False when the keyring library cannot be imported
+    (a plain python3): a "missing" may then only be a store that was not asked. `backend` says which place answered or failed: None
+    (the environment, the credentials directory, or nothing asked), "keyring" or "password-manager"."""
     state: str
     value: str = ""
     source: str | None = None
     service: str | None = None
     detail: str = ""
     library: bool = True
+    backend: str | None = None
 
 
-def resolve_state(name: str, *, allow_store: bool = True, environ=None, store="default") -> Lookup:
-    """The full answer for a registered secret, in order: the environment, the credentials directory, the OS secret store. Unlike
-    resolve and resolve_detail, which read a locked store as None, this one says "locked". Never prints the value."""
+def _plain_lookup(secret: Secret, environ, store, ask_store: bool) -> str:
+    """The value of a secret found in the environment, the credentials directory or (when asked) the OS secret store, or "". Never the
+    password manager: this is how the manager's own sign-in token is found, so that the manager is never asked for the way to ask it.
+    CredentialsUnsafe when the token's file is refused."""
+    found = _from_env(secret, environ)
+    if found:
+        return found[0]
+    in_dir = _from_directory(secret, environ)
+    if in_dir:
+        return in_dir[0]
+    if ask_store and store is not None:
+        try:
+            hit = _from_store(secret, store)
+        except StoreLocked:
+            return ""
+        return hit[0] if hit else ""
+    return ""
+
+
+def _from_manager(secret: Secret, environ, store, store_down: bool, failed: str = ""):
+    """The password manager's answer for `secret`, as (Lookup, kind), or None when it is not to be asked: no mapping file, or the name is
+    not in it. The Lookup is "found" (source "password manager (<backend>)", no reference), "missing" (the tool says the item or field
+    does not exist), "locked" (kind "locked": not signed in, locked, the prompt dismissed, the deadline; kind "unavailable": the tool is
+    not installed or answered something not recognised) or "unsafe" (the mapping file; kind "unsafe"). One call of the tool, no cache.
+    `failed` is the sentence of an earlier failure of the manager in the same report: the tool is not asked again (each ask may prompt)."""
+    try:
+        mapping = read_mapping(environ)
+    except MappingUnsafe as e:
+        return Lookup("unsafe", detail=str(e), backend="password-manager"), "unsafe"
+    if mapping is None or secret.name not in mapping.references:
+        return None
+    managers = _managers()
+    backend = managers.BACKENDS[mapping.backend](account=mapping.account)
+    if failed:
+        return Lookup("locked", detail=failed, backend="password-manager"), "locked"
+    if managers.in_container(environ):   # L39: a run never reaches a password manager; nothing is called
+        return Lookup("locked", detail=backend.sentence("container"), backend="password-manager"), "unavailable"
+    token = ""
+    token_secret = REGISTRY.get(backend.token_name)
+    if token_secret is not None:
+        try:
+            token = _plain_lookup(token_secret, environ, store, ask_store=not store_down)
+        except CredentialsUnsafe as e:
+            return Lookup("unsafe", detail=str(e), backend="password-manager"), "unsafe"
+    env = managers.minimum_environment(environ, backend.token_name, token)
+    result = backend.read(mapping.references[secret.name], env, mapping.timeout)
+    if result.state == "found":
+        return Lookup("found", result.value, f"{MANAGER_SOURCE} ({backend.name})", backend="password-manager"), None
+    if result.state == "missing":
+        return Lookup("missing", detail=f"check the reference of {secret.name} in the mapping file", backend="password-manager"), None
+    return Lookup("locked", detail=backend.sentence(result.state), backend="password-manager"), result.state
+
+
+def resolve_state(name: str, *, allow_store: bool = True, environ=None, store="default", manager_failed: str = "") -> Lookup:
+    """The full answer for a registered secret, in order: the environment, the credentials directory, the OS secret store, then the
+    password manager for a name the mapping file maps. Unlike resolve and resolve_detail, which read a locked store as None, this one says
+    "locked". When the store is locked and the manager finds the secret it is found; when the store is locked and the manager does not,
+    the store's sentence comes first; when the store answers nothing and the manager is locked, the manager's sentence is told.
+    `manager_failed` (a sentence) stops the manager from being asked again after it failed in the same report. Never prints the value."""
     secret = REGISTRY.get(name)
     if secret is None:
         raise NotRegistered(name)
@@ -523,13 +732,71 @@ def resolve_state(name: str, *, allow_store: bool = True, environ=None, store="d
     if not allow_store:
         return Lookup("missing")
     store = _keyring() if store == "default" else store
+    store_error = None
     try:
         hit = _from_store(secret, store)
     except StoreLocked as e:
-        return Lookup("locked", detail=str(e), library=True)
+        hit, store_error = None, e
     if hit:
-        return Lookup("found", hit[0], hit[1], hit[2])
+        return Lookup("found", hit[0], hit[1], hit[2], backend="keyring")
+    stored = dict(_FAILURE)   # what the store left: the manager's lookup does not erase it when the store's sentence stands
+    managed = _from_manager(secret, environ, store, store_error is not None, manager_failed)
+    if managed is not None:
+        answer, kind = managed
+        if answer.state == "found":
+            _FAILURE.update(kind=None, sentence="")
+            return answer
+        if store_error is None:
+            if kind:
+                _FAILURE.update(kind=kind, sentence=answer.detail)
+            return replace(answer, library=store is not None)
+        _FAILURE.update(stored)
+    if store_error is not None:
+        return Lookup("locked", detail=str(store_error), library=True, backend="keyring")
     return Lookup("missing", library=store is not None)
+
+
+def manager_applies(names, environ=None) -> bool:
+    """Whether the password manager could hold one of `names` (secret names, or the runtime's own `WB_RUNTIME_KEY_<name>` forms), or
+    whether its mapping file is refused (then it stands in the way of every lookup). False when there is no mapping file, or none of the
+    names is in it: a caller that wants to say why a key cannot be read asks this first, so it never blames a manager that cannot hold
+    the key. No tool is called."""
+    try:
+        mapping = read_mapping(environ)
+    except MappingUnsafe:
+        return True
+    if mapping is None:
+        return False
+    wanted = {n for name in (names or ()) for n in (name, f"WB_RUNTIME_KEY_{name}")}
+    return bool(wanted & set(mapping.references))
+
+
+def probe_manager(environ=None) -> dict:
+    """Whether the password manager can be used at all, with no secret read ('op whoami'): {"state": "na" | "ok" | "locked" |
+    "unavailable" | "unsafe", "detail"}. "na": there is no mapping file, so the manager is never asked. "unsafe": the mapping file is
+    refused. Asked as any read would be: a locked app may prompt the person. Never a text of the tool."""
+    environ = os.environ if environ is None else environ
+    try:
+        mapping = read_mapping(environ)
+    except MappingUnsafe as e:
+        return {"state": "unsafe", "detail": str(e)}
+    if mapping is None:
+        return {"state": "na", "detail": "there is no password-manager mapping file, so the manager is not asked"}
+    managers = _managers()
+    backend = managers.BACKENDS[mapping.backend](account=mapping.account)
+    if managers.in_container(environ):
+        return {"state": "unavailable", "detail": backend.sentence("container")}
+    token = ""
+    token_secret = REGISTRY.get(backend.token_name)
+    if token_secret is not None:
+        try:
+            token = _plain_lookup(token_secret, environ, _keyring(), ask_store=True)
+        except CredentialsUnsafe as e:
+            return {"state": "unsafe", "detail": str(e)}
+    result = backend.probe(managers.minimum_environment(environ, backend.token_name, token), managers.PROBE_TIMEOUT)
+    if result.state == "found":
+        return {"state": "ok", "detail": f"the password manager ({backend.label}) answered"}
+    return {"state": result.state, "detail": backend.sentence(result.state)}
 
 
 def resolve_detail(name: str, *, allow_store: bool = True, environ=None, store="default") -> tuple[str, str, str | None] | None:
@@ -556,21 +823,31 @@ def how_to_set(secret: Secret) -> str:
 def report(environ=None, store="default") -> list[dict]:
     """One row for each registered secret: whether it is found and where, and "state" (found, missing, locked or unsafe). Once the
     store has raised, it is not asked again for the other secrets of the report (each ask may prompt the person to unlock it):
-    those not found elsewhere are "locked"."""
+    those not found elsewhere are "locked". The password manager is treated the same way: once it has failed, the other names the
+    mapping maps are "locked" with its sentence and the tool is not called again. A name found earlier that the mapping also maps
+    is marked "also_mapped" (the manager is not asked for it)."""
     environ = os.environ if environ is None else environ
     store = _keyring() if store == "default" else store
-    rows, locked = [], False
+    try:
+        mapped = set((read_mapping(environ) or Mapping("", "", 0, {}, "")).references)
+    except MappingUnsafe:
+        mapped = set()
+    rows, locked, manager_said = [], False, ""
     for secret in REGISTRY.values():
-        got = resolve_state(secret.name, environ=environ, store=None if locked else store)
+        got = resolve_state(secret.name, environ=environ, store=None if locked else store, manager_failed=manager_said)
         if got.state == "missing" and locked and secret.store_username:
-            got = Lookup("locked", detail=LOCKED_SENTENCE)
-        locked = locked or got.state == "locked"
+            got = Lookup("locked", detail=LOCKED_SENTENCE, backend="keyring")
+        locked = locked or (got.state == "locked" and got.backend != "password-manager")
+        if got.state == "locked" and got.backend == "password-manager" and not manager_said:
+            manager_said = got.detail
         rows.append({
             "name": secret.name,
             "found": got.state == "found",
             "state": got.state,
             "source": got.source if got.state == "found" else None,
             "service": got.service,
+            "backend": got.backend,
+            "also_mapped": got.state == "found" and got.backend != "password-manager" and secret.name in mapped,
             "store": "unavailable" if store is None else ("locked" if locked else "available"),
             "detail": got.detail,
             "purpose": secret.purpose,
@@ -608,12 +885,14 @@ def main(argv: list[str]) -> int:
                 state = (f"found ({r['source']}" + (f", {r['service']}" if r["service"] else "") + ")") if r["found"] else (
                     r["state"] if r["state"] in ("locked", "unsafe") else "missing")
                 print(f"{r['name']:<24} {state:<34} {r['purpose']}")
-                if r["state"] == "locked":
-                    print(f"{'':<24} {LOCKED_SENTENCE}")
+                if r["found"] and r["also_mapped"]:
+                    print(f"{'':<24} {ALSO_MAPPED}")
+                elif r["state"] == "locked":
+                    print(f"{'':<24} {r['detail'] or LOCKED_SENTENCE}")
                 elif r["state"] == "unsafe":
                     print(f"{'':<24} {r['detail']}")
                 elif not r["found"]:
-                    print(f"{'':<24} set it: {r['set']}")
+                    print(f"{'':<24} " + (f"{r['detail']}; " if r["detail"] else "") + f"set it: {r['set']}")
         return 0
     if argv[0] == "--check" and len(argv) == 2:
         try:
@@ -625,12 +904,14 @@ def main(argv: list[str]) -> int:
             out = {"name": argv[1], "found": True, "source": found.source}
             if found.service:
                 out["service"] = found.service
+            if found.backend == "password-manager":
+                out["backend"] = found.backend
             print(json.dumps(out))
             return 0
         if found.state in ("locked", "unsafe"):
             print(f"{argv[1]} cannot be read: {found.detail}", file=sys.stderr)
             return EXIT_LOCKED
-        print(f"{argv[1]} not found: {how_to_set(REGISTRY[argv[1]])}", file=sys.stderr)
+        print(f"{argv[1]} not found: {how_to_set(REGISTRY[argv[1]])}" + (f" ({found.detail})" if found.detail else ""), file=sys.stderr)
         return EXIT_NOT_FOUND
     print("error: unknown arguments; see --help", file=sys.stderr)
     return EXIT_USAGE

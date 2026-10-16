@@ -3,7 +3,7 @@
 - Owner: brand-strategy
 - Subject: person
 - Status: approved
-- Date: 2026-09-22
+- Date: 2037-09-22
 
 ## Goal
 People using tinykv (https://code.example/dana-example/tinykv-dana-example) [1].
@@ -31,5 +31,5 @@ One language per post. Rotation: week A EN, PT, EN; week B PT, EN, PT [1].
 - The AI pillar goes quiet in weeks with nothing shipped. That week's post is a behind-the-scenes of work in progress, never a claim without an artifact [1].
 
 ## Sources
-[1] docs/workbench/state.md, 2026-09-22.
-[2] docs/brand/profile.md, 2026-09-21.
+[1] docs/workbench/state.md, 2037-09-22.
+[2] docs/brand/profile.md, 2037-09-21.

@@ -82,6 +82,7 @@ A failed guard verdict is graded a second time before it counts, and a confirmed
 
 ## The prompt and the fixture
 
+- **No expected output where the skill must stop and ask.** A case whose right answer is a question or a stop carries no `expected_output` that states an answer, unless the prompt or a fixture gives that answer; otherwise the case asks the model to know what only the user can say.
 - **A prompt names no path the case does not have.** Every path a prompt cites exists in the case folder, is an output the run creates, or is listed in `absent_on_purpose`. Since a folder in `files` is copied by content, the folder's own name is not in the case: a prompt that says "audit `web-summarizer/`" points at nothing. Put the folder one level down in the fixture, or name what is inside it.
 - **`absent_on_purpose`** is for the case that tests a missing input: it lists each path the prompt cites that is left out, so that the preflight accepts it and a reader knows it is the point of the case.
 - **A fixture is a small real project in the project's layout.** Files sit where a project has them (`docs/product/prd.md`, `src/`, a manifest), with only what the case needs. A file copied whole from a project is cut down to that and renamed.
