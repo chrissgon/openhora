@@ -102,14 +102,12 @@ def test_while_the_router_works_on_a_request_status_says_so_and_the_request_and_
     assert kit.Jobs(ops, [{"id": "1", "name": "invented", "path": path}]).projects_list()["projects"][0]["routing_request"] is None
 
 
-def test_the_runtime_refuses_to_cancel_or_route_again_while_the_router_works_so_the_page_offers_neither(tree):
+def test_the_runtime_refuses_to_route_again_while_the_router_works_so_the_page_offers_no_second_route(tree):
     path = project(tree)
     made = ops.request(path, "Which market should the invented studio go after first?", title="Market")["request"]
     thread, box = routed_in_thread(tree, made)
     try:
         until(lambda: request_row(tree, made)["routing"])
-        with pytest.raises(ops.OpsError, match="is running: wait for its run to end"):
-            ops.cancel(path, made)
         with pytest.raises(ops_core.RunBusy):
             ops.route(path, made)
     finally:

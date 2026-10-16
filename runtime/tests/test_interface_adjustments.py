@@ -98,7 +98,7 @@ def test_a_task_that_waits_says_for_what_on_the_chips_the_bar_and_the_rows_and_h
     assert got["junk"] == 1, "an entry with no text reason is not a wait"
     actions = got["actions"]
     assert actions["planned"] == [] and actions["waitsInput"] == ["go-ahead"] and actions["waitsAfter"] == ["drop-after"] and actions["waitsBoth"] == ["go-ahead", "drop-after"]
-    assert actions["ready"] == ["go-ahead"] and actions["running"] == [], "only a task that has not started can be told to go ahead"
+    assert actions["ready"] == ["go-ahead"] and actions["running"] == ["stop"], "only a task that has not started can be told to go ahead; a running one can be stopped (R18)"
     assert actions["blocked"] == ["retry"] and actions["failed"] == ["retry"] and actions["waiting"] == ["inbox"] and actions["done"] == []
     assert got["blockedNote"] == ["design-system needs docs/brand/identity.md", "", ""], "the sentence stands beside Retry for a blocked task only"
     assert got["row"] == {"waiting": "waiting for #10", "waits": ["waiting for #10: docs/brand/identity.md, written by task #10"], "actions": [{"kind": "go-ahead"}]}

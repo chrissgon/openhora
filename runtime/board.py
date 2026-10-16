@@ -31,7 +31,8 @@ store's cursor board:configured. A task that becomes final later keeps its item,
 
 The three moves a person may make on the board:
   ready      on a task that is failed or blocked: it is retried (store.task_retry)
-  cancelled  on a request that is not final: it is cancelled with what is open under it (store.request_cancel)
+  cancelled  on a request that is not final: it is cancelled with what is open under it, at any moment, a task that runs
+             stopped (ops_cancel.cancel, by "board")
   done       on a task waiting on a review: the review is released (store.pending_resolve, by "board")
 
 The bounds of the writes: they are the project configuration's task_board object, inside the file whose hash the
@@ -46,6 +47,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import importlib
 import json
 import os
 import re
@@ -265,8 +267,7 @@ def _take_state(ctx: dict, task: dict, state):
             store.task_retry(conn, task["id"])
             return None
         if state == "cancelled" and task.get("parent_id") is None and task["state"] not in FINAL:
-            store.request_cancel(conn, task["id"], by="board")
-            return None
+            return _cancel_from_board(ctx, task["id"])
         if state == "done" and task["state"] == "waiting":
             pending = _open_pending(ctx, task["id"])
             if pending and pending["kind"] == "review":
@@ -276,6 +277,17 @@ def _take_state(ctx: dict, task: dict, state):
         return str(e)
     return (f"the board moved task {task['id']} from {task['state']} to {state}: only ready (a failed or blocked "
             "task), cancelled (a request) and done (a task waiting on a review) are taken from the board")
+
+
+def _cancel_from_board(ctx: dict, request_id: int):
+    """A request cancelled on the board is cancelled as anywhere else, at any moment (R18, runtime/ops_cancel.py): a task of it that
+    runs is stopped. None when it is, else the reason it is refused (an effect of the request is executing)."""
+    cancel = importlib.import_module("ops_cancel")
+    try:
+        cancel.cancel(ctx, request_id, by="board", channel="board")
+    except cancel.core.OpsError as e:
+        return str(e)
+    return None
 
 
 def _key(cfg: dict, task_id: int, digest: str) -> str:

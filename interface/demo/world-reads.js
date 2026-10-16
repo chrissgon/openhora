@@ -216,7 +216,7 @@ export function progress(ctx, P) {
   const summary = clone(template.summary);
   summary.tasks_done = P.tasks.filter((t) => t.parent_id !== null && t.state === "done").length;
   summary.deliveries = [];
-  summary.runs = { total: P.runs.length, ok: P.runs.filter((r) => r.status === "ok").length, failed: 0, by_model: { [MODEL]: P.runs.length }, by_failure: {} };
+  summary.runs = { total: P.runs.length, ok: P.runs.filter((r) => r.status === "ok").length, failed: 0, cancelled: 0, by_model: { [MODEL]: P.runs.length }, by_failure: {} };
   const text = `${requests.length} open request${requests.length === 1 ? "" : "s"}, ${waiting.length} waiting for you.`;
   return { progress: { requests, waiting_for_you: waiting, stuck: [] }, summary, text };
 }

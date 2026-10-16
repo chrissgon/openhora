@@ -342,7 +342,7 @@ def test_the_building_and_the_floor_are_files_of_the_page_and_the_page_routes_to
 def test_only_the_floor_folder_sends_a_write_and_it_takes_every_write_from_one_object():
     # ADJ-I2: `goAhead` (a task that waits) and `route` (the unrecognised-route card routes a request with a flow) are writes; `flows` is the one read the
     # same object carries, for the flow list of that card.
-    writes = {"answer", "release", "approve", "reject", "verdict", "cancel", "setMode", "setModel", "giveConsent", "retry", "handOver", "goAhead", "route"}
+    writes = {"answer", "release", "approve", "reject", "verdict", "cancel", "stopTask", "setMode", "setModel", "giveConsent", "retry", "handOver", "goAhead", "route"}
     reads = {"pollJob", "flows"}
     actions = (INTERFACE / "js" / "floor" / "actions.js").read_text(encoding="utf-8")
     assert set(re.findall(r"^\s+(\w+): api\.(\w+),$", actions, re.M)) == {(w, w) for w in writes | reads}, "actions.js names each write once"

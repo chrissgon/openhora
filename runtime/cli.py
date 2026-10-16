@@ -20,6 +20,7 @@ Usage:
   python3 runtime/cli.py release  --project <dir> --id <pending id>
   python3 runtime/cli.py retry    --project <dir> --task <task id>
   python3 runtime/cli.py cancel   --project <dir> --request <request id>
+  python3 runtime/cli.py stop-task --project <dir> --task <task id>
   python3 runtime/cli.py status   --project <dir>
   python3 runtime/cli.py task     --project <dir> --task <task id>
   python3 runtime/cli.py flows    --project <dir>
@@ -133,8 +134,14 @@ retry     makes a failed or blocked task ready again.
 go-ahead  (--task <id>) ends the derived waits of a task that waits for another request's task, and records your decision in
           the state file; an `after` request is yours and stays unless you add --drop-after, which ends it for that task.
           approve takes --go-ahead <task key> for a plan's tasks.
-cancel    cancels a request, its tasks that are not done and their open pending decisions.
-status    requests, tasks (each with its title and area agent) and pending decisions (each with its task's "agent" and
+cancel    cancels a request, its tasks that are not done and their open pending decisions, at any moment: a task that
+          is running is stopped (its process gets TERM, then KILL after 30 s; the containers of the run are removed), its run is
+          recorded cancelled with what it used so far (that is spent), and nothing it made comes back. Run again, it answers
+          "already": true and repeats the stop. An effect that is executing is never interrupted: the cancel is refused,
+          with nothing stopped, until the effect ends.
+stop-task stops one running task the same way (--task <id>): its run is cancelled, the task is blocked with a note, and
+          retry resumes it (a step task at its step); the request and its other tasks go on.
+status   requests, tasks (each with its title and area agent) and pending decisions (each with its task's "agent" and
           "actions", the words it may be resolved with), from the store's records; for each request and task, whether it is
           on the task board and how many comments saved from there are open; each mirrored document, its status
           and its note.

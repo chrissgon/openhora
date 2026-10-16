@@ -108,7 +108,8 @@ def test_retry_is_offered_on_failed_and_blocked_and_the_inbox_when_a_decision_wa
     actions = got["actions"]
     assert actions["failed"] == [{"kind": "retry"}] and actions["blocked"] == [{"kind": "retry"}]
     assert actions["waiting"] == [{"kind": "inbox", "pending": 32}], "the task's oldest open decision, not another task's"
-    for state in ("requested", "planned", "ready", "running", "done", "cancelled"):
+    assert actions["running"] == [{"kind": "stop"}], "R18: Stop task on a running task"
+    for state in ("requested", "planned", "ready", "done", "cancelled"):
         assert actions[state] == [], f"no action on a {state} task (no cancel here: cancel is the request's)"
     assert got["waitingNoDecision"] == [{"kind": "inbox", "pending": None}], "a task that waits with no decision found still points at the Inbox"
 
@@ -486,12 +487,12 @@ def test_the_tab_files_exist_and_the_agent_tab_and_the_tasks_tab_import_the_same
     assert "function runBlock" not in agent and "runBlock(" not in agent and "runBlock(" not in tasks, "both tabs draw the runs through the one runsSection (A-72)"
 
 
-def test_the_tasks_tab_sends_only_retry_and_go_ahead_through_its_environment_and_reads_only_task():
+def test_the_tasks_tab_sends_only_retry_go_ahead_and_stop_through_its_environment_and_reads_only_task():
     text = TAB.read_text(encoding="utf-8")
     actions = (TAB.parent / "task-actions.js").read_text(encoding="utf-8")        # A-32: the one source of the actions of the Tasks tab and the Agent tab
     assert not re.search(r'import\s*\{[^}]*\}\s*from\s*"\.\./api\.js"', text + actions), "no operation of the client is imported by name"
     assert "createTaskActions" in text and not set(re.findall(r"\benv\.api\.(\w+)\(", text)), "the tab sends nothing itself: its actions do"
-    assert set(re.findall(r"\benv\.api\.(\w+)\(", actions)) == {"retry", "goAhead"}, "the only writes are Retry and Go ahead (A-29), through the client the view hands in"
+    assert set(re.findall(r"\benv\.api\.(\w+)\(", actions)) == {"retry", "goAhead", "stopTask"}, "the only writes are Retry, Go ahead (A-29) and Stop task (R18), through the client the view hands in"
     assert set(re.findall(r"\bclient\.(\w+)\(", text)) == {"task"}, "the only read is a task's body"
     for forbidden in ("innerHTML", "insertAdjacentHTML", "document.write", "eval(", "fetch("):  # security-scan: allow dynamic-eval -- a pattern that forbids a call; nothing runs it
         assert forbidden not in text and forbidden not in MODEL_FILE.read_text(encoding="utf-8"), forbidden

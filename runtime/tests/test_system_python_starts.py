@@ -42,7 +42,7 @@ STARTS = {
 }
 # The programs a module of the runtime starts by name; the lab's own starts (docker, the adapters) go through the
 # facade, runtime/lab.py, and are the lab's.
-PROGRAMS = ("git", "uv", "bash", "/usr/bin/osascript")  # osascript: the macOS notification the old script already sent
+PROGRAMS = ("git", "uv", "bash", "/usr/bin/osascript", "ps")  # osascript: the macOS notification the old script already sent; ps: the process listing a stop reads (runtime/run_stop.py)
 # A start whose argument list is built elsewhere in the module: where it is built.
 BUILT_ELSEWHERE = {"runtime/effects.py": "def provider_call", "runtime/handlers/published_posts.py": "def _cli",
                    # the ported social agent (WP-7.1): its run() and call() take a list built by the callers

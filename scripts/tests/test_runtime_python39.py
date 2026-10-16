@@ -58,7 +58,7 @@ ON_SYSTEM_PYTHON = [
     # The document converter's provider runs a container; the host side is plain Python and runs on the scheduler's interpreter too.
     "runtime/sources.py", "runtime/ops_sources.py", "providers/converter/container.py",
     # package P-OPS: upkeep (retention), the orphan containers, the lease of the sources folder, the secret store's state
-    "runtime/upkeep.py", "runtime/orphans.py", "runtime/lease.py", "runtime/secret_state.py",
+    "runtime/upkeep.py", "runtime/orphans.py", "runtime/lease.py", "runtime/secret_state.py", "runtime/ops_cancel.py", "runtime/run_stop.py",
     # The step engine (P5): the engine, the run of a step task (a process the dispatcher starts), and the kind `ingest`.
     "runtime/steps.py", "runtime/ops_steps.py", "runtime/step_ingest.py", "runtime/step_export.py", "runtime/step_write_back.py",
     "runtime/effect_write.py", "runtime/ops_step_effects.py", "runtime/write_document.py", "runtime/ops_step_seams.py",
