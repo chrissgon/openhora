@@ -47,6 +47,7 @@ import flow_check  # noqa: E402
 import flow_files  # noqa: E402
 import lab  # noqa: E402
 import operations  # noqa: E402
+import ops_cancel  # noqa: E402
 import ops_core as core  # noqa: E402
 import ops_flows  # noqa: E402
 import ops_instructions  # noqa: E402
@@ -371,7 +372,7 @@ def _close_stops(ctx: dict, routine_id: int) -> None:
     for fire in core._stored(ctx, ctx["store"].routine_fires_list, routine_id, 20):
         if fire["status"] == "asked" and fire["request_id"]:
             try:
-                core._stored(ctx, ctx["store"].request_cancel, fire["request_id"], by="user")
+                core._stored(ctx, ops_cancel.request_cancel, fire["request_id"], by="user", context=ctx)
             except core.OpsError:
                 pass      # already answered, cancelled or gone
 
