@@ -184,6 +184,7 @@ ALLOWED = {
     "step_export.py": {"steps", "workcopy"},
     "step_write_back.py": {"steps", "write_document"},
     "step_output.py": {"output_document", "steps", "table_data", "write_document"},
+    "step_send_email.py": {"send_document", "steps"},
 }
 
 

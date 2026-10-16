@@ -38,7 +38,7 @@ nothing outside them is touched, and a block is never edited by hand. Each table
                         CODE_KEYS and PRICE_KEYS (computed from PRICE_KINDS) of runtime/project_config.py,
                         AGENT_KEYS and BOUNDS_KEYS of runtime/autonomy.py, ENTRY_KEYS and the names of RECIPES of
                         runtime/deps.py; names only, no configuration is opened and no value is read
-  flow-files            each flows/*.json: the flow, its title, and its tasks' keys and skills in order
+  flow-files            each flows/*.json: the flow, its title, and its tasks' keys and skills (or step kinds) in order
   roles                 runtime/roles.json: each key and its value (names of skills, areas and packs)
   held-reasons          REASONS of runtime/dispatcher.py: its text literals and the module's own text constants
   channel-groups        GROUPS of runtime/operations.py with the operations and the decision kind of each, where each is
@@ -615,7 +615,7 @@ def flow_files(root):
     for rel in _files(root, "flows", ".json"):
         try:
             flow = json.loads(_read(root, rel))
-            tasks = ", ".join(f"{_code(t['key'])} ({_code(t['skill'])})" for t in flow["tasks"])
+            tasks = ", ".join(f"{_code(t['key'])} ({_code(t['skill']) if 'skill' in t else 'step ' + _code(t['step'])})" for t in flow["tasks"])
             rows.append([_code(flow["flow"]), flow["title"], tasks or NONE])
         except (ValueError, KeyError, TypeError) as e:
             raise SourceError(f"{rel}: not a flow file ({type(e).__name__}: {e})") from None

@@ -67,6 +67,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/effect_commit.py` | The effect kind of a commit of files to a branch, made by the code provider under a standing approval. |
 | `runtime/effect_pull_request.py` | The effect kind of the pull-request skill: one commit made by the code provider, then the pull request opened. |
 | `runtime/effect_reply.py` | The effect kind of a reply to a comment on one of the project's own posts, made by a publisher under a standing approval. |
+| `runtime/effect_send.py` | The effect kind of sending an e-mail from the project's outbox (package EMAIL-SEND): the text a step task prepared is sent, to exactly the recipients the person approved, once. |
 | `runtime/effect_write.py` | The effect kind of writing a document back to the platform that holds the project's documents (package P8, decision D17, direction 2): the text a step task prepared replaces, whole, a document that lives on the platform (a Notion page today), after the person approved the exact content. |
 | `runtime/effects.py` | The external effects of the task runtime: what a skill with a confirmation gate showed at its gate, recovered from what the run left, and (stage 4, WP-4.8) its execution by code once the person approved its hash. |
 | `runtime/endings.py` | How a run ended, for a run that did not fail: the classifier of endings. |
@@ -77,6 +78,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/isolated.py` | Skill code the runtime runs on the host, as an isolated subprocess with a scrubbed environment. |
 | `runtime/lab.py` | The lab facade: the one file of runtime/ that talks to the lab (evals/execution.py, the execution kit). |
 | `runtime/lease.py` | Two hosts do not write the sources folder within one lease window, and no database or lock lives in a synced folder (package P-OPS, finding I4). |
+| `runtime/mail_address.py` | What the runtime needs to know of an e-mail address, and nothing else (package EMAIL-SEND): the same rule as providers/_email.py `normalize_address`, written again because the runtime does not import a provider; a test holds the two equal on a table of addresses. |
 | `runtime/manifest.py` | The runtime manifest of a skill: skills/&lt;name&gt;/evals/runtime-manifest.json, read and checked. |
 | `runtime/mcp.py` | The MCP mode: the operations layer of runtime/ops.py served as tools of a Model Context Protocol server over standard input and output. |
 | `runtime/messaging.py` | The messaging bridge: the operations layer of runtime/ops.py reached from a messaging app the person already uses, with no model between the app and the operations. |
@@ -117,6 +119,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/routines.py` | Routines, the pure part (package P6b; decisions D23, D24, D31 to D35): the schedule, the slots that are due, the catch-up rule and the content a routine's approval covers. |
 | `runtime/run_stop.py` | Ending a run that is in progress (R18, limit L41): the process mechanics of a cancel or a stop, with no knowledge of what a request or a task is. |
 | `runtime/secret_state.py` | Whether the OS secret store or the password manager is locked or unavailable, for the messages of the runtime (package P-OPS, finding I3; the password manager, package S16). |
+| `runtime/send_document.py` | The document of an e-mail to send, and nothing that sends (package EMAIL-SEND): what the step kind `send-email` builds and the effect kind `send` approves. |
 | `runtime/service.py` | The local service: the operations layer of runtime/ops.py served on this machine through an API, with a token and an origin check, and the static files of the interface/ folder of the checkout. |
 | `runtime/service_bridge.py` | The messaging bridge as a child of the local service (runtime/service.py --messaging &lt;platform&gt;): one start brings up the page and the bridge. |
 | `runtime/shell_kit.py` | What the two network-free shells of the operations layer share: the local service (runtime/service.py) and the MCP mode (runtime/mcp.py). |
@@ -126,6 +129,7 @@ The modules of the runtime, one row each, from the first sentence of their docst
 | `runtime/step_export.py` | The step kinds that make a file: `export-csv`, `export-xlsx`, `export-docx` and `export-pdf` (package P8, decision D17 direction 1). |
 | `runtime/step_ingest.py` | The step kind `ingest`: bring one version of a source into the project, as a task (package P5, the engine's second consumer). |
 | `runtime/step_output.py` | The step kinds `output-page` and `output-table`: a task's result becomes a new page, a new table, or rows added to a table on the platform that holds the project's documents, as an external effect the person approves (package NOTION-OUT, an extension of P8's write-back). |
+| `runtime/step_send_email.py` | The step kind `send-email`: send an e-mail from the project's outbox, as an external effect the person approves (package EMAIL-SEND). |
 | `runtime/step_write_back.py` | The step kind `write-back`: write a project document over a document on the platform, as an external effect the person approves (package P8, decision D17 direction 2). |
 | `runtime/steps.py` | The step engine: how a step task runs, one step after another, resumably, with stops for the person (package P5). |
 | `runtime/table_data.py` | The table a task made, read and checked as code (package NOTION-OUT): a CSV file or the first sheet of a workbook becomes the table an output step approves and a platform receives, `{"columns": [{"name", "type"}], "rows": [[value, ...]]}`, with the type of each column given or inferred by a rule, and every cap enforced. |
