@@ -231,3 +231,5 @@ with your approval written in the document, and carries `"mandatory_milestone": 
 invented skills replace the container and the model (`runtime/tests/standin_tree.py`); the parity test gives
 the same adapter output to the lab's runner and to `lab.py`, expects the same classification, and checks that
 both reach one function and that `runtime/` keeps no loop of its own.
+
+No test reads the real secret store: the root `conftest.py` forces the null keyring backend (`PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring`) for the test process and for every child a test starts with an env of its own, also where `uv run --with keyring` installs the library (`contracts/secrets.md`, "Rules").
