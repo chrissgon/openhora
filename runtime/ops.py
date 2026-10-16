@@ -1260,8 +1260,8 @@ def _effect_words() -> tuple:
 
 def _bounds_words() -> tuple:
     """The side-effect words a standing approval's bounds may name: the vocabulary without the kinds that only a step task opens
-    (STEP, effects.py): a write-back is approved by the hash of its exact content each time, and no bound can ever cover it."""
-    return tuple(w for w in _effect_words() if w not in effects.KINDS or not getattr(effects.module_for(w), "STEP", False))
+    (effects.step_only_words: STEP and not POLICY): a write-back is approved by the hash of its exact content each time, and no bound covers it."""
+    return tuple(w for w in _effect_words() if w not in effects.step_only_words())
 
 
 def _policy_bounds(rel: str, real: str, agent: str) -> dict:

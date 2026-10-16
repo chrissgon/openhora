@@ -203,10 +203,22 @@ The public website (`site/`, published by Netlify at https://openhora.dev).
   - What: `providers/mailer/gmail.py`, scope `gmail.send` on a record of its own (the reader `gmail.readonly` stays read-only), the same verbs, the same ledger, the same exit codes; the Google project is published before this (a token in Testing lasts 7 days).
   - Done when: the contract tests of the class run on both implementations and a send through the API is approved and recorded like one through SMTP.
 - [ ] **EM3. Files on messaging cards.** An e-mail with an attachment is approved on the page or in the terminal only, because a card cannot carry the file the hash covers.
-  - What: the card lists the files with their hashes and says where to approve (the policy layer reads `effect_send.on_cards`); a messenger that can attach a file (Telegram, Discord, the e-mail channel) could carry the file itself.
+  - What: the card lists the files with their hashes and says where to approve (the policy layer reads `effect_send.on_cards`, and `effect_publish.on_cards` for a post with an image); a messenger that can attach a file (Telegram, Discord, the e-mail channel) could carry the file itself.
   - Done when: a card for an e-mail with an attachment either carries the file or says it cannot, and a test holds that an approve action is on no card that does not carry what the hash covers.
 - [ ] **EM4. The page's form for a flow's parameters.** The send-email flow takes `to`, `cc`, `subject` and `body` as parameters; whether the page shows them as a form is to verify on first use.
   - Done when: the page starts `send-email` from a form, or the terminal path is the documented one.
+
+## Publishing
+
+- [ ] **PB1. Scheduling a post from the approval path.** `publish-post` publishes now; a slot in the future is shown and not waited for, and scheduling stays the publishing skill's (`mkt-publish`, the `scheduler:job` class).
+  - What: a second step kind, or an `at` argument, that hands the scheduler the same files and the same key under the same approval, once the scheduler's job and this path are known to share one ledger on the maintainer's machine.
+  - Done when: a post approved on the page or in the terminal is published at its slot by the scheduler, and the job's key is the one the skill uses.
+- [ ] **PB2. A batch of posts in one approval.** A decision covers one post, which is the skill's `action` scope; the skill's `plan` scope approves a week's posts at once.
+  - What: a step kind over a list of content files, one hash for the batch, the preview of every post, and the same execution for each.
+  - Done when: a week's posts are approved once and published one by one, each under its own key, with a test that a changed post stops only itself.
+- [ ] **PB3. Starting a post from a phone.** The flow `publish-post` starts in the terminal or on the page, like the e-mail flow (EM1): the router's stop rule 3 stops on a side effect no skill owns, and messaging has no `request`.
+  - What: with EM1, route "publish this post" to the flow `publish-post` with the file and the platform as its parameters (an X change of `core-orchestrator`, paid by the next battery).
+  - Done when: a sentence from a messaging app produces a plan card whose arguments are the post, and the post is approved on the page or, when the project grants `approve-effect-publish`, from a card that carries the whole text.
 
 ## Project language
 
