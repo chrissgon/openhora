@@ -302,7 +302,7 @@ def held_next(project: str, reason: str, missing=None):
         return operations.service_line(core.ROOT, [project], uv=True)
     if reason != "credential":
         return None
-    locked = secret_state.unreadable_sentence(core.ROOT)   # a locked store or an unsafe credentials directory is not a key that is not stored (I3)
+    locked = secret_state.unreadable_sentence(core.ROOT, names=missing or [c["name"] for c in held_commands(project, reason, missing)])   # a locked store or an unsafe credentials directory is not a key that is not stored (I3)
     if locked:
         return (f"{locked[0].upper()}{locked[1:]}. Clear that first: the key may be stored and unreadable, or it may be missing, and the "
                 "connections read says which once the secrets can be read.")

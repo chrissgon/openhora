@@ -29,6 +29,11 @@ What each check can and cannot verify:
   secret_store    whether the OS secret store answers (resolver.probe_store: a locked store is not a missing secret). It CAN tell
                   locked, unavailable (no backend on a machine with no desktop session) or answering; it cannot tell that a given
                   secret is in it.
+  password_manager  whether the password manager the person mapped secrets to (providers/secrets/password_managers.py; package S16)
+                  can be used: `op whoami`, no secret read. It CAN tell na (there is no mapping file, so the manager is never asked),
+                  ok, locked or not signed in, not installed or not recognised, and a mapping file that is refused (a link, readable by
+                  others, a reference that fails the syntax check). It cannot tell that a given reference points at an item, or that a
+                  service account's hourly limit is not spent. It may make a locked desktop app ask the person to unlock it, as any read.
   image           the eval image (the states of scripts/doctor.py image_state), with the setup command to run when it is not present
                   (decision D39: the first pull is an explicit step, never automatic and never in the middle of a dispatch).
 
@@ -219,6 +224,29 @@ def secret_store_check(probe) -> dict:
     return {"status": "unverified", "detail": str(answer.get("detail") or state)}
 
 
+def password_manager_check(probe) -> dict:
+    """The state of the password manager from `probe() -> {"state", "detail"}` (the resolver's probe_manager): na without a mapping file,
+    ok when the tool answers, a warning with the fix when it is locked, not installed or its mapping file is refused."""
+    try:
+        answer = probe()
+    except Exception as e:  # a resolver that does not run here
+        return {"status": "unverified", "detail": f"the password manager could not be asked: {type(e).__name__}"}
+    state = answer.get("state")
+    if state == "na":
+        return {"status": "na", "detail": "there is no password-manager mapping file, so the manager is not used"}
+    if state == "ok":
+        return {"status": "ok", "detail": "the password manager answers"}
+    if state in ("locked", "unavailable"):
+        return {"status": "warn", "detail": f"{answer.get('detail')}; a routine that needs a secret mapped to it fails until then, and the "
+                                              "secret is not missing",
+                "fix": "unlock the app, or install the tool; on a headless machine put the service account token in the credentials "
+                       "directory (Use with 1Password, docs/architecture/platform/unattended.md)"}
+    if state == "unsafe":
+        return {"status": "warn", "detail": f"the password manager is not used: {answer.get('detail')}",
+                "fix": "give the mapping file the mode the message names, or correct what it says"}
+    return {"status": "unverified", "detail": str(answer.get("detail") or state)}
+
+
 def image_check(image) -> dict:
     """The eval image as a check: ok when it is present (published, or a local build), a warning with the setup command when it is not.
     `image` is scripts/doctor.py image_state with its "setup" added."""
@@ -266,8 +294,8 @@ def lease_check(data_dir, project=None) -> dict:
 
 
 def run_all(*, project=None, min_free_gib=MIN_FREE_GIB, image=None, probe=None, load_config=None, tool=None, run=None,
-            system=None, usage=shutil.disk_usage, listdir=os.listdir, home=None, user=None) -> dict:
-    """Every check, as {"linger", "sources_access", "disk", "proxy_logs", "secret_store", "image", "project"}. `load_config(project)` gives
+            system=None, usage=shutil.disk_usage, listdir=os.listdir, home=None, user=None, manager_probe=None) -> dict:
+    """Every check, as {"linger", "sources_access", "disk", "proxy_logs", "lease", "secret_store", "password_manager", "image", "project"}. `load_config(project)` gives
     the project's configuration (its data_dir and sources_dir) or raises; every seam is a keyword so a test passes a fake."""
     paths, note = {}, None
     if project:
@@ -283,6 +311,7 @@ def run_all(*, project=None, min_free_gib=MIN_FREE_GIB, image=None, probe=None, 
         "proxy_logs": proxy_logs_check(tool),
         "lease": lease_check(paths.get("data_dir"), project),
         "secret_store": secret_store_check(probe) if probe else {"status": "unverified", "detail": "no probe was given"},
+        "password_manager": password_manager_check(manager_probe) if manager_probe else {"status": "unverified", "detail": "no probe was given"},
         "image": image_check(image),
         "project": {"status": "warn" if note else ("ok" if project else "na"), "detail": note or (project or "no --project given")},
     }

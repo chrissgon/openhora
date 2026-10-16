@@ -212,6 +212,7 @@ import ops_models  # noqa: E402  (which model a run goes to: the choice, the key
 import ops_waits  # noqa: E402  (the derived waits between requests: rederive, for_plan, annotate, approve_plan)
 import autonomy  # noqa: E402  (the same folder, as scripts/runtime.py imports runtime_vote)
 import board  # noqa: E402
+import ops_cancel  # noqa: E402  (a cancel leaves open the effect whose write is running)
 import changeset  # noqa: E402
 import deps as deps_sets  # noqa: E402  (the operation `deps` would hide the module: part 0, F.1, rule 5)
 import dispatcher  # noqa: E402
@@ -1106,7 +1107,8 @@ def answer(project: str, pending_id: int, text: str, with_comments: bool = False
             lines = [f"- {c.get('author') or 'unknown'}: {' '.join(str(c['text']).split())}" for c in saved]
             said = "\n".join([said, "", COMMENTS_LINE, *lines])
             used = [c["id"] for c in saved]
-    out = core._stored(ctx, ctx["store"].pending_resolve, pending_id, resolution="answered", by="user", answer=said)
+    with ops_step_effects.resolution_guard(ctx, core._stored(ctx, ctx["store"].pending_get, pending_id)):    # not while its write runs
+        out = core._stored(ctx, ctx["store"].pending_resolve, pending_id, resolution="answered", by="user", answer=said)
     if used:
         core._stored(ctx, ctx["store"].comments_use, used, pending_id=pending_id)
         out = {**out, "comments": used}
@@ -1178,7 +1180,7 @@ def go_ahead(project: str, task_id: int, drop_after: bool = False) -> dict:
 def cancel(project: str, request_id: int) -> dict:
     """Cancel a request, its tasks that are not done, and their open pending decisions."""
     ctx = core.context(project)
-    out = ops_waits.settled(ctx, core._stored(ctx, ctx["store"].request_cancel, request_id, by="user"))
+    out = ops_waits.settled(ctx, core._stored(ctx, ops_cancel.request_cancel, request_id, by="user", context=ctx))
     ops_flows.discard_staged(ctx, request_id)      # the files handed over for its plan go with it
     return out
 
@@ -2198,8 +2200,9 @@ def reject(project: str, pending_id: int, note: str | None = None) -> dict:
         return core._stored(ctx, ctx["store"].acceptance_resolve, pending_id, resolution="rejected", by="user")
     if item["kind"] == "effect":
         said = core._text(note, "the note") if note is not None else None
-        return ops_waits.settled(ctx, core._stored(ctx, ctx["store"].pending_resolve, pending_id, resolution="rejected",
-                                                   by="user", answer=said))
+        with ops_step_effects.resolution_guard(ctx, item):    # refused while the write of an output runs: it would end with no record
+            return ops_waits.settled(ctx, core._stored(ctx, ctx["store"].pending_resolve, pending_id, resolution="rejected",
+                                                       by="user", answer=said))
     raise core.OpsError(f"pending decision {pending_id} is a {item['kind']}: reject takes a plan, an acceptance or an effect", 2)
 
 
@@ -2425,7 +2428,7 @@ def _credential_stop(model: str | None = None):
     if not missing:
         return None
     reason = "credential" if dispatcher.store_readable() == "ok" else "secret store"
-    locked = secret_state.unreadable_sentence(core.ROOT) if reason == "credential" else ""   # a locked store is not a missing key (I3)
+    locked = secret_state.unreadable_sentence(core.ROOT, names=missing) if reason == "credential" else ""   # a locked store is not a missing key (I3)
     return reason, (f"{locked}; the credential of {model} ({', '.join(missing)}) cannot be read" if locked else
                     f"the credential of {model} ({', '.join(missing)}) is neither set nor found in the secret store") + (
                     f" from {sys.executable} (Python {sys.version.split()[0]}): no run starts. See contracts/runtime.md, "

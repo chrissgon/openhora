@@ -596,7 +596,8 @@ def _say_route(project: str, ctx: dict, said: str, line_id: int, channel: str, a
             _retag(ctx, "route", request_id, "talk")  # a line made this request: the drain checks `talk`, not `request`
         return QUEUED_REQUEST.format(request=request_id), request_id, None, False, None
     if routed.get("kind") == "direct":
-        core._stored(ctx, ctx["store"].request_cancel, request_id, by="code:direct")
+        import ops_cancel      # at call time, like the other operations this sibling reaches (it imports no sibling above it at the top)
+        core._stored(ctx, ops_cancel.request_cancel, request_id, by="code:direct", context=ctx)
         return state_reply(project, routed.get("next")), None, None, True, routed.get("run_id")
     item = core._stored(ctx, ctx["store"].pending_get, routed["pending_id"]) if routed.get("pending_id") else None
     if item is None:
