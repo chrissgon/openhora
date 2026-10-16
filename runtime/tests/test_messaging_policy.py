@@ -20,7 +20,7 @@ operations = st.load("operations")
 project_config = st.load("project_config")
 
 ON_MESSAGING = ["status", "progress", "pending", "task", "agents", "costs", "skills", "artifacts", "artifact", "say", "answer",
-                "release", "approve", "reject", "retry", "cancel", "sources", "routines", "routine-create", "routine-change", "routine-pause",
+                "release", "approve", "reject", "retry", "cancel", "sources", "instructions", "routines", "routine-create", "routine-change", "routine-pause",
                 "routine-cancel"]
 ALL_GROUPS = list(operations.GROUPS)
 NOT_ENABLED = "is not enabled for this channel; the project's configuration (channels.messaging) turns it on"
