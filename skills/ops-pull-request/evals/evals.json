@@ -149,7 +149,7 @@
     {
       "id": 5,
       "prompt": "Open the PR for the fix/due-label branch into main.",
-      "expected_output": "The state file records a standing approval for pushing fix/* branches to origin and opening their pull requests into main, with its bounds and an expiry at the end of 2027, so the skill asks nothing: it runs the checks, pushes fix/due-label to the local origin and quotes what git push printed, names the standing row it relied on, adds no new approval row, and, since no code-hosting integration is reachable (the remote is a local repository and the host's tool is signed out), reports the pull request as not created and gives the title and body to create it from.",
+      "expected_output": "The state file records a standing approval for pushing fix/* branches to origin and opening their pull requests into main, with its bounds and an expiry at the end of 2038, so the skill asks nothing: it runs the checks, pushes fix/due-label to the local origin and quotes what git push printed, names the standing row it relied on, adds no new approval row, and, since no code-hosting integration is reachable (the remote is a local repository and the host's tool is signed out), reports the pull request as not created and gives the title and body to create it from.",
       "files": [
         "evals/files/invoices-standing"
       ],
@@ -163,9 +163,9 @@
         "git push -q origin main",
         "git remote set-head origin main",
         "git checkout -q -b fix/due-label",
-        "printf '%s\\n' '// The label printed on an invoice for its due date, e.g. \"2026-09-25\".' 'export function dueLabel(isoDate) {' '  const [year, month, day] = isoDate.split(\"-\").map(Number);' '  return new Date(year, month - 1, day).toLocaleDateString(\"en-CA\");' '}' > src/due.js",
+        "printf '%s\\n' '// The label printed on an invoice for its due date, e.g. \"2037-09-25\".' 'export function dueLabel(isoDate) {' '  const [year, month, day] = isoDate.split(\"-\").map(Number);' '  return new Date(year, month - 1, day).toLocaleDateString(\"en-CA\");' '}' > src/due.js",
         "git commit -q -am 'fix(invoices): parse date-only strings as local dates'",
-        "printf '%s\\n' '' 'test(\"dueLabel keeps the date in time zones behind UTC\", () => {' '  assert.equal(dueLabel(\"2026-01-01\"), \"2026-01-01\");' '});' >> test/due.test.js",
+        "printf '%s\\n' '' 'test(\"dueLabel keeps the date in time zones behind UTC\", () => {' '  assert.equal(dueLabel(\"2037-01-01\"), \"2037-01-01\");' '});' >> test/due.test.js",
         "git commit -q -am 'test(invoices): cover time zones behind UTC'"
       ],
       "grader_files": [

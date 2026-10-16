@@ -2,7 +2,7 @@
 
 - Owner: mkt-social-copy
 - Status: draft
-- Slot: 2027-10-15T09:00:00-03:00 · AI for databases, built in public · EN · calendar row 3
+- Slot: 2038-10-15T09:00:00-03:00 · AI for databases, built in public · EN · calendar row 3
 - Network: LinkedIn
 - Approval: action
 - Serves: backend engineers
@@ -35,7 +35,7 @@ The experiment log: https://code.example/dana-example/tinykv-dana-example/discus
 
 | Claim or number | Source |
 |-----------------|--------|
-| 3 of 10 faster, 2 slower | docs/notes/2026-10.md |
+| 3 of 10 faster, 2 slower | docs/notes/2037-10.md |
 
 ## Assumptions
 - none
