@@ -278,13 +278,19 @@ out.exact = [...exact.walk()].filter((n) => (n.attrs.class || "").match(/wb-md-(
 // one (a clock showed a render of the same code taking four and five times as long for a doubled size on a loaded CI runner, from the memory
 // alone). A render whose work grows with its text costs about as much more as the text is larger; a quadratic one, its square. Where a call
 // looks at "until the match" (indexOf, lastIndexOf, a regular expression) only the characters up to the match, or the end of the text, count.
-// What it does not see is a loop over the characters by index; for that the absolute bounds of the processor time below stay.
+// What stays uncounted: a loop over the characters by index (`text[i]`, `charCodeAt`), the array methods other than `join` (`map`, `filter`,
+// `concat`, `sort`...), and a method captured by reference when the module loaded (`const { slice } = String.prototype`): the
+// counters are installed after the module was imported (imports run first), so a reference the module took at load is the real, uncounted one.
+// For those the absolute bounds of processor time below stay.
 let work = 0;
 const wrap = (proto, name, cost) => { const real = proto[name]; proto[name] = function (...args) { const out = real.apply(this, args); work += cost(this, args, out); return out; }; };
 const upto = (text, from, hit) => (hit < 0 ? text.length - from : hit - from + 1);
-for (const name of ["slice", "substring", "substr", "trim", "trimStart", "trimEnd", "repeat", "toLowerCase", "toUpperCase", "normalize"]) wrap(String.prototype, name, (t, a, out) => (typeof out === "string" ? out.length : 1));
+const realIndexOf = String.prototype.indexOf;   // the real one, for the span an `includes` scans
+for (const name of ["slice", "substring", "substr", "trim", "trimStart", "trimEnd", "trimLeft", "trimRight", "repeat", "toLowerCase", "toUpperCase", "normalize"]) wrap(String.prototype, name, (t, a, out) => (typeof out === "string" ? out.length : 1));
 for (const name of ["indexOf", "lastIndexOf"]) wrap(String.prototype, name, (t, a, out) => (name === "indexOf" ? upto(t, a[1] || 0, out) : (out < 0 ? t.length : t.length - out)));
-for (const name of ["startsWith", "endsWith", "includes"]) wrap(String.prototype, name, (t, a) => String(a[0]).length);
+for (const name of ["startsWith", "endsWith"]) wrap(String.prototype, name, (t, a) => String(a[0]).length);
+wrap(String.prototype, "includes", (t, a) => { const from = a[1] || 0; return upto(t, from, realIndexOf.call(t, String(a[0]), from)); });   // the span scanned, like indexOf
+wrap(Array.prototype, "join", (list, a, out) => out.length);   // the text built
 for (const name of ["split", "replace", "replaceAll", "match", "matchAll", "search", "localeCompare"]) wrap(String.prototype, name, (t) => t.length);
 wrap(RegExp.prototype, "test", (re, a, out) => { const t = String(a[0]); return out ? Math.min(t.length, 64) : t.length; });
 wrap(RegExp.prototype, "exec", (re, a, out) => { const t = String(a[0]); return out ? out.index + out[0].length : t.length; });
