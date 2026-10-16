@@ -12,6 +12,7 @@ This document holds the rules and practices for creating and maintaining skills 
 - [Patterns for Effective Instructions](#patterns-for-effective-instructions)
 - [Canonical Sentences](#canonical-sentences)
 - [The Platform Step](#the-platform-step)
+- [The Security Step](#the-security-step)
 - [Using Scripts](#using-scripts)
 - [Eval Cases](#eval-cases)
 - [Reading Results and Iterating](#reading-results-and-iterating)
@@ -221,7 +222,7 @@ python3 <this skill's folder>/scripts/migrate.py --verify --backup
 Do NOT modify the command or add flags.
 ```
 
-Constrain the contract, not the content: the output structure and the quality criteria are mandatory; the procedure is the default path to them, and a model that meets the criteria another way is not wrong. Prefer "at least N" over "exactly N". A reference model that does worse with the skill than without it means the skill is over-specified: loosen the procedure, keep the criteria.
+Constrain the contract, not the content: the output structure and the quality criteria are mandatory; the procedure is the default path to them, and a model that meets the criteria another way is not wrong. Prefer "at least N" over "exactly N". A model that does worse with the skill than without it means the skill is over-specified: loosen the procedure, keep the criteria.
 
 ### 5. Provide Defaults, Not Menus
 
@@ -434,6 +435,18 @@ A skill's procedure names no social platform (`AGENTS.md`, design rule 2): it de
 > A script that needs a platform's data takes `--platform <platform>` and `--platform-file <path>`, and the step passes both: `python3 <this skill's folder>/scripts/<name>.py --platform <platform> --platform-file <this skill's folder>/../../shared/references/platforms/<platform>.json`. The script reads host names, URL patterns, limits and media types from that file; it holds no table of platforms and no limit of a platform as a constant, and it never finds the file by a path of its own.
 >
 > One exception: a parser that is code for one platform's own format (a copied link, an export) stays in the skill as code, selected by `--platform`, and still takes the hosts and patterns it checks from the data file. A platform that needs a new parser edits that script.
+
+---
+
+## The Security Step
+
+Step 7 of `SKILL.md` reads [../../../shared/references/security.md](../../../shared/references/security.md) and runs `python3 scripts/security_scan.py skills/<name>`, plus any agent, provider or script the change touches, until it reports zero findings. Then:
+
+1. Answer every checklist item of `security.md` as found, before any fix: `yes`, `no` or `n/a: <why>`, and for a `yes` the line of the skill that makes it so.
+2. Fix every `no` before the cases are written, and keep reporting it as `no as found` with its fix.
+3. A name, id or path the skill takes from outside is item 6 even when nothing is written outside the project.
+4. A fixture that plants a bad pattern on purpose is declared in `.security-scan-allow` with its case; a finding that is intended is silenced on its line with `security-scan: allow <rule> -- <reason>`, never without a reason.
+5. A side effect, a credential or a permission that neither the request nor the skill's `docs/inventory.md` entry names is not written into the skill: Stop rule 4 of `SKILL.md`.
 
 ---
 
@@ -654,7 +667,7 @@ A case changes for a stated reason, never to raise a score: when the output is n
 
 - An assertion changes only when it never influences the score (it passes in every run of every variant and is a language assertion or content any model produces), fails a good output for a formality, rests on something the grader cannot see, is conditional, or contradicts the skill.
 - Every change to an assertion, a prompt, an expected output or a fixture is listed before and after in the pull request, with its reason; a new case is listed with the behaviour it measures, a deleted one with its reason.
-- A change to a case needs no version bump of the skill. Each case has a hash of its own, over the whole case: an **added** case is `pending` and moves no band until it has run (`eval_run.py --skill <name> --cases <id> --baseline`); a **changed** case loses its evidence and its baseline and enters the gate through a full test of the skill, never run alone.
+- A change to a case needs no version bump of the skill. Each case has a hash of its own, over the whole case: an **added** case is `pending` and moves no band until it has run (`eval_run.py --skill <name> --cases <id> --baseline`); a **changed** case loses its evidence and its baseline, is `pending` like an added one until `--cases <id> --baseline` has run it, and a case changed a second time since the newest full test asks for a full test of the skill.
 
 ### Designing Cases
 
