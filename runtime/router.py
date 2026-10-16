@@ -28,7 +28,7 @@ and, since LANGUAGE, an optional line that proposes the language of the delivera
 A reply with no Language line proposes none (the project's setting decides). A reply with more than one, or one whose tag is not
 two lower-case letters, optionally a hyphen and two upper-case letters (runtime/language.py RULE), is unclassified: the key
 `language` of the route is then absent. The line is a proposal the person sees on the plan card; the language a request is written in
-never decides it, and a request with an explicit language ignores the line (runtime/ops.py).
+never decides it, and for a request with an explicit language the line is not read at all (`ignore_language`).
 
 A reply that asks (a line `Q<n>: ...`, also on the template's `Next:` line) is a question for the person, whatever
 its route line says. A reply with exactly one route line is a route; anything else (no route line, `Route: none`,
@@ -123,8 +123,9 @@ def read_sources(lines) -> dict:
     return {"sources": chosen}
 
 
-def read_route(reply: str) -> dict:
-    """What the reply of a router run says, read from its lines only."""
+def read_route(reply: str, ignore_language: bool = False) -> dict:
+    """What the reply of a router run says, read from its lines only. ignore_language: the request carries the person's own choice of
+    language, so a `Language:` line of the reply is not read at all (two lines or a bad tag do not make the reply unclassified)."""
     lines = [line.rstrip() for line in (reply or "").splitlines()]
     if any(QUESTION_RE.match(line) for line in lines):
         return {"kind": "question"}
@@ -141,7 +142,7 @@ def read_route(reply: str) -> dict:
     chosen = read_sources(lines)
     if "error" in chosen:
         return {"kind": "unclassified", "why": chosen["error"]}
-    proposed = read_language(lines)
+    proposed = {} if ignore_language else read_language(lines)
     if "error" in proposed:
         return {"kind": "unclassified", "why": proposed["error"]}
     route = {"kind": "route", "name": m.group(1), "shape": m.group(2), "status": m.group(3), "line": line, **proposed}

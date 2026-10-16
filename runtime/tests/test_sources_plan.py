@@ -149,7 +149,7 @@ def test_a_project_without_a_source_gets_the_prompt_and_the_plan_it_always_got(t
     (built["adapter"] / "router-reply.md").write_text(reply_for(None), encoding="utf-8")
     out = ops.route(project, ops.request(project, "Plain request.", title="Plain")["request"])
     prompt = (built["adapter"] / "router-prompt.md").read_text(encoding="utf-8")
-    assert "sources of this project" not in prompt and prompt.endswith(router.ROUTE_TASK_TEXT + "\n\n" + st.load("language").line(None, None) + "\n")
+    assert "sources of this project" not in prompt and prompt.endswith(router.ROUTE_TASK_TEXT + "\n\n" + st.load("language").router_line(None, None) + "\n")
     payload = ops.pending(project, out["pending_id"])["payload"]
     assert all("sources" not in t for t in payload["tasks"]) and "Sources" not in ops.pending(project, out["pending_id"])["body"]
 

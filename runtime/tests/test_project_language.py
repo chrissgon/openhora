@@ -217,7 +217,7 @@ def test_a_project_that_sets_no_language_gets_english_in_every_task_run_and_the_
 def test_the_routers_run_carries_the_requested_language_and_a_conversation_request_carries_the_projects(chat_tree):
     configure(chat_tree, language="pt-BR")
     planned(chat_tree, language="fr")
-    assert router_prompt(chat_tree).count("Language of this deliverable: `fr` (requested)") == 1
+    assert router_prompt(chat_tree).count("Language of this deliverable: `fr` (requested by the person") == 1
     say(chat_tree, "Which market first?")
     assert router_prompt(chat_tree).count(PROJECT_PT) == 1
 
@@ -336,3 +336,69 @@ def test_the_services_request_route_takes_a_language_and_a_refusal_of_the_operat
     world.fake.answers["request"] = ops_core.OpsError(sentence, 2)
     status, _, body = call(world, "POST", api(world, "/requests"), {"text": "x", "language": "pt_BR"})
     assert status == 400 and body["message"] == sentence
+
+
+
+# --- review of the pull request: the router's own paragraph, the explicit choice, the sub-tasks of a delivery -----------------------------
+
+
+def test_the_router_has_a_paragraph_of_its_own_that_tells_it_when_to_propose_a_language():
+    project, requested = language.router_line(None, "pt-BR"), language.router_line("fr", "pt-BR")
+    assert project.startswith("Project language: `pt-BR` (the project's `language` setting; `en` when none is set).")
+    assert "write the `Language: <tag>` line of your template with that tag" in project and "a proposal the person approves on the plan" in project
+    assert "Never write it from the language the request is written in." in project
+    assert "does not change it" not in project, "the task run's sentence would make the router drop the proposal"
+    assert requested.startswith("Language of this deliverable: `fr` (requested by the person") and "Write no `Language:` line" in requested
+    assert language.line(None, "pt-BR") != project and "does not change it" in language.line(None, "pt-BR"), "a task run keeps its own sentence"
+
+
+def test_the_router_run_gets_its_variant_and_a_task_run_does_not(chat_tree, monkeypatch):
+    path = str(chat_tree["project"])
+    configure(chat_tree, language="pt-BR")
+    seen = kept_prompts(monkeypatch)
+    made = planned(chat_tree)
+    assert language.router_line(None, "pt-BR") in router_prompt(chat_tree) and language.line(None, "pt-BR") not in router_prompt(chat_tree)
+    ops.approve(path, made["pending"], sha256=made["item"]["payload"]["plan_sha256"])
+    ops.run_next(path)
+    assert language.line(None, "pt-BR") in seen[-1] and language.router_line(None, "pt-BR") not in seen[-1]
+
+
+def test_with_an_explicit_choice_the_routers_language_line_is_not_read_at_all(chat_tree):
+    base = "Route: flow-demo (flow, pending)\nWhy: a market question\n"
+    assert router.read_route(base + "Language: en\nLanguage: pt-BR\n")["kind"] == "unclassified"
+    assert "language" not in router.read_route(base + "Language: en\n", ignore_language=True)
+    assert router.read_route(base + "Language: en\nLanguage: pt-BR\n", ignore_language=True)["kind"] == "route"
+    reply(chat_tree, FLOW + "Language: en\nLanguage: pt-BR\n")
+    made = planned(chat_tree, language="fr")
+    assert made["item"]["kind"] == "plan" and [t["language"] for t in made["item"]["payload"]["tasks"]] == ["fr", "fr"]
+    reply(chat_tree, FLOW + "Language: pt_BR\n")
+    again = planned(chat_tree, language="fr")
+    assert again["item"]["kind"] == "plan"
+
+
+def test_the_subtasks_of_a_backlog_task_take_its_own_language_then_the_requests_then_the_plans():
+    approved = {"tasks": [{"key": "d1-backlog", "language": "en"}, {"key": "d2-backlog", "language": "es"}]}
+    request = {"language": None}
+    assert ops_language.of_plan(approved, request, {"language": "es"}) == "es", "the second delivery keeps its language"
+    assert ops_language.of_plan(approved, request, {"language": "en"}) == "en", "and the first keeps its own"
+    assert ops_language.of_plan(approved, {"language": "fr"}, {"language": None}) == "fr"
+    assert ops_language.of_plan(approved, request, {"language": None}) == "en", "the last resort is the first language the plan carries"
+    assert ops_language.of_plan({"tasks": [{"key": "a"}]}, request, None) is None
+
+
+def test_the_backlog_subtasks_a_delivery_spawns_carry_its_language_and_the_card_of_those_outside_the_limits_says_it(chat_tree, monkeypatch):
+    path = str(chat_tree["project"])
+    made = ops.request(path, REQUEST)
+    ctx = ops_core.context(path)
+    approved = {"limits": {"subtask_skills": ["demo-writes"], "max_subtasks": 1},
+                "tasks": [{"key": "d1-backlog", "language": "en"}, {"key": "d2-backlog", "language": "es"}]}
+    proposed = [{"key": "t-1", "skill": "demo-writes", "title": "T-1", "text": "do it.", "depends_on": [], "milestone": False},
+                {"key": "t-2", "skill": "demo-writes", "title": "T-2", "text": "do it.", "depends_on": [], "milestone": False}]
+    monkeypatch.setattr(ops, "_approved_plan", lambda c, rid: approved)
+    monkeypatch.setattr(plan, "backlog_tasks", lambda p, root=None: [dict(t) for t in proposed])
+    created = []
+    monkeypatch.setattr(ops.ops_waits, "add_subtasks", lambda c, rid, tasks: created.extend(tasks) or {"tasks": []})
+    out = ops._backlog_subtasks(ctx, {"parent_id": made["request"], "language": "es", "key": "d2-backlog"})
+    assert [(t["key"], t["language"]) for t in created] == [("t-1", "es")], "inside the limit: the second delivery's language"
+    card = ops.pending(path, out["pending_id"])
+    assert card["kind"] == "acceptance" and "Language: es (requested)" in card["body"].splitlines()

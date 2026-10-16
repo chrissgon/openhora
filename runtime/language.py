@@ -12,7 +12,8 @@ the request row and copied onto each task when the plan is made (`tasks.language
 order is one and code computes it, `effective`: the request's recorded language, else the key, else `en`. Nothing else is read:
 not the language a message is written in, not an answer that asks for another language, not a skill's default.
 
-What the model is told, `line`: one paragraph right after the "For this task:" paragraph of a task run's prompt and of the
+What the model is told, `line` (the router has its own paragraph, `router_line`, because it is the one run that may propose another
+language): one paragraph right after the "For this task:" paragraph of a task run's prompt and of the
 router's prompt (runtime/ops.py task_prompt), before the person's standing instructions, always present (the key absent
 included, then `en`), so that the rule that an artifact keeps the language its `Language:` line names, and that only this line
 sets the language, reaches every run. It is never in a contained run (a handler's agent run: a post's language is its slot's, a
@@ -30,7 +31,8 @@ approving; a request with an explicit choice ignores it.
 Functions:
   check(value)              None, or the tag; a bad tag raises LanguageError (str() is the sentence)
   effective(requested, key) (tag, requested?) by the order above
-  line(requested, key)      the paragraph of a run's prompt
+  line(requested, key)      the paragraph of a task run's prompt
+  router_line(requested, key) the paragraph of the router's prompt (it may propose a language)
   plan_line(languages, key) the line of a plan: languages is the language of each task (None: not requested)
   with_language(tasks, tag) the requested language as a field of the tasks that run a skill
   payload_line(payload)     the same line, read from a plan decision's payload
@@ -61,6 +63,16 @@ PROJECT_LINE = ("Project language: `{tag}` (the project's `language` setting; `e
                 "(with no such line, the language it is written in). " + KEEP)
 REQUESTED_LINE = ("Language of this deliverable: `{tag}` (requested). Write every artifact of this task in this language, an "
                   "existing one included, and set its `Language:` line to `{tag}`. " + KEEP)
+
+# The router's own paragraph. A task run is told that only the line sets the language; the router is the one run whose job includes
+# proposing another (step 8 of core-orchestrator), so it is told when to write the `Language:` line of its template and that the person
+# approves it on the plan. A request that carries the person's own choice needs no proposal: the router is told to write none.
+ROUTER_LINE = ("Project language: `{tag}` (the project's `language` setting; `en` when none is set). If the request's words ask for the "
+               "deliverable in another named language, write the `Language: <tag>` line of your template with that tag: it is a proposal "
+               "the person approves on the plan, and nothing else sets the language. Never write it from the language the request is "
+               "written in. Reply in the language the person writes in.")
+ROUTER_REQUESTED_LINE = ("Language of this deliverable: `{tag}` (requested by the person and recorded on the request). Write no `Language:` "
+                         "line: nothing in your reply changes it. Reply in the language the person writes in.")
 
 
 class LanguageError(ValueError):
@@ -97,6 +109,13 @@ def line(requested, key) -> str:
     """The paragraph that tells a run which language to write in (see the module's text for where it goes)."""
     tag, asked = effective(requested, key)
     return (REQUESTED_LINE if asked else PROJECT_LINE).format(tag=tag)
+
+
+def router_line(requested, key) -> str:
+    """The paragraph of the router's run (the module's text says where it goes): the project's language and the rule for the proposal,
+    or, when the request carries the person's own choice, that choice and the order to write no proposal."""
+    tag, asked = effective(requested, key)
+    return (ROUTER_REQUESTED_LINE if asked else ROUTER_LINE).format(tag=tag)
 
 
 def plan_line(languages, key, numbers=None) -> str:

@@ -1768,7 +1768,7 @@ def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False) 
         out["entered"] = {"kind": entered["kind"], "agents_md": entered["agents_md"], "files": len(entered["files"])}
         answered = [] if reroute else [p for p in core._stored(ctx, store.pending_list, "resolved", request["id"])
                                        if p["kind"] == "question" and p["resolution"] == "answered"]
-        prompt = task_prompt(text, router.ROUTE_TASK_TEXT, answered, instructions=held, language_line=ops_language.run_line(cfg, request)) \
+        prompt = task_prompt(text, router.ROUTE_TASK_TEXT, answered, instructions=held, language_line=ops_language.router_line(cfg, request)) \
             + ops_sources.router_block(ctx, request["text"])
         # Two router runs of two projects in one service process share the lab's process-wide session (lab.session ends
         # every container of the process when it closes): the whole session is held under one guard. Task runs are
@@ -1809,7 +1809,7 @@ def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False) 
     common = {"run_dir": dest, "response_file": os.path.join(result["outputs"], "response.md"), "kept": out["kept"],
               "routing": routing, "use": out["use"], "body_masked": masked}
     return {"out": out, "failed": False, "response": result["response"], "body": body, "finish": finish,
-            "common": common, "read": router.read_route(result["response"])}
+            "common": common, "read": router.read_route(result["response"], ignore_language=bool(request.get("language")))}
 
 
 def _checked(ctx: dict, read: dict) -> dict:
@@ -2044,6 +2044,7 @@ def _reroute(ctx: dict, task: dict, returned: list, k: int, delivery: dict, appr
         lines = [f"Delivery {k} ({delivery['item']}) was routed again after its brief ({briefs[0]}): {read['line']}.",
                  "Accept to add these tasks to request " + str(request["id"]) + ":", ""]
         lines += [f"- {t['key']}: {t['title']} ({t.get('skill') or 'step ' + t['step']}, agent {t['agent'] or 'none'})" for t in tasks]
+        lines += ["", language_rules.payload_line({"tasks": tasks, "project_language": ops_language.project_of(ctx["cfg"])})]
         decision = {"kind": "acceptance", "title": f"Accept the tasks of delivery {k}, routed after its brief",
                     "body": "\n".join(lines), "payload": {"what": "subtasks", "delivery": k, "brief": briefs[0],
                                                           "route": read["line"], "tasks": tasks, **call["common"]}}
@@ -2086,7 +2087,7 @@ def _backlog_subtasks(ctx: dict, task: dict) -> dict:
     proposed = [p for p in proposed if p["key"] not in known]
     if not proposed:
         return {"created": [], "pending_id": None}
-    language_rules.with_language(proposed, ops_language.of_plan(approved, core._stored(ctx, store.task_get, request_id)))
+    language_rules.with_language(proposed, ops_language.of_plan(approved, core._stored(ctx, store.task_get, request_id), task))
     skills = plan.agent_skills(ctx["cfg"], core.ROOT)
     for p in proposed:
         try:
@@ -2101,6 +2102,7 @@ def _backlog_subtasks(ctx: dict, task: dict) -> dict:
                  f"({limits.get('max_subtasks', 0)} sub-tasks of {', '.join(limits.get('subtask_skills') or []) or 'no skill'}):", ""]
         lines += [f"- {t['key']}: {t['title']}" + (f" (after {', '.join(t['depends_on'])})" if t["depends_on"] else "")
                   for t in chosen["ask"]]
+        lines += ["", language_rules.payload_line({"tasks": chosen["ask"], "project_language": ops_language.project_of(ctx["cfg"])})]
         pending_id = core._stored(ctx, store.acceptance_open, task_id=request_id, what="subtasks",
                              title=f"Accept {len(chosen['ask'])} sub-task(s) of request {request_id}",
                              body="\n".join(lines), payload={"tasks": chosen["ask"]})["pending_id"]

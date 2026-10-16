@@ -401,7 +401,7 @@
     },
     {
       "id": 14,
-      "prompt": "Escreva a especifica\u00e7\u00e3o da funcionalidade de exporta\u00e7\u00e3o em CSV do Lumen Desk, nossa ferramenta de atendimento para pequenas clínicas.\n\nFor this task: tell me which skill or flow would handle the request above, and whether it has what it needs. I only want the route: do not start it and do not do any of its work.",
+      "prompt": "Escreva a especificação da funcionalidade de exportação em CSV do Lumen Desk, nossa ferramenta de atendimento para pequenas clínicas.\n\nFor this task: tell me which skill or flow would handle the request above, and whether it has what it needs. I only want the route: do not start it and do not do any of its work.",
       "expected_output": "A routing block whose Route line names product-feature-spec (capability). The request is written in Portuguese but no word of it names a language for the deliverable, so the block carries no `Language:` line at all: the project's language decides.",
       "files": [
         "evals/files/language-case"

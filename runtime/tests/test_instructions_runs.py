@@ -150,7 +150,7 @@ def test_the_router_run_receives_the_block_once_after_its_task_text_and_without_
     reply(chat_tree, FLOW, "router-reply-2.md")
     path = str(chat_tree["project"])
     asked = say(chat_tree, "Which market first?")
-    assert router_prompt(chat_tree) == ops.task_prompt("Which market first?", router.ROUTE_TASK_TEXT, [], language_line=LANGUAGE_LINE)
+    assert router_prompt(chat_tree) == ops.task_prompt("Which market first?", router.ROUTE_TASK_TEXT, [], language_line=language.router_line(None, None))
     put(chat_tree, RULES + "\n")
     answered = say(chat_tree, "The clinic project.")
     prompt = router_prompt(chat_tree)

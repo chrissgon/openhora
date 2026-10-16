@@ -147,7 +147,7 @@ def test_each_listed_line_is_one_delivery_and_the_rest_is_its_context(tree):
     first, second = (prompt_of(tree, run) for run in out["runs"])
     assert first.startswith("We are an invented studio.\n\nalpha: which market to go after\n") and "beta" not in first
     assert second.startswith("We are an invented studio.\n\nbeta: who buys first\n") and "alpha" not in second
-    assert all(p.rstrip("\n").endswith("For this task: " + router.ROUTE_TASK_TEXT + "\n\n" + st.load("language").line(None, None).rstrip("\n")) for p in (first, second))
+    assert all(p.rstrip("\n").endswith("For this task: " + router.ROUTE_TASK_TEXT + "\n\n" + st.load("language").router_line(None, None).rstrip("\n")) for p in (first, second))
 
 
 def test_more_deliveries_than_the_limit_are_refused_before_any_run(tree):
@@ -349,3 +349,16 @@ def test_the_limits_are_read_from_the_approved_plan_and_nowhere_else(tree, monke
     after = run_and_release(tree)["after"]["subtasks"]
     assert len(after["created"]) == 3 and after["pending_id"] is None
     assert os.path.isfile(os.path.join(path, "docs", "product", "backlog.md"))
+
+
+def test_the_acceptance_card_of_a_delivery_routed_again_after_its_brief_shows_the_language_line(tree):
+    reply(tree, CLARIFY)
+    reply(tree, FLOW, "reroute-reply.md")
+    path = str(tree["project"])
+    made = ops.request(path, "Make the invented studio known.", title="Invented request", language="es")
+    out = ops.route(path, made["request"])
+    approve(tree, out["pending_id"])
+    after = run_and_release(tree)["after"]["reroute"]
+    accept = ops.pending(path, after["pending_id"])
+    assert "Language: es (requested)" in accept["body"].splitlines()
+    assert [t.get("language") for t in accept["payload"]["tasks"]] == ["es", "es"]

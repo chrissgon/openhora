@@ -11,7 +11,8 @@ A sibling of runtime/ops.py; no shell imports this file. The shared names come f
   checked(value)               the tag a request carries, None for none; a bad tag is a refusal (code 2) before anything is recorded
   run_line(cfg, row)           the paragraph of a task run's or the router's prompt: the language of the task (or of the request,
                                for the router's run) as the row records it, else the project's key, else `en`
-  of_plan(approved, request)   the language the sub-tasks of a request take (its own choice, else the approved plan's)
+  router_line(cfg, request)    the paragraph of the router's run (it may propose a language)
+  of_plan(approved, request, task)   the language the sub-tasks of a backlog task take (the task's, else the request's, else the approved plan's)
   project_of(cfg)              the project's setting for a plan's line (None: not set)
 
 Standard library only. Runs on Python 3.9.
@@ -36,11 +37,18 @@ def run_line(cfg: dict, row: dict) -> str:
     return language.line((row or {}).get("language"), cfg.get("language"))
 
 
-def of_plan(approved, request: dict):
-    """The language a request's later tasks (the backlog's sub-tasks) take: the request's own choice, else the one the approved plan's
-    tasks carry (the router's proposal the person saw on the card), else None."""
-    if (request or {}).get("language"):
-        return request["language"]
+def router_line(cfg: dict, request: dict) -> str:
+    """The language paragraph for the router's run on the request row: its own variant (language.router_line)."""
+    return language.router_line((request or {}).get("language"), cfg.get("language"))
+
+
+def of_plan(approved, request: dict, task: dict = None):
+    """The language a request's later tasks (the backlog's sub-tasks) take: the language of the task that spawns them (a delivery's own),
+    else the request's own choice, else the first one the approved plan's tasks carry (the router's proposal the person saw on the card),
+    else None."""
+    for row in (task, request):
+        if (row or {}).get("language"):
+            return row["language"]
     return next((t["language"] for t in (approved or {}).get("tasks") or [] if isinstance(t, dict) and t.get("language")), None)
 
 
