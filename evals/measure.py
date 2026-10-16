@@ -66,14 +66,115 @@ REDACT_MIN = _DATA["redact_min"]
 # "dsml" ones the call markup of DeepSeek's models (a loop of it, fullwidth bar included, was graded once because
 # the run had written a file).
 EARLY_END_MARKUP = tuple(_EARLY["markup"])
-# A loop of raw tool-call syntax is an early end even when a file was written (item T27): the markup lines, counted
-# outside fenced code blocks, are at least "min_lines" and at least "share" of the non-empty lines there. 20 and
-# 0.5 are measurement constants: no legitimate reply seen in the first round has 20 such lines outside a fence (a
-# reply that shows a tool call quotes a few lines, inside a fence), and a loop is nearly all markup.
+# A loop of raw tool-call syntax is an early end even when a file was written (item T27). The lines of the reply,
+# outside fenced code blocks and indented code, that are markup (a line with a tag of EARLY_END_MARKUP or
+# "<parameter" in it, or any line inside a call block, from an opening call tag to its closing one) are at least
+# "min_lines" and at least "share" of the non-empty lines there, or of their characters. 20 and 0.5 are
+# measurement constants: a reply that shows a tool call quotes a few lines, inside a fence, and a loop is nearly
+# all markup, the content of its write calls included. Read over the 1,903 replies of the maintainer's local eval
+# workspace (2026-10), the rule flags two, each a real loop of <system-reminder> blocks (floor model), and none of the others.
 EARLY_END_COLLAPSE_MIN_LINES = _EARLY["collapse"]["min_lines"]
 EARLY_END_COLLAPSE_SHARE = _EARLY["collapse"]["share"]
-COLLAPSE_EXTRA = ("<parameter",)  # a parameter line of a call, beside the entries of EARLY_END_MARKUP
-FENCE_RE = re.compile(r"^(```|~~~)")
+COLLAPSE_EXTRA = ("<parameter",)  # a parameter of a call, beside the entries of EARLY_END_MARKUP
+COLLAPSE_BLOCKS = ("function_calls", "tool_call", "invoke", "skill_tool", "system-reminder")  # the tags that open a call block
+COLLAPSE_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+COLLAPSE_CODE_SPAN_RE = re.compile(r"`[^`]*`")
+COLLAPSE_RESCANS = 8  # fences left open at the end are ignored one by one; past this many, fences are off from the last one on
+
+
+def _collapse_tag_re():
+    """A tag of the markup entries, anywhere in a line, opening or closing. A name made of letters ends where the
+    tag does (so "<parameters>", "<parameterDefinition>" and "<tool_calls>" are not "<parameter" and "<tool_call");
+    an entry that is a special-token prefix ("<|tool", "<｜dsml") has no such end, its name goes on."""
+    words, tokens = [], []
+    for entry in EARLY_END_MARKUP + COLLAPSE_EXTRA:
+        body = entry[1:].lower()
+        (tokens if body[:1] in ("|", "｜") else words).append(re.escape(body))
+    parts = []
+    if words:
+        parts.append("(?:" + "|".join(words) + ")(?![A-Za-z0-9_-])")
+    if tokens:
+        parts.append("(?:" + "|".join(tokens) + ")")
+    return re.compile(r"<(/?)(?:" + "|".join(parts) + ")", re.I)
+
+
+COLLAPSE_TAG_RE = _collapse_tag_re()
+
+
+def _collapse_depth(line, depth):
+    """The call-block depth after the tags of a line, and whether the line holds a tag."""
+    clean = COLLAPSE_CODE_SPAN_RE.sub("", line)
+    found = False
+    for m in COLLAPSE_TAG_RE.finditer(clean):
+        found = True
+        text = clean[m.start():]
+        end = text.find(">")
+        text = text[:end + 1] if end >= 0 else text
+        name = re.split(r"[\s>]", text.lower())[0]  # the tag's name, without its attributes
+        block = any(word in name for word in COLLAPSE_BLOCKS)
+        if re.search(r"[\u2581_]end", name) or (m.group(1) and block):
+            depth = max(0, depth - 1)
+        elif not m.group(1) and (re.search(r"[\u2581_]begin", name) or (block and not text.endswith("/>"))):
+            depth += 1
+    return depth, found
+
+
+def _collapse_scan(lines, ignored, off_from):
+    """(lines counted, markup lines, characters counted, markup characters, the index of a fence still open at the
+    end or None)."""
+    depth, fence, opened = 0, None, None
+    counted = markup = chars = markup_chars = 0
+    for i, raw in enumerate(lines):
+        line = raw.strip()
+        if not line:
+            continue
+        if fence is not None:
+            m = COLLAPSE_FENCE_RE.match(raw)
+            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= fence[1] and not raw.strip().strip(fence[0]):
+                fence = None
+            continue
+        if depth == 0:
+            m = COLLAPSE_FENCE_RE.match(raw)
+            if m and i not in ignored and (off_from is None or i < off_from):
+                fence, opened = (m.group(1)[0], len(m.group(1))), i
+                continue
+            if raw.startswith(("    ", "\t")):
+                continue  # indented code
+        counted += 1
+        chars += len(line)
+        inside = depth > 0
+        depth, found = _collapse_depth(line, depth)
+        if inside or found:
+            markup += 1
+            markup_chars += len(line)
+    return counted, markup, chars, markup_chars, (opened if fence is not None else None)
+
+
+def collapse_loop(response):
+    """"<n> of <m> lines" when the reply is a loop of raw tool-call syntax, else None. It counts the non-empty
+    lines outside fenced code blocks (opened by three or more backticks or tildes, closed by as many or more of the
+    same; a fence still open at the end is not one, and the lines after it are counted) and outside indented code (four
+    spaces or a tab), where a line is markup when it holds a tag of EARLY_END_MARKUP or "<parameter", closing or
+    opening, anywhere in it, outside an inline code span, or when it lies inside a call block (from an opening call tag
+    to its closing one: a write call's content is markup too; a fence inside a block does not toggle). A loop: at least
+    EARLY_END_COLLAPSE_MIN_LINES markup lines and at least EARLY_END_COLLAPSE_SHARE of the counted lines or of their
+    characters."""
+    lines = response.splitlines()
+    ignored, off_from = set(), None
+    for attempt in range(COLLAPSE_RESCANS + 2):
+        counted, markup, chars, markup_chars, unclosed = _collapse_scan(lines, ignored, off_from)
+        if unclosed is None:
+            break
+        if attempt >= COLLAPSE_RESCANS:
+            off_from = unclosed
+        else:
+            ignored.add(unclosed)
+    if markup >= EARLY_END_COLLAPSE_MIN_LINES and (markup >= EARLY_END_COLLAPSE_SHARE * counted
+                                                   or markup_chars >= EARLY_END_COLLAPSE_SHARE * chars):
+        return f"{markup} of {counted} lines"
+    return None
+
+
 # How a last line announces a next action instead of ending the turn's work. Matched, in lower case, at the
 # start of a sentence of the last line ("Let me update the file:", "Now I'll write the spec:").
 # Not a bare "i'll": "I'll also need to know where the code should go" ends a reply that states a blocker.
@@ -92,33 +193,6 @@ PSEUDO_TAG_LINE_RE = re.compile(r"^<([A-Za-z_-]+)>.*</\1>$")
 # A trailing line that is only a tag, such as a tool call the model printed as text and never ran
 # (<read filePath="...">, </read>): skipped to reach the last line of prose.
 TAG_ONLY_LINE_RE = re.compile(r"^</?[A-Za-z_][\w-]*(\s[^<>]*)?/?>$")
-
-
-def collapse_loop(response):
-    """"<n> of <m> lines" when the reply is a loop of raw tool-call syntax, else None. It counts the non-empty
-    lines outside fenced code blocks (a line starting with three backticks or three tildes opens and closes one;
-    the fence lines themselves are not counted); a line is markup when, stripped, lower-cased and with a leading
-    "</" read as "<" (so a closing tag counts as its opening one), it starts with an entry of EARLY_END_MARKUP or
-    with "<parameter". A loop: at least EARLY_END_COLLAPSE_MIN_LINES markup lines and at least
-    EARLY_END_COLLAPSE_SHARE of the counted lines."""
-    counted = markup = 0
-    fenced = False
-    for raw in response.splitlines():
-        line = raw.strip()
-        if FENCE_RE.match(line):
-            fenced = not fenced
-            continue
-        if fenced or not line:
-            continue
-        counted += 1
-        low = line.lower()
-        if low.startswith("</"):
-            low = "<" + low[2:]
-        if low.startswith(EARLY_END_MARKUP + COLLAPSE_EXTRA):
-            markup += 1
-    if markup >= EARLY_END_COLLAPSE_MIN_LINES and markup >= EARLY_END_COLLAPSE_SHARE * counted:
-        return f"{markup} of {counted} lines"
-    return None
 
 
 def early_end(response, changed):

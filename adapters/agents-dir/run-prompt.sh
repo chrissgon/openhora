@@ -7,8 +7,9 @@
 # Writes <out>/response.md, the assistant's last message (the reply the grader is given), <out>/timing.json
 # (the tokens and the cost the runner's step events report; "skills_loaded", the skills of the case folder
 # the events show the model loading: the skill tool, or any tool that reads <skills folder>/<name>/SKILL.md
-# (read, grep or bash naming it); and "skills_used" (R12), every skill whose folder any tool input names, a
-# script run by its path, a reference read, a listing of the folder: a superset of "skills_loaded", so a
+# (read, grep or bash naming the SKILL.md of one skill); and "skills_used" (R12), every skill whose folder a command,
+# a path or a pattern names (never a write's content or a subagent's prompt), a script run by its path, a reference
+# read, a listing of the folder: a superset of "skills_loaded", so a
 # follow-up run that ran a script without reading the skill's text is used and not loaded) and
 # <out>/stream.jsonl, the runner's whole event stream (`run --format json`), kept beside the reply and never
 # shown to the grader. A custom runner (RUN_PROMPT_CMD) prints text:
@@ -199,22 +200,14 @@ for e in events:
 if seen:
     timing.update(total_tokens=tokens, cost_usd=round(cost, 6))
 # The skills the model touched. Loaded: the skill tool's input, or a tool that reads <skills folder>/<name>/SKILL.md
-# (read's filePath, grep's path, bash's command). Used: every skill whose folder any tool input names.
+# (read's filePath, grep's path, bash's command), when that one input names the SKILL.md of a single skill: a grep or
+# a command over several skills' SKILL.md loads none of them. Used: every skill whose folder a tool input that names
+# files names (a command, a path, a pattern: never a write's content, an edit's text or a subagent's prompt).
 NAME = r"([A-Za-z0-9][A-Za-z0-9._-]*)"   # never "." or ".."
-FOLDER_RE = re.compile(r"(?<![A-Za-z0-9._-])\.agents/skills/" + NAME + r"(?=[/\s'\"`]|$)")
+FOLDER_RE = re.compile(r"(?<![A-Za-z0-9._-])\.agents/skills/" + NAME + r"(?=[/\s'\"`;|)&<>:]|$)")
 SKILL_RE = re.compile(r"(?<![A-Za-z0-9._-])\.agents/skills/" + NAME + r"/SKILL\.md(?![A-Za-z0-9._-])")
 READS = {"read": ("filePath", "file_path"), "grep": ("path",), "bash": ("command",)}
-
-
-def strings(value):
-    if isinstance(value, str):
-        yield value
-    elif isinstance(value, dict):
-        for item in value.values():
-            yield from strings(item)
-    elif isinstance(value, list):
-        for item in value:
-            yield from strings(item)
+NAMING_FIELDS = ("command", "filePath", "file_path", "path", "pattern", "include", "glob")
 
 
 def note(into, names):
@@ -234,11 +227,14 @@ for e in events:
         names.append(args["name"])
     for field in READS.get(part.get("tool"), ()) if isinstance(args, dict) else ():
         chunk = args.get(field)
-        names += [m.group(1) for m in SKILL_RE.finditer(chunk)] if isinstance(chunk, str) else []
+        targets = {m.group(1) for m in SKILL_RE.finditer(chunk)} if isinstance(chunk, str) else set()
+        names += sorted(targets) if len(targets) == 1 else []
     note(loaded, names)
     note(used, names)
-    for chunk in strings(args):
-        note(used, [m.group(1) for m in FOLDER_RE.finditer(chunk)])
+    for field in NAMING_FIELDS if isinstance(args, dict) else ():
+        chunk = args.get(field)
+        if isinstance(chunk, str):
+            note(used, [m.group(1) for m in FOLDER_RE.finditer(chunk)])
 timing["skills_loaded"] = loaded
 timing["skills_used"] = used
 errors = [e.get("error") for e in events if e["type"] == "error"]

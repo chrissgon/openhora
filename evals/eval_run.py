@@ -369,10 +369,11 @@ know", "once you", ...). In the first round the earlier rule, any sentence of th
 asked for it in the imperative. A reply that asks the user a question and
 writes nothing is a stop-and-ask, never an early end; neither is a run that wrote a file and then stopped
 before finishing: that one is graded as it is. One exception, which a written file does not excuse: (d) a loop
-of raw tool-call syntax printed as text, the lines outside fenced code blocks of which at least "min_lines"
-(20) and at least "share" (0.5) of all are markup (an entry of EARLY_END_MARKUP, which holds the call markup of
-DeepSeek's models too, or "<parameter"; a closing tag counts as its opening one): a model whose tool calls
-turned into such a loop wrote a file first and was graded once (T27). An early-ended run is rerun in a fresh folder up to
+of raw tool-call syntax printed as text: at least "min_lines" (20) markup lines, and at least "share" (0.5) of the
+counted lines or of their characters (a line is markup when it holds a tag of EARLY_END_MARKUP, which has the call
+markup of DeepSeek's models too, or "<parameter", anywhere in it, or lies inside a call block; fenced and indented
+code and inline code spans are left out): a model whose tool calls turned into such a loop wrote a file first and
+was graded once (T27). The runtime's runs go through the same rule. An early-ended run is rerun in a fresh folder up to
 --retries <n> times (default 2, 0 disables; each early attempt is kept in <run folder>/early-end-<j>/, the
 last attempt stays in the run folder). One that early-ends on every attempt is an infrastructure failure
 with reason "early_end". benchmark.json "early_ends" counts, per model, {"attempts", "early_ends",

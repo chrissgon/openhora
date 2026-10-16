@@ -333,3 +333,24 @@ def test_a_path_that_does_not_name_a_skill_folder_is_neither(env, path):
 def test_the_skill_tool_loads_and_uses(env):
     timing = timing_after(env, ("Skill", {"skill": "demo"}), ("Skill", {"command": "dep"}))
     assert (timing["skills_loaded"], timing["skills_used"]) == (["demo", "dep"], ["demo", "dep"])
+
+
+@pytest.mark.parametrize("command", ["ls .claude/skills/demo;echo done", "(cd .claude/skills/demo)", "ls .claude/skills/demo|wc -l",
+                                     "ls .claude/skills/demo&&true", "cat < .claude/skills/demo>x", "grep -c x .claude/skills/demo:", "echo `ls .claude/skills/demo`"])
+def test_the_folder_ends_at_a_shell_delimiter_too(env, command):
+    assert timing_after(env, ("Bash", {"command": command}))["skills_used"] == ["demo"]
+
+
+def test_a_writes_content_an_edits_text_and_a_subagents_prompt_are_not_use(env):
+    timing = timing_after(env, ("Write", {"file_path": "notes.md", "content": "see .claude/skills/demo/SKILL.md and .claude/skills/dep/scripts/x.py"}),
+                          ("Edit", {"file_path": "notes.md", "old_string": "a", "new_string": ".claude/skills/demo/SKILL.md"}),
+                          ("Task", {"prompt": "read .claude/skills/demo/SKILL.md", "description": ".claude/skills/dep/"}))
+    assert (timing["skills_loaded"], timing["skills_used"]) == ([], [])
+    timing = timing_after(env, ("Write", {"file_path": ".claude/skills/demo/notes.md", "content": "x"}), ("Glob", {"pattern": ".claude/skills/dep/**"}))
+    assert timing["skills_used"] == ["demo", "dep"]
+
+
+def test_one_command_over_several_skills_text_loads_none_of_them_and_uses_all(env):
+    timing = timing_after(env, ("Bash", {"command": "cat .claude/skills/demo/SKILL.md .claude/skills/dep/SKILL.md"}),
+                          ("Grep", {"pattern": "x", "path": ".claude/skills/demo/SKILL.md"}))
+    assert (timing["skills_loaded"], timing["skills_used"]) == (["demo"], ["demo", "dep"])  # the grep names one; the command two

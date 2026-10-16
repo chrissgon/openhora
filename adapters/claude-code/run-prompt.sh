@@ -8,9 +8,10 @@
 # <out>/stream.jsonl, the CLI's whole event stream (kept beside the reply, never shown to the grader), and
 # <out>/raw.json, the stream's result event. timing.json also names two lists of skills of the case folder:
 # "skills_loaded", the skills the stream shows the model loading (the skill tool, or any tool that reads a
-# skill's SKILL.md: Read, Grep or Bash naming <skills folder>/<name>/SKILL.md), which the runner reads as
+# skill's SKILL.md: Read, Grep or Bash naming the <skills folder>/<name>/SKILL.md of one skill), which the runner reads as
 # whether the skill under test was invoked; and "skills_used" (R12), every skill whose folder any tool input
-# names (a script run by its path, a reference read, a listing of the folder), a superset of "skills_loaded":
+# names in a command, a path or a pattern (a script run by its path, a reference read, a listing of the folder; never a
+# Write's content or a subagent's prompt), a superset of "skills_loaded":
 # a follow-up run that ran a skill's script without reading its text is "used" and not "loaded". A name is
 # letters, digits, "." "_" "-" and does not start with a dot; the folder is followed by "/", a space, a quote
 # or the end. A subagent's tool calls count as the model's. It installs nothing: the eval runner stages the
@@ -133,22 +134,14 @@ if result is not None:
 else:
     open(os.path.join(out, "raw.json"), "w", encoding="utf-8").write(raw)
 # The skills the model touched. Loaded: the skill tool's input, or a tool that reads <skills folder>/<name>/SKILL.md
-# (Read's file_path, Grep's path, Bash's command). Used: every skill whose folder any tool input names.
+# (Read's file_path, Grep's path, Bash's command), when that one input names the SKILL.md of a single skill: a grep or
+# a command over several skills' SKILL.md loads none of them. Used: every skill whose folder a tool input that names
+# files names (a command, a path, a pattern: never a Write's content, an Edit's text or a subagent's prompt).
 NAME = r"([A-Za-z0-9][A-Za-z0-9._-]*)"   # never "." or ".."
-FOLDER_RE = re.compile(r"(?<![A-Za-z0-9._-])\.claude/skills/" + NAME + r"(?=[/\s'\"`]|$)")
+FOLDER_RE = re.compile(r"(?<![A-Za-z0-9._-])\.claude/skills/" + NAME + r"(?=[/\s'\"`;|)&<>:]|$)")
 SKILL_RE = re.compile(r"(?<![A-Za-z0-9._-])\.claude/skills/" + NAME + r"/SKILL\.md(?![A-Za-z0-9._-])")
 READS = {"Read": "file_path", "Grep": "path", "Bash": "command"}
-
-
-def strings(value):
-    if isinstance(value, str):
-        yield value
-    elif isinstance(value, dict):
-        for item in value.values():
-            yield from strings(item)
-    elif isinstance(value, list):
-        for item in value:
-            yield from strings(item)
+NAMING_FIELDS = ("command", "file_path", "path", "pattern", "glob", "notebook_path")
 
 
 def note(into, names):
@@ -171,11 +164,14 @@ for e in events:
                 names.append(name.strip("/"))
         field = READS.get(block.get("name"))
         chunk = args.get(field) if field and isinstance(args, dict) else None
-        names += [m.group(1) for m in SKILL_RE.finditer(chunk)] if isinstance(chunk, str) else []
+        targets = {m.group(1) for m in SKILL_RE.finditer(chunk)} if isinstance(chunk, str) else set()
+        names += sorted(targets) if len(targets) == 1 else []
         note(loaded, names)
         note(used, names)
-        for chunk in strings(args):
-            note(used, [m.group(1) for m in FOLDER_RE.finditer(chunk)])
+        for field in NAMING_FIELDS if isinstance(args, dict) else ():
+            chunk = args.get(field)
+            if isinstance(chunk, str):
+                note(used, [m.group(1) for m in FOLDER_RE.finditer(chunk)])
 open(os.path.join(out, "response.md"), "w", encoding="utf-8").write(text if isinstance(text, str) else json.dumps(text))
 json.dump({"total_tokens": tokens, "duration_ms": dur, "cost_usd": cost, "exit_code": rc,
            **({"skills_loaded": loaded, "skills_used": used} if events else {})}, open(os.path.join(out, "timing.json"), "w"))

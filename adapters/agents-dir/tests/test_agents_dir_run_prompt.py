@@ -353,3 +353,24 @@ def test_a_path_that_does_not_name_a_skill_folder_is_neither(case, path):
 def test_the_skill_tool_loads_and_uses(case):
     timing = timing_after(case, ("skill", {"name": "demo"}), ("skill", {"name": "dep"}))
     assert (timing["skills_loaded"], timing["skills_used"]) == (["demo", "dep"], ["demo", "dep"])
+
+
+@pytest.mark.parametrize("command", ["ls .agents/skills/demo;echo done", "(cd .agents/skills/demo)", "ls .agents/skills/demo|wc -l",
+                                     "ls .agents/skills/demo&&true", "cat < .agents/skills/demo>x", "grep -c x .agents/skills/demo:", "echo `ls .agents/skills/demo`"])
+def test_the_folder_ends_at_a_shell_delimiter_too(case, command):
+    assert timing_after(case, ("bash", {"command": command}))["skills_used"] == ["demo"]
+
+
+def test_a_writes_content_an_edits_text_and_a_subagents_prompt_are_not_use(case):
+    timing = timing_after(case, ("write", {"filePath": "notes.md", "content": "see .agents/skills/demo/SKILL.md and .agents/skills/dep/scripts/x.py"}),
+                          ("edit", {"filePath": "notes.md", "oldString": "a", "newString": ".agents/skills/demo/SKILL.md"}),
+                          ("task", {"prompt": "read .agents/skills/demo/SKILL.md", "description": ".agents/skills/dep/"}))
+    assert (timing["skills_loaded"], timing["skills_used"]) == ([], [])
+    timing = timing_after(case, ("write", {"filePath": ".agents/skills/demo/notes.md", "content": "x"}), ("glob", {"pattern": ".agents/skills/dep/**"}))
+    assert timing["skills_used"] == ["demo", "dep"]
+
+
+def test_one_command_over_several_skills_text_loads_none_of_them_and_uses_all(case):
+    timing = timing_after(case, ("bash", {"command": "cat .agents/skills/demo/SKILL.md .agents/skills/dep/SKILL.md"}),
+                          ("grep", {"pattern": "x", "path": ".agents/skills/demo/SKILL.md"}))
+    assert (timing["skills_loaded"], timing["skills_used"]) == (["demo"], ["demo", "dep"])

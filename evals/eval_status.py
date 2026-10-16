@@ -465,6 +465,20 @@ MODEL_ENTRY_KEYS = {"aliases": list, "adapter": str, "pass_env": list, "route": 
 MODEL_ENTRY_OPTIONAL = {"web_pass_env": list}
 
 
+def _token_var(name):
+    """The rule of the execution kit (evals/execution.py token_var), read from it so that it has one home: the git-host
+    and npm tokens and the password manager's OP_ family never reach a run, so a gate-file entry that names one is an
+    error here and not a name the runner drops without a word."""
+    import importlib.util
+    key = "workbench_eval_execution_tokens"
+    if key not in sys.modules:
+        spec = importlib.util.spec_from_file_location(key, os.path.join(os.path.dirname(os.path.abspath(__file__)), "execution.py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        sys.modules[key] = module
+    return sys.modules[key].token_var(name)
+
+
 def model_entry_problems(entry):
     """Why an object-shaped entry of the gate file's "models" is outside its form; [] when it is valid. The entry
     is what a run of the model needs and the key proxy of its run is started from: {"aliases", "adapter" (the
@@ -490,6 +504,9 @@ def model_entry_problems(entry):
     for key in ("pass_env", "web_pass_env"):
         if key in entry and not all(isinstance(v, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", v) for v in entry[key]):
             out.append(f"{key} must list variable names")
+        elif key in entry:
+            out += [f"{key} names {v}, a token variable that never reaches a run (git hosts, npm, the password manager: evals/execution.py token_var)"
+                    for v in entry[key] if _token_var(v)]
     if entry["route"] is not None and not NAME_RE.fullmatch(entry["route"]):
         out.append("route must be the name of a route file, or null")
     if entry["route"] is None and (entry["provider_pin"] is not None or entry["pass_env"]):
