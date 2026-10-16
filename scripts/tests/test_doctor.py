@@ -105,8 +105,8 @@ def test_a_class_is_checked_through_the_resolution_function(monkeypatch):
     assert [c[-2:] for c in ran] == [[str(Path(doctor.PROVIDERS) / rel), "--check"] for rel in
                                      ("store/sqlite.py", "scheduler/systemd.py", "scheduler/launchd.py")]
     # Nothing to choose, or a name that is not a shipped provider: missing, and nothing is run.
-    status, detail = doctor.check_class("sender:email")
-    assert status == "missing" and "MAILER_PROVIDER" in detail
+    status, detail = doctor.check_class("generator:image")
+    assert status == "missing" and "GENERATOR_IMAGE_PROVIDER" in detail
     monkeypatch.setenv("SCHEDULER_PROVIDER", "../x")
     assert doctor.check_class("scheduler:job")[0] == "missing" and len(ran) == 3
     # A skill that still declares an old bare name is checked as the class it became, and told so.
