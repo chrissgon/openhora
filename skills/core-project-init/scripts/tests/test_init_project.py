@@ -91,6 +91,22 @@ def test_a_git_file_naming_an_absolute_folder_makes_a_project_root(tmp_path):
     assert is_root(proj) is True
 
 
+def test_a_git_file_with_the_usual_relative_layout_of_a_linked_worktree_makes_a_project_root(tmp_path):
+    """The layout git writes: the worktree sits beside the main checkout and points at ../main/.git/worktrees/<name>."""
+    (tmp_path / "main/.git/worktrees/linked").mkdir(parents=True)
+    proj = tmp_path / "linked"
+    proj.mkdir()
+    (proj / ".git").write_text("gitdir: ../main/.git/worktrees/linked\n", encoding="utf-8")
+    assert is_root(proj) is True
+
+
+def test_a_git_file_naming_a_regular_file_is_not_a_project_root(tmp_path):
+    proj = bare_folder(tmp_path)
+    (proj / "admin").write_text("not a folder\n", encoding="utf-8")
+    (proj / ".git").write_text("gitdir: admin\n", encoding="utf-8")
+    assert is_root(proj) is False
+
+
 def test_a_git_file_naming_a_missing_folder_is_not_a_project_root(tmp_path):
     proj = bare_folder(tmp_path)
     (proj / ".git").write_text("gitdir: admin/worktrees/gone\n", encoding="utf-8")

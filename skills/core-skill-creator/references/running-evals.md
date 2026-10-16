@@ -21,7 +21,7 @@ Read the section a step of `SKILL.md` names. Every command runs from the root of
 - `evals/eval_status.py`, the status script: it computes each skill's score and band from its evidence, raises a version (`bump`), and writes the snapshot tables of `docs/inventory.md` (`inventory --write`).
 - `evals/eval-gate.json`, the gate file: the models with their adapters and key variables (`models`), the default list of a test in order (`lab_models`), the grader, the threshold (0.8) and the tolerance (0.05), the number of runs (3), the timeout and the retries, the measurement version, fingerprint and floor. There is no reference model and no floor model: each model has its own band, gate and score. Never pass a model to the runner by hand for a lab test: `eval_run.py --skill <name>` runs the `lab_models` in order. `--model <id>` (repeated, the first is the lead model) names the models of one test; a model outside `lab_models`, or a listed model through another adapter (`--harness`), is the person's own test and writes to the local evidence folder, outside the checkout.
 - A model's gate and band are computed from that model's lines alone, by the same rules for every model, and published side by side; the first model of `lab_models` only fixes the order of the summary row. A failure on any model is worth reading: it often shows an instruction that model cannot follow.
-- Without the gate file, `--dry-run` answers that `--harness` and a `--model` are required and exits 2. Stop there and ask the user (Stop rule 3 of `SKILL.md`).
+- Without the gate file, `--dry-run` answers that `--harness` is required and exits 2. Stop there and ask the user (Stop rule 3 of `SKILL.md`).
 
 ## Change classes and the bump command
 
@@ -44,13 +44,13 @@ Commands:
 
 | Situation | Command | What runs |
 |-----------|---------|-----------------------------|
-| A new skill, an X change, the third Y change | full test: `python3 evals/eval_run.py --skill <name>` | every case with the skill on every model of `lab_models`, 3 runs each, plus the baseline of every case whose baseline is not in force |
+| A new skill, an X change, the third Y change | full test: `python3 evals/eval_run.py --skill <name> [--baseline-on <model>]...` | every case with the skill on every model of `lab_models`, 3 runs each, plus the baseline of every case whose baseline is not in force, on the lead model; `--baseline-on <model>` (repeated, one for each other lab model whose baseline is not in force) adds it on that model |
 | A Y change | partial test: `python3 evals/eval_run.py --skill <name> --cases <ids>`, the cases the change could move and every guard case | the named cases, with the skill only |
 | A case added or changed after the newest full test | `python3 evals/eval_run.py --skill <name> --cases <id> --baseline` | that case with and without the skill; until then it is `pending` and moves no band, and a case changed a second time since the newest full test asks for a full test |
 | A platform's cases (`evals/platforms/<platform>.json`) | `python3 evals/eval_run.py --skill <name> --platform <platform>` | that file's cases, with the skill only; the status shows their mean and runs, never a score |
 | A changed description | the partial test above, and `python3 evals/eval_run.py --routing --pack default --skill <name>`, which lists the case prompts that loaded another skill | the routing mode scores nothing |
 
-- **Full test.** It is the only test that evaluates the **gate**, for each model of the test whose runs and baseline are all there: the mean with the skill on that model is at the threshold or above and is not below the mean of that model's baselines by more than the tolerance, both unrounded. A second full test of an unchanged `X.Y` adds its runs to the first and replaces none.
+- **Full test.** It is the only test that evaluates the **gate**, for each model of the test whose runs and baseline are all there (a model without a baseline in force has no gate, `not computed: no baseline in force on <model>`, until a test is run with `--baseline-on <model>`): the mean with the skill on that model is at the threshold or above and is not below the mean of that model's baselines by more than the tolerance, both unrounded. A second full test of an unchanged `X.Y` adds its runs to the first and replaces none.
 - **Baseline.** The runs of a case without the skill, kept for each model: a full test runs it on the lead model, `--baseline-on <model>` (repeatable) on another. It is reused while the case, the model and the measurement are unchanged, because a run that never saw the skill cannot be aged by a change to it. The event line says `run` or `reused` per case.
 - **Partial test.** It moves the score and never the gate.
 - A skill is **done** when its first full test has passed the gate on every model of `lab_models`. It can be done and in `watch`.
