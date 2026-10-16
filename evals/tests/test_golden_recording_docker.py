@@ -1,7 +1,7 @@
 """The golden recording of package P2b: what the upstream receives from each pinned runner of the eval image, through
 its key proxy, before package SEC and after package P2b.
 
-Each pinned runner of the image (claude 2.1.283 through the claude-code adapter, opencode 1.18.32 through the agents-dir
+Each pinned runner of the image (claude 2.1.284 through the claude-code adapter, opencode 1.18.32 through the agents-dir
 adapter) runs in a container, as a held run does, against a stand-in provider that answers with a canned valid
 response. The stand-in records every request it receives: the method, the path with its query, the header NAMES and
 the values of the headers that are not volatile or credentials, the top-level keys of the body and its "model". The

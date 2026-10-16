@@ -91,7 +91,7 @@ trap 'stop_runner; exit 143' TERM INT HUP
 START=$(python3 -c 'import time; print(int(time.time()*1000))')
 set +e
 if [[ -n "$NO_TOOLS" ]]; then
-  EXTRA=(--tools "")   # checked in `claude --help`, 2.1.283: "" disables every built-in tool
+  EXTRA=(--tools "")   # the flag is in the 2.1.284 binary (a search of the package on 2026-10-16, no run): "" disables every built-in tool
 else
   EXTRA=(--dangerously-skip-permissions)
   [[ -n "$WEB" ]] || EXTRA+=(--disallowedTools "WebSearch,WebFetch")
@@ -99,7 +99,7 @@ fi
 [[ -n "$MAX_COST" ]] && EXTRA+=(--max-budget-usd "$MAX_COST")
 # Connectors: https://code.claude.com/docs/en/mcp (read 2026-09-27): claude.ai connectors load when logged in
 # with a claude.ai account unless ENABLE_CLAUDEAI_MCP_SERVERS=false, and `claude -p` loads project servers
-# without asking unless --strict-mcp-config (checked in `claude --help`, 2.1.283).
+# without asking unless --strict-mcp-config (the flag is in the 2.1.284 binary, found by a search of the package on 2026-10-16).
 ( cd "$CWD" && export ENABLE_CLAUDEAI_MCP_SERVERS=false SLASH_COMMAND_TOOL_CHAR_BUDGET="${SLASH_COMMAND_TOOL_CHAR_BUDGET:-200000}" && exec "${OWN_SESSION[@]}" claude -p --model "$MODEL" \
     --setting-sources project,local --strict-mcp-config --output-format stream-json --verbose ${CLAUDE_EVAL_ARGS:-} ${EXTRA[@]+"${EXTRA[@]}"} ) \
   < "$PROMPT" > "$OUT/stream.jsonl" 2> "$OUT/stderr.log" &

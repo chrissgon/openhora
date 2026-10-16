@@ -105,13 +105,13 @@ TITLE_CUT = 80
 
 
 def chat_memory(messages: list, settled: set) -> str:
-    """The conversation's memory for the router (T23: workaround 2, an adapter that takes the request as one
-    argument, so the memory travels inside it, bounded): the plain lines and the router's replies after the newest
+    """The conversation's memory for the router (the router's measured form; T23 workaround 2, kept on 2026-10-16: the adapter
+    takes the request as one argument, and reading it on standard input is not proven, so the memory travels inside it, bounded): the plain lines and the router's replies after the newest
     reply whose request reached `planned`, `done` or `cancelled` (settled: those request ids); commands and their
     replies and the questions about the state (answered by code) are left out. The newest MEMORY_TURNS, oldest first, each `<role>: <text>` on one line cut to MEMORY_CUT
     characters, the whole cut to MEMORY_CHARS by dropping the oldest. Empty when there is none: the first line of an
     exchange reaches the router plain."""
-    # T23: workaround 2, the conversation's memory as a bounded text in the request
+    # the conversation's memory as a bounded text in the request (T23, workaround 2, kept)
     start = 0
     for n, m in enumerate(messages):
         if m["role"] == "assistant" and m.get("task_id") in settled:
