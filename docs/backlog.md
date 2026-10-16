@@ -471,8 +471,9 @@ Decisions of the review of 2026-10-01 (`docs/architecture/review-2026-10-01.md` 
   - Plan: B1.
 - [ ] **PL-cases. The fixtures of `design-handoff` have no builder.** Recorded as edited by hand; no builder script is added (default 46 of the plan).
   - Plan: phase C, the row of `design-handoff`.
-- [ ] **PL-validation. Validation rules.** `scripts/validate.py` lacks: required metadata keys, `requires` against the known classes, the `side_effects` vocabulary, the token guide, the two-case minimum, skill names cited by agents and flows, `packs/` scanned as core, one frontmatter parser on every machine, and a check that a capability does not invoke a skill.
+- [x] **PL-validation. Validation rules.** `scripts/validate.py` lacks: required metadata keys, `requires` against the known classes, the `side_effects` vocabulary, the token guide, the two-case minimum, skill names cited by agents and flows, `packs/` scanned as core, one frontmatter parser on every machine, and a check that a capability does not invoke a skill. Closed on 2026-10-15 (package PLVAL of the delegation platform plan, https://github.com/chrissgon/openhora/pull/423): the last two rules, `agent-skill` (an error) and `capability-invokes` (a warning), are in `scripts/validate.py`; the others of the list were built earlier (see the docstring of that file); see the decision of that date.
   - Plan: A5 (as warnings), C0.1 and C0.2 (as errors).
+- [ ] **PL-runtime-skills-list. The runtime reads `metadata.skills` only as an inline list.** `scripts/runtime.py` (around line 583) reads the agent's skills with a regular expression for `skills: [a, b]`, while `scripts/validate.py` (`agent-skill`) and the frontmatter parser accept a block list. An agent written with a block list would be validated and then fail, or run with no skill, in the runtime. Fix: read the list with the frontmatter parser, or make the validator require the inline form; a test either way. Found in the review of PR #423.
 
 ## Cases the audit proposed and phase C does not add
 
