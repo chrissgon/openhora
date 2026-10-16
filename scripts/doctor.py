@@ -36,7 +36,7 @@ Options:
   --ack-lease       with --unattended and --project: acknowledge a takeover of another host's lease (removes the record
                     <data_dir>/lease-takeover.json, which the `lease` check warns about), then run the checks
   --remove-old-images  remove the images of earlier definitions of the providers that build one (the converter, the exporter), and
-                    print one JSON object: {"removed", "would_remove", "kept" (each with its reason), "freed_bytes", "dry_run"}. An image
+                    print one JSON object: {"removed" (each with "freed": true only when the image id is gone, not when only a tag was), "would_remove", "kept" (each with its reason), "freed_bytes" (the freed ones only), "dry_run"}. An image
                     is a candidate only when ALL of these hold: it carries the label org.openhora.definition, its repository is that
                     provider's exactly, and the label value and the tag differ from the provider's current definition. An image without
                     the label, an untagged image, a reference that starts with wb-eval and the current image are never selected. It
@@ -242,7 +242,7 @@ def manager_probe():
     return _load("workbench_secret_resolver_manager_probe", path).probe_manager()
 
 
-IMAGE_FAMILIES = ("converter", "exporter", "script")   # providers/<name>/container.py; "script" only once that provider is merged
+IMAGE_FAMILIES = ("converter", "exporter")   # providers/<name>/container.py; a provider that builds an image adds its name here, with its own test
 
 
 def container_box():
@@ -285,7 +285,7 @@ def remove_old_images(argv, tool=None, families=None, box=None):
         done = box.remove_old_definition_images(tool, family["repository"], family["hash"], dry_run=dry_run)
         for key in ("removed", "would_remove", "kept"):
             result[key] += [{"family": family["family"], **item} for item in done[key]]
-    result["freed_bytes"] = sum(item["size"] for item in result["removed"])
+    result["freed_bytes"] = sum(item["size"] for item in result["removed"] if item.get("freed"))
     print(json.dumps(result, indent=2))
     return 0
 

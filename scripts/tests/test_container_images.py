@@ -52,6 +52,9 @@ class FakeImages:
             return 0, "\n".join(self.images) + "\n"
         if args[:2] == ("image", "inspect"):
             ref = args[-1]
+            if ref.startswith("sha256:"):       # by id: any tag of the image answers
+                owner = next((r for r, f in self.images.items() if self.id_of(r) == ref), None)
+                return (0, ref) if owner else (1, "")
             if ref not in self.images:
                 return 1, ""
             self.looked[ref] = self.looked.get(ref, 0) + 1
@@ -59,7 +62,7 @@ class FakeImages:
             labels = facts.get("labels")
             if ref in self.changes and self.looked[ref] > 1:
                 labels = {"org.openhora.definition": CURRENT}   # it became the current definition between the look and the removal
-            return 0, json.dumps(labels) + "\t" + str(facts["size"])
+            return 0, json.dumps(labels) + "\t" + str(facts["size"]) + "\t" + self.id_of(ref)
         if args[:2] == ("image", "rm"):
             ref = args[-1]
             if ref in self.in_use:
@@ -67,6 +70,9 @@ class FakeImages:
             del self.images[ref]
             return 0, ""
         raise AssertionError(f"a command the removal must not send: {args}")
+
+    def id_of(self, ref):
+        return self.images[ref].get("id") or "sha256:" + format(abs(hash(ref.split(":")[0] + ref.split(":")[-1])) % 16 ** 12, "012x") * 5
 
     def sent(self, verb):
         return [c for c in self.calls if c[:2] == ("image", verb)]
@@ -94,9 +100,24 @@ def test_the_current_definition_an_unlabelled_an_untagged_a_harness_and_another_
     done = box.remove_old_definition_images(tool, "openhora-converter", CURRENT, dry_run=False)
     assert sorted(i["image"] for i in done["removed"]) == [f"openhora-converter:{OLD_A[:12]}", f"openhora-converter:{OLD_B[:12]}"]
     assert done["kept"] == [] and done["dry_run"] is False and sum(i["size"] for i in done["removed"]) == 170 * MIB
+    assert all(i["freed"] for i in done["removed"])
     assert sorted(c[-1] for c in tool.sent("rm")) == sorted(i["image"] for i in done["removed"])      # by tag, nothing else
     assert set(tool.images) == {f"openhora-converter:{CURRENT[:12]}", "openhora-converter:homemade", "openhora-converter:<none>",
                                 f"wb-eval-image:{OLD_C[:12]}", f"openhora-exporter:{OLD_A[:12]}", f"openhora-converter-extra:{OLD_A[:12]}"}
+
+
+def test_removing_a_tag_of_an_image_that_has_another_tag_is_not_counted_as_freed(capsys):
+    shared = "sha256:" + "e" * 64
+    images = shelf()
+    images[f"openhora-converter:{OLD_A[:12]}"]["id"] = shared
+    images["openhora-converter:keepme"] = {"labels": None, "size": 90 * MIB, "id": shared}      # the same image under another name
+    tool = FakeImages(images)
+    done = box.remove_old_definition_images(tool, "openhora-converter", CURRENT, dry_run=False)
+    by = {i["image"]: i for i in done["removed"]}
+    assert by[f"openhora-converter:{OLD_A[:12]}"]["freed"] is False and by[f"openhora-converter:{OLD_B[:12]}"]["freed"] is True
+    code = doctor.remove_old_images(["--remove-old-images", "--confirmed"], tool=FakeImages(images), families=FAMILIES[:1], box=box)
+    out = json.loads(capsys.readouterr().out)
+    assert code == 0 and out["freed_bytes"] == 80 * MIB                                         # only the image whose id went
 
 
 def test_an_image_in_use_or_refused_is_reported_kept_with_the_reason():
@@ -228,7 +249,7 @@ def test_the_images_row_leaves_the_exit_code_of_the_doctor_alone(monkeypatch, ca
 
 def test_the_families_are_the_providers_that_build_an_image_here_with_their_current_definition():
     families = doctor.image_families()
-    assert [f["family"] for f in families] == ["converter", "exporter"]            # the script provider's base image joins when it is merged
+    assert [f["family"] for f in families] == ["converter", "exporter"]            # a provider that builds an image adds itself to doctor.IMAGE_FAMILIES
     for family in families:
         assert family["tag"] == f"{family['repository']}:{family['hash'][:12]}" and len(family["hash"]) == 64
     assert {f["repository"] for f in families} == {"openhora-converter", "openhora-exporter"}

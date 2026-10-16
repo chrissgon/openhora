@@ -719,7 +719,8 @@ def holder_process(cfg, task_id: int, leader: bool = True, on_term: str = "die",
     """A process that holds a task's lock and sleeps, with "<pid> <pgid>" in the file as a task run writes it. leader: it
     has a session (and a group) of its own, as a dispatcher's child; otherwise it shares the test's group, as a `run-next`
     started from a shell does. on_term: "die" (the default), "ignore" (SIGTERM does nothing), "release" (SIGTERM closes the
-    lock, prints "released" on its stdout and the process goes on sleeping). The process writes its owner line first and
+    lock, prints "released" on its stdout and the process goes on sleeping), "release_on_go" (SIGTERM does nothing; the
+    process lets the lock go, and says "released", when a line arrives on its stdin). The process writes its owner line first and
     takes the lock after, retrying until a deadline, so that the lock is never held under another holder's name and a probe
     that holds the lock for a moment (`stop_children`'s, a test's) cannot make it fail. gated: the process is started, says
     "ready" and waits for `let_in(process)` before it writes and takes the lock: a test that must have the holder arrive
@@ -741,7 +742,11 @@ def holder_process(cfg, task_id: int, leader: bool = True, on_term: str = "die",
             "mode = %r\n"
             "if mode == 'ignore': signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
             "if mode == 'release': signal.signal(signal.SIGTERM, lambda *a: (os.close(fd), os.write(1, b'released\\n')))\n"
-            "print('held', flush=True); time.sleep(60)"
+            "if mode == 'release_on_go': signal.signal(signal.SIGTERM, lambda *a: None)\n"
+            "print('held', flush=True)\n"
+            "if mode == 'release_on_go':\n"
+            "    sys.stdin.readline(); os.close(fd); os.write(1, b'released\\n')\n"
+            "time.sleep(60)"
             % (str(st.RUNTIME), cfg["data_dir"], task_id, gated, on_term))
     process = subprocess.Popen([sys.executable, "-c", code], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                start_new_session=leader)
@@ -974,26 +979,42 @@ def test_a_task_started_and_not_yet_claimed_is_counted_as_running_and_not_decide
     assert snapshot["running"] == [] and sorted(t["id"] for t in snapshot["ready"]) == [one, two]
 
 
-def test_a_lock_that_changed_hands_during_the_grace_is_not_killed(world):
-    """The first holder lets the lock go on TERM (and says so on its stdout) but stays alive; another process then takes
-    the task's lock. `stop_children` never signals that new holder: it KILLs only a lock still held while the file names
-    the process that got the TERM. Nothing here may hold the lock under the first's name: the second holder is started
-    before the stop, so that no fork of this process overlaps `stop_children`'s probes of the lock; it writes its owner
-    line before it takes the lock; and the thread lets it in on the first's own "released" line, not on a probe of the lock."""
+def test_a_lock_that_changed_hands_during_the_grace_is_not_killed(world, monkeypatch):
+    """The first holder gets the TERM and keeps the lock until the test tells it to let go; another process then takes the task's
+    lock, all inside the grace. `stop_children` must not signal the new holder, and must not KILL the first either: the file now
+    names the new holder, so the KILL (only for a lock held while the file still names the process that got the TERM) does not
+    go out. The hand-over is made to happen, not hoped for: the grace poll's first sleep is replaced by a function that lets the
+    first holder go and returns only when the second holder holds the lock. The second holder is started before the stop, so that
+    no fork of this process overlaps `stop_children`'s probes of the lock; it writes its owner line before it takes the lock."""
     cfg = ops_core.context(world["path"])["cfg"]
-    first = holder_process(cfg, 17, on_term="release")  # lets the lock go on TERM, but stays alive
+    first = holder_process(cfg, 17, on_term="release_on_go")  # keeps the lock after the TERM until it is told to let go
     second = holder_process(cfg, 17, gated=True)  # waits outside the lock until the first has let go
-    try:
-        def take_over():
-            if first.stdout.readline().strip() == b"released":  # EOF (the first died) lets nobody in: the assertions below fail
+    taken, slept = threading.Event(), []
+    real_time = time
+
+    class Clock:
+        """ops_runs.time: the real clock, except that the first sleep of the grace poll hands the lock over."""
+        monotonic = staticmethod(real_time.monotonic)
+
+        @staticmethod
+        def sleep(seconds):
+            slept.append(seconds)
+            if len(slept) == 1:
+                first.stdin.write(b"go\n")
+                first.stdin.flush()
+                assert first.stdout.readline().strip() == b"released"
                 let_in(second)  # another process takes the task's lock
-        thread = threading.Thread(target=take_over, daemon=True)
-        thread.start()
-        assert ops_runs.stop_children(only_mine=False, cfg=cfg, grace=4.0) == [17]
-        thread.join(30)
+                taken.set()
+            else:
+                real_time.sleep(seconds)
+    monkeypatch.setattr(ops_runs, "time", Clock)
+    try:
+        assert ops_runs.stop_children(only_mine=False, cfg=cfg, grace=1.0) == [17]
+        assert taken.is_set(), "the lock did not change hands during the grace: the test did not reach what it is about"
         assert second.poll() is None  # the new holder never got a TERM, and no KILL either
         assert ops_core._lock_owner(cfg, 17) == (second.pid, os.getpgid(second.pid))  # the lock is the new holder's, under its own name
-        assert first.poll() is None
+        with pytest.raises(subprocess.TimeoutExpired):   # the first, which got the TERM and let go, is not killed either (a KILL is not instant)
+            first.wait(0.5)
     finally:
         for process in (first, second):
             if process.poll() is None:

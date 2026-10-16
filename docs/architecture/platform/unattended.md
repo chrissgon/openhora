@@ -132,7 +132,7 @@ The automatic pass is a setting of the project: `sweep_orphan_containers` in `ru
 
 ## Images of earlier definitions (T38)
 
-The providers that build an image (the converter and the exporter; the script provider's base image joins when it is merged) tag it with the hash of its definition, so each change of a definition leaves the earlier image on disk, hundreds of megabytes each. Nothing removes them by itself: **no run, no upkeep pass and no other doctor mode ever sends an image command**. The doctor lists them and removes them on the person's word:
+The providers that build an image (the converter and the exporter; a provider that builds an image adds itself to `IMAGE_FAMILIES` of `scripts/doctor.py`, with its own test) tag it with the hash of its definition, so each change of a definition leaves the earlier image on disk, hundreds of megabytes each. Nothing removes them by itself: **no run, no upkeep pass and no other doctor mode ever sends an image command**. The doctor lists them and removes them on the person's word:
 
 - the `images` row of `python3 scripts/doctor.py --unattended`: the count and total size of the images of earlier definitions and the command below. It is never a `warn`, so it never changes the exit code (also under `--strict`); without docker it is `unverified`;
 - `python3 scripts/doctor.py --remove-old-images (--dry-run | --confirmed)` prints one JSON object (`removed`, `would_remove`, `kept` with the reason of each, `freed_bytes`). `--dry-run` sends no removal. One of the two is required.

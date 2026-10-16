@@ -116,10 +116,16 @@ def _step(parent: int, part: str, create: bool) -> int:
     return fd
 
 
+TASK_PART = re.compile(r"[0-9]{1,18}|request-[0-9]{1,18}")   # a task's folder is its id; a request's staging folder is request-<id>
+
+
 def open_folder(project: str, task_id, create: bool = False) -> int:
     """The descriptor of <project>/.workbench-local/drop/<task id>, opened from the project's root one part at a time (each with
     O_DIRECTORY | O_NOFOLLOW from the one before). A link at any part is a DropError that names the part; a part that does not exist
-    is FileNotFoundError (with create, it is made, mode 0700). The caller closes the descriptor."""
+    is FileNotFoundError (with create, it is made, mode 0700). The task id is a whole number or `request-<n>`; anything else (empty, a
+    `..`, a `/`) is a DropError before anything is opened. The caller closes the descriptor."""
+    if isinstance(task_id, bool) or not TASK_PART.fullmatch(str(task_id)):
+        raise DropError(f"{str(task_id)!r} is not a task id of the file drop: a whole number, or request-<n>")
     fd = os.open(os.path.realpath(project), os.O_RDONLY | os.O_DIRECTORY)
     try:
         for part in DROP_DIR.split("/") + [str(task_id)]:
@@ -232,6 +238,8 @@ def hand_over(project: str, task: dict, source: str, web_allowed: bool) -> dict:
         if info.st_size > MAX_BYTES:
             raise DropError(f"{name} is {info.st_size} bytes, larger than {MAX_BYTES}")
         data = f.read(MAX_BYTES + 1)
+    if len(data) > MAX_BYTES:   # the file grew after its size was read
+        raise DropError(f"{name} is larger than {MAX_BYTES} bytes")
     rel = "/".join([DROP_DIR, str(task["id"]), name])
     try:   # a link on the way refuses the hand-over here, before anything is written; a folder not made yet holds nothing
         existing = open_folder(project, task["id"])

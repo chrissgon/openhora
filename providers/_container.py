@@ -405,20 +405,21 @@ REMOVAL_REFUSED = "docker refused the removal (the image is in use by a containe
 
 
 def _image_facts(tool, reference: str):
-    """{"label", "size"} of the image `reference` (the value of LABEL_DEFINITION or None, and its size in bytes), or None when it cannot
-    be read."""
+    """{"label", "size", "id"} of the image `reference` (the value of LABEL_DEFINITION or None, its size in bytes and its id), or None when
+    it cannot be read."""
     import json
-    code, out = tool("image", "inspect", "--format", "{{json .Config.Labels}}\t{{.Size}}", reference)
+    code, out = tool("image", "inspect", "--format", "{{json .Config.Labels}}\t{{.Size}}\t{{.Id}}", reference)
     if code != 0:
         return None
-    text, _, size = out.strip().partition("\t")
+    text, _, rest = out.strip().partition("\t")
+    size, _, image_id = rest.partition("\t")
     try:
         labels = json.loads(text) if text else None
         size = int(size)
     except ValueError:
         return None
     label = labels.get(LABEL_DEFINITION) if isinstance(labels, dict) else None
-    return {"label": label if isinstance(label, str) and label else None, "size": size}
+    return {"label": label if isinstance(label, str) and label else None, "size": size, "id": image_id.strip()}
 
 
 def _is_old(reference: str, repository: str, current_tag: str, facts, current_hash: str) -> bool:
@@ -449,9 +450,10 @@ def old_definition_images(tool, repository: str, current_hash: str) -> list:
 
 
 def remove_old_definition_images(tool, repository: str, current_hash: str, dry_run: bool = True) -> dict:
-    """{"removed": [{"image", "size"}], "would_remove": [...], "kept": [{"image", "reason"}], "dry_run": bool} for this provider's earlier definitions. Each
+    """{"removed": [{"image", "size", "freed"}], "would_remove": [...], "kept": [{"image", "reason"}], "dry_run": bool} for this provider's earlier definitions. Each
     candidate is inspected again just before its removal and removed by tag (`image rm <repository:tag>`, never with --force, never with
-    prune); an image that changed meanwhile, that is in use or that the client refuses is kept, with the reason. With dry_run (the default)
+    prune); "freed" is true only when the image id is gone after the removal (a second tag on the same image only loses this one:
+    its size is not counted as freed); an image that changed meanwhile, that is in use or that the client refuses is kept, with the reason. With dry_run (the default)
     nothing is removed and no `rm` is sent: the candidates are listed in "would_remove"."""
     current_tag = current_hash[:12]
     out = {"removed": [], "would_remove": [], "kept": [], "dry_run": bool(dry_run)}
@@ -466,7 +468,8 @@ def remove_old_definition_images(tool, repository: str, current_hash: str, dry_r
             continue
         code, _text = tool("image", "rm", reference)
         if code == 0:
-            out["removed"].append({"image": reference, "size": again["size"]})
+            gone = bool(again["id"]) and tool("image", "inspect", "--format", "{{.Id}}", again["id"])[0] != 0
+            out["removed"].append({"image": reference, "size": again["size"], "freed": gone})
         else:
             out["kept"].append({"image": reference, "reason": REMOVAL_REFUSED})
     return out

@@ -300,3 +300,35 @@ def test_the_descriptor_helpers_refuse_a_link_a_pipe_and_a_name_with_a_slash(tre
     finally:
         os.close(fd)
     assert [rel.rsplit("/", 1)[1] for _s, rel in drop.files(project, ids["market"])] == ["real.txt"]
+
+
+@pytest.mark.parametrize("bad", ["", "..", ".", "../x", "a/b", "7x", "request-", "request-../x", "-1", "1.5", True, None])
+def test_open_folder_refuses_a_task_id_that_is_not_a_number_or_a_request_staging_name(tree, bad):
+    with pytest.raises(drop.DropError, match="not a task id"):
+        drop.open_folder(str(tree["project"]), bad)
+    assert not (tree["project"] / ".workbench-local").exists()                       # nothing was opened or made
+
+
+def test_open_folder_takes_a_number_and_a_request_staging_name(tree):
+    project = str(tree["project"])
+    for good in (7, "request-7"):
+        with pytest.raises(FileNotFoundError):    # well formed, and not there
+            drop.open_folder(project, good)
+        os.close(drop.open_folder(project, good, create=True))
+    os.close(drop.open_folder(project, "7"))      # the number 7 and the text "7" are the same folder
+    assert (tree["project"] / ".workbench-local" / "drop" / "request-7").is_dir()
+
+
+def test_a_file_that_grew_after_its_size_was_read_is_refused(tree, monkeypatch):
+    ids = planned(tree)
+    monkeypatch.setattr(drop, "MAX_BYTES", 10)
+    real = os.fstat
+
+    def small_when_asked(fd):    # the size the hand-over reads is stale: the file is larger by the time it is read
+        info = real(fd)
+        return os.stat_result((info.st_mode, info.st_ino, info.st_dev, info.st_nlink, info.st_uid, info.st_gid, 0, 0, 0, 0)) \
+            if info.st_size > 10 else info
+    monkeypatch.setattr(drop.os, "fstat", small_when_asked)
+    with pytest.raises(ops.OpsError, match="larger than 10"):
+        ops.hand_over(str(tree["project"]), ids["market"], handed_file(tree, "grew.txt", "x" * 30))
+    assert drop.files(str(tree["project"]), ids["market"]) == []

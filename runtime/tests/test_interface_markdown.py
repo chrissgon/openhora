@@ -335,12 +335,15 @@ def test_hostile_shapes_of_200_kb_end_quickly_and_neither_nest_deeply_nor_build_
     in processor time), and the render of the larger may take at most three times that of the smaller plus 15 ms (linear is
     about twice, quadratic four times; the 15 ms is what a few milliseconds of render can gain from a machine busy with other
     work, without which the shapes that take 1 to 3 ms could not be told from noise). One generous
-    absolute bound per shape (3000 ms) guards against a hang."""
+    absolute bound per shape (3000 ms) guards against a hang, and the four-paragraph shapes, which the caps of the renderer bound, keep their
+    absolute bound of 100 ms of processor time (which a busy machine does not inflate)."""
     got = floor_tests.run_node(tmp_path, SIZE)
     for name, shape in got["shapes"].items():
         assert shape["bad"] == 0, name
         assert shape["full"] <= 3 * shape["half"] + 15, f"{name} took {shape['half']} ms at half its size and {shape['full']} ms at its size"
         assert shape["full"] < 3000, f"{name} took {shape['full']} ms in the fake document"
+        if name.startswith("fourParagraphs"):   # the caps (MAX_LINKS, MAX_BRACKET, MAX_URL, MAX_SPACE) make the cost the same at half the size and at the size, so growth cannot see one removed
+            assert shape["full"] < 100, f"{name} took {shape['full']} ms of processor time; the caps of markdown.js bound it far under 100 ms"
         assert shape["depth"] <= 80, f"{name} nests {shape['depth']} levels deep"
 
 
