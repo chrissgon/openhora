@@ -19,7 +19,7 @@ Nine areas: seven form the lifecycle chain of a digital solution, two are horizo
 | Area | Prefix | Sub-areas | Note |
 |------|--------|-----------|------|
 | AI and machine learning | `ai-` | AI strategy (opportunity, build vs. buy, feasibility, cost, risk); AI product design (UX for uncertainty, feedback, human-in-the-loop, guardrails); AI engineering (LLM integration, prompts, RAG, agents and tool use, evals, cost and observability); ML (classical modelling, training data, MLOps); governance (privacy, prompt injection, compliance) | AI *inside the solution being built*. Not the workbench itself. |
-| Core | `core-` | orchestration and routing; research method; interview and clarification method; skill and agent creation and evaluation; project `AGENTS.md` generation; project memory and state | The workbench improving and operating itself, plus methods every area reuses. |
+| Core | `core-` | orchestration and routing; process diagnosis (planned); research method; interview and clarification method; skill and agent creation and evaluation; project `AGENTS.md` generation; project memory and state | The workbench improving and operating itself, plus methods every area reuses. |
 
 ## Optional areas
 

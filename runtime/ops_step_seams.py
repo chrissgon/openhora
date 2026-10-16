@@ -9,8 +9,10 @@ A step kind (runtime/step_*.py) imports no module that calls a provider. Whateve
 module builds those services, once, for the process that runs the task (runtime/ops_steps.py). Each is as narrow as the kind's need:
 
   config           the project's configuration (runtime/project_config.py load), read once
-  documents        DocumentsReader: `read` and `stat` of the project's documents provider, and what the kind asks about it (`enabled`,
-                   `provider`, `problem`: why a write to it is not allowed now). It has no `write`: the verbs it calls are two literals.
+  documents        DocumentsReader: `read`, `stat`, `table_read` and `rows_state` of the project's documents provider (a page's text; a
+                   page's existence and name; a table's columns, name, row count and newest edit; how many rows of a file the provider's
+                   ledger holds that the table still lists), and what the kind asks about it (`enabled`, `provider`, `problem`: why a write to it is not
+                   allowed now). It has no `write`: the verbs it calls are four literals, all reads.
   source_pin       function(source id) -> {"sha256": the converted text of the source's newest version, "page": the source's page as a
                    normalised identifier or None} or None: what a write-back compares the target with
   effect_files     EffectFiles: write and read the effect document of a cycle of a task, by hash (runtime/ops_step_effects.py holds the
@@ -40,7 +42,7 @@ import ops_step_effects  # noqa: E402
 import project_config  # noqa: E402
 import sources  # noqa: E402
 
-READ_VERBS = ("read", "stat")      # the only verbs of the documents provider a step kind can reach
+READ_VERBS = ("read", "stat", "table-read", "rows-state")      # the only verbs of the documents provider a step kind can reach
 EXPORTER_CLASS = "exporter:document"
 EXPORTER_TIMEOUT = 300
 OUTPUT_MAX = 8 * 1024 * 1024       # the exporter's own cap (providers/exporter/container.py OUTPUT_CAP)
@@ -70,10 +72,10 @@ class DocumentsReader:
         """Why a write to the platform is not allowed now (its bounds expired), or None."""
         return project_config.bounds_problem(self._cfg, key=documents.KEY) if self.enabled() else None
 
-    def _call(self, verb: str, target: str) -> dict:
+    def _call(self, verb: str, target: str, extra=()) -> dict:
         assert verb in READ_VERBS
         try:
-            return documents.call(self._cfg, self._root, verb, ["--id", target])
+            return documents.call(self._cfg, self._root, verb, ["--id", target, *extra])
         except documents.DocumentsError as e:
             raise StepServiceError("not_configured" if e.kind == "not configured" else "provider_failed", e.detail) from None
 
@@ -82,6 +84,24 @@ class DocumentsReader:
 
     def stat(self, target: str) -> dict:
         return self._call("stat", target)
+
+    def rows_state(self, table: str, scope: str, table_bytes: bytes) -> dict:
+        """How many of a table file's rows the provider's ledger already holds as written under a scope (an earlier approval of the same
+        task) and the table still lists: the provider reads its ledger and lists the table (a read; it writes nothing). The rows are handed
+        over as a private file, removed at once."""
+        folder = tempfile.mkdtemp(prefix="openhora-rows-state-")
+        try:
+            path = os.path.join(folder, "table.json")
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            with os.fdopen(fd, "wb") as f:
+                f.write(table_bytes)
+            return self._call("rows-state", table, ["--scope", scope, "--table-file", path])
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+
+    def table_read(self, table: str) -> dict:
+        """A table's columns, their hash, its row count and the time of its newest edit (the provider's table-read; it changes nothing)."""
+        return self._call("table-read", table)
 
 
 class EffectFiles:
