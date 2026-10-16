@@ -86,7 +86,7 @@ Write to `docs/delivery/repo-baseline.md`:
 # Repository baseline: <repository>
 
 - Owner: ops-repo-baseline
-- Language: <the tag this file is written in: on an update, the one already here unless the request sets another; else the project language>
+- Language: <the tag this file is written in. On an update: the tag on its Language line (with none, the language the file is written in), unless the request sets another. For a new file: the project language (the `language` key of docs/workbench/runtime.json, or the task's language line; English when absent)>
 - Status: draft
 - Date: <YYYY-MM-DD, from `date +%F`>
 - Decisions: approvals <n>; signed commits <yes/no>; squash only <yes/no>; default branch <name>; owner <handle>; secret scanner <bundled | bundled + gitleaks 8.30.1>; days to answer a security report <n> (each: user | user answer (accepted recommendation) | AGENTS.md | state.md)

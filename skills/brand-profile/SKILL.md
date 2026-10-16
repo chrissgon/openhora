@@ -39,7 +39,7 @@ Collect, with a source for every fact, the raw material of one person's brand in
 | Source | Required | If missing |
 |--------|----------|------------|
 | docs/workbench/state.md: the languages of the posts, prior decisions | no | Ask in step 3. |
-| The project language: the task's `Project language:` or `Language of this deliverable:` line; else the `language` key of `docs/workbench/runtime.json`; else English | no | Write in English; reply in the user's language. |
+| The project language: the task's `Project language:` or `Language of this deliverable:` line; else the `language` key of `docs/workbench/runtime.json`; else English | no | English for a new artifact; an artifact being updated keeps its own language. Reply in the user's language. |
 | A profile export, or the profile text pasted by the user (how a person exports it: the platform's reference, section "A profile") | yes | Ask for it in step 3. Never scrape a social network. |
 | Public code-host profile and repositories (`integration:vcs`) | no | Skip; ask for proof in step 3, and say in the reply that it was not read and why. |
 | Texts the person wrote alone (posts, messages, READMEs), at least three | yes for the voice section | Write what exists, add an open question; the voice stays a hypothesis. |
@@ -107,10 +107,10 @@ Progress:
 # Brand profile: <public name>
 
 - Owner: brand-profile
-- Language: <the tag this file is written in: on an update, the one already here unless the request sets another; else the project language>
+- Language: <the tag this file is written in. On an update: the tag on its Language line (with none, the language the file is written in), unless the request sets another. For a new file: the project language (the `language` key of docs/workbench/runtime.json, or the task's language line; English when absent)>
 - Status: draft (waiting for the open questions) | confirmed
 - Date: <YYYY-MM-DD>
-- Language of posts: <...> [n]
+- Post languages: <...> [n]
 
 ## Who they are
 - Public name: <...> [n]

@@ -18,7 +18,7 @@ metadata:
   updates: [docs/engineering/plans/<task>.md]
   requires: []
   side_effects: []
-  version: "1.0.0"
+  version: "2.0.0"
 ---
 
 # Impact analysis
@@ -53,6 +53,7 @@ Check these before the first search, and again before replying. They override th
    # Plan: <task>
 
    - Task: <backlog id, issue, or the user's words quoted>
+   - Language: <the tag this file is written in. On an update: the tag on its Language line (with none, the language the file is written in), unless the request sets another. For a new file: the project language (the `language` key of docs/workbench/runtime.json, or the task's language line; English when absent)>
    - Date: <YYYY-MM-DD, from `date +%F`>
    ```
 3. **No approach is chosen here.** When the behaviour could be built several ways (a new parameter, a default, a new function, a dependency), list each as an option and give the touched files and the release impact per option ("major if the signature changes, minor if the parameter is optional"). Never write "needs a new parameter" as a fact.

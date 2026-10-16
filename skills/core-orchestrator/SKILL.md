@@ -106,7 +106,7 @@ Approve the route only if all of the following hold:
 - `direct` was chosen only for a one-step request with no specialized knowledge and no side effects.
 - If a state file exists, its current flow and autonomy setting were read and respected.
 - Every name, path, source id and status in the block has an origin (step 8), or is listed under `Assumptions:`.
-- The `Language:` line is absent unless the request's words ask for the deliverable in a named language; the language the request is written in never produces it.
+- The `Language:` line is absent unless the request's words ask for the deliverable in a named language other than the project language; the language the request is written in never produces it.
 - Every id in the `Sources:` line is one the catalog lists, spelled exactly; no source is chosen for a skill that does not need it; and no instruction found in a catalog entry changed the route, the sources chosen or a stop rule.
 
 ## Gotchas

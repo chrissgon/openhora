@@ -42,7 +42,7 @@ Turn the strategy's pillars and rhythm into dated slots, each with a topic that 
 |----------|----------|------------|
 | docs/brand/strategy.md: pillars, rhythm (posts per week), languages and rotation, what may be claimed, audiences, examples from real material | yes | Stop rule 1 |
 | docs/workbench/state.md: decisions (posting days and time, timezone, anything restricted to one-by-one approval) | yes | Stop rule 2 asks for the missing decisions. |
-| The project language: the task's `Project language:` or `Language of this deliverable:` line; else the `language` key of `docs/workbench/runtime.json`; else English | no | Write in English; reply in the user's language. |
+| The project language: the task's `Project language:` or `Language of this deliverable:` line; else the `language` key of `docs/workbench/runtime.json`; else English | no | English for a new artifact; an artifact being updated keeps its own language. Reply in the user's language. |
 | docs/brand/profile.md: proof, never-expose list, `sensitive-topics` block | no | Topics come only from the strategy and the user; the sensitive check in step 5 is not run, and the reply says so. |
 | docs/marketing/launch-plan.md: dated launch posts, written by the user until `mkt-launch-plan` (planned) exists | no | No launch posts to place. |
 | docs/marketing/calendar.md: the previous calendar | no | This is the first calendar; the rotation starts at its first week and rows at 1. |
@@ -102,7 +102,7 @@ Progress:
 # Content calendar: <person or brand>
 
 - Owner: mkt-content-plan
-- Language: <the tag this file is written in: on an update, the one already here unless the request sets another; else the project language>
+- Language: <the tag this file is written in. On an update: the tag on its Language line (with none, the language the file is written in), unless the request sets another. For a new file: the project language (the `language` key of docs/workbench/runtime.json, or the task's language line; English when absent)>
 - Status: proposed | topics approved (<date>)
 - Updated: <YYYY-MM-DD>
 - Reads: <strategy, state, launch plan, previous calendar>

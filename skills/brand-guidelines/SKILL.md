@@ -87,7 +87,7 @@ Progress:
 # Brand guide: <name>
 
 - Owner: brand-guidelines
-- Language: <the tag this file is written in: on an update, the one already here unless the request sets another; else the project language>
+- Language: <the tag this file is written in. On an update: the tag on its Language line (with none, the language the file is written in), unless the request sets another. For a new file: the project language (the `language` key of docs/workbench/runtime.json, or the task's language line; English when absent)>
 - Status: draft | approved (<date>)
 - Date: <YYYY-MM-DD, from `date +%F`>
 - Consolidates: <each brand file and its date>; the files are the source

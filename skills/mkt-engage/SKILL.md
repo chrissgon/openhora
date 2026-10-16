@@ -112,11 +112,11 @@ Draft a reply for every category, so the person finds it ready in the inbox, exc
 # Engagement policy: <person>
 
 - Owner: mkt-engage
-- Language: <the tag this file is written in: on an update, the one already here unless the request sets another; else the project language>
+- Language: <the tag this file is written in. On an update: the tag on its Language line (with none, the language the file is written in), unless the request sets another. For a new file: the project language (the `language` key of docs/workbench/runtime.json, or the task's language line; English when absent)>
 - Network: <platform>; comments come in as links the person pastes
 
 ## What replies on its own
-<categories in plain words>; languages <...>; at most <n> per day and <n> per person per post; target <n> minutes.
+<categories in plain words>; reply languages <...>; at most <n> per day and <n> per person per post; target <n> minutes.
 
 ## What always goes to the person
 <every other category, the sensitive-topics lock, anything restricted to reviewed text>

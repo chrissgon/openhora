@@ -94,7 +94,7 @@ Write to `docs/engineering/reviews/<change>.md`, where `<change>` is the task id
 # Code review: <change>
 
 - Owner: eng-code-review
-- Language: <the tag this file is written in: on an update, the one already here unless the request sets another; else the project language>
+- Language: <the tag this file is written in. On an update: the tag on its Language line (with none, the language the file is written in), unless the request sets another. For a new file: the project language (the `language` key of docs/workbench/runtime.json, or the task's language line; English when absent)>
 - Status: draft
 - Date: <YYYY-MM-DD, from `date +%F`>
 - Reviewed: <reference>, because <the user named it | the working tree is dirty | the last commit>

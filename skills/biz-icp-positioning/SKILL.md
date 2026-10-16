@@ -43,7 +43,7 @@ Pick the customers the business goes after first and say, truthfully, why they s
 |----------|----------|------------|
 | docs/business/market.md | no | Stop rule 1 asks for the offer and the segments; the message says that `docs/business/market.md` does not exist and that `biz-market-analysis` writes it. |
 | docs/workbench/state.md: decisions on offer, job, segments, size band, founder access, name, validation, how to break a tie | no | Stop rule 1. |
-| The project language: the task's `Project language:` or `Language of this deliverable:` line; else the `language` key of `docs/workbench/runtime.json`; else English | no | Write in English; reply in the user's language. |
+| The project language: the task's `Project language:` or `Language of this deliverable:` line; else the `language` key of `docs/workbench/runtime.json`; else English | no | English for a new artifact; an artifact being updated keeps its own language. Reply in the user's language. |
 | docs/workbench/research/*.md on these segments | no | Research in step 4; reuse cited claims instead of searching again. |
 | `search:web` capability | yes for the comparison | Write the query plan and the interview plan, mark both artifacts `Status: limited` (lint them with `--status-words limited`), and score nothing. |
 
@@ -120,7 +120,7 @@ Progress:
 # Ideal customer profile: <offer>
 
 - Owner: biz-icp-positioning
-- Language: <the tag this file is written in: on an update, the one already here unless the request sets another; else the project language>
+- Language: <the tag this file is written in. On an update: the tag on its Language line (with none, the language the file is written in), unless the request sets another. For a new file: the project language (the `language` key of docs/workbench/runtime.json, or the task's language line; English when absent)>
 - Status: hypothesis | validated (<n> interviews, <date>) | limited
 - Date: <YYYY-MM-DD, from `date +%F`>
 - Offer: <offer>; size band: <band>; founder access: <from the state file>
@@ -174,7 +174,7 @@ Progress:
 # Positioning: <name> for <primary profile>
 
 - Owner: biz-icp-positioning
-- Language: <the tag this file is written in: on an update, the one already here unless the request sets another; else the project language>
+- Language: <the tag this file is written in. On an update: the tag on its Language line (with none, the language the file is written in), unless the request sets another. For a new file: the project language (the `language` key of docs/workbench/runtime.json, or the task's language line; English when absent)>
 - Status: hypothesis
 - Date: <YYYY-MM-DD, from `date +%F`>
 

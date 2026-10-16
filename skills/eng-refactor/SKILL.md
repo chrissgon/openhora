@@ -18,7 +18,7 @@ metadata:
   updates: [docs/engineering/plans/<task>.md]
   requires: []
   side_effects: []
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Refactor
@@ -74,7 +74,7 @@ Progress:
 - [ ] Step 3: Make one kind of change across the target, nothing else (Stop rule 3): no rename while removing dead code, no formatting of untouched lines beyond what the formatter does to the lines you changed. Keep every guard that does change behaviour (a server-side guard, an error path), and say which ones you kept.
 - [ ] Step 4: Run the same check and measurements, and keep the lines they printed. Any difference in a test result is a behaviour change: revert and re-examine the smell. Any measurement that moves the wrong way is reported, not hidden.
 - [ ] Step 5: Confine the change: run `git status --short` (it lists new, untracked files, which a diff summary leaves out) and check that it lists only the target files and the plan; name the formatter's changes.
-- [ ] Step 6: Write the "Refactor" section of the plan from the template, with anything found while reading listed as separate changes. Create the plan with its header when it does not exist; the header is the plan's own (`# Plan:`, `- Task:`, `- Date:`), with the date from `date +%F`.
+- [ ] Step 6: Write the "Refactor" section of the plan from the template, with anything found while reading listed as separate changes. Create the plan with its header when it does not exist; the header is the plan's own (`# Plan:`, `- Task:`, `- Language:`, `- Date:`), with the date from `date +%F`.
 - [ ] Step 7: Self-check against "Quality criteria": list every number in the table and the reply and the command that printed it; remove any number that has none. Fix, then re-check.
 - [ ] Step 8: Reply with the reply template. The self-check comes before the reply, never after it.
 
@@ -86,6 +86,7 @@ Add to `docs/engineering/plans/<task>.md`, creating the file with this header wh
 # Plan: <task>
 
 - Task: <the target as named or agreed, and who agreed>
+- Language: <the tag this file is written in. On an update: the tag on its Language line (with none, the language the file is written in), unless the request sets another. For a new file: the project language (the `language` key of docs/workbench/runtime.json, or the task's language line; English when absent)>
 - Date: <YYYY-MM-DD, from `date +%F`>
 
 ## Refactor

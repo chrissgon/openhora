@@ -40,7 +40,7 @@ Turn the profile (a person) or the ICP and positioning (a company) into the choi
 | docs/brand/profile.md (a person) | yes for a person | Stop rule 1. A strategy without the proof table invents claims. |
 | docs/business/icp.md and positioning.md (a company) | yes for a company | Stop rule 2. |
 | docs/workbench/state.md: rhythm, languages, decisions | no | Ask in step 4. |
-| The project language: the task's `Project language:` or `Language of this deliverable:` line; else the `language` key of `docs/workbench/runtime.json`; else English | no | Write in English; reply in the user's language. |
+| The project language: the task's `Project language:` or `Language of this deliverable:` line; else the `language` key of `docs/workbench/runtime.json`; else English | no | English for a new artifact; an artifact being updated keeps its own language. Reply in the user's language. |
 | Names of the products the brand should grow (npm packages, repositories) | no | Ask in step 4; skip baselines without them. |
 | `search:web`: the package registry and code-host APIs that `baselines.py` reads | no | Every item comes back `not_measured`: write `not measured (<error>)` as its starting point and ask the user for the number in the open questions. |
 
@@ -111,7 +111,7 @@ Progress:
 # Brand strategy: <name>
 
 - Owner: brand-strategy
-- Language: <the tag this file is written in: on an update, the one already here unless the request sets another; else the project language>
+- Language: <the tag this file is written in. On an update: the tag on its Language line (with none, the language the file is written in), unless the request sets another. For a new file: the project language (the `language` key of docs/workbench/runtime.json, or the task's language line; English when absent)>
 - Subject: person | company
 - Status: draft (waiting for the open questions) | approved
 - Date: <YYYY-MM-DD>

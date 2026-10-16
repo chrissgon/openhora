@@ -124,6 +124,7 @@ gate file, `evals/eval-gate.json`.
 | `run_retention_days` | 30 | the age after which the folder of a finished run is removed; 1 to 3650 (limit L29) |
 | `source_versions_kept` | 5 | how many versions of each source stay in the sources folder; 2 to 1000 (limit L29) |
 | `sweep_orphan_containers` | true | the dispatcher's round removes the eval harness's orphan containers that cannot belong to a run in progress; false turns that off |
+| `language` | English | the language artifacts are written in: a tag such as `en` or `pt-BR` (two lower-case letters, optionally a hyphen and two upper-case letters); a wrong case is refused with the right form. Today the loader only checks it; the task text that carries it to a run comes with a later package |
 | `messaging`, `channels` | `{"senders": {}, "notices": "text", "page_url": null}`, `{}` | the messaging bridge and the channel policy (sections below) |
 | `model_prices` | `{}` | retired: still accepted, checked and ignored; the one price table is `prices.json` |
 

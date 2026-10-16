@@ -1,6 +1,6 @@
 """A `- Language: <tag>` header line in voice.md changes nothing voice_stats.py `check --rules` decides.
 
-Run: uv run --python 3.11 --with pytest==9.1.1 pytest -q skills/brand-voice/scripts/tests
+Run: uv run --with pytest pytest shared/scripts/tests
 
 Offline; every name below is fictional. The line sits right after the `- Owner:` header line, above the
 ```voice-rules block the script reads its limits from.
@@ -13,8 +13,7 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[4]
-SCRIPT = ROOT / "skills/brand-voice/scripts/voice_stats.py"
+SCRIPT = Path(__file__).resolve().parents[1] / "voice_stats.py"
 TAGS = ("pt-BR", "en-US")
 
 VOICE = """# Brand voice: Sam Rivera
