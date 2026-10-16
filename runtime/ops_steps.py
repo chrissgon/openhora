@@ -38,6 +38,7 @@ import sys
 import threading
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ops_cancel  # noqa: E402
 import ops_core as core  # noqa: E402
 import ops_runs  # noqa: E402
 import ops_step_seams  # noqa: E402
@@ -114,6 +115,8 @@ def _context(ctx: dict, task: dict) -> steps.Context:
     def alive():
         if _stored_state(ctx, task_id) == "cancelled":
             raise steps.Cancelled()
+        if store.stop_of(ctx["conn"], task_id) is not None:   # a stop or a cancel is under way (R18): the step writes nothing more, and ends through Stopped
+            raise Stopped()
 
     def decisions():
         return [{"id": d["id"], "status": d["status"], "resolution": d.get("resolution"), "answer": d.get("answer"),
@@ -180,7 +183,8 @@ def _body(ctx: dict, task: dict) -> dict:
         _fail(ctx, task, steps.note_of("start", e))
         out.update({"ok": False, "failed": "start", "code": e.code, "field": e.field, "next": e.next})
     except Stopped:
-        _fail(ctx, task, STOP_NOTE)
+        if not ops_cancel.step_stopped(ctx, task_id):   # a cancel or a stop-task ends the task as it says (R18); stop-runs fails it
+            _fail(ctx, task, STOP_NOTE)
         out.update({"ok": False, "failed": None, "code": "stopped", "field": "", "next": ""})
     except Exception as e:           # a bug in a kind: the task must not stay running
         _fail(ctx, task, INTERNAL_NOTE.format(kind=type(e).__name__))

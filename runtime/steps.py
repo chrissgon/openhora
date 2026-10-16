@@ -191,7 +191,8 @@ class Context:
                                                 store the engine's state with the move; returns {"pending_id"}; raises Cancelled when
                                                 the request was cancelled
     save(state)                                 store the engine's state without moving the task; raises Cancelled likewise
-    alive()                                     raises Cancelled when the request of the task was cancelled
+    alive()                                     raises Cancelled when the request of the task was cancelled, and Stopped (a BaseException of the
+                                                process that runs it) while a cancel or a stop of the task is under way (R18); write_file asks it
     decisions()                                 the task's pending decisions, [{"id", "status", "resolution", "answer", "payload"}]
     now()                                       the time as text (ISO 8601)
     footprint                                   the paths the task may write, as its kind declared them (write_file reads it)
@@ -677,8 +678,10 @@ def write_file(ctx: Context, rel: str, data: bytes) -> dict:
     underscores in segments), must lie inside the footprint the kind declared for the task, and may not be, or lie inside, what the
     context protects (the sources folder, limits L23 and L26). Every folder on the way is opened with O_NOFOLLOW (a link anywhere is
     refused) and the file is made under a temporary name and renamed over its place, so a reader never sees half a file. Returns
-    {"path", "bytes", "sha256"}. StepFailure: bad_path, outside_footprint, protected_path, path_unsafe, io_error."""
+    {"path", "bytes", "sha256"}. A task that was stopped or whose request was cancelled writes nothing: `ctx.alive()` is asked first (R18).
+    StepFailure: bad_path, outside_footprint, protected_path, path_unsafe, io_error."""
     import hashlib
+    ctx.alive()
     if not isinstance(rel, str) or not REL_PATH.fullmatch(rel) or any(p in (".", "..") for p in rel.split("/")) \
             or not isinstance(data, (bytes, bytearray)):
         raise StepFailure("bad_path", "path")

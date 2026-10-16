@@ -91,7 +91,9 @@
     "cancelled": [
       10
     ],
-    "pending": []
+    "stopped": [],
+    "pending": [],
+    "already": false
   },
   "retry": {
     "task_id": 8,

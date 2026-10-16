@@ -24,6 +24,8 @@
     "step_footprint": null,
     "step_state": null,
     "web_off": null,
+    "stop_requested_at": null,
+    "stop_requested_by": null,
     "after": null,
     "waiting_for": []
   },

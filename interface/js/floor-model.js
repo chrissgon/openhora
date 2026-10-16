@@ -40,7 +40,7 @@ export const FAILURE = Object.freeze({
   timeout: "Timed out", refused: "Refused", auth: "Credential refused", adapter: "The adapter failed", early_end: "Ended early",
   settings: "A setting is wrong", stopped: "Stopped", internal: "Internal error",
 });
-export const RUN_STATUS = Object.freeze({ running: "Running", ok: "Done", failed: "Failed" });
+export const RUN_STATUS = Object.freeze({ running: "Running", ok: "Done", failed: "Failed", cancelled: "Cancelled" });
 export const RESOLUTION = Object.freeze({
   approved: "approved", accepted: "accepted", released: "released", answered: "answered", rejected: "rejected", cancelled: "cancelled",
 });
@@ -351,7 +351,7 @@ export function requestRows(status, projectId) {
     const steps = `${done} of ${tasks.length} steps done${now ? ` · ${now}` : ""}`;
     return {
       id: request.id, title, state: word, tone: stateTone(state), steps, selected: Boolean(shown) && shown.id === request.id, link: router.requestHash(projectId, request.id),
-      name: `Request ${request.id}, ${title}, ${word || state}, ${steps}`, cancellable: !FINAL_REQUEST.has(request.state) && !request.routing, request,   // A-51: the store refuses to cancel a request a run holds
+      name: `Request ${request.id}, ${title}, ${word || state}, ${steps}`, cancellable: !FINAL_REQUEST.has(request.state), request,   // R18: a request is cancelled at any moment, a run that holds it is stopped
     };
   });
 }

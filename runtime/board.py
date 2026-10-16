@@ -31,7 +31,8 @@ store's cursor board:configured. A task that becomes final later keeps its item,
 
 The three moves a person may make on the board:
   ready      on a task that is failed or blocked: it is retried (store.task_retry)
-  cancelled  on a request that is not final: it is cancelled with what is open under it (store.request_cancel)
+  cancelled  on a request that is not final: it is cancelled with what is open under it, at any moment, a task that runs
+             stopped (ops_cancel.cancel_request, by "board")
   done       on a task waiting on a review: the review is released (store.pending_resolve, by "board")
 
 The bounds of the writes: they are the project configuration's task_board object, inside the file whose hash the
@@ -46,6 +47,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import importlib
 import json
 import os
 import re
@@ -165,12 +167,16 @@ def _open_pending(ctx: dict, task_id: int):
     return found[0] if found else None
 
 
-def pull(ctx: dict) -> dict:
+def pull(ctx: dict, defer: bool = False) -> dict:
     """The board to the store (see the module's text). Returns {"pulled", "created", "edited", "refused", "gone",
     "comments", "left_out_final"}: "comments" is the number of comments saved that were not saved before;
-    "left_out_final" the number of tasks never mirrored because they were final when the board was configured."""
+    "left_out_final" the number of tasks never mirrored because they were final when the board was configured.
+    With defer, a request cancelled on the board is not cancelled here but listed under "cancel_later" (the ids): a cancel may take a
+    minute to end a run, and `sync` holds the write lock while it pulls; it cancels them after it let the lock go (ops_cancel.after_sync)."""
     cfg, store, conn, root = ctx["cfg"], ctx["store"], ctx["conn"], ctx["root"]
     out = {"pulled": [], "created": [], "edited": [], "refused": [], "gone": [], "comments": 0, "left_out_final": 0}
+    if defer:
+        out["cancel_later"] = []
     listed = {item["id"]: item for item in call(cfg, root, "list", []).get("items", [])}
     tasks = store.tasks_list(conn)
     out["left_out_final"] = len(left_out(ctx, tasks))
@@ -216,7 +222,7 @@ def pull(ctx: dict) -> dict:
                 out["refused"].append({"task": task["id"], "reason": str(e)})
         state = got.get("state")
         if state != task["state"]:
-            reason = _take_state(ctx, task, state)
+            reason = _take_state(ctx, task, state, out.get("cancel_later"))
             if reason:
                 out["refused"].append({"task": task["id"], "state": state, "reason": reason})
                 written = None  # the next push writes the store's state back
@@ -258,16 +264,19 @@ def _save_comments(ctx: dict, task_id: int, comments) -> int:
                                       subject="task", task_id=task_id)["saved"]
 
 
-def _take_state(ctx: dict, task: dict, state):
-    """Take a state a person set on the board when it is one of the three moves; else the reason it is refused."""
+def _take_state(ctx: dict, task: dict, state, later=None):
+    """Take a state a person set on the board when it is one of the three moves; else the reason it is refused. later is the list a
+    cancel is put on instead of being made (pull's defer)."""
     store, conn = ctx["store"], ctx["conn"]
     try:
         if state == "ready" and task["state"] in ("failed", "blocked"):
             store.task_retry(conn, task["id"])
             return None
         if state == "cancelled" and task.get("parent_id") is None and task["state"] not in FINAL:
-            ops_cancel.request_cancel(conn, task["id"], by="board", context=ctx)
-            return None
+            if later is not None:
+                later.append(task["id"])
+                return None
+            return _cancel_from_board(ctx, task["id"])
         if state == "done" and task["state"] == "waiting":
             pending = _open_pending(ctx, task["id"])
             if pending and pending["kind"] == "review":
@@ -277,6 +286,17 @@ def _take_state(ctx: dict, task: dict, state):
         return str(e)
     return (f"the board moved task {task['id']} from {task['state']} to {state}: only ready (a failed or blocked "
             "task), cancelled (a request) and done (a task waiting on a review) are taken from the board")
+
+
+def _cancel_from_board(ctx: dict, request_id: int):
+    """A request cancelled on the board is cancelled as anywhere else, at any moment (R18, runtime/ops_cancel.py): a task of it that
+    runs is stopped. None when it is, else the reason it is refused (an effect of the request is executing)."""
+    cancel = importlib.import_module("ops_cancel")
+    try:
+        cancel.cancel_request(ctx, request_id, by="board", channel="board")
+    except cancel.core.OpsError as e:
+        return str(e)
+    return None
 
 
 def _key(cfg: dict, task_id: int, digest: str) -> str:

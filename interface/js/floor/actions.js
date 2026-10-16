@@ -10,6 +10,7 @@ export const actions = {
   reject: api.reject,
   verdict: api.verdict,
   cancel: api.cancel,
+  stopTask: api.stopTask,
   setMode: api.setMode,
   setModel: api.setModel,
   giveConsent: api.giveConsent,

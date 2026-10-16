@@ -144,8 +144,12 @@ OPERATIONS = (
      "help": "go ahead on a task that waits for another request's task: its derived waits end (with drop-after, its after wait)"},
     {"name": "cancel", "call": "cancel",
      "args": ({"name": "request_id", "kind": "int", "required": True, "flag": "request", "label": "request id"},),
-     "channels": ("terminal", "chat", "page", "messaging"), "model": False,
-     "help": "cancel a request"},
+     "channels": ("terminal", "chat", "page", "messaging"), "model": False, "channel_arg": True,
+     "help": "cancel a request at any moment, even while a task of it runs: the run is ended and returns nothing, what it used so far is spent"},
+    {"name": "stop-task", "call": "stop_task",
+     "args": ({"name": "task_id", "kind": "int", "required": True, "flag": "task", "label": "task id"},),
+     "channels": ("terminal", "chat", "page", "messaging"), "model": False, "channel_arg": True,
+     "help": "stop one running task: its run is ended and returns nothing, the task is blocked, and retry resumes it"},
     {"name": "deps", "call": "deps", "args": (), "channels": ("terminal",), "model": False,
      "help": "install the dependency sets of runtime.json, by code"},
     {"name": "run-next", "call": "run_next", "args": ({"name": "model", "kind": "str"},),
@@ -373,6 +377,7 @@ GROUPS = {
     "approve-effects": {"operations": ("approve",), "kind": "effect"},
     "go-ahead": {"operations": ("go-ahead",), "kind": None},
     "reject-cancel": {"operations": ("reject", "cancel"), "kind": None},
+    "brakes": {"operations": ("cancel", "stop-task"), "kind": None},   # R18: end what runs, a grant for messaging (in no default); `cancel` is also in reject-cancel, so a written policy stays valid
     "retry": {"operations": ("retry",), "kind": None},
     "set-mode": {"operations": ("set-mode", "set-model"), "kind": None},
     "consent": {"operations": ("give-consent",), "kind": None},   # the page's consent for an autonomous agent (D38): a group of its own, so granting set-mode never grants it
@@ -401,7 +406,7 @@ EFFECT_CHANNELS = ("terminal", "page")             # the channels an effect may 
 INSTRUCTIONS_CHANNELS = ("terminal", "page")       # the channels that write the person's standing instructions BY DEFAULT (limit L40; a later package of channel policies makes it a grant): the rows instructions-set and instructions-add list exactly these (a literal each, as the table is read by ast.literal_eval; a test compares), and no policy widens a row's channels
 NETWORKED_PLAN_CHANNELS = ("terminal", "page")     # BY DEFAULT: the channels a plan that holds a step of a networked kind (a project script, P9) may be approved from (limit L36); one named literal, which a later policy makes a grant
 ROUTINE_LOCAL_CHANNELS = ("terminal", "page")      # the channels a routine whose flow holds a networked script, or that a standing effect policy covers, is made and changed from (limit L33, S10)
-BRAKES = ("cancel", "set-mode", "routine-pause", "routine-cancel")                    # never withheld from the page: cancel, and a move of a mode DOWN (the direction is checked by ops_config.set_mode)
+BRAKES = ("cancel", "stop-task", "set-mode", "routine-pause", "routine-cancel")                    # never withheld from the page: cancel, and a move of a mode DOWN (the direction is checked by ops_config.set_mode)
 
 
 def by_name(name: str) -> dict:

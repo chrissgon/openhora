@@ -107,7 +107,7 @@ def test_the_summary_counts_only_rows_that_ended_inside_the_period():
                {"id": 3, "executed_at": None}]
     out = progress.summary(TASKS, runs(), decisions(), effects, start, end)
     assert out["from"] == "2026-11-02" and out["to"] == "2026-11-09"
-    assert out["runs"] == {"total": 4, "ok": 3, "failed": 1, "by_model": {"ref": 2, "floor": 2},
+    assert out["runs"] == {"total": 4, "ok": 3, "failed": 1, "cancelled": 0, "by_model": {"ref": 2, "floor": 2},
                            "by_failure": {"timeout": 1}}
     assert out["deliveries"] == [{"task_id": 21, "title": "Market", "skill": "biz-market-analysis",
                                   "released_by": "mode:business"},

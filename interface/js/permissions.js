@@ -40,6 +40,7 @@ export const OPS = Object.freeze({
 /** The write functions of api.js that are never withheld, or that the page has no control for, each with its reason. */
 export const EXEMPT = Object.freeze({
   cancel: "a brake: cancelling a request is never withheld from the page",
+  stopTask: "a brake: stopping a running task is never withheld from the page",
   routinePause: "a brake: pausing a routine is never withheld from the page",
   routineCancel: "a brake: cancelling a routine is never withheld from the page",
   setMode: "narrowing only, a brake: the page offers Stop agent and Supervise, a wider mode is a terminal command to copy",
