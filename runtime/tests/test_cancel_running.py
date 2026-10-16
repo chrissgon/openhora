@@ -496,3 +496,42 @@ def test_a_watcher_that_outlives_the_router_puts_back_the_flag_it_left_in_the_la
     flagged.append(labmod.LAB.STOPPING.is_set())
     release.set()
     assert flagged == [False], "the join timed out and the lab's stopping flag was put back"
+
+
+# --- the locale of `ps`: the holder of a lock is verified by five words of start time, whatever the person's language ---------------
+
+
+def _ps_by_locale(monkeypatch):
+    """Replace `ps` with one that answers as the person's locale does: ja_JP prints a start time of four words, the C locale five."""
+    seen = []
+
+    def fake(argv, **kw):
+        assert argv[0] == "ps"
+        seen.append(kw.get("env"))
+        c_locale = (kw.get("env") or {}).get("LC_ALL") == "C"
+        start = "Fri Oct 16 00:38:12 2026" if c_locale else "2026-10-16 (Fri) 00:38:12"
+        out = f"{start}\n" if "-p" in argv else f"  41  1  41 {start} /usr/bin/python3 cli.py run-task --project /p 7\n"
+        return subprocess.CompletedProcess(argv, 0, stdout=out, stderr="")
+    monkeypatch.setattr(subprocess, "run", fake)
+    return seen
+
+
+def test_the_start_time_of_a_process_is_asked_in_the_c_locale_so_it_has_five_words_in_every_language(monkeypatch):
+    seen = _ps_by_locale(monkeypatch)
+    monkeypatch.setenv("LANG", "ja_JP.UTF-8")
+    assert ops_core._process_start(41) == "Fri_Oct_16_00:38:12_2026"
+    assert seen and all(env["LC_ALL"] == "C" for env in seen), "ps was asked with LC_ALL=C"
+
+
+def test_the_process_listing_of_a_stop_is_asked_in_the_c_locale_and_keeps_the_five_words_of_the_start_time(monkeypatch):
+    seen = _ps_by_locale(monkeypatch)
+    monkeypatch.setenv("LANG", "ja_JP.UTF-8")
+    rows = run_stop.processes()
+    assert rows == [(41, 1, 41, "/usr/bin/python3 cli.py run-task --project /p 7", "Fri_Oct_16_00:38:12_2026")]
+    assert seen and all(env["LC_ALL"] == "C" for env in seen)
+
+
+def test_a_start_time_that_is_not_five_words_verifies_no_holder(monkeypatch):
+    """What the C locale prevents: a locale that prints four words gives no start time, so a holder is never verified (it fails safe)."""
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kw: subprocess.CompletedProcess(argv, 0, stdout="2026-10-16 (Fri) 00:38:12\n", stderr=""))
+    assert ops_core._process_start(41) is None
