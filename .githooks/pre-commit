@@ -5,9 +5,10 @@
 #    what is staged, so a file with a finding blocks the commit even if it is not part of it. Its version
 #    rules read a change against the base of the change, never against HEAD: an edit and its bump in two commits
 #    are read as one change. The base is WB_BASE_REF (CI passes the pull request's base), else the git config key
-#    workbench.baseRef, else the branch's upstream (unless it is the branch itself), else the merge base of HEAD
-#    with the default branch; the validator prints the one it used. A branch cut from an integration branch is
-#    read against it with: git config workbench.baseRef origin/<integration branch>.
+#    workbench.baseRef set for one worktree, else the branch's upstream (unless it is the branch itself or its own
+#    pushed copy), else the merge base of HEAD with the default branch; the validator prints the one it used. A
+#    branch cut from an integration branch is read against it with: git config --worktree workbench.baseRef
+#    origin/<integration branch> (never without --worktree: the clone-wide config is shared by every worktree).
 # 2. scripts/security_scan.py --strict: a security warning (hidden text, a shell run on a built string,
 #    an unguarded recursive delete, an unpinned dependency...) blocks the commit like an error does.
 # 3. The tests of providers/<class>/, scripts/, evals/, runtime/ (also when a flow file under flows/ or a file

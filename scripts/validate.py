@@ -51,8 +51,8 @@ Checks every skill under skills/ and every agent under agents/:
     first-round record that nothing reads), and is read like any other file of the eval folder
   - the version rules of the reliability model's section 3 (evals/eval_status.py, version_findings), against
     the base of the pull request, the one resolver of evals/eval_status.py (resolve_base): WB_BASE_REF when set (CI
-    sets the pull request's base), else the config key workbench.baseRef, else the branch's upstream (unless it is
-    the branch itself), else the merge base of HEAD with the default branch; the base used is printed as a NOTE.
+    sets the pull request's base), else the key workbench.baseRef set for one worktree (git config --worktree), else the branch's upstream
+    (unless it is the branch itself or its own pushed copy), else the merge base of HEAD with the default branch; the base used is printed as a NOTE.
     The same in the hook and in CI alike. [version-file] skills/<name>/evals/
     versions.jsonl has lines of the closed form, is append-only against the base and gains at most one line;
     [version-class] the class of the added line agrees with the diff (X for side_effects, an output or update

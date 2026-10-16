@@ -62,11 +62,11 @@ def test_a_bump_against_the_wrong_base_is_refused_and_writes_nothing(stacked, ca
 
 
 def test_a_bump_against_the_right_base_still_works_and_prints_the_base(stacked, capsys):
-    git(stacked, "config", "workbench.baseRef", "integration")
+    git(stacked, "config", "--worktree", "workbench.baseRef", "integration")
     line = es.bump(str(stacked), "eng-demo", "y", date="2030-04-01")
     err = capsys.readouterr().err
     assert line["version"] == "1.5.0" and [l["version"] for l in versions(stacked)] == ["1.2.0", "1.3.0", "1.4.0", "1.5.0"]
-    assert "git config workbench.baseRef integration" in err and sha(stacked, "integration")[:12] in err
+    assert "git config --worktree workbench.baseRef integration" in err and sha(stacked, "integration")[:12] in err
     assert findings(stacked) == {"file": [], "class": [], "bump": []}
     es.bump(str(stacked), "eng-demo", "y", date="2030-04-02")  # idempotent: the one added line is rewritten
     assert len(versions(stacked)) == 4
@@ -87,9 +87,9 @@ def test_the_resolver_order_is_the_variable_then_the_config_key_then_the_upstrea
     git(stacked, "branch", "--set-upstream-to=side", "work")  # the upstream of the branch
     commit, source, _ = es.resolve_base(root)
     assert commit == sha(stacked, "side") and source == "the upstream of work, side"
-    git(stacked, "config", "workbench.baseRef", "integration")  # the config key wins over the upstream
+    git(stacked, "config", "--worktree", "workbench.baseRef", "integration")  # the config key wins over the upstream
     commit, source, _ = es.resolve_base(root)
-    assert commit == sha(stacked, "integration") and source == "git config workbench.baseRef integration"
+    assert commit == sha(stacked, "integration") and source == "git config --worktree workbench.baseRef integration"
     monkeypatch.setenv("WB_BASE_REF", "main")  # the variable wins over the key
     commit, source, _ = es.resolve_base(root)
     assert commit == sha(stacked, "main") and source == "WB_BASE_REF main"
@@ -105,7 +105,7 @@ def test_an_upstream_that_is_the_branch_itself_is_not_a_base(stacked):
 
 def test_a_name_that_resolves_to_nothing_is_an_error_never_another_base(stacked, monkeypatch):
     root = str(stacked)
-    git(stacked, "config", "workbench.baseRef", "no-such-ref")
+    git(stacked, "config", "--worktree", "workbench.baseRef", "no-such-ref")
     commit, source, error = es.resolve_base(root)
     assert commit is None and source is None and "workbench.baseRef is 'no-such-ref'" in error
     assert es.base_resolution(root)[0] == "error" and es.comparison_base(root) is None
@@ -127,15 +127,15 @@ def test_the_validator_reads_its_class_checks_against_the_resolver_and_says_whic
         validate.check_versions(report, root=str(stacked))
         return report
 
-    git(stacked, "config", "workbench.baseRef", "integration")
+    git(stacked, "config", "--worktree", "workbench.baseRef", "integration")
     es.bump(str(stacked), "eng-demo", "y", date="2030-04-01")
     report = check()
     assert not report.errors
-    assert any("compared with" in n and "git config workbench.baseRef integration" in n for n in report.notes)
-    git(stacked, "config", "--unset", "workbench.baseRef")  # the old fallback: main, so the package branch adds 3 lines
+    assert any("compared with" in n and "git config --worktree workbench.baseRef integration" in n for n in report.notes)
+    git(stacked, "config", "--worktree", "--unset", "workbench.baseRef")  # the old fallback: main, so the package branch adds 3 lines
     report = check()
     assert any("lines were added" in e["message"] for e in report.errors)
     assert any("the merge base with the default branch (main)" in n for n in report.notes)
-    git(stacked, "config", "workbench.baseRef", "no-such-ref")
+    git(stacked, "config", "--worktree", "workbench.baseRef", "no-such-ref")
     report = check()
     assert not report.errors and any("skipped" in n and "no-such-ref" in n for n in report.notes)
