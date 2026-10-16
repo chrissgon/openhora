@@ -21,7 +21,7 @@ neither. It holds:
 The constants that no other file owns (the file limit, the early-end phrase lists and the others above) are
 data in evals/measurement.json, read once when the module loads. The number of runs, the timeout and the
 retries of an event have their home in the gate file (evals/eval-gate.json); what an adapter's harness prints
-on a refusal or an exhausted account, in that adapter's adapter.json.
+on a refusal or an exhausted account, in that adapter's eval.json.
 
 This file and evals/measurement.json are in the measurement fingerprint (eval_status.py, FINGERPRINT_FILES):
 a change to either is committed as one of the three kinds of the reliability model's section 8
@@ -62,8 +62,141 @@ REDACT_MIN = _DATA["redact_min"]
 # An early end: the model ended its turn before doing the work, with no error (eval_run.py, "Early ends").
 # Markup of a tool call or a control block printed as text; it counts only at the start of a line, so a reply
 # that quotes such markup inline to the user is left alone. Seen from a floor model: <skill_tool>, and loops
-# of <system-reminder> blocks it wrote itself; the last entry is the model's own tool-call token.
+# of <system-reminder> blocks it wrote itself; the "tool" entries are the models' own tool-call tokens and the
+# "dsml" ones the call markup of DeepSeek's models (a loop of it, fullwidth bar included, was graded once because
+# the run had written a file).
 EARLY_END_MARKUP = tuple(_EARLY["markup"])
+# A loop of raw tool-call syntax is an early end even when a file was written (item T27). The lines of the reply,
+# outside fenced code blocks and indented code, that are markup (a line with a tag of EARLY_END_MARKUP or
+# "<parameter" in it, or any line inside a call block, from an opening call tag to its closing one) are at least
+# "min_lines" and at least "share" of the non-empty lines there, or of their characters. 20 and 0.5 are
+# measurement constants: a reply that shows a tool call quotes a few lines, inside a fence, and a loop is nearly
+# all markup, the content of its write calls included. Read over the 1,903 replies of the maintainer's local eval
+# workspace (2026-10), the rule flags two, each a real loop of <system-reminder> blocks (floor model), and none of the others.
+EARLY_END_COLLAPSE_MIN_LINES = _EARLY["collapse"]["min_lines"]
+EARLY_END_COLLAPSE_SHARE = _EARLY["collapse"]["share"]
+COLLAPSE_EXTRA = ("<parameter",)  # a parameter of a call, beside the entries of EARLY_END_MARKUP
+COLLAPSE_BLOCKS = ("function_calls", "tool_call", "invoke", "skill_tool", "system-reminder")  # the tags that open a call block
+COLLAPSE_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+COLLAPSE_CODE_SPAN_RE = re.compile(r"`[^`]*`")
+COLLAPSE_RESCANS = 8  # fences and blocks left open at the end are ignored one by one; past this many, they are off from the last one on
+COLLAPSE_TAG_SPAN = 200  # a tag is read to its ">" within this many characters, so a long line is read in linear time
+
+
+def _collapse_tag_re():
+    """A tag of the markup entries, anywhere in a line, opening or closing. A name made of letters ends where the
+    tag does (so "<parameters>", "<parameterDefinition>" and "<tool_calls>" are not "<parameter" and "<tool_call");
+    an entry that is a special-token prefix ("<|tool", "<｜dsml") has no such end, its name goes on. The tags are
+    matched in any case, except "parameter": the syntax of a call has it in lower case, and another format's
+    <Parameter name=... value=.../> is not a call."""
+    words, tokens = [], []
+    for entry in EARLY_END_MARKUP + COLLAPSE_EXTRA:
+        body = entry[1:].lower()
+        piece = "(?-i:" + re.escape(body) + ")" if body == "parameter" else re.escape(body)
+        (tokens if body[:1] in ("|", "｜") else words).append(piece)
+    parts = []
+    if words:
+        parts.append("(?:" + "|".join(words) + ")(?![A-Za-z0-9_-])")
+    if tokens:
+        parts.append("(?:" + "|".join(tokens) + ")")
+    return re.compile(r"<(/?)(?:" + "|".join(parts) + ")", re.I)
+
+
+COLLAPSE_TAG_RE = _collapse_tag_re()
+
+
+def _collapse_tags(line):
+    """(whether the line holds a tag, [+1 for each call block it opens, -1 for each it closes]). A block opens only
+    when its tag starts the line or follows only other tags, so a sentence that mentions a tag ("Each call is printed
+    as <invoke name=...> by the old format.") opens nothing; a closing tag always closes. Linear in the line."""
+    clean = COLLAPSE_CODE_SPAN_RE.sub("", line)
+    found, moves = False, []
+    chain, previous = True, 0  # chain: nothing but tags and spaces precede this tag on the line
+    for m in COLLAPSE_TAG_RE.finditer(clean):
+        found = True
+        chain = chain and not clean[previous:m.start()].strip()
+        end = clean.find(">", m.start(), m.start() + COLLAPSE_TAG_SPAN)
+        span = clean[m.start():end + 1] if end >= 0 else clean[m.start():m.start() + COLLAPSE_TAG_SPAN]
+        previous = end + 1 if end >= 0 else m.end()
+        name = re.split(r"[\s>]", span.lower())[0]  # the tag's name, without its attributes
+        block = any(word in name for word in COLLAPSE_BLOCKS)
+        if re.search(r"[\u2581_]end", name) or (m.group(1) and block):
+            moves.append(-1)
+        elif chain and not m.group(1) and (re.search(r"[\u2581_]begin", name) or (block and not span.endswith("/>"))):
+            moves.append(1)
+    return found, moves
+
+
+def _collapse_scan(lines, ignored, off_from, ignored_blocks, blocks_off):
+    """(lines counted, markup lines, characters counted, markup characters, the index of a fence still open at the
+    end or None, the index of the line that opened the outermost call block still open at the end or None)."""
+    stack, fence, opened = [], None, None
+    counted = markup = chars = markup_chars = 0
+    for i, raw in enumerate(lines):
+        line = raw.strip()
+        if not line:
+            continue
+        if fence is not None:
+            m = COLLAPSE_FENCE_RE.match(raw)
+            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= fence[1] and not raw.strip().strip(fence[0]):
+                fence = None
+            continue
+        if not stack:
+            m = COLLAPSE_FENCE_RE.match(raw)
+            if m and i not in ignored and (off_from is None or i < off_from):
+                fence, opened = (m.group(1)[0], len(m.group(1))), i
+                continue
+            if raw.startswith(("    ", "\t")):
+                continue  # indented code
+        counted += 1
+        chars += len(line)
+        inside = bool(stack)
+        found, moves = _collapse_tags(line)
+        for move in moves:
+            if move < 0:
+                if stack:
+                    stack.pop()
+            elif i not in ignored_blocks and (blocks_off is None or i < blocks_off):
+                stack.append(i)
+        if inside or found:
+            markup += 1
+            markup_chars += len(line)
+    return counted, markup, chars, markup_chars, (opened if fence is not None else None), (stack[0] if stack else None)
+
+
+def collapse_loop(response):
+    """"<n> of <m> lines" when the reply is a loop of raw tool-call syntax, else None. It counts the non-empty
+    lines outside fenced code blocks (opened by three or more backticks or tildes, closed by as many or more of the
+    same; a fence still open at the end is not one, and the lines after it are counted) and outside indented code (four
+    spaces or a tab), where a line is markup when it holds a tag of EARLY_END_MARKUP or "<parameter", closing or
+    opening, anywhere in it, outside an inline code span, or when it lies inside a call block (from an opening call tag
+    that starts its line, or follows only tags, to its closing one: a write call's content is markup too; a block
+    whose closing tag never comes is not one, and the lines after it are counted; a fence inside a block does not
+    toggle). A loop: at least EARLY_END_COLLAPSE_MIN_LINES markup lines and at least EARLY_END_COLLAPSE_SHARE of the
+    counted lines or of their characters. By design a loop written on one line, with no newline, is one line, under the
+    minimum."""
+    lines = response.splitlines()
+    ignored, off_from, ignored_blocks, blocks_off = set(), None, set(), None
+    for attempt in range(2 * COLLAPSE_RESCANS + 3):
+        counted, markup, chars, markup_chars, fence, block = _collapse_scan(lines, ignored, off_from, ignored_blocks, blocks_off)
+        if fence is None and block is None:
+            break
+        late = attempt >= COLLAPSE_RESCANS
+        if fence is not None:
+            if late:
+                off_from = fence
+            else:
+                ignored.add(fence)
+        elif late:
+            blocks_off = block
+        else:
+            ignored_blocks.add(block)
+    if markup >= EARLY_END_COLLAPSE_MIN_LINES and (markup >= EARLY_END_COLLAPSE_SHARE * counted
+                                                   or markup_chars >= EARLY_END_COLLAPSE_SHARE * chars):
+        return f"{markup} of {counted} lines"
+    return None
+
+
 # How a last line announces a next action instead of ending the turn's work. Matched, in lower case, at the
 # start of a sentence of the last line ("Let me update the file:", "Now I'll write the spec:").
 # Not a bare "i'll": "I'll also need to know where the code should go" ends a reply that states a blocker.
@@ -86,7 +219,11 @@ TAG_ONLY_LINE_RE = re.compile(r"^</?[A-Za-z_][\w-]*(\s[^<>]*)?/?>$")
 
 def early_end(response, changed):
     """Why a run that exited 0 is an early end, or None. Conservative: a run that wrote a file, a reply that
-    asks the user a question and a reply that states a blocker are never one."""
+    asks the user a question and a reply that states a blocker are never one, with one exception that a written
+    file does not excuse: a loop of raw tool-call syntax (collapse_loop)."""
+    loop = collapse_loop(response)
+    if loop:
+        return f"a loop of raw tool-call syntax printed as text ({loop})"
     if changed:
         return None
     lines = [line.strip() for line in response.splitlines() if line.strip()]

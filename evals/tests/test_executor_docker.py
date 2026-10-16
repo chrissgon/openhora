@@ -133,12 +133,14 @@ def test_a_secret_reaches_the_run_by_name_and_only_when_passed(environment, root
 
 def test_the_image_carries_the_pinned_tools(environment, root):
     r = inside(root, "claude --version; opencode --version; uv --version; git --version; python3 --version; "
-                     "node --version; chromium --version; gh --version; file --version; patch --version")
+                     "node --version; chromium --version; gh --version; file --version; patch --version; "
+                     "pdftotext -v; pdftoppm -v; python3 -c 'import pypdf; print(pypdf.__version__)'")
     assert r.returncode == 0, r.stderr
-    assert "2.1.283" in r.stdout and "1.18.32" in r.stdout and "0.12.19" in r.stdout and "v24.10.0" in r.stdout
+    assert "2.1.284" in r.stdout and "1.18.32" in r.stdout and "0.12.19" in r.stdout and "v24.10.0" in r.stdout
     assert "gh version 2.102.0" in r.stdout and "GNU patch" in r.stdout and "magic file from" in r.stdout
+    assert "pdftotext version" in r.stdout + r.stderr and "pdftoppm version" in r.stdout + r.stderr and "3.4.1" in r.stdout  # poppler-utils, python3-pypdf
     lock = (Path(ex.DEFINITION) / "runners" / "package-lock.json").read_text()
-    assert '"version": "2.1.283"' in lock and '"version": "1.18.32"' in lock  # the lock file is what was installed
+    assert '"version": "2.1.284"' in lock and '"version": "1.18.32"' in lock  # the lock file is what was installed
 
 
 def test_the_code_hosts_tool_is_installed_and_signed_out(environment, root):
