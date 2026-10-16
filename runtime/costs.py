@@ -44,9 +44,9 @@ STREAM_MAX = 256 * 1024 * 1024  # a stream carries every tool result; a larger o
 PER_MILLION = 1_000_000
 
 
-# T23: the recomputation of a run's cost from its token counts and the prices in the workbench's price table is a
-# workaround: the pinned tool does not know the model of the reference adapter, so its runs record no cost. It leaves
-# at the change of the lab default list or of the grader, when the tool prices it. Two limits meanwhile: a run made again after a failed
+# The recomputation of a run's cost from its token counts and the prices in the workbench's price table stays by
+# design (T23, workaround 3, dropped on 2026-10-16): the key proxy meters every request, subagents included, and the
+# runtime prices from the one price table, whatever the pinned tool knows of the model. Two limits: a run made again after a failed
 # attempt keeps only the last attempt's files (an earlier one is set aside beside them), so the tokens of such a run
 # are understated; and the floor adapter's reasoning tokens have no kind of their own, so a stream that reports any is
 # read as unknown rather than priced short.

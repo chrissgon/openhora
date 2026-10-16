@@ -71,7 +71,10 @@ def _ignore(src, strip):
     def ignore(folder, names):
         rel = os.path.relpath(folder, src).replace(os.sep, "/")
         prefix = "" if rel == "." else rel + "/"
-        return [n for n in names if prefix + n in strip or any(fnmatch.fnmatch(n, pattern) for pattern in CACHES)]
+        # A link whose target is gone is left out here, where every Python version honours it: on 3.9
+        # shutil.copytree(ignore_dangling_symlinks=True) still raised shutil.Error for such a link.
+        dangling = lambda n: os.path.islink(os.path.join(folder, n)) and not os.path.exists(os.path.join(folder, n))
+        return [n for n in names if prefix + n in strip or any(fnmatch.fnmatch(n, pattern) for pattern in CACHES) or dangling(n)]
     return ignore
 
 

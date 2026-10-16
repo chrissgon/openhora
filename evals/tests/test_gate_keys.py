@@ -116,6 +116,9 @@ def test_a_model_may_still_be_a_list_of_aliases_unless_it_is_a_lab_model_or_the_
     ({"price_source": "http://insecure.example/price"}, "price_source must be an https URL"),
     ({"run_token_budget": 0}, "run_token_budget must be a positive"), ({"run_token_budget": True}, "wrong type for 'run_token_budget'"),
     ({"pass_env": ["not a name"]}, "pass_env must list variable names"), ({"adapter": "../x"}, "adapter must be"),
+    ({"pass_env": ["OPENROUTER_API_KEY", "OP_SERVICE_ACCOUNT_TOKEN"]}, "pass_env names OP_SERVICE_ACCOUNT_TOKEN, a token variable"),
+    ({"web_pass_env": ["OP_SESSION_demo"]}, "web_pass_env names OP_SESSION_demo, a token variable"),
+    ({"web_pass_env": ["GITHUB_TOKEN"]}, "web_pass_env names GITHUB_TOKEN, a token variable"),
     ({"route": None}, "holds no key"), ({"extra": 1}, "unknown key 'extra'"),
 ])
 def test_an_entry_outside_its_form_is_a_gate_file_problem(tmp_path, change, why):

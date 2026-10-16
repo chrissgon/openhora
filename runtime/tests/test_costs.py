@@ -168,7 +168,7 @@ def test_the_summary_groups_by_day_agent_model_and_adapter(tmp_path, utc):
     assert costs.summary([], prices) == []
 
 
-def test_the_first_comment_above_the_first_function_says_when_the_recomputation_leaves():
+def test_the_first_comment_above_the_first_function_says_the_recomputation_stays_by_design():
     text = open(os.path.join(st.RUNTIME, "costs.py"), encoding="utf-8").read()
     head = text[:text.index("def usage_of")].rstrip().splitlines()
     comment = []
@@ -176,7 +176,10 @@ def test_the_first_comment_above_the_first_function_says_when_the_recomputation_
         if not line.startswith("#"):
             break
         comment.insert(0, line)
-    assert comment and comment[0].startswith("# T23:") and "change of the lab default list or of the grader" in " ".join(comment)
+    # T23 workaround 3 was dropped on 2026-10-16: the key proxy meters every request, so the recomputation is the design, not a workaround that leaves.
+    flat = " ".join(line.lstrip("# ").strip() for line in comment)
+    assert comment and comment[0].startswith("# The recomputation of a run's cost") and "stays by design (T23, workaround 3" in flat
+    assert "leaves" not in flat
     assert "def " not in text[:text.index("def usage_of")]  # it is above the first function of the file
 
 

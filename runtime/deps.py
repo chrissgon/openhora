@@ -171,7 +171,7 @@ def _last_lines(text: str) -> str:
     return "\n".join((text or "").strip().splitlines()[-ERROR_LINES:])
 
 
-# T23: the install step leaves when the image carries a project's dependencies
+# The install step is the design (T23, workaround 1, dropped on 2026-10-16): the image cannot carry each project's dependencies
 def ensure(data_dir: str, entry: dict, files, image_digest, run=None, settings=None) -> dict:
     """The installed folder for these dependency files: from the cache, or installed now. Returns {"recipe", "key",
     "tree", "produces", "cached", "duration_ms"}; the folder is <tree>/<produces>. run defaults to lab.run_command;

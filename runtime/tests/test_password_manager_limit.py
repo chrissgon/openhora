@@ -120,6 +120,18 @@ def test_no_variable_of_the_password_manager_reaches_a_run_container(tmp_path):
     assert "OP_SERVICE_ACCOUNT_TOKEN" not in executor.FORWARD
 
 
+def test_the_runners_contained_env_holds_no_variable_of_the_password_manager_even_when_passed(tmp_path, monkeypatch):
+    kit = load("execution_for_l39", "evals/execution.py")
+    names = ["OP_SERVICE_ACCOUNT_TOKEN", "OP_SESSION_demo", "OP_CONNECT_TOKEN", "OP_CONNECT_HOST"]
+    for name in names:
+        monkeypatch.setenv(name, SENTINEL)
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    env = kit.contained_env(str(run_dir), pass_env=names)
+    assert not [k for k in env if k.startswith("OP_")] and SENTINEL not in "".join(env.values())
+    assert all(kit.token_var(n) for n in names)
+
+
 def test_a_providers_process_gets_no_variable_of_the_password_manager():
     providers = load("providers_resolve_for_l39", "providers/resolve.py")
     env = {"PATH": "/bin", "OP_SERVICE_ACCOUNT_TOKEN": SENTINEL, "OP_SESSION_demo": SENTINEL, "OP_CONNECT_HOST": "x", "OP_ACCOUNT": "y"}
