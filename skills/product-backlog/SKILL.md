@@ -19,7 +19,7 @@ metadata:
   updates: [docs/workbench/state.md]
   requires: [integration:issue-tracker]
   side_effects: [create]
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Backlog
