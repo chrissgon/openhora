@@ -102,6 +102,13 @@ closed it, C0.10 of the plan in force):
     computed); [flow-inventory] the Phases cell of the row flow-<name> under the heading "Flows (`flow-`)" of
     docs/inventory.md, split on the arrow and without " (optional)", lists the file's skills in order, each
     without its first prefix (a flow file with no row is not an error)
+  - [agent-skill] every skill an agent cites exists. Read: each name in `metadata.skills` of agents/<name>.md, a
+    list on one line or a block list, which must be a folder of skills/ that holds a SKILL.md (the runtime stages each
+    entry as a skill folder, so a flow file is no entry); and each backticked name with an area prefix in the body,
+    outside code fences, which must be such a folder or the bare name of a flow file of flows/ (`flow-<name>` is no
+    alias of a flow file). Not read: a citation followed by "(planned)", a line carrying `validate: allow agent-skill
+    -- <reason>`, the `description` of the frontmatter, a name not in backticks, a path, `/name`. One finding per
+    citation, with the agent, the line and the name
   - [requires-role] every metadata.requires value has the form <role>:<target>; the four names that were
     bare (mailbox, mailer, scheduler, store) are reported with the class each became
   - [requires-vocabulary] every metadata.requires value that has a role is a class of the table in
@@ -136,6 +143,14 @@ They say what a skill or its cases still have to change; none reads a skill's sc
   - [eval-product-names] no eval case and no fixture names an AI product or a design tool
   - [skill-name] a backticked skill name in a skill's Markdown (outside evals/) is a built skill, or its line
     says "planned", or carries `validate: allow skill-name -- <reason>` (an invented example)
+  - [capability-invokes] a capability (kind capability, not core-orchestrator) does not invoke another skill:
+    its SKILL.md has no sentence "run|invoke|call|use|execute [the] skill `<name>`" or "... [the] `<name>` skill",
+    "invoke `<name>`", "ask the skill `<name>` to", "`/<name>`" or "hand it|the request|the task over to `<name>`"
+    where <name> is another built skill. Not read: the frontmatter, code fences, table rows, the ## Gotchas section, a
+    line carrying `validate: allow capability-invokes -- <reason>`, and a sentence that addresses the user: "tell|ask|
+    recommend|suggest (that|to) the user|person" with no comma before the invocation, "the reply says|names|tells|asks",
+    a "Next:" or "Recommended:" line. A bare "user", "person", "next" or "say" does not exempt a sentence. Citing a
+    skill as the owner of an artifact or as the one to run first is not an invocation
   - [routing-table] every built skill is in skills/core-orchestrator/references/routing.md, and a name in
     that table is built or marked (planned), never both
   - [test-file-names] test file names are unique across the folders scripts/test_dirs.py lists
@@ -220,6 +235,27 @@ VISIBLE_RE = re.compile(r"quot|output|print|report", re.I)
 _PREFIXES = "|".join(PREFIX_TO_AREA)
 SKILL_NAME_RE = re.compile(r"`((?:" + _PREFIXES + r")-[a-z0-9]+(?:-[a-z0-9]+)*)`")
 SKILL_NAME_ALLOW_RE = re.compile(r"validate:\s*allow\s+skill-name\s+--\s+\S")
+AGENT_SKILL_ALLOW_RE = re.compile(r"validate:\s*allow\s+agent-skill\s+--\s+\S")
+INVOKES_ALLOW_RE = re.compile(r"validate:\s*allow\s+capability-invokes\s+--\s+\S")
+# The sentences that invoke a skill (narrow on purpose: citing a skill as the owner of an artifact or as the one to run
+# first is not one). Group 1 is the name.
+_VERBS = r"(?:run|runs|invoke|invokes|call|calls|use|uses|execute|executes)"
+INVOKE_RES = (
+    re.compile(r"\b" + _VERBS + r"\s+(?:the\s+|this\s+|that\s+)?skill\s+`([a-z0-9-]+)`", re.I),
+    re.compile(r"\b" + _VERBS + r"\s+(?:the\s+|this\s+|that\s+)?`([a-z0-9-]+)`\s+skill\b(?!['\u2019])", re.I),
+    re.compile(r"\binvokes?\s+`([a-z0-9-]+)`", re.I),
+    re.compile(r"\bask(?:s)?\s+(?:the\s+)?skill\s+`([a-z0-9-]+)`\s+to\b", re.I),
+    re.compile(r"`/([a-z0-9-]+)`"),
+    re.compile(r"\bhand(?:s|ing)?\s+(?:it|the\s+request|the\s+task|this)\s+(?:over\s+)?to\s+`([a-z0-9-]+)`", re.I),
+)
+# Phrases that truly address the user, searched in the text of the sentence before the match: "tell|ask|recommend|suggest
+# (that|to) the user|person" with no comma between it and the match, "the reply says|names|tells|asks", and a "Next:" or
+# "Recommended:" template line. A bare "user", "person", "next" or "say" does not address the user: "When the user approves,
+# invoke the skill X" is an invocation.
+ADDRESSED_TO_USER_RE = re.compile(
+    r"(?i:\b(?:tell|tells|ask|asks|recommend\w*|suggest\w*)\s+(?:that\s+|to\s+)?(?:the\s+)?(?:user|person)\b)[^,;.!?]*$"
+    r"|(?i:\brepl(?:y|ies)\s+(?:says?|names?|tells?|asks?)\b)[^.!?;]*$"
+    r"|\b(?:Next|Recommended):[^.!?;]*$")
 ROUTE_RE = re.compile(r"(?<![\w/.-])((?:" + _PREFIXES + r")-[a-z0-9]+(?:-[a-z0-9]+)*)(?![\w/.-])(\s*\(planned\))?")
 ROUTER = "core-orchestrator"
 ROUTING_TABLE = f"skills/{ROUTER}/references/routing.md"
@@ -773,6 +809,106 @@ def check_skill_names(name, report, built, root=ROOT):
                     + "; ".join(found), "skill-name")
 
 
+def check_capability_invokes(name, report, built, root=ROOT):
+    """capability-invokes: a capability does not invoke another skill (principle 4). Only the narrow sentences of
+    INVOKE_RES are read, in SKILL.md, outside the frontmatter, the code fences, the table rows and ## Gotchas; the
+    name must be another built skill. The router is the one capability that hands a request over."""
+    path = os.path.join(root, "skills", name, "SKILL.md")
+    fm_text, _ = split_frontmatter(path)
+    try:
+        meta = (load_yaml(fm_text) if fm_text is not None else {}).get("metadata") or {}
+    except Exception:  # noqa: BLE001
+        return
+    if not isinstance(meta, dict) or meta.get("kind") != "capability" or name == ROUTER:
+        return
+    with open(path, encoding="utf-8", errors="ignore") as f:
+        lines = f.read().split("\n")
+    start = 0
+    if lines and lines[0] == "---":
+        start = next((i + 1 for i in range(1, len(lines)) if lines[i] == "---"), 0)
+    found, fence, in_gotchas = [], None, False
+    for ln, line in enumerate(lines[start:], start + 1):
+        m = FENCE_RE.match(line)
+        if fence is None and m:
+            fence = m.group(1)
+            continue
+        if fence is not None:
+            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and line.strip() == m.group(1):
+                fence = None
+            continue
+        if line.startswith("## "):
+            in_gotchas = line.strip() == "## Gotchas"
+        if in_gotchas or line.lstrip().startswith("|") or INVOKES_ALLOW_RE.search(line):
+            continue
+        for regex in INVOKE_RES:
+            for hit in regex.finditer(line):
+                cited = hit.group(1)
+                prefix = re.split(r"[.!?]\s", line[:hit.start()])[-1]
+                if cited != name and cited in built and not ADDRESSED_TO_USER_RE.search(prefix):
+                    found.append(f"{cited} (SKILL.md:{ln})")
+    if found:
+        report.warn(f"skills/{name}", "invokes another skill by name; a capability reads and writes artifacts and "
+                    "names the skill that writes a missing one (principle 4): " + "; ".join(found), "capability-invokes")
+
+
+def check_agent_skills(report, root=ROOT):
+    """agent-skill: every skill an agent cites exists. Counted: each name in metadata.skills (a folder of skills/ with
+    a SKILL.md only: the runtime stages each entry as a skill folder) and each backticked name with an area prefix in
+    the body (outside code fences; a skill folder, or a bare flow-file name of flows/). A body citation followed by
+    "(planned)" or on a line that allows it is not read. Not read: the description, a name not in backticks, a path,
+    `/name`."""
+    folder = os.path.join(root, "agents")
+    if not os.path.isdir(folder):
+        return
+    built = set(built_skills(root))
+    flow_dir = os.path.join(root, "flows")
+    flows = {fn[:-5] for fn in os.listdir(flow_dir) if fn.endswith(".json")} if os.path.isdir(flow_dir) else set()
+    exists = lambda cited: cited in built or cited in flows
+    for fn in sorted(os.listdir(folder)):
+        if not fn.endswith(".md"):
+            continue
+        where = f"agents/{fn}"
+        path = os.path.join(folder, fn)
+        fm_text, _ = split_frontmatter(path)
+        if fm_text is None:
+            continue  # check_agent reports it
+        try:
+            meta = load_yaml(fm_text).get("metadata") or {}
+        except Exception:  # noqa: BLE001
+            continue  # check_agent reports it
+        with open(path, encoding="utf-8", errors="ignore") as f:
+            lines = f.read().split("\n")
+        body_start = next((i + 1 for i in range(1, len(lines)) if lines[i] == "---"), 0) if lines and lines[0] == "---" else 0
+        listed = meta.get("skills") if isinstance(meta, dict) else None
+        if listed is not None and not isinstance(listed, list):
+            report.warn(where, "metadata.skills must be a list of skill names", "agent-skill")
+            listed = []
+        for cited in listed or []:
+            ln = next((i + 1 for i in range(body_start) if re.search(r"(?<![\w-])" + re.escape(str(cited)) + r"(?![\w-])", lines[i])), 1)
+            if str(cited) not in built:
+                report.warn(f"{where}:{ln}", f"metadata.skills lists {cited}, which is not a folder of skills/ with a "
+                            "SKILL.md (the runtime stages each entry as a skill folder; a flow file is no entry)", "agent-skill")
+        fence = None
+        for ln, line in enumerate(lines[body_start:], body_start + 1):
+            m = FENCE_RE.match(line)
+            if fence is None and m:
+                fence = m.group(1)
+                continue
+            if fence is not None:
+                if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and line.strip() == m.group(1):
+                    fence = None
+                continue
+            if AGENT_SKILL_ALLOW_RE.search(line):
+                continue
+            for hit in SKILL_NAME_RE.finditer(line):
+                cited = hit.group(1)
+                if re.match(r"\s*\(planned\)", line[hit.end():]):
+                    continue
+                if not exists(cited):
+                    report.warn(f"{where}:{ln}", f"the body cites {cited}, which is not a folder of skills/ or a "
+                                "file of flows/", "agent-skill")
+
+
 def check_routing(report, built, root=ROOT):
     """routing-table: the router's table names every built skill, and each name in it is built or (planned)."""
     path = os.path.join(root, ROUTING_TABLE)
@@ -882,12 +1018,12 @@ def flags_markdown(report, skills):
 WARNING_RULES = ("meta-keys", "description-when", "description-length", "skill-tokens", "eval-cases-count", "eval-keys",
                  "eval-assertions-count", "eval-conditional-assertion", "eval-run-assertion", "eval-prompt-names-skill",
                  "eval-product-names", "skill-name", "routing-table", "test-file-names", "copy-not-adopted",
-                 "guard-missing", "guard-cannot-fail")
+                 "guard-missing", "guard-cannot-fail", "capability-invokes")
 # Named rules that were warnings while the rows of phase C were open and are errors since the sweep that closed it
 # (C0.10 of the final plan, removed on 2026-10-14: git show d3e60770:docs/architecture/final-plan-2026-10-02.md): the seven rules of the artifact contract (C0.1) and the
 # three vocabulary rules (C0.2). Report.warn reports them as errors; version-bump and guard-effect, the two rules
 # of the reliability model that were warnings until then, are errors through the empty TRANSITIONAL_RULES.
-ERROR_RULES = ("requires-role", "requires-vocabulary", "side-effects-vocabulary", "contract-updates", "contract-owner",
+ERROR_RULES = ("agent-skill", "requires-role", "requires-vocabulary", "side-effects-vocabulary", "contract-updates", "contract-owner",
                "contract-inputs", "contract-overlap", "contract-placeholder", "contract-cycle", "contract-owner-table")
 
 
@@ -1556,6 +1692,7 @@ def main(argv):
                 if d in built:
                     check_evals(d, report)
                     check_skill_names(d, report, built)
+                    check_capability_invokes(d, report, built)
         check_routing(report, built)
     check_contract(skills, report)
     check_flows(skills, report)
@@ -1565,6 +1702,7 @@ def main(argv):
         for fn in sorted(os.listdir(AGENTS)):
             if fn.endswith(".md"):
                 check_agent(fn, report)
+        check_agent_skills(report)
     check_doc_links(report)
     check_copies(report)
     check_test_names(report)
