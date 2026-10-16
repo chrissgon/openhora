@@ -73,7 +73,7 @@ names, and as "unknown" for anything else, so that one model never falls into tw
 never enters the repository. The validator checks an id against that list only in a file that is new against the base of the change
 (strict_reading: every id in "models", the event's "runs" equal to the configured one); a file already committed
 is read by what its own event line names, so a model removed from "models" later, or a later change of "runs",
-invalidates nothing (backlog T24; the rule is in evals/evidence_lines.py).
+invalidates nothing (backlog T24 (removed on 2026-10-15; `git show bc830832:docs/backlog.md`); the rule is in evals/evidence_lines.py).
 
 The eval gate is configured in evals/eval-gate.json, committed: {"grader", "threshold", "tolerance",
 "measurement_version", "measurement_floor", "models", "lab_models"}, once a measurement version is closed
@@ -111,7 +111,7 @@ of a baseline in a full test (from 1 to "runs"; without it, "runs"), and "baseli
 which the status asks a thin baseline to be run in full. An event made with another number of
 runs, another timeout or another number of retries than these writes no evidence (eval_run.py --help). The
 validator checks the "runs" of an event line already committed against the range of the key and against the
-event's own lines, and that of a new file against the configured value (backlog T24).
+event's own lines, and that of a new file against the configured value (backlog T24 (removed on 2026-10-15; `git show bc830832:docs/backlog.md`)).
 
 Field evidence (the reliability model, section 7) is a use of a skill in a project, recorded there by
 scripts/evidence.py and contributed as skills/<name>/evals/evidence/field-<id>.jsonl, <id> being the first 12
@@ -1007,7 +1007,7 @@ def evidence_problems(root=ROOT, only=None):
     """{relative path: [problems]} and the number of files checked, for the evidence folders of every skill, or of
     one (evidence_lines.evidence_problems, with the reader of field files). A lab file that is new against the base
     of the change is read strictly (strict_reading), one that exists at the base with other bytes is refused (committed
-    evidence is never edited), every other one is read by its own event line (backlog T24). A WB_BASE_REF that does not
+    evidence is never edited), every other one is read by its own event line (backlog T24 (removed on 2026-10-15; `git show bc830832:docs/backlog.md`)). A WB_BASE_REF that does not
     resolve is reported under that name."""
     standing, error, note = evidence_standing(root)
     if note:

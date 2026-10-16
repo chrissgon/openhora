@@ -3,6 +3,7 @@ and of the eval-status check in scripts/validate.py. No model is called: evidenc
 score and the bands are tested in test_bands.py."""
 import importlib.util
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -626,7 +627,7 @@ def test_an_event_line_with_an_unknown_key_or_a_value_outside_its_form_is_an_err
 
 
 def test_an_event_is_judged_by_its_own_runs_never_by_the_configured_number(root):
-    """Backlog T24: a later change of the gate file's "runs" invalidates no committed file. The event's "runs"
+    """Backlog T24 (removed on 2026-10-15; `git show bc830832:docs/backlog.md`): a later change of the gate file's "runs" invalidates no committed file. The event's "runs"
     is checked against its range and against its own lines."""
     configure(root)  # no "runs" key: the default, 3
     path = evidence(root, [event_line(runs=2), run_line()])
@@ -694,10 +695,13 @@ def test_the_hash_command_prints_the_content_hash_the_version_and_the_case_hashe
 def test_the_old_records_are_removed_and_no_evidence_is_converted_from_them():
     # The 48 records of the first round were removed on 2026-10-15 (see the head of evals/eval_status.py).
     assert sorted(REPO.glob("skills/*/evals/result.json")) == []
-    # Evidence exists only as files the runner wrote for a test event (lab-<UTC start>-<hex>.jsonl), never as a
-    # conversion of an old record, and every committed file is valid.
+    # Evidence exists only as files of the three kinds the reliability model names, never as a conversion of an
+    # old record, and every committed file is valid: a lab file the runner wrote for a test event
+    # (lab-<UTC start>-<hex>.jsonl), a contributed field file (field-<12 hexadecimal characters>.jsonl) and a
+    # community file with its manifest and attestation (community-<repository id>-<run id>-<attempt>).
+    allowed = re.compile(r"lab-.+\.jsonl|field-[0-9a-f]{12}\.jsonl|community-[0-9]+-[0-9]+-[0-9]+(\.jsonl|\.manifest\.json|\.sigstore\.json)")
     evidence = list(REPO.glob("skills/*/evals/evidence/*"))
-    assert all(p.name.startswith("lab-") and p.suffix == ".jsonl" for p in evidence), evidence
+    assert all(allowed.fullmatch(p.name) for p in evidence), evidence
     assert es.evidence_problems(str(REPO))[0] == {}
     gate = es.load_gate(str(REPO))
     assert set(gate["models"]) >= set(gate["lab_models"]) | {gate["grader"]}

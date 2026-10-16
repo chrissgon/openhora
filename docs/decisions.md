@@ -249,7 +249,7 @@ Decided by the maintainer, on the decision table of `docs/architecture/review-20
 
 - **D7, D8, D9, D10 and D12 are approved as recommended**: the artifact contract (D7), one source for shared code (D8), providers named by class (D9), tests of skill scripts in the skill (D10), and flows that cite only what exists (D12). They are phase 5 of `docs/architecture/plan-2026-10.md` (removed on 2026-10-14; `git show d3e60770:docs/architecture/plan-2026-10.md`).
 - **A skill's script tests do not count for its content hash and are not copied into an eval run.** They live in `skills/<name>/scripts/tests/`. `evals/eval_status.py` leaves everything under that folder out of the hash, and the eval adapters remove it from the copy of the skill a model gets, as they do with `evals/`. Reason: a test is not part of what a model uses, so a new or changed test measures nothing differently and must not cost a measurement. The alternative, tests kept in `scripts/tests/` so that the hash never sees them, left skill scripts far from their tests and the hook unable to tell which tests a changed script needs. The skills that already had tests inside their folder read `stale` once, because their recorded hash was computed with those files.
-- **Phase 5 is carried out in full without measuring the skills again for now.** A skill whose folder phase 5 changes reads `stale` until a later measurement round, which is done together with backlog T19 (assertions that pass in every run). Until then `stale` on such a skill means "changed by phase 5, last measured before it", not a defect.
+- **Phase 5 is carried out in full without measuring the skills again for now.** A skill whose folder phase 5 changes reads `stale` until a later measurement round, which is done together with backlog T19 (removed on 2026-10-15; `git show bc830832:docs/backlog.md`; folded into T23) (assertions that pass in every run). Until then `stale` on such a skill means "changed by phase 5, last measured before it", not a defect.
 
 ## 2026-10-02: The orchestrator is the one capability that hands a request over; requirement classes keep their names
 
@@ -521,7 +521,7 @@ The 429 marker of the strong model's account limit takes the form the adapter wr
 
 ## 2026-10-04: the first full test of the 48 skills, closed
 
-The battery of T21 is closed: every one of the 48 skills has a full test under measurement version 8 that passes the gate, and a band on each model.
+The battery of T21 (removed on 2026-10-15; `git show bc830832:docs/backlog.md`) is closed: every one of the 48 skills has a full test under measurement version 8 that passes the gate, and a band on each model.
 
 - Commit: `811b485` (the evidence of the battery and its repairs merged; the band and model tables of `docs/inventory.md` are generated at it).
 - Measurement version 8, floor 6, fingerprint `b628afd5ab52f0e416a52719c885c647d81639c05fd8daf9d72539f5299cf01d`; every event of the battery ran under it.

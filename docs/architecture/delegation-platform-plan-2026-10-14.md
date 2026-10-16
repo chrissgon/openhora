@@ -13,7 +13,7 @@ Added on 2026-10-15; nothing above or below it was rewritten except the answers 
 | Package | PR | Merge commit | What differed from the plan |
 |---|---|---|---|
 | P-1. Test speed | [#399](https://github.com/chrissgon/openhora/pull/399) | `997c38da` | pytest-xdist in the hook and in CI; the PB17 wording of the backlog |
-| P2a. T24, evidence reader | [#395](https://github.com/chrissgon/openhora/pull/395) | `d9f5a5a2` | `evals/evidence_lines.py` reads both gate-file shapes; a committed evidence file is judged by its own event line, not by the gate file as it is now (backlog T24, done) |
+| P2a. T24, evidence reader | [#395](https://github.com/chrissgon/openhora/pull/395) | `d9f5a5a2` | `evals/evidence_lines.py` reads both gate-file shapes; a committed evidence file is judged by its own event line, not by the gate file as it is now (backlog T24 (removed on 2026-10-15; `git show bc830832:docs/backlog.md`), done) |
 | SEC. Keys against egress | [#396](https://github.com/chrissgon/openhora/pull/396) | `5e417ca9` | a held run reaches only its own key proxy; credential headers are dropped. It opened measurement version 9, which P2b closed |
 | Fix, not a package: the security scan's allow entries | [#398](https://github.com/chrissgon/openhora/pull/398) | `66c2cfd1` | restored two `.security-scan-allow` entries that the removal of the old documents (`312c4e48`) had dropped and the history scan still needs |
 | P0. Generic intake and container helper | [#397](https://github.com/chrissgon/openhora/pull/397) | `1ae61de4` | as planned (`runtime/intake.py`, `providers/_container.py`) |
@@ -144,7 +144,7 @@ The Notion read is mostly built. The provider reads a page by id and prints its 
 | Tasks in parallel | exists on `main` (release #393) | `runtime/parallel.py` `admit` (line 87); slots per agent up to `MAX_PARALLEL_CEILING = 4` (`runtime/autonomy.py`, line 77); per project `max_running`, default 3 (`runtime/project_config.py`, lines 166 to 172) |
 | A task with no skill | exists on `feature/short-video` only | `providers/store/sqlite.py` `is_code_task` (line 1487), `code_task_add` (line 1498), `code_task_move` (line 1528) |
 | A resumable step engine | exists on `feature/short-video` only, for one pipeline | `runtime/pipeline.py`: `ORDER` (line 71), `STOPS` (line 75), `run` (line 747), `prepare_again` (line 808) |
-| Agent memory | missing | `docs/backlog.md` R2 (line 144) lists it, unticked |
+| Agent memory | missing | `docs/backlog.md` R2 (line 144; removed on 2026-10-15; `git show bc830832:docs/backlog.md`) lists it, unticked |
 
 ### Pillar 3: tools
 
@@ -417,7 +417,7 @@ These came from the second review round (M1, M2, M6, Q3, Q5). Each package's "Do
 
 **Goal.** Reshaping the gate file invalidates no committed evidence, and the code that reads an evidence line is a module of its own, so the next parts change the gate file and the test header without touching the reader again.
 
-**Reuses.** `docs/backlog.md`, T24 (line 89); `evals/eval_status.py`: `known_models` (line 532), `model_id` (line 540), `_model` (line 760), `event_line_problems` (line 773, and the `strong` requirement near line 795), the stored-gate fallback (lines 1180 to 1186), `GATE_FIELDS` (line 250). The evidence on this branch is 86 test lines, all with the old header `{"strong": ..., "floor": ...}` (counted on 2026-10-14 over `skills/*/evals/evidence/lab-*.jsonl`).
+**Reuses.** `docs/backlog.md`, T24 (line 89; removed on 2026-10-15; `git show bc830832:docs/backlog.md`); `evals/eval_status.py`: `known_models` (line 532), `model_id` (line 540), `_model` (line 760), `event_line_problems` (line 773, and the `strong` requirement near line 795), the stored-gate fallback (lines 1180 to 1186), `GATE_FIELDS` (line 250). The evidence on this branch is 86 test lines, all with the old header `{"strong": ..., "floor": ...}` (counted on 2026-10-14 over `skills/*/evals/evidence/lab-*.jsonl`).
 
 **Builds.**
 
@@ -562,7 +562,7 @@ Also: `evals/eval_status.py` `as_reference` (line 1095) and `skill_band` (line 1
 - **Where the choice is stored.** A column on the request and the task in the store, which is migration 10 (rule 1), and a project default model in `runtime.json`. The router's run uses the project default.
 - **One price table** with source and access date, in a home this package decides, replaces `adapters/api/prices.json` and the project's `model_prices` (retired, or derived from it). OpenRouter prices are adopted from its models API (principle 14); the repository already records that URL as the source of three entries, accessed 2026-09-30.
 - **Interface.** A model picker per request and per agent, with a default per project. It shows each model's band and cost, recommends a model from the scores (D34), and shows the date beside a price. **Consent per agent (D38):** fixing an agent's model while the agent is `autonomous`, or raising the agent to `autonomous` with a model fixed, shows the D34 warning and stores the consent with the agent's settings; changing the model asks again; the rule in `runtime/autonomy.py` `review_action` (rule 5, line 336) releases the review of an unproven pair for an agent that has the consent and records the run as "autonomy by consent". The consent of D34 for an unattended routine on a fixed model is stored by P6; the warning text is written here.
-- **Documents.** `AGENTS.md` principle 9 (line 15) is reworded: proof decides autonomy by default, and an explicit consent, per routine (D34) or per agent (D38), can grant it; external effects keep the hard limit of principle 11. The band rules of the same file, `docs/architecture/reliability-model-2026-10-02.md`, `evals/README.md` (line 119) and the "Adding a skill" step 5 (a new skill is done when its first full test has passed on the two lab models, D6) are rewritten without the tiers. Principle 12's trigger ("the next change of reference model", `AGENTS.md`, line 18) and backlog T23 (`docs/backlog.md`, lines 83 to 88) get a new trigger: a change of the lab default list or of the grader. The inventory's band table, which is on the reference model, becomes per model (`docs/inventory.md`, line 214, and the model table beside it). Backlog R15 (`docs/backlog.md`, line 195) is replaced by the picker.
+- **Documents.** `AGENTS.md` principle 9 (line 15) is reworded: proof decides autonomy by default, and an explicit consent, per routine (D34) or per agent (D38), can grant it; external effects keep the hard limit of principle 11. The band rules of the same file, `docs/architecture/reliability-model-2026-10-02.md`, `evals/README.md` (line 119) and the "Adding a skill" step 5 (a new skill is done when its first full test has passed on the two lab models, D6) are rewritten without the tiers. Principle 12's trigger ("the next change of reference model", `AGENTS.md`, line 18) and backlog T23 (`docs/backlog.md`, lines 83 to 88) get a new trigger: a change of the lab default list or of the grader. The inventory's band table, which is on the reference model, becomes per model (`docs/inventory.md`, line 214, and the model table beside it). Backlog R15 (`docs/backlog.md`, line 195; removed on 2026-10-15; `git show bc830832:docs/backlog.md`) is replaced by the picker.
 
 **Done when.**
 
@@ -971,7 +971,7 @@ Third-party facts that were not confirmed. None is stated as fact anywhere in th
 
 - An Instagram or TikTok publisher.
 - Indexing or RAG. It waits for a real case (D11).
-- Agent memory (listed in backlog R2, unticked).
+- Agent memory (listed in backlog R2 (removed on 2026-10-15; `git show bc830832:docs/backlog.md`), unticked).
 - A persona per agent.
 - OneDrive and Jira. They wait for a real project that needs them (D13). The platform plan of 2026-10-05 already parks Jira (`docs/architecture/platform-plan-2026-10-05.md` (removed on 2026-10-15; `git show bc830832:docs/architecture/platform-plan-2026-10-05.md`), section 8, line 366).
 - Attachments, model choice and flow choice over messaging (D28). Messaging carries none of them today (`runtime/messaging_inbound.py`, header, lines 7 to 19); until the later evolution of the messaging channel, a file, a model or a flow is chosen on the page or in the terminal. The trigger is the completion of P6, after which the maintainer decides when to open the work.
