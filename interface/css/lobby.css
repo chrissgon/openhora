@@ -100,6 +100,9 @@
 .wb-comp-label { color: var(--pui-text-muted); font-size: 12px; }
 .wb-composer-field { display: block; }
 .wb-comp-line { margin: 0; font-size: 12px; }
+.wb-in-proposal { display: grid; gap: 4px; min-width: 0; padding: 6px 8px; border-radius: var(--pui-radius); }      /* a proposal for the project's instructions */
+.wb-in-proposal[hidden] { display: none; }
+.wb-in-line { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .wb-composer { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
 .wb-composer > .wb-comp-field { grid-column: 1 / -1; grid-row: 1; min-height: 40px; resize: none; }
 .wb-composer .pui-input:disabled::placeholder { color: transparent; }

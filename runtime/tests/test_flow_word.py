@@ -23,7 +23,7 @@ CHANGELOG = re.compile(r"^- \d{4}-\d{2}-\d{2}:")
 ALLOWED = (
     ("runtime/tests/test_flow_word.py", "", "this test names the word it looks for"),
     ("runtime/routines.py", "workflow", "the routine content of version 1 called the key of the flow `workflow`: differences() reads it to say that only the format differs"),
-    ("runtime/tests/test_routines.py", "workflow", "the test of the content version 2 builds a content as version 1 stored it"),
+    ("runtime/tests/test_routines.py", "workflow", "the tests of the content version 2 build a content as version 1 stored it"),
     ("runtime/tests/test_ops_routines.py", "workflow", "the test of a routine approved under content version 1 builds its record as version 1 stored it"),
     ("runtime/tests/test_channel_policy.py", "workflows", "the test that the old group name `workflows` is refused names it"),
     ("runtime/handlers/social_vote_job.py", "profile's own workflow", "a profile repository's own CI workflow (GitHub Actions)"),

@@ -50,6 +50,11 @@ function heldRows(P) {
     .map((t) => ({ task_id: t.id, agent: t.agent, reason: P.held[t.id], at: P.changedAt, next: null, commands: [] }));
 }
 
+/** The project's standing instructions as `instructions` answers: the demo has no file (it writes nothing to a project's files), with the keys the operation returns. */
+export function instructions() {
+  return { path: "docs/workbench/instructions.md", present: false, sha256: null, characters: 0, cap: 4000, problem: null, text: "" };
+}
+
 export function status(P) {
   return fill(F.status, {
     config: { path: `${P.folder}/docs/workbench/runtime.json`, sha256: P.configSha },

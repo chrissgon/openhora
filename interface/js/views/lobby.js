@@ -26,6 +26,7 @@ import { createComposer } from "./lobby-composer.js";
 import { createLobbyDesk, createLobbyViewer } from "./lobby-desk.js";
 import { createForm } from "./lobby-form.js";
 import { createLobbyInbox } from "./lobby-inbox.js";
+import { createProposal } from "./lobby-instructions.js";
 import {
   NOT_ACCEPTED_TEXT, QUEUED_NOTICE, cancelCount, canvasLabel, hasQueued, inboxParts, isNamed, lobbyDecisions, mergeMessages, noticeFor, notRoutedNotice, placeBlocks,
   RESOLVED_LINES, TABS, inboxBodies, pollInterval, readAfter, roomModel, runNote, signatureOf, tabOf, wantedBodies,
@@ -120,7 +121,9 @@ export function createLobbyView(frame, { project, onChanged }) {
     tabPanels[id] = h("div", { class: "wb-lobby-tabpanel wb-lobby-scroll", role: "tabpanel", id: tabs.panelId(id), "aria-labelledby": tabs.tabId(id), hidden: true }, part.waiting, part.body);
   }
   const composer = createComposer({ onSend: (text) => send(text), onNew: () => openForm() });
-  const footer = h("div", { class: "wb-lobby-footer" }, composer.el);
+  // the proposal a turn may carry (`instruction_proposal`): the person's own line, offered for the project's instructions with "Add to instructions"
+  const proposal = createProposal({ api, get project() { return project; }, may: (op) => may(op), refresh });
+  const footer = h("div", { class: "wb-lobby-footer" }, proposal.el, composer.el);
   const cancelDialog = createCancelDialog({ api, project, onChanged: refresh });
   panel.body.classList.add("wb-lobby-body");
   panel.body.append(conversationPanel, tabPanels.inbox, tabPanels.desk, tabPanels.tasks, tabPanels.agent);
@@ -408,6 +411,7 @@ export function createLobbyView(frame, { project, onChanged }) {
       notice = { title: "The turn failed", text: failureText(e) };
     }
     turn = null;
+    proposal.show(done && done.result ? done.result.instruction_proposal : null);
     if (done && done.state === "failed") {
       const failure = done.error || {};
       notice = noticeFor({ status: failure.status, word: failure.error, message: failure.message }, "job");

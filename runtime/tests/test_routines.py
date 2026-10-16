@@ -135,3 +135,11 @@ def test_the_flow_key_and_the_content_version_2_and_a_version_1_content_is_named
     assert routines.differences(old, new) == ["the format of the approved content (version 1 to 2)"]
     changed = sample(template_sha256="b" * 64)
     assert routines.differences(old, changed) == ["the format of the approved content (version 1 to 2)", "the flow's template"]
+
+
+def test_a_version_1_content_with_the_instructions_key_differs_only_by_the_format_and_a_changed_instructions_hash_is_named_too():
+    new = sample(instructions="a" * 64)
+    old = {key: value for key, value in new.items() if key != "flow"}      # as version 1 stored it, with the instructions key of INSTRUCTIONS
+    old["version"], old["workflow"] = 1, new["flow"]
+    assert routines.differences(old, new) == ["the format of the approved content (version 1 to 2)"]
+    assert routines.differences(old, sample(instructions="b" * 64)) == ["the format of the approved content (version 1 to 2)", "the project's instructions"]

@@ -24,10 +24,10 @@ CHANGED = [
     "permissions.js", "floor/cards.js", "floor/inbox.js", "floor/task-actions.js", "floor/tasks-tab.js", "floor/agent-tab.js", "floor/widgets.js",
     "cards/plan.js", "cards/plan-waits.js", "views/floor.js", "views/lobby.js", "views/lobby-composer.js", "views/lobby-request.js",
     "views/lobby-thread.js", "views/lobby-actions.js", "views/lobby-inbox.js", "views/lobby-agent.js",
-    "cards/save-flow.js", "views/lobby-params.js", "views/lobby-form.js", "views/lobby-routines.js",      # P6a: the control that saves a plan as a flow, and the parameters of a flow; P6b: the routines
+    "cards/save-flow.js", "views/lobby-params.js", "views/lobby-form.js", "views/lobby-routines.js", "views/lobby-instructions.js",      # P6a: the control that saves a plan as a flow, and the parameters of a flow; P6b: the routines
 ]
 # the files that send a write on a person's click or key, each of which must ask `can` before it draws the control
-CALLERS = ["floor/cards.js", "cards/plan.js", "cards/plan-waits.js", "floor/task-actions.js", "floor/agent-tab.js", "views/lobby.js", "views/lobby-composer.js", "views/lobby-request.js", "cards/save-flow.js", "views/lobby-routines.js"]
+CALLERS = ["floor/cards.js", "cards/plan.js", "cards/plan-waits.js", "floor/task-actions.js", "floor/agent-tab.js", "views/lobby.js", "views/lobby-composer.js", "views/lobby-request.js", "cards/save-flow.js", "views/lobby-routines.js", "views/lobby-instructions.js"]
 
 
 def text(name: str) -> str:
@@ -61,7 +61,7 @@ def test_every_write_function_of_api_is_gated_or_exempt_with_a_reason():
         if 'send("POST"' in body:
             posts.add(re.match(r"\w+", chunk).group(0))
     # the transport helpers that are not operations carry no route of their own
-    assert posts == {"answer", "release", "approve", "reject", "request", "route", "cancel", "retry", "goAhead", "handOver", "verdict", "setMode", "setModel", "giveConsent", "say", "sync", "dispatch", "stageFile", "flowSave", "routineCreate", "routineChange", "routineApprove", "routinePause", "routineResume", "routineCancel"}
+    assert posts == {"answer", "release", "approve", "reject", "request", "route", "cancel", "retry", "goAhead", "handOver", "verdict", "setMode", "setModel", "giveConsent", "say", "sync", "dispatch", "stageFile", "flowSave", "routineCreate", "routineChange", "routineApprove", "routinePause", "routineResume", "routineCancel", "instructionsSet", "instructionsAdd"}
     ops, exempt = keys_of("OPS"), keys_of("EXEMPT")
     # a write that does not spell send("POST") the usual way (a method key, a verb in a variable) is found too
     wrote = {re.match(r"\w+", chunk).group(0) for chunk in api.split("\nexport function ")[1:]
@@ -85,7 +85,7 @@ def test_every_file_that_calls_a_gated_write_asks_can():
         source = path.read_text(encoding="utf-8")
         if any(re.search(rf"\b(api|env\.api|api\(\))\.{name}\(", source) for name in ops):
             callers.add(rel)
-    assert callers == {"floor/cards.js", "cards/plan.js", "cards/save-flow.js", "floor/task-actions.js", "floor/agent-tab.js", "views/lobby-actions.js", "views/lobby-routines.js"}, sorted(callers)
+    assert callers == {"floor/cards.js", "cards/plan.js", "cards/save-flow.js", "floor/task-actions.js", "floor/agent-tab.js", "views/lobby-actions.js", "views/lobby-routines.js", "views/lobby-instructions.js"}, sorted(callers)
     for rel in CALLERS:
         source = text(rel)
         assert "permissions.js" in source or rel in ("views/lobby-composer.js", "views/lobby.js", "views/lobby-request.js"), rel
@@ -153,7 +153,7 @@ def test_the_rules_for_absent_null_a_list_and_pairs(tmp_path):
     assert got["line"] == "Turned off for the page: approve, reject, say, request, route. Use the terminal."
     assert got["fingerprint"][0] != got["fingerprint"][1] != got["fingerprint"][2] and got["fingerprint"][0] != got["fingerprint"][2]
     assert got["reader"] == [True, False, True]
-    assert got["keys"][0] == sorted(["answer", "release", "approve", "reject", "request", "route", "retry", "goAhead", "handOver", "stageFile", "flowSave", "routineCreate", "routineChange", "routineApprove", "routineResume", "verdict", "say", "giveConsent"])
+    assert got["keys"][0] == sorted(["answer", "release", "approve", "reject", "request", "route", "retry", "goAhead", "handOver", "stageFile", "flowSave", "routineCreate", "routineChange", "routineApprove", "routineResume", "instructionsSet", "instructionsAdd", "verdict", "say", "giveConsent"])
     assert got["keys"][1] == sorted(["cancel", "setMode", "setModel", "sync", "dispatch", "routinePause", "routineCancel"])
     assert got["keys"][2:] == [True, True, "go-ahead", "hand-over"]
 

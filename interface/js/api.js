@@ -258,6 +258,27 @@ export function routineCancel(p, id, options = {}) {
   return send("POST", `/projects/${enc(p)}/routines/${enc(id)}/cancel`, { signal: options.signal });
 }
 
+/**
+ * GET /projects/{p}/instructions: the project's standing instructions (docs/workbench/instructions.md, which only the person writes): {path, present, sha256,
+ * characters, cap, problem, text}. `sha256` is null while the file is not there; `problem` is the sentence that would stop a run, or null.
+ */
+export function instructions(p, options = {}) {
+  return send("GET", `/projects/${enc(p)}/instructions`, { signal: options.signal });
+}
+
+/**
+ * POST /projects/{p}/instructions: replace the whole text of the instructions. `baseSha256` is the sha256 of the file as it was read (the word `none` when
+ * there was none): a file changed since is never overwritten, and the refusal (409) names its current hash.
+ */
+export function instructionsSet(p, text, baseSha256, options = {}) {
+  return send("POST", `/projects/${enc(p)}/instructions`, { body: { text, base_sha256: baseSha256 }, signal: options.signal });
+}
+
+/** POST /projects/{p}/instructions/add: append one line `- <line>`; `baseSha256` as for instructionsSet (a proposal carries the one it was made against). */
+export function instructionsAdd(p, line, baseSha256, options = {}) {
+  return send("POST", `/projects/${enc(p)}/instructions/add`, { body: { line, base_sha256: baseSha256 }, signal: options.signal });
+}
+
 /** POST /projects/{p}/requests: {text, flow?, title?, after?, model?}; `after` is the number of the request this one runs after, `model` a model id of the gate file or "auto". */
 export function request(p, text, { flow, title, after, model, signal } = {}) {
   return send("POST", `/projects/${enc(p)}/requests`, { body: { text, flow, title, after, model }, signal });
