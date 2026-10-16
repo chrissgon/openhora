@@ -211,8 +211,10 @@ def _never(project: str, rel: str, declared, cfg: dict, settings_names) -> str |
     source = os.path.join(project, *rel.split("/"))
     real = os.path.realpath(source)
     parts = rel.split("/")
-    if rel == path_rule.CONFIG:
+    if rel.lower() == path_rule.CONFIG:
         return "the runtime's configuration never enters a run"
+    if rel.lower() == path_rule.INSTRUCTIONS:   # limit L40: the instructions reach a run in its prompt (runtime/instructions.py), never as a file
+        return "the person's standing instructions reach a run in its prompt, not as a file"
     if sources.inside(cfg, source) or sources.inside(cfg, real):
         return ""  # limit L26: silent, entering() lists the folder once
     if real == cfg["store_db"] or _under(real, cfg["data_dir"]):
@@ -275,7 +277,7 @@ def entering(project: str, meta: dict, *, web: bool, cfg: dict, settings_names, 
             cls = path_rule.classify(rel)
             if cls in ("document", "state") or (cls == "machine" and skill_meta.matches(declared, rel)):
                 candidates.append(rel)
-            elif rel == path_rule.CONFIG or os.path.islink(os.path.join(project, *rel.split("/"))):
+            elif rel.lower() in (path_rule.CONFIG, path_rule.INSTRUCTIONS) or os.path.islink(os.path.join(project, *rel.split("/"))):
                 candidates.append(rel)  # listed with its reason, so that the person sees it was kept out
         candidates += _walk(project, path_rule.LOCAL_DIR.rstrip("/"))
     drop, taken = path_rule.DROP_DIR + "/", path_rule.SOURCES_DIR + "/"

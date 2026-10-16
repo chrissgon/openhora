@@ -144,7 +144,7 @@ The Notion read is mostly built. The provider reads a page by id and prints its 
 | Tasks in parallel | exists on `main` (release #393) | `runtime/parallel.py` `admit` (line 87); slots per agent up to `MAX_PARALLEL_CEILING = 4` (`runtime/autonomy.py`, line 77); per project `max_running`, default 3 (`runtime/project_config.py`, lines 166 to 172) |
 | A task with no skill | exists on `feature/short-video` only | `providers/store/sqlite.py` `is_code_task` (line 1487), `code_task_add` (line 1498), `code_task_move` (line 1528) |
 | A resumable step engine | exists on `feature/short-video` only, for one pipeline | `runtime/pipeline.py`: `ORDER` (line 71), `STOPS` (line 75), `run` (line 747), `prepare_again` (line 808) |
-| Agent memory | missing | `docs/backlog.md` R2 (line 144) lists it, unticked |
+| Agent memory | replaced by the standing instructions (SPEC-INSTRUCTIONS, 2026-10-16) | `docs/backlog.md` R2; `contracts/runtime.md`, "Standing instructions" |
 
 ### Pillar 3: tools
 
@@ -971,7 +971,7 @@ Third-party facts that were not confirmed. None is stated as fact anywhere in th
 
 - An Instagram or TikTok publisher.
 - Indexing or RAG. It waits for a real case (D11).
-- Agent memory (listed in backlog R2, unticked).
+- Agent memory: replaced by the standing instructions (SPEC-INSTRUCTIONS, 2026-10-16; `docs/workbench/instructions.md`, written only by the person).
 - A persona per agent.
 - OneDrive and Jira. They wait for a real project that needs them (D13). The platform plan of 2026-10-05 already parks Jira (`docs/architecture/platform-plan-2026-10-05.md`, section 8, line 366).
 - Attachments, model choice and flow choice over messaging (D28). Messaging carries none of them today (`runtime/messaging_inbound.py`, header, lines 7 to 19); until the later evolution of the messaging channel, a file, a model or a flow is chosen on the page or in the terminal. The trigger is the completion of P6, after which the maintainer decides when to open the work.

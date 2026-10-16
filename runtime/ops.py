@@ -273,7 +273,7 @@ def _read(path: str):
 # --- what enters a run: runtime/workcopy.py (limits L1 to L6) --------------------------------------------------
 
 
-def task_prompt(request_text: str, task_text: str, answered, handed=None, edited=None, sourced=None) -> str:
+def task_prompt(request_text: str, task_text: str, answered, handed=None, edited=None, sourced=None, instructions: str = "") -> str:
     """The text of one run: the request in the person's words, the task's own text, and, on a run made after
     an answer, every earlier question of this task with its answer. It names no skill: the one skill staged
     for the run loads by its description, as in a lab run. An empty task text (a plan of one skill) leaves out
@@ -283,10 +283,13 @@ def task_prompt(request_text: str, task_text: str, answered, handed=None, edited
     since the task's last run (runtime/documents.py, imported_since): one line each, EDITED_LINE, right before
     the answers, so that the person's edit is read as the person's word and not as external content. sourced lists
     the lines that name the copies of the sources the plan chose (ops_sources.prompt_lines): after the handed files.
-    Only code gives it, never a run's text."""
+    instructions is the block of the person's standing instructions (runtime/instructions.py), right after the task's
+    paragraph, before the handed files; "" (no file) leaves the prompt as it was. Only code gives it, never a run's text."""
     parts = [request_text.strip()]
     if (task_text or "").strip():
         parts += ["", "For this task: " + task_text.strip()]
+    if instructions:
+        parts += ["", instructions]
     if handed:
         parts += ["", HANDED_LINE, *[f"- {rel}" for rel in handed]]
     if sourced:
@@ -467,7 +470,8 @@ def _prepare_run(ctx: dict, task: dict, requested, keys) -> dict:
     routing = _route(ctx, skill, meta, keys, task, requested)
     if routing["key_missing"]:
         raise core.OpsError(f"no key was found for {routing['model']}: {keys[routing['model']]['reason']}", 3)
-    return {"meta": meta, "known": known, "keys": keys, "routing": routing, "identity": lab.skill_identity(skill)}
+    return {"meta": meta, "known": known, "keys": keys, "routing": routing, "identity": lab.skill_identity(skill),
+            "instructions": ops_instructions.guard(ctx, task)}   # the person's standing instructions, read once; a file that fails a check stops the run
 
 
 def _run_start(ctx: dict, task: dict, prepared: dict) -> dict:
@@ -534,7 +538,8 @@ def _run_body(ctx: dict, started: dict) -> dict:
                   if rel in entered_rels and skill_meta.matches(meta["inputs"], rel)]
         prompt = task_prompt(request_text, task["text"], answered,
                              handed=[rel for _source, rel in handed if rel in entered_rels], edited=edited,
-                             sourced=[line for line in sourced["lines"] if not line.startswith("- ") or any(f"- {rel} " in line for rel in entered_rels)])
+                             sourced=[line for line in sourced["lines"] if not line.startswith("- ") or any(f"- {rel} " in line for rel in entered_rels)],
+                             instructions=started["instructions"])
         code = None
         if entered.get("tracked") and code_task(meta):
             code = _code_state(ctx, task)
@@ -1739,6 +1744,9 @@ def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False) 
         return {"out": out, "failed": True}
 
     out["use"] = _use_start(ctx, run_id, skill, routing)
+    held, why = ops_instructions.for_run(cfg["project"])   # the person's standing instructions: a file that fails a check stops the run
+    if why:
+        return fail("internal", why)
     prepared_dir = os.path.join(cfg["data_dir"], core.PREPARED_DIR, str(run_id))
     try:
         try:
@@ -1750,7 +1758,7 @@ def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False) 
         out["entered"] = {"kind": entered["kind"], "agents_md": entered["agents_md"], "files": len(entered["files"])}
         answered = [] if reroute else [p for p in core._stored(ctx, store.pending_list, "resolved", request["id"])
                                        if p["kind"] == "question" and p["resolution"] == "answered"]
-        prompt = task_prompt(text, router.ROUTE_TASK_TEXT, answered) + ops_sources.router_block(ctx, request["text"])
+        prompt = task_prompt(text, router.ROUTE_TASK_TEXT, answered, instructions=held) + ops_sources.router_block(ctx, request["text"])
         # Two router runs of two projects in one service process share the lab's process-wide session (lab.session ends
         # every container of the process when it closes): the whole session is held under one guard. Task runs are
         # processes of their own and never take it.
@@ -2675,6 +2683,7 @@ def contained_run(project: str, skill: str, prompt: str, out_dir: str, platforms
     ctx = core.context(project)
     cfg = ctx["cfg"]
     _contained_scope(ctx, skill)
+    prompt = ops_instructions.contained_prompt(cfg["project"], prompt)   # the person's standing instructions, appended after the caller's text
     out_dir = os.path.abspath(out_dir)
     try:
         meta = skill_meta.declared(os.path.join(core.ROOT, "skills", skill))
@@ -2747,6 +2756,9 @@ from ops_steps import run_step  # noqa: E402,F401
 # The workflows (runtime/ops_flows.py): the list, the flow check, saving a plan as one, and a file staged for a request.
 import ops_flows  # noqa: E402
 from ops_flows import check_flow, flow_save, flows, stage_file  # noqa: E402,F401
+# The person's standing instructions (runtime/ops_instructions.py): their three operations, the block of a run's prompt and the answer that may propose a line.
+import ops_instructions  # noqa: E402
+from ops_instructions import answer_proposing, instructions_add, instructions_read, instructions_set  # noqa: E402,F401
 # The routines (runtime/ops_routines.py): the schedule's workflows, their approval by hash, the brakes and the tick a round calls.
 import ops_routines  # noqa: E402
 from ops_routines import (routine_approve, routine_cancel, routine_change, routine_create, routine_pause, routine_resume,  # noqa: E402,F401

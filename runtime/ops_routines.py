@@ -49,6 +49,7 @@ import lab  # noqa: E402
 import operations  # noqa: E402
 import ops_core as core  # noqa: E402
 import ops_flows  # noqa: E402
+import ops_instructions  # noqa: E402
 import ops_models  # noqa: E402
 import ops_waits  # noqa: E402
 import plan  # noqa: E402
@@ -109,7 +110,8 @@ def content_of(ctx: dict, record: dict, loaded: dict | None = None) -> dict:
         schedule=record["schedule"], window_seconds=record.get("window_seconds"), flow=loaded["flow"],
         template_sha256=flow_files.template_sha256(loaded), params=record["params"], skills=skills, image=seen["digest"],
         model=word, consent=bool(record.get("consent")) and word != AUTO, warning_sha256=autonomy.CONSENT_WARNING_SHA256,
-        providers=record.get("providers") or [] if word == AUTO else [])
+        providers=record.get("providers") or [] if word == AUTO else [],
+        instructions=ops_instructions.hash_of(ctx["cfg"]["project"]))   # the person's standing instructions: the file's sha256, only when it is there
 
 
 def _preview(ctx: dict, record: dict) -> dict:

@@ -26,6 +26,9 @@ Usage:
   python3 runtime/cli.py flow-check --project <dir> --flow <name>
   python3 runtime/cli.py flow-save --project <dir> --name <name> (--id <plan's pending id> | --flow <name>) [--title <text>] [--split] [--replace]
   python3 runtime/cli.py stage-file --project <dir> --request <request id> --file <path>
+  python3 runtime/cli.py instructions --project <dir>
+  python3 runtime/cli.py instructions-set --project <dir> (--text <text> | --text-file <file>) --base-sha256 <sha256 | none>
+  python3 runtime/cli.py instructions-add --project <dir> --line <text> --base-sha256 <sha256 | none>
   python3 runtime/cli.py routines --project <dir> [--id <routine id>]
   python3 runtime/cli.py routine-create --project <dir> --name <name> --flow <workflow> [--param <name>=<value>]... (--every day --at HH:MM | --every week --weekday 1-7 --at HH:MM | --every minutes --minutes N) [--model <id>|auto] [--provider <name>]... [--window-seconds <n>] [--consent]
   python3 runtime/cli.py routine-change --project <dir> --id <routine id> [the fields of routine-create, except --name]
@@ -121,7 +124,9 @@ run-step  runs one named step task in this process (--task <id>), as run-task ru
           `continue` or `stop` (any other answer asks again).
 pending   lists what waits for you; with --id, prints that pending decision whole: the reply, what came back,
           what was kept in the run folder.
-answer    answers a pending decision; the task becomes ready and its next run is given your answer. With
+answer    answers a pending decision; the task becomes ready and its next run is given your answer. The answer to a
+          question may come back with "instruction_proposal": your own line, offered once per request as a line for the
+          project's instructions; it is added only by instructions-add. With
           --with-comments, the comments saved from the task board for that task, and from the documents platform
           for the documents its skill writes, are added to your answer, under
           "Comments left on the platform:"; without it, no comment enters an answer.
@@ -154,6 +159,17 @@ flow-save saves an approved plan (--id: the plan's pending decision, resolved ap
           refuses the save, nothing is written, unless --split makes the code-made split. An existing file is replaced only with
           --replace. A name of a workbench flow is refused. Run it by `route --request <id> --flow <name>` (with --param
           name=value for its parameters).
+instructions  the project's standing instructions: docs/workbench/instructions.md, a Markdown file only you write. Every model run of the
+          project (a task, the planning agent, a handler's agent run) receives its text in the prompt, after the task's paragraph; a run
+          that is a step (code) does not. The text never replaces a skill's stop rule, a confirmation gate, an approval or a limit of the
+          runtime. It prints the path, whether the file is there, its sha256, its characters against the cap of 4,000, the problem that
+          would stop a run (a credential, an invisible character, a line of the form `--- ... ---`, a link, text that is not UTF-8, a file
+          over the cap) and the text. A file with a problem stops every run of the project until it is fixed; nothing is cut.
+instructions-set  replaces the whole text of the file (--text or --text-file; an empty text clears it). --base-sha256 is the sha256 that
+          `instructions` printed (none when the file is not there): a file changed since is never overwritten, and the refusal shows the
+          current hash. Only the terminal and the page write the file (limit L40). A change of the file changes the hash of every routine
+          of the project, which then stops at its next fire and asks you to approve it again.
+instructions-add  appends one line `- <text>` to the file, with the same base hash and the same rules.
 routines  the routines: a workflow started by a schedule. Each with its state (draft, active, paused, stopped, cancelled), schedule,
           the hash of its content now against the hash you approved, and its last fire; with --id, its fires (a slot is fired once; a slot
           missed is skipped and noted, and only the newest missed slot younger than the window is made up) and, for a routine not approved,
@@ -167,7 +183,7 @@ routine-create  makes a routine as a draft; it fires nothing until you approve i
 routine-change  changes the fields given; the approval is cleared and the routine is a draft again.
 routine-approve  without --sha256 prints the preview and the hash; with it, approves exactly that content: the schedule, the workflow's template and
           fixed arguments (not the dates), the X.Y of each skill (a Z change stops nothing), the eval image, the model and consent, the
-          providers. At each fire the hash is computed again; if it differs the routine stops and a question says what changed.
+          providers, and the sha256 of the project's instructions when the file is there. At each fire the hash is computed again; if it differs the routine stops and a question says what changed.
 routine-pause  pauses an active routine: nothing fires while it is paused, and the slots it passes are not made up.
 routine-resume  resumes a paused routine; its approval stands, and every fire still compares the hash.
 routine-cancel  cancels a routine for good (it is never deleted; its fires stay on record).

@@ -183,7 +183,7 @@ def path_of(world, route):
 
 OP_ROUTES = [r for r in service.ROUTES if r["op"] and not r["upload"]]
 VIEW_READS = ("agents", "conversation", "skills", "costs", "connections", "artifacts", "artifact", "artifact-raw", "version", "commands")  # the reads of the views
-READ_OPS = ("status", "pending", "flows", "flow-check", "routines", "task", "progress", "sources") + VIEW_READS
+READ_OPS = ("status", "pending", "flows", "flow-check", "routines", "task", "progress", "sources", "instructions") + VIEW_READS
 
 
 # --- rule 1: the loopback address -----------------------------------------------------------------------------------

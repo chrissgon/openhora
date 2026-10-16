@@ -284,7 +284,7 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `config` | - | `config` |
 | `progress` | `[--since]` | `progress` |
 | `pending` | `[--id]` | `pending` |
-| `answer` | `--id` `--text \| --text-file` `[--with-comments]` | `answer` |
+| `answer` | `--id` `--text \| --text-file` `[--with-comments]` | `answer_proposing` |
 | `release` | `--id` | `release` |
 | `approve` | `--id` `[--sha256]` `[--go-ahead]` | `approve` |
 | `reject` | `--id` `[--note]` | `reject` |
@@ -327,6 +327,9 @@ The words a held ready task carries, from `REASONS` of `runtime/dispatcher.py`:
 | `source-drive` | `[--file-id]` `[--source]` `[--description]` | `source_drive` |
 | `source-describe` | `--source` `[--description]` | `source_describe` |
 | `sources` | - | `sources_catalog` |
+| `instructions` | - | `instructions_read` |
+| `instructions-set` | `--text \| --text-file` `--base-sha256` | `instructions_set` |
+| `instructions-add` | `--line` `--base-sha256` | `instructions_add` |
 | `routines` | `[--id]` | `routines_read` |
 | `routine-create` | `--name` `--flow` `[--param]` `[--every]` `[--at]` `[--weekday]` `[--minutes]` `[--model]` `[--provider]` `[--window-seconds]` `[--consent]` `[--warning-sha256]` | `routine_create` |
 | `routine-change` | `--id` `[--flow]` `[--param]` `[--every]` `[--at]` `[--weekday]` `[--minutes]` `[--model]` `[--provider]` `[--window-seconds]` `[--consent]` `[--warning-sha256]` | `routine_change` |
@@ -347,7 +350,7 @@ Every verb also takes `--project <dir>`. The parser is built from `terminal_verb
 | `/status` | requests, tasks and what waits for you |
 | `/progress [since]` | where the work stands and what happened (since: 7d, <n>d or YYYY-MM-DD) |
 | `/pending [id]` | what waits for you; with an id, that decision whole |
-| `/answer <id> <text>` | answer a pending decision |
+| `/answer <id> <text>` | answer a pending decision; the answer to a question may come back with a proposal (instruction_proposal) to add your own line to the project's instructions, which is added only by instructions-add, from the terminal or the page |
 | `/release <id>` | release a delivery (it stays a draft) |
 | `/approve <id> [sha256]` | approve a plan or an acceptance (a plan: --go-ahead <task key>, repeated, drops that task's derived waits); an effect is approved in the terminal or on the page, with its hash |
 | `/reject <id> [note]` | reject a plan, an acceptance or an effect |
@@ -406,6 +409,9 @@ The routes of the local service, from `ROUTES` of `runtime/service.py`:
 | POST | `/projects/{p}/routines/{id}/pause` | `routine-pause` | `routine_id` from `{id}` | every other argument | - | - |
 | POST | `/projects/{p}/routines/{id}/resume` | `routine-resume` | `routine_id` from `{id}` | every other argument | - | - |
 | POST | `/projects/{p}/routines/{id}/cancel` | `routine-cancel` | `routine_id` from `{id}` | every other argument | - | - |
+| GET | `/projects/{p}/instructions` | `instructions` | - | none | - | - |
+| POST | `/projects/{p}/instructions` | `instructions-set` | - | every other argument | - | - |
+| POST | `/projects/{p}/instructions/add` | `instructions-add` | - | every other argument | - | - |
 | POST | `/projects/{p}/requests/{id}/files` | `stage-file` | `request_id` from `{id}` | every other argument | `file` | file upload |
 | POST | `/projects/{p}/requests` | `request` | - | every other argument | - | - |
 | POST | `/projects/{p}/requests/{id}/route` | `route` | `request_id` from `{id}` | every other argument | - | - |

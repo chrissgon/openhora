@@ -16,8 +16,9 @@ Every file a run created or changed is given exactly one class, by its path rela
              change set, never as a loose file (stage 4 of the platform plan supplies the fact)
   ignored    what the runtime itself put in the copy or what no one reads back: the folder the skills were
              staged in (facts["staged"]), version control, dependency and cache folders. Dropped, not listed
-  other      anything else, the runtime's own configuration (docs/workbench/runtime.json) and the project's
-             workflows (docs/workbench/flows/, P6a) included. Not returned, and listed for the person
+  other      anything else, the runtime's own configuration (docs/workbench/runtime.json), the project's flows
+             (docs/workbench/flows/, P6a) and the person's standing instructions (docs/workbench/instructions.md,
+             limit L40) included. Not returned, and listed for the person
 
 Usage (a library):
   python3 runtime/path_rule.py --help
@@ -32,7 +33,8 @@ import sys
 
 STATE = "docs/workbench/state.md"
 CONFIG = "docs/workbench/runtime.json"
-FLOWS_DIR = "docs/workbench/flows"   # the project's workflows (runtime/flow_files.py): only the person and the operations write there
+FLOWS_DIR = "docs/workbench/flows"   # the project's flows (runtime/flow_files.py): only the person and the operations write there
+INSTRUCTIONS = "docs/workbench/instructions.md"   # the person's standing instructions (runtime/instructions.py, limit L40): only the person writes it
 CLASSES = ("state", "machine", "document", "versioned", "ignored", "other")
 # The classes that come back as loose files. "versioned" comes back too since stage 4, but only as a change set
 # (runtime/changeset.py), never as a loose file, so it is not listed here.
@@ -62,8 +64,8 @@ def classify(rel: str, facts: dict | None = None) -> str:
     facts = facts or {}
     path = normal(rel)
     folded = path.lower() if path is not None else None   # a case-insensitive disk lands docs/workbench/Flows in the same folder: the compare ignores case
-    if path is None or folded == CONFIG or folded == FLOWS_DIR or folded.startswith(FLOWS_DIR + "/"):
-        return "other"   # the runtime's configuration, and the project's workflows: what a run would change to change what runs next
+    if path is None or folded in (CONFIG, INSTRUCTIONS) or folded == FLOWS_DIR or folded.startswith(FLOWS_DIR + "/"):
+        return "other"   # the configuration, the project's flows and the person's instructions: what a run would change to change what runs next
     if path == STATE:
         return "state"
     under = lambda prefix: path == prefix.rstrip("/") or path.startswith(prefix.rstrip("/") + "/")
