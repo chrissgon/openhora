@@ -591,7 +591,7 @@ def test_the_plan_card_builds_its_table_limits_and_hash_from_the_payload_and_the
     assert got["plan"]["columns"] == ["#", "Task", "Skill", "Agent", "After", "Milestone", "Web"] and got["plan"]["cells"] == 3
     assert got["plan"]["hash"] == "b" * 64 and got["plan"]["line"][0] == got["limits"][0] and got["plan"]["asText"].startswith("Plan for request 1")
     assert "wb-skill" in got["plan"]["skillCell"], "the skill cell breaks at hyphens only"
-    assert got["counts"] == ["No task has been created yet.", "2 tasks, none started", "3 tasks, 2 started", "1 task, none started"]
+    assert got["counts"] == ["No task has been created yet.", "2 tasks, none started", "3 tasks, 2 started Something of it is running: the run is stopped, what it has used so far is spent, and nothing it made is kept.", "1 task, none started"]
     assert got["dialog"]["labels"] == ["Keep it", "Cancel request"] and got["dialog"]["open"] is True and got["dialog"]["labelled"] is True
     assert got["dialog"]["count"] == "Request #16: Add a sale page · 2 tasks, none started" and got["dialog"]["title"] == "Cancel this request and what is still open under it?"
     assert got["dialog"]["chip"] == "Requested" and "Request #16: Add a sale page" in got["dialog"]["line"]

@@ -91,7 +91,7 @@ def test_the_tasks_tab_and_the_agent_tab_draw_the_same_actions_and_a_blocked_cur
     assert got["waiting"] == {"buttons": [], "link": "#/p/0123456789ab/floor/design/inbox/77", "text": "Open in the Inbox"}
     assert got["planned"]["buttons"] == ["Go ahead on task 14"] and got["planned"]["waits"] == ["waiting for #10: docs/brand/identity.md, written by task #10"]
     assert got["planned"]["sent"] == [["goAhead", "0123456789ab", 14, None]]
-    assert got["running"] == {"buttons": [], "actions": 0}
+    assert got["running"] == {"buttons": ["Stop task 15"], "actions": 1}, "R18: a running task has Stop task"
     d = got["drop"]
     assert d["line"] == "this file will be visible to a run with the open network" and d["hidden"] is False and d["order"] == ["wb-drop-line", "wb-file"] and d["input"] is False, \
         "A-30: the Agent tab's hand-over shows the web line above the chooser"

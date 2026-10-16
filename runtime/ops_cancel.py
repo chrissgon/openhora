@@ -3,28 +3,57 @@
 # requires-python = ">=3.9"
 # dependencies = []
 # ///
-"""Cancelling a request while the write of an output runs (package NOTION-OUT). `store.request_cancel` cancels a request, its tasks and
-their open decisions, and takes no lock. The approval of an output (runtime/ops_step_effects.py) writes a page or a table for minutes
-under the lock of its decision; a cancel that reached the decision then left the write to finish into a decision already cancelled:
-the page or table existed, and nothing recorded it.
+"""Cancel a request, or stop a task, at any moment (R18, limit L41): the two operations `cancel` and `stop-task`, and what the
+runs and the shells ask of them.
 
-Cancel is a brake and stays available. `request_cancel` here is the one function every way of cancelling a request calls (the
-operation `cancel`, the board's `cancelled` move, the direct reply's cancel and a routine closing its stops): it cancels everything
-that is not being written, and leaves OPEN an `effect` decision whose lock is held, with the task it belongs to as it is, so that
-the write that runs records its outcome when it ends. The request itself is cancelled. The answer says so, in `writing` and `said`.
+A sibling of runtime/ops.py, which exposes `cancel` and `stop_task` under their names; no shell imports this file. The names
+every module of the layer shares are read as `core.<name>` (runtime/ops_core.py). The process mechanics (the signals, the
+snapshot of a holder's tree, the container clean-up, the router's watcher) are runtime/run_stop.py.
 
-The locks of the request's open effect decisions are taken (without waiting) before the cancel and kept until it is done, so that
-an approval cannot begin between the look and the cancel: it is refused as "being written" and finds its decision cancelled.
+The order of a call, which is the contract:
 
-Standard library only, plus ops_core. Runs on Python 3.9.
+  1. The request's effect lock (`effect-<request>.lock`) is taken, and held for the whole call. An effect that is executing
+     holds it, so the call waits as `_effect_lock` waits and is then refused with nothing written and nothing signalled
+     (limit L41: a cancel or a stop never signals a process while an effect of its request executes).
+  2. The stop request is written first, in one transaction (the store's `request_stop` or `task_stop`), holding the project's
+     write lock: a run that returns its files into the project holds the same lock from its check of the stop request to its
+     finish, so a stopped run returns nothing, whatever the timing. In that transaction every task of the request that is not
+     running and not final is cancelled, so nothing new is claimed.
+  3. What is running is ended: the holders of the task locks get TERM, then KILL after the grace (run_stop.stop_tasks); the
+     router's run, which runs inside a process that is never signalled, is ended by its own watcher and waited for (ROUTER_WAIT).
+  4. Whatever a dead holder left running is finished here, under the store's rule: the run row `cancelled` with what it
+     reported, the task cancelled (a cancel) or blocked with a note for `retry` (a stop), the request cancelled once none of its
+     runs is running.
+
+A second call finds the stop request written, writes nothing new, repeats 3 and 4 and answers with "already": true.
+
+The write of an output (package NOTION-OUT) takes minutes under the lock of its decision (`output-<pending id>.lock`, the name is
+`lock_name`) and, for a step task's effect, under the request's effect lock too. A cancel that reached such a decision then left the write
+to finish into a decision already cancelled: the page or the table existed and nothing recorded it. So every way of cancelling a request
+(the operation, the board's move, the direct reply's cancel, a routine closing its stops) leaves OPEN an `effect` decision whose lock is
+held, with the task it belongs to as it is, and cancels everything else, the request included; the answer says so, in `writing` and
+`said`. `request_cancel` is the one function that does it for a request nothing runs for; `cancel_request` does it for the stop path
+(`keep` of the store's `request_stop`). The locks of the request's open effect decisions are taken (without waiting) before the cancel and
+kept until it is done, so that an approval cannot begin between the look and the cancel: it is refused as "being written" and finds its
+decision cancelled.
+
+Standard library only. Runs on Python 3.9.
 """
 from __future__ import annotations
 
+import contextlib
+import importlib
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ops_core as core  # noqa: E402
+import ops_flows  # noqa: E402
+import ops_waits  # noqa: E402
+import run_stop  # noqa: E402
+
+DEAD_NOTE = "the run was ended by a stop request"
 
 
 def lock_name(pending_id: int) -> str:
@@ -54,14 +83,15 @@ def _open_effects(ctx: dict, conn, request_id: int) -> list:
     return out
 
 
-def request_cancel(conn, request_id: int, *, by: str, context: dict) -> dict:
-    """store.request_cancel, except that an effect decision whose write is running is left open. Returns the store's answer, and, when
-    one was left, `writing` ([{"pending", "task", "target"}]) and `said` (one sentence). Raises the store's StoreError."""
-    ctx = context
-    store, cfg = ctx["store"], ctx.get("cfg") or {}
+@contextlib.contextmanager
+def _keeping(ctx: dict, conn, request_id: int):
+    """Around a cancel of a request: yields (writing, keep). The lock of each open effect decision of the request is taken without waiting
+    and kept until the block ends; a decision whose lock is held is being written: it is listed in `writing` ([{"pending", "task",
+    "target"}]) and its id is in `keep`."""
+    cfg, taken, writing = ctx.get("cfg") or {}, {}, []
     if not cfg.get("data_dir"):
-        return store.request_cancel(conn, request_id, by=by)
-    taken, writing = {}, []
+        yield [], []
+        return
     try:
         for item in _open_effects(ctx, conn, request_id):
             fd = core._try_lock(cfg, lock_name(item["id"]))
@@ -71,14 +101,252 @@ def request_cancel(conn, request_id: int, *, by: str, context: dict) -> dict:
                                 "target": effect.get("target") if isinstance(effect, dict) and isinstance(effect.get("target"), str) else None})
             else:
                 taken[item["id"]] = fd
-        out = store.request_cancel(conn, request_id, by=by, keep=[w["pending"] for w in writing])
+        yield writing, [w["pending"] for w in writing]
     finally:
         for pending_id, fd in taken.items():
             release(cfg, pending_id, fd)
-    if writing:
-        names = ", ".join(w["target"] or f"decision {w['pending']}" for w in writing)
-        out = {**out, "writing": writing, "said": f"the write of {names} is running and will be recorded; everything else is cancelled"}
+
+
+def _said(out: dict, writing: list) -> dict:
+    """out with `writing` and `said` when a write was left running."""
+    if not writing:
+        return out
+    names = ", ".join(w["target"] or f"decision {w['pending']}" for w in writing)
+    return {**out, "writing": writing, "said": f"the write of {names} is running and will be recorded; everything else is cancelled"}
+
+
+def request_cancel(conn, request_id: int, *, by: str, context: dict) -> dict:
+    """store.request_cancel, except that an effect decision whose write is running is left open. Returns the store's answer, and, when
+    one was left, `writing` ([{"pending", "task", "target"}]) and `said` (one sentence). Raises the store's StoreError. The way to cancel a
+    request nothing is running for (a direct reply, a routine closing its stops); `cancel_request` is the one that stops what runs."""
+    store = context["store"]
+    with _keeping(context, conn, request_id) as (writing, keep):
+        out = store.request_cancel(conn, request_id, by=by, keep=keep)
+    return _said(out, writing)
+
+
+def _who(by: str, channel) -> str:
+    """The label the stop request carries: the person (or the board), and the channel that carried the call."""
+    return by if channel in (None, "", by) else f"{by} from {channel}"
+
+
+def _busy(request_id: int) -> core.OpsError:
+    return core.OpsError(f"an effect of request {request_id} is executing; nothing was stopped; cancel again when it ends", 1)
+
+
+def _hold_effect_lock(stack: contextlib.ExitStack, cfg: dict, request_id: int, may_skip: bool = False) -> bool:
+    """Take the request's effect lock for the whole call. Refused (nothing written, nothing signalled) while an effect executes, unless
+    may_skip: then False, and the caller decides (a cancel with nothing to signal may go on when what executes is an output write)."""
+    try:
+        stack.enter_context(core._effect_lock(cfg, request_id))
+        return True
+    except core.OpsError:
+        if may_skip:
+            return False
+        raise _busy(request_id) from None
+
+
+def _running(ctx: dict, request_id: int) -> bool:
+    """Whether a task of the request is `running`, or a run of it (the router's included) is."""
+    store = ctx["store"]
+    ids = {t["id"] for t in core._stored(ctx, store.tasks_list, request_id)}
+    if any(t["state"] == "running" for t in core._stored(ctx, store.tasks_list, request_id)):
+        return True
+    return any(r["task_id"] in ids for r in core._stored(ctx, store.task_runs_running))
+
+
+def _usage(ctx: dict, row: dict) -> dict:
+    """What a run row's folder reported, as the store takes it: {"tokens", "cost_usd" (a metered credential only), "run_dir"}."""
+    ops, lab = importlib.import_module("ops"), importlib.import_module("lab")
+    dest = row.get("run_dir") or os.path.join(ctx["cfg"]["data_dir"], core.RUNS_DIR, str(row["id"]))
+    got = ops._reported_usage(lab.reported_usage(dest), {"billing": row.get("billing")})
+    return {**got, **({"run_dir": dest} if os.path.isdir(dest) else {})}
+
+
+def _usages(ctx: dict, task_ids) -> dict:
+    """{run id: usage} of the run rows of these tasks that are still `running`."""
+    out = {}
+    for task_id in task_ids:
+        for row in core._stored(ctx, ctx["store"].task_runs_list, task_id):
+            if row["status"] == "running":
+                out[row["id"]] = _usage(ctx, row)
     return out
+
+
+def _cancelled_pending(ctx: dict, request_id: int) -> set:
+    store = ctx["store"]
+    found = set()
+    for task in core._stored(ctx, store.tasks_list, request_id):
+        found.update(p["id"] for p in core._stored(ctx, store.pending_list, "cancelled", task["id"]))
+    return found
+
+
+def _finish_router(ctx: dict, run_id: int, wait: float | None = None, poll: float = 0.2) -> str:
+    """Wait for the router's run row to end (its own process finishes it, reading the stop request): `ended`; when the route
+    lock is free while the row is still `running` its owner is dead, and the row is finished here: `dead`; `stopping` when
+    the wait is spent."""
+    store, cfg = ctx["store"], ctx["cfg"]
+    deadline = time.monotonic() + (run_stop.ROUTER_WAIT if wait is None else wait)
+    while True:
+        row = core._stored(ctx, store.task_run_get, run_id)
+        if row["status"] != "running":
+            return "ended"
+        fd = core._try_lock(cfg, "route.lock")
+        if fd is not None:
+            try:
+                core._stored(ctx, store.task_fail_orphans, [], [run_id], DEAD_NOTE, usage={run_id: _usage(ctx, row)})
+            finally:
+                os.close(fd)
+            return "dead"
+        if time.monotonic() >= deadline:
+            return "stopping"
+        time.sleep(poll)
+
+
+def _end(ctx: dict, first: dict, signal: bool = True) -> list:
+    """Step 3 and 4 for what request_stop or task_stop found running (first["running"]: [{"task", "run", "step"}], and the
+    router's first["router_run"]). Returns [{"task" or "run", "run", "state": "cancelled" | "stopping"}]. Without `signal` (an effect
+    of the request executes: limit L41) nothing is signalled and nothing is waited for: what runs is listed `stopping`, and ends when its
+    own process reads the stop request."""
+    store, cfg = ctx["store"], ctx["cfg"]
+    running = first.get("running") or []
+    answers = []
+    if not signal:
+        why = "an effect of the request is executing: nothing was signalled"
+        return [{"task": r["task"], "run": r["run"], "state": "stopping", "why": why} for r in running] + (
+            [{"run": first["router_run"], "state": "stopping", "why": why}] if first.get("router_run") is not None else [])
+    if running:
+        found = run_stop.stop_tasks(cfg, [r["task"] for r in running])
+        for item in running:
+            task_id = item["task"]
+            if found[task_id]["state"] != "stopping":   # the holder is gone: finish what it left, under the store's rule
+                core._stored(ctx, store.task_stopped, task_id, usage=_usages(ctx, [task_id]))
+            row = core._stored(ctx, store.task_get, task_id)
+            ended = row["state"] != "running"
+            answers.append({"task": task_id, "run": item["run"], "state": "cancelled" if ended else "stopping",
+                            **({"why": found[task_id]["why"]} if not ended and found[task_id]["why"] else {})})
+    if first.get("router_run") is not None:
+        state = _finish_router(ctx, first["router_run"])
+        answers.append({"run": first["router_run"], "state": "stopping" if state == "stopping" else "cancelled"})
+    return answers
+
+
+def cancel_request(ctx: dict, request_id: int, *, by: str = "user", channel=None) -> dict:
+    """Cancel a request at any moment (the sequence in the module's text). Returns {"request", "cancelled": [the ids of the
+    tasks and the request cancelled], "stopped": [{"task" and/or "run", "state": "cancelled" | "stopping"}], "pending": [the
+    pending decisions cancelled], "already"}; "stopping" is a run that did not end within the waits: the request keeps its stop
+    request, and its owner (or the next recovery) finishes it."""
+    cfg, store, who = ctx["cfg"], ctx["store"], _who(by, channel)
+    if core._stored(ctx, store.task_get, request_id)["parent_id"] is not None:   # asked before any lock is taken: a task's id makes no lock file
+        raise core.OpsError(f"task {request_id} is not a request: cancel the request it belongs to", 1)
+    with contextlib.ExitStack() as stack:
+        held = _hold_effect_lock(stack, cfg, request_id, may_skip=True)
+        before = _cancelled_pending(ctx, request_id)
+        writing = []
+        with core._write_lock(cfg), _keeping(ctx, ctx["conn"], request_id) as (writing, keep):   # the stop request and a run's return exclude each other
+            if not held and (not writing or _running(ctx, request_id)):   # only an output write holds it, and nothing is to be signalled: go on
+                raise _busy(request_id)
+            first = core._stored(ctx, store.request_stop, request_id, by=who, keep=keep)
+        stopped = _end(ctx, first, signal=held)
+        states = {t["id"]: t["state"] for t in core._stored(ctx, store.tasks_list, request_id)}
+        ended = [a["task"] for a in stopped if "task" in a and states.get(a["task"]) == "cancelled"]
+        late = [request_id] if states.get(request_id) == "cancelled" and not first["already"] else []
+        cancelled = sorted({*first["cancelled"], *ended, *late})
+        pending = sorted(_cancelled_pending(ctx, request_id) - before)
+    ops_flows.discard_staged(ctx, request_id)      # the files handed over for its plan go with it
+    return ops_waits.settled(ctx, _said({"request": request_id, "cancelled": cancelled, "stopped": stopped, "pending": pending,
+                                         "already": first["already"], **({"kept": first["kept"]} if first.get("kept") else {})}, writing))
+
+
+def stop_one(ctx: dict, task_id: int, *, by: str = "user", channel=None) -> dict:
+    """Stop one running task at any moment: its run ends `cancelled` and the task `blocked` with the note "stopped by <who>:
+    retry it or cancel the request", so that `retry` resumes it (a step task at its step) and its dependents stay planned. The
+    other tasks of the request follow the request. Returns the shape of cancel for the task's request, "cancelled" and "pending"
+    empty."""
+    cfg, store, who = ctx["cfg"], ctx["store"], _who(by, channel)
+    task = core._stored(ctx, store.task_get, task_id)
+    request_id = task["parent_id"]
+    if request_id is None:
+        raise core.OpsError(f"task {task_id} is a request: cancel it", 1)
+    with contextlib.ExitStack() as stack:
+        _hold_effect_lock(stack, cfg, request_id)
+        with core._write_lock(cfg):
+            first = core._stored(ctx, store.task_stop, task_id, by=who)
+        running = [{"task": task_id, "run": first["run"], "step": first["step"]}] \
+            if core._stored(ctx, store.task_get, task_id)["state"] == "running" else []
+        stopped = _end(ctx, {"running": running})
+    return ops_waits.settled(ctx, {"request": request_id, "task": task_id, "cancelled": [], "stopped": stopped,
+                                   "pending": [], "already": first["already"]})
+
+
+def cancel(project: str, request_id: int, channel: str | None = None) -> dict:
+    """The operation `cancel`: cancel a request, its tasks that are not done and their open pending decisions, at any moment; a run in
+    progress is ended and returns nothing (limit L41). Returns {"request", "cancelled", "stopped", "pending", "already"}."""
+    return cancel_request(core.context(project), request_id, channel=channel)
+
+
+def stop_task(project: str, task_id: int, channel: str | None = None) -> dict:
+    """The operation `stop-task`: stop one running task; its run ends cancelled and the task blocked, for `retry`."""
+    return stop_one(core.context(project), task_id, channel=channel)
+
+
+def watch(ctx: dict, request_id: int):
+    """The router's watcher around its lab call (run_stop.watch), reached from ops.py through this module."""
+    return run_stop.watch(ctx, request_id)
+
+
+def after_sync(ctx: dict, out: dict) -> dict:
+    """What `sync` does after it let the write lock go: the requests a person cancelled on the board (board.pull with defer, "cancel_later")
+    are cancelled now, each as anywhere else, and the board is written again so that the cancelled state reaches it. A cancel that is refused
+    (an effect of the request executes) is listed under the board's "refused". Returns out."""
+    shown = out.get("board")
+    later = shown.pop("cancel_later", []) if isinstance(shown, dict) else []
+    if not later:
+        return out
+    board = importlib.import_module("board")
+    for request_id in later:
+        try:
+            cancel_request(ctx, request_id, by="board", channel="board")
+        except core.OpsError as e:
+            shown["refused"].append({"task": request_id, "state": "cancelled", "reason": str(e)})
+    try:
+        with core._write_lock(ctx["cfg"]):
+            again = board.push(ctx)
+        shown["pushed"] = sorted({*shown["pushed"], *again["pushed"]})
+        shown["failed"] += again["failed"]
+    except board.BoardError as e:
+        shown["failed"].append({"task": later[0], "reason": str(e)})
+    return out
+
+
+def stop_requested(ctx: dict, task_id: int) -> bool:
+    """Whether a stop request reaches this task (its own, or its request's). A run asks it, holding the project's write lock,
+    just before it returns anything into the project (limit L41)."""
+    return ctx["store"].stop_of(ctx["conn"], task_id) is not None
+
+
+def cancelled_run(out: dict, done: dict) -> bool:
+    """When the store recorded a run cancelled (done["cancelled"]), say so in the result of the run, which keeps no file it
+    would have returned and no decision it would have opened; returns True. Otherwise leaves out alone and returns False."""
+    if not done.get("cancelled"):
+        return False
+    out.update(status="cancelled", ending=None, failure=None, pending_id=None)
+    if done.get("task_state") is not None:
+        out["task_state"] = done["task_state"]
+    for key in ("returned", "kept"):
+        if key in out:
+            out[key] = []
+    return True
+
+
+def step_stopped(ctx: dict, task_id: int) -> bool:
+    """A step task's process was told to stop: when a stop request is why, the task ends as it says (cancelled for a cancel,
+    blocked with the note for a stop) and this returns True; otherwise False and the caller fails the task as before."""
+    store = ctx["store"]
+    if store.stop_of(ctx["conn"], task_id) is None:
+        return False
+    core._stored(ctx, store.task_stopped, task_id)
+    return True
 
 
 if __name__ == "__main__":

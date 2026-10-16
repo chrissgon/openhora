@@ -58,7 +58,7 @@ ON_SYSTEM_PYTHON = [
     # The document converter's provider runs a container; the host side is plain Python and runs on the scheduler's interpreter too.
     "runtime/sources.py", "runtime/ops_sources.py", "providers/converter/container.py",
     # package P-OPS: upkeep (retention), the orphan containers, the lease of the sources folder, the secret store's state
-    "runtime/upkeep.py", "runtime/orphans.py", "runtime/lease.py", "runtime/secret_state.py",
+    "runtime/upkeep.py", "runtime/orphans.py", "runtime/lease.py", "runtime/secret_state.py", "runtime/ops_cancel.py", "runtime/run_stop.py",
     # S16: the password-manager backends, loaded by path by the resolver, which the runtime loads under the system interpreter too.
     "providers/secrets/password_managers.py",
     # The step engine (P5): the engine, the run of a step task (a process the dispatcher starts), and the kind `ingest`.
@@ -66,6 +66,11 @@ ON_SYSTEM_PYTHON = [
     "runtime/effect_write.py", "runtime/ops_step_effects.py", "runtime/write_document.py", "runtime/ops_step_seams.py",
     # Outputs to the documents platform (NOTION-OUT): the kinds, the document of a new page or table, and the table reader.
     "runtime/step_output.py", "runtime/output_document.py", "runtime/table_data.py", "runtime/ops_cancel.py",
+    # E-mail sent from the project's outbox (EMAIL-SEND): the kind, the document, the effect, the address rule, and the provider with its shared code.
+    "runtime/step_send_email.py", "runtime/send_document.py", "runtime/effect_send.py", "runtime/mail_address.py",
+    "providers/_email.py", "providers/mailer/smtp.py",
+    # A post published from the approval path (PUBLISH-EFFECT): the kind, the document, the script runner, and the effect that fronts the word `publish`.
+    "runtime/step_publish_post.py", "runtime/publish_document.py", "runtime/publish_payload.py", "runtime/effect_publish.py",
     # The flows (P6a): the flow check, and the operations over flow files (list, check, save a plan, stage a file).
     "runtime/flow_check.py", "runtime/ops_flows.py",
     # The routines (P6b): the pure schedule and content, and the operations and the tick.

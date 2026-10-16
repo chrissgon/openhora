@@ -31,6 +31,8 @@ A RUNNING run container is never removed automatically, whatever its age. The on
 RUNNING_GRACE_SECONDS (6 hours), and which a person types: a battery started with a longer timeout is the person's to judge.
 An object whose age or state cannot be read is kept.
 
+A stop (R18, runtime/run_stop.py) uses the same names for one more job, `remove_runs`: the objects of the runs a stopped process tree named, whatever their age or state, each shared object checked again before its removal.
+
 The container tool is a function `tool(*args) -> (returncode, stdout)`; production passes the facade's `lab.container_tool`, a test passes a
 fake. No test of this repository reaches the real docker.
 
@@ -178,6 +180,40 @@ def sweep(tool, *, now: float, dry_run: bool = False, include_running: bool = Fa
         code, _ = tool(*(("rm", "-f", name) if kind == "container" else ("network", "rm", name)))
         if code == 0:
             out["removed"].append({"kind": kind, "name": name, "run": item["run"], "via": item["via"]})
+        else:
+            out["kept"].append({"name": name, "why": "the tool could not remove it"})
+    return out
+
+
+def remove_runs(tool, run_ids, *, dry_run: bool = False) -> dict:
+    """Remove what the runs named by run_ids left that is still there (R18: a run was stopped and its process may have been killed
+    before it cleaned up): their run container and key proxy (`wb-eval-run-<id>`, `wb-eval-keys-<id>`), then their network
+    (`wb-eval-held-<id>`). Only a name that is exactly a run's own and for one of these ids is selected, whatever its labels or state, and a
+    shared object (`is_shared`) is checked again just before its removal and never touched. Nothing is guessed: a listing the tool
+    could not give removes nothing for that kind. Returns {"removed": [{"kind", "name", "run"}], "kept": [{"name", "why"}],
+    "problem"}."""
+    wanted = {str(r) for r in run_ids if RUN_ID.fullmatch(str(r))}
+    out = {"removed": [], "kept": [], "problem": None}
+    if not wanted:
+        return out
+    plan = []
+    for kind in ("container", "network"):
+        found = _listing(tool, kind)
+        if found is None:
+            out["problem"] = f"the container tool could not list the {kind}s: nothing was removed for them"
+            continue
+        plan += [(kind, item) for item in found if item["run"] in wanted]
+    plan.sort(key=lambda p: (p[0] == "network", not p[1]["name"].startswith("wb-eval-run-")))   # the run, its key proxy, then the network
+    for kind, item in plan:
+        name = item["name"]
+        if is_shared(name):
+            continue
+        if dry_run:
+            out["removed"].append({"kind": kind, "name": name, "run": item["run"], "dry_run": True})
+            continue
+        code, _ = tool(*(("rm", "-f", name) if kind == "container" else ("network", "rm", name)))
+        if code == 0:
+            out["removed"].append({"kind": kind, "name": name, "run": item["run"]})
         else:
             out["kept"].append({"name": name, "why": "the tool could not remove it"})
     return out

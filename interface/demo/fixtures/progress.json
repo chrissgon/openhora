@@ -96,6 +96,7 @@
       "total": 6,
       "ok": 6,
       "failed": 0,
+      "cancelled": 0,
       "by_model": {
         "m": 6
       },

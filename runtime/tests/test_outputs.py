@@ -1300,6 +1300,22 @@ def test_a_decision_cannot_be_rejected_or_answered_while_its_write_runs_and_the_
     assert f"sha256:{item['payload_sha256']}" in (world["root"] / "docs" / "workbench" / "state.md").read_text(encoding="utf-8")
 
 
+def test_an_approval_refused_while_the_decision_is_cancelled_or_written_says_so(world):
+    """request_cancel holds a decision's lock while it cancels the request (as a write does), and an approval that meets the
+    lock is refused: its sentence names both, so a person who just cancelled does not read "written by another approval"."""
+    item = opened(world, table_task(world))
+    cfg = ops_core.context(world["path"])["cfg"]
+    fd = ops_core._try_lock(cfg, f"output-{item['id']}.lock")
+    assert fd is not None
+    try:
+        with pytest.raises(ops_core.OpsError) as busy:
+            approve(world, item)
+    finally:
+        os.close(fd)
+    assert f"pending decision {item['id']} is being cancelled with its request or written by another approval" in str(busy.value)
+    assert "approve it again if it is still open" in str(busy.value)
+
+
 def test_a_decision_nobody_is_writing_is_rejected_at_once_and_leaves_no_lock_file(world):
     task = table_task(world)
     item = opened(world, task)
@@ -1503,8 +1519,12 @@ def test_every_way_of_cancelling_a_request_goes_through_the_one_function_that_le
             if re.search(r"\.request_cancel[,(]", line) and "ops_cancel.request_cancel" not in line and path.name != "ops_cancel.py":
                 calls.setdefault(path.name, []).append(line.strip())
     assert not calls, f"a way to cancel a request that does not go through ops_cancel.request_cancel: {calls}"
-    for name in ("ops.py", "board.py", "ops_say.py", "ops_routines.py"):
+    for name in ("ops_say.py", "ops_routines.py"):
         assert "ops_cancel.request_cancel" in (st.REPO / "runtime" / name).read_text(encoding="utf-8"), name
+    # the operation and the board's move stop what runs as well (R18): ops_cancel.cancel_request, which keeps the running write open the same way
+    assert "from ops_cancel import cancel" in (st.REPO / "runtime" / "ops.py").read_text(encoding="utf-8")
+    assert "cancel_request(" in (st.REPO / "runtime" / "board.py").read_text(encoding="utf-8")
+    assert "_keeping(" in (st.REPO / "runtime" / "ops_cancel.py").read_text(encoding="utf-8").split("def cancel_request")[1].split("def stop_one")[0]
 
 
 def test_the_record_of_a_write_that_landed_waits_for_the_project_files_as_long_as_it_takes(world, monkeypatch):
@@ -1541,3 +1561,59 @@ def test_the_record_of_a_write_that_landed_waits_for_the_project_files_as_long_a
         writer.join(60)
     assert not failure, failure
     assert result["done"]["task_state"] == "done" and made_table(world)[1] == EXPECTED_ROWS, "the record waited and was made"
+
+
+# --- R18, the stop path (CANCEL-BOARD): a cancel or a stop while a write runs -----------------------------------------------------
+
+
+@pytest.mark.parametrize("verb", ["cancel", "stop-task"])
+def test_cancelling_or_stopping_a_running_request_during_an_output_write_is_refused_and_the_decision_stays_open_and_records(world, monkeypatch, verb):
+    """The write holds the request's effect lock, so a cancel or a stop that would have to signal a running task (limit L41) is refused with
+    nothing stopped and nothing written; the decision stays open, and the running write records its outcome."""
+    task = table_task(world)
+    item = opened(world, task)
+    request = request_of(world, task)
+    other = add(world, "output-page", parent=world["parent"], title="Other", content=PAGE_PATH)
+    ctx = ops_core.context(world["path"])
+    ctx["conn"].execute("UPDATE tasks SET parent_id = ? WHERE id = ?", (request, other))
+    ctx["conn"].commit()
+    assert ctx["store"].task_claim(ctx["conn"], other)["task"]["state"] == "running"       # a task of the request runs meanwhile
+    seen = {}
+
+    def meanwhile():
+        try:
+            if verb == "cancel":
+                ops.cancel(world["path"], request)
+            else:
+                ops.stop_task(world["path"], other)
+        except ops_core.OpsError as e:
+            seen["refused"] = str(e)
+        c = ops_core.context(world["path"])
+        assert c["store"].pending_get(c["conn"], item["id"])["status"] == "open", "the decision of the running write stays open"
+        assert c["store"].task_get(c["conn"], request)["stop_requested_at"] is None and c["store"].task_get(c["conn"], other)["stop_requested_at"] is None
+        assert c["store"].task_get(c["conn"], other)["state"] == "running" and c["store"].task_get(c["conn"], task)["state"] == "waiting"
+    monkeypatch.setattr(ops_core, "ROUTE_LOCK_WAIT", 0.2)
+    done = during_a_table_write(world, monkeypatch, item, meanwhile)
+    assert f"an effect of request {request} is executing; nothing was stopped; cancel again when it ends" in seen["refused"]
+    c = ops_core.context(world["path"])
+    assert done["task_state"] == "done" and made_table(world)[1] == EXPECTED_ROWS
+    assert c["store"].pending_get(c["conn"], item["id"])["resolution"] == "approved", "the running write recorded its outcome"
+
+
+def test_a_cancel_whose_request_runs_nothing_goes_on_during_a_write_and_keeps_the_decision_open_as_request_cancel_does(world, monkeypatch):
+    task = table_task(world)
+    item = opened(world, task)
+    request = request_of(world, task)
+    seen = {}
+
+    def meanwhile():
+        seen["out"] = ops.cancel(world["path"], request, channel="page")
+        c = ops_core.context(world["path"])
+        assert c["store"].pending_get(c["conn"], item["id"])["status"] == "open" and c["store"].task_get(c["conn"], task)["state"] == "waiting"
+        assert c["store"].task_get(c["conn"], request)["state"] == "cancelled"
+    monkeypatch.setattr(ops_core, "ROUTE_LOCK_WAIT", 0.2)
+    done = during_a_table_write(world, monkeypatch, item, meanwhile)
+    assert seen["out"]["kept"] == [item["id"]] and seen["out"]["writing"][0]["pending"] == item["id"] and "is running and will be recorded" in seen["out"]["said"]
+    assert done["task_state"] == "done" and made_table(world)[1] == EXPECTED_ROWS
+    c = ops_core.context(world["path"])
+    assert c["store"].task_get(c["conn"], request)["state"] == "cancelled" and c["store"].pending_get(c["conn"], item["id"])["resolution"] == "approved"

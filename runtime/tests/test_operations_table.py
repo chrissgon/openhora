@@ -27,6 +27,7 @@ ops_sources = st.load("ops_sources")
 ops_steps = st.load("ops_steps")
 ops_flows = st.load("ops_flows")
 ops_routines = st.load("ops_routines")
+ops_cancel = st.load("ops_cancel")
 ops_instructions = st.load("ops_instructions")
 ops_contained = st.load("ops_contained")
 operations = st.load("operations")
@@ -39,6 +40,8 @@ NOT_OPERATIONS = {"store_module", "context", "task_prompt", "code_task", "chat_m
                   "write_checkpoints", "own_key_name",
                   # ops_sources.py: what the planner and a run ask of the sources, beside the five operations
                   "catalog_block", "router_block", "known_ids", "forced_for", "copies_for", "record_copies", "prompt_lines",
+                  # ops_cancel.py: what a run, the router and the board ask of a cancel, beside cancel and stop_task
+                  "cancel_request", "stop_one", "watch", "stop_requested", "cancelled_run", "step_stopped", "after_sync", "lock_name", "request_cancel",
                   # ops_steps.py: the brake and what the dispatcher asks of the step tasks, beside run_step
                   "import_bytes", "set_steps_mode", "steps_mode", "unattended", "may_dispatch", "held_reason", "annotate",
                   # ops_flows.py: what the plan, the approval and the request ask of the flows, beside the four operations
@@ -105,7 +108,7 @@ def test_every_row_calls_a_function_of_the_operations_layer_that_accepts_its_arg
 
 def test_every_public_function_of_the_operations_layer_is_a_row_or_listed_as_not_one():
     # the layer is seven files (CONS-1B, ADJ-R1, R4-C3, P6a): ops.py and the siblings it re-exports from; a function counts where it is defined
-    public = {n for module in (ops, ops_say, ops_reads, ops_core, ops_config, ops_sources, ops_steps, ops_flows, ops_routines, ops_instructions, ops_contained) for n, f in inspect.getmembers(module, inspect.isfunction)
+    public = {n for module in (ops, ops_say, ops_reads, ops_core, ops_config, ops_sources, ops_steps, ops_flows, ops_routines, ops_instructions, ops_contained, ops_cancel) for n, f in inspect.getmembers(module, inspect.isfunction)
               if not n.startswith("_") and f.__module__ == module.__name__}
     called = {r["call"] for r in operations.OPERATIONS}
     assert called <= public
@@ -131,7 +134,7 @@ def build_choices() -> tuple:
 
 def test_a_chat_command_is_read_back_from_the_line_that_writes_it():
     assert [r["name"] for r in chat_rows()] == ["status", "progress", "pending", "answer", "release", "approve", "reject",
-                                                "retry", "cancel"]
+                                                "retry", "cancel", "stop-task"]
     for row in chat_rows():
         for optional in (False, True):
             values = example(row, optional)

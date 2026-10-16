@@ -154,7 +154,7 @@ def test_the_request_line_the_cancel_dialogs_count_and_the_resolved_words_come_f
     assert line["name"] == "Request 14, Spring campaign, requested"
     assert got["line"][1] is False, "a request that has an open question is not offered a route"
     assert got["line"][2] is False and got["line"][3] is False, "a final request cannot be cancelled; a planned one waits for its plan, not a route"
-    assert got["cancel"] == ["No task has been created yet.", "2 tasks, none started", "3 tasks, 2 started", "1 task, none started"]
+    assert got["cancel"] == ["No task has been created yet.", "2 tasks, none started", "3 tasks, 2 started Something of it is running: the run is stopped, what it has used so far is spent, and nothing it made is kept.", "1 task, none started"]
     assert got["resolved"] == ["Plan approved", "Question cancelled", "Review released"]
 
 

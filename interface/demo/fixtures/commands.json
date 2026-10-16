@@ -48,7 +48,12 @@
     {
       "command": "/cancel",
       "arguments": "<request id>",
-      "help": "cancel a request"
+      "help": "cancel a request at any moment, even while a task of it runs: the run is ended and returns nothing, what it used so far is spent"
+    },
+    {
+      "command": "/stop-task",
+      "arguments": "<task id>",
+      "help": "stop one running task: its run is ended and returns nothing, the task is blocked, and retry resumes it"
     },
     {
       "command": "/new",

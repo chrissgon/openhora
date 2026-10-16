@@ -245,6 +245,13 @@ REGISTRY: dict[str, Secret] = {s.name: s for s in (
            "the Twilio account's Auth Token; used only to compute an HMAC, never sent anywhere, never used to send",
            ("providers/messenger/whatsapp-twilio.py",),
            store_username="messenger-whatsapp-twilio-auth-token"),
+    Secret("MAILER_SMTP_PASSWORD",
+           "log in to the outbox mailbox of this machine to send the e-mails the person approved (SMTP), and to look for a sent message in its "
+           "Sent folder (IMAP, read only)",
+           "an app password (or the mailbox password where the host offers no app passwords) of a dedicated outbox account made for the "
+           "runtime, never the person's own mailbox; the provider sends it only over TLS and never prints it",
+           ("providers/mailer/smtp.py",),
+           store_username="mailer-smtp"),
     Secret("OP_SERVICE_ACCOUNT_TOKEN",
            "let this resolver read the secrets mapped to 1Password on a machine with no desktop session (the manager's own sign-in)",
            "a 1Password service account with read access to only the vaults the mapping file names",

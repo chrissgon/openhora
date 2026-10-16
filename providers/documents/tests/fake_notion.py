@@ -172,13 +172,25 @@ class FakeNotion:
         if page:
             self.pages[page]["last_edited_time"] = self.tick()
 
-    def create_base(self, state_kind: str = "status", names=("Name", "Status", "Runtime")) -> str:
+    def create_base(self, state_kind: str = "status", names=("Name", "Status", "Runtime"), native=None, groups=None) -> str:
+        """A base with the three properties of the board. native names one more property, of type status, with the reference's
+        defaults: the options Not started, In progress and Done in the groups To-do, In progress and Complete (R13; groups
+        replaces them: [(group name, [option names])], the options being the union). The service refuses a status option a
+        property lists and the value is not one of (400, as measured)."""
         ident = new_id()
         with self.lock:
             self.bases[ident] = {"object": "data_source", "id": ident, "properties": {
                 names[0]: {"id": "title", "name": names[0], "type": "title", "title": {}},
                 names[1]: {"id": "stat", "name": names[1], "type": state_kind, state_kind: {"options": []}},
                 names[2]: {"id": "rt", "name": names[2], "type": "rich_text", "rich_text": {}}}}
+            if native:
+                spec = groups or [("To-do", ["Not started"]), ("In progress", ["In progress"]), ("Complete", ["Done"])]
+                options = [{"id": f"o{n}", "name": name, "color": "default", "description": None}
+                           for n, name in enumerate(o for _, names_ in spec for o in names_)]
+                by_name = {o["name"]: o["id"] for o in options}
+                self.bases[ident]["properties"][native] = {"id": "nat", "name": native, "type": "status", "status": {
+                    "options": options, "groups": [{"id": f"g{n}", "name": g, "color": "default",
+                                                    "option_ids": [by_name[o] for o in names_]} for n, (g, names_) in enumerate(spec)]}}
         return ident
 
     @staticmethod
@@ -216,6 +228,9 @@ class FakeNotion:
             if name not in schema or not isinstance(value, dict) or schema[name]["type"] not in value:
                 raise Answer(400, "validation_error", f"{name} is not a property that exists")
             kind = schema[name]["type"]
+            listed = [o["name"] for o in (schema[name].get(kind) or {}).get("options") or []] if kind == "status" else []
+            if listed and isinstance(value[kind], dict) and value[kind].get("name") not in listed:
+                raise Answer(400, "validation_error", f"{name} has no status option {value[kind].get('name')!r}")
             if kind == "select" and isinstance(value[kind], dict) and value[kind].get("name"):
                 if "," in value[kind]["name"]:
                     raise Answer(400, "validation_error", "select option names cannot contain commas")
