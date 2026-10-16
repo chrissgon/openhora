@@ -790,8 +790,19 @@ def report_case_findings(name, report, root, cases, keys, few, conditional, is_r
                     + "; ".join(f"{p} ({', '.join(n)})" for p, n in sorted(hits.items())), "eval-product-names")
 
 
+def flow_routes(root=ROOT):
+    """The routes of the flow files of the tree: `flow-<name>` for each flows/<name>.json (the router's route for a flow
+    file, runtime/router.py). They are built names, though no folder of skills/ has them."""
+    folder = os.path.join(root, "flows")
+    if not os.path.isdir(folder):
+        return set()
+    return {"flow-" + fn[:-5] for fn in os.listdir(folder) if fn.endswith(".json")}
+
+
 def check_skill_names(name, report, built, root=ROOT):
-    """skill-name: a backticked skill name in the skill's Markdown, outside evals/, is built or marked planned."""
+    """skill-name: a backticked skill name in the skill's Markdown, outside evals/, is built (a skill, or the route of a
+    flow file) or marked planned."""
+    built = set(built) | flow_routes(root)
     base, found = os.path.join(root, "skills", name), []
     for dirpath, dirs, files in os.walk(base):
         dirs[:] = sorted(d for d in dirs if not (dirpath == base and d == "evals"))
@@ -910,7 +921,9 @@ def check_agent_skills(report, root=ROOT):
 
 
 def check_routing(report, built, root=ROOT):
-    """routing-table: the router's table names every built skill, and each name in it is built or (planned)."""
+    """routing-table: the router's table names every built skill, and each name in it is built or (planned). The route
+    of a flow file (`flow-<name>` for flows/<name>.json) is built when the table lists it; a flow file with no row is
+    not required to have one, and a row marked (planned) for a flow that has a file is left to the maintainers."""
     path = os.path.join(root, ROUTING_TABLE)
     if not os.path.isfile(path):
         if ROUTER in built:
@@ -929,10 +942,14 @@ def check_routing(report, built, root=ROOT):
     missing = [s for s in built if s != ROUTER and s not in listed | planned]
     if missing:
         problems.append(f"built and not in the table: {', '.join(missing)}")
-    if sorted(listed - set(built)):
-        problems.append(f"in the table, not built and not marked (planned): {', '.join(sorted(listed - set(built)))}")
+    unbuilt = sorted(listed - set(built) - flow_routes(root))
+    if unbuilt:
+        problems.append(f"in the table, not built and not marked (planned): {', '.join(unbuilt)}")
     if sorted(planned & set(built)):
         problems.append(f"marked (planned) and built: {', '.join(sorted(planned & set(built)))}")
+    filed = sorted(planned & flow_routes(root))
+    if filed:
+        problems.append(f"marked (planned) and a flow file exists: {', '.join(filed)}")
     if problems:
         report.warn(ROUTING_TABLE, "; ".join(problems), "routing-table")
 
@@ -1296,7 +1313,7 @@ def check_flows(skills, report, root=ROOT):
                 text = f.read()
         except OSError:
             text = ""
-        info[s["name"]] = {"inputs": s["inputs"], "outputs": s["outputs"], "skill_md": text}
+        info[s["name"]] = {"inputs": s["inputs"], "outputs": s["outputs"], "updates": s.get("updates", []), "skill_md": text}
     rows = None
     inventory = os.path.join(root, "docs", "inventory.md")
     if os.path.isfile(inventory):
@@ -1304,6 +1321,9 @@ def check_flows(skills, report, root=ROOT):
             rows = markdown_table(f.read(), "Flow", after=FLOWS_HEADING)
     for name in flow_files.names(root):
         where = f"flows/{name}.json"
+        if any(s["name"] == f"flow-{name}" for s in skills):
+            report.error(where, f"[flow-file] the route flow-{name} is also a skill: skills/flow-{name}/ and {where} cannot both "
+                         "stand (the router could not tell them apart)")
         try:
             with open(os.path.join(folder, name + ".json"), encoding="utf-8") as f:
                 data = json.load(f)

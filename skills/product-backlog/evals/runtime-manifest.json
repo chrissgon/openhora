@@ -1,0 +1,28 @@
+{
+  "skill": "product-backlog",
+  "documents": [
+    {
+      "path": "docs/product/backlog.md",
+      "checks": [],
+      "platform": "read_only",
+      "bound_to_approval": false
+    }
+  ],
+  "machine_files": [
+    "docs/product/backlog.lint.json",
+    "docs/product/backlog.lint-before.json"
+  ],
+  "mandatory_milestone": false,
+  "asking_openings": [
+    "Nothing was written"
+  ],
+  "gate": {
+    "effect": "create",
+    "payload_file": "<tmp>/payload.md"
+  },
+  "reply_phrases": {
+    "gate_questions": [
+      "Create these tickets? (yes/no)"
+    ]
+  }
+}

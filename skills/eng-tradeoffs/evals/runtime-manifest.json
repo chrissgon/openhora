@@ -1,6 +1,13 @@
 {
   "skill": "eng-tradeoffs",
+  "documents": [],
+  "machine_files": [],
+  "mandatory_milestone": false,
+  "asking_openings": [],
+  "gate": null,
   "reply_phrases": {
-    "missing_input": ["writes that section"]
+    "missing_input": [
+      "writes that section"
+    ]
   }
 }
