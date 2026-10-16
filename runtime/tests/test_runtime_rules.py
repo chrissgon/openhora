@@ -223,7 +223,7 @@ def test_the_siblings_of_ops_py_do_not_import_ops_py_at_module_level():
     """ops.py imports its siblings; a sibling reaches an operation of ops.py at call time, so that no import cycle
     exists. ops_say.py imports neither sibling above it; ops_reads.py imports ops_say.py (the conversation's name)."""
     allowed = {"ops_say.py": {"ops_core"}, "ops_reads.py": {"ops_core", "ops_say", "ops_models"},
-               "ops_config.py": {"ops_core", "ops_models"}, "ops_runs.py": {"ops_core", "ops_waits"}, "ops_models.py": {"ops_core"}}
+               "ops_config.py": {"ops_core", "ops_models"}, "ops_contained.py": {"ops_core", "ops_instructions"}, "ops_runs.py": {"ops_core", "ops_waits"}, "ops_models.py": {"ops_core"}}
     for name, may in allowed.items():
         tree = ast.parse((RUNTIME / name).read_text(encoding="utf-8"))
         at_top = set()

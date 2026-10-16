@@ -238,7 +238,7 @@ Channels with a policy (`POLICY_CHANNELS`): `page`, `mcp`, `messaging`. Never na
 
 | Group | Operations | Decision kind | Valid on | In the default policy of |
 |---|---|---|---|---|
-| `read` | `status`, `progress`, `pending`, `task`, `agents`, `costs`, `skills`, `artifacts`, `artifact`, `flows`, `flow-check`, `routines`, `conversation`, `connections`, `version`, `config`, `commands`, `artifact-raw` | - | `page`, `mcp`, `messaging` | `messaging` |
+| `read` | `status`, `progress`, `pending`, `task`, `agents`, `costs`, `skills`, `artifacts`, `artifact`, `flows`, `flow-check`, `routines`, `instructions`, `conversation`, `connections`, `version`, `config`, `commands`, `artifact-raw` | - | `page`, `mcp`, `messaging` | `messaging` |
 | `talk` | `say` | - | `page`, `mcp`, `messaging` | `messaging` |
 | `answer` | `answer` | - | `page`, `mcp`, `messaging` | `messaging` |
 | `release` | `release` | - | `page`, `mcp`, `messaging` | - |
@@ -258,6 +258,7 @@ Channels with a policy (`POLICY_CHANNELS`): `page`, `mcp`, `messaging`. Never na
 | `routine-brakes` | `routine-pause`, `routine-cancel` | - | `page`, `messaging` | `messaging` |
 | `routine-edit` | `routine-create`, `routine-change` | - | `page`, `messaging` | - |
 | `routine-approve` | `routine-approve`, `routine-resume` | - | `page` | - |
+| `instructions` | `instructions-set`, `instructions-add` | - | `page` | - |
 | `verdict` | `verdict` | - | `page` | - |
 | `sources` | `source-add`, `source-import`, `source-refresh`, `source-describe`, `sources` | - | `page`, `mcp`, `messaging` | - |
 <!-- /generated -->

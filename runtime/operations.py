@@ -114,12 +114,12 @@ OPERATIONS = (
      "args": ({"name": "pending_id", "kind": "int", "flag": "id"},),
      "channels": ("terminal", "chat", "page", "mcp", "messaging"), "model": False,
      "help": "what waits for you; with an id, that decision whole"},
-    {"name": "answer", "call": "answer",
+    {"name": "answer", "call": "answer_proposing",
      "args": ({"name": "pending_id", "kind": "int", "required": True, "flag": "id"},
               {"name": "text", "kind": "text", "required": True},
               {"name": "with_comments", "kind": "flag", "flag": "with-comments"}),
-     "channels": ("terminal", "chat", "page", "mcp", "messaging"), "model": False,
-     "help": "answer a pending decision"},
+     "channels": ("terminal", "chat", "page", "mcp", "messaging"), "model": False, "channel_arg": True,
+     "help": "answer a pending decision; the answer to a question may come back with a proposal (instruction_proposal) to add your own line to the project's instructions, which is added only by instructions-add, from the terminal or the page"},
     {"name": "release", "call": "release",
      "args": ({"name": "pending_id", "kind": "int", "required": True, "flag": "id"},),
      "channels": ("terminal", "chat", "page", "mcp", "messaging"), "model": False, "job": True,
@@ -310,6 +310,17 @@ OPERATIONS = (
      "help": "set your description of a source (what it is, what it is for); the planner reads it with the catalog; an empty one clears it"},
     {"name": "sources", "call": "sources_catalog", "args": (), "channels": ("terminal", "page", "mcp", "messaging"), "model": False,
      "help": "the catalog of the project's sources: each source, its newest version (name, type, size, date, sheets and columns with sample values, first headings), your description and whether its files changed outside the runtime"},
+    {"name": "instructions", "call": "instructions_read", "args": (), "channels": ("terminal", "page", "mcp", "messaging"), "model": False,
+     "help": "the project's standing instructions (docs/workbench/instructions.md, written only by you): whether the file is there, its sha256, its characters against the cap, the problem that would stop a run, and the text; every model run of the project receives it in its prompt, and it never replaces a skill's stop rule, a confirmation gate or an approval"},
+    {"name": "instructions-set", "call": "instructions_set",
+     "args": ({"name": "text", "kind": "text", "required": True},
+              {"name": "base_sha256", "kind": "str", "required": True, "flag": "base-sha256", "label": "sha256 or none"}),
+     "channels": ("terminal", "page"), "model": False, "channel_arg": True,
+     "help": "replace the whole text of the project's standing instructions (--text or --text-file; an empty text clears them); --base-sha256 is the sha256 you read (none for a file that is not there), and a file that changed since is never overwritten; by default only the terminal and the page write it (limit L40; `INSTRUCTIONS_CHANNELS`; no policy of today widens it)"},
+    {"name": "instructions-add", "call": "instructions_add",
+     "args": ({"name": "line", "kind": "str", "required": True}, {"name": "base_sha256", "kind": "str", "required": True, "flag": "base-sha256", "label": "sha256 or none"}),
+     "channels": ("terminal", "page"), "model": False, "channel_arg": True,
+     "help": "append one line `- <text>` to the project's standing instructions; --base-sha256 is the sha256 you read (none for a file that is not there); by default only the terminal and the page write it (limit L40; `INSTRUCTIONS_CHANNELS`; no policy of today widens it)"},
     {"name": "routines", "call": "routines_read", "args": ({"name": "routine_id", "kind": "int", "flag": "id"},),
      "channels": ("terminal", "page", "mcp", "messaging"), "model": False,
      "help": "the routines (a workflow started by a schedule): state, schedule, the hash of the content now against the approved one, the last fire; with an id, its fires and what approving it needs"},
@@ -332,7 +343,7 @@ OPERATIONS = (
     {"name": "routine-approve", "call": "routine_approve",
      "args": ({"name": "routine_id", "kind": "int", "required": True, "flag": "id"}, {"name": "sha256", "kind": "str"}),
      "channels": ("terminal", "page"), "model": False,
-     "help": "approve a routine by the sha256 of its exact content (schedule, workflow template and fixed arguments, skill versions X.Y, eval image, model and consent, providers): without --sha256 the preview and the hash; a stopped routine is approved again the same way"},
+     "help": "approve a routine by the sha256 of its exact content (schedule, workflow template and fixed arguments, skill versions X.Y, eval image, model and consent, providers, and the sha256 of the project's instructions when the file is there): without --sha256 the preview and the hash; a stopped routine is approved again the same way"},
     {"name": "routine-pause", "call": "routine_pause", "args": ({"name": "routine_id", "kind": "int", "required": True, "flag": "id"},),
      "channels": ("terminal", "page", "messaging"), "model": False, "help": "pause an active routine: nothing fires while it is paused, and the slots it passes are not made up"},
     {"name": "routine-resume", "call": "routine_resume", "args": ({"name": "routine_id", "kind": "int", "required": True, "flag": "id"},),
@@ -355,7 +366,7 @@ CHAT_OWN = (
 # covers the ceiling's share of it. Pure literals, like the table.
 GROUPS = {
     "read": {"operations": ("status", "progress", "pending", "task", "agents", "costs", "skills", "artifacts", "artifact",
-                            "flows", "flow-check", "routines", "conversation", "connections", "version", "config", "commands", "artifact-raw"),
+                            "flows", "flow-check", "routines", "instructions", "conversation", "connections", "version", "config", "commands", "artifact-raw"),
              "kind": None},
     "talk": {"operations": ("say",), "kind": None},
     "answer": {"operations": ("answer",), "kind": None},
@@ -379,6 +390,7 @@ GROUPS = {
     "routine-brakes": {"operations": ("routine-pause", "routine-cancel"), "kind": None},
     "routine-edit": {"operations": ("routine-create", "routine-change"), "kind": None},
     "routine-approve": {"operations": ("routine-approve", "routine-resume"), "kind": None},   # the approval of a routine's exact content by its hash, and the lifting of a pause
+    "instructions": {"operations": ("instructions-set", "instructions-add"), "kind": None},   # writing the person's standing instructions (L40): the terminal and the page alone, whatever a policy lists
     "verdict": {"operations": ("verdict",), "kind": None},
     "sources": {"operations": ("source-add", "source-import", "source-refresh", "source-describe", "sources"), "kind": None},
 }
@@ -391,6 +403,7 @@ POLICY_CHANNELS = ("page", "mcp", "messaging")     # the channels a project's co
 MUST_READ = ("page", "mcp")                        # a policy for these lists `read`
 PAGE_ONLY_GROUPS = ("approve-effects",)            # valid on the page alone (an effect is approved nowhere else, by EFFECT_CHANNELS)
 EFFECT_CHANNELS = ("terminal", "page")             # the channels an effect may be approved from (decision D8, extended)
+INSTRUCTIONS_CHANNELS = ("terminal", "page")       # the channels that write the person's standing instructions BY DEFAULT (limit L40; a later package of channel policies makes it a grant): the rows instructions-set and instructions-add list exactly these (a literal each, as the table is read by ast.literal_eval; a test compares), and no policy widens a row's channels
 ROUTINE_LOCAL_CHANNELS = ("terminal", "page")      # the channels a routine whose workflow holds a networked script, or that a standing effect policy covers, is made and changed from (limit L33, S10)
 BRAKES = ("cancel", "stop-task", "set-mode", "routine-pause", "routine-cancel")                  # never withheld from the page: cancel, and a move of a mode DOWN (the direction is checked by ops_config.set_mode)
 

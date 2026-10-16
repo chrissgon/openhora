@@ -155,22 +155,27 @@ def say(project: str, text: str, channel: str | None = None) -> dict:
         if channel not in QUEUING_CHANNELS and route_busy(ctx):
             raise core.RunBusy(RUN_BUSY, 1)
     stored = core._stored(ctx, store.message_add, conversation=CONVERSATION, role="user", text=said)
-    reply, request_id, pending_id, ran, run_id = _turn(project, ctx, said, channel, stored["id"])
+    reply, request_id, pending_id, ran, run_id, offered = _turn(project, ctx, said, channel, stored["id"])
     core._stored(ctx, store.message_add, conversation=CONVERSATION, role="assistant", text=reply or "(no reply)",
                  task_id=request_id, run_id=run_id)
-    return {"reply": reply, "request_id": request_id, "pending_id": pending_id, "ran": ran, "queued": False}
+    return {"reply": reply, "request_id": request_id, "pending_id": pending_id, "ran": ran, "queued": False,
+            **({"instruction_proposal": offered} if offered else {})}
 
 
 def _turn(project: str, ctx: dict, said: str, channel: str, line_id: int) -> tuple:
-    """(reply, request_id, pending_id, ran, run_id) of one stored line of the person: a command, a question about the
+    """(reply, request_id, pending_id, ran, run_id, proposal) of one stored line of the person: a command, a question about the
     state, the answer to the router's question, or a new request. `line_id` is the line's message id: the memory
-    the router is given is the messages before it."""
+    the router is given is the messages before it. proposal is None, or the proposal to add the line to the project's
+    instructions (runtime/ops_instructions.py proposal) that an answer to the router's question may end with: its text
+    closes the reply, and the line is the person's own text, never the reply's."""
     if said.startswith("/"):
-        return _say_command(project, ctx, said, channel, line_id)
+        return (*_say_command(project, ctx, said, channel, line_id), None)
     asked = _router_question(ctx, _last_request(ctx))
     if asked is None and state_question(said):
-        return state_reply(project), None, None, False, None
-    return _say_route(project, ctx, said, line_id, channel, answer_to=asked)
+        return state_reply(project), None, None, False, None, None
+    out = _say_route(project, ctx, said, line_id, channel, answer_to=asked)
+    offered = importlib.import_module("ops_instructions").proposal(ctx, out[1], said, channel) if asked is not None else None
+    return (out[0] + "\n\n" + offered["text"], *out[1:], offered) if offered else (*out, None)
 
 
 def _turn_routes(said: str) -> bool:
@@ -474,10 +479,11 @@ def _drain_line(project: str, ctx: dict, message_id: int) -> dict:
              if m["id"] == message_id]
     if not found:
         raise core.OpsError(f"message {message_id} is not in the conversation", 1)
-    reply, request_id, pending_id, ran, run_id = _turn(project, ctx, found[0]["text"], DRAIN, message_id)
+    reply, request_id, pending_id, ran, run_id, offered = _turn(project, ctx, found[0]["text"], DRAIN, message_id)
     core._stored(ctx, ctx["store"].message_add, conversation=CONVERSATION, role="assistant", text=reply or "(no reply)",
                  task_id=request_id, run_id=run_id)
-    return {"routed": "line", "message_id": message_id, "request_id": request_id, "pending_id": pending_id, "ran": ran}
+    return {"routed": "line", "message_id": message_id, "request_id": request_id, "pending_id": pending_id, "ran": ran,
+            **({"instruction_proposal": offered} if offered else {})}
 
 
 def _drain_route(project: str, ctx: dict, request_id: int) -> dict:

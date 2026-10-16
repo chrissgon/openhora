@@ -275,7 +275,7 @@ def _read(path: str):
 # --- what enters a run: runtime/workcopy.py (limits L1 to L6) --------------------------------------------------
 
 
-def task_prompt(request_text: str, task_text: str, answered, handed=None, edited=None, sourced=None) -> str:
+def task_prompt(request_text: str, task_text: str, answered, handed=None, edited=None, sourced=None, instructions: str = "") -> str:
     """The text of one run: the request in the person's words, the task's own text, and, on a run made after
     an answer, every earlier question of this task with its answer. It names no skill: the one skill staged
     for the run loads by its description, as in a lab run. An empty task text (a plan of one skill) leaves out
@@ -285,10 +285,13 @@ def task_prompt(request_text: str, task_text: str, answered, handed=None, edited
     since the task's last run (runtime/documents.py, imported_since): one line each, EDITED_LINE, right before
     the answers, so that the person's edit is read as the person's word and not as external content. sourced lists
     the lines that name the copies of the sources the plan chose (ops_sources.prompt_lines): after the handed files.
-    Only code gives it, never a run's text."""
+    instructions is the person's standing-instructions block (runtime/instructions.py), right after the task's paragraph,
+    before the handed files; "" leaves the prompt as it was. Only code gives it, never a run's text."""
     parts = [request_text.strip()]
     if (task_text or "").strip():
         parts += ["", "For this task: " + task_text.strip()]
+    if instructions:
+        parts += ["", instructions]
     if handed:
         parts += ["", HANDED_LINE, *[f"- {rel}" for rel in handed]]
     if sourced:
@@ -469,7 +472,8 @@ def _prepare_run(ctx: dict, task: dict, requested, keys) -> dict:
     routing = _route(ctx, skill, meta, keys, task, requested)
     if routing["key_missing"]:
         raise core.OpsError(f"no key was found for {routing['model']}: {keys[routing['model']]['reason']}", 3)
-    return {"meta": meta, "known": known, "keys": keys, "routing": routing, "identity": lab.skill_identity(skill)}
+    return {"meta": meta, "known": known, "keys": keys, "routing": routing, "identity": lab.skill_identity(skill),
+            "instructions": ops_instructions.guard(ctx, task)}   # the person's standing instructions, read once; a file that fails a check stops the run
 
 
 def _run_start(ctx: dict, task: dict, prepared: dict) -> dict:
@@ -536,7 +540,8 @@ def _run_body(ctx: dict, started: dict) -> dict:
                   if rel in entered_rels and skill_meta.matches(meta["inputs"], rel)]
         prompt = task_prompt(request_text, task["text"], answered,
                              handed=[rel for _source, rel in handed if rel in entered_rels], edited=edited,
-                             sourced=[line for line in sourced["lines"] if not line.startswith("- ") or any(f"- {rel} " in line for rel in entered_rels)])
+                             sourced=[line for line in sourced["lines"] if not line.startswith("- ") or any(f"- {rel} " in line for rel in entered_rels)],
+                             instructions=started["instructions"])
         code = None
         if entered.get("tracked") and code_task(meta):
             code = _code_state(ctx, task)
@@ -1735,6 +1740,9 @@ def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False) 
         out["failure"] = None if ops_cancel.cancelled_run(out, done) else {"kind": kind, "reason": _note(reason)}   # a request being cancelled: cancelled (R18)
         return {"out": out, "failed": True}
 
+    held, why = ops_instructions.for_run(cfg["project"])   # the standing instructions; a file that fails a check stops the run, before a use is recorded
+    if why:
+        return fail("internal", why)
     out["use"] = _use_start(ctx, run_id, skill, routing)
     prepared_dir = os.path.join(cfg["data_dir"], core.PREPARED_DIR, str(run_id))
     try:
@@ -1747,7 +1755,7 @@ def _router_call(ctx: dict, request: dict, text: str, *, reroute: bool = False) 
         out["entered"] = {"kind": entered["kind"], "agents_md": entered["agents_md"], "files": len(entered["files"])}
         answered = [] if reroute else [p for p in core._stored(ctx, store.pending_list, "resolved", request["id"])
                                        if p["kind"] == "question" and p["resolution"] == "answered"]
-        prompt = task_prompt(text, router.ROUTE_TASK_TEXT, answered) + ops_sources.router_block(ctx, request["text"])
+        prompt = task_prompt(text, router.ROUTE_TASK_TEXT, answered, instructions=held) + ops_sources.router_block(ctx, request["text"])
         # Two router runs of two projects in one service process share the lab's process-wide session (lab.session ends
         # every container of the process when it closes): the whole session is held under one guard. Task runs are
         # processes of their own and never take it.
@@ -2604,134 +2612,6 @@ def handler_call(project: str, name: str, verb: str, args=None) -> dict:
     return {**printed, "exit_code": done.returncode}
 
 
-# --- stage 7: the contained run ----------------------------------------------------------------------------------
-
-SKILL_NAME = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
-
-
-def _contained_scope(ctx: dict, skill: str) -> None:
-    """Refuse a skill that is not a folder of the checkout's skills/, that the runtime knows nothing of (no whole runtime
-    manifest), or that is in the pack of no enabled area agent of the configuration (a check of scope, not of mode). A
-    configuration with no area agents puts no skill in scope: nothing is allowed unless a pack says so."""
-    if not isinstance(skill, str) or not SKILL_NAME.fullmatch(skill) or \
-            not os.path.isfile(os.path.join(core.ROOT, "skills", skill, "SKILL.md")):
-        raise core.OpsError(f"{skill!r} is not a skill of this checkout", 2)
-    try:
-        packs = plan.agent_skills(ctx["cfg"], core.ROOT)
-    except plan.PlanError as e:
-        raise core.OpsError(str(e), 2) from None
-    if not any(skill in names for names in packs.values()):
-        raise core.OpsError(f"{skill} is in the pack of no enabled area agent of {ctx['cfg']['path']}: a contained run is "
-                       "made only for a skill of an area agent's pack", 2)
-    try:
-        manifest.load(core.ROOT, skill)  # a skill the runtime knows nothing of does not run, here as in a task
-    except manifest.ManifestError as e:
-        raise core.OpsError(str(e), 2) from None
-
-
-def _contained_folder(cfg: dict) -> tuple:
-    """(n, folder): a new folder <data_dir>/contained-runs/<n>, claimed by creating it, so that two runs never share one."""
-    base = os.path.join(cfg["data_dir"], core.CONTAINED_DIR)
-    os.makedirs(base, mode=0o700, exist_ok=True)
-    n = 1 + max([int(name) for name in os.listdir(base) if name.isdigit()] or [0])
-    while True:
-        folder = os.path.join(base, str(n))
-        try:
-            os.mkdir(folder, 0o700)
-        except FileExistsError:
-            n += 1
-            continue
-        return n, folder
-
-
-def contained_run(project: str, skill: str, prompt: str, out_dir: str, platforms=(), timeout=None) -> dict:
-    """Run one skill once on one task text, in the eval container, for a caller that is not a task (a handler's agent run).
-
-    1. The configuration's hash is the accepted one (context). The skill is a folder of this checkout's skills/, has a
-       whole runtime manifest and is in the pack of an enabled area agent of the configuration: else OpsError 2.
-    2. The model and the adapter come from the choice (ops_models.route: the project's default_model, else `auto`, with the
-       keys as run_next passes them), never from what a handler asks: a skill that is not proven on the model runs supervised.
-    3. What enters the copy is the artifacts the skill declares and nothing else (workcopy.entering in its form for a
-       run that sees only declared artifacts, limit L3); the runtime's configuration is never in it, although a skill
-       may declare it as an input. Nothing is added: no file drop, no AGENTS.md the skill does not declare.
-    4. The run is one attempt (retries 0), in the facade's session, never on the open network (web False, whatever the
-       skill requires), within `timeout` seconds (None: the gate file's), in a new folder <data_dir>/contained-runs/<n>.
-       `platforms` names the platforms whose reference the run is given besides the ones the skill cites.
-    5. Nothing is brought back: no file the run created or changed reaches the project; their number is
-       `ignored_changes`.
-    6. The reply leaves through the credential scan of limit L14 (workcopy.masked_reply) and is written to
-       <out_dir>/response.md, as the scan leaves it; <out_dir>/timing.json holds total_tokens, duration_ms, exit_code (0
-       when the model answered, else 1) and cost_usd, which is null unless the credential of the run is metered (a
-       run on a subscription or a free credential has no billed cost). Those two files are all that is written outside the run folder.
-    7. Returns {"status": "ok" | "failed", "failure": None | {"kind", "reason"}, "model", "adapter",
-       "ignored_changes", "run_dir"}.
-
-    A LabError (no image on this machine, a configuration the lab refuses, a platform with no reference) is OpsError 3
-    with its reason: the eval image is never built here."""
-    if not isinstance(prompt, str) or not prompt.strip():
-        raise core.OpsError("the prompt is empty", 2)
-    if isinstance(platforms, str) or not all(isinstance(n, str) for n in platforms or ()):
-        raise core.OpsError("platforms is a list of platform names", 2)
-    if timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, int) or timeout <= 0):
-        raise core.OpsError("timeout is a number of seconds above 0", 2)
-    ctx = core.context(project)
-    cfg = ctx["cfg"]
-    _contained_scope(ctx, skill)
-    out_dir = os.path.abspath(out_dir)
-    try:
-        meta = skill_meta.declared(os.path.join(core.ROOT, "skills", skill))
-        keys = core._keys()
-        routing = _route(ctx, skill, meta, keys)
-        if routing["key_missing"]:
-            raise core.OpsError(f"no key was found for {routing['model']}: {keys[routing['model']]['reason']}", 3)
-    except (skill_meta.SkillError, lab.LabError, KeyError, ValueError, OSError) as e:
-        raise core.OpsError(f"{skill} could not be routed: {e}", 3 if isinstance(e, lab.LabError) else 1) from None
-    number, dest = _contained_folder(cfg)
-    prepared_dir = os.path.join(cfg["data_dir"], core.PREPARED_DIR, f"contained-{number}")
-    try:
-        try:
-            # web=True here is the copy's form, "the artifacts the skill declares" (L3); the run itself is web=False below.
-            entered = workcopy.entering(cfg["project"], meta, web=True, cfg=cfg, settings_names=lab.settings_names(),
-                                        prepared_dir=prepared_dir)
-        except workcopy.CopyError as e:
-            raise core.OpsError(f"the copy could not be built: {e}", 1) from None
-        try:
-            with core._LAB_GUARD, lab.session(), _key_in_environment(routing, keys):  # the lab's process-wide session: one at a time
-                result = lab.run_skill(skill, prompt, entered["files"], dest, web=False, model=routing["model"],
-                                       timeout=timeout, retries=0, platforms=list(platforms or ()),
-                                       max_cost=_budget(ctx, None, routing, keys))
-        except lab.LabError as e:
-            with contextlib.suppress(OSError):
-                os.rmdir(dest)  # no run was made: the folder claimed for it is empty, and goes
-            raise core.OpsError(f"{e.kind}: {e.reason}", 3) from None
-    finally:
-        shutil.rmtree(prepared_dir, ignore_errors=True)
-    changes = result["changes"] or {}
-    ignored = len(changes.get("created") or []) + len(changes.get("modified") or [])
-    answered = result["status"] == "ok"
-    body, _masked = workcopy.masked_reply(result["response"])
-    timing = result["timing"] if isinstance(result["timing"], dict) else {}
-    number_of = lambda name: timing.get(name) if isinstance(timing.get(name), int) and not isinstance(timing.get(name), bool) \
-        and timing.get(name) >= 0 else None
-    cost = timing.get("cost_usd")
-    cost = cost if routing["billing"] == "metered" and isinstance(cost, (int, float)) and not isinstance(cost, bool) and cost >= 0 else None
-    try:
-        os.makedirs(out_dir, exist_ok=True)
-        with open(os.path.join(out_dir, "response.md"), "w", encoding="utf-8", newline="") as f:
-            f.write(body)
-        with open(os.path.join(out_dir, "timing.json"), "w", encoding="utf-8") as f:
-            json.dump({"total_tokens": number_of("total_tokens"), "duration_ms": number_of("duration_ms"),
-                       "exit_code": 0 if answered else 1, "cost_usd": cost}, f)
-            f.write("\n")
-    except OSError as e:
-        raise core.OpsError(f"the reply could not be written to {out_dir}: {e.strerror}", 1) from None
-    failure = result["failure"]
-    return {"status": result["status"], "failure": None if failure is None else
-            {"kind": failure["kind"], "reason": _note(failure["reason"])},
-            "model": result["model"], "adapter": result["adapter"],
-            "ignored_changes": ignored, "run_dir": dest}
-
-
 # --- the facade: what the sibling modules hold, under the names a shell and a test read ---------------------------------
 
 OpsError = core.OpsError  # a shell catches ops.OpsError; the class has one home, runtime/ops_core.py
@@ -2750,6 +2630,9 @@ from ops_cancel import cancel, stop_task  # noqa: E402,F401  (the operations `ca
 # The workflows (runtime/ops_flows.py): the list, the flow check, saving a plan as one, and a file staged for a request.
 import ops_flows  # noqa: E402
 from ops_flows import check_flow, flow_save, flows, stage_file  # noqa: E402,F401
+import ops_instructions  # noqa: E402  (the standing instructions: three operations, the block of a prompt, the answer's proposal)
+from ops_instructions import answer_proposing, instructions_add, instructions_read, instructions_set  # noqa: E402,F401
+from ops_contained import contained_run  # noqa: E402,F401  (the contained run: a handler's agent run; moved out of this file, no change of logic)
 # The routines (runtime/ops_routines.py): the schedule's workflows, their approval by hash, the brakes and the tick a round calls.
 import ops_routines  # noqa: E402
 from ops_routines import (routine_approve, routine_cancel, routine_change, routine_create, routine_pause, routine_resume,  # noqa: E402,F401

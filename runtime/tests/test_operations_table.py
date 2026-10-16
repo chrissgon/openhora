@@ -28,6 +28,8 @@ ops_steps = st.load("ops_steps")
 ops_flows = st.load("ops_flows")
 ops_routines = st.load("ops_routines")
 ops_cancel = st.load("ops_cancel")
+ops_instructions = st.load("ops_instructions")
+ops_contained = st.load("ops_contained")
 operations = st.load("operations")
 cli = st.load("cli")
 effects = st.load("effects")
@@ -45,7 +47,10 @@ NOT_OPERATIONS = {"store_module", "context", "task_prompt", "code_task", "chat_m
                   # ops_flows.py: what the plan, the approval and the request ask of the workflows, beside the four operations
                   "parse_params", "now", "staged", "direct", "bound", "before_approve", "after_approve", "discard_staged",
                   # ops_routines.py: the tick a round calls, the fire, and what a routine's task asks of its routine, beside the seven operations
-                  "effective_model", "content_of", "local_reason", "tick", "fire", "routine_of_task", "consent_in_force"}  # ops_config.py: the one writer of the accepted hash and the Checkpoints line
+                  "effective_model", "content_of", "local_reason", "tick", "fire", "routine_of_task", "consent_in_force",
+                  # ops_instructions.py: what a run's prompt, a routine's content and the answer ask of the standing instructions, beside the
+                  # four operations; ops.py `answer` is the step that records an answer, which the row `answer` now reaches through answer_proposing
+                  "for_run", "guard", "contained_prompt", "hash_of", "proposal", "answer"}  # ops_config.py: the one writer of the accepted hash and the Checkpoints line
 KINDS = ("int", "str", "text", "file", "list", "flag", "choice", "pairs")
 CHANNELS = ("terminal", "chat", "page", "mcp", "messaging")
 # Modules that still hold the terminal's command as a string, outside the operations layer's own texts.
@@ -103,7 +108,7 @@ def test_every_row_calls_a_function_of_the_operations_layer_that_accepts_its_arg
 
 def test_every_public_function_of_the_operations_layer_is_a_row_or_listed_as_not_one():
     # the layer is seven files (CONS-1B, ADJ-R1, R4-C3, P6a): ops.py and the siblings it re-exports from; a function counts where it is defined
-    public = {n for module in (ops, ops_say, ops_reads, ops_core, ops_config, ops_sources, ops_steps, ops_flows, ops_routines, ops_cancel) for n, f in inspect.getmembers(module, inspect.isfunction)
+    public = {n for module in (ops, ops_say, ops_reads, ops_core, ops_config, ops_sources, ops_steps, ops_flows, ops_routines, ops_instructions, ops_contained, ops_cancel) for n, f in inspect.getmembers(module, inspect.isfunction)
               if not n.startswith("_") and f.__module__ == module.__name__}
     called = {r["call"] for r in operations.OPERATIONS}
     assert called <= public
