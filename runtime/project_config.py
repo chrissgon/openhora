@@ -338,11 +338,11 @@ def _language(value):
     refused with the right form, never rewritten. Nothing reads the value yet besides this check."""
     if value is None:
         return None
-    if isinstance(value, str) and LANGUAGE_RE.match(value):
+    if isinstance(value, str) and LANGUAGE_RE.fullmatch(value):
         return value
     hint = ""
     if isinstance(value, str):
-        loose = _LANGUAGE_LOOSE.match(value)
+        loose = _LANGUAGE_LOOSE.fullmatch(value)
         if loose:
             canonical = loose.group(1).lower() + (("-" + loose.group(2).upper()) if loose.group(2) else "")
             hint = f"; did you mean {canonical}?"

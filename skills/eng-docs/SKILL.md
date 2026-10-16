@@ -19,7 +19,7 @@ metadata:
   updates: [docs/engineering/plans/<task>.md]
   requires: []
   side_effects: []
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Documentation
@@ -72,7 +72,7 @@ Progress:
 - [ ] Step 4: Edit the documents: change the sentence, not the page; keep the voice, terms and markers of the surrounding text; run the project's formatter; and when the documents feed another system (a site generator, a docs converter), run it and confirm the edited pages still convert. Do not edit generated documents (Stop rule 4); change their source, or propose the commit message that will generate them.
 - [ ] Step 5: Write down what other repositories must change: workarounds that depend on the old behaviour, copies of the documentation, pinned versions. Each gets the file, the line and the condition for removing it (usually "when a release carries this change").
 - [ ] Step 6: Separate rules from documentation: a new principle the change suggests (a hard rule in an architecture document, a contribution guideline) is proposed to the user, not written.
-- [ ] Step 7: Write the "Docs" section into `docs/engineering/plans/<task>.md` from the template. When the plan does not exist, create it with the header of the plan's owner, `eng-root-cause`: `# Plan: <task>`, `- Task: <the user's words quoted>`, `- Date: <YYYY-MM-DD, from date +%F>`, with `<task>` at most five lowercase words joined by hyphens, taken from the change. Then run `git status --short` and copy its lines into the Working tree line.
+- [ ] Step 7: Write the "Docs" section into `docs/engineering/plans/<task>.md` from the template. When the plan does not exist, create it with the header of the plan's owner, `eng-root-cause`: `# Plan: <task>`, `- Task: <the user's words quoted>`, ``- Language: <the tag this file is written in. On an update: the tag on its Language line (with none, the language the file is written in), unless the request sets another. For a new file: the language the request sets for this deliverable, else the task's language line, else the `language` key of docs/workbench/runtime.json, else English>``, `- Date: <YYYY-MM-DD, from date +%F>`, with `<task>` at most five lowercase words joined by hyphens, taken from the change. Then run `git status --short` and copy its lines into the Working tree line.
 - [ ] Step 8: Self-check against "Quality criteria": list every sentence, number and claim in the section and where it came from (a run's output, a quoted file); remove or label what has no origin.
 - [ ] Step 9: Reply with the template below.
 

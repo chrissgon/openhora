@@ -47,7 +47,7 @@ def test_language_accepts_simple_tags(tree):
 
 
 def test_language_refuses_what_is_not_a_simple_tag(tree):
-    for bad in ("", " ", "portuguese", "pt_BR", "pt-br-x", "es-419", "zh-Hant-TW", "eng", "p", "pt-B", 5, True, ["en"], {"a": 1}):
+    for bad in ("", " ", "portuguese", "pt_BR", "pt-br-x", "es-419", "zh-Hant-TW", "eng", "p", "pt-B", "pt-BR\n", "en\n", " en", 5, True, ["en"], {"a": 1}):
         path = configure(tree, language=bad)
         with pytest.raises(project_config.ConfigError) as raised:
             project_config.load(path)

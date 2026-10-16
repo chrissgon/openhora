@@ -1,7 +1,7 @@
 # Codebase map: {project}
 
 - Owner: eng-codebase-map
-- Language: {the tag this file is written in. On an update: the tag on its Language line (with none, the language the file is written in), unless the request sets another. For a new file: the project language (the `language` key of docs/workbench/runtime.json, or the task's language line; English when absent)}
+- Language: {the tag this file is written in. On an update: the tag on its Language line (with none, the language the file is written in), unless the request sets another. For a new file: the language the request sets for this deliverable, else the task's language line, else the `language` key of docs/workbench/runtime.json, else English}
 - Status: draft
 - Date: {YYYY-MM-DD, from `date +%F`}
 - Scope: {root or focused directory}; {n} source files; measured with `map_codebase.py {its arguments}` (static imports only; framework auto-imports, dynamic imports and runtime injection are not counted)

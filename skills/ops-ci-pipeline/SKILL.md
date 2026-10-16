@@ -18,7 +18,7 @@ metadata:
   updates: [docs/workbench/state.md, docs/engineering/plans/<task>.md]
   requires: [integration:vcs, search:web]
   side_effects: [push, deploy]
-  version: "2.0.0"
+  version: "2.1.0"
 ---
 
 # CI pipeline
@@ -53,7 +53,7 @@ Check these before writing any file, and again before replying. They override th
 | The project's checks: the manifest's scripts, the test configuration, `AGENTS.md` | yes | Read them; list what runs and what each needs (a browser, a built site, network) |
 | Where it deploys and how today (host configuration file, host settings the user describes) | yes | Ask the user which host and whether it builds on its own today |
 | The decisions: preview per pull request or a shared branch, which checks block a merge, protection rules | yes | Stop rule 4 |
-| `docs/engineering/plans/<task>.md` | no | Create it with the header `# Plan: <task>`, `- Task: <the request in the user's words>`, `- Date: <date +%F>` |
+| `docs/engineering/plans/<task>.md` | no | Create it with the header `# Plan: <task>`, `- Task: <the request in the user's words>`, ``- Language: <the tag this file is written in. On an update: the tag on its Language line (with none, the language the file is written in), unless the request sets another. For a new file: the language the request sets for this deliverable, else the task's language line, else the `language` key of docs/workbench/runtime.json, else English>``, `- Date: <date +%F>` |
 
 ## Confirmation gate
 
