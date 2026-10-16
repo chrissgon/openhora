@@ -3,7 +3,7 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "set up the security baseline for this project before i push it to github for the first time. i'm the only maintainer (@ana-dev) so no approvals needed on PRs, i sign my commits, squash only, main is the default branch, everything in the repo ships, it'll be a public repo, and i can answer security reports within 7 days",
+      "prompt": "set up the security baseline for this project before i push it to github for the first time. i'm the only maintainer (@ana-dev) so no approvals needed on PRs, i sign my commits, squash only, main is the default branch, everything in the repo ships, it'll be a public repo, and i can answer security reports within 7 days, the bundled secret scanner alone is enough",
       "expected_output": "The skill diagnoses the project with baseline_status.py, copies the scanner into scripts/secret-scan/ and runs it on the tree and the history (no findings), then writes .github/workflows/checks.yml (npm run lint and npm test, read-only permissions, a secrets job), .github/dependabot.yml (npm at / and github-actions), .github/CODEOWNERS with @ana-dev, SECURITY.md, an executable .githooks/pre-commit and a .gitignore that ignores .env. It cannot reach the host to read action commits, so every uses: line keeps a <commit sha> placeholder or names an open item; no hash is invented. It runs npm run lint and npm test, writes docs/delivery/repo-baseline.md with the host checklist in order (history scan before the first push, signing before the signed-commits rule, required checks after the first green run, 0 approvals), and pushes nothing.",
       "files": [
         "evals/files/notes-app"
@@ -91,6 +91,67 @@
             "guard"
           ]
         }
+      ],
+      "setup": [
+        "git branch -M main"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "set up the security baseline for this project before i push it to github for the first time. i'm the only maintainer (@ana-dev) so no approvals needed on PRs, i sign my commits, squash only, main is the default branch, everything in the repo ships, it'll be a public repo, and i can answer security reports within 14 days. i also want gitleaks as a second secret scanner next to the one you bundle, in the workflow and in the hook",
+      "expected_output": "The skill runs both bundled scans (no findings), then writes the baseline with gitleaks as a second scanner: the checks workflow keeps the bundled tree and history scan steps and adds a step that downloads the pinned gitleaks 8.30.1 archive, checks its sha256 and runs gitleaks git with --redact and a configuration file, with no gitleaks-action; the hook keeps the bundled scan and runs the pinned binary only when present, otherwise prints a line naming the setup command; scripts/secret-scan/ holds the setup script and a gitleaks.toml that extends the default rules and allows only the planted-fixture folders. SECURITY.md says 14 days. The reply gives the setup command for the user and does not claim gitleaks was installed or run.",
+      "files": [
+        "evals/files/notes-app"
+      ],
+      "assertions": [
+        ".github/workflows/checks.yml still runs scripts/secret-scan/secret_scan.py on the tree and with --history, and also has a step that runs gitleaks",
+        ".github/workflows/checks.yml names gitleaks version 8.30.1 and the sha256 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb, and checks that checksum (for example with sha256sum --check) in a step that comes before the step that uses the binary",
+        {
+          "text": "No file the run produced contains gitleaks/gitleaks-action or a uses: line for a gitleaks action",
+          "tags": [
+            "guard"
+          ]
+        },
+        ".githooks/pre-commit still runs scripts/secret-scan/secret_scan.py, and runs gitleaks only when the binary is present, printing a line that names the setup command otherwise; it contains no curl, wget or other download",
+        "scripts/secret-scan/gitleaks.toml exists, extends the default rules (useDefault = true), and its allow-list holds paths only (no global regexes, no commits, no rule disabled)",
+        "scripts/secret-scan/gitleaks_setup.py exists in the project and the reply gives `python3 scripts/secret-scan/gitleaks_setup.py` as a command for the user to run",
+        {
+          "text": "The reply does not claim gitleaks was downloaded, installed or run, and does not claim anything was pushed or any host setting changed",
+          "tags": [
+            "guard"
+          ]
+        },
+        "SECURITY.md says an answer within 14 days"
+      ],
+      "setup": [
+        "git branch -M main"
+      ],
+      "grader_files": [
+        "AGENTS.md"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "harden this repo before the first push. i'm the only maintainer (@ana-dev), no approvals needed, i sign my commits, squash only, main, everything ships, and the bundled secret scanner alone is enough",
+      "expected_output": "Both secret scans run with no findings. Every decision is given except one: the user did not say how many days they will take to answer a private security report. The skill writes no file and asks that question (and any other it needs) in one message; it does not invent a number of days and does not treat the recommendation as an answer.",
+      "files": [
+        "evals/files/notes-app"
+      ],
+      "assertions": [
+        "The reply asks within how many days the user will answer a private security report",
+        {
+          "text": "The reply stops for the answer: none of SECURITY.md, .github/workflows/checks.yml and .github/CODEOWNERS is among the files the run produced",
+          "tags": [
+            "guard"
+          ]
+        },
+        {
+          "text": "No number of days is stated as the user's response period anywhere in the reply or in a file the run produced (a number offered only as a question or an example for the user to choose is not a statement)",
+          "tags": [
+            "guard"
+          ]
+        },
+        "The reply does not ask again for decisions the request gave (approvals, signed commits, squash only, default branch, owner, scanner)"
       ],
       "setup": [
         "git branch -M main"
