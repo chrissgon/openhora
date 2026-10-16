@@ -4,7 +4,8 @@
 # dependencies = []
 # ///
 """The document of a write-back, and nothing that writes (package P8): what the step kind `write-back` builds and the effect kind `write`
-approves. The effect document (its keys, its checks, the credential scan of its content), the title and the preview the person reads, the
+approves (its operation `update_page`; the operations that make a new page or table are runtime/output_document.py, and the hash covers
+the operation in both). The effect document (its keys, its checks, the credential scan of its content), the title and the preview the person reads, the
 one line that says what is approved, and the closed facts a decision's payload records. It holds no function that calls a provider or
 executes an effect: that is runtime/effect_write.py, reached from the operation `approve` only. The step kind imports this module and
 not that one, so a step kind has no function in reach that could write (limit L30; docs/architecture/platform/outputs.md).
@@ -26,7 +27,8 @@ import workcopy  # noqa: E402  (the credential formats, loaded from this checkou
 
 WORD = "write"
 CONTENT_MAX = 256 * 1024     # bytes: the preview shows all of it, and a decision's body holds 1 MiB (providers/store/sqlite.py BODY_MAX)
-KEYS = ("effect", "task", "provider", "target", "base", "content", "content_sha256", "bytes")
+OPERATION = "update_page"     # the operation of this document; the three operations that make something new are runtime/output_document.py
+KEYS = ("effect", "operation", "task", "provider", "target", "base", "content", "content_sha256", "bytes")
 SHA256 = re.compile(r"[0-9a-f]{64}")
 TARGET_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{5,127}")
 PROVIDER = re.compile(r"[a-z][a-z0-9-]{0,39}")
@@ -45,7 +47,7 @@ def document(*, task_id: int, provider: str, target_id: str, path: str, content:
     """The effect document, checked. EffectError usage when a piece is not in its form, the content is over CONTENT_MAX, empty, holds a
     NUL, or holds what looks like a credential."""
     data = content.encode("utf-8") if isinstance(content, str) else b""
-    doc = {"effect": WORD, "task": task_id, "provider": provider, "target": {"id": target_id, "path": path},
+    doc = {"effect": WORD, "operation": OPERATION, "task": task_id, "provider": provider, "target": {"id": target_id, "path": path},
            "base": {"text_sha256": base_text_sha256, "version": base_version if isinstance(base_version, str) else None},
            "content": content, "content_sha256": sha(data), "bytes": len(data)}
     check(doc)
@@ -54,7 +56,7 @@ def document(*, task_id: int, provider: str, target_id: str, path: str, content:
 
 def check(doc) -> dict:
     """The document is in its form, or EffectError usage. Run when it is made and again just before the write."""
-    if not isinstance(doc, dict) or set(doc) != set(KEYS) or doc["effect"] != WORD:
+    if not isinstance(doc, dict) or set(doc) != set(KEYS) or doc["effect"] != WORD or doc["operation"] != OPERATION:
         raise _usage("the effect document of a write-back has exactly its keys")
     target, base, content = doc["target"], doc["base"], doc["content"]
     if not isinstance(doc["task"], int) or isinstance(doc["task"], bool) or doc["task"] < 1:

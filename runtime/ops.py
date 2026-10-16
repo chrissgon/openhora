@@ -213,6 +213,7 @@ import ops_models  # noqa: E402  (which model a run goes to: the choice, the key
 import ops_waits  # noqa: E402  (the derived waits between requests: rederive, for_plan, annotate, approve_plan)
 import autonomy  # noqa: E402  (the same folder, as scripts/runtime.py imports runtime_vote)
 import board  # noqa: E402
+import ops_cancel  # noqa: E402  (a cancel leaves open the effect whose write is running)
 import changeset  # noqa: E402
 import deps as deps_sets  # noqa: E402  (the operation `deps` would hide the module: part 0, F.1, rule 5)
 import dispatcher  # noqa: E402
@@ -1109,7 +1110,8 @@ def answer(project: str, pending_id: int, text: str, with_comments: bool = False
             lines = [f"- {c.get('author') or 'unknown'}: {' '.join(str(c['text']).split())}" for c in saved]
             said = "\n".join([said, "", COMMENTS_LINE, *lines])
             used = [c["id"] for c in saved]
-    out = core._stored(ctx, ctx["store"].pending_resolve, pending_id, resolution="answered", by="user", answer=said)
+    with ops_step_effects.resolution_guard(ctx, core._stored(ctx, ctx["store"].pending_get, pending_id)):    # not while its write runs
+        out = core._stored(ctx, ctx["store"].pending_resolve, pending_id, resolution="answered", by="user", answer=said)
     if used:
         core._stored(ctx, ctx["store"].comments_use, used, pending_id=pending_id)
         out = {**out, "comments": used}
@@ -2197,8 +2199,9 @@ def reject(project: str, pending_id: int, note: str | None = None) -> dict:
         return core._stored(ctx, ctx["store"].acceptance_resolve, pending_id, resolution="rejected", by="user")
     if item["kind"] == "effect":
         said = core._text(note, "the note") if note is not None else None
-        return ops_waits.settled(ctx, core._stored(ctx, ctx["store"].pending_resolve, pending_id, resolution="rejected",
-                                                   by="user", answer=said))
+        with ops_step_effects.resolution_guard(ctx, item):    # refused while the write of an output runs: it would end with no record
+            return ops_waits.settled(ctx, core._stored(ctx, ctx["store"].pending_resolve, pending_id, resolution="rejected",
+                                                       by="user", answer=said))
     raise core.OpsError(f"pending decision {pending_id} is a {item['kind']}: reject takes a plan, an acceptance or an effect", 2)
 
 

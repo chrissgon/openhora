@@ -1962,14 +1962,16 @@ def task_runs_since(conn: sqlite3.Connection, low_water: int) -> list:
         "ORDER BY r.id", (int(low_water),))]
 
 
-def request_cancel(conn: sqlite3.Connection, request_id: int, *, by: str) -> dict:
-    """Cancel a request that nothing is running for: the request and each of its tasks that is not done or cancelled
-    become `cancelled`, and their open pending decisions too. Refused while one of its tasks is running; a cancel that
-    reaches a run in progress is `request_stop`. Returns {"request", "cancelled": [task ids], "pending": [pending ids]}."""
+def request_cancel(conn: sqlite3.Connection, request_id: int, *, by: str, keep=()) -> dict:
+    """Cancel a request that nothing is running for: the request and each of its tasks that is not done or cancelled become
+    `cancelled`, and their open pending decisions too. Refused while one of its tasks is running (a cancel that reaches a run in
+    progress is `request_stop`). `keep`: ids of open pending decisions that
+    stay open, and the task each belongs to stays as it is (an effect whose write is running: runtime/ops_cancel.py); the rest is
+    cancelled. Returns {"request", "cancelled": [task ids], "pending": [pending ids]}, and "kept": [pending ids left open] when some were."""
     by = text_arg(by, "by", LABEL_MAX)
     now = iso(utcnow())
     with write(conn):
-        return _cancel_request(conn, request_id, by, now)
+        return _cancel_request(conn, request_id, by, now, tuple(int(k) for k in keep))
 
 
 def _cancel_rows(conn: sqlite3.Connection, ids, by: str, now: str) -> list:
@@ -1987,7 +1989,7 @@ def _cancel_rows(conn: sqlite3.Connection, ids, by: str, now: str) -> list:
     return pending
 
 
-def _cancel_request(conn: sqlite3.Connection, request_id: int, by: str, now: str) -> dict:
+def _cancel_request(conn: sqlite3.Connection, request_id: int, by: str, now: str, keep=()) -> dict:
     """Inside a transaction: request_cancel's work."""
     root = _task(conn, request_id)
     if root["parent_id"] is not None:
@@ -1997,10 +1999,12 @@ def _cancel_request(conn: sqlite3.Connection, request_id: int, by: str, now: str
     if any(r["state"] == "running" for r in rows) or conn.execute(
             "SELECT 1 FROM task_runs WHERE task_id = ? AND status = 'running'", (request_id,)).fetchone():
         raise StoreError(f"a task of request {request_id} is running: wait for its run to end")
-    ids = [r["id"] for r in rows if r["state"] not in TASK_FINAL_STATES]
+    kept = {p["task_id"]: p["id"] for p in conn.execute("SELECT id, task_id FROM pending_decisions WHERE status = 'open'").fetchall()
+            if p["id"] in keep}
+    ids = [r["id"] for r in rows if r["state"] not in TASK_FINAL_STATES and r["id"] not in kept]
     pending = _cancel_rows(conn, ids, by, now)
     _refresh(conn, now)  # what waited for a cancelled task or request no longer does
-    return {"request": request_id, "cancelled": ids, "pending": pending}
+    return {"request": request_id, "cancelled": ids, "pending": pending, **({"kept": sorted(kept.values())} if kept else {})}
 
 
 # --- migration 15: cancel or stop at any moment (R18) -------------------------------------------------------------
@@ -2038,9 +2042,21 @@ def _running_runs(conn: sqlite3.Connection, task_id: int) -> list:
         "SELECT id FROM task_runs WHERE task_id = ? AND status = 'running' ORDER BY id", (task_id,))]
 
 
+def _kept(conn: sqlite3.Connection, request_id: int) -> dict:
+    """{task id: pending id} of the open decisions a cancel of this request left open (request_stop's keep: an effect whose output write
+    runs), read from the cursor `stop-keep:<request>` it wrote; what a later end of the request must not cancel."""
+    row = conn.execute("SELECT value FROM cursors WHERE name = ?", (f"stop-keep:{request_id}",)).fetchone()
+    try:
+        wanted = {int(i) for i in json.loads(row["value"])} if row else set()
+    except ValueError:
+        wanted = set()
+    return {p["task_id"]: p["id"] for p in conn.execute("SELECT id, task_id FROM pending_decisions WHERE status = 'open'") if p["id"] in wanted}
+
+
 def _complete_cancel(conn: sqlite3.Connection, request_id: int, now: str) -> bool:
-    """Inside a transaction: a request that is being cancelled becomes `cancelled`, with whatever is still open under it, once
-    none of its tasks is `running` and none of its runs (the router's, on the request, included) is. Returns whether it did."""
+    """Inside a transaction: a request that is being cancelled becomes `cancelled`, with whatever is still open under it (but a decision
+    that request_stop was told to keep, and the task it belongs to), once none of its tasks is `running` and none of its runs (the
+    router's, on the request, included) is. Returns whether it did."""
     root = conn.execute("SELECT state, stop_requested_at, stop_requested_by FROM tasks WHERE id = ? AND parent_id IS NULL",
                         (request_id,)).fetchone()
     if root is None or not root["stop_requested_at"] or root["state"] == "cancelled":
@@ -2049,21 +2065,25 @@ def _complete_cancel(conn: sqlite3.Connection, request_id: int, now: str) -> boo
             "SELECT 1 FROM task_runs r JOIN tasks t ON t.id = r.task_id WHERE r.status = 'running' AND "
             "(t.id = ? OR t.parent_id = ?)", (request_id, request_id)).fetchone():
         return False
+    kept = _kept(conn, request_id)
     ids = [r["id"] for r in conn.execute("SELECT id FROM tasks WHERE (id = ? OR parent_id = ?) AND state NOT IN "
-                                         "('done', 'cancelled') ORDER BY id", (request_id, request_id))]
+                                         "('done', 'cancelled') ORDER BY id", (request_id, request_id)) if r["id"] not in kept]
     _cancel_rows(conn, ids, root["stop_requested_by"], now)
     _refresh(conn, now)
     return True
 
 
-def request_stop(conn: sqlite3.Connection, request_id: int, *, by: str) -> dict:
+def request_stop(conn: sqlite3.Connection, request_id: int, *, by: str, keep=()) -> dict:
     """Cancel a request at any moment, the first half (R18): in one transaction the request records the stop request, every
     task of it that is not running and not final is cancelled at once (so nothing new is claimed), with its open pending
     decisions, and, when nothing of it is running, the request itself is cancelled. What is running is left for the caller to
     stop and finish (task_stopped ends a run whose holder is gone; a run that finishes reads the request). A request already
-    cancelled, or already asked to be, is not written again. Returns {"request", "cancelled": [task ids cancelled, the request's
-    included when it is], "pending": [pending ids cancelled], "running": [{"task", "run" (its running run row or None), "step"}],
-    "router_run": the running run row of the router on the request, or None, "already"}."""
+    cancelled, or already asked to be, is not written again. keep: ids of open pending decisions that stay open, with the task each
+    belongs to (an effect whose output write runs: runtime/ops_cancel.py), as request_cancel keeps them; the request remembers them
+    (the cursor `stop-keep:<request>`) so that its end, which may come from a run's finish, keeps them too. Returns {"request",
+    "cancelled": [task ids cancelled, the request's included when it is], "pending": [pending ids cancelled], "running": [{"task", "run"
+    (its running run row or None), "step"}], "router_run": the running run row of the router on the request, or None, "already"} and
+    "kept": [pending ids left open] when some were."""
     by = text_arg(by, "by", LABEL_MAX)
     now = iso(utcnow())
     with write(conn):
@@ -2078,10 +2098,16 @@ def request_stop(conn: sqlite3.Connection, request_id: int, *, by: str) -> dict:
         already = root["stop_requested_at"] is not None
         if not already:
             conn.execute("UPDATE tasks SET stop_requested_at = ?, stop_requested_by = ? WHERE id = ?", (now, by, request_id))
+        keep = {int(k) for k in keep}
+        if keep:
+            held = sorted(keep | set(_kept(conn, request_id).values()))
+            conn.execute("INSERT INTO cursors (name, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (name) DO UPDATE SET "
+                         "value = excluded.value, updated_at = excluded.updated_at", (f"stop-keep:{request_id}", json.dumps(held), now))
+        kept = _kept(conn, request_id)
         rows = conn.execute("SELECT id, state, step_kind FROM tasks WHERE parent_id = ? ORDER BY id", (request_id,)).fetchall()
         running = [{"task": r["id"], "run": (_running_runs(conn, r["id"]) or [None])[-1], "step": r["step_kind"] is not None}
                    for r in rows if r["state"] == "running"]
-        ids = [r["id"] for r in rows if r["state"] not in TASK_FINAL_STATES and r["state"] != "running"]
+        ids = [r["id"] for r in rows if r["state"] not in TASK_FINAL_STATES and r["state"] != "running" and r["id"] not in kept]
         pending = _cancel_rows(conn, ids, root["stop_requested_by"] if already else by, now)
         router = (_running_runs(conn, request_id) or [None])[-1]
         if _complete_cancel(conn, request_id, now):
@@ -2089,7 +2115,7 @@ def request_stop(conn: sqlite3.Connection, request_id: int, *, by: str) -> dict:
         else:
             _refresh(conn, now)
         return {"request": request_id, "cancelled": ids, "pending": pending, "running": running, "router_run": router,
-                "already": already}
+                "already": already, **({"kept": sorted(kept.values())} if kept else {})}
 
 
 def task_stop(conn: sqlite3.Connection, task_id: int, *, by: str) -> dict:

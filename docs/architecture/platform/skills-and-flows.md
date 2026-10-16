@@ -328,6 +328,7 @@ Each invariant with its guard. A rule of `scripts/validate.py` is named in brack
 | `python3 evals/eval_run.py --skill <name> --check-cases` | the preflight of the cases | no |
 | `python3 evals/eval_run.py --skill <name> [--cases <ids>] [--baseline] [--platform <p>]` | a full, partial or platform test ([lab.md](lab.md)) | yes |
 | `python3 scripts/select_skills.py [--pack <name>] [--areas a,b] [--skills x,y] [--lines]` | the skills a pack or a filter selects, as JSON | no |
+| `python3 scripts/skill_catalog.py [--root <workbench>] [--status <file> \| --proof <file>] [--date YYYY-MM-DD] [--out <path>] [--max-chars <n>]` | writes the compact catalog of the skills (what each does, reads, writes, its effects, whether the runtime runs it, its band per model), the flows and the planned skills, from the frontmatters, `flows/`, the router's `(planned)` rows and the bands of the status script or the runtime's proof file; computes no band; over the size limit it exits 2 and writes nothing | no |
 | `python3 scripts/owner_table.py [--check\|--print]` | writes, checks or prints the table of owning skills in `contracts/project-layout.md` | no |
 | `python3 scripts/sync_copies.py [--check\|--adopt <copy>...\|--list\|--destinations]` | writes the adopted copies from their source, checks them, or adopts one | no |
 | `python3 scripts/validate.py [--strict] [--json] [--spec] [--flags]` | every rule above; exit 1 on an error; `--spec` also runs `skills-ref validate` on each skill when that tool is installed | no |

@@ -239,3 +239,21 @@ def test_a_done_request_whose_delivery_is_routed_again_is_refused_as_running_and
     with pytest.raises(store.StoreError, match="is running: wait for its run to end"):
         store.request_stop(conn, rid, by="user")
     assert store.task_get(conn, rid)["stop_requested_at"] is None
+
+
+def test_request_stop_keeps_a_decision_it_was_told_to_keep_and_the_end_of_the_request_keeps_it_too(conn):
+    rid, ids = request(conn, tasks=[TASKS[0], TASKS[2]])
+    run_c = start(conn, ids["c"])
+    effect = {"kind": "effect", "title": "Write", "body": "Write it.", "payload": {}, "payload_sha256": SHA}
+    store.task_run_finish(conn, run_c, status="ok", ending="done", task_state="waiting", pending=effect)
+    kept = store.pending_list(conn, "open", ids["c"])[0]["id"]
+    run_a = start(conn, ids["a"])
+    out = store.request_stop(conn, rid, by="user", keep=[kept])
+    assert out["kept"] == [kept] and out["running"] == [{"task": ids["a"], "run": run_a, "step": False}]
+    assert store.task_get(conn, ids["c"])["state"] == "waiting" and store.pending_get(conn, kept)["status"] == "open"
+    assert store.task_get(conn, rid)["state"] == "planned", "a run of the request is still running"
+    done = store.task_run_finish(conn, run_a, status="ok", ending="done", task_state="waiting", pending=review())
+    assert done["cancelled"] is True
+    assert store.task_get(conn, rid)["state"] == "cancelled", "the request ends when its last run does"
+    assert store.task_get(conn, ids["c"])["state"] == "waiting" and store.pending_get(conn, kept)["status"] == "open", "the end keeps the decision too"
+    assert store.request_stop(conn, rid, by="user")["already"] is True

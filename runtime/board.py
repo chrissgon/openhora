@@ -56,6 +56,7 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import ops_cancel  # noqa: E402  (a cancel leaves open the effect whose write is running)
 import project_config  # noqa: E402  (the same folder: the resolver is loaded, and the bounds read, from here)
 
 CLASS = "integration:issue-tracker"
