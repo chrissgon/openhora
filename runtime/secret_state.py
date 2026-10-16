@@ -89,11 +89,13 @@ def manager_probe(root=None, *, environ=None, clock=time.monotonic, fresh: bool 
     return answer
 
 
-def unreadable_sentence(root=None, *, store="default", fresh: bool = False) -> str:
+def unreadable_sentence(root=None, *, store="default", fresh: bool = False, names=None) -> str:
     """The sentence that tells why a credential cannot be read although it may be stored: the credentials directory is refused as unsafe
     (with the fix), else the OS secret store is locked or unavailable, else the password manager the person mapped secrets to is
     locked, not installed or its mapping file is refused; "" when none. A locked store, an unsafe directory and a locked manager are
-    not an absent key."""
+    not an absent key. `names` are the secrets that cannot be read: the manager is probed, and blamed, only when it could hold one of them
+    (the resolver's `manager_applies`: a name in the mapping, or a mapping file that is refused). Without names it is never blamed: a
+    manager cannot be said to be locked for a key it cannot hold."""
     try:
         status = _resolver(root or ROOT).credentials_status()
     except Exception:  # a resolver that does not run here: the store's answer alone
@@ -103,6 +105,12 @@ def unreadable_sentence(root=None, *, store="default", fresh: bool = False) -> s
     said = locked_sentence(root, store=store, fresh=fresh)
     if said or store != "default":   # a fake store is a test of the store alone
         return said
+    try:
+        applies = bool(names) and _resolver(root or ROOT).manager_applies(list(names))
+    except Exception:  # a resolver without the manager, an interpreter it does not run on
+        applies = False
+    if not applies:
+        return ""
     managed = manager_probe(root, fresh=fresh)
     return managed["detail"] if managed["state"] in ("locked", "unavailable", "unsafe") else ""
 

@@ -314,7 +314,8 @@ def test_a_mapping_file_that_is_not_a_regular_file_or_too_large_is_unsafe(world)
 @pytest.mark.parametrize("data,why", [
     ("{not json", "not valid JSON"),
     ("[1, 2]", "one JSON object"),
-    ({"backend": "1password", "references": {NAME: REF}, "extra": 1}, "unknown keys"),
+    ({"backend": "1password", "references": {NAME: REF}, "extra": 1}, "1 key this resolver does not know"),
+    ({"backend": "1password", "references": {NAME: REF}, "a": 1, "b": 2}, "2 keys this resolver does not know"),
     ({"backend": "bitwarden", "references": {NAME: REF}}, "backend this resolver does not have"),
     ({"references": {NAME: REF}}, "backend this resolver does not have"),
     ({"backend": "1password"}, "references"),
@@ -486,3 +487,53 @@ def test_a_relative_path_entry_never_starts_a_file_of_the_working_folder(world, 
         world.environ["PATH"] = path
         assert world.lookup().state == "locked" and res.store_failure() == "unavailable", path
     assert world.op.calls() == []
+
+
+def test_an_unknown_key_is_counted_and_never_echoed(world):
+    pasted = "zz-pasted-secret-in-a-key-" + SENTINEL
+    world.write_mapping({"backend": "1password", "references": {NAME: REF}, pasted: "value"})
+    detail = unsafe(world, "unknown key")
+    assert pasted not in detail and SENTINEL not in detail and "1 key this resolver does not know" in detail
+    assert pasted not in res.report(environ=world.environ, store=FakeStore())[0]["detail"]
+
+
+def test_inside_a_run_container_the_sentence_says_so_and_does_not_claim_the_tool_is_missing(world, monkeypatch):
+    world.write_mapping()
+    signed_in(world)
+    monkeypatch.setenv("WB_EVAL_CONTAINER", "1")
+    got = world.lookup()
+    assert got.state == "locked" and "inside a run container the password manager (1Password) is never used" in got.detail
+    assert "not installed" not in got.detail
+    assert "never used" in res.probe_manager(world.environ)["detail"]
+    assert world.op.calls() == []
+
+
+def test_the_manager_applies_only_to_a_name_it_could_hold(world):
+    assert res.manager_applies([NAME], world.environ) is False, "no mapping file"
+    world.write_mapping({"backend": "1password", "references": {NAME: REF, "WB_RUNTIME_KEY_EXAMPLE_KEY": REF2}})
+    assert res.manager_applies([NAME], world.environ) is True
+    assert res.manager_applies([OTHER], world.environ) is False and res.manager_applies([], world.environ) is False
+    assert res.manager_applies(["EXAMPLE_KEY"], world.environ) is True, "the runtime's own key for a model's variable"
+    world.mapping.chmod(0o644)
+    assert res.manager_applies([OTHER], world.environ) is True, "a refused mapping stands in the way of every lookup"
+    assert world.op.calls() == []
+
+
+def test_a_mapping_under_the_real_home_is_never_read_by_this_suite(tmp_path, monkeypatch):
+    """The guard of the provider suites points XDG_CONFIG_HOME at an empty folder: a file the person wrote under their home folder is never
+    found, and the tool it names is never started (a fake home with a mapping and a fake tool that records its calls: no call)."""
+    op = FakeOp(tmp_path / "bin")
+    op.answer("*", stdout=SENTINEL)
+    home = tmp_path / "home"
+    (home / ".config" / "openhora").mkdir(parents=True)
+    mapping = home / ".config" / "openhora" / "password-manager.json"
+    mapping.write_text(json.dumps({"backend": "1password", "references": {NAME: REF}}), encoding="utf-8")
+    mapping.chmod(0o600)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("PATH", f"{op.folder}{os.pathsep}/usr/bin{os.pathsep}/bin")
+    monkeypatch.delenv(NAME, raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    assert res.mapping_path() != str(mapping) and Path(res.mapping_path()).parent.name == "openhora" and not Path(res.mapping_path()).exists()
+    assert res.resolve_state(NAME, store=FakeStore()).state == "missing"
+    assert all(r["state"] != "locked" for r in res.report(store=FakeStore()))
+    assert op.calls() == []

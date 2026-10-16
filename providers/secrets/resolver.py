@@ -84,7 +84,8 @@ Setting a secret:
                  never the value, and nothing in the repository
 
 Without the keyring package (plain python3), the store is reported as unavailable and only the
-environment is read. Exit codes: 0 ok, 2 usage error, 3 not found, 4 the store is locked or unavailable.
+environment is read. Exit codes: 0 ok, 2 usage error, 3 not found, 4 the store is locked or unavailable, the password manager is locked or unavailable,
+or the credentials directory or the mapping file is unsafe (the answer is not "missing").
 """
 from __future__ import annotations
 
@@ -250,7 +251,8 @@ REGISTRY: dict[str, Secret] = {s.name: s for s in (
            ("providers/secrets/resolver.py",),
            store_username="password-manager-1password",
            note="found only in the environment, the credentials directory or the OS secret store, never through the manager, and it "
-                "cannot be mapped; on a laptop the desktop app's unlock is used and this is not needed"),
+                "cannot be mapped; a provider the runtime starts does not get it from the environment (OP_* is stripped), so there only the "
+                "credentials directory or the OS secret store works; on a laptop the desktop app's unlock is used and this is not needed"),
 )}
 
 
@@ -604,9 +606,9 @@ def read_mapping(environ=None) -> Mapping | None:
         raise _bad_mapping(path, "is not valid JSON", "fix the file") from None
     if not isinstance(data, dict):
         raise _bad_mapping(path, "must hold one JSON object")
-    unknown = sorted(str(k) for k in set(data) - set(MAPPING_KEYS))
-    if unknown:
-        raise _bad_mapping(path, f"has unknown keys {unknown}", f"the keys are {', '.join(MAPPING_KEYS)}")
+    unknown = len(set(data) - set(MAPPING_KEYS))
+    if unknown:   # counted, never listed: a key can be a value pasted in the wrong place
+        raise _bad_mapping(path, f"has {unknown} key{'s' if unknown > 1 else ''} this resolver does not know", f"the keys are {', '.join(MAPPING_KEYS)}")
     try:
         managers = _managers()
     except ImportError:
@@ -689,7 +691,7 @@ def _from_manager(secret: Secret, environ, store, store_down: bool, failed: str 
     if failed:
         return Lookup("locked", detail=failed, backend="password-manager"), "locked"
     if managers.in_container(environ):   # L39: a run never reaches a password manager; nothing is called
-        return Lookup("locked", detail=backend.sentence("unavailable"), backend="password-manager"), "unavailable"
+        return Lookup("locked", detail=backend.sentence("container"), backend="password-manager"), "unavailable"
     token = ""
     token_secret = REGISTRY.get(backend.token_name)
     if token_secret is not None:
@@ -754,6 +756,21 @@ def resolve_state(name: str, *, allow_store: bool = True, environ=None, store="d
     return Lookup("missing", library=store is not None)
 
 
+def manager_applies(names, environ=None) -> bool:
+    """Whether the password manager could hold one of `names` (secret names, or the runtime's own `WB_RUNTIME_KEY_<name>` forms), or
+    whether its mapping file is refused (then it stands in the way of every lookup). False when there is no mapping file, or none of the
+    names is in it: a caller that wants to say why a key cannot be read asks this first, so it never blames a manager that cannot hold
+    the key. No tool is called."""
+    try:
+        mapping = read_mapping(environ)
+    except MappingUnsafe:
+        return True
+    if mapping is None:
+        return False
+    wanted = {n for name in (names or ()) for n in (name, f"WB_RUNTIME_KEY_{name}")}
+    return bool(wanted & set(mapping.references))
+
+
 def probe_manager(environ=None) -> dict:
     """Whether the password manager can be used at all, with no secret read ('op whoami'): {"state": "na" | "ok" | "locked" |
     "unavailable" | "unsafe", "detail"}. "na": there is no mapping file, so the manager is never asked. "unsafe": the mapping file is
@@ -768,7 +785,7 @@ def probe_manager(environ=None) -> dict:
     managers = _managers()
     backend = managers.BACKENDS[mapping.backend](account=mapping.account)
     if managers.in_container(environ):
-        return {"state": "unavailable", "detail": backend.sentence("unavailable")}
+        return {"state": "unavailable", "detail": backend.sentence("container")}
     token = ""
     token_secret = REGISTRY.get(backend.token_name)
     if token_secret is not None:

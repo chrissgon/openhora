@@ -166,12 +166,16 @@ def test_a_locked_password_manager_is_a_sentence_after_the_store_and_is_not_aske
     secret_state.forget()
     assert secret_state.manager_probe(fresh=True)["state"] == "na", "no mapping file: the manager is not asked"
     op, mapping = manager_machine(monkeypatch, tmp_path, answer={"rc": 1, "stderr": "[ERROR] You are not signed in."})
-    said = secret_state.unreadable_sentence(fresh=True)
+    mapped = ["VCS_GITHUB_TOKEN"]
+    assert secret_state.unreadable_sentence(fresh=True, names=["NOTION_TOKEN"]) == "", "a key the mapping does not hold: the manager is not blamed"
+    assert secret_state.unreadable_sentence(fresh=True) == "", "no names: not blamed either"
+    assert op.calls() == [], "and not even probed"
+    said = secret_state.unreadable_sentence(fresh=True, names=mapped)
     assert said.startswith("the password manager (1Password) is locked or not signed in") and "[ERROR]" not in said
     assert [c["argv"][1:] for c in op.calls()] == [["whoami"]], "a probe, and no secret read"
-    secret_state.unreadable_sentence()
+    secret_state.unreadable_sentence(names=mapped)
     assert len(op.calls()) == 1, "the answer is kept for a moment, so a page does not ask a locked app to prompt every time"
     op.answer("whoami", stdout="signed in\n")
-    assert secret_state.unreadable_sentence(fresh=True) == ""
+    assert secret_state.unreadable_sentence(fresh=True, names=mapped) == ""
     mapping.chmod(0o644)
-    assert "chmod 600" in secret_state.unreadable_sentence(fresh=True)
+    assert "chmod 600" in secret_state.unreadable_sentence(fresh=True, names=["NOTION_TOKEN"]), "a refused mapping stands in the way of every key"

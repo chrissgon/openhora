@@ -190,6 +190,8 @@ class OnePassword:
 
     def sentence(self, kind: str) -> str:
         """The sentence a message shows for a failing manager: its name and the fix. Never a text of the tool."""
+        if kind == "container":
+            return f"inside a run container the password manager ({self.label}) is never used"
         if kind == "locked":
             return (f"the password manager ({self.label}) is locked or not signed in: unlock the app, or on a headless machine provide "
                     f"{self.token_name} in the credentials directory (docs/architecture/platform/unattended.md). The secret may be stored; "
