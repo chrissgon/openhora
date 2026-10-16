@@ -18,6 +18,7 @@ What the workbench should contain, per area. This is a plan, not a promise: a sk
 | core-agents-md | create or update a project's `AGENTS.md` from its codebase and conventions | codebase | reuse | 0 |
 | core-skill-creator | a new skill scaffolded, grounded, given its first full test in the lab, refined | authoring guide | create | 0 |
 | core-security-audit | audit of the whole workbench against the security checklist; vetting of third-party skills before install | skills, agents, providers, adapters | built; grounded in the audit of 2026-09-27 | — |
+| core-process-diagnosis | docs/workbench/diagnosis.md: a person's processes mapped step by step onto the catalog of skills and flows, with their proof per model, the effects that need approval, the gaps and an order to start in; executes nothing | the person's process descriptions, docs/workbench/catalog.md | create (backlog NS40) | — |
 
 `core-research` requires `search:web`. Tooling that is not a skill but belongs to wave 0: `evals/eval_run.py` (runs an eval case with and without a skill, on each lab model of the gate file, and grades assertions).
 

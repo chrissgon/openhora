@@ -164,7 +164,7 @@ def test_a_gate_is_the_last_step_with_no_executor_an_earlier_redo_and_there_is_a
 
 def test_every_kind_this_checkout_registers_keeps_the_rule_no_step_performs_an_external_effect_itself():
     names = steps.load_builtin()
-    assert {"ingest", "write-back", "export-csv", "export-xlsx", "export-docx", "export-pdf"} <= set(names)
+    assert {"ingest", "write-back", "output-page", "output-table", "export-csv", "export-xlsx", "export-docx", "export-pdf"} <= set(names)
     for name in names:
         kind = steps.REGISTRY[name]
         assert kind.effectful == (), name
@@ -183,6 +183,7 @@ ALLOWED = {
     "step_ingest.py": {"drop", "ops_core", "ops_sources", "sources", "steps"},
     "step_export.py": {"steps", "workcopy"},
     "step_write_back.py": {"steps", "write_document"},
+    "step_output.py": {"output_document", "steps", "table_data", "write_document"},
 }
 
 
@@ -225,13 +226,14 @@ def test_limit_30_the_documents_service_a_step_kind_is_given_can_only_read_and_s
     seam = st.load("ops_step_seams")
     docs = st.load("documents")
     reader = seam.DocumentsReader({"documents": {"provider": "notion", "parent": "p", "expires": "2099-12-31"}}, str(st.REPO))
-    assert {name for name in dir(reader) if not name.startswith("_")} == {"enabled", "provider", "problem", "read", "stat"}
-    assert seam.READ_VERBS == ("read", "stat")
+    assert {name for name in dir(reader) if not name.startswith("_")} == {"enabled", "provider", "problem", "read", "stat", "rows_state", "table_read"}
+    assert seam.READ_VERBS == ("read", "stat", "table-read", "rows-state")
     seen = []
     monkeypatch.setattr(docs, "call", lambda cfg, root, verb, args, timeout=0: seen.append((verb, args)) or {"markdown": "x"})
     reader.read("a" * 32)
     reader.stat("a" * 32)
-    assert [v for v, _ in seen] == ["read", "stat"]
+    reader.table_read("a" * 32)
+    assert [v for v, _ in seen] == ["read", "stat", "table-read"]
     files = seam.EffectFiles({"data_dir": "/nowhere"})
     assert {name for name in dir(files) if not name.startswith("_")} == {"write", "read"}, "the effect files are written and read, never executed"
 

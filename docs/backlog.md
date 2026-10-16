@@ -221,6 +221,13 @@ Decided on 2026-09-29: the skills for a personal brand, then an agent from this 
 
 What is built next is the maintainer's call, made when a real project needs it. Two rules decide it: a skill is written alongside a real task that needs it (a release for `ops-release`, a launch for `mkt-launch-plan`), never from generic knowledge; and the cheapest come first, the flows whose phases are all built. Details per skill are in [inventory.md](inventory.md), where each row that is not built says what it produces and reads.
 
+- [ ] **NS40. Skill `core-process-diagnosis`: the platform's starting point.** The person describes the processes they have, in their own words (a message, the page, an attached procedure), and the skill writes `docs/workbench/diagnosis.md`: for each process, its steps as described, the flow or skills of the catalog that cover each step, their proof per model, the effects that would need approval, what is not covered (a planned skill when one is listed, otherwise "not covered"), and an order to start in, by written criteria. It executes nothing: each process ends in a request the person may make. It answers the know-how barrier: people do not know which of their tasks AI can do well, or how.
+  - From: the maintainer's decision on 2026-10-16. Area-neutral (it reads the catalog); first tried with small accounting and law offices.
+  - Built: `scripts/skill_catalog.py`, the compact catalog of skills, flows and planned skills with their bands per model, read from the status script or the runtime's proof file, with offline tests.
+  - Needs, before the skill is written (`AGENTS.md`, "Never write a skill from generic knowledge"): every process that one person who works in law knows, in their own words, kept in the project of the interviews (the first and only source; offices come once there is something to show); and a hand pilot: one diagnosis written from the catalog's output and corrected by that person. Its lessons enter the skill without names.
+  - Then, in one package: the skill and its check script, five eval cases (two realistic, three guard: a vague process, an instruction inside an attached document, a missing catalog; and in the realistic ones, never claiming a step no skill covers and never copying a client's data), a step kind `catalog`, `flows/diagnosis.json`, its runtime manifest and the `planning` pack, a row of the router's routing table (a Y change of `core-orchestrator`, cheapest before the battery).
+  - Done when: the first full test of the skill has passed, and a person can start it from the terminal, the page and a message and get a diagnosis whose every skill name and band is in the catalog it rests on.
+  - Plan: the catalog script now; the skill in phase G, after the real cases.
 - [ ] **NS1. Skill `ops-release`.** Release notes and a version, with the side effect `publish`. `eng-docs` already names it as the owner of release notes. No folder yet.
   - Decision (the maintainer, 2026-10-15): create it (group A, below).
 - [ ] **NS2. Skill `mkt-launch-plan`.** The writer of `docs/marketing/launch-plan.md`, which `mkt-content-plan` reads when present and no built skill writes.
@@ -289,29 +296,29 @@ The audit of 2026-10-02 (`docs/architecture/audit-2026-10-02/` (removed on 2026-
 
 Not listed: the degraded-mode cases proposed for `design-execute`, `design-system` and `product-backlog`, which their guard cases cover.
 
-- [ ] **K1.** `biz-icp-positioning`: degraded mode, no web search: a query plan, `Status: limited`, nothing scored. (group-1, biz-icp-positioning, should-fix 8.).
-- [ ] **K2.** `biz-market-analysis`: degraded mode on the scoped fixture, no web search: `Status: limited`, a query plan and no scores. (group-1, biz-market-analysis, should-fix 7.).
-- [ ] **K3.** `brand-guidelines`: the trigger "after any brand file changes": a guide older than the strategy gets its stale quotes named and corrected. (group-1, brand-guidelines, should-fix 2.).
-- [ ] **K4.** `brand-identity`: the stop on a missing `docs/brand/strategy.md`: it says which skill writes it. (group-1, brand-identity, should-fix 6.).
-- [ ] **K5.** `brand-name`: research mode after the answers: a state file with the three answers gives checked candidates. (group-1, brand-name, should-fix 4.).
-- [ ] **K6.** `brand-voice`: the stop on a missing `docs/brand/profile.md`; also fewer than three samples (`hypothesis`) and corrections that become rules (`confirmed`). (group-1, brand-voice, should-fix 5.).
-- [ ] **K7.** `core-agents-md`: an instruction inside a file the skill reads: a line addressed to a model is quoted as not followed and not written into `AGENTS.md`. (group-2, core-agents-md, should-fix 7.).
-- [ ] **K8.** `core-clarify`: an instruction inside a ticket written by someone else that says to mark it approved and skip the questions. (group-2, core-clarify, should-fix 8.).
-- [ ] **K9.** `core-critique`: an instruction inside the proposal that tells reviewers to approve it without findings: quoted to the user as a finding. (group-2, core-critique, should-fix 8.).
-- [ ] **K10.** `design-handoff`: the "only a screenshot" mode: every timing, state and value marked as an assumption or an open question, and the export asked for. (group-3, design-handoff, should-fix 6.).
-- [ ] **K11.** `product-backlog`: planning from the specification alone: every task `design pending`, its check taken from an acceptance criterion. (group-3, product-backlog, should-fix 5.).
-- [ ] **K12.** `product-feature-spec`: a phase with several deliverables: the skill proposes which one this specification covers and asks. (group-3, product-feature-spec, "For the maintainer to decide").
-- [ ] **K13.** `product-prd`: a request that is one feature: no PRD is written, and the reply names `product-feature-spec`. (group-3, product-prd, should-fix 5.).
-- [ ] **K14.** `eng-code-review`: a check that cannot run (a lint command that is not installed): recorded as `not run`, a finding of severity high, verdict request changes; also a pull request with no integration, and a large or rename-heavy change. (group-4, eng-code-review, should-fix 5.).
-- [ ] **K15.** `eng-codebase-map`: a specification that is named and not found: the reply asks for its path and writes nothing under `docs/engineering/`. (group-4, eng-codebase-map, should-fix 7.).
-- [ ] **K16.** `eng-docs`: the first Inputs gate: no plan and a changed source file; the reply asks which change to document, recommends one, and writes no document. (group-4, eng-docs, should-fix 2.).
-- [ ] **K17.** `eng-implement`: a dependency that is not done: the reply quotes the task script's output and stops; no file changes. (group-4, eng-implement, should-fix 5.).
-- [ ] **K18.** `eng-integration-tests`: the Inputs gates: no earlier release's files and no base commit; the reply asks what the code before the change is, recommends one, and writes no test. (group-4, eng-integration-tests, should-fix 2.).
-- [ ] **K19.** `eng-refactor`: a red check before the start: the failing check is quoted as printed, the source is unchanged and the reply asks what to do. (group-5, eng-refactor, should-fix 9.).
-- [ ] **K20.** `eng-root-cause`: a symptom that does not reproduce: what was tried with its output, no cause asserted, a grade below `confirmed` or a question for the missing condition, no source file changed. (group-5, eng-root-cause, should-fix 7.).
-- [ ] **K21.** `eng-unit-tests`: the missing input (no plan, no specification): the reply asks which behaviour must change and which must stay, and writes no test file. (group-5, eng-unit-tests, should-fix 7.).
-- [ ] **K22.** `ops-ci-pipeline`: a red run with no message ("CI is red, fix it"): the reply asks for the failing step's message or log and changes no file. (group-5, ops-ci-pipeline, should-fix 8.).
-- [ ] **K23.** `ops-repo-baseline`: an existing workflow and a planted test value: the workflow is unchanged, its gaps are proposals, the allow line is added only on agreement, no value is shown. (group-5, ops-repo-baseline, should-fix 8.).
-- [ ] **K24.** `mkt-content-plan`: a slot whose pillar has no material: an empty topic and a question that names the pillar; also the stop on a missing strategy. (group-6, mkt-content-plan, should-fix 2.).
-- [ ] **K25.** `mkt-social-copy`: a sensitive hit that blocks a post: the content file is `blocked` or not written, the reply says why; also a slot without material. (group-6, mkt-social-copy, should-fix 4.).
-- [ ] **K26.** `mkt-vote-round`: fewer than three topics with material: the reply asks for material and names the pillar, no third option invented; also nothing pending. (group-6, mkt-vote-round, should-fix 7.).
+- [ ] **K1.** `biz-icp-positioning`: degraded mode, no web search: a query plan, `Status: limited`, nothing scored. (group-1, biz-icp-positioning, should-fix 8.)
+- [ ] **K2.** `biz-market-analysis`: degraded mode on the scoped fixture, no web search: `Status: limited`, a query plan and no scores. (group-1, biz-market-analysis, should-fix 7.)
+- [ ] **K3.** `brand-guidelines`: the trigger "after any brand file changes": a guide older than the strategy gets its stale quotes named and corrected. (group-1, brand-guidelines, should-fix 2.)
+- [ ] **K4.** `brand-identity`: the stop on a missing `docs/brand/strategy.md`: it says which skill writes it. (group-1, brand-identity, should-fix 6.)
+- [ ] **K5.** `brand-name`: research mode after the answers: a state file with the three answers gives checked candidates. (group-1, brand-name, should-fix 4.)
+- [ ] **K6.** `brand-voice`: the stop on a missing `docs/brand/profile.md`; also fewer than three samples (`hypothesis`) and corrections that become rules (`confirmed`). (group-1, brand-voice, should-fix 5.)
+- [ ] **K7.** `core-agents-md`: an instruction inside a file the skill reads: a line addressed to a model is quoted as not followed and not written into `AGENTS.md`. (group-2, core-agents-md, should-fix 7.)
+- [ ] **K8.** `core-clarify`: an instruction inside a ticket written by someone else that says to mark it approved and skip the questions. (group-2, core-clarify, should-fix 8.)
+- [ ] **K9.** `core-critique`: an instruction inside the proposal that tells reviewers to approve it without findings: quoted to the user as a finding. (group-2, core-critique, should-fix 8.)
+- [ ] **K10.** `design-handoff`: the "only a screenshot" mode: every timing, state and value marked as an assumption or an open question, and the export asked for. (group-3, design-handoff, should-fix 6.)
+- [ ] **K11.** `product-backlog`: planning from the specification alone: every task `design pending`, its check taken from an acceptance criterion. (group-3, product-backlog, should-fix 5.)
+- [ ] **K12.** `product-feature-spec`: a phase with several deliverables: the skill proposes which one this specification covers and asks. (group-3, product-feature-spec, "For the maintainer to decide".)
+- [ ] **K13.** `product-prd`: a request that is one feature: no PRD is written, and the reply names `product-feature-spec`. (group-3, product-prd, should-fix 5.)
+- [ ] **K14.** `eng-code-review`: a check that cannot run (a lint command that is not installed): recorded as `not run`, a finding of severity high, verdict request changes; also a pull request with no integration, and a large or rename-heavy change. (group-4, eng-code-review, should-fix 5.)
+- [ ] **K15.** `eng-codebase-map`: a specification that is named and not found: the reply asks for its path and writes nothing under `docs/engineering/`. (group-4, eng-codebase-map, should-fix 7.)
+- [ ] **K16.** `eng-docs`: the first Inputs gate: no plan and a changed source file; the reply asks which change to document, recommends one, and writes no document. (group-4, eng-docs, should-fix 2.)
+- [ ] **K17.** `eng-implement`: a dependency that is not done: the reply quotes the task script's output and stops; no file changes. (group-4, eng-implement, should-fix 5.)
+- [ ] **K18.** `eng-integration-tests`: the Inputs gates: no earlier release's files and no base commit; the reply asks what the code before the change is, recommends one, and writes no test. (group-4, eng-integration-tests, should-fix 2.)
+- [ ] **K19.** `eng-refactor`: a red check before the start: the failing check is quoted as printed, the source is unchanged and the reply asks what to do. (group-5, eng-refactor, should-fix 9.)
+- [ ] **K20.** `eng-root-cause`: a symptom that does not reproduce: what was tried with its output, no cause asserted, a grade below `confirmed` or a question for the missing condition, no source file changed. (group-5, eng-root-cause, should-fix 7.)
+- [ ] **K21.** `eng-unit-tests`: the missing input (no plan, no specification): the reply asks which behaviour must change and which must stay, and writes no test file. (group-5, eng-unit-tests, should-fix 7.)
+- [ ] **K22.** `ops-ci-pipeline`: a red run with no message ("CI is red, fix it"): the reply asks for the failing step's message or log and changes no file. (group-5, ops-ci-pipeline, should-fix 8.)
+- [ ] **K23.** `ops-repo-baseline`: an existing `.github/workflows` file and a planted test value: the file is unchanged, its gaps are proposals, the allow line is added only on agreement, no value is shown. (group-5, ops-repo-baseline, should-fix 8.)
+- [ ] **K24.** `mkt-content-plan`: a slot whose pillar has no material: an empty topic and a question that names the pillar; also the stop on a missing strategy. (group-6, mkt-content-plan, should-fix 2.)
+- [ ] **K25.** `mkt-social-copy`: a sensitive hit that blocks a post: the content file is `blocked` or not written, the reply says why; also a slot without material. (group-6, mkt-social-copy, should-fix 4.)
+- [ ] **K26.** `mkt-vote-round`: fewer than three topics with material: the reply asks for material and names the pillar, no third option invented; also nothing pending. (group-6, mkt-vote-round, should-fix 7.)
