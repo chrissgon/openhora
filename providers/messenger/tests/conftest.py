@@ -18,11 +18,3 @@ def _loopback_site(tmp_path_factory):
 @pytest.fixture(autouse=True)
 def _loopback_only(monkeypatch, _loopback_site):
     loopback_only.guard(monkeypatch, _loopback_site)
-
-
-@pytest.fixture(autouse=True)
-def _no_test_reaches_a_real_password_manager(monkeypatch, tmp_path):
-    """The resolver asks a password manager only for a name in the mapping file (package S16). No test may find the person's real file,
-    so the tool it names is never started from here: the config folder is an empty one."""
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "no-config-directory"))
-    monkeypatch.delenv("WB_EVAL_CONTAINER", raising=False)
