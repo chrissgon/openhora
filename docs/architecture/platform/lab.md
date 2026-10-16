@@ -58,7 +58,6 @@ Measurement version 10, measurement floor 6.
 | `models` | 2 keys: `claude-sonnet-5-5`, `openrouter/deepseek/deepseek-v4.1-flash` |
 | `lab_models` | 2 names, not shown |
 | `epochs` | 4 entries, each with `date`, `models`, `skills`, `cause` |
-| `measurement_sha256` | text, not shown |
 <!-- /generated -->
 
 ## Abstractions
@@ -90,7 +89,7 @@ Measurement version 10, measurement floor 6.
 
 **The case hash.** Over the whole case object and the bytes of its fixtures (`workbench_files` as a list of paths). A line whose case hash differs weighs 0, so a change to one case drops that case's evidence only. Beside it, the context hash covers the dependency skills and staged references.
 
-**The early-end rule.** A run that exited 0, changed no file and whose reply is not a reply to the user (empty, markup printed as text, or a short announcement of a next action) is made again and never scored; a stop that names what it lacks, or a question, is never one (`measure.early_end`). One rule no written file excuses: a loop of raw tool-call syntax printed as text (the call markup of a model, DeepSeek's `<｜DSML` included) is an early end, a file or not. A line is markup when it holds a tag of `early_end.markup` or `<parameter` anywhere in it, or lies inside a call block (from an opening call tag to its closing one: a write call's content too); fenced code blocks (by their length, a fence left open at the end not counting), indented code and inline code spans are left out; the loop is at least 20 markup lines and at least half of the counted lines or of their characters (`early_end.collapse` of `evals/measurement.json`, T27). The rule is the lab's, so it reaches the runtime's runs too: such a run is made again, a paid retry.
+**The early-end rule.** A run that exited 0, changed no file and whose reply is not a reply to the user (empty, markup printed as text, or a short announcement of a next action) is made again and never scored; a stop that names what it lacks, or a question, is never one (`measure.early_end`). One rule no written file excuses: a loop of raw tool-call syntax printed as text (the call markup of a model, DeepSeek's `<｜DSML` included) is an early end, a file or not. A line is markup when it holds a tag of `early_end.markup` or `<parameter` anywhere in it, or lies inside a call block (from an opening call tag that starts its line to its closing one: a write call's content too; a sentence that mentions a tag opens none, and a block that never closes is not one); fenced code blocks (by their length, a fence left open at the end not counting), indented code and inline code spans are left out; the loop is at least 20 markup lines and at least half of the counted lines or of their characters (`early_end.collapse` of `evals/measurement.json`, T27). The rule is the lab's, so it reaches the runtime's runs too: such a run is made again, a paid retry.
 
 **Contamination.** A without-skill run must not reach the skill: by construction its container holds neither the skill nor the shared references; a run whose output names a workbench mount or the repository's path is an infrastructure failure, never a score; a shared passage of the skill's text in its output is a warning.
 

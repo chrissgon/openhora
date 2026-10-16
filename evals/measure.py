@@ -79,17 +79,21 @@ COLLAPSE_EXTRA = ("<parameter",)  # a parameter of a call, beside the entries of
 COLLAPSE_BLOCKS = ("function_calls", "tool_call", "invoke", "skill_tool", "system-reminder")  # the tags that open a call block
 COLLAPSE_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 COLLAPSE_CODE_SPAN_RE = re.compile(r"`[^`]*`")
-COLLAPSE_RESCANS = 8  # fences left open at the end are ignored one by one; past this many, fences are off from the last one on
+COLLAPSE_RESCANS = 8  # fences and blocks left open at the end are ignored one by one; past this many, they are off from the last one on
+COLLAPSE_TAG_SPAN = 200  # a tag is read to its ">" within this many characters, so a long line is read in linear time
 
 
 def _collapse_tag_re():
     """A tag of the markup entries, anywhere in a line, opening or closing. A name made of letters ends where the
     tag does (so "<parameters>", "<parameterDefinition>" and "<tool_calls>" are not "<parameter" and "<tool_call");
-    an entry that is a special-token prefix ("<|tool", "<｜dsml") has no such end, its name goes on."""
+    an entry that is a special-token prefix ("<|tool", "<｜dsml") has no such end, its name goes on. The tags are
+    matched in any case, except "parameter": the syntax of a call has it in lower case, and another format's
+    <Parameter name=... value=.../> is not a call."""
     words, tokens = [], []
     for entry in EARLY_END_MARKUP + COLLAPSE_EXTRA:
         body = entry[1:].lower()
-        (tokens if body[:1] in ("|", "｜") else words).append(re.escape(body))
+        piece = "(?-i:" + re.escape(body) + ")" if body == "parameter" else re.escape(body)
+        (tokens if body[:1] in ("|", "｜") else words).append(piece)
     parts = []
     if words:
         parts.append("(?:" + "|".join(words) + ")(?![A-Za-z0-9_-])")
@@ -101,28 +105,32 @@ def _collapse_tag_re():
 COLLAPSE_TAG_RE = _collapse_tag_re()
 
 
-def _collapse_depth(line, depth):
-    """The call-block depth after the tags of a line, and whether the line holds a tag."""
+def _collapse_tags(line):
+    """(whether the line holds a tag, [+1 for each call block it opens, -1 for each it closes]). A block opens only
+    when its tag starts the line or follows only other tags, so a sentence that mentions a tag ("Each call is printed
+    as <invoke name=...> by the old format.") opens nothing; a closing tag always closes. Linear in the line."""
     clean = COLLAPSE_CODE_SPAN_RE.sub("", line)
-    found = False
+    found, moves = False, []
+    chain, previous = True, 0  # chain: nothing but tags and spaces precede this tag on the line
     for m in COLLAPSE_TAG_RE.finditer(clean):
         found = True
-        text = clean[m.start():]
-        end = text.find(">")
-        text = text[:end + 1] if end >= 0 else text
-        name = re.split(r"[\s>]", text.lower())[0]  # the tag's name, without its attributes
+        chain = chain and not clean[previous:m.start()].strip()
+        end = clean.find(">", m.start(), m.start() + COLLAPSE_TAG_SPAN)
+        span = clean[m.start():end + 1] if end >= 0 else clean[m.start():m.start() + COLLAPSE_TAG_SPAN]
+        previous = end + 1 if end >= 0 else m.end()
+        name = re.split(r"[\s>]", span.lower())[0]  # the tag's name, without its attributes
         block = any(word in name for word in COLLAPSE_BLOCKS)
         if re.search(r"[\u2581_]end", name) or (m.group(1) and block):
-            depth = max(0, depth - 1)
-        elif not m.group(1) and (re.search(r"[\u2581_]begin", name) or (block and not text.endswith("/>"))):
-            depth += 1
-    return depth, found
+            moves.append(-1)
+        elif chain and not m.group(1) and (re.search(r"[\u2581_]begin", name) or (block and not span.endswith("/>"))):
+            moves.append(1)
+    return found, moves
 
 
-def _collapse_scan(lines, ignored, off_from):
+def _collapse_scan(lines, ignored, off_from, ignored_blocks, blocks_off):
     """(lines counted, markup lines, characters counted, markup characters, the index of a fence still open at the
-    end or None)."""
-    depth, fence, opened = 0, None, None
+    end or None, the index of the line that opened the outermost call block still open at the end or None)."""
+    stack, fence, opened = [], None, None
     counted = markup = chars = markup_chars = 0
     for i, raw in enumerate(lines):
         line = raw.strip()
@@ -133,7 +141,7 @@ def _collapse_scan(lines, ignored, off_from):
             if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= fence[1] and not raw.strip().strip(fence[0]):
                 fence = None
             continue
-        if depth == 0:
+        if not stack:
             m = COLLAPSE_FENCE_RE.match(raw)
             if m and i not in ignored and (off_from is None or i < off_from):
                 fence, opened = (m.group(1)[0], len(m.group(1))), i
@@ -142,12 +150,18 @@ def _collapse_scan(lines, ignored, off_from):
                 continue  # indented code
         counted += 1
         chars += len(line)
-        inside = depth > 0
-        depth, found = _collapse_depth(line, depth)
+        inside = bool(stack)
+        found, moves = _collapse_tags(line)
+        for move in moves:
+            if move < 0:
+                if stack:
+                    stack.pop()
+            elif i not in ignored_blocks and (blocks_off is None or i < blocks_off):
+                stack.append(i)
         if inside or found:
             markup += 1
             markup_chars += len(line)
-    return counted, markup, chars, markup_chars, (opened if fence is not None else None)
+    return counted, markup, chars, markup_chars, (opened if fence is not None else None), (stack[0] if stack else None)
 
 
 def collapse_loop(response):
@@ -156,19 +170,27 @@ def collapse_loop(response):
     same; a fence still open at the end is not one, and the lines after it are counted) and outside indented code (four
     spaces or a tab), where a line is markup when it holds a tag of EARLY_END_MARKUP or "<parameter", closing or
     opening, anywhere in it, outside an inline code span, or when it lies inside a call block (from an opening call tag
-    to its closing one: a write call's content is markup too; a fence inside a block does not toggle). A loop: at least
-    EARLY_END_COLLAPSE_MIN_LINES markup lines and at least EARLY_END_COLLAPSE_SHARE of the counted lines or of their
-    characters."""
+    that starts its line, or follows only tags, to its closing one: a write call's content is markup too; a block
+    whose closing tag never comes is not one, and the lines after it are counted; a fence inside a block does not
+    toggle). A loop: at least EARLY_END_COLLAPSE_MIN_LINES markup lines and at least EARLY_END_COLLAPSE_SHARE of the
+    counted lines or of their characters. By design a loop written on one line, with no newline, is one line, under the
+    minimum."""
     lines = response.splitlines()
-    ignored, off_from = set(), None
-    for attempt in range(COLLAPSE_RESCANS + 2):
-        counted, markup, chars, markup_chars, unclosed = _collapse_scan(lines, ignored, off_from)
-        if unclosed is None:
+    ignored, off_from, ignored_blocks, blocks_off = set(), None, set(), None
+    for attempt in range(2 * COLLAPSE_RESCANS + 3):
+        counted, markup, chars, markup_chars, fence, block = _collapse_scan(lines, ignored, off_from, ignored_blocks, blocks_off)
+        if fence is None and block is None:
             break
-        if attempt >= COLLAPSE_RESCANS:
-            off_from = unclosed
+        late = attempt >= COLLAPSE_RESCANS
+        if fence is not None:
+            if late:
+                off_from = fence
+            else:
+                ignored.add(fence)
+        elif late:
+            blocks_off = block
         else:
-            ignored.add(unclosed)
+            ignored_blocks.add(block)
     if markup >= EARLY_END_COLLAPSE_MIN_LINES and (markup >= EARLY_END_COLLAPSE_SHARE * counted
                                                    or markup_chars >= EARLY_END_COLLAPSE_SHARE * chars):
         return f"{markup} of {counted} lines"

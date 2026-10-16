@@ -319,8 +319,8 @@ def test_markup_after_prose_on_the_same_line_counts():
 
 
 def test_a_fence_inside_a_call_block_does_not_toggle_and_a_fence_in_a_fence_needs_its_length():
-    inner = ["<｜DSML｜invoke name=w>", "<｜DSML｜parameter name=content>", "```", "code", "```"] * 8
-    assert measure.collapse_loop("\n".join(inner)) == "40 of 40 lines"
+    inner = ["<｜DSML｜invoke name=w>", "<｜DSML｜parameter name=content>", "```", "code", "```", "</｜DSML｜parameter>", "</｜DSML｜invoke>"] * 6
+    assert measure.collapse_loop("\n".join(inner)) == "42 of 42 lines"
     quoted = "````\n```\n" + "\n".join(["<invoke name=x>"] * 25) + "\n```\n````"
     assert measure.collapse_loop(quoted) is None
     assert measure.collapse_loop("~~~~\n~~~\n" + "\n".join(["<invoke name=x>"] * 25) + "\n~~~\n~~~~") is None
@@ -352,3 +352,44 @@ def test_the_characters_share_catches_a_loop_with_a_few_very_long_lines():
     prose = [f"A short plain line number {n}." for n in range(30)]
     assert measure.collapse_loop("\n".join([long_call] * 20 + prose)) == "20 of 50 lines"
     assert measure.collapse_loop("\n".join([long_call] * 20 + prose * 2)) is not None  # 20 of 80 lines, but most of the characters
+
+
+# --- T27, second review: a sentence that mentions a tag, a long line, and a tag of another format ---------------------
+
+PROSE_LINES = [f"A plain line of the report, number {n}, about what the change does." for n in range(30)]
+
+
+@pytest.mark.parametrize("sentence", [
+    "The harness wraps its notes in a <system-reminder> tag before the model sees them.",
+    "Each tool call is printed as <invoke name=...> by the old format.",
+    "Wrap the agent's instructions in <function_calls> only when the API needs it.",
+    "<invoke name=x> is the old format, and it is gone.",   # a tag that starts the line but is never closed: not a block
+])
+def test_a_sentence_that_mentions_a_call_tag_does_not_turn_the_lines_after_it_into_markup(sentence):
+    reply = sentence + "\n" + "\n".join(PROSE_LINES)
+    assert measure.collapse_loop(reply) is None
+    assert measure.early_end(reply, {"docs/report.md": 1.0}) is None
+
+
+def test_a_block_that_never_closes_is_not_one_but_its_own_tag_lines_still_count():
+    assert measure.collapse_loop("\n".join(["<invoke name=x>"] * 25)) == "25 of 25 lines"
+    assert measure.collapse_loop("\n".join(["<invoke name=x>"] * 20000)) is not None  # bounded rescans, no quadratic work
+    closed = ["<function_calls>", "<invoke name=w>"] + PROSE_LINES[:20] + ["</invoke>", "</function_calls>"]
+    assert measure.collapse_loop("\n".join(closed)) == "24 of 24 lines"  # a closed block holds its content
+
+
+def test_a_loop_written_on_one_line_is_one_line_by_design_and_a_long_line_is_read_in_linear_time():
+    import time
+    one_line = "<invoke name=x/>" * 12500   # 200,000 characters, no newline
+    began = time.monotonic()
+    assert measure.collapse_loop(one_line) is None  # one line, under the minimum of 20
+    assert measure.collapse_loop("<invoke " * 25000) is None
+    assert measure.collapse_loop("<function_calls>" * 12500 + "\n" + "\n".join(["<invoke name=x/>"] * 25)) is not None
+    assert time.monotonic() - began < 1.0
+
+
+def test_another_formats_parameter_tag_is_not_a_call():
+    tomcat = "\n".join(f'<Parameter name="p{n}" value="v{n}"/>' for n in range(30))
+    assert measure.collapse_loop(tomcat) is None
+    assert measure.collapse_loop("\n".join(f'<parameter name="p{n}">v</parameter>' for n in range(30))) is not None
+    assert measure.collapse_loop("\n".join(["<System-Reminder>"] * 25)) is not None  # the other tags keep matching in any case

@@ -10,7 +10,9 @@
 # (read, grep or bash naming the SKILL.md of one skill); and "skills_used" (R12), every skill whose folder a command,
 # a path or a pattern names (never a write's content or a subagent's prompt), a script run by its path, a reference
 # read, a listing of the folder: a superset of "skills_loaded", so a
-# follow-up run that ran a script without reading the skill's text is used and not loaded) and
+# follow-up run that ran a script without reading the skill's text is used and not loaded; one command or grep that names
+# the SKILL.md of two skills loads neither, an under-report: both are used; the folder ends at "/", whitespace, a
+# quote, a backtick, one of ; | ) & < > : or the end) and
 # <out>/stream.jsonl, the runner's whole event stream (`run --format json`), kept beside the reply and never
 # shown to the grader. A custom runner (RUN_PROMPT_CMD) prints text:
 # that text is the reply, and its tokens are unknown (null). It installs nothing: the eval

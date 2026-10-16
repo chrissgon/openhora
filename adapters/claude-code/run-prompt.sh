@@ -13,8 +13,9 @@
 # names in a command, a path or a pattern (a script run by its path, a reference read, a listing of the folder; never a
 # Write's content or a subagent's prompt), a superset of "skills_loaded":
 # a follow-up run that ran a skill's script without reading its text is "used" and not "loaded". A name is
-# letters, digits, "." "_" "-" and does not start with a dot; the folder is followed by "/", a space, a quote
-# or the end. A subagent's tool calls count as the model's. It installs nothing: the eval runner stages the
+# letters, digits, "." "_" "-" and does not start with a dot; the folder is followed by "/", whitespace, a quote, a
+# backtick, one of ; | ) & < > : or the end. One command or grep that names the SKILL.md of two skills loads neither
+# (an under-report: both are used). A subagent's tool calls count as the model's. It installs nothing: the eval runner stages the
 # skill under test and a case's dependency skills in <cwd>/.claude/skills/<name> before this script
 # starts ("skills_dir" of this adapter's eval.json names that folder; scripts/stage_skills.py copies them),
 # so they are discoverable at project scope. Settings are limited to the project scope; the runner
