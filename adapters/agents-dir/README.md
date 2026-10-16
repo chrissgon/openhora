@@ -52,11 +52,17 @@ Learned in a cloud session on 2026-09-28 (`opencode-ai@1.18.32`):
 
 `run-prompt.sh` starts the runner in a session of its own, so the runner and everything it starts (model sessions, browsers, servers) form one process group. The group is ended, with TERM and then KILL after two seconds, when the runner returns and when the script itself gets TERM, INT or HUP (it then exits with 143). `eval_run.py` does the same one level up for every adapter call and setup command, on a timeout, on a signal and on any way out, so stopping an evaluation leaves no model session working. Before this, killing `eval_run.py` or passing a timeout left the sessions alive for many minutes. A process that moves itself into yet another session escapes this.
 
-## A model on your own machine (Ollama)
+## A model on your own machine, in the eval container
 
-Not wired to the eval container yet: evals now run in a container whose network reaches only the hosted providers, so a model served on the person's machine is not reachable from a run until the executor gains a route to it (backlog N14, split from T12, which is archived). What follows describes the adapter's side, which is unchanged.
+A model id `local/<name>@<12 hex>` runs a model served on this machine, from a model server container that the eval executor starts beside the run (backlog N14). The runner resolves `local/<name>` to the full id by hashing the weights file named in the person's local models file; `evals/README.md`, "Testing a local model", is the procedure, and `docs/architecture/platform/lab.md` the design.
 
-A model id `ollama/<name>` runs a model served by Ollama on this machine (`http://127.0.0.1:11434`, or `RUN_PROMPT_OLLAMA_URL`). The adapter writes the provider entry into the run's throwaway home; nothing is added to the case folder and no key is needed.
+What `run-prompt.sh` does for it: it requires `LOCAL_MODEL_BASE_URL` (a plain `http://<host>:<port>/v1` URL: the model server on the run's internal network) and `LOCAL_MODEL_CONTEXT` (the server's context in tokens), both set by the executor, and writes a provider `local` into the throwaway home's `opencode.json`: `@ai-sdk/openai-compatible` with that base URL, and the model `<name>@<12 hex>` with `limit.context` from `LOCAL_MODEL_CONTEXT` (and an output limit of a quarter of it, at most 8192). No key is written or passed. OpenCode 1.18.32 ships that SDK in its binary: a run on an internal network with no route to the internet (and a throwaway home with no package cache) started, called the server and answered, so nothing is downloaded at run time and `evals/container/` is unchanged. The model's calls go to the server and to nothing else; the run's network has no other host.
+
+The model server is the llama.cpp server, started with the chat template engine (`--jinja`, which tool calls need), one slot and an explicit context. A local model serves one request at a time, so a run's calls queue behind one another, and the weights are loaded for every run. `--max-cost-usd` does not apply (nothing is billed); the bound on a run is the event's timeout and the context.
+
+## A model on your own machine, outside the container (Ollama, host only)
+
+A model id `ollama/<name>` runs a model served by Ollama on this machine (`http://127.0.0.1:11434`, or `RUN_PROMPT_OLLAMA_URL`). It is the host-only way and it is **not reachable from the eval container**: the container's network has no route to the host, by design. It stays described because the adapter's side is unchanged and a person can use it outside the lab with their own runner; a skill test of a local model goes through the `local/` route above. The adapter writes the provider entry into the run's throwaway home; nothing is added to the case folder and no key is needed.
 
 Ollama's default context is too small for the runner's own prompt plus a skill, and the OpenAI-compatible endpoint the runner uses cannot set it per request. Create a variant with a larger context once, and use that name:
 
@@ -66,12 +72,4 @@ printf 'FROM <model>:<tag>\nPARAMETER num_ctx 32768\n' > Modelfile
 ollama create <model>-32k -f Modelfile
 ```
 
-Then run that model one run at a time (a local model serves one request at a time; more jobs only queue and hit the timeout):
-
-```bash
-python3 evals/eval_run.py --skill <name> --model ollama/<model>-32k --harness agents-dir --jobs 1 --timeout 1800
-```
-
-A local model is a measured goal, not the gate: a test on it is made with another model than the gate file's, so it writes its files into the scratch tree of its run folder and no evidence.
-
-Memory: the model's file size plus the context must fit in the machine's memory with room to spare; a variant that swaps is slower than the timeout allows.
+A local model serves one request at a time; more jobs only queue and hit the timeout. Memory: the model's file size plus the context must fit in the machine's memory with room to spare; a variant that swaps is slower than the timeout allows. The llama.cpp server of the container route makes both explicit (`-c`, one slot, a memory limit); Ollama does neither, which is why the container route does not use it.

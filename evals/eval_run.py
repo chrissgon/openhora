@@ -29,6 +29,20 @@ event a trial. --threshold defaults to the gate file's, and 0.8 without the file
 are required. Whose evidence a test is follows from the models it ran (below, "Evidence"): the gate file's lab models
 write into the skill; any other model writes to the person's local evidence folder, outside the checkout.
 
+A local model (backlog N14). --model local/<name> runs a model served on this machine: <name> is an entry of the local
+models file ($XDG_CONFIG_HOME/openhora/local-models.json, else ~/.config/openhora/local-models.json; evals/local_models.py
+describes it and `python3 evals/local_models.py check <name>` shows what an entry resolves to). The runner hashes the
+weights once per event (and again on --resume) and runs the model under its full id, local/<name>@<12 hex of the sha256>.
+Each run gets a model server container of its own beside it (evals/executor.py, "A local model") that the run reaches
+and nothing else. A local model is tested alone (an event that mixes it with another model is refused), through the
+agents-dir adapter (any other --harness is refused), with no web case (a stated error names the cases; --cases chooses
+the others), with --jobs at most the entry's "parallel" (a note says so), and with the entry's timeout_seconds as the
+configured limit of the event. Its evidence is a person's own: it goes to the local evidence folder and the event line
+carries "local_model" (the weights' hash, file type, context, accelerator, the server image and version, the hash of its
+arguments). The weights are checked against their (device, inode, size, mtime) before every server and at the end of the
+event: a change fails the run as infrastructure and makes the event a trial. The grader is still the gate file's: a local
+test makes paid grading calls on the grader's account. The runtime never runs a local model.
+
 The grader is a model of its own. "grader" of the gate file names a listed model, and every grading goes through that
 model's entry: its adapter, its runner, the account-limit markers of that adapter and the variables of its key,
 whichever models the event runs and in whatever order (a model of the event that is also the grader is graded by the
@@ -552,6 +566,90 @@ class _Runner:
 _RUNNER = _Runner()
 
 
+LOCAL_PREFIX = "local/"  # a model on the person's own machine (evals/local_models.py)
+
+
+def local_models():
+    """evals/local_models.py as a module: a model on the person's machine, its configuration, weights and identity."""
+    return KIT.load_local_models()
+
+
+def local_models_option(opts, models, standalone_run, timeout_given, control):
+    """The --model options of an event that names a local model (local/<name>): the refusals, and the model's id once the
+    weights are hashed (local/<name>@<12 hex>). Fills opts["local"], the model's description (local_models.resolve() and
+    the configuration's values), and opts["harness"] (agents-dir: the only adapter that serves one). Returns the event's
+    list of models. A local model is tested alone, through agents-dir, with no web case, and with the configured timeout:
+    --dry-run and the modes that run nothing do not hash the file."""
+    lm = local_models()
+    if len(models) != 1:
+        die("a local model is tested alone: an event that mixes it with another model is refused (one machine's CPU, memory "
+            "and GPU are shared by every run of the event, and a hosted model's runs would be timed against them). Give --model "
+            "once.", 2)
+    if opts["harness"] not in (None, "agents-dir"):
+        die("a local model runs through the agents-dir adapter only (its runner writes the local provider); drop --harness.", 2)
+    if opts["routing"] or opts["regrade"] is not None:
+        die("--routing and --regrade take a hosted model: a local model is tested with --skill.", 2)
+    try:
+        name, typed = lm.parse_id(models[0])
+        config = lm.load_config()
+        if name not in config:
+            raise lm.LocalModelError(f"{name!r} is not in the local models file {lm.config_path()}: it lists "
+                                     f"{', '.join(sorted(config)) or 'none'}")
+        spec = {**config[name], "name": name, "typed_hex": typed}
+        if opts["dry"] or standalone_run:  # nothing runs: the file is not hashed
+            opts["local"] = {**spec, "id": models[0]}
+        else:
+            print(f"hashing the weights of {name} ({os.path.getsize(spec['weights'])} bytes) once for this event...", file=sys.stderr)
+            opts["local"] = resolve_local(name, typed, config)
+    except lm.LocalModelError as e:
+        die(str(e), 2)
+    opts["harness"] = "agents-dir"
+    if not timeout_given:  # the declared limit is the configured one for this event (scratch_reason reads it)
+        opts["timeout"] = opts["local"]["timeout_seconds"] or control["timeout_seconds"]
+    return [opts["local"]["id"]]
+
+
+def resolve_local(name, typed_hex, config):
+    """local_models.resolve() for the event, with the docker host's CPU count left to the event's start when the
+    configuration gives none, and the description made plain (JSON) so that it can be kept in the event's options."""
+    spec = local_models().resolve(name, typed_hex, config)
+    return {**spec, "stat": list(spec["stat"])}
+
+
+def local_server_spec(local, cpus=None):
+    """What the model server of a local model is started with (executor.local_server_argv)."""
+    return {"alias": local["alias"], "context": local["context"], "memory_gb": local["memory_gb"],
+            "accelerator": local["accelerator"], "cpus": cpus or local["cpus"],
+            "load_timeout_seconds": local.get("load_timeout_seconds")}
+
+
+def describe_local(local):
+    """The event line's "local_model" for a local model: {model id: {"weights_sha256", "file_type", "context",
+    "accelerator", "server_image", "server_version", "server_args_sha256"}}. The model server image is checked present (and
+    never pulled), its version is read once in a container with no network, and the hash is of the server's arguments with the
+    run id, the weights path and the user replaced by constants: a property of the configuration, not of this machine's paths."""
+    ex = load_executor()
+    ex.verify_local_server(local["accelerator"])
+    server = ex.local_server(local["accelerator"])
+    argv = ex.local_server_argv("0" * 16, local_server_spec(local), server["image"], server["platform"], "/weights/model.gguf",
+                                ["--user", "0:0"])
+    return {local["id"]: {"weights_sha256": local["weights_sha256"], "file_type": local["file_type"], "context": local["context"],
+                          "accelerator": local["accelerator"], "server_image": server["manifest_digest"],
+                          "server_version": ex.local_server_version(local["accelerator"]),
+                          "server_args_sha256": hashlib.sha256(json.dumps(argv).encode("utf-8")).hexdigest()}}
+
+
+def cap_local_jobs(opts):
+    """--jobs of a local model's event is at most the model's "parallel": the machine's CPU, GPU and memory are the shared
+    resource (principle 7 of AGENTS.md says when work is run one after another), and a second server at once doubles the
+    cache memory and slows both."""
+    local = opts.get("local")
+    if local and opts["jobs"] > local["parallel"]:
+        print(f"NOTE --jobs {opts['jobs']} lowered to {local['parallel']}: \"parallel\" of {local['name']} in the local models file "
+              "is how many runs this machine serves at once.", file=sys.stderr)
+        opts["jobs"] = local["parallel"]
+
+
 def parse(argv):
     opts = {"skill": None, "harness": None, "models": [], "grader": None, "cases": [],
             "threshold": None, "only": None, "grade": True, "dry": False, "pass_env": [], "ablate": None,
@@ -605,6 +703,7 @@ def parse(argv):
     # The runs of a case, the limit of a run and the retries have one home, the gate file; a flag is for a
     # trial, and an event made with another value than the configured one writes no evidence.
     control = load_status().event_config(gate)
+    timeout_given = opts["timeout"] is not None  # a local model's configured limit replaces the gate file's, unless --timeout is given
     for key, name in (("runs", "runs"), ("timeout", "timeout_seconds"), ("retries", "retries")):
         if opts[key] is None:
             opts[key] = control[name]
@@ -626,6 +725,9 @@ def parse(argv):
     for name in models:
         if not status.MODEL_RE.fullmatch(name):
             die(f"--model {name!r} is not a model id (letters, digits and . _ : / @ -).")
+    opts["local"] = None
+    if any(m.startswith(LOCAL_PREFIX) for m in models):
+        models = local_models_option(opts, models, standalone_run, timeout_given, control)
     resolved, entries = [], {}
     for name in models:  # a listed model runs under its listed id, whichever alias named it
         entry = status.model_entry(gate, name) if gate else None
@@ -740,6 +842,7 @@ def parse(argv):
         die("--runs, --jobs and --timeout take whole numbers.")
     if not 1 <= opts["jobs"] <= 8:
         die("--jobs must be between 1 and 8.")
+    cap_local_jobs(opts)
     if not 1 <= opts["runs"] <= 10:
         die("--runs must be between 1 and 10.")
     try:
@@ -2111,9 +2214,12 @@ def scratch_reason(o, gate, environment, version=None, fingerprint=None):
     if gate:
         control = load_status().event_config(gate)
         for key, name in (("runs", "runs"), ("timeout", "timeout_seconds"), ("retries", "retries")):
-            if o[key] != control[name]:
-                return (f"the event ran with {key} {o[key]}, and the configured value is {control[name]} "
-                        f"(evals/eval-gate.json, {name}): evidence is written only at the configured values")
+            configured, where = control[name], f"evals/eval-gate.json, {name}"
+            if key == "timeout" and (o.get("local") or {}).get("timeout_seconds"):  # a local model declares its own limit
+                configured, where = o["local"]["timeout_seconds"], f"the local models file, timeout_seconds of {o['local']['name']}"
+            if o[key] != configured:
+                return (f"the event ran with {key} {o[key]}, and the configured value is {configured} "
+                        f"({where}): evidence is written only at the configured values")
         # A named model is no trial: whichever model the event runs, its evidence has a home (evidence_home). What stays
         # configured is the grader, because the grading is part of what a score measures.
         if o["grader"] != gate.get("grader"):
@@ -2237,6 +2343,16 @@ def run(argv):
         if closing and resumed.get("state") != "open":
             die(f"the event {os.path.relpath(it_dir, ROOT)} is {resumed.get('state')}, not open: there is nothing to close.", 2)
         o = {**resumed["options"], "jobs": o["jobs"], "resume": o["resume"], "close": o["close"], "dry": False}
+        if o.get("local") and not closing:  # the weights are hashed again: a file that changed is not the model the event began with
+            saved, lm = o["local"], local_models()
+            keys = ("weights", "context", "memory_gb", "accelerator", "cpus", "parallel", "timeout_seconds", "load_timeout_seconds")
+            try:
+                again = resolve_local(saved["name"], saved["id"].split("@", 1)[1],
+                                      {saved["name"]: lm.check_entry(saved["name"], {k: saved[k] for k in keys if saved.get(k) is not None})})
+            except lm.LocalModelError as e:
+                die(f"the event {os.path.relpath(it_dir, ROOT)} cannot be resumed: {e}", 2)
+            o["local"] = {**again, "cpus": saved.get("cpus") or again.get("cpus")}
+            cap_local_jobs(o)
     status = load_status()
     gate = status.load_gate(ROOT)
     control = status.event_config(gate)
@@ -2257,6 +2373,12 @@ def run(argv):
     harness_for = {slot: o["adapters"][model] for slot, model in models}
     refuse_allow_commands(evals, cases)
     web = {c["id"]: allow_web(evals, c) for c in cases}
+    local = o.get("local")
+    if local and any(web.values()):  # a web run needs a second, open network: a local model's run reaches its server and nothing else
+        webbed = [str(c["id"]) for c in cases if web[c["id"]]]
+        die(f"case(s) {', '.join(webbed)} of {o['skill']} set \"allow_web\": a local model's run has no web (its network reaches "
+            "its model server and nothing else; web cases of a local model are a later package). Run the others with "
+            f"--cases <ids> (a partial test).", 2)
     # Only the cases the gate file lists run on the open network: nothing else opens it, whatever a case says.
     unlisted = [str(c["id"]) for c in cases if web[c["id"]] and not status.web_case_allowed(gate, o["skill"], c["id"])]
     if unlisted:
@@ -2317,6 +2439,23 @@ def run(argv):
             environment = load_executor().ensure()
         except Exception as e:
             die(f"the eval container is not available: {e}", 1)
+    local_line = None
+    if local and EXECUTOR == "container" and not o["dry"]:
+        try:  # the model server image is present (a test never pulls); what served the model is described once per event
+            if not local.get("cpus"):
+                local = o["local"] = {**local, "cpus": load_executor().host_cpus()}
+            saved = (resumed or {}).get("local_model")
+            # Described again on a resumption (the full hash of the weights, the pinned image and the arguments): runs of two
+            # servers or two files are not one measurement, and the event line states one.
+            local_line = saved if (closing and saved) else describe_local(local)
+        except Exception as e:
+            die(f"the local model's server is not available: {e}", 1)
+        if saved and local_line != saved:
+            die(f"the event {os.path.relpath(it_dir, ROOT)} cannot be resumed: the weights, the model server image or its arguments are "
+                f"not those it began with (its local_model {json.dumps(saved, sort_keys=True)}, now {json.dumps(local_line, sort_keys=True)}). "
+                "Start a new event.", 2)
+    local_box = ({k: local[k] for k in ("alias", "weights", "stat", "context", "memory_gb", "accelerator", "cpus", "load_timeout_seconds")}
+                 if local and not o["dry"] else None)  # a plan (--dry-run) hashed no file and has none of this
     if resumed is None:
         it_dir = next_iteration(os.path.join(ROOT, "evals-workspace", o["skill"]), claim=not o["dry"])
     ablated_dir, ablated_lines = None, 0
@@ -2398,6 +2537,7 @@ def run(argv):
                  "started": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
                  "content_sha256": start_hash, "version": version, "measurement_sha256": fingerprint, "cases": hashes,
                  "tools": tool_versions(), "state": "open", "passes": 1, "scratch": scratch,
+                 **({"local_model": local_line} if local_line else {}),
                  "plan": sorted({(str(c["id"]), v, t) for c, v, t, _, _ in jobs}),
                  "options": dict(o)}
     else:
@@ -2535,7 +2675,7 @@ def run(argv):
                 "refusal_markers": eval_for[slot]["refusal_markers"], "pass_env": model_env, "values": values,
                 "settings": settings, "control": control, "web": web[c["id"]], "timeout": o["timeout"],
                 "max_cost": o["max_cost"], "retries": o["retries"], "prompt": c["prompt"], "response_limit": 200000,
-                "counts": count}
+                "counts": count, **({"local": local_box} if local_box else {})}
         hooks = types.SimpleNamespace(before_attempt=before_attempt, build=build, after_base=after_base, stage=stage,
                                       before_run=before_run, after_run=after_run, judge=judge)
         result = load_attempts().run(_RUNNER, spec, hooks)
@@ -2661,6 +2801,12 @@ def run(argv):
         for fut in concurrent.futures.as_completed(done):
             for msg in fut.result()["msgs"]:
                 print(msg, file=sys.stderr)
+    if local and not scratch:  # the weights are looked at once more at the end: a change makes the event a trial
+        try:
+            local_models().assert_unchanged(local["weights"], local["stat"])
+        except local_models().LocalModelError as e:
+            scratch = f"{e}: the runs are not all of the model the event began with"
+            print(f"WARNING {scratch}", file=sys.stderr)
     ledger = ledger_read(it_dir)
     early_counts = {t: {"attempts": 0, "early_ends": 0, "by_case": {}, "by_variant": {}} for t, _ in models}
     counts = {t: {} for t, _ in models}
@@ -2822,6 +2968,7 @@ def run(argv):
                   "web_cases": bench["web_cases"], "counts": line_counts, "extra_pass_env": o["extra_pass_env"],
                   "complete": bool(complete_ref), "complete_models": [model_ids[t] for t, _ in models if complete_by[t]],
                   **({"upstream": upstream} if upstream else {}),
+                  **({"local_model": event["local_model"]} if event.get("local_model") else {}),
                   **({"image_source": environment["image_source"]} if (environment or {}).get("image_source") else {})}
     gate_result = None
     if kind == "full" and complete_ref:

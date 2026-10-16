@@ -5,13 +5,14 @@
 # ///
 """Orphan containers of the eval harness, removed on recovery (package P-OPS, finding I6).
 
-A run of the lab starts, for each run, a container (`wb-eval-run-<run id>`), a key proxy (`wb-eval-keys-<run id>`) and an
-internal network (`wb-eval-held-<run id>`). When the process that started them dies, the container ends with its command
-(`--rm`), but the key proxy and the network can stay. The executor labels everything it makes `wb.eval=1` and, for a run's own
+A run of the lab starts, for each run, a container (`wb-eval-run-<run id>`), a key proxy (`wb-eval-keys-<run id>`) or, for a
+local model, a model server (`wb-eval-model-<run id>`), and an internal network (`wb-eval-held-<run id>`). When the process
+that started them dies, the container ends with its command (`--rm`), but the key proxy or model server and the network can
+stay; the model server is treated like a key proxy. The executor labels everything it makes `wb.eval=1` and, for a run's own
 three, `wb.eval.run=<run id>`. This module finds what a dead run left and removes it.
 
-What is selected (and only this): a container or network whose NAME is a run's own, that is `wb-eval-run-<id>`, `wb-eval-keys-<id>`
-(containers) or `wb-eval-held-<id>` (networks), with `<id>` exactly 16 hexadecimal characters. A label alone selects nothing: the
+What is selected (and only this): a container or network whose NAME is a run's own, that is `wb-eval-run-<id>`, `wb-eval-keys-<id>`,
+`wb-eval-model-<id>` (containers) or `wb-eval-held-<id>` (networks), with `<id>` exactly 16 hexadecimal characters. A label alone selects nothing: the
 label `wb.eval.run=<id>` only says how the name was found (`via`: "label" when it agrees with the name, else "name", for what was
 started before the label existed). The harness's long-lived shared objects are never selected, whatever their labels: its egress proxy
 (`wb-eval-proxy-<tag>`), its networks (`wb-eval-net-<tag>`, `wb-eval-route-<name>-<tag>`, `wb-eval-open-...`) and its shared key holders
@@ -44,7 +45,7 @@ import sys
 
 RUN_ID = re.compile(r"[0-9a-f]{16}")
 LABEL_RUN = "wb.eval.run"                    # the label the harness puts on a run's own objects
-NAME_PREFIXES = {"container": ("wb-eval-run-", "wb-eval-keys-"), "network": ("wb-eval-held-",)}
+NAME_PREFIXES = {"container": ("wb-eval-run-", "wb-eval-keys-", "wb-eval-model-"), "network": ("wb-eval-held-",)}
 SHARED_PREFIXES = ("wb-eval-proxy-", "wb-eval-net-", "wb-eval-route-", "wb-eval-keys-strong-", "wb-eval-keys-net-", "wb-eval-open-",
                    "wb-eval-strong-held-")                                  # the harness's shared proxy, networks and key holders
 SHARED_KEYS = re.compile(r"wb-eval-keys-[0-9a-f]{12}")                      # a shared key holder: named after the definition's tag
@@ -60,7 +61,7 @@ def is_shared(name: str) -> bool:
 
 
 def run_of_name(kind: str, name: str):
-    """The run id a name carries (`wb-eval-run-<id>`, `wb-eval-keys-<id>`, `wb-eval-held-<id>`), or None: the tail must be exactly 16
+    """The run id a name carries (`wb-eval-run-<id>`, `wb-eval-keys-<id>`, `wb-eval-model-<id>`, `wb-eval-held-<id>`), or None: the tail must be exactly 16
     hexadecimal characters."""
     for prefix in NAME_PREFIXES[kind]:
         if name.startswith(prefix):

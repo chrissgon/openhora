@@ -29,6 +29,8 @@
 # A model id "ollama/<name>" runs a local model served by Ollama (http://127.0.0.1:11434, or
 # RUN_PROMPT_OLLAMA_URL): the provider entry is written into the throwaway HOME, never into the case
 # folder. Give the model a context that fits the runner's own prompt and the skill (see README.md).
+# A model id "local/<name>@<12 hex>" (the weights' hash) runs a model the eval container serves beside the run, on the
+# run's internal network (LOCAL_MODEL_BASE_URL, LOCAL_MODEL_CONTEXT; see the block below and README.md).
 # A model id "openrouter/<vendor>/<model>" with OPENROUTER_BASE_URL set (the eval container's key proxy) sends
 # its calls to that base URL; the key is the proxy's, and OPENROUTER_API_KEY in the run holds a placeholder.
 # Stopping this script (TERM, INT, HUP) stops the runner and everything it started.
@@ -51,7 +53,7 @@ while [[ $# -gt 0 ]]; do
       need "$@"
       [[ "$2" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "Error: --max-cost-usd needs a number, e.g. 0.50." >&2; exit 2; }
       CAPPED=1; shift 2 ;;
-    --help|-h) sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --help|-h) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Error: unknown option '$1'. See --help." >&2; exit 2 ;;
   esac
 done
@@ -106,6 +108,24 @@ name, url = sys.argv[1], sys.argv[2]
 print(json.dumps({"$schema": "https://opencode.ai/config.json", "provider": {"ollama": {
     "npm": "@ai-sdk/openai-compatible", "name": "Ollama (local)", "options": {"baseURL": url},
     "models": {name: {"name": name}}}}}))
+PY
+fi
+# A model id "local/<name>@<12 hex>" runs a model served by the model server the eval container starts beside the run
+# (evals/executor.py, "A local model"): LOCAL_MODEL_BASE_URL is the server's address on the run's internal network (a plain
+# http://<host>:<port>/v1 URL), LOCAL_MODEL_CONTEXT its context in tokens. The provider entry (provider "local", the
+# OpenAI-compatible SDK the runner ships) is written into the throwaway HOME; no key is needed and none is passed.
+if [[ "$MODEL" == local/* && -z "${RUN_PROMPT_CMD:-}" ]]; then
+  [[ "$MODEL" =~ ^local/[a-z0-9][a-z0-9._-]{0,63}@[0-9a-f]{12}$ ]] || { echo "Error: a local model id is local/<name>@<12 hex> (the name in lowercase letters, digits and . _ -)." >&2; exit 2; }
+  [[ "${LOCAL_MODEL_BASE_URL:-}" =~ ^http://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._/-]*)?$ ]] || { echo "Error: LOCAL_MODEL_BASE_URL must be a plain http://<host>:<port>/v1 URL (the container that runs this script sets it)." >&2; exit 2; }
+  [[ "${LOCAL_MODEL_CONTEXT:-}" =~ ^[0-9]{2,8}$ ]] || { echo "Error: LOCAL_MODEL_CONTEXT must be the model's context in tokens (the container that runs this script sets it)." >&2; exit 2; }
+  [[ -n "$ISO_HOME" ]] || { echo "Error: a local model needs the throwaway HOME (unset RUN_PROMPT_KEEP_HOME)." >&2; exit 2; }
+  mkdir -p "$XDG_CONFIG_HOME/opencode"
+  python3 - "${MODEL#local/}" "$LOCAL_MODEL_BASE_URL" "$LOCAL_MODEL_CONTEXT" > "$XDG_CONFIG_HOME/opencode/opencode.json" <<'PY'
+import json, sys
+name, url, context = sys.argv[1], sys.argv[2], int(sys.argv[3])
+print(json.dumps({"$schema": "https://opencode.ai/config.json", "provider": {"local": {
+    "npm": "@ai-sdk/openai-compatible", "name": "Local model", "options": {"baseURL": url},
+    "models": {name: {"name": name, "limit": {"context": context, "output": max(1, min(8192, context // 4))}}}}}}))
 PY
 fi
 # The eval container's key proxy holds the OpenRouter key: the run has a placeholder in OPENROUTER_API_KEY and
