@@ -273,8 +273,8 @@ out.small = [...small.walk()].filter((n) => (n.attrs.class || "").match(/wb-md-(
 const exact = renderMarkdown("a\n".repeat(RENDER_LIMIT / 2));
 out.exact = [...exact.walk()].filter((n) => (n.attrs.class || "").match(/wb-md-(rest|note)/)).length;
 
-// A shape is built for a size n by make(n) and rendered at n / 2 and at n, alternately seven times each: the best of the seven is the time
-// of that size. A render that grows with its text takes about twice as long at n as at n / 2; a quadratic one four times. The test
+// A shape is built for a size n by make(n) and rendered at n / 8 and at n, alternately seven times each: the best of the seven is the time
+// of that size. A render that grows with its text takes about eight times as long at n as at n / 8; a quadratic one sixty-four times. The test
 // compares the two, never a clock. The time is the processor time this process spent (process.cpuUsage), so that a machine busy with
 // other work, which deschedules the process, does not make a render slower, and the two sizes are rendered in turn so that a burst of
 // load reaches both.
@@ -284,7 +284,7 @@ v8.setFlagsFromString("--expose-gc");
 const collect = vm.runInNewContext("gc");   // a collection before each render, so that the garbage of the shapes before it is not collected during this one
 function cpuMs(md) { collect(); const c = process.cpuUsage(); const root = renderMarkdown(md); const d = process.cpuUsage(c); return { ms: (d.user + d.system) / 1000, root }; }
 function timed(make, n) {
-  const small = make(Math.floor(n / 2)), large = make(n);
+  const small = make(Math.floor(n / 8)), large = make(n);
   let half = Infinity, full = Infinity, root;
   for (let i = 0; i < 7; i++) { const o = cpuMs(large); full = Math.min(full, o.ms); root = o.root; half = Math.min(half, cpuMs(small).ms); }
   return { half: Math.round(half * 10) / 10, full: Math.round(full * 10) / 10, depth: depth(root), bad: violations(root).length };
@@ -302,16 +302,16 @@ out.shapes = {
   quotes: timed((n) => ">".repeat(n), N), quoteLines: timed((n) => ">>>>>>>>>>>>>>>>>>>>>>>> x\n".repeat(n / 30), N),
   lists: timed((n) => "- ".repeat(n) + "x", 5000), orderedLists: timed((n) => "1. ".repeat(n) + "x", 5000),
   indentedLists: timed((n) => Array.from({ length: n }, (_, i) => " ".repeat(i * 2) + "- x").join("\n"), 1500),
-  table: timed((n) => "|" + " a |".repeat(20) + "\n|" + "---|".repeat(20) + "\n" + ("|" + " b |".repeat(20) + "\n").repeat(n / 90), N / 4),
+  table: timed((n) => "|" + " a |".repeat(20) + "\n|" + "---|".repeat(20) + "\n" + ("|" + " b |".repeat(20) + "\n").repeat(n / 90), N / 2),
   longLine: timed((n) => "word ".repeat(n / 5), N),
-  fences: timed((n) => "```\n".repeat(n / 4), N / 4),
+  fences: timed((n) => "```\n".repeat(n / 4), N / 2),
   spaces: timed((n) => " ".repeat(n) + "x", N),
   hashes: timed((n) => "#".repeat(n), N),
   tabs: timed((n) => "\t".repeat(n) + "x", N),
   hardBreaks: timed((n) => "a  \n".repeat(n / 4), N),
   fourParagraphs: timed((n) => ["[".repeat(n), "[a](".repeat(n / 4), "![".repeat(n / 2), "[a](<".repeat(n / 5)].join("\n\n"), M),
   fourParagraphsB: timed((n) => ["[a]".repeat(n / 3), "[a](b ".repeat(n / 6), "[a](<b ".repeat(n / 7), "[a](" + " ".repeat(n - 10)].join("\n\n"), M),
-  manyParagraphs: timed((n) => "p\n\n".repeat(n / 3), N / 4),
+  manyParagraphs: timed((n) => "p\n\n".repeat(n / 3), N / 2),
 };
 console.log(JSON.stringify(out));
 """
@@ -331,18 +331,19 @@ def test_a_document_over_200_kb_renders_its_first_200_kb_and_says_the_rest_is_pl
 
 @needs_node
 def test_hostile_shapes_of_200_kb_end_quickly_and_neither_nest_deeply_nor_build_an_unsafe_node(tmp_path):
-    """"Quickly" is a growth, not a clock: each shape is rendered at half its size and at its size (rendered in turn seven times, the best of each,
-    in processor time), and the render of the larger may take at most three times that of the smaller plus 15 ms (linear is
-    about twice, quadratic four times; the 15 ms is what a few milliseconds of render can gain from a machine busy with other
-    work, without which the shapes that take 1 to 3 ms could not be told from noise). One generous
+    """"Quickly" is a growth, not a clock: each shape is rendered at an eighth of its size and at its size (rendered in turn seven times, the best
+    of each, in processor time), and the render of the larger may take at most thirty times that of the smaller plus 15 ms (linear is
+    about eight times, quadratic sixty-four; the factor leaves room for the time per character to grow with the memory under a busy
+    machine, which CI has shown at four to five times for a doubled size of a shape that allocates much, and the 15 ms is what a few
+    milliseconds of render can gain from it). One generous
     absolute bound per shape (3000 ms) guards against a hang, and the four-paragraph shapes, which the caps of the renderer bound, keep their
     absolute bound of 100 ms of processor time (which a busy machine does not inflate)."""
     got = floor_tests.run_node(tmp_path, SIZE)
     for name, shape in got["shapes"].items():
         assert shape["bad"] == 0, name
-        assert shape["full"] <= 3 * shape["half"] + 15, f"{name} took {shape['half']} ms at half its size and {shape['full']} ms at its size"
+        assert shape["full"] <= 30 * shape["half"] + 15, f"{name} took {shape['half']} ms at an eighth of its size and {shape['full']} ms at its size"
         assert shape["full"] < 3000, f"{name} took {shape['full']} ms in the fake document"
-        if name.startswith("fourParagraphs"):   # the caps (MAX_LINKS, MAX_BRACKET, MAX_URL, MAX_SPACE) make the cost the same at half the size and at the size, so growth cannot see one removed
+        if name.startswith("fourParagraphs"):   # the caps (MAX_LINKS, MAX_BRACKET, MAX_URL, MAX_SPACE) make the cost the same at an eighth of the size and at the size, so growth cannot see one removed
             assert shape["full"] < 100, f"{name} took {shape['full']} ms of processor time; the caps of markdown.js bound it far under 100 ms"
         assert shape["depth"] <= 80, f"{name} nests {shape['depth']} levels deep"
 

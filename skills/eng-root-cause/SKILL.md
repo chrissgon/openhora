@@ -17,7 +17,7 @@ metadata:
   updates: []
   requires: [search:web]
   side_effects: []
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Root cause
@@ -95,6 +95,7 @@ Add to `docs/engineering/plans/<task>.md`, creating the file with its header whe
 # Plan: <task>
 
 - Task: <backlog id, issue, or the user's words quoted>
+- Language: <the tag this file is written in. On an update: the tag on its Language line (with none, the language the file is written in), unless the request sets another. For a new file: the language the request sets for this deliverable, else the task's language line, else the `language` key of docs/workbench/runtime.json, else English>
 - Date: <YYYY-MM-DD, from `date +%F`>
 
 ## Root cause

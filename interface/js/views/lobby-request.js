@@ -16,7 +16,7 @@ import { QUEUE_REASON, ago, flowOptions, requestLine, requestWords, resolvedWord
 
 /**
  * The line of a decision that is no longer open: a chip with "<kind> <resolution>" and the title and age. `save` (P6a) is the control "Save this
- * plan as a workflow" (cards/save-flow.js), given for a plan the person approved: it sits under the line.
+ * plan as a flow" (cards/save-flow.js), given for a plan the person approved: it sits under the line.
  */
 function resolvedLine(item, now, save = null) {
   const good = item.status === "resolved" && item.resolution !== "rejected";

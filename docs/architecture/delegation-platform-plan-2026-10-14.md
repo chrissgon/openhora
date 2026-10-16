@@ -33,7 +33,7 @@ Added on 2026-10-15; nothing above or below it was rewritten except the answers 
 | P6c. Routine follow-up | [#418](https://github.com/chrissgon/openhora/pull/418) | `f9d26ad1` | a default model that the gate file no longer lists is now the problem of the one routine that follows it, not of the list of routines; the contract's sentence on counting slots says the later of the last fire, the approval and the last resume |
 | P9. Project script | [#416](https://github.com/chrissgon/openhora/pull/416) | in review | limits L34 to L38 are planned numbers; the script it runs, once changed, asks for a new plan |
 
-Migration numbers as built: P3 10, P4 11, P5 12, P6a 13 (`tasks.web_off`), P8 none; P6b 14 (routines, routine fires, the `drive` source type). Limit numbers as built: L21 to L27 (P4), L28 (lease) and L29 (retention) from P-OPS, L30 to L32 (P8), L33 (P6b); L34 to L38 (P9) are in review. Files and code still say "flow" (`flows/`, `runtime/flow_files.py`, the operations `flows` and `flow-save`); the pages and the operations' help say "workflow".
+Migration numbers as built: P3 10, P4 11, P5 12, P6a 13 (`tasks.web_off`), P8 none; P6b 14 (routines, routine fires, the `drive` source type). Limit numbers as built: L21 to L27 (P4), L28 (lease) and L29 (retention) from P-OPS, L30 to L32 (P8), L33 (P6b); L34 to L38 (P9) are in review. Files, code, pages and help say "flow" (decision of 2026-10-16, FLOW-WORD, PR #433).
 
 ## What changed from version 2
 
