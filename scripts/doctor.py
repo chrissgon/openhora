@@ -242,7 +242,7 @@ def manager_probe():
     return _load("workbench_secret_resolver_manager_probe", path).probe_manager()
 
 
-IMAGE_FAMILIES = ("converter", "exporter")   # providers/<name>/container.py; a provider that builds an image adds its name here, with its own test
+IMAGE_FAMILIES = ("converter", "exporter", "script")   # providers/<name>/container.py; a provider that builds an image adds its name here, with its own test
 
 
 def container_box():
