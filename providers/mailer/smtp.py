@@ -62,7 +62,8 @@ ATTACH_TOTAL_MAX = 18 * 1024 * 1024
 MESSAGE_MAX = 25 * 1024 * 1024      # what most servers accept, encoding included
 SUBJECT_MAX = 998
 KEY = re.compile(r"[A-Za-z0-9._-]{1,128}")
-FOLDER_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._/\[\]&,+-]{0,99}")      # `&` and `,` and `+`: a name IMAP writes in modified UTF-7
+FOLDER_NAME = re.compile(r"[A-Za-z0-9\[][A-Za-z0-9 ._/\[\]&,+-]{0,99}")      # `[` first: [Gmail]/Sent Mail; `& , +`: a name IMAP writes in modified UTF-7
+APP_PASSWORD_DISPLAY = re.compile(r"[A-Za-z]{4}( [A-Za-z]{4}){3}")      # how a host shows an app password: four groups of four letters
 LOCK_SECONDS = 10.0
 TIMEOUT_ENV = "MAILER_SMTP_TIMEOUT"       # tests only: seconds before a connection or a read gives up
 
@@ -112,7 +113,9 @@ def secret_resolver():
 def load_password() -> str:
     """The outbox password, or a not-configured ProviderError that names how to store it (never its value)."""
     hit = secret_resolver().resolve(PASSWORD_NAME)
-    value = (hit[0] if hit else "").replace(" ", "")      # a host shows an app password in groups of four letters with spaces; it is the letters
+    value = hit[0] if hit else ""
+    if APP_PASSWORD_DISPLAY.fullmatch(value):      # the display form of an app password (four groups of four letters): the password is the letters
+        value = value.replace(" ", "")
     if not value or not re.fullmatch(r"[\x21-\x7e]{1,512}", value):
         raise ProviderError(f"no usable {PASSWORD_NAME}: export it, or uv run --with keyring==25.7.0 keyring set openhora {STORE_USERNAME}",
                             EXIT_NOT_CONFIGURED)

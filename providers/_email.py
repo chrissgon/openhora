@@ -260,6 +260,7 @@ def _close(server) -> None:
 
 
 SUBJECT_PLACEHOLDER = "openhora-subject-placeholder"
+ASCII_SUBJECT_MAX = HEADER_MAX - len("Subject: ")
 
 
 def encode_subject(subject: str) -> str:
@@ -267,6 +268,8 @@ def encode_subject(subject: str) -> str:
     words that this function folds (Header, 76 columns). The library, given a long non-ASCII subject, folds it into several encoded words and
     leaves the space between two outside them, so the reader gets the words without it; written already encoded, it is not refolded."""
     if subject.isascii():
+        if len(subject) > ASCII_SUBJECT_MAX:
+            raise EmailError(f"an ASCII subject is at most {ASCII_SUBJECT_MAX} characters, so that no line passes {HEADER_MAX} bytes")
         return subject
     return email.header.Header(subject, "utf-8", maxlinelen=76, header_name="Subject").encode(linesep="\r\n")
 

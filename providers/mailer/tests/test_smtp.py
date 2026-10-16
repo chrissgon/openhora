@@ -531,12 +531,50 @@ def test_a_subject_the_library_cannot_write_exactly_is_refused_by_the_read_back_
     assert code == 2 and "subject could not be encoded exactly" in err and world["smtp"].connections == 0
 
 
-def test_an_app_password_shown_in_groups_with_spaces_is_used_without_them(world, capsys, monkeypatch):
+def test_an_app_password_in_its_display_form_is_used_without_the_spaces_and_any_other_value_as_it_is(world, capsys, monkeypatch):
     set_up(world, capsys)
-    monkeypatch.setenv("MAILER_SMTP_PASSWORD", "app-pas sword- x")
+    monkeypatch.setenv("MAILER_SMTP_PASSWORD", "abcd efgh ijkl mnop")
+    world["smtp"].password = "abcdefghijklmnop"
     code, out, err = run(capsys, *send_args(world))
     assert code == 0, err
-    assert world["smtp"].logins[-1][1] == "app-password-x"
+    assert world["smtp"].logins[-1][1] == "abcdefghijklmnop"
+    for value in ("abcd efgh ijkl", "abcd  efgh ijkl mnop", "abcd efgh ijkl mnop ", "abc1 efgh ijkl mnop", "abcdefghijklmnop"):
+        monkeypatch.setenv("MAILER_SMTP_PASSWORD", value)
+        assert smtp.APP_PASSWORD_DISPLAY.fullmatch(value) is None or value == "abcd efgh ijkl mnop"
+    monkeypatch.setenv("MAILER_SMTP_PASSWORD", "abcd efgh ijkl")
+    code, out, err = run(capsys, *send_args(world, key="send-ffffffffffffffffffffffffffffffff",
+                                            message_id="<oh.ffffffffffffffffffffffffffffffff@office.example>"))
+    assert code == 3, "a value with spaces that is not the display form is not a usable password"
+
+
+@pytest.mark.parametrize("name", ['Sent" DELETE INBOX', "Sent\r\nA1 DELETE INBOX", "Sent\\", "Sent*", "Sent%", 'Itens "x"', "Sent\x00", "&x"])
+def test_a_sent_folder_name_that_could_break_the_command_is_refused(world, capsys, name):
+    argv = ["setup", "--from", FROM, "--smtp-host", "127.0.0.1", "--smtp-port", str(world["smtp"].port), "--smtp-security", "plain",
+            "--imap-host", "127.0.0.1", "--imap-port", str(world["imap"].port), "--sent-folder", name]
+    assert run(capsys, *argv)[0] == 2
+
+
+@pytest.mark.parametrize("name", ["Itens Exclu&AO0-dos", "Enviados,+old", "[Gmail]/Sent Mail", "[Gmail]/E-mails enviados", "Sent&-+,"])
+def test_a_sent_folder_name_stays_one_quoted_argument(world, capsys, name):
+    world["imap"].folders.add(name)
+    argv = ["setup", "--from", FROM, "--smtp-host", "127.0.0.1", "--smtp-port", str(world["smtp"].port), "--smtp-security", "plain",
+            "--imap-host", "127.0.0.1", "--imap-port", str(world["imap"].port), "--sent-folder", name]
+    assert run(capsys, *argv)[0] == 0
+    code, out, err = run(capsys, "lookup", "--message-id", MID)
+    assert code == 0, err
+    assert [c for c in world["imap"].commands if c.upper().startswith("EXAMINE")] == [f'EXAMINE "{name}"']
+    assert set(world["imap"].verbs()) <= {"CAPABILITY", "LOGIN", "EXAMINE", "UID", "LOGOUT"}
+
+
+def test_an_ascii_subject_is_capped_so_that_no_line_passes_998_bytes(world, capsys):
+    set_up(world, capsys)
+    longest = "a" * 989
+    assert run(capsys, *send_args(world, "--dry-run", subject=longest))[0] == 0
+    code, out, err = run(capsys, *send_args(world, subject=longest))
+    assert code == 0, err
+    assert max(len(line) for line in world["smtp"].messages[0]["data"].split(b"\r\n")) <= 998
+    code, out, err = run(capsys, *send_args(world, "--dry-run", subject="a" * 990))
+    assert code == 2 and world["smtp"].connections == 1
 
 
 def test_a_sent_folder_named_in_modified_utf_7_is_accepted_as_written(world, capsys):

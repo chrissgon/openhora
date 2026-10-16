@@ -12,7 +12,7 @@ The outbox of the task runtime: it sends one e-mail from the machine's one outbo
 
 ```
 python3 providers/mailer/smtp.py setup --from outbox@office.example --smtp-host smtp.office.example --imap-host imap.office.example --sent-folder Sent
-uv run --with keyring==25.7.0 keyring set openhora mailer-smtp      # the app password, at a hidden prompt (or export MAILER_SMTP_PASSWORD); spaces in it are dropped (hosts show an app password in groups)
+uv run --with keyring==25.7.0 keyring set openhora mailer-smtp      # the app password, at a hidden prompt (or export MAILER_SMTP_PASSWORD); a value of four groups of four letters separated by single spaces, the form a host displays an app password in, is used without the spaces; any other value is used as it is
 python3 providers/mailer/smtp.py --check                           # logs in to SMTP and IMAP; sends nothing
 ```
 
