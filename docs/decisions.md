@@ -1096,3 +1096,12 @@ The re-check found two faults in the collapse rule of T27 (`evals/measure.py`); 
 - **`<parameter` is matched in lower case only**: the syntax of a call has it so, and another format's `<Parameter name=... value=.../>` (twenty-five unfenced lines of a Tomcat file were flagged) is not a call. The other tags keep matching in any case.
 - **R12.** The two-skill under-report (one command or grep that names the `SKILL.md` of two skills loads neither; both are used) is left as it is and written in both adapters' README and header, with the delimiter list of the folder.
 - **Backlog T27 is an open box again** (principle 10): built, not verified on the recorded collapse; it closes when the rule is shown on it or on the next collapse the battery records.
+
+## 2026-10-16: measurement version 10 closed (a third time, after the re-check of the pre-battery package)
+
+Re-check fixes of the pre-battery package: a sentence that mentions a call tag opens no block and a block that never closes is not one, a long line is read in linear time, and parameter is matched in lower case only; the image build and the golden recording are still to be run before the battery
+
+- Measurement version 10, floor 6: nothing was measured while it was open; from this commit on the runner writes evidence under it.
+- Fingerprint: `0831d2a3ab27d9d35b08ed334022f23f3fc4a70ee87fc109ea136feb0bf15d4c` (it replaces the ones of the entries above).
+- Written by `python3 evals/eval_status.py measurement --close`.
+- Changed since the second closing: `evals/measure.py` (`_collapse_tags`, `_collapse_scan`, `collapse_loop`) and both `run-prompt.sh` (header comments only). The image definition, the runner pin and the lock are unchanged, so the image build and the golden recording still to run are the ones the first closing entry lists.

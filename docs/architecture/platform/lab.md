@@ -58,6 +58,7 @@ Measurement version 10, measurement floor 6.
 | `models` | 2 keys: `claude-sonnet-5-5`, `openrouter/deepseek/deepseek-v4.1-flash` |
 | `lab_models` | 2 names, not shown |
 | `epochs` | 4 entries, each with `date`, `models`, `skills`, `cause` |
+| `measurement_sha256` | text, not shown |
 <!-- /generated -->
 
 ## Abstractions
