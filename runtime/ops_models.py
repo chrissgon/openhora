@@ -101,13 +101,13 @@ def route(ctx: dict, skill: str, meta: dict, keys, task: dict | None = None, req
                  (autonomy.consent_valid); a model named on a request, a task or by the project's default never is, and
                  neither is a pair `auto` chose
 
-    A task that carries `web_off` (a workflow said "web": false) is routed as if its skill did not require the web, and is never
+    A task that carries `web_off` (a flow said "web": false) is routed as if its skill did not require the web, and is never
     proven: the condition it runs in is not the one the evidence measured (the consent of D38, which covers an unproven pair, still can).
     An unknown model is a refusal (core.OpsError, code 2)."""
     cfg = ctx["cfg"]
     word, named_by = resolve(ctx, task, requested)
     table, _ = price_table(ctx)
-    off = bool(task and task.get("web_off") and meta.get("web"))   # the workflow runs a skill that requires the web without it (P6a, migration 13)
+    off = bool(task and task.get("web_off") and meta.get("web"))   # the flow runs a skill that requires the web without it (P6a, migration 13)
     if off:
         meta = dict(meta, web=False)
     try:
@@ -125,7 +125,7 @@ def route(ctx: dict, skill: str, meta: dict, keys, task: dict | None = None, req
                 routing["reasons"].append(keys[model]["reason"])
     if off:   # a pair is proven in the condition it was measured in, with the web; without it the run is held for review, whatever the band says
         routing["proven"], routing["autonomy"] = False, "supervised"
-        routing["reasons"].append("the workflow runs this skill without the web its skill requires: that is not the condition it was "
+        routing["reasons"].append("the flow runs this skill without the web its skill requires: that is not the condition it was "
                                   "measured in, so the run is supervised")
     routing["billing"] = core._model_billing(routing["model"], routing["adapter"])
     agent =(cfg["area_agents"].get(task.get("agent")) if task is not None and task.get("agent") else None) or {}

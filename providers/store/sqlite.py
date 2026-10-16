@@ -410,14 +410,14 @@ MIGRATIONS = {
         "ALTER TABLE tasks ADD COLUMN step_footprint TEXT",
         "ALTER TABLE tasks ADD COLUMN step_state TEXT",
     ]),
-    # P6a: a task that runs a skill without the web the skill requires. A workflow may say "web": false for a task (the code-made
+    # P6a: a task that runs a skill without the web the skill requires. A flow may say "web": false for a task (the code-made
     # split of the flow check gives the skill that follows a research task this, so that a skill which requires the web never
     # reads sources with the open network). 1 means the run is routed with the web off whatever the skill requires; NULL (every
     # task that says nothing, and every row older than the column) leaves it to the skill. The plan's hash covers the word, and the run reads this column only.
     13: ("a task that runs its skill without the web", [
         "ALTER TABLE tasks ADD COLUMN web_off INTEGER CHECK (web_off IS NULL OR web_off = 1)",
     ]),
-    # P6b: routines, their fires, and the Drive source type. A routine is a workflow started by a schedule; it is created as a draft and
+    # P6b: routines, their fires, and the Drive source type. A routine is a flow started by a schedule; it is created as a draft and
     # becomes active only when the person approves the sha256 of its exact content (decision D23, D35): `approved_sha256` is that hash and
     # any change to the record clears it. It carries no mode, cap, policy or standing approval of its own. A fire is keyed by the routine
     # and the slot (`UNIQUE (routine_id, slot)`), so one slot never creates tasks twice (finding I5): a fire, its skipped slots and the
@@ -2915,7 +2915,7 @@ def _source_row(conn: sqlite3.Connection, source_id: str):
 
 # --- routines (P6b, migration 14) ---------------------------------------------------------------------------------------------
 #
-# A routine is a workflow started by a schedule. The store keeps the record and the fires and knows no rule of the work: what a hash
+# A routine is a flow started by a schedule. The store keeps the record and the fires and knows no rule of the work: what a hash
 # covers, when a slot is due and what a fire does are the runtime's (runtime/routines.py, runtime/ops_routines.py). Here: a draft
 # becomes active only through routine_approve, with the sha256 the runtime computed; any change clears the approval; a fire is one row
 # keyed by (routine, slot), written in the same transaction as the request it creates.
@@ -2939,7 +2939,7 @@ def _routine_args(fields: dict) -> dict:
     if "flow" in fields:
         flow = text_arg(fields["flow"], "flow", LABEL_MAX)
         if not ROUTINE_NAME_RE.fullmatch(flow):
-            raise StoreError("a routine's flow is a workflow name", EXIT_USAGE)
+            raise StoreError("a routine's flow is the name of a flow", EXIT_USAGE)
         out["flow"] = flow
     for key in ("params", "schedule"):
         if key in fields:

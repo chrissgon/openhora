@@ -1,6 +1,6 @@
-"""Tests of the workflows in the operations layer (P6a): a project workflow beside the workbench's, the flow check at the moment
+"""Tests of the flows in the operations layer (P6a): a project flow beside the workbench's, the flow check at the moment
 it is saved, the code-made split, parameters and dates bound when a plan is made, a file handed over for a request that
-reaches the task which reads it, "Save this plan as a workflow", and the task that runs a skill without the web. On the stand-in
+reaches the task which reads it, "Save this plan as a flow", and the task that runs a skill without the web. On the stand-in
 tree of standin_tree.py (no model, no container, no network). Offline; invented names only.
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_ops_flows.py
@@ -112,10 +112,10 @@ def tasks_of(world, request):
     return {t["key"]: t for t in ctx["store"].tasks_list(ctx["conn"], request) if t["parent_id"]}
 
 
-# --- the flow check, the split, and what a saved workflow is -----------------------------------------------------------------------
+# --- the flow check, the split, and what a saved flow is -----------------------------------------------------------------------
 
 
-def test_a_project_workflow_is_listed_beside_the_workbenchs_with_its_check_and_its_parameters(world):
+def test_a_project_flow_is_listed_beside_the_workbenchs_with_its_check_and_its_parameters(world):
     write_flow(world, "survey-web", WEB_WITH_SOURCES)
     listed = {f["flow"]: f for f in ops.flows(world["path"])["flows"]}
     assert {"demo", "code-demo", "gate-demo", "survey-web"} <= set(listed)
@@ -129,7 +129,7 @@ def test_a_project_workflow_is_listed_beside_the_workbenchs_with_its_check_and_i
     assert again["broken"]["title"] is None and "at least one task" in again["broken"]["error"] and again["demo"]["title"] == "Demo flow"
 
 
-def test_a_project_workflow_with_the_name_of_a_workbench_flow_is_never_read(world):
+def test_a_project_flow_with_the_name_of_a_workbench_flow_is_never_read(world):
     write_flow(world, "demo", {**WEB_WITH_SOURCES, "flow": "demo"})
     both = {f["origin"]: f for f in ops.flows(world["path"])["flows"] if f["flow"] == "demo"}
     assert both["workbench"]["title"] == "Demo flow"          # the workbench's is read
@@ -143,7 +143,7 @@ def test_ingest_then_a_skill_that_requires_the_web_is_refused_when_saved_with_th
     write_flow(world, "survey-web", WEB_WITH_SOURCES)
     found = ops.check_flow(world["path"], "survey-web")
     assert found["ok"] is False and found["findings"][0]["split"] is True and "flow-save" in found["next"] and "--split" in found["next"]
-    with pytest.raises(ops_core.OpsError, match="the flow check refuses this workflow.*requires the web and receives the source survey.*split"):
+    with pytest.raises(ops_core.OpsError, match="the flow check refuses this flow.*requires the web and receives the source survey.*split"):
         ops.flow_save(world["path"], "survey-web-split", flow="survey-web")
     assert not (world["project"] / "docs" / "workbench" / "flows" / "survey-web-split.json").exists()    # nothing was written
     saved = ops.flow_save(world["path"], "survey-web-split", flow="survey-web", split=True)
@@ -177,7 +177,7 @@ def test_a_skill_that_reads_no_brief_is_refused_with_a_question_and_a_flow_that_
         ops.check_flow(world["path"], "missing")
 
 
-def test_a_run_never_writes_the_project_s_workflows_the_path_rule_returns_nothing_from_that_folder():
+def test_a_run_never_writes_the_project_s_flows_the_path_rule_returns_nothing_from_that_folder():
     for rel in ("docs/workbench/flows/x.json", "docs/workbench/flows/nested/x.md", "docs/workbench/flows"):
         assert path_rule.classify(rel) == "other", rel
     assert path_rule.classify("docs/workbench/flowsx.md") == "document" and path_rule.classify("docs/workbench/runtime.json") == "other"
@@ -186,7 +186,7 @@ def test_a_run_never_writes_the_project_s_workflows_the_path_rule_returns_nothin
 # --- parameters and dates, bound when a plan is made --------------------------------------------------------------------------------
 
 
-def test_the_split_workflow_plans_as_a_manual_request_with_a_parameter_bound_the_dates_filled_and_the_hash_covering_them(world):
+def test_the_split_flow_plans_as_a_manual_request_with_a_parameter_bound_the_dates_filled_and_the_hash_covering_them(world):
     write_flow(world, "survey-web", WEB_WITH_SOURCES)
     ops.flow_save(world["path"], "survey-web-split", flow="survey-web", split=True)
     rid = new_request(world)
@@ -235,9 +235,9 @@ def test_the_plan_hash_moves_with_the_parameter_and_with_the_date_and_a_missing_
         ops.route(world["path"], rid, flow="demo", params=["topic=a"])
 
 
-def test_a_workflow_with_a_parameter_or_a_step_or_of_the_project_is_planned_and_never_started_by_request_at_once(world):
+def test_a_flow_with_a_parameter_or_a_step_or_of_the_project_is_planned_and_never_started_by_request_at_once(world):
     write_flow(world, "survey-web", WEB_WITH_SOURCES)
-    with pytest.raises(ops_core.OpsError, match="workflow of this project: record the request, then route it"):
+    with pytest.raises(ops_core.OpsError, match="flow of this project: record the request, then route it"):
         ops.request(world["path"], "go", flow="survey-web")
     assert ops.request(world["path"], "go", flow="demo")["flow"] == "demo"      # the workbench flow of skills with no parameter: as before
     tree = world["tree"]
@@ -455,7 +455,7 @@ def test_a_plan_made_another_way_that_names_a_file_keeps_the_hand_over_after_the
     assert "files" not in done and tasks_of(world, rid)["ingest-survey"]["state"] == "ready"     # P5's path: hand-over --task, later
 
 
-# --- "Save this plan as a workflow" --------------------------------------------------------------------------------------------------
+# --- "Save this plan as a flow" --------------------------------------------------------------------------------------------------
 
 
 def free_text_plan(world, route_skill="demo-asks", sources=None, request_text="Study the dental market, and say what to sell first."):
@@ -472,7 +472,7 @@ def free_text_plan(world, route_skill="demo-asks", sources=None, request_text="S
     return request, opened["pending_id"], out
 
 
-def test_the_approved_free_text_plan_is_saved_as_a_project_workflow_that_passes_the_check_and_plans_again_from_its_name(world):
+def test_the_approved_free_text_plan_is_saved_as_a_project_flow_that_passes_the_check_and_plans_again_from_its_name(world):
     request, pid, built = free_text_plan(world)
     with pytest.raises(ops_core.OpsError, match="not an approved plan: approve the plan, then save it"):
         ops.flow_save(world["path"], "dental-study", pending_id=pid)                 # still open: not yet approved by the person
@@ -501,7 +501,7 @@ def test_a_free_text_plan_keeps_the_highlight_for_a_web_task_with_sources_and_ca
     body = built["plan"]["body"]
     assert "A task that uses the web receives sources" in body and "| Sources |" in body        # manual use: the person decides (D16)
     ops.approve(world["path"], pid, built["plan"]["payload"]["plan_sha256"])
-    with pytest.raises(ops_core.OpsError, match="the flow check refuses this workflow.*demo-web.*requires the web and receives the source survey"):
+    with pytest.raises(ops_core.OpsError, match="the flow check refuses this flow.*demo-web.*requires the web and receives the source survey"):
         ops.flow_save(world["path"], "web-study", pending_id=pid)
     saved = ops.flow_save(world["path"], "web-study", pending_id=pid, split=True)
     on_disk = json.loads((world["project"] / saved["path"]).read_text(encoding="utf-8"))

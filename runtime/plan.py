@@ -56,7 +56,7 @@ Derived waits (A-29: the runtime knows by itself which task waits for which, fro
 
 A plan task is {"key", "skill", "title", "text", "depends_on": [keys], "milestone", "mandatory_milestone", "web"}:
 milestone is true when the flow file says so or the skill's runtime manifest makes it a mandatory milestone; web is
-whether the skill requires the web (and the run has it): a task with "web_off" true, which a workflow's "web": false makes, is a
+whether the skill requires the web (and the run has it): a task with "web_off" true, which a flow's "web": false makes, is a
 skill that requires the web run without it. A task of a flow may carry "sources" (flow_files.sources_of). No cost in money is written: the estimate counts runs.
 
 Usage (a library; the shell is runtime/cli.py, verbs route, approve, reject): python3 runtime/plan.py --help

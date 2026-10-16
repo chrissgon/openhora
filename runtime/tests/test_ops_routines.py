@@ -1,7 +1,7 @@
 """Tests of the routines in the operations layer (package P6b): a draft approved by the hash of its exact content, a fire on a fake clock
 that creates tasks only when the hash is the approved one, what moves the hash and what does not, one fire for one slot, the catch-up
 rule after an outage, the routine's own consent (and the agent's never read), `auto` inside its approved providers, the brakes, and a
-workflow a routine cannot take. On the stand-in tree of standin_tree.py (no model, no container, no network). Offline; invented names.
+flow a routine cannot take. On the stand-in tree of standin_tree.py (no model, no container, no network). Offline; invented names.
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_ops_routines.py
 """
@@ -93,7 +93,7 @@ def test_a_routine_is_a_draft_that_fires_nothing_until_the_hash_of_its_exact_con
     made = make(world)
     assert made["state"] == "draft" and made["approve"]["sha256"] == made["sha256"] and made["approve"]["consent_needed"] is False
     assert made["content"]["schedule"] == {"every": "day", "at": AT, "window_seconds": 86400} and made["content"]["scripts"] == []
-    assert made["content"]["workflow"]["name"] == "demo" and set(made["content"]["skills"]) == {"demo-asks", "demo-writes"}
+    assert made["content"]["flow"]["name"] == "demo" and set(made["content"]["skills"]) == {"demo-asks", "demo-writes"}
     assert tick(world, clock.to(days=3)) == []                                          # a draft is not ticked
     with pytest.raises(ops_core.OpsError, match="has the hash .* now, not " + "0" * 64 + ": nothing was approved"):
         ops.routine_approve(world["path"], made["id"], "0" * 64)
@@ -104,19 +104,19 @@ def test_a_routine_is_a_draft_that_fires_nothing_until_the_hash_of_its_exact_con
     assert changed["sha256"] != made["sha256"]
 
 
-def test_a_routine_takes_a_workflow_that_exists_passes_the_check_and_takes_no_file(world, clock):
+def test_a_routine_takes_a_flow_that_exists_passes_the_check_and_takes_no_file(world, clock):
     write_flow(world, "survey-file", FILE_FLOW)
     with pytest.raises(ops_core.OpsError, match="takes a file \\(survey\\): nobody is there to hand a file over"):
         make(world, flow="survey-file")
     write_flow(world, "survey-web", WEB_WITH_SOURCES)
-    with pytest.raises(ops_core.OpsError, match="the flow check refuses this workflow as a routine's target.*requires the web"):
+    with pytest.raises(ops_core.OpsError, match="the flow check refuses this flow as a routine's target.*requires the web"):
         make(world, flow="survey-web", params=["topic=dental"])
     with pytest.raises(ops_core.OpsError, match="no flow file"):
         make(world, flow="missing")
     ops.flow_save(world["path"], "survey-split", flow="survey-web", split=True)
     with pytest.raises(ops_core.OpsError, match="needs a value for topic"):
         make(world, flow="survey-split")
-    assert make(world, flow="survey-split", params=["topic=dental"], name="split")["content"]["workflow"]["params"] == {"topic": "dental"}
+    assert make(world, flow="survey-split", params=["topic=dental"], name="split")["content"]["flow"]["params"] == {"topic": "dental"}
     for bad, word in ((dict(every="week"), "exactly"), (dict(every="minutes", minutes=25, at=None), "divides 1,440"), (dict(at="25:00"), "HH:MM"),
                       (dict(every=None, at=None), "says every")):
         with pytest.raises(ops_core.OpsError, match=word):
@@ -209,13 +209,13 @@ def approved_routine(world, **extra):
     return made["id"]
 
 
-def test_a_changed_workflow_template_stops_the_routine_and_asks_with_a_question_that_messaging_notifies(world, clock):
+def test_a_changed_flow_template_stops_the_routine_and_asks_with_a_question_that_messaging_notifies(world, clock):
     write_flow(world, "daily-demo", {"flow": "daily-demo", "title": "Daily", "tasks": [
         {"key": "market", "skill": "demo-asks", "title": "Market", "text": "Do the market analysis."}]})
     rid = approved_routine(world, flow="daily-demo")
     write_flow(world, "daily-demo", {"flow": "daily-demo", "title": "Daily", "tasks": [
         {"key": "market", "skill": "demo-asks", "title": "Market", "text": "Do the market analysis, and more."}]})
-    one = stopped(world, clock, "the workflow's template")
+    one = stopped(world, clock, "the flow's template")
     assert routine(world, rid)["state"] == "stopped" and fires(world, rid)[0]["status"] == "asked"
     ctx = ctx_of(world)
     [question] = [p for p in ctx["store"].pending_list(ctx["conn"], "open") if p["task_id"] == one["request"]]
@@ -229,6 +229,26 @@ def test_a_changed_workflow_template_stops_the_routine_and_asks_with_a_question_
     assert routine(world, rid)["state"] == "active"
     assert ctx["store"].task_get(ctx["conn"], one["request"])["state"] == "cancelled", "approving cancels the request of the stop"
     assert [o["status"] for o in tick(world, clock.to(days=3, minutes=61))] == ["created"]
+
+
+def test_a_routine_approved_under_content_version_1_stops_at_its_next_slot_and_asks_never_firing_on_the_old_hash(world, clock):
+    rid = approved_routine(world)
+    ctx = ctx_of(world)
+    now = routine(world, rid)["approved_content"]
+    assert now["version"] == 2 and "flow" in now and "workflow" not in now
+    old = {key: value for key, value in now.items() if key != "flow"}      # the same routine as version 1 stored it: the key was `workflow`
+    old["version"], old["workflow"] = 1, now["flow"]
+    ctx["conn"].execute("UPDATE routines SET approved_content = ?, approved_sha256 = ? WHERE id = ?",
+                        (json.dumps(old), routines.sha256_of(old), rid))
+    ctx["conn"].commit()
+    assert routine(world, rid)["approved_sha256"] == routines.sha256_of(old), "the old hash is what the record holds"
+    one = stopped(world, clock, "the format of the approved content (version 1 to 2)")
+    assert "the flow's template" not in one["reason"] and "the schedule" not in one["reason"], "only the format differs"
+    assert routine(world, rid)["state"] == "stopped" and fires(world, rid)[0]["status"] == "asked"
+    assert tasks_of(world, one["request"]) == {}, "no task was created on the old hash"
+    shown = ops.routine_approve(world["path"], rid)
+    ops.routine_approve(world["path"], rid, shown["approve"]["sha256"])
+    assert routine(world, rid)["state"] == "active" and routine(world, rid)["approved_content"]["version"] == 2
 
 
 def set_version(world, skill, version):
@@ -282,13 +302,13 @@ def test_the_default_model_the_routine_follows_is_part_of_what_it_approved(world
     stopped(world, clock, "the model")
 
 
-def test_the_workflow_failing_the_check_stops_the_routine_at_the_fire_as_it_would_at_the_save(world, clock):
+def test_the_flow_failing_the_check_stops_the_routine_at_the_fire_as_it_would_at_the_save(world, clock):
     write_flow(world, "daily-demo", {"flow": "daily-demo", "title": "Daily", "tasks": [
         {"key": "market", "skill": "demo-writes", "title": "Market", "text": "Do it."}]})
     approved_routine(world, flow="daily-demo")
     write_flow(world, "daily-demo", {"flow": "daily-demo", "title": "Daily", "tasks": [
         {"key": "market", "skill": "demo-web", "title": "Market", "text": "Do it.", "sources": ["survey"]}]})
-    stopped(world, clock, "the flow check refuses the workflow now")
+    stopped(world, clock, "the flow check refuses the flow now")
 
 
 # --- the model: auto inside the approved providers, a fixed one with the routine's own consent ---------------------------------------------
