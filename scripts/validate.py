@@ -50,8 +50,10 @@ Checks every skill under skills/ and every agent under agents/:
     round, result.json, were removed on 2026-10-15; one added back is an error ([result-json]: a removed
     first-round record that nothing reads), and is read like any other file of the eval folder
   - the version rules of the reliability model's section 3 (evals/eval_status.py, version_findings), against
-    the base of the pull request: WB_BASE_REF when set (CI sets the pull request's base), else the merge base
-    of HEAD with the default branch, in the hook and in CI alike. [version-file] skills/<name>/evals/
+    the base of the pull request, the one resolver of evals/eval_status.py (resolve_base): WB_BASE_REF when set (CI
+    sets the pull request's base), else the key workbench.baseRef set for one worktree (git config --worktree), else the branch's upstream
+    (unless it is the branch itself or its own pushed copy), else the merge base of HEAD with the default branch; the base used is printed as a NOTE.
+    The same in the hook and in CI alike. [version-file] skills/<name>/evals/
     versions.jsonl has lines of the closed form, is append-only against the base and gains at most one line;
     [version-class] the class of the added line agrees with the diff (X for side_effects, an output or update
     removed, the Confirmation gate or Stop rules section, the external-content line; Z only inside the
@@ -1638,17 +1640,20 @@ def check_guards(report, root=ROOT):
 
 
 def check_versions(report, root=ROOT):
-    """The version rules of the reliability model's section 3, against the base of the pull request (the merge
-    base with the default branch, or WB_BASE_REF): [version-bump] a change with no bump (one line per finding,
+    """The version rules of the reliability model's section 3, against the base of the pull request (resolve_base: WB_BASE_REF,
+    workbench.baseRef, the upstream, the merge base with the default branch): [version-bump] a change with no bump (one line per finding,
     listing the skills); [version-file] a version file outside its form or not append-only; [version-class] a
     declared class the diff contradicts. Without a base the last two are skipped and a NOTE says so."""
     es = load_eval_status()
     names = es.skill_names(root)
     if not names:
         return
-    base = es.comparison_base(root)
+    base, source, error = es.resolve_base(root)
     if base is None:
-        report.note("[version-file] [version-class] skipped: no comparison base (not a git checkout, or no default branch)")
+        report.note("[version-file] [version-class] skipped: no comparison base " +
+                    (f"({error})" if error else "(not a git checkout, or no default branch)"))
+    else:
+        report.note(f"[version-file] [version-class] compared with {base[:12]} ({source})")
     bumps = {}
     for name in names:
         found = es.version_findings(root, name, base)
