@@ -50,7 +50,7 @@ Match the intent column, not the example words. Skills marked (planned) are not 
 | Does the implementation match the design | design-implementation-validation (planned) |
 | Run a brief in a design tool, a generator or a code prototype; review what a tool produced | design-execute |
 | Accessibility audit | design-accessibility-review (planned) |
-| Design the screens of the workbench's own interface (today the City and the Building screens): the specification, the UX flows, the design system and a brief for each screen. A general flow to design any product end to end is not built | flow-design |
+| Design the screens of the workbench's own interface (today five: the City, the Building, the Floor, the Lobby and the Control room): the specification, the UX flows, the design system and a brief for each screen. A general flow to design any product end to end is not built | flow-design |
 
 ## Engineering (`eng-`)
 
@@ -71,7 +71,7 @@ Match the intent column, not the example words. Skills marked (planned) are not 
 | Fix a bug end to end: cause, failing tests, fix, review, pull request | flow-fix-bug |
 | Build a feature end to end: specification, design, tests, code, review, pull request | flow-build-feature |
 | Improve existing code end to end: impact, options, refactor, review, pull request | flow-improve-code |
-| Start a codebase from nothing: clarify the idea, specify the first feature, design, backlog, first task, pull request | flow-new-project |
+| Start a codebase from nothing: clarify the idea, specify the first feature, design it and write the backlog; each todo task of the backlog then becomes its own implement sub-task | flow-new-project |
 | A change to existing code that you describe, with the check that proves it, to its pull request | flow-code-change |
 | Take a ticket and implement it ("check ticket N and implement it", any ticket id or issue link) | flow-implement-ticket (planned) |
 
