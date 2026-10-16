@@ -10,11 +10,14 @@ Run: uv run --with pytest pytest scripts/tests/test_adapter_secrets.py
 """
 from __future__ import annotations
 
+import atexit
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -141,8 +144,44 @@ def test_the_names_passed_into_eval_runs_are_registered_by_the_adapter_of_their_
         assert not {k for k in keys if "pass_env" in k}, "an adapter's manifest holds no list of variables to pass"
 
 
+EMPTY_HOME = tempfile.mkdtemp(prefix="wb-doctor-home-")   # a child gets an empty home and config folder, never the person's (S16)
+atexit.register(shutil.rmtree, EMPTY_HOME, ignore_errors=True)
+
+
+def child_env(**more):
+    return {"PATH": os.environ["PATH"], "HOME": EMPTY_HOME, "XDG_CONFIG_HOME": EMPTY_HOME, **more}
+
+
+def test_the_doctor_child_never_reaches_a_mapping_under_the_real_home(tmp_path, monkeypatch):
+    """The reviewer's probe: a fake home with a 0600 mapping for several registered names, a recording FAKE `op` first on the PATH and
+    XDG_CONFIG_HOME unset: the doctor started the way the test above starts it makes zero calls."""
+    import importlib.util as util
+    spec = util.spec_from_file_location("fake_op_for_adapter_secrets", ROOT / "providers" / "secrets" / "tests" / "fake_op.py")
+    fake = util.module_from_spec(spec)
+    sys.modules[spec.name] = fake
+    spec.loader.exec_module(fake)
+    op = fake.FakeOp(tmp_path / "bin")
+    op.answer("*", stdout=SENTINEL)
+    home = tmp_path / "home"
+    (home / ".config" / "openhora").mkdir(parents=True)
+    mapping = home / ".config" / "openhora" / "password-manager.json"
+    names = ("VCS_GITHUB_TOKEN", "NOTION_TOKEN", "GMAIL_CLIENT_ID", "LINKEDIN_CLIENT_ID")
+    mapping.write_text(json.dumps({"backend": "1password", "references": {n: "op://Example Vault/item/credential" for n in names}}),
+                       encoding="utf-8")
+    mapping.chmod(0o600)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("PATH", f"{op.folder}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    for name in BEFORE:
+        monkeypatch.delenv(name, raising=False)
+    out = subprocess.run([sys.executable, str(ROOT / "scripts" / "doctor.py"), "--json"], capture_output=True, text=True,
+                         env=child_env(), timeout=180)
+    assert out.returncode == 0 and SENTINEL not in out.stdout + out.stderr
+    assert op.calls() == []
+
+
 def test_the_doctor_lists_core_and_adapter_secrets_without_a_value():
-    env = {"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", "/tmp"), **{name: SENTINEL for name in BEFORE}}
+    env = child_env(**{name: SENTINEL for name in BEFORE})
     out = subprocess.run([sys.executable, str(ROOT / "scripts" / "doctor.py"), "--json"], capture_output=True, text=True,
                          env=env, timeout=120)
     assert out.returncode == 0, out.stderr
