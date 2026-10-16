@@ -1,0 +1,20 @@
+{
+  "cpu": {
+    "image": "ghcr.io/ggml-org/llama.cpp:server-b11277@sha256:6d607629e3dd5e85f45c43d1494648126cb3f93f2122c9cd53f43242c94cde14",
+    "platforms": {
+      "linux/amd64": "sha256:26084431af948c487f4c375847be5c0e804a2f462e3615dd741f02de9fdf8a35",
+      "linux/arm64": "sha256:50dfc6340f139bb71f279c72b72c35d572088f7362b65cdb5a65dd9fd170e0a3"
+    },
+    "source": "https://github.com/ggml-org/llama.cpp/pkgs/container/llama.cpp (tag server-b11277, built 2026-09-30, llama.cpp commit eae11d2217fe9225d1aaba48773b6cca45ae4de9)",
+    "accessed": "2026-10-15"
+  },
+  "cuda": {
+    "image": "ghcr.io/ggml-org/llama.cpp:server-cuda12-b11277@sha256:7149a45c80596644320de1d565db1b3b8e70b22c66fed612e69b73f6b1e0d746",
+    "platforms": {
+      "linux/amd64": "sha256:8c16195afbed846003236dd73e109a2eb7f69f15141bd395c3426854fb81a0f5",
+      "linux/arm64": "sha256:29ce22ee44ee95ac84fd5196ab7c6cc7cb2be90b98e12567cfa708601c53a482"
+    },
+    "source": "https://github.com/ggml-org/llama.cpp/pkgs/container/llama.cpp (tag server-cuda12-b11277, built 2026-09-30, llama.cpp commit eae11d2217fe9225d1aaba48773b6cca45ae4de9)",
+    "accessed": "2026-10-15"
+  }
+}
