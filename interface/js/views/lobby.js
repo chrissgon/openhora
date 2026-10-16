@@ -54,7 +54,7 @@ export function createLobbyView(frame, { project, onChanged }) {
   let turn = null;                    // the job of a `say` that is running, or null
   const routing = new Set();          // request ids whose `route` job is running
   const chosenFlow = new Map();       // request id -> the flow chosen in the form (for "Route it" after a busy answer)
-  const chosenParams = new Map();     // request id -> the workflow's parameters as "name=value" (a file's name included), for the same
+  const chosenParams = new Map();     // request id -> the flow's parameters as "name=value" (a file's name included), for the same
   const bodies = new Map();           // request id -> {sig, body}
   const reading = new Map();          // request id -> the read of its `task` body that is running
   let last = { snapshot: null, route: null, now: new Date(), projectName: "" };

@@ -1,6 +1,6 @@
 """A project script is checked when the plan is built and again before the plan is approved (package P9, review finding M3): the
 files its arguments name are read from the project, the hash compared and the credential scan made, so a sha256 written by hand
-into a workflow does not get to a person's approval unchecked. Offline; invented names only.
+into a flow does not get to a person's approval unchecked. Offline; invented names only.
 
 Run: uv run --with pytest==9.1.1 pytest runtime/tests/test_script_plan_vet.py
 """

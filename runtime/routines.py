@@ -25,12 +25,12 @@ and noted. Never one run per missed slot. The window is the one the record holds
 (a day, a week, or its interval), so an outage shorter than a period is made up once and a longer one is not.
 
 What an approval covers (decision D35). content() is the dictionary whose sha256 the person approves: the schedule (with its window),
-the workflow's template hash and the fixed arguments (never the values the dates take), the `X.Y` of every skill the workflow names (a
+the flow's template hash and the fixed arguments (never the values the dates take), the `X.Y` of every skill the flow names (a
 Z change moves nothing), the digest of the eval image, the scripts' hashes and destinations (a slot for package P9), the model and the
 routine's own consent (decision D34, with the hash of the warning it was given), for `auto` the approved set of providers, and, only
 when the file is there, the sha256 of the project's standing instructions (runtime/instructions.py: a run reads the file, so the
 approval covers it). A
-routine has no mode, cap, policy or standing approval of its own. A new version of a source moves nothing: the workflow pins the id.
+routine has no mode, cap, policy or standing approval of its own. A new version of a source moves nothing: the flow pins the id.
 differences() says which parts differ between two contents, for the sentence of the stop.
 
 Standard library only. Runs on Python 3.9.
@@ -50,7 +50,9 @@ MIN_WINDOW = 60
 SLOT_FORMAT = "%Y-%m-%dT%H:%M"
 LOOK_BACK = 500          # the slots due() looks at, newest first: a routine every 15 minutes silent for 5 days has 480
 KEEP_SKIPPED = 10        # the skipped slots that get a row of their own; the rest are counted in the newest one's reason
-CONTENT_VERSION = 1
+# 2: the key of the flow in the content is `flow` (version 1 called it `workflow`, an integration-branch trial only). A routine approved
+# under version 1 no longer matches its hash, stops at its next slot and asks to be approved again (differences() says why).
+CONTENT_VERSION = 2
 
 
 def check_schedule(raw) -> dict:
@@ -146,9 +148,9 @@ def content(*, schedule: dict, window_seconds, flow: str, template_sha256: str, 
     the caller to the word that will choose; providers is the approved set for auto (sorted here); instructions is the sha256 of
     the bytes of the project's standing instructions (docs/workbench/instructions.md), or None when the file is not there: the key
     is then left out, so that the content, and the hash, of a routine of a project without the file are what they were before
-    the file existed (CONTENT_VERSION stays 1: no routine needs a new approval for it)."""
+    the file existed (adding the key did not change CONTENT_VERSION; the rename of `workflow` to `flow` did, see CONTENT_VERSION)."""
     body = {"version": CONTENT_VERSION, "schedule": {**schedule, "window_seconds": window_of(schedule, window_seconds)},
-            "workflow": {"name": flow, "template_sha256": template_sha256, "params": dict(sorted(params.items()))},
+            "flow": {"name": flow, "template_sha256": template_sha256, "params": dict(sorted(params.items()))},
             "skills": dict(sorted(skills.items())), "image": image, "scripts": sorted(scripts, key=json.dumps),
             "model": model, "consent": {"given": True, "warning_sha256": warning_sha256} if consent else {"given": False},
             "providers": sorted(set(providers))}
@@ -162,17 +164,20 @@ def sha256_of(body: dict) -> str:
 
 
 def differences(old: dict, new: dict) -> list:
-    """The names of the parts of two contents that differ, for a sentence: schedule, workflow template, fixed arguments, a skill's
+    """The names of the parts of two contents that differ, for a sentence: schedule, flow template, fixed arguments, a skill's
     X.Y (named), the image, scripts, model, consent, providers."""
     if not old:
         return ["the approved content is not on record"]
     out = []
+    if old.get("version") != new.get("version"):
+        out.append(f"the format of the approved content (version {old.get('version')} to {new.get('version')})")
+    old_flow = old.get("flow") or old.get("workflow") or {}      # version 1 called the key `workflow`
     if old.get("schedule") != new.get("schedule"):
         out.append("the schedule")
-    if (old.get("workflow") or {}).get("template_sha256") != new["workflow"]["template_sha256"]:
-        out.append("the workflow's template")
-    if (old.get("workflow") or {}).get("params") != new["workflow"]["params"] or (old.get("workflow") or {}).get("name") != new["workflow"]["name"]:
-        out.append("the workflow or its fixed arguments")
+    if old_flow.get("template_sha256") != new["flow"]["template_sha256"]:
+        out.append("the flow's template")
+    if old_flow.get("params") != new["flow"]["params"] or old_flow.get("name") != new["flow"]["name"]:
+        out.append("the flow or its fixed arguments")
     for skill in sorted(set(old.get("skills") or {}) | set(new["skills"])):
         if (old.get("skills") or {}).get(skill) != new["skills"].get(skill):
             out.append(f"the version of {skill} ({(old.get('skills') or {}).get(skill)} to {new['skills'].get(skill)})")

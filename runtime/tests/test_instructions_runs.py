@@ -249,8 +249,8 @@ def test_an_instruction_to_skip_the_gate_changes_nothing_about_the_effect_gate(e
 
 def test_a_routine_of_a_project_without_the_file_keeps_its_content_and_its_hash(world, clock):
     made = make(world)
-    assert set(made["content"]) == {"version", "schedule", "workflow", "skills", "image", "scripts", "model", "consent", "providers"}
-    assert made["content"]["version"] == routines.CONTENT_VERSION == 1
+    assert set(made["content"]) == {"version", "schedule", "flow", "skills", "image", "scripts", "model", "consent", "providers"}
+    assert made["content"]["version"] == routines.CONTENT_VERSION == 2
     assert made["sha256"] == routines.sha256_of(made["content"])
     # the content a routine approved before the package (no key) is the one a project without the file computes now, and a key
     # that appears or changes is named

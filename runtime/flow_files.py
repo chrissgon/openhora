@@ -20,7 +20,7 @@ other thing of that name: a SKILL.md a person runs in a tool). Its form:
       "text": "<the task's own text, added to the request in the run's prompt>",
       "depends_on": ["<key>", ...],   keys of tasks earlier in the list (so there is no cycle); [] or absent for none
       "milestone": true | false,      absent means false
-      "sources": ["<source id>", ...],   optional: the sources the task receives (the workflow pins the id, never a version)
+      "sources": ["<source id>", ...],   optional: the sources the task receives (the flow pins the id, never a version)
       "web": false},                  optional, only false: run a skill that requires the web without it
 
      {"key": "<name>",                a step task: code runs it, no model (runtime/steps.py, the engine's kinds)
@@ -610,7 +610,7 @@ def bind(flow: dict, params, now, files=None) -> dict:
 def template_sha256(flow: dict) -> str:
     """The sha256 of the flow's template: its name, its parameters as declared and its tasks, with every placeholder as it is
     written (nothing filled), as JSON with sorted keys and no spaces. Neither the title, nor the origin, nor the values a
-    request or a clock gives are in it: it moves only when the workflow itself changes."""
+    request or a clock gives are in it: it moves only when the flow itself changes."""
     body = {"flow": flow["flow"], "params": flow.get("params") or {}, "tasks": flow["tasks"]}
     return hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 

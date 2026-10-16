@@ -85,6 +85,7 @@ Beside them:
 - A Drive folder as a source is not built (`drive.file` does not reach a picked folder's files; it would need `drive.readonly`, a wider scope, and the maintainer's decision). Drive write-back is not built (the Drive provider is sources-only); the hidden-text flag of a converted HTML or PDF is built (P8: `outputs.md`, "Hidden text").
 - The Markdown export of a Google Doc, Google's 10 MB export limit and the Picker's behaviour with the page's headers are not verified against the live service (`providers/documents/README.md`, "Google Drive").
 - A PDF of scanned pages has no text layer; no OCR is made, and the manifest notes it.
+- A Word document, a spreadsheet or a presentation with macros (a VBA project part, a macro sheet or a macro-enabled content type, judged by the package's content and not its name) is refused for every source before any tool reads it (package ATT-5, `providers/converter/_inner.py` `refuse_macros`); the refusal is the converter's failure sentence and is recorded as a refused import like its other refusals. A macro-enabled file embedded in a plain package is not opened, and the old binary formats are not a type the intake takes. It needs the converter image rebuilt (`providers/converter/README.md`).
 - A table in a PDF comes out as the lines of its cells (`pdftotext`), not as a Markdown table; the MarkItDown measured recovers the table but drops the page marks and writes `(cid:n)` for a bullet, so `pdftotext` was kept (the comparison in `docs/decisions.md`).
 - Text a Word document marks as hidden still comes out (pandoc keeps it); like the text hidden by CSS in HTML it waits for the hidden-text flag of P8.
 - A formula cell with no stored value in a workbook comes out empty (the converter reads stored values, it calculates nothing).
@@ -94,6 +95,7 @@ Beside them:
 
 ## Changes
 
+- 2026-10-16: macro-enabled Office packages are refused for every source by the converter (package ATT-5).
 - 2026-10-15: the registry's type column admits `drive` (migration 14, package P6b); the rows P7 stored as a `file` with a `drive:` origin were rewritten.
 - 2026-10-15: a project script's result is a new version of a `file` source (P9, [scripts.md](scripts.md)): `collect_outputs` takes the producer's own `names`, and the manifest and the converter record say which script made the version.
 - 2026-10-15: the lease and the retention of old versions, with package P-OPS (limits L28 and L29; [unattended.md](unattended.md)).

@@ -9,7 +9,7 @@
 
 MIT licence · self-hosted · no telemetry
 
-Harness-agnostic skills, agents and workflows that let an AI build a digital solution end to end: business, product, brand, design, engineering, delivery, marketing, and AI inside the product. A skill reads and writes artifacts in the target project's `docs/` folder, so later phases, other skills and other people find what earlier ones produced.
+Harness-agnostic skills, agents and flows that let an AI build a digital solution end to end: business, product, brand, design, engineering, delivery, marketing, and AI inside the product. A skill reads and writes artifacts in the target project's `docs/` folder, so later phases, other skills and other people find what earlier ones produced.
 
 The skills, their areas and how each one stands under the reliability model are listed in [docs/inventory.md](docs/inventory.md); the areas and how they chain are in [docs/area-map.md](docs/area-map.md). The rules every file follows are in [AGENTS.md](AGENTS.md).
 
@@ -65,7 +65,7 @@ interface/          the local interface the runtime's service serves: an isometr
 site/               the public website: static pages, its own styles and fonts, its tests and tools (site/README.md); its Interface page embeds
                     the demo, which is built into site/demo/ at deploy time by scripts/build_demo.py and is not committed
 netlify.toml        how Netlify publishes site/ (the build command and the response headers, the content security policy among them)
-flows/              one data file per workflow: the tasks, their written dependencies and parameters, read by the task runtime (a project's own are docs/workbench/flows/ in the project)
+flows/              one data file per flow: the tasks, their written dependencies and parameters, read by the task runtime (a project's own are docs/workbench/flows/ in the project)
 .github/            CI workflows, the code owners file, the dependency-update configuration and brand/ (the banner and social images, the mark)
 .githooks/          the versioned pre-commit hook
 docs/               area map, decisions, inventory, backlog, and architecture notes (plans, reviews, findings, the platform pages)
@@ -79,7 +79,7 @@ The runtime (`runtime/`, [layer page](docs/architecture/platform/runtime.md), co
 - **Model choice.** A request, a task or an area agent names a model of `evals/eval-gate.json`, or `auto`, which picks the cheapest model on which the skill is `reliable`; a model the person names runs, supervised unless it is proven. Fixing a model on an agent that works in an autonomous mode needs the person's consent for that agent. [contracts/runtime.md](contracts/runtime.md), "The choice of the model".
 - **Step tasks.** A task can be a step that code runs with no skill and no model: `ingest` (import or refresh a source), the exports below and `write-back`. [runtime.md](docs/architecture/platform/runtime.md).
 - **Outputs.** A task's result becomes a CSV file, a workbook, a Word document or a PDF in `docs/outputs/`, made in a container with no network (a cell that starts like a formula is written as text); a project document can replace a Notion page only after the person approves the hash of the exact content, in the terminal or on the page. The converter flags text a person cannot see in a source. [outputs.md](docs/architecture/platform/outputs.md).
-- **Workflows.** A flow file holds tasks (skills or steps), their dependencies, parameters the request fills in and the dates `{today}` and `{week}`; a project keeps its own in `docs/workbench/flows/`, and an approved plan can be saved as one. A workflow can run on a schedule as a **routine**, which fires nothing until the person approves the hash of its exact content and stops to ask when anything it hashed changes. [contracts/runtime.md](contracts/runtime.md), "Workflows" and "Routines".
+- **Flows.** A flow file holds tasks (skills or steps), their dependencies, parameters the request fills in and the dates `{today}` and `{week}`; a project keeps its own in `docs/workbench/flows/`, and an approved plan can be saved as one. A flow can run on a schedule as a **routine**, which fires nothing until the person approves the hash of its exact content and stops to ask when anything it hashed changes. [contracts/runtime.md](contracts/runtime.md), "Flows" and "Routines".
 - **Running unattended.** Secrets for a machine with no desktop session (a credentials directory), retention of old runs and source versions, the sweep of orphan containers, one writer at a time for a synced sources folder, and `python3 scripts/doctor.py --unattended`. [unattended.md](docs/architecture/platform/unattended.md).
 - **Community evidence.** Anyone can test a skill on a model the maintainer has not tested, with their own keys, in a fork; the attested result ranks the model and never releases work on its own. [docs/community-evidence.md](docs/community-evidence.md).
 

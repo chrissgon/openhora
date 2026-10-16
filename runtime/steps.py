@@ -126,8 +126,8 @@ class Kind:
     unattended  whether the dispatcher may start a task of this kind on its own (a routine, a round): False unless the kind says so; a
                 task of a kind that is not unattended starts only by the person's own start (run-next, run-step)
     networked   whether a task of this kind reaches the network (the project script of package P9, with the destinations it declares): a routine
-                whose workflow holds one is made and changed only in the terminal or on the page (limit L33, runtime/ops_routines.py)
-    brings_source  whether the kind's `source` argument names a source the tasks after it receive (`ingest`): a workflow's task that
+                whose flow holds one is made and changed only in the terminal or on the page (limit L33, runtime/ops_routines.py)
+    brings_source  whether the kind's `source` argument names a source the tasks after it receive (`ingest`): a flow's task that
                 depends on such a step receives that source (flow_files.sources_of), and the flow check counts it (runtime/flow_check.py)
     gates       {step: Gate}: the step that opens an external effect for the person's approval. At most one, and the last of the order;
                 it has no executor. See Gate
@@ -313,7 +313,7 @@ def footprint_of(kind: Kind, args: dict) -> list:
 
 
 def routine_slots(tasks, workbench_root: str) -> list:
-    """The entries a routine's approved content holds for the step tasks of a workflow (Kind.routine_slot), each with the task's key. A
+    """The entries a routine's approved content holds for the step tasks of a flow (Kind.routine_slot), each with the task's key. A
     task of a kind that has none, or a skill task, gives nothing. A kind this checkout does not have is skipped here (the limit of
     runtime/ops_routines.py local_reason refuses it)."""
     out = []

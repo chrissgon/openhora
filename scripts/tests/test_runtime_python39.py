@@ -66,7 +66,7 @@ ON_SYSTEM_PYTHON = [
     "runtime/effect_write.py", "runtime/ops_step_effects.py", "runtime/write_document.py", "runtime/ops_step_seams.py",
     # Outputs to the documents platform (NOTION-OUT): the kinds, the document of a new page or table, and the table reader.
     "runtime/step_output.py", "runtime/output_document.py", "runtime/table_data.py", "runtime/ops_cancel.py",
-    # The workflows (P6a): the flow check, and the operations over flow files (list, check, save a plan, stage a file).
+    # The flows (P6a): the flow check, and the operations over flow files (list, check, save a plan, stage a file).
     "runtime/flow_check.py", "runtime/ops_flows.py",
     # The routines (P6b): the pure schedule and content, and the operations and the tick.
     "runtime/routines.py", "runtime/ops_routines.py",

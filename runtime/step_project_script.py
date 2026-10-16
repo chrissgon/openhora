@@ -38,11 +38,11 @@ What each step does (steps verify, deps and run; the task is resumable at the on
            but through this import, and it has no way to cause an effect (a post, a message, a commit): an effect goes through the effect
            gate, which a script cannot open.
 
-The kind `brings_source` (the flow check sees the source its result makes, like an ingest's) and is NOT `unattended`: the dispatcher never starts it on its own; a person starts it (run-step). The kind is `networked` (always: it cannot know at registration whether a task declares destinations), so a routine whose workflow holds one is made and changed only from the terminal or the page (limit L33), and the routine's approved content holds, for each such step, the script's sha256, its destinations, the lock file's sha256 and the definition hash of the script image (`Kind.routine_slot`, `steps.routine_slots`, the `scripts` slot of runtime/routines.py), so that a change to any of them stops the routine and asks. A routine that fires finds the task held `start it by hand`: the kind is not unattended, and running a script without a person is a later decision.
+The kind `brings_source` (the flow check sees the source its result makes, like an ingest's) and is NOT `unattended`: the dispatcher never starts it on its own; a person starts it (run-step). The kind is `networked` (always: it cannot know at registration whether a task declares destinations), so a routine whose flow holds one is made and changed only from the terminal or the page (limit L33), and the routine's approved content holds, for each such step, the script's sha256, its destinations, the lock file's sha256 and the definition hash of the script image (`Kind.routine_slot`, `steps.routine_slots`, the `scripts` slot of runtime/routines.py), so that a change to any of them stops the routine and asks. A routine that fires finds the task held `start it by hand`: the kind is not unattended, and running a script without a person is a later decision.
 The person's brake does not matter to this kind: it is never started by the dispatcher anyway.
 
 The files are also checked when a plan is built and before it is approved (`vet`, steps.Kind.vet; runtime/ops_flows.py): a hash written
-by hand into a workflow is compared with the file and the file is scanned for credentials before anyone approves the plan.
+by hand into a flow is compared with the file and the file is scanned for credentials before anyone approves the plan.
 
 The result recorded is closed words and numbers: the source id, the version, whether a version was made, the exit code and milliseconds.
 The script's own output text (its log) is never kept: it is not in the state, a note or a decision (run the script yourself to debug it).
@@ -318,7 +318,7 @@ def load_checked(project: str, args: dict, protected=lambda path: False) -> File
 
 def vet(project: str, args: dict, protected=lambda path: False) -> None:
     """The kind's hook for the plan (steps.Kind.vet): the files the arguments name are read and checked now, when the plan is built and
-    before it is approved, with the checks of the run, so that a hash written by hand into a workflow is scanned for credentials, and
+    before it is approved, with the checks of the run, so that a hash written by hand into a flow is scanned for credentials, and
     compared with the file, before a person approves it."""
     load_checked(project, check(args), protected)
 
@@ -503,7 +503,7 @@ KIND = steps.register(steps.Kind(
     unattended=False,
     vet=vet,
     routine_slot=routine_slot,
-    networked=True,          # the kind cannot know at registration whether a task declares destinations, so every workflow that holds one is terminal/page only (L33)
+    networked=True,          # the kind cannot know at registration whether a task declares destinations, so every flow that holds one is terminal/page only (L33)
     brings_source=True,      # its `source` argument names the source its result becomes a version of: the tasks after it receive it
 ))
 
