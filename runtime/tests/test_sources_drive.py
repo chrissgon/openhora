@@ -217,24 +217,43 @@ def test_the_stripper_leaves_everything_that_is_not_an_embedded_picture_alone():
     assert count == 2 and out == "[embedded image removed: no name]\n[image9]: (embedded image removed)\n"
 
 
-@pytest.mark.parametrize("text", [
-    "![" * 200000,
-    "![x](data:" * 150000,
-    "](data:" * 300000 + "no closing parenthesis here",
-    "![a](data:image/png;base64," + "A" * 3000000,                                  # a picture that never closes
-    ("![" + "a" * 150 + "](data:" + "x" * 50 + "\n") * 40000,
-    "[" * 3000000 + "]: data:" + "z" * 100,
-    "data:" * 2000000,
-    "( data:" * 1000000,
-    "![x]( <" * 400000 + "data:",
-    "![a](data:b)" * 100000,
-], ids=lambda text: f"{len(text)}-characters")
-def test_the_stripper_is_linear_on_hostile_text(text):
+HOSTILE_SHAPES = {   # name: (builder of the text for a size n, the n of the first measurement)
+    "open-brackets": (lambda n: "![" * n, 200000),
+    "unclosed-pictures": (lambda n: "![x](data:" * n, 150000),
+    "bare-openers": (lambda n: "](data:" * n + "no closing parenthesis here", 300000),
+    "picture-that-never-closes": (lambda n: "![a](data:image/png;base64," + "A" * n, 2000000),
+    "long-alts-on-lines": (lambda n: ("![" + "a" * 150 + "](data:" + "x" * 50 + "\n") * n, 40000),
+    "open-brackets-then-reference": (lambda n: "[" * n + "]: data:" + "z" * 100, 2000000),
+    "data-only": (lambda n: "data:" * n, 1000000),
+    "spaced-openers": (lambda n: "( data:" * n, 500000),
+    "angle-openers": (lambda n: "![x]( <" * n + "data:", 400000),
+    "tiny-pictures": (lambda n: "![a](data:b)" * n, 100000),
+}
+
+
+def cpu_seconds(text: str) -> float:
+    """The CPU time of one scan: the processor time this process spent, not the wall clock, so that a busy machine (the
+    whole suite running on every core) that deschedules the process does not count as time the scan took."""
     import time
-    started = time.monotonic()
+    started = time.process_time()
     out, count = sources.strip_embedded_images(text)
-    assert time.monotonic() - started < 3, "a Doc another person owns cannot make a refresh spin"
+    spent = time.process_time() - started
     assert isinstance(out, str) and count >= 0
+    return spent
+
+
+@pytest.mark.parametrize("name", sorted(HOSTILE_SHAPES))
+def test_the_stripper_is_linear_on_hostile_text(name):
+    """A Doc another person owns cannot make a refresh spin: the work grows with the text. Each shape is scanned at a size n
+    and at 2n (the minimum of three scans each), and the scan of 2n may take at most three times
+    that of n plus 20 ms (a linear scan takes about twice as long, a quadratic one four times). One generous absolute bound
+    guards against a hang. Processor time, not wall clock: see cpu_seconds."""
+    build, n = HOSTILE_SHAPES[name]
+    small, large = build(n), build(2 * n)
+    t1 = min(cpu_seconds(small) for _ in range(3))
+    t2 = min(cpu_seconds(large) for _ in range(3))
+    assert t2 <= 3 * t1 + 0.020, f"{name}: {len(small)} characters took {t1 * 1000:.0f} ms, {len(large)} took {t2 * 1000:.0f} ms"
+    assert t2 < 30, f"{name}: a scan of {len(large)} characters took {t2:.1f} s of processor time"
 
 
 def test_the_stripper_finds_the_pictures_it_describes_wherever_they_sit():

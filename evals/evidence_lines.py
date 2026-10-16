@@ -9,8 +9,9 @@ this file by path and re-exports every name below, so the status script behaves 
 name its importers use. It is not a measurement file (it is not in FINGERPRINT_FILES of eval_status.py): a
 change to it asks for no new measurement version. Standard library only; runs on Python 3.9.
 
-An evidence file is judged by itself (backlog T24), and a new one strictly
--------------------------------------------------------------------------
+An evidence file is judged by itself, and a new one strictly
+-----------------------------------------------------------
+(Backlog T24, removed on 2026-10-15; `git show bc830832:docs/backlog.md`.)
 A committed evidence file is never edited, so it has to stay valid whatever the gate file says later. A file
 already committed at the base of a change is therefore checked against what its own event line states, never
 against today's gate file:
@@ -507,7 +508,8 @@ def read_evidence_file(path):
 def evidence_file_problems(path, root=None, skill=None, strict=None):
     """Why one lab evidence file is not valid; an empty list when it is. skill is the folder the file belongs
     to; by default it is read from a path .../skills/<name>/evals/evidence/<file>. The file is judged by its own
-    event line (the module docstring, backlog T24); strict, {"models": ids, "runs": number} or None, is the
+    event line (the module docstring, backlog T24, removed on 2026-10-15; `git show bc830832:docs/backlog.md`);
+    strict, {"models": ids, "runs": number} or None, is the
     strict reading of a file that is new against the base. root is accepted for the callers that pass it and is
     not read."""
     name = os.path.basename(path)

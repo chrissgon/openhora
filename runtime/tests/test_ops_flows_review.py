@@ -313,7 +313,7 @@ def test_the_staging_folder_that_is_a_link_is_looked_at_before_it_is_listed_and_
 
 def test_a_failed_placement_names_the_command_that_hands_the_file_to_the_task(world, monkeypatch):
     rid, opened = planned_file_flow(world)
-    monkeypatch.setattr(ops_flows.os, "makedirs", lambda *a, **k: (_ for _ in ()).throw(OSError("full")))
+    monkeypatch.setattr(ops_flows.drop, "write_new", lambda *a, **k: (_ for _ in ()).throw(OSError("full")))   # the disk is full
     done = ops.approve(world["path"], opened, pending(world, opened)["payload"]["plan_sha256"])
     [failed] = done["files"]["failed"]
     ingest = tasks_of(world, rid)["ingest-survey"]["id"]
