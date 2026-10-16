@@ -1878,17 +1878,18 @@ def task_runs_since(conn: sqlite3.Connection, low_water: int) -> list:
         "ORDER BY r.id", (int(low_water),))]
 
 
-def request_cancel(conn: sqlite3.Connection, request_id: int, *, by: str) -> dict:
+def request_cancel(conn: sqlite3.Connection, request_id: int, *, by: str, keep=()) -> dict:
     """Cancel a request: the request and each of its tasks that is not done or cancelled become `cancelled`,
-    and their open pending decisions too. Refused while one of its tasks is running. Returns {"request",
-    "cancelled": [task ids], "pending": [pending ids]}."""
+    and their open pending decisions too. Refused while one of its tasks is running. `keep`: ids of open pending decisions that
+    stay open, and the task each belongs to stays as it is (an effect whose write is running: runtime/ops_cancel.py); the rest is
+    cancelled. Returns {"request", "cancelled": [task ids], "pending": [pending ids]}, and "kept": [pending ids left open] when some were."""
     by = text_arg(by, "by", LABEL_MAX)
     now = iso(utcnow())
     with write(conn):
-        return _cancel_request(conn, request_id, by, now)
+        return _cancel_request(conn, request_id, by, now, tuple(int(k) for k in keep))
 
 
-def _cancel_request(conn: sqlite3.Connection, request_id: int, by: str, now: str) -> dict:
+def _cancel_request(conn: sqlite3.Connection, request_id: int, by: str, now: str, keep=()) -> dict:
     """Inside a transaction: request_cancel's work."""
     root = _task(conn, request_id)
     if root["parent_id"] is not None:
@@ -1898,7 +1899,9 @@ def _cancel_request(conn: sqlite3.Connection, request_id: int, by: str, now: str
     if any(r["state"] == "running" for r in rows) or conn.execute(
             "SELECT 1 FROM task_runs WHERE task_id = ? AND status = 'running'", (request_id,)).fetchone():
         raise StoreError(f"a task of request {request_id} is running: wait for its run to end")
-    ids = [r["id"] for r in rows if r["state"] not in TASK_FINAL_STATES]
+    kept = {p["task_id"]: p["id"] for p in conn.execute("SELECT id, task_id FROM pending_decisions WHERE status = 'open'").fetchall()
+            if p["id"] in keep}
+    ids = [r["id"] for r in rows if r["state"] not in TASK_FINAL_STATES and r["id"] not in kept]
     pending = []
     for task_id in ids:
         conn.execute("UPDATE tasks SET state = 'cancelled', updated_at = ? WHERE id = ?", (now, task_id))
@@ -1909,7 +1912,7 @@ def _cancel_request(conn: sqlite3.Connection, request_id: int, by: str, now: str
             _revoke_pending_execution(conn, p["id"], now)
             pending.append(p["id"])
     _refresh(conn, now)  # what waited for a cancelled task or request no longer does
-    return {"request": request_id, "cancelled": ids, "pending": pending}
+    return {"request": request_id, "cancelled": ids, "pending": pending, **({"kept": sorted(kept.values())} if kept else {})}
 
 
 # --- migration 4: the task board, the plan, mirrored documents, saved comments -------------------------------

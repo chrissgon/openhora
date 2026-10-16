@@ -3,6 +3,7 @@ and of the eval-status check in scripts/validate.py. No model is called: evidenc
 score and the bands are tested in test_bands.py."""
 import importlib.util
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -154,7 +155,7 @@ def test_only_the_tests_folder_directly_under_scripts_is_left_out(root):
 
 def test_nothing_writes_or_reads_a_record_any_more(root, capsys):
     """The runner writes evidence; the command that built a record is gone (default 27), and since the snapshot
-    tables replaced the generated block (B16) nothing reads one: the 48 old records are history."""
+    tables replaced the generated block (B16) nothing reads one: the 48 old records were removed on 2026-10-15."""
     with pytest.raises(SystemExit) as e:
         es.main(["record", "--skill", "core-demo", "--benchmark", "b.json"], root=str(root))
     assert e.value.code == 2
@@ -626,7 +627,7 @@ def test_an_event_line_with_an_unknown_key_or_a_value_outside_its_form_is_an_err
 
 
 def test_an_event_is_judged_by_its_own_runs_never_by_the_configured_number(root):
-    """Backlog T24: a later change of the gate file's "runs" invalidates no committed file. The event's "runs"
+    """Backlog T24 (removed on 2026-10-15; `git show bc830832:docs/backlog.md`): a later change of the gate file's "runs" invalidates no committed file. The event's "runs"
     is checked against its range and against its own lines."""
     configure(root)  # no "runs" key: the default, 3
     path = evidence(root, [event_line(runs=2), run_line()])
@@ -691,13 +692,16 @@ def test_the_hash_command_prints_the_content_hash_the_version_and_the_case_hashe
     assert out == {"skill": "core-demo", "content_sha256": es.content_hash(skill), "version": "0.4.0", "cases": es.case_hashes(skill)}
 
 
-def test_the_48_old_records_stay_as_history_and_no_evidence_is_converted_from_them():
-    records = sorted(REPO.glob("skills/*/evals/result.json"))
-    assert len(records) >= 48
-    # Evidence exists only as files the runner wrote for a test event (lab-<UTC start>-<hex>.jsonl), never as a
-    # conversion of an old record, and every committed file is valid.
+def test_the_old_records_are_removed_and_no_evidence_is_converted_from_them():
+    # The 48 records of the first round were removed on 2026-10-15 (see the head of evals/eval_status.py).
+    assert sorted(REPO.glob("skills/*/evals/result.json")) == []
+    # Evidence exists only as files of the three kinds the reliability model names, never as a conversion of an
+    # old record, and every committed file is valid: a lab file the runner wrote for a test event
+    # (lab-<UTC start>-<hex>.jsonl), a contributed field file (field-<12 hexadecimal characters>.jsonl) and a
+    # community file with its manifest and attestation (community-<repository id>-<run id>-<attempt>).
+    allowed = re.compile(r"lab-.+\.jsonl|field-[0-9a-f]{12}\.jsonl|community-[0-9]+-[0-9]+-[0-9]+(\.jsonl|\.manifest\.json|\.sigstore\.json)")
     evidence = list(REPO.glob("skills/*/evals/evidence/*"))
-    assert all(p.name.startswith("lab-") and p.suffix == ".jsonl" for p in evidence), evidence
+    assert all(allowed.fullmatch(p.name) for p in evidence), evidence
     assert es.evidence_problems(str(REPO))[0] == {}
     gate = es.load_gate(str(REPO))
     assert set(gate["models"]) >= set(gate["lab_models"]) | {gate["grader"]}

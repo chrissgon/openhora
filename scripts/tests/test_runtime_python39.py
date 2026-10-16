@@ -64,10 +64,14 @@ ON_SYSTEM_PYTHON = [
     # The step engine (P5): the engine, the run of a step task (a process the dispatcher starts), and the kind `ingest`.
     "runtime/steps.py", "runtime/ops_steps.py", "runtime/step_ingest.py", "runtime/step_export.py", "runtime/step_write_back.py",
     "runtime/effect_write.py", "runtime/ops_step_effects.py", "runtime/write_document.py", "runtime/ops_step_seams.py",
+    # Outputs to the documents platform (NOTION-OUT): the kinds, the document of a new page or table, and the table reader.
+    "runtime/step_output.py", "runtime/output_document.py", "runtime/table_data.py", "runtime/ops_cancel.py",
     # The workflows (P6a): the flow check, and the operations over flow files (list, check, save a plan, stage a file).
     "runtime/flow_check.py", "runtime/ops_flows.py",
     # The routines (P6b): the pure schedule and content, and the operations and the tick.
     "runtime/routines.py", "runtime/ops_routines.py",
+    # The person's standing instructions (package INSTRUCTIONS): the file and its checks, and the operations over it.
+    "runtime/instructions.py", "runtime/ops_instructions.py", "runtime/ops_contained.py",
     # The project script (P9): the step kind, the provider's host side (it loads the two programs that run inside its image, which parse here too).
     "runtime/step_project_script.py", "providers/script/container.py", "providers/script/egress_proxy.py", "providers/script/_inner.py",
     # The rules of tasks that run at once (PAR-2): pure functions the dispatcher's caller passes in.

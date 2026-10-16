@@ -391,6 +391,16 @@ def test_a_pass_does_the_three_parts_once_an_hour_and_records_it(case):
     assert "skipped" not in upkeep.run(ctx, now=now + 3602, tool=tool, force=True)
 
 
+def test_the_automatic_pass_sends_no_image_command_at_all(case):
+    """The images of earlier definitions are removed only by `python3 scripts/doctor.py --remove-old-images --confirmed`: a pass of the
+    upkeep (the dispatcher's round runs it every hour) lists and removes containers and sends nothing about images."""
+    tool = RecordingDocker()
+    ctx = {**case.ctx, "cfg": {**case.cfg, "run_retention_days": 30, "source_versions_kept": 2}}
+    assert "skipped" not in upkeep.run(ctx, now=time.time(), tool=tool, force=True)
+    assert tool.calls, "the sweep of containers asked the tool"
+    assert not [c for c in tool.calls if c[0] in ("image", "rmi", "system") or "prune" in c or "--force" in c]
+
+
 def test_two_processes_do_not_run_the_pass_together(case):
     (case.data / "locks").mkdir(mode=0o700, exist_ok=True)
     held = os.open(case.data / "locks" / upkeep.LOCK_FILE, os.O_RDWR | os.O_CREAT, 0o600)

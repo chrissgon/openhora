@@ -14,8 +14,9 @@ Usage:
   python3 evals/eval_status.py bump --skill <name> [--class x|y|z] [--date YYYY-MM-DD]
   python3 evals/eval_status.py migrate-versions [--date YYYY-MM-DD]
 
-The records of the first round, skills/<name>/evals/result.json, are history (the reliability model, section 1):
-nothing writes one any more, nothing reads one, and no evidence is converted from them.
+The records of the first round, skills/<name>/evals/result.json, were removed on 2026-10-15 (`git show
+bc830832:skills/<name>/evals/result.json`). Nothing writes one, nothing reads one, and no evidence is converted
+from them.
 
 Content hash: sha256 over the files of the skill folder (sorted relative paths and their bytes), leaving out
 all of evals/ (the cases, the evidence, the version file, the old record), everything under scripts/tests/,
@@ -29,8 +30,8 @@ with "workbench_files" as the list of paths, never as the content of those files
 Evidence. The eval runner writes one file per test event, skills/<name>/evals/evidence/lab-<test id>.jsonl
 (the reliability model, section 1): a first line that describes the event and one line per run. Both have
 closed keys: `evidence` below validates every file, and an unknown key or a value outside its form is an
-error. A committed evidence file is written by tooling and never edited. The old records, result.json, stay
-as the history of the first round, and nothing reads them.
+error. A committed evidence file is written by tooling and never edited. The old records, result.json, were
+removed on 2026-10-15 (see the top of this file), and nothing reads one that is added back.
 
   The event line: {"record": "test", "skill", "test", "kind": "full"|"partial", "version", "content_sha256",
    "date", "models": {tier: model id} or [model id, ...], "adapters": {tier: adapter} or {model id: adapter},
@@ -41,7 +42,9 @@ as the history of the first round, and nothing reads them.
    "counts": {model id: {"with"|"without": {"retries", "refusals", "timeouts", "pauses", "early_ends",
    "resumes"[, "invoked"]}}}, "extra_pass_env": [names], "complete": bool[, "gate": {model id: {"passed",
    "with", "baseline", "threshold", "tolerance"[, "note"]}} (an old event: the single gate of its first
-   model)][, "upstream": {model id: provider or host}][, "image_source": "published"|"local"]}
+   model)][, "upstream": {model id: provider or host}][, "image_source": "published"|"local"]
+   [, "local_model": {model id: {"weights_sha256", "file_type", "context", "accelerator", "server_image",
+   "server_version", "server_args_sha256"}}]}
   A run line: {"record": "run", "skill", "version", "content_sha256", "model", "adapter", "kind", "test",
    "date", "measurement_version", "measurement_sha256", "case", "case_sha256", "variant": "with"|"without",
    "outcome": "graded"|"timeout", "score", "results": [0|1, ...][, "context_sha256"][, "platform"][, "cpu_platform"]
@@ -54,6 +57,9 @@ as the history of the first round, and nothing reads them.
   either); "platform" names a social platform and never this. "upstream" names, for each model that ran through a
   key proxy, the provider its entry pins or the route's host; "image_source" says whether the image was pulled
   ("published": "image_digest" is the platform manifest's repo digest) or built here ("local": the image id).
+  "local_model" names, for a local model (evals/local_models.py), what served it: the sha256 of its weights, their
+  llama.cpp file type, the context the server ran with, the accelerator, the model server image's manifest digest and
+  version line, and the hash of the server's arguments (the run id, the weights path and the user replaced by constants).
   "run_sha256" is a hash of what the run left and a re-grading would read (eval_run.py run_record_hash).
 
 A run line with "platform" is a run of a case of that platform's case file, skills/<name>/evals/platforms/
@@ -72,7 +78,7 @@ names, and as "unknown" for anything else, so that one model never falls into tw
 never enters the repository. The validator checks an id against that list only in a file that is new against the base of the change
 (strict_reading: every id in "models", the event's "runs" equal to the configured one); a file already committed
 is read by what its own event line names, so a model removed from "models" later, or a later change of "runs",
-invalidates nothing (backlog T24; the rule is in evals/evidence_lines.py).
+invalidates nothing (backlog T24 (removed on 2026-10-15; `git show bc830832:docs/backlog.md`); the rule is in evals/evidence_lines.py).
 
 The eval gate is configured in evals/eval-gate.json, committed: {"grader", "threshold", "tolerance",
 "measurement_version", "measurement_floor", "models", "lab_models"}, once a measurement version is closed
@@ -110,7 +116,7 @@ of a baseline in a full test (from 1 to "runs"; without it, "runs"), and "baseli
 which the status asks a thin baseline to be run in full. An event made with another number of
 runs, another timeout or another number of retries than these writes no evidence (eval_run.py --help). The
 validator checks the "runs" of an event line already committed against the range of the key and against the
-event's own lines, and that of a new file against the configured value (backlog T24).
+event's own lines, and that of a new file against the configured value (backlog T24 (removed on 2026-10-15; `git show bc830832:docs/backlog.md`)).
 
 Field evidence (the reliability model, section 7) is a use of a skill in a project, recorded there by
 scripts/evidence.py and contributed as skills/<name>/evals/evidence/field-<id>.jsonl, <id> being the first 12
@@ -211,8 +217,11 @@ Commands:
              "epoch", "decisions_entry"}: the entry is added to docs/decisions.md in the same commit.
 
   bump       raises a skill's metadata.version by one step of the class of its change (the reliability model's
-             section 3): x, y or z raises that part of the version of the pull request's base (comparison_base:
-             WB_BASE_REF, else the merge base with the default branch) and resets the lower parts, writes it into
+             section 3): x, y or z raises that part of the version of the pull request's base (resolve_base:
+             WB_BASE_REF, else the key workbench.baseRef set for one worktree (git config --worktree), else the branch's upstream unless it is the
+             branch itself, else the merge base with the default branch; it prints the base it used on stderr, and
+             exits 2 with nothing written when the version file is not the base's lines plus at most one, which
+             means the base is not this change's base) and resets the lower parts, writes it into
              SKILL.md and appends one line to skills/<name>/evals/versions.jsonl: {"version", "content_sha256",
              "class", "date"[, "z_chars"]}, z_chars being the characters a Z change counts. Idempotent: run again,
              or with a higher class after more edits, it rewrites the one line this pull request adds. With no
@@ -922,21 +931,16 @@ def strict_reading(root=ROOT):
 
 
 def base_resolution(root=ROOT):
-    """("base", commit) when the base of the change is known; ("error", text) when WB_BASE_REF is set and does not
-    resolve inside a git checkout (a wrong base must not silently turn the strict reading off); ("none", note)
-    when there is no base, with a note for a git checkout that has no default branch and None outside git."""
+    """("base", commit) when the base of the change is known; ("error", text) when WB_BASE_REF or workbench.baseRef is
+    set and does not resolve inside a git checkout (a wrong base must not silently turn the strict reading off);
+    ("none", note) when there is no base, with a note for a git checkout that has no default branch and None outside
+    git."""
     if git_out(root, "rev-parse", "--is-inside-work-tree") is None:
         return "none", None
-    wanted = os.environ.get("WB_BASE_REF", "").strip()
-    if wanted:
-        if git_out(root, "rev-parse", "--verify", "--quiet", wanted + "^{commit}") is None:
-            return "error", (f"WB_BASE_REF is {wanted!r}, which names no commit of this checkout: the evidence files cannot be "
-                             "told from new ones. Fetch the base, or unset it")
-        base = git_out(root, "merge-base", "HEAD", wanted)
-        if not base:
-            return "error", f"WB_BASE_REF {wanted!r} has no merge base with HEAD: the evidence files cannot be told from new ones"
-        return "base", base.strip()
-    base = comparison_base(root)
+    base, _, error = resolve_base(root)
+    if error:
+        return "error", error.replace(": fetch the base, or unset it", ": the evidence files cannot be told from new "
+                                      "ones. Fetch the base, or unset it")
     if base is None:
         return "none", ("no comparison base (no default branch found): every evidence file is read by its own event line, "
                         "and an edited or new one is not told apart")
@@ -1006,7 +1010,7 @@ def evidence_problems(root=ROOT, only=None):
     """{relative path: [problems]} and the number of files checked, for the evidence folders of every skill, or of
     one (evidence_lines.evidence_problems, with the reader of field files). A lab file that is new against the base
     of the change is read strictly (strict_reading), one that exists at the base with other bytes is refused (committed
-    evidence is never edited), every other one is read by its own event line (backlog T24). A WB_BASE_REF that does not
+    evidence is never edited), every other one is read by its own event line (backlog T24 (removed on 2026-10-15; `git show bc830832:docs/backlog.md`)). A WB_BASE_REF that does not
     resolve is reported under that name."""
     standing, error, note = evidence_standing(root)
     if note:
@@ -1015,7 +1019,8 @@ def evidence_problems(root=ROOT, only=None):
                                                       strict_for=evidence_reading(standing, strict_reading(root)),
                                                       community_problems=community_file_problems,
                                                       community_for=evidence_reading(standing, community_strict_reading(root)))
-    return ({"WB_BASE_REF": [error], **found} if error else found), checked
+    return ({("WB_BASE_REF" if error.startswith("WB_BASE_REF") else BASE_CONFIG_KEY): [error], **found}
+            if error else found), checked
 
 
 def events_of(paths):
@@ -1373,22 +1378,113 @@ def git_out(root, *args):
     return r.stdout if r.returncode == 0 else None
 
 
+BASE_CONFIG_KEY = "workbench.baseRef"
+BRANCH_CONFIG_KEY = "workbenchBaseRef"  # branch.<name>.workbenchBaseRef: the same setting, kept with one branch
+
+
+class BaseMismatch(ValueError):
+    """The version file does not read as the base's lines plus at most one: the base is not the change's base."""
+
+
+def _worktree_value(root, key):
+    """The value of a config key set for this worktree alone (git config --worktree), or None. A key in the clone-wide
+    config is shared by every worktree of the clone, the maintainer's live checkout included, so it is read only when
+    extensions.worktreeConfig is on (then --worktree is this worktree's own file) or the clone has one worktree."""
+    on = (git_out(root, "config", "--type=bool", "--get", "extensions.worktreeConfig") or "").strip() == "true"
+    if on:
+        value = git_out(root, "config", "--worktree", "--get", key)
+    else:
+        listing = git_out(root, "worktree", "list", "--porcelain") or ""
+        if sum(1 for l in listing.splitlines() if l.startswith("worktree ")) != 1:
+            return None
+        value = git_out(root, "config", "--local", "--get", key)
+    return (value or "").strip() or None
+
+
+def _on_default_branch(root, branch):
+    """True when the branch is the default branch (main, master or the one origin/HEAD names): a setting made for
+    a package branch must never move the base of the default branch itself."""
+    names = {"main", "master"}
+    head = (git_out(root, "symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD") or "").strip()
+    if "/" in head:
+        names.add(head.split("/", 1)[1])
+    return branch in names
+
+
+OWN_REFLOG_SUBJECTS = ("commit", "cherry-pick", "rebase", "revert", "am")  # entries that a person's own work makes
+
+
+def _is_own_copy(root, branch, upstream):
+    """True when the upstream is this branch's own pushed copy under another name (git push -u origin x:y): its tip is
+    a commit this branch made itself, which the branch's reflog shows as an entry of its own work (a commit, a
+    cherry-pick, a rebase, a revert, an am). The creation point, a fast-forward, a merge and a reset are not: an
+    upstream the branch was cut from, pulled or merged forward is the integration branch, not a copy. Without a
+    reflog (a fresh clone) the upstream is kept. push.default=upstream makes @{push} equal @{upstream} for any
+    branch, so that equality tells nothing."""
+    tip = (git_out(root, "rev-parse", "--verify", "--quiet", upstream + "^{commit}") or "").strip()
+    entries = (git_out(root, "reflog", "show", "--format=%H %gs", f"refs/heads/{branch}") or "").splitlines()
+    if not tip or len(entries) < 2:
+        return False
+    for entry in entries[:-1]:  # the last entry is the creation of the branch
+        commit, _, subject = entry.partition(" ")
+        if commit == tip and subject.startswith(OWN_REFLOG_SUBJECTS) and "Fast-forward" not in subject:
+            return True
+    return False
+
+
+def resolve_base(root=ROOT):
+    """(commit, source, error): the commit a change is read against and where the choice came from. It is the one
+    resolver of the bump command, the validator and the hook. The first step that applies decides, in this order:
+    the environment variable WB_BASE_REF (CI sets the pull request's base); the key workbench.baseRef set for this
+    worktree alone (git config --worktree workbench.baseRef origin/<integration branch>), or branch.<name>.
+    workbenchBaseRef, both ignored when HEAD is the default branch; the branch's upstream, unless it is the branch
+    itself or its own pushed copy; the merge base of HEAD with the default branch (origin/HEAD, origin/main, main,
+    origin/master, master). A name given by the variable or a key that resolves to nothing is an error text, never a
+    fallback to the next step: a wrong base must not silently turn into another one. commit is None outside a git
+    checkout (source and error None too) and when no step finds a base (a skill built inside a case folder).
+    source is the sentence stderr shows."""
+    if git_out(root, "rev-parse", "--is-inside-work-tree") is None:
+        return None, None, None
+
+    def merged(ref):
+        if git_out(root, "rev-parse", "--verify", "--quiet", ref + "^{commit}") is None:
+            return None, "names no commit of this checkout"
+        base = git_out(root, "merge-base", "HEAD", ref)
+        return (base.strip(), None) if base and base.strip() else (None, "has no merge base with HEAD")
+
+    branch = (git_out(root, "symbolic-ref", "--short", "-q", "HEAD") or "").strip()  # "" on a detached HEAD
+    wanted = [("WB_BASE_REF", os.environ.get("WB_BASE_REF", "").strip(), "WB_BASE_REF")]
+    if not (branch and _on_default_branch(root, branch)):  # the worktree's key is read on a detached HEAD as well
+        wanted.append((BASE_CONFIG_KEY, _worktree_value(root, BASE_CONFIG_KEY) or "", f"git config --worktree {BASE_CONFIG_KEY}"))
+    if branch and not _on_default_branch(root, branch):
+        branch_key = f"branch.{branch}.{BRANCH_CONFIG_KEY}"
+        wanted.append((branch_key, (git_out(root, "config", "--get", branch_key) or "").strip(), f"git config {branch_key}"))
+    for name, value, label in wanted:
+        if value:
+            commit, why = merged(value)
+            if commit:
+                return commit, f"{label} {value}", None
+            return None, None, f"{name} is {value!r}, which {why}: fetch the base, or unset it"
+    if branch:
+        merge = (git_out(root, "config", "--get", f"branch.{branch}.merge") or "").strip()
+        upstream = (git_out(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", f"{branch}@{{upstream}}") or "").strip()
+        if upstream and merge and merge != f"refs/heads/{branch}" and not _is_own_copy(root, branch, upstream):
+            commit, _ = merged(upstream)
+            if commit:
+                return commit, f"the upstream of {branch}, {upstream}", None
+    for ref in ("origin/HEAD", "origin/main", "main", "origin/master", "master"):
+        commit, _ = merged(ref)
+        if commit:
+            return commit, f"the merge base with the default branch ({ref})", None
+    return None, None, None
+
+
 def comparison_base(root=ROOT):
     """The commit a change is read against: the base of the pull request, never HEAD, so that an edit and its bump
-    in two commits are one change (the model's section 3; MI9). WB_BASE_REF when it is set (CI sets the pull
-    request's base), else the merge base of HEAD with the default branch (origin/HEAD, origin/main, main).
-    None outside a git checkout, or when no default branch is found (a skill built inside a case folder)."""
-    if git_out(root, "rev-parse", "--is-inside-work-tree") is None:
-        return None
-    wanted = os.environ.get("WB_BASE_REF", "").strip()
-    refs = [wanted] if wanted else ["origin/HEAD", "origin/main", "main", "origin/master", "master"]
-    for ref in refs:
-        if git_out(root, "rev-parse", "--verify", "--quiet", ref + "^{commit}") is None:
-            continue
-        base = git_out(root, "merge-base", "HEAD", ref)
-        if base:
-            return base.strip()
-    return None
+    in two commits are one change (the model's section 3; MI9). The order is resolve_base's. None outside a git
+    checkout, when a name given by WB_BASE_REF or workbench.baseRef resolves to nothing, and when no default branch
+    is found (a skill built inside a case folder)."""
+    return resolve_base(root)[0]
 
 
 def base_text(root, base, rel):
@@ -1674,20 +1770,74 @@ def _same_version(current_md, base_md):
         return current_md
 
 
+WRONG_BASE_HINT = ("Name the right base with WB_BASE_REF=<ref> or, for this worktree alone, git config --worktree "
+                   f"{BASE_CONFIG_KEY} <ref> (a branch cut from an integration branch: origin/<integration branch>), "
+                   "then run bump again")
+
+
+def _version_tuple(version):
+    return tuple(int(part) for part in version.split(".")) if version and VERSION_RE.fullmatch(version) else None
+
+
+def _other_refs_with_line(root, rel, line_text):
+    """The refs, other than this branch and its own pushed copies, that contain the commit that added the (committed)
+    line `line_text` to the file `rel`: a line another branch already has is not this change's line. [] when the
+    line is not committed or no other ref holds it."""
+    hits = (git_out(root, "log", "--format=%H", "-S" + line_text, "--", rel) or "").split()
+    if not hits:
+        return []
+    branch = (git_out(root, "symbolic-ref", "--short", "-q", "HEAD") or "").strip()
+    push = (git_out(root, "rev-parse", "--symbolic-full-name", f"{branch}@{{push}}") or "").strip() if branch else ""
+    refs = (git_out(root, "for-each-ref", "--contains", hits[-1], "--format=%(refname)", "refs/heads", "refs/remotes") or "").split()
+    own = {f"refs/heads/{branch}", push}
+    upstream = (git_out(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", f"{branch}@{{upstream}}") or "").strip() if branch else ""
+    if upstream and _is_own_copy(root, branch, upstream):  # push -u origin x:y: the copy under another name is its own
+        own.add((git_out(root, "rev-parse", "--symbolic-full-name", f"{branch}@{{upstream}}") or "").strip())
+    return [r for r in refs if r not in own and not r.endswith("/HEAD")
+            and not (branch and r.startswith("refs/remotes/") and r.split("/", 3)[3:] == [branch])]
+
+
 def bump(root, name, cls=None, date=None):
     """Raise a skill's version by the class of its change (eval_status.py bump; the model's section 3). Returns
     the line written. Idempotent: run again, or with a higher class, it rewrites the one line this pull request
-    adds to the version file. With no class, it writes the first line of a skill that has none in the base."""
+    adds to the version file. With no class, it writes the first line of a skill that has none in the base. It
+    refuses (BaseMismatch, nothing written) when the base is probably not the change's base: the version file is
+    not the base's lines plus at most one; the one line added is already on another branch; or the new version
+    would be lower than the version the skill already has."""
     skill_dir = os.path.join(root, "skills", name)
     path = os.path.join(skill_dir, "SKILL.md")
     with open(path, encoding="utf-8") as f:
         text = f.read()
-    base = comparison_base(root)
+    base, source, error = resolve_base(root)
+    if error:
+        raise BaseMismatch(error)
+    print(f"bump: base {base[:12]} ({source})" if base else "bump: no comparison base", file=sys.stderr)
     rel = f"skills/{name}/{VERSIONS_REL.replace(os.sep, '/')}"
     base_lines_text = (base_text(root, base, rel) or "").splitlines() if base else []
     base_lines, problems = parse_versions("\n".join(base_lines_text))
     if problems:
         raise ValueError(f"the base's version file is not valid: {'; '.join(problems)}")
+    where = f"the base {base[:12] if base else None} ({source or 'no base'})"
+    # The version file must read as the base's lines plus at most one: a base that is not this change's base (a branch
+    # cut from an integration branch, read against main) would otherwise be written over the lines the branch holds.
+    try:
+        with open(os.path.join(skill_dir, VERSIONS_REL), encoding="utf-8") as f:
+            current_lines = f.read().splitlines()
+    except OSError:
+        current_lines = []
+    if current_lines[:len(base_lines_text)] != base_lines_text or len(current_lines) > len(base_lines_text) + 1:
+        raise BaseMismatch(
+            f"refused, nothing written: {rel} has {len(current_lines)} line(s) and does not read as the "
+            f"{len(base_lines_text)} line(s) of {where} plus at most one, so that base is probably wrong. {WRONG_BASE_HINT}")
+    replaced = current_lines[len(base_lines_text):]
+    named = bool(source) and source.startswith(("WB_BASE_REF", "git config"))  # the person named the base: it is not a guess
+    if replaced and not named:
+        elsewhere = _other_refs_with_line(root, rel, replaced[0])
+        if elsewhere:
+            raise BaseMismatch(
+                f"refused, nothing written: the line {rel} has beyond {where} is already on {', '.join(elsewhere[:3])}, so it is "
+                f"not this change's line and that base is probably wrong; if this line is this change's own (pushed or copied "
+                f"elsewhere), name the base with WB_BASE_REF. {WRONG_BASE_HINT}")
     date = date or datetime.datetime.now(datetime.timezone.utc).date().isoformat()
     if cls is None:
         if base_lines:
@@ -1700,9 +1850,18 @@ def bump(root, name, cls=None, date=None):
         if cls not in VERSION_CLASSES:
             raise ValueError("--class is x, y or z")
         if not base_lines:
-            raise ValueError(f"{name} has no version line in the base" + ("" if base else " (no comparison base: not a git "
-                             "checkout, or no default branch)") + f": write its first line with bump --skill {name}, no class")
+            raise ValueError(f"{name} has no version line in {where}: the base may be wrong ({WRONG_BASE_HINT}); if {name} is "
+                             f"new, write its first line with bump --skill {name}, no class")
         version = raise_version(base_lines[-1]["version"], cls)
+        held = [_version_tuple(raw_version(text=text))]
+        held += [_version_tuple(json.loads(l).get("version")) for l in replaced[:1]]
+        held = [h for h in held if h]
+        if held and _version_tuple(version) < max(held):
+            raise BaseMismatch(
+                f"refused, nothing written: {cls} on the last line of {where} gives {version}, lower than the "
+                f"{'.'.join(map(str, max(held)))} the skill already has. If this lowers the class this change already wrote, "
+                f"the version would fall below the one this change already wrote: restore SKILL.md and {rel} from the base to "
+                f"re-classify. Otherwise that base is probably wrong. {WRONG_BASE_HINT}")
         new_text = set_version(text, version)
         if new_text != text:
             with open(path, "w", encoding="utf-8") as f:
@@ -2668,6 +2827,8 @@ def main(argv, root=None):
             die("bump takes --skill <name> [--class x|y|z] [--date YYYY-MM-DD]. See --help.")
         try:
             line = bump(root, skill, opts.get("class"), opts.get("date"))
+        except BaseMismatch as e:
+            die(str(e), 2)
         except ValueError as e:
             die(str(e), 1)
         print(json.dumps({"skill": skill, **line}, indent=2))

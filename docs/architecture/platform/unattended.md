@@ -130,6 +130,17 @@ It never selects the harness's long-lived objects: its egress proxy (`wb-eval-pr
 
 The automatic pass is a setting of the project: `sweep_orphan_containers` in `runtime.json` (default true; false turns it off), accepted in the terminal like every key, so that it reaches a scheduler's job (an environment variable would not). `OPENHORA_UPKEEP_CONTAINERS=off` also skips it (the tests' switch). Without a docker client it is skipped. The sweep goes through the lab facade (`lab.container_tool`), and every test of it uses a fake container tool.
 
+## Images of earlier definitions (T38)
+
+The providers that build an image (the converter and the exporter; a provider that builds an image adds itself to `IMAGE_FAMILIES` of `scripts/doctor.py`, with its own test) tag it with the hash of its definition, so each change of a definition leaves the earlier image on disk, hundreds of megabytes each. Nothing removes them by itself: **no run, no upkeep pass and no other doctor mode ever sends an image command**. The doctor lists them and removes them on the person's word:
+
+- the `images` row of `python3 scripts/doctor.py --unattended`: the count and total size of the images of earlier definitions and the command below. It is never a `warn`, so it never changes the exit code (also under `--strict`); without docker it is `unverified`;
+- `python3 scripts/doctor.py --remove-old-images (--dry-run | --confirmed)` prints one JSON object (`removed`, `would_remove`, `kept` with the reason of each, `freed_bytes`). `--dry-run` sends no removal. One of the two is required.
+
+**What is selected, and only this** (`providers/_container.py`): an image is a candidate when **all three** hold: it carries the label `org.openhora.definition`, its repository equals that provider's `IMAGE_REPOSITORY` exactly, and its label value (and its tag) differ from the provider's current `definition_hash()`. Never selected: an image without the label, an untagged image, any reference that starts with `wb-eval`, the current definition's image, and an image of another repository (the exporter's, when the converter's are asked for). Each candidate is inspected again right before its removal and removed by tag (`docker image rm <repository:tag>`), never with `--force` and never with `prune`; an image that is in use or that docker refuses is kept and reported with the reason.
+
+**Why it is never automatic.** Unlike a dead run's container, an old image can still be wanted: a person who goes back to an earlier definition rebuilds it (the network, minutes), and an image a stopped container uses is refused anyway. The decision to spend that is the person's, and the removal is the one write in this area that cannot be undone by waiting (principle 5: a decision that is the user's is asked). The tests use a fake container tool only (`scripts/tests/test_container_images.py`; `runtime/tests/test_upkeep.py` proves the hourly pass sends no image command).
+
 ## A synced sources folder: the lease (I4)
 
 The sources folder is the one place a person may keep in a synced drive, so that two machines see it. Two things keep two runtimes from corrupting it (limit L28):
@@ -151,6 +162,7 @@ The sources folder is the one place a person may keep in a synced drive, so that
 | `secret_store` | whether the credentials directory is safe to read (an unsafe one is a warning, not a missing secret) and whether the OS secret store answers, is locked or has no backend | that a given secret is in either (`--list` says that) |
 | `password_manager` | `na` without a mapping file; otherwise `op whoami` (no secret read): ok when it answers, a warning with the fix when the manager is locked or not signed in, the tool is not installed, or the mapping file is refused | that a given reference points at an item, or that a service account's hourly limit is not spent; it may make a locked desktop app ask the person to unlock it |
 | `image` | the eval image in its four states, and the command that sets it up when it is not present: `python3 scripts/image_lock.py pull` (a published image, by digest, with the provenance check) or `python3 evals/executor.py ensure` (a local build). The first pull is an explicit step (decision D39), never automatic and never in the middle of a dispatch | whether the image runs: it is not started |
+| `images` | the images of earlier definitions of the providers that build one: their count and total size, and the command that removes them on the person's word (`python3 scripts/doctor.py --remove-old-images --dry-run`, then `--confirmed`) | whether an image is wanted again; it removes nothing and is never a `warn` |
 
 A status is `ok`, `warn` (with the command that fixes it), `unverified` (the doctor cannot tell from here, and says what to check by hand) or `na` (the check does not apply on this machine).
 
@@ -165,6 +177,7 @@ A status is `ok`, `warn` (with the command that fixes it), `unverified` (the doc
 | A token that is a JSON record in the secret store is the bare token in the credentials directory; the expiry of a LinkedIn token is read from the environment only | above |
 | The automatic sweep never removes a running run container, so a stuck one stays until a person runs `python3 runtime/upkeep.py containers --include-running` | above |
 | A pruned source version leaves a row and no folder | above |
+| The images of earlier definitions stay until a person runs `python3 scripts/doctor.py --remove-old-images --confirmed` | above |
 | The password manager keeps no cache: each lookup starts one process of the vendor's tool (to verify: roughly a second, and a service account's hourly and daily request limits count each one). A cache, if ever needed, is in process memory, at most 60 seconds, never on disk, and a later decision | Use with 1Password |
 | `op signin` sessions (`OP_SESSION_*`, stripped from a provider's environment, and they expire in minutes) and a 1Password Connect server are not supported | Use with 1Password |
 | The order is fixed, so a stale OS secret store entry shadows the manager; `--list` and the doctor mark it, with no call | Use with 1Password |
@@ -172,6 +185,7 @@ A status is `ok`, `warn` (with the command that fixes it), `unverified` (the doc
 
 ## Changes
 
+- 2026-10-16: the images of earlier definitions of the converter and the exporter are listed in the doctor's `images` row and removed on the person's word with `python3 scripts/doctor.py --remove-old-images (--dry-run | --confirmed)`, never automatically (T38).
 - 2026-10-15: S16: the password manager (1Password first) as the fourth place a secret is looked up, with a mapping file of references, one call of the vendor's tool per lookup and no cache, its states told apart from a missing secret, the doctor's `password_manager` check and limit L39. `provider_environment` keeps `OPENHORA_CREDENTIALS_DIR` and `CREDENTIALS_DIRECTORY`, so a provider's process finds a credentials directory that only those variables name.
 - 2026-10-15: after review: a run folder is kept while its task, its request or a pending decision is open; the container sweep never removes a running container and can be turned off in `runtime.json`; the lease is taken only before a write and a takeover is told; an unsafe credentials directory is told, and root-provisioned read-only secrets are accepted; whole-name detection of synced folders.
 - 2026-10-15: first version, with package P-OPS (a locked secret store told apart from a missing one, the credentials directory, retention of run folders and source versions, the orphan sweep, the lease of the sources folder with limits L28 and L29, the doctor's unattended checks).

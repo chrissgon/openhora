@@ -11,9 +11,9 @@ Checks every skill under skills/ and every agent under agents/:
   - SKILL.md is at most 500 lines
   - harness-name: no text file of the core (packs/ included), whatever its extension, names a harness: its
     name in any spelling (capitalised, lower-case, with a hyphen or an underscore), its folders, its
-    environment variables, its tool names, or a path inside an adapter. Exempt: skills/*/evals/result.json and
-    everything under skills/*/evals/evidence/ (a record and an evidence line name their adapter by design);
-    the values of `workbench_files` in a case file; the placeholder form adapters/<harness>/. The fixtures of
+    environment variables, its tool names, or a path inside an adapter. Exempt: everything under
+    skills/*/evals/evidence/ (an evidence line names its adapter by design); the values of `workbench_files`
+    in a case file; the placeholder form adapters/<harness>/. The fixtures of
     eval cases, and a file listed in .security-scan-allow with the rule harness-name, are read for the
     harness names and folders only (the rule as it was before it was widened)
   - a skill's frontmatter has only the top-level keys name, description, license and metadata
@@ -47,10 +47,13 @@ Checks every skill under skills/ and every agent under agents/:
     snapshot regenerated in a pull request of its own with python3 evals/eval_status.py inventory --write); [band]
     the skills in `needs a test` and in `watch` (the reliability model, section 5), one warning line per band
     with each skill's cause, never an error (they are errors only with --strict). The records of the first
-    round, result.json, are history and are not read
+    round, result.json, were removed on 2026-10-15; one added back is an error ([result-json]: a removed
+    first-round record that nothing reads), and is read like any other file of the eval folder
   - the version rules of the reliability model's section 3 (evals/eval_status.py, version_findings), against
-    the base of the pull request: WB_BASE_REF when set (CI sets the pull request's base), else the merge base
-    of HEAD with the default branch, in the hook and in CI alike. [version-file] skills/<name>/evals/
+    the base of the pull request, the one resolver of evals/eval_status.py (resolve_base): WB_BASE_REF when set (CI
+    sets the pull request's base), else the key workbench.baseRef set for one worktree (git config --worktree), else the branch's upstream
+    (unless it is the branch itself or its own pushed copy), else the merge base of HEAD with the default branch; the base used is printed as a NOTE.
+    The same in the hook and in CI alike. [version-file] skills/<name>/evals/
     versions.jsonl has lines of the closed form, is append-only against the base and gains at most one line;
     [version-class] the class of the added line agrees with the diff (X for side_effects, an output or update
     removed, the Confirmation gate or Stop rules section, the external-content line; Z only inside the
@@ -662,6 +665,9 @@ def check_evals(name, report, root=ROOT):
     """The warning rules on skills/<name>/evals/evals.json, on each platform's case file of the skill
     (evals/platforms/<platform>.json, whose findings start with its file name) and on the case fixtures."""
     where = f"skills/{name}"
+    if os.path.lexists(os.path.join(root, "skills", name, "evals", "result.json")):
+        report.error(where, "[result-json] evals/result.json is a removed first-round record; nothing reads it: "
+                     "delete the file (the records were removed on 2026-10-15)")
     path = os.path.join(root, "skills", name, "evals", "evals.json")
     if not os.path.isfile(path):
         report.warn(where, f"no evals/evals.json; a skill has at least {MIN_CASES} cases", "eval-cases-count")
@@ -776,9 +782,8 @@ def report_case_findings(name, report, root, cases, keys, few, conditional, is_r
     scanner, hits = load_scanner(), {}
     evals_dir = os.path.dirname(path)
     for dirpath, dirs, files in os.walk(evals_dir):
-        if dirpath == evals_dir:  # the cases and their fixtures; records and evidence name their adapter by design
+        if dirpath == evals_dir:  # the cases and their fixtures; evidence names its adapter by design
             dirs[:] = [d for d in dirs if d != "evidence"]
-            files = [f for f in files if f != "result.json"]
         dirs[:] = sorted(d for d in dirs if d not in scanner.SKIP_DIRS)
         for fn in sorted(files):
             text = scanner.read_text(os.path.join(dirpath, fn))
@@ -790,8 +795,19 @@ def report_case_findings(name, report, root, cases, keys, few, conditional, is_r
                     + "; ".join(f"{p} ({', '.join(n)})" for p, n in sorted(hits.items())), "eval-product-names")
 
 
+def flow_routes(root=ROOT):
+    """The routes of the flow files of the tree: `flow-<name>` for each flows/<name>.json (the router's route for a flow
+    file, runtime/router.py). They are built names, though no folder of skills/ has them."""
+    folder = os.path.join(root, "flows")
+    if not os.path.isdir(folder):
+        return set()
+    return {"flow-" + fn[:-5] for fn in os.listdir(folder) if fn.endswith(".json")}
+
+
 def check_skill_names(name, report, built, root=ROOT):
-    """skill-name: a backticked skill name in the skill's Markdown, outside evals/, is built or marked planned."""
+    """skill-name: a backticked skill name in the skill's Markdown, outside evals/, is built (a skill, or the route of a
+    flow file) or marked planned."""
+    built = set(built) | flow_routes(root)
     base, found = os.path.join(root, "skills", name), []
     for dirpath, dirs, files in os.walk(base):
         dirs[:] = sorted(d for d in dirs if not (dirpath == base and d == "evals"))
@@ -910,7 +926,9 @@ def check_agent_skills(report, root=ROOT):
 
 
 def check_routing(report, built, root=ROOT):
-    """routing-table: the router's table names every built skill, and each name in it is built or (planned)."""
+    """routing-table: the router's table names every built skill, and each name in it is built or (planned). The route
+    of a flow file (`flow-<name>` for flows/<name>.json) is built when the table lists it; a flow file with no row is
+    not required to have one, and a row marked (planned) for a flow that has a file is left to the maintainers."""
     path = os.path.join(root, ROUTING_TABLE)
     if not os.path.isfile(path):
         if ROUTER in built:
@@ -929,10 +947,14 @@ def check_routing(report, built, root=ROOT):
     missing = [s for s in built if s != ROUTER and s not in listed | planned]
     if missing:
         problems.append(f"built and not in the table: {', '.join(missing)}")
-    if sorted(listed - set(built)):
-        problems.append(f"in the table, not built and not marked (planned): {', '.join(sorted(listed - set(built)))}")
+    unbuilt = sorted(listed - set(built) - flow_routes(root))
+    if unbuilt:
+        problems.append(f"in the table, not built and not marked (planned): {', '.join(unbuilt)}")
     if sorted(planned & set(built)):
         problems.append(f"marked (planned) and built: {', '.join(sorted(planned & set(built)))}")
+    filed = sorted(planned & flow_routes(root))
+    if filed:
+        problems.append(f"marked (planned) and a flow file exists: {', '.join(filed)}")
     if problems:
         report.warn(ROUTING_TABLE, "; ".join(problems), "routing-table")
 
@@ -1296,7 +1318,7 @@ def check_flows(skills, report, root=ROOT):
                 text = f.read()
         except OSError:
             text = ""
-        info[s["name"]] = {"inputs": s["inputs"], "outputs": s["outputs"], "skill_md": text}
+        info[s["name"]] = {"inputs": s["inputs"], "outputs": s["outputs"], "updates": s.get("updates", []), "skill_md": text}
     rows = None
     inventory = os.path.join(root, "docs", "inventory.md")
     if os.path.isfile(inventory):
@@ -1304,6 +1326,9 @@ def check_flows(skills, report, root=ROOT):
             rows = markdown_table(f.read(), "Flow", after=FLOWS_HEADING)
     for name in flow_files.names(root):
         where = f"flows/{name}.json"
+        if any(s["name"] == f"flow-{name}" for s in skills):
+            report.error(where, f"[flow-file] the route flow-{name} is also a skill: skills/flow-{name}/ and {where} cannot both "
+                         "stand (the router could not tell them apart)")
         try:
             with open(os.path.join(folder, name + ".json"), encoding="utf-8") as f:
                 data = json.load(f)
@@ -1356,8 +1381,8 @@ def harness_scope(rel):
     fixtures of eval cases) or "wide"."""
     parts = rel.split("/")
     if parts[0] == "skills" and len(parts) > 3 and parts[2] == "evals":
-        if parts[3:] == ["result.json"] or parts[3] == "evidence":
-            return None  # an old record and an evidence line name their adapter by design
+        if parts[3] == "evidence":
+            return None  # an evidence line names its adapter by design
         if "files" in parts[3:-1]:
             return "narrow"  # evals/files/... and evals/platforms/<platform>/files/...
     return "wide"
@@ -1615,17 +1640,20 @@ def check_guards(report, root=ROOT):
 
 
 def check_versions(report, root=ROOT):
-    """The version rules of the reliability model's section 3, against the base of the pull request (the merge
-    base with the default branch, or WB_BASE_REF): [version-bump] a change with no bump (one line per finding,
+    """The version rules of the reliability model's section 3, against the base of the pull request (resolve_base: WB_BASE_REF,
+    workbench.baseRef, the upstream, the merge base with the default branch): [version-bump] a change with no bump (one line per finding,
     listing the skills); [version-file] a version file outside its form or not append-only; [version-class] a
     declared class the diff contradicts. Without a base the last two are skipped and a NOTE says so."""
     es = load_eval_status()
     names = es.skill_names(root)
     if not names:
         return
-    base = es.comparison_base(root)
+    base, source, error = es.resolve_base(root)
     if base is None:
-        report.note("[version-file] [version-class] skipped: no comparison base (not a git checkout, or no default branch)")
+        report.note("[version-file] [version-class] skipped: no comparison base " +
+                    (f"({error})" if error else "(not a git checkout, or no default branch)"))
+    else:
+        report.note(f"[version-file] [version-class] compared with {base[:12]} ({source})")
     bumps = {}
     for name in names:
         found = es.version_findings(root, name, base)

@@ -211,13 +211,12 @@ Each invariant with its guard. A rule of `scripts/validate.py` is named in brack
 
 | Limit or improvement | Where it is recorded |
 |---|---|
-| `integration:documents` is in neither list of classes, the table of `contracts/environment.md` and `LISTED` in `providers/resolve.py`, though the runtime and `providers/documents/` use it and `providers/CONTRACT.md` has its row of verbs; the row waits for the first change of the router, because the table is copied into the router's references and a row changes the router, so that the router is tested once. `integration:design-tool` is in both lists and has no row of verbs and no provider folder | `contracts/environment.md`; `providers/CONTRACT.md`, "Verbs per class"; `providers/resolve.py`; [the platform plan](../platform-plan-2026-10-05.md), section 3, item 7 |
+| `integration:documents` is in neither list of classes, the table of `contracts/environment.md` and `LISTED` in `providers/resolve.py`, though the runtime and `providers/documents/` use it and `providers/CONTRACT.md` has its row of verbs; the row waits for the first change of the router, because the table is copied into the router's references and a row changes the router, so that the router is tested once. `integration:design-tool` is in both lists and has no row of verbs and no provider folder | `contracts/environment.md`; `providers/CONTRACT.md`, "Verbs per class"; `providers/resolve.py`; the platform plan (removed on 2026-10-15; `git show bc830832:docs/architecture/platform-plan-2026-10-05.md`), section 3, item 7 |
 | The security checklist (item 3) says an approval is recorded in the state file; under the runtime the record is the store's | [security.md](../../../shared/references/security.md), item 3; [contracts/runtime.md](../../../contracts/runtime.md), L17 |
 | The approvals copied into the state file are a workaround: the policy gate reads the runtime's record only with the next change of the lab default list or of the grader | [backlog](../../backlog.md), T23 |
 | The header rule of an artifact (`Owner`, `Status`, `Date`), the "a class when a second skill needs it" rule, the degrade section and the security checklist's items are kept by review, not by a check | this page, "Business rules" |
 | The platform layer holds one platform of one shape | [AGENTS.md](../../../AGENTS.md), design rule 3 |
-| A password manager as a place for secrets, after the OS store | [backlog](../../backlog.md), S16 |
-| An installed skill gets `shared/references/` beside it, never `providers/`; a skill that reaches a provider needs `WORKBENCH_ROOT`, and nothing tells the installer to set or print it | [backlog](../../backlog.md), N13 |
+| An installed skill gets `shared/references/` beside it, never `providers/`; a skill that reaches a provider needs `WORKBENCH_ROOT`, and nothing tells the installer to set or print it | [backlog](../../backlog.md), T31 (N13 is folded into it; removed on 2026-10-15; `git show bc830832:docs/backlog.md`) |
 
 ## Changes
 

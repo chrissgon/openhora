@@ -48,8 +48,8 @@
     },
     {
       "id": 3,
-      "prompt": "ops-release-notes got 0.39 on the floor model in iteration-1, transcripts attached. Improve it.",
-      "expected_output": "Each failing transcript is classified (vague instruction, too many options, reinvented logic, guessed instead of asking, invented fact) or named a case defect (case 3's fixture lands at the case root while the prompt cites docs/release/changes-hotfix.md); SKILL.md is changed only where a classification points, and the case defect is fixed in evals.json; case 1's assertion 'docs/release/notes-2.4.0.md is created' is listed as passing in every configuration, classed as content, and proposed for removal; the version is bumped as a Y change; the plan command answers that --harness is required and the user is asked for the harness and models; the status shows `needs a test` with the command of a full test, and the skill is not called done; the floor model's 0.39 is reported as information.",
+      "prompt": "ops-release-notes got 0.39 in iteration-1, transcripts attached. Improve it.",
+      "expected_output": "Each failing transcript is classified (vague instruction, too many options, reinvented logic, guessed instead of asking, invented fact) or named a case defect (case 3's fixture lands at the case root while the prompt cites docs/release/changes-hotfix.md); SKILL.md is changed only where a classification points, and the case defect is fixed in evals.json; case 1's assertion 'docs/release/notes-2.4.0.md is created' is listed as passing in every configuration, classed as content, and proposed for removal; the version is bumped as a Y change; the plan command answers that --harness is required and the user is asked for the harness and models; the status shows `needs a test` with the command of a full test, and the skill is not called done; the second model's 0.39 is reported as that model's own result, with its gate not decided by the first model's.",
       "files": ["evals/files/improve-skill"],
       "workbench_files": [
         "AGENTS.md",
@@ -72,17 +72,17 @@
         "evals-workspace/ops-release-notes/iteration-1/benchmark.json",
         "skills/ops-release-notes/evals/evals.json",
         "evals-workspace/ops-release-notes/iteration-1/eval-1/with_skill/run-1/grading.json",
-        "evals-workspace/ops-release-notes/iteration-1/eval-1/with_skill.floor/run-1/grading.json",
+        "evals-workspace/ops-release-notes/iteration-1/eval-1/with_skill.m2/run-1/grading.json",
         "evals-workspace/ops-release-notes/iteration-1/eval-1/without_skill/run-1/grading.json",
-        "evals-workspace/ops-release-notes/iteration-1/eval-1/without_skill.floor/run-1/grading.json",
+        "evals-workspace/ops-release-notes/iteration-1/eval-1/without_skill.m2/run-1/grading.json",
         "evals-workspace/ops-release-notes/iteration-1/eval-2/with_skill/run-1/grading.json",
-        "evals-workspace/ops-release-notes/iteration-1/eval-2/with_skill.floor/run-1/grading.json",
+        "evals-workspace/ops-release-notes/iteration-1/eval-2/with_skill.m2/run-1/grading.json",
         "evals-workspace/ops-release-notes/iteration-1/eval-2/without_skill/run-1/grading.json",
-        "evals-workspace/ops-release-notes/iteration-1/eval-2/without_skill.floor/run-1/grading.json",
+        "evals-workspace/ops-release-notes/iteration-1/eval-2/without_skill.m2/run-1/grading.json",
         "evals-workspace/ops-release-notes/iteration-1/eval-3/with_skill/run-1/grading.json",
-        "evals-workspace/ops-release-notes/iteration-1/eval-3/with_skill.floor/run-1/grading.json",
+        "evals-workspace/ops-release-notes/iteration-1/eval-3/with_skill.m2/run-1/grading.json",
         "evals-workspace/ops-release-notes/iteration-1/eval-3/without_skill/run-1/grading.json",
-        "evals-workspace/ops-release-notes/iteration-1/eval-3/without_skill.floor/run-1/grading.json"
+        "evals-workspace/ops-release-notes/iteration-1/eval-3/without_skill.m2/run-1/grading.json"
       ],
       "assertions": [
         "Every failing case in the transcripts is classified, with the evidence, into one of the skill's failure categories or as a defect of the case itself (a prompt or fixture that makes the case impossible)",

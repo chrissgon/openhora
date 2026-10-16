@@ -2,7 +2,7 @@
 
 - Owner: brand-profile
 - Status: confirmed
-- Date: 2027-10-12
+- Date: 2038-10-12
 - Language of artifacts: English; language of posts: English [2]
 
 ## Who they are
@@ -32,5 +32,5 @@
 ```
 
 ## Sources
-[1] Public profile and code host, 2027-10-11.
-[2] Decisions in docs/workbench/state.md, 2027-10-12.
+[1] Public profile and code host, 2038-10-11.
+[2] Decisions in docs/workbench/state.md, 2038-10-12.

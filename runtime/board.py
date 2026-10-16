@@ -54,6 +54,7 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import ops_cancel  # noqa: E402  (a cancel leaves open the effect whose write is running)
 import project_config  # noqa: E402  (the same folder: the resolver is loaded, and the bounds read, from here)
 
 CLASS = "integration:issue-tracker"
@@ -265,7 +266,7 @@ def _take_state(ctx: dict, task: dict, state):
             store.task_retry(conn, task["id"])
             return None
         if state == "cancelled" and task.get("parent_id") is None and task["state"] not in FINAL:
-            store.request_cancel(conn, task["id"], by="board")
+            ops_cancel.request_cancel(conn, task["id"], by="board", context=ctx)
             return None
         if state == "done" and task["state"] == "waiting":
             pending = _open_pending(ctx, task["id"])

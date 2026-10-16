@@ -195,6 +195,40 @@ def test_the_drop_of_a_step_task_takes_a_file_and_a_link_in_it_is_not_read(world
     assert out["ok"] is False and out["code"] == "file_missing"
 
 
+@pytest.mark.parametrize("level", ["local", "drop", "task", "file"])
+def test_an_ingest_never_reads_through_a_link_at_any_level_of_its_drop(world, level):
+    """A link at .workbench-local, at drop, at the task's folder or at the file, each to a real folder or file outside the project that holds
+    the right bytes, is file_missing: the drop is opened from the project's root one part at a time with O_NOFOLLOW."""
+    path = csv_file(world, "survey.csv")
+    made = add_step(world, file=path, hand=False)
+    task_id = str(made["task"])
+    outside = world["files"].parent / "outside"
+    project = Path(world["path"])
+    local = project / ".workbench-local"
+    if level == "local":
+        (outside / "drop" / task_id).mkdir(parents=True)
+        (outside / "drop" / task_id / "survey.csv").write_text(CSV, encoding="utf-8")
+        local.symlink_to(outside)
+    elif level == "drop":
+        (outside / task_id).mkdir(parents=True)
+        (outside / task_id / "survey.csv").write_text(CSV, encoding="utf-8")
+        local.mkdir()
+        (local / "drop").symlink_to(outside)
+    elif level == "task":
+        outside.mkdir()
+        (outside / "survey.csv").write_text(CSV, encoding="utf-8")
+        (local / "drop").mkdir(parents=True)
+        (local / "drop" / task_id).symlink_to(outside)
+    else:
+        outside.mkdir()
+        (outside / "survey.csv").write_text(CSV, encoding="utf-8")
+        (local / "drop" / task_id).mkdir(parents=True)
+        (local / "drop" / task_id / "survey.csv").symlink_to(outside / "survey.csv")
+    out = ops.run_step(world["path"], made["task"])
+    assert out["ok"] is False and out["code"] == "file_missing" and task(world, made["task"])["state"] == "failed"
+    assert ctx_of(world)["store"].source_latest(ctx_of(world)["conn"], "survey") is None
+
+
 def test_a_notion_source_is_refreshed_and_a_file_source_is_checked_with_no_file_in_the_arguments(world):
     made = add_step(world, file=csv_file(world))
     ops.run_step(world["path"], made["task"])

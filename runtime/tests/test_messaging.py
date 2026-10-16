@@ -361,15 +361,15 @@ def test_a_reply_to_a_questions_card_answers_that_decision_and_free_text_goes_to
     world.bridge.tick()
     card_id = "101"
     assert world.sent()[0]["message"]["text"].endswith("Reply to this message to answer.")
-    world.fake.answers["answer"] = {"answered": True}
+    world.fake.answers["answer_proposing"] = {"answered": True}
     world.say("The home market.", reply_to=card_id)
-    assert world.calls("answer")[0][2] == {"pending_id": 5, "text": "The home market."}
+    assert world.calls("answer_proposing")[0][2] == {"pending_id": 5, "text": "The home market.", "channel": "messaging"}
     world.say("Plan a launch for Northwind shop.")
     assert wait_for(lambda: world.calls("say"))
     assert world.calls("say")[0][2] == {"text": "Plan a launch for Northwind shop.", "channel": "messaging"}
     assert wait_for(lambda: world.texts()[-1] == "Noted.")
     world.say("/answer 5 Another way")
-    assert world.calls("answer")[1][2] == {"pending_id": 5, "text": "Another way"}
+    assert world.calls("answer_proposing")[1][2] == {"pending_id": 5, "text": "Another way", "channel": "messaging"}
 
 
 def test_a_second_model_call_during_the_first_gets_still_working(world):
