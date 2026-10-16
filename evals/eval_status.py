@@ -212,8 +212,11 @@ Commands:
              "epoch", "decisions_entry"}: the entry is added to docs/decisions.md in the same commit.
 
   bump       raises a skill's metadata.version by one step of the class of its change (the reliability model's
-             section 3): x, y or z raises that part of the version of the pull request's base (comparison_base:
-             WB_BASE_REF, else the merge base with the default branch) and resets the lower parts, writes it into
+             section 3): x, y or z raises that part of the version of the pull request's base (resolve_base:
+             WB_BASE_REF, else the git config key workbench.baseRef, else the branch's upstream unless it is the
+             branch itself, else the merge base with the default branch; it prints the base it used on stderr, and
+             exits 2 with nothing written when the version file is not the base's lines plus at most one, which
+             means the base is not this change's base) and resets the lower parts, writes it into
              SKILL.md and appends one line to skills/<name>/evals/versions.jsonl: {"version", "content_sha256",
              "class", "date"[, "z_chars"]}, z_chars being the characters a Z change counts. Idempotent: run again,
              or with a higher class after more edits, it rewrites the one line this pull request adds. With no
@@ -923,21 +926,16 @@ def strict_reading(root=ROOT):
 
 
 def base_resolution(root=ROOT):
-    """("base", commit) when the base of the change is known; ("error", text) when WB_BASE_REF is set and does not
-    resolve inside a git checkout (a wrong base must not silently turn the strict reading off); ("none", note)
-    when there is no base, with a note for a git checkout that has no default branch and None outside git."""
+    """("base", commit) when the base of the change is known; ("error", text) when WB_BASE_REF or workbench.baseRef is
+    set and does not resolve inside a git checkout (a wrong base must not silently turn the strict reading off);
+    ("none", note) when there is no base, with a note for a git checkout that has no default branch and None outside
+    git."""
     if git_out(root, "rev-parse", "--is-inside-work-tree") is None:
         return "none", None
-    wanted = os.environ.get("WB_BASE_REF", "").strip()
-    if wanted:
-        if git_out(root, "rev-parse", "--verify", "--quiet", wanted + "^{commit}") is None:
-            return "error", (f"WB_BASE_REF is {wanted!r}, which names no commit of this checkout: the evidence files cannot be "
-                             "told from new ones. Fetch the base, or unset it")
-        base = git_out(root, "merge-base", "HEAD", wanted)
-        if not base:
-            return "error", f"WB_BASE_REF {wanted!r} has no merge base with HEAD: the evidence files cannot be told from new ones"
-        return "base", base.strip()
-    base = comparison_base(root)
+    base, _, error = resolve_base(root)
+    if error:
+        return "error", error.replace(": fetch the base, or unset it", ": the evidence files cannot be told from new "
+                                      "ones. Fetch the base, or unset it")
     if base is None:
         return "none", ("no comparison base (no default branch found): every evidence file is read by its own event line, "
                         "and an edited or new one is not told apart")
@@ -1016,7 +1014,8 @@ def evidence_problems(root=ROOT, only=None):
                                                       strict_for=evidence_reading(standing, strict_reading(root)),
                                                       community_problems=community_file_problems,
                                                       community_for=evidence_reading(standing, community_strict_reading(root)))
-    return ({"WB_BASE_REF": [error], **found} if error else found), checked
+    return ({(BASE_CONFIG_KEY if error.startswith(BASE_CONFIG_KEY) else "WB_BASE_REF"): [error], **found}
+            if error else found), checked
 
 
 def events_of(paths):
@@ -1374,22 +1373,61 @@ def git_out(root, *args):
     return r.stdout if r.returncode == 0 else None
 
 
+BASE_CONFIG_KEY = "workbench.baseRef"
+
+
+class BaseMismatch(ValueError):
+    """The version file does not read as the base's lines plus at most one: the base is not the change's base."""
+
+
+def resolve_base(root=ROOT):
+    """(commit, source, error): the commit a change is read against and where the choice came from. It is the one
+    resolver of the bump command, the validator and the hook. The first step that applies decides, in this order:
+    the environment variable WB_BASE_REF (CI sets the pull request's base); the git config key workbench.baseRef (a
+    branch cut from an integration branch: git config workbench.baseRef origin/<integration branch>); the branch's
+    upstream, unless it is the branch itself (a branch pushed with -u tracks its own copy); the merge base of HEAD
+    with the default branch (origin/HEAD, origin/main, main, origin/master, master). A name given by the variable
+    or the config key that resolves to nothing is an error text, never a fallback to the next step: a wrong base
+    must not silently turn into another one. commit is None outside a git checkout (source and error None too) and
+    when no step finds a base (a skill built inside a case folder). source is the sentence stderr shows."""
+    if git_out(root, "rev-parse", "--is-inside-work-tree") is None:
+        return None, None, None
+
+    def merged(ref):
+        if git_out(root, "rev-parse", "--verify", "--quiet", ref + "^{commit}") is None:
+            return None, "names no commit of this checkout"
+        base = git_out(root, "merge-base", "HEAD", ref)
+        return (base.strip(), None) if base and base.strip() else (None, "has no merge base with HEAD")
+
+    config = (git_out(root, "config", "--get", BASE_CONFIG_KEY) or "").strip()
+    for name, wanted, label in (("WB_BASE_REF", os.environ.get("WB_BASE_REF", "").strip(), "WB_BASE_REF"),
+                                (BASE_CONFIG_KEY, config, f"git config {BASE_CONFIG_KEY}")):
+        if wanted:
+            commit, why = merged(wanted)
+            if commit:
+                return commit, f"{label} {wanted}", None
+            return None, None, f"{name} is {wanted!r}, which {why}: fetch the base, or unset it"
+    branch = (git_out(root, "symbolic-ref", "--short", "-q", "HEAD") or "").strip()
+    if branch:
+        merge = (git_out(root, "config", "--get", f"branch.{branch}.merge") or "").strip()
+        upstream = (git_out(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", f"{branch}@{{upstream}}") or "").strip()
+        if upstream and merge and merge != f"refs/heads/{branch}":
+            commit, _ = merged(upstream)
+            if commit:
+                return commit, f"the upstream of {branch}, {upstream}", None
+    for ref in ("origin/HEAD", "origin/main", "main", "origin/master", "master"):
+        commit, _ = merged(ref)
+        if commit:
+            return commit, f"the merge base with the default branch ({ref})", None
+    return None, None, None
+
+
 def comparison_base(root=ROOT):
     """The commit a change is read against: the base of the pull request, never HEAD, so that an edit and its bump
-    in two commits are one change (the model's section 3; MI9). WB_BASE_REF when it is set (CI sets the pull
-    request's base), else the merge base of HEAD with the default branch (origin/HEAD, origin/main, main).
-    None outside a git checkout, or when no default branch is found (a skill built inside a case folder)."""
-    if git_out(root, "rev-parse", "--is-inside-work-tree") is None:
-        return None
-    wanted = os.environ.get("WB_BASE_REF", "").strip()
-    refs = [wanted] if wanted else ["origin/HEAD", "origin/main", "main", "origin/master", "master"]
-    for ref in refs:
-        if git_out(root, "rev-parse", "--verify", "--quiet", ref + "^{commit}") is None:
-            continue
-        base = git_out(root, "merge-base", "HEAD", ref)
-        if base:
-            return base.strip()
-    return None
+    in two commits are one change (the model's section 3; MI9). The order is resolve_base's. None outside a git
+    checkout, when a name given by WB_BASE_REF or workbench.baseRef resolves to nothing, and when no default branch
+    is found (a skill built inside a case folder)."""
+    return resolve_base(root)[0]
 
 
 def base_text(root, base, rel):
@@ -1683,12 +1721,29 @@ def bump(root, name, cls=None, date=None):
     path = os.path.join(skill_dir, "SKILL.md")
     with open(path, encoding="utf-8") as f:
         text = f.read()
-    base = comparison_base(root)
+    base, source, error = resolve_base(root)
+    if error:
+        raise BaseMismatch(error)
+    print(f"bump: base {base[:12]} ({source})" if base else "bump: no comparison base", file=sys.stderr)
     rel = f"skills/{name}/{VERSIONS_REL.replace(os.sep, '/')}"
     base_lines_text = (base_text(root, base, rel) or "").splitlines() if base else []
     base_lines, problems = parse_versions("\n".join(base_lines_text))
     if problems:
         raise ValueError(f"the base's version file is not valid: {'; '.join(problems)}")
+    # The version file must read as the base's lines plus at most one: a base that is not this change's base (a branch
+    # cut from an integration branch, read against main) would otherwise be written over the lines the branch holds.
+    try:
+        with open(os.path.join(skill_dir, VERSIONS_REL), encoding="utf-8") as f:
+            current_lines = f.read().splitlines()
+    except OSError:
+        current_lines = []
+    if current_lines[:len(base_lines_text)] != base_lines_text or len(current_lines) > len(base_lines_text) + 1:
+        raise BaseMismatch(
+            f"refused, nothing written: skills/{name}/{VERSIONS_REL.replace(os.sep, '/')} has {len(current_lines)} line(s) and "
+            f"does not read as the {len(base_lines_text)} line(s) of the base {base[:12] if base else None} "
+            f"({source or 'no base'}) plus at most one, so that base is not this change's base. Name the right one with "
+            f"WB_BASE_REF=<ref> or, once, git config {BASE_CONFIG_KEY} <ref> (for a branch cut from an integration branch: "
+            f"git config {BASE_CONFIG_KEY} origin/<integration branch>), then run bump again")
     date = date or datetime.datetime.now(datetime.timezone.utc).date().isoformat()
     if cls is None:
         if base_lines:
@@ -2669,6 +2724,8 @@ def main(argv, root=None):
             die("bump takes --skill <name> [--class x|y|z] [--date YYYY-MM-DD]. See --help.")
         try:
             line = bump(root, skill, opts.get("class"), opts.get("date"))
+        except BaseMismatch as e:
+            die(str(e), 2)
         except ValueError as e:
             die(str(e), 1)
         print(json.dumps({"skill": skill, **line}, indent=2))
