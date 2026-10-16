@@ -378,7 +378,7 @@ GROUPS = {
     "consent": {"operations": ("give-consent",), "kind": None},   # the page's consent for an autonomous agent (D38): a group of its own, so granting set-mode never grants it
     "dispatch": {"operations": ("dispatch",), "kind": None},
     "documents": {"operations": ("sync", "hand-over"), "kind": None},
-    "flows": {"operations": ("flow-save", "stage-file"), "kind": None},   # saving a flow of the project, and handing a file over for the plan of one
+    "flow-write": {"operations": ("flow-save", "stage-file"), "kind": None},   # saving a flow of the project, and handing a file over for the plan of one (not `flows`, the read operation of the group `read`)
     # routines (P6b): the brakes reach the messaging channel by default; making and changing one is a grant of `channels.messaging`
     # (and never for a flow that holds a networked script or that a standing policy covers: ROUTINE_LOCAL_CHANNELS); approving one
     # (by the hash of its content) and resuming it are the terminal's and the page's

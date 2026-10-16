@@ -3,7 +3,7 @@
 // it, runs the flow check first, and refuses a plan the check does not pass with its sentence; when that sentence offers the split the code
 // makes (a research task with the web and no source, then the skill without the web), a second button asks for it. Scheduling the flow
 // is the routine's own screen (package P6b). The control is drawn only when the page may save a flow (`can("flow-save")`, js/permissions.js: the
-// project's group `flows`). Text from the service goes in as text; the field is checked here only for the shape of a name, which the service
+// project's group `flow-write`). Text from the service goes in as text; the field is checked here only for the shape of a name, which the service
 // checks again.
 
 import { h } from "../dom.js";

@@ -96,14 +96,15 @@ def test_a_group_is_valid_on_a_channel_with_one_operation_in_its_ceiling_and_the
         ok({"mcp": ["read", "approve-effects"]})
 
 
-def test_the_group_of_flows_covers_saving_a_flow_and_handing_a_file_over_and_the_old_name_workflows_is_refused_naming_flows():
-    assert operations.GROUPS["flows"] == {"operations": ("flow-save", "stage-file"), "kind": None}
-    assert "workflows" not in operations.GROUPS, "no alias: the group exists under one name"
-    assert project_config._channels({"page": ["read", "flows"]}) == {"page": ["read", "flows"]}
-    assert operations.permitted("flow-save", "page", {"page": ["read", "flows"]}) and operations.permitted("stage-file", "page", {"page": ["read", "flows"]})
+def test_the_group_flow_write_covers_saving_a_flow_and_handing_a_file_over_and_neither_workflows_nor_flows_is_a_group():
+    assert operations.GROUPS["flow-write"] == {"operations": ("flow-save", "stage-file"), "kind": None}
+    assert "workflows" not in operations.GROUPS and "flows" not in operations.GROUPS, "no alias: the group exists under one name"
+    assert project_config._channels({"page": ["read", "flow-write"]}) == {"page": ["read", "flow-write"]}
+    assert operations.permitted("flow-save", "page", {"page": ["read", "flow-write"]}) and operations.permitted("stage-file", "page", {"page": ["read", "flow-write"]})
     assert not operations.permitted("flow-save", "page", {"page": ["read"]}) and not operations.permitted("stage-file", "page", {"page": ["read"]})
-    with pytest.raises(project_config.ConfigError, match=r"'workflows' is not a group \(known: .*\bflows\b"):
-        project_config._channels({"page": ["read", "workflows"]})
+    for stale in ("workflows", "flows"):      # `flows` is the read operation of the group `read`, never a group: narrowing to it must not grant a write
+        with pytest.raises(project_config.ConfigError, match=rf"'{stale}' is not a group \(known: .*\bflow-write\b"):
+            project_config._channels({"page": ["read", stale]})
 
 
 def test_defaults_page_and_mcp_keep_their_ceiling_and_messaging_stays_closed():
