@@ -20,7 +20,10 @@ the approval the person gave. What a kind module of this path exposes:
     check(doc)                           the document is in its form (EffectError usage)
     title(doc), body(doc, digest), describe(doc)   what the person reads and the state file's row
     verify(doc, current)                 the target was not edited since it was read (EffectError stale)
-    execute(doc, approval, call, key, work_dir)    the write: refuses unless the approval is of this document's hash
+    execute(doc, approval, call, key, work_dir, project)    the write: refuses unless the approval is of this document's hash
+    preflight(cfg, doc, root), caller(cfg, root), idempotency_key(doc, default)    the three names runtime/ops_step_effects.py asks of every
+                                         STEP kind, so that it names no platform: the configuration allows this effect now ((exit code,
+                                         sentence) or None); the `call(verb, args)` that reaches the kind's provider; the key it carries
 
 The document. `effect` ("write"), `task` (the step task that prepared it), `provider` (the name the project's documents object
 carries: the write is refused if the configuration names another now), `target` ({"id": the document's identifier on the platform,
@@ -82,16 +85,49 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import documents  # noqa: E402
 import effects  # noqa: E402
+import project_config  # noqa: E402
 
 PROVIDER_CLASS = "integration:documents"
 GATE = False      # no skill's confirmation gate names this word
 POLICY = False    # no standing approval covers a write-back: every one is approved by the hash of its exact content
 STEP = True       # opened by a step task (runtime/steps.py, Gate) and approved through runtime/ops_step_effects.py
+OUTPUT_VERBS = ("page-create", "table-create", "rows-append", "table-read", "rows-state")      # the provider verbs of the outputs
+OUTPUT_TIMEOUT = 900      # seconds: 500 rows at 2.8 calls a second take about 3 minutes; 429 waits and the table's listing add to it
 import output_document  # noqa: E402  (the pure half of the operations that make something new)
 import write_document  # noqa: E402  (the pure half of update_page)
 from write_document import (CONTENT_MAX, DOC_PATH, KEYS, PROVIDER, SHA256, TARGET_ID, WORD, document,  # noqa: E402,F401
                             sha)  # the pure half, re-exported: the names of an effect kind of the step path
+
+
+def preflight(cfg: dict, doc: dict, root=None):
+    """(exit code, sentence) when the project is not configured for this write now, else None: the documents platform is configured, its
+    bounds have not expired, and it names the provider the document was prepared for. Nothing is written when it answers."""
+    if not documents.enabled(cfg):
+        return 3, "the project has no documents platform configured: nothing was written"
+    if cfg["documents"].get("provider") != doc.get("provider"):
+        return 1, "nothing was written: the project's documents provider is not the one the effect was prepared for"
+    expired = project_config.bounds_problem(cfg, key=documents.KEY)
+    if expired:
+        return 1, f"nothing was written: {expired}"
+    return None
+
+
+def caller(cfg: dict, root: str):
+    """The `call(verb, args)` that reaches the project's documents provider (runtime/documents.py call). A table of 500 rows is written one
+    call a row, kept to the platform's rate: a long verb gets its own time limit."""
+    def default_call(verb, args):
+        try:
+            return documents.call(cfg, root, verb, args, timeout=OUTPUT_TIMEOUT if verb in OUTPUT_VERBS else documents.TIMEOUT)
+        except documents.DocumentsError as e:
+            raise effects.EffectError("not-configured" if e.kind == "not configured" else "provider", f"{verb}: {e.detail}") from None
+    return default_call
+
+
+def idempotency_key(doc: dict, default: str) -> str:
+    """The key the execution carries: for a write-back, the pending decision's (`default`, wb-<store>-p<id>)."""
+    return default
 
 
 class StaleError(effects.EffectError):
@@ -152,7 +188,7 @@ def verify(doc: dict, current: dict, expected=None) -> str:
                                        "or an earlier attempt of this write did not finish")
 
 
-def execute(doc: dict, approval: dict, call, key: str, work_dir=None) -> dict:
+def execute(doc: dict, approval: dict, call, key: str, work_dir=None, project=None) -> dict:
     """The write, and the only place it is made. It refuses unless `approval` is the person's approval of exactly this document: scope
     action, status pending-execution, and a payload_sha256 equal to the hash of the document's canonical text (EffectError deviation).
     Then the document is checked again and the target is read and compared (verify): its text as the task read it, the write is made;
@@ -165,7 +201,7 @@ def execute(doc: dict, approval: dict, call, key: str, work_dir=None) -> dict:
     if not isinstance(approval, dict) or approval.get("scope") != "action" or approval.get("status") != "pending-execution" \
             or approval.get("payload_sha256") != sha(effects._text(doc)):
         raise effects.EffectError("deviation", "there is no approval of this exact content: nothing is written")
-    check(doc)
+    check(doc)      # `project` is the project's folder: the kinds that read a file of the project at the execution use it; this one does not
     if _output(doc):
         return _execute_output(doc, call, work_dir)
     target = doc["target"]
