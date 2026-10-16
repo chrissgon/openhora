@@ -31,6 +31,11 @@ What each check can and cannot verify:
                   secret is in it.
   image           the eval image (the states of scripts/doctor.py image_state), with the setup command to run when it is not present
                   (decision D39: the first pull is an explicit step, never automatic and never in the middle of a dispatch).
+  images          the images of earlier definitions of the providers that build one (the converter, the exporter): their count and total
+                  size, and the command that removes them (`python3 scripts/doctor.py --remove-old-images --dry-run`, then
+                  `--confirmed`). It CAN tell, from the label org.openhora.definition, the repository and the tag, which images are not
+                  the current definition's (providers/_container.py old_definition_images); it removes nothing, and its status is never
+                  `warn`, so it never changes the exit code. Without docker: unverified.
 
 Standard library only.
 """
@@ -196,6 +201,36 @@ def _log_limit(text: str):
     return f"max-size={size}" + (f", max-file={files}" if files else "")
 
 
+def docker_tool(*args):
+    """(returncode, stdout) of one container client command, bounded in time; (127, "") when the client cannot be run."""
+    code, out, _err = _run(["docker", *args], timeout=60)
+    return code, out
+
+
+def images_check(tool=None, families=None, box=None) -> dict:
+    """The images of earlier definitions of the providers that build one. `families` is [{"family", "repository", "hash"}] (scripts/doctor.py
+    image_families), `box` the module providers/_container.py, `tool(*args) -> (returncode, stdout)` the container client (None: docker).
+    The status is `ok` (or `unverified`, `na`), never `warn`: the row tells and removes nothing."""
+    if not families or box is None:
+        return {"status": "na", "detail": "no provider that builds an image is here"}
+    tool = tool or docker_tool
+    code, _out = tool("version", "--format", "{{.Server.Version}}")
+    if code != 0:
+        return {"status": "unverified", "detail": "docker cannot be asked (not installed, or the daemon is not running): the images of earlier "
+                                                    "definitions were not looked for"}
+    rows = []
+    for family in families:
+        for item in box.old_definition_images(tool, family["repository"], family["hash"]):
+            rows.append({"family": family["family"], **item})
+    command = "python3 scripts/doctor.py --remove-old-images --dry-run"
+    if not rows:
+        return {"status": "ok", "detail": "no image of an earlier definition is here", "rows": [], "count": 0, "bytes": 0}
+    total = sum(r["size"] for r in rows)
+    return {"status": "ok", "rows": rows, "count": len(rows), "bytes": total, "fix": command,
+            "detail": f"{len(rows)} image(s) of earlier definitions, {total / 1024 ** 2:.0f} MiB: " + ", ".join(r["image"] for r in rows)
+                      + f". To see what would go, then remove them: {command}, then the same with --confirmed"}
+
+
 def secret_store_check(probe) -> dict:
     """The state of the OS secret store from `probe() -> {"state", "detail"}` (the resolver's probe_store)."""
     try:
@@ -266,8 +301,8 @@ def lease_check(data_dir, project=None) -> dict:
 
 
 def run_all(*, project=None, min_free_gib=MIN_FREE_GIB, image=None, probe=None, load_config=None, tool=None, run=None,
-            system=None, usage=shutil.disk_usage, listdir=os.listdir, home=None, user=None) -> dict:
-    """Every check, as {"linger", "sources_access", "disk", "proxy_logs", "secret_store", "image", "project"}. `load_config(project)` gives
+            system=None, usage=shutil.disk_usage, listdir=os.listdir, home=None, user=None, families=None, box=None) -> dict:
+    """Every check, as {"linger", "sources_access", "disk", "proxy_logs", "lease", "secret_store", "image", "images", "project"}. `load_config(project)` gives
     the project's configuration (its data_dir and sources_dir) or raises; every seam is a keyword so a test passes a fake."""
     paths, note = {}, None
     if project:
@@ -284,5 +319,6 @@ def run_all(*, project=None, min_free_gib=MIN_FREE_GIB, image=None, probe=None, 
         "lease": lease_check(paths.get("data_dir"), project),
         "secret_store": secret_store_check(probe) if probe else {"status": "unverified", "detail": "no probe was given"},
         "image": image_check(image),
+        "images": images_check(tool, families, box),
         "project": {"status": "warn" if note else ("ok" if project else "na"), "detail": note or (project or "no --project given")},
     }

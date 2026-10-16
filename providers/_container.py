@@ -24,7 +24,12 @@
   remove(name), stop(name)    end a container by name; never raise;
   require_local_daemon()  refuse a docker client that talks to a daemon that is not on this machine (a unix socket);
   reap(label)             remove every container of the run label whose deadline label has passed (what a run that was
-                          killed with SIGKILL, a crash or a power cut leaves behind).
+                          killed with SIGKILL, a crash or a power cut leaves behind);
+  old_definition_images(tool, repository, current_hash), remove_old_definition_images(tool, repository, current_hash, dry_run)
+                          list, and remove by tag, the images of a provider's earlier definitions through a container tool passed
+                          in (`tool(*args) -> (returncode, stdout)`, as runtime/orphans.py does): never with --force, never with
+                          prune, never an unlabelled, untagged, `wb-eval` or current image. A person asks for it with
+                          `python3 scripts/doctor.py --remove-old-images`; no run and no upkeep pass ever calls it.
 
 Each limit is a named constant or an argument of `argv`; the names are those of the first two users (the renderer and the
 transcriber of the short-video work). The constants are the stricter default; a job that needs more passes its own number.
@@ -390,3 +395,78 @@ def reap(label: str, now: Optional[float] = None) -> List[str]:
         if deadline < now and docker(["rm", "-f", parts[0]], timeout=PROBE_TIMEOUT).returncode == 0:
             removed.append(parts[0])
     return removed
+
+
+# --- the images of earlier definitions ------------------------------------------------------------------------------------------------
+
+LABEL_DEFINITION = "org.openhora.definition"   # the label a provider's build puts on its image: the sha256 of its definition files
+NEVER_PREFIX = "wb-eval"                       # the eval harness's own images and containers: never selected, whatever their labels
+REMOVAL_REFUSED = "docker refused the removal (the image is in use by a container, or shared with another tag)"
+
+
+def _image_facts(tool, reference: str):
+    """{"label", "size"} of the image `reference` (the value of LABEL_DEFINITION or None, and its size in bytes), or None when it cannot
+    be read."""
+    import json
+    code, out = tool("image", "inspect", "--format", "{{json .Config.Labels}}\t{{.Size}}", reference)
+    if code != 0:
+        return None
+    text, _, size = out.strip().partition("\t")
+    try:
+        labels = json.loads(text) if text else None
+        size = int(size)
+    except ValueError:
+        return None
+    label = labels.get(LABEL_DEFINITION) if isinstance(labels, dict) else None
+    return {"label": label if isinstance(label, str) and label else None, "size": size}
+
+
+def _is_old(reference: str, repository: str, current_tag: str, facts, current_hash: str) -> bool:
+    """The conditions that make an image a candidate, all of them: the label is present, the repository is exactly the provider's, and the
+    label value and the tag differ from the current definition's. An unlabelled, untagged, `wb-eval` or current image is never one."""
+    repo, _, tag = reference.rpartition(":")
+    return bool(facts and facts["label"] and repo == repository and tag and tag != "<none>"
+                and not reference.startswith(NEVER_PREFIX) and facts["label"] != current_hash and tag != current_tag)
+
+
+def old_definition_images(tool, repository: str, current_hash: str) -> list:
+    """[{"image": "<repository>:<tag>", "size": bytes, "definition": the label}] of the images of this provider's earlier definitions.
+    The list is the container client's `image ls --filter label=org.openhora.definition`; each reference is inspected, and only a candidate
+    by the conditions of `_is_old` is returned. The current definition's tag is the first 12 characters of current_hash. [] when the client
+    cannot be asked. `tool(*args) -> (returncode, stdout)`."""
+    current_tag = current_hash[:12]
+    code, out = tool("image", "ls", "--filter", f"label={LABEL_DEFINITION}", "--format", "{{.Repository}}:{{.Tag}}")
+    if code != 0:
+        return []
+    found = []
+    for reference in sorted(set(line.strip() for line in out.splitlines() if line.strip())):
+        if reference.startswith(NEVER_PREFIX) or reference.rpartition(":")[0] != repository:
+            continue
+        facts = _image_facts(tool, reference)
+        if _is_old(reference, repository, current_tag, facts, current_hash):
+            found.append({"image": reference, "size": facts["size"], "definition": facts["label"]})
+    return found
+
+
+def remove_old_definition_images(tool, repository: str, current_hash: str, dry_run: bool = True) -> dict:
+    """{"removed": [{"image", "size"}], "would_remove": [...], "kept": [{"image", "reason"}], "dry_run": bool} for this provider's earlier definitions. Each
+    candidate is inspected again just before its removal and removed by tag (`image rm <repository:tag>`, never with --force, never with
+    prune); an image that changed meanwhile, that is in use or that the client refuses is kept, with the reason. With dry_run (the default)
+    nothing is removed and no `rm` is sent: the candidates are listed in "would_remove"."""
+    current_tag = current_hash[:12]
+    out = {"removed": [], "would_remove": [], "kept": [], "dry_run": bool(dry_run)}
+    for item in old_definition_images(tool, repository, current_hash):
+        reference = item["image"]
+        if dry_run:
+            out["would_remove"].append({"image": reference, "size": item["size"]})
+            continue
+        again = _image_facts(tool, reference)
+        if not _is_old(reference, repository, current_tag, again, current_hash):
+            out["kept"].append({"image": reference, "reason": "it is no longer an image of an earlier definition (changed, or gone)"})
+            continue
+        code, _text = tool("image", "rm", reference)
+        if code == 0:
+            out["removed"].append({"image": reference, "size": again["size"]})
+        else:
+            out["kept"].append({"image": reference, "reason": REMOVAL_REFUSED})
+    return out

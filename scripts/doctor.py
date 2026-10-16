@@ -3,6 +3,7 @@
 
 Usage: python3 scripts/doctor.py [--harness <name>] [--json] [--strict]
        python3 scripts/doctor.py --unattended [--project <dir>] [--min-free-gib <n>] [--ack-lease] [--json] [--strict]
+       python3 scripts/doctor.py --remove-old-images (--dry-run | --confirmed)
 
 Collects `metadata.requires` from every skill, then checks each class against:
   1. connectors declared by the chosen adapter in adapters/<harness>/connectors.json
@@ -33,6 +34,14 @@ Options:
   --min-free-gib <n>  with --unattended: the free space under which a disk warns (default 5)
   --ack-lease       with --unattended and --project: acknowledge a takeover of another host's lease (removes the record
                     <data_dir>/lease-takeover.json, which the `lease` check warns about), then run the checks
+  --remove-old-images  remove the images of earlier definitions of the providers that build one (the converter, the exporter), and
+                    print one JSON object: {"removed", "would_remove", "kept" (each with its reason), "freed_bytes", "dry_run"}. An image
+                    is a candidate only when ALL of these hold: it carries the label org.openhora.definition, its repository is that
+                    provider's exactly, and the label value and the tag differ from the provider's current definition. An image without
+                    the label, an untagged image, a reference that starts with wb-eval and the current image are never selected. It
+                    removes by tag (`docker image rm <repository:tag>`), never with --force and never with prune, looks at each image
+                    again just before, and keeps one that is in use or that docker refuses. It needs one of --dry-run (sends no
+                    removal) or --confirmed (removes). Nothing else removes an image: no run, no upkeep pass, no other doctor mode.
   --help            show this text
 
 It also reports the eval image (evals/image-lock.json, evals/executor.py), in one of four states, and never pulls or
@@ -222,6 +231,54 @@ def image_setup(image):
     return "python3 scripts/image_lock.py pull (a published image), or python3 evals/executor.py ensure (build it here)"
 
 
+IMAGE_FAMILIES = ("converter", "exporter", "script")   # providers/<name>/container.py; "script" only once that provider is merged
+
+
+def container_box():
+    """providers/_container.py, the home of the selection and the removal of the images of earlier definitions."""
+    return _load("workbench_doctor_container", os.path.join(PROVIDERS, "_container.py"))
+
+
+def image_families(providers=PROVIDERS):
+    """[{"family", "repository", "hash", "tag"}] of the providers that build an image and are in this checkout: the repository and the
+    current definition's hash and tag, read from the provider's container.py (IMAGE_REPOSITORY, definition_hash(), image_tag())."""
+    out = []
+    for name in IMAGE_FAMILIES:
+        path = os.path.join(providers, name, "container.py")
+        if not os.path.isfile(path):
+            continue
+        module = _load(f"workbench_doctor_family_{name}", path)
+        out.append({"family": name, "repository": module.IMAGE_REPOSITORY, "hash": module.definition_hash(), "tag": module.image_tag()})
+    return out
+
+
+def remove_old_images(argv, tool=None, families=None, box=None):
+    """`--remove-old-images (--dry-run | --confirmed)`: the exit code. One JSON object on stdout; usage errors on stderr (2)."""
+    flags = set(argv)
+    if not flags <= {"--remove-old-images", "--dry-run", "--confirmed"} or len(argv) != len(flags) or len(flags & {"--dry-run", "--confirmed"}) != 1:
+        print("Error: --remove-old-images takes exactly one of --dry-run (sends no removal) or --confirmed (removes), and nothing else.",
+              file=sys.stderr)
+        return 2
+    dry_run = "--dry-run" in flags
+    import doctor_ops
+    tool = tool or doctor_ops.docker_tool
+    box = box or container_box()
+    families = image_families() if families is None else families
+    code, _out = tool("version", "--format", "{{.Server.Version}}")
+    if code != 0:
+        print(json.dumps({"error": "docker cannot be asked (not installed, or the daemon is not running): nothing was looked at or removed",
+                          "dry_run": dry_run}))
+        return 1
+    result = {"removed": [], "would_remove": [], "kept": [], "dry_run": dry_run, "families": [f["family"] for f in families]}
+    for family in families:
+        done = box.remove_old_definition_images(tool, family["repository"], family["hash"], dry_run=dry_run)
+        for key in ("removed", "would_remove", "kept"):
+            result[key] += [{"family": family["family"], **item} for item in done[key]]
+    result["freed_bytes"] = sum(item["size"] for item in result["removed"])
+    print(json.dumps(result, indent=2))
+    return 0
+
+
 def store_probe():
     """The state of the OS secret store, by the resolver's probe_store (it asks for a name nothing stores): {"state", "detail"}."""
     path = str(resolution.secret_resolver(root=ROOT))
@@ -283,6 +340,8 @@ def main(argv):
     if "--help" in argv or "-h" in argv:
         print(__doc__)
         return 0
+    if "--remove-old-images" in argv:
+        return remove_old_images(argv)
     harness, as_json, strict = None, "--json" in argv, "--strict" in argv
     unattended, project, min_free, ack_lease = "--unattended" in argv, None, None, "--ack-lease" in argv
     i = 0
@@ -351,7 +410,7 @@ def main(argv):
                 return 2
             print("lease takeover acknowledged" if acknowledged else "no lease takeover was recorded", file=sys.stderr)
         checks = doctor_ops.run_all(project=project, min_free_gib=min_free or doctor_ops.MIN_FREE_GIB, image=image,
-                                    probe=store_probe, load_config=load_project_config)
+                                    probe=store_probe, load_config=load_project_config, families=image_families(), box=container_box())
     if as_json:
         out = {"harness": harness, "classes": report, "missing": missing, "image": image, "secrets": secrets}
         if checks is not None:
@@ -375,10 +434,10 @@ def main(argv):
                 state = f"missing   {sec['name']:<28} set it: {sec['set']}"
             print(f"{state}  <- {', '.join(sec['classes'] or sec['readers'])}", file=sys.stderr)
         if checks is not None:
-            for name in ("linger", "sources_access", "disk", "proxy_logs", "lease", "secret_store", "project"):
+            for name in ("linger", "sources_access", "disk", "proxy_logs", "lease", "secret_store", "images", "project"):
                 c = checks[name]
                 print(f"{c['status']:<10} {name:<28} {c['detail']}", file=sys.stderr)
-                if c.get("fix") and c["status"] in ("warn", "unverified"):
+                if c.get("fix") and (c["status"] in ("warn", "unverified") or name == "images"):
                     print(f"{'':<10} {'':<28} fix: {c['fix']}", file=sys.stderr)
         summary = {"harness": harness, "classes": len(report), "missing": missing, "image": image["state"],
                    "secrets_missing": secrets_missing, "secrets_locked": secrets_locked}
